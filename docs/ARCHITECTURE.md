@@ -1031,6 +1031,18 @@ Additional rules (daemon-core; security review F1):
 - `ResolvedPath.ref` keeps the request's (NFC) spelling. On a case-insensitive file system two spellings can name one
   file (`README.md` / `readme.md`): per-file state (locks, docs) must key by the resolved object (realPath from a
   native `realpath`, or dev + ino), not by the raw request path.
+- `ResolvedPath.realPath`, `parentRealPath` and `name` are spelled as the file system stores them (native `realpath`;
+  missing names as requested; a followed final link keeps its target), and every read, write, rename and post-move
+  check works on that spelling. APFS keeps an entry's stored spelling when a file is renamed over it, so a
+  request-spelled path (NFC `café` onto a stored NFD `cafe` + U+0301, `readme.md` onto `README.md`) failed the
+  post-move check, which removed the file (fixed 2026-10-01). A case-only or normalisation-only move is renamed to the
+  requested spelling (`files/fs-ops.ts` moveResolved).
+- Linux (2026-10-01): ext4, btrfs, xfs and tmpfs compare names byte by byte while every request is NFC, so an entry
+  stored in another normalisation (NFD) would be listed but never reachable. A segment that is not found is mapped onto
+  the ONE entry of its directory whose NFC form equals it (an exact NFC twin wins; two or more other spellings count as
+  not found), and it then goes through every check like any other entry. Directory listings and the zip walker leave out
+  names no request can reach (an NFD twin next to its NFC name); the zip reports them as `duplicate-name`
+  (`workspace/fs-util.ts` otherSpellings / unaddressableNames).
 
 ### 7.5 Documents, locks and reconciliation (see `docs/research/yjs-monaco.md`)
 
@@ -1148,9 +1160,11 @@ OAuth callback server") cannot run in a guest's agent session. Instead the guest
   appended last: `(deny process-exec)` + `(allow process-exec <the sandbox's /bin/bash> <claude> <no-op BROWSER>
   /usr/bin/security)` (Seatbelt checks an interpreter too). Claude Code's own callback server listens on 127.0.0.1
   (measured with lsof on both versions). srt's `allowLocalBinding` is never used: it is workspace-wide and grants
-  bind / accept on every address AND connect to every localhost port. Linux: srt gives every sandboxed process its
-  own network namespace (`--unshare-net`), so the login's loopback is its own; the hardening requires `--unshare-net`
-  among bwrap's arguments for the login process (implemented from srt's source, not run on Linux);
+  bind / accept on every address AND connect to every localhost port. Linux (verified 2026-10-01): srt gives every
+  sandboxed process its own network namespace (`--unshare-net`), so whatever the login process listens on, on any
+  address, is reachable from that namespace only (measured: the host connects neither on 127.0.0.1 nor on its LAN
+  address to a listener on 0.0.0.0 inside it, `test/sessions/login.real.test.ts`); the hardening refuses every guest
+  command without `--unshare-net`, and the login needs no exec allow-list there;
 - private to its owner: `session.list` shows it to its owner only (`SessionManager.listFor`), `session.state` goes to
   the owner only, only the owner attaches (anyone else: `not_found`), no other module sees it (`list()` / `get()` leave
   it out, no bus event names it), no suggestion can target it. The sandbox learns it is a login process from
@@ -1191,7 +1205,9 @@ except the user's provider variables; always drop `CLAUDE_CODE_SAFE_MODE` and `C
   the result through node-pty.
 - srt's read model is "allow everything, then `denyRead` regions, then `allowRead` carve-outs" (allow wins). SPEC's
   "deny the host home by default" is expressed as `denyRead` = home, `/Users`, `/Volumes`, `/private/tmp`,
-  `/private/var/folders` (Linux: `/home`, `/root`, `/tmp`, `/var/tmp`, `/run/user`, `/mnt`, `/media`) and
+  `/private/var/folders` (Linux: `/home`, `/root`, `/tmp`, `/var/tmp`, `/run`, `/var/run`, `/mnt`, `/media`,
+  `/var/snap`, `/var/lib/lxd`, `/var/lib/incus`: the last three hold container-manager sockets the host user's groups
+  may drive) and
   `allowRead` = session root, the guest dir, the claude binary, the session's settings dir, shared read-only dirs.
 - `allowWrite` = session root + guest dir; `denyWrite` = shared read-only dirs + the host-only paths of §5.2.
   In main-workspace mode `<share>/.smurg` is denied for reading and writing.
@@ -1205,7 +1221,12 @@ except the user's provider variables; always drop `CLAUDE_CODE_SAFE_MODE` and `C
   (`.vſcode`, `.MCP.json`, §5.2): verify srt / seatbelt path matching with such spellings before relying on it, and
   add the folded variants explicitly if it matches byte-wise.
 - Network: `strictAllowlist`, allow-list = Anthropic/Claude domains + common package registries + host additions;
-  private address ranges denied; `allowUnixSockets` = exactly the hook socket.
+  private address ranges denied; `allowUnixSockets` = exactly the hook socket. Linux: srt ignores `allowUnixSockets`
+  (its seccomp filter blocks every AF_UNIX socket or none), so `allowAllUnixSockets` is on (srt then applies no
+  seccomp filter at all) and the directories holding the host session's sockets are read-denied (above); the hook
+  socket is a read-only file carve-out, abstract sockets belong to the guest's own network namespace (measured), and
+  srt's network bridge sockets (bound in before the file-system mounts, so the `/tmp` tmpfs would hide them and every
+  guest would be offline) are carved out too (`proxySocketPaths`).
 - macOS profile hardening (all fail closed if the expected lines are not found in srt's output):
   strip the `com.apple.SecurityServer` / `com.apple.securityd.xpc` mach-lookups (keychain enumeration), restrict
   `allowPty` to the session's own tty, and (2026-09-29) accept in srt's network section only the proxy port's rules
@@ -1216,6 +1237,30 @@ except the user's provider variables; always drop `CLAUDE_CODE_SAFE_MODE` and `C
   process listen on `<LAN address>:<proxy port>` (or `0.0.0.0` with SO_REUSEADDR) and accept connections from the
   network (measured; `test/sandbox/network-listen.real.test.ts`). The login process only: the TCP listen rules and
   the exec allow-list (above).
+- Linux hardening (2026-10-01, verified on Ubuntu 24.04 with the AppArmor user-namespace restriction on and the
+  `smurg-bwrap` profile; `harden.ts` "Linux", `docs/research/sandbox.md` "Linux, verified 2026-10-01"): every bwrap
+  argument srt writes (the arguments file's included) is checked against the options srt 0.0.77 uses, and bwrap must
+  be exec'd by its absolute path with `--die-with-parent`, its own user / pid / network namespaces, `--cap-drop ALL`,
+  a fresh `/proc` and `/dev` and `--ro-bind / /` (else fail closed). Appended before bwrap's `--`:
+  `--disable-userns` (the sandbox runs under the unconfined `smurg-bwrap` profile, and a nested user namespace would
+  get `CAP_DAC_READ_SEARCH` over its own files), `--chmod 0111` on every directory on a read-deny tmpfs (bubblewrap
+  creates the directories leading to each carve-out there, so the host home, the state dir and the guests dir were
+  LISTABLE: the self-test's first Linux failure) and `--remount-ro` on every such tmpfs (they were writable). A
+  writable bind the policy does not name (srt's own `/tmp/claude`, shared by every guest, whenever it exists) gets a
+  tmpfs of its own on top. `--new-session` is decided by the outer shell at run time: dropped only for a session
+  leader with a controlling terminal and a terminal on stdin (node-pty's fresh pty; with it a resize sent no SIGWINCH
+  and Ctrl-C ended bwrap and the whole session), kept for everything else. srt drops write-deny globs on Linux, so
+  every EXISTING host-only entry below the top of the root becomes a literal deny (more than 1000: refused); an
+  absent host-only DIRECTORY name at the top is held by an empty read-only directory (a denied child that never
+  exists makes srt choose that form) instead of srt's empty 0444 file, which broke the host's own `mkdir .claude` and
+  git while a guest ran.
+- Linux mount points on the host: bubblewrap leaves a mount point in the root for every absent write-denied name
+  (empty directories for `.claude` / `.git` / `.vscode` / `.idea`, empty read-only files for `.mcp.json` / `.envrc`),
+  and srt removes them once its count of running wraps is back to zero (never earlier: removing one under a running
+  sandbox detaches its mount and lifts the deny). The sessions module calls `SandboxService.release(wrapped)` when a
+  guest process exits or never starts (the self-tests release their own); the service records the directory ones in
+  the workspace state before a sandbox can make them, and a daemon that starts after a crash removes the recorded ones
+  that are still empty before its first sandbox. `worktree/stage-commit.ts` keeps the file ones out of a merge.
 - Inner `export TMPDIR=<guest>/tmp` and `CLAUDE_CODE_TMPDIR=<guest>/tmp` (srt forces its own TMPDIR; Claude Code
   2.1.283 otherwise writes to `/tmp/claude-<uid>`, the host user's own dir, and fails).
 - As built (sandbox module, verified with srt 0.0.77 on macOS): worktree mode carves out only `<share>/.git/objects`
@@ -1228,7 +1273,8 @@ except the user's provider variables; always drop `CLAUDE_CODE_SAFE_MODE` and `C
   CLAUDE.local.md and `.claude` are denied in every ancestor of the root; srt's proxy sockets live in `os.tmpdir()`,
   and when that path is too long for a Unix socket they go into `config.runDir` during `initialize()` (else refuse).
   Guests cannot bind TCP ports (dev servers do not listen), cannot create Unix sockets of their own, and srt's
-  `NO_PROXY` makes direct loopback connections fail. Consequence (review SPEC-04, verified with claude 2.1.220 and
+  `NO_PROXY` makes direct loopback connections fail (macOS; on Linux a guest process can bind and listen inside its
+  own network namespace, where nothing outside reaches it, and direct loopback connections fail the same way). Consequence (review SPEC-04, verified with claude 2.1.220 and
   2.1.283): the subscription (OAuth) login inside a guest's AGENT session still fails ("Failed to start OAuth callback
   server"); guests log in through the separate login process above (§11 D-12). The guests' sandbox also
   read-denies `.envrc` at any depth (review SEC-D-03), and an AGENT session is refused (`sandbox_unavailable`, reason
@@ -1242,12 +1288,17 @@ except the user's provider variables; always drop `CLAUDE_CODE_SAFE_MODE` and `C
   `sandbox.refused`, and a zh-TW message that tells the host what to check. Nothing is cached: every agent launch runs
   it (~200–600 ms with the dev entry, node + TypeScript sources; the helper processes of a session, e.g. `claude auth
   status`, are wrapped without the hook token and run no probe). A `WrappedCommand` must be spawned on a fresh pty or
-  with a stdin that is not a terminal (then no tty at all). Every `wrap()` runs a canary self-test with that session's
+  with a stdin that is not a terminal (then no tty at all), and released (`SandboxService.release`) once its process
+  exited or if it never starts. Every `wrap()` runs a canary self-test with that session's
   own policy (~100–300 ms). srt itself runs `spawnSync('which')` once per wrap (bounded, inside srt 0.0.77).
 - **Preflight before every guest session:** platform supported, sandboxing enabled, dependencies present
-  (`sandbox-exec` executable on macOS; `bwrap`, `socat`, `rg` on Linux), the wrapped command really contains the
+  (`sandbox-exec` executable on macOS; `bwrap` 0.8 or later (it must know `--disable-userns`, `--chmod`,
+  `--remount-ro`), `socat`, `rg` and srt's network bridge socket on Linux), the wrapped command really contains the
   sandbox launcher, and a functional self-test (a canary file in the denied home is unreadable and unwritable from
-  inside). Any failure ⇒ `sandbox_unavailable`, audit `sandbox.refused`, **no** fallback.
+  inside). Any failure ⇒ `sandbox_unavailable`, audit `sandbox.refused`, **no** fallback. A failed self-test on Linux
+  is reported as `apparmor-userns` (with the fix) only when the restriction is on AND a bare `bwrap --unshare-user
+  --unshare-net` fails with "Permission denied" / "Operation not permitted" (verified by unloading the profile);
+  otherwise it keeps its own reason.
 
 **PTY.** One `PtySession` per PTY, `encoding: null`, output coalesced (5 ms / 64 KiB) and addressed by absolute byte
 offset; fan-out to a daemon-side `@xterm/headless` mirror (5000 lines), a 2 MiB raw tail and every attached viewer.
@@ -1587,10 +1638,12 @@ the audit entry; two or more such windows, none, or a writer of another root: �
 
 ## 12. Known limits of the prototype
 
-- **Linux is implemented but unverified.** Everything was developed and tested on macOS arm64. Linux-specific paths
-  (bubblewrap, AppArmor user-namespace setup on Ubuntu 24.04+, `systemd-inhibit`, inotify) follow the documentation
-  and are covered by tests that are skipped on macOS. From the first push to GitHub, CI runs the suite on ubuntu-24.04
-  (`.github/workflows/ci.yml`; it has not run yet); what CI cannot cover stays manual (`docs/OPEN-QUESTIONS.md` Q2).
+- **Linux** was developed on macOS arm64. The first Linux runs were on 2026-10-01: CI on ubuntu-24.04 x64
+  (`.github/workflows/ci.yml`) and an Ubuntu 24.04 arm64 VM. The guest sandbox (bubblewrap under Ubuntu 24.04's
+  AppArmor user-namespace restriction, with the `smurg-bwrap` profile) is verified in the VM: R5 and R9 at the
+  sandbox level, guest terminals, the login process, the hook self-test (§7.6, "Linux, in more detail" below).
+  `systemd-inhibit`, inotify and the rest follow the documentation and are covered by tests that are skipped on macOS;
+  what CI cannot cover stays manual (`docs/OPEN-QUESTIONS.md` Q2).
 - **Real accounts are not exercised by the tests.** Claude login inside a guest sandbox, real Google / GitHub OAuth
   and a real Cloudflare deployment need credentials. The owner's first deploy of the shared relay (`docs/RELEASING.md`
   §2) is the first real Google login and the first real Cloudflare run; GitHub login is not configured on the shared
@@ -1617,14 +1670,37 @@ Left after the review round of 2026-09-29 (owner questions with options and reco
   far more. The free plan's 10 ms CPU limit per request was not measured against the login routes. Every deploy
   disconnects every socket (clients reconnect). The operator of the shared relay (and Cloudflare) can see what D-5 says
   a relay sees, for every workspace on it; hosts who cannot accept that deploy their own relay (`--relay`).
-- **Linux, in more detail** (reviews SPEC-05, CLI-09): R5 and R9 have never run on Linux. Guest terminals run under
-  `bwrap --new-session`, which gives them no controlling terminal: resize (SIGWINCH) and Ctrl-C inside a guest terminal
-  may not behave as on macOS (unverified). The installer's Linux branch and whether srt's `apply-seccomp` needs its own
-  AppArmor profile are unverified. The real-sandbox tests of the guest login process (D-12), of the proxy-port listen
-  rules and of the in-sandbox hook self-test are macOS-only, so Linux CI does not replace them.
+- **Linux, in more detail** (reviews SPEC-05, CLI-09; verified 2026-10-01 on Ubuntu 24.04 arm64, kernel 6.8,
+  bubblewrap 0.9.0, `docs/research/sandbox.md` "Linux, verified 2026-10-01"). The real-sandbox tests (R5, R9, the
+  hook self-test, the login process, the network namespace, guest terminals: resize reaches the program as SIGWINCH
+  and Ctrl-C interrupts the foreground program, not the session) run on Linux; the Seatbelt profile-text tests stay
+  macOS-only. srt's `apply-seccomp` never runs (`allowAllUnixSockets` skips srt's seccomp filter), so it needs no
+  AppArmor profile. bubblewrap 0.8 or later is required for `--disable-userns` (older: refused with an upgrade hint;
+  Ubuntu 22.04 ships 0.6.1, so guest sessions are refused there; Debian 12 and Ubuntu 24.04 ship 0.8 / 0.9). What bubblewrap cannot
+  express, by design of a mount-based sandbox (macOS Seatbelt denies these by pattern):
+  - a NEW host-only name below the top of the root (`sub/.claude/settings.json`, `sub/.mcp.json`, `sub/.git/config`)
+    can be created by a guest; existing ones at any depth and every name at the top are protected. Such a file can
+    run code in the host's UNSANDBOXED tools opened in that subfolder (a Claude Code started there, git hooks or
+    `core.fsmonitor` of a nested repository, a VS Code task). A worktree merge refuses such paths (`host-only-paths`)
+    and `file.*` refuses them to guests, so this is a residual of main-workspace guest sessions;
+  - a read-only shared link in a guest's worktree (R9.2) can be removed or re-pointed by the guest (bubblewrap mounts
+    on what a link points at, never on the link); the target stays read-only and the daemon refuses a re-pointed link
+    (`shared-link-tampered`);
+  - a Unix socket in a directory the guest can read (the share, its guest dir) is connectable (`allowUnixSockets` is
+    ignored on Linux; the host session's socket directories are hidden instead, abstract sockets are cut off by the
+    network namespace);
+  - while a guest process runs, bubblewrap's mount points for absent host-only names are visible in the host's
+    project (empty directories `.claude` / `.git` / `.vscode` / `.idea`, empty read-only files `.mcp.json` /
+    `.envrc`); they are removed once no guest process runs, or at the next start after a crash (the directories). A
+    leftover empty `.git` is not taken for a repository: `workspace/share.ts` needs a `.git` directory with a `HEAD`
+    file or a `gitdir:` file, and writes `info/exclude` only into a real one.
+  The first three need the owner's confirmation (a mount-based sandbox cannot do better; the alternatives are
+  worktree-only guest agents on Linux, or a host-side check of new host-only names after each guest session).
+  The installer's Linux branch on a fresh machine is unverified.
 - **Subscription login of guests** (D-12) and **Bash edits** (D-13): implemented 2026-09-29 as recommended by the
   project lead, both switchable, the owner's confirmation of the defaults is pending (§11). A real account's login was
-  never completed in a test (URL shown, code never pasted); the Linux side of the login process is unverified. On
+  never completed in a test (URL shown, code never pasted); on Linux the login process has its own network namespace
+  like every guest process (verified 2026-10-01: its listener is unreachable from the host). On
   macOS the login process's TCP listen is not limited to the loopback interface (Seatbelt's `localhost` admits every
   local address); the exec allow-list is what keeps any program but Claude Code from listening in it.
 - **Attribution after an autosave** (files module): for 5 s after a person's autosave, any change of that file is

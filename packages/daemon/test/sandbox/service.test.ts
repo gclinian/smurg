@@ -1,7 +1,8 @@
 // SandboxService with injected seams (platform, srt, the pty runner, file checks): every refusal reason, the Linux
-// branch (implemented from docs/research/sandbox.md and srt's source; it cannot run on this macOS machine, so it is
-// unit-tested here and listed as unverified), live allow-list changes, and the process-wide srt runtime.
-import { mkdir, writeFile } from 'node:fs/promises';
+// branch on any machine (the real bubblewrap runs in r5.sandbox.test.ts on Linux), live allow-list changes, and the
+// process-wide srt runtime.
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
+import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SmurgError, type AuditEntry } from '@smurg/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -13,7 +14,7 @@ import { SrtRuntime, RuntimeBusyError, type SrtApi } from '../../src/sandbox/run
 import { SandboxServiceImpl, type SandboxServiceOptions } from '../../src/sandbox/service.ts';
 import type { PtyRunInput, PtyRunResult, PtyRunner } from '../../src/sandbox/selftest.ts';
 import { buildBaseConfig } from '../../src/sandbox/policy.ts';
-import { shellQuote } from '../../src/sandbox/harden.ts';
+import { LINUX_SESSION_PRELUDE, shellQuote } from '../../src/sandbox/harden.ts';
 import { createSandboxFixture, printWarningsOnFailure, type SandboxFixture, type SandboxFixtureOptions } from './helpers.ts';
 import { fakeSrt, syntheticDarwinCommand, syntheticDarwinProfile, syntheticLinuxCommand, type FakeSrt, type FakeSrtOptions } from './synthetic-srt.ts';
 
@@ -21,8 +22,20 @@ const TIMEOUT = 60_000;
 const DARWIN_EXEC = new Set(['/usr/bin/sandbox-exec']);
 const LINUX_EXEC = new Set(['/usr/bin/bwrap', '/usr/bin/socat', '/usr/bin/rg']);
 
-function io(executable: ReadonlySet<string>, texts: Readonly<Record<string, string>> = {}): CheckIo {
-  return { isExecutable: async (path) => executable.has(path), readText: async (path) => texts[path] ?? null };
+/** What `bwrap --help` of bubblewrap 0.9.0 says about the options the Linux hardening adds (and an older one lacks). */
+const BWRAP_HELP = [
+  '    --disable-userns             Disable further use of user namespaces inside sandbox',
+  '    --remount-ro DEST            Remount DEST as readonly; does not recursively remount',
+  '    --chmod OCTAL PATH           Change permissions of PATH (must already exist)',
+].join('\n');
+
+/** A bwrap run: `--help` answers BWRAP_HELP, the user-namespace probe succeeds, unless `run` says otherwise. */
+function io(executable: ReadonlySet<string>, texts: Readonly<Record<string, string>> = {}, run?: CheckIo['run']): CheckIo {
+  return {
+    isExecutable: async (path) => executable.has(path),
+    readText: async (path) => texts[path] ?? null,
+    run: run ?? (async (_file, args) => (args[0] === '--help' ? { code: 0, stdout: BWRAP_HELP, stderr: '' } : { code: 0, stdout: '', stderr: '' })),
+  };
 }
 
 /** How the fake `smurg hook` answers the in-sandbox hook self-test (review SEC-D-05 follow-up). */
@@ -62,7 +75,6 @@ function runner(mode: 'ok' | 'exit1' | 'leak-canary' | 'write-probe' | 'no-marke
           return { exitCode: 1, output: 'bwrap: setting up uid map: Permission denied\r\n', timedOut: false };
         case 'leak-canary': {
           const secretPath = /(\/[^'"\s]*canary-secret)/.exec(command)?.[1] as string;
-          const { readFile } = await import('node:fs/promises');
           return { exitCode: 0, output: `${await readFile(secretPath, 'utf8')}${marker}`, timedOut: false };
         }
         case 'write-probe': {
@@ -98,7 +110,10 @@ async function harness(
   platform: NodeJS.Platform,
   options: { readonly srt?: FakeSrtOptions; readonly runner?: ReturnType<typeof runner>; readonly service?: Partial<SandboxServiceOptions>; readonly fixture?: Omit<SandboxFixtureOptions, 'module'> } = {},
 ): Promise<Harness> {
-  const srt = fakeSrt(options.srt ?? { platform: platform === 'linux' ? 'linux' : 'darwin' });
+  // Linux: srt's bridge socket, created once the fixture (its run dir) exists; the service resolves it.
+  const bridge = (): string => join((current as SandboxFixture).runDir, 'claude-http-unit.sock');
+  const srtOptions: FakeSrtOptions = options.srt ?? { platform: platform === 'linux' ? 'linux' : 'darwin' };
+  const srt = fakeSrt(srtOptions.platform === 'linux' && srtOptions.proxySockets === undefined ? { ...srtOptions, proxySockets: () => [bridge()] } : srtOptions);
   const run = options.runner ?? runner();
   const module = createSandboxModule({
     platform,
@@ -109,6 +124,7 @@ async function harness(
     ...options.service,
   });
   current = await createSandboxFixture({ ...options.fixture, module });
+  if (platform === 'linux') await writeFile(bridge(), '');
   return { f: current, srt, run };
 }
 
@@ -166,20 +182,54 @@ describe('SandboxService refusals (fail closed, sandbox_unavailable + audit)', (
     expect(await f.sandbox.preflight()).toMatchObject({ ok: false, reason: 'dependency-missing' });
   }, TIMEOUT);
 
-  it('Linux: a failed self-test while AppArmor restricts user namespaces names the AppArmor fix', async () => {
+  /** A bwrap that AppArmor's user-namespace restriction stops (the text measured on Ubuntu 24.04 without a profile). */
+  const blockedBwrap: CheckIo['run'] = async (_file, args) =>
+    args[0] === '--help' ? { code: 0, stdout: BWRAP_HELP, stderr: '' } : { code: 1, stdout: '', stderr: 'bwrap: setting up uid map: Permission denied\n' };
+
+  it('Linux: a failed self-test while AppArmor restricts user namespaces AND a bare bwrap fails like that names the AppArmor fix', async () => {
     const run = runner('exit1');
-    const { f } = await harness('linux', { runner: run, service: { io: io(LINUX_EXEC, { [APPARMOR_USERNS_SYSCTL]: '1\n' }) } });
+    const probes: string[][] = [];
+    const bwrapRun: CheckIo['run'] = async (file, args, timeoutMs) => {
+      probes.push([file, ...args]);
+      return blockedBwrap(file, args, timeoutMs);
+    };
+    const { f } = await harness('linux', { runner: run, service: { io: io(LINUX_EXEC, { [APPARMOR_USERNS_SYSCTL]: '1\n' }, bwrapRun) } });
     const pre = await f.sandbox.preflight();
     expect(pre).toMatchObject({ ok: false, reason: 'apparmor-userns' });
     if (pre.ok) return;
     expect(pre.detail).toContain('AppArmor');
     expect(pre.detail).toContain('apparmor_restrict_unprivileged_userns');
     expect(run.runs).toHaveLength(1);
+    // the probe is bwrap alone, by its absolute path, creating the user and network namespaces a sandbox needs
+    expect(probes.at(-1)).toEqual(['/usr/bin/bwrap', '--unshare-user', '--unshare-net', '--ro-bind', '/', '/', '--', '/bin/true']);
+    expect(f.warnings().join('\n')).toContain('setting up uid map: Permission denied');
   }, TIMEOUT);
 
   it('Linux: the same failure without the AppArmor restriction is a plain self-test failure', async () => {
-    const { f } = await harness('linux', { runner: runner('exit1'), service: { io: io(LINUX_EXEC, { [APPARMOR_USERNS_SYSCTL]: '0\n' }) } });
+    const { f } = await harness('linux', { runner: runner('exit1'), service: { io: io(LINUX_EXEC, { [APPARMOR_USERNS_SYSCTL]: '0\n' }, blockedBwrap) } });
     expect(await f.sandbox.preflight()).toMatchObject({ ok: false, reason: 'self-test-failed' });
+  }, TIMEOUT);
+
+  it('Linux: a self-test that fails while bwrap itself works is NOT blamed on AppArmor, even with the restriction on (a policy that leaks)', async () => {
+    // Measured on Ubuntu 24.04 before the Linux hardening: the smurg-bwrap profile was loaded, bwrap worked, and the
+    // canary found the host home listable (exit 23); the refusal wrongly told the host to fix AppArmor.
+    const { f } = await harness('linux', { runner: runner('leak-canary'), service: { io: io(LINUX_EXEC, { [APPARMOR_USERNS_SYSCTL]: '1\n' }) } });
+    const pre = await f.sandbox.preflight();
+    expect(pre).toMatchObject({ ok: false, reason: 'self-test-failed' });
+    if (pre.ok) return;
+    expect(pre.detail).not.toContain('AppArmor');
+  }, TIMEOUT);
+
+  it('Linux: a bubblewrap without the options the hardening adds (older than 0.8) refuses with the upgrade hint, before srt starts', async () => {
+    const old: CheckIo['run'] = async () => ({ code: 0, stdout: '    --remount-ro DEST            Remount DEST as readonly\n', stderr: '' });
+    const { f, srt } = await harness('linux', { service: { io: io(LINUX_EXEC, {}, old) } });
+    const pre = await f.sandbox.preflight();
+    expect(pre).toMatchObject({ ok: false, reason: 'dependency-missing' });
+    if (pre.ok) return;
+    expect(pre.detail).toContain('bubblewrap');
+    expect(pre.detail).toContain('0.8');
+    expect(srt.calls.initialize).toHaveLength(0);
+    expect(f.warnings().join('\n')).toMatch(/--disable-userns, --chmod/);
   }, TIMEOUT);
 
   it.each(['leak-canary', 'write-probe', 'no-marker', 'timeout', 'spawn-fails'] as const)('the self-test refuses when the canary run shows %s', async (mode) => {
@@ -350,17 +400,65 @@ describe('the hook self-test before an agent session (SEC-D-05 follow-up, servic
 });
 
 describe('SandboxService happy paths with a fake srt', () => {
-  it('Linux (unverified at runtime): absolute tools, all Unix sockets with their directories hidden, bwrap exec’d', async () => {
+  it('Linux: absolute tools, all Unix sockets with their directories hidden, srt’s bridge socket carved out, bwrap exec’d hardened', async () => {
     const { f, srt, run } = await harness('linux');
     expect(await f.sandbox.preflight()).toEqual({ ok: true, platform: 'linux' });
     const base = srt.calls.initialize[0];
     expect(base).toMatchObject({ bwrapPath: '/usr/bin/bwrap', socatPath: '/usr/bin/socat', ripgrep: { command: '/usr/bin/rg' }, network: { allowAllUnixSockets: true, allowUnixSockets: [f.ctx.config.runPaths.hook] } });
-    expect(base?.filesystem.denyRead).toEqual(expect.arrayContaining(['/run', '/var/run', '/home', '/tmp', f.home, f.stateDir]));
+    expect(base?.filesystem.denyRead).toEqual(expect.arrayContaining(['/run', '/var/run', '/home', '/tmp', '/var/snap', f.home, f.stateDir]));
     const wrapped = await f.sandbox.wrap(await specFor(f));
-    expect(wrapped.args[1]?.startsWith('exec /usr/bin/bwrap --new-session --die-with-parent ')).toBe(true);
-    expect(wrapped.args[1]).toContain('CLAUDE_CODE_TMPDIR=');
+    const command = wrapped.args[1] as string;
+    expect(command.startsWith(`${LINUX_SESSION_PRELUDE}exec /usr/bin/bwrap "\${SMURG_NEW_SESSION[@]}" --die-with-parent `)).toBe(true);
+    expect(command).not.toContain('--new-session --die-with-parent');
+    expect(command).toContain('CLAUDE_CODE_TMPDIR=');
+    // appended right before bwrap's `--`: no nested user namespace, the read-deny tmpfs hidden and read-only
+    const tail = command.slice(0, command.indexOf(' -- /bin/bash -c '));
+    expect(tail).toContain(' --disable-userns ');
+    expect(tail).toContain(' --chmod 0111 /home ');
+    const tmpfs = [...tail.matchAll(/ --tmpfs (\S+)/g)].map((m) => m[1] as string);
+    expect(tmpfs).toContain('/home');
+    for (const dir of tmpfs) expect(tail).toContain(` --remount-ro ${dir}`);
     expect(run.runs).toHaveLength(2); // the preflight's self-test and the session's own
-    expect(srt.calls.wrap.at(-1)?.custom.filesystem.allowRead).toContain(f.ctx.config.runPaths.hook);
+    const allowRead = srt.calls.wrap.at(-1)?.custom.filesystem.allowRead;
+    expect(allowRead).toContain(f.ctx.config.runPaths.hook);
+    expect(allowRead).toContain(join(f.runDir, 'claude-http-unit.sock'));
+  }, TIMEOUT);
+
+  it('Linux: without srt’s bridge socket the guest would be offline, so nothing starts', async () => {
+    const { f } = await harness('linux', { srt: { platform: 'linux', proxySockets: () => [join((current as SandboxFixture).base, 'missing.sock')] } });
+    expect(await f.sandbox.preflight()).toMatchObject({ ok: false, reason: 'init-failed' });
+    expect(f.warnings().join('\n')).toContain('bridge socket is missing');
+  }, TIMEOUT);
+
+  it('Linux: the empty directories bubblewrap may leave for absent host-only directory names are recorded before a sandbox runs; a later daemon removes those still empty', async () => {
+    const { f } = await harness('linux');
+    const record = async (): Promise<{ paths: string[] }> => JSON.parse(await readFile(join(f.ctx.state.dir, 'sandbox-placeholders.json'), 'utf8')) as { paths: string[] };
+    await f.sandbox.wrap(await specFor(f));
+    // `.smurg` exists in every share (its read-only tmpfs needs no placeholder); the others are absent in this one
+    expect((await record()).paths.sort()).toEqual(['.claude', '.git', '.idea', '.vscode'].map((name) => join(f.share, name)).sort());
+    // What a daemon that died during a guest session leaves (srt had no chance to clean up), plus the host's own work.
+    await mkdir(join(f.share, '.claude'));
+    await mkdir(join(f.share, '.vscode'));
+    await writeFile(join(f.share, '.vscode', 'settings.json'), '{}\n');
+    await mkdir(join(f.base, 'elsewhere'));
+    await symlink(join(f.base, 'elsewhere'), join(f.share, '.idea'));
+    const next = new SandboxServiceImpl(f.ctx, {
+      platform: 'linux',
+      loadSrt: async () => fakeSrt({ platform: 'linux', proxySockets: () => [join(f.runDir, 'claude-http-unit.sock')] }),
+      runtime: new SrtRuntime(),
+      runner: runner(),
+      io: io(LINUX_EXEC),
+    });
+    try {
+      expect(await next.preflight()).toEqual({ ok: true, platform: 'linux' });
+      expect(existsSync(join(f.share, '.claude'))).toBe(false); // an empty placeholder: removed
+      expect(await readFile(join(f.share, '.vscode', 'settings.json'), 'utf8')).toBe('{}\n'); // content: kept
+      expect(lstatSync(join(f.share, '.idea')).isSymbolicLink()).toBe(true); // not a directory: kept
+      expect(existsSync(join(f.base, 'elsewhere'))).toBe(true);
+      expect((await record()).paths).toEqual([]);
+    } finally {
+      await next.dispose();
+    }
   }, TIMEOUT);
 
   it('macOS: the session command is exported into the guest tmp and hardened; the self-test used the same policy', async () => {
@@ -453,7 +551,7 @@ describe('SrtRuntime: one owner per process', () => {
 });
 
 // ARCHITECTURE §11 D-12, the login process with a fake srt and an injected platform: the wiring of mode 'login'.
-// macOS runs it for real in login-policy.real.test.ts; Linux is implemented from srt's source and UNVERIFIED at runtime.
+// macOS runs it for real in login-policy.real.test.ts, Linux in test/sessions/login.real.test.ts (its own network namespace).
 describe('the login process (D-12, service wiring)', () => {
   async function loginSpec(f: SandboxFixture, programs: readonly string[] = ['/usr/bin/true']): Promise<SandboxSpec> {
     const guest = await f.guest('alice');
@@ -469,23 +567,35 @@ describe('the login process (D-12, service wiring)', () => {
     expect(custom?.filesystem.allowRead).not.toContain(f.ctx.config.runPaths.hook);
     expect(wrapped.args[1]).toContain('(allow network-bind (local tcp "localhost:*"))');
     expect(wrapped.args[1]).toContain('(allow network-inbound (local tcp "localhost:*"))');
-    expect(wrapped.args[1]).toContain('(allow process-exec (literal "/bin/bash") (literal "/usr/bin/true"))');
+    // The allow-list names the shell as Seatbelt sees it, resolved (/bin/bash on macOS; /usr/bin/bash where /bin is a
+    // link, as on the Linux machines this injected-platform test also runs on).
+    expect(wrapped.args[1]).toContain(`(allow process-exec (literal ${JSON.stringify(realpathSync('/bin/bash'))}) (literal "/usr/bin/true"))`);
     expect(wrapped.cwd).toBe((await f.guest('alice')).home);
     // The canary ran before, with the login's network rules but without the exec list (it needs cat, ls, stty).
     const canary = srt.calls.wrap.find((c) => c.command.includes('SMURG-SANDBOX-SELFTEST-OK'));
     expect(canary).toBeDefined();
   }, TIMEOUT);
 
-  it('Linux (unverified at runtime): the login needs its own network namespace; without --unshare-net it is refused', async () => {
-    const { f } = await harness('linux');
+  it('Linux: the login runs in its own network namespace (its loopback is not the host’s); without --unshare-net nothing starts', async () => {
+    const { f, srt } = await harness('linux');
     const wrapped = await f.sandbox.wrap(await loginSpec(f));
+    const guest = await f.guest('alice');
     expect(wrapped.args[1]).toContain(' --unshare-net ');
+    expect(wrapped.args[1]).toContain(' --disable-userns ');
     expect(wrapped.args[1]).not.toContain('process-exec');
+    expect(wrapped.cwd).toBe(guest.home);
+    const custom = srt.calls.wrap.at(-1)?.custom;
+    expect(custom?.filesystem.allowWrite).toEqual([guest.dir]);
+    expect(custom?.filesystem.denyRead).toEqual(expect.arrayContaining([f.share, f.ctx.roots.worktreesDir]));
+    expect(custom?.filesystem.allowRead).not.toContain(f.ctx.config.runPaths.hook);
+    // srt's bridge socket (the login reaches claude.ai through the proxy like any guest process)
+    expect(custom?.filesystem.allowRead).toContain(join(f.runDir, 'claude-http-unit.sock'));
     await f.cleanup(); // a second fixture follows (afterEach removes only the current one)
+    // Without its own network namespace a guest process would have the host's network (srt's proxy and its
+    // allow-list would be bypassable): the login AND an ordinary guest process are refused.
     const { f: g } = await harness('linux', { srt: { platform: 'linux', wrapResult: (command) => syntheticLinuxCommand(command).replace(' --unshare-net', '') } });
-    // An ordinary guest process still starts (its loopback isolation is srt's business; this check is the login's).
-    await expect(g.sandbox.wrap(await specFor(g))).resolves.toBeDefined();
-    const refused = await refusal(g, await loginSpec(g));
-    expect(refused.detail).toEqual({ reason: 'hardening-failed' });
+    expect((await refusal(g, await specFor(g))).detail).toEqual({ reason: 'hardening-failed' });
+    expect((await refusal(g, await loginSpec(g))).detail).toEqual({ reason: 'hardening-failed' });
+    expect(g.warnings().join('\n')).toContain('--unshare-net');
   }, TIMEOUT);
 });

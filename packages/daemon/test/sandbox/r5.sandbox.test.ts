@@ -3,27 +3,32 @@
 // one (test/sandbox/helpers.ts), so a broken sandbox could only ever read test fixtures, and probes print markers or
 // exit codes only, never file contents.
 //
-// R5.3 and R5.5 (the real claude binary) are in r5.claude.test.ts. macOS is verified; on Linux the same tests run
-// against bubblewrap (implemented from srt's source, not run by this project, ARCHITECTURE §12).
+// R5.3 and R5.5 (the real claude binary) are in r5.claude.test.ts. The same tests run on macOS (Seatbelt) and on Linux
+// (bubblewrap, verified on Ubuntu 24.04 with the AppArmor user-namespace restriction on; where the two differ, the
+// test says so and asserts each platform's own behaviour, ARCHITECTURE §7.6 / §12).
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { createServer as createNetServer } from 'node:net';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import * as pty from 'node-pty';
 import { SmurgError } from '@smurg/protocol';
+import { SYSTEM_PRINCIPAL } from '../../src/core/permissions.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { DARWIN_TTY_PRELUDE } from '../../src/sandbox/harden.ts';
+import { DARWIN_TTY_PRELUDE, LINUX_NEW_SESSION_VAR, LINUX_SESSION_PRELUDE } from '../../src/sandbox/harden.ts';
 import { createSandboxModule } from '../../src/sandbox/module.ts';
 import {
   closeServer,
   countingHttpServer,
   createSandboxFixture,
   isDarwin,
+  isLinux,
   marker,
   printWarningsOnFailure,
   probe,
   q,
+  releaseWrapped,
   results,
   runWrapped,
   sandboxPlatform,
@@ -72,8 +77,17 @@ describe.runIf(sandboxPlatform)('R5 客人沙盒 (real srt)', () => {
       expect(command).toContain('(allow file-read* file-write* file-ioctl (literal (param "SMURG_TTY")) (literal "/dev/ptmx"))');
       expect(command).not.toContain('(allow network*)');
     } else {
-      expect(command.startsWith('exec ')).toBe(true);
-      expect(command).toContain('--die-with-parent');
+      // bwrap by its absolute path, --new-session decided by the outer shell's builtins (a pty keeps its signals),
+      // and before bwrap's `--`: no nested user namespace, every read-deny tmpfs unlistable and read-only.
+      expect(command.startsWith(`${LINUX_SESSION_PRELUDE}exec /usr/bin/bwrap "\${${LINUX_NEW_SESSION_VAR}[@]}" --die-with-parent `)).toBe(true);
+      const bwrapArgs = command.slice(0, command.indexOf(' -- /bin/bash -c '));
+      for (const word of [' --unshare-net ', ' --unshare-pid ', ' --unshare-user ', ' --cap-drop ALL ', ' --proc /proc ', ' --dev /dev ', ' --ro-bind / / ', ' --disable-userns ']) expect(bwrapArgs).toContain(word);
+      const tmpfs = [...bwrapArgs.matchAll(/ --tmpfs (\S+)/g)].map((m) => m[1] as string);
+      expect(tmpfs).toEqual(expect.arrayContaining(['/tmp', '/home', '/run']));
+      for (const dir of tmpfs) {
+        expect(bwrapArgs).toContain(` --chmod 0111 ${dir}`);
+        expect(bwrapArgs).toContain(` --remount-ro ${dir}`);
+      }
     }
     const run = await runWrapped(wrapped);
     expect(run.exitCode).toBe(0);
@@ -217,19 +231,32 @@ describe.runIf(sandboxPlatform)('R5 客人沙盒 (real srt)', () => {
     const hook = await unixEchoServer(f.ctx.config.runPaths.hook, hookReply);
     const ctl = await unixEchoServer(f.ctx.config.runPaths.ctl, ctlReply);
     const other = await unixEchoServer(otherPath, otherReply);
+    // Linux: an ABSTRACT Unix socket has no file a mount could hide (X11, some D-Bus and IDE helpers listen on one); the
+    // abstract namespace belongs to the network namespace, and every guest process has its own (--unshare-net).
+    const abstractReply = marker('ABSTRACT-PONG');
+    const abstractName = isLinux ? marker('abstract') : null;
+    const abstract = abstractName === null ? null : createNetServer((socket) => {
+      socket.on('data', () => socket.end(`${abstractReply}\n`));
+      socket.on('error', () => {});
+    });
+    if (abstract !== null) await new Promise<void>((resolve, reject) => abstract.once('error', reject).listen(`\0${abstractName}`, () => resolve()));
     try {
       const guest = await f.guest('sock');
       const say = (path: string): string => `printf 'ping\\n' | /usr/bin/nc -U -w 3 ${q(path)}`;
-      const script = [say(f.ctx.config.runPaths.hook), say(f.ctx.config.runPaths.ctl), say(otherPath), 'echo "@@done=1@@"'].join('; ');
+      const sayAbstract = abstractName === null ? null : `printf 'ping\\n' | /usr/bin/socat -t 3 - ABSTRACT-CONNECT:${abstractName}`;
+      if (sayAbstract !== null) expect((await execFileAsync('/bin/sh', ['-c', sayAbstract])).stdout).toContain(abstractReply); // control: the host reaches it
+      const script = [say(f.ctx.config.runPaths.hook), say(f.ctx.config.runPaths.ctl), say(otherPath), ...(sayAbstract === null ? [] : [`${sayAbstract} 2>/dev/null`]), 'echo "@@done=1@@"'].join('; ');
       const run = await runWrapped(await f.sandbox.wrap(f.spec({ command: script, guest, settingsDir: await f.settingsDir('ses_sock', '{}\n') })));
       expect(results(run.output)['done']).toBe('1');
       expect(run.output).toContain(hookReply);
       expect(run.output).not.toContain(ctlReply);
       expect(run.output).not.toContain(otherReply);
+      expect(run.output).not.toContain(abstractReply);
     } finally {
       await closeServer(hook);
       await closeServer(ctl);
       await closeServer(other);
+      if (abstract !== null) await closeServer(abstract);
     }
   }, TIMEOUT);
 
@@ -320,6 +347,11 @@ describe.runIf(sandboxPlatform)('R5 客人沙盒 (real srt)', () => {
     await writeFile(join(f.share, '.git', 'config'), '[core]\n');
     await mkdir(join(f.share, 'sub', 'deeper'), { recursive: true });
     await writeFile(join(f.share, 'sub', 'deeper', '.envrc'), `export TOKEN=${personal}\n`);
+    // host-only entries that already exist below the top (a package's own editor and Claude settings)
+    await mkdir(join(f.share, 'sub', '.vscode'), { recursive: true });
+    await writeFile(join(f.share, 'sub', '.vscode', 'tasks.json'), '{}\n');
+    await mkdir(join(f.share, 'sub', 'deeper', '.claude'), { recursive: true });
+    await writeFile(join(f.share, 'sub', 'deeper', '.claude', 'settings.json'), `{"note":"${hostSettings}"}\n`);
     // Does this file system fold case (APFS default)? Then the folded spellings name the protected entries.
     await mkdir(join(f.share, 'CaseProbe'), { recursive: true });
     const folds = existsSync(join(f.share, 'caseprobe'));
@@ -334,8 +366,14 @@ describe.runIf(sandboxPlatform)('R5 客人沙盒 (real srt)', () => {
       ['git-config', `echo x >> ${p('.git/config')}`],
       ['envrc', `echo x > ${p('.envrc')}`],
       ['vscode', `mkdir -p ${p('.vscode')} && echo x > ${p('.vscode/settings.json')}`],
-      ['idea', `mkdir -p ${p('.idea')}`],
+      // mkdir AND a file in it: on Linux an absent host-only directory name is held by an empty read-only directory
+      // for as long as a guest process runs (bubblewrap's mount point, policy.ts linuxDirPlaceholderDenies), so
+      // `mkdir -p` alone finds it there and succeeds without creating anything.
+      ['idea', `mkdir -p ${p('.idea')} && echo x > ${p('.idea/workspace.xml')}`],
       ['smurg-dir', `echo x > ${p('.smurg/planted')}`],
+      ['nested-existing-vscode', `echo x >> ${p('sub/.vscode/tasks.json')}`],
+      ['nested-existing-claude', `echo x > ${p('sub/deeper/.claude/hooks.json')}`],
+      ['nested-existing-claude-rm', `rm -rf ${p('sub/deeper/.claude')}`],
       ['nested-claude', `mkdir -p ${p('sub/.claude')} && echo x > ${p('sub/.claude/settings.json')}`],
       ['nested-mcp', `echo x > ${p('sub/deeper/.mcp.json')}`],
       ['rename-claude-away', `mv ${p('.claude')} ${p('claude-moved')}`],
@@ -362,14 +400,26 @@ describe.runIf(sandboxPlatform)('R5 客人沙盒 (real srt)', () => {
     const guest = await f.guest('hostonly');
     const run = await runWrapped(await f.sandbox.wrap(f.spec({ command: script, guest, settingsDir: await f.settingsDir('ses_hostonly', '{}\n') })));
     const r = results(run.output);
-    for (const [name] of writes) expect(r[`w-${name}`], name).toBe('denied');
+    // Linux (bubblewrap): a host-only name that does not exist yet BELOW the top of the share cannot be blocked: a
+    // mount needs something to land on, and srt drops write-deny globs. Existing ones at any depth and every name at
+    // the top are protected; this residual is ARCHITECTURE §12 (the host-side checks still refuse such paths: file.*
+    // for guests, a merge request's review). macOS Seatbelt denies them by pattern.
+    const newNestedOpen = new Set(isDarwin ? [] : ['nested-claude', 'nested-mcp']);
+    for (const [name] of writes) expect(r[`w-${name}`], name).toBe(newNestedOpen.has(name) ? 'ok' : 'denied');
     expect(r).toMatchObject({ 'read-claude-settings': 'ok', 'read-settings-local': 'denied', 'read-claude-local-md': 'denied', 'read-nested-envrc': 'denied', 'read-smurg-dir': 'denied', 'write-ordinary-file': 'ok', 'rm-ordinary-file': 'ok' });
     expect(run.output).not.toContain(personal);
     expect(await readFile(join(f.share, '.claude', 'settings.json'), 'utf8')).toBe(`{"note":"${hostSettings}"}\n`);
     expect(await readFile(join(f.share, '.mcp.json'), 'utf8')).toBe('{"mcpServers":{}}\n');
-    for (const rel of ['.envrc', '.vscode', '.idea', '.git/hooks/pre-commit', 'sub/.claude', 'sub/deeper/.mcp.json', 'claude-moved', '.smurg/planted', `.v${S}code`]) {
+    expect(await readFile(join(f.share, 'sub', '.vscode', 'tasks.json'), 'utf8')).toBe('{}\n');
+    expect(await readdir(join(f.share, 'sub', 'deeper', '.claude'))).toEqual(['settings.json']);
+    // Nothing is left in the host's share once no guest process runs: no planted entry, and none of bubblewrap's
+    // mount points for the absent names (Linux: released after the process exited, SandboxService.release).
+    const plantedNested = isDarwin ? ['sub/.claude', 'sub/deeper/.mcp.json'] : [];
+    for (const rel of ['.envrc', '.vscode', '.idea', '.git/hooks/pre-commit', ...plantedNested, 'claude-moved', '.smurg/planted', `.v${S}code`]) {
       expect(existsSync(join(f.share, rel)), rel).toBe(false);
     }
+    await rm(join(f.share, 'sub', '.claude'), { recursive: true, force: true });
+    await rm(join(f.share, 'sub', 'deeper', '.mcp.json'), { force: true });
   }, TIMEOUT);
 
   it('without a pty (stdin not a terminal, like the sessions module’s status checks) the command runs sandboxed and reaches no tty', async () => {
@@ -400,6 +450,7 @@ describe.runIf(sandboxPlatform)('R5 客人沙盒 (real srt)', () => {
         const timer = setTimeout(() => child.kill('SIGKILL'), 60_000);
         child.on('close', (code) => {
           clearTimeout(timer);
+          releaseWrapped(wrapped);
           resolve({ code, out });
         });
       });
@@ -586,7 +637,8 @@ describe.runIf(sandboxPlatform)('R9 worktree scope (real srt)', () => {
         probe('replace-link', `ln -sfn /etc ${q(link)}`),
       ].join('\n'),
     );
-    expect(results(run.output)).toMatchObject({
+    const r = results(run.output);
+    expect(r).toMatchObject({
       'read-via-link': 'ok',
       'read-direct': 'ok',
       'list-via-link': 'ok',
@@ -595,11 +647,24 @@ describe.runIf(sandboxPlatform)('R9 worktree scope (real srt)', () => {
       'rm-via-link': 'denied',
       'mv-via-link': 'denied',
       'append-direct': 'denied',
-      'rm-link': 'denied',
-      'replace-link': 'denied',
     });
-    expect((await import('node:fs/promises').then((fs) => fs.readlink(link)))).toBe('../../../data');
     expect(await readFile(join(f.share, 'data', 'dataset.csv'), 'utf8')).toBe('id,v\n1,42\n');
     expect(await readdir(join(f.share, 'data'))).toEqual(['dataset.csv']);
+    const fs = await import('node:fs/promises');
+    if (isDarwin) {
+      expect(r).toMatchObject({ 'rm-link': 'denied', 'replace-link': 'denied' });
+      expect(await fs.readlink(link)).toBe('../../../data');
+    } else {
+      // Linux: bubblewrap can only mount on what a symlink points at, never on the link itself, so the link (an entry
+      // of the guest's own writable worktree) can be removed or re-pointed; what it points at stays read-only above.
+      // The host never follows a re-pointed shared link: the daemon's path guard refuses it (R9.2 still holds for
+      // everything the host serves; ARCHITECTURE §12).
+      expect(r).toMatchObject({ 'rm-link': 'ok', 'replace-link': 'ok' });
+      expect(await fs.readlink(link)).toBe('/etc');
+      const ref = { root: { kind: 'worktree' as const, worktreeId: 'wt1' }, path: 'data/dataset.csv' };
+      await expect(f.ctx.paths.resolve(ref, { principal: SYSTEM_PRINCIPAL })).rejects.toMatchObject({ detail: expect.objectContaining({ reason: 'shared-link-tampered' }) });
+      await fs.rm(link);
+      await symlink('../../../data', link);
+    }
   }, TIMEOUT);
 });

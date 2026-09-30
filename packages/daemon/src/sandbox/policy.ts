@@ -22,11 +22,16 @@ export const DARWIN_BROAD_DENY_READ: readonly string[] = Object.freeze(['/Users'
 
 /**
  * Linux: other users, temp dirs, removable media, and every directory that holds Unix sockets of the host session
- * (`/run`, `/var/run`: dbus, systemd --user, docker, ssh / gpg agents). On Linux srt cannot allow-list one socket
- * (seccomp blocks every AF_UNIX socket or none), so `allowAllUnixSockets` is on and hiding the socket directories is
- * what keeps them unreachable (docs/research/sandbox.md, Linux notes). Unverified at runtime on this project's CI.
+ * (`/run`, `/var/run`: dbus, systemd --user, docker, ssh / gpg agents; `/tmp`: X11, the daemon's own run dir in
+ * tests) or of a container manager the host user's GROUPS can drive (`/var/snap` holds snap LXD's
+ * `lxd/common/lxd/unix.socket`, and Ubuntu puts its first user in the `lxd` group; `/var/lib/lxd`, `/var/lib/incus`:
+ * the same for deb installs): the sandbox keeps the host user's supplementary groups. On Linux srt cannot allow-list
+ * one socket (seccomp blocks every AF_UNIX socket or none), so `allowAllUnixSockets` is on and hiding the socket
+ * directories is what keeps them unreachable; abstract sockets are cut off by the network namespace
+ * (docs/research/sandbox.md, "Linux, verified"). A socket in any other directory the host user can reach stays
+ * connectable: that residual is documented (ARCHITECTURE §12).
  */
-export const LINUX_BROAD_DENY_READ: readonly string[] = Object.freeze(['/home', '/root', '/tmp', '/var/tmp', '/run', '/var/run', '/mnt', '/media']);
+export const LINUX_BROAD_DENY_READ: readonly string[] = Object.freeze(['/home', '/root', '/tmp', '/var/tmp', '/run', '/var/run', '/mnt', '/media', '/var/snap', '/var/lib/lxd', '/var/lib/incus']);
 
 /**
  * Names the host's UNSANDBOXED tools load automatically (ARCHITECTURE §5.2, isHostOnlyPath in @smurg/protocol):
@@ -201,6 +206,15 @@ export interface SessionPolicyInput {
   readonly hookSocketPath: string;
   /** Names the spawn environment sets on purpose; their login-override deny is skipped. */
   readonly envNames: readonly string[];
+  /**
+   * Linux: srt's network bridge sockets (SandboxManager.getLinuxHttpSocketPath / getLinuxSocksSocketPath), the only
+   * way out of the guest's network namespace. srt binds them in before its file system mounts, so a read-denied
+   * directory holding them (`/tmp`, or the daemon's run dir) would hide them and cut the guest off from the allow-list
+   * too (measured: every request failed). Read-only file carve-outs, like the hook socket. Default: none (macOS).
+   */
+  readonly proxySocketPaths?: readonly string[];
+  /** Linux: the HOST_ONLY_DIR_NAMES missing at the top of the root when the service looked (linuxDirPlaceholderDenies). */
+  readonly absentHostOnlyDirs?: readonly string[];
 }
 
 export interface SessionPolicy {
@@ -277,6 +291,7 @@ interface CheckedPaths {
   readonly extraDenyWrite: readonly string[];
   readonly readOnly: readonly string[];
   readonly selfPaths: readonly string[];
+  readonly proxySockets: readonly string[];
 }
 
 /**
@@ -306,13 +321,13 @@ function buildLoginPolicy(input: SessionPolicyInput, p: CheckedPaths): SessionPo
     ...ancestorMemoryDenies(p.settingsDir),
     ...p.extraDenyRead,
   ]);
-  const allowRead = unique([p.guestDir, p.settingsDir, ...p.extraRead]);
+  const allowRead = unique([p.guestDir, p.settingsDir, ...p.proxySockets, ...p.extraRead]);
   const allowSet = new Set(allowRead);
   for (const deny of denyRead) {
     if (allowSet.has(deny)) throw new PolicyError('a path is both denied and allowed for reading');
   }
   const regions = { platform: input.platform, mode: 'login' as const, hostHome: p.hostHome, stateDir: p.stateDir, shareDir: p.share, worktreesDir: p.worktreesDir };
-  const structural = new Set([p.guestDir, p.settingsDir]);
+  const structural = new Set([p.guestDir, p.settingsDir, ...p.proxySockets]);
   for (const allow of allowRead) {
     const problem = readCarveOutProblem(allow, regions, structural.has(allow));
     if (problem !== null) throw new PolicyError(problem);
@@ -413,6 +428,28 @@ export function hostOnlyWriteDenies(root: string): string[] {
   return [...names.map((name) => join(root, name)), ...names.map((name) => `${root}/**/${name}`)];
 }
 
+/**
+ * Linux: a child name that never exists, below each host-only DIRECTORY name at the top of the root. bubblewrap can
+ * only block an ABSENT write-denied name by mounting something on it, and the mount point it creates for that is left
+ * in the host's share (srt removes it once no sandbox runs, SandboxService.release). For a leaf deny srt mounts
+ * /dev/null, i.e. an empty 0444 FILE `.claude` / `.git` / `.vscode` appears in the host's project and the host's own
+ * tools break on it (`mkdir .claude` EEXIST, git "invalid gitfile format"). For an absent INTERMEDIATE component srt
+ * mounts an empty read-only directory instead (linux-sandbox-utils.js "Fix 2"), which the host sees as an ordinary
+ * empty directory it can use (git ignores an empty `.git/`): denying this child makes srt choose that form. When the
+ * name exists, the child is inside a read-only deny and srt makes no mount point for it.
+ */
+export const LINUX_DIR_PLACEHOLDER_CHILD = '.smurg-no-such-entry';
+
+/**
+ * The child denies for the host-only directory names `absent` (names the service found missing at the top of the
+ * root). Only for absent ones: under an existing name (bound read-only) srt would still put a mount point for the
+ * child there whenever the root lies below a read-deny tmpfs (as it does under /home), and bubblewrap cannot create it
+ * in a read-only mount ("Can't create file … Read-only file system": measured, the sandbox did not start).
+ */
+export function linuxDirPlaceholderDenies(root: string, absent: readonly string[]): string[] {
+  return HOST_ONLY_DIR_NAMES.filter((name) => absent.includes(name)).map((name) => join(root, name, LINUX_DIR_PLACEHOLDER_CHILD));
+}
+
 /** Host-personal files (and `.envrc`) hidden at any depth of the root. */
 export function hostPersonalReadDenies(root: string): string[] {
   return [...HOST_PERSONAL_FILES, ...HOST_PRIVATE_READ_DENIED_NAMES].flatMap((rel) => [join(root, rel), `${root}/**/${rel}`]);
@@ -443,9 +480,11 @@ export function buildSessionPolicy(input: SessionPolicyInput): SessionPolicy {
   const extraDenyRead = input.extraDenyRead.map((p) => checkPath('deny-read path', p));
   const extraDenyWrite = input.extraDenyWrite.map((p) => checkPath('deny-write path', p));
   const gitObjects = input.shareGitObjectsDir === null ? null : checkPath('share git objects', input.shareGitObjectsDir);
+  const proxySockets = (input.proxySocketPaths ?? []).map((p) => checkPath('proxy socket', p));
+  if (platform !== 'linux' && proxySockets.length > 0) throw new PolicyError('proxy socket carve-outs are for Linux only');
 
   // ---- layout rules (ARCHITECTURE §7.1, §7.6) ----
-  if (mode === 'login') return buildLoginPolicy(input, { hostHome, stateDir, share, worktreesDir, root, guestDir, settingsDir, extraRead, extraDenyRead, extraDenyWrite, readOnly, selfPaths });
+  if (mode === 'login') return buildLoginPolicy(input, { hostHome, stateDir, share, worktreesDir, root, guestDir, settingsDir, extraRead, extraDenyRead, extraDenyWrite, readOnly, selfPaths, proxySockets });
   if (mode === 'main' && root !== share) throw new PolicyError('main-workspace mode must run in the share');
   if (mode === 'worktree' && !isStrictlyUnder(root, worktreesDir)) throw new PolicyError('worktree mode must run in a worktree below .smurg/worktrees');
   if (!isStrictlyUnder(worktreesDir, share)) throw new PolicyError('the worktrees dir must be inside the share');
@@ -476,6 +515,7 @@ export function buildSessionPolicy(input: SessionPolicyInput): SessionPolicy {
     guestDir,
     settingsDir,
     hookSocket,
+    ...proxySockets,
     ...readOnly,
     ...extraRead,
     ...selfPaths,
@@ -488,7 +528,7 @@ export function buildSessionPolicy(input: SessionPolicyInput): SessionPolicy {
     if (allowSet.has(deny)) throw new PolicyError('a path is both denied and allowed for reading');
   }
   const regions = { platform, mode, hostHome, stateDir, shareDir: share, worktreesDir };
-  const structural = new Set([root, guestDir, settingsDir, hookSocket, ...readOnly, ...(gitObjects === null ? [] : [gitObjects])]);
+  const structural = new Set([root, guestDir, settingsDir, hookSocket, ...proxySockets, ...readOnly, ...(gitObjects === null ? [] : [gitObjects])]);
   for (const allow of allowRead) {
     const problem = readCarveOutProblem(allow, regions, structural.has(allow));
     if (problem !== null) throw new PolicyError(problem);
@@ -500,6 +540,7 @@ export function buildSessionPolicy(input: SessionPolicyInput): SessionPolicy {
   const denyWrite: string[] = [];
   const candidates = unique([
     ...hostOnlyWriteDenies(root),
+    ...(platform === 'linux' ? linuxDirPlaceholderDenies(root, input.absentHostOnlyDirs ?? []) : []),
     ...readOnly,
     settingsDir,
     ...(mode === 'main' ? [join(share, '.smurg')] : []),

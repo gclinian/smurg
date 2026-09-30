@@ -185,11 +185,14 @@ describe('R9 with the real worktree, sessions and sandbox modules (real srt)', {
     expect(await result('sib-read')).toMatch(/rc=[1-9]/);
     expect(await result('sib-write')).toMatch(/rc=[1-9]/);
     expect(await readFile(join(siblingDir, 'pwned.txt'), 'utf8').catch(() => null)).toBeNull();
-    // R9.2: the shared directory through its read-only link: readable, never writable, the link itself stays.
+    // R9.2: the shared directory through its read-only link: readable, never writable, the link itself stays (macOS).
+    // Linux: bubblewrap can only mount on what a symlink points at, never on the link, so the guest may remove the
+    // link from its OWN worktree; what it points at stays read-only, and the daemon's path guard refuses a re-pointed
+    // shared link (r5.sandbox.test.ts R9.2; ARCHITECTURE §12).
     expect(await result('data-read')).toBe('a,b\n1,2\nrc=0\n');
     expect(await result('data-append')).toMatch(/rc=[1-9]/);
     expect(await result('data-create')).toMatch(/rc=[1-9]/);
-    expect(await result('data-unlink')).toMatch(/rc=[1-9]/);
+    expect(await result('data-unlink')).toMatch(process.platform === 'darwin' ? /rc=[1-9]/ : /rc=0/);
     expect(await readFile(join(f.share, 'data', 'train.csv'), 'utf8')).toBe('a,b\n1,2\n');
     expect(await readFile(join(f.share, 'data', 'new.csv'), 'utf8').catch(() => null)).toBeNull();
 

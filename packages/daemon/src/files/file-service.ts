@@ -30,7 +30,7 @@ import { isPathDeniedError } from '../core/errors.ts';
 import type { FileIdentity, FileService, Principal, ResolveOptions, ResolvedPath } from '../core/interfaces.ts';
 import { isHostPrincipal, SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
-import { errnoCode, identityOf, lstatOrNull, realpathOrNull } from '../workspace/fs-util.ts';
+import { errnoCode, identityOf, lstatOrNull, realpathOrNull, unaddressableNames } from '../workspace/fs-util.ts';
 import { ChangeAttribution } from './attribution.ts';
 import { entryFromIdentity } from './entries.ts';
 import {
@@ -443,8 +443,11 @@ export class FileServiceImpl implements FileService {
     const isPrivileged = privileged(principal);
     const inMainTop = dir.ref.path === '' && dir.ref.root.kind === 'main';
     const sharedLinkPaths = new Set(dir.root.sharedLinks.map((l) => l.path));
+    // Linux: an NFD name next to its NFC twin (or two spellings of one name) would list as a second entry with the
+    // same path, which every request resolves to the other entry (or to none). Not listed.
+    const unaddressable = unaddressableNames(names);
     const listed = await mapLimit(names, LIST_CONCURRENCY, async (rawName): Promise<FileEntry | null> => {
-      if (isHiddenTempName(rawName)) return null;
+      if (isHiddenTempName(rawName) || unaddressable.has(rawName)) return null;
       const checked = checkRelPath(rawName);
       // A name the protocol cannot carry (control characters, backslash, …) cannot be named in a request either.
       if (!checked.ok || checked.path.includes('/')) return null;

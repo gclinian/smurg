@@ -12,8 +12,15 @@
 // The registry is a directory named in SMURG_TEST_RUN_REGISTRY (inherited by the forks and by every process a test
 // spawns with process.env); each process appends to its own file. Only node built-ins: vitest's main process loads
 // this module (globalSetup) without the daemon.
+//
+// A directory's identity is (dev, ino), and the registering process keeps the directory OPEN until it exits: ext4 (the
+// usual Linux /tmp) hands a freed inode number out again at once, so a directory removed and re-created at the same
+// path would otherwise come back with the registered inode number (and even the same birth time, whose clock ticks in
+// milliseconds). An open directory's inode is not freed when the directory is removed, so whatever is created at its
+// path meanwhile gets another number, on every file system. APFS never reuses inode numbers soon; there it changes
+// nothing.
 import { execFile } from 'node:child_process';
-import { appendFileSync, lstatSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { appendFileSync, closeSync, constants as fsConstants, fstatSync, lstatSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
@@ -39,12 +46,47 @@ function append(entry: Entry): void {
   }
 }
 
+/** Open handles on the directories this process registered, by registry (see the top of this file). */
+const pinned = new Map<string, number[]>();
+
+/** Keeps `dir` open for the life of this process (or until its registry is swept here); false when it changed. */
+function pin(registry: string, dir: string, info: { readonly dev: number; readonly ino: number }): boolean {
+  let fd: number;
+  try {
+    fd = openSync(dir, fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+  } catch {
+    return false;
+  }
+  const opened = fstatSync(fd);
+  if (opened.dev !== info.dev || opened.ino !== info.ino) {
+    closeSync(fd);
+    return false;
+  }
+  const fds = pinned.get(registry);
+  if (fds) fds.push(fd);
+  else pinned.set(registry, [fd]);
+  return true;
+}
+
+function unpin(registry: string): void {
+  for (const fd of pinned.get(registry) ?? []) {
+    try {
+      closeSync(fd);
+    } catch {
+      // already closed
+    }
+  }
+  pinned.delete(registry);
+}
+
 /** Records a directory this process just created (call it right after mkdtemp). */
 export function registerTestDir(dir: string): void {
-  if (!process.env[RUN_REGISTRY_ENV]) return;
+  const registry = process.env[RUN_REGISTRY_ENV];
+  if (!registry) return;
   try {
     const info = lstatSync(dir);
-    if (info.isDirectory()) append({ kind: 'dir', path: dir, dev: info.dev, ino: info.ino });
+    // Pinned first: a directory that cannot be held open is not registered (its identity would not be reliable).
+    if (info.isDirectory() && pin(registry, dir, info)) append({ kind: 'dir', path: dir, dev: info.dev, ino: info.ino });
   } catch {
     // Not there any more: nothing to remove later.
   }
@@ -189,6 +231,7 @@ export function startRunRegistry(project: RegistryProject = {}): () => Promise<v
         process.stderr.write(`[smurg test run] removed ${leftovers.length} leftover(s) that tests did not clean up (a worker that died, or a test that leaks):\n${leftovers.map((line) => `  ${line}\n`).join('')}`);
       }
     } finally {
+      unpin(registry);
       rmSync(registry, { recursive: true, force: true });
       if (process.env[RUN_REGISTRY_ENV] === registry) {
         if (previous === undefined) delete process.env[RUN_REGISTRY_ENV];

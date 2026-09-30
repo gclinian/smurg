@@ -106,6 +106,31 @@ describe('worktree.merge.request', { timeout: 60_000 }, () => {
     const audit = await s.t.ctx.audit.query({ limit: 50 });
     expect(audit.filter((entry) => entry.action === 'worktree.merge.request' && entry.outcome === 'denied').length).toBe(3);
   });
+
+  it('leaves out the mount points a running Linux sandbox keeps in the worktree (bubblewrap: empty read-only files under the denied names), and only those', async () => {
+    stack = await startWorktreeStack();
+    const s = stack;
+    const { amy, worktreeId, dir } = await amyWorktree(s);
+    // What bubblewrap leaves on the host for `--ro-bind /dev/null <absent path>` while the guest's session runs (seen
+    // on Ubuntu 24.04: the host-only names of sandbox/policy.ts at the top of the worktree, mode 0444, empty).
+    const mountPoints = ['.claude', '.envrc', '.idea', '.mcp.json', '.smurg', '.vscode'];
+    for (const name of mountPoints) await writeFile(join(dir, name), '', { mode: 0o444 });
+    await writeFile(join(dir, 'feature.txt'), 'the guest\'s work\n');
+    // An empty read-only file anywhere else is the guest's own: it is part of the request.
+    await writeFile(join(dir, 'empty-read-only.txt'), '', { mode: 0o444 });
+
+    const { request } = await amy.conn.request('worktree.merge.request', { worktreeId, message: 'with a live sandbox' });
+    const files = (await s.git(['diff-tree', '-r', '--no-commit-id', '--name-only', `${request.commit}^`, request.commit])).trim().split('\n').sort();
+    expect(files).toEqual(['empty-read-only.txt', 'feature.txt']);
+    // The mount points are left exactly where they are (the running sandbox needs them), and still not committed.
+    for (const name of mountPoints) expect((await lstat(join(dir, name))).size).toBe(0);
+    expect((await s.git(['status', '--porcelain=v1', '--untracked-files=all'], dir)).split('\n').filter(Boolean).sort()).toEqual(mountPoints.map((name) => `?? ${name}`));
+
+    // The same name with content, or writable, is not a mount point: it is refused like any host-only path.
+    await rm(join(dir, '.mcp.json'), { force: true });
+    await writeFile(join(dir, '.mcp.json'), '', { mode: 0o644 });
+    expect(await settleError(amy.conn.request('worktree.merge.request', { worktreeId }))).toMatchObject({ code: 'host_only', reason: 'host-only-paths' });
+  });
 });
 
 describe('R9 merge review', { timeout: 60_000 }, () => {

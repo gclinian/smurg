@@ -5,7 +5,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { STEP_MS, joinAs, joinAsHost, openSession, startSmoke, systemChrome, terminalText, typeInTerminal, waitForTerminalText, waitUntil, type SmokeEnv } from './helpers.ts';
+import { STEP_MS, joinAs, joinAsHost, openSession, startSmoke, systemChrome, terminalShows, typeInTerminal, waitForTerminalText, waitUntil, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
 if (chrome === null) console.warn('[web smoke] SKIPPED: no system Chrome found (playwright-core downloads no browser); install Google Chrome to run it.');
@@ -83,14 +83,14 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
     const queue = host.getByRole('region', { name: /等待你決定的建議（1）/ }).or(host.locator('section[aria-label^="等待你決定的建議（1）"]'));
     await queue.first().waitFor({ timeout: STEP_MS });
     expect(await queue.first().textContent()).toContain('echo SUGGESTED-BY-ERIN');
-    expect(await terminalText(host, sessionId)).not.toContain('SUGGESTED-BY-ERIN');
+    expect(await terminalShows(host, sessionId, 'SUGGESTED-BY-ERIN')).toBe(false);
 
     // The owner edits it before accepting: the edited text, and only it, is pasted into the owner's terminal.
     await queue.first().getByRole('button', { name: '修改後採用' }).click();
     await queue.first().getByRole('textbox', { name: '修改建議內容' }).fill('echo EDITED-BY-HOST');
     await queue.first().getByRole('button', { name: '採用修改後的內容' }).click();
     await waitForTerminalText(host, sessionId, 'echo EDITED-BY-HOST');
-    expect(await terminalText(host, sessionId)).not.toContain('SUGGESTED-BY-ERIN');
+    expect(await terminalShows(host, sessionId, 'SUGGESTED-BY-ERIN')).toBe(false);
     // The author sees the outcome.
     await erin.getByText(/修改後採用了你的建議/).first().waitFor({ timeout: STEP_MS });
 
@@ -112,11 +112,11 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
         ['echo SHOULD-NEVER-ARRIVE', 'rejected'],
       ]),
     );
-    expect(await terminalText(host, sessionId)).not.toContain('SHOULD-NEVER-ARRIVE');
+    expect(await terminalShows(host, sessionId, 'SHOULD-NEVER-ARRIVE')).toBe(false);
     await typeInTerminal(host, sessionId, '');
     await typeInTerminal(host, sessionId, 'echo AFTER-THE-REJECTION');
     await waitForTerminalText(host, sessionId, 'AFTER-THE-REJECTION');
-    expect(await terminalText(host, sessionId)).not.toContain('SHOULD-NEVER-ARRIVE');
+    expect(await terminalShows(host, sessionId, 'SHOULD-NEVER-ARRIVE')).toBe(false);
   }, 240_000);
 
   /** The worktree directory whose tree contains `file` (under <share>/.smurg/worktrees/). */

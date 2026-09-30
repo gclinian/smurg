@@ -13,7 +13,7 @@
 import { constants as fsConstants } from 'node:fs';
 import { link, lstat, mkdir, open, readdir, rename, rm, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { SmurgError, foldPathName, isSmurgDirName, relPathSegments, type FileRef, type RootRef } from '@smurg/protocol';
+import { SmurgError, baseNameOfRelPath, foldPathName, isSmurgDirName, relPathSegments, type FileRef, type RootRef } from '@smurg/protocol';
 import { PathDeniedError } from '../core/errors.ts';
 import type { FileIdentity, PathGuard, Principal, ResolvedPath } from '../core/interfaces.ts';
 import { newId } from '../core/lifecycle.ts';
@@ -125,6 +125,9 @@ export async function moveResolved(from: ResolvedPath, to: ResolvedPath, guard: 
   const identity = source.identity as FileIdentity;
   const sameEntry = target.exists && target.identity !== null && sameObject(target.identity, identity);
   if (target.exists && !sameEntry) throw existsError();
+  // Onto the same entry, only the spelling changes (case on APFS, Unicode normalisation): the new name is the one
+  // requested, not the entry's current one (PathGuard hands out paths as the file system spells them).
+  const destination = sameEntry ? join(target.parentRealPath, baseNameOfRelPath(target.ref.path)) : target.realPath;
   let linked = false;
   if (identity.kind === 'file' && !sameEntry) {
     try {
@@ -141,7 +144,7 @@ export async function moveResolved(from: ResolvedPath, to: ResolvedPath, guard: 
   if (!linked) {
     if (!sameEntry && (await lstatOrNull(target.realPath)) !== null) throw existsError();
     try {
-      await rename(source.realPath, target.realPath);
+      await rename(source.realPath, destination);
     } catch (err) {
       const code = errnoCode(err);
       if (code === 'ENOENT') throw notFoundError('vanished');
@@ -152,12 +155,12 @@ export async function moveResolved(from: ResolvedPath, to: ResolvedPath, guard: 
     }
   }
   // Post-move check: the object must be at the checked location, and that location must still be inside the root.
-  const placed = await lstatOrNull(target.realPath);
+  const placed = await lstatOrNull(destination);
   const parentReal = await realpathOrNull(target.parentRealPath);
   const inside = parentReal === target.parentRealPath && isInside(parentReal, target.root.realPath);
   if (placed === null || placed === 'not-directory' || !sameObject(identityOf(placed), identity) || !inside) {
     if (linked) await unlink(target.realPath).catch(() => {});
-    else await rename(target.realPath, source.realPath).catch(() => {});
+    else await rename(destination, source.realPath).catch(() => {});
     throw new PathDeniedError(inside ? 'changed' : 'outside-root', target.ref.path);
   }
   if (linked) {

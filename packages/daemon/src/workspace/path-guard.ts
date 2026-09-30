@@ -20,7 +20,7 @@ import { PathDeniedError, isPathDeniedError, type PathDeniedReason } from '../co
 import type { AuditLog, FileIdentity, GuardedFile, PathGuard, ResolveOptions, ResolvedPath, RootInfo, RootRegistry, SharedLink } from '../core/interfaces.ts';
 import { isHostPrincipal } from '../core/permissions.ts';
 import { syncDirectory } from '../core/state-store.ts';
-import { errnoCode, identityOf, isInside, lstatOrNull, realpathOrNull, sameObject } from './fs-util.ts';
+import { errnoCode, identityOf, isInside, lstatOrNull, otherSpellings, realpathOrNull, sameObject } from './fs-util.ts';
 import { checkAbsoluteLength, checkLexicalPath, describeTarget, platformLimits, type PlatformLimits } from './lexical.ts';
 
 /** Largest file readFile() loads into memory; bigger reads must stream through openRead(). */
@@ -59,11 +59,18 @@ export class PathGuardImpl implements PathGuard {
   private readonly roots: RootRegistry;
   private readonly audit: AuditLog;
   private readonly limits: PlatformLimits;
+  /**
+   * The file system compares names byte-wise, not normalisation-insensitively like APFS (Linux: ext4, btrfs, xfs,
+   * tmpfs): an NFC request is mapped onto the entry that spells the same name differently (fs-util otherSpellings).
+   */
+  private readonly normalisationSensitive: boolean;
 
   constructor(options: PathGuardOptions) {
     this.roots = options.roots;
     this.audit = options.audit;
-    this.limits = platformLimits(options.platform);
+    const platform = options.platform ?? process.platform;
+    this.limits = platformLimits(platform);
+    this.normalisationSensitive = platform !== 'darwin';
   }
 
   lexical(path: unknown, options: { readonly allowRoot?: boolean } = {}): string {
@@ -248,13 +255,28 @@ export class PathGuardImpl implements PathGuard {
     let parentRealPath = dirname(root.realPath);
     /** The names below `current` that do not exist yet. */
     let missing: readonly string[] = [];
+    /** The last segment was a symlink that was followed (in-root or shared link): realPath is its target. */
+    let lastFollowedLink = false;
     if (segments.length === 0) identity = identityOf(await lstat(root.realPath));
 
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i] as string;
       const last = i === segments.length - 1;
-      const candidate = join(current, segment);
-      const st = await lstatOrNull(candidate);
+      let candidate = join(current, segment);
+      let st = await lstatOrNull(candidate);
+      if (st === null && this.normalisationSensitive) {
+        // Not there under its NFC spelling: the one entry of this (contained, symlink-free) directory that spells the
+        // same name differently, if there is exactly one. It goes through every check below like any other entry.
+        const others = await otherSpellings(current, segment);
+        if (others.length === 1) {
+          const onDisk = join(current, others[0] as string);
+          const found = await lstatOrNull(onDisk);
+          if (found !== null && found !== 'not-directory') {
+            candidate = onDisk;
+            st = found;
+          }
+        }
+      }
       if (st === 'not-directory') throw new PathDeniedError('not-directory', target);
       if (st === null) {
         // The rest does not exist yet: plain names below the last existing (symlink-free, contained) directory.
@@ -287,6 +309,7 @@ export class PathGuardImpl implements PathGuard {
             identity = identityOf(await lstat(linkTarget));
             realPath = linkTarget;
             parentRealPath = dirname(linkTarget);
+            lastFollowedLink = true;
           }
           continue;
         }
@@ -301,6 +324,7 @@ export class PathGuardImpl implements PathGuard {
           identity = identityOf(targetStat);
           realPath = linkTarget;
           parentRealPath = dirname(linkTarget);
+          lastFollowedLink = true;
         }
         continue;
       }
@@ -344,10 +368,22 @@ export class PathGuardImpl implements PathGuard {
     if (identity !== null && identity.kind === 'other') throw new PathDeniedError('special-file', target);
     if (identity !== null && identity.kind === 'file' && identity.nlink > 1 && !isPrivileged) throw new PathDeniedError('hard-link', target);
     if (options.mustExist && !exists) throw new SmurgError('not_found');
+    // The paths handed out are spelled as the file system spells them (native realpath: the stored case and Unicode
+    // normalisation of every existing component; the missing names as requested). Every read, write, rename and
+    // post-move check works on that spelling: APFS keeps an entry's stored name when a file is renamed over it (NFC
+    // `café` onto a stored NFD `cafe` + U+0301, `readme.md` onto `README.md`), so a request-spelled path is never what
+    // realpath reports afterwards, and the post-move check took the new file for one that landed elsewhere (removed
+    // it and refused the write). A followed final link keeps its target (already a realpath) and the link's name.
+    let name = segments.at(-1) ?? '';
+    if (segments.length > 0 && !lastFollowedLink) {
+      realPath = onDisk;
+      parentRealPath = dirname(onDisk);
+      name = basename(onDisk);
+    }
     return Object.freeze({
       ref: { root: root.ref, path },
       root,
-      name: segments.at(-1) ?? '',
+      name,
       realPath,
       parentRealPath,
       exists,

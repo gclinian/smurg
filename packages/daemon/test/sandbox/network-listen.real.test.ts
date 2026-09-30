@@ -12,13 +12,18 @@
 //   * it still reaches an allow-listed server through the proxy (the outbound rule stays);
 //   * the Claude login process has exactly one extra right, a TCP listener (its OAuth callback): no UDP socket, no
 //     connection to a host service on 127.0.0.1, no Unix socket but the hook socket (it has no token for it).
+//
+// Linux (bubblewrap) has no such rules to remove: srt runs EVERY guest process in its own network namespace
+// (`--unshare-net`, which the hardening requires), whose only way out is srt's bridge socket to the proxy. A guest
+// process may bind and listen there (its own loopback; the namespace has no LAN address), and nothing outside the
+// namespace can connect to it: the second describe proves that for an ordinary guest process and the login process.
 import { networkInterfaces } from 'node:os';
-import { createConnection } from 'node:net';
+import { createConnection, createServer } from 'node:net';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { SandboxSpec, WrappedCommand } from '../../src/core/interfaces.ts';
 import { LOOPBACK_LISTEN_LINES } from '../../src/sandbox/harden.ts';
-import { closeServer, countingHttpServer, createSandboxFixture, isDarwin, marker, printWarningsOnFailure, q, results, runWrapped, startWrapped, unixEchoServer, type SandboxFixture } from './helpers.ts';
+import { closeServer, countingHttpServer, createSandboxFixture, isDarwin, isLinux, marker, printWarningsOnFailure, q, results, runWrapped, startWrapped, unixEchoServer, type SandboxFixture } from './helpers.ts';
 
 const TIMEOUT = 120_000;
 
@@ -174,6 +179,88 @@ describe.runIf(isDarwin)('guests never listen for the network: srt\'s proxy-port
       await closeServer(hook);
       await closeServer(ctl);
       await closeServer(other);
+      await service.close();
+    }
+  }, TIMEOUT);
+});
+
+/** A TCP port nothing on this host listens on right now (bound on 127.0.0.1 and released). */
+async function freeHostPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as { port: number }).port;
+  await closeServer(server);
+  return port;
+}
+
+describe.runIf(isLinux)('guests never listen for the network: every guest process has its own network namespace (real srt, Linux)', () => {
+  let f: SandboxFixture;
+  const lan = lanAddresses();
+
+  beforeAll(async () => {
+    f = await createSandboxFixture({ files: { 'README.md': 'share\n' } });
+    if (lan.length === 0) console.warn('[network-listen] no LAN address on this machine: the host-side connection checks use 127.0.0.1 only');
+  }, TIMEOUT);
+
+  afterEach((context) => printWarningsOnFailure(f, context));
+
+  afterAll(async () => {
+    await f?.cleanup();
+  }, TIMEOUT);
+
+  async function wrapFor(command: string, login: boolean): Promise<WrappedCommand> {
+    const guest = await f.guest(login ? 'lara' : 'nina');
+    const base = f.spec({ command, guest, settingsDir: await f.settingsDir(`ses_ns_${Date.now()}`, '{}\n'), ...(login ? { rootPath: guest.home } : {}) });
+    return f.sandbox.wrap(login ? { ...base, loginProcess: true as const, loginPrograms: ['/usr/bin/perl'] } : base);
+  }
+
+  it.each([
+    ['an ordinary guest process', false],
+    ['the Claude login process', true],
+  ] as const)('%s listens only inside its own namespace: the host reaches it neither on 127.0.0.1 nor on a LAN address, and the namespace has no LAN address', async (_label, login) => {
+    const port = await freeHostPort();
+    const lines = [
+      ...lan.map((addr, i) => listenProbe(`ns-lan-${i}`, addr, 0, 'plain')),
+      listenProbe('ns-any', '0.0.0.0', port, 'reuseaddr', 6),
+      'echo @@done=yes@@',
+    ];
+    const wrapped = await wrapFor(lines.join('\n'), login);
+    expect(wrapped.args[1]).toContain(' --unshare-net ');
+    const proc = startWrapped(wrapped, { timeoutMs: 90_000 });
+    await proc.waitForOutput(/@@ns-any=(?:ok|denied)@@/, 60_000);
+    // While the guest's listener waits for a peer, the host side tries every address of its own at that port.
+    const reached: string[] = [];
+    for (let round = 0; round < 4; round++) {
+      for (const addr of ['127.0.0.1', ...lan]) if (await hostConnects(addr, port)) reached.push(addr);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    const r = results((await proc.exited).output);
+    expect(r['done']).toBe('yes');
+    expect(r['ns-any']).toBe('ok'); // a listener inside the namespace is allowed …
+    expect(r['ns-any-accepted']).toBeUndefined(); // … and nobody outside reached it
+    expect(reached).toEqual([]);
+    for (const i of lan.keys()) expect(r[`ns-lan-${i}`]).toBe('denied'); // the host's LAN address is not in there
+  }, TIMEOUT);
+
+  it('neither reaches a service on the host\'s loopback directly, nor the daemon\'s control socket; an ordinary guest reaches an allow-listed one through the proxy', async () => {
+    const service = await countingHttpServer('host-service');
+    const ctlReply = marker('CTL-PONG');
+    const ctl = await unixEchoServer(f.ctx.config.runPaths.ctl, ctlReply);
+    try {
+      const direct = `if /usr/bin/perl -MIO::Socket::INET -e 'IO::Socket::INET->new(PeerAddr => "127.0.0.1", PeerPort => $ARGV[0], Proto => "tcp", Timeout => 3) or exit 1' ${service.port}; then echo @@host-service=ok@@; else echo @@host-service=denied@@; fi`;
+      const command = [direct, unixProbe('control-socket', f.ctx.config.runPaths.ctl), 'echo @@done=yes@@'].join('\n');
+      for (const login of [false, true]) {
+        const r = results((await runWrapped(await wrapFor(command, login), 90_000)).output);
+        expect(r, login ? 'login' : 'guest').toMatchObject({ done: 'yes', 'host-service': 'denied', 'control-socket': 'denied' });
+      }
+      expect(service.hits()).toBe(0);
+      await f.setAllowedDomains([`127.0.0.1:${service.port}`]);
+      const viaProxy = await runWrapped(await wrapFor(`echo "@@proxied=$(/usr/bin/curl -s -o /dev/null -w '%{http_code}' --max-time 10 --noproxy '' http://127.0.0.1:${service.port}/)@@"`, false));
+      expect(results(viaProxy.output)['proxied']).toBe('200');
+      expect(service.hits()).toBe(1);
+    } finally {
+      await f.setAllowedDomains([]);
+      await closeServer(ctl);
       await service.close();
     }
   }, TIMEOUT);

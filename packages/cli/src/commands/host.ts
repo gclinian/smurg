@@ -630,8 +630,8 @@ export function watchRelay(ctx: CommandContext, daemon: Daemon, target: RelayWat
 }
 
 /** Linux fixes the host can run themselves (the refusal text itself is written for guests). */
-function sandboxFix(reason: string): string[] {
-  if (process.platform !== 'linux') return [];
+export function sandboxFix(reason: string, platform: NodeJS.Platform = process.platform): string[] {
+  if (platform !== 'linux') return [];
   if (reason === 'apparmor-userns') {
     return [
       '  Ubuntu 24.04 以上的修正方法（只放寬 bubblewrap，建議）：',
@@ -641,7 +641,15 @@ function sandboxFix(reason: string): string[] {
       '  修正後重新執行 smurg host。',
     ];
   }
-  if (reason === 'dependency-missing') return ['  修正方法（Ubuntu / Debian）：sudo apt-get install bubblewrap socat ripgrep，然後重新執行 smurg host。'];
+  if (reason === 'dependency-missing') {
+    // The daemon gives this reason both for a missing program and for a bubblewrap older than 0.8 (no
+    // --disable-userns / --chmod, sandbox/checks.ts checkBwrapFeatures): installing does not help the second case.
+    return [
+      '  修正方法（Ubuntu / Debian）：sudo apt-get install bubblewrap socat ripgrep，然後重新執行 smurg host。',
+      '  bubblewrap 需要 0.8 以上的版本（用 bwrap --version 查看）：Ubuntu 24.04、Debian 12 以上內建的版本即可；Ubuntu 22.04 內建的 0.6 太舊，',
+      '  需要更新作業系統或另外安裝較新的 bubblewrap。',
+    ];
+  }
   return [];
 }
 

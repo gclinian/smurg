@@ -18,6 +18,7 @@ import { constants as fsConstants, type Stats } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, open, readdir, readlink, realpath, rename, rm, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SmurgError } from '@smurg/protocol';
+import { HOST_ONLY_DIR_NAMES, HOST_ONLY_FILE_NAMES } from '../sandbox/policy.ts';
 import { firstLine, requireOk, type GitIdentity, type GitObjectStore, type GitRunner } from './git.ts';
 import { parseRawDiff, type RawDiffEntry } from './git-parse.ts';
 import { WorktreeTamperedError } from './integrity.ts';
@@ -249,6 +250,29 @@ async function publishObjects(from: string, to: string): Promise<void> {
   }
 }
 
+/**
+ * bubblewrap's mount points at the top of the worktree (Linux). A guest's sandbox denies writing the host-only names at
+ * the top of its session root (sandbox/policy.ts hostOnlyWriteDenies); srt enforces a deny on a path that does not
+ * exist with `--ro-bind /dev/null <path>`, and bubblewrap creates that mount point ON THE HOST: an empty read-only file
+ * `.claude`, `.smurg`, `.mcp.json`, … in the worktree. srt removes them only once none of the daemon's sandboxes runs
+ * any more, so a merge request made while the guest's session is still open finds them, and `git add --all` stages
+ * them (the request was then refused: 「合併內容不可以包含 .smurg 資料夾」). They are not the guest's work: the commit
+ * leaves them out, exactly as they are in the branch head.
+ *
+ * Recognised the way srt recognises its own leftovers (isStaleBwrapMountPoint: an empty regular file without any
+ * write bit and with a single link), and only under the exact names the sandbox denies at the top of the root.
+ * Nothing else makes such a file there: the guest's sandbox and PathGuard refuse those names to guests, and git checks
+ * files out with their write bits.
+ */
+export async function sandboxMountPoints(workTree: string): Promise<string[]> {
+  const found: string[] = [];
+  for (const name of [...HOST_ONLY_DIR_NAMES, ...HOST_ONLY_FILE_NAMES]) {
+    const st = await lstatOrNull(join(workTree, name));
+    if (st !== null && st.isFile() && st.size === 0 && (st.mode & 0o222) === 0 && st.nlink === 1) found.push(name);
+  }
+  return found;
+}
+
 /** Removes staging stores a stopped daemon left behind (they are the daemon's own, never shared). */
 export async function sweepStaging(stagingRoot: string): Promise<void> {
   let names: string[];
@@ -295,6 +319,11 @@ export async function stageCommit(input: StageCommitInput): Promise<StageCommitR
     }
 
     requireOk(await git.run({ gitDir, workTree, store, args: ['add', '--all'], timeoutMs }), '暫存 worktree 的變更');
+    // The sandbox's mount points go back to what the branch head has there (nothing): never part of the request.
+    const mountPoints = await sandboxMountPoints(workTree);
+    if (mountPoints.length > 0) {
+      requireOk(await git.run({ gitDir, workTree, store, args: ['reset', '--quiet', head, '--', ...mountPoints], timeoutMs }), '暫存 worktree 的變更');
+    }
     const staged = await git.run({ gitDir, workTree, store, args: ['diff', '--cached', '--quiet', '--no-ext-diff', head], timeoutMs });
     if (staged.code === 0) return { commit: head, created: false };
     if (staged.code !== 1) requireOk(staged, '檢查 worktree 的變更');

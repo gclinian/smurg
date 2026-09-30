@@ -40,8 +40,8 @@ Spike: `/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8
 7. **Teardown (R2 kick).**
    - First call `pty.kill()`.
    - Then, on macOS, scan the user's pids with `sandbox_check()` using a per-session marker file plus a sibling decoy file (a tiny native helper) and SIGKILL the matches. `setsid()`-detached guest processes otherwise survive the kick and keep write access to the project (verified).
-   - On Linux, srt already runs bwrap with `--new-session --die-with-parent --unshare-pid` (from source; unverified at runtime).
-8. **Linux (cannot be tested here).**
+   - On Linux, srt already runs bwrap with `--new-session --die-with-parent --unshare-pid`: killing bwrap ends the guest's whole PID namespace (verified 2026-10-01; `--new-session` is dropped for a guest terminal's own fresh pty, see "Linux, verified 2026-10-01").
+8. **Linux** (written before any Linux run; the measured behaviour and the hardening it needed are in "Linux, verified 2026-10-01").
    - The installer must ensure `bwrap`, `socat` and `rg` are installed, and must fix the Ubuntu 24.04+ AppArmor user-namespace restriction. The preferred fix is an AppArmor profile that grants `userns` to `/usr/bin/bwrap` and to srt's `apply-seccomp`. The fallback is the sysctl.
    - `allowUnixSockets` is **ignored on Linux**. Keeping the daemon Unix socket reachable needs `allowAllUnixSockets: true`, plus hiding `/run` and the other socket dirs with `denyRead`. The alternative verified on macOS is a loopback HTTP endpoint reached through srt's proxy (allow-list entry `127.0.0.1:<port>`).
 9. **Pin srt to the exact version (`0.0.77`).** It is a "research preview": re-run this spike before any upgrade. The hardening step fails closed if the profile text changes.
@@ -212,9 +212,179 @@ Other suites:
 
 ---
 
+## Linux, verified 2026-10-01
+
+Machine: a Lima VM with Ubuntu 24.04.2 LTS, arm64, kernel 6.8.0-55, bubblewrap 0.9.0, socat 1.8.0.0, ripgrep 14.1.0,
+Node 22.22.1, srt 0.0.77. `kernel.apparmor_restrict_unprivileged_userns=1` (the stock value), with the
+`smurg-bwrap` AppArmor profile loaded. It is the profile that `scripts/install.sh`, CI and `smurg host` print:
+`profile smurg-bwrap /usr/bin/bwrap flags=(unconfined) { userns, }`. No `claude` is installed on this machine, so the
+real-claude tests skip. The first CI run (GitHub Actions ubuntu-24.04, x64) failed 27 tests. Every failure in the
+sandbox, sessions and worktree tests was reproduced in this VM and fixed. The code is in `packages/daemon/src/sandbox/`
+(`harden.ts` "Linux", `policy.ts`, `service.ts`, `checks.ts`).
+
+### What srt generates on Linux
+
+For a guest process, srt 0.0.77 writes one `bwrap` command. The options appear in this order:
+`--new-session --die-with-parent`, then `--unsetenv` / `--setenv` pairs and `--unshare-net`. Next comes a writable bind
+of its bridge socket, then `--ro-bind / /` and a writable bind of each write root. Then there is one `--tmpfs` for every
+read-denied directory that exists (`/home`, `/root`, `/tmp`, `/run`, `/mnt`, `/media`, `/var/tmp`, `/var/snap`,
+`<share>/.smurg`, …; `/var/run` is a link to `/run`, and absent entries are skipped). The `allowRead` / `allowWrite`
+carve-outs are bound back on top of those. The write denies follow as read-only binds, and after them
+`--dev /dev --unshare-pid --unshare-user --cap-drop ALL --proc /proc -- /bin/bash -c '<command>'`. When the mounts do
+not fit on one command line, srt puts them in an arguments file (`/bin/sh -c 'exec 9<"$1" …' srt-args
+/proc/<pid>/fd/<n> bwrap … --args 9`).
+
+Inside the sandbox, measured:
+
+- The uid is the host user's.
+- `CapEff` is 0 and `NoNewPrivs` is 1.
+- pid 1 is bwrap.
+- `Seccomp` is 0: with `allowAllUnixSockets: true`, srt applies no seccomp filter at all ("Skipping seccomp filter").
+  So srt's `apply-seccomp` helper never runs and needs no AppArmor profile of its own.
+- The network namespace has only `lo`. `socat` inside forwards TCP 3128 and 1080 to srt's bridge socket, which leads
+  to the proxy in the daemon.
+
+### What was wrong, and the fixes
+
+1. **The host home was listable** (self-test exit 23, "the host home could be listed").
+   - Cause 1: bubblewrap creates the directories that lead to a carve-out on the read-deny tmpfs. The host home, the
+     state dir and `<stateDir>/guests` then exist as a skeleton that anyone can list. In worktree mode the share does
+     too. A listing shows the names on the way to the carve-outs, such as other guests' ids.
+   - Cause 2: every such tmpfs was writable, so a guest could create files in `/tmp`, in the host home, or in
+     `<share>/.smurg`. They were private to the sandbox, but "writes only to the roots" did not hold.
+   - Cause 3: the sandboxed process runs under the unconfined `smurg-bwrap` profile, which allows user namespaces. In
+     a nested one (`unshare -Ur ls`) it holds `CAP_DAC_READ_SEARCH` over its own files and could list the skeleton
+     anyway.
+   - Fix: `hardenLinuxCommand` appends `--disable-userns` before bwrap's `--`. It adds `--chmod 0111` on every directory
+     that lives on a read-deny tmpfs: the tmpfs roots, and the directories bubblewrap creates on them for a later mount.
+     Lookup by path still works, but listing does not. It also adds `--remount-ro` on every such tmpfs, so nothing can
+     be created there and the modes cannot be changed back.
+   - These options need bubblewrap 0.8 or later (`--disable-userns` is the newest of them). `checks.ts`
+     `checkBwrapFeatures` reads `bwrap --help`, and an older bubblewrap is refused up front (`dependency-missing`).
+     Ubuntu 22.04 ships 0.6.1, so it is refused; Debian 12 ships 0.8.0 and Ubuntu 24.04 0.9.0.
+   - Every bwrap argument, including those in the arguments file, is checked against the options srt 0.0.77 writes.
+     The check fails closed: `--dev-bind`, a writable `/`, a missing `--unshare-net` / `--unshare-user` /
+     `--unshare-pid` / `--cap-drop ALL` / fresh `/proc` and `/dev` are all refused.
+   - Measured after the fix: the host home, the state dir, another guest's dir, `/tmp`, `/home` and `/run` cannot be
+     listed, and `/tmp` and the host home cannot be written. `chmod 755 /tmp` and `unshare -Ur` fail. The canary
+     self-test passes.
+2. **The refusal blamed AppArmor for any failed self-test while the sysctl was 1.** Now AppArmor is named only when a
+   bare `bwrap --unshare-user --unshare-net --ro-bind / / -- /bin/true` fails with "Permission denied" or "Operation not
+   permitted" (`bwrapUsernsBlocked`).
+   - Verified by unloading the profile (`apparmor_parser -R /etc/apparmor.d/smurg-bwrap`). The bare bwrap then fails
+     with `loopback: Failed RTM_NEWADDR: Operation not permitted`. The preflight returns `apparmor-userns` with the
+     host's fix in the detail, and `smurg host` prints the profile commands.
+   - With the profile reloaded the preflight is ok again.
+   - A copy of bwrap that no profile covers fails earlier, with `setting up uid map: Permission denied`.
+3. **Every guest was offline.** srt binds its bridge socket (`/tmp/claude-http-<id>.sock`) BEFORE the file-system
+   mounts, so the `/tmp` tmpfs hid it and every request failed, allow-listed ones included.
+   - Fix: the service asks srt for its bridge sockets (`getLinuxHttpSocketPath` / `getLinuxSocksSocketPath`) and adds
+     them to every guest policy as read-only file carve-outs (`proxySocketPaths`).
+   - The preflight refuses (`init-failed`) when srt reports no bridge socket.
+4. **`--new-session` broke guest terminals.** Measured with node-pty: resizing sent no SIGWINCH, so a TUI never
+   redrew. There was no job control, and Ctrl-C reached bubblewrap itself, whose process group was the foreground one.
+   That ended the whole session.
+   - Fix (`LINUX_SESSION_PRELUDE`): the outer shell drops `--new-session` only when it is a session leader with a
+     controlling terminal and stdin is a terminal. That is exactly node-pty's fresh pty, which no other session holds,
+     so TIOCSTI can only reach the guest's own input.
+   - Spawned any other way (child_process, stdin not a terminal), bwrap keeps `--new-session`.
+   - Test: `test/sessions/real-modules.test.ts`. A resize reaches the program as SIGWINCH with the new size. Ctrl-C
+     interrupts a trapping program and a plain `sleep` (exit 130), and the session goes on. With `--new-session` forced
+     back, the same test fails (no SIGWINCH).
+5. **bubblewrap's mount points were left in the host's project.**
+   - For an absent write-denied name, srt mounts `/dev/null` on it, and bubblewrap creates the mount point on the HOST
+     as an empty 0444 file: `<share>/.claude`, `.git`, `.vscode`, `.idea`, `.mcp.json`, `.envrc`.
+   - The host's own tools broke on them: `mkdir .claude` gave EEXIST, and git failed with "invalid gitfile format".
+     `git add --all` in a worktree staged them.
+   - srt removes the mount points only through `cleanupAfterCommand()`, once its count of running wraps is back to
+     zero, and the daemon never called it after a session process.
+   - Fixes:
+     - For each absent DIRECTORY name, the policy also denies a child that never exists
+       (`policy.ts linuxDirPlaceholderDenies`). srt then mounts an empty read-only directory instead ("Fix 2" in
+       `linux-sandbox-utils.js`), which the host sees as an ordinary empty directory. Git ignores an empty `.git/`
+       and never stages an empty directory.
+     - `SandboxService.release()` is called by the sessions module whenever a guest process exits or never started.
+       The self-tests release their own wraps.
+     - The service records these directories before a sandbox can make them (state document `sandbox-placeholders`).
+       The next daemon removes the recorded ones that are still empty before its first sandbox, which covers a
+       daemon that died without cleaning up.
+     - The file names `.mcp.json` and `.envrc` keep srt's file form while a guest process runs.
+       `worktree/stage-commit.ts` keeps them out of a merge.
+6. **srt drops write-deny globs on Linux**: bubblewrap mounts concrete paths only, so `<root>/**/.claude` protected
+   nothing.
+   - The service now walks the root and adds every EXISTING host-only entry below the top as a literal deny (a
+     read-only bind; it follows no symlink and skips `node_modules`). More than 1000 such entries refuse the session.
+   - A NEW host-only name below the top (`sub/.claude/settings.json`, `sub/.mcp.json`) cannot be blocked with mounts:
+     a residual (ARCHITECTURE §12).
+7. **R9.2 read-only shared links**: bubblewrap can only mount on what a symlink points at, never on the link. The
+   target stays read-only, but a guest can remove or re-point the link, which is an entry of its own writable worktree.
+   The daemon's path guard refuses a re-pointed shared link (`shared-link-tampered`), so the host never follows it.
+8. **Unix sockets**: `allowUnixSockets` is ignored on Linux, so srt uses `allowAllUnixSockets: true`. Sockets are
+   kept away by hiding the directories that hold them. `/var/snap` (snap LXD's `unix.socket`; Ubuntu puts its first
+   user in the `lxd` group), `/var/lib/lxd` and `/var/lib/incus` were added to `/run`, `/tmp` and the others.
+   - Abstract sockets belong to the network namespace. Measured: a host abstract socket answers the host and not a
+     guest (`socat ABSTRACT-CONNECT`).
+   - The hook socket (a read-only file carve-out) answers, while the daemon's control socket and another socket in the
+     run dir do not.
+   - A socket in a directory the guest can read (the share, the guest dir) stays connectable: a residual.
+9. **Other things srt does**:
+   - srt binds its own `/tmp/claude` WRITABLE whenever that directory exists on the host (not configurable). It would
+     be a scratch dir shared by every guest and by the host's own sandboxed Claude Code. The hardening puts a tmpfs of
+     its own over any writable bind that is neither a write root nor a bridge socket (then hidden and read-only).
+   - srt's `java-proxy-agent.jar` read carve-out creates a skeleton under the daemon's `node_modules`. It is hidden like
+     every other skeleton.
+
+### Network and the login process (D-12)
+
+Every guest process has its own network namespace. It can bind and listen there, on its own loopback, because the
+namespace has no LAN address. Measured (`test/sandbox/network-listen.real.test.ts`, Linux describe):
+
+- A listener on 0.0.0.0 inside the namespace is reachable neither from the host's 127.0.0.1 nor from its LAN address.
+- Binding the host's LAN address inside fails.
+- A service on the host's loopback cannot be reached directly. An allow-listed one is reached through the proxy (200),
+  and a forbidden one gets 403.
+
+The Claude login process gets exactly the same rules. On Linux it needs no exec allow-list, unlike macOS, where
+Seatbelt's `localhost` admits every address. The hardening refuses any guest command without `--unshare-net`.
+`test/sessions/login.real.test.ts` covers it: the stand-in login listens on 0.0.0.0 and connects to it from inside,
+while the host cannot connect.
+
+### Timings (this VM)
+
+| what | time |
+|---|---|
+| agent wrap, including the canary and the hook self-test | ~250 ms |
+| a kicked guest's processes gone | 78 ms |
+
+### Residuals on Linux (ARCHITECTURE §12)
+
+- A new host-only name below the top of the root cannot be blocked (item 6).
+- A guest can remove or re-point a shared link in its own worktree (item 7).
+- A socket in a readable directory is connectable (item 8).
+- While a guest process runs, the host's project shows bubblewrap's placeholders: empty directories for absent
+  `.claude` / `.git` / `.vscode` / `.idea`, and empty read-only files for absent `.mcp.json` / `.envrc`.
+- The real-sandbox tests ran on arm64 only. x64 is CI's.
+
+### Tests that run on Linux
+
+- `test/sandbox/r5.sandbox.test.ts` (R5, R9 at the sandbox level)
+- `hook-selftest.real.test.ts`
+- `network-listen.real.test.ts` (Linux describe)
+- `service.test.ts`
+- `harden.test.ts`
+- `test/sessions/real-modules.test.ts`
+- `login.real.test.ts`
+- `test/worktree/r9.real-sandbox.test.ts`
+- `test/integration/sessions-sandbox-worktree.test.ts`
+
+The profile-text tests of the login process (`login-policy.real`, `login-profile.real`) are about Seatbelt and stay
+macOS-only.
+
+---
+
 ## Unverified / could not test here
 
-- **Everything on Linux** (Q7). The notes below come from the srt 0.0.77 README and `dist/sandbox/linux-sandbox-utils.js`, not from runs.
+- **Everything on Linux** (Q7). The notes below come from the srt 0.0.77 README and `dist/sandbox/linux-sandbox-utils.js`, not from runs. **Superseded by "Linux, verified 2026-10-01" above**: the `--new-session` risk was real and is fixed, `apply-seccomp` never runs with `allowAllUnixSockets`, and the AppArmor profile is verified.
   - **Dependencies:** `bubblewrap`, `socat`, `ripgrep`, and optionally the prebuilt `apply-seccomp` for x64/arm64. `checkLinuxDependencies()` reports missing `bwrap`/`socat`. `rg` is checked in `checkDependenciesCommon`. A missing seccomp helper is only a *warning* ("unix socket access not restricted").
   - **Ubuntu 24.04+ AppArmor:**
     - `kernel.apparmor_restrict_unprivileged_userns=1` lets `unshare(CLONE_NEWUSER)` succeed but strips capabilities, so bwrap and the seccomp helper's nested namespace fail.
@@ -445,7 +615,7 @@ Independent re-run and source audit by a second engineer on 2026-09-27, same mac
 
 ### Still unverified (unchanged — cannot be tested on this macOS host)
 
-- Everything on **Linux** at runtime (bwrap/socat/rg behaviour, AF_UNIX seccomp block, `allowAllUnixSockets` + `/run` denies, the Ubuntu 24.04+ AppArmor userns fix, whether `--new-session` breaks SIGWINCH/job-control/Ctrl-C for a guest TUI). Also: node-pty compiled from source on Linux (no prebuild in the tarball).
+- ~~Everything on **Linux** at runtime~~: verified on Ubuntu 24.04 arm64 on 2026-10-01 (section "Linux, verified 2026-10-01"). node-pty is compiled from source on Linux (no prebuild in the tarball), which worked with build-essential.
 - Claude Code **interactive OAuth login** inside the sandbox and where credentials land when the keychain is blocked (expected `$CLAUDE_CONFIG_DIR/.credentials.json`).
 - Whether the srt **default** profile exposes keychain item *secrets* (only enumeration was measured; hardening closes the channel regardless).
 - Real Claude Code **hooks** / a coordination **MCP server** inside the sandbox talking to the daemon socket (only `nc -U` tested).

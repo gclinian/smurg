@@ -1,7 +1,7 @@
 // Share preparation and configuration: the daemon only creates `.smurg/` inside the shared folder (and excludes it
 // from git), and refuses locations that would expose its own state or the whole home directory. Also the Claude Code
 // version policy of config.sessions (minimum, verified versions, verdict).
-import { readFile, stat, mkdir } from 'node:fs/promises';
+import { readFile, readdir, stat, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CLAUDE_MIN_VERSION, CLAUDE_VERIFIED_VERSIONS, claudeVersionVerdict, compareClaudeVersions, parseClaudeVersion, resolveConfig } from '../src/core/config.ts';
@@ -33,6 +33,28 @@ describe('prepareShare', () => {
   it('works for folders that are not git repositories', async () => {
     const project = await createTempProject(base, 'plain', { files: { 'x.txt': 'x' } });
     expect(await prepareShare(project, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: false });
+  });
+
+  // A daemon that crashed during a Linux guest session can leave bubblewrap's empty mount point `.git` (a directory,
+  // or an empty read-only file) in a folder that is no repository. That is not a repository, and nothing is written
+  // into it, so the next daemon's placeholder sweep can still remove it.
+  it('does not take an empty .git placeholder for a repository and writes nothing into it', async () => {
+    const dirForm = await createTempProject(base, 'dir-form', { files: { 'x.txt': 'x' } });
+    await mkdir(join(dirForm, '.git'));
+    expect(await prepareShare(dirForm, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: false });
+    expect(await readdir(join(dirForm, '.git'))).toEqual([]);
+
+    const fileForm = await createTempProject(base, 'file-form', { files: { 'x.txt': 'x' } });
+    await writeFile(join(fileForm, '.git'), '', { mode: 0o444 });
+    expect(await prepareShare(fileForm, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: false });
+    const notGitfile = await createTempProject(base, 'not-gitfile', { files: { '.git': 'hello\n' } });
+    expect(await prepareShare(notGitfile, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: false });
+  });
+
+  it('accepts a gitfile (linked worktree or submodule) as a repository without writing an exclude file', async () => {
+    const project = await createTempProject(base, 'linked', { files: { '.git': 'gitdir: /elsewhere/.git/worktrees/linked\n' } });
+    expect(await prepareShare(project, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: true });
+    expect(await readFile(join(project, '.git'), 'utf8')).toBe('gitdir: /elsewhere/.git/worktrees/linked\n');
   });
 
   it('refuses the file system root, the home directory, and any overlap with the state directory', async () => {

@@ -11,7 +11,7 @@ import { PathDeniedError, type PathDeniedReason } from '../src/core/errors.ts';
 import type { Principal } from '../src/core/interfaces.ts';
 import { SYSTEM_PRINCIPAL } from '../src/core/permissions.ts';
 import { PathGuardImpl } from '../src/workspace/path-guard.ts';
-import { identityOf } from '../src/workspace/fs-util.ts';
+import { identityOf, unaddressableNames } from '../src/workspace/fs-util.ts';
 import { createTestDaemon, type TestDaemon } from '../src/testing/index.ts';
 
 const execFileAsync = promisify(execFile);
@@ -89,7 +89,11 @@ describe('lexical layer', () => {
   });
 
   it('refuses an absolute path longer than PATH_MAX', async () => {
-    const deep = Array.from({ length: 12 }, () => 'd'.repeat(100)).join('/');
+    // Longer than PATH_MAX on both platforms (macOS 1,024 bytes, Linux 4,096: 17 × 256 bytes), in segments every
+    // platform accepts (85 × 中 = 255 UTF-8 bytes, Linux's NAME_MAX) and far below the protocol's 4,096 characters: only
+    // the absolute-length check can refuse it. (Twelve 100-byte segments passed for this on macOS only.)
+    const deep = Array.from({ length: 17 }, () => '中'.repeat(85)).join('/');
+    expect(t.ctx.paths.lexical(deep)).toBe(deep);
     await denied(t.ctx.paths.resolve(main(deep), { principal: editor }), 'too-long');
   });
 
@@ -107,6 +111,74 @@ describe('lexical layer', () => {
     const linux = new PathGuardImpl({ roots: t.ctx.roots, audit: t.ctx.audit, platform: 'linux' });
     expect(mac.lexical(cjk)).toBe(cjk);
     expect(() => linux.lexical(cjk)).toThrow(PathDeniedError);
+  });
+});
+
+describe('names stored in another Unicode normalisation (NFD, as macOS tools write them)', () => {
+  // Requests are NFC (the protocol normalises every path). APFS finds an NFD entry by its NFC name itself; ext4 compares
+  // bytes, so on Linux PathGuard maps the request onto the one entry that spells the name differently.
+  const NFD_FILE = 'cafe\u0301-nfd.txt';
+  const NFD_DIR = 'dir-cafe\u0301';
+
+  it('an NFC request reaches an NFD file and an NFD directory: read, write in place (no second entry), create inside', async () => {
+    await writeFile(join(t.root, NFD_FILE), 'nfd name\n');
+    await mkdir(join(t.root, NFD_DIR));
+    await writeFile(join(t.root, NFD_DIR, 'inside.txt'), 'inside\n');
+    const read = await t.ctx.paths.readFile(main('café-nfd.txt'), { principal: editor });
+    expect(new TextDecoder().decode(read.bytes)).toBe('nfd name\n');
+    const inside = await t.ctx.paths.readFile(main('dir-café/inside.txt'), { principal: editor });
+    expect(new TextDecoder().decode(inside.bytes)).toBe('inside\n');
+    const r = await t.ctx.paths.resolve(main('café-nfd.txt'), { principal: editor });
+    expect(r.ref.path).toBe('café-nfd.txt');
+    expect(r.exists).toBe(true);
+    expect(r.identity?.ino).toBe((await lstat(join(t.root, NFD_FILE))).ino);
+
+    await t.ctx.paths.writeFileAtomic(main('café-nfd.txt'), new TextEncoder().encode('written\n'), { principal: editor });
+    await t.ctx.paths.writeFileAtomic(main('dir-café/new.txt'), new TextEncoder().encode('new\n'), { principal: editor });
+    const top = (await readdir(t.root)).filter((name) => name.normalize('NFC').startsWith('café') || name.normalize('NFC').startsWith('dir-café'));
+    expect(top.map((name) => name.normalize('NFC')).sort()).toEqual(['café-nfd.txt', 'dir-café']);
+    expect(await readFile(join(t.root, top.find((name) => name.normalize('NFC') === 'café-nfd.txt') as string), 'utf8')).toBe('written\n');
+    expect((await readdir(join(t.root, top.find((name) => name.normalize('NFC') === 'dir-café') as string))).sort()).toEqual(['inside.txt', 'new.txt']);
+  });
+
+  it('an on-disk path (watcher, hook) maps to the NFC FileRef, which resolves back to the same entry; the rules still apply inside', async () => {
+    await mkdir(join(t.root, NFD_DIR, '.claude'), { recursive: true });
+    await writeFile(join(t.root, NFD_DIR, 'inside.txt'), 'inside\n');
+    const ref = await t.ctx.paths.toFileRef(join(t.root, NFD_DIR, 'inside.txt'));
+    expect(ref).toEqual(main('dir-café/inside.txt'));
+    const back = await t.ctx.paths.resolve(ref as FileRef, { principal: editor, mustExist: true });
+    expect(back.identity?.ino).toBe((await lstat(join(t.root, NFD_DIR, 'inside.txt'))).ino);
+    await denied(t.ctx.paths.writeFileAtomic(main('dir-café/.claude/settings.json'), new Uint8Array([1]), { principal: editor }), 'host-only');
+    expect(await readdir(join(t.root, NFD_DIR, '.claude'))).toEqual([]);
+  });
+
+  it('a write through another case of existing names replaces that file under its stored name (case-insensitive disks)', async (ctx) => {
+    ctx.skip((await lstat(join(t.root, 'readme.md')).catch(() => null)) === null, 'the temp dir is on a case-sensitive file system');
+    // APFS keeps the stored name when a file is renamed over it: the placed file is README.md, not readme.md.
+    await t.ctx.paths.writeFileAtomic(main('readme.md'), new TextEncoder().encode('replaced\n'), { principal: editor });
+    const top = await readdir(t.root);
+    expect(top).toContain('README.md');
+    expect(top).not.toContain('readme.md');
+    expect(await readFile(join(t.root, 'README.md'), 'utf8')).toBe('replaced\n');
+    await t.ctx.paths.writeFileAtomic(main('SRC/new.ts'), new TextEncoder().encode('x\n'), { principal: editor });
+    expect((await readdir(join(t.root, 'src'))).sort()).toEqual(['app.ts', 'new.ts']);
+  });
+
+  it('listings leave out exactly the names no NFC request reaches (twins can only exist where names compare byte-wise)', () => {
+    expect([...unaddressableNames(['café.txt', 'cafe\u0301.txt', 'x'])]).toEqual(['cafe\u0301.txt']);
+    expect([...unaddressableNames(['cafe\u0301.txt', 'x', '中文'])]).toEqual([]);
+    expect([...unaddressableNames(['e\u0323\u0302.txt', '\u00ea\u0323.txt', 'b'])].sort()).toEqual(['e\u0323\u0302.txt', '\u00ea\u0323.txt'].sort());
+  });
+
+  it.runIf(process.platform === 'linux')('Linux: the NFC entry wins over its NFD twin; two other spellings of one name reach neither', async () => {
+    await writeFile(join(t.root, 'café.txt'), 'nfc\n');
+    await writeFile(join(t.root, 'cafe\u0301.txt'), 'nfd\n');
+    expect(new TextDecoder().decode((await t.ctx.paths.readFile(main('café.txt'), { principal: editor })).bytes)).toBe('nfc\n');
+    // U+1EC7 (e with dot below and circumflex): e + U+0323 + U+0302 (NFD) and U+00EA + U+0323: both normalise to U+1EC7, neither is it.
+    await writeFile(join(t.root, 'e\u0323\u0302.txt'), 'one\n');
+    await writeFile(join(t.root, '\u00ea\u0323.txt'), 'two\n');
+    const ambiguous = await t.ctx.paths.resolve(main('\u1ec7.txt'), { principal: editor });
+    expect(ambiguous.exists).toBe(false);
   });
 });
 

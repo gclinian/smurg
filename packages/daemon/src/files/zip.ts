@@ -11,6 +11,9 @@
 //  * a file, link or directory that vanishes between readdir and lstat is reported, never fatal;
 //  * symlinks are stored as links only when their text is relative and stays inside the zipped folder;
 //  * FIFOs, sockets, devices, and (for non-hosts) hard-linked files are skipped and reported;
+//  * entries are named in the zip as the disk spells them (an NFD name stays NFD) and opened through their NFC path,
+//    which PathGuard maps back onto them on Linux too; a name no NFC path reaches (Linux: an NFD twin of an NFC name)
+//    is skipped and reported (`duplicate-name`);
 //  * empty directories get explicit entries; `.smurg` at the workspace root and temp files are left out;
 //  * files of 4 GiB or more go last: Apple's extractor stops at yazl's first ZIP64 size/offset descriptor.
 // Nothing is buffered whole: yazl pulls each file as the consumer pulls the zip.
@@ -21,7 +24,7 @@ import yazl from 'yazl';
 import { DOWNLOAD_SKIPPED_MAX, SmurgError, checkRelPath, isHiddenTempName, isHostPrivatePath, isSmurgDirName, type FileRef } from '@smurg/protocol';
 import { isPathDeniedError } from '../core/errors.ts';
 import type { PathGuard, Principal, ResolvedPath } from '../core/interfaces.ts';
-import { errnoCode, isInside } from '../workspace/fs-util.ts';
+import { errnoCode, isInside, unaddressableNames } from '../workspace/fs-util.ts';
 import { joinRel } from './util.ts';
 
 /** Already-compressed formats are stored, not deflated again (transfer.md §1.6). */
@@ -187,6 +190,8 @@ export function createZipSource(options: ZipSourceOptions): ZipSource {
         continue;
       }
       names.sort();
+      // Linux: an NFD name next to its NFC twin (or two spellings of one name): its NFC path reaches the other entry.
+      const unaddressable = unaddressableNames(names);
       let added = 0;
       const subdirs: StackItem[] = [];
       for (const name of names) {
@@ -194,6 +199,10 @@ export function createZipSource(options: ZipSourceOptions): ZipSource {
         if (isHiddenTempName(name)) continue;
         if (dir.name === '' && options.excludeTopSmurg && isSmurgDirName(name)) continue;
         const zipName = joinRel(dir.name, name);
+        if (unaddressable.has(name)) {
+          skip(zipName, 'duplicate-name');
+          continue;
+        }
         const checked = checkRelPath(name);
         if (!checked.ok || checked.path.includes('/') || name.includes('\\')) {
           const shown = reportableName(name);

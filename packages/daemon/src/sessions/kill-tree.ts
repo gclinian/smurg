@@ -494,7 +494,8 @@ export function systemProcessInspector(platform: NodeJS.Platform = process.platf
 
 /**
  * Linux: /proc/<pid>/environ of the same-uid processes (unreadable ones are skipped), identities from the table read
- * before and re-read after: a pid whose identity changed in between is dropped. UNVERIFIED on this machine.
+ * before and re-read after: a pid whose identity changed in between is dropped. Verified on Ubuntu 24.04
+ * (test/sessions/kill.test.ts: the detached daemon is found by its environment entry).
  */
 async function linuxEnvEntryPids(entry: string, uid: number): Promise<Map<number, string>> {
   const before = parseProcessTable(await run(PS, TABLE_ARGS)).filter((row) => row.uid === uid && !row.zombie);

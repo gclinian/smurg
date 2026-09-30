@@ -14,7 +14,7 @@ import xtermHeadless from '@xterm/headless';
 import { runCli } from '../src/cli/run.ts';
 import { runAttach } from '../src/commands/attach.ts';
 import { commandContext } from '../src/commands/context.ts';
-import { runHost } from '../src/commands/host.ts';
+import { runHost, sandboxFix } from '../src/commands/host.ts';
 import { LocalWorkspaceChannel } from '../src/channel/local-channel.ts';
 import { statePaths } from '../src/state/paths.ts';
 import { loadCredentials, saveSession } from '../src/state/credentials.ts';
@@ -289,6 +289,15 @@ describe('smurg host', () => {
     const ready = await startHost([], [sandboxModule({ ok: true, platform: 'darwin' })]);
     await waitFor(() => ready.io.out().includes('客人沙盒'), { what: 'the sandbox report' });
     expect(ready.io.out()).toContain('客人沙盒：可用');
+  });
+
+  it('the Linux fix for a missing sandbox dependency also names the bubblewrap version it needs', () => {
+    // The daemon refuses a bubblewrap older than 0.8 with the same reason as a missing one (sandbox/checks.ts).
+    const fix = sandboxFix('dependency-missing', 'linux').join('\n');
+    expect(fix).toContain('sudo apt-get install bubblewrap socat ripgrep');
+    expect(fix).toContain('bubblewrap 需要 0.8 以上的版本');
+    expect(sandboxFix('apparmor-userns', 'linux').join('\n')).toContain('sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap');
+    expect(sandboxFix('dependency-missing', 'darwin')).toEqual([]);
   });
 
   it('keep-awake lost after the start (the inhibitor exited) is told on the host terminal (CLI-13)', async () => {

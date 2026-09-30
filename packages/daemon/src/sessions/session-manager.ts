@@ -547,20 +547,27 @@ export class SessionManagerImpl implements SessionManager {
           if (err instanceof SmurgError && err.code === 'sandbox_unavailable') throw err;
           throw refuseSandbox('wrap-failed', { error: err instanceof SmurgError ? err.code : 'unknown' });
         }
-        this.assertWrapped(wrapped, false);
-        if (aborted()) throw new AuthorizationError(undefined, { reason: 'owner-removed' });
         let managed: Managed | null = null;
-        const pty = new PtySession({
-          ownerUserId: userId,
-          spawn: { file: wrapped.file, args: [...wrapped.args], cwd: wrapped.cwd, env: { ...wrapped.env }, cols: input.cols, rows: input.rows },
-          log: ctx.log.child({ module: 'pty', session: id }),
-          onResize: () => {
-            if (managed) this.publish(managed, 'updated');
-          },
-          onExit: (exit) => {
-            if (managed) this.onPtyExit(managed, exit);
-          },
-        });
+        let pty: PtySession;
+        try {
+          this.assertWrapped(wrapped, false);
+          if (aborted()) throw new AuthorizationError(undefined, { reason: 'owner-removed' });
+          pty = new PtySession({
+            ownerUserId: userId,
+            spawn: { file: wrapped.file, args: [...wrapped.args], cwd: wrapped.cwd, env: { ...wrapped.env }, cols: input.cols, rows: input.rows },
+            log: ctx.log.child({ module: 'pty', session: id }),
+            onResize: () => {
+              if (managed) this.publish(managed, 'updated');
+            },
+            onExit: (exit) => {
+              this.releaseWrapped(wrapped);
+              if (managed) this.onPtyExit(managed, exit);
+            },
+          });
+        } catch (err) {
+          this.releaseWrapped(wrapped); // never started
+          throw err;
+        }
         managed = this.newManaged({ id, kind: 'login', member, sandboxed: true, root: { kind: 'main' }, worktreeId: null, title: `Claude 訂閱登入（${member.displayName}）`, pty, settingsDir, hookRegistered: false });
         managed.launch = { claude, env, cwd: settingsDir, tmpDir: guest.tmp, spec: null };
         return managed;
@@ -724,6 +731,8 @@ export class SessionManagerImpl implements SessionManager {
         let env: Record<string, string>;
         let cwd = rootPath;
         let launch: LaunchContext;
+        /** Guests: what the sandbox handed out, released when the process exits or never starts (release()). */
+        let wrappedCommand: WrappedCommand | null = null;
         if (!sandboxed) {
           env = buildHostEnv({ hostEnv, home: this.launchConfig.hostHome, sessionId: id, hookEnv });
           if (kind === 'agent') {
@@ -775,29 +784,42 @@ export class SessionManagerImpl implements SessionManager {
             if (err instanceof SmurgError && err.code === 'sandbox_unavailable') throw err;
             throw refuseSandbox('wrap-failed', { error: err instanceof SmurgError ? err.code : 'unknown' });
           }
-          this.assertWrapped(wrapped, input.apiKey !== undefined);
+          wrappedCommand = wrapped;
+          try {
+            this.assertWrapped(wrapped, input.apiKey !== undefined);
+          } catch (err) {
+            this.releaseWrapped(wrapped); // never started
+            throw err;
+          }
           file = wrapped.file;
           args = [...wrapped.args];
           env = { ...wrapped.env };
           cwd = wrapped.cwd;
           launch = { claude, env: guestEnv, cwd: rootPath, tmpDir: guest.tmp, spec: specBase };
         }
-        if (aborted()) throw new AuthorizationError(undefined, { reason: 'owner-removed' });
         let m: Managed | null = null;
-        const pty = new PtySession({
-          ownerUserId: userId,
-          spawn: { file, args, cwd, env, cols: input.cols, rows: input.rows },
-          log: ctx.log.child({ module: 'pty', session: id }),
-          onResize: () => {
-            if (m) this.publish(m, 'updated');
-          },
-          onExit: (exit) => {
-            if (m) this.onPtyExit(m, exit);
-          },
-          onOutput: (chunk) => {
-            if (m) this.observeLoginHints(m, chunk);
-          },
-        });
+        let pty: PtySession;
+        try {
+          if (aborted()) throw new AuthorizationError(undefined, { reason: 'owner-removed' });
+          pty = new PtySession({
+            ownerUserId: userId,
+            spawn: { file, args, cwd, env, cols: input.cols, rows: input.rows },
+            log: ctx.log.child({ module: 'pty', session: id }),
+            onResize: () => {
+              if (m) this.publish(m, 'updated');
+            },
+            onExit: (exit) => {
+              this.releaseWrapped(wrappedCommand);
+              if (m) this.onPtyExit(m, exit);
+            },
+            onOutput: (chunk) => {
+              if (m) this.observeLoginHints(m, chunk);
+            },
+          });
+        } catch (err) {
+          this.releaseWrapped(wrappedCommand); // never started
+          throw err;
+        }
         m = this.newManaged({
           id,
           kind,
@@ -1096,7 +1118,11 @@ export class SessionManagerImpl implements SessionManager {
         env,
       });
       const wrapped = await this.ctx.services.sandbox.wrap(spec);
-      await this.runner(wrapped.file, wrapped.args, { env: wrapped.env, cwd: wrapped.cwd, timeoutMs: this.limits.logoutTimeoutMs, maxStdoutBytes: 4096 });
+      try {
+        await this.runner(wrapped.file, wrapped.args, { env: wrapped.env, cwd: wrapped.cwd, timeoutMs: this.limits.logoutTimeoutMs, maxStdoutBytes: 4096 });
+      } finally {
+        this.releaseWrapped(wrapped);
+      }
     } finally {
       await removeSessionFiles(settingsDir).catch(() => {});
     }
@@ -1248,7 +1274,11 @@ export class SessionManagerImpl implements SessionManager {
         // agent's own launch).
         const env = Object.fromEntries(Object.entries(launch.spec.env).filter(([name]) => name !== 'SMURG_SESSION_TOKEN' && name !== 'SMURG_HOOK_SOCKET'));
         const wrapped = await this.ctx.services.sandbox.wrap({ ...launch.spec, env, command });
-        result = await this.runner(wrapped.file, wrapped.args, { env: wrapped.env, cwd: wrapped.cwd, timeoutMs: this.limits.authStatusTimeoutMs, maxStdoutBytes: 64 * 1024 });
+        try {
+          result = await this.runner(wrapped.file, wrapped.args, { env: wrapped.env, cwd: wrapped.cwd, timeoutMs: this.limits.authStatusTimeoutMs, maxStdoutBytes: 64 * 1024 });
+        } finally {
+          this.releaseWrapped(wrapped);
+        }
       }
       const login = parseAuthStatus(result);
       // The session may have ended while the check ran.
@@ -1352,6 +1382,20 @@ export class SessionManagerImpl implements SessionManager {
       await this.cleanup(m, reason, keepWorktree);
     })().catch((err: unknown) => this.logError('session teardown failed', err));
     return m.ending;
+  }
+
+  /**
+   * A guest process started from `wrapped` exited or never started: the sandbox may drop its count of it (Linux:
+   * srt removes bubblewrap's mount points for absent write-denied names from the share once no guest process runs).
+   * Idempotent; nothing for a host process.
+   */
+  private releaseWrapped(wrapped: WrappedCommand | null): void {
+    if (wrapped === null) return;
+    try {
+      this.ctx.services.sandbox.release?.(wrapped);
+    } catch (err) {
+      this.logError('sandbox release failed', err);
+    }
   }
 
   /** The PTY exited on its own (`exit`, a crash). */

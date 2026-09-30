@@ -19,19 +19,22 @@
 // Launch inputs come from ctx.config (hostHome, stateDir, runPaths.hook, sessions.selfCommand), never from
 // os.homedir() or process.env. Nothing here blocks the event loop except inside srt itself (see gotchas).
 import { randomBytes } from 'node:crypto';
-import { realpath, rm, mkdir } from 'node:fs/promises';
+import { lstat, readFile, readdir, realpath, rm, rmdir, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, normalize, resolve } from 'node:path';
 import { SmurgError, allowedDomainSchema } from '@smurg/protocol';
+import { z } from 'zod';
 // The hook socket's wire format (a dependency-free protocol file, like the MCP server uses): the self-test must send
 // exactly what the daemon's hook server answers.
 import { HOOK_ENV, HOOK_PROBE_EVENT, HOOK_PROBE_FIELD, hookProbeAnswer } from '../hooks/wire.ts';
 import type { DaemonContext } from '../core/context.ts';
-import type { SandboxPreflight, SandboxService, SandboxSpec, WrappedCommand } from '../core/interfaces.ts';
+import type { PersistentDocument, SandboxPreflight, SandboxService, SandboxSpec, WrappedCommand } from '../core/interfaces.ts';
 import { SYSTEM_ACTOR } from '../core/permissions.ts';
 import {
   LINUX_TOOL_DIRS,
   appArmorRestrictsUserns,
+  bwrapUsernsBlocked,
+  checkBwrapFeatures,
   checkDarwinLauncher,
   findLinuxTools,
   nodeCheckIo,
@@ -40,8 +43,10 @@ import {
   supportedPlatform,
   type CheckIo,
 } from './checks.ts';
-import { DARWIN_SANDBOX_EXEC, HardeningError, SRT_PINNED_VERSION, hardenDarwinCommand, hardenLinuxCommand, shellQuote } from './harden.ts';
+import { DARWIN_SANDBOX_EXEC, HardeningError, SRT_PINNED_VERSION, hardenDarwinCommand, hardenLinuxCommand, linuxArgsFilePath, shellQuote } from './harden.ts';
 import {
+  HOST_ONLY_DIR_NAMES,
+  HOST_ONLY_FILE_NAMES,
   PolicyError,
   SRT_OWN_WRITE_PATHS,
   buildBaseConfig,
@@ -87,6 +92,8 @@ interface Ready {
   readonly hostHomeExists: boolean;
   readonly stateDir: string;
   readonly linuxTools: LinuxTools | null;
+  /** Linux: srt's network bridge sockets (realpaths), carved out of every guest policy; [] on macOS. */
+  readonly proxySockets: readonly string[];
 }
 
 interface ResolvedSpec {
@@ -120,7 +127,7 @@ const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * imported functions, the dynamic loader). The spawn environment is the sessions module's clean allow-list; these are
  * refused anyway because a mistake there would run code outside the sandbox.
  */
-const OUTER_SHELL_ENV = new Set(['BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS', 'IFS', 'CDPATH', 'GLOBIGNORE', 'PS4', 'PROMPT_COMMAND', 'BASH_XTRACEFD', 'EXECIGNORE', 'POSIXLY_CORRECT', 'SMURG_TTY']);
+const OUTER_SHELL_ENV = new Set(['BASH_ENV', 'ENV', 'SHELLOPTS', 'BASHOPTS', 'IFS', 'CDPATH', 'GLOBIGNORE', 'PS4', 'PROMPT_COMMAND', 'BASH_XTRACEFD', 'EXECIGNORE', 'POSIXLY_CORRECT', 'SMURG_TTY', 'SMURG_NEW_SESSION', 'SMURG_STAT']);
 const OUTER_SHELL_ENV_PREFIX = /^(?:BASH_FUNC_|DYLD_|LD_)/;
 const SCRIPT_ENTRY = /\.(?:[cm]?[jt]s)$/;
 
@@ -169,6 +176,62 @@ function isAtOrUnderAny(p: string, dirs: readonly string[]): boolean {
   return dirs.some((dir) => p === dir || isStrictlyUnder(p, dir));
 }
 
+/** Linux: the most existing host-only entries below the top of a root protected one read-only mount each. */
+const LINUX_NESTED_HOST_ONLY_MAX = 1000;
+/** Directories the nested walk does not enter (srt's own mandatory-deny scan skips node_modules too). */
+const LINUX_NESTED_WALK_SKIP: ReadonlySet<string> = new Set(['node_modules']);
+
+/**
+ * Linux: the host-only entries (HOST_ONLY_DIR_NAMES, HOST_ONLY_FILE_NAMES) that exist BELOW the top of `root`. srt
+ * drops write-deny globs on Linux (bubblewrap binds concrete paths only: `<root>/**\/.claude` protected nothing), so
+ * each existing match becomes a literal deny (a read-only bind) instead. A NEW name below the top cannot be blocked
+ * with mounts at all (ARCHITECTURE §12). The walk follows no symlink, does not enter a match (denied whole) or the
+ * top-level `.smurg` (denied), and skips node_modules. Null when there are more than LINUX_NESTED_HOST_ONLY_MAX.
+ */
+async function nestedHostOnlyPaths(root: string): Promise<string[] | null> {
+  const names = new Set([...HOST_ONLY_DIR_NAMES, ...HOST_ONLY_FILE_NAMES]);
+  const found: string[] = [];
+  const queue: string[] = [];
+  const top = await readdir(root, { withFileTypes: true }).catch(() => []);
+  for (const entry of top) if (entry.isDirectory() && !names.has(entry.name) && !LINUX_NESTED_WALK_SKIP.has(entry.name)) queue.push(join(root, entry.name));
+  while (queue.length > 0) {
+    const dir = queue.pop() as string;
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const path = join(dir, entry.name);
+      if (names.has(entry.name)) {
+        found.push(path);
+        if (found.length > LINUX_NESTED_HOST_ONLY_MAX) return null;
+      } else if (entry.isDirectory() && !LINUX_NESTED_WALK_SKIP.has(entry.name)) {
+        queue.push(path);
+      }
+    }
+  }
+  return found.sort();
+}
+
+/** The names of `names` that do not exist in `dir` (lstat: a dangling symlink exists). */
+async function absentNames(dir: string, names: readonly string[]): Promise<string[]> {
+  const found = await Promise.all(names.map((name) => lstat(join(dir, name)).then(() => true, (err: NodeJS.ErrnoException) => err.code !== 'ENOENT')));
+  return names.filter((_name, i) => !found[i]);
+}
+
+/**
+ * Linux: the empty directories bubblewrap may make in a session root for the absent host-only DIRECTORY names
+ * (policy.ts linuxDirPlaceholderDenies), recorded in the workspace state before a sandbox can make them. srt removes
+ * them once no sandbox of this daemon runs; a daemon that died first (SIGKILL, OOM, power loss) leaves them in the
+ * host's project, where srt cannot tell them from the host's own empty directories and an empty `.git/` would make
+ * the next start take a non-repository for a git repository. The next daemon removes the recorded ones that are still
+ * empty directories before it starts its first sandbox (none of the dead daemon's survives it: bubblewrap runs with
+ * --die-with-parent), and never while a sandbox of its own runs (removing a mount point under a running sandbox
+ * detaches its mount and lifts the deny).
+ */
+const PLACEHOLDER_DOCUMENT = 'sandbox-placeholders';
+/** The most recent entries kept (five names per root: the share and each worktree). */
+const PLACEHOLDER_RECORD_MAX = 1000;
+const placeholderDocumentSchema = z.strictObject({ paths: z.array(z.string().min(1).max(4096)).max(PLACEHOLDER_RECORD_MAX) });
+type PlaceholderDocument = z.output<typeof placeholderDocumentSchema>;
+
 /** The nearest ancestor directory holding pnpm-workspace.yaml (dev: smurg runs from its source checkout). */
 async function findWorkspaceRoot(start: string): Promise<string | null> {
   let dir = start;
@@ -198,6 +261,14 @@ export class SandboxServiceImpl implements SandboxService {
   private allowedDomains: readonly string[] | null = null;
   private ready: Ready | null = null;
   private disposed = false;
+  /** The bwrap whose options checkBwrapFeatures accepted (asked once per binary). */
+  private bwrapChecked: string | null = null;
+  /** WrappedCommands handed out and not yet released (release()). */
+  private readonly issued = new WeakSet<WrappedCommand>();
+  /** Linux: the placeholder record (PLACEHOLDER_DOCUMENT), opened on first use. */
+  private placeholders: Promise<PersistentDocument<PlaceholderDocument>> | null = null;
+  /** Linux: the sweep of a previous daemon's placeholders, run once before this service's first sandbox. */
+  private placeholderSweep: Promise<void> | null = null;
 
   constructor(ctx: DaemonContext, options: SandboxServiceOptions = {}) {
     this.ctx = ctx;
@@ -246,7 +317,9 @@ export class SandboxServiceImpl implements SandboxService {
       const tmp = shellQuote(resolved.tmpDir);
       const inner = `export TMPDIR=${tmp} CLAUDE_CODE_TMPDIR=${tmp}; ${spec.command}`;
       const command = await this.wrapHardened(ready, inner, policy, loopbackListen, resolved.execAllow);
-      return Object.freeze({ file: this.shell, args: Object.freeze(['-c', command]), env: Object.freeze({ ...spec.env }), cwd: resolved.input.rootPath });
+      const wrapped: WrappedCommand = Object.freeze({ file: this.shell, args: Object.freeze(['-c', command]), env: Object.freeze({ ...spec.env }), cwd: resolved.input.rootPath });
+      this.issued.add(wrapped);
+      return wrapped;
     } catch (err) {
       const refusal = this.toRefusal(err);
       const target = typeof spec?.sessionId === 'string' && spec.sessionId.length > 0 ? spec.sessionId.slice(0, 200) : 'unknown';
@@ -254,6 +327,18 @@ export class SandboxServiceImpl implements SandboxService {
       this.ctx.log.warn('guest sandbox refused', { reason: refusal.reason, why: refusal.internal, session: target });
       throw new SmurgError('sandbox_unavailable', refusal.message, { reason: refusal.reason });
     }
+  }
+
+  /**
+   * The process of a WrappedCommand this service handed out has exited, or was never started. srt counts every wrap:
+   * on Linux the mount-point files bubblewrap left on the host for absent write-denied names (`<share>/.mcp.json`, an
+   * empty `<share>/.claude/`) are removed when the count is back to zero, i.e. when no sandbox of this daemon runs, and
+   * never earlier (deleting one under a running sandbox would detach its mount and lift the deny). Idempotent; an
+   * unknown object is ignored.
+   */
+  release(wrapped: WrappedCommand): void {
+    if (!this.issued.delete(wrapped)) return;
+    this.api?.cleanupAfterCommand();
   }
 
   async setAllowedDomains(domains: readonly string[]): Promise<void> {
@@ -303,6 +388,7 @@ export class SandboxServiceImpl implements SandboxService {
   private async ensureReady(): Promise<Ready> {
     if (this.disposed || this.ctx.stopping.aborted) throw new SandboxRefusal('wrap-failed', 'the daemon is stopping');
     const platform = supportedPlatform(this.platformName);
+    if (platform === 'linux') await this.sweepPlaceholders();
     const configuredHome = this.ctx.config.sessions.hostHome;
     if (configuredHome === null) throw new SandboxRefusal('no-host-home', 'config.sessions.hostHome is null');
     const realHome = await realpathOrNull(configuredHome);
@@ -310,6 +396,11 @@ export class SandboxServiceImpl implements SandboxService {
     const stateDir = await realpath(this.ctx.config.stateDir);
     const linuxTools = platform === 'darwin' ? null : await findLinuxTools(this.linuxToolDirs, this.io);
     if (platform === 'darwin') await checkDarwinLauncher(this.sandboxExecPath, this.io);
+    if (linuxTools !== null && this.bwrapChecked !== linuxTools.bwrap) {
+      const tooOld = await checkBwrapFeatures(linuxTools.bwrap, this.io);
+      if (tooOld !== null) throw tooOld;
+      this.bwrapChecked = linuxTools.bwrap;
+    }
     // srt's proxy sockets go under TMPDIR; when that is too deep (test harnesses), into the daemon's run dir instead.
     let socketDir: string | undefined;
     if (srtSocketDirProblem(this.tmpDir(), process.pid) !== null) {
@@ -325,11 +416,74 @@ export class SandboxServiceImpl implements SandboxService {
     const deps = await api.checkDependenciesAsync();
     const depRefusal = srtDependencyRefusal(platform, deps.errors);
     if (depRefusal !== null) throw depRefusal;
-    const ready: Ready = { platform, hostHome, hostHomeExists: realHome !== null && (await isDirectory(realHome)), stateDir, linuxTools };
-    await this.runtime.acquire(this.owner, api, this.baseConfig(ready), socketDir === undefined ? {} : { socketDir });
+    const prepared: Ready = { platform, hostHome, hostHomeExists: realHome !== null && (await isDirectory(realHome)), stateDir, linuxTools, proxySockets: [] };
+    await this.runtime.acquire(this.owner, api, this.baseConfig(prepared), socketDir === undefined ? {} : { socketDir });
     if (!api.isSandboxingEnabled()) throw new SandboxRefusal('init-failed', 'srt reports sandboxing as not enabled after initialize');
+    const ready: Ready = { ...prepared, proxySockets: platform === 'linux' ? await this.linuxProxySockets(api) : [] };
     this.ready = ready;
     return ready;
+  }
+
+  private placeholderDoc(): Promise<PersistentDocument<PlaceholderDocument>> {
+    this.placeholders ??= this.ctx.state.document(PLACEHOLDER_DOCUMENT, placeholderDocumentSchema, () => ({ paths: [] }));
+    return this.placeholders;
+  }
+
+  /**
+   * Linux, once, before this service's first sandbox: removes the recorded placeholders (PLACEHOLDER_DOCUMENT) that are
+   * still EMPTY directories (never a symlink, a file or a directory with content), then forgets the record.
+   */
+  private sweepPlaceholders(): Promise<void> {
+    this.placeholderSweep ??= (async () => {
+      const doc = await this.placeholderDoc();
+      const recorded = [...doc.get().paths];
+      if (recorded.length === 0) return;
+      let removed = 0;
+      for (const path of recorded) {
+        try {
+          if ((await lstat(path)).isDirectory() && (await readdir(path)).length === 0) {
+            await rmdir(path);
+            removed++;
+          }
+        } catch {
+          // gone, or not inspectable: nothing of ours to remove
+        }
+      }
+      doc.update(() => ({ paths: [] }));
+      await doc.flush();
+      if (removed > 0) this.ctx.log.info('removed sandbox mount points a previous daemon left in the project', { count: removed });
+    })();
+    return this.placeholderSweep;
+  }
+
+  /** Linux: records `paths` (placeholders a sandbox about to start may make) on disk before it starts. */
+  private async recordPlaceholders(paths: readonly string[]): Promise<void> {
+    if (paths.length === 0) return;
+    const doc = await this.placeholderDoc();
+    const known = new Set(doc.get().paths);
+    if (paths.every((path) => known.has(path))) return;
+    doc.update((draft) => {
+      const next = [...draft.paths.filter((path) => !paths.includes(path)), ...paths];
+      return { paths: next.slice(-PLACEHOLDER_RECORD_MAX) };
+    });
+    await doc.flush();
+  }
+
+  /**
+   * Linux: srt's HTTP / SOCKS bridge sockets (one file when srt's mux serves both), which the guest's network
+   * namespace reaches the proxy through. They must exist: without them every guest would be offline, and a guest
+   * policy without them would not say why.
+   */
+  private async linuxProxySockets(api: SrtApi): Promise<string[]> {
+    const paths = api.linuxProxySockets();
+    if (paths.length === 0) throw new SandboxRefusal('init-failed', 'srt reports no Linux network bridge socket');
+    const real: string[] = [];
+    for (const path of paths) {
+      const resolved = await realpathOrNull(path);
+      if (resolved === null) throw new SandboxRefusal('init-failed', `srt's network bridge socket is missing: ${path}`);
+      if (!real.includes(resolved)) real.push(resolved);
+    }
+    return real;
   }
 
   private async srt(): Promise<SrtApi> {
@@ -372,6 +526,11 @@ export class SandboxServiceImpl implements SandboxService {
       .filter((p) => !(mode === 'worktree' && p === shareGit));
     const extraDenyRead = await Promise.all(stringArray('denyReadPaths', spec.denyReadPaths).map((p) => denyPathForm(p)));
     const extraDenyWrite = await Promise.all(stringArray('denyWritePaths', spec.denyWritePaths).map((p) => denyPathForm(p)));
+    if (ready.platform === 'linux' && !isLoginSpec(spec)) {
+      const nested = await nestedHostOnlyPaths(root);
+      if (nested === null) throw new PolicyError(`more than ${LINUX_NESTED_HOST_ONLY_MAX} host-only entries below the top of the session root`);
+      extraDenyWrite.push(...nested);
+    }
     const hookSocketPath = this.ctx.config.runPaths.hook;
     if (typeof spec.hookSocketPath !== 'string' || normalize(spec.hookSocketPath) !== hookSocketPath) {
       throw new PolicyError('the hook socket is not the daemon hook socket');
@@ -387,6 +546,8 @@ export class SandboxServiceImpl implements SandboxService {
     if (mode === 'login' && readOnlyPaths.length > 0) throw new PolicyError('the login process gets no shared dirs');
     const envTmp = spec.env['TMPDIR'];
     const tmpCandidate = typeof envTmp === 'string' && isAbsolute(envTmp) ? ((await realpathOrNull(envTmp)) ?? resolve(envTmp)) : null;
+    const absentHostOnlyDirs = ready.platform === 'linux' && mode !== 'login' ? await absentNames(root, HOST_ONLY_DIR_NAMES) : [];
+    await this.recordPlaceholders(absentHostOnlyDirs.map((name) => join(root, name)));
     const tmpDir = tmpCandidate !== null && isStrictlyUnder(tmpCandidate, guestDir) ? tmpCandidate : join(guestDir, 'tmp');
     let execAllow: string[] | null = null;
     if (mode === 'login' && ready.platform === 'darwin') {
@@ -418,6 +579,8 @@ export class SandboxServiceImpl implements SandboxService {
         extraDenyWrite,
         hookSocketPath,
         envNames,
+        proxySocketPaths: ready.proxySockets,
+        absentHostOnlyDirs,
       },
     };
   }
@@ -485,11 +648,29 @@ export class SandboxServiceImpl implements SandboxService {
   /** `loopbackListen` and `execAllow`: the login process only (§11 D-12). */
   private async wrapHardened(ready: Ready, command: string, policy: SessionPolicy, loopbackListen = false, execAllow: readonly string[] | null = null): Promise<string> {
     const raw = await this.runtime.wrap(this.owner, command, this.shell, policy.perSession);
-    const launcher = ready.platform === 'darwin' ? DARWIN_SANDBOX_EXEC : (ready.linuxTools as LinuxTools).bwrap;
-    if (raw === command || !raw.includes(launcher)) throw new SandboxRefusal('launcher-missing', `the wrapped command does not run through ${launcher}`);
-    return ready.platform === 'darwin'
-      ? hardenDarwinCommand(raw, { shell: this.shell, writeRoots: policy.writeRoots, srtOwnWritePaths: SRT_OWN_WRITE_PATHS, loopbackListen, execAllow })
-      : hardenLinuxCommand(raw, (ready.linuxTools as LinuxTools).bwrap, { loopbackListen });
+    try {
+      const launcher = ready.platform === 'darwin' ? DARWIN_SANDBOX_EXEC : (ready.linuxTools as LinuxTools).bwrap;
+      if (raw === command || !raw.includes(launcher)) throw new SandboxRefusal('launcher-missing', `the wrapped command does not run through ${launcher}`);
+      if (ready.platform === 'darwin') return hardenDarwinCommand(raw, { shell: this.shell, writeRoots: policy.writeRoots, srtOwnWritePaths: SRT_OWN_WRITE_PATHS, loopbackListen, execAllow });
+      return hardenLinuxCommand(raw, (ready.linuxTools as LinuxTools).bwrap, { loopbackListen, argsFileWords: await this.linuxArgsFileWords(raw), writableBinds: [...policy.writeRoots, ...ready.proxySockets] });
+    } catch (err) {
+      // srt counted this wrap (it does not count a command it returned unwrapped); nothing will run it.
+      if (raw !== command) (await this.srt()).cleanupAfterCommand();
+      throw err;
+    }
+  }
+
+  /**
+   * srt's arguments file (a large mount list goes there instead of onto the command line), read so the hardening sees
+   * every mount. It is an unnamed file of THIS process, reached through its own /proc entry; anything else is refused.
+   */
+  private async linuxArgsFileWords(raw: string): Promise<string[] | null> {
+    const path = linuxArgsFilePath(raw);
+    if (path === null) return null;
+    if (!path.startsWith(`/proc/${process.pid}/fd/`)) throw new HardeningError('the bwrap arguments file is not one of this process');
+    const words = (await readFile(path, 'utf8')).split('\u0000');
+    if (words.pop() !== '') throw new HardeningError('the bwrap arguments file does not end with a NUL');
+    return words;
   }
 
   /**
@@ -513,8 +694,10 @@ export class SandboxServiceImpl implements SandboxService {
       result = await this.runner.run({ file: this.shell, args: ['-c', command], cwd: resolved.input.rootPath, env: { ...spec.env }, timeoutMs: HOOK_SELF_TEST_TIMEOUT_MS });
     } catch (err) {
       throw new SandboxRefusal('hook-self-test-failed', `the hook self-test could not start: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+    } finally {
+      // The probe has exited (or never started): srt may drop its count of it (see release()).
+      (await this.srt()).cleanupAfterCommand();
     }
-    (await this.srt()).cleanupAfterCommand();
     const expected = JSON.stringify(hookProbeAnswer(nonce, spec.sessionId));
     if (result.output.includes(expected)) return;
     const why = result.timedOut
@@ -530,7 +713,7 @@ export class SandboxServiceImpl implements SandboxService {
     const parent = canaryParent ?? (await this.ctx.state.privateDir('sandbox-selftest'));
     const plan = await prepareSelfTest(parent);
     try {
-      const script = selfTestScript(plan, { hostHome: ready.hostHomeExists ? ready.hostHome : null, root, tty: ready.platform === 'darwin' });
+      const script = selfTestScript(plan, { hostHome: ready.hostHomeExists ? ready.hostHome : null, root, tty: true });
       const command = await this.wrapHardened(ready, script, policy, loopbackListen);
       let result;
       try {
@@ -543,15 +726,21 @@ export class SandboxServiceImpl implements SandboxService {
         });
       } catch (err) {
         throw new SandboxRefusal('self-test-failed', `the self-test could not start: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+      } finally {
+        // Linux: srt counts every wrap and removes bubblewrap's mount-point files once none runs (release()).
+        (await this.srt()).cleanupAfterCommand();
       }
-      // Linux: lets srt remove the bubblewrap mount-point files of this (finished) process; a no-op on macOS.
-      (await this.srt()).cleanupAfterCommand();
       const problem = await judgeSelfTest(plan, result);
       if (problem !== null) {
+        // AppArmor is named only when it is the cause: the restriction is on AND a bare bwrap cannot create its
+        // namespaces the way the restriction makes it fail. A self-test that fails for any other reason (a policy
+        // that leaks) keeps its own reason, whatever the sysctl says.
         if (ready.platform === 'linux' && (await appArmorRestrictsUserns(this.io)) === true) {
-          throw new SandboxRefusal('apparmor-userns', `self-test failed (${problem}) while kernel.apparmor_restrict_unprivileged_userns=1`);
+          const probe = await bwrapUsernsBlocked((ready.linuxTools as LinuxTools).bwrap, this.io);
+          if (probe.blocked) throw new SandboxRefusal('apparmor-userns', `self-test failed (${problem}); bwrap alone fails too (${probe.detail}) while kernel.apparmor_restrict_unprivileged_userns=1`);
         }
-        throw new SandboxRefusal('self-test-failed', problem);
+        const output = result.output.replace(/\s+/g, ' ').trim().slice(0, 300);
+        throw new SandboxRefusal('self-test-failed', ready.platform === 'linux' && output !== '' ? `${problem}; output: ${output}` : problem);
       }
     } finally {
       await rm(plan.canaryDir, { recursive: true, force: true });
@@ -587,6 +776,9 @@ export class SandboxServiceImpl implements SandboxService {
         extraDenyWrite: [],
         hookSocketPath: this.ctx.config.runPaths.hook,
         envNames: [],
+        proxySocketPaths: ready.proxySockets,
+        // the fresh root has none of them: the preflight exercises the directory-form placeholders too
+        absentHostOnlyDirs: ready.platform === 'linux' ? [...HOST_ONLY_DIR_NAMES] : [],
       });
       await this.selfTest(ready, policy, join(real, 'root'), join(real, 'guest'), join(real, 'canaries'));
     } finally {

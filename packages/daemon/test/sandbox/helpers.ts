@@ -33,7 +33,7 @@ const execFileAsync = promisify(execFile);
 
 export const isDarwin = process.platform === 'darwin';
 export const isLinux = process.platform === 'linux';
-/** Real-srt tests run where srt runs: macOS (verified) and Linux (implemented, unverified on this project's CI). */
+/** Real-srt tests run where srt runs: macOS (Seatbelt) and Linux (bubblewrap; needs the smurg-bwrap AppArmor profile on Ubuntu 24.04+). */
 export const sandboxPlatform = isDarwin || isLinux;
 
 export function marker(label: string): string {
@@ -166,10 +166,23 @@ export async function createSandboxFixture(options: SandboxFixtureOptions = {}):
     await daemon.start();
     const realState = await realpath(stateDir);
     const ctx = daemon.ctx;
+    const service = ctx.services.sandbox;
+    // Like the sessions module: every process started from one of this fixture's WrappedCommands releases it when it
+    // exits (startWrapped), so srt removes bubblewrap's mount points from the fake share between tests (Linux).
+    const sandbox: SandboxService = {
+      preflight: () => service.preflight(),
+      wrap: async (spec) => {
+        const wrapped = await service.wrap(spec);
+        issuedBy.set(wrapped, service);
+        return wrapped;
+      },
+      setAllowedDomains: (domains) => service.setAllowedDomains(domains),
+      release: (wrapped) => service.release?.(wrapped),
+    };
     const fixture: SandboxFixture = {
       daemon,
       ctx,
-      sandbox: ctx.services.sandbox,
+      sandbox,
       base,
       home: await realpath(home),
       share: await realpath(share),
@@ -253,6 +266,14 @@ export interface RunningProcess {
   kill(): void;
 }
 
+/** Which service handed out a WrappedCommand (fixtures record it): the process releases it on exit. */
+const issuedBy = new WeakMap<WrappedCommand, SandboxService>();
+
+/** SandboxService.release for a command a fixture wrapped (tests that spawn it their own way call this). */
+export function releaseWrapped(wrapped: WrappedCommand): void {
+  issuedBy.get(wrapped)?.release?.(wrapped);
+}
+
 export function startWrapped(wrapped: WrappedCommand, options: { readonly timeoutMs?: number } = {}): RunningProcess {
   const child = pty.spawn(wrapped.file, [...wrapped.args], { name: 'xterm-256color', cols: 160, rows: 48, cwd: wrapped.cwd, env: { ...wrapped.env } });
   let output = '';
@@ -263,6 +284,7 @@ export function startWrapped(wrapped: WrappedCommand, options: { readonly timeou
   const exited = new Promise<{ exitCode: number; output: string }>((resolve) => {
     child.onExit(({ exitCode }) => {
       clearTimeout(timer);
+      releaseWrapped(wrapped);
       setTimeout(() => resolve({ exitCode, output: output.replace(/\r/g, '') }), 80);
     });
   });

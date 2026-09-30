@@ -56,10 +56,35 @@ export async function prepareShare(
   if (existing === null) await mkdir(smurgDir, { mode: 0o700 });
   else if (existing === 'not-directory' || !existing.isDirectory()) throw new ShareError('.smurg in the shared folder is not a directory');
 
-  const git = await lstatOrNull(join(share, '.git'));
-  const isGitRepo = git !== null && git !== 'not-directory' && (git.isDirectory() || git.isFile());
-  if (git !== null && git !== 'not-directory' && git.isDirectory()) await excludeSmurgDir(join(share, '.git'));
-  return { realPath: share, name: basename(share) || share, isGitRepo };
+  const git = await gitKind(join(share, '.git'));
+  if (git === 'dir') await excludeSmurgDir(join(share, '.git'));
+  return { realPath: share, name: basename(share) || share, isGitRepo: git !== 'none' };
+}
+
+/**
+ * What `<share>/.git` is: a git directory (it has a HEAD file), a gitfile (`gitdir: …`, a linked worktree or a
+ * submodule) or neither. Merely existing is not enough: on Linux a daemon that crashed during a guest session can leave
+ * bubblewrap's EMPTY mount point for the protected name `.git` (a directory, or a read-only empty file) in a folder
+ * that is no repository (ARCHITECTURE §7.6 "Linux mount points"). Taking that for a repository would offer worktree
+ * mode on a folder git does not know, and writing info/exclude into it would keep the placeholder sweep from removing it.
+ */
+async function gitKind(gitPath: string): Promise<'dir' | 'file' | 'none'> {
+  const st = await lstatOrNull(gitPath);
+  if (st === null || st === 'not-directory') return 'none';
+  if (st.isDirectory()) {
+    const head = await lstatOrNull(join(gitPath, 'HEAD'));
+    return head !== null && head !== 'not-directory' && head.isFile() ? 'dir' : 'none';
+  }
+  if (!st.isFile() || st.size === 0) return 'none';
+  const handle = await open(gitPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW).catch(() => null);
+  if (handle === null) return 'none';
+  try {
+    const buffer = Buffer.alloc(8);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    return buffer.subarray(0, bytesRead).toString('utf8').startsWith('gitdir:') ? 'file' : 'none';
+  } finally {
+    await handle.close();
+  }
 }
 
 const EXCLUDE_LINE = '/.smurg/';

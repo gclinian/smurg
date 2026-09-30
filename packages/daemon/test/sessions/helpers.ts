@@ -37,7 +37,11 @@ type HeadlessTerminal = InstanceType<typeof Terminal>;
 export class FakeSandbox implements SandboxService {
   preflightResult: SandboxPreflight = { ok: true, platform: process.platform === 'linux' ? 'linux' : 'darwin' };
   readonly wraps: SandboxSpec[] = [];
+  /** Every release() call, in order (the real service: bubblewrap's mount points on Linux). */
+  readonly released: WrappedCommand[] = [];
   wrapError: Error | null = null;
+  /** Added to the wrapped command's environment (to make the session manager refuse what wrap() handed out). */
+  wrapExtraEnv: Record<string, string> | null = null;
 
   async preflight(): Promise<SandboxPreflight> {
     return this.preflightResult;
@@ -46,7 +50,11 @@ export class FakeSandbox implements SandboxService {
   async wrap(spec: SandboxSpec): Promise<WrappedCommand> {
     this.wraps.push(spec);
     if (this.wrapError) throw this.wrapError;
-    return { file: '/bin/sh', args: ['-c', spec.command], env: { ...spec.env }, cwd: spec.rootPath };
+    return { file: '/bin/sh', args: ['-c', spec.command], env: { ...spec.env, ...(this.wrapExtraEnv ?? {}) }, cwd: spec.rootPath };
+  }
+
+  release(wrapped: WrappedCommand): void {
+    this.released.push(wrapped);
   }
 
   async setAllowedDomains(): Promise<void> {}

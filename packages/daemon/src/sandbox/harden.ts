@@ -28,8 +28,10 @@
 //     but Claude Code's own callback (which listens on loopback);
 //  7. the Claude login process ONLY: `(deny process-exec)` plus `(allow process-exec <the listed programs>)` at the end
 //     of the profile (the last matching rule wins over srt's `(allow process-exec)`); an interpreter is checked too.
-// Linux: the command must start with the absolute bwrap path (base config `bwrapPath`) and keep `--die-with-parent`;
-// the login process also needs `--unshare-net` (its loopback is then its own namespace's, not the host's).
+// Linux (see the Linux section below): every bwrap argument is checked against srt's known options; bwrap must be
+// exec'd by its absolute path with its own user / pid / network namespaces, no capabilities, a fresh /proc and /dev and
+// a read-only root; `--new-session` is decided at run time (a fresh pty keeps its signals); `--disable-userns`, and
+// every directory on a read-deny tmpfs is made unlistable and the tmpfs read-only.
 
 /** The only srt version these rewrites are verified against (packages/daemon/package.json pins it exactly). */
 export const SRT_PINNED_VERSION = '0.0.77';
@@ -356,50 +358,278 @@ export function hardenDarwinCommand(wrapped: string, options: DarwinHardeningOpt
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Linux (implemented from srt 0.0.77's source; not run on Linux by this project, see docs)
+// Linux (verified with srt 0.0.77 on Ubuntu 24.04 arm64, kernel 6.8, bubblewrap 0.9.0, AppArmor userns restriction on
+// with the smurg-bwrap profile; docs/research/sandbox.md "Linux, verified 2026-10-01")
 // ---------------------------------------------------------------------------------------------------------------------
+//
+// srt builds the guest's file system from mounts: `--ro-bind / /`, the write roots bound writable, then a tmpfs over
+// every read-denied directory (`/home`, `/tmp`, the host home, `<share>/.smurg`, …) with the allowRead / allowWrite
+// carve-outs bound back on top. Measured, that leaves three holes the macOS profile does not have:
+//  1. bubblewrap creates the directories leading to a carve-out on the tmpfs (the "skeleton"), so the host home, the
+//     state dir, `<stateDir>/guests` and (worktree mode) the main share can be LISTED: they show the names on the way
+//     to the carve-outs (the self-test's check 23 failed on this: "the host home could be listed");
+//  2. every such tmpfs is WRITABLE: a guest could create files under /tmp, the host home, `<share>/.smurg` (private to
+//     the sandbox, but "writes only to the roots" did not hold, and `.smurg` looked writable);
+//  3. the sandboxed process runs under bwrap's AppArmor profile, which allows user namespaces: in a nested one it holds
+//     CAP_DAC_READ_SEARCH over its own files and lists the skeleton anyway (`unshare -Ur ls`).
+// So the hardening appends, before bwrap's `--`: `--disable-userns` (3), `--chmod 0111` on every directory that lives
+// on a read-deny tmpfs (the tmpfs roots and the skeleton: lookups work, listing fails) and `--remount-ro` on every
+// such tmpfs (1 and 2: nothing there can be created, and the modes cannot be changed back). It also decides
+// `--new-session` at run time (LINUX_SESSION_PRELUDE) and requires the namespaces and mounts the policy relies on.
+
+/** The bash array the outer shell passes to bwrap in place of srt's `--new-session` (empty on a fresh pty). */
+export const LINUX_NEW_SESSION_VAR = 'SMURG_NEW_SESSION';
+const LINUX_STAT_VAR = 'SMURG_STAT';
 
 /**
- * srt renders `<bwrap> --new-session --die-with-parent …` (bwrapPath from the base config), or, when the mounts do not
- * fit one argument, `/bin/sh -c 'exec 3<"$1" && shift && exec "$@"' srt-args <file> <bwrap> …`. Either way the
- * outer shell must exec an absolute path and bwrap must die with its parent.
- *
- * `loopbackListen` (the Claude login process, ARCHITECTURE §11 D-12): on Linux srt gives every sandboxed process its
- * own network namespace (`--unshare-net`, the proxy reached through a bridged socket), so the login process's callback
- * server listens on the namespace's OWN loopback, never on the host's, and the host's localhost services are not
- * reachable from it: nothing needs to be added. That is only true while `--unshare-net` is on the command line, so the
- * login process requires the direct form (whose arguments are visible) with it. Implemented from srt 0.0.77's source
- * (linux-sandbox-utils.js); not run on Linux by this project.
+ * The outer shell's first step on Linux. srt always starts bwrap with `--new-session` (setsid): that keeps a guest from
+ * the terminal of whoever spawned it (TIOCSTI injection, CVE-2017-5226), but measured on a node-pty it also cuts the
+ * session's own pty off as the controlling terminal: no SIGWINCH on resize (a TUI never redraws), no job control, and
+ * Ctrl-C in a guest terminal kills bwrap (its process group is the foreground one) and with it the whole session.
+ * `--new-session` is therefore dropped exactly when the outer shell leads its own session with a controlling terminal
+ * and stdin is a terminal: that is node-pty (forkpty: setsid + TIOCSCTTY on a FRESH pty that no other session holds,
+ * so TIOCSTI only reaches the guest's own input). Spawned any other way (child_process, stdin not a terminal, or a
+ * setsid without a controlling terminal) the shell is not a session leader with a terminal and bwrap keeps
+ * `--new-session`. Shell builtins only; a failure keeps `--new-session`.
  */
-export function hardenLinuxCommand(wrapped: string, bwrapPath: string, options: { readonly loopbackListen?: boolean } = {}): string {
-  if (!bwrapPath.startsWith('/')) throw new HardeningError('bwrap path is not absolute');
-  const direct = `${shellQuote(bwrapPath)} `;
-  const viaArgsFile = `/bin/sh -c `;
-  if (!wrapped.startsWith(direct) && !(wrapped.startsWith(viaArgsFile) && wrapped.includes(` ${shellQuote(bwrapPath)} `))) {
-    throw new HardeningError('the command does not start with the absolute bwrap path');
-  }
-  if (!wrapped.includes(' --die-with-parent ')) throw new HardeningError('bwrap is not started with --die-with-parent');
-  if (!wrapped.includes(' --new-session ')) throw new HardeningError('bwrap is not started with --new-session');
-  if (options.loopbackListen === true) {
-    if (!wrapped.startsWith(direct)) throw new HardeningError('the login process needs bwrap arguments that can be checked (no arguments file)');
-    if (!linuxBwrapWords(wrapped).includes('--unshare-net')) throw new HardeningError('the login process needs its own network namespace (--unshare-net)');
-  }
-  return `exec ${wrapped}`;
+export const LINUX_SESSION_PRELUDE =
+  `${LINUX_NEW_SESSION_VAR}=(--new-session); ` +
+  `{ read -r ${LINUX_STAT_VAR} < /proc/$$/stat && ${LINUX_STAT_VAR}=\${${LINUX_STAT_VAR}##*) } && set -- $${LINUX_STAT_VAR} && ` +
+  `[ "$4" = "$$" ] && [ "$5" != 0 ] && [ -t 0 ] && ${LINUX_NEW_SESSION_VAR}=(); } 2>/dev/null; `;
+
+/** How srt 0.0.77's bwrap words are replaced: the array expands to `--new-session` or to nothing. */
+const LINUX_NEW_SESSION_WORD = `"\${${LINUX_NEW_SESSION_VAR}[@]}"`;
+
+/** The mode of every directory on a read-deny tmpfs: search only (a carve-out below stays reachable by its path). */
+export const LINUX_HIDDEN_DIR_MODE = '0111';
+
+/**
+ * The bwrap options srt 0.0.77 writes into a wrapped command, with their argument counts. Anything else (for example
+ * `--dev-bind`, `--cap-add`, a second `--proc`) is refused: the hardening has only been verified against these.
+ */
+const SRT_BWRAP_ARITY: ReadonlyMap<string, number> = new Map([
+  ['--new-session', 0],
+  ['--die-with-parent', 0],
+  ['--unshare-net', 0],
+  ['--unshare-pid', 0],
+  ['--unshare-user', 0],
+  ['--unsetenv', 1],
+  ['--tmpfs', 1],
+  ['--dev', 1],
+  ['--proc', 1],
+  ['--cap-drop', 1],
+  ['--args', 1],
+  ['--setenv', 2],
+  ['--bind', 2],
+  ['--ro-bind', 2],
+]);
+
+/** Options whose operand is a mount destination (the last argument). */
+const MOUNT_OPTIONS: ReadonlySet<string> = new Set(['--bind', '--ro-bind', '--tmpfs', '--dev', '--proc']);
+
+/** srt's arguments-file form: `/bin/sh -c 'exec 9<"$1" && shift && exec "$@"' srt-args /proc/<pid>/fd/<n> <bwrap> …`. */
+const ARGS_FILE_SCRIPT = /^exec ([0-9])<"\$1" && shift && exec "\$@"$/;
+const ARGS_FILE_PATH = /^\/proc\/[0-9]+\/fd\/[0-9]+$/;
+
+interface Word {
+  readonly value: string;
+  readonly start: number;
+  readonly end: number;
 }
 
-/** The words of a direct bwrap command up to its `--` (shellQuote-style words, like srt writes them). */
-function linuxBwrapWords(wrapped: string): string[] {
-  const words: string[] = [];
+/** Every word of a command written with shellQuote-style quoting (srt's utils/shell-quote.js), with its position. */
+function splitQuotedWords(text: string): Word[] {
+  const words: Word[] = [];
   let i = 0;
-  while (i < wrapped.length) {
-    const word = readQuotedWord(wrapped, i);
-    if (word.value === '--') return words;
-    words.push(word.value);
+  while (i < text.length) {
+    const word = readQuotedWord(text, i);
+    words.push({ value: word.value, start: i, end: word.end });
     i = word.end;
-    if (i < wrapped.length) {
-      if (wrapped[i] !== ' ') throw new HardeningError('malformed bwrap command');
+    if (i < text.length) {
+      if (text[i] !== ' ') throw new HardeningError('malformed bwrap command');
       i++;
     }
   }
-  throw new HardeningError('the bwrap command has no -- before the sandboxed shell');
+  return words;
+}
+
+/**
+ * srt's arguments file (`/proc/<pid>/fd/<n>`, NUL-separated mount words), when the wrapped command uses one; null for
+ * the direct form. The service reads it (it is this process's own descriptor) and passes the words back in.
+ */
+export function linuxArgsFilePath(wrapped: string): string | null {
+  if (!wrapped.startsWith('/bin/sh -c ')) return null;
+  const words = splitQuotedWords(wrapped);
+  const path = words[4]?.value ?? '';
+  return words[3]?.value === 'srt-args' && ARGS_FILE_PATH.test(path) ? path : null;
+}
+
+interface BwrapOp {
+  readonly option: string;
+  readonly args: readonly string[];
+  /** The option's word on the command line; null for a word read from the arguments file. */
+  readonly word: Word | null;
+}
+
+function takeOps(words: readonly string[], lineWords: readonly Word[] | null, from: number, stopAtSeparator: boolean): { ops: BwrapOp[]; end: number } {
+  const ops: BwrapOp[] = [];
+  let i = from;
+  while (i < words.length) {
+    const option = words[i] as string;
+    if (stopAtSeparator && option === '--') return { ops, end: i };
+    const arity = SRT_BWRAP_ARITY.get(option);
+    if (arity === undefined) throw new HardeningError(`unexpected bwrap argument: ${JSON.stringify(option.slice(0, 80))}`);
+    if (i + arity >= words.length) throw new HardeningError(`bwrap option ${option} is missing its arguments`);
+    ops.push({ option, args: words.slice(i + 1, i + 1 + arity), word: lineWords === null ? null : (lineWords[i] as Word) });
+    i += 1 + arity;
+  }
+  if (stopAtSeparator) throw new HardeningError('the bwrap command has no -- before the sandboxed shell');
+  return { ops, end: i };
+}
+
+function isAtOrBelow(p: string, dir: string): boolean {
+  return p === dir || p.startsWith(dir === '/' ? '/' : `${dir}/`);
+}
+
+function parentsOf(p: string): string[] {
+  const out: string[] = [];
+  for (let dir = p.slice(0, p.lastIndexOf('/')) || '/'; ; dir = dir.slice(0, dir.lastIndexOf('/')) || '/') {
+    out.push(dir);
+    if (dir === '/') return out;
+  }
+}
+
+/**
+ * From the mounts in order: the directories that end up on a read-deny tmpfs (the tmpfs roots that stay visible, and
+ * the directories bubblewrap creates on them for a later mount) and those tmpfs roots. A directory is on the tmpfs of
+ * mount k when k is the last mount at or above it, and it exists there when it is k's own root or a mount AFTER k lies
+ * below it (bubblewrap created it for that mount).
+ */
+export function linuxHiddenDirs(mounts: readonly { readonly kind: 'bind' | 'tmpfs' | 'other'; readonly dest: string }[]): { readonly chmod: string[]; readonly readOnly: string[] } {
+  for (const mount of mounts) {
+    if (!mount.dest.startsWith('/') || /(?:^|\/)\.\.?(?:\/|$)|\/\/|[\u0000]/.test(mount.dest) || (mount.dest.length > 1 && mount.dest.endsWith('/'))) {
+      throw new HardeningError(`mount destination is not a normalised absolute path: ${JSON.stringify(mount.dest.slice(0, 120))}`);
+    }
+  }
+  const owner = (dir: string): number => {
+    for (let k = mounts.length - 1; k >= 0; k--) if (isAtOrBelow(dir, (mounts[k] as { dest: string }).dest)) return k;
+    return -1;
+  };
+  const chmod = new Set<string>();
+  const readOnly = new Set<string>();
+  mounts.forEach((mount, k) => {
+    if (mount.kind === 'tmpfs' && owner(mount.dest) === k) {
+      chmod.add(mount.dest);
+      readOnly.add(mount.dest);
+    }
+  });
+  mounts.forEach((mount, j) => {
+    for (const dir of parentsOf(mount.dest)) {
+      const k = owner(dir);
+      if (k >= 0 && k < j && (mounts[k] as { kind: string }).kind === 'tmpfs') chmod.add(dir);
+    }
+  });
+  const byDepth = (a: string, b: string): number => a.split('/').length - b.split('/').length || (a < b ? -1 : a > b ? 1 : 0);
+  return { chmod: [...chmod].sort(byDepth), readOnly: [...readOnly].sort(byDepth) };
+}
+
+export interface LinuxHardeningOptions {
+  /** The Claude login process (ARCHITECTURE §11 D-12). */
+  readonly loopbackListen?: boolean;
+  /** The words of srt's arguments file (linuxArgsFilePath), when the command uses one. */
+  readonly argsFileWords?: readonly string[] | null;
+  /**
+   * The policy's write roots and srt's bridge sockets: the only destinations srt may bind WRITABLE. srt also binds its
+   * own `/tmp/claude` writable whenever it exists on the host (sandbox-utils.js SANDBOX_OWN_WRITE_PATHS, not
+   * configurable), a scratch dir every guest and the host's own sandboxed Claude Code would share: any such other
+   * writable bind gets a tmpfs of its own on top (then hidden and read-only like every read-deny tmpfs). Without this
+   * list every writable bind is accepted as is (unit tests of the parser only).
+   */
+  readonly writableBinds?: readonly string[];
+}
+
+/**
+ * srt renders `<bwrap> --new-session --die-with-parent …` (bwrapPath from the base config), or, when the mounts do not
+ * fit one argument, `/bin/sh -c 'exec 9<"$1" && shift && exec "$@"' srt-args /proc/<pid>/fd/<n> <bwrap> … --args 9 …`
+ * with the mount words in that file. Every bwrap argument (the file's included) is parsed against srt's known options;
+ * the command must exec bwrap by its absolute path with `--die-with-parent`, one `--new-session`, user, pid and network
+ * namespaces (`--unshare-net`: srt's proxy is the ONLY way out, and the login process's callback server listens on
+ * the namespace's own loopback, ARCHITECTURE §11 D-12), `--cap-drop ALL`, a fresh `/proc` and `/dev`, and
+ * `--ro-bind / /` (nothing writable but the roots). The result is LINUX_SESSION_PRELUDE + `exec` + srt's command with
+ * its `--new-session` word replaced by LINUX_NEW_SESSION_WORD and the hidden-directory arguments added before `--`.
+ */
+export function hardenLinuxCommand(wrapped: string, bwrapPath: string, options: LinuxHardeningOptions = {}): string {
+  if (!bwrapPath.startsWith('/')) throw new HardeningError('bwrap path is not absolute');
+  const words = splitQuotedWords(wrapped);
+  const values = words.map((word) => word.value);
+  let bwrapAt: number;
+  let argsFd: string | null = null;
+  if (values[0] === bwrapPath) {
+    bwrapAt = 0;
+  } else if (values[0] === '/bin/sh' && values[1] === '-c' && ARGS_FILE_SCRIPT.test(values[2] ?? '') && values[3] === 'srt-args' && ARGS_FILE_PATH.test(values[4] ?? '') && values[5] === bwrapPath) {
+    bwrapAt = 5;
+    argsFd = (ARGS_FILE_SCRIPT.exec(values[2] as string) as RegExpExecArray)[1] as string;
+  } else {
+    throw new HardeningError('the command does not start with the absolute bwrap path');
+  }
+  const line = takeOps(values, words, bwrapAt + 1, true);
+  const tail = values.slice(line.end + 1);
+  if (tail.length !== 3 || !(tail[0] as string).startsWith('/') || tail[1] !== '-c') throw new HardeningError('the sandboxed command is not `<absolute shell> -c <command>`');
+  // The arguments file's ops take the place of its `--args`.
+  const argsOps = line.ops.filter((op) => op.option === '--args');
+  let ops: BwrapOp[] = line.ops;
+  if (argsOps.length > 0) {
+    if (argsFd === null || argsOps.length !== 1 || argsOps[0]?.args[0] !== argsFd) throw new HardeningError('unexpected bwrap --args');
+    if (options.argsFileWords === undefined || options.argsFileWords === null) throw new HardeningError('the bwrap arguments file was not read');
+    const fileOps = takeOps(options.argsFileWords, null, 0, false).ops;
+    if (fileOps.some((op) => op.option === '--args' || op.option === '--new-session')) throw new HardeningError('unexpected option in the bwrap arguments file');
+    const at = ops.indexOf(argsOps[0] as BwrapOp);
+    ops = [...ops.slice(0, at), ...fileOps, ...ops.slice(at + 1)];
+  } else if (argsFd !== null) {
+    throw new HardeningError('the arguments-file form without --args');
+  }
+  const count = (option: string, args?: readonly string[]): number =>
+    ops.filter((op) => op.option === option && (args === undefined || (op.args.length === args.length && op.args.every((a, i) => a === args[i])))).length;
+  if (count('--die-with-parent') < 1) throw new HardeningError('bwrap is not started with --die-with-parent');
+  const newSession = ops.filter((op) => op.option === '--new-session');
+  if (newSession.length !== 1 || newSession[0]?.word === null) throw new HardeningError('bwrap is not started with exactly one --new-session');
+  if (count('--unshare-user') < 1 || count('--unshare-pid') < 1) throw new HardeningError('bwrap does not create its own user and pid namespaces');
+  if (count('--unshare-net') < 1) {
+    throw new HardeningError(options.loopbackListen === true ? 'the login process needs its own network namespace (--unshare-net)' : 'bwrap does not create its own network namespace (--unshare-net)');
+  }
+  if (count('--cap-drop', ['ALL']) !== 1 || count('--cap-drop') !== 1) throw new HardeningError('bwrap does not drop every capability');
+  if (count('--proc', ['/proc']) !== 1 || count('--proc') !== 1 || count('--dev', ['/dev']) !== 1 || count('--dev') !== 1) throw new HardeningError('bwrap does not mount a fresh /proc and /dev');
+  if (count('--ro-bind', ['/', '/']) !== 1) throw new HardeningError('bwrap does not start from a read-only root');
+  const mounts: { kind: 'bind' | 'tmpfs' | 'other'; dest: string }[] = ops
+    .filter((op) => MOUNT_OPTIONS.has(op.option))
+    .map((op) => ({ kind: op.option === '--tmpfs' ? ('tmpfs' as const) : op.option === '--bind' || op.option === '--ro-bind' ? ('bind' as const) : ('other' as const), dest: op.args[op.args.length - 1] as string }));
+  // A writable bind that is neither a write root nor a bridge socket (srt's /tmp/claude): covered by a tmpfs of ours.
+  const covers: string[] = [];
+  if (options.writableBinds !== undefined) {
+    const allowed = new Set(options.writableBinds);
+    for (const op of ops) {
+      if (op.option !== '--bind') continue;
+      const dest = op.args[1] as string;
+      if (allowed.has(dest) || covers.includes(dest)) continue;
+      if (dest === '/' || mounts.some((m) => m.dest !== dest && isAtOrBelow(m.dest, dest))) throw new HardeningError(`srt binds a path writable that the policy does not name: ${JSON.stringify(dest.slice(0, 120))}`);
+      covers.push(dest);
+    }
+  }
+  mounts.push(...covers.map((dest) => ({ kind: 'tmpfs' as const, dest })));
+  const hidden = linuxHiddenDirs(mounts);
+  const extra = [
+    '--disable-userns',
+    ...covers.flatMap((dir) => ['--tmpfs', dir]),
+    ...hidden.chmod.flatMap((dir) => ['--chmod', LINUX_HIDDEN_DIR_MODE, dir]),
+    ...hidden.readOnly.flatMap((dir) => ['--remount-ro', dir]),
+  ];
+  const session = newSession[0]?.word as Word;
+  const separator = words[line.end] as Word;
+  const hardened =
+    wrapped.slice(0, session.start) +
+    LINUX_NEW_SESSION_WORD +
+    wrapped.slice(session.end, separator.start) +
+    `${extra.map(shellQuote).join(' ')} ` +
+    wrapped.slice(separator.start);
+  return `${LINUX_SESSION_PRELUDE}exec ${hardened}`;
 }

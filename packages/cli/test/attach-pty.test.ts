@@ -129,7 +129,13 @@ describe('smurg attach in a real terminal (control socket, host)', () => {
     const local = openLocal(s);
     await attached(local);
     const mark = local.text.length;
-    local.outer.write(`printf '\\033[c'; read -rs -t 2 -d c r1; read -rs -t 1 -d c r2; printf 'DA%s<%s><%s>\\n' 1 "\${r1#?}" "\${r2:-none}"\r`);
+    // The session's shell is /bin/sh: dash on Debian/Ubuntu, whose `read` has none of bash's -s, -t, -d. The same
+    // reads, POSIX-only: echo off, non-canonical, one byte at a time up to the answer's final `c` (like `read -d c`, so
+    // a second answer lands in r2, not in r1), each byte within 2 s for the first answer and 1 s for a second one.
+    const upToC = (v: string): string => `${v}=; while b=$(dd bs=1 count=1 2>/dev/null) && [ -n "$b" ] && [ "$b" != c ]; do ${v}="\$${v}$b"; done`;
+    local.outer.write(
+      `s=$(stty -g); stty -echo -icanon min 0 time 20; printf '\\033[c'; ${upToC('r1')}; stty time 10; ${upToC('r2')}; stty "$s"; printf 'DA%s<%s><%s>\\n' 1 "\${r1#?}" "\${r2:-none}"\r`,
+    );
     await waitFor(() => /DA1<.*?><.*?>/.test(local.since(mark)), { timeoutMs: 15_000, what: 'the DA1 probe' });
     const replies = /DA1<(.*?)><(.*?)>/.exec(local.since(mark)) as RegExpExecArray;
     expect(replies[1]).toMatch(/^\[\?\d/);

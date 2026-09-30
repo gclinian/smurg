@@ -171,6 +171,10 @@ describe('sessions with the real sandbox and hooks modules', { timeout: 90_000 }
     expect(session.sandboxed).toBe(true);
     const guest = f.sessions.guestPaths(RUNNER);
     const token = `${randomBytes(3).readUIntBE(0, 3) + 70_000_000}`;
+    // Linux: also a job that setsid()s AND scrubs its environment (ARCHITECTURE §11 D-3: on macOS such a process
+    // survives the end of its session; on Linux it lives in the session's own pid namespace, which dies with bwrap).
+    const escapee = `${randomBytes(3).readUIntBE(0, 3) + 60_000_000}`;
+    const linux = process.platform === 'linux';
     await type(
       session.id,
       [
@@ -179,6 +183,7 @@ describe('sessions with the real sandbox and hooks modules', { timeout: 90_000 }
         `cat README.md > "$TMPDIR/r-read" 2>&1`,
         `echo guest-note > "$HOME/note"; echo "rc=$?" > "$TMPDIR/r-home"`,
         `sleep ${token} &`,
+        ...(linux ? [`/usr/bin/setsid /usr/bin/env -i /bin/sleep ${escapee} < /dev/null > /dev/null 2>&1 &`] : []),
         `echo done > "$TMPDIR/r-done"`,
       ].join('\r') + '\r',
     );
@@ -191,13 +196,63 @@ describe('sessions with the real sandbox and hooks modules', { timeout: 90_000 }
     expect(await readFile(join(guest.tmp, 'r-read'), 'utf8')).toBe('shared readme\n');
     expect(await readFile(join(guest.tmp, 'r-home'), 'utf8')).toBe('rc=0\n');
 
-    const pidsOf = async (): Promise<number> => (await execFileAsync('/bin/ps', ['-A', '-ww', '-o', 'command='])).stdout.split('\n').filter((l) => l.includes(`sleep ${token}`)).length;
-    await waitFor(async () => (await pidsOf()) > 0, 'the background job');
+    const pidsOf = async (): Promise<number> => (await execFileAsync('/bin/ps', ['-A', '-ww', '-o', 'command='])).stdout.split('\n').filter((l) => l.includes(`sleep ${token}`) || (linux && l.includes(`sleep ${escapee}`))).length;
+    await waitFor(async () => (await pidsOf()) === (linux ? 2 : 1), 'the background jobs');
     const t0 = Date.now();
     await f.sessions.killAllForUser(RUNNER, 'kicked');
-    await waitFor(async () => (await pidsOf()) === 0, 'the sandboxed job to be gone', 3_000);
+    await waitFor(async () => (await pidsOf()) === 0, 'the sandboxed jobs to be gone', 3_000);
     console.info(`[R2.2/real srt] sandboxed session processes gone ${Date.now() - t0} ms after the kick`);
     await f.sessions.removeGuestDir(RUNNER);
+  });
+
+  // Linux: srt starts bubblewrap with --new-session (setsid), which cut the guest's shell off from its own pty: no
+  // SIGWINCH on a resize (a TUI never redraws), no job control, and Ctrl-C reached bubblewrap itself and ended the whole
+  // session (measured before harden.ts LINUX_SESSION_PRELUDE). macOS (sandbox-exec) never had the problem.
+  it('a guest terminal keeps its own terminal inside the sandbox: a resize reaches the program in it (SIGWINCH, the new size), Ctrl-C interrupts the foreground program and not the session', async (ctx) => {
+    if (!supported) return ctx.skip('real srt runs on macOS and Linux only');
+    if (setupError) throw setupError;
+    const f = fixture as Fixture;
+    if (isStubService(f.daemon.ctx.services.sandbox)) {
+      console.warn('[sessions] SKIPPED: the sandbox module is still a stub');
+      return ctx.skip('sandbox module is a stub');
+    }
+    const session = await f.sessions.create({ kind: 'terminal', workspace: { mode: 'main' }, cols: 120, rows: 40 }, conn, runner());
+    expect(session.sandboxed).toBe(true);
+    const guest = f.sessions.guestPaths(RUNNER);
+    try {
+      // The owner's viewer, like the web client's: its viewport drives the PTY size.
+      await f.sessions.attach({ sessionId: session.id, cols: 120, rows: 40 }, conn, runner());
+      // A foreground program that notes each SIGWINCH with the size its terminal then reports, and a SIGINT.
+      const perl = [
+        '$d=$ENV{TMPDIR};',
+        'sub note { my ($n,$t)=@_; open(my $h, ">>", "$d/$n") or die; print $h $t; close $h }',
+        '$SIG{WINCH}=sub { note("t-winch", `/bin/stty size`) };',
+        '$SIG{INT}=sub { note("t-int", "int\\n"); exit 0 };',
+        'note("t-ready", "ready\\n");',
+        'sleep 1 while 1;',
+      ].join(' ');
+      await type(session.id, `/usr/bin/perl -e '${perl}'\r`);
+      await readWhenPresent(join(guest.tmp, 't-ready'));
+      f.sessions.resize({ sessionId: session.id, cols: 100, rows: 30 }, conn, runner());
+      await waitFor(() => f.sessions.get(session.id)?.cols === 100 && f.sessions.get(session.id)?.rows === 30, 'the PTY resize');
+      await waitFor(async () => (await readFile(join(guest.tmp, 't-winch'), 'utf8').catch(() => '')).includes('30 100'), 'SIGWINCH and the new size inside the sandbox', 20_000);
+      await type(session.id, '\x03');
+      expect(await readWhenPresent(join(guest.tmp, 't-int'))).toBe('int\n');
+
+      // A program that does not catch SIGINT: Ctrl-C ends it, the guest's shell and the session go on.
+      const token = `${randomBytes(3).readUIntBE(0, 3) + 80_000_000}`;
+      const sleeping = async (): Promise<number> => (await execFileAsync('/bin/ps', ['-A', '-ww', '-o', 'command='])).stdout.split('\n').filter((l) => l.includes(`sleep ${token}`)).length;
+      await type(session.id, `/bin/sleep ${token}\r`);
+      await waitFor(async () => (await sleeping()) > 0, 'the foreground sleep');
+      await type(session.id, '\x03');
+      await waitFor(async () => (await sleeping()) === 0, 'Ctrl-C to end the foreground sleep', 10_000);
+      await type(session.id, `echo "alive rc=$?" > "$TMPDIR/t-alive"\r`);
+      expect(await readWhenPresent(join(guest.tmp, 't-alive'))).toBe('alive rc=130\n');
+      expect(f.sessions.get(session.id)?.status).toBe('running');
+    } finally {
+      f.sessions.detach(session.id, conn.channelId);
+      await f.sessions.end({ sessionId: session.id }, runner());
+    }
   });
 
   it('worktree mode (R9.1, the session side): the guest writes its worktree, while the main share is neither readable nor writable', async (ctx) => {

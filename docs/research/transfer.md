@@ -210,6 +210,11 @@ accept   ⇔ freeAfter ≥ reserve
   empty dirs; symlinks stored as symlink entries (`mode 0120777`, data = link text) **only** if the link text is
   relative and resolves inside the zipped folder, otherwise skipped and reported; FIFOs/sockets/devices skipped;
   `.smurg` excluded at the workspace root; deflate level 6 except already-compressed extensions (stored).
+- **[Added 2026-10-01, Linux]** Entries are named in the zip as the disk spells them (an NFD name stays NFD) and opened
+  through their NFC path, which PathGuard maps back onto the one entry with that NFC form (ARCHITECTURE §7.4). On a
+  file system that compares bytes (ext4), a name that no NFC path can reach (an NFD twin next to its NFC name, or two
+  non-NFC spellings of one name) is skipped and listed in `skipped[]` as `duplicate-name`; before this, such an entry
+  came out as `open:ENOENT` / `unreadable-dir:vanished` (first Linux run of the suite, `test/files/download.test.ts`).
 - **[Corrected] Walker robustness** (verified, `verify/walker-vanish.mjs`):
   - A file deleted between `readdir()` and the walker's `lstat()` makes the generator throw `ENOENT`, which aborts
     the **whole** zip. Agents create and delete temp files constantly. Catch `ENOENT`/`ENOTDIR` per entry and report

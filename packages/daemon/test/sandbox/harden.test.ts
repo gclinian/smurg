@@ -15,6 +15,10 @@ import {
   checkDarwinEnvWords,
   hardenDarwinCommand,
   hardenLinuxCommand,
+  LINUX_NEW_SESSION_VAR,
+  LINUX_SESSION_PRELUDE,
+  linuxArgsFilePath,
+  linuxHiddenDirs,
   parseDarwinWrapped,
   shellQuote,
 } from '../../src/sandbox/harden.ts';
@@ -214,24 +218,83 @@ describe('hardenDarwinCommand (synthetic srt output)', () => {
   });
 });
 
-describe('hardenLinuxCommand (implemented from srt source; not run on Linux here)', () => {
-  it('accepts bwrap by absolute path, dying with its parent, and execs it', () => {
+describe('hardenLinuxCommand (srt 0.0.77 shape; its REAL output is hardened and run on Linux in r5.sandbox.test.ts)', () => {
+  const sep = ' -- /bin/bash -c ';
+  const beforeSeparator = (out: string): string => out.slice(0, out.indexOf(sep));
+
+  it('execs bwrap by absolute path with --new-session decided at run time, and hides every read-deny tmpfs before `--`', () => {
     const wrapped = syntheticLinuxCommand('echo hi');
-    expect(hardenLinuxCommand(wrapped, '/usr/bin/bwrap')).toBe(`exec ${wrapped}`);
-    const viaFile = `/bin/sh -c 'exec 3<"$1" && shift && exec "$@"' srt-args /proc/self/fd/9 /usr/bin/bwrap --new-session --die-with-parent --args 3 -- /bin/bash -c 'echo hi'`;
-    expect(hardenLinuxCommand(viaFile, '/usr/bin/bwrap')).toBe(`exec ${viaFile}`);
+    const out = hardenLinuxCommand(wrapped, '/usr/bin/bwrap');
+    expect(out.startsWith(`${LINUX_SESSION_PRELUDE}exec /usr/bin/bwrap "\${${LINUX_NEW_SESSION_VAR}[@]}" --die-with-parent `)).toBe(true);
+    expect(beforeSeparator(out).endsWith(' --proc /proc --disable-userns --chmod 0111 /home --remount-ro /home')).toBe(true);
+    // the rest of srt's text is untouched, the command included
+    expect(out.endsWith(`${sep}${shellQuote('echo hi')}`)).toBe(true);
+    expect(out.replace(`"\${${LINUX_NEW_SESSION_VAR}[@]}"`, '--new-session').replace(' --disable-userns --chmod 0111 /home --remount-ro /home', '')).toBe(`${LINUX_SESSION_PRELUDE}exec ${wrapped}`);
   });
 
-  it('the login process (D-12) needs its own network namespace: --unshare-net among bwrap\'s own arguments, the direct form only', () => {
+  it('the skeleton: tmpfs roots and the directories bubblewrap creates on them for a later mount, never a bind\'s content, never a buried one', () => {
+    const mounts = (list: [string, string][]) => list.map(([kind, dest]) => ({ kind: kind as 'bind' | 'tmpfs' | 'other', dest }));
+    expect(
+      linuxHiddenDirs(
+        mounts([
+          ['bind', '/tmp/claude-http-1.sock'], // srt's bridge socket, before the root: buried by /tmp's tmpfs, no skeleton
+          ['bind', '/'],
+          ['bind', '/home/u/proj'],
+          ['tmpfs', '/home'],
+          ['bind', '/home/u/proj'],
+          ['bind', '/home/u/.smurg/guests/ws/alice'],
+          ['tmpfs', '/tmp'],
+          ['bind', '/tmp/claude-http-1.sock'],
+          ['tmpfs', '/home/u/proj/.smurg'], // inside a bind: its root only
+          ['bind', '/home/u/proj/.smurg/x'], // …and what bubblewrap made on it
+          ['other', '/dev'],
+          ['other', '/proc'],
+        ]),
+      ),
+    ).toEqual({
+      chmod: ['/home', '/tmp', '/home/u', '/home/u/.smurg', '/home/u/proj/.smurg', '/home/u/.smurg/guests', '/home/u/.smurg/guests/ws'].sort((a, b) => a.split('/').length - b.split('/').length || (a < b ? -1 : 1)),
+      readOnly: ['/home', '/tmp', '/home/u/proj/.smurg'],
+    });
+    // A tmpfs mounted again on top buries what the first one held: nothing below it is named.
+    expect(linuxHiddenDirs(mounts([['bind', '/'], ['tmpfs', '/t'], ['bind', '/t/a/b'], ['tmpfs', '/t']]))).toEqual({ chmod: ['/t'], readOnly: ['/t'] });
+    expect(() => linuxHiddenDirs(mounts([['bind', '/'], ['tmpfs', '/a/../b']]))).toThrow(HardeningError);
+  });
+
+  it('the arguments-file form: the words of srt\'s file are parsed and hidden like the command line\'s', () => {
+    const file = ['--ro-bind', '/', '/', '--tmpfs', '/home', '--bind', '/home/u/p', '/home/u/p'];
+    const viaFile = `/bin/sh -c 'exec 9<"$1" && shift && exec "$@"' srt-args /proc/4242/fd/31 /usr/bin/bwrap --new-session --die-with-parent --unshare-net --args 9 --dev /dev --unshare-pid --unshare-user --cap-drop ALL --proc /proc -- /bin/bash -c 'echo hi'`;
+    expect(linuxArgsFilePath(viaFile)).toBe('/proc/4242/fd/31');
+    expect(linuxArgsFilePath(syntheticLinuxCommand('echo hi'))).toBeNull();
+    const out = hardenLinuxCommand(viaFile, '/usr/bin/bwrap', { argsFileWords: file, loopbackListen: true });
+    expect(out.startsWith(`${LINUX_SESSION_PRELUDE}exec /bin/sh -c 'exec 9<"$1" && shift && exec "$@"' srt-args /proc/4242/fd/31 /usr/bin/bwrap "\${${LINUX_NEW_SESSION_VAR}[@]}" --die-with-parent --unshare-net --args 9 `)).toBe(true);
+    expect(beforeSeparator(out).endsWith(' --disable-userns --chmod 0111 /home --chmod 0111 /home/u --remount-ro /home')).toBe(true);
+    // unread, or holding what srt never writes there, it fails closed
+    expect(() => hardenLinuxCommand(viaFile, '/usr/bin/bwrap')).toThrow(/arguments file was not read/);
+    expect(() => hardenLinuxCommand(viaFile, '/usr/bin/bwrap', { argsFileWords: [...file, '--new-session'] })).toThrow(HardeningError);
+    expect(() => hardenLinuxCommand(viaFile, '/usr/bin/bwrap', { argsFileWords: [...file, '--bind', '/x'] })).toThrow(/missing its arguments/);
+    expect(() => hardenLinuxCommand(viaFile.replace('--args 9', '--args 3'), '/usr/bin/bwrap', { argsFileWords: file })).toThrow(/--args/);
+  });
+
+  it('a writable bind the policy does not name (srt\'s own /tmp/claude, when it exists) gets a tmpfs of its own, hidden and read-only', () => {
+    const mounts = ['--ro-bind', '/', '/', '--bind', '/tmp/claude', '/tmp/claude', '--bind', '/w/proj', '/w/proj', '--tmpfs', '/tmp', '--bind', '/tmp/claude', '/tmp/claude', '--bind', '/tmp/b.sock', '/tmp/b.sock'];
+    const out = hardenLinuxCommand(syntheticLinuxCommand('echo hi', '/usr/bin/bwrap', mounts), '/usr/bin/bwrap', { writableBinds: ['/w/proj', '/tmp/b.sock'] });
+    expect(beforeSeparator(out).endsWith(' --disable-userns --tmpfs /tmp/claude --chmod 0111 /tmp --chmod 0111 /tmp/claude --remount-ro /tmp --remount-ro /tmp/claude')).toBe(true);
+    // one that holds another mount cannot be covered: refused
+    const holding = ['--ro-bind', '/', '/', '--bind', '/w', '/w', '--ro-bind', '/w/x', '/w/x'];
+    expect(() => hardenLinuxCommand(syntheticLinuxCommand('x', '/usr/bin/bwrap', holding), '/usr/bin/bwrap', { writableBinds: [] })).toThrow(/writable that the policy does not name/);
+  });
+
+  it('the login process (D-12) and every other guest process need their own network namespace', () => {
     const wrapped = syntheticLinuxCommand('echo hi');
-    expect(hardenLinuxCommand(wrapped, '/usr/bin/bwrap', { loopbackListen: true })).toBe(`exec ${wrapped}`);
-    expect(() => hardenLinuxCommand(wrapped.replace(' --unshare-net', ''), '/usr/bin/bwrap', { loopbackListen: true })).toThrow(/network namespace/);
+    expect(hardenLinuxCommand(wrapped, '/usr/bin/bwrap', { loopbackListen: true })).toContain(' --unshare-net ');
+    expect(() => hardenLinuxCommand(wrapped.replace(' --unshare-net', ''), '/usr/bin/bwrap', { loopbackListen: true })).toThrow(/login process needs its own network namespace/);
+    expect(() => hardenLinuxCommand(wrapped.replace(' --unshare-net', ''), '/usr/bin/bwrap')).toThrow(/network namespace/);
     // after the `--` it is the sandboxed command's text, not a bwrap argument
-    const inCommand = syntheticLinuxCommand('echo --unshare-net').replace(' --unshare-net --unshare-pid', ' --unshare-pid');
+    const inCommand = syntheticLinuxCommand('echo --unshare-net').replace(' --unshare-net --setenv', ' --setenv');
     expect(() => hardenLinuxCommand(inCommand, '/usr/bin/bwrap', { loopbackListen: true })).toThrow(/network namespace/);
-    const viaFile = `/bin/sh -c 'exec 3<"$1" && shift && exec "$@"' srt-args /proc/self/fd/9 /usr/bin/bwrap --new-session --die-with-parent --unshare-net --args 3 -- /bin/bash -c 'echo hi'`;
-    expect(() => hardenLinuxCommand(viaFile, '/usr/bin/bwrap', { loopbackListen: true })).toThrow(/arguments file/);
-    expect(hardenLinuxCommand(viaFile, '/usr/bin/bwrap')).toBe(`exec ${viaFile}`);
+    // a bwrap option VALUE that looks like the separator does not end the arguments
+    const tricky = syntheticLinuxCommand('echo hi').replace('--setenv SANDBOX_RUNTIME 1', '--setenv X -- --setenv SANDBOX_RUNTIME 1');
+    expect(hardenLinuxCommand(tricky, '/usr/bin/bwrap')).toContain(' --disable-userns ');
   });
 
   it.each([
@@ -239,6 +302,18 @@ describe('hardenLinuxCommand (implemented from srt source; not run on Linux here
     ['another bwrap', syntheticLinuxCommand('echo hi', '/opt/bwrap'), '/usr/bin/bwrap'],
     ['no --die-with-parent', syntheticLinuxCommand('echo hi').replace(' --die-with-parent', ''), '/usr/bin/bwrap'],
     ['no --new-session', syntheticLinuxCommand('echo hi').replace(' --new-session', ''), '/usr/bin/bwrap'],
+    ['two --new-session', syntheticLinuxCommand('echo hi').replace(' --new-session', ' --new-session --new-session'), '/usr/bin/bwrap'],
+    ['no user namespace', syntheticLinuxCommand('echo hi').replace(' --unshare-user', ''), '/usr/bin/bwrap'],
+    ['no pid namespace', syntheticLinuxCommand('echo hi').replace(' --unshare-pid', ''), '/usr/bin/bwrap'],
+    ['capabilities kept', syntheticLinuxCommand('echo hi').replace(' --cap-drop ALL', ''), '/usr/bin/bwrap'],
+    ['the host /proc', syntheticLinuxCommand('echo hi').replace(' --proc /proc', ''), '/usr/bin/bwrap'],
+    ['the host /dev', syntheticLinuxCommand('echo hi').replace(' --dev /dev', ''), '/usr/bin/bwrap'],
+    ['a writable root', syntheticLinuxCommand('echo hi', '/usr/bin/bwrap', ['--bind', '/', '/']), '/usr/bin/bwrap'],
+    ['device access (--dev-bind)', syntheticLinuxCommand('echo hi', '/usr/bin/bwrap', ['--ro-bind', '/', '/', '--dev-bind', '/dev', '/dev']), '/usr/bin/bwrap'],
+    ['an option srt never writes', syntheticLinuxCommand('echo hi').replace(' --unshare-pid', ' --unshare-pid --share-net'), '/usr/bin/bwrap'],
+    ['no `--`', syntheticLinuxCommand('echo hi').replace(' -- /bin/bash', ' /bin/bash'), '/usr/bin/bwrap'],
+    ['a relative shell', syntheticLinuxCommand('echo hi').replace(' -- /bin/bash', ' -- bash'), '/usr/bin/bwrap'],
+    ['text after the command', `${syntheticLinuxCommand('echo hi')} ; rm -rf /x`, '/usr/bin/bwrap'],
     ['a relative bwrap path', syntheticLinuxCommand('echo hi', 'usr/bin/bwrap'), 'usr/bin/bwrap'],
     ['the command unwrapped', 'echo hi', '/usr/bin/bwrap'],
   ])('fails closed with %s', (_label, wrapped, bwrap) => {

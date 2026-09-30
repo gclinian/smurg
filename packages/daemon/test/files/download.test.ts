@@ -311,4 +311,22 @@ describe('zip walker robustness (transfer.md verification item 4)', () => {
     const { stdout } = await execFileAsync('unzip', ['-Z1', join(work, 'z.zip')]);
     expect(stdout.trim().split('\n')).toEqual(['b.txt', 'sub/c.txt', 'a-big.bin']);
   });
+
+  it.runIf(process.platform === 'linux')('Linux: an NFD twin of an NFC name (two entries on ext4) is reported, never packed as a copy of the other one', async () => {
+    const { ft: f, xfer } = await setup({ 'n/keep.txt': 'keep\n' });
+    await writeFile(join(f.t.root, 'n', 'café.txt'), 'nfc\n');
+    await writeFile(join(f.t.root, 'n', 'cafe\u0301.txt'), 'nfd twin\n');
+    await writeFile(join(f.t.root, 'n', 'only-nfd-e\u0301.txt'), 'only nfd\n');
+    const work = await createTempDir('nfdtwin');
+    temps.push(work);
+    const end = await downloadToFile(xfer, { file: main('n'), zip: true }, join(work, 'n.zip'));
+    // Reported in the protocol's spelling (NFC, like every path on the wire): a second `café.txt` was left out.
+    expect(end.skipped).toEqual([{ path: 'café.txt', reason: 'duplicate-name' }]);
+    const out = join(work, 'x');
+    await mkdir(out);
+    await execFileAsync('unzip', ['-q', join(work, 'n.zip'), '-d', out]);
+    expect((await readdir(out)).sort()).toEqual(['café.txt', 'keep.txt', 'only-nfd-e\u0301.txt'].sort());
+    expect(await readFile(join(out, 'café.txt'), 'utf8')).toBe('nfc\n');
+    expect(await readFile(join(out, 'only-nfd-e\u0301.txt'), 'utf8')).toBe('only nfd\n');
+  });
 });

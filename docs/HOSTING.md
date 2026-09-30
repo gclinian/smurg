@@ -135,7 +135,8 @@ Claude 訂閱帳號。組員的 agent 和終端機都在沙盒裡，不能在你
 - **登入期間（最多 10 分鐘）它可以在你的電腦上開一個網路埠**，等待登入完成；除了它之外，組員的程式都不能開網路埠。
   macOS 的沙盒沒辦法把這個網路埠限制在只有本機（127.0.0.1）連得到，所以 smurg 同時規定這個程序只能執行
   Claude Code 本身（加上沙盒需要的 bash 與 macOS 的 `security` 指令）；Claude Code 自己只在 127.0.0.1 上等待。
-  在 Linux 上，沙盒給這個程序一個獨立的網路環境，別的程式連不到它的網路埠（Linux 的部分還沒有實際執行過）。
+  在 Linux 上，沙盒給這個程序一個獨立的網路環境，別的程式連不到它的網路埠（在 Ubuntu 24.04 上用測試驗證過，但還沒有
+  用真正的 Claude Code 跑過）。
 - 登入完成、組員結束它，或 10 分鐘到了，程序就結束。組員已經開著的 agent session 會在下一次輸入時用上新的登入，
   不必重開。
 - 登入憑證存在那位組員的暫存目錄，和 API key 一樣，技術上你讀得到（§4）。
@@ -191,7 +192,7 @@ smurg stop            # 停止分享：中斷所有連線、結束所有 session
 | 「這個資料夾已經在分享中」／「上層資料夾已經在分享中」 | 同一份檔案同時只能由一個 `smurg host` 分享（不論 relay）。用 `smurg status` 查看，或 `smurg stop` 停止。 |
 | 「relay 拒絕了這台電腦的登入」 | 你的 relay 登入過期或失效。在另一個終端機執行 `smurg login`（§7），`smurg host` 會自動重新連線。 |
 | 「無法寫入 smurg 的狀態檔」 | 磁碟已滿或沒有權限。剛才的變更（踢人、改角色、撤銷邀請）現在有效，但寫入成功前停止分享的話，重新啟動後會消失。 |
-| 「客人沙盒：無法使用（dependency-missing）」 | Linux：`sudo apt-get install bubblewrap socat ripgrep`，重新執行 `smurg host`。 |
+| 「客人沙盒：無法使用（dependency-missing）」 | Linux：`sudo apt-get install bubblewrap socat ripgrep`，重新執行 `smurg host`。bubblewrap 需要 0.8 以上（`bwrap --version`）：Ubuntu 24.04、Debian 12 以上內建的版本即可；Ubuntu 22.04 的 0.6 太舊。 |
 | 「客人沙盒：無法使用（apparmor-userns）」 | Ubuntu 24.04 以上：照 smurg 印出的指令安裝 `/etc/apparmor.d/smurg-bwrap`（只放寬 bubblewrap）。 |
 | 「smurg 狀態目錄的路徑太長」 | 把 `SMURG_HOME` 設成較短的路徑（Unix socket 路徑有長度上限）。 |
 | 組員看到「主人已離線」 | `smurg host` 沒有在執行，或電腦在睡眠 / 沒有網路。 |

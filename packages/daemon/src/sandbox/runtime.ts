@@ -23,6 +23,11 @@ export interface SrtApi {
   wrapWithSandbox(command: string, binShell: string, customConfig: SrtSessionConfig): Promise<string>;
   /** Linux: after a wrapped command exited, lets srt remove bubblewrap's mount-point files. No-op on macOS. */
   cleanupAfterCommand(): void;
+  /**
+   * Linux, after initialize(): srt's network bridge sockets (HTTP and SOCKS; the same file when srt's mux serves both),
+   * which srt binds into every sandbox as the only way out of its network namespace. [] on macOS.
+   */
+  linuxProxySockets(): readonly string[];
   reset(): Promise<void>;
   /** srt's own schema check of a whole configuration (SandboxRuntimeConfigSchema). */
   validate(config: SrtBaseConfig & Partial<SrtSessionConfig>): string | null;
@@ -54,6 +59,7 @@ export async function loadSrt(): Promise<SrtApi> {
     updateConfig: (config) => manager.updateConfig(structuredClone(config) as unknown as SrtConfig),
     wrapWithSandbox: (command, binShell, customConfig) => manager.wrapWithSandbox(command, binShell, structuredClone(customConfig) as unknown as SrtCustom),
     cleanupAfterCommand: () => manager.cleanupAfterCommand(),
+    linuxProxySockets: () => [...new Set([manager.getLinuxHttpSocketPath(), manager.getLinuxSocksSocketPath()].filter((p): p is string => typeof p === 'string' && p.length > 0))],
     reset: () => manager.reset(),
     validate: (config) => {
       const result = schema.safeParse(config);

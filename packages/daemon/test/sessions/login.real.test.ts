@@ -13,7 +13,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
-import { createServer, type Server } from 'node:net';
+import { connect, createServer, type Server } from 'node:net';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { CLAUDE_VERIFIED_VERSIONS, claudeVersionVerdict } from '../../src/core/config.ts';
@@ -49,12 +49,45 @@ async function hostService(): Promise<{ readonly server: Server; readonly port: 
   };
 }
 
+/** A TCP port nothing on this host listens on right now (bound and released). */
+async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as { port: number }).port;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
+/** Whether THIS host process reaches a listener on 127.0.0.1:`port` (the test side of a network-namespace check). */
+async function hostReaches(port: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const socket = connect({ host: '127.0.0.1', port });
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.once('error', () => resolve(false));
+  });
+}
+
+/**
+ * Linux: a perl listener on 0.0.0.0:`port` for `seconds`, counting who connects (it prints @@<name>-accepts=N@@ when
+ * it stops). A guest process on Linux runs in its own network namespace (srt's --unshare-net), so it may listen: only
+ * processes of that namespace can connect, never the host or the network.
+ */
+function nsListener(name: string, port: number, seconds: number): string {
+  // perl sees \@ and \n (JS: '\\@', '\\n'): no "@@" in the text a terminal echoes, one line to type
+  const say = (what: string): string => `print "\\@\\@${name}-${what}\\@\\@\\n"`;
+  return `/usr/bin/perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(Listen=>5,LocalAddr=>"0.0.0.0",LocalPort=>${port},Proto=>"tcp",ReuseAddr=>1) or do { ${say('listen=denied')}; exit 3 }; ${say('listen=ok')}; $n=0; $SIG{ALRM}=sub { ${say('accepts=$n')}; exit 0 }; alarm ${seconds}; while (my $c=$s->accept) { $n++; print $c "token\\n"; close $c }'`;
+}
+
 /**
  * The stand-in `claude` (bash, which the login's exec allow-list admits as the sandbox's shell): `--version` says a
  * verified version; `auth login` probes the sandbox from inside the real login process with shell BUILTINS only
- * (anything else it starts must be refused) and prints @@name=…@@.
+ * (anything else it starts must be refused on macOS) and prints @@name=…@@. On Linux (no exec allow-list: the
+ * process has its own network namespace) it also starts a listener on `listenPort` and connects to it from inside.
  */
-function probingClaude(paths: { readonly servicePort: number; readonly home: string; readonly share: string; readonly stateDir: string }): string {
+function probingClaude(paths: { readonly servicePort: number; readonly home: string; readonly share: string; readonly stateDir: string; readonly listenPort: number }): string {
   const q = (s: string): string => `'${s.replace(/'/g, `'"'"'`)}'`;
   const probe = (name: string, cmd: string): string => `if ( ${cmd} ) >/dev/null 2>&1; then echo "@@${name}=ok@@"; else echo "@@${name}=denied@@"; fi`;
   return [
@@ -81,6 +114,16 @@ function probingClaude(paths: { readonly servicePort: number; readonly home: str
     probe('exec-nc', '/usr/bin/nc -h'),
     probe('exec-cat', '/bin/cat /dev/null'),
     probe('exec-true', '/usr/bin/true'),
+    ...(process.platform === 'linux'
+      ? [
+          `${nsListener('login', paths.listenPort, 6)} & listener=$!`,
+          // one connection from inside (bash's /dev/tcp: no other program), retried until the listener is up
+          `ok=denied; for i in 1 2 3 4 5 6 7 8 9 10; do sleep 0.2; if (exec 3<>/dev/tcp/127.0.0.1/${paths.listenPort} && read -r line <&3 && [ "$line" = token ]) 2>/dev/null; then ok=ok; break; fi; done`,
+          'echo "@@login-inner-connect=$ok@@"',
+          'echo "@@login-ready=yes@@"',
+          'wait $listener',
+        ]
+      : []),
     'echo "@@done=yes@@"',
     'exit 7',
     '',
@@ -92,6 +135,7 @@ describe.runIf(sandboxPlatform)('D-12 the guest login process in the real sandbo
   let service: Awaited<ReturnType<typeof hostService>> | undefined;
   let scratch: string | undefined;
   let carol: Principal;
+  let listenPort = 0;
 
   beforeAll(async () => {
     service = await hostService();
@@ -102,7 +146,8 @@ describe.runIf(sandboxPlatform)('D-12 the guest login process in the real sandbo
     await writeFile(claudePath, '#!/bin/sh\nexit 1\n');
     await chmod(claudePath, 0o755);
     stack = await startRealStack({ claudePath });
-    await writeFile(claudePath, probingClaude({ servicePort: service.port, home: stack.home, share: stack.share, stateDir: stack.stateDir }));
+    listenPort = await freePort();
+    await writeFile(claudePath, probingClaude({ servicePort: service.port, home: stack.home, share: stack.share, stateDir: stack.stateDir, listenPort }));
     carol = stack.member('dev:carol', 'Carol', 'runner');
   }, TIMEOUT);
 
@@ -121,6 +166,12 @@ describe.runIf(sandboxPlatform)('D-12 the guest login process in the real sandbo
     const svc = service as NonNullable<typeof service>;
     const session = await s.sessions.create({ kind: 'login', workspace: { mode: 'main' }, cols: 200, rows: 60, title: '$(touch /tmp/x)' }, TEST_CONN, carol);
     expect(session).toMatchObject({ kind: 'login', sandboxed: true, ownerUserId: 'dev:carol', status: 'running', title: 'Claude 訂閱登入（Carol）' });
+    let hostReachedLoginListener: boolean | null = null;
+    if (process.platform === 'linux') {
+      // While the login process listens (inside its own network namespace), the host tries its loopback port.
+      await until(async () => results(await s.screen(session.id, carol))['login-ready'] === 'yes', 'the login process to listen', 60_000);
+      hostReachedLoginListener = await hostReaches(listenPort);
+    }
     await until(() => s.sessions.listFor('dev:carol').find((x) => x.id === session.id)?.status === 'exited', 'the login process to exit', 60_000);
     const seen = results(await s.screen(session.id, carol));
     expect(seen['done']).toBe('yes');
@@ -132,12 +183,19 @@ describe.runIf(sandboxPlatform)('D-12 the guest login process in the real sandbo
       'write-state-dir': 'denied',
       'write-guest-home': 'ok',
       'write-guest-cfg': 'ok',
-      'exec-perl': 'denied',
-      'exec-sh': 'denied',
-      'exec-nc': 'denied',
-      'exec-cat': 'denied',
       'exec-true': 'ok',
     });
+    if (process.platform === 'darwin') {
+      // Seatbelt's "localhost" admits every local address, so on macOS only the listed programs may start in it.
+      expect(seen).toMatchObject({ 'exec-perl': 'denied', 'exec-sh': 'denied', 'exec-nc': 'denied', 'exec-cat': 'denied' });
+    } else {
+      // Linux (ARCHITECTURE §7.6, §11 D-12): the login process has its own network namespace like every guest process
+      // (the hardening requires --unshare-net), so there is no exec list to need: whatever listens in it, on any
+      // address, is reachable from that namespace only. Measured here: a listener on 0.0.0.0 works from inside and
+      // the host cannot connect to it (nor, above, can it reach the host's own loopback service).
+      expect(seen).toMatchObject({ 'login-listen': 'ok', 'login-inner-connect': 'ok', 'login-accepts': '1' });
+      expect(hostReachedLoginListener).toBe(false);
+    }
     expect(svc.connections()).toBe(0);
     expect(existsSync(join(s.share, 'login-leak.txt'))).toBe(false);
     expect(existsSync(join(s.stateDir, 'login-leak.txt'))).toBe(false);
@@ -159,18 +217,30 @@ describe.runIf(sandboxPlatform)('D-12 the guest login process in the real sandbo
     expect(await readFile(join(s.sessions.guestPaths('dev:carol').cfg, '.credentials.json'), 'utf8')).toContain('claudeAiOauth');
   }, TIMEOUT);
 
-  it('an ordinary guest session still cannot listen on any port (the relaxation is the login process only)', async () => {
+  it('an ordinary guest session still cannot listen for the network (the relaxation is the login process only)', async () => {
     const s = stack as RealStack;
     const session = await s.sessions.create({ kind: 'terminal', workspace: { mode: 'main' }, cols: 160, rows: 50 }, TEST_CONN, carol);
     try {
-      const listen = `/usr/bin/perl -MIO::Socket::INET -e 'IO::Socket::INET->new(Listen => 1, LocalAddr => "127.0.0.1", LocalPort => 0, Proto => "tcp") or exit 1' && echo @@term-listen=ok@@ || echo @@term-listen=denied@@\r`;
-      s.sessions.input({ sessionId: session.id, data: new TextEncoder().encode(listen) }, TEST_CONN, carol);
-      let seen: Record<string, string> = {};
-      await until(async () => {
-        seen = results(await s.screen(session.id, carol));
-        return seen['term-listen'] !== undefined && seen['term-listen'] !== '';
-      }, 'the listen probe in a guest terminal', 30_000);
-      expect(seen['term-listen']).toBe('denied');
+      if (process.platform === 'darwin') {
+        const listen = `/usr/bin/perl -MIO::Socket::INET -e 'IO::Socket::INET->new(Listen => 1, LocalAddr => "127.0.0.1", LocalPort => 0, Proto => "tcp") or exit 1' && echo @@term-listen=ok@@ || echo @@term-listen=denied@@\r`;
+        s.sessions.input({ sessionId: session.id, data: new TextEncoder().encode(listen) }, TEST_CONN, carol);
+        let seen: Record<string, string> = {};
+        await until(async () => {
+          seen = results(await s.screen(session.id, carol));
+          return seen['term-listen'] !== undefined && seen['term-listen'] !== '';
+        }, 'the listen probe in a guest terminal', 30_000);
+        expect(seen['term-listen']).toBe('denied');
+        return;
+      }
+      // Linux: every guest process has its own network namespace, the login process no more than an agent's terminal
+      // (there is no relaxation to confine). A listener in the terminal, even on 0.0.0.0, is unreachable from the host.
+      const port = await freePort();
+      s.sessions.input({ sessionId: session.id, data: new TextEncoder().encode(`${nsListener('term', port, 4)}\r`) }, TEST_CONN, carol);
+      await until(async () => results(await s.screen(session.id, carol))['term-listen'] !== undefined, 'the listener in a guest terminal', 30_000);
+      expect(results(await s.screen(session.id, carol))['term-listen']).toBe('ok');
+      expect(await hostReaches(port)).toBe(false);
+      await until(async () => results(await s.screen(session.id, carol))['term-accepts'] !== undefined, 'the listener to stop', 30_000);
+      expect(results(await s.screen(session.id, carol))['term-accepts']).toBe('0');
     } finally {
       await s.sessions.end({ sessionId: session.id }, carol);
     }

@@ -621,15 +621,26 @@ export interface ResolveOptions {
   readonly audit?: boolean;
 }
 
+/**
+ * A resolved request. `ref` is spelled as requested (NFC); `name`, `realPath` and `parentRealPath` are spelled the way
+ * the file system stores them (native realpath: the stored case and Unicode normalisation of every existing component,
+ * missing names as requested), so every read, write, rename and post-move check works on the on-disk spelling. On a
+ * normalisation-sensitive file system (Linux) a missed NFC segment is mapped onto the ONE entry of its directory whose
+ * NFC form equals it (ARCHITECTURE §7.4). Exception: when the final component is a followed symlink, `realPath` and
+ * `parentRealPath` are the link's target and `name` is the requested last segment (the link's name).
+ */
 export interface ResolvedPath {
   /** The request, NFC-normalised. */
   readonly ref: FileRef;
   readonly root: RootInfo;
-  /** Last path segment ('' for the root). */
+  /** Last path segment ('' for the root), in its on-disk spelling (see above). */
   readonly name: string;
-  /** Symlink-free absolute path of the target (for a missing target: realpath of its parent + name). */
+  /**
+   * Symlink-free absolute path of the target in its on-disk spelling (for a missing target: realpath of its parent +
+   * the missing names as requested).
+   */
   readonly realPath: string;
-  /** Symlink-free absolute path of the directory holding the target. */
+  /** Symlink-free absolute path of the directory holding the target, in its on-disk spelling. */
   readonly parentRealPath: string;
   readonly exists: boolean;
   /** lstat of `realPath` at resolution time (null when it does not exist). With finalSymlink 'self': of the link. */
@@ -1074,6 +1085,13 @@ export interface SandboxService {
   preflight(): Promise<SandboxPreflight>;
   /** Throws SmurgError('sandbox_unavailable') (and audits `sandbox.refused`) when anything is off. */
   wrap(spec: SandboxSpec): Promise<WrappedCommand>;
+  /**
+   * The process started from `wrapped` has exited (or was never started). Linux: bubblewrap leaves a mount-point file
+   * or directory on the HOST for every absent write-denied name (e.g. `<share>/.mcp.json`), which srt may remove only
+   * once no sandbox of this daemon still runs; each wrap counts until it is released (idempotent; a no-op on macOS).
+   * Optional for fakes.
+   */
+  release?(wrapped: WrappedCommand): void;
   /** settings.changed → allowedDomains. */
   setAllowedDomains(domains: readonly string[]): Promise<void>;
 }

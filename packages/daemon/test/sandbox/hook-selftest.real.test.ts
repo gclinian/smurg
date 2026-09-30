@@ -10,7 +10,7 @@ import { SmurgError } from '@smurg/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { HookServer, SandboxSpec } from '../../src/core/interfaces.ts';
 import { hooksModule } from '../../src/hooks/module.ts';
-import { createSandboxFixture, guestEnv, isDarwin, printWarningsOnFailure, type SandboxFixture, type SandboxFixtureOptions } from './helpers.ts';
+import { createSandboxFixture, guestEnv, printWarningsOnFailure, sandboxPlatform, type SandboxFixture, type SandboxFixtureOptions } from './helpers.ts';
 
 const TIMEOUT = 90_000;
 const CLI_MAIN = fileURLToPath(new URL('../../../cli/src/main.ts', import.meta.url));
@@ -50,7 +50,7 @@ async function refusals(f: SandboxFixture): Promise<unknown[]> {
   return (await f.ctx.audit.query({ limit: 50 })).filter((entry) => entry.action === 'sandbox.refused').map((entry) => entry.detail);
 }
 
-describe.runIf(isDarwin)('the in-sandbox hook self-test before a guest agent session (SEC-D-05 follow-up, real srt + real hook)', () => {
+describe.runIf(sandboxPlatform)('the in-sandbox hook self-test before a guest agent session (SEC-D-05 follow-up, real srt + real hook)', () => {
   it('main mode: the real `smurg hook` starts inside the session policy, reaches the socket and answers for this session', async () => {
     const f = await fixture();
     const started = Date.now();

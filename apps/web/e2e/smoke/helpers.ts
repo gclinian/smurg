@@ -163,24 +163,37 @@ export async function openSession(page: Page, kind: 'terminal' | 'agent', title:
   return id;
 }
 
-/** The text of every row of the terminal of session `id`, joined (a wrapped line is one piece of text again). */
+/** The text of every row of the terminal of session `id`, one row per line. */
 export async function terminalText(page: Page, id: string): Promise<string> {
   return terminalOf(page, id).evaluate((viewport) =>
     [...viewport.querySelectorAll('.xterm-rows > div')].map((row) => (row.textContent ?? '').replace(/\u00a0/g, ' ').trimEnd()).join('\n'),
   );
 }
 
-/** Waits until the terminal of session `id` shows `text` somewhere. */
+/**
+ * Whether the terminal of session `id` shows `text` somewhere, also where the terminal wrapped it across rows. The DOM
+ * rows do not say which row continues the previous one, so the check also runs on all rows concatenated with every
+ * space removed (from the text too). That matters on Linux: the host's shell prompt there is Debian's
+ * `user@host:/full/path$ ` (/etc/bash.bashrc), longer than a 50-column panel, so a command typed after it often
+ * starts on one row and ends on the next.
+ */
+export async function terminalShows(page: Page, id: string, text: string): Promise<boolean> {
+  // The terminal must be there: "not shown" by a terminal that is missing would prove nothing.
+  await terminalOf(page, id).waitFor({ timeout: STEP_MS });
+  return page.evaluate(terminalShowsIn, { id, text });
+}
+
+/** Waits until the terminal of session `id` shows `text` somewhere (see terminalShows). */
 export async function waitForTerminalText(page: Page, id: string, text: string, timeoutMs = STEP_MS): Promise<void> {
-  await page.waitForFunction(
-    ({ id, text }) =>
-      [...document.querySelectorAll(`.agents-session[data-session-id="${id}"] .xterm-rows > div`)]
-        .map((row) => (row.textContent ?? '').replace(/\u00a0/g, ' '))
-        .join('\n')
-        .includes(text),
-    { id, text },
-    { timeout: timeoutMs },
-  );
+  await page.waitForFunction(terminalShowsIn, { id, text }, { timeout: timeoutMs });
+}
+
+/** Runs in the page: terminalShows. Self-contained (serialised into the page). */
+function terminalShowsIn({ id, text }: { readonly id: string; readonly text: string }): boolean {
+  const rows = [...document.querySelectorAll(`.agents-session[data-session-id="${id}"] .xterm-rows > div`)].map((row) => (row.textContent ?? '').replace(/\u00a0/g, ' '));
+  if (rows.join('\n').includes(text)) return true;
+  const squeezed = text.replace(/\s+/g, '');
+  return squeezed.length > 0 && rows.join('').replace(/\s+/g, '').includes(squeezed);
 }
 
 /** The visible terminal viewport of session `id`. */

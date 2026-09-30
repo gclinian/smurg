@@ -120,6 +120,25 @@ describe('who may create and drive sessions', { timeout: 60_000 }, () => {
     expect(refused).toHaveLength(1);
     expect(refused[0]).toMatchObject({ outcome: 'denied', detail: { reason: 'missing-dependency' } });
   });
+
+  // Linux: srt removes bubblewrap's mount points in the host's share only once every wrap is released.
+  it('a guest\'s wrapped command is released once its process exits, and when the session is refused after the wrap', async () => {
+    const s = await stack();
+    const runner = await s.t.connect({ userId: 'dev:carol', role: 'runner' });
+    const { session } = await runner.conn.request('session.create', terminal);
+    expect(s.fakes.sandbox.wraps).toHaveLength(1);
+    expect(s.fakes.sandbox.released).toEqual([]);
+    await runner.conn.request('session.end', { sessionId: session.id });
+    await waitFor(() => s.fakes.sandbox.released.length === 1, 'the wrap to be released');
+
+    // What wrap() handed out carries a credential: refused, nothing spawned, and the wrap is released all the same.
+    s.fakes.sandbox.wrapExtraEnv = { ANTHROPIC_AUTH_TOKEN: 'not-a-real-token' };
+    const err = await runner.conn.request('session.create', agent).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'sandbox_unavailable', detail: { reason: 'wrap-env' } });
+    expect(s.fakes.sandbox.wraps).toHaveLength(2);
+    expect(s.fakes.sandbox.released).toHaveLength(2);
+    expect(s.sessions.list().filter((m) => m.status !== 'exited')).toEqual([]);
+  });
 });
 
 describe('agent sessions (ARCHITECTURE §7.6)', { timeout: 60_000 }, () => {
