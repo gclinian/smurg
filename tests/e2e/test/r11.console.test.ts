@@ -254,7 +254,14 @@ describe('R11 主人控制台', () => {
       };
       const user = (userId: string) => ({ kind: 'user', userId });
       const hostUser = user(stack.host.userId);
-      expect(one('agent.edit', 'main:src/app.ts')).toMatchObject({ actor: { kind: 'agent', sessionId: 'ses_r11_agent', ownerUserId: carol.userId, displayName: 'Claude（Carol）' }, detail: { tool: 'Edit' } });
+      // The agent's Edit is recorded ONCE, by whichever report reaches the daemon first: its PostToolUse hook (a process
+      // of its own: `via: 'hook'`, the tool) or the file watcher while the agent still holds the lock (`via: 'watcher'`,
+      // the change); the later report is the same edit and is not recorded again (locks/activity.ts agentEditSeen).
+      // Which one is first is timing: the hook on macOS and in the Linux VM, the watcher on the slower CI runner.
+      const [agentEdit, ...moreAgentEdits] = all.filter((e) => e.action === 'agent.edit' && e.target === 'main:src/app.ts');
+      expect(moreAgentEdits).toEqual([]);
+      expect(agentEdit).toMatchObject({ actor: { kind: 'agent', sessionId: 'ses_r11_agent', ownerUserId: carol.userId, displayName: 'Claude（Carol）' }, detail: { sessionId: 'ses_r11_agent', ownerUserId: carol.userId } });
+      expect(agentEdit?.detail).toMatchObject(agentEdit?.detail?.['via'] === 'hook' ? { via: 'hook', tool: 'Edit' } : { via: 'watcher', change: 'change' });
       expect(one('lock.denied', 'main:src/app.ts')).toMatchObject({ outcome: 'denied', actor: { kind: 'agent', sessionId: 'ses_r11_agent' }, detail: { holders: ['Amy'] } });
       expect(one('lock.acquire', 'main:src/app.ts', 'user')).toMatchObject({ actor: user(amy.userId), detail: { kind: 'human' } });
       expect(one('lock.acquire', 'main:src/app.ts', 'agent')).toMatchObject({ actor: { kind: 'agent', sessionId: 'ses_r11_agent' }, detail: { kind: 'agent' } });
