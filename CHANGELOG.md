@@ -35,8 +35,13 @@ Claude Code。檔案和 agent session 都留在主人的電腦上；relay 只轉
 
 ### 已知限制
 
-- **Linux 主人尚未驗證**：沙盒（bubblewrap、AppArmor）、session 與安裝程式的 Linux 部分都寫好了，但在 CI 於 Linux 上
-  跑過完整測試之前，都只在 macOS（Apple silicon）上驗證過。組員用什麼作業系統都可以（瀏覽器）。
+- **Linux 主人**：完整的測試（包括客人沙盒 R5、worktree R9）在 Ubuntu 24.04 上通過（arm64 虛擬機與 GitHub Actions 的
+  x64），但還沒有人真的在 Linux 上當過主人：沒有在 Linux 沙盒裡跑過真正的 Claude Code，安裝程式的 Linux 部分也還沒在
+  全新的電腦上跑過。客人沙盒需要 bubblewrap 0.8 以上（Ubuntu 24.04、Debian 12 以上內建的版本即可；Ubuntu 22.04 的
+  0.6 太舊，客人 session 會被拒絕）。Linux 的沙盒有幾點做不到 macOS 的程度，最主要的是：組員在**主工作區**開的
+  session 可以在子資料夾裡新增 `.claude`、`.mcp.json`、`.git` 這類只有主人能改的設定（最上層和已經存在的都擋得住），
+  主人在那個子資料夾裡打開自己的工具時要先檢查（[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §12）。組員用什麼
+  作業系統都可以（瀏覽器）。
 - **macOS 執行檔沒有 Apple 簽章**：只有 ad-hoc 簽章，沒有 Developer ID 簽章與公證。用上面的 `curl` 安裝不會被
   Gatekeeper 擋下（安裝程式在驗證 sha256 之後，會移除下載檔案可能帶有的 quarantine 屬性）；用瀏覽器下載的執行檔
   會被擋下。

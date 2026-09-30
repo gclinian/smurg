@@ -1638,12 +1638,13 @@ the audit entry; two or more such windows, none, or a writer of another root: �
 
 ## 12. Known limits of the prototype
 
-- **Linux** was developed on macOS arm64. The first Linux runs were on 2026-10-01: CI on ubuntu-24.04 x64
-  (`.github/workflows/ci.yml`) and an Ubuntu 24.04 arm64 VM. The guest sandbox (bubblewrap under Ubuntu 24.04's
-  AppArmor user-namespace restriction, with the `smurg-bwrap` profile) is verified in the VM: R5 and R9 at the
-  sandbox level, guest terminals, the login process, the hook self-test (§7.6, "Linux, in more detail" below).
-  `systemd-inhibit`, inotify and the rest follow the documentation and are covered by tests that are skipped on macOS;
-  what CI cannot cover stays manual (`docs/OPEN-QUESTIONS.md` Q2).
+- **Linux** was developed on macOS arm64. Since 2026-10-01 the whole gate runs on Linux and is green: in an Ubuntu
+  24.04 arm64 VM and on CI's ubuntu-24.04 x64 (`.github/workflows/ci.yml`; counts in `docs/ACCEPTANCE.md` "Linux
+  verification"). The guest sandbox (bubblewrap under Ubuntu 24.04's AppArmor user-namespace restriction, with the
+  `smurg-bwrap` profile) is verified there: R5 and R9 at the sandbox level, guest terminals, the login process with a
+  stand-in `claude`, the hook self-test (§7.6, "Linux, in more detail" below). Not run on Linux: a real `claude`,
+  keep-awake through `systemd-inhibit` with a real login session, the installer on a fresh machine
+  (`docs/OPEN-QUESTIONS.md` Q2).
 - **Real accounts are not exercised by the tests.** Claude login inside a guest sandbox, real Google / GitHub OAuth
   and a real Cloudflare deployment need credentials. The owner's first deploy of the shared relay (`docs/RELEASING.md`
   §2) is the first real Google login and the first real Cloudflare run; GitHub login is not configured on the shared

@@ -59,7 +59,9 @@ with their own `gh`.
    workflow permissions can stay read-only, and no repository secret is needed. Turn on two-factor authentication for
    the account if it is not on: whoever controls the account controls what the one-line install downloads.
 5. **[lead]** Watch the first CI run (`gh run list`, `gh run watch`). It is the first time anything runs on Linux:
-   expect failures there and triage them before tagging (see `docs/OPEN-QUESTIONS.md` Q2 for what CI covers).
+   expect failures there and triage them before tagging (see `docs/OPEN-QUESTIONS.md` Q2 for what CI covers). Done
+   2026-10-01: the first Linux run failed 27 tests; after the fixes both jobs are green (run 36779794102,
+   `docs/ACCEPTANCE.md` "Linux verification").
 
 ### 1.2 Cloudflare account and wrangler [owner]
 
@@ -370,7 +372,7 @@ with.
 
 1. [ ] **[lead]** `pnpm check` green; first commit reviewed as in §1.1 (no `.dev.vars`, `.xdg/`, `node_modules`).
 2. [ ] **[owner]** `gh repo create gclinian/smurg --private --source=. --remote=origin --push`; 2FA on.
-3. [ ] **[lead]** First CI run on GitHub green, Linux included; failures triaged.
+3. [x] **[lead]** First CI run on GitHub green, Linux included; failures triaged (2026-10-01, run 36779794102).
 4. [ ] **[owner]** Cloudflare account, workers.dev subdomain chosen, `wrangler login` (§1.2).
 5. [ ] **[owner]** `RELAY_SIGNING_KEY` (§1.4), then the first `scripts/deploy-relay.sh` (§2): it prints `<RELAY_URL>`.
 6. [ ] **[owner]** Google OAuth client with the origin `<RELAY_URL>` and the redirect URI

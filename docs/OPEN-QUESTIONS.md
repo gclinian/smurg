@@ -1,8 +1,9 @@
 # Open questions for the project owner
 
 Decisions left open after the review round of 2026-09-29 and the round that followed it the same day. Each entry gives
-the current behaviour, the options and a recommendation. **Q1 was decided on 2026-09-30 and Q2 partly** (the release
-plan, `docs/RELEASING.md`); Q3–Q11 are not decided in code.
+the current behaviour, the options and a recommendation. **Q1 was decided on 2026-09-30 and Q2 decided and run** (the release
+plan, `docs/RELEASING.md`; Q2 keeps one owner question about the Linux sandbox's residuals); Q3–Q11 are not decided
+in code.
 
 The two departures from SPEC.md's wording that the review round left **pending approval** were implemented on
 2026-09-29 as the project lead recommended, each behind a switch that is on by default (`docs/ARCHITECTURE.md` §11):
@@ -83,32 +84,61 @@ Without signing, macOS Gatekeeper quarantines a downloaded binary and the 3-minu
 
 </details>
 
-## Q2. Linux verification (reviews SPEC-05, CLI-09; SPEC D8) — **partly decided 2026-09-30**
+## Q2. Linux verification (reviews SPEC-05, CLI-09; SPEC D8) — **decided 2026-09-30, run 2026-10-01; one owner question left**
 
 **Decision.** Option 1: GitHub Actions on ubuntu-24.04 is the Linux verification. CI (`.github/workflows/ci.yml`) runs
 `pnpm check` there on every push to `main` and every pull request, after installing bubblewrap, socat, ripgrep and the
 installer's AppArmor profile, and the release workflow builds the Linux x64 and arm64 executables on their own
 runners and runs `build-sea.sh`'s smoke test on each (single executable, a real PTY, login, host, `smurg attach`,
-stop). Neither has run yet: the first push to GitHub is the suite's first run on Linux. Which Linux tests actually run in CI and which skip (for example without `claude` or a
-system Chrome) is known after the first run; `docs/ACCEPTANCE.md` is updated from that log, not before.
+stop).
+
+**What happened.** The first CI run on Linux (2026-10-01, ubuntu-24.04 x64) failed 27 tests. Every failure was
+reproduced in an Ubuntu 24.04 arm64 VM on the development Mac and fixed at its cause: the guest sandbox (the host home
+was listable inside bubblewrap, guests had no network, `--new-session` took guest terminals' signals, bubblewrap's
+mount points were left in the host's project, write-deny globs were dropped), NFC names on ext4, inode reuse in the
+test run registry, a bash-only probe under dash, a wrapped prompt line in the web smoke test. The whole gate is now
+green in the VM (two consecutive runs) and on CI: `docs/ACCEPTANCE.md` "Linux verification" has the counts and what
+skips. R5 and R9 are `covered` on Linux; `docs/research/sandbox.md` "Linux, verified 2026-10-01" has the measurements.
+srt's `apply-seccomp` never runs (no seccomp filter with `allowAllUnixSockets`), so it needs no AppArmor profile.
+bubblewrap 0.8 or later is required (Ubuntu 24.04 ships 0.9.0, Debian 12 0.8.0; Ubuntu 22.04's 0.6.1 is refused with
+an upgrade hint).
 
 **What stays manual** (a person on a real Ubuntu 24.04 machine, `docs/RELEASING.md` §5):
 
 - the installer's Linux branch: `apt-get` through `sudo` with consent and the AppArmor profile for `/usr/bin/bwrap`
-  (a CI runner is not a fresh desktop Ubuntu, and its AppArmor settings may differ);
-- whether srt's `apply-seccomp`, extracted into the cache dir, needs its own AppArmor profile;
-- guest terminals under `bwrap --new-session` (no controlling terminal): resize and Ctrl-C typed by a person;
-- the guest login process (D-12) and the in-sandbox hook self-test on Linux: their real-sandbox tests are macOS-only
-  (`describe.runIf(isDarwin)`), and `claude` is not installed on the runners;
+  (the profile itself is the one the VM and CI run with; the installer's steps ran only against stand-ins);
+- a real `claude` in the Linux sandbox (R5.3, R5.5, the hooks, the guest login process with the real `claude`): neither
+  the VM nor the runners have one;
 - keep-awake through `systemd-inhibit` (a runner has no login session) and the R1.1 timing on a fresh machine.
-
-Until then ACCEPTANCE keeps R5 / R9 marked "macOS" and Linux `manual`.
 
 **Before the decision.** Linux paths (bubblewrap sandbox, AppArmor user namespaces, inotify, `systemd-inhibit`, procps
 parsing, the installer's Linux branch) were implemented and unit-tested with an injected platform only; R5.1–R5.5 and
 R9.1 / R9.2 had never run on Linux. Options were: 1. a Linux CI runner; 2. an owner-approved VM with a removable state
-directory; 3. declare hosts macOS-only for the prototype. A VM on the development machine was not started (it downloads
-images and writes state outside the repository).
+directory; 3. declare hosts macOS-only for the prototype. (The failures of the first CI run were then reproduced in a
+Lima VM on the development Mac, 2026-10-01.)
+
+**Owner question: the Linux sandbox's residuals** (ARCHITECTURE §12 "Linux, in more detail"). bubblewrap builds the
+guest's file system from mounts of concrete paths, so three things macOS Seatbelt denies by pattern are open on Linux:
+
+- In a guest session in the MAIN workspace, a guest can create a NEW host-only name below the top of the share
+  (`sub/.claude/settings.json`, `sub/.mcp.json`, `sub/.git/…`, `sub/.vscode/…`). Existing ones at any depth and every
+  name at the top are protected, `file.*` refuses these paths to guests and a worktree merge refuses them. Such a file
+  can run code in the host's UNSANDBOXED tools once the host opens that subfolder (a Claude Code started there, git's
+  `core.fsmonitor` or hooks of a nested repository, a VS Code task).
+- A guest can remove or re-point the read-only shared link in its own worktree (R9.2): the shared folder stays
+  read-only, and the daemon refuses the tampered link.
+- A Unix socket in a directory the guest can read (the share, its guest dir) can be connected to.
+
+Options for the first (the other two need no change):
+1. Accept and document it (what is built): the host is told in ARCHITECTURE §12 and ACCEPTANCE.
+2. On Linux, run guest agents in worktree mode only when the share is a git repository, and allow main-workspace guest
+   sessions only with an explicit host switch; non-git shares would need that switch for any guest agent.
+3. A host-side check: the daemon already lists the share's existing host-only names when it wraps a guest command; it
+   would report every new one that appears below the top while a guest session runs (file watcher) to the host's
+   terminal, the console and the audit log, and offer to remove it.
+
+**Recommendation.** Option 3, and option 1 until it is built: it keeps main-workspace guest sessions on Linux and
+tells the host before they open such a folder. Option 2 costs every non-git share its guest agents.
 
 ## Q3. `.git` and credentials in the main workspace (reviews WEB-17, SEC-D-03 residual)
 

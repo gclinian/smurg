@@ -23,9 +23,11 @@ smurg 是一個多人 × 多 agent 的即時協作工作區：你在自己的電
 
 ## 還沒驗證的、已知的限制
 
-- **Linux 主人**：程式寫好了（bubblewrap 沙盒、Ubuntu 24.04 的 AppArmor 設定），GitHub Actions 會在 ubuntu-24.04 上
-  跑全部測試，並在 Linux x64 與 arm64 上建出執行檔、跑冒煙測試，但還沒有人真的在 Linux 上當過主人（組員的沙盒、組員終端機裡的
-  Ctrl-C 與調整視窗大小、安裝程式的 Linux 部分）。組員用什麼作業系統都可以（瀏覽器）。
+- **Linux 主人**：全部測試（包括組員的沙盒、組員終端機裡的 Ctrl-C 與調整視窗大小）在 Ubuntu 24.04 上通過（arm64 虛擬機，
+  以及 GitHub Actions 的 x64），但還沒有人真的在 Linux 上當過主人：沒有在 Linux 沙盒裡跑過真正的 Claude Code，安裝程式的
+  Linux 部分也還沒在全新的電腦上跑過。需要 bubblewrap 0.8 以上（Ubuntu 24.04、Debian 12 以上）。Linux 沙盒做不到 macOS
+  的幾點（例如組員在主工作區的子資料夾裡新增 `.claude` 設定）見 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §12。
+  組員用什麼作業系統都可以（瀏覽器）。
 - **組員用 Claude 訂閱帳號登入**（在主人電腦上的登入程序）還沒有用真正的帳號從頭到尾測試過；用 API key 登入可以。
 - **macOS 執行檔沒有 Apple 的開發者簽章**（只有 ad-hoc 簽章）。請用下面的一行指令安裝：它先驗證 sha256，再移除
   macOS 的隔離標記（quarantine）。只有 Apple Silicon 的執行檔在開發機上測試過；Intel Mac 與 Linux 的執行檔由 GitHub

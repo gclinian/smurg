@@ -6,7 +6,8 @@ R10 is a launch-phase requirement ([上線]) and is not listed.
 
 **Hard gates (SPEC §0):** R3 and R5. Every one of their criteria is `covered` by a named automated test (see the note
 on R5.3 / R5.5: they need a `claude` of a verified version on the machine, and skip loudly without one). R5 is covered
-on **macOS only**: the R5 suites have never run on Linux, which SPEC D8 also promises (`docs/OPEN-QUESTIONS.md` Q2).
+on **macOS and Linux** (SPEC D8): the whole gate runs on Linux since 2026-10-01 (Ubuntu 24.04 in a VM and on GitHub
+Actions, "Linux verification" below); R5.3 / R5.5 have run with a real `claude` on macOS only.
 
 ## Status legend
 
@@ -23,12 +24,13 @@ source scripts/env.sh     # Node 22 LTS + the repo's pnpm; leave TMPDIR as it is
 pnpm check                # type check of every package, then every vitest project; exit 0 = green
 ```
 
-- **Expected result** (2026-10-01, release-verify): `Test Files  230 passed | 2 skipped (232)` and `Tests  3493 passed
-  | 4 skipped (3497)`, about 200–290 s from start to exit depending on what else the machine is doing (3:35 on that run;
-  the web-smoke project runs last, ~30 s of it), nothing printed by `[smurg test run]` (below).
-- **On GitHub Actions** (`.github/workflows/ci.yml`, from the first push): the same gate on `macos-15` and
-  `ubuntu-24.04`. It has not run yet; the runners have no `claude` (those tests skip) and Linux skips the macOS-only
-  tests and runs the Linux-only ones, so their counts differ. Record them here after the first green run.
+- **Expected result** on macOS (2026-10-01, linux-gate): `Test Files  230 passed | 2 skipped (232)` and `Tests  3522
+  passed | 9 skipped (3531)`, about 190–290 s from start to exit depending on what else the machine is doing (3:11 on
+  that run; the web-smoke project runs last, ~30 s of it), nothing printed by `[smurg test run]` (below). On Linux:
+  "Linux verification" below.
+- **On GitHub Actions** (`.github/workflows/ci.yml`, every push to `main`): the same gate on `macos-15` and
+  `ubuntu-24.04` (x64). The runners have no `claude` (those tests skip) and Linux skips the macOS-only tests and runs
+  the Linux-only ones, so the counts differ from the owner's machine: see "Linux verification" below.
 - **Verified in** the owner's environment: macOS 26.5.1 (Darwin 25.5) on arm64 with 8 cores, `TMPDIR` left at macOS's
   default (`/var/folders/…/T/`), Node 22.22.1 through `scripts/env.sh`, Google Chrome in `/Applications`, `claude`
   2.1.220 on `PATH`. Five consecutive runs (finish-gate, 2026-09-29) were green with no unhandled error, no new crash
@@ -42,7 +44,9 @@ pnpm check                # type check of every package, then every vitest proje
   green, the last one at a load average above 40.
 - **Skipped by default** (the 2 files / 4 tests): `packages/cli/test/sea.test.ts` (3 tests; needs a built single
   executable, `SMURG_SEA_BINARY=<path>`, which `scripts/build-sea.sh` runs) and `packages/cli/test/dev-stack.test.ts`
-  (1 test; `SMURG_TEST_DEV_STACK=1`: it starts the whole dev stack on fixed ports). Other skips depend on the machine,
+  (1 test; `SMURG_TEST_DEV_STACK=1`: it starts the whole dev stack on fixed ports). On macOS 5 more tests skip inside
+  files that run: they are Linux-only (the network-namespace describe of `daemon/sandbox/network-listen.real.test.ts`,
+  the NFD-twin tests of `daemon/path-guard.test.ts` and `daemon/files/download.test.ts`). Other skips depend on the machine,
   and change the counts: the real-browser tests skip without system Chrome, the real-`claude` tests (R5.3, R5.5, R8.1
   with `claude`, SPEC §13 items 1, 2, 5) skip loudly without a `claude` of a verified version, the macOS-only tests
   (keychain, `caffeinate`, the sandbox's Seatbelt profile) do not run on Linux.
@@ -60,6 +64,44 @@ pnpm check                # type check of every package, then every vitest proje
   (5 s for the lock hook, including SessionStart, UserPromptSubmit and Stop); `web/src/features/transfer/e2e/transfer.browser.test.ts`
   › R7.2b (~17 s: 512 MiB through real Chrome). `apps/relay/test/liveness.test.ts` waits the relay's real 10 s
   liveness timeouts.
+
+## Linux verification
+
+The first run of the suite on Linux (GitHub Actions `ubuntu-24.04` x64, 2026-10-01) failed 27 tests. Every failure
+was reproduced in an Ubuntu 24.04 VM and fixed at its cause (the guest sandbox's bubblewrap policy, guest terminals,
+bubblewrap's mount points in the host's project, NFC names on ext4, inode reuse, a bash-only test probe, a wrapped
+prompt line in the web smoke test; `docs/research/sandbox.md` "Linux, verified 2026-10-01", ARCHITECTURE §7.4 / §7.6).
+
+- **VM** (Lima on the development Mac): Ubuntu 24.04.2 LTS arm64, kernel 6.8, 4 CPUs, 8 GiB, bubblewrap 0.9.0, socat,
+  ripgrep, Node 22.22.1, `kernel.apparmor_restrict_unprivileged_userns=1` (stock) with the `smurg-bwrap` profile that
+  `scripts/install.sh` and CI install. Two consecutive full `pnpm check` runs green (linux-gate, 2026-10-01):
+  `Test Files  216 passed | 16 skipped (232)`, `Tests  3452 passed | 79 skipped (3531)`, ~165 s each, nothing left
+  behind. The 16 skipped files: no Google Chrome exists for Linux arm64 (the 5 web-smoke files, `web/e2e/browser.e2e`,
+  `web/…/transfer.browser`, `relay/cli-login.browser`); no `claude` (the 4 `daemon/hooks/claude-*` files; inside other
+  files r5.claude, claude-real, claude-login-pickup and the real-claude part of login.real skip too); Seatbelt only
+  (`daemon/sandbox/login-policy.real`, `daemon/sessions/login-profile.real`); opt-in as on macOS (`cli/sea`,
+  `cli/dev-stack`).
+- **GitHub Actions** `ubuntu-24.04` x64 (kernel 6.17 azure, bubblewrap 0.9.0, Google Chrome 153, Node 22.23.2; no
+  `claude`), run 36779794102 of commit 4706b9f, green: `Test Files  224 passed | 8 skipped (232)`, `Tests  3480 passed
+  | 51 skipped (3531)`, ~820 s of tests (the runner is about 5x slower than the VM). Chrome is there, so every browser
+  test file runs, the web-smoke acceptance tests included (the D-12 login smoke test skips: it needs `claude`). The
+  8 skipped files: the 4 `daemon/hooks/claude-*` files (no
+  `claude`), the 2 Seatbelt-only files, `cli/sea` and `cli/dev-stack` (opt-in). The run before it (36777739330) failed
+  one test: `r11.console.test.ts` assumed an agent's PostToolUse hook always reaches the daemon before the file watcher
+  reports the same edit; on the slower runner the watcher came first (fixed in the test; the daemon records the edit
+  once either way). The same run on `macos-15`: `226 passed | 6 skipped (232)`, `3494 passed | 37 skipped (3531)`.
+- **What runs on Linux and not on macOS**: the Linux describe of `daemon/sandbox/network-listen.real.test.ts` (a guest's
+  listener is unreachable from the host, host services only through the proxy), the abstract-socket probe of R5, the
+  hardened bubblewrap command checked in R5's first test, the NFD-twin tests of `daemon/path-guard.test.ts` and
+  `daemon/files/download.test.ts`.
+- **Still not run on Linux**: a real `claude` in the Linux sandbox (R5.3, R5.5, the hooks, the login process with the
+  real `claude`), the installer's Linux branch on a fresh machine, keep-awake through `systemd-inhibit` with a real
+  login session, R1.1's timing (`docs/OPEN-QUESTIONS.md` Q2).
+- **Linux-only residuals** (bubblewrap mounts concrete paths; ARCHITECTURE §12 "Linux, in more detail"): in a guest
+  session in the MAIN workspace a guest can create a NEW host-only name below the top of the share
+  (`sub/.claude/settings.json`, `sub/.mcp.json`, `sub/.git/…`); a guest can remove or re-point a read-only shared link
+  in its own worktree (the target stays read-only, the daemon refuses the tampered link); a Unix socket in a directory
+  the guest can read is connectable. The R5 / R9 tests assert each platform's own behaviour there.
 
 ## Other ways to run
 
@@ -173,16 +215,18 @@ account (pasting a code) is `manual` (§0 rule 2).
 All R5 tests run real srt (0.0.77) on the current OS against canary files in a temporary fake home, never the real
 `~/.ssh` or `~/.claude`. R5.3 and R5.5 start the real `claude` against the mock Anthropic API
 (`daemon/sandbox/mock-anthropic.ts`); they run when a `claude` of a verified version (2.1.220 or 2.1.283, ARCHITECTURE
-§7.6) is on PATH or named by `SMURG_TEST_CLAUDE_PATH`, and skip loudly with the reason otherwise. Linux (bubblewrap,
-AppArmor) is implemented and unit-tested with an injected platform only.
+§7.6) is on PATH or named by `SMURG_TEST_CLAUDE_PATH`, and skip loudly with the reason otherwise. Linux (bubblewrap
+under Ubuntu 24.04's AppArmor user-namespace restriction, with the `smurg-bwrap` profile) runs the same real-srt tests
+since 2026-10-01 ("Linux verification" above); where bubblewrap cannot do what Seatbelt does, the test asserts each
+platform's own behaviour and ARCHITECTURE §12 lists the residual.
 
 | # | 驗收標準 | Automated test | Status |
 |---|---|---|---|
-| R5.1 | 客人 session 裡執行 `cat ~/.ssh/id_*`、讀取主人的 `~/.claude`、讀取其他客人的臨時目錄，全部失敗 | `daemon/sandbox/r5.sandbox.test.ts` › R5.1 …; `daemon/sessions/real-modules.test.ts` (host-home canary through the sessions module) | `covered` (macOS); `manual` on Linux until a Linux runner exists. |
-| R5.2 | 客人 session 無法連到白名單以外的網域 | `daemon/sandbox/r5.sandbox.test.ts` › R5.2 …; `daemon/sandbox/network-listen.real.test.ts` (nothing a guest runs can listen for connections: srt's own bind / inbound rules on its proxy port let any guest process listen on the LAN address at that port until the finish-gate round of 2026-09-29, now removed from every guest profile) | `covered` (macOS; never run on Linux): two local servers; not-listed → 403, proxy bypass blocked at the OS level, live allow-list update; no listener on any address. Real public domains were not used. |
-| R5.3 | agent 的 Edit、Write 工具同樣受到限制（不只 Bash） | `daemon/sandbox/r5.claude.test.ts` › R5.3 … | `covered` (macOS) with a verified `claude` (run on 2.1.220 and 2.1.283); skips loudly without one. |
-| R5.4 | 讓沙盒相依套件缺失時，session 拒絕啟動並顯示明確的錯誤 | `daemon/sandbox/r5.sandbox.test.ts` › R5.4 … and › R5.4 (exec level) …; `daemon/sandbox/service.test.ts` (Linux / macOS injected); `daemon/sessions/launch.test.ts` › a failed sandbox preflight refuses the guest session; `r11.console.test.ts` › 所有 R4–R9 … (an agent session on a `claude` below the minimum refused as `sandbox_unavailable`, audited `sandbox.refused`, over the real relay) | `covered` (macOS; the Linux dependency and AppArmor refusals only with an injected platform) |
-| R5.5 | 主人的 `~/.claude/CLAUDE.md` 不會被載入客人 session | `daemon/sandbox/r5.claude.test.ts` › R5.5 … | `covered` (macOS) with a verified `claude`; skips loudly without one. |
+| R5.1 | 客人 session 裡執行 `cat ~/.ssh/id_*`、讀取主人的 `~/.claude`、讀取其他客人的臨時目錄，全部失敗 | `daemon/sandbox/r5.sandbox.test.ts` › R5.1 …; `daemon/sessions/real-modules.test.ts` (host-home canary through the sessions module) | `covered` (macOS and Linux, where it runs is in "Linux verification" above). On Linux the host home, the state dir, other guests' dirs, `/tmp` and `/home` can be neither listed nor written from a guest (the hardened bubblewrap command, `sandbox/harden.ts`). |
+| R5.2 | 客人 session 無法連到白名單以外的網域 | `daemon/sandbox/r5.sandbox.test.ts` › R5.2 …; `daemon/sandbox/network-listen.real.test.ts` (nothing a guest runs can listen for connections: srt's own bind / inbound rules on its proxy port let any guest process listen on the LAN address at that port until the finish-gate round of 2026-09-29, now removed from every guest profile) | `covered` (macOS and Linux): two local servers; not-listed → 403, proxy bypass blocked at the OS level, live allow-list update; no listener on any address (Linux: every guest process has its own network namespace; its listeners are unreachable from the host's loopback and LAN address). Real public domains were not used. |
+| R5.3 | agent 的 Edit、Write 工具同樣受到限制（不只 Bash） | `daemon/sandbox/r5.claude.test.ts` › R5.3 … | `covered` (macOS) with a verified `claude` (run on 2.1.220 and 2.1.283); skips loudly without one. Not run on Linux (no `claude` in the VM or on the runners); the sandbox it relies on is the one R5.1 covers there. |
+| R5.4 | 讓沙盒相依套件缺失時，session 拒絕啟動並顯示明確的錯誤 | `daemon/sandbox/r5.sandbox.test.ts` › R5.4 … and › R5.4 (exec level) …; `daemon/sandbox/service.test.ts` (Linux / macOS injected); `daemon/sessions/launch.test.ts` › a failed sandbox preflight refuses the guest session; `r11.console.test.ts` › 所有 R4–R9 … (an agent session on a `claude` below the minimum refused as `sandbox_unavailable`, audited `sandbox.refused`, over the real relay) | `covered` (macOS and Linux). The AppArmor refusal was also checked by hand in the VM: with the `smurg-bwrap` profile unloaded, the preflight refuses with `apparmor-userns` and the fix commands; reloaded, it passes. A bubblewrap older than 0.8 (Ubuntu 22.04's 0.6.1) is refused as `dependency-missing` (unit test). |
+| R5.5 | 主人的 `~/.claude/CLAUDE.md` 不會被載入客人 session | `daemon/sandbox/r5.claude.test.ts` › R5.5 … | `covered` (macOS) with a verified `claude`; skips loudly without one. Not run on Linux (no `claude`); on Linux the host home, `CLAUDE.md` included, is unreadable from a guest (R5.1). |
 
 ## R6 建議流程
 
@@ -223,8 +267,8 @@ locked file under every spelling, then accepted and seen by the open editors), `
 
 | # | 驗收標準 | Automated test | Status |
 |---|---|---|---|
-| R9.1 | worktree 裡的 agent 無法讀寫主工作區或其他 worktree | `daemon/worktree/r9.real-sandbox.test.ts` › R9.1 …; R9.2 … (the real worktree, sessions and sandbox modules, real srt); `daemon/integration/sessions-sandbox-worktree.test.ts` (through the real `session.create` handler, every module composed); `daemon/sandbox/r5.sandbox.test.ts` › R9.1 … | `covered` (macOS). |
-| R9.2 | worktree 裡的 agent 可以讀取共享資料夾，但無法寫入 | `daemon/worktree/r9.real-sandbox.test.ts`; `daemon/sandbox/r5.sandbox.test.ts` › R9.2 …; `daemon/worktree/worktrees.test.ts` › D12 … | `covered` (macOS). |
+| R9.1 | worktree 裡的 agent 無法讀寫主工作區或其他 worktree | `daemon/worktree/r9.real-sandbox.test.ts` › R9.1 …; R9.2 … (the real worktree, sessions and sandbox modules, real srt); `daemon/integration/sessions-sandbox-worktree.test.ts` (through the real `session.create` handler, every module composed); `daemon/sandbox/r5.sandbox.test.ts` › R9.1 … | `covered` (macOS and Linux). |
+| R9.2 | worktree 裡的 agent 可以讀取共享資料夾，但無法寫入 | `daemon/worktree/r9.real-sandbox.test.ts`; `daemon/sandbox/r5.sandbox.test.ts` › R9.2 …; `daemon/worktree/worktrees.test.ts` › D12 … | `covered` (macOS and Linux). Linux: the shared folder itself stays read-only, but the guest can remove or re-point the link to it in its own worktree (bubblewrap cannot mount on a symlink); the daemon then refuses the tampered link (`shared-link-tampered`) and never follows it (ARCHITECTURE §12). |
 | R9.3 | 主人拒絕合併時，worktree 保持原狀 | `daemon/worktree/merge.test.ts` › R9.3 主人拒絕合併時，worktree 保持原狀 …; `web/src/features/worktree/merge-requests.test.tsx` (the reject flow in the UI); `web/e2e/smoke/acceptance.smoke.test.ts` › R9 合併 — … (real browsers on the built app: the host reviews the complete diff and merges, the file reaches everyone's tree; a rejected request leaves the worktree's files as they were) | `covered` |
 | R9.4 | session 結束時詢問是否保留 worktree；保留的 worktree 之後可以重新開 session 繼續 | `daemon/worktree/r9.sessions.test.ts` › R9.4 … (real sessions module, real PTY); `web/src/features/agents/NewSessionDialog.test.tsx` › ending a session (R9.4 …) › asks whether to keep the worktree, and sends the answer explicitly | `covered` (the dialog in jsdom). |
 
@@ -242,17 +286,22 @@ locked file under every spelling, then accepted and seen by the open editors), `
 
 ## Known gaps
 
-- Linux: every Linux-only path (bubblewrap, AppArmor user namespaces, inotify, `systemd-inhibit`, procps parsing) is
-  implemented and unit-tested with an injected platform; nothing ran on Linux (R5 / R9 rows say macOS), including the
-  R5 hard gate. SPEC D8 promises Linux hosts: see `docs/OPEN-QUESTIONS.md` Q2 (a Linux CI runner is recommended).
-  Guest terminals under `bwrap --new-session` have no controlling terminal; resize and Ctrl-C there are unverified.
+- Linux: the whole gate runs on Ubuntu 24.04 (VM and CI, "Linux verification" above), R5 and R9 included; guest
+  terminals get SIGWINCH on resize and Ctrl-C interrupts the foreground program, not the session
+  (`daemon/sessions/real-modules.test.ts`). Not run on Linux: a real `claude` (R5.3, R5.5, the hooks, the login
+  process), keep-awake with a real login session, the installer on a fresh machine (`docs/OPEN-QUESTIONS.md` Q2).
+  The Linux sandbox's residuals (a NEW host-only name below the top of the share in main-workspace guest sessions, a
+  worktree's shared link, sockets in readable directories) are listed in ARCHITECTURE §12 and need the owner's
+  confirmation.
 - Browsers other than Chrome (Safari/WebKit's wrapped device keys, Firefox) were not run.
 - R7.2 at the full 10 GB is manual. R1.1: an installer exists, but no release is hosted, built for every platform or
   signed yet, so the fresh-machine timing cannot be done (`docs/RELEASING.md`).
 - R5 「Linux 安裝程式自動處理 Ubuntu 24.04 以上版本的 AppArmor 限制」: `scripts/install.sh` installs bubblewrap / socat /
   ripgrep and an AppArmor profile for `/usr/bin/bwrap` with the host's consent, and `smurg host` reports at start
-  whether guest sessions can run (with the fix commands). Never run on Linux: whether srt's `apply-seccomp` also needs a
-  profile is unverified.
+  whether guest sessions can run (with the fix commands). The profile it writes is the one the VM and CI run with
+  (verified: with it the sandbox works under the stock restriction, without it `smurg host` reports `apparmor-userns`
+  and the fix); srt's `apply-seccomp` never runs (no seccomp filter with `allowAllUnixSockets`), so it needs no
+  profile. The installer's Linux branch itself (apt-get through sudo with consent) ran only against stand-ins.
 - A real `claude` driving the web editor's lock banner is not automated (the banner is driven through the lock manager,
   as the hook socket does; the real `claude`'s lock requests are proven at the daemon level).
 - R4 「登入引導」: a guest's subscription login (§11 D-12, on by default, owner's confirmation of the default pending,
@@ -272,8 +321,8 @@ locked file under every spelling, then accepted and seen by the open editors), `
 |---|---|---|---|
 | 1 | `PreToolUse` deny really blocks the Edit tool on the target Claude Code version | `daemon/hooks/claude-e2e.test.ts` › SPEC §13 / R8.1 … (the real `claude` 2.1.220 / 2.1.283, mock API); `daemon/hooks/claude-failmodes.test.ts` (Edit, Write, NotebookEdit denied whenever the daemon is unavailable, both versions) | `covered` with a verified `claude`; skips loudly without one |
 | 2 | With `CLAUDE_CONFIG_DIR` set, Claude Code may still read `~/.claude/CLAUDE.md`: the sandbox must block it | `daemon/sandbox/r5.claude.test.ts` › R5.5 … | `covered` (macOS) with a verified `claude` |
-| 3 | srt under macOS Seatbelt works with node-pty | `daemon/sandbox/r5.sandbox.test.ts`, `daemon/worktree/r9.real-sandbox.test.ts`, `daemon/integration/sessions-sandbox-worktree.test.ts`, the built-app smoke test's sandboxed terminal (real srt + real PTY) | `covered` (macOS) |
-| 4 | Automatic AppArmor setup on Ubuntu 24.04+ | `scripts/install.sh` (Linux branch), `smurg host`'s sandbox report with fix commands | `manual`: never run on Linux (Q2) |
+| 3 | srt under macOS Seatbelt works with node-pty | `daemon/sandbox/r5.sandbox.test.ts`, `daemon/worktree/r9.real-sandbox.test.ts`, `daemon/integration/sessions-sandbox-worktree.test.ts`, the built-app smoke test's sandboxed terminal (real srt + real PTY) | `covered` (macOS). The same tests run bubblewrap with node-pty on Linux, plus resize (SIGWINCH) and Ctrl-C in a guest terminal (`daemon/sessions/real-modules.test.ts`) |
+| 4 | Automatic AppArmor setup on Ubuntu 24.04+ | `scripts/install.sh` (Linux branch), `smurg host`'s sandbox report with fix commands | `partly`: the profile it installs is verified on Ubuntu 24.04 (VM and CI run the sandbox with it; unloaded, the preflight names AppArmor and the fix); the installer's Linux branch on a fresh machine is `manual` (Q2) |
 | 5 | Claude Code's login flow in a remote PTY (URL shown, code pasted) | `daemon/sessions/login.real.test.ts` › SPEC §13 item 5 / D-12 … (the real `claude` 2.1.220 and 2.1.283 in the guest's login process, real sandbox, mock API: the login URL and 「Paste code here if prompted」, the callback server on 127.0.0.1 only, the guest's own settings run nothing); `web/e2e/smoke/login.smoke.test.ts` › D-12 … (the same in a real browser); `daemon/sessions/claude-real.test.ts` › SPEC §13 item 5 … (inside an AGENT session it still fails: no listen right there); host sessions are not sandboxed | `partly`: shown up to the prompt for the code; pasting a code needs a real account (`manual`, §0 rule 2). The API-key path is covered by `claude-real.test.ts` and `LoginGuide.test.tsx` |
 | 6 | node-pty inside the single executable | `packages/cli/test/sea.test.ts` (opt-in with `SMURG_SEA_BINARY`; last run on darwin-arm64 with this tree's build, finish-gate 2026-09-29: `scripts/build-sea.sh` 112 MiB, 3 of 3 tests, `smurg hook` starts in 31–32 ms) | `partly`: macOS arm64 only; not part of `pnpm test` |
 | 7 | 上線前: Anthropic's consumer terms and Claude Code usage policy for the suggestion flow | — | launch phase, not in the Prototype |
