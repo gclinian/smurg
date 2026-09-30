@@ -61,7 +61,7 @@
     "MAX_SOCKETS_PER_ACCOUNT": "8",
     // Login: Google only in production (no GitHub vars here, so GitHub login is off). The OAuth client id is public;
     // `scripts/deploy-relay.sh --google-client-id <id>` writes it here. GOOGLE_CLIENT_SECRET is a secret.
-    "GOOGLE_CLIENT_ID": "",
+    "GOOGLE_CLIENT_ID": "819065690719-laemboljh72gb0qelt2hk7lqbadlb6du.apps.googleusercontent.com",
     "GOOGLE_AUTHORIZE_URL": "https://accounts.google.com/o/oauth2/v2/auth",
     "GOOGLE_TOKEN_URL": "https://oauth2.googleapis.com/token",
     "GOOGLE_JWKS_URL": "https://www.googleapis.com/oauth2/v3/certs",
