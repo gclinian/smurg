@@ -1,0 +1,139 @@
+/* Transfer feature (transfers panel, conflict dialog). Tokens only: see src/ui/tokens.css. */
+.transfer-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+}
+.transfer-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.transfer-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.transfer-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-1);
+}
+.transfer-item__icon {
+  grid-row: span 2;
+  display: flex;
+  align-items: flex-start;
+  padding-top: 2px;
+  color: var(--color-text-muted);
+}
+.transfer-item__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.transfer-item__name {
+  overflow: hidden;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transfer-item__target {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transfer-item__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.transfer-progress {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-3);
+}
+.transfer-progress__bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transition: width var(--duration-normal) var(--ease);
+}
+.transfer-progress--indeterminate .transfer-progress__bar {
+  width: 30%;
+  opacity: 0.6;
+}
+.transfer-progress--done .transfer-progress__bar {
+  background: var(--color-success);
+}
+.transfer-progress--failed .transfer-progress__bar {
+  background: var(--color-danger);
+}
+.transfer-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.transfer-message {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.transfer-message--danger {
+  color: var(--color-danger-text);
+}
+.transfer-message--warning {
+  color: var(--color-warning-text);
+}
+.transfer-details summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+.transfer-details ul {
+  max-height: 12rem;
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-5);
+  overflow: auto;
+  font-size: var(--text-sm);
+}
+.transfer-details code {
+  font-family: var(--font-mono);
+}
+.transfer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.transfer-conflict-list {
+  max-height: 14rem;
+  margin: 0;
+  padding-left: var(--space-5);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.transfer-hidden-input {
+  display: none;
+}

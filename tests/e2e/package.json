@@ -1,0 +1,32 @@
+{
+  "name": "@smurg/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": "github:gclinian/smurg",
+  "type": "module",
+  "description": "Cross-package acceptance tests: real relay (local workerd) + daemon + headless clients (ARCHITECTURE §10).",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@smurg/cli": "workspace:*",
+    "@smurg/daemon": "workspace:*",
+    "@smurg/protocol": "workspace:*",
+    "@smurg/relay": "workspace:*",
+    "@smurg/web": "workspace:*",
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/headless": "6.0.0",
+    "lib0": "0.2.118",
+    "ws": "8.22.0",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.33"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "@types/ws": "8.18.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.2"
+  }
+}

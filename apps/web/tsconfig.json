@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    // vite/client: import.meta.env, `?worker` / CSS imports; node: vite.config.ts and vitest.config.ts
+    "types": ["vite/client", "node"]
+  },
+  // e2e/ (browser acceptance tests) is not in this program: it imports tests/e2e and apps/relay sources, which compile
+  // with Node's module resolution. It has its own program, e2e/tsconfig.json (part of `pnpm typecheck`).
+  "include": ["src", "test", "scripts", "vite.config.ts", "vitest.config.ts"]
+}

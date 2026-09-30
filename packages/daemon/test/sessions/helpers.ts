@@ -1,0 +1,374 @@
+// TEST ONLY: fakes of the services the sessions module calls (sandbox, hooks, locks, presence, activity, worktrees),
+// a fake `claude` executable, and a terminal VIEWER built like a real client (a headless xterm with the full set of
+// query swallow-handlers, pty-packaging.md §6.2) that follows session.attach + exec.output + exec.resize.
+import { randomBytes } from 'node:crypto';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import xtermHeadless from '@xterm/headless';
+import type { Connection } from '@smurg/protocol/client';
+import type { FeatureModule } from '../../src/core/context.ts';
+import type {
+  ActivityFeed,
+  HookServer,
+  HookSessionCredentials,
+  HookSessionRegistration,
+  LockManager,
+  PresenceService,
+  SandboxPreflight,
+  SandboxService,
+  SandboxSpec,
+  SessionLaunchFiles,
+  WorktreeHandle,
+  WorktreeManager,
+  WrappedCommand,
+} from '../../src/core/interfaces.ts';
+import { toDisposable } from '../../src/core/lifecycle.ts';
+import type { DaemonContext } from '../../src/core/context.ts';
+import { projectMcpServerNames, removeSessionFiles, writeSessionFiles } from '../../src/hooks/settings-writer.ts';
+
+const { Terminal } = xtermHeadless;
+type HeadlessTerminal = InstanceType<typeof Terminal>;
+
+// ---------------------------------------------------------------------------------------------------------------
+// Fakes
+// ---------------------------------------------------------------------------------------------------------------
+
+/** NOT a sandbox: runs the guest command unconfined (tests of everything but srt itself). Records every spec. */
+export class FakeSandbox implements SandboxService {
+  preflightResult: SandboxPreflight = { ok: true, platform: process.platform === 'linux' ? 'linux' : 'darwin' };
+  readonly wraps: SandboxSpec[] = [];
+  wrapError: Error | null = null;
+
+  async preflight(): Promise<SandboxPreflight> {
+    return this.preflightResult;
+  }
+
+  async wrap(spec: SandboxSpec): Promise<WrappedCommand> {
+    this.wraps.push(spec);
+    if (this.wrapError) throw this.wrapError;
+    return { file: '/bin/sh', args: ['-c', spec.command], env: { ...spec.env }, cwd: spec.rootPath };
+  }
+
+  async setAllowedDomains(): Promise<void> {}
+}
+
+export class FakeHooks implements HookServer {
+  readonly socketPath = '/tmp/smurg-fake.hook';
+  readonly registered = new Map<string, HookSessionRegistration>();
+  readonly unregistered: string[] = [];
+  /** Set by fakeServicesModule: the launch files are written by the hooks module's real writer into this daemon. */
+  ctx: DaemonContext | null = null;
+
+  registerSession(session: HookSessionRegistration): HookSessionCredentials {
+    const token = `tok_${randomBytes(12).toString('hex')}`;
+    this.registered.set(session.sessionId, session);
+    return { token, env: { SMURG_HOOK_SOCKET: this.socketPath, SMURG_SESSION_TOKEN: token, SMURG_SESSION_ID: session.sessionId } };
+  }
+
+  unregisterSession(sessionId: string): void {
+    this.unregistered.push(sessionId);
+    this.registered.delete(sessionId);
+    if (this.ctx) void removeSessionFiles(this.ctx.config.stateDir, this.ctx.config.workspaceId, sessionId);
+  }
+
+  /** The hooks module's own writer (settings-writer.ts), fed what HookServerImpl feeds it: one source of truth. */
+  async writeSessionFiles(sessionId: string): Promise<SessionLaunchFiles> {
+    const ctx = this.ctx;
+    const registration = this.registered.get(sessionId);
+    if (!ctx || !registration) throw new Error(`FakeHooks: session ${sessionId} is not registered`);
+    const command = ctx.config.sessions.selfCommand;
+    if (command === null) throw new Error('FakeHooks: no selfCommand');
+    const rootRealPath = ctx.roots.get(registration.root)?.realPath;
+    if (!rootRealPath) throw new Error('FakeHooks: unknown root');
+    const variant = registration.sandboxed ? 'guest' : 'host';
+    const mcpJson = variant === 'guest' ? await readFile(join(rootRealPath, '.mcp.json'), 'utf8').catch(() => '') : '';
+    return writeSessionFiles({
+      stateDir: ctx.config.stateDir,
+      workspaceId: ctx.config.workspaceId,
+      sessionId,
+      settings: { variant, command, rootRealPath, projectMcpServers: projectMcpServerNames(mcpJson) },
+    });
+  }
+
+  async removeSessionFiles(sessionId: string): Promise<void> {
+    if (this.ctx) await removeSessionFiles(this.ctx.config.stateDir, this.ctx.config.workspaceId, sessionId);
+  }
+}
+
+export class FakeLocks {
+  readonly released: { sessionId: string; reason: string }[] = [];
+
+  releaseAllForSession(sessionId: string, reason: string): void {
+    this.released.push({ sessionId, reason });
+  }
+}
+
+export class FakePresence {
+  readonly agents = new Map<string, unknown>();
+  readonly removed: string[] = [];
+
+  snapshot(): never {
+    throw new Error('not in this fake');
+  }
+
+  update(): void {}
+
+  setAgent(agent: { sessionId: string }): void {
+    this.agents.set(agent.sessionId, agent);
+  }
+
+  removeAgent(sessionId: string): void {
+    this.removed.push(sessionId);
+    this.agents.delete(sessionId);
+  }
+}
+
+export class FakeActivity {
+  readonly notifications: { userId: string; text: string }[] = [];
+
+  notify(userId: string, notification: { text: string }): void {
+    this.notifications.push({ userId, text: notification.text });
+  }
+}
+
+/** Worktrees as plain directories registered with the real RootRegistry (enough for the session side of R9). */
+export class FakeWorktrees {
+  ctx: DaemonContext | null = null;
+  readonly acquired: { sessionId: string; worktreeId: string }[] = [];
+  readonly released: { worktreeId: string; sessionId: string; keep: boolean }[] = [];
+
+  async acquireForSession(input: { readonly owner: { userId: string | null }; readonly sessionId: string; readonly worktreeId?: string }): Promise<WorktreeHandle> {
+    const ctx = this.ctx as DaemonContext;
+    const worktreeId = input.worktreeId ?? `wt_${randomBytes(8).toString('hex')}`;
+    const dir = join(ctx.roots.main.realPath, '.smurg', 'worktrees', worktreeId);
+    await mkdir(dir, { recursive: true });
+    const root = ctx.roots.get({ kind: 'worktree', worktreeId }) ?? (await ctx.roots.registerWorktree({ worktreeId, dir, ownerUserId: input.owner.userId as string, sharedLinks: [] }));
+    this.acquired.push({ sessionId: input.sessionId, worktreeId });
+    const now = Date.now();
+    return {
+      root,
+      worktree: { id: worktreeId, ownerUserId: input.owner.userId as string, ownerName: 'x', branch: `smurg/x/${worktreeId}`, sessionId: input.sessionId, kept: false, createdAt: now, sharedDirs: [] },
+    };
+  }
+
+  async releaseFromSession(worktreeId: string, sessionId: string, options: { readonly keep: boolean }): Promise<void> {
+    this.released.push({ worktreeId, sessionId, keep: options.keep });
+  }
+}
+
+export interface Fakes {
+  readonly sandbox: FakeSandbox;
+  readonly hooks: FakeHooks;
+  readonly locks: FakeLocks;
+  readonly presence: FakePresence;
+  readonly activity: FakeActivity;
+  readonly worktrees: FakeWorktrees;
+}
+
+export function createFakes(): Fakes {
+  return { sandbox: new FakeSandbox(), hooks: new FakeHooks(), locks: new FakeLocks(), presence: new FakePresence(), activity: new FakeActivity(), worktrees: new FakeWorktrees() };
+}
+
+/** Provides the fakes as services (a module like any other). */
+export function fakeServicesModule(fakes: Fakes): FeatureModule {
+  return {
+    name: 'session-test-fakes',
+    create: (ctx) => {
+      fakes.worktrees.ctx = ctx;
+      fakes.hooks.ctx = ctx;
+      return {
+        sandbox: fakes.sandbox,
+        hooks: fakes.hooks,
+        locks: fakes.locks as unknown as LockManager,
+        presence: fakes.presence as unknown as PresenceService,
+        activity: fakes.activity as unknown as ActivityFeed,
+        worktrees: fakes.worktrees as unknown as WorktreeManager,
+      };
+    },
+    register: () => toDisposable(() => {}),
+  };
+}
+
+/**
+ * A fake `claude`: `--version` prints `version`, `auth status --json` reports logged in iff ANTHROPIC_API_KEY is set,
+ * `auth logout` is logged, anything else records its argv and waits (cat).
+ */
+export async function writeFakeClaude(dir: string, version: string): Promise<{ path: string; logDir: string }> {
+  const logDir = join(dir, 'fake-claude-log');
+  await mkdir(logDir, { recursive: true });
+  const path = join(dir, 'claude');
+  const script = `#!/bin/sh
+LOG='${logDir}'
+case "$1" in
+  --version) echo "${version} (Claude Code)"; exit 0 ;;
+  auth)
+    if [ "$2" = "status" ]; then
+      if [ -n "$ANTHROPIC_API_KEY" ]; then echo '{"loggedIn":true,"authMethod":"api_key"}'; exit 0; fi
+      echo '{"loggedIn":false,"authMethod":"none"}'; exit 1
+    fi
+    if [ "$2" = "logout" ]; then echo logout >> "$LOG/logout.log"; exit 0; fi
+    exit 2 ;;
+esac
+{ for a in "$@"; do printf '%s\\n' "$a"; done; } > "$LOG/argv.$$"
+{ for v in ANTHROPIC_API_KEY SMURG_SESSION_TOKEN SMURG_HOOK_SOCKET SMURG_SESSION_ID CLAUDECODE CLAUDE_CODE_SAFE_MODE HOME CLAUDE_CONFIG_DIR; do eval "[ -n \\"\\\${$v+x}\\" ] && echo $v"; done; } > "$LOG/envnames.$$"
+printf 'FAKE-CLAUDE-READY %s\\n' "$$"
+exec cat
+`;
+  await writeFile(path, script);
+  await chmod(path, 0o755);
+  return { path, logDir };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Viewer
+// ---------------------------------------------------------------------------------------------------------------
+
+type OutputEvent = { kind: 'output'; offset: number; data: Uint8Array } | { kind: 'resize'; cols: number; rows: number };
+
+/** A client-side terminal following one session over one Connection, like the web app / `smurg attach` would. */
+export class TestViewer {
+  readonly term: HeadlessTerminal;
+  lastOffset = 0;
+  readonly gaps: { expected: number; got: number }[] = [];
+  private pending: OutputEvent[] | null = null;
+  private readonly unsubscribe: (() => void)[] = [];
+  private readonly decoder = new TextDecoder();
+  /** Everything received (for "never contains X" checks). */
+  received = '';
+
+  private readonly conn: Connection;
+  private readonly sessionId: string;
+
+  constructor(conn: Connection, sessionId: string) {
+    this.conn = conn;
+    this.sessionId = sessionId;
+    this.term = new Terminal({ cols: 80, rows: 24, scrollback: 10_000, allowProposedApi: true });
+    const parser = this.term.parser;
+    const swallow = (): boolean => true;
+    for (const prefix of [undefined, '>', '=']) parser.registerCsiHandler({ ...(prefix ? { prefix } : {}), final: 'c' }, swallow);
+    for (const prefix of [undefined, '?']) parser.registerCsiHandler({ ...(prefix ? { prefix } : {}), final: 'n' }, swallow);
+    for (const prefix of [undefined, '?']) parser.registerCsiHandler({ ...(prefix ? { prefix } : {}), intermediates: '$', final: 'p' }, swallow);
+    parser.registerCsiHandler({ final: 't' }, (params) => [11, 13, 14, 15, 16, 18, 19, 20, 21].includes(params[0] as number));
+    parser.registerDcsHandler({ intermediates: '$', final: 'q' }, swallow);
+    for (const id of [4, 10, 11, 12]) parser.registerOscHandler(id, (data) => data.split(';').includes('?'));
+    this.unsubscribe.push(
+      conn.on('exec.output', (payload) => {
+        if (payload.sessionId !== this.sessionId) return;
+        this.handle({ kind: 'output', offset: payload.offset, data: payload.data });
+      }),
+      conn.on('exec.resize', (payload) => {
+        if (payload.sessionId !== this.sessionId) return;
+        this.handle({ kind: 'resize', cols: payload.cols, rows: payload.rows });
+      }),
+    );
+  }
+
+  private handle(event: OutputEvent): void {
+    if (this.pending) {
+      this.pending.push(event);
+      return;
+    }
+    this.apply(event);
+  }
+
+  private apply(event: OutputEvent): void {
+    if (event.kind === 'resize') {
+      this.term.write('', () => this.term.resize(event.cols, event.rows));
+      return;
+    }
+    let data = event.data;
+    let offset = event.offset;
+    if (offset < this.lastOffset) {
+      // overlap (already have it): keep only the new part
+      const skip = this.lastOffset - offset;
+      if (skip >= data.length) return;
+      data = data.subarray(skip);
+      offset = this.lastOffset;
+    }
+    if (offset > this.lastOffset) this.gaps.push({ expected: this.lastOffset, got: offset });
+    this.term.write(data);
+    this.received += this.decoder.decode(data, { stream: true });
+    this.lastOffset = offset + data.length;
+  }
+
+  async attach(options: { readonly cols?: number; readonly rows?: number; readonly haveOffset?: number } = {}): Promise<{ mode: string; nextOffset: number }> {
+    this.pending = [];
+    try {
+      const result = await this.conn.request('session.attach', {
+        sessionId: this.sessionId,
+        ...(options.cols !== undefined && options.rows !== undefined ? { cols: options.cols, rows: options.rows } : {}),
+        ...(options.haveOffset !== undefined ? { haveOffset: options.haveOffset } : {}),
+      });
+      if (result.mode === 'snapshot') {
+        this.term.write('', () => {
+          this.term.reset();
+          this.term.resize(result.cols, result.rows);
+        });
+        this.term.write(result.data);
+      } else {
+        this.term.write('', () => this.term.resize(result.cols, result.rows));
+        this.term.write(result.data);
+      }
+      this.received += this.decoder.decode(result.data, { stream: true });
+      this.lastOffset = result.nextOffset;
+      const queued = this.pending;
+      this.pending = null;
+      for (const event of queued) this.apply(event);
+      return { mode: result.mode, nextOffset: result.nextOffset };
+    } catch (err) {
+      const queued = this.pending ?? [];
+      this.pending = null;
+      for (const event of queued) this.apply(event);
+      throw err;
+    }
+  }
+
+  drained(): Promise<void> {
+    return new Promise((resolve) => this.term.write('', () => resolve()));
+  }
+
+  /** Every line of the active buffer (scrollback + viewport), right-trimmed. */
+  lines(): string[] {
+    const buffer = this.term.buffer.active;
+    const out: string[] = [];
+    for (let i = 0; i < buffer.length; i++) out.push(buffer.getLine(i)?.translateToString(true) ?? '');
+    while (out.length > 0 && out[out.length - 1] === '') out.pop();
+    return out;
+  }
+
+  /** The visible screen, right-trimmed. */
+  viewport(): string[] {
+    const buffer = this.term.buffer.active;
+    const out: string[] = [];
+    for (let i = 0; i < this.term.rows; i++) out.push(buffer.getLine(buffer.viewportY + i)?.translateToString(true) ?? '');
+    return out;
+  }
+
+  state(): { type: string; cols: number; rows: number; cursorX: number; cursorY: number } {
+    const buffer = this.term.buffer.active;
+    return { type: buffer.type, cols: this.term.cols, rows: this.term.rows, cursorX: buffer.cursorX, cursorY: buffer.cursorY };
+  }
+
+  text(): string {
+    return this.lines().join('\n');
+  }
+
+  dispose(): void {
+    for (const off of this.unsubscribe) off();
+    this.term.dispose();
+  }
+}
+
+export function typeInto(conn: Connection, sessionId: string, text: string): boolean {
+  return conn.notify('exec.input', { sessionId, data: new TextEncoder().encode(text) });
+}
+
+export async function waitFor(predicate: () => boolean | Promise<boolean>, what: string, timeoutMs = 20_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await predicate())) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+export const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));

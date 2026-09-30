@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // DOM for the browser entry points (WebCrypto, IndexedDB, WebSocket); node types for ./node and the tests.
+    // Which Node built-ins a browser-reachable module may import is enforced by test/entry-boundaries.test.ts.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["src", "test", "vitest.config.ts"]
+}

@@ -1,0 +1,77 @@
+// Non-blocking connection indicators: the status pill in the top bar and the banner that stays on screen while the
+// host is offline or the relay is unreachable. Neither ever blocks the UI (SPEC §9: 「主人已離線」, not a frozen screen).
+import { useEffect, useState } from 'react';
+import type { ConnectionState } from '@smurg/protocol/client';
+import { describeConnection, secondsUntil, type ConnectionView } from '../../lib/connection/status.ts';
+import { tConn } from '../../strings/connection.ts';
+import { Banner, Tooltip, cx } from '../../ui/index.ts';
+import { IconCloudOff, IconPlugOff } from '../../ui/icons.tsx';
+
+/** Re-renders every `intervalMs` while `active` (retry countdowns). */
+export function useNow(active: boolean, intervalMs = 1000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(timer);
+  }, [active, intervalMs]);
+  return now;
+}
+
+export function ConnectionStatusPill({ state }: { state: ConnectionState }) {
+  const view = describeConnection(state);
+  return (
+    <Tooltip content={view.detail}>
+      {/* Focusable so keyboard users can reach the explanation in the tooltip; a polite live region for changes. */}
+      <span className={cx('app-status-pill', `app-status-pill--${view.tone}`)} tabIndex={0} role="status" data-connection-view={view.kind}>
+        <span className="app-status-pill__dot" aria-hidden="true" />
+        <span className="ui-visually-hidden">{tConn('statusPrefix')}</span>
+        {view.label}
+      </span>
+    </Tooltip>
+  );
+}
+
+function retryText(view: ConnectionView, now: number): string | null {
+  if (view.retryAt === null) return null;
+  return tConn('retryIn', { seconds: secondsUntil(view.retryAt, now) });
+}
+
+/**
+ * Shown under the top bar whenever the connection is not online after it had been: host offline (warning), relay
+ * unreachable (danger, different wording), retrying / role change (info). Nothing while online.
+ */
+export function ConnectionBanner({ state }: { state: ConnectionState }) {
+  const view = describeConnection(state);
+  const now = useNow(view.retryAt !== null);
+  if (view.blocking || view.kind === 'online' || view.kind === 'idle') return null;
+  if (view.kind === 'host-offline') {
+    return (
+      <Banner tone="warning" title={tConn('pill.hostOffline')} icon={<IconPlugOff />} className="app-connection-banner" live="alert">
+        <span data-testid="host-offline-banner" data-connection-view={view.kind}>
+          {view.detail}
+          {tConn('detail.hostOffline.consequence')}
+        </span>
+      </Banner>
+    );
+  }
+  if (view.kind === 'relay-unreachable') {
+    return (
+      <Banner tone="danger" title={view.label} icon={<IconCloudOff />} className="app-connection-banner">
+        <span data-testid="relay-unreachable-banner" data-connection-view={view.kind}>
+          {view.detail}
+          {retryText(view, now)}
+        </span>
+      </Banner>
+    );
+  }
+  return (
+    <Banner tone="info" title={view.label} className="app-connection-banner">
+      <span data-connection-view={view.kind}>
+        {view.detail}
+        {retryText(view, now)}
+      </span>
+    </Banner>
+  );
+}

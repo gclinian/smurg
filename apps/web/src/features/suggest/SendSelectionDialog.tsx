@@ -1,0 +1,72 @@
+// 「在編輯器選取程式碼後，可以一鍵把它作為建議送進別人的 session（或直接送進自己的 session）」 (SPEC R6), when the
+// editor did not say which session: pick one. One's own session gets the code pasted (no Enter); someone else's gets a
+// suggestion draft to complete and send.
+import { useEffect, useId, useState } from 'react';
+import type { SessionInfo } from '@smurg/protocol';
+import { tApp } from '../../strings/app.ts';
+import { Button, Dialog } from '../../ui/index.ts';
+import { t } from './strings.ts';
+import { lineRange, type SelectionPayload } from './text.ts';
+import { plainSessionTitle } from '../../lib/stores/sessions.ts';
+
+export interface SendSelectionDialogProps {
+  readonly selection: SelectionPayload | null;
+  /** Running sessions, the member's own first. */
+  readonly sessions: readonly SessionInfo[];
+  readonly userId: string | null;
+  readonly canSuggest: boolean;
+  onChoose(sessionId: string): void;
+  onClose(): void;
+}
+
+export function SendSelectionDialog({ selection, sessions, userId, canSuggest, onChoose, onClose }: SendSelectionDialogProps) {
+  const name = useId();
+  const choices = sessions.filter((session) => session.ownerUserId === userId || canSuggest);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const open = selection !== null;
+
+  useEffect(() => {
+    setChosen(open ? (choices[0]?.id ?? null) : null);
+    // the first choice when the dialog opens
+  }, [open]);
+
+  if (!selection) return null;
+  const current = chosen !== null && choices.some((session) => session.id === chosen) ? chosen : (choices[0]?.id ?? null);
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title={t('send.title')}
+      description={t('send.lead', { path: selection.file.path, range: lineRange(selection.startLine, selection.endLine) })}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            {tApp('common.cancel')}
+          </Button>
+          <Button variant="primary" disabled={current === null} onClick={() => current !== null && onChoose(current)}>
+            {t('send.confirm')}
+          </Button>
+        </>
+      }
+    >
+      {choices.length === 0 ? (
+        <p className="suggest-note">{t('send.none')}</p>
+      ) : (
+        <fieldset className="suggest-choices">
+          <legend>{t('send.target')}</legend>
+          {choices.map((session) => (
+            <label key={session.id} className="suggest-choice">
+              <input type="radio" name={name} checked={current === session.id} onChange={() => setChosen(session.id)} />
+              <span>
+                {session.ownerUserId === userId
+                  ? t('send.own', { title: session.title })
+                  : t('send.other', { owner: session.ownerName, title: plainSessionTitle(session) })}
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+    </Dialog>
+  );
+}

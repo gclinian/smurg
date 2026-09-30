@@ -1,0 +1,46 @@
+{
+  "name": "@smurg/daemon",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": "github:gclinian/smurg",
+  "type": "module",
+  "description": "Host-side daemon: files, documents, locks, PTY sessions, sandbox, hooks, audit log.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts",
+    "./hook-cli": "./src/hooks/hook-cli.ts",
+    "./mcp": "./src/mcp/coord-server.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "postinstall": "node scripts/ensure-spawn-helper.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.77",
+    "@parcel/watcher": "2.6.0",
+    "@smurg/protocol": "workspace:*",
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/headless": "6.0.0",
+    "diff": "9.0.0",
+    "fast-diff": "1.3.0",
+    "jose": "6.2.12",
+    "lib0": "0.2.118",
+    "node-pty": "1.2.0-beta.15",
+    "ws": "8.22.0",
+    "y-protocols": "1.0.7",
+    "yazl": "3.3.1",
+    "yjs": "13.6.33",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "@types/ws": "8.18.1",
+    "@types/yazl": "3.3.1",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.2"
+  }
+}

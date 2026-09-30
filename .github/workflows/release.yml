@@ -1,0 +1,220 @@
+# A release: push a tag vX.Y.Z (CHANGELOG.md must have a `## [X.Y.Z] - YYYY-MM-DD` section) and this workflow
+#   1. checks the tag, the changelog and that nothing is left to fill in (scripts/release-assets.sh --publish-checks:
+#      the section's date, no <RELAY_URL> placeholder, DEFAULT_RELAY_URL set, every package.json at X.Y.Z), before any
+#      runner time is spent on builds;
+#   2. builds the single executable on each target's own runner with scripts/build-sea.sh --version X.Y.Z --target …,
+#      which also checks that it runs there and smoke-tests it (packages/cli/test/sea.test.ts);
+#   3. assembles the release with scripts/release-assets.sh: the four executables, SHA256SUMS, and install.sh with
+#      this tag's download URL baked in (https://github.com/<owner>/<repo>/releases/download/vX.Y.Z), plus the notes
+#      (the CHANGELOG section, the install command, the checksums);
+#   4. creates the GitHub release as a draft with all six files, checks them, then publishes it (latest, unless the
+#      version has a pre-release part such as 0.2.0-rc.1). So the one-line install
+#        curl -fsSL https://github.com/<owner>/<repo>/releases/latest/download/install.sh | sh
+#      never resolves to a release that is still missing a file, and that install.sh downloads the executable
+#      (smurg-<darwin|linux>-<arm64|x64>) and SHA256SUMS of its own release.
+#
+# Runners (https://github.com/actions/runner-images README, read 2026-09-30; docs.github.com "GitHub-hosted runners
+# reference": all four are standard runners for public and private repositories):
+#   darwin-arm64  macos-15         (not macos-14: deprecated, brownouts from 2026-10-05, removed 2026-11-02, #13518)
+#   darwin-x64    macos-15-intel   (not macos-13: removed 2025-12-04, #13046; macos-15-intel is the x86_64 image
+#                                   GitHub keeps until August 2027, #13045)
+#   linux-x64     ubuntu-24.04
+#   linux-arm64   ubuntu-24.04-arm
+# The executable is a copy of the official Node the job installs (from .nvmrc), so the runner's macOS version does not
+# limit where it runs; macOS builds are signed ad hoc only (no Apple account), and install.sh removes the quarantine
+# attribute after verifying the sha256.
+#
+# Manual run (Actions → Release → Run workflow): a DRY RUN of the same pipeline for the version given, from the chosen
+# branch. Everything is built, checked and assembled; nothing is published (the notes, SHA256SUMS and install.sh are
+# kept as the artifact release-dry-run-<version>). In a dry run the --publish-checks step only warns, so it also works
+# before the relay is deployed.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Dry run (nothing is published) of this version, X.Y.Z; CHANGELOG.md needs its section
+        type: string
+        required: true
+        default: 0.1.0
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # scripts/env.sh prefers a Node installed by nvm, and the Ubuntu images ship nvm: use setup-node's Node (.nvmrc).
+  NVM_DIR: /dev/null/no-nvm
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    name: tag and changelog
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      base-url: ${{ steps.version.outputs.base-url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: version
+        name: Version from the tag
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = push ]; then tag="$GITHUB_REF_NAME"; else tag="v${INPUT_VERSION#v}"; fi
+          version="${tag#v}"
+          [[ "$version" =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}(-[0-9A-Za-z.-]{1,40})?$ ]] || { echo "::error::$tag is not a version tag vX.Y.Z (or vX.Y.Z-pre.N)"; exit 1; }
+          base_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$tag"
+          { echo "version=$version"; echo "tag=$tag"; echo "base-url=$base_url"; } >>"$GITHUB_OUTPUT"
+          echo "smurg $version, release URL $base_url ($EVENT)"
+
+      - name: CHANGELOG.md has a section for this version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BASE_URL: ${{ steps.version.outputs.base-url }}
+        run: scripts/release-assets.sh --version "$VERSION" --base-url "$BASE_URL" --check-changelog
+
+      - name: Nothing left to fill in (docs/RELEASING.md §3, §4)
+        # A tag must pass; a manual dry run only warns (the step shows as failed, the run goes on).
+        continue-on-error: ${{ github.event_name != 'push' }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BASE_URL: ${{ steps.version.outputs.base-url }}
+        run: scripts/release-assets.sh --version "$VERSION" --base-url "$BASE_URL" --publish-checks
+
+  build:
+    name: smurg-${{ matrix.target }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      # Every target reports; the release job needs all four anyway.
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-15
+          - target: darwin-x64
+            runner: macos-15-intel
+          - target: linux-x64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Repo-local pnpm
+        run: scripts/bootstrap-tools.sh
+
+      - name: Install dependencies
+        run: |
+          # shellcheck source=/dev/null # scripts/env.sh ends with a top-level return, which shellcheck reads as an exit
+          source scripts/env.sh
+          pnpm install --frozen-lockfile
+
+      - name: Build, check and smoke-test smurg-${{ matrix.target }}
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: scripts/build-sea.sh --version "$VERSION" --target "$TARGET"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smurg-${{ matrix.target }}
+          path: packages/cli/dist/smurg-${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: GitHub release
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      BASE_URL: ${{ needs.prepare.outputs.base-url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: smurg-*
+          path: dist
+          merge-multiple: true
+
+      - name: Release files and notes
+        run: |
+          set -euo pipefail
+          scripts/release-assets.sh --version "$VERSION" --base-url "$BASE_URL" --dist dist --out release \
+            --require-all --check-arch --notes "$RUNNER_TEMP/release-notes.md"
+          ls -l release
+          cat "$RUNNER_TEMP/release-notes.md"
+
+      - name: "Dry run: keep the notes, SHA256SUMS and install.sh"
+        if: github.event_name != 'push'
+        run: |
+          mkdir -p "$RUNNER_TEMP/dry-run"
+          cp release/SHA256SUMS release/install.sh "$RUNNER_TEMP/release-notes.md" "$RUNNER_TEMP/dry-run/"
+
+      - if: github.event_name != 'push'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-dry-run-${{ needs.prepare.outputs.version }}
+          path: ${{ runner.temp }}/dry-run
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publish the GitHub release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          releases() { gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq "$1"; }
+          existing="$(releases ".[] | select(.tag_name == \"$TAG\") | .html_url")"
+          if [ -n "$existing" ]; then
+            echo "::error::a release for $TAG already exists (draft or published): $existing. Delete it on the Releases page, then re-run this job."
+            exit 1
+          fi
+          prerelease=()
+          make_latest=true
+          if [[ "$VERSION" == *-* ]]; then prerelease=(--prerelease); make_latest=false; fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "smurg $VERSION" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" "${prerelease[@]}" \
+            release/smurg-darwin-arm64 release/smurg-darwin-x64 release/smurg-linux-x64 release/smurg-linux-arm64 \
+            release/SHA256SUMS release/install.sh
+          id="$(releases ".[] | select(.tag_name == \"$TAG\" and .draft) | .id")"
+          [ "$(printf '%s\n' "$id" | grep -c .)" = 1 ] || { echo "::error::expected one draft release for $TAG, found: $id"; exit 1; }
+          assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq '[.assets[] | select(.state == "uploaded") | .name] | sort | join(" ")')"
+          expected='SHA256SUMS install.sh smurg-darwin-arm64 smurg-darwin-x64 smurg-linux-arm64 smurg-linux-x64'
+          [ "$assets" = "$expected" ] || { echo "::error::the draft of $TAG has [$assets], not [$expected]; it stays a draft"; exit 1; }
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false -f make_latest="$make_latest" --jq '"published " + .html_url'
+          echo "install: curl -fsSL $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/latest/download/install.sh | sh"

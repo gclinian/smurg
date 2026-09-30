@@ -1,0 +1,384 @@
+/* The worktree feature: root switcher, merge requests, the diff review. Tokens from src/ui/tokens.css. */
+
+/* ---------------------------------------------------------------- switcher */
+.worktree-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+.worktree-switcher__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.worktree-switcher__details p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.worktree-switcher__branch {
+  font-family: var(--font-mono);
+}
+.worktree-switcher__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+/* ---------------------------------------------------------------- merge request list */
+.worktree-panel {
+  height: 100%;
+  overflow: auto;
+  padding: var(--space-4) var(--space-6) var(--space-6);
+}
+.worktree-requests {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.worktree-requests__loading,
+.worktree-review__loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.worktree-requests__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.worktree-requests__heading {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+.worktree-requests__list,
+.worktree-mine {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.worktree-mine__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+.worktree-mine__branch {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.worktree-mine__note {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.worktree-mr {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-1);
+}
+.worktree-mr[data-status='pending'] {
+  border-left: 3px solid var(--color-info);
+}
+.worktree-mr[data-status='conflict'] {
+  border-left: 3px solid var(--color-warning);
+}
+.worktree-mr__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+.worktree-mr__title {
+  flex: 1;
+  min-width: 0;
+  font-weight: var(--weight-medium);
+}
+.worktree-mr__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.worktree-mr__message {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 8em;
+  overflow: auto;
+}
+.worktree-mr__detail {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.worktree-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-soft);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+.worktree-conflict p {
+  margin: 0;
+}
+.worktree-conflict__files {
+  margin: 0;
+  padding-left: var(--space-7);
+  max-height: 12em;
+  overflow: auto;
+}
+.worktree-conflict__files code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.worktree-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ---------------------------------------------------------------- review dialog */
+.ui-dialog.worktree-review-dialog {
+  max-width: min(1200px, 100%);
+  height: calc(100vh - 2 * var(--space-6));
+}
+.worktree-review-dialog .ui-dialog__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.worktree-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  flex: 1;
+  min-height: 0;
+}
+.worktree-review__meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.worktree-review__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.worktree-review__message {
+  font-size: var(--text-sm);
+}
+.worktree-review__message-label {
+  color: var(--color-text-muted);
+}
+.worktree-review__message p {
+  margin: var(--space-2) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 8em;
+  overflow: auto;
+}
+.worktree-review__progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+}
+.worktree-review__empty {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+.worktree-review__split {
+  display: grid;
+  grid-template-columns: minmax(200px, 32%) 1fr;
+  gap: var(--space-5);
+  flex: 1;
+  min-height: 260px;
+}
+.worktree-review__files {
+  overflow: auto;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.worktree-review__files ul {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+}
+.worktree-review__file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: start;
+  cursor: pointer;
+}
+.worktree-review__file:hover {
+  background: var(--color-surface-3);
+}
+.worktree-review__file:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.worktree-review__file[aria-current='true'] {
+  background: var(--color-accent-soft);
+}
+.worktree-review__file-status {
+  flex: none;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.worktree-review__file[data-status='added'] .worktree-review__file-status {
+  color: var(--color-success);
+}
+.worktree-review__file[data-status='deleted'] .worktree-review__file-status {
+  color: var(--color-danger);
+}
+.worktree-review__file-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.worktree-review__file-from {
+  flex-basis: 100%;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.worktree-review__file-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.worktree-review__adds {
+  color: var(--color-success);
+}
+.worktree-review__dels {
+  color: var(--color-danger);
+}
+.worktree-review__diff {
+  min-width: 0;
+  overflow: auto;
+}
+.worktree-review__decision {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+}
+.worktree-review__decision-text {
+  margin: 0;
+}
+.worktree-review__decision-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+/* ---------------------------------------------------------------- one file's diff */
+.worktree-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+.worktree-diff__note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.worktree-diff__code {
+  width: 100%;
+  margin: 0;
+  padding: var(--space-3) 0;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  overflow: auto;
+}
+.worktree-diff__line {
+  display: grid;
+  grid-template-columns: 4.5em 4.5em 1fr;
+}
+.worktree-diff__num {
+  padding: 0 var(--space-4);
+  text-align: end;
+  color: var(--color-text-subtle);
+  user-select: none;
+}
+.worktree-diff__text {
+  padding: 0 var(--space-5) 0 var(--space-3);
+  white-space: pre;
+}
+.worktree-diff__line--add {
+  background: var(--color-success-soft);
+}
+.worktree-diff__line--del {
+  background: var(--color-danger-soft);
+}
+.worktree-diff__line--hunk {
+  background: var(--color-info-soft);
+  color: var(--color-text-muted);
+}
+.worktree-diff__line--meta {
+  color: var(--color-text-muted);
+}
+.worktree-diff__hidden {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-warning-soft);
+  color: var(--color-warning-text);
+  font-weight: var(--weight-semibold);
+}
+.worktree-diff__line--note {
+  color: var(--color-text-subtle);
+}
+
+@media (max-width: 720px) {
+  .worktree-review__split {
+    grid-template-columns: 1fr;
+  }
+}

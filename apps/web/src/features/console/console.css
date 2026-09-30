@@ -1,0 +1,332 @@
+/* The host console page. Tokens from src/ui/tokens.css. */
+
+.console {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-8) var(--space-10);
+}
+.console__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.console__title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+}
+.console__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--space-3) 0;
+  background: var(--color-bg);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+.console__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-7);
+}
+.console-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-6);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-1);
+  scroll-margin-top: 56px;
+}
+.console-section--wide {
+  grid-column: 1 / -1;
+}
+.console-section__title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+.console-section__title:focus {
+  outline: none;
+}
+.console-section__title:focus-visible {
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+.console-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.console-muted {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.console-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--color-text-muted);
+}
+.console-toggle {
+  align-self: flex-start;
+}
+
+/* ---------------------------------------------------------------- security notes */
+.console-security__list {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ---------------------------------------------------------------- members */
+.console-member {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--space-4);
+  align-items: center;
+}
+.console-member .ui-avatar {
+  grid-row: span 2;
+}
+.console-member__name {
+  display: inline-flex;
+  gap: var(--space-2);
+  font-weight: var(--weight-medium);
+}
+.console-member__id {
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+  overflow-wrap: anywhere;
+}
+.console-devices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.console-devices li {
+  display: flex;
+  flex-direction: column;
+}
+.console-devices__revoked {
+  text-decoration: line-through;
+  color: var(--color-text-subtle);
+}
+.console-activity {
+  overflow-wrap: anywhere;
+}
+.console-kick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.console-kick p,
+.console-kick ul {
+  margin: 0;
+}
+.console-kick ul {
+  padding-left: var(--space-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.console-kick__final {
+  font-weight: var(--weight-semibold);
+}
+
+/* ---------------------------------------------------------------- sessions */
+.console-session {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+.console-session__title {
+  font-weight: var(--weight-medium);
+}
+.console-session__file {
+  flex-basis: 100%;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- suggestions */
+.console-suggestions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.console-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.console-suggestion p {
+  margin: 0;
+}
+.console-suggestion__target {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+.console-suggestion__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 10em;
+  overflow: auto;
+}
+
+/* ---------------------------------------------------------------- invites */
+.console-invite-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-5);
+  align-items: start;
+}
+/* Level with the inputs: skip the height of a field label (one line of --text-sm plus the field gap). */
+.console-invite-form__submit {
+  padding-top: calc(var(--text-sm) * var(--leading-normal) + var(--space-2));
+}
+.console-invite-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.console-invite-link p {
+  margin: 0;
+}
+.console-invite-link__row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+.console-invite-link__row .ui-field {
+  flex: 1;
+  min-width: 0;
+}
+.console-invite-link__row .ui-input {
+  font-family: var(--font-mono);
+}
+
+/* ---------------------------------------------------------------- audit log */
+.console-audit {
+  max-height: 480px;
+  overflow: auto;
+}
+.console-audit__target {
+  display: inline-block;
+  max-width: 28em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.console-audit__outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.console-audit__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+/* ---------------------------------------------------------------- settings */
+.console-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.console-settings__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-6);
+}
+.console-settings__status {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+.console-settings__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-4);
+}
+
+@media (max-width: 900px) {
+  .console {
+    padding: var(--space-6) var(--space-5) var(--space-9);
+  }
+  .console__grid,
+  .console-settings__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* An audit entry's detail (SPEC-07): folded, text only. */
+.console-audit__detail summary {
+  cursor: pointer;
+  color: var(--color-accent);
+}
+.console-audit__detail dl {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  max-width: 40rem;
+}
+.console-audit__detail dl > div {
+  display: flex;
+  gap: var(--space-3);
+}
+.console-audit__detail dl > .console-audit__detail-block {
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.console-audit__detail dt {
+  flex: none;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.console-audit__detail dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.console-audit__detail pre {
+  margin: 0;
+  max-height: 12rem;
+  overflow: auto;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+}

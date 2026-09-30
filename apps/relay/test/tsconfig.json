@@ -1,0 +1,8 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    // Tests run in Node (vitest) and drive the Worker through wrangler's createTestHarness.
+    "types": ["node"]
+  },
+  "include": [".", "../test-support", "../scripts", "../vitest.config.ts"]
+}

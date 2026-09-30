@@ -1,0 +1,553 @@
+/* The agents panel (session tabs, terminal, dialogs, login guide). Tokens from src/ui/tokens.css. */
+
+.agents-panel .ui-panel__body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.agents-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* ---------------------------------------------------------------- tabs */
+.agents-tabs {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.agents-tabs > .ui-tabs__panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.agents-tabs > .ui-tabs__panel[hidden] {
+  display: none;
+}
+.agents-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 220px;
+}
+.agents-tab__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agents-tab__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-subtle);
+  flex: none;
+}
+.agents-tab[data-status='running'] .agents-tab__dot {
+  background: var(--color-success);
+}
+.agents-tab[data-status='starting'] .agents-tab__dot {
+  background: var(--color-info);
+}
+
+/* ---------------------------------------------------------------- one session */
+.agents-session {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.agents-session__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+/* One line: status, owner, where (cut with …, full text in the title), watch-only. */
+.agents-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+.agents-summary > * {
+  flex: none;
+}
+.agents-summary__item {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text);
+}
+.agents-summary__where {
+  flex: 0 1 auto;
+  color: var(--color-text-muted);
+}
+.agents-session__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border-width) solid var(--color-border);
+  background: var(--color-surface-2);
+}
+.agents-session__hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.agents-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+.agents-info__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.agents-info dt {
+  flex: none;
+  white-space: nowrap;
+  color: var(--color-text-subtle);
+}
+.agents-info dt::after {
+  content: '：';
+}
+.agents-info dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+}
+.agents-session__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}
+.agents-session__note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.agents-session__note > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.agents-session__stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  /* The login guide sits beside the terminal when there is room, above it when the panel is narrow. */
+  container-type: inline-size;
+}
+.agents-session__layout {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ---------------------------------------------------------------- terminal */
+.agents-term {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+/* The frame the owner's panel is measured on (ResizeObserver + terminal-fit.ts): the size hint and the viewport. Its
+   own size never depends on its content, so showing or hiding the hint does not re-plan the PTY. */
+.agents-term__frame {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+/* One line (TERMINAL_HINT_PX = 24 px, border included) above the terminal: the full sentence is its title and in
+   the accessibility tree. */
+.agents-term__hint {
+  flex: none;
+  box-sizing: border-box;
+  height: 24px;
+  margin: 0;
+  padding: 0 var(--space-4);
+  line-height: 23px;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  background: var(--color-surface-2);
+  border-bottom: var(--border-width) solid var(--color-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A terminal bigger than the panel scrolls both ways, with scrollbars that stay visible (custom WebKit scrollbars are
+   never overlay scrollbars; `auto` here lets them apply over base.css's thin standard ones). */
+.agents-term__viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--color-bg);
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+.agents-term__viewport::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+.agents-term__viewport::-webkit-scrollbar-track,
+.agents-term__viewport::-webkit-scrollbar-corner {
+  background: var(--color-surface-2);
+}
+.agents-term__viewport::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+  border-radius: 6px;
+  min-width: 24px;
+  min-height: 24px;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .agents-term__viewport {
+    scrollbar-color: var(--scrollbar-thumb) var(--color-surface-2);
+  }
+}
+.agents-term__viewport:focus-within {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.agents-term__host {
+  width: 100%;
+  height: 100%;
+}
+/* The terminal is exactly the PTY's cols × rows: bigger than the panel scrolls, it never reflows. */
+.agents-term__host .xterm {
+  padding: var(--space-2);
+  width: max-content;
+}
+.agents-term__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------- login guide (beside the terminal) */
+/* Beside, not over: the owner must see the login URL and the code prompt in the terminal while following the steps
+   (their viewport, and with it the PTY, gets narrower instead). */
+.agents-login {
+  flex: 0 0 min(340px, 45%);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-2);
+  border-left: var(--border-width) solid var(--color-border-strong);
+}
+/* Narrow panel: the guide goes ABOVE the terminal (never over it: step 1 is 「點一下終端機」), at most half the height,
+   scrolling on its own. */
+@container (max-width: 560px) {
+  .agents-session__layout {
+    flex-direction: column;
+  }
+  .agents-login {
+    order: -1;
+    flex: 0 1 auto;
+    max-height: 50%;
+    border-left: none;
+    border-bottom: var(--border-width) solid var(--color-border-strong);
+  }
+}
+.agents-login__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+.agents-login__title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.agents-login__body {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.agents-login__body p {
+  margin: 0;
+}
+.agents-login__method h4 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+.agents-login__steps {
+  margin: 0;
+  padding-left: var(--space-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.agents-login__note {
+  color: var(--color-text-muted);
+  margin-top: var(--space-3) !important;
+}
+.agents-login__key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.agents-login__check {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.agents-login__result:empty {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- a guest's login process (session kind 'login') */
+/* The steps above the login's own terminal (the URL and the code prompt are in it), scrolling on their own. */
+.agents-loginproc {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.agents-loginproc__guide {
+  flex: none;
+  max-height: 45%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  background: var(--color-surface-2);
+  border-bottom: var(--border-width) solid var(--color-border-strong);
+}
+.agents-loginproc__title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.agents-loginproc__private,
+.agents-loginproc__checking {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-muted);
+}
+.agents-loginproc__private > svg {
+  flex: none;
+  margin-top: 3px;
+}
+.agents-loginproc__retry {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.agents-login__error {
+  margin: 0;
+  color: var(--color-danger);
+}
+
+/* ---------------------------------------------------------------- dialogs */
+.agents-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.agents-fieldset {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.agents-fieldset legend {
+  padding: 0;
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+}
+.agents-fieldset__note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.agents-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.agents-choice:has(input:checked) {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+.agents-choice[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.agents-choice input {
+  margin-top: 3px;
+}
+.agents-choice__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.agents-choice__label {
+  font-weight: var(--weight-medium);
+}
+.agents-choice__hint {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.agents-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+.agents-form__key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* ---------------------------------------------------------------- import */
+.agents-import {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.agents-import__pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+.agents-import__picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.agents-import__pick-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+.agents-import__input {
+  font-size: var(--text-sm);
+}
+.agents-import__heading {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+.agents-import__files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 200px;
+  overflow: auto;
+  font-size: var(--text-sm);
+}
+.agents-import__files li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-1) 0;
+}
+.agents-import__files code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.agents-import__files--skipped {
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------- attach in your own terminal */
+.agents-attach {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.agents-attach__heading {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+.agents-attach__note {
+  margin: var(--space-3) 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.agents-attach__command {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  border: var(--border-width) solid var(--color-border);
+}
+.agents-attach__command code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}

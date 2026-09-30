@@ -1,0 +1,130 @@
+# The gate (`pnpm check`: type check of every package, then every vitest project) on macOS and Linux.
+#
+# Runners (https://github.com/actions/runner-images, README "Available Images", read 2026-09-30):
+#   macos-15      macOS 15 on Apple silicon. Not macos-14: that image is deprecated and fails on purpose during the
+#                 brownouts of 2026-10-05 … 10-31, then is removed on 2026-11-02 (actions/runner-images#13518).
+#   ubuntu-24.04  Ubuntu 24.04 x64: the first run of the whole suite on Linux (docs/OPEN-QUESTIONS.md Q2).
+# Google Chrome is preinstalled on both (images/macos/macos-15-arm64-Readme.md "Browsers": Google Chrome 152;
+# images/ubuntu/Ubuntu2404-Readme.md "Browsers": Google Chrome 153 at /usr/bin/google-chrome), which is where
+# apps/web/e2e/chrome.ts looks, so the real-browser tests run. `claude` is not installed: the real-claude tests skip
+# and say so. The Linux job installs what the guest sandbox needs, as scripts/install.sh does for a host.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      linux-userns:
+        description: >-
+          Ubuntu: how bubblewrap gets its user namespaces. "profile" = the AppArmor profile for /usr/bin/bwrap that
+          scripts/install.sh installs (what a host gets); "sysctl" = lift the restriction for the whole machine, to
+          tell a profile problem from a code problem.
+        type: choice
+        options: [profile, sysctl]
+        default: profile
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: pnpm check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      # Linux is expected to fail at first: let each OS finish and report on its own.
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-24.04]
+    env:
+      # scripts/env.sh prefers a Node installed by nvm, and the Ubuntu image ships nvm: point it at nothing, so the
+      # Node that setup-node installed from .nvmrc is the one every step uses (checked in "Toolchain").
+      NVM_DIR: /dev/null/no-nvm
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: "Linux: bubblewrap, socat, ripgrep and the AppArmor user-namespace setup (as scripts/install.sh)"
+        if: runner.os == 'Linux'
+        env:
+          USERNS_MODE: ${{ inputs.linux-userns || 'profile' }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep
+          restricted="$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)"
+          echo "kernel.apparmor_restrict_unprivileged_userns=$restricted (mode: $USERNS_MODE)"
+          if [ "$restricted" = 1 ] && [ "$USERNS_MODE" = sysctl ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          elif [ "$restricted" = 1 ]; then
+            # The same profile scripts/install.sh installs and `smurg host` prints: only /usr/bin/bwrap gets userns.
+            printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' 'profile smurg-bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '}' |
+              sudo tee /etc/apparmor.d/smurg-bwrap >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap
+          fi
+
+      - name: Repo-local pnpm
+        run: scripts/bootstrap-tools.sh
+
+      - name: Install dependencies
+        run: |
+          # shellcheck source=/dev/null # scripts/env.sh ends with a top-level return, which shellcheck reads as an exit
+          source scripts/env.sh
+          pnpm install --frozen-lockfile
+
+      - name: Toolchain
+        env:
+          SETUP_NODE_VERSION: ${{ steps.node.outputs.node-version }}
+        run: |
+          # shellcheck source=/dev/null # scripts/env.sh ends with a top-level return, which shellcheck reads as an exit
+          source scripts/env.sh
+          echo "node $(node --version) at $(command -v node); pnpm $(pnpm --version) at $(command -v pnpm)"
+          chosen="$(node --version)"
+          [ "${chosen#v}" = "${SETUP_NODE_VERSION#v}" ] || { echo "::error::scripts/env.sh chose node $chosen, not setup-node's $SETUP_NODE_VERSION"; exit 1; }
+          uname -a
+          if [ "$RUNNER_OS" = macOS ]; then
+            sw_vers
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --version || echo 'no Google Chrome: the browser tests skip'
+          else
+            # (the runner's bash has -o pipefail: `| head` may cut a writer short, so these never fail the step)
+            ldd --version 2>&1 | head -1 || true
+            google-chrome --version || echo 'no Google Chrome: the browser tests skip'
+            bwrap --version || true
+            socat -V 2>&1 | grep -m1 'socat version' || true
+            rg --version 2>&1 | head -1 || true
+            # The probe srt runs before sandboxing (linux-sandbox-utils.js): can bubblewrap create a user namespace?
+            if bwrap --unshare-user --dev-bind / / true; then echo 'bwrap user namespace: ok'; else echo '::warning::bwrap cannot create a user namespace: the guest sandbox tests will fail'; fi
+          fi
+          command -v claude || echo 'no claude on PATH: the real-claude tests skip'
+
+      - name: pnpm check
+        run: |
+          # shellcheck source=/dev/null # scripts/env.sh ends with a top-level return, which shellcheck reads as an exit
+          source scripts/env.sh
+          set -o pipefail
+          pnpm check 2>&1 | tee "$RUNNER_TEMP/pnpm-check.log"
+
+      - name: Upload the test output
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pnpm-check-${{ matrix.os }}
+          path: ${{ runner.temp }}/pnpm-check.log
+          if-no-files-found: warn
+          retention-days: 14

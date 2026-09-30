@@ -1,0 +1,117 @@
+import { describe, expect, it } from 'vitest';
+import { decodeEnvelope, encodeEnvelope } from './codec.ts';
+import {
+  ERROR_CODES,
+  ERROR_MESSAGE_MAX_CHARS,
+  SmurgError,
+  defaultErrorMessage,
+  errorPayloadSchema,
+  isErrorCode,
+  isSmurgError,
+} from './errors.ts';
+import {
+  diskReportOfError,
+  errorReasonOf,
+  insufficientDiskError,
+  lockOfError,
+  lockedError,
+} from './schema/error-details.ts';
+import { agentLock, disk } from './schema/message-samples.fixture.ts';
+
+describe('error codes', () => {
+  it('are exactly those of ARCHITECTURE §4.3', () => {
+    expect(ERROR_CODES).toEqual([
+      'bad_request',
+      'unauthorized',
+      'forbidden',
+      'not_found',
+      'conflict',
+      'locked',
+      'path_denied',
+      'sandbox_unavailable',
+      'insufficient_disk',
+      'too_large',
+      'host_only',
+      'internal',
+    ]);
+    expect(isErrorCode('locked')).toBe(true);
+    expect(isErrorCode('hash_mismatch')).toBe(false);
+  });
+
+  it('each has a zh-TW default message', () => {
+    for (const code of ERROR_CODES) {
+      const message = defaultErrorMessage(code);
+      expect(message.length).toBeGreaterThan(0);
+      expect(/[一-鿿]/u.test(message)).toBe(true);
+    }
+  });
+});
+
+describe('SmurgError', () => {
+  it('survives an error Envelope round trip (code, message, detail)', () => {
+    const original = new SmurgError('locked', '此檔案正由 Amy 編輯中，請先處理其他檔案或稍後再試', { reason: 'human-lock', lock: agentLock });
+    const bytes = encodeEnvelope({ type: 'error', id: 'req-7', seq: 3, payload: original.toPayload() }, { from: 'daemon', channel: 'interactive' });
+    const decoded = decodeEnvelope(bytes, { from: 'daemon', channel: 'interactive' });
+    expect(decoded.ok).toBe(true);
+    if (!decoded.ok || decoded.envelope.type !== 'error') throw new Error('unreachable');
+    expect(decoded.envelope.id).toBe('req-7');
+    const received = SmurgError.fromPayload(decoded.envelope.payload);
+    expect(received).toBeInstanceOf(SmurgError);
+    expect(received.code).toBe('locked');
+    expect(received.message).toBe(original.message);
+    expect(received.detail).toEqual(original.detail);
+    expect(lockOfError(received)).toEqual(agentLock);
+  });
+
+  it('uses the default message when none is given and omits an absent detail', () => {
+    const error = new SmurgError('forbidden');
+    expect(error.message).toBe(defaultErrorMessage('forbidden'));
+    expect(error.toPayload()).toEqual({ code: 'forbidden', message: defaultErrorMessage('forbidden') });
+    expect('detail' in error.toPayload()).toBe(false);
+    expect(error.name).toBe('SmurgError');
+    expect(isSmurgError(error)).toBe(true);
+    expect(isSmurgError(new Error('x'))).toBe(false);
+  });
+
+  it('clamps long messages to the schema limit without splitting a surrogate pair', () => {
+    const long = `${'x'.repeat(ERROR_MESSAGE_MAX_CHARS - 1)}😀tail`;
+    const payload = new SmurgError('internal', long).toPayload();
+    expect(payload.message.length).toBeLessThanOrEqual(ERROR_MESSAGE_MAX_CHARS);
+    expect(payload.message.endsWith('\ud83d')).toBe(false);
+    expect(errorPayloadSchema.safeParse(payload).success).toBe(true);
+  });
+
+  it('wrap() never exposes internal error text (host paths, stack traces)', () => {
+    const fsError = new Error("ENOENT: no such file or directory, open '/Users/ian/.ssh/id_ed25519'");
+    const wrapped = SmurgError.wrap(fsError);
+    expect(wrapped.code).toBe('internal');
+    expect(JSON.stringify(wrapped.toPayload())).not.toContain('/Users/ian');
+    expect(wrapped.cause).toBe(fsError);
+    const own = new SmurgError('not_found');
+    expect(SmurgError.wrap(own)).toBe(own);
+  });
+
+  it('falls back to internal for an unknown code', () => {
+    expect(new SmurgError('teapot' as 'internal').code).toBe('internal');
+  });
+});
+
+describe('typed error details', () => {
+  it('insufficient_disk carries the DiskReport', () => {
+    const error = insufficientDiskError(disk as never, '磁碟空間不足：上傳後只剩 20 GiB，低於保留的 25 GiB');
+    expect(error.code).toBe('insufficient_disk');
+    expect(diskReportOfError(error)).toEqual(disk);
+    expect(diskReportOfError(new SmurgError('insufficient_disk'))).toBeNull();
+    expect(diskReportOfError(new SmurgError('locked', 'x', { disk }))).toBeNull();
+  });
+
+  it('locked carries the LockInfo', () => {
+    expect(lockOfError(lockedError(agentLock as never))).toEqual(agentLock);
+    expect(lockOfError(new SmurgError('locked', 'x', { lock: { kind: 'nope' } }))).toBeNull();
+  });
+
+  it('reason is read from detail.reason', () => {
+    expect(errorReasonOf(new SmurgError('bad_request', 'x', { reason: 'hash-mismatch' }))).toBe('hash-mismatch');
+    expect(errorReasonOf(new SmurgError('bad_request'))).toBeNull();
+  });
+});

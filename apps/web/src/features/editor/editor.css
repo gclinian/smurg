@@ -1,0 +1,294 @@
+/* Editor feature (tabs, document chrome, Monaco host). Tokens only: see src/ui/tokens.css. */
+.editor-area {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-bg);
+}
+.editor-area--empty {
+  align-items: center;
+  justify-content: center;
+}
+.editor-area__panes {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- tabs ---- */
+.editor-tabs {
+  display: flex;
+  flex: none;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  border-bottom: var(--border-width) solid var(--color-border);
+  background: var(--color-surface-1);
+}
+.editor-tab {
+  display: flex;
+  align-items: center;
+  flex: none;
+  max-width: 260px;
+  border-right: var(--border-width) solid var(--color-border);
+  color: var(--color-text-muted);
+}
+.editor-tab--active {
+  background: var(--color-bg);
+  color: var(--color-text);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+.editor-tab__button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 32px;
+  padding: 0 var(--space-2) 0 var(--space-5);
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+.editor-tab__button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.editor-tab__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-tab__folder {
+  overflow: hidden;
+  color: var(--color-text-subtle);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-tab__mark {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-subtle);
+}
+.editor-tab__mark--agent {
+  color: var(--color-warning);
+}
+.editor-tab__mark--error {
+  color: var(--color-danger);
+}
+.editor-tab__mark--unsaved {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-muted);
+}
+.editor-tab__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-subtle);
+  cursor: pointer;
+}
+.editor-tab__close:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+
+/* ---- one document ---- */
+.editor-doc {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.editor-doc[hidden] {
+  display: none;
+}
+.editor-doc__header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: 32px;
+  padding: 0 var(--space-4);
+  border-bottom: var(--border-width) solid var(--color-border);
+  font-size: var(--text-sm);
+}
+.editor-doc__path {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.editor-doc__file {
+  overflow: hidden;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+}
+.editor-doc__sep {
+  color: var(--color-text-subtle);
+}
+.editor-doc__meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-4);
+}
+.editor-doc__participants {
+  display: flex;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.editor-doc__info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--color-text-muted);
+}
+.editor-doc__save {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+.editor-doc__save[data-save='stale'] {
+  color: var(--color-warning);
+}
+.editor-doc__notices {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) 0;
+}
+
+.editor-doc__recovery-text summary {
+  cursor: pointer;
+  margin-top: var(--space-1);
+}
+
+.editor-tab__name--removed {
+  text-decoration: line-through;
+}
+
+.editor-doc__recovery-text pre {
+  max-height: 12rem;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2);
+  overflow: auto;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.editor-doc__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.editor-doc__view {
+  position: absolute;
+  inset: 0;
+}
+.editor-doc__monaco {
+  position: absolute;
+  inset: 0;
+}
+.editor-doc__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  pointer-events: none;
+}
+.editor-doc__overlay > * {
+  pointer-events: auto;
+}
+.editor-doc__refused {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  height: 100%;
+  padding: var(--space-8);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+.editor-doc__refused-title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-lg);
+}
+.editor-doc__refused-file {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+.editor-doc__refused-detail,
+.editor-doc__refused-hint {
+  margin: 0;
+}
+.editor-doc__refused-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-4);
+}
+.editor-send {
+  display: inline-flex;
+}
+
+/* y-monaco remote carets: colours and labels come from the generated per-document <style> (presence.ts). */
+.editor-doc .yRemoteSelectionHead {
+  position: absolute;
+}
+
+/* Remote carets' name labels (lib/presence-css.ts): shown after a move or keystroke, then faded to the bare caret. Two
+   identical animations, so switching between them restarts it. */
+@keyframes smurg-cursor-label-a {
+  0%,
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes smurg-cursor-label-b {
+  0%,
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [class*='yRemoteSelectionHead-']::after {
+    animation-duration: 0.01s !important;
+    animation-delay: 2.5s !important;
+  }
+}

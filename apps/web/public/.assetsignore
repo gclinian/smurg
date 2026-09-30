@@ -1,0 +1,2 @@
+# Build metadata (scripts/check-chunks.ts reads it at build time) is not served (review SEC-E-04).
+.vite

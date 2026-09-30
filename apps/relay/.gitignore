@@ -1,0 +1,2 @@
+# The root .gitignore ignores `.dev.vars.*`; the example holds placeholders only and belongs in the repository.
+!.dev.vars.example

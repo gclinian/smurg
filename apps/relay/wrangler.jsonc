@@ -1,0 +1,105 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "smurg-relay",
+  "main": "src/index.ts",
+  // workerd bundled with wrangler 4.142.0 is dated 2026-09-26; keep the compat date <= the runtime date (relay.md §1.1).
+  // It turns on web_socket_auto_reply_to_close, websocket_close_reason_byte_limit and nodejs_compat (relay.md V28).
+  "compatibility_date": "2026-09-26",
+  // zod (control-frame schemas) makes the unminified bundle ~900 KiB; minified it starts faster. Inherited by env.dev.
+  "minify": true,
+
+  // PRODUCTION runs on the workers.dev subdomain of the owner's Cloudflare account (Workers Free plan):
+  // https://smurg-relay.<account subdomain>.workers.dev. No per-version preview URLs: every version would get another
+  // public hostname in front of the same Durable Objects (README.md「部署到 Cloudflare」).
+  "workers_dev": true,
+  "preview_urls": false,
+
+  // One Worker, two SQLite-backed Durable Object classes keyed by workspace id (ARCHITECTURE §6). The Free plan only
+  // allows SQLite-backed classes (`new_sqlite_classes`).
+  "durable_objects": {
+    "bindings": [
+      { "name": "WORKSPACE", "class_name": "WorkspaceDO" },
+      { "name": "TRANSFER", "class_name": "TransferDO" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorkspaceDO", "TransferDO"] }],
+
+  // The Worker serves the web SPA too (same origin for cookies and WebSockets). Relay routes run before the assets;
+  // everything else is the SPA, with the security headers of apps/web/public/_headers. Keep run_worker_first equal to
+  // RELAY_WORKER_FIRST_PATTERNS in @smurg/protocol/relay (asserted by test/config.test.ts). Build the SPA first:
+  // `pnpm --filter @smurg/web build` (scripts/deploy-relay.sh does, then checks it with scripts/check-web-dist.ts).
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/healthz", "/auth/*", "/api/*", "/ws/*", "/xfer/*", "/.well-known/*"]
+  },
+
+  // Secrets, never in this file: `wrangler secret put <NAME>` in production (README.md), `.dev.vars` locally
+  // (gitignored), `secrets` in createTestHarness. RELAY_SIGNING_KEY is an Ed25519 private JWK (relay.md §1.4).
+  // GOOGLE_CLIENT_SECRET (production) and GITHUB_CLIENT_SECRET (development only) are optional: a provider without its
+  // secret is simply disabled.
+  "secrets": { "required": ["RELAY_SIGNING_KEY"] },
+
+  // PRODUCTION values live at the top level (relay.md gotcha 25); localhost values only under env.dev.
+  "vars": {
+    // The relay's origin: JWT `iss`, base of the OAuth redirect URI, and the only browser origin allowed to use cookie
+    // sessions. EMPTY until the first deploy: scripts/deploy-relay.sh reads the workers.dev URL from that deploy and
+    // writes it into both (README.md). An empty issuer fails closed: every relay route except /healthz answers 500.
+    "RELAY_ISSUER": "https://smurg-relay.gclin-ian.workers.dev",
+    "ALLOWED_ORIGINS": "https://smurg-relay.gclin-ian.workers.dev",
+    // DEV-ONLY login provider: must stay "0" here; also hard-gated to local hostnames in code.
+    "DEV_LOGIN": "0",
+    // Test-only R3 byte tap: empty = off; also hard-gated to local collector URLs in code.
+    "RELAY_TAP_URL": "",
+    // Liveness (ms): host offline after this long without a host "ping" (R1: guests see it within 10 s); client
+    // sockets without a "ping" for CLIENT_SWEEP_MS are closed. Equal to @smurg/protocol's constants.
+    "HOST_TIMEOUT_MS": "6000",
+    "CLIENT_SWEEP_MS": "30000",
+    // Socket caps per Durable Object (relay sessions cannot be revoked, so cap what one account can open).
+    "MAX_CLIENT_SOCKETS_PER_WORKSPACE": "64",
+    "MAX_SOCKETS_PER_ACCOUNT": "8",
+    // Login: Google only in production (no GitHub vars here, so GitHub login is off). The OAuth client id is public;
+    // `scripts/deploy-relay.sh --google-client-id <id>` writes it here. GOOGLE_CLIENT_SECRET is a secret.
+    "GOOGLE_CLIENT_ID": "",
+    "GOOGLE_AUTHORIZE_URL": "https://accounts.google.com/o/oauth2/v2/auth",
+    "GOOGLE_TOKEN_URL": "https://oauth2.googleapis.com/token",
+    "GOOGLE_JWKS_URL": "https://www.googleapis.com/oauth2/v3/certs",
+    "GOOGLE_ISSUER": "https://accounts.google.com"
+  },
+
+  "env": {
+    // `wrangler dev --env dev` and createTestHarness({ env: "dev" }). `vars`, `durable_objects` and `secrets` are not
+    // inherited by environments, so they are repeated here (relay.md gotcha 15); `assets`, `migrations`, `workers_dev`
+    // and `preview_urls` are. Development may also use a GitHub OAuth app of its own (.dev.vars).
+    "dev": {
+      "vars": {
+        "RELAY_ISSUER": "http://localhost:8787",
+        // Vite dev server (proxies the relay) and the relay itself when it serves a built SPA.
+        "ALLOWED_ORIGINS": "http://localhost:5173,http://localhost:8787",
+        "DEV_LOGIN": "1",
+        "RELAY_TAP_URL": "",
+        "HOST_TIMEOUT_MS": "6000",
+        "CLIENT_SWEEP_MS": "30000",
+        "MAX_CLIENT_SOCKETS_PER_WORKSPACE": "64",
+        "MAX_SOCKETS_PER_ACCOUNT": "8",
+        "GITHUB_CLIENT_ID": "",
+        "GOOGLE_CLIENT_ID": "",
+        "GITHUB_AUTHORIZE_URL": "https://github.com/login/oauth/authorize",
+        "GITHUB_TOKEN_URL": "https://github.com/login/oauth/access_token",
+        "GITHUB_API_URL": "https://api.github.com",
+        "GOOGLE_AUTHORIZE_URL": "https://accounts.google.com/o/oauth2/v2/auth",
+        "GOOGLE_TOKEN_URL": "https://oauth2.googleapis.com/token",
+        "GOOGLE_JWKS_URL": "https://www.googleapis.com/oauth2/v3/certs",
+        "GOOGLE_ISSUER": "https://accounts.google.com"
+      },
+      "durable_objects": {
+        "bindings": [
+          { "name": "WORKSPACE", "class_name": "WorkspaceDO" },
+          { "name": "TRANSFER", "class_name": "TransferDO" }
+        ]
+      },
+      "secrets": { "required": ["RELAY_SIGNING_KEY"] }
+    }
+  }
+}

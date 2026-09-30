@@ -1,0 +1,269 @@
+/* Activity feature (feed, notifications, conflict panel). Tokens only: see src/ui/tokens.css. */
+.activity-panel,
+.conflicts-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4);
+}
+.activity-status {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-6);
+}
+.activity-toolbar {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+}
+.activity-notifications {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.activity-more {
+  display: flex;
+  justify-content: center;
+}
+
+/* ---- feed ---- */
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.activity-item {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+.activity-item__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-3);
+  color: var(--color-text-muted);
+}
+.activity-item--agent .activity-item__icon {
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+.activity-item[data-kind='conflict'] .activity-item__icon,
+.activity-item[data-kind='lock.denied'] .activity-item__icon {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+.activity-item__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.activity-item__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+.activity-item__actor {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+/* 「透過指令」: an agent's change made by a shell command (D-13), small and quiet next to the kind badge. */
+.activity-item__via {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.activity-item__time {
+  margin-inline-start: auto;
+  color: var(--color-text-subtle);
+  white-space: nowrap;
+}
+.activity-item__summary {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+.activity-item__links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+.activity-item__file {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-align: start;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.activity-item__file:hover {
+  text-decoration: underline;
+}
+.activity-item__file:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+.activity-item__file--gone {
+  color: var(--color-text-subtle);
+  text-decoration: line-through;
+  cursor: default;
+}
+
+/* ---- conflicts ---- */
+.conflict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-1);
+}
+.conflict--open {
+  border-color: var(--color-warning);
+}
+.conflict__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--color-warning);
+}
+.conflict--dismissed .conflict__header,
+.conflict--applied .conflict__header {
+  color: var(--color-text-subtle);
+}
+.conflict__file {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conflict__summary,
+.conflict__note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.conflict__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+.conflict__hunk {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-x: auto;
+}
+.conflict-diff {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.conflict-diff caption {
+  padding-bottom: var(--space-2);
+  color: var(--color-text-subtle);
+  font-family: var(--font-sans);
+  text-align: start;
+}
+.conflict-diff th {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border);
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-weight: var(--weight-medium);
+  text-align: start;
+}
+.conflict-diff__no {
+  width: 4em;
+  padding: 0 var(--space-3);
+  color: var(--color-text-subtle);
+  text-align: end;
+  vertical-align: top;
+  user-select: none;
+}
+.conflict-diff__cell {
+  padding: 0 var(--space-3);
+  color: var(--color-text);
+  vertical-align: top;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.conflict-diff__cell--human[data-changed] {
+  background: var(--color-success-soft);
+}
+.conflict-diff__cell--agent[data-changed] {
+  background: var(--color-warning-soft);
+}
+.conflict-diff__cell[data-empty],
+.conflict-diff__cell--empty {
+  background: var(--color-surface-2);
+  color: var(--color-text-subtle);
+}
+.conflict__base summary,
+.conflicts-resolved summary {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.conflict__base pre,
+.conflict__full {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-4);
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.conflict__full {
+  max-height: 60vh;
+}
+.conflicts-resolved {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.conflicts-resolved > .conflict {
+  margin-top: var(--space-4);
+}

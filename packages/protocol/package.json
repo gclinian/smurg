@@ -1,0 +1,37 @@
+{
+  "name": "@smurg/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": "github:gclinian/smurg",
+  "type": "module",
+  "description": "smurg wire protocol: constants, zod schemas, roles, Noise channel, framing, invite links, client SDK, relay control frames.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client/index.ts",
+    "./browser": "./src/browser/index.ts",
+    "./node": "./src/node/index.ts",
+    "./relay": "./src/relay/index.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@msgpack/msgpack": "3.1.3",
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "lib0": "0.2.118",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.33",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.2"
+  }
+}

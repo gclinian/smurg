@@ -1,0 +1,11 @@
+{
+  // The browser acceptance tests (e2e/, e2e/smoke/): Node code (harness, relay, daemon) driving pages whose callbacks
+  // run in the browser, hence the DOM lib next to the Node types. Separate from the app's program (tsconfig.json),
+  // whose Bundler resolution and JSX settings do not fit the tests/e2e and apps/relay sources imported here.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"]
+}

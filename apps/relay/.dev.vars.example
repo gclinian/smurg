@@ -1,0 +1,15 @@
+# apps/relay/.dev.vars: local secrets for `pnpm dev:relay` (wrangler dev --env dev). PLACEHOLDERS ONLY.
+# Copy to .dev.vars (gitignored, keep it mode 0600) and fill in your own values. Never commit .dev.vars.
+# `pnpm dev:relay` creates .dev.vars with a fresh RELAY_SIGNING_KEY by itself when the file does not exist.
+# Tests never read this file: @smurg/relay/testing passes every var and secret explicitly.
+
+# Ed25519 private JWK that signs relay sessions and identity tokens. Generate one with:
+#   node scripts/signing-key.ts
+RELAY_SIGNING_KEY={"kty":"OKP","crv":"Ed25519","x":"<public-key-base64url>","d":"<private-key-base64url>","kid":"<thumbprint>"}
+
+# Optional: your own development OAuth apps (see README.md, callback URLs for http://localhost:8787).
+# Entries here also override the vars of wrangler.jsonc env.dev, so the client ids can live here too.
+# GITHUB_CLIENT_ID=<github-oauth-app-client-id>
+# GITHUB_CLIENT_SECRET=<github-oauth-app-client-secret>
+# GOOGLE_CLIENT_ID=<google-oauth-client-id>.apps.googleusercontent.com
+# GOOGLE_CLIENT_SECRET=<google-oauth-client-secret>

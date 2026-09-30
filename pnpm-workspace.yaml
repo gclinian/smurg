@@ -1,0 +1,29 @@
+packages:
+  - apps/*
+  - packages/*
+  - tests/*
+
+# Keep pnpm's content-addressable store and metadata cache inside the repo (ARCHITECTURE §0 rule 4: nothing global).
+# Relative to this file. Changing these makes pnpm ask for a full reinstall (ERR_PNPM_UNEXPECTED_STORE).
+storeDir: .tools/pnpm-store
+cacheDir: .tools/pnpm-cache
+# Never let pnpm download another pnpm into the user's home; .tools/ holds the pinned one (scripts/bootstrap-tools.sh).
+managePackageManagerVersions: false
+# scripts/env.sh exports CI=true, which would silently turn every install into --frozen-lockfile and block adding
+# dependencies. Keep the normal local behaviour: use the lockfile when it is up to date, update it otherwise.
+preferFrozenLockfile: true
+
+# Dependencies whose install scripts must run. pnpm 10 skips all others and lists them after an install
+# ("Ignored build scripts"); `pnpm ignored-builds` shows them. Add a package here only after reading its script.
+onlyBuiltDependencies:
+  # native PTY; its install script only falls back to node-gyp when no prebuild matches (pty-packaging.md gotcha 2)
+  - node-pty
+  # native binaries installed by postinstall (esbuild: ours and wrangler's; workerd: the local relay runtime)
+  - esbuild
+  - workerd
+  # native file watcher: prebuilds come as optional deps, the script is the build-from-source fallback
+  - '@parcel/watcher'
+
+# One Vite for the web build and for vitest (vitest 5 takes vite as a peer dependency).
+overrides:
+  vite: 8.3.1

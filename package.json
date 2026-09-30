@@ -1,0 +1,27 @@
+{
+  "name": "smurg",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": "github:gclinian/smurg",
+  "type": "module",
+  "description": "Multi-user x multi-agent realtime collaboration workspace (monorepo root).",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": "^22.18.0 || ^24.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && pnpm -r --workspace-concurrency=1 run typecheck",
+    "test": "vitest run",
+    "build": "pnpm --filter @smurg/web run build && pnpm --filter @smurg/relay run build",
+    "dev:relay": "pnpm --filter @smurg/relay run dev",
+    "dev:web": "pnpm --filter @smurg/web run dev",
+    "check": "pnpm run typecheck && pnpm run test"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "typescript": "7.0.2",
+    "vite": "8.3.1",
+    "vitest": "5.0.2"
+  }
+}
