@@ -716,30 +716,25 @@ In this order; the v0.1.0 release under the decision of 2026-10-01.
    `GOOGLE_CLIENT_SECRET` (§1.4).
 7. [x] **[owner]** Zone settings (§2): Always Use HTTPS on (2026-10-01); Bot Fight Mode off (confirm); the www → apex
    Redirect Rule (2026-10-01).
-8. [ ] **[owner]** Name the copyright holder (`docs/OPEN-QUESTIONS.md` Q14); **[lead]** put the name into `LICENSE` and
-   `NOTICE` and commit. It blocks the urgent site deploy (item 10) and the tag. The legal review of the terms (§6.1)
-   should follow before v0.1.0 is announced.
-9. [ ] **[owner]** `scripts/deploy-relay.sh` from a clean checkout of the current `main` (its first custom-domain run
-   against the account; it must end with 「完成」), so the live web app accepts a daemon from cb99aa0 or later and
-   serves `/third-party-notices.txt`. On 2026-10-01 `--check` passed 5 of 8: `http://` → `https://` passes; the missing
-   HSTS on `/` and `/join/…` and the old web app build (`index-B6XB8O73.js`, 7a690c9) are fixed by this redeploy.
-10. [ ] **[owner] Urgent:** smurg.ai redeployed from the same commit right after item 9 (§4.1 "Now": the live site
-    still claims "open source under the Apache License 2.0" and links the private repository), with
-    `SMURG_SITE_THIRD_PARTY_NOTICES` naming this machine's notices; then `curl -s https://smurg.ai/ https://smurg.ai/zh-TW/
-    | grep -Eci 'open source|apache|開源|開放原始碼'` prints 0 and `curl -sI https://smurg.ai/github` answers 404. If
-    item 8 takes long, the owner may decide on the interim deploy with `SMURG_SITE_ALLOW_PLACEHOLDER=1` (§4.1).
-11. [ ] **[owner]** Real Google login from `smurg login`; a second account joins a throw-away workspace (after item 9).
-12. [ ] **[owner, then owner or lead]** R2 enabled; bucket `smurg-downloads`; custom domain `downloads.smurg.ai`
-    (§1.5); `curl -sI https://downloads.smurg.ai/latest/VERSION` answers 404 from R2.
-13. [ ] **[lead]** actionlint and shellcheck on the workflows and scripts (§4 step 1).
-14. [ ] **[lead, owner]** `CHANGELOG.md` 0.1.0 dated; `scripts/release-assets.sh --version 0.1.0 --publish-checks`
-    passes; the relay redeployed from the commit to be tagged if it changed since item 9 (§4 step 3); tag `v0.1.0`;
-    release workflow green; seven files on the private record (§4 steps 2–6).
-15. [ ] **[owner or lead]** `scripts/publish-downloads.sh --version 0.1.0 --from-release` (dry run first), then
-    `--check` (§4 step 7). Optionally rehearse first against stand-ins (§4.4).
-16. [ ] **[owner]** `apps/site` redeployed from the tagged commit with the release's notices (§4.1 "At every
-    release"); `curl -fsSIL https://smurg.ai/install.sh` ends in `200`; `scripts/publish-downloads.sh --check` shows no
-    warning about smurg.ai.
+8. [x] **[owner]** Copyright holder named: Guan-Chen, Lin (2026-10-01, commit afc11bb). The legal review of the terms
+   (§6.1) should follow before v0.1.0 is announced.
+9. [x] **[lead]** `scripts/deploy-relay.sh` from the clean commit ac3335e (2026-10-01): its first custom-domain run,
+   ended with 「完成」, `--check` 8 of 8 (web build, HSTS, `http://` → `https://`, `/third-party-notices.txt`).
+10. [x] **[lead]** smurg.ai redeployed from afc11bb (2026-10-01): no "open source" / Apache / GitHub mention on the
+    landing pages, `/github` 404, `/docs/…`, `/license/` and `/third-party-notices.txt` 200.
+11. [ ] **[owner]** Real Google login from `smurg login` with the released executable; a second account joins a
+    throw-away workspace.
+12. [x] **[owner, lead]** R2 enabled by the owner; bucket `smurg-downloads` and custom domain `downloads.smurg.ai`
+    (min TLS 1.2, r2.dev URL disabled) created by the lead (2026-10-01); a missing key answers 404, `http://` 301s.
+13. [~] **[lead]** shellcheck 0.9.0 (Ubuntu package, in the Lima VM) on `scripts/*.sh`: no warning. actionlint not run
+    (not packaged; nothing downloaded).
+14. [x] **[lead]** `CHANGELOG.md` 0.1.0 dated 2026-10-01; `--publish-checks` passed; CI green on afc11bb (run
+    36865310230); tag `v0.1.0` on afc11bb; release workflow 36867177426 green on all four runners; seven files on the
+    private record.
+15. [x] **[lead]** `scripts/publish-downloads.sh --version 0.1.0 --from-release`: dry run, then the upload; every file
+    read back by sha256; `latest/` → 0.1.0; `--check` all passed (2026-10-01).
+16. [x] **[lead]** `apps/site` redeployed from afc11bb with the release's notices (node 22.23.3); `--check` shows
+    `https://smurg.ai/third-party-notices.txt = v0.1.0/THIRD-PARTY-NOTICES.txt`.
 17. [ ] **[owner]** Timed one-line install on a clean Mac and a clean Ubuntu 24.04 (§5); **[lead]**
     `docs/ACCEPTANCE.md` R1.1 (and R5 / R9 if tested on Ubuntu) updated with the results.
 18. [ ] **[owner]** Cloudflare usage (Workers, Durable Objects, R2) and GitHub Actions minutes checked daily for the
