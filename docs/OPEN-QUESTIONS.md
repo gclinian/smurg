@@ -467,19 +467,9 @@ carries the same placeholder.
      notice;
    - the third-party obligations: every bundled package's license and notice files are reproduced (generated,
      `scripts/third-party-notices.ts`). **Since D-15 (2026-10-01) the executables contain no statically linked program:
-     srt and its `apply-seccomp` are gone from the build.** What follows concerns only v0.1.0's Linux executables, which
-     stay published on `downloads.smurg.ai` (never deleted, `docs/RELEASING.md`): they contain srt's `apply-seccomp`, a
-     program statically linked with the GNU C Library (LGPL-2.1-or-later). Its notices name glibc and its source; whether LGPL's terms for
-     static linking need more (for example offering the object code of `apply-seccomp` for relinking, a written offer
-     of the source, or pointing at srt's source) is open. Facts for the reviewer (checked 2026-10-01 on
-     `@anthropic-ai/sandbox-runtime` 0.0.77, `vendor/seccomp/{x64,arm64}/apply-seccomp`): both are statically linked,
-     stripped ELF executables whose only toolchain string is `GCC: (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0`, so they
-     were built on Ubuntu 24.04, whose GNU C Library is **glibc 2.39** (Ubuntu's source package `glibc`, series noble:
-     https://launchpad.net/ubuntu/+source/glibc; upstream https://sourceware.org/glibc/). The binaries do not name the
-     exact Ubuntu package revision. They do not contain libseccomp (no `seccomp_*` symbols: srt compiles its BPF filter
-     at build time with a separate generator that links libseccomp, and embeds only the filter bytes). The source of
-     `apply-seccomp` is not in the npm package; srt's build script (`vendor/seccomp/build.ts`) compiles it from
-     `vendor/seccomp-src` of srt's repository (https://github.com/anthropics/sandbox-runtime, Apache-2.0). Two packages
+     srt and its `apply-seccomp` are gone from the build, and v0.1.0 (the only release that carried them) was deleted
+     from `downloads.smurg.ai` on 2026-10-02 by the owner's decision (nobody had installed it), so no LGPL-linked
+     program is distributed any more. Two packages
      (`@xterm/headless`, `@xterm/addon-serialize`) are published without a license file; the notices reproduce the
      xterm.js repository's MIT license for them.
 
