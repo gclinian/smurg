@@ -1,5 +1,7 @@
 // SPEC R4 acceptance at the daemon level: real sessions module, real PTYs, real SDK clients through the in-memory
-// relay; the sandbox is a fake that does NOT confine (test/sessions/sandbox-real.test.ts runs the real one).
+// relay. R4.3 and R4.4 (a guest's own environment and temp dir) are superseded by ARCHITECTURE §11 D-15: every session
+// runs like the host's own, and what replaces them is tested here (the host's environment minus a parent Claude Code
+// session's kill switches; the sessions of a member who leaves end within R4.4's 5 s).
 import { execFile } from 'node:child_process';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -142,43 +144,41 @@ describe('R4 agent session', { timeout: 60_000 }, () => {
     expect(second.gaps).toEqual([]);
   });
 
-  it('就算主人的 shell 環境設定了 `ANTHROPIC_API_KEY`，客人 session 裡也讀不到 — the real environment of processes in the session', async () => {
-    const planted: Record<string, string> = {
-      ANTHROPIC_API_KEY: 'sk-ant-api03-SMURG-R43-HOST-KEY',
-      ANTHROPIC_AUTH_TOKEN: 'SMURG-R43-AUTH-TOKEN',
-      ANTHROPIC_BASE_URL: 'http://127.0.0.1:9/SMURG-R43-BASE',
-      CLAUDE_CODE_OAUTH_TOKEN: 'SMURG-R43-OAUTH',
-      CLAUDE_CODE_USE_BEDROCK: 'SMURG-R43-BEDROCK',
-      CLAUDE_CODE_USE_VERTEX: 'SMURG-R43-VERTEX',
-      AWS_SECRET_ACCESS_KEY: 'SMURG-R43-AWS',
-      GITHUB_TOKEN: 'SMURG-R43-GH',
-      HTTPS_PROXY: 'http://127.0.0.1:9/SMURG-R43-PROXY',
+  it('every session gets the host\'s own environment (its login included), never what a parent Claude Code session injected (its hook kill switches) — the real environment of processes in a session a 可使用 agent member opened', async () => {
+    // The host's own provider / login settings: every session runs with them (§11 D-15).
+    const kept: Record<string, string> = {
+      ANTHROPIC_API_KEY: 'sk-ant-api03-SMURG-HOST-OWN-KEY',
+      CLAUDE_CODE_USE_BEDROCK: 'SMURG-HOST-BEDROCK',
     };
-    const saved = new Map(Object.keys(planted).map((name) => [name, process.env[name]]));
-    Object.assign(process.env, planted);
+    // A daemon started from inside a Claude Code session must not hand its markers or hook kill switches on.
+    const planted: Record<string, string> = {
+      CLAUDECODE: 'SMURG-PARENT-1',
+      CLAUDE_CODE_ENTRYPOINT: 'SMURG-PARENT-ENTRY',
+      CLAUDE_CODE_SAFE_MODE: 'SMURG-PARENT-SAFE',
+      CLAUDE_CODE_SIMPLE: 'SMURG-PARENT-SIMPLE',
+      SMURG_SESSION_TOKEN: 'SMURG-PARENT-TOKEN',
+    };
+    const saved = new Map([...Object.keys(planted), ...Object.keys(kept)].map((name) => [name, process.env[name]]));
+    Object.assign(process.env, planted, kept);
     try {
       // The daemon reads the host environment from its own process environment (the default).
       const s = await stack({ module: { hostEnv: () => process.env } });
-      const runner = await s.t.connect({ userId: 'dev:carol', role: 'runner' });
-      const { session } = await runner.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 120, rows: 40 });
-      expect(session.sandboxed).toBe(true);
-      const view = viewer(runner.conn, session.id);
+      const carol = await s.t.connect({ userId: 'dev:carol', role: 'agent' });
+      const { session } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 120, rows: 40 });
+      const view = viewer(carol.conn, session.id);
       await view.attach({ cols: 120, rows: 40 });
       const token = `smurg-r43-${process.pid}-${Date.now()}`;
-      // A non-platform binary, so macOS `ps -E` shows its environment: node started from the guest shell.
-      typeInto(runner.conn, session.id, `/usr/bin/env; echo ENV-$((40+2))-DONE; '${process.execPath}' -e 'setInterval(()=>{},1000)' ${token} &\r`);
+      // A non-platform binary, so macOS `ps -E` shows its environment: node started from the session's shell.
+      typeInto(carol.conn, session.id, `/usr/bin/env; echo ENV-$((40+2))-DONE; '${process.execPath}' -e 'setInterval(()=>{},1000)' ${token} &\r`);
       await waitFor(() => view.received.includes('ENV-42-DONE'), 'the env listing');
-      const guestHome = s.sessions.guestPaths('dev:carol').home;
       // What the shell's children see (the whole listing, not only the planted names).
       expect(view.received).toContain(`SMURG_SESSION_ID=${session.id}`);
-      expect(view.received).toContain(`HOME=${guestHome}`);
+      expect(view.received).toContain(`HOME=${s.hostHome}`);
       for (const [name, value] of Object.entries(planted)) {
         expect(view.received, name).not.toContain(`${name}=`);
         expect(view.received, name).not.toContain(value);
       }
-      // What the sandbox was asked to run with, and the PTY child's environment.
-      const spec = s.fakes.sandbox.wraps.at(-1);
-      for (const name of Object.keys(planted)) expect(spec?.env[name], name).toBeUndefined();
+      for (const [name, value] of Object.entries(kept)) expect(view.received, name).toContain(`${name}=${value}`);
       // The real environment of a process running in the session.
       let pid = 0;
       await waitFor(async () => {
@@ -196,7 +196,8 @@ describe('R4 agent session', { timeout: 60_000 }, () => {
         expect(environment, name).not.toContain(`${name}=`);
         expect(environment, name).not.toContain(value);
       }
-      await runner.conn.request('session.end', { sessionId: session.id });
+      for (const [name, value] of Object.entries(kept)) expect(environment, name).toContain(`${name}=${value}`);
+      await carol.conn.request('session.end', { sessionId: session.id });
       await waitFor(async () => !(await execFileAsync('/bin/ps', ['-A', '-ww', '-o', 'command=']).then((r) => r.stdout.includes(token))), 'the probe to go with the session');
     } finally {
       for (const [name, value] of saved) {
@@ -206,46 +207,31 @@ describe('R4 agent session', { timeout: 60_000 }, () => {
     }
   });
 
-  it('客人離開後 5 秒內，他的臨時目錄被刪除 — measured from channel.leave; a disconnect alone keeps it', async () => {
+  it('a member who leaves loses the sessions they opened within 5 s (R4.4\'s bound) — measured from channel.leave; a disconnect alone keeps them', async () => {
     const s = await stack();
-    const runner = await s.t.connect({ userId: 'dev:carol', role: 'runner' });
-    const { session } = await runner.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
-    const paths = s.sessions.guestPaths('dev:carol');
-    expect(await exists(paths.cfg)).toBe(true);
+    const carol = await s.t.connect({ userId: 'dev:carol', role: 'agent' });
+    const { session } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
+    const pid = s.sessions.ptyPid(session.id) as number;
 
-    // §11 D-9: a mere disconnect keeps the session and the dir.
-    runner.close();
+    // §11 D-9: a mere disconnect keeps the session.
+    carol.close();
     await waitFor(() => s.t.ctx.hub.connections({ userId: 'dev:carol' }).length === 0, 'the disconnect');
     await sleep(300);
-    expect(await exists(paths.root)).toBe(true);
     expect(s.sessions.get(session.id)?.status).toBe('running');
 
-    // What `claude` leaves in the config dir on its first start (the guest ran it in the terminal): only then can it
-    // have derived keychain items from that dir, and only then does the host-side cleanup below run.
-    await writeFile(join(paths.cfg, '.claude.json'), '{}\n');
-    const back = await runner.reconnect();
+    const back = await carol.reconnect();
     const t0 = Date.now();
     await back.conn.leave();
-    await waitFor(async () => !(await exists(paths.root)), 'the guest dir to be deleted', 5_000);
+    await waitFor(() => s.sessions.get(session.id)?.status === 'exited', 'the session to end', 5_000);
     const elapsed = Date.now() - t0;
-    console.info(`[R4.4] guest dir deleted ${elapsed} ms after channel.leave`);
+    console.info(`[R4.4] the leaver's session ended ${elapsed} ms after channel.leave`);
     expect(elapsed).toBeLessThan(5_000);
-    expect(s.sessions.get(session.id)?.status).toBe('exited');
-    // Host-side cleanup of the keychain names derived from that config dir only.
-    await waitFor(() => s.keychainCalls.length > 0, 'the keychain cleanup');
-    expect(s.keychainCalls[0]?.services).toEqual([expect.stringMatching(/^Claude Code-credentials-[0-9a-f]{8}$/), expect.stringMatching(/^Claude Code-[0-9a-f]{8}$/)]);
+    expect(s.sessions.get(session.id)?.endReason).toBe('left');
+    await sleep(100);
+    expect(() => process.kill(pid, 0)).toThrow(); // our own child is gone
     const entries = await s.t.ctx.audit.query({ limit: 100 });
     expect(entries.some((e) => e.action === 'member.leave' && e.target === 'dev:carol')).toBe(true);
-  });
-
-  it('a guest who never ran claude (terminal only): the dir is deleted and the host keychain is not touched', async () => {
-    const s = await stack();
-    const runner = await s.t.connect({ userId: 'dev:dan', role: 'runner' });
-    await runner.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
-    const paths = s.sessions.guestPaths('dev:dan');
-    await runner.conn.leave();
-    await waitFor(async () => !(await exists(paths.root)), 'the guest dir to be deleted', 5_000);
-    await sleep(300);
-    expect(s.keychainCalls).toEqual([]);
+    // No guest dir exists any more to be removed.
+    expect(await exists(join(s.t.stateDir, 'guests'))).toBe(false);
   });
 });

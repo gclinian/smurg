@@ -5,7 +5,7 @@ import { exportJWK, generateKeyPair } from 'jose';
 import { describe, expect, it } from 'vitest';
 import { makeIdentity, identityClaims, identityFromClaims } from '../src/auth/identity.ts';
 import { parseSigningKeys, SigningKeyError } from '../src/auth/keys.ts';
-import { CLI_CODE_TOKEN, SESSION_TOKEN, TokenError, signToken, verifyToken } from '../src/auth/tokens.ts';
+import { OAUTH_TX_TOKEN, SESSION_TOKEN, TokenError, signToken, verifyToken } from '../src/auth/tokens.ts';
 import { sha256Base64url, timingSafeEqualString } from '../src/lib/base64url.ts';
 import {
   DEFAULT_MAX_CLIENT_SOCKETS_PER_WORKSPACE,
@@ -20,8 +20,8 @@ import {
 } from '../src/lib/config.ts';
 import { clearCookie, cookieNames, readCookie, serializeCookie } from '../src/lib/cookies.ts';
 import { ageText, minutesUntil, placeText, randomUserCode, requestPlace } from '../src/lib/device.ts';
-import { continuePage, escapeHtml } from '../src/lib/html.ts';
-import { cliConfirmCode, cliLoopbackUrl, parseCliParams, resolveReturnTo } from '../src/lib/validate.ts';
+import { escapeHtml } from '../src/lib/html.ts';
+import { resolveReturnTo } from '../src/lib/validate.ts';
 import { generateSigningKey } from '../test-support/index.ts';
 
 const GITHUB = {
@@ -198,24 +198,6 @@ describe('input validation', () => {
     }
   });
 
-  it('parses CLI loopback parameters strictly and builds the 127.0.0.1 callback', () => {
-    const challenge = 'A'.repeat(43);
-    const ok = parseCliParams(new URLSearchParams({ port: '49152', state: 'abcdefghijklmnop', code_challenge: challenge }));
-    expect(ok).toEqual({ port: 49152, state: 'abcdefghijklmnop', codeChallenge: challenge });
-    for (const bad of [
-      { port: '1023', state: 'abcdefghijklmnop', code_challenge: challenge },
-      { port: '65536', state: 'abcdefghijklmnop', code_challenge: challenge },
-      { port: '8080x', state: 'abcdefghijklmnop', code_challenge: challenge },
-      { port: '8080', state: 'short', code_challenge: challenge },
-      { port: '8080', state: 'abcdefghijklmnop', code_challenge: `${challenge}=` },
-    ]) {
-      expect(parseCliParams(new URLSearchParams(bad)), JSON.stringify(bad)).toBeNull();
-    }
-    if (!ok) throw new Error('unreachable');
-    expect(cliLoopbackUrl(ok, { code: 'c.o.de' })).toBe('http://127.0.0.1:49152/callback?code=c.o.de&state=abcdefghijklmnop');
-    expect(cliLoopbackUrl(ok, { error: 'access_denied' })).toBe('http://127.0.0.1:49152/callback?error=access_denied&state=abcdefghijklmnop');
-  });
-
   it('computes S256 like RFC 7636 appendix B and compares in constant time', async () => {
     expect(await sha256Base64url('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk')).toBe('E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
     expect(timingSafeEqualString('abc', 'abc')).toBe(true);
@@ -223,27 +205,8 @@ describe('input validation', () => {
     expect(timingSafeEqualString('abc', 'abcd')).toBe(false);
   });
 
-  it('derives the CLI confirmation code from the state (vectors shared with the CLI)', async () => {
-    // First 40 bits of SHA-256("smurg-cli-login:" ‖ state) in ABCDEFGHJKLMNPQRSTUVWXYZ23456789, as XXXX-XXXX.
-    // "cli-state-0123456789": digest starts bd71d935d8 -> 10111 10101 11000 11101 10010 01101 01110 11000 -> ZX27-UPQ2.
-    expect(await cliConfirmCode('cli-state-0123456789')).toBe('ZX27-UPQ2');
-    expect(await cliConfirmCode('abcdefghijklmnop')).toBe('CDG7-3U2M');
-    expect(await cliConfirmCode('A'.repeat(32))).toBe('MDAJ-JDLN');
-    expect(await cliConfirmCode('abcdefghijklmnoq')).not.toBe('CDG7-3U2M');
-  });
-
   it('escapes HTML', () => {
     expect(escapeHtml(`<a href="x">'&'</a>`)).toBe('&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;');
-  });
-
-  it('renders continue pages whose only way on is a meta refresh and a link, both HTML-escaped', () => {
-    const target = 'http://127.0.0.1:49152/callback?code=a.b.c&state=abcdefghijklmnop';
-    const html = continuePage('t', 'm', target, 'go');
-    const escaped = 'http://127.0.0.1:49152/callback?code=a.b.c&amp;state=abcdefghijklmnop';
-    expect(html).toContain(`<meta http-equiv="refresh" content="0;url=${escaped}">`);
-    expect(html).toContain(`href="${escaped}"`);
-    expect(html).not.toContain('<script');
-    expect(continuePage('t', 'm', 'http://x/"><script>', 'go')).not.toContain('"><script>');
   });
 });
 
@@ -283,7 +246,7 @@ describe('signing keys and tokens', () => {
     const token = await signToken(keys, 'https://smurg.app', SESSION_TOKEN, { sub: 'dev:x' });
     expect((await verifyToken(keys, 'https://smurg.app', token, SESSION_TOKEN)).sub).toBe('dev:x');
     await expect(verifyToken(keys, 'https://other.example', token, SESSION_TOKEN)).rejects.toThrow(TokenError);
-    await expect(verifyToken(keys, 'https://smurg.app', token, CLI_CODE_TOKEN)).rejects.toThrow(TokenError);
+    await expect(verifyToken(keys, 'https://smurg.app', token, OAUTH_TX_TOKEN)).rejects.toThrow(TokenError);
 
     // A token signed by the previous key (rotation) still verifies.
     const previousKeys = await parseSigningKeys(JSON.stringify(previous));

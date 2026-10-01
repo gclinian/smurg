@@ -16,8 +16,8 @@
 //   packages/cli/THIRD-PARTY-NOTICES.txt     the executable: the production dependency closure of @smurg/cli (with
 //                                            @smurg/daemon and @smurg/protocol) for the four release targets
 //                                            (darwin-arm64, darwin-x64, linux-x64, linux-arm64; glibc), plus esbuild,
-//                                            whose runtime helpers are part of the bundle; then a note on srt's
-//                                            statically linked Linux helper and the Node.js placeholder section.
+//                                            whose runtime helpers are part of the bundle; then the Node.js
+//                                            placeholder section.
 //   apps/web/public/third-party-notices.txt  the web app (Vite copies it to dist: https://app.smurg.ai/third-party-notices.txt):
 //                                            the production closure of @smurg/web, plus vite and rolldown (helpers).
 //
@@ -93,12 +93,7 @@ license files. "build tool" marks a tool whose small runtime helper functions ar
     importer: 'packages/cli',
     targets: RELEASE_TARGETS,
     buildTools: [{ name: 'esbuild', from: { importer: 'packages/cli' }, why: 'its runtime helper functions are part of the program' }],
-    trailer: (entries) => {
-      const srt = entries.find((entry) => entry.name === SRT);
-      if (srt === undefined || srt.dir === null) throw new Error(`${SRT} is not in the executable's dependencies any more: remove APPLY_SECCOMP_NOTE from scripts/third-party-notices.ts`);
-      if (!glibcMarkers(srt.dir).every(Boolean)) throw new Error(`${SRT}'s apply-seccomp binaries no longer look statically linked with glibc: check APPLY_SECCOMP_NOTE in scripts/third-party-notices.ts`);
-      return [APPLY_SECCOMP_NOTE, NODE_PENDING_SECTION];
-    },
+    trailer: () => [NODE_PENDING_SECTION],
   },
   web: {
     title: 'smurg: third-party notices of the smurg web app',
@@ -134,17 +129,6 @@ const BORROWED_LICENSE: Readonly<Record<string, { readonly from: string; readonl
   '@xterm/headless': { from: '@xterm/xterm', via: 'apps/web', repository: 'https://github.com/xtermjs/xterm.js' },
   '@xterm/addon-serialize': { from: '@xterm/xterm', via: 'apps/web', repository: 'https://github.com/xtermjs/xterm.js' },
 };
-
-/** The note on srt's Linux helper (a statically linked program); verified against the binaries (glibcMarkers). */
-const SRT = '@anthropic-ai/sandbox-runtime';
-const APPLY_SECCOMP_NOTE = `${SECTION_RULE}
-Note on apply-seccomp (Linux executables only)
-
-The Linux executables contain apply-seccomp, a small helper program from ${SRT}
-(vendor/seccomp/<arch>/apply-seccomp; its license is in that package's section above). apply-seccomp is statically
-linked with the GNU C Library (glibc), which is licensed under the GNU Lesser General Public License, version 2.1 or
-later. The source code of the GNU C Library is available at https://sourceware.org/glibc/.
-`;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // pnpm-lock.yaml (lockfile v9): the subset of YAML pnpm writes. Mappings by indentation, `key: value` and `key:`, keys
@@ -489,14 +473,6 @@ function wrap(text: string, width = 118): string {
   }
   if (line !== '') lines.push(line);
   return lines.join('\n');
-}
-
-function glibcMarkers(srtDir: string): boolean[] {
-  return ['x64', 'arm64'].map((arch) => {
-    const file = join(srtDir, 'vendor', 'seccomp', arch, 'apply-seccomp');
-    if (!existsSync(file)) throw new Error(`${SRT}: ${relative(ROOT, file)} is missing (scripts/build-sea.ts packs it into the Linux executables)`);
-    return readFileSync(file).includes('GLIBC_TUNABLES');
-  });
 }
 
 /** The notices text of one kind, from the lockfile and node_modules under `root`. */

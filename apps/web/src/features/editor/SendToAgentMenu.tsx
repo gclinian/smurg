@@ -1,6 +1,6 @@
-// 「送到 agent」 (SPEC R6): select code → send it as a suggestion to someone else's agent session, or straight into one
-// of your own. The editor only builds the text (file path + line range + code) and dispatches the command; the
-// suggest feature owns the suggestion flow (and the paste into your own session).
+// 「送到 agent」 (SPEC R6): select code → straight into an agent session (the host and 可使用 agent: any session), or, for
+// an editor, as a suggestion to one. The editor only builds the text (file path + line range + code) and dispatches the
+// command; the suggest feature owns the suggestion flow (and the paste).
 import type { FileRef } from '@smurg/protocol';
 import { useImperativeHandle, useRef, type Ref, type RefObject } from 'react';
 import { NoCommandHandlerError } from '../../lib/commands.ts';

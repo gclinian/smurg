@@ -1,6 +1,6 @@
-// The CLI's device-code login (RFC 8628 style; ARCHITECTURE §6, decided 2026-10-01). It replaces the loopback login
-// (./routes.ts, deprecated): nothing has to reach the CLI's machine from the browser, so it works the same over SSH and
-// the code can be entered on any device, a phone included.
+// The CLI's device-code login (RFC 8628 style; ARCHITECTURE §6, decided 2026-10-01), the CLI's only login: nothing
+// has to reach the CLI's machine from the browser, so it works the same over SSH and the code can be entered on any
+// device, a phone included.
 //
 //   POST /auth/device/start                  JSON → { deviceCode, userCode, verificationUri, expiresIn, interval }
 //   POST /auth/device/token { deviceCode }   JSON → the session (sessionJson) once allowed, issued once; until then 400

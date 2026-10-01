@@ -55,7 +55,6 @@ export const session = {
   ownerUserId: HOST,
   ownerName: 'Ian',
   title: 'Claude',
-  sandboxed: false,
   root: MAIN,
   status: 'running',
   cols: 120,
@@ -122,7 +121,6 @@ export const publicSettings = {
 };
 export const hostSettings = {
   ...publicSettings,
-  allowedDomains: ['api.anthropic.com', '*.npmjs.org', 'registry.example.com:8443'],
   diskReserveBytes: 5 * GiB,
   diskReservePercent: 5,
 };
@@ -136,18 +134,13 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   },
   'channel.settingsUpdated': {
     payload: {
-      valid: [
-        { settings: publicSettings },
-        { settings: { ...publicSettings, guestSubscriptionLogin: false } },
-        { settings: { ...publicSettings, guestSubscriptionLogin: true, guestMainWorkspace: false } },
-        { settings: { ...publicSettings, guestMainWorkspace: true } },
-      ],
+      valid: [{ settings: publicSettings }],
       invalid: [
         { settings: hostSettings },
         { settings: { ...publicSettings, uploadChunkSize: 16 * MiB } },
-        { settings: { ...publicSettings, guestSubscriptionLogin: 'yes' } },
-        { settings: { ...publicSettings, guestMainWorkspace: 'no' } },
-        { settings: { ...publicSettings, guestMainWorkspace: null } },
+        // the guest switches of protocol 1 are gone with the guest sandbox (ARCHITECTURE §11 D-15)
+        { settings: { ...publicSettings, guestSubscriptionLogin: false } },
+        { settings: { ...publicSettings, guestMainWorkspace: true } },
         {},
       ],
     },
@@ -425,19 +418,20 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
     payload: {
       valid: [
         { kind: 'agent', workspace: { mode: 'main' }, cols: 120, rows: 40 },
-        { kind: 'terminal', workspace: { mode: 'worktree', worktreeId: 'wt_1' }, cols: 80, rows: 24, title: 'shell', apiKey: 'sk-ant-api03-abc' },
-        { kind: 'login', workspace: { mode: 'main' }, cols: 120, rows: 40 },
+        { kind: 'terminal', workspace: { mode: 'worktree', worktreeId: 'wt_1' }, cols: 80, rows: 24, title: 'shell' },
+        { kind: 'agent', workspace: { mode: 'worktree' }, cols: 120, rows: 40 },
       ],
       invalid: [
         { kind: 'agent', workspace: { mode: 'main' }, cols: 120, rows: 40, sandboxed: false },
-        { kind: 'login', workspace: { mode: 'main' }, cols: 120, rows: 40, command: 'claude auth login' },
+        // protocol 1's guest login process and guest API key are gone (ARCHITECTURE §11 D-15)
+        { kind: 'login', workspace: { mode: 'main' }, cols: 120, rows: 40 },
+        { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24, apiKey: 'sk-ant-api03-abc' },
         { kind: 'oauth', workspace: { mode: 'main' }, cols: 120, rows: 40 },
         { kind: 'agent', workspace: { mode: 'elsewhere' }, cols: 120, rows: 40 },
         { kind: 'agent', workspace: { mode: 'main' }, cols: 0, rows: 40 },
-        { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24, apiKey: 'has space' },
       ],
     },
-    result: { valid: [{ session }], invalid: [{ session: { ...session, status: 'paused' } }] },
+    result: { valid: [{ session }], invalid: [{ session: { ...session, status: 'paused' } }, { session: { ...session, sandboxed: false } }] },
   },
   'session.list': {
     payload: emptyOnly,
@@ -463,20 +457,6 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
     result: emptyOnly,
   },
   'session.state': { payload: { valid: [{ session }], invalid: [{ session: { ...session, cols: 1001 } }] } },
-  'session.importConfig': {
-    payload: {
-      valid: [{ files: [{ relPath: 'CLAUDE.md', content: bytes(10) }, { relPath: 'skills/tdd/SKILL.md', content: bytes(5) }] }],
-      invalid: [
-        { files: [{ relPath: 'settings.json', content: bytes(1) }] },
-        { files: [{ relPath: 'commands', content: bytes(1) }] },
-        { files: [{ relPath: 'commands/../../x', content: bytes(1) }] },
-        { files: [] },
-        // Each file is within its own cap, but together they exceed one request's content cap (7 MiB).
-        { files: Array.from({ length: 8 }, (_, i) => ({ relPath: `skills/s${i}.md`, content: bytes(1 * MiB) })) },
-      ],
-    },
-    result: { valid: [{ written: ['CLAUDE.md', 'commands/review.md'] }], invalid: [{ written: ['.ssh/id_rsa'] }] },
-  },
   'exec.output': {
     payload: {
       valid: [{ sessionId: 'sess_1', offset: 0, data: bytes(64 * KiB) }],
@@ -590,8 +570,8 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   // ---- admin.* --------------------------------------------------------------------------------------------------
   'admin.invite.create': {
     payload: {
-      valid: [{ role: 'editor' }, { role: 'runner', expiresInSec: 86_400, maxUses: 5 }],
-      invalid: [{ role: 'host' }, { role: 'viewer', maxUses: 0 }],
+      valid: [{ role: 'editor' }, { role: 'agent', expiresInSec: 86_400, maxUses: 5 }],
+      invalid: [{ role: 'host' }, { role: 'viewer', maxUses: 0 }, { role: 'runner' }],
     },
     result: {
       valid: [{ invite, url: 'https://smurg.app/join/AbCdEfGh_-012345#k=abc&s=def' }],
@@ -605,8 +585,8 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
     result: { valid: [{ members: [{ ...guestMember, devices: [device] }] }], invalid: [{ members: [guestMember] }] },
   },
   'admin.member.setRole': {
-    payload: { valid: [{ userId: AMY, role: 'runner' }], invalid: [{ userId: AMY, role: 'host' }, { userId: 'amy', role: 'viewer' }] },
-    result: { valid: [{ member: { ...guestMember, role: 'runner' } }], invalid: [{ member: { ...guestMember, avatarUrl: 'http://x/y.png' } }] },
+    payload: { valid: [{ userId: AMY, role: 'agent' }], invalid: [{ userId: AMY, role: 'host' }, { userId: 'amy', role: 'viewer' }, { userId: AMY, role: 'runner' }] },
+    result: { valid: [{ member: { ...guestMember, role: 'agent' } }], invalid: [{ member: { ...guestMember, avatarUrl: 'http://x/y.png' } }] },
   },
   'admin.member.kick': { payload: { valid: [{ userId: AMY }], invalid: [{ userId: 'root' }] }, result: emptyOnly },
   'admin.session.terminate': { payload: { valid: [{ sessionId: 'sess_2' }], invalid: [{ session: 'sess_2' }] }, result: emptyOnly },
@@ -622,24 +602,23 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
       invalid: [
         { settings: { ...hostSettings, uploadChunkSize: 16 * MiB } },
         { settings: { ...hostSettings, guestSubscriptionLogin: true } },
-        { settings: { ...hostSettings, guestMainWorkspace: true } },
+        { settings: { ...hostSettings, allowedDomains: ['pypi.org'] } },
       ],
     },
   },
   'admin.settings.set': {
     payload: {
-      valid: [{}, { diskReserveBytes: 10 * GiB }, { allowedDomains: ['pypi.org'], sharedDirs: ['data'] }],
+      valid: [{}, { diskReserveBytes: 10 * GiB }, { sharedDirs: ['data'] }],
       invalid: [
-        { allowedDomains: ['https://evil.example'] },
-        { allowedDomains: ['EXAMPLE.com'] },
         { diskReservePercent: 101 },
         { sandbox: false },
         { humanLockIdleMs: 10 },
-        // configuration, not a console setting (ARCHITECTURE §11 D-12, D-14)
+        // gone with the guest sandbox (ARCHITECTURE §11 D-15)
+        { allowedDomains: ['pypi.org'] },
         { guestSubscriptionLogin: false },
         { guestMainWorkspace: true },
       ],
     },
-    result: { valid: [{ settings: hostSettings }], invalid: [{ settings: { ...hostSettings, allowedDomains: ['a..b'] } }] },
+    result: { valid: [{ settings: hostSettings }], invalid: [{ settings: { ...hostSettings, diskReservePercent: -1 } }] },
   },
 };

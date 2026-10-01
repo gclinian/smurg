@@ -45,7 +45,11 @@ export function describeTerminalState(state: ConnectionState): ChannelEnd {
       return {
         reason: 'key-mismatch',
         message:
-          '警告：對方的金鑰和邀請連結（或上次記錄）不符，可能有人（例如 relay）冒充主人。已中止連線，沒有送出任何資料。請用其他管道向主人確認 daemon 金鑰指紋。',
+          state.mode === 'device'
+            ? // The pinned key (no new invite): the host may have started over with new workspace keys (HOSTING §5.1).
+              '警告：主人電腦的金鑰和這台電腦上次記錄的不同，可能有人（例如 relay）冒充主人。已中止連線，沒有送出任何資料。' +
+              '如果主人說他重新設定了工作區（換了新的金鑰），請向主人索取新的邀請連結，用 smurg attach --invite - 加入，並用其他管道向主人確認 daemon 金鑰指紋。'
+            : '警告：對方的金鑰和邀請連結（或上次記錄）不符，可能有人（例如 relay）冒充主人。已中止連線，沒有送出任何資料。請用其他管道向主人確認 daemon 金鑰指紋。',
       };
     case 'rejected': {
       const text: Record<string, string> = {

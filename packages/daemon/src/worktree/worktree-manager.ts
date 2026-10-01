@@ -1,14 +1,15 @@
 // WorktreeManager (SPEC R9, D6, D12; ARCHITECTURE §5.7, §11 D-2). A "worktree" is a shared clone at
 // <share>/.smurg/worktrees/<id> on its own branch smurg/<owner>/<id>, started at the main workspace's HEAD: objects are
-// shared read-only through alternates, so a sandboxed guest needs only READ access to <share>/.git and can write
-// nothing in the main repository (sandbox.md, verification section). Each worktree is registered as a root (with its
-// read-only shared links) BEFORE any session or client uses it, and unregistered when it is removed.
+// shared read-only through alternates, so a session in it never writes into the main repository (§11 D-2). Each
+// worktree is registered as a root (with its read-only shared links) BEFORE any session or client uses it, and
+// unregistered when it is removed.
 //
-// Merge flow (contract review C6): the OWNER's request commits the worktree's working tree as the owner and fetches
-// that commit into refs/smurg/merge/<requestId> of the main repository; diff, fileDiff and approve work on exactly that
-// commit. The commit is staged in a daemon-private object store and, for a guest's worktree, verified blob by blob
-// against the worktree before the clone gets it (stage-commit.ts: the daemon's git is not sandboxed and could be raced
-// into reading a host file). The HOST approves: `git merge-tree` decides first, without touching the main workspace,
+// Merge flow (contract review C6): a request (by any member with worktree.merge.request: the host, 「可使用 agent」,
+// §11 D-15) commits the worktree's working tree as the requester and fetches that commit into
+// refs/smurg/merge/<requestId> of the main repository; diff, fileDiff and approve work on exactly that commit. The
+// commit is staged in a daemon-private object store and, unless the host requested it, verified blob by blob against
+// the worktree before the clone gets it (stage-commit.ts: git could be raced into reading a file outside the
+// worktree). The HOST approves: `git merge-tree` decides first, without touching the main workspace,
 // so a conflicting merge leaves it exactly as it was and lists the conflicting files; so do local changes, untracked
 // or ignored files the merge would overwrite (git overwrites ignored ones silently); a clean one is merged with
 // `git merge`. Rejecting never touches the worktree.
@@ -320,7 +321,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
     let registered = false;
     try {
       requireOk(await git.clone({ source: share, dest: dir, cwd: this.ctx.roots.worktreesDir, template: this.templateDir, timeoutMs }), '建立 worktree');
-      // The guest gets no remote pointing back at the host's repository.
+      // The clone gets no remote pointing back at the host's repository.
       requireOk(await git.run({ gitDir, args: ['remote', 'remove', 'origin'], timeoutMs }), '設定 worktree');
       requireOk(await git.run({ gitDir, workTree: dir, args: ['checkout', '--quiet', '-b', branch, base], timeoutMs }), '取出檔案');
       const linked = await linkSharedDirs(dir, share, this.ctx.settings.get().sharedDirs);
@@ -419,10 +420,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
   async requestMerge(input: PayloadOf<'worktree.merge.request'>, principal: Principal): Promise<MergeRequest> {
     const record = this.record(input.worktreeId);
     if (!record) throw NOT_FOUND();
-    if (principal.userId === null || principal.userId !== record.ownerUserId) {
-      throw new AuthorizationError('只有 worktree 的擁有者可以提出合併請求', { reason: 'not-owner:worktree' });
-    }
-    if (!principalCan(principal, 'worktree.merge.request')) throw new AuthorizationError(undefined, { reason: 'capability' });
+    if (principal.userId === null || !principalCan(principal, 'worktree.merge.request')) throw new AuthorizationError(undefined, { reason: 'capability' });
     const open = this.requireDoc()
       .get()
       .merges.filter((merge) => merge.worktreeId === record.id && (merge.status === 'pending' || merge.status === 'conflict')).length;
@@ -436,8 +434,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
       if (!current) throw NOT_FOUND();
       const dir = this.dirOf(current.id);
       await verifyWorktreeRepo(dir, current);
-      // 1. Commit the working tree as the owner (nothing to commit is fine). Staged in a daemon-private store and,
-      //    unless the host owns the worktree, verified blob by blob before the clone gets it (stage-commit.ts).
+      // 1. Commit the working tree as the requester (nothing to commit is fine). Staged in a daemon-private store and,
+      //    unless the host requested it, verified blob by blob before the clone gets it (stage-commit.ts).
       const { commit } = await stageCommit({
         git,
         workTree: dir,
@@ -577,7 +575,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
       if (inTheWay.size > 0) return this.markConflict(principal, merge, [...inTheWay], 'local-changes');
 
       // 3. Merge exactly that commit. Attributes come from the host's own HEAD, never from the incoming commit: a
-      //    guest's .gitattributes cannot pick a filter or merge driver of the host's config for the daemon to run.
+      //    worktree's .gitattributes cannot pick a filter or merge driver of the host's config for the daemon to run.
       const fileService = this.ctx.services.files;
       if (!isStubService(fileService) && touched.length <= 5_000) for (const path of touched) fileService.expectChange({ root: MAIN_ROOT, path }, principal.actor);
       const host = this.memberOf(principal);
@@ -752,11 +750,11 @@ export class WorktreeManagerImpl implements WorktreeManager {
     return merge;
   }
 
-  /** merge-request-owner-or-host: the worktree's owner or the host. */
+  /** `worktree.merge.request` (the host, 「可使用 agent」): whoever may request a merge may review any request. */
   private requireMergeVisible(requestId: string, principal: Principal): StoredMerge {
     const merge = this.requireMerge(requestId);
-    if (!isHostPrincipal(principal) && principal.userId !== merge.ownerUserId) {
-      throw new AuthorizationError('只有 worktree 的擁有者或主人可以查看這個 diff', { reason: 'not-owner:merge-request' });
+    if (principal.userId === null || !principalCan(principal, 'worktree.merge.request')) {
+      throw new AuthorizationError('只有主人和「可使用 agent」的成員可以查看這個 diff', { reason: 'capability' });
     }
     return merge;
   }
@@ -789,11 +787,6 @@ export class WorktreeManagerImpl implements WorktreeManager {
 
   private record(worktreeId: string): StoredWorktree | null {
     return this.records().find((record) => record.id === worktreeId) ?? null;
-  }
-
-  /** The owner / merge-request owner of a merge request (for handlers' ownership checks). */
-  mergeOwner(requestId: string): string | null {
-    return this.doc?.get().merges.find((item) => item.id === requestId)?.ownerUserId ?? null;
   }
 
   private updateWorktree(worktreeId: string, mutate: (draft: StoredWorktree) => void): StoredWorktree | null {

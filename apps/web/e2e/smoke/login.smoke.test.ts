@@ -2,38 +2,23 @@
 //  - a logged-out visitor's page load is clean: ONE request says which login methods exist (GET /api/login-options),
 //    nothing probes the login routes, and /api/me (401 without a session) is not asked when no session can exist;
 //  - the CLI's device-code login (2026-10-01): the REAL `smurg login` prints /device and a code; in a phone-sized
-//    window the relay's dev login, the code and 「允許」; the CLI saves the session; nothing fails on the way;
-//  - ARCHITECTURE §11 D-12: a guest starts their Claude subscription login from the login guide; the daemon's login
-//    process shows the login URL and the code prompt in the guest's own terminal. The REAL `claude` (a verified version
-//    on PATH) against a closed mock API address; no code is ever pasted and no account is used (ARCHITECTURE §0 rule 2).
+//    window the relay's dev login, the code and 「允許」; the CLI saves the session; nothing fails on the way.
+// (The guest's own Claude subscription login of §11 D-12 is gone with the guest sandbox: every session uses the host's
+// Claude login, protocol v2.)
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTempDir, registerTestProcess, removeTempDir, waitFor } from '../../../../packages/daemon/src/testing/index.ts';
-import { CLAUDE_VERIFIED_VERSIONS, claudeVersionVerdict } from '../../../../packages/daemon/src/core/config.ts';
-import { ClaudeVersionProbe, resolveClaude } from '../../../../packages/daemon/src/sessions/claude.ts';
-import { runProcess } from '../../../../packages/daemon/src/sessions/process-run.ts';
-import type { SessionManagerImpl } from '../../../../packages/daemon/src/sessions/session-manager.ts';
-import { STEP_MS, joinAs, openSession, startSmoke, systemChrome, type SmokeEnv } from './helpers.ts';
+import { STEP_MS, startSmoke, systemChrome, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
 if (chrome === null) console.warn('[web smoke] SKIPPED: no system Chrome found (playwright-core downloads no browser); install Google Chrome to run it.');
 
-/** The `smurg` command as sessions run it in development (the hooks module needs it to start agent sessions). */
+/** The `smurg` command of this repository (the device-code login test runs the real CLI). */
 const CLI_MAIN = fileURLToPath(new URL('../../../../packages/cli/src/main.ts', import.meta.url));
-
-/** A `claude` of a verified version on PATH (its --version read with an isolated, credential-free environment). */
-async function verifiedClaude(scratch: string): Promise<{ readonly path: string; readonly version: string } | null> {
-  const binary = await resolveClaude(null, process.env['PATH']);
-  if (!binary) return null;
-  const probe = new ClaudeVersionProbe({ scratchParent: scratch, run: runProcess });
-  const verdict = claudeVersionVerdict(await probe.output(binary), { claudeMinVersion: CLAUDE_VERIFIED_VERSIONS[0] as string, claudeVerifiedVersions: CLAUDE_VERIFIED_VERSIONS });
-  return verdict.ok && verdict.warning === null ? { path: binary.realPath, version: verdict.version } : null;
-}
 
 /** Every request path the page made (method and path), from the moment this is called. */
 function recordRequests(page: Page): string[] {
@@ -47,33 +32,13 @@ function recordRequests(page: Page): string[] {
 
 describe.skipIf(chrome === null)('logging in, in a real browser (built app, real relay, system Chrome)', () => {
   let env: SmokeEnv;
-  let scratch: string;
-  let claude: { readonly path: string; readonly version: string } | null = null;
 
   beforeAll(async () => {
-    scratch = await createTempDir('web-smoke-claude');
-    claude = await verifiedClaude(scratch);
-    if (claude === null) process.stderr.write('\n*** login.smoke.test.ts: no verified Claude Code on PATH: the D-12 browser test will SKIP ***\n\n');
-    env = await startSmoke({
-      stack: {
-        projectFiles: { 'README.md': '# 班級專案\n' },
-        sessions: {
-          selfCommand: { file: process.execPath, args: [CLI_MAIN] },
-          // The mock API: a closed port on 127.0.0.1 (nothing leaves the machine; no account).
-          testGuestEnv: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' },
-          ...(claude ? { claudePath: claude.path } : {}),
-          // Lena's agent runs in the main workspace of a share that is not git: open it to guests explicitly, so the
-          // test is the same on a Linux host, where it is off by default (ARCHITECTURE §11 D-14). Her login process
-          // (kind 'login') is not affected by the switch either way.
-          guestMainWorkspace: true,
-        },
-      },
-    });
+    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# 班級專案\n' } } });
   }, 180_000);
 
   afterAll(async () => {
     await env?.stop();
-    if (scratch) await removeTempDir(scratch);
   }, 60_000);
 
   it('a page load of "/" and of "/join/<id>" by a logged-out browser produces zero console errors and zero failed requests (GET /api/login-options, no probes, no /api/me)', async () => {
@@ -160,51 +125,4 @@ describe.skipIf(chrome === null)('logging in, in a real browser (built app, real
       await removeTempDir(home);
     }
   }, 180_000);
-
-  it('D-12 a guest starts「用 Claude 訂閱登入」from the login guide and sees the login URL and the code prompt in the login process terminal (real claude, mock API, never completed)', async (ctx) => {
-    if (claude === null) {
-      console.warn('[web smoke] SKIPPED the D-12 browser test: no verified Claude Code binary on PATH');
-      return ctx.skip();
-    }
-    const page = await env.newPage();
-    await joinAs(page, env, 'lena', 'runner');
-    const agentId = await openSession(page, 'agent', 'Claude');
-    // The daemon reports the agent logged out (claude auth status in the guest's environment): the guide is shown.
-    const guide = page.getByRole('complementary', { name: '登入 Claude' });
-    await guide.waitFor({ timeout: STEP_MS });
-    expect(await guide.textContent()).toContain('主人在技術上仍然可以讀取你在這裡使用的憑證');
-    await guide.getByRole('button', { name: '用 Claude 訂閱登入' }).click();
-
-    // The login process: its own tab, the steps above its terminal, only the guest sees it.
-    const process_ = page.getByRole('tabpanel').filter({ has: page.getByTestId('login-process') });
-    await process_.waitFor({ timeout: STEP_MS });
-    const loginId = await process_.locator('.agents-session').getAttribute('data-session-id');
-    expect(loginId).toBeTruthy();
-    const steps = (await process_.getByTestId('login-process').textContent()) ?? '';
-    expect(steps).toContain('在你自己的瀏覽器開啟');
-    expect(steps).toContain('Paste code here if prompted');
-    const flat = await page.waitForFunction(
-      (id) => {
-        const text = [...document.querySelectorAll(`.agents-session[data-session-id="${id}"] .xterm-rows > div`)].map((row) => row.textContent ?? '').join('').replace(/\s+/g, '');
-        return text.includes('Pastecodehereifprompted') && text.includes('oauth/authorize') ? text : false;
-      },
-      loginId,
-      { timeout: STEP_MS },
-    );
-    const shown = (await flat.jsonValue()) as string;
-    console.info(`[D-12 web] claude ${claude.version}: ${shown.slice(0, 120)}…`);
-    expect(shown).not.toContain('FailedtostartOAuthcallbackserver');
-    const sessions = env.stack.daemon.ctx.services.sessions as SessionManagerImpl;
-    expect(sessions.listFor('dev:lena').find((s) => s.id === loginId)).toMatchObject({ kind: 'login', status: 'running', sandboxed: true });
-    // Nobody else sees it (the host's own list).
-    const hostList = await env.stack.hostClient.conn.request('session.list', {});
-    expect(hostList.sessions.some((s) => s.id === loginId)).toBe(false);
-
-    // Cancelled, never completed: the guest is told, no credential exists.
-    await process_.getByRole('button', { name: '取消登入' }).click();
-    await process_.getByText('已取消登入。').waitFor({ timeout: STEP_MS });
-    expect(existsSync(join(sessions.guestPaths('dev:lena').cfg, '.credentials.json'))).toBe(false);
-    expect(env.problemsOf(page).pageErrors).toEqual([]);
-    expect(agentId).not.toBe(loginId);
-  }, 240_000);
 });

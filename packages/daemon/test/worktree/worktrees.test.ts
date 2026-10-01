@@ -23,7 +23,7 @@ describe('worktree creation (shared clone, ARCHITECTURE §5.7)', { timeout: 60_0
   it('clones the share with --shared into .smurg/worktrees/<id> on smurg/<owner>/<id> at the main HEAD, and registers the root', async () => {
     stack = await startWorktreeStack();
     const s = stack;
-    await s.connect('dev:amy', 'runner');
+    await s.connect('dev:amy', 'agent');
     const updates: WorktreeInfo[] = [];
     s.host.conn.on('worktree.updated', (payload) => updates.push(payload.worktree));
     const head = (await s.git(['rev-parse', 'HEAD'])).trim();
@@ -61,7 +61,7 @@ describe('worktree creation (shared clone, ARCHITECTURE §5.7)', { timeout: 60_0
   it('.smurg/ is added to .git/info/exclude and the user\'s .gitignore is untouched', async () => {
     stack = await startWorktreeStack({ files: { 'README.md': 'x\n', '.gitignore': 'node_modules/\n*.log\n' } });
     const s = stack;
-    await s.connect('dev:amy', 'runner');
+    await s.connect('dev:amy', 'agent');
     const before = await readFile(join(s.t.root, '.gitignore'), 'utf8');
     await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_x' });
     const exclude = await readFile(join(s.t.root, '.git', 'info', 'exclude'), 'utf8');
@@ -79,7 +79,7 @@ describe('worktree creation (shared clone, ARCHITECTURE §5.7)', { timeout: 60_0
     await writeFile(join(s.t.root, 'data', 'train.csv'), 'a,b\n1,2\n');
     await mkdir(join(s.t.root, 'models', 'checkpoints'), { recursive: true });
     await writeFile(join(s.t.root, 'models', 'checkpoints', 'ckpt.bin'), 'weights');
-    const amy = await s.connect('dev:amy', 'runner');
+    const amy = await s.connect('dev:amy', 'agent');
     const handle = await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_d12' });
     const dir = s.worktreeDir(handle.worktree.id);
     expect(handle.worktree.sharedDirs).toEqual(['data', 'models/checkpoints']);
@@ -89,7 +89,7 @@ describe('worktree creation (shared clone, ARCHITECTURE §5.7)', { timeout: 60_0
       expect((await lstat(link)).isSymbolicLink()).toBe(true);
       expect(await readlink(link)).toBe(join(share, ...path.split('/')));
     }
-    // Recorded with the root, so PathGuard (and the sandbox spec) treat them as read-only.
+    // Recorded with the root, so PathGuard treats them as read-only.
     expect(handle.root.sharedLinks.map((link) => link.path).sort()).toEqual(['data', 'models/checkpoints']);
     const ref = (path: string) => ({ root: { kind: 'worktree' as const, worktreeId: handle.worktree.id }, path });
     const read = await s.t.ctx.paths.readFile(ref('data/train.csv'), { principal: s.principal('dev:amy') });
@@ -114,7 +114,7 @@ describe('worktree creation (shared clone, ARCHITECTURE §5.7)', { timeout: 60_0
     });
     const s = stack;
     await mkdir(join(s.t.root, 'datasets'));
-    await s.connect('dev:amy', 'runner');
+    await s.connect('dev:amy', 'agent');
     const handle = await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_skip' });
     expect(handle.worktree.sharedDirs).toEqual(['datasets']);
     const dir = s.worktreeDir(handle.worktree.id);
@@ -125,7 +125,7 @@ describe('worktree creation (shared clone, ARCHITECTURE §5.7)', { timeout: 60_0
   it('refuses worktree mode with a clear error when the share is not a git repository', async () => {
     stack = await startWorktreeStack({ git: false });
     const s = stack;
-    await s.connect('dev:amy', 'runner');
+    await s.connect('dev:amy', 'agent');
     const error = await settleError(s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_nogit' }));
     expect(error).toMatchObject({ code: 'conflict', reason: 'not-a-git-repo' });
     expect(error?.message).toContain('不是 git 儲存庫');
@@ -138,7 +138,7 @@ describe('worktree creation (shared clone, ARCHITECTURE §5.7)', { timeout: 60_0
       await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: project, env: isolatedGitEnv(join(project, '.home')) });
       stack = await startWorktreeStack({ root: project });
       const s = stack;
-      await s.connect('dev:amy', 'runner');
+      await s.connect('dev:amy', 'agent');
       expect(await settleError(s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_empty' }))).toMatchObject({ code: 'conflict', reason: 'no-commits' });
       expect(s.manager.list()).toEqual([]);
     } finally {
@@ -153,8 +153,8 @@ describe('worktree lifecycle', { timeout: 60_000 }, () => {
   it('R9.4 (manager): a kept worktree can be resumed by a later session of its owner, and only by its owner', async () => {
     stack = await startWorktreeStack();
     const s = stack;
-    await s.connect('dev:amy', 'runner');
-    await s.connect('dev:bob', 'runner');
+    await s.connect('dev:amy', 'agent');
+    await s.connect('dev:bob', 'agent');
     const first = await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_a' });
     await writeFile(join(s.worktreeDir(first.worktree.id), 'notes.md'), 'work in progress\n');
     await s.manager.releaseFromSession(first.worktree.id, 'ses_a', { keep: true });
@@ -175,7 +175,7 @@ describe('worktree lifecycle', { timeout: 60_000 }, () => {
   it('session end without keeping removes the worktree, its root and its directory', async () => {
     stack = await startWorktreeStack();
     const s = stack;
-    await s.connect('dev:amy', 'runner');
+    await s.connect('dev:amy', 'agent');
     const removed: string[] = [];
     s.host.conn.on('worktree.removed', (payload) => removed.push(payload.worktreeId));
     const handle = await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_gone' });
@@ -195,7 +195,7 @@ describe('worktree lifecycle', { timeout: 60_000 }, () => {
     const outside = await createTempDir('wt-outside');
     try {
       await writeFile(join(outside, 'precious.txt'), 'keep\n');
-      await s.connect('dev:amy', 'runner');
+      await s.connect('dev:amy', 'agent');
       const handle = await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_rm' });
       const dir = s.worktreeDir(handle.worktree.id);
       await symlink(outside, join(dir, 'escape'));
@@ -203,7 +203,7 @@ describe('worktree lifecycle', { timeout: 60_000 }, () => {
       await symlink(join(outside, 'precious.txt'), join(dir, 'deep', 'er', 'file-link'));
       await s.manager.releaseFromSession(handle.worktree.id, 'ses_rm', { keep: false });
       expect(await readFile(join(outside, 'precious.txt'), 'utf8')).toBe('keep\n');
-      // Nothing is left behind (the tree was renamed out of every sandbox's reach, then deleted).
+      // Nothing is left behind (the tree was renamed out of the worktrees dir first, then deleted).
       expect(await readdir(s.t.ctx.roots.worktreesDir)).toEqual([]);
 
       // A daemon stopped half-way through a removal leaves `<id>.removing-<hex>`: the next start finishes it.
@@ -224,7 +224,7 @@ describe('worktree lifecycle', { timeout: 60_000 }, () => {
   it('worktree.remove: owner or host only; refused while a session uses it', async () => {
     stack = await startWorktreeStack();
     const s = stack;
-    const amy = await s.connect('dev:amy', 'runner');
+    const amy = await s.connect('dev:amy', 'agent');
     const bob = await s.connect('dev:bob', 'editor');
     const handle = await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_live' });
     const worktreeId = handle.worktree.id;
@@ -254,7 +254,7 @@ describe('worktree lifecycle', { timeout: 60_000 }, () => {
     stack = await startWorktreeStack({ settings: { sharedDirs: ['data'] } });
     const s = stack;
     await mkdir(join(s.t.root, 'data'));
-    await s.connect('dev:amy', 'runner');
+    await s.connect('dev:amy', 'agent');
     const kept = await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_k' });
     await s.manager.releaseFromSession(kept.worktree.id, 'ses_k', { keep: true });
     const busy = await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_busy' });
@@ -280,7 +280,7 @@ describe('worktree lifecycle', { timeout: 60_000 }, () => {
   it('limits the number of worktrees per owner', async () => {
     stack = await startWorktreeStack({ module: { limits: { maxWorktreesPerOwner: 2 } } });
     const s = stack;
-    await s.connect('dev:amy', 'runner');
+    await s.connect('dev:amy', 'agent');
     await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_1' });
     await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_2' });
     expect(await settleError(s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_3' }))).toMatchObject({ code: 'conflict', reason: 'worktree-limit-owner' });

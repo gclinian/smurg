@@ -66,11 +66,11 @@ step 1).
 |---|---|---|
 | Single executable (Node SEA: CLI + daemon + native parts) for the platform it is built on | `scripts/build-sea.sh [--node <node>] --version X.Y.Z [--target <platform>-<arch>]` → `packages/cli/dist/smurg-<platform>-<arch>` and, next to it, `THIRD-PARTY-NOTICES.txt` (exactly the notices it embeds); checks that it runs (`--version`), that the program names no private repository, that the executable carries its build marker `smurg-build-version=X.Y.Z;` and the download URL of its Node.js release (`scripts/release-markers.ts`), prints its sha256, runs the smoke test `packages/cli/test/sea.test.ts`. `--target` refuses a runner or a Node of another platform/arch; the tag form `--version v0.1.0` is accepted | macOS arm64 locally (2026-10-01, with the notices and the markers); all four targets on GitHub in dry run 36846007788 (before the notices existed) |
 | Third-party notices | `scripts/third-party-notices.ts` (from `pnpm-lock.yaml` and the installed packages' own LICENSE / NOTICE files) → `packages/cli/THIRD-PARTY-NOTICES.txt` (the executable's; its Node.js section is a placeholder that `scripts/build-sea.sh` fills with the LICENSE of the Node.js the executable is a copy of, the complete text going into the executable and next to it) and `apps/web/public/third-party-notices.txt` (the web app's, served at `https://app.smurg.ai/third-party-notices.txt`). **After any dependency change** run `node scripts/third-party-notices.ts` and commit both files: `pnpm check`, `scripts/build-sea.sh` and the web build refuse stale ones | `packages/cli/test/third-party-notices.test.ts`, `apps/web/test/third-party-notices.test.ts` |
-| Release files | `scripts/release-assets.sh --version X.Y.Z [--dist DIR] [--out DIR] [--notices FILE] [--require-all] [--check-arch] [--notes FILE] [--changelog FILE] [--base-url URL]` → `<out>/{smurg-*, SHA256SUMS, install.sh, THIRD-PARTY-NOTICES.txt}` (default `packages/cli/dist/release/X.Y.Z`): copies the executables with mode 0755, checks with `file` that each is the Mach-O / ELF its name says, that **each** carries the build marker of X.Y.Z and the same Node.js release as the notices' `node@A.B.C (the Node.js runtime)` section (so an executable of another version or Node.js cannot be mixed in, §4.3), runs this machine's and requires exactly `smurg X.Y.Z (… node A.B.C)`, bakes `https://downloads.smurg.ai/vX.Y.Z` (or `--base-url`) into `install.sh`, refuses to assemble without the notices (default `<dist>/THIRD-PARTY-NOTICES.txt`), with notices that do not name node-pty, @parcel/watcher, @anthropic-ai/sandbox-runtime and Node.js, or with incomplete ones (the committed file with its placeholder, no filled-in Node.js section), writes the notes (the CHANGELOG section, the install line, the checksums). Check-only modes: `--check-changelog`, `--publish-checks` (§4) | `packages/cli/test/install-script.test.ts`; the real macOS arm64 build with stand-ins (2026-10-01) |
+| Release files | `scripts/release-assets.sh --version X.Y.Z [--dist DIR] [--out DIR] [--notices FILE] [--require-all] [--check-arch] [--notes FILE] [--changelog FILE] [--base-url URL]` → `<out>/{smurg-*, SHA256SUMS, install.sh, THIRD-PARTY-NOTICES.txt}` (default `packages/cli/dist/release/X.Y.Z`): copies the executables with mode 0755, checks with `file` that each is the Mach-O / ELF its name says, that **each** carries the build marker of X.Y.Z and the same Node.js release as the notices' `node@A.B.C (the Node.js runtime)` section (so an executable of another version or Node.js cannot be mixed in, §4.3), runs this machine's and requires exactly `smurg X.Y.Z (… node A.B.C)`, bakes `https://downloads.smurg.ai/vX.Y.Z` (or `--base-url`) into `install.sh`, refuses to assemble without the notices (default `<dist>/THIRD-PARTY-NOTICES.txt`), with notices that do not name node-pty, @parcel/watcher and Node.js, or with incomplete ones (the committed file with its placeholder, no filled-in Node.js section), writes the notes (the CHANGELOG section, the install line, the checksums). Check-only modes: `--check-changelog`, `--publish-checks` (§4) | `packages/cli/test/install-script.test.ts`; the real macOS arm64 build with stand-ins (2026-10-01) |
 | Publishing | `scripts/publish-downloads.sh --version X.Y.Z (--from-release \| --dist DIR) [--dry-run] [--resume] [--no-latest]`, `--check [--version X.Y.Z]`, `--set-latest X.Y.Z` (§4 step 7, §7); a rehearsal against stand-ins on this machine with `SMURG_PUBLISH_TEST_ORIGIN` + `SMURG_PUBLISH_TEST_WRANGLER` (§4.4). Implementation and every rule: `scripts/publish-downloads.ts` | `packages/cli/test/publish-downloads.test.ts` (stub wrangler, local stand-in of the domain, stub gh, the real command in a rehearsal); the real arm64 build through a local stand-in (2026-10-01). **Never run against R2** |
-| Installer | `scripts/install.sh`: picks darwin/linux × arm64/x64 (glibc; Rosetta shells get arm64), downloads `SHA256SUMS` and then the executable from its baked download location (`SMURG_INSTALL_BASE_URL` / `--base-url` override it), installs `~/.local/bin/smurg` only when the sha256 matches (https only; http only for 127.0.0.1 / localhost); macOS: removes `com.apple.quarantine` after the sha256 matched and before the first run; Linux: bubblewrap / socat / ripgrep and the Ubuntu 24.04+ AppArmor profile for `/usr/bin/bwrap`, only with consent; the summary names the license (`https://smurg.ai/license/`) and the version's `THIRD-PARTY-NOTICES.txt` | `packages/cli/test/install-script.test.ts` (39 tests: every OS/arch through a faked `uname`, under sh and dash; the R2 layout `v<X.Y.Z>/` + `latest/` behind a stand-in curl and from a local server). The Linux branch ran only against stand-ins |
+| Installer | `scripts/install.sh`: picks darwin/linux × arm64/x64 (glibc; Rosetta shells get arm64), downloads `SHA256SUMS` and then the executable from its baked download location (`SMURG_INSTALL_BASE_URL` / `--base-url` override it), installs `~/.local/bin/smurg` only when the sha256 matches (https only; http only for 127.0.0.1 / localhost); macOS: removes `com.apple.quarantine` after the sha256 matched and before the first run. The same on every platform otherwise: no sudo, no system package (there is no guest sandbox to set up since the owner's decision of 2026-10-01, ARCHITECTURE §11 D-15); the summary names the license (`https://smurg.ai/license/`) and the version's `THIRD-PARTY-NOTICES.txt` | `packages/cli/test/install-script.test.ts` (every OS/arch through a faked `uname`, under sh and dash, with stand-ins that record any `sudo`, `apt-get`, `apparmor_parser`, `tee`, `runuser` or `bwrap` call: none; the R2 layout `v<X.Y.Z>/` + `latest/` behind a stand-in curl and from a local server) |
 | Release workflow | `.github/workflows/release.yml`, on a tag `v*`: `prepare` (tag format, `--check-changelog`, `--publish-checks`), four builds (`build-sea.sh --version X.Y.Z --target …`; setup-node `check-latest`, so all four use the same Node), then: the four builds' notices must be identical, `release-assets.sh --require-all --check-arch --notes`, a **draft** GitHub release in the private repository with the seven files, a check of the uploaded asset list, then published as the record, and a job summary with the publish command. Only the release job has `permissions: contents: write`; actions are pinned to commit SHAs. A manual run (Actions → Release → Run workflow) is a dry run that records nothing | the earlier layout: dry run 36846007788 green (2026-10-01). This layout: YAML parsed, shell steps `bash -n`, the notices and summary steps run locally; not run on GitHub; actionlint / shellcheck not run |
-| CI | `.github/workflows/ci.yml`: `pnpm check` on `macos-15` and `ubuntu-24.04` for pushes to `main`, pull requests and manual runs | green on GitHub (e.g. 36843981108 on `e66f46c`) |
+| CI | `.github/workflows/ci.yml`: `pnpm check` on `macos-15` and `ubuntu-24.04` for pushes to `main`, pull requests and manual runs. No system package is installed (since D-15 the Linux job no longer installs bubblewrap / socat / ripgrep or the AppArmor profile, and the manual run has no `linux-userns` input) | green on GitHub (e.g. 36843981108 on `e66f46c`, before D-15); the D-15 layout not yet run on GitHub |
 | Relay deploy | `scripts/deploy-relay.sh` (§2): production build of web + relay, then `wrangler deploy` of the top level of `apps/relay/wrangler.jsonc` (`https://app.smurg.ai` as a Cloudflare Custom Domain, workers.dev off, Google only, dev login off); `--dry-run`, `--check <url>` | `apps/relay/test/deploy-relay.test.ts`; against the account: the workers.dev shape (2026-10-01); the custom-domain path runs for the first time at the next deploy (§10) |
 | CLI default relay | `DEFAULT_RELAY_URL` in `packages/cli/src/relay/default-relay.ts`: `'https://app.smurg.ai'` (§3) | unit tests; `apps/relay/test/config.test.ts` checks it equals `RELAY_ISSUER` |
 | Product page and user docs | `apps/site` (`apps/site/README.md`): smurg.ai, its `/docs/`, `/license/`, `/third-party-notices.txt` (a deploy must name the release's notices file: `SMURG_SITE_THIRD_PARTY_NOTICES`, §4.1); `/install.sh` → 302 `https://downloads.smurg.ai/latest/install.sh` (§4.1) | `pnpm check`; the live site is still `cb99aa0`'s, which claims "open source under the Apache License 2.0": redeploy now (§4.1) |
@@ -124,8 +124,8 @@ In the Google Cloud console (project "smurg"):
 2. **Credentials → OAuth client ID**, type **Web application**; **Authorized JavaScript origins**:
    `https://app.smurg.ai`; **Authorized redirect URIs**: `https://app.smurg.ai/auth/google/callback`, exactly
    (`scripts/deploy-relay.sh` prints both). The CLI's login goes through the same callback (the device-code login's
-   /device page uses the relay's own Google login; smurg 0.1.0's loopback login did too), so no loopback URI is
-   registered. The workers.dev origin and redirect URI of the first deploy can be removed (that hostname answers 404).
+   /device page uses the relay's own Google login), so no loopback URI is registered. The workers.dev origin and
+   redirect URI of the first deploy can be removed (that hostname answers 404).
 3. The **client ID** is public (it goes into `apps/relay/wrangler.jsonc`); the **client secret** goes only into
    `wrangler secret put` below, never into the repository, CI, a chat or an issue.
 
@@ -323,9 +323,10 @@ Who: the lead prepares and tags; the owner redeploys the relay (and later the si
 
    Why: `app.smurg.ai` serves the one web app that every host's guests and console use, whatever version the host
    runs. It decodes each daemon's `channel.welcome` and settings with strict schemas (ARCHITECTURE §5), so a web app
-   older than the daemon refuses it, while a newer one accepts older daemons. The web app must therefore be at least as
-   new as the release before anyone can install the release. If the workflow fails and you tag a fixed commit
-   instead, redeploy from that one.
+   older than the daemon refuses it, while a newer one accepts older daemons of the same protocol version (a daemon
+   of another protocol version is refused at the handshake). The web app must therefore be at least as new as the
+   release before anyone can install the release. If the workflow fails and you tag a fixed commit instead, redeploy
+   from that one.
 4. **[lead]** Tag and push the tag:
 
    ```sh
@@ -554,7 +555,7 @@ sh /tmp/smurg-vX.Y.Z/install.sh --base-url http://127.0.0.1:8000 --prefix /tmp/s
 
 **After publishing**, time SPEC R1.1 on a fresh macOS and a fresh Ubuntu 24.04 (a new macOS user account is the
 cheapest fresh Mac; a new VM or cloud instance for Ubuntu, with a desktop or over SSH: `smurg login` prints a page and a
-code to enter in any browser, from 0.1.0's successor on; 0.1.0 itself prints an `ssh -L` port-forward line over SSH):
+code to enter in any browser):
 
 1. Start a timer. `curl -fsSL https://smurg.ai/install.sh | sh` (on a second machine also try the version's own line,
    `curl -fsSL https://downloads.smurg.ai/vX.Y.Z/install.sh | sh`).
@@ -562,11 +563,13 @@ code to enter in any browser, from 0.1.0's successor on; 0.1.0 itself prints an 
 3. `smurg login` (Google), then `smurg host <a folder>`. Stop the timer when the invite link is printed (R1.1: under 3
    minutes).
 4. Check: `smurg --version` is the tag; `smurg licenses` prints the license and the notices; macOS:
-   `xattr -l ~/.local/bin/smurg` shows no `com.apple.quarantine`; Ubuntu: the installer offered bubblewrap / socat /
-   ripgrep and the AppArmor profile, and `smurg host` printed 「客人沙盒：可用…」 afterwards.
-5. Join from another machine's browser with another Google account; open a terminal session. On the Ubuntu host the
-   guest gets 「我的 worktree」 only (ARCHITECTURE §11 D-14).
-6. Record the times, machines and anything that went wrong in `docs/ACCEPTANCE.md` (R1.1, and R5 / R9 for Ubuntu).
+   `xattr -l ~/.local/bin/smurg` shows no `com.apple.quarantine`; Ubuntu: the installer asked for nothing (no sudo,
+   no package) and `smurg host` printed only the two links.
+5. Join from another machine's browser with another Google account: as 「可編輯」 a suggestion to the host's agent;
+   then, as 「可使用 agent」 (`smurg host --role agent`, or the console), an agent session in a new worktree and typing
+   into the host's session. The member's agent runs as the host (`whoami` in a terminal session it opens says the
+   host's user).
+6. Record the times, machines and anything that went wrong in `docs/ACCEPTANCE.md` (R1.1, and R9 for Ubuntu).
 
 ## 6. Private source, public binaries [owner]
 
@@ -591,10 +594,10 @@ jurisdiction before the first public release, in particular:
 - the reverse-engineering clause (EU and Taiwanese law allow some reverse engineering, for example for
   interoperability) and the warranty disclaimer (consumer law may limit it);
 - the third-party notices: every bundled package's LICENSE and NOTICE files are reproduced (generated,
-  `scripts/third-party-notices.ts`; the Apache-2.0 `@anthropic-ai/sandbox-runtime` has no NOTICE file in 0.0.77), and
-  the GNU C Library (LGPL-2.1+) statically linked into srt's `apply-seccomp` in the Linux executables: built on Ubuntu
-  24.04, so glibc 2.39; whether LGPL's terms need more than the note in the notices (a written offer, the object code
-  for relinking) is for the reviewer. The facts are collected in `docs/OPEN-QUESTIONS.md` Q14, which also holds the
+  `scripts/third-party-notices.ts`). Since the guest sandbox was removed (2026-10-01, ARCHITECTURE §11 D-15) the
+  executables contain no statically linked program any more; v0.1.0's Linux executables, which stay published, carry
+  srt's `apply-seccomp` with the GNU C Library (LGPL-2.1+) linked in, and whether LGPL's terms need more than the note
+  in their notices is for the reviewer. The facts are collected in `docs/OPEN-QUESTIONS.md` Q14, which also holds the
   holder's name and the review.
 
 ## 7. Rolling back
@@ -632,7 +635,7 @@ pnpm exec wrangler rollback <version-id> --message "why"
 A rollback restores the Worker's code and configuration, not the Durable Objects' stored data, and like a deploy it
 disconnects every socket. Cloudflare does not roll a Worker back across a Durable Object migration: once the deploy
 that applies `v2` (`DeviceLoginDO`, the CLI's device-code login) has run, versions before it are out of reach (fix
-forward instead; smurg 0.1.0's loopback login keeps working on the new version). Its web app is rolled back too, and an older web app refuses the `channel.welcome` of a newer
+forward instead). Its web app is rolled back too, and an older web app refuses the `channel.welcome` of a newer
 daemon (§4 step 3): do not roll back past the version deployed for the latest release.
 
 **Stopping the relay in an emergency** (a leaked signing key, abuse): Workers & Pages → smurg-relay → Settings →
@@ -739,6 +742,6 @@ In this order; the v0.1.0 release under the decision of 2026-10-01.
 16. [x] **[lead]** `apps/site` redeployed from afc11bb with the release's notices (node 22.23.3); `--check` shows
     `https://smurg.ai/third-party-notices.txt = v0.1.0/THIRD-PARTY-NOTICES.txt`.
 17. [ ] **[owner]** Timed one-line install on a clean Mac and a clean Ubuntu 24.04 (§5); **[lead]**
-    `docs/ACCEPTANCE.md` R1.1 (and R5 / R9 if tested on Ubuntu) updated with the results.
+    `docs/ACCEPTANCE.md` R1.1 (and R9 if tested on Ubuntu) updated with the results.
 18. [ ] **[owner]** Cloudflare usage (Workers, Durable Objects, R2) and GitHub Actions minutes checked daily for the
     first week (§8, §8.1).

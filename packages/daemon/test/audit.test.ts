@@ -4,7 +4,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type AuditEntry } from '@smurg/protocol';
-import { JsonlAuditLog, auditDetailForMessage, sanitizeAuditDetail } from '../src/core/audit.ts';
+import { JsonlAuditLog, auditDetailForMessage, sanitizeAuditDetail, withAuditVia } from '../src/core/audit.ts';
 import { ManualClock } from '../src/core/lifecycle.ts';
 import { silentLogger } from '../src/core/logger.ts';
 import { SYSTEM_ACTOR } from '../src/core/permissions.ts';
@@ -111,7 +111,10 @@ describe('JsonlAuditLog', () => {
       text: 'suggestion text is allowed (R6)',
     });
     expect(auditDetailForMessage('file.write', { file: { root: MAIN_ROOT, path: 'a' }, content: new Uint8Array(3) })).toEqual({ type: 'file.write', payload: '[redacted]' });
-    expect(auditDetailForMessage('session.create', { kind: 'agent', apiKey: 'sk-SECRET' })).toEqual({ type: 'session.create', payload: '[redacted]' });
+    // Keystrokes are sensitive whoever sends them; session.create carries nothing secret any more (no guest API key,
+    // ARCHITECTURE §11 D-15), and a secret-named key is still replaced by name.
+    expect(auditDetailForMessage('exec.input', { sessionId: 'ses_1', data: new TextEncoder().encode('rm -rf /') })).toEqual({ type: 'exec.input', payload: '[redacted]' });
+    expect(sanitizeAuditDetail(auditDetailForMessage('session.create', { kind: 'agent', apiKey: 'sk-SECRET' }))).toEqual({ type: 'session.create', kind: 'agent', apiKey: '[redacted]' });
     expect(auditDetailForMessage('lock.release', { file: { root: MAIN_ROOT, path: 'a' } })).toEqual({ type: 'lock.release', file: { root: { kind: 'main' }, path: 'a' } });
   });
 });
@@ -140,6 +143,41 @@ describe('JsonlAuditLog bounds (security review F5, contract review C12)', () =>
     expect(entries.some((e) => e.actor.kind === 'system')).toBe(true);
     expect(entries.some((e) => e.action === 'auth.connect')).toBe(true);
     expect(live).toHaveLength(entries.length); // the host console gets exactly what is on disk
+    await log.close();
+  });
+
+  // Verification F-3 (2026-10-02): a local channel's actor is the host, and any session of a 「可使用 agent」 member
+  // reaches the control socket. With one budget per actor, a refusal flood through the socket used up the host's
+  // budget (the host's own web refusals in that minute were only counted) and the summary could not say where the
+  // counted refusals came from.
+  it('the control socket has a budget of its own (one per actor and origin), and its summary says via control-socket (verification F-3)', async () => {
+    base = await createTempDir('audit');
+    const path = join(base, 'audit.jsonl');
+    const clock = new ManualClock(1_760_000_000_000);
+    const log = await JsonlAuditLog.open(path, { clock, log: silentLogger, pageMax: 500, deniedPerActorPerMinute: 10 });
+    const host = { kind: 'user', userId: 'dev:host', displayName: 'Host' } as const;
+    withAuditVia('control-socket', () => {
+      for (let i = 0; i < 200; i++) log.record({ actor: host, action: 'authz.denied', outcome: 'denied', target: 'admin.member.list', detail: { reason: 'control-socket' } });
+    });
+    // The host's own refusals on the web in the same minute keep their budget.
+    for (let i = 0; i < 3; i++) log.record({ actor: host, action: 'authz.denied', outcome: 'denied', target: 'exec.resize', detail: { reason: 'not-owner:session' } });
+    // An explicit `via` of anything else is no origin of its own: it shares the relay budget (two budgets at most).
+    for (let i = 0; i < 20; i++) log.record({ actor: host, action: 'authz.denied', outcome: 'denied', target: 'file.write', detail: { reason: 'capability', via: `forged-${i}` } });
+    clock.advance(61_000);
+    log.record({ actor: host, action: 'authz.denied', outcome: 'denied', target: 'next-window' });
+    withAuditVia('control-socket', () => log.record({ actor: host, action: 'authz.denied', outcome: 'denied', target: 'next-window-socket' }));
+    const entries = (await log.query({ limit: 500 })).reverse();
+    const socket = entries.filter((e) => e.detail?.['via'] === 'control-socket');
+    const web = entries.filter((e) => e.detail?.['via'] !== 'control-socket');
+    expect(web.filter((e) => e.target === 'exec.resize')).toHaveLength(3);
+    // The relay budget: 3 + 7 recorded, the "rate limited" note, then counted; its summary names no origin.
+    expect(web.filter((e) => e.target === 'file.write')).toHaveLength(7 + 1);
+    expect(web.find((e) => e.target === 'audit-rate-limit')).toMatchObject({ actor: { userId: 'dev:host' }, detail: { reason: 'audit-rate-limit', notRecorded: 12 } });
+    expect(web.find((e) => e.target === 'audit-rate-limit')?.detail).not.toHaveProperty('via');
+    // The socket budget: 10 recorded, the note, a summary that says where the 189 counted ones came from.
+    expect(socket.filter((e) => e.target === 'admin.member.list')).toHaveLength(10 + 1);
+    expect(socket.find((e) => e.target === 'audit-rate-limit')).toMatchObject({ actor: { userId: 'dev:host' }, detail: { via: 'control-socket', reason: 'audit-rate-limit', notRecorded: 189 } });
+    expect(entries.filter((e) => e.target?.startsWith('next-window')).map((e) => e.target)).toEqual(['next-window', 'next-window-socket']);
     await log.close();
   });
 
@@ -205,13 +243,15 @@ describe('audit through the daemon', () => {
     const bytes = new TextEncoder().encode(MARKER);
     const host = await t.connectHost();
     const vera = await t.connect({ userId: 'dev:vera', role: 'viewer' });
-    const rita = await t.connect({ userId: 'dev:rita', role: 'runner' });
+    const rita = await t.connect({ userId: 'dev:rita', role: 'agent' });
     const write = { file: { root: MAIN_ROOT, path: 'x.txt' }, content: bytes };
     await vera.conn.request('file.write', write).catch(() => {}); // denied
     await host.conn.request('file.write', write).catch(() => {}); // allowed (probe)
-    await vera.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24, apiKey: MARKER }).catch(() => {});
-    await rita.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24, apiKey: MARKER }).catch(() => {});
-    await rita.conn.request('session.importConfig', { files: [{ relPath: 'CLAUDE.md', content: bytes }] }).catch(() => {});
+    await vera.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24, title: MARKER }).catch(() => {});
+    await rita.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24, title: MARKER }).catch(() => {});
+    // Terminal data (exec.input) is sensitive whoever types it; an agent member may drive any session (§11 D-15).
+    rita.conn.notify('exec.input', { sessionId: 'sess_nope', data: bytes });
+    vera.conn.notify('exec.input', { sessionId: 'sess_nope', data: bytes });
     const { url } = await host.conn.request('admin.invite.create', { role: 'editor' });
     const secret = new URL(url).hash.slice(1);
     await t.ctx.audit.flush();

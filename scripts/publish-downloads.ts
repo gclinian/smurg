@@ -93,7 +93,7 @@ export const LATEST_CACHE = 'public, max-age=300';
 export const TEXT_TYPE = 'text/plain; charset=utf-8';
 export const BINARY_TYPE = 'application/octet-stream';
 /** What every executable bundles; its notices must name each (scripts/release-assets.sh refuses the same). */
-export const NOTICE_COMPONENTS = ['node-pty', '@parcel/watcher', '@anthropic-ai/sandbox-runtime', 'Node.js'] as const;
+export const NOTICE_COMPONENTS = ['node-pty', '@parcel/watcher', 'Node.js'] as const;
 /** The committed packages/cli/THIRD-PARTY-NOTICES.txt says this where the Node.js LICENSE goes: not a release's file. */
 export const NOTICES_PLACEHOLDER = 'In the copy of this file that is built';
 /** The first line of the Node.js LICENSE, which scripts/build-sea.ts puts into the notices' Node.js section. */

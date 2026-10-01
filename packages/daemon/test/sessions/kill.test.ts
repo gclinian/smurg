@@ -76,21 +76,21 @@ describe('R2 踢人', { timeout: 60_000 }, () => {
   it('被踢的使用者 3 秒內失去所有存取權，他的 session 程序被終止 — a background job, a nohup job, a job ignoring SIGHUP/SIGTERM and a detached daemon', async () => {
     const s = await stack();
     const host = await s.t.connectHost();
-    const runner = await s.t.connect({ userId: 'dev:carol', role: 'runner' });
-    const { session } = await runner.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 160, rows: 40 });
-    const view = new TestViewer(runner.conn, session.id);
+    const carol = await s.t.connect({ userId: 'dev:carol', role: 'agent' });
+    const { session } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 160, rows: 40 });
+    const view = new TestViewer(carol.conn, session.id);
     viewers.push(view);
     await view.attach({ cols: 160, rows: 40 });
     const bg = token('61');
     const nohupped = token('62');
     const stubborn = token('63');
     const detached = token('smurg-r22-detached-');
-    typeInto(runner.conn, session.id, `sleep ${bg} &\r`);
-    typeInto(runner.conn, session.id, `nohup sleep ${nohupped} >/dev/null 2>&1 &\r`);
-    typeInto(runner.conn, session.id, `sh -c "trap '' HUP TERM; exec sleep ${stubborn}" &\r`);
+    typeInto(carol.conn, session.id, `sleep ${bg} &\r`);
+    typeInto(carol.conn, session.id, `nohup sleep ${nohupped} >/dev/null 2>&1 &\r`);
+    typeInto(carol.conn, session.id, `sh -c "trap '' HUP TERM; exec sleep ${stubborn}" &\r`);
     // setsid + reparented to init, but it keeps the session's environment: found by the env marker.
     typeInto(
-      runner.conn,
+      carol.conn,
       session.id,
       `'${process.execPath}' -e "require('child_process').spawn(process.execPath, ['-e', 'setInterval(function(){}, 1000)', '${detached}'], { detached: true, stdio: 'ignore' }).unref()"\r`,
     );
@@ -119,13 +119,13 @@ describe('R2 踢人', { timeout: 60_000 }, () => {
 
   it('a guest\'s nohup job survives neither a natural `exit` of its session (remembered descendants) nor a kick', async () => {
     const s = await stack();
-    const runner = await s.t.connect({ userId: 'dev:carol', role: 'runner' });
-    const { session } = await runner.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 120, rows: 40 });
+    const carol = await s.t.connect({ userId: 'dev:carol', role: 'agent' });
+    const { session } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 120, rows: 40 });
     const job = token('66');
-    typeInto(runner.conn, session.id, `nohup sleep ${job} >/dev/null 2>&1 &\r`);
+    typeInto(carol.conn, session.id, `nohup sleep ${job} >/dev/null 2>&1 &\r`);
     await waitFor(async () => (await pidsOf(`sleep ${job}`)).length > 0, 'the nohup job');
     await sleep(2_600); // at least one descendant scan while the shell runs
-    typeInto(runner.conn, session.id, 'exit\r');
+    typeInto(carol.conn, session.id, 'exit\r');
     await waitFor(() => s.sessions.get(session.id)?.status === 'exited', 'the natural exit');
     await waitFor(async () => (await pidsOf(`sleep ${job}`)).length === 0, 'the orphaned job to be gone', 5_000);
   });
@@ -149,8 +149,8 @@ describe('R2 踢人', { timeout: 60_000 }, () => {
     await waitFor(async () => (await pidsOf(`sleep ${covered}`)).length === 0, 'the covered job to be gone', 3_000);
     await sleep(500);
     const survivors = await pidsOf(`sleep ${escapee}`);
-    // This is exactly what ARCHITECTURE §11 D-3 says is NOT covered (for a guest it would stay inside the sandbox;
-    // on Linux srt's PID namespace takes it down, but this host session has no sandbox).
+    // This is exactly what ARCHITECTURE §11 D-3 says is NOT covered, on macOS and Linux alike since D-15 (no session
+    // has a sandbox or a PID namespace any more, whoever opened it).
     expect(survivors).toHaveLength(1);
     for (const pid of survivors) await killOwnProcess(pid, escapee);
     await waitFor(async () => (await pidsOf(`sleep ${escapee}`)).length === 0, 'the escapee to be gone');
@@ -158,22 +158,22 @@ describe('R2 踢人', { timeout: 60_000 }, () => {
 });
 
 describe('R11 主人控制台', { timeout: 60_000 }, () => {
-  it('主人能從控制台一鍵終止任何 session — a runner\'s session and the host\'s own, processes included', async () => {
+  it('主人能從控制台一鍵終止任何 session — a 「可使用 agent」 member\'s session and the host\'s own, processes included', async () => {
     const s = await stack();
     const host = await s.t.connectHost();
-    const runner = await s.t.connect({ userId: 'dev:carol', role: 'runner' });
-    const guestSession = (await runner.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 100, rows: 30 })).session;
+    const carol = await s.t.connect({ userId: 'dev:carol', role: 'agent' });
+    const guestSession = (await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 100, rows: 30 })).session;
     const hostSession = (await host.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 100, rows: 30 })).session;
     const a = token('71');
     const b = token('72');
-    typeInto(runner.conn, guestSession.id, `sleep ${a} &\r`);
+    typeInto(carol.conn, guestSession.id, `sleep ${a} &\r`);
     typeInto(host.conn, hostSession.id, `sleep ${b} &\r`);
     await waitFor(async () => (await pidsOf(`sleep ${a}`)).length > 0 && (await pidsOf(`sleep ${b}`)).length > 0, 'both jobs');
 
     const states: string[] = [];
     host.conn.on('session.state', ({ session }) => states.push(`${session.id}:${session.status}`));
     const seenByOwner: { endReason?: string; endedBy?: { userId: string } }[] = [];
-    runner.conn.on('session.state', ({ session }) => {
+    carol.conn.on('session.state', ({ session }) => {
       if (session.id === guestSession.id && session.status === 'exited') seenByOwner.push(session);
     });
     await host.conn.request('admin.session.terminate', { sessionId: guestSession.id });
@@ -186,14 +186,14 @@ describe('R11 主人控制台', { timeout: 60_000 }, () => {
     // The owner learns it was the host, not a normal exit (review WEB-12).
     await waitFor(() => seenByOwner.length > 0, 'the exited state at the owner');
     expect(seenByOwner.at(-1)).toMatchObject({ endReason: 'terminated', endedBy: { userId: TEST_HOST_USER } });
-    const listed = (await runner.conn.request('session.list', {})).sessions.find((x) => x.id === guestSession.id);
+    const listed = (await carol.conn.request('session.list', {})).sessions.find((x) => x.id === guestSession.id);
     expect(listed).toMatchObject({ status: 'exited', endReason: 'terminated', endedBy: { userId: TEST_HOST_USER } });
     const entries = await s.t.ctx.audit.query({ limit: 100 });
     const terminated = entries.filter((e) => e.action === 'session.terminate');
     expect(terminated.map((e) => e.target).sort()).toEqual([guestSession.id, hostSession.id].sort());
     expect(terminated.every((e) => e.actor.kind === 'user' && e.actor.userId === TEST_HOST_USER)).toBe(true);
     // A non-host cannot use the console's terminate.
-    await expect(runner.conn.request('admin.session.terminate', { sessionId: hostSession.id })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(carol.conn.request('admin.session.terminate', { sessionId: hostSession.id })).rejects.toMatchObject({ code: 'forbidden' });
   });
 });
 

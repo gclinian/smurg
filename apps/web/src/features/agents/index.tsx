@@ -1,21 +1,17 @@
 // The agents panel (SPEC R4, R7 「agent 面板」, goal 2 「所有組員都能即時看到每個 agent 在改什麼」): a tab for EVERY
-// session of the workspace — everyone may watch — with its owner, kind, status, where it runs and whether it is
-// sandboxed; the terminal (xterm.js, loaded lazily); session creation and ending; the login guide; importing personal
-// settings. The focused session (sessions.focus) is shared with the suggestions panel below, which shows the composer
-// for someone else's session and the owner's queue for one's own.
+// session of the workspace — everyone may watch — with who opened it, kind, status and where it runs; the terminal
+// (xterm.js, loaded lazily); session creation and ending. Every session runs as the host (protocol v2): the host and
+// 可使用 agent open sessions and type into any of them. The focused session (sessions.focus) is shared with the
+// suggestions panel below, which shows the composer to editors and the queue of suggestions to those who may type.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
 import { useStore } from '../../lib/store.ts';
-import { selectRole, selectSettings, selectUserId, selectWorkspaceInfo } from '../../lib/stores/workspace.ts';
+import { selectUserId } from '../../lib/stores/workspace.ts';
 import { useCapabilities, useCommandHandler, useCommands, useStores } from '../../lib/workspace/context.tsx';
-import { Badge, Banner, Button, EmptyState, Menu, Panel, Spinner, Tabs, useToast } from '../../ui/index.ts';
-import { IconAgent, IconKey, IconMore, IconPlus, IconTerminal, IconUpload } from '../../ui/icons.tsx';
+import { Badge, Banner, Button, EmptyState, Panel, Spinner, Tabs } from '../../ui/index.ts';
+import { IconAgent, IconPlus, IconTerminal } from '../../ui/icons.tsx';
 import { EndSessionDialog } from './EndSessionDialog.tsx';
-import { ImportConfigDialog } from './ImportConfigDialog.tsx';
-import { startLoginProcess } from './LoginGuide.tsx';
-import { describeSessionError } from './session-info.ts';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
-import { guestSessionsOff } from './new-session.ts';
 import { SessionView } from './SessionView.tsx';
 import { statusLabel, tabLabel } from './session-info.ts';
 import { t } from './strings.ts';
@@ -36,14 +32,8 @@ export function AgentsPanel(_props: AgentsPanelProps) {
   const commands = useCommands();
   const caps = useCapabilities();
   const userId = useStore(stores.workspace, selectUserId);
-  const settings = useStore(stores.workspace, selectSettings);
-  const role = useStore(stores.workspace, selectRole);
-  const workspaceInfo = useStore(stores.workspace, selectWorkspaceInfo);
   const sessionsState = useStore(stores.sessions);
-  // A guest kept out of the main workspace in a share without worktrees (ARCHITECTURE §11 D-14) opens no session.
-  const ownSessionsOff = guestSessionsOff(role, workspaceInfo, settings?.guestMainWorkspace);
-  const canCreateOwn = caps.sessionCreate !== null && !ownSessionsOff;
-  const toast = useToast();
+  const canCreate = caps.canCreateSession;
 
   // While a full resync reloads the list, keep showing the last one: the terminals stay mounted and re-attach from
   // their offsets instead of being torn down and repainted from a snapshot.
@@ -60,17 +50,18 @@ export function AgentsPanel(_props: AgentsPanelProps) {
     if (sessionsState.status === 'ready') lastList.current = list;
   }, [sessionsState.status, list]);
 
-  // Pending suggestions waiting for MY decision, per session (the owner's badge on the tab).
+  // Pending suggestions waiting for a decision this member may make (session.drive: any session), per session.
   const suggestionMap = useStore(stores.suggestions, (state) => state.suggestions);
+  const canDecide = caps.canDrive;
   const pendingBySession = useMemo(() => {
     const counts: Record<string, number> = {};
+    if (!canDecide) return counts;
     for (const suggestion of suggestionMap.values()) {
-      if (suggestion.status !== 'pending') continue;
-      if (sessionsState.sessions.get(suggestion.sessionId)?.ownerUserId !== userId) continue;
+      if (suggestion.status !== 'pending' || !sessionsState.sessions.has(suggestion.sessionId)) continue;
       counts[suggestion.sessionId] = (counts[suggestion.sessionId] ?? 0) + 1;
     }
     return counts;
-  }, [suggestionMap, sessionsState.sessions, userId]);
+  }, [suggestionMap, sessionsState.sessions, canDecide]);
 
   const selected = list.find((session) => session.id === sessionsState.focusedId) ?? list[0] ?? null;
   const selectedId = selected?.id ?? null;
@@ -97,44 +88,13 @@ export function AgentsPanel(_props: AgentsPanelProps) {
   });
 
   const [newOpen, setNewOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
   const [ending, setEnding] = useState<{ session: SessionInfo; mode: 'end' | 'terminate' } | null>(null);
 
+  // Everyone sees the button; an editor or a viewer is told in the dialog why they cannot open a session.
   const actions = (
-    <>
-      <Button size="sm" variant="ghost" icon={<IconPlus />} onClick={() => setNewOpen(true)}>
-        {t('action.new')}
-      </Button>
-      {caps.can('session.create.sandboxed') ? (
-        <Menu
-          label={t('action.more')}
-          icon={<IconMore />}
-          size="sm"
-          items={[
-            { id: 'import', label: t('action.import'), icon: <IconUpload />, onSelect: () => setImportOpen(true) },
-            // A guest's own subscription login (ARCHITECTURE §11 D-12), unless the host switched it off.
-            ...(settings?.guestSubscriptionLogin !== false && userId !== null
-              ? [
-                  {
-                    id: 'login',
-                    label: t('login.guestSub.start'),
-                    icon: <IconKey />,
-                    onSelect: () => {
-                      startLoginProcess(stores.sessions, userId).then(
-                        (login) => stores.sessions.focus(login.id),
-                        (error: unknown) => {
-                          const view = describeSessionError(error);
-                          toast.show({ tone: 'danger', title: view.title, description: `${view.message}${view.hint ? ` ${view.hint}` : ''}` });
-                        },
-                      );
-                    },
-                  },
-                ]
-              : []),
-          ]}
-        />
-      ) : null}
-    </>
+    <Button size="sm" variant="ghost" icon={<IconPlus />} onClick={() => setNewOpen(true)}>
+      {t('action.new')}
+    </Button>
   );
 
   let body;
@@ -158,9 +118,9 @@ export function AgentsPanel(_props: AgentsPanelProps) {
           compact
           icon={<IconTerminal />}
           title={t('empty.title')}
-          description={canCreateOwn ? t('empty.canCreate') : ownSessionsOff ? t('empty.guestOff') : t('empty.cannotCreate')}
+          description={canCreate ? t('empty.canCreate') : t('empty.cannotCreate')}
           action={
-            canCreateOwn ? (
+            canCreate ? (
               <Button size="sm" variant="primary" icon={<IconPlus />} onClick={() => setNewOpen(true)}>
                 {t('action.new')}
               </Button>
@@ -204,7 +164,6 @@ export function AgentsPanel(_props: AgentsPanelProps) {
                 keepTerminal={recent.includes(session.id) || session.id === selectedId}
                 onEnd={(target) => setEnding({ session: target, mode: 'end' })}
                 onTerminate={(target) => setEnding({ session: target, mode: 'terminate' })}
-                onReplaced={(created) => stores.sessions.focus(created.id)}
               />
             ),
           };
@@ -220,7 +179,6 @@ export function AgentsPanel(_props: AgentsPanelProps) {
         setNewOpen(false);
         stores.sessions.focus(session.id);
       }} />
-      <ImportConfigDialog open={importOpen} onClose={() => setImportOpen(false)} />
       <EndSessionDialog session={ending?.session ?? null} mode={ending?.mode ?? 'end'} onClose={() => setEnding(null)} />
     </Panel>
   );

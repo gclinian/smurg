@@ -221,7 +221,7 @@ describe('host-only paths (ARCHITECTURE §5.2)', () => {
     expect(isHostOnlyPath(path)).toBe(true);
   });
 
-  // SEC-D-03: what the sandbox hides from guest agents is hidden from guest humans too.
+  // SEC-D-03: host-private files are refused to every non-host through file.* (no guest sandbox since §11 D-15).
   it.each([
     '.claude/settings.local.json',
     'packages/web/.claude/settings.local.json',

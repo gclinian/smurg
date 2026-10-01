@@ -27,21 +27,20 @@ export interface TerminalStreamListener {
 
 export interface SessionsStore extends ReadableStore<SessionsState> {
   reload(): Promise<void>;
-  /** The role decides sandboxed vs host session; the client never chooses (ARCHITECTURE §5.5). */
+  /** Host and 可使用 agent (session.create); every session runs as the host (protocol v2). */
   create(input: PayloadInputOf<'session.create'>): Promise<SessionInfo>;
-  /** Owner only. `keepWorktree` answers the R9 question 「保留 worktree？」. */
+  /** The member who opened it. `keepWorktree` answers the R9 question 「保留 worktree？」. */
   end(sessionId: string, options?: { keepWorktree?: boolean }): Promise<void>;
   /** Host only: end anyone's session (admin.session.terminate). */
   terminate(sessionId: string): Promise<void>;
-  /** Owner only: runs `claude auth status` in the session's environment. */
+  /** session.drive: runs `claude auth status` (the host's Claude login, which every session uses). */
   loginStatus(sessionId: string): Promise<ResultOf<'session.loginStatus'>['login']>;
   attach(input: PayloadInputOf<'session.attach'>): Promise<ResultOf<'session.attach'>>;
   detach(sessionId: string): void;
-  /** Owner only: keystrokes / paste. */
+  /** session.drive (host and 可使用 agent, any session): keystrokes / paste. */
   input(sessionId: string, data: Uint8Array): void;
-  /** Owner only: the owner's viewport drives the PTY size. */
+  /** session.drive; the web sends it from the panel of the member who opened the session only (terminal-fit.ts). */
   resize(sessionId: string, cols: number, rows: number): void;
-  importConfig(files: PayloadInputOf<'session.importConfig'>['files']): Promise<readonly string[]>;
   /** Receives exec.output / exec.resize of one session, in stream order. */
   stream(sessionId: string, listener: TerminalStreamListener): () => void;
   focus(sessionId: string | null): void;
@@ -129,9 +128,6 @@ export function createSessionsArea(): { store: SessionsStore; lifecycle: AreaLif
     resize(sessionId, cols, rows) {
       context().conn.notify('exec.resize', { sessionId, cols, rows }, { whenDisconnected: 'drop' });
     },
-    async importConfig(files) {
-      return (await context().conn.request('session.importConfig', { files })).written;
-    },
     stream(sessionId, listener) {
       let set = listeners.get(sessionId);
       if (!set) {
@@ -171,12 +167,12 @@ export function createSessionsArea(): { store: SessionsStore; lifecycle: AreaLif
 }
 
 /**
- * A session's name without a trailing 「（owner）」, for wording that names the owner itself: the daemon's default titles
- * already carry it (「終端機（王小明）」), and 「王小明 的 終端機（王小明）」 / 「終端機（王小明）（王小明）」 read as machine-made
- * (reviews WEB-06, WEB-13).
+ * A session's name without a trailing 「（owner）」 or 「（owner 開的）」, for wording that names the person who opened it
+ * itself: the daemon's default titles already carry it (「終端機（王小明）」), and 「王小明 的 終端機（王小明）」 /
+ * 「終端機（王小明）（王小明 開的）」 read as machine-made (reviews WEB-06, WEB-13).
  */
 export function plainSessionTitle(session: { readonly title: string; readonly ownerName: string }): string {
-  const suffix = `（${session.ownerName}）`;
-  const title = session.title.endsWith(suffix) ? session.title.slice(0, -suffix.length) : session.title;
+  const suffix = [`（${session.ownerName}）`, `（${session.ownerName} 開的）`].find((candidate) => session.title.endsWith(candidate));
+  const title = suffix === undefined ? session.title : session.title.slice(0, -suffix.length);
   return title.trim() === '' ? session.title : title;
 }

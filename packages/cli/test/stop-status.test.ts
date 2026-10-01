@@ -40,7 +40,7 @@ describe('smurg status', () => {
     expect(io.out()).toContain('目前沒有正在分享的工作區');
   });
 
-  it('lists every running daemon with its relay, connections, fingerprint, keep-awake, guest sandbox, switches and log file', async () => {
+  it('lists every running daemon with its relay, connections, fingerprint, keep-awake, the Bash-attribution switch and log file', async () => {
     const { dirs, env } = await setup();
     const a = await hostDaemon(dirs, 'ws_status_aaaaaaaaaaaa');
     const other = join(dirs.home, 'other');
@@ -60,11 +60,9 @@ describe('smurg status', () => {
     expect(io.out()).toContain(`  daemon 金鑰指紋：${a.fingerprint}\n`);
     expect(io.out()).toContain(`  紀錄檔：${join(dirs.stateDir, 'logs', 'ws_status_aaaaaaaaaaaa.log')}\n`);
     expect(io.out()).toContain('  relay：互動連線 未使用，檔案傳輸 未使用\n');
-    // No sandbox module in these daemons: nothing checked.
-    expect(io.out()).toContain('  客人沙盒：尚未檢查\n');
-    expect(io.out()).toContain('  組員的 Claude 訂閱登入：開放\n');
+    // The one switch left (§11 D-13); there is no guest sandbox, no guest login and no main-workspace switch any more.
     expect(io.out()).toContain('  agent 的 shell 指令通知：開啟\n');
-    expect(io.out()).toContain(a.config.sessions.guestMainWorkspace ? '  客人的主工作區 session：已開放\n' : '  客人的主工作區 session：未開放（客人只能用自己的 worktree）；這個資料夾不是 git repository');
+    for (const gone of ['客人沙盒', '訂閱登入', '主工作區', 'runner']) expect(io.out(), gone).not.toContain(gone);
     const one = testIo({ env });
     expect(await runCli(['status', '--workspace', 'ws_status_nothing000'], one)).toBe(3);
     expect(one.out()).toContain('沒有正在執行的 smurg host');

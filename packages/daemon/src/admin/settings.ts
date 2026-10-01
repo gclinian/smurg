@@ -1,6 +1,6 @@
 // Host settings (admin.settings.get / set; ARCHITECTURE §5.8). Persisted in state.json. Beyond the protocol schema,
 // shared directories (D12) must be existing, non-host-only directories of the main root: a shared dir is linked
-// read-only into every worktree, so sharing `.git` or `.claude` would hand guests what §5.2 protects.
+// read-only into every worktree, so sharing `.git` or `.claude` would hand members what §5.2 protects.
 import { lstat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SmurgError, hostSettingsPatchSchema, hostSettingsSchema, isHostOnlyPath, type HostSettings, type HostSettingsPatch, type PublicSettings } from '@smurg/protocol';
@@ -14,35 +14,15 @@ export interface SettingsDeps {
   readonly bus: EventBus;
   /** realpath of the main root. */
   readonly mainRealPath: string;
-  /**
-   * config.sessions.guestSubscriptionLogin (ARCHITECTURE §11 D-12): whether guests may start their Claude login
-   * process. Configuration, not a console setting (HostSettings does not carry it): published to every member in
-   * PublicSettings so a client offers only what the daemon allows. The daemon enforces it on its own either way.
-   */
-  readonly guestSubscriptionLogin: boolean;
-  /**
-   * config.sessions.guestMainWorkspace (ARCHITECTURE §11 D-14): whether guests' sandboxed sessions may use the main
-   * workspace (off by default on a Linux host). Configuration as well; published so the new-session dialog offers
-   * only what the daemon allows (worktree mode otherwise). The daemon enforces it on its own (SessionManager.create).
-   */
-  readonly guestMainWorkspace: boolean;
 }
 
-/** The daemon-configuration switches every member is told about (PublicSettings). */
-export interface PublicSwitches {
-  readonly guestSubscriptionLogin: boolean;
-  readonly guestMainWorkspace: boolean;
-}
-
-/** What every member sees: the host settings a client works with, plus the switches of the daemon's configuration. */
-export function publicSettingsOf(settings: HostSettings, config: PublicSwitches): PublicSettings {
+/** What every member sees: the host settings a client works with. */
+export function publicSettingsOf(settings: HostSettings): PublicSettings {
   return {
     humanLockIdleMs: settings.humanLockIdleMs,
     agentLockTimeoutMs: settings.agentLockTimeoutMs,
     uploadChunkSize: settings.uploadChunkSize,
     sharedDirs: [...settings.sharedDirs],
-    guestSubscriptionLogin: config.guestSubscriptionLogin,
-    guestMainWorkspace: config.guestMainWorkspace,
   };
 }
 
@@ -58,7 +38,7 @@ export class SettingsServiceImpl implements SettingsService {
   }
 
   public(): PublicSettings {
-    return publicSettingsOf(this.get(), { guestSubscriptionLogin: this.deps.guestSubscriptionLogin, guestMainWorkspace: this.deps.guestMainWorkspace });
+    return publicSettingsOf(this.get());
   }
 
   async update(patch: HostSettingsPatch, by: Principal): Promise<HostSettings> {

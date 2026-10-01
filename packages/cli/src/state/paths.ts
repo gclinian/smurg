@@ -15,11 +15,6 @@ export interface StatePaths {
   readonly workspaces: string;
   /** Daemon logs of `smurg host` (never secrets). */
   readonly logsDir: string;
-  /**
-   * The empty directory `smurg host` runs its daemon from (0700): srt resolves the guest sandbox's mandatory write
-   * denies against the process's working directory (ARCHITECTURE §7.6, review linux-binary F1).
-   */
-  readonly daemonCwd: string;
 }
 
 /** The person's home directory as the CLI sees it ($HOME first, so tests can fake it). */
@@ -44,8 +39,12 @@ export function statePaths(env: Readonly<Record<string, string | undefined>>): S
     credentials: join(stateDir, 'credentials.json'),
     workspaces: join(stateDir, 'workspaces.json'),
     logsDir: join(stateDir, 'logs'),
-    daemonCwd: join(stateDir, 'cwd'),
   };
+}
+
+/** The daemon's state of one workspace (keys, members, invites, audit): `<stateDir>/workspaces/<workspaceId>`. */
+export function workspaceStateDir(paths: StatePaths, workspaceId: string): string {
+  return join(paths.stateDir, 'workspaces', workspaceId);
 }
 
 /** The daemon log of `smurg host` for one workspace: `<stateDir>/logs/<workspaceId>.log` (shown by `smurg status`). */

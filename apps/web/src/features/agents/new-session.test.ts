@@ -1,23 +1,14 @@
-// What the new-session dialog offers per role (SPEC §8, ARCHITECTURE §5.5), where a session may run (R9) and the
+// What the new-session dialog offers per role (ARCHITECTURE §3, §5.5), where a session may run (R9) and the
 // session.create payload it builds. Pure logic: the dialog itself is tested in NewSessionDialog.test.tsx.
 import { describe, expect, it } from 'vitest';
 import type { Role, SessionInfo, WorkspaceInfo } from '@smurg/protocol';
 import { makeSession, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
-import {
-  apiKeyApplies,
-  apiKeyProblem,
-  buildCreatePayload,
-  defaultWhere,
-  effectiveWhere,
-  guestSessionsOff,
-  keptOutOfMain,
-  newSessionOptions,
-} from './new-session.ts';
+import { buildCreatePayload, effectiveWhere, newSessionOptions } from './new-session.ts';
 
 const workspace = (isGitRepo: boolean): WorkspaceInfo => ({ ...makeWelcome().workspace, isGitRepo });
 const options = (
   role: Role | null,
-  extra: { git?: boolean; userId?: string; worktrees?: Parameters<typeof newSessionOptions>[0]['worktrees']; sessions?: SessionInfo[]; guestMainWorkspace?: boolean } = {},
+  extra: { git?: boolean; userId?: string; worktrees?: Parameters<typeof newSessionOptions>[0]['worktrees']; sessions?: SessionInfo[] } = {},
 ) =>
   newSessionOptions({
     role,
@@ -25,32 +16,28 @@ const options = (
     workspace: workspace(extra.git ?? true),
     worktrees: extra.worktrees ?? [],
     sessions: new Map((extra.sessions ?? []).map((session) => [session.id, session])),
-    ...(extra.guestMainWorkspace !== undefined ? { guestMainWorkspace: extra.guestMainWorkspace } : {}),
   });
 
 describe('new session: what each role may open (the daemon decides again)', () => {
-  it('the host opens an unsandboxed host session', () => {
-    expect(options('host')).toMatchObject({ canCreate: true, blockedBy: null, sandboxed: false });
-  });
-
-  it('a runner opens a sandboxed session and may bring an API key for an agent (never for a terminal)', () => {
-    const runner = options('runner');
-    expect(runner).toMatchObject({ canCreate: true, blockedBy: null, sandboxed: true });
-    expect(apiKeyApplies(runner, 'agent')).toBe(true);
-    expect(apiKeyApplies(runner, 'terminal')).toBe(false);
-    expect(apiKeyApplies(options('host'), 'agent')).toBe(false);
+  it('the host and 「可使用 agent」 open sessions (they run as the host either way)', () => {
+    expect(options('host')).toMatchObject({ canCreate: true, blockedBy: null });
+    expect(options('agent')).toMatchObject({ canCreate: true, blockedBy: null });
   });
 
   it('an editor and a viewer cannot open sessions, and are told why', () => {
-    expect(options('editor')).toMatchObject({ canCreate: false, blockedBy: 'role-editor', sandboxed: null });
-    expect(options('viewer')).toMatchObject({ canCreate: false, blockedBy: 'role-viewer', sandboxed: null });
-    expect(options(null)).toMatchObject({ canCreate: false, blockedBy: 'not-admitted', sandboxed: null });
+    expect(options('editor')).toMatchObject({ canCreate: false, blockedBy: 'role-editor' });
+    expect(options('viewer')).toMatchObject({ canCreate: false, blockedBy: 'role-viewer' });
+    expect(options(null)).toMatchObject({ canCreate: false, blockedBy: 'not-admitted' });
+  });
+
+  it('the options carry nothing about a sandbox or a login of the member', () => {
+    expect(Object.keys(options('agent')).sort()).toEqual(['blockedBy', 'canCreate', 'worktree']);
   });
 });
 
 describe('new session: where it runs (R9)', () => {
   it('a folder that is not a git repository has no worktree choice (with the reason)', () => {
-    const plain = options('runner', { git: false, worktrees: [makeWorktree({ kept: true })] });
+    const plain = options('agent', { git: false, worktrees: [makeWorktree({ kept: true })] });
     expect(plain.worktree).toEqual({ available: false, unavailableReason: 'not-git', kept: [] });
   });
 
@@ -61,102 +48,44 @@ describe('new session: where it runs (R9)', () => {
     const notKept = makeWorktree({ id: 'wt_temp', kept: false });
     const others = makeWorktree({ id: 'wt_bob', kept: true, ownerUserId: 'dev:bob', ownerName: 'Bob' });
     const sessions = [makeSession({ id: 'sess_done', status: 'exited' }), makeSession({ id: 'sess_live', status: 'running' })];
-    const result = options('runner', { worktrees: [mine, newer, busy, notKept, others], sessions });
+    const result = options('agent', { worktrees: [mine, newer, busy, notKept, others], sessions });
     expect(result.worktree.available).toBe(true);
     expect(result.worktree.kept.map((worktree) => worktree.id)).toEqual(['wt_new', 'wt_old']);
   });
 
-  it('builds session.create: main, a new worktree, or a kept one; never a sandbox flag', () => {
-    const runner = options('runner', { worktrees: [makeWorktree({ id: 'wt_9', kept: true })] });
+  it('a choice that is gone falls back to the main workspace', () => {
+    const agent = options('agent', { worktrees: [makeWorktree({ id: 'wt_9', kept: true })] });
+    expect(effectiveWhere(agent, 'main')).toBe('main');
+    expect(effectiveWhere(agent, 'worktree:new')).toBe('worktree:new');
+    expect(effectiveWhere(agent, 'worktree:wt_9')).toBe('worktree:wt_9');
+    expect(effectiveWhere(agent, 'worktree:wt_gone')).toBe('main');
+    expect(effectiveWhere(options('agent', { git: false }), 'worktree:new')).toBe('main');
+  });
+
+  it('builds session.create: main, a new worktree, or a kept one — the same for the host and 可使用 agent', () => {
     const size = { cols: 100, rows: 30 };
-    const base = { kind: 'agent' as const, title: '', apiKey: '' };
-    expect(buildCreatePayload(runner, { ...base, where: 'main' }, size)).toEqual({ kind: 'agent', workspace: { mode: 'main' }, cols: 100, rows: 30 });
-    expect(buildCreatePayload(runner, { ...base, where: 'worktree:new' }, size).workspace).toEqual({ mode: 'worktree' });
-    expect(buildCreatePayload(runner, { ...base, where: 'worktree:wt_9' }, size).workspace).toEqual({ mode: 'worktree', worktreeId: 'wt_9' });
+    const base = { kind: 'agent' as const, title: '' };
+    for (const role of ['host', 'agent'] as const) {
+      const opts = options(role, { worktrees: [makeWorktree({ id: 'wt_9', kept: true })] });
+      expect(buildCreatePayload(opts, { ...base, where: 'main' }, size)).toEqual({ kind: 'agent', workspace: { mode: 'main' }, cols: 100, rows: 30 });
+      expect(buildCreatePayload(opts, { ...base, where: 'worktree:new' }, size).workspace).toEqual({ mode: 'worktree' });
+      expect(buildCreatePayload(opts, { ...base, where: 'worktree:wt_9' }, size).workspace).toEqual({ mode: 'worktree', worktreeId: 'wt_9' });
+    }
     // Not a git repository: whatever the form says, the session runs in the main workspace.
-    const plain = options('runner', { git: false });
-    expect(buildCreatePayload(plain, { ...base, where: 'worktree:new' }, size).workspace).toEqual({ mode: 'main' });
-    for (const payload of [buildCreatePayload(runner, { ...base, where: 'main' }, size), buildCreatePayload(options('host'), { ...base, where: 'main' }, size)]) {
-      expect(Object.keys(payload)).not.toContain('sandboxed');
-    }
+    expect(buildCreatePayload(options('agent', { git: false }), { ...base, where: 'worktree:new' }, size).workspace).toEqual({ mode: 'main' });
   });
 
-  it('sends the API key only for a runner\'s agent session, trimmed; a title only when given', () => {
+  it('sends a title only when given (trimmed), and never an API key', () => {
     const size = { cols: 80, rows: 24 };
-    const withKey = { where: 'main' as const, title: '  修登入頁 ', apiKey: '  sk-ant-test-key ' };
-    expect(buildCreatePayload(options('runner'), { ...withKey, kind: 'agent' }, size)).toMatchObject({ apiKey: 'sk-ant-test-key', title: '修登入頁' });
-    expect(buildCreatePayload(options('runner'), { ...withKey, kind: 'terminal' }, size)).not.toHaveProperty('apiKey');
-    expect(buildCreatePayload(options('host'), { ...withKey, kind: 'agent' }, size)).not.toHaveProperty('apiKey');
-    expect(buildCreatePayload(options('runner'), { ...withKey, title: '   ', apiKey: '', kind: 'agent' }, size)).not.toHaveProperty('title');
-  });
-
-  it('checks the API key format before anything is sent', () => {
-    expect(apiKeyProblem('')).toBeNull();
-    expect(apiKeyProblem('sk-ant-api03-abc_DEF-123')).toBeNull();
-    expect(apiKeyProblem('has space')).toBe('invalid');
-    expect(apiKeyProblem('x'.repeat(257))).toBe('invalid');
-    expect(apiKeyProblem('中文')).toBe('invalid');
-  });
-});
-
-describe('new session: a host that keeps guests out of the main workspace (PublicSettings.guestMainWorkspace, ARCHITECTURE §11 D-14)', () => {
-  const size = { cols: 100, rows: 30 };
-  const base = { kind: 'agent' as const, title: '', apiKey: '' };
-
-  it('undefined (an older daemon) and true leave everything as it was: the main workspace is offered and preselected', () => {
-    for (const guestMainWorkspace of [undefined, true]) {
-      const runner = options('runner', guestMainWorkspace === undefined ? {} : { guestMainWorkspace });
-      expect(runner).toMatchObject({ canCreate: true, blockedBy: null, sandboxed: true, main: { available: true, unavailableReason: null } });
-      expect(defaultWhere(runner)).toBe('main');
-      expect(buildCreatePayload(runner, { ...base, where: 'main' }, size).workspace).toEqual({ mode: 'main' });
-      const plain = options('runner', { git: false, ...(guestMainWorkspace === undefined ? {} : { guestMainWorkspace }) });
-      expect(plain).toMatchObject({ canCreate: true, main: { available: true } });
-    }
-  });
-
-  it('false, git share: a guest gets worktrees only — main unavailable with the reason, a new worktree preselected, never a main-mode request', () => {
-    const runner = options('runner', { guestMainWorkspace: false, worktrees: [makeWorktree({ id: 'wt_9', kept: true })] });
-    expect(runner).toMatchObject({ canCreate: true, blockedBy: null, sandboxed: true, main: { available: false, unavailableReason: 'host-off' } });
-    expect(runner.worktree).toMatchObject({ available: true, unavailableReason: null });
-    expect(defaultWhere(runner)).toBe('worktree:new');
-    // A form still at its initial 「共享主工作區」 (or anything forged) becomes the guest's own new worktree.
-    expect(effectiveWhere(runner, 'main')).toBe('worktree:new');
-    expect(effectiveWhere(runner, 'worktree:wt_9')).toBe('worktree:wt_9');
-    expect(effectiveWhere(runner, 'worktree:wt_gone')).toBe('worktree:new');
-    expect(buildCreatePayload(runner, { ...base, where: 'main' }, size).workspace).toEqual({ mode: 'worktree' });
-    expect(buildCreatePayload(runner, { ...base, kind: 'terminal', where: 'main' }, size).workspace).toEqual({ mode: 'worktree' });
-    expect(buildCreatePayload(runner, { ...base, where: 'worktree:wt_9' }, size).workspace).toEqual({ mode: 'worktree', worktreeId: 'wt_9' });
-    // The API key still applies to the guest's agent (it is their own login, wherever the session runs).
-    expect(apiKeyApplies(runner, 'agent')).toBe(true);
-  });
-
-  it('false, a share that is not git: a guest cannot open a session at all, and is told why (guest-sessions-off)', () => {
-    const plain = options('runner', { git: false, guestMainWorkspace: false });
-    expect(plain).toMatchObject({ canCreate: false, blockedBy: 'guest-sessions-off', sandboxed: null, main: { available: false, unavailableReason: 'host-off' } });
-    expect(plain.worktree).toMatchObject({ available: false, unavailableReason: 'not-git' });
-    expect(guestSessionsOff('runner', workspace(false), false)).toBe(true);
-    expect(guestSessionsOff('runner', workspace(true), false)).toBe(false);
-    expect(guestSessionsOff('runner', workspace(false), undefined)).toBe(false);
-    expect(guestSessionsOff('runner', null, false)).toBe(true);
-  });
-
-  it("the host's own (unsandboxed) sessions are never affected, git or not", () => {
-    for (const git of [true, false]) {
-      const host = options('host', { git, guestMainWorkspace: false });
-      expect(host).toMatchObject({ canCreate: true, blockedBy: null, sandboxed: false, main: { available: true, unavailableReason: null } });
-      expect(defaultWhere(host)).toBe('main');
-      expect(buildCreatePayload(host, { ...base, where: 'main' }, size).workspace).toEqual({ mode: 'main' });
-    }
-    expect(keptOutOfMain('host', false)).toBe(false);
-  });
-
-  it('editors and viewers keep their own reason (they open no session either way)', () => {
-    expect(options('editor', { guestMainWorkspace: false })).toMatchObject({ canCreate: false, blockedBy: 'role-editor' });
-    expect(options('viewer', { git: false, guestMainWorkspace: false })).toMatchObject({ canCreate: false, blockedBy: 'role-viewer' });
-    expect(keptOutOfMain('editor', false)).toBe(false);
-    expect(keptOutOfMain('viewer', false)).toBe(false);
-    expect(keptOutOfMain(null, false)).toBe(false);
-    expect(keptOutOfMain('runner', false)).toBe(true);
-    expect(keptOutOfMain('runner', true)).toBe(false);
+    expect(buildCreatePayload(options('agent'), { kind: 'agent', where: 'main', title: '  修登入頁 ' }, size)).toEqual({
+      kind: 'agent',
+      workspace: { mode: 'main' },
+      cols: 80,
+      rows: 24,
+      title: '修登入頁',
+    });
+    const blank = buildCreatePayload(options('agent'), { kind: 'terminal', where: 'main', title: '   ' }, size);
+    expect(blank).not.toHaveProperty('title');
+    expect(blank).not.toHaveProperty('apiKey');
   });
 });

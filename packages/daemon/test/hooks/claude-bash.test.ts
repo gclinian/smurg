@@ -18,7 +18,7 @@ import { HookServerImpl } from '../../src/hooks/hook-server.ts';
 import { hooksModule } from '../../src/hooks/module.ts';
 import { locksModule } from '../../src/locks/module.ts';
 import { createTestDaemon, waitFor, type TestDaemon } from '../../src/testing/index.ts';
-import { findClaude, isolatedEnv, runClaude } from './claude-harness.ts';
+import { findClaude, isolatedEnv, runClaude, seedClaudeTrust } from './claude-harness.ts';
 import { startMockAnthropic } from './mock-anthropic.ts';
 
 const found = await findClaude();
@@ -42,7 +42,7 @@ describe.skipIf(claude === null)(`D-13: an agent's Bash edit in the main workspa
       project: { files: { 'free.txt': 'free text\n', 'notes/todo.md': '- one\n' } },
       sessions: { selfCommand: { file: process.execPath, args: [CLI_MAIN] } },
     });
-    await t.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'runner' });
+    await t.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
   }, 60_000);
 
   afterAll(async () => {
@@ -52,14 +52,14 @@ describe.skipIf(claude === null)(`D-13: an agent's Bash edit in the main workspa
   it('a scripted Bash `sed` / `printf >` shows up in the activity feed as 「Claude（Ian）」, via bash; the Bash hook reported the window', async () => {
     const hooks = t.ctx.services.hooks as HookServerImpl;
     const sessionId = 'ses_claude_bash_1';
-    const creds = hooks.registerSession({ sessionId, ownerUserId: 'dev:ian', agentName: 'Claude（Ian）', root: MAIN_ROOT, sandboxed: true });
-    sessions.push({ id: sessionId, kind: 'agent', ownerUserId: 'dev:ian', ownerName: 'Ian', title: 'Claude（Ian）', sandboxed: true, root: MAIN_ROOT, status: 'running', cols: 80, rows: 24, createdAt: Date.now(), login: 'logged-in', attached: 0 });
+    const creds = hooks.registerSession({ sessionId, ownerUserId: 'dev:ian', agentName: 'Claude（Ian）', root: MAIN_ROOT });
+    sessions.push({ id: sessionId, kind: 'agent', ownerUserId: 'dev:ian', ownerName: 'Ian', title: 'Claude（Ian）', root: MAIN_ROOT, status: 'running', cols: 80, rows: 24, createdAt: Date.now(), login: 'logged-in', attached: 0 });
     const files = await hooks.writeSessionFiles(sessionId);
     const settings = JSON.parse(await readFile(files.settingsPath, 'utf8')) as { hooks: Record<string, { matcher?: string }[]> };
     expect(settings.hooks['PreToolUse']?.map((group) => group.matcher)).toEqual(['Edit|Write|MultiEdit|NotebookEdit', 'Bash']);
-    const guest = join(t.root, '..', `guest-${Date.now()}`);
-    for (const sub of ['home', 'cfg', 'tmp']) await mkdir(join(guest, sub), { recursive: true, mode: 0o700 });
-    await hooks.seedGuestClaudeConfig({ cfgDir: join(guest, 'cfg'), cwd: t.root });
+    const isolated = join(t.root, '..', `claude-run-${Date.now()}`);
+    for (const sub of ['home', 'cfg', 'tmp']) await mkdir(join(isolated, sub), { recursive: true, mode: 0o700 });
+    await seedClaudeTrust({ cfgDir: join(isolated, 'cfg'), cwd: t.root });
     const windows: string[] = [];
     t.ctx.bus.on('agent.tool.pre', (e) => e.tool === 'Bash' && e.file === null && windows.push(`start:${e.sessionId}`));
     t.ctx.bus.on('agent.tool.post', (e) => e.tool === 'Bash' && e.file === null && windows.push(`end:${e.sessionId}`));
@@ -70,7 +70,7 @@ describe.skipIf(claude === null)(`D-13: an agent's Bash edit in the main workspa
     try {
       const run = await runClaude(claude as NonNullable<typeof claude>, {
         cwd: t.root,
-        env: isolatedEnv(guest, mock.url, { ...creds.env }),
+        env: isolatedEnv(isolated, mock.url, { ...creds.env }),
         args: ['-p', 'run the scripted shell command', '--output-format', 'json', '--no-session-persistence', '--allowedTools', 'Bash', ...files.claudeArgs],
         timeoutMs: 120_000,
       });

@@ -60,7 +60,7 @@ export interface StackOptions {
   readonly modules?: readonly FeatureModule[];
   readonly timing?: Partial<TimingConfig>;
   readonly limits?: Partial<LimitsConfig>;
-  /** Session launch inputs (selfCommand, claudePath, testGuestEnv, …); hostHome is always the stack's fake home. */
+  /** Session launch inputs (selfCommand, claudePath, …); hostHome is always the stack's fake home. */
   readonly sessions?: Partial<Omit<SessionLaunchConfig, 'hostHome'>>;
   /** Daemon logger (default silent). */
   readonly log?: Logger;

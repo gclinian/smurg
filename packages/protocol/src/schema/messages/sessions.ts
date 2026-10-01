@@ -6,17 +6,8 @@ import {
   terminalColsSchema,
   terminalRowsSchema,
 } from '../entities.ts';
-import {
-  EXEC_INPUT_MAX_BYTES,
-  EXEC_OUTPUT_MAX_BYTES,
-  IMPORT_CONFIG_FILE_MAX_BYTES,
-  IMPORT_CONFIG_MAX_FILES,
-  IMPORT_CONFIG_TOTAL_MAX_BYTES,
-  LIST_MAX_ITEMS,
-  TERMINAL_ATTACH_MAX_BYTES,
-} from '../limits.ts';
-import { entryPathSchema, relPathSegments } from '../paths.ts';
-import { apiKeySchema, byteCountSchema, bytesSchema, opaqueIdSchema, shortTextSchema } from '../primitives.ts';
+import { EXEC_INPUT_MAX_BYTES, EXEC_OUTPUT_MAX_BYTES, LIST_MAX_ITEMS, TERMINAL_ATTACH_MAX_BYTES } from '../limits.ts';
+import { byteCountSchema, bytesSchema, opaqueIdSchema, shortTextSchema } from '../primitives.ts';
 import { emptyPayloadSchema } from './channel.ts';
 
 // session.* and exec.* (ARCHITECTURE §5.5, pty-packaging.md). Terminal output is addressed by absolute byte offset.
@@ -29,11 +20,9 @@ export const sessionWorkspaceSchema = z.discriminatedUnion('mode', [
 ]);
 
 /**
- * The caller's role decides the sandbox (host → unsandboxed, runner → sandboxed); a client never chooses it.
- * `apiKey` (sensitive): the guest's own key, sandboxed sessions only; held in daemon memory for that session,
- * injected only into that PTY's environment, never persisted, logged or audited.
- * `kind: 'login'` (addition, ARCHITECTURE §11 D-12): the caller's own Claude subscription login, guests only. The
- * daemon decides the command, its arguments, environment and directory; `workspace` must be `main` and `apiKey` absent.
+ * Needs `session.create` (host, 「可使用 agent」). The session runs like the host's own whoever opens it (ARCHITECTURE §11
+ * D-15): the host's OS user, unsandboxed, the host's environment and Claude Code login; the caller becomes its owner
+ * (attribution). (Protocol 1's `apiKey` and kind `login` are gone.)
  */
 export const sessionCreatePayloadSchema = z.strictObject({
   kind: sessionKindSchema,
@@ -41,7 +30,6 @@ export const sessionCreatePayloadSchema = z.strictObject({
   cols: terminalColsSchema,
   rows: terminalRowsSchema,
   title: shortTextSchema.optional(),
-  apiKey: apiKeySchema.optional(),
 });
 export const sessionCreateResultSchema = z.strictObject({ session: sessionInfoSchema });
 
@@ -54,8 +42,9 @@ export const sessionLoginStatusResultSchema = z.strictObject({ login: loginState
 
 /**
  * `haveOffset`: the client still holds output up to this offset (a raw `delta` is possible if no resize happened
- * since). `cols`/`rows` (addition, both or neither): the client's viewport; for the owner this drives the PTY size
- * (pty-packaging.md resize policy `owner`), for everyone else it is ignored.
+ * since). `cols`/`rows` (addition, both or neither): the client's viewport; for the owner (the member who opened the
+ * session) this drives the PTY size (pty-packaging.md resize policy `owner`), for everyone else it is ignored, also
+ * for the other members who may type into it (`session.drive`).
  */
 export const sessionAttachPayloadSchema = z
   .strictObject({
@@ -86,37 +75,6 @@ export const sessionEndResultSchema = emptyPayloadSchema;
 
 export const sessionStatePayloadSchema = z.strictObject({ session: sessionInfoSchema });
 
-/** Paths a guest may import into their own config dir: CLAUDE.md, commands/**, skills/** (SPEC R4). */
-export function isImportableConfigPath(path: string): boolean {
-  const segments = relPathSegments(path);
-  if (segments.length === 1) return segments[0] === 'CLAUDE.md';
-  return segments.length >= 2 && (segments[0] === 'commands' || segments[0] === 'skills');
-}
-
-const importConfigPathSchema = entryPathSchema.refine(
-  isImportableConfigPath,
-  'only CLAUDE.md, commands/** and skills/** can be imported',
-);
-
-/**
- * Writes into the caller's own guest config dir (sensitive: the files are the user's personal configuration). At most
- * IMPORT_CONFIG_TOTAL_MAX_BYTES of content per request (one Envelope is at most MAX_APP_MESSAGE): clients batch a
- * bigger import into several requests, and the daemon writes each request's files all or none.
- */
-export const sessionImportConfigPayloadSchema = z.strictObject({
-  files: z
-    .array(z.strictObject({ relPath: importConfigPathSchema, content: bytesSchema({ max: IMPORT_CONFIG_FILE_MAX_BYTES }) }))
-    .min(1)
-    .max(IMPORT_CONFIG_MAX_FILES)
-    .refine(
-      (files) => files.reduce((total, file) => total + file.content.byteLength, 0) <= IMPORT_CONFIG_TOTAL_MAX_BYTES,
-      `at most ${IMPORT_CONFIG_TOTAL_MAX_BYTES} bytes of content per request`,
-    ),
-});
-export const sessionImportConfigResultSchema = z.strictObject({
-  written: z.array(importConfigPathSchema).max(IMPORT_CONFIG_MAX_FILES),
-});
-
 /** PTY output starting at absolute byte `offset`. */
 export const execOutputPayloadSchema = z.strictObject({
   sessionId: opaqueIdSchema,
@@ -124,14 +82,14 @@ export const execOutputPayloadSchema = z.strictObject({
   data: bytesSchema({ min: 1, max: EXEC_OUTPUT_MAX_BYTES }),
 });
 
-/** Keystrokes / paste from the session owner. */
+/** Keystrokes / paste from a member who may drive the session (`session.drive`: any session). */
 export const execInputPayloadSchema = z.strictObject({
   sessionId: opaqueIdSchema,
   data: bytesSchema({ min: 1, max: EXEC_INPUT_MAX_BYTES }),
 });
 
 /**
- * c→d from the owner: resize the PTY. d→c (addition): the PTY was resized; viewers render at exactly this size.
+ * c→d from the owner (the member who opened the session): resize the PTY. d→c (addition): the PTY was resized; viewers render at exactly this size.
  * Sent in stream order with exec.output, so a viewer applies it between the right bytes.
  */
 export const execResizePayloadSchema = z.strictObject({

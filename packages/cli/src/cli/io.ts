@@ -45,13 +45,14 @@ export interface CliIo {
    * command line (argv is visible in `ps` and lands in shell history).
    */
   readSecret(prompt: string): Promise<string | null>;
+  /**
+   * One line the person types at a terminal, echoed (`prompt` goes to stderr), for a question like y/N. null when
+   * cancelled (Ctrl-D, end of input) and always when stdin or stdout is not a terminal: a question that must be
+   * answered by a person is never answered from a pipe or a script (they use the command's flag instead).
+   */
+  readLine(prompt: string): Promise<string | null>;
   /** Leaves immediately with `code` (a second Ctrl-C while stopping). */
   exit(code: number): void;
-  /**
-   * Changes the process's working directory (`smurg host` runs its daemon from a directory of its own; `cwd` above
-   * keeps the directory the command was typed in). Absent: nothing changes (tests that run a command in-process).
-   */
-  chdir?(dir: string): void;
   /** fetch / WebSocket for the relay; default: the runtime's own. */
   readonly fetch?: typeof globalThis.fetch;
   readonly WebSocket?: typeof globalThis.WebSocket;
@@ -189,6 +190,44 @@ function readSecretFromStdin(prompt: string): Promise<string | null> {
   });
 }
 
+/** processIo().readLine: a cooked-mode line at a terminal (the terminal echoes it); null without a terminal. */
+function readLineFromTerminal(prompt: string): Promise<string | null> {
+  const stdin = process.stdin;
+  if (!stdin.isTTY || !process.stdout.isTTY) return Promise.resolve(null);
+  process.stderr.write(prompt);
+  return new Promise((resolve) => {
+    let text = '';
+    let done = false;
+    const finish = (value: string | null): void => {
+      if (done) return;
+      done = true;
+      stdin.off('data', onData);
+      stdin.off('end', onEnd);
+      stdin.off('error', onEnd);
+      stdin.pause();
+      resolve(value === null ? null : value.trim());
+    };
+    const onEnd = (): void => finish(null);
+    const onData = (chunk: Buffer | string): void => {
+      const s = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      for (const ch of s) {
+        if (ch === '\r' || ch === '\n') return finish(text);
+        text += ch;
+        if (Buffer.byteLength(text) > SECRET_MAX_BYTES) return finish(null);
+      }
+    };
+    try {
+      stdin.setRawMode(false);
+    } catch {
+      // not a terminal any more
+    }
+    stdin.on('data', onData);
+    stdin.once('end', onEnd);
+    stdin.once('error', onEnd);
+    stdin.resume();
+  });
+}
+
 function processSituation(): BrowserSituation {
   return { env: process.env, stdinIsTTY: Boolean(process.stdin.isTTY), stdoutIsTTY: Boolean(process.stdout.isTTY), platform: process.platform };
 }
@@ -210,8 +249,8 @@ export function processIo(): CliIo {
     },
     openUrl: (url) => openInBrowser(url, processSituation()),
     readSecret: readSecretFromStdin,
+    readLine: readLineFromTerminal,
     exit: (code) => process.exit(code),
-    chdir: (dir) => process.chdir(dir),
     now: () => Date.now(),
   };
 }

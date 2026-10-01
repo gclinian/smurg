@@ -65,7 +65,7 @@ function answerEmpty(conn: FakeConnection): void {
     'admin.member.list': { members: [] },
     'admin.invite.list': { invites: [] },
     'admin.settings.get': {
-      settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], allowedDomains: [], diskReserveBytes: 0, diskReservePercent: 5 },
+      settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], diskReserveBytes: 0, diskReservePercent: 5 },
     },
     'admin.audit.query': { entries: [] },
   };

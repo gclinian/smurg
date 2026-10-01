@@ -1,15 +1,14 @@
-// createTempRunDir must hand out a directory in which EVERY socket of a daemon fits, whatever TMPDIR is. The real
-// sandbox tests passed under a short TMPDIR and refused to start under macOS's default one (/var/folders/…/T plus the
-// test runner's per-run root), because the budget covered the daemon's hook socket but not srt's longer proxy sockets.
+// createTempRunDir must hand out a directory in which EVERY socket of a daemon fits, whatever TMPDIR is: the hook socket
+// `<short>.hook` and the longer share-lock socket `<short>.<hex4>.lk` (macOS's default TMPDIR, /var/folders/…/T plus
+// the test runner's per-run root, is deep).
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { assertSocketPath, SOCKET_PATH_MAX_BYTES } from '../src/core/sockets.ts';
-import { srtSocketDirProblem } from '../src/sandbox/checks.ts';
 import { createTempRunDir, removeTempRunDir } from '../src/testing/index.ts';
 
-const LARGEST_PID = 9_999_999;
 const HOOK_SOCKET = 'abcdefghijkl.hook';
+const LOCK_SOCKET = 'abcdefghijkl.ffff.lk';
 const RUN_DIR_NAME = 'smurg-run-XXXXXX';
 const BASE_PREFIX = 'smurg-test-tmpdir-';
 
@@ -32,7 +31,7 @@ describe('createTempRunDir', () => {
 
   function expectEverySocketFits(dir: string): void {
     expect(() => assertSocketPath(join(dir, HOOK_SOCKET))).not.toThrow();
-    expect(srtSocketDirProblem(dir, LARGEST_PID)).toBeNull();
+    expect(() => assertSocketPath(join(dir, LOCK_SOCKET))).not.toThrow();
   }
 
   afterEach(async () => {
@@ -46,17 +45,16 @@ describe('createTempRunDir', () => {
     }
   });
 
-  it('fits the daemon sockets and srt’s proxy sockets under the current TMPDIR', async () => {
+  it('fits every daemon socket under the current TMPDIR', async () => {
     const dir = await createTempRunDir();
     runDirs.push(dir);
     expectEverySocketFits(dir);
   });
 
-  it('does not use a TMPDIR where the hook socket would fit but srt’s proxy sockets would not', async () => {
-    // The depth that bit us: a run dir below it holds `<short>.hook` with room to spare, and srt's sockets do not fit.
-    const tmp = await tmpdirOfLength(SOCKET_PATH_MAX_BYTES - Buffer.byteLength(`/${RUN_DIR_NAME}/${HOOK_SOCKET}`) - 3);
+  it('does not use a TMPDIR where the hook socket would fit but the share-lock socket would not', async () => {
+    const tmp = await tmpdirOfLength(SOCKET_PATH_MAX_BYTES - Buffer.byteLength(`/${RUN_DIR_NAME}/${HOOK_SOCKET}`) - 1);
     expect(() => assertSocketPath(join(tmp, RUN_DIR_NAME, HOOK_SOCKET))).not.toThrow();
-    expect(srtSocketDirProblem(join(tmp, RUN_DIR_NAME), LARGEST_PID)).not.toBeNull();
+    expect(() => assertSocketPath(join(tmp, RUN_DIR_NAME, LOCK_SOCKET))).toThrow();
     process.env['TMPDIR'] = tmp;
 
     const dir = await createTempRunDir();
@@ -67,7 +65,7 @@ describe('createTempRunDir', () => {
 
   it('does not use a TMPDIR that is too deep for any socket', async () => {
     const tmp = await tmpdirOfLength(SOCKET_PATH_MAX_BYTES - 8);
-    expect(srtSocketDirProblem(tmp, LARGEST_PID)).not.toBeNull();
+    expect(() => assertSocketPath(join(tmp, HOOK_SOCKET))).toThrow();
     process.env['TMPDIR'] = tmp;
 
     const dir = await createTempRunDir();

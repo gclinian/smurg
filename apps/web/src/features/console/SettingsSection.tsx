@@ -1,7 +1,7 @@
-// Host settings (admin.settings.get / set): shared read-only folders for worktrees (D12), extra network domains for
-// guest sandboxes (R5), lock timings (R8) and the disk reserve (R7). Validated as the host types (settings-form.ts),
-// applied at once by the daemon, and live: the form follows the current settings while it has no unsaved edits, and
-// re-reads them when they change elsewhere (another device of the host: channel.settingsUpdated).
+// Host settings (admin.settings.get / set): shared read-only folders for worktrees (D12), lock timings (R8) and the disk
+// reserve (R7). Validated as the host types (settings-form.ts), applied at once by the daemon, and live: the form
+// follows the current settings while it has no unsaved edits, and re-reads them when they change elsewhere (another
+// device of the host: channel.settingsUpdated).
 import { useEffect, useRef, useState } from 'react';
 import type { HostSettings } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -98,15 +98,6 @@ function SettingsForm({ settings }: { settings: HostSettings }) {
           value={shown.sharedDirs}
           error={parsed.errors.sharedDirs}
           onChange={(event) => edit('sharedDirs', event.currentTarget.value)}
-        />
-        <TextArea
-          label={t('settings.allowedDomains')}
-          hint={t('settings.allowedDomainsHint')}
-          rows={4}
-          spellCheck={false}
-          value={shown.allowedDomains}
-          error={parsed.errors.allowedDomains}
-          onChange={(event) => edit('allowedDomains', event.currentTarget.value)}
         />
         <Input
           label={t('settings.humanLockIdle')}

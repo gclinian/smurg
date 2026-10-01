@@ -4,9 +4,9 @@
 // hint says so: it is never clipped silently. Pure, so it is tested without a browser.
 //
 // Floors (the research's verified sizes):
-//  - agent and login sessions run Claude Code, whose TUI was captured and verified at 80 × 24 (pty-packaging.md F16,
-//    F17: first-run TUI and main REPL rendered correctly at 80 × 24 after a resize from 100 × 30); below that its
-//    Ink layout wraps its own boxes. A login only prints the URL and the code prompt (fewer rows): 80 × 12;
+//  - agent sessions run Claude Code, whose TUI was captured and verified at 80 × 24 (pty-packaging.md F16, F17:
+//    first-run TUI and main REPL rendered correctly at 80 × 24 after a resize from 100 × 30); below that its Ink layout
+//    wraps its own boxes;
 //  - a plain terminal is a shell, which re-flows itself: only the daemon's own clamp applies (20 × 5).
 // The ceiling is the daemon's clamp (500 × 200, packages/daemon/src/sessions/pty-session.ts clampSize).
 import type { SessionKind } from '@smurg/protocol';
@@ -39,7 +39,6 @@ export const PTY_SIZE_MAX: TerminalSize = Object.freeze({ cols: 500, rows: 200 }
 
 export const OWNER_SIZE_FLOOR: Readonly<Record<SessionKind, TerminalSize>> = Object.freeze({
   agent: Object.freeze({ cols: 80, rows: 24 }),
-  login: Object.freeze({ cols: 80, rows: 12 }),
   terminal: PTY_SIZE_MIN,
 });
 

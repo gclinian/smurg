@@ -1,8 +1,8 @@
-// TEST ONLY: fakes of the services the sessions module calls (sandbox, hooks, locks, presence, activity, worktrees),
+// TEST ONLY: fakes of the services the sessions module calls (hooks, locks, presence, activity, worktrees),
 // a fake `claude` executable, and a terminal VIEWER built like a real client (a headless xterm with the full set of
 // query swallow-handlers, pty-packaging.md §6.2) that follows session.attach + exec.output + exec.resize.
 import { randomBytes } from 'node:crypto';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import xtermHeadless from '@xterm/headless';
 import type { Connection } from '@smurg/protocol/client';
@@ -14,18 +14,13 @@ import type {
   HookSessionRegistration,
   LockManager,
   PresenceService,
-  SandboxPreflight,
-  SandboxRevocation,
-  SandboxService,
-  SandboxSpec,
   SessionLaunchFiles,
   WorktreeHandle,
   WorktreeManager,
-  WrappedCommand,
 } from '../../src/core/interfaces.ts';
 import { toDisposable } from '../../src/core/lifecycle.ts';
 import type { DaemonContext } from '../../src/core/context.ts';
-import { projectMcpServerNames, removeSessionFiles, writeSessionFiles } from '../../src/hooks/settings-writer.ts';
+import { removeSessionFiles, writeSessionFiles } from '../../src/hooks/settings-writer.ts';
 
 const { Terminal } = xtermHeadless;
 type HeadlessTerminal = InstanceType<typeof Terminal>;
@@ -33,83 +28,6 @@ type HeadlessTerminal = InstanceType<typeof Terminal>;
 // ---------------------------------------------------------------------------------------------------------------
 // Fakes
 // ---------------------------------------------------------------------------------------------------------------
-
-/** NOT a sandbox: runs the guest command unconfined (tests of everything but srt itself). Records every spec. */
-export class FakeSandbox implements SandboxService {
-  preflightResult: SandboxPreflight = { ok: true, platform: process.platform === 'linux' ? 'linux' : 'darwin' };
-  readonly wraps: SandboxSpec[] = [];
-  /** Every release() call, in order (the real service: bubblewrap's mount points on Linux). */
-  readonly released: WrappedCommand[] = [];
-  wrapError: Error | null = null;
-  /** Added to the wrapped command's environment (to make the session manager refuse what wrap() handed out). */
-  wrapExtraEnv: Record<string, string> | null = null;
-
-  async preflight(): Promise<SandboxPreflight> {
-    return this.preflightResult;
-  }
-
-  async wrap(spec: SandboxSpec): Promise<WrappedCommand> {
-    this.wraps.push(spec);
-    if (this.wrapError) throw this.wrapError;
-    const wrapped = { file: '/bin/sh', args: ['-c', spec.command], env: { ...spec.env, ...(this.wrapExtraEnv ?? {}) }, cwd: spec.rootPath };
-    this.handedOut.push(wrapped);
-    if (this.revokeOnWrap !== null) this.revoked.set(wrapped, this.revokeOnWrap);
-    return wrapped;
-  }
-
-  release(wrapped: WrappedCommand): void {
-    this.released.push(wrapped);
-  }
-
-  /** onRevoked listeners per handed-out command (the real one: a protected entry changed while it ran, guard.ts). */
-  private readonly revocationListeners = new Map<WrappedCommand, Set<(revocation: SandboxRevocation) => void>>();
-  private readonly revoked = new Map<WrappedCommand, SandboxRevocation>();
-  /** Every onRevoked registration, in order. */
-  readonly watched: WrappedCommand[] = [];
-  /** Handed-out commands revoked at once, from the next wrap() on (a change while the session was being started). */
-  revokeOnWrap: SandboxRevocation | null = null;
-
-  onRevoked(wrapped: WrappedCommand, listener: (revocation: SandboxRevocation) => void): () => void {
-    this.watched.push(wrapped);
-    const done = this.revoked.get(wrapped);
-    if (done !== undefined) {
-      listener(done);
-      return () => {};
-    }
-    let set = this.revocationListeners.get(wrapped);
-    if (set === undefined) {
-      set = new Set();
-      this.revocationListeners.set(wrapped, set);
-    }
-    set.add(listener);
-    const own = set;
-    return () => {
-      own.delete(listener);
-    };
-  }
-
-  /** Revokes every command handed out with `rootPath` (what the real sandbox does when a protected entry changed). */
-  revoke(rootPath: string, revocation: SandboxRevocation): number {
-    let count = 0;
-    for (const wrapped of [...this.handedOut]) {
-      if (wrapped.cwd !== rootPath || this.revoked.has(wrapped)) continue;
-      this.revoked.set(wrapped, revocation);
-      count++;
-      for (const listener of this.revocationListeners.get(wrapped) ?? []) listener(revocation);
-      this.revocationListeners.delete(wrapped);
-    }
-    return count;
-  }
-
-  /** Listeners still registered (removed when a session ends). */
-  listening(): number {
-    return [...this.revocationListeners.values()].reduce((sum, set) => sum + set.size, 0);
-  }
-
-  private readonly handedOut: WrappedCommand[] = [];
-
-  async setAllowedDomains(): Promise<void> {}
-}
 
 export class FakeHooks implements HookServer {
   readonly socketPath = '/tmp/smurg-fake.hook';
@@ -137,16 +55,8 @@ export class FakeHooks implements HookServer {
     if (!ctx || !registration) throw new Error(`FakeHooks: session ${sessionId} is not registered`);
     const command = ctx.config.sessions.selfCommand;
     if (command === null) throw new Error('FakeHooks: no selfCommand');
-    const rootRealPath = ctx.roots.get(registration.root)?.realPath;
-    if (!rootRealPath) throw new Error('FakeHooks: unknown root');
-    const variant = registration.sandboxed ? 'guest' : 'host';
-    const mcpJson = variant === 'guest' ? await readFile(join(rootRealPath, '.mcp.json'), 'utf8').catch(() => '') : '';
-    return writeSessionFiles({
-      stateDir: ctx.config.stateDir,
-      workspaceId: ctx.config.workspaceId,
-      sessionId,
-      settings: { variant, command, rootRealPath, projectMcpServers: projectMcpServerNames(mcpJson) },
-    });
+    if (!ctx.roots.get(registration.root)) throw new Error('FakeHooks: unknown root');
+    return writeSessionFiles({ stateDir: ctx.config.stateDir, workspaceId: ctx.config.workspaceId, sessionId, settings: { command } });
   }
 
   async removeSessionFiles(sessionId: string): Promise<void> {
@@ -216,7 +126,6 @@ export class FakeWorktrees {
 }
 
 export interface Fakes {
-  readonly sandbox: FakeSandbox;
   readonly hooks: FakeHooks;
   readonly locks: FakeLocks;
   readonly presence: FakePresence;
@@ -225,7 +134,7 @@ export interface Fakes {
 }
 
 export function createFakes(): Fakes {
-  return { sandbox: new FakeSandbox(), hooks: new FakeHooks(), locks: new FakeLocks(), presence: new FakePresence(), activity: new FakeActivity(), worktrees: new FakeWorktrees() };
+  return { hooks: new FakeHooks(), locks: new FakeLocks(), presence: new FakePresence(), activity: new FakeActivity(), worktrees: new FakeWorktrees() };
 }
 
 /** Provides the fakes as services (a module like any other). */
@@ -236,7 +145,6 @@ export function fakeServicesModule(fakes: Fakes): FeatureModule {
       fakes.worktrees.ctx = ctx;
       fakes.hooks.ctx = ctx;
       return {
-        sandbox: fakes.sandbox,
         hooks: fakes.hooks,
         locks: fakes.locks as unknown as LockManager,
         presence: fakes.presence as unknown as PresenceService,
@@ -249,8 +157,8 @@ export function fakeServicesModule(fakes: Fakes): FeatureModule {
 }
 
 /**
- * A fake `claude`: `--version` prints `version`, `auth status --json` reports logged in iff ANTHROPIC_API_KEY is set,
- * `auth logout` is logged, anything else records its argv and waits (cat).
+ * A fake `claude`: `--version` prints `version`, `auth status --json` reports logged in iff ANTHROPIC_API_KEY is set
+ * (in the host environment the session got), `auth logout` is logged, anything else records its argv and waits (cat).
  */
 export async function writeFakeClaude(dir: string, version: string): Promise<{ path: string; logDir: string }> {
   const logDir = join(dir, 'fake-claude-log');

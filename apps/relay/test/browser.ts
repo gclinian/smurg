@@ -1,23 +1,11 @@
-// A minimal stand-in for a browser: a cookie jar (host-only, no path scoping needed here), manual redirects, form
-// POSTs and the relay's meta-refresh "continue" pages. The real-browser tests are in cli-login.browser.test.ts.
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
+// A minimal stand-in for a browser: a cookie jar (host-only, no path scoping needed here), manual redirects and form
+// POSTs. The real-browser tests are in cli-login.browser.test.ts.
 
 export type Hop = { url: string; status: number; location: string | null; setCookies: string[]; method: string };
-
-const ENTITIES: Record<string, string> = { '&amp;': '&', '&quot;': '"', '&#39;': "'", '&lt;': '<', '&gt;': '>' };
-
-/** The target of a relay page's `<meta http-equiv="refresh" content="0;url=…">`, or null. */
-export function metaRefreshTarget(html: string): string | null {
-  const match = /<meta http-equiv="refresh" content="0;url=([^"]*)">/.exec(html);
-  return match ? (match[1] ?? '').replace(/&(amp|quot|#39|lt|gt);/g, (entity) => ENTITIES[entity] ?? entity) : null;
-}
 
 export type NavigateOptions = {
   /** Follow 3xx redirects (default true). */
   follow?: boolean;
-  /** Also follow meta refreshes of HTML pages, like a browser (default false). */
-  meta?: boolean;
   /** Stop before requesting a URL that starts with this. */
   stopAt?: string;
 };
@@ -73,7 +61,7 @@ export class CookieBrowser {
   private async navigate(
     url: string,
     first: { method: string; headers?: Record<string, string>; body?: string },
-    { follow = true, meta = false, stopAt }: NavigateOptions,
+    { follow = true, stopAt }: NavigateOptions,
   ): Promise<{ res: Response; url: string; body: string }> {
     let current = url;
     let request = first;
@@ -85,49 +73,11 @@ export class CookieBrowser {
       const location = res.headers.get('location');
       const body = await res.text();
       this.hops.push({ url: current, status: res.status, location, setCookies, method: request.method });
-      let next: string | null = null;
-      if (follow && location !== null && res.status >= 300 && res.status < 400) next = location;
-      else if (follow && meta && res.status === 200 && (res.headers.get('content-type') ?? '').startsWith('text/html')) next = metaRefreshTarget(body);
-      if (next === null) return { res, url: current, body };
-      current = new URL(next, current).href;
+      if (!follow || location === null || res.status < 300 || res.status >= 400) return { res, url: current, body };
+      current = new URL(location, current).href;
       request = { method: 'GET' };
       if (stopAt !== undefined && current.startsWith(stopAt)) return { res, url: current, body };
     }
     throw new Error('too many redirects');
   }
-}
-
-export type LoopbackListener = {
-  port: number;
-  /** Resolves with the query of the first request to /callback. */
-  callback: Promise<URLSearchParams>;
-  /** Every request target the listener received, in order. */
-  readonly requests: string[];
-  close(): Promise<void>;
-};
-
-/** The CLI's loopback listener (RFC 8252): 127.0.0.1, random port, one callback. */
-export async function loopbackListener(): Promise<LoopbackListener> {
-  let resolveCallback!: (params: URLSearchParams) => void;
-  const callback = new Promise<URLSearchParams>((resolve) => {
-    resolveCallback = resolve;
-  });
-  const requests: string[] = [];
-  const server = createServer((req, res) => {
-    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-    requests.push(req.url ?? '');
-    res.end('ok');
-    if (url.pathname === '/callback') resolveCallback(url.searchParams);
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-  return {
-    port: (server.address() as AddressInfo).port,
-    callback,
-    requests,
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        server.closeAllConnections();
-      }),
-  };
 }

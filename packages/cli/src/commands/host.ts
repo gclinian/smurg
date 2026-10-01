@@ -1,13 +1,11 @@
 // `smurg host <folder> [--relay URL] [--role R] [--expires D] [--max-uses N] [--name N] [--web-origin URL]
-//  [--no-keep-awake] [--no-browser] [--no-guest-subscription-login] [--no-bash-attribution]
-//  [--allow-main-workspace-guests | --no-main-workspace-guests]`
-// (SPEC R1, §6, §11; ARCHITECTURE §8): shares a folder from this machine. The two `--no-…` switches turn off the guests'
-// subscription login process (config.sessions.guestSubscriptionLogin, §11 D-12) and the Bash activity hook
-// (config.activity.attributeBashEdits, §11 D-13); the third opens or closes the main workspace to guests' sandboxed
-// sessions (config.sessions.guestMainWorkspace, §11 D-14; default: closed on a Linux host, open on macOS).
+//  [--no-keep-awake] [--no-browser] [--no-bash-attribution]`
+// (SPEC R1, §6, §11; ARCHITECTURE §8): shares a folder from this machine. `--no-bash-attribution` turns off the Bash
+// activity hook (config.activity.attributeBashEdits, §11 D-13). `--role agent` makes the printed link a 「可使用 agent」
+// invite (§11 D-15: its members open sessions that run as this machine's user, with the host's Claude login).
 //
 // The terminal shows only what the host uses or must act on (owner decision 2026-10-01): the two links. What the
-// switches mean, the SPEC §11 warnings, the fingerprint and keep-awake are explained in docs/HOSTING.md
+// switch means, the SPEC §11 warnings, the fingerprint and keep-awake are explained in docs/HOSTING.md
 // (https://smurg.ai/docs/hosting/, named in --help), and `smurg status` shows their state on this machine (stop.ts).
 //
 //  1. validates the folder (exists, a directory, not the home directory, not a parent of — or inside — the state dir)
@@ -16,13 +14,11 @@
 //  3. claims the folder's workspace id at the relay (kept in workspaces.json, so members and the audit log survive);
 //  4. runs the daemon in the foreground with DEFAULT_FEATURE_MODULES and keeps the machine awake;
 //  5. prints the workspace's name, the host's own link and a guest invite (its expiry, and its role and use limit when
-//     the host chose them) — the links go to the terminal only, never to the log file; then, only when they happen,
-//     one-line notices the host must act on: keep-awake refused at the start, the guest sandbox unavailable (with the
-//     fix commands, CLI-02);
+//     the host chose them) — the links go to the terminal only, never to the log file; then, only when it happens,
+//     a one-line notice the host must act on: keep-awake refused at the start;
 //  6. tells the host when the relay link drops or recovers, when the relay refuses the host's login (and picks up a
 //     renewed login from credentials.json without a restart), when that login is about to expire, when a state file
-//     cannot be written (reviews REL-08, CLI-03, CLI-10, REL-14), when keep-awake is lost (CLI-13) and when a host-only
-//     entry changed while guests ran (Linux, reviews RV-1, RV-2);
+//     cannot be written (reviews REL-08, CLI-03, CLI-10, REL-14) and when keep-awake is lost (CLI-13);
 //  7. stops gracefully on Ctrl-C / SIGTERM / SIGHUP or `smurg stop` (another Ctrl-C within 2 s is ignored, a later one
 //     leaves at once; CLI-06).
 import { createWriteStream } from 'node:fs';
@@ -39,9 +35,6 @@ import {
   SocketPathError,
   createDaemon,
   createLineLogger,
-  isStubService,
-  LOG_UNSAFE_CHARACTER,
-  quoteForLog,
   type Daemon,
   type FeatureModule,
   type HostSocketFactory,
@@ -51,7 +44,6 @@ import {
   type Logger,
   type PowerService,
   type PowerStatus,
-  type SandboxPreflight,
 } from '@smurg/daemon';
 import { INVITE_EXPIRES_IN_SEC_MAX, INVITE_MAX_USES_MAX, type GuestRole } from '@smurg/protocol';
 import { isRelayApiError } from '@smurg/protocol/client';
@@ -64,7 +56,7 @@ import { ctlPathFor, daemonAt, runningDaemons } from '../channel/discover.ts';
 import { ensureSession } from '../relay/login.ts';
 import { pickRelay, relayApi, relayDefaultText, relayOriginOf, relayProblem } from '../relay/relay.ts';
 import { loadCredentials, type StoredSession } from '../state/credentials.ts';
-import { homeDirOf, hostLogPath } from '../state/paths.ts';
+import { homeDirOf, hostLogPath, workspaceStateDir } from '../state/paths.ts';
 import { stateProblem } from '../state/private-file.ts';
 import { loadWorkspaces, newWorkspaceId, rememberSharedFolder, sharedFolderFor, type WorkspaceBook } from '../state/workspaces.ts';
 import { NativeExtractionError, ensureSeaNative } from '../sea/native.ts';
@@ -76,38 +68,33 @@ export function hostUsage(): string {
   return `用法：smurg host <資料夾> [選項]
 
   分享這台電腦上的一個專案資料夾，印出兩個連結：你自己的，和給組員的。smurg host 會一直在前景執行，按 Ctrl-C
-  或在另一個終端機執行 smurg stop 停止分享。金鑰指紋、各項設定、客人沙盒與紀錄檔的位置：smurg status。
+  或在另一個終端機執行 smurg stop 停止分享。金鑰指紋、設定與紀錄檔的位置：smurg status。
   --relay 網址        relay 的網址（${relayDefaultText()}）
-  --role 角色        給組員的連結的角色：runner（可執行 agent）、editor（可編輯，預設）、viewer（旁觀）
+  --role 角色        給組員的連結的角色：agent（可使用 agent）、editor（可編輯，預設）、viewer（旁觀）
+                      可使用 agent 的組員開的 session 以你的身分在這台電腦上執行、用你的 Claude 登入，
+                      也能在任何 session 裡輸入：只給你完全信任的人
   --expires 期限      給組員的連結的有效期限，例如 30m、12h、7d（預設 7d，最長 365d）
   --max-uses 次數     給組員的連結可以使用的次數（預設不限）
   --name 名稱         工作區顯示的名稱（預設：資料夾名稱）
   --web-origin 網址   連結指向的網頁（預設：relay 本身；本機開發可用 http://localhost:5173）
   --no-keep-awake     分享期間不防止電腦睡眠
   --no-browser        需要登入 relay 時不自動開啟瀏覽器，只顯示網址（SMURG_NO_BROWSER=1 也一樣）
-  --no-guest-subscription-login
-                      不讓組員用 Claude 訂閱帳號登入，組員只能用自己的 API key（預設開放）
   --no-bash-attribution
                       agent 執行 shell 指令時不通知 smurg（預設通知）
-  --allow-main-workspace-guests
-                      開放客人（runner）在共享主工作區開 session（macOS 預設開放；Linux 預設不開放，開放前請先看說明）
-  --no-main-workspace-guests
-                      不開放客人在共享主工作區開 session，客人只能在自己的 worktree 裡工作
 
   分享前必讀：https://smurg.ai/docs/hosting/#4-分享前必讀
-  最後四個選項的意思與風險：https://smurg.ai/docs/hosting/#5-組員的-claude-登入客人的主工作區agent-的-shell-指令
+  「可使用 agent」角色與 --no-bash-attribution 的意思與風險：https://smurg.ai/docs/hosting/#5-可使用-agent角色與-agent-的-shell-指令
 `;
 }
 
-/** The defaults of the two switches (ARCHITECTURE §11 D-12, D-13; the daemon's own defaults are the same). */
-export const HOST_SWITCH_DEFAULTS = Object.freeze({ guestSubscriptionLogin: true, attributeBashEdits: true });
+/** The default of the switch (ARCHITECTURE §11 D-13; the daemon's own default is the same). */
+export const HOST_SWITCH_DEFAULTS = Object.freeze({ attributeBashEdits: true });
 
-const ROLE_NAMES: Readonly<Record<GuestRole, string>> = { runner: '可執行 agent', editor: '可編輯', viewer: '旁觀' };
+const ROLE_NAMES: Readonly<Record<GuestRole, string>> = { agent: '可使用 agent', editor: '可編輯', viewer: '旁觀' };
 const DEFAULT_ROLE: GuestRole = 'editor';
 const DEFAULT_EXPIRES = '7d';
-/** daemon.stop() reasons this command uses itself (the daemon's own 'start-failed' included). */
-const INTERNAL_STOP_START_FAILED = 'start-failed';
-const INTERNAL_STOP_SUMMARY_FAILED = 'summary-failed';
+/** daemon.stop() reason when the summary (the invite link) could not be made; only for the log. */
+const STOP_SUMMARY_FAILED = 'summary-failed';
 const MIN_EXPIRES_SEC = 60;
 /** How often the host command looks at the keep-awake status after the start. */
 const POWER_WATCH_MS = 2_000;
@@ -253,24 +240,23 @@ async function openLog(ctx: CommandContext, workspaceId: string): Promise<{ logg
 }
 
 /**
- * The daemon runs from an empty, private directory of its own (`<stateDir>/cwd`), wherever `smurg host` was typed
- * (review linux-binary F1). srt resolves the guest sandbox's mandatory write denies against the process's working
- * directory on every wrap: after `cd project && smurg host .` bubblewrap put empty 0444 `.bashrc`, `.gitconfig`,
- * `.gitmodules`, … into the host's project while a guest process ran, and a project with a `.claude/` of its own
- * refused every guest session. Every path of this command is absolute by now (the folder was resolved against
- * `io.cwd`), and the daemon passes an explicit working directory to everything it starts.
+ * A state file the daemon refuses (review F3): written by another smurg version (protocol 2 has no compatibility with
+ * earlier state, ARCHITECTURE §11 D-15) or not in the expected format. The daemon logged which file and why; there is
+ * no migration: the way forward is a fresh workspace state.
  */
-async function enterDaemonCwd(ctx: CommandContext): Promise<void> {
-  try {
-    await ensurePrivateDirectory(ctx.paths.daemonCwd);
-    ctx.io.chdir?.(ctx.paths.daemonCwd);
-  } catch (err) {
-    throw stateProblem(err, 'daemon 的工作目錄');
-  }
+function stateFileProblem(err: unknown, logPath: string, workspaceDir: string): CliError {
+  return new CliError('這個工作區的狀態檔是別的 smurg 版本寫的，或不是預期的格式，daemon 拒絕啟動', {
+    hint:
+      `哪個檔案、什麼原因記在紀錄檔 ${logPath}。\n  ` +
+      `要重新分享：先把 ${workspaceDir} 移到別的地方（例如 mv "${workspaceDir}" "${workspaceDir}.old"），再執行一次 smurg host。` +
+      '這會建立新的工作區狀態：之前的成員和邀請連結都不再有效，組員要用新的邀請連結重新加入。\n  ' +
+      'daemon 金鑰也會換新，加入過的組員會看到「主人的電腦金鑰和之前不同」：請把 smurg status 顯示的新金鑰指紋用其他管道（當面、電話）告訴他們。',
+    cause: err,
+  });
 }
 
 /** A daemon start failure as the person should read it. */
-function daemonProblem(err: unknown, logPath: string): CliError {
+function daemonProblem(err: unknown, logPath: string, workspaceDir: string): CliError {
   if (err instanceof CliError) return err;
   if (err instanceof ShareError) {
     const text: Record<string, string> = {
@@ -294,7 +280,7 @@ function daemonProblem(err: unknown, logPath: string): CliError {
     });
   }
   if (err instanceof KeyFileError) return stateProblem(err, 'daemon 的金鑰或狀態目錄');
-  if (err instanceof StateFileError) return new CliError('工作區的狀態檔損毀，daemon 拒絕啟動', { hint: `詳細原因請看紀錄檔 ${logPath}`, cause: err });
+  if (err instanceof StateFileError) return stateFileProblem(err, logPath, workspaceDir);
   if (err instanceof SocketPathError) return new CliError('smurg 狀態目錄的路徑太長，Unix socket 放不下', { hint: '請把 SMURG_HOME 設成較短的路徑。', cause: err });
   const named = err as { name?: unknown; code?: unknown };
   if (named?.name === 'ControlSocketError' && named.code === 'daemon-running') {
@@ -320,9 +306,9 @@ function formatTime(epochMs: number): string {
 
 function parseRole(text: string | undefined): GuestRole {
   if (text === undefined) return 'editor';
-  if (text === 'runner' || text === 'editor' || text === 'viewer') return text;
-  if (text === 'host') throw usageError('邀請連結不能是主人角色（host）', '可用的角色：runner、editor、viewer。');
-  throw usageError(`不認得的角色「${text}」`, '可用的角色：runner（可執行 agent）、editor（可編輯）、viewer（旁觀）。');
+  if (text === 'agent' || text === 'editor' || text === 'viewer') return text;
+  if (text === 'host') throw usageError('邀請連結不能是主人角色（host）', '可用的角色：agent、editor、viewer。');
+  throw usageError(`不認得的角色「${text}」`, '可用的角色：agent（可使用 agent）、editor（可編輯）、viewer（旁觀）。');
 }
 
 function parseName(text: string | undefined): string | undefined {
@@ -344,10 +330,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
       'web-origin': { kind: 'string' },
       'keep-awake': { kind: 'boolean' },
       browser: { kind: 'boolean' },
-      'guest-subscription-login': { kind: 'boolean' },
       'bash-attribution': { kind: 'boolean' },
-      // §11 D-14: `--allow-main-workspace-guests` / `--no-main-workspace-guests`, nothing else (cli/args.ts `positive`).
-      'main-workspace-guests': { kind: 'boolean', positive: 'allow-main-workspace-guests' },
       help: { kind: 'boolean', short: 'h' },
     },
     positionals: ['資料夾'],
@@ -365,13 +348,8 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   const maxUses = maxUsesText === undefined ? undefined : parseCount(maxUsesText, '--max-uses ', 1, INVITE_MAX_USES_MAX);
   const name = parseName(stringOption(args, 'name'));
   const keepAwake = booleanOption(args, 'keep-awake') !== false;
-  // ARCHITECTURE §11 D-12 / D-13: both on unless the host switches them off (`--no-…`; `--x --no-x` is refused).
-  const switches: { readonly guestSubscriptionLogin: boolean; readonly attributeBashEdits: boolean } = {
-    guestSubscriptionLogin: booleanOption(args, 'guest-subscription-login') ?? HOST_SWITCH_DEFAULTS.guestSubscriptionLogin,
-    attributeBashEdits: booleanOption(args, 'bash-attribution') ?? HOST_SWITCH_DEFAULTS.attributeBashEdits,
-  };
-  // §11 D-14: left to the daemon unless the host said it (its default depends on the platform: off on Linux).
-  const mainWorkspaceFlag = booleanOption(args, 'main-workspace-guests');
+  // ARCHITECTURE §11 D-13: on unless the host switches it off (`--no-bash-attribution`; `--x --no-x` is refused).
+  const attributeBashEdits = booleanOption(args, 'bash-attribution') ?? HOST_SWITCH_DEFAULTS.attributeBashEdits;
   const webOriginFlag = stringOption(args, 'web-origin');
   // The same rule as for a relay: https, or http on a local hostname (the link carries the invite secret).
   const webOrigin =
@@ -412,12 +390,6 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     throw err;
   }
   const log = await openLog(ctx, workspaceId);
-  try {
-    await enterDaemonCwd(ctx);
-  } catch (err) {
-    await log.close();
-    throw err;
-  }
   const modules = deps.daemon?.modules ?? DEFAULT_FEATURE_MODULES;
   const power = new HostPower(deps.daemon?.power ?? new KeepAwake({ enabled: keepAwake, log: log.logger.child({ module: 'power' }) }));
   let daemon: Daemon;
@@ -433,12 +405,8 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
         ...(webOrigin !== undefined ? { webOrigin } : {}),
         keepAwake,
         ...(name !== undefined ? { workspaceName: name } : {}),
-        sessions: {
-          selfCommand: selfCommand(),
-          guestSubscriptionLogin: switches.guestSubscriptionLogin,
-          ...(mainWorkspaceFlag !== undefined ? { guestMainWorkspace: mainWorkspaceFlag } : {}),
-        },
-        activity: { attributeBashEdits: switches.attributeBashEdits },
+        sessions: { selfCommand: selfCommand() },
+        activity: { attributeBashEdits },
       },
       relay: { token: session.token, ...(deps.daemon?.socketFactory ? { socketFactory: deps.daemon.socketFactory } : {}) },
       ...(deps.daemon?.identityKeys ? { identityKeys: deps.daemon.identityKeys } : {}),
@@ -448,8 +416,9 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
       homeDir: homeDirOf(io.env),
     });
   } catch (err) {
+    // createDaemon logged why (the state it refused, review F3); the log is flushed before the hint names it.
     await log.close();
-    throw daemonProblem(err, log.path);
+    throw daemonProblem(err, log.path, workspaceStateDir(ctx.paths, workspaceId));
   }
 
   // Stop requests: a signal (Ctrl-C, SIGTERM, a closed terminal) or `smurg stop` on the control socket.
@@ -477,12 +446,19 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     wake();
   };
   const unsubscribe = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((signal) => io.onSignal(signal, () => onSignal(signal)));
-  const stoppingListener = daemon.ctx.bus.on('daemon.stopping', ({ reason }) => {
-    // A failed start stops the daemon itself; this command reports that failure on its own.
-    if (stopping !== null || reason === INTERNAL_STOP_START_FAILED || reason === INTERNAL_STOP_SUMMARY_FAILED) return;
-    stopping = { source: 'control', reason };
+  // Stops are told apart by what this command knows, never by the reason text (verification F-2: anyone who reaches
+  // the control socket used to choose it, and 'start-failed' / 'summary-failed' passed for this command's own stops,
+  // so the daemon stopped while the host's terminal still said 「按 Ctrl-C 停止分享」). Every daemon stop this command
+  // did not start itself is a stop request; while the daemon is still starting it is told once the start returned (a
+  // failed start stops the daemon too, and that failure is reported instead).
+  let selfStop = false;
+  let starting = true;
+  const announceControlStop = (): void => say(ctx, '\n收到停止要求（smurg stop），正在停止分享…');
+  const stoppingListener = daemon.ctx.bus.on('daemon.stopping', () => {
+    if (stopping !== null || selfStop) return;
+    stopping = { source: 'control', reason: 'control' };
     stopStartedAt = io.now();
-    say(ctx, '\n收到停止要求（smurg stop），正在停止分享…');
+    if (!starting) announceControlStop();
     wake();
   });
   let powerWatch: ReturnType<typeof setInterval> | undefined;
@@ -502,14 +478,17 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     await daemon.start();
   } catch (err) {
     await cleanup();
-    throw daemonProblem(err, log.path);
+    throw daemonProblem(err, log.path, workspaceStateDir(ctx.paths, workspaceId));
   }
+  starting = false;
+  if ((stopping as { readonly source: 'signal' | 'control' } | null)?.source === 'control') announceControlStop();
 
   if (stopping === null) {
     try {
       printSummary(ctx, daemon, { role, expiresInSec, maxUses, userId: user.userId });
     } catch (err) {
-      await daemon.stop(INTERNAL_STOP_SUMMARY_FAILED).catch(() => {});
+      selfStop = true;
+      await daemon.stop(STOP_SUMMARY_FAILED).catch(() => {});
       await cleanup();
       throw err instanceof CliError ? err : new CliError('無法建立邀請連結', { cause: err });
     }
@@ -527,8 +506,6 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     powerWatch.unref?.();
     relayWatch = watchRelay(ctx, daemon, { origin, userId: user.userId, session }, () => stopping !== null, deps.credentialsWatchMs ?? CREDENTIALS_WATCH_MS);
     deps.onReady?.(daemon);
-    // Not awaited: the summary is out; the guest sandbox check (a real sandboxed self-test) reports when it is done.
-    void reportGuestSandbox(ctx, daemon, () => stopping !== null);
   }
 
   await stopRequested;
@@ -628,10 +605,6 @@ export function watchRelay(ctx: CommandContext, daemon: Daemon, target: RelayWat
       tell('✓ smurg 的狀態檔已重新寫入成功。');
     }
   });
-  // Linux (reviews RV-1, RV-2): a host-only entry changed while guests ran there; the daemon ends their processes.
-  const onProtected = daemon.ctx.bus.on('sandbox.protected-changed', ({ root, paths, more, revoked }) => {
-    tell(protectedChangedText(root.kind === 'worktree' ? root.worktreeId : null, paths, more, revoked));
-  });
   let busy = false;
   const poll = setInterval(() => {
     if (busy) return;
@@ -672,77 +645,8 @@ export function watchRelay(ctx: CommandContext, daemon: Daemon, target: RelayWat
       cancelDownNotice();
       onLink.dispose();
       onState.dispose();
-      onProtected.dispose();
     },
   };
-}
-
-/**
- * The host's notice for `sandbox.protected-changed` (zh-TW). Names come from the share (a guest may have chosen the
- * directories on the way): anything but plain characters is shown quoted and escaped.
- */
-export function protectedChangedText(worktreeId: string | null, paths: readonly string[], more: number, revoked: number): string {
-  const shown = (path: string): string => (path.length > 0 && !LOG_UNSAFE_CHARACTER.test(path) && !/["\\]/.test(path) ? path : quoteForLog(path));
-  const where = worktreeId === null ? '分享的資料夾' : `worktree ${worktreeId}`;
-  const names = paths.map(shown).join('、') + (more > 0 ? ` 等另外 ${more} 個` : '');
-  const ended =
-    revoked > 0
-      ? `Linux 的沙盒在客人程序執行中無法跟上這種變動（客人可能讀到新的內容或改寫它），所以 smurg 已結束${where}裡的客人程序（客人可以重新開啟）。`
-      : 'Linux 的沙盒在客人程序執行中無法跟上這種變動（客人可能讀到新的內容或改寫它）。';
-  return (
-    `\n⚠ 客人程序執行時，${where}裡只有主人能使用的檔案有變動：${names}。\n  ${ended}\n` +
-    '  請確認這些檔案現在的內容是你自己的；之後要編輯 .envrc、.claude/、.mcp.json 或 CLAUDE.local.md 之前，請先請客人結束 session。'
-  );
-}
-
-/** Linux fixes the host can run themselves (the refusal text itself is written for guests). */
-export function sandboxFix(reason: string, platform: NodeJS.Platform = process.platform): string[] {
-  if (platform !== 'linux') return [];
-  if (reason === 'apparmor-userns') {
-    return [
-      '  Ubuntu 24.04 以上的修正方法（只放寬 bubblewrap，建議）：',
-      "    printf 'abi <abi/4.0>,\\ninclude <tunables/global>\\nprofile smurg-bwrap /usr/bin/bwrap flags=(unconfined) {\\n  userns,\\n}\\n' | sudo tee /etc/apparmor.d/smurg-bwrap >/dev/null",
-      '    sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap',
-      '  或（放寬整台電腦的限制，不建議）：sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0',
-      '  修正後重新執行 smurg host。',
-    ];
-  }
-  if (reason === 'dependency-missing') {
-    // The daemon gives this reason both for a missing program and for a bubblewrap older than 0.8 (no
-    // --disable-userns / --chmod, sandbox/checks.ts checkBwrapFeatures): installing does not help the second case.
-    return [
-      '  修正方法（Ubuntu / Debian）：sudo apt-get install bubblewrap socat ripgrep，然後重新執行 smurg host。',
-      '  bubblewrap 需要 0.8 以上的版本（用 bwrap --version 查看）：Ubuntu 24.04、Debian 12 以上內建的版本即可；Ubuntu 22.04 內建的 0.6 太舊，',
-      '  需要更新作業系統或另外安裝較新的 bubblewrap。',
-    ];
-  }
-  if (reason === 'daemon-cwd') {
-    // Review RV-4: smurg host itself runs its daemon from <stateDir>/cwd; this reason means that directory went away
-    // while it ran (or another program embeds the daemon inside the share).
-    return ['  修正方法：重新執行 smurg host（它會從 ~/.smurg/cwd 啟動 daemon，不在分享的資料夾裡）。'];
-  }
-  return [];
-}
-
-/**
- * CLI-02 (SPEC R5): the host learns right after the start, not second-hand from a refused guest, when runner guests
- * cannot open sessions here: one line, then what to do (the Linux fix commands, else the daemon's own text). A
- * sandbox that works is not news (`smurg status` shows it). The daemon's sandbox check is the same one a guest session
- * goes through.
- */
-export async function reportGuestSandbox(ctx: CommandContext, daemon: Daemon, stopped: () => boolean): Promise<void> {
-  const sandbox = daemon.ctx.services.sandbox;
-  if (isStubService(sandbox)) return; // a daemon without the sandbox module (tests)
-  let result: SandboxPreflight;
-  try {
-    result = await sandbox.preflight();
-  } catch {
-    result = { ok: false, reason: 'preflight-error' };
-  }
-  if (stopped() || result.ok) return;
-  const fix = sandboxFix(result.reason);
-  const what = fix.length > 0 ? fix : result.detail !== undefined ? [`  ${result.detail}`] : [];
-  say(ctx, [`\n⚠ 客人沙盒：無法使用（${result.reason}），runner 角色的組員暫時不能在這台電腦上開 session。`, ...what].join('\n'));
 }
 
 /** Keep-awake that is not in force although the host did not switch it off (linux-binary F5): one line. */

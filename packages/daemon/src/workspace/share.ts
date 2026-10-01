@@ -63,10 +63,8 @@ export async function prepareShare(
 
 /**
  * What `<share>/.git` is: a git directory (it has a HEAD file, or a HEAD symlink into refs/), a gitfile (`gitdir: …`, a linked worktree or a
- * submodule) or neither. Merely existing is not enough: on Linux a daemon that crashed during a guest session can leave
- * bubblewrap's EMPTY mount point for the protected name `.git` (a directory, or a read-only empty file) in a folder
- * that is no repository (ARCHITECTURE §7.6 "Linux mount points"). Taking that for a repository would offer worktree
- * mode on a folder git does not know, and writing info/exclude into it would keep the placeholder sweep from removing it.
+ * submodule) or neither. Merely existing is not enough (git's own rule, review RCR-4): an empty `.git` directory or
+ * file is no repository, and taking it for one would offer worktree mode on a folder git does not know.
  */
 async function gitKind(gitPath: string): Promise<'dir' | 'file' | 'none'> {
   const st = await lstatOrNull(gitPath);

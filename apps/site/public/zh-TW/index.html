@@ -107,8 +107,8 @@
           </div>
           <div class="m-agents">
             <div class="m-ph">agent<span class="m-btn">＋ 新增 session</span></div>
-            <div class="m-tabs"><span class="on"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude（Amy）</span><span><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude（Ian）</span></div>
-            <div class="m-banner m-banner-info">這是 Amy 的 session，你只能觀看。</div>
+            <div class="m-tabs"><span class="on"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude（Amy 開的）</span><span><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude（Ian 開的）</span></div>
+            <div class="m-banner m-banner-info">這是 Amy 開的 session，你只能觀看。想讓它做什麼，請在下方的「建議」提出，由主人或「可使用 agent」的成員決定是否採用。</div>
             <pre class="m-term"><span class="m-prompt">&gt; add a test for the expired-session redirect</span><span> </span><span><span class="m-ok">●</span> <span class="m-tool">Read</span>(src/login.ts)</span><span class="m-dim">  └ Read 11 lines</span><span><span class="m-ok">●</span> <span class="m-tool">Update</span>(tests/login.test.ts)</span><span class="m-dim">  └ Added “redirects an expired session”</span><span><span class="m-ok">●</span> <span class="m-tool">Bash</span>(pnpm test tests/login.test.ts)</span><span class="m-dim">  └ Tests passed</span><span>● The new test covers the expired-session redirect.</span><span class="m-prompt">&gt; <span class="m-caret"></span></span></pre>
             <div class="m-suggest">
               <div class="m-ph">建議</div>
@@ -208,7 +208,7 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <p class="kicker step-num">步驟 3</p>
         <h3>和 agent 一起工作</h3>
-        <p>「可編輯」和「可執行 agent」的組員可以同時編輯同一份檔案；每個人都即時看得到每一個 Claude Code session。想讓別人的 agent 做什麼，「可編輯」以上的組員可以送出建議，由 session 的擁有者決定。「可執行 agent」的組員可以開自己的 session：在主人電腦上的沙盒裡執行，用自己的 Claude 帳號登入。</p>
+        <p>「可編輯」的組員可以同時編輯同一份檔案；每個人都即時看得到每一個 Claude Code session，「可編輯」的組員還能送出建議來指揮 agent。主人完全信任的組員可以拿到「可使用 agent」：他能開 agent session、在任何 session 裡直接輸入，而這些 session 都以主人的身分、用主人的 Claude 帳號在主人的電腦上執行。</p>
       </li>
     </ol>
   </div>
@@ -231,11 +231,11 @@ smurg host ~/projects/my-app</code></pre>
       </li>
       <li>
         <h3>Claude Code session</h3>
-        <p>在主人的電腦上執行真正的 Claude Code。每個人都即時看得到每一個 session，包括打開之前的內容，也可以用 <code>smurg attach</code> 接到自己的終端機。建議會先送到 session 的擁有者，由他採用、修改後採用或拒絕；擁有者沒有同意，什麼都不會送進 agent。「可執行 agent」的組員可以匯入自己的 <code>CLAUDE.md</code>、自訂指令和 skills。</p>
+        <p>在主人的電腦上執行真正的 Claude Code。每個人都即時看得到每一個 session，包括打開之前的內容，也可以用 <code>smurg attach</code> 接到自己的終端機。建議會先等待主人或「可使用 agent」的組員採用、修改後採用或拒絕；在那之前，什麼都不會送進 agent。</p>
       </li>
       <li>
         <h3>worktree 與合併請求</h3>
-        <p>分享的資料夾是 git repository 時，agent 可以在自己的 worktree、自己的分支上工作，不會弄亂主工作區。做完之後，擁有者請主人合併；主人看過完整的 diff，再決定合併或拒絕。有衝突時合併會中止，主工作區保持原樣。</p>
+        <p>分享的資料夾是 git repository 時，agent 可以在自己的 worktree、自己的分支上工作，不會弄亂主工作區。做完之後，「可使用 agent」的組員（或主人自己）提出合併請求；主人看過完整的 diff，再決定合併或拒絕。有衝突時合併會中止，主工作區保持原樣。</p>
       </li>
       <li>
         <h3>檔案鎖與修改者標示</h3>
@@ -243,7 +243,7 @@ smurg host ~/projects/my-app</code></pre>
       </li>
       <li>
         <h3>角色與主人控制台</h3>
-        <p>邀請時可以選「旁觀」「可編輯」或「可執行 agent」。主人控制台列出成員、角色、邀請連結、session 和操作紀錄，一鍵就能踢人或終止 session。主人的電腦睡眠或斷線時，所有人幾秒內就會看到。</p>
+        <p>邀請時可以選「旁觀」「可編輯」或「可使用 agent」（以主人的身分開 agent session、在 session 裡輸入）。主人控制台列出成員、角色、邀請連結、session 和操作紀錄，一鍵就能踢人或終止 session。主人的電腦睡眠或斷線時，所有人幾秒內就會看到。</p>
       </li>
     </ul>
   </div>
@@ -259,7 +259,7 @@ smurg host ~/projects/my-app</code></pre>
 
     <figure class="diagram">
       <svg class="dg wide" viewBox="0 0 880 340" role="img" aria-labelledby="sec-wide-title">
-        <title id="sec-wide-title">主人的電腦上有分享的資料夾、主人的 Claude Code session、金鑰與操作紀錄，以及放組員 session 的沙盒。每位組員的瀏覽器或 smurg CLI 都和它有一條自己的端對端加密通道。relay（Cloudflare Worker）只轉送這條通道裡的密文；它看得到每條連線的 Google 帳號（帳號 ID、名稱、大頭貼；登入時還有 email）、IP 位址、工作區代碼，以及每筆資料的大小和時間。</title>
+        <title id="sec-wide-title">主人的電腦上有分享的資料夾、主人的 Claude Code session、金鑰與操作紀錄，以及「可使用 agent」的組員在那裡開的 session：它們以主人的身分執行，沒有沙盒。每位組員的瀏覽器或 smurg CLI 都和它有一條自己的端對端加密通道。relay（Cloudflare Worker）只轉送這條通道裡的密文；它看得到每條連線的 Google 帳號（帳號 ID、名稱、大頭貼；登入時還有 email）、IP 位址、工作區代碼，以及每筆資料的大小和時間。</title>
         <rect class="bx" x="8" y="8" width="330" height="324" rx="14"/>
         <text class="tt" x="30" y="46">你的電腦（主人）</text>
         <text class="tm" x="30" y="68">檔案和 session 都留在這裡</text>
@@ -272,10 +272,10 @@ smurg host ~/projects/my-app</code></pre>
         <path class="ln" d="M41 164h11v4M48 164v3"/>
         <text class="ts" x="64" y="169">金鑰與操作紀錄</text>
         <rect class="ac-dash" x="24" y="192" width="298" height="124" rx="10"/>
-        <text class="ts ta" x="42" y="220">客人沙盒</text>
-        <text class="ts" x="42" y="246">組員的 session 與終端機</text>
-        <text class="tm" x="42" y="272">只能用分享的資料夾或 worktree、</text>
-        <text class="tm" x="42" y="292">自己的暫存目錄、白名單上的網域</text>
+        <text class="ts ta" x="42" y="220">你完全信任的組員</text>
+        <text class="ts" x="42" y="246">開的 session 以你的身分執行</text>
+        <text class="tm" x="42" y="272">用你的帳號、檔案和 Claude 登入，</text>
+        <text class="tm" x="42" y="292">沒有沙盒</text>
 
         <rect class="bx" x="392" y="100" width="136" height="140" rx="12"/>
         <text class="tt" x="460" y="132" text-anchor="middle">relay</text>
@@ -301,7 +301,7 @@ smurg host ~/projects/my-app</code></pre>
       </svg>
 
       <svg class="dg tall" viewBox="0 0 360 780" role="img" aria-labelledby="sec-tall-title">
-        <title id="sec-tall-title">主人的電腦上有分享的資料夾、主人的 Claude Code session、金鑰與操作紀錄，以及放組員 session 的沙盒。每位組員的瀏覽器或 smurg CLI 都和它有一條自己的端對端加密通道。relay（Cloudflare Worker）只轉送這條通道裡的密文；它看得到每條連線的 Google 帳號（帳號 ID、名稱、大頭貼；登入時還有 email）、IP 位址、工作區代碼，以及每筆資料的大小和時間。</title>
+        <title id="sec-tall-title">主人的電腦上有分享的資料夾、主人的 Claude Code session、金鑰與操作紀錄，以及「可使用 agent」的組員在那裡開的 session：它們以主人的身分執行，沒有沙盒。每位組員的瀏覽器或 smurg CLI 都和它有一條自己的端對端加密通道。relay（Cloudflare Worker）只轉送這條通道裡的密文；它看得到每條連線的 Google 帳號（帳號 ID、名稱、大頭貼；登入時還有 email）、IP 位址、工作區代碼，以及每筆資料的大小和時間。</title>
         <rect class="bx" x="8" y="8" width="344" height="304" rx="14"/>
         <text class="tt" x="28" y="44">你的電腦（主人）</text>
         <text class="tm" x="28" y="68">檔案和 session 都留在這裡</text>
@@ -314,10 +314,10 @@ smurg host ~/projects/my-app</code></pre>
         <path class="ln" d="M39 163h11v4M46 163v3"/>
         <text class="ts" x="62" y="168">金鑰與操作紀錄</text>
         <rect class="ac-dash" x="22" y="190" width="316" height="108" rx="10"/>
-        <text class="ts ta" x="38" y="216">客人沙盒</text>
-        <text class="ts" x="38" y="240">組員的 session 與終端機</text>
-        <text class="tm" x="38" y="264">只能用分享的資料夾或 worktree、</text>
-        <text class="tm" x="38" y="284">自己的暫存目錄、白名單上的網域</text>
+        <text class="ts ta" x="38" y="216">你完全信任的組員</text>
+        <text class="ts" x="38" y="240">開的 session 以你的身分執行</text>
+        <text class="tm" x="38" y="264">用你的帳號、檔案和 Claude 登入，</text>
+        <text class="tm" x="38" y="284">沒有沙盒</text>
 
         <text class="ta" x="256" y="352" text-anchor="end">端對端加密</text>
         <rect class="bx" x="40" y="380" width="280" height="130" rx="12"/>
@@ -356,8 +356,8 @@ smurg host ~/projects/my-app</code></pre>
         <p>檔案、Claude Code session 和操作紀錄都在主人的電腦上，relay 不保存其中任何一樣。主人的電腦睡眠或 smurg 停止時，沒有人能使用工作區；主人回來後會自動重新連線。</p>
       </div>
       <div>
-        <h3>組員的 agent 在沙盒裡執行</h3>
-        <p>組員在主人電腦上開的 session 和終端機，都在沙盒裡執行（macOS 用 Seatbelt，Linux 用 bubblewrap）：只能使用分享的資料夾（或自己的 worktree）和自己的暫存目錄，讀不到主人家目錄裡的其他檔案，也讀不到其他組員的資料；網路只能連到白名單上的網域，例如 Anthropic 和常見的套件庫。主人的電腦是 Linux 時，組員預設只能在自己的 worktree 裡工作。沙盒無法啟動時，session 就不會開。</p>
+        <h3>agent 以主人的身分執行</h3>
+        <p>每個 agent 和終端機 session 都在主人的電腦上、以主人的身分執行：用主人的帳號、檔案和 Claude Code 登入，沒有沙盒。除了主人，只有「可使用 agent」的組員能開 session 或在 session 裡輸入；「可編輯」的組員送出建議，「旁觀」的組員只能看。拿到這個角色的人可以讓 agent 在你的電腦上執行任何指令、讀你的家目錄、用你的 Claude 帳號，所以只給你完全信任的人。</p>
       </div>
       <div>
         <h3>relay 看得到什麼</h3>
@@ -369,10 +369,9 @@ smurg host ~/projects/my-app</code></pre>
       <h3>smurg 防不了的事</h3>
       <ul>
         <li>工作區裡的每個人都看得到分享資料夾裡的每個檔案，包括 <code>.env</code>；只有 <code>.git</code>、<code>.envrc</code>、smurg 自己的 <code>.smurg</code> 資料夾和主人個人的 Claude Code 設定看不到。不要分享放了密碼、金鑰或個人資料的資料夾。</li>
-        <li>主人自己的 Claude Code session 不在沙盒裡，而且會讀到組員寫的內容。檔案裡可能藏著要 agent 執行的指示（prompt injection），請保留 Claude Code 的權限確認。</li>
-        <li>組員在主人電腦上執行 agent 時，是在那台電腦上登入自己的 Claude 帳號，主人在技術上讀得到這份憑證。請使用有花費上限的 API key。</li>
+        <li>agent session 不在沙盒裡，而且會讀到組員寫的內容。檔案裡可能藏著要 agent 執行的指示（prompt injection），請保留 Claude Code 的權限確認。</li>
+        <li>「可使用 agent」的組員在你的電腦上能做你能做的任何事：執行任何指令、讀你的家目錄、用掉你的 Claude 額度。smurg 無法限制這些事。</li>
         <li>網頁版由 relay 提供。和所有在瀏覽器裡做的端對端加密一樣，被竄改的網頁可能洩漏金鑰；CLI 沒有這個問題。</li>
-        <li>沙盒沒有限制記憶體、磁碟空間和 CPU：組員的程序可能讓主人的電腦變慢。</li>
       </ul>
       <p class="more"><a href="/docs/hosting/">分享之前，請先讀主人指南</a></p>
     </div>
@@ -393,7 +392,7 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <div>
           <dt>Claude Code</dt>
-          <dd>要執行 agent session，主人的電腦需要 Claude Code（<code>claude</code> 指令）2.1.220 以上。要用 worktree，分享的資料夾必須是 git repository。</dd>
+          <dd>要執行 agent session，主人的電腦需要已經登入的 Claude Code（<code>claude</code> 指令）2.1.220 以上：每個 session 都用主人的登入。要用 worktree，分享的資料夾必須是 git repository。</dd>
         </div>
         <div>
           <dt>組員</dt>
@@ -450,12 +449,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>組員需要自己的 Claude 帳號嗎？</h3>
-        <p>只有要開自己的 agent 時才需要。「旁觀」的組員可以看每一個 session；「可編輯」的組員還可以提出建議。這兩種都不需要 Claude 帳號。「可執行 agent」的組員在自己的沙盒裡登入自己的帳號，可以用 API key 或 Claude 訂閱帳號（訂閱帳號的登入還沒有用真正的帳號從頭到尾測試過）。這份登入資料存放在主人的電腦上，所以請使用有花費上限的 API key；組員離開工作區時，smurg 會登出並刪除他在那裡的暫存目錄。agent 一律在主人的電腦上執行，所以主人的電腦要裝好 Claude Code。</p>
-      </div>
-      <div>
-        <h3>Linux 有什麼要注意的？</h3>
-        <p>主人的電腦是 Linux 時，組員的 session 預設只能在自己的 git worktree 裡執行，所以分享的資料夾必須是 git repository，組員才能開 session。<code>smurg host</code> 加上 <code>--allow-main-workspace-guests</code> 選項分享時，組員也能在共享主工作區開 session；開放之前，請先看隨之而來的限制（<a href="/docs/hosting/">主人指南</a> §4、§5）。</p>
-        <p>客人沙盒需要 bubblewrap 0.8 以上、socat 和 ripgrep：Ubuntu 24.04、Debian 12 以上都可以；Ubuntu 22.04 的 bubblewrap 太舊，組員的 session 無法啟動。安裝程式會檢查這些套件和 Ubuntu 的 AppArmor 限制，經你同意後才用 sudo 安裝缺少的部分。完整的測試在 Ubuntu 24.04 上通過，但還沒有人真的在 Linux 上當過主人。</p>
+        <p>不需要。每個 agent 都在主人的電腦上、用主人的 Claude Code 登入執行，用量算在主人的帳號上。「旁觀」的組員可以看每一個 session，「可編輯」的組員還可以提出建議，「可使用 agent」的組員能開 session、在 session 裡輸入，全都是以主人的身分。主人的電腦要裝好 Claude Code 並登入。</p>
       </div>
       <div>
         <h3>看得到原始碼嗎？</h3>

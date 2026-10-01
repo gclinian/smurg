@@ -231,7 +231,7 @@ describe('MergeRequestsPanel: the host reviews the complete diff (SPEC R9)', () 
 
 describe('MergeRequestsPanel: the requester', () => {
   it('status visible to requester: pending, then the host’s rejection with its reason, live', async () => {
-    const { conn } = setup({ role: 'runner' });
+    const { conn } = setup({ role: 'agent' });
     expect(await screen.findByText('等待主人審核')).toBeTruthy();
     expect(screen.getByText(/主人審核中/)).toBeTruthy();
     act(() => conn.emit('worktree.merge.updated', { request: makeMergeRequest({ status: 'rejected', rejectReason: '請先補上測試', decidedAt: T0 + 5 }) }));
@@ -242,14 +242,14 @@ describe('MergeRequestsPanel: the requester', () => {
   });
 
   it('the requester is told when the host decides, wherever they are; others are not (WEB-11)', async () => {
-    const { conn } = setup({ role: 'runner' });
+    const { conn } = setup({ role: 'agent' });
     expect(await screen.findByText('等待主人審核')).toBeTruthy();
     act(() => conn.emit('worktree.merge.updated', { request: makeMergeRequest({ status: 'merged', decidedAt: T0 + 5 }) }));
     expect(await screen.findByText('主人已把你的合併請求合併到主工作區。')).toBeTruthy();
   });
 
   it('a rejection reaches the requester with its reason, as a notice (WEB-11)', async () => {
-    const { conn } = setup({ role: 'runner' });
+    const { conn } = setup({ role: 'agent' });
     expect(await screen.findByText('等待主人審核')).toBeTruthy();
     act(() => conn.emit('worktree.merge.updated', { request: makeMergeRequest({ status: 'rejected', rejectReason: '請先補上測試', decidedAt: T0 + 5 }) }));
     expect(await screen.findByText('主人拒絕了你的合併請求。')).toBeTruthy();
@@ -265,15 +265,25 @@ describe('MergeRequestsPanel: the requester', () => {
   });
 
   it('can open the diff read-only (no approve / reject)', async () => {
-    const { conn } = setup({ role: 'runner' });
+    const { conn } = setup({ role: 'agent' });
     const dialog = await openReview(conn, COMPLETE, '查看差異');
     expect(within(dialog).queryByRole('button', { name: '合併到主工作區' })).toBeNull();
     expect(within(dialog).queryByRole('button', { name: '拒絕' })).toBeNull();
     expect(within(dialog).getByRole('region', { name: 'src/app.ts 的差異' })).toBeTruthy();
   });
 
+  it('another 可使用 agent member may read the diff too (read-only); an editor may not open it', async () => {
+    const other = setup({ role: 'agent', userId: 'dev:bob', displayName: 'Bob' });
+    const dialog = await openReview(other.conn, COMPLETE, '查看差異');
+    expect(within(dialog).queryByRole('button', { name: '合併到主工作區' })).toBeNull();
+    other.unmount();
+    setup({ role: 'editor', userId: 'dev:cat', displayName: 'Cat' });
+    expect(await screen.findByText('Amy 的合併請求')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '查看差異' })).toBeNull();
+  });
+
   it('requests a merge of their worktree with a message', async () => {
-    const { conn } = setup({ role: 'runner', requests: [] });
+    const { conn } = setup({ role: 'agent', requests: [] });
     fireEvent.click(await screen.findByRole('button', { name: '請求合併' }));
     const dialog = screen.getByRole('dialog', { name: '請主人合併 smurg/amy/wt_1' });
     fireEvent.change(within(dialog).getByLabelText('說明（選填）'), { target: { value: '新增登入頁\n並補上測試' } });
@@ -289,7 +299,7 @@ describe('MergeRequestsPanel: the requester', () => {
   });
 
   it('shows the daemon’s refusal of a merge request', async () => {
-    const { conn } = setup({ role: 'runner', requests: [] });
+    const { conn } = setup({ role: 'agent', requests: [] });
     fireEvent.click(await screen.findByRole('button', { name: '請求合併' }));
     fireEvent.click(screen.getByRole('button', { name: '送出合併請求' }));
     expect(conn.lastRequest('worktree.merge.request')?.payload).toEqual({ worktreeId: 'wt_1' });

@@ -13,18 +13,18 @@ curl -fsSL https://smurg.ai/install.sh | sh
 
 `https://smurg.ai/install.sh` 只是轉到 `https://downloads.smurg.ai/latest/install.sh`，也就是最新版本的安裝程式；
 安裝程式從 `https://downloads.smurg.ai/v<版本>/` 下載那個版本的執行檔，並核對同一個版本的 `SHA256SUMS`。要安裝特定
-版本，直接執行那個版本的安裝程式，例如 `curl -fsSL https://downloads.smurg.ai/v0.1.0/install.sh | sh`。
+版本，直接執行那個版本的安裝程式：`curl -fsSL https://downloads.smurg.ai/v<版本>/install.sh | sh`（`<版本>` 換成
+`X.Y.Z` 形式的版本號）。
 
 安裝程式會下載這台電腦的單一執行檔（不需要 Node.js），**只在 sha256 與這個版本的 `SHA256SUMS` 相符時**安裝到
-`~/.local/bin/smurg`，並告訴你怎麼把 `~/.local/bin` 加到 `PATH`（加好之後要重新開一個終端機）。在 Linux 上它還會檢查
-客人沙盒需要的套件（bubblewrap、socat、ripgrep）和 Ubuntu 24.04 以上的 AppArmor 限制（實際試跑一次 bubblewrap 來判斷，
-設定檔存在但沒有生效也看得出來），**經你同意後**用 `sudo` 安裝套件與只放寬 `/usr/bin/bwrap` 的 AppArmor 設定檔；
-不同意時它只印出指令。
+`~/.local/bin/smurg`，並告訴你怎麼把 `~/.local/bin` 加到 `PATH`（加好之後要重新開一個終端機）。在每個平台上它都只安裝
+這個執行檔：不需要 `sudo`，也不安裝任何系統套件。
 
 - macOS 的執行檔沒有 Apple 的開發者簽章（只有 ad-hoc 簽章）。安裝程式驗證 sha256 之後，會移除 macOS 的隔離標記
   （quarantine），所以第一次執行時不會被 Gatekeeper 擋下。請用上面的指令安裝，不要用瀏覽器下載執行檔再手動執行。
 - 升級：再執行一次同一行指令（會取代 `~/.local/bin/smurg`；正在分享時請先停止分享）。`smurg --version` 顯示目前的版本。
-- 要在 session 裡執行 Claude Code，這台電腦還需要 `claude` 指令（2.1.220 以上）。
+- 要在 session 裡執行 Claude Code，這台電腦還需要 `claude` 指令（2.1.220 以上），而且要**已經登入**你的 Claude 帳號：
+  每個 agent session 都用這台電腦上的這個登入，包括「可使用 agent」的組員開的（§5.1）。
 - smurg 是免費使用的專有軟體，原始碼不公開：可以免費下載和使用，但不能散布、修改或反組譯（法律允許的範圍除外），條款見
   https://smurg.ai/license/。執行檔裡的第三方軟體與它們的授權：`smurg licenses`，或
   https://smurg.ai/third-party-notices.txt。
@@ -61,8 +61,6 @@ smurg login          # 不加 --relay 時使用公用 relay（§2.1）
 - 可以跳過這一步：`smurg host` 發現還沒登入時會先請你登入（同樣是網址和代碼）。`smurg host` 開始分享前，如果登入在
   24 小時內就會過期，也會先請你重新登入。
 - 登入資料存在 `~/.smurg/credentials.json`（權限 0600），依 relay 網址分開記錄。
-- smurg 0.1.0 的 `smurg login` 還是舊的方式：瀏覽器裡的確認頁和一組確認碼，登入完成時瀏覽器回到這台電腦的一個本機埠
-  （透過 SSH 時要另外轉接那個埠）。升級 smurg（§1）之後就改用代碼登入。
 
 ### 2.1 公用 relay（預設）
 
@@ -127,119 +125,122 @@ smurg 正在分享「my-app」
 
 - **你的連結**：在瀏覽器以主人身分打開工作區。只能用一次，7 天內有效；不要給別人。
 - **給組員的連結**：預設角色是「可編輯」（editor），7 天內有效、不限次數。連結裡 `#` 之後就是密鑰：
-  請用私訊傳給組員，不要貼在公開的地方。選項：`--role runner|editor|viewer`、`--expires 12h`、`--max-uses 3`、
-  `--name 顯示名稱`；你用了別的角色或次數上限時，這一行也會寫出來。
+  請用私訊傳給組員，不要貼在公開的地方。選項：`--role agent|editor|viewer`、`--expires 12h`、`--max-uses 3`、
+  `--name 顯示名稱`；你用了別的角色或次數上限時，這一行也會寫出來。**`--role agent`（「可使用 agent」）之前請先讀
+  §5.1**：拿到這個連結的人可以用你的電腦和你的 Claude 帳號執行任何指令。
 
-終端機不會重複這份指南的說明：**第一次分享之前請先讀 §4**，三項設定（組員的 Claude 登入、客人的主工作區、agent 的
-shell 指令）見 §5。分享中的詳細狀態用 `smurg status` 查看（§7）：daemon 金鑰指紋、三項設定目前的狀態、防止睡眠、
-客人沙盒是否可用、紀錄檔的位置。終端機只在你需要處理的時候提示，例如：
-
-- **客人沙盒無法使用**（啟動後幾秒內）：「⚠ 客人沙盒：無法使用（原因）」，接著是修正指令（例如 Linux 缺少套件或
-  AppArmor 限制，§8）。在修好之前 runner 角色的組員無法在你的電腦上開 session，其他功能不受影響。沙盒可以用時不會提示。
-- **無法防止睡眠**（§6）、與 relay 的連線中斷、relay 拒絕你的登入、狀態檔寫不進磁碟（§7）。
+終端機不會重複這份指南的說明：**第一次分享之前請先讀 §4**，「可使用 agent」角色和 agent 的 shell 指令通知見 §5。
+分享中的詳細狀態用 `smurg status` 查看（§7）：daemon 金鑰指紋、shell 指令通知是否開啟、防止睡眠、紀錄檔的位置。
+終端機只在你需要處理的時候提示：**無法防止睡眠**（§6）、與 relay 的連線中斷、relay 拒絕你的登入、狀態檔寫不進
+磁碟（§7）。
 
 **daemon 金鑰指紋**：組員第一次加入時，可以用其他管道（當面、電話）和你核對這組指紋，確認沒有人（包括 relay）冒充你。
 指紋用 `smurg status` 查看（「daemon 金鑰指紋：」那一行）。
 
-角色：`viewer` 只能看；`editor` 可以編輯檔案；`runner` 還可以在你的電腦上執行 agent（在沙盒裡）。
-之後可以在網頁的主人控制台管理成員、角色、邀請與 session，查看操作紀錄。
+角色：「旁觀」（`viewer`）只能看；「可編輯」（`editor`）可以編輯檔案、對 agent 提出建議；「可使用 agent」（`agent`）
+還可以**以你的身分**在你的電腦上開 agent 和終端機，並在任何 session 裡直接輸入（§5.1）。之後可以在網頁的主人控制台
+管理成員、角色、邀請與 session，查看操作紀錄。
 
 ## 4. 分享前必讀
 
 `smurg host` 不會在終端機提醒這些事，請在第一次分享之前讀完。
 
-- **資料夾裡的檔案，每個成員都看得到**（旁觀者也一樣），例如 `.env`、設定檔。組員（人）看不到、也下載不到的只有：
-  smurg 自己的 `.smurg/`、所有 `.git` 資料夾、`.envrc`，以及你個人的 Claude Code 設定（`.claude/settings.local.json`、
-  `CLAUDE.local.md`）。但是組員在「共享主工作區」執行的 agent 仍然讀得到 `.git`（git 需要），所以不要把 token 寫在
-  git 的遠端網址裡（在 Linux 上，只有你開放主工作區給客人時才會這樣，§5）。不要分享放了密碼、金鑰或個人資料的資料夾；也不能分享整個家目錄或包含家目錄的資料夾。
-- **你自己的 Claude Code session 不在沙盒裡**，而且會讀到組員寫入或修改的檔案。檔案裡可能藏有要 agent 執行的指示
-  （prompt injection）。請保留 Claude Code 的權限確認，不要自動核准，並留意最近被組員修改過的檔案。
-- 組員在你的電腦上執行 agent 時，**他們的 Claude 登入憑證會存放在你的電腦上**（用訂閱帳號或 API key 登入都一樣），
-  技術上你讀得到。請組員使用有花費上限的 API key；組員按「離開」或被移出時，smurg 會登出並刪除他們的暫存目錄
-  （沒有連線超過 7 天的也會刪除）。
+- **資料夾裡的檔案，每個成員都看得到**（旁觀者也一樣），例如 `.env`、設定檔。組員在網頁和 CLI 裡看不到、也下載不到的
+  只有：smurg 自己的 `.smurg/`、所有 `.git` 資料夾、`.envrc`，以及你個人的 Claude Code 設定（`.claude/settings.local.json`、
+  `CLAUDE.local.md`）。這只限制人看到的：每個 agent 和終端機 session 都以你的身分執行，讀得到它們，也讀得到你電腦上的
+  其他檔案（§5.1）。不要分享放了密碼、金鑰或個人資料的資料夾；也不能分享整個家目錄或包含家目錄的資料夾。
+- **所有 agent session 都不在沙盒裡**：你自己開的，和「可使用 agent」的組員開的都一樣，都以你的作業系統帳號執行，
+  而且會讀到組員寫入或修改的檔案。檔案裡可能藏有要 agent 執行的指示（prompt injection）。請保留 Claude Code 的權限
+  確認，不要自動核准，並留意最近被組員修改過的檔案。「可使用 agent」的組員也能在 session 裡替你回答這些確認。
+- **只把「可使用 agent」給你完全信任的人**（§5.1）：這個角色可以讓 agent 在你的電腦上執行任何指令、讀你的家目錄、
+  用你的 Claude 帳號。其他組員用「可編輯」就能一起編輯、對 agent 提出建議。
 - 組員只能在 `smurg host` 執行、而且你的電腦連線時使用這個工作區。
-- **Linux，你用 `--allow-main-workspace-guests` 開放了主工作區時：組員的程序執行時，不要編輯只有你能使用的檔案**
-  （`.envrc`、`.mcp.json`、`.claude/`、`CLAUDE.local.md`，任何一層）。Linux 的沙盒在組員的程序執行中跟不上這種變動：
-  smurg 會在發現後結束那個資料夾裡組員的程序，並在終端機列出檔名，但在那之前組員的程序可能讀到新的內容或改寫它
-  （通常 0.1 秒內；在一次建好的多層子資料夾裡，例如 `mkdir -p`、`git checkout`、解壓縮建立的資料夾，要等 smurg 下一次
-  掃描整個資料夾，通常幾秒內；`.git` 最多 2 秒）。你自己的 Claude Code 在你選「不再詢問」時也會寫入
-  `.claude/settings.local.json`，`git switch`、`git clean` 也可能動到 `.claude/`。要編輯之前，請先請組員結束 session
-  （macOS 的沙盒沒有這個問題；Linux 預設不開放主工作區給客人，組員只在自己的 worktree 裡工作時也沒有這個問題，§5）。
-- **Linux，組員的程序在主工作區執行時**，資料夾最上層原本沒有的 `.claude/`、`.vscode/`、`.idea/` 會暫時是 smurg 的
-  空資料夾，`.mcp.json`、`.envrc` 是空的唯讀檔案（沙盒需要它們）。smurg 把它們列在 `.git/info/exclude`，所以
-  `git status`、`git add -A`、`git stash -u`、`git clean -fd` 不會動到它們；不要用 `git add -f`、`git clean -x` 或
-  `git stash -a`，它們會把這些佔位加進你的 repository 或刪掉（組員的程序也會因此結束）。組員的程序都結束後，smurg
-  會移除這些佔位和 `.git/info/exclude` 裡的那幾行。
-- 組員在共享主工作區裡可以寫 `.gitmodules`、`.gitconfig`、`.bashrc`、`.zshrc`、`.profile` 這類檔名（macOS 和 Linux
-  都一樣；git 和 shell 不會從專案資料夾執行它們）。執行 `git submodule update` 之前，請看一下 `.gitmodules` 是否被改過。
+- 可編輯以上的組員可以在分享的資料夾裡新增或修改 `.gitmodules`、`.gitconfig`、`.bashrc`、`.zshrc`、`.profile` 這類
+  檔案（git 和 shell 不會從專案資料夾執行它們）。執行 `git submodule update` 之前，請看一下 `.gitmodules` 是否被改過。
 
-## 5. 組員的 Claude 登入、客人的主工作區、agent 的 shell 指令
+## 5. 「可使用 agent」角色與 agent 的 shell 指令
 
-登入與 shell 指令通知預設開啟；客人的主工作區在 Linux 預設不開放、在 macOS 預設開放。要改的話，啟動時用對應的選項。
-`smurg host` 啟動時不會說明這些設定；分享中每一項目前是開放還是關閉，用 `smurg status` 查看（§7）。這些設定只能在
-啟動時決定：要改就先停止分享，再用新的選項執行 `smurg host`（同一個資料夾的工作區和成員都會保留，組員不用重新加入）。
+### 5.1 「可使用 agent」角色（請先讀）
 
-**組員用 Claude 訂閱帳號登入**（關掉：`--no-guest-subscription-login`）
+「可使用 agent」（`agent`）是你能給組員的最高角色。有這個角色的組員可以：
 
-「可執行 agent」（runner）的組員在你的電腦上用 Claude，要登入**他們自己的**帳號：用自己的 API key，或用自己的
-Claude 訂閱帳號。組員的 agent 和終端機都在沙盒裡，不能在你的電腦上開任何網路埠，而 Claude Code 的訂閱登入需要
-開一個網路埠來接收登入結果，所以在 agent session 裡輸入 `/login` 會失敗。smurg 因此另外提供一個**登入程序**：
+- 在你的電腦上開 **agent（Claude Code）和終端機 session**，在共享主工作區或 worktree 裡工作；
+- 在**任何** session 裡直接輸入，包括你自己開的和其他組員開的；
+- 採用或拒絕任何 session 收到的建議，並請你合併任何一個 worktree（合併仍然只有你能決定）。
 
-- 由組員自己開始，一次一個。smurg 在那位組員的沙盒裡執行固定的指令 `claude auth login --claudeai`，終端機顯示
-  登入網址；組員在自己的瀏覽器登入，再把授權碼貼回終端機。你的電腦上不會打開任何瀏覽器。還沒有用真正的帳號從頭到尾
-  測試過（只測到顯示網址、等待授權碼）。
-- 只有那位組員自己看得到、接得上這個程序；它的輸出（登入網址、授權碼）不會寫進紀錄檔或操作紀錄，操作紀錄只記下
-  開始和結束（結束代碼）。
-- 它只能讀寫那位組員自己的暫存目錄，讀不到分享的資料夾和任何 worktree，也連不到你電腦上的其他服務。
-- **登入期間（最多 10 分鐘）它可以在你的電腦上開一個網路埠**，等待登入完成；除了它之外，組員的程式都不能開網路埠。
-  macOS 的沙盒沒辦法把這個網路埠限制在只有本機（127.0.0.1）連得到，所以 smurg 同時規定這個程序只能執行
-  Claude Code 本身（加上沙盒需要的 bash 與 macOS 的 `security` 指令）；Claude Code 自己只在 127.0.0.1 上等待。
-  在 Linux 上，沙盒給這個程序一個獨立的網路環境，別的程式連不到它的網路埠（在 Ubuntu 24.04 上用測試驗證過，但還沒有
-  用真正的 Claude Code 跑過）。
-- 登入完成、組員結束它，或 10 分鐘到了，程序就結束。組員已經開著的 agent session 會在下一次輸入時用上新的登入，
-  不必重開。
-- 登入憑證存在那位組員的暫存目錄，和 API key 一樣，技術上你讀得到（§4）。
+這些 session **以你的身分在你的電腦上執行**，和你自己在終端機裡開的沒有差別：
 
-關掉之後，組員開始登入程序時會看到「這個工作區的主人沒有開放 Claude 訂閱登入」，只能用自己的 API key。你自己的
-Claude Code 不受影響（你的 session 不在沙盒裡，照平常的方式登入）。組員在網頁的登入說明按「用 Claude 訂閱登入」開始
-登入程序；你關掉這項設定時，smurg 會告訴組員的網頁，登入說明就不再顯示這個按鈕，只提供 API key 並說明原因。
+- **沒有沙盒**：用你的作業系統帳號、你的家目錄（包括 `~/.claude` 裡你的設定、`CLAUDE.md` 和記憶）和你的環境變數。
+- **用你自己的 Claude Code 登入**：每個 agent 都用這台電腦上 `claude` 目前登入的帳號（你的訂閱或你的 API key），
+  **用量和費用都算在你身上**。組員不需要、也沒有辦法改用他們自己的 Claude 帳號或 API key。
+- worktree 只是工作的位置，不是保護：在 worktree 裡開的 session 一樣以你的身分執行。
 
-**客人的主工作區 session**（Linux 預設不開放，開放：`--allow-main-workspace-guests`；macOS 預設開放，關閉：
-`--no-main-workspace-guests`）
+**風險**：給某人「可使用 agent」，等於讓他在你的電腦上使用你的帳號。他可以：
 
-「可執行 agent」（runner）的組員開 agent 或終端機時，可以選「共享主工作區」（直接在你分享的資料夾裡工作）或
-「我的 worktree」（在 `.smurg/worktrees/` 裡一份自己的副本工作，改好之後送合併請求，由你看過 diff 再合併；資料夾
-必須是 git repository）。兩種都在沙盒裡執行。
+- 讓 agent 或終端機**在你的電腦上執行任何指令**：安裝或刪除程式、修改或刪除分享資料夾以外的檔案、連到任何網路位置；
+- **讀取你的家目錄**：例如 `~/.ssh` 的金鑰、其他專案、各種程式和雲端服務的登入資料，以及分享資料夾裡組員本來看不到
+  的 `.git`、`.envrc`；
+- **使用你的 Claude 帳號**：用掉你的訂閱額度，或讓你的 API key 產生費用。
 
-- **Linux 預設不開放主工作區給客人**（專案擁有者 2026-10-01 的決定）：組員只能用自己的 worktree。原因是 Linux 的沙盒
-  （bubblewrap）只能保護「已經存在」的檔案，沒辦法用規則擋下新的檔名：在主工作區裡，組員可以在子資料夾裡新建只有你
-  能用的檔案（例如 `sub/.claude/settings.json`、`sub/.mcp.json`、`sub/.git/config`），你之後在那個子資料夾裡用自己
-  不在沙盒裡的工具（Claude Code、git、VS Code）時，可能會執行它們；你在組員的程序執行時編輯 `.envrc`、`.mcp.json`、
-  `.claude/`、`CLAUDE.local.md`，組員也可能在 smurg 結束它的程序之前讀到新的內容（§4）。在 worktree 裡沒有這些問題：
-  組員看不到主工作區，他們的改動要經過你審核的合併才會進來，而合併會拒絕只有主人能用的檔案。
-- 分享的資料夾**不是 git repository** 時，Linux 上的組員預設**無法開 session**（沒有 worktree 可用）；檔案、共同編輯、
-  建議等其他功能不受影響。組員的網頁會說明原因和你可以怎麼開放。
-- 要在 Linux 上開放：停止分享，加上 `--allow-main-workspace-guests` 重新執行。開放之後 Linux 上的限制是上面那些，
-  加上：路徑裡有 `*`、`?`、`[`、`]` 或不是 UTF-8 的這類檔案不受保護（紀錄檔會列出它們）；分享的資料夾裡的 Unix socket
-  組員連得到。smurg 發現組員新建只有你能用的檔案時（通常幾秒內；組員的程序結束後也會再查一次）會結束他們的程序，並在
-  終端機列出路徑（新的 `.git` 和 `node_modules` 裡的除外）；使用那個子資料夾之前，請先檢查這些檔案。開放之後也請照
-  §4 的提醒做。
-- macOS 的沙盒可以用規則擋下這些檔名，所以預設開放；不想開放的話，加上 `--no-main-workspace-guests`，組員就只能用
-  自己的 worktree。
-- 不開放時，組員的網頁在「新增 session」裡不提供「共享主工作區」（顯示原因，預設選「我的 worktree」）；就算有人直接
-  送出要求，smurg 也會拒絕，並記在操作紀錄裡。你自己的 session 不受影響，組員的 Claude 訂閱登入程序也不受影響（它讀
-  不到分享的資料夾）。
+smurg 沒有辦法限制這些事。工作區裡每個人都即時看得到每個 session 的畫面，操作紀錄記下每個 session 是誰開的，但這些
+只能讓你事後知道發生了什麼。**只把這個角色給你完全信任的人**，例如你願意把自己已經登入的電腦交給他使用的人。其他組員
+請用「可編輯」：他們可以一起編輯檔案，並對 agent 提出建議，由你或有「可使用 agent」的人決定要不要採用。
 
-**agent 的 shell 指令通知**（關掉：`--no-bash-attribution`）
+- **給**：分享時用 `smurg host <資料夾> --role agent`，印出的組員連結就是「可使用 agent」的連結；或在分享中從網頁的
+  主人控制台建立這個角色的邀請連結、把成員的角色改成「可使用 agent」（控制台會先顯示同樣的風險提醒，按「我了解…」
+  才會建立或變更）。
+- **收回**：在主人控制台把角色改回「可編輯」或「旁觀」，或移出那位成員；他開的 session 會立刻結束，他也不能再開
+  session 或在 session 裡輸入。**這只收回他在 smurg 裡的權限**，他之前以你的身分做過的事不會跟著消失：請看下面
+  「收回之後」的清單。
+- 開始之前請確認 `claude` 已經在這台電腦上登入（在你自己的終端機執行 `claude`，需要時輸入 `/login`）。沒有登入時，
+  組員開的 agent 會顯示還沒登入：請你自己登入，不要讓組員在 session 裡用他們的帳號 `/login`（那會把他們的登入資料
+  存到你的電腦上，之後所有 agent 都用它）。
+
+**收回之後**：他有「可使用 agent」的期間，可以用你的帳號讀過、複製過你讀得到的任何東西，也可以在電腦上留下之後會
+自動執行的東西。如果你不再信任他，或不確定他做過什麼，請做完這些事：
+
+1. **換掉工作區的金鑰和邀請連結**：先用 `smurg status` 記下工作區代碼（停止之後 `smurg status` 就不會再列出它），再
+   `smurg stop` 停止分享，把 `~/.smurg/workspaces/<工作區代碼>/` 移到別的地方（例如在名稱後面加上 `.old`），然後用
+   `smurg host` 重新分享。daemon 金鑰和邀請連結的密鑰都會換新（他可能讀過舊的）；其他組員要用新的邀請連結重新加入。
+   - 加入過的組員用新連結時會看到「**主人的電腦金鑰和之前不同**」（網頁和 `smurg attach` 都會先問過才繼續）。請用
+     `smurg status` 查看新的 **daemon 金鑰指紋**，用其他管道（當面、電話）告訴他們，讓他們比對過再繼續。
+   - 舊的 worktree 還留在 `<資料夾>/.smurg/worktrees/`：新的工作區狀態不認得它們，組員看不到，smurg 也不能再合併或
+     移除它們。裡面還要的修改請你自己檢查後合併到主工作區，再刪掉這些資料夾。
+   - 只停止再重新分享、不移走這個資料夾的話，金鑰和還沒過期的邀請連結都不會變。
+2. **換掉 relay 的登入**：`smurg logout`，再 `smurg login`。relay 的登入沒有辦法提前作廢：他如果複製了舊的登入資料
+   （`~/.smurg/credentials.json`），在它到期之前（登入後最多 7 天）仍然可以用。
+3. **換掉其他登入資料**：Claude Code 的登入（在你的終端機執行 `claude`，`/logout` 再 `/login`；用 API key 的話換一把
+   新的）、`~/.ssh` 的金鑰，以及家目錄裡其他程式和雲端服務的登入資料。
+4. **檢查會自動執行的地方**，有你不認得的內容就移除：
+   - shell 設定檔：`~/.zshrc`、`~/.zprofile`、`~/.bashrc`、`~/.bash_profile`、`~/.profile`；
+   - 排程：`crontab -l`；
+   - 登入時自動啟動的程式：macOS 的 `~/Library/LaunchAgents/`，Linux 的 systemd 使用者服務（`~/.config/systemd/user/`，
+     `systemctl --user list-unit-files`）和 `~/.config/autostart/`；
+   - `~/.ssh/authorized_keys`：多出來的金鑰能讓人不經過 smurg 直接登入你的電腦；
+   - Claude Code 的設定：`~/.claude/settings.json` 的 `hooks`，和 `~/.claude/CLAUDE.md`（之後每個 agent 都會照著做）；
+   - 你的 git 專案（分享的和其他的）：`.git/hooks/` 裡的腳本，以及會執行程式的 git 設定，例如
+     `git config --show-origin --get-regexp 'core\.(fsmonitor|hooksPath|sshCommand)'`（也看 `~/.gitconfig`）；
+   - 還在執行的程式：session 結束時 smurg 會結束它找得到的程式，但刻意脫離 session 的程式可能繼續以你的帳號執行，
+     也可以透過這台電腦上的控制 socket（`smurg attach` 用的）在任何 session 裡輸入，包括你自己的。不確定的話，做完
+     上面的檢查之後重新開機。
+5. **紀錄分不出是他還是你**：他透過 session 用你的作業系統帳號做的事，在系統和其他程式的紀錄裡都和你自己做的一樣；
+   smurg 的操作紀錄記下 session 是誰開的、誰從網頁做了什麼，但不記 session 裡的指令和輸出。這台電腦上的控制
+   socket（`smurg attach` 用的）只能用來列出、接上 session 和在 session 裡輸入，不能拿來以你的名義改角色、核准合併、
+   踢人或變更設定；可是在收回之前，他仍然可以用你的作業系統帳號做任何你能做的事。
+
+### 5.2 agent 的 shell 指令通知
+
+預設開啟；關掉：`--no-bash-attribution`。這項設定只能在啟動時決定：要改就先停止分享，再用新的選項執行 `smurg host`
+（同一個資料夾的工作區和成員都會保留，組員不用重新加入）。分享中目前是開啟還是關閉，用 `smurg status` 查看（§7）。
 
 agent 用 Edit、Write 等工具改檔案時，smurg 本來就知道是哪個 agent 改的。agent 用 shell 指令（例如 `sed -i`、
 格式化工具）改的檔案，smurg 原本只能在活動動態裡顯示成「外部程式」。現在：
 
-- 每個 agent session（**包括你自己的**）執行 shell 指令時，會通知這台電腦上的 smurg 指令何時開始、何時結束。
+- 每個 agent session 執行 shell 指令時，會通知這台電腦上的 smurg 指令何時開始、何時結束。
   **不含指令內容和輸出**，也不會擋下任何指令：smurg 沒有回應時，指令照常執行，只是不會記在那個 agent 名下。
 - 檔案在「只有一個 agent 正在執行 shell 指令」的期間（加上指令結束後 3 秒）被改動，而且沒有其他人認領，就記成
   那個 agent 改的，例如「Claude（Amy）透過 shell 指令修改了 src/app.ts」，操作紀錄也一樣。同時有兩個以上的 agent
-  在執行 shell 指令時，仍然顯示「外部程式」。組員的 agent 只會被記上它自己能寫的範圍裡的變更。
+  在執行 shell 指令時，仍然顯示「外部程式」。
 - 已知限制：agent 執行 shell 指令的期間，你用 smurg 以外的工具（別的編輯器、自己的終端機）改了同一個範圍裡的檔案，
   也會被記成那個 agent 改的。
 - 代價：每個 shell 指令多執行兩次小程式，在開發用的電腦上量到每次約 0.05 秒。
@@ -261,7 +262,7 @@ agent 用 Edit、Write 等工具改檔案時，smurg 本來就知道是哪個 ag
 
 ```sh
 smurg status          # 這台電腦上正在分享的工作區（見下面）
-smurg stop            # 停止分享：中斷所有連線、結束所有 session、刪除客人的暫存目錄
+smurg stop            # 停止分享：中斷所有連線、結束所有 session
 ```
 
 `smurg status` 列出每個正在分享的工作區（`smurg host` 啟動時不印的資訊都在這裡）：
@@ -269,9 +270,7 @@ smurg stop            # 停止分享：中斷所有連線、結束所有 session
 - 工作區代碼、分享的資料夾、relay 的網址（公用 relay 會註明）與連線狀態、連線數與線上成員；
 - **daemon 金鑰指紋**（§3）；
 - 防止睡眠（§6）；
-- 客人沙盒：「可用」、「無法使用（原因）」（§8），或剛啟動、還沒檢查完時的「尚未檢查」；
-- §5 的三項設定：組員的 Claude 訂閱登入（開放／已關閉）、客人的主工作區 session（已開放／未開放；資料夾不是 git
-  repository 時，未開放代表客人目前無法開 session）、agent 的 shell 指令通知（開啟／已關閉）；
+- agent 的 shell 指令通知（開啟／已關閉，§5.2）；
 - daemon 紀錄檔的位置：`~/.smurg/logs/<工作區代碼>.log`（權限 0600，不含邀請連結）。出問題時，詳細原因在這裡。
 
 在 `smurg host` 的終端機按 Ctrl-C 也一樣（停止需要幾秒鐘；2 秒內再按一次不會中斷它，之後再按一次會立即結束，但可能
@@ -295,16 +294,13 @@ smurg stop            # 停止分享：中斷所有連線、結束所有 session
 | 輸入代碼的頁面說「代碼不正確或已失效」／「輸入錯誤的次數太多」 | 確認是終端機上**最新**的那組代碼（8 個英文字母，沒有數字）。代碼用過、被拒絕或過期就失效了；輸入錯太多次要等幾分鐘（頁面會寫多久）。 |
 | 「這個 relay 還不支援用代碼登入」 | 你用 `--relay` 指定的 relay 比你的 smurg 舊。請提供那個 relay 的人更新它。 |
 | 「無法寫入 smurg 的狀態檔」 | 磁碟已滿或沒有權限。剛才的變更（踢人、改角色、撤銷邀請）現在有效，但寫入成功前停止分享的話，重新啟動後會消失。 |
-| 「客人沙盒：無法使用（dependency-missing）」 | Linux：`sudo apt-get install bubblewrap socat ripgrep`，重新執行 `smurg host`。bubblewrap 需要 0.8 以上（`bwrap --version`）：Ubuntu 24.04、Debian 12 以上內建的版本即可；Ubuntu 22.04 的 0.6 太舊。 |
-| 「客人沙盒：無法使用（apparmor-userns）」 | Ubuntu 24.04 以上：照 smurg 印出的指令安裝 `/etc/apparmor.d/smurg-bwrap`（只放寬 bubblewrap）。 |
-| 「客人沙盒：無法使用（daemon-cwd）」 | 重新執行 `smurg host`（smurg 的 daemon 從 `~/.smurg/cwd` 執行，這個資料夾在分享期間被刪除了）。 |
-| 「⚠ 客人程序執行時，……裡只有主人能使用的檔案有變動」 | Linux：你、你的工具或 `git` 在組員的程序執行時改了列出的檔案（§4）。smurg 已結束那個資料夾裡組員的程序，組員可以重新開 session。請確認這些檔案現在的內容是你自己的（組員在被結束之前可能改寫了它）。 |
+| 「這個工作區的狀態檔是別的 smurg 版本寫的，或不是預期的格式，daemon 拒絕啟動」 | 這個資料夾的工作區狀態（`~/.smurg/workspaces/<工作區代碼>/`）讀不了：通常是別的版本的 smurg 寫的（smurg 不會轉換其他版本的狀態），也可能被別的程式改過或權限不對。哪個檔案、什麼原因，記在終端機提到的紀錄檔裡。處理：把這個資料夾移到別的地方（例如在名稱後面加上 `.old`），再執行一次 `smurg host`。這會建立新的工作區狀態：之前的成員和邀請連結都不再有效，組員要用新的邀請連結重新加入。daemon 金鑰也會換新：加入過的組員會看到「主人的電腦金鑰和之前不同」，請把 `smurg status` 顯示的新金鑰指紋用其他管道告訴他們（§5.1「收回之後」第 1 步，舊的 worktree 也在那裡說明）。 |
+| 組員說他看到「主人的電腦金鑰和之前不同」 | 你換過工作區的金鑰（§5.1「收回之後」第 1 步，或上一列的處理）：用 `smurg status` 查看新的 daemon 金鑰指紋，用其他管道（當面、電話）告訴他，讓他比對過再繼續。你沒有換過的話，請他不要繼續：可能有人冒充你。 |
 | 「smurg 狀態目錄的路徑太長」 | 把 `SMURG_HOME` 設成較短的路徑（Unix socket 路徑有長度上限）。 |
 | 組員看到「主人已離線」 | `smurg host` 沒有在執行，或電腦在睡眠 / 沒有網路。 |
-| 組員說「這台主人電腦沒有開放客人使用主工作區」 | Linux 預設如此（§5），或你用了 `--no-main-workspace-guests`。請組員改選「我的 worktree」（資料夾必須是 git repository）；要開放的話，停止分享後加上 `--allow-main-workspace-guests` 重新執行，並先看 §5 列出的 Linux 限制。 |
-| 組員說「這個工作區的主人沒有開放 Claude 訂閱登入」 | 你用 `--no-guest-subscription-login` 啟動了分享。要開放的話，停止分享後不加這個選項重新執行；否則請組員用自己的 API key。 |
-| 組員在 agent session 裡輸入 `/login` 出現「Failed to start OAuth callback server」 | 組員的 agent session 在沙盒裡不能開網路埠，這是預期的。請組員改用 smurg 的登入程序（§5），或用 API key。 |
-| 活動動態裡 agent 用 shell 指令改的檔案顯示為「外部程式」 | 你用 `--no-bash-attribution` 啟動了分享，或同一段時間有兩個以上的 agent 在執行 shell 指令，smurg 無法確定是誰（§5）。 |
+| 「你的 Claude Code 還沒有登入」（組員看到「主人的 Claude Code 還沒有登入，這個 agent 暫時無法工作」） | 每個 agent 都用你在這台電腦上的 Claude Code 登入（§5.1）。點一下那個 agent 的終端機，輸入 `/login` 照畫面登入（或在你自己的終端機執行 `claude` 登入），再回到 session 輸入下一個指令。 |
+| 組員開不了 session（「新增 session」說他的角色不能開 session） | 只有「可使用 agent」能開 session（§5.1）。要給的話，在主人控制台改他的角色；先讀 §5.1 的風險。 |
+| 活動動態裡 agent 用 shell 指令改的檔案顯示為「外部程式」 | 你用 `--no-bash-attribution` 啟動了分享，或同一段時間有兩個以上的 agent 在執行 shell 指令，smurg 無法確定是誰（§5.2）。 |
 
 所有狀態（金鑰、登入、工作區、紀錄檔）都在 `~/.smurg`（可用 `SMURG_HOME` 改變位置），紀錄檔在 `~/.smurg/logs/`，
 不含邀請連結。

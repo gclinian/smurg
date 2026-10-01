@@ -29,7 +29,7 @@ export async function startHookDaemon(
 export function registerAgent(
   hooks: HookServerImpl,
   owner: { readonly userId: string; readonly name: string },
-  options: { readonly sessionId?: string; readonly root?: RootRef; readonly sandboxed?: boolean } = {},
+  options: { readonly sessionId?: string; readonly root?: RootRef } = {},
 ): { readonly sessionId: string; readonly token: string; readonly env: Readonly<Record<string, string>> } {
   const sessionId = options.sessionId ?? `ses_${randomBytes(8).toString('hex')}`;
   const creds = hooks.registerSession({
@@ -37,7 +37,6 @@ export function registerAgent(
     ownerUserId: owner.userId,
     agentName: `Claude（${owner.name}）`,
     root: options.root ?? MAIN_ROOT,
-    sandboxed: options.sandboxed ?? owner.userId !== 'dev:host',
   });
   return { sessionId, token: creds.token, env: creds.env };
 }

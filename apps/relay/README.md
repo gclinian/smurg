@@ -37,12 +37,9 @@ relay 看得到的只有：工作區 ID、連線 ID、訊框大小與時間，�
 | `GET /auth/github/login`、`GET /auth/google/login` | 瀏覽器登入（可加 `?return_to=/路徑` 或允許清單內的完整網址） |
 | `GET /auth/github/callback`、`GET /auth/google/callback` | OAuth 回呼（要在 OAuth app 註冊的網址） |
 | `POST /auth/device/start`（JSON，可以沒有 body） | CLI 用代碼登入的第一步，不需要登入：`{ deviceCode, userCode, verificationUri, expiresIn: 600, interval: 5 }`。`userCode` 是 `XXXX-XXXX`（RFC 8628 §6.1 的 20 個子音字母），`deviceCode` 是 `<去掉「-」的 userCode>.<32 位元組亂數的 base64url>`，`verificationUri` 是 `<relay>/device`（不帶代碼）。同一個 IP 位址 10 分鐘內最多 30 次，超過回 429 `too_many_requests` 與 `Retry-After` |
-| `POST /auth/device/token` `{ deviceCode }` | CLI 每 `interval` 秒問一次。允許之後回 bearer session `{ token, tokenType, expiresIn, user }`（和 `/auth/cli/token` 相同），**只給一次**；在那之前回 400：`authorization_pending`、`slow_down`（比間隔早 1 秒以上就問；之後間隔加 5 秒）、`access_denied`（按了「拒絕」）、`expired_token`（過期、已經領過、不存在或密鑰不符，無法分辨）、`invalid_request`（格式錯誤） |
+| `POST /auth/device/token` `{ deviceCode }` | CLI 每 `interval` 秒問一次。允許之後回 bearer session `{ token, tokenType, expiresIn, user }`（和 `POST /auth/dev/token` 相同的格式），**只給一次**；在那之前回 400：`authorization_pending`、`slow_down`（比間隔早 1 秒以上就問；之後間隔加 5 秒）、`access_denied`（按了「拒絕」）、`expired_token`（過期、已經領過、不存在或密鑰不符，無法分辨）、`invalid_request`（格式錯誤） |
 | `GET /device` | relay 自己的頁面（不是 SPA；沒有 script）：瀏覽器沒有登入時列出 relay 的登入方式（Google、有設定時 GitHub、本機開發時開發用登入），登入後回到 `/device`；登入之後是輸入代碼的表單。**網址裡的代碼一律不用**（預先填好代碼的連結正是釣魚會寄的東西） |
-| `POST /device`（表單） | 只接受 `/device` 自己送出的表單（和確認頁相同的同源檢查，否則 403）。`code`：代碼正確時顯示確認畫面（要登入的帳號、代碼、要求來自的 IP 位址與大概位置、時間，以及「只有你自己剛在終端機執行 smurg login 時才按「允許」；如果是別人給你這個代碼，請按「拒絕」。」）；`code`、`account`、`decision=allow\|deny`：允許或拒絕，綁定這個瀏覽器 session 的帳號（`account` 和目前的帳號不同時 409）。錯誤的代碼每個帳號 10 分鐘內 10 次、每個 IP 位址 30 次，超過顯示「輸入錯誤的次數太多」（429） |
-| `GET /auth/cli/start?port=P&state=S&code_challenge=C[&provider=github\|google\|dev][&user=名稱]` | **已淘汰**（smurg 0.1.0 的 CLI 迴路登入；新的 CLI 用代碼登入。在不用它的 CLI 發佈一段時間之後移除）。CLI 迴路登入的**確認頁**（只顯示，不做任何事）：列出登入方式（有 `provider` 時只列那一種）與確認碼，說明只有自己剛執行 `smurg login`、且終端機顯示同一組確認碼時才繼續 |
-| `POST /auth/cli/start`（表單，欄位同上） | **已淘汰**（同上）。只接受確認頁本身送出的表單：`Origin` 必須是 relay 自己（或 `ALLOWED_ORIGINS`），有 `Sec-Fetch-Site` 時必須是 `same-origin`，否則 403。之後走供應商登入或開發用登入；結果經由 relay 的「繼續」頁（meta refresh ＋ 連結，不是 302）送到 `http://127.0.0.1:P/callback?code=…&state=S`（失敗時是 `?error=…&state=S`） |
-| `POST /auth/cli/token` `{ code, codeVerifier }` | **已淘汰**（同上）。換成 bearer session：`{ token, tokenType, expiresIn, user }` |
+| `POST /device`（表單） | 只接受 `/device` 自己送出的表單：`Origin` 必須是 relay 自己（或 `ALLOWED_ORIGINS`），有 `Sec-Fetch-Site` 時必須是 `same-origin`，否則 403。`code`：代碼正確時顯示確認畫面（要登入的帳號、代碼、要求來自的 IP 位址與大概位置、時間，以及「只有你自己剛在終端機執行 smurg login 時才按「允許」；如果是別人給你這個代碼，請按「拒絕」。」）；`code`、`account`、`decision=allow\|deny`：允許或拒絕，綁定這個瀏覽器 session 的帳號（`account` 和目前的帳號不同時 409）。錯誤的代碼每個帳號 10 分鐘內 10 次、每個 IP 位址 30 次，超過顯示「輸入錯誤的次數太多」（429） |
 | `GET /auth/dev/start?user=名稱[&name=顯示名稱][&return_to=…]`、`POST /auth/dev/token` `{ user, displayName? }` | **僅限開發**：`DEV_LOGIN=1` **而且**主機名稱是本機（`localhost`、`127.0.0.1`、`[::1]`、`*.localhost`），否則 404 |
 | `POST /auth/logout` | 清除瀏覽器 cookie（204） |
 | `GET /api/me` | `{ user: { userId, displayName, provider, avatarUrl? } }` 或 401。未登入時刻意維持 401：client SDK 用它判斷「需要重新登入」（`engine.ts` 的 `probeLogin`），CLI 用它檢查存下來的 session，relay 的測試也斷言這個狀態碼 |
@@ -74,29 +71,14 @@ relay 看得到的只有：工作區 ID、連線 ID、訊框大小與時間，�
   太快）；10 分鐘最多約 120 次。輸入代碼和允許／拒絕各約 3–5 次 Durable Object 請求。
 - **為什麼不預先填好代碼**：`/device?code=…` 這種連結誰都能做，攻擊者會把帶著自己代碼的連結寄給別人。代碼一定要在頁面上輸入，
   確認畫面也寫出要求來自哪裡和多久以前。
-- **同源表單**：和下面的確認頁一樣，`/device` 的每個狀態變更都是同源的表單 POST（`Origin` 是 relay 自己或 `ALLOWED_ORIGINS`、
-  有 `Sec-Fetch-Site` 時必須是 `same-origin`），頁面的 `Referrer-Policy` 是 `same-origin`，CSP 有 `frame-ancestors 'none'`
-  並加上 `X-Frame-Options: DENY`。
+- **同源表單**：`/device` 的每個狀態變更都是同源的表單 POST（`Origin` 是 relay 自己或 `ALLOWED_ORIGINS`、有
+  `Sec-Fetch-Site` 時必須是 `same-origin`），CSP 有 `frame-ancestors 'none'` 並加上 `X-Frame-Options: DENY`。頁面的
+  `Referrer-Policy` 是 `same-origin`：在 `no-referrer` 之下瀏覽器送出表單時的 `Origin` 是 `null`（Fetch 規格；Chrome
+  實測如此），同源檢查就會把正常的要求也擋掉。
+- **迴路登入已移除**（2026-10-01）：smurg 0.1.0 的 CLI 迴路登入（`/auth/cli/start`、`/auth/cli/token`，結果送到 CLI 在
+  `127.0.0.1` 上的埠）沒有人在用，relay 已經拿掉；這些路徑現在回 404。
 - 測試：`test/device.test.ts`（workerd）、`test/cli-login.browser.test.ts`（Chrome 與真正的 CLI）、
   `tests/e2e/test/device-login.test.ts`、`apps/web/e2e/smoke/login.smoke.test.ts`。
-
-### CLI 迴路登入為什麼這樣設計（已淘汰：smurg 0.1.0）
-
-smurg 0.1.0 的 CLI 用下面的迴路登入；relay 保留這些路由，直到不用它的 CLI 發佈一段時間之後。
-
-- **連結本身不會登入任何人**（安全審查 SEC-E-03）：任何網頁都能用自己選的 port、state 與 PKCE challenge 連到
-  `/auth/cli/start`。以前帶著 `provider=github` 的 GET 會直接轉到 GitHub，而 GitHub 對已授權過的 app 不再問使用者，
-  於是一次點擊就把 7 天的 relay session 交給在那台電腦本機 port 上等著的程式。現在 GET 只顯示確認頁；繼續必須是確認頁
-  自己的同源 POST。確認頁的 `Referrer-Policy` 是 `same-origin`：在 `no-referrer` 之下瀏覽器送出表單時的 `Origin` 是
-  `null`（Fetch 規格；Chrome 實測如此），同源檢查就會把正常的登入也擋掉。
-- **確認碼**：`XXXX-XXXX`，是 SHA-256(`"smurg-cli-login:" ‖ state`) 前 40 位元，用 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`
-  編碼（`src/lib/validate.ts` 的 `cliConfirmCode`；測試向量在 `test/lib.test.ts`）。CLI 在終端機顯示同一組碼。它不是
-  秘密（state 在網址裡），用途是讓人看出這個頁面屬於自己剛開始的那次登入。
-- **不用 302 回到 127.0.0.1**（OWNER-01）：Chromium 會把送出表單那一頁的 CSP `form-action` 套用在之後每一次轉址上。
-  開發用登入的表單在 relay 自己的頁面（`form-action 'self'`），GitHub / Google 的授權按鈕也是它們自己頁面上的表單，
-  所以 302 到 `http://127.0.0.1:P` 會被瀏覽器擋下，CLI 永遠等不到回呼（Node 的 fetch 不執行 CSP，只有真的瀏覽器測得到：
-  `test/cli-login.browser.test.ts`）。relay 改回應 200 的「繼續」頁（沒有 script、`no-referrer`、`no-store`），用 meta
-  refresh 前往迴路網址，也顯示一個連結備用；確認頁之後前往 IdP 也是同樣的方式。
 
 ### Session
 
@@ -307,8 +289,8 @@ Google 的主控台偶爾改名：下面同時寫出「APIs & Services」的名�
    - 按 **Create**。**Client ID** 是公開的，交給部署腳本的 `--google-client-id`；**Client secret** 是秘密，只用
      `wrangler secret put GOOGLE_CLIENT_SECRET` 貼進 wrangler，不要放進任何檔案、聊天或 issue。
 4. relay 以 state + nonce + PKCE 登入，並用 Google 的 JWKS 驗證 `id_token`（`iss` 接受 `https://accounts.google.com` 與
-   `accounts.google.com`，`aud` 必須是自己的 client ID）。CLI 登入不需要另外註冊網址：relay 永遠只在自己的
-   `/auth/google/callback` 接收回呼，再用自己的「繼續」頁把瀏覽器帶到 CLI 的 `http://127.0.0.1:<port>/callback`。
+   `accounts.google.com`，`aud` 必須是自己的 client ID）。CLI 登入不需要另外註冊網址：CLI 用代碼登入，
+   人在 relay 的 `/device` 頁面用同一個 `/auth/google/callback` 登入。
 
 ### `scripts/deploy-relay.sh` 做什麼
 

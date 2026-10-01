@@ -272,8 +272,9 @@ describe('host-only, hidden, special files', () => {
     await denied(t.ctx.paths.resolve(main('config/settings.json'), { principal: editor, forWrite: true }), 'host-only');
   });
 
-  // SEC-D-03 (supersedes "lets everyone read .git"): the guests' sandbox hides the host's personal Claude Code files
-  // and the git internals (remote URLs with tokens) from their agents; a guest human gets none of it either.
+  // SEC-D-03 (supersedes "lets everyone read .git"): the host's personal Claude Code files and the git internals
+  // (remote URLs with tokens) are refused to every non-host through file.* (there is no guest sandbox since §11 D-15;
+  // what a member's session does as the host's OS account is not PathGuard's to stop).
   describe('host-private files are refused to every non-host, for reads too (SEC-D-03)', () => {
     const plant = async (): Promise<void> => {
       await writeFile(join(t.root, '.claude', 'settings.local.json'), '{"env":{"MY_TOKEN":"HOST-SECRET-LOCAL"}}\n');

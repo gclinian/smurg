@@ -3,10 +3,8 @@
 // sent: admin.settings.set takes a Partial<HostSettings>.
 import {
   AGENT_LOCK_TIMEOUT_MS_RANGE,
-  ALLOWED_DOMAINS_MAX,
   HUMAN_LOCK_IDLE_MS_RANGE,
   SHARED_DIRS_MAX,
-  allowedDomainSchema,
   entryPathSchema,
   type HostSettings,
   type HostSettingsPatch,
@@ -21,8 +19,6 @@ export const DISK_RESERVE_GB_MAX = Math.floor(Number.MAX_SAFE_INTEGER / GIB);
 export interface SettingsDraft {
   /** One path per line. */
   readonly sharedDirs: string;
-  /** One domain per line. */
-  readonly allowedDomains: string;
   readonly humanLockIdleSec: string;
   readonly agentLockTimeoutSec: string;
   readonly diskReserveGb: string;
@@ -46,7 +42,6 @@ function formatNumber(value: number): string {
 export function draftFromSettings(settings: HostSettings): SettingsDraft {
   return {
     sharedDirs: settings.sharedDirs.join('\n'),
-    allowedDomains: settings.allowedDomains.join('\n'),
     humanLockIdleSec: formatNumber(settings.humanLockIdleMs / 1000),
     agentLockTimeoutSec: formatNumber(settings.agentLockTimeoutMs / 1000),
     diskReserveGb: formatNumber(settings.diskReserveBytes / GIB),
@@ -106,19 +101,6 @@ export function parseSettingsDraft(draft: SettingsDraft, current: HostSettings):
   );
   if ('error' in dirs) errors.sharedDirs = dirs.error;
   else if (!sameList(dirs.values, current.sharedDirs)) patch.sharedDirs = dirs.values;
-
-  const domains = parseList(
-    draft.allowedDomains,
-    ALLOWED_DOMAINS_MAX,
-    (line) => {
-      // Host names are case-insensitive; the allow-list is lowercase only.
-      const parsed = allowedDomainSchema.safeParse(line.toLowerCase());
-      return parsed.success ? parsed.data : null;
-    },
-    (line) => t('settings.error.domain', { value: line }),
-  );
-  if ('error' in domains) errors.allowedDomains = domains.error;
-  else if (!sameList(domains.values, current.allowedDomains)) patch.allowedDomains = domains.values;
 
   const humanIdle = parseNumber(draft.humanLockIdleSec, HUMAN_LOCK_IDLE_MS_RANGE.min / 1000, HUMAN_LOCK_IDLE_MS_RANGE.max / 1000);
   if ('error' in humanIdle) errors.humanLockIdleSec = humanIdle.error;

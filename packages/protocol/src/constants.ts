@@ -12,8 +12,13 @@ const GiB = 1024 * MiB;
 // Versions and tags
 // ---------------------------------------------------------------------------------------------------------------
 
-/** Version of the encrypted application protocol, sent in `ClientHello.protocolVersion` (ARCHITECTURE §4.2). */
-export const PROTOCOL_VERSION = 1;
+/**
+ * Version of the encrypted application protocol, sent in `ClientHello.protocolVersion` (ARCHITECTURE §4.2). 2 since
+ * the guest sandbox was removed and the role `agent` (「可使用 agent」) replaced `runner` (ARCHITECTURE §11 D-15): roles,
+ * SessionInfo, session.create and the settings changed shape. A daemon answers another version with the verdict
+ * `version`.
+ */
+export const PROTOCOL_VERSION = 2;
 
 /** Leading bytes of every Noise prologue: `"smurg-noise/1" ‖ 0x00 ‖ u8 len(workspaceId) ‖ workspaceId ‖ …`. */
 export const NOISE_PROLOGUE_TAG = 'smurg-noise/1';

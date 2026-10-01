@@ -10,7 +10,6 @@ const exited = {
   ownerUserId: 'dev:amy',
   ownerName: 'Amy',
   title: 'Claude',
-  sandboxed: true,
   root: { kind: 'main' },
   status: 'exited',
   exitCode: 0,
@@ -39,46 +38,34 @@ describe('SessionInfo end reason', () => {
   });
 });
 
-// ARCHITECTURE §11 D-12: a guest's own Claude subscription login is a session of kind 'login'; whether guests may start
-// one is published to every member (PublicSettings.guestSubscriptionLogin) but is not a console setting.
-describe('the guest subscription login (D-12)', () => {
-  it('is a session kind of its own, in session.create and in SessionInfo', () => {
-    expect([...SESSION_KINDS]).toEqual(['agent', 'terminal', 'login']);
-    expect(sessionInfoSchema.parse({ ...exited, kind: 'login', sandboxed: true, login: 'unknown' }).kind).toBe('login');
-    expect(sessionCreatePayloadSchema.safeParse({ kind: 'login', workspace: { mode: 'main' }, cols: 100, rows: 30 }).success).toBe(true);
-    // The command is the daemon's: there is no field for it.
-    expect(sessionCreatePayloadSchema.safeParse({ kind: 'login', workspace: { mode: 'main' }, cols: 100, rows: 30, args: ['--console'] }).success).toBe(false);
-    expect(sessionCreatePayloadSchema.safeParse({ kind: 'login', workspace: { mode: 'main' }, cols: 100, rows: 30, env: { BROWSER: 'x' } }).success).toBe(false);
-  });
-
-  it('PublicSettings may say whether guests may use it; HostSettings (admin.settings.*) cannot carry it', () => {
-    const base = { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [] };
-    expect(publicSettingsSchema.parse({ ...base, guestSubscriptionLogin: false }).guestSubscriptionLogin).toBe(false);
-    expect(publicSettingsSchema.parse(base).guestSubscriptionLogin).toBeUndefined();
-    expect(publicSettingsSchema.safeParse({ ...base, guestSubscriptionLogin: 'no' }).success).toBe(false);
-    const host = { ...base, allowedDomains: [], diskReserveBytes: 1, diskReservePercent: 5 };
-    expect(hostSettingsSchema.safeParse(host).success).toBe(true);
-    expect(hostSettingsSchema.safeParse({ ...host, guestSubscriptionLogin: true }).success).toBe(false);
-    expect(hostSettingsPatchSchema.safeParse({ guestSubscriptionLogin: false }).success).toBe(false);
-  });
-});
-
-// ARCHITECTURE §11 D-14 (owner decision 2026-10-01): whether guests may use the shared main workspace is the daemon's
-// configuration (off by default on a Linux host), published to every member, never a console setting.
-describe('guests in the main workspace (D-14)', () => {
+// ARCHITECTURE §11 D-15 (owner decision 2026-10-01): no guest sandbox, no guest login process, no guest API key, no
+// guest switches. Every session runs like the host's own; SessionInfo names who opened it (ownerUserId / ownerName).
+describe('no guest sandbox (D-15)', () => {
   const base = { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [] };
 
-  it('PublicSettings may say it (true / false / not said), only as a boolean', () => {
-    expect(publicSettingsSchema.parse({ ...base, guestMainWorkspace: false }).guestMainWorkspace).toBe(false);
-    expect(publicSettingsSchema.parse({ ...base, guestMainWorkspace: true }).guestMainWorkspace).toBe(true);
-    expect(publicSettingsSchema.parse(base).guestMainWorkspace).toBeUndefined();
-    expect(publicSettingsSchema.parse({ ...base, guestSubscriptionLogin: true, guestMainWorkspace: false })).toEqual({ ...base, guestSubscriptionLogin: true, guestMainWorkspace: false });
-    for (const bad of ['no', 0, 1, null]) expect(publicSettingsSchema.safeParse({ ...base, guestMainWorkspace: bad }).success).toBe(false);
+  it('sessions are agents or terminals; SessionInfo has no sandboxed flag', () => {
+    expect([...SESSION_KINDS]).toEqual(['agent', 'terminal']);
+    expect(sessionInfoSchema.safeParse({ ...exited, kind: 'login' }).success).toBe(false);
+    expect(sessionInfoSchema.safeParse({ ...exited, sandboxed: false }).success).toBe(false);
+    expect(sessionInfoSchema.parse({ ...exited, kind: 'terminal' })).toMatchObject({ kind: 'terminal', ownerUserId: 'dev:amy', ownerName: 'Amy' });
   });
 
-  it('HostSettings and admin.settings.set cannot carry it (the console cannot open the main workspace to guests)', () => {
-    const host = { ...base, allowedDomains: [], diskReserveBytes: 1, diskReservePercent: 5 };
-    expect(hostSettingsSchema.safeParse({ ...host, guestMainWorkspace: false }).success).toBe(false);
+  it('session.create carries no API key, no login kind and nothing that could choose a sandbox', () => {
+    const create = { kind: 'agent', workspace: { mode: 'main' }, cols: 100, rows: 30 };
+    expect(sessionCreatePayloadSchema.safeParse(create).success).toBe(true);
+    expect(sessionCreatePayloadSchema.safeParse({ ...create, kind: 'login' }).success).toBe(false);
+    expect(sessionCreatePayloadSchema.safeParse({ ...create, apiKey: 'sk-ant-api03-x' }).success).toBe(false);
+    expect(sessionCreatePayloadSchema.safeParse({ ...create, sandboxed: true }).success).toBe(false);
+  });
+
+  it('settings carry no guest switches and no network allow-list', () => {
+    expect(publicSettingsSchema.safeParse(base).success).toBe(true);
+    expect(publicSettingsSchema.safeParse({ ...base, guestSubscriptionLogin: false }).success).toBe(false);
+    expect(publicSettingsSchema.safeParse({ ...base, guestMainWorkspace: true }).success).toBe(false);
+    const host = { ...base, diskReserveBytes: 1, diskReservePercent: 5 };
+    expect(hostSettingsSchema.safeParse(host).success).toBe(true);
+    expect(hostSettingsSchema.safeParse({ ...host, allowedDomains: [] }).success).toBe(false);
+    expect(hostSettingsPatchSchema.safeParse({ allowedDomains: ['pypi.org'] }).success).toBe(false);
     expect(hostSettingsPatchSchema.safeParse({ guestMainWorkspace: true }).success).toBe(false);
   });
 });

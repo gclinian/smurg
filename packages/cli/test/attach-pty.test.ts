@@ -31,11 +31,12 @@ async function stack(): Promise<Stack> {
   const dirs = await makeDirs();
   cleanups.push(() => dirs.cleanup());
   const workspaceId = `ws_pty_${Math.random().toString(36).slice(2, 14)}`;
-  const daemon = await startDaemonProc(dirs, workspaceId);
+  // The host's terminal is opened by the daemon fixture (as from the web): the control socket cannot open sessions.
+  const daemon = await startDaemonProc(dirs, workspaceId, { hostTerminal: 'pty test' });
   cleanups.push(() => daemon.stop());
   const host = await LocalWorkspaceChannel.open(daemon.ctlPath, { deviceName: 'test host' });
   cleanups.push(() => host.close());
-  const { session } = await host.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24, title: 'pty test' });
+  const session = daemon.session as SessionInfo;
   return { dirs, daemon, workspaceId, host, session };
 }
 

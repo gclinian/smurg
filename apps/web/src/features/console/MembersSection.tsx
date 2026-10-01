@@ -1,5 +1,7 @@
 // Members (SPEC R2, R11 「即時顯示線上成員」「一鍵…踢掉任何成員」): online state, role, devices and what everyone is doing;
-// change a role with a select, kick with one click and a confirmation that says exactly what will happen.
+// change a role with a select, kick with one click and a confirmation that says exactly what will happen. Choosing
+// 「可使用 agent」 first shows the risk (RoleRiskDialog) and applies only after the host confirms; losing it ends the
+// sessions the member opened (the daemon does), which is confirmed too.
 import { useState } from 'react';
 import { GUEST_ROLES, can, type GuestRole, type MemberWithDevices, type PresenceMember, type SessionInfo } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -7,9 +9,11 @@ import { formatRelativeTime, formatRole } from '../../lib/format.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { selectSessionList } from '../../lib/stores/sessions.ts';
 import { selectUserId } from '../../lib/stores/workspace.ts';
+import { isRiskyRole } from '../../lib/capabilities.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
 import { Avatar, Badge, Banner, Button, Dialog, Select, Table, useToast, type TableColumn } from '../../ui/index.ts';
+import { RoleRiskDialog } from './RoleRiskDialog.tsx';
 import { t } from './strings.ts';
 
 interface MemberRow {
@@ -18,7 +22,7 @@ interface MemberRow {
   readonly running: readonly SessionInfo[];
 }
 
-const ROLE_ORDER = { host: 0, runner: 1, editor: 2, viewer: 3 } as const;
+const ROLE_ORDER = { host: 0, agent: 1, editor: 2, viewer: 3 } as const;
 
 /** Online first (host on top), then by name. */
 function sortRows(rows: MemberRow[]): MemberRow[] {
@@ -32,9 +36,9 @@ function sortRows(rows: MemberRow[]): MemberRow[] {
   );
 }
 
-/** Whether moving `from` → `to` takes away the right to own sessions (the daemon then ends them). */
+/** Whether moving `from` → `to` takes away the right to open sessions (the daemon then ends the ones they opened). */
 function losesSessions(from: MemberWithDevices['role'], to: GuestRole): boolean {
-  return can(from, 'session.create.sandboxed') && !can(to, 'session.create.sandboxed');
+  return can(from, 'session.create') && !can(to, 'session.create');
 }
 
 export function MembersSection({ now }: { now: number }) {
@@ -47,6 +51,8 @@ export function MembersSection({ now }: { now: number }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [kicking, setKicking] = useState<MemberWithDevices | null>(null);
   const [demoting, setDemoting] = useState<{ member: MemberWithDevices; role: GuestRole; count: number } | null>(null);
+  /** A member about to get 「可使用 agent」: nothing is sent before the host confirms the risk. */
+  const [granting, setGranting] = useState<{ member: MemberWithDevices; role: GuestRole } | null>(null);
 
   const rows = sortRows(
     members.map((member) => ({
@@ -70,6 +76,10 @@ export function MembersSection({ now }: { now: number }) {
 
   const changeRole = (row: MemberRow, role: GuestRole): void => {
     if (role === row.member.role) return;
+    if (isRiskyRole(role)) {
+      setGranting({ member: row.member, role });
+      return;
+    }
     if (losesSessions(row.member.role, role) && row.running.length > 0) {
       setDemoting({ member: row.member, role, count: row.running.length });
       return;
@@ -195,6 +205,17 @@ export function MembersSection({ now }: { now: number }) {
         empty={t('members.empty')}
       />
       <p className="console-hint">{t('members.hint')}</p>
+      <RoleRiskDialog
+        open={granting !== null}
+        title={granting ? t('roleRisk.memberTitle', { name: granting.member.displayName }) : ''}
+        confirmLabel={t('roleRisk.confirmMember')}
+        onCancel={() => setGranting(null)}
+        onConfirm={() => {
+          if (!granting) return;
+          setGranting(null);
+          void applyRole(granting.member, granting.role);
+        }}
+      />
       <KickDialog member={kicking} sessions={kicking ? rows.find((row) => row.member.userId === kicking.userId)?.running.length ?? 0 : 0} onClose={() => setKicking(null)} />
       <Dialog
         open={demoting !== null}
@@ -272,7 +293,6 @@ function KickConfirm({ member, sessions, onClose }: { member: MemberWithDevices;
         <ul>
           <li>{t('kick.sessions', { name, count: sessions })}</li>
           <li>{t('kick.keys', { name })}</li>
-          <li>{t('kick.tempDir', { name })}</li>
         </ul>
         <p className="console-kick__final">{t('kick.irreversible', { name })}</p>
         {error ? (

@@ -1,24 +1,17 @@
-// SessionManager (R4, R2 kick, R11; ARCHITECTURE §5.5, §7.6, §11 D-3 / D-9). Owns every PTY session of the daemon:
-// launch (host: unsandboxed, the host's environment; runner: sandboxed, an allow-list environment, a guest dir),
-// fan-out to attached viewers, owner-only input and resize, login state, ending (killTree), guest-dir lifecycle.
+// SessionManager (R4, R2 kick, R11; ARCHITECTURE §5.5, §7.6, §11 D-3 / D-15). Owns every PTY session of the daemon:
+// launch, fan-out to attached viewers, input from every member who may drive sessions, owner-only resize, login
+// state, ending (killTree).
 //
-// Sandboxing is decided by the caller's ROLE (host → unsandboxed, runner → srt), never by the client. A guest session
-// that cannot be sandboxed (preflight, wrap, Claude Code version) is refused with `sandbox_unavailable`, audited as
-// `sandbox.refused`, and nothing is spawned. The guest's own API key lives only in this process's memory and in that
-// PTY's environment: never persisted, logged or audited.
-//
-// Guests in the main workspace (ARCHITECTURE §11 D-14): with config.sessions.guestMainWorkspace off (the default on a
-// Linux host) a sandboxed agent / terminal session in mode 'main' is refused (`forbidden`, 'main-workspace-off',
-// audited as a denied session.create); guests use worktree mode. Login sessions and the host's own are not affected.
-//
-// Sessions of kind 'login' (ARCHITECTURE §11 D-12, login.ts): a guest's own Claude subscription login, the fixed
-// `claude auth login` in that guest's sandbox (mode 'login'). Private to their owner: not in list() / get() (so no
-// other module, member or MCP tool sees them), session.state goes to the owner only, only the owner attaches, and no
-// bus event names them. Their output is never logged or audited; start and outcome (exit code only) are.
+// Every session runs like the host's own (owner decision 2026-10-01, §11 D-15): the host's OS user, unsandboxed, the
+// host's environment, HOME and Claude Code login, whoever opened it (`session.create`: the host and 「可使用 agent」).
+// The member who opened it is its owner: the agent is 「Claude（owner）」, its locks and edits are attributed to them,
+// only they end it with session.end (the host terminates any session), and its PTY follows their viewport. Every member
+// with `session.drive` (the host, 「可使用 agent」) may type into any session and accept its suggestions; editors and
+// viewers suggest (R6). When the owner is kicked, leaves or is set below 「可使用 agent」, the sessions they opened end.
 import { createHash, randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { access, lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises';
-import { isAbsolute, join, relative } from 'node:path';
+import { access, mkdir, readdir, realpath, stat } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import {
   EXEC_OUTPUT_MAX_BYTES,
@@ -38,47 +31,17 @@ import {
 import { claudeVersionVerdict, type SessionLaunchConfig } from '../core/config.ts';
 import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
-import { LOG_UNSAFE_CHARACTER } from '../core/logger.ts';
-import type {
-  ClientConnection,
-  HookSessionCredentials,
-  MemberRecord,
-  PersistentDocument,
-  Principal,
-  SandboxRevocation,
-  SandboxSpec,
-  SessionAttachStart,
-  SessionManager,
-  UserId,
-  WrappedCommand,
-} from '../core/interfaces.ts';
-import { SYSTEM_ACTOR, agentDisplayName } from '../core/permissions.ts';
+import type { ClientConnection, HookSessionCredentials, MemberRecord, PersistentDocument, Principal, SessionAttachStart, SessionManager, UserId } from '../core/interfaces.ts';
+import { SYSTEM_ACTOR, agentDisplayName, principalCan } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { ClaudeVersionProbe, LoginHintDetector, parseAuthStatus, resolveClaude, type ClaudeBinary } from './claude.ts';
-import { assertGuestEnv, buildGuestEnv, buildHostEnv, claudeDirOf, withTestGuestEnv } from './guest-env.ts';
-import { GuestStore, guestKeyOf, readGuestFile, writeGuestFileAtomic, type GuestPaths } from './guest-store.ts';
-import { validateImport, writeImport } from './import-config.ts';
-import { KeyedLock } from './keyed-lock.ts';
+import { buildHostEnv } from './host-env.ts';
 import { killTree, rememberDescendants, systemProcessInspector, type KillTreeResult, type KnownProcess, type ProcessInspector, type ProcessRow } from './kill-tree.ts';
-import { apiKeyApprovalSuffix, mergeClaudeJson, removeSessionFiles } from './launch-files.ts';
-import { LOGIN_EXITED_RETENTION_MS, LOGIN_MAX_MS, LOGIN_MESSAGES, buildLoginSandboxSpec, loginCommand } from './login.ts';
+import { removeSessionFiles } from './launch-files.ts';
 import { runProcess, runningHelperPids, type ProcessRunner } from './process-run.ts';
 import { PtySession, type PtyExit, type ViewerSink } from './pty-session.ts';
-import { buildSandboxSpec, guestCommand } from './sandbox-spec.ts';
 
 export type SessionEndReason = 'exit' | 'ended' | 'terminated' | 'kicked' | 'left' | 'role-changed' | 'stopped';
-
-/**
- * What a guest reads when the host did not open the main workspace to guests (config.sessions.guestMainWorkspace off,
- * the default on a Linux host; ARCHITECTURE §11 D-14): `forbidden` with detail.reason 'main-workspace-off'.
- */
-export const MAIN_WORKSPACE_OFF_MESSAGES = Object.freeze({
-  /** The share is a git repository: the guest's own worktree is the way. */
-  useWorktree: '這台主人電腦沒有開放客人使用主工作區；請改用 worktree 模式（「我的 worktree」），或請主人用 smurg host --allow-main-workspace-guests 重新分享。',
-  /** Not a git repository: no worktree either, so no guest session at all until the host opens the main workspace. */
-  noWorktree:
-    '這台主人電腦沒有開放客人使用主工作區，而分享的資料夾不是 git 儲存庫、沒有 worktree 模式可用，所以目前無法開啟客人 session；請主人用 smurg host --allow-main-workspace-guests 重新分享。',
-});
 
 /** Seams for tests and for the composition (the default module passes none). */
 export interface SessionsModuleOptions {
@@ -86,16 +49,10 @@ export interface SessionsModuleOptions {
   readonly hostEnv?: () => Readonly<Record<string, string | undefined>>;
   /** Overrides of config.sessions launch inputs (tests: a fake `claude`, a hook command). */
   readonly launch?: Partial<Pick<SessionLaunchConfig, 'claudePath' | 'selfCommand' | 'claudeMinVersion' | 'claudeVerifiedVersions'>>;
-  /** Shells (default: the host's $SHELL, else /bin/zsh, /bin/bash, /bin/sh). */
+  /** Shell of terminal sessions (default: the host's $SHELL, else /bin/zsh, /bin/bash, /bin/sh). */
   readonly hostShell?: string;
-  readonly guestShell?: string;
   readonly inspector?: ProcessInspector;
   readonly runner?: ProcessRunner;
-  /**
-   * Host-side deletion of the keychain items derived from a guest's config dir (claude-hooks.md §5.3; macOS only).
-   * Default: `/usr/bin/security delete-generic-password`. Tests pass a recorder: they never touch the real keychain.
-   */
-  readonly keychain?: (services: readonly string[], account: string) => Promise<void>;
   readonly limits?: Partial<SessionLimits>;
 }
 
@@ -107,14 +64,7 @@ export interface SessionLimits {
   readonly maxPidsPerSession: number;
   /** An exited session (and its mirror, for late viewers) is kept this long. */
   readonly exitedRetentionMs: number;
-  /** Guest dirs of members not seen for this long are removed (§11 D-9: 7 days). */
-  readonly guestRetentionMs: number;
-  readonly guestSweepIntervalMs: number;
-  /** `claude auth logout` before a guest dir is removed (best effort). */
-  readonly logoutTimeoutMs: number;
   readonly authStatusTimeoutMs: number;
-  /** A login session (D-12) ends after this even if `claude auth login` is still waiting. */
-  readonly loginMaxMs: number;
 }
 
 export const DEFAULT_SESSION_LIMITS: SessionLimits = Object.freeze({
@@ -123,21 +73,14 @@ export const DEFAULT_SESSION_LIMITS: SessionLimits = Object.freeze({
   killDeadlineMs: 2_500,
   maxPidsPerSession: 512,
   exitedRetentionMs: 15 * 60_000,
-  guestRetentionMs: 7 * 24 * 60 * 60_000,
-  guestSweepIntervalMs: 24 * 60 * 60_000,
-  logoutTimeoutMs: 1_000,
   authStatusTimeoutMs: 15_000,
-  loginMaxMs: LOGIN_MAX_MS,
 });
 
 interface LaunchContext {
   readonly claude: ClaudeBinary | null;
-  /** The session's exact environment (guests: before srt's wrapping; holds the guest's apiKey: memory only). */
+  /** The session's exact environment (`claude auth status` runs with it). */
   env: Record<string, string> | null;
   readonly cwd: string;
-  readonly tmpDir: string | null;
-  /** Guests: the spec every helper process (auth status) is wrapped with, minus the command. */
-  readonly spec: Omit<SandboxSpec, 'command'> | null;
 }
 
 interface Managed {
@@ -145,13 +88,11 @@ interface Managed {
   readonly kind: SessionKind;
   readonly ownerUserId: UserId;
   readonly ownerName: string;
-  readonly sandboxed: boolean;
   readonly root: RootRef;
   readonly worktreeId: string | null;
   readonly createdAt: number;
   readonly title: string;
   readonly pty: PtySession;
-  readonly settingsDir: string | null;
   readonly hookRegistered: boolean;
   presence: boolean;
   status: SessionStatus;
@@ -167,22 +108,16 @@ interface Managed {
   loginCheck: Promise<LoginState> | null;
   loginHintTimer: ReturnType<typeof setTimeout> | undefined;
   retentionTimer: ReturnType<typeof setTimeout> | undefined;
-  /** kind 'login': ends the login process after limits.loginMaxMs. */
-  loginTimer: ReturnType<typeof setTimeout> | undefined;
   readonly hints: LoginHintDetector | null;
   /**
    * Descendants of the PTY child seen by the periodic scan (pid → start time). A natural `exit` reparents background
    * jobs to init before node-pty reports it, and on macOS `ps -E` hides the environment of Apple platform binaries
-   * (pty-packaging.md gotcha 9): without this, a guest's `nohup … &` + `exit` would leave a job in the sandbox. Kept
-   * for every session (also persisted, REL-09), so a daemon that died hard can end them at its next start.
+   * (pty-packaging.md gotcha 9): without this, a member's `nohup … &` + `exit` would leave a job behind. Kept for every
+   * session (also persisted, REL-09), so a daemon that died hard can end them at its next start.
    */
   known: Map<number, KnownProcess>;
   /** Digest list of the processes last written to live.json (unchanged scans write nothing). */
   persistedProcs: string;
-  /** Guests: what the sandbox handed out for the PTY (SandboxService.onRevoked watches it). */
-  wrapped: WrappedCommand | null;
-  /** Removes the sandbox revocation listener (watchSandbox). */
-  unwatchSandbox: (() => void) | null;
 }
 
 const LIVE_DOCUMENT = 'sessions';
@@ -235,17 +170,12 @@ export class SessionManagerImpl implements SessionManager {
   private readonly inspector: ProcessInspector;
   private readonly runner: ProcessRunner;
   private readonly sessions = new Map<string, Managed>();
-  private readonly userLock = new KeyedLock();
   /** Bumped by killAllForUser: a creation in flight for that user must not spawn (or must die right after). */
   private readonly userEpochs = new Map<UserId, number>();
   private readonly creating = new Map<UserId, number>();
-  /** Guests whose login session is being started (one at a time per guest, D-12). */
-  private readonly loginStarting = new Set<UserId>();
-  private store: GuestStore | null = null;
   private sessionsDir: string | null = null;
   private liveDoc: PersistentDocument<LiveDocument> | null = null;
   private versionProbe: ClaudeVersionProbe | null = null;
-  private sweepTimer: ReturnType<typeof setInterval> | undefined;
   private trackTimer: ReturnType<typeof setInterval> | undefined;
   private tracking = false;
   private stopping = false;
@@ -270,15 +200,12 @@ export class SessionManagerImpl implements SessionManager {
     const stateDir = this.ctx.config.stateDir;
     await mkdir(stateDir, { recursive: true, mode: 0o700 });
     await mkdir(join(stateDir, 'sessions'), { recursive: true, mode: 0o700 });
-    // Real paths: the sandbox matches resolved paths (settings dirs are read-only carve-outs).
     this.sessionsDir = await realpath(join(stateDir, 'sessions'));
     this.versionProbe = new ClaudeVersionProbe({ scratchParent: this.sessionsDir, run: this.runner });
-    this.store = await GuestStore.open(stateDir, this.ctx.config.workspaceId);
     this.liveDoc = await this.ctx.state.document(LIVE_DOCUMENT, liveDocumentSchema, () => ({ live: [] }));
     // Sessions never survive the daemon: what a run that died hard left behind (its sessions' processes, REL-09;
-    // settings dirs and version-probe scratch dirs) goes now.
+    // version-probe scratch dirs) goes now.
     await this.endLeftovers(this.liveDoc.get()).catch((err: unknown) => this.logError('ending the processes of a previous run failed', err));
-    for (const id of this.liveDoc.get().live) await removeSessionFiles(join(this.sessionsDir, id)).catch(() => {});
     for (const name of await readdir(this.sessionsDir).catch(() => [] as string[])) {
       if (name.startsWith('.probe-')) await removeSessionFiles(join(this.sessionsDir, name)).catch(() => {});
     }
@@ -286,12 +213,6 @@ export class SessionManagerImpl implements SessionManager {
       draft.live = [];
       delete draft.procs;
     });
-    await this.store.sweepLeftovers().catch((err: unknown) => this.logError('guest leftover sweep failed', err));
-    await this.sweepGuestDirs().catch((err: unknown) => this.logError('guest retention sweep failed', err));
-    this.sweepTimer = setInterval(() => {
-      void this.sweepGuestDirs().catch((err: unknown) => this.logError('guest retention sweep failed', err));
-    }, this.limits.guestSweepIntervalMs);
-    this.sweepTimer.unref?.();
   }
 
   /**
@@ -320,29 +241,15 @@ export class SessionManagerImpl implements SessionManager {
     }
   }
 
-  /** stop(): end every session and remove every guest dir (`smurg stop`: no guest credential stays behind). */
+  /** stop(): end every session (`smurg stop`). */
   async stopAll(): Promise<void> {
     this.stopping = true;
-    if (this.sweepTimer !== undefined) clearInterval(this.sweepTimer);
-    this.sweepTimer = undefined;
     if (this.trackTimer !== undefined) clearInterval(this.trackTimer);
     this.trackTimer = undefined;
     await Promise.all([...this.sessions.values()].map((m) => this.finish(m, 'stopped', true)));
-    const store = this.store;
-    if (store) {
-      const byKey = this.membersByGuestKey();
-      await Promise.all(
-        (await store.keys()).map(async (key) => {
-          const member = byKey.get(key);
-          if (member) await this.removeGuestDirNow(member.userId).catch((err: unknown) => this.logError('guest dir removal failed', err));
-          else await store.removeKey(key).catch((err: unknown) => this.logError('guest dir removal failed', err));
-        }),
-      );
-    }
     for (const m of this.sessions.values()) {
       if (m.retentionTimer !== undefined) clearTimeout(m.retentionTimer);
       if (m.loginHintTimer !== undefined) clearTimeout(m.loginHintTimer);
-      if (m.loginTimer !== undefined) clearTimeout(m.loginTimer);
       m.pty.dispose();
     }
     this.sessions.clear();
@@ -353,39 +260,23 @@ export class SessionManagerImpl implements SessionManager {
   // Queries
   // =================================================================================================================
 
-  /** Every agent / terminal session (login sessions are private to their owner: listFor). */
+  /** Every session, oldest first (session.list: every member sees every session, R4 / SPEC §8). */
   list(): SessionInfo[] {
     return [...this.sessions.values()]
-      .filter((m) => m.kind !== 'login')
       .sort((a, b) => a.createdAt - b.createdAt)
       .slice(-LIST_MAX_ITEMS)
       .map((m) => this.info(m));
   }
 
-  /** session.list for one member: every agent / terminal session, plus that member's own login sessions. */
-  listFor(userId: UserId | null): SessionInfo[] {
-    return [...this.sessions.values()]
-      .filter((m) => m.kind !== 'login' || (userId !== null && m.ownerUserId === userId))
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .slice(-LIST_MAX_ITEMS)
-      .map((m) => this.info(m));
-  }
-
-  /** An agent / terminal session (a login session is nobody else's business: null). */
   get(sessionId: string): SessionInfo | null {
     const m = this.sessions.get(sessionId);
-    return m && m.kind !== 'login' ? this.info(m) : null;
+    return m ? this.info(m) : null;
   }
 
   agentActor(sessionId: string): Actor | null {
     const m = this.sessions.get(sessionId);
     if (!m || m.kind !== 'agent') return null;
     return { kind: 'agent', sessionId: m.id, ownerUserId: m.ownerUserId, displayName: agentDisplayName(m.ownerName) };
-  }
-
-  /** Where a guest's dir lives (tests, diagnostics). */
-  guestPaths(userId: UserId): GuestPaths {
-    return this.requireStore().pathsFor(userId);
   }
 
   /** Pid of the PTY child while it runs (tests, diagnostics). */
@@ -406,7 +297,6 @@ export class SessionManagerImpl implements SessionManager {
       ownerUserId: m.ownerUserId,
       ownerName: m.ownerName,
       title: m.title,
-      sandboxed: m.sandboxed,
       root: m.root,
       status: m.status,
       ...(m.exitCode !== undefined ? { exitCode: m.exitCode } : {}),
@@ -424,10 +314,6 @@ export class SessionManagerImpl implements SessionManager {
 
   private publish(m: Managed, event: 'created' | 'updated'): void {
     const session = this.info(m);
-    if (m.kind === 'login') {
-      this.ctx.hub.sendToUser(m.ownerUserId, 'session.state', { session });
-      return;
-    }
     if (event === 'created') this.ctx.bus.emit('session.created', { session });
     else this.ctx.bus.emit('session.updated', { session });
     this.ctx.hub.broadcast('session.state', { session });
@@ -441,14 +327,8 @@ export class SessionManagerImpl implements SessionManager {
     const userId = principal.userId;
     const member = userId !== null && principal.kind === 'user' ? this.ctx.members.active(userId) : null;
     if (!member || userId === null) throw new AuthorizationError(undefined, { reason: 'not-a-member' });
-    // The ROLE decides the sandbox (ARCHITECTURE §5.5): a client can never choose it.
-    let sandboxed: boolean;
-    if (can(member.role, 'session.create.host')) sandboxed = false;
-    else if (can(member.role, 'session.create.sandboxed')) sandboxed = true;
-    else throw new AuthorizationError(undefined, { reason: 'capability' });
-    if (input.kind === 'login') this.checkLoginRequest(input, member, sandboxed);
-    else if (sandboxed && input.workspace.mode === 'main' && !this.launchConfig.guestMainWorkspace) throw this.refuseMainWorkspace(input.kind, member);
-    if (input.apiKey !== undefined && !sandboxed) throw sessionError('bad_request', 'API key 只用於客人的沙盒 session', 'api-key-sandboxed-only');
+    // The member's CURRENT role (the router checked it for this message as well): the host and 「可使用 agent」.
+    if (!can(member.role, 'session.create')) throw new AuthorizationError(undefined, { reason: 'capability' });
     if (this.stopping || !this.started) throw sessionError('conflict', 'daemon 正在停止', 'stopping');
     const running = [...this.sessions.values()].filter((m) => m.status !== 'exited');
     if (running.length + this.inFlight() >= this.limits.maxSessions) throw sessionError('conflict', 'session 數量已達上限', 'session-limit');
@@ -457,8 +337,7 @@ export class SessionManagerImpl implements SessionManager {
     }
     this.creating.set(userId, (this.creating.get(userId) ?? 0) + 1);
     try {
-      if (input.kind === 'login') return await this.launchLogin(input, member);
-      return await this.launch(input, member, sandboxed);
+      return await this.launch(input, member);
     } finally {
       const left = (this.creating.get(userId) ?? 1) - 1;
       if (left <= 0) this.creating.delete(userId);
@@ -473,174 +352,10 @@ export class SessionManagerImpl implements SessionManager {
   }
 
   /**
-   * ARCHITECTURE §11 D-14 (owner decision 2026-10-01): with config.sessions.guestMainWorkspace off (the default on a
-   * Linux host) a guest's sandboxed agent / terminal session may not use the main workspace; worktree mode stays. The
-   * refusal is the daemon's own, whatever a client offered, and audited like the other switch refusals (session.create,
-   * denied). Nothing has been prepared yet.
+   * Starts `member`'s session exactly like the host's own (ARCHITECTURE §11 D-15): the host's environment (minus what
+   * a parent Claude Code session injects), HOME = config.sessions.hostHome, the host's `claude` and its login.
    */
-  private refuseMainWorkspace(kind: SessionKind, member: MemberRecord): SmurgError {
-    const reason = 'main-workspace-off';
-    this.ctx.audit.record({
-      actor: { kind: 'user', userId: member.userId, displayName: member.displayName },
-      action: 'session.create',
-      outcome: 'denied',
-      target: rootRefKey({ kind: 'main' }),
-      detail: { kind, sandboxed: true, root: rootRefKey({ kind: 'main' }), reason },
-    });
-    const message = this.ctx.workspace.info.isGitRepo ? MAIN_WORKSPACE_OFF_MESSAGES.useWorktree : MAIN_WORKSPACE_OFF_MESSAGES.noWorktree;
-    return new SmurgError('forbidden', message, { reason });
-  }
-
-  // =================================================================================================================
-  // The guest's Claude subscription login (kind 'login', ARCHITECTURE §11 D-12; login.ts)
-  // =================================================================================================================
-
-  /**
-   * Who may start a login and with what: the switch (config.sessions.guestSubscriptionLogin), guests only (the host's
-   * Claude is not sandboxed), the main workspace only, no API key, one at a time. A refusal is audited.
-   */
-  private checkLoginRequest(input: PayloadOf<'session.create'>, member: MemberRecord, sandboxed: boolean): void {
-    const refuse = (code: 'forbidden' | 'bad_request' | 'conflict', message: string, reason: string): SmurgError => {
-      this.ctx.audit.record({
-        actor: { kind: 'user', userId: member.userId, displayName: member.displayName },
-        action: 'session.create',
-        outcome: 'denied',
-        target: 'login',
-        detail: { kind: 'login', reason },
-      });
-      return new SmurgError(code, message, { reason });
-    };
-    if (!this.launchConfig.guestSubscriptionLogin) throw refuse('forbidden', LOGIN_MESSAGES.switchedOff, 'guest-subscription-login-off');
-    if (!sandboxed) throw refuse('forbidden', LOGIN_MESSAGES.guestsOnly, 'login-guests-only');
-    if (input.workspace.mode !== 'main') throw refuse('bad_request', LOGIN_MESSAGES.mainOnly, 'login-main-only');
-    if (input.apiKey !== undefined) throw refuse('bad_request', LOGIN_MESSAGES.noApiKey, 'login-no-api-key');
-    const running = [...this.sessions.values()].some((m) => m.kind === 'login' && m.ownerUserId === member.userId && m.status !== 'exited');
-    if (running || this.loginStarting.has(member.userId)) throw refuse('conflict', LOGIN_MESSAGES.running, 'login-running');
-  }
-
-  /**
-   * Starts `claude auth login` for `member` in their sandbox (mode 'login'). Nothing of the request reaches the
-   * process except the terminal size: the command, its arguments, its environment and its directory are the daemon's.
-   */
-  private async launchLogin(input: PayloadOf<'session.create'>, member: MemberRecord): Promise<SessionInfo> {
-    const ctx = this.ctx;
-    const userId = member.userId;
-    this.loginStarting.add(userId);
-    const epoch = this.userEpochs.get(userId) ?? 0;
-    const id = `ses_${randomBytes(16).toString('hex')}`;
-    const undo: (() => Promise<void> | void)[] = [];
-    const refuseSandbox = (reason: string, detail: Record<string, unknown> = {}): SmurgError => {
-      ctx.audit.record({ actor: { kind: 'user', userId, displayName: member.displayName }, action: 'sandbox.refused', outcome: 'denied', target: id, detail: { reason, kind: 'login', ...detail } });
-      return new SmurgError('sandbox_unavailable', '無法啟動客人沙盒，已拒絕開啟登入程序', { reason, ...detail });
-    };
-    const aborted = (): boolean => this.stopping || (this.userEpochs.get(userId) ?? 0) !== epoch || ctx.members.active(userId) === null;
-    try {
-      let preflight;
-      try {
-        preflight = await ctx.services.sandbox.preflight();
-      } catch (err) {
-        throw refuseSandbox('preflight-error', { error: err instanceof SmurgError ? err.code : 'unknown' });
-      }
-      if (!preflight.ok) throw refuseSandbox(preflight.reason);
-      const hostEnv = this.hostEnv();
-      const claude = await resolveClaude(this.launchConfig.claudePath, hostEnv['PATH']);
-      if (!claude) throw refuseSandbox('claude-not-found');
-      const verdict = claudeVersionVerdict(await this.requireProbe().output(claude), this.launchConfig);
-      if (!verdict.ok) throw refuseSandbox('claude-version', { version: verdict.version ?? 'unrecognized', minimum: this.launchConfig.claudeMinVersion });
-      if (verdict.warning !== null) this.warnVersion(member, verdict.version, verdict.warning);
-      // The daemon-owned working directory (read-only inside): no `.claude/` a guest could plant settings in.
-      const settingsDir = join(this.requireSessionsDir(), id);
-      this.liveDoc?.update((draft) => {
-        draft.live.push(id);
-      });
-      undo.push(() => this.forgetLive(id));
-      undo.push(() => removeSessionFiles(settingsDir));
-      await mkdir(settingsDir, { mode: 0o700 });
-      const m = await this.userLock.run(userId, async (): Promise<Managed> => {
-        const guest = await this.prepareGuestDir(userId, null);
-        const browser = (await isExecutable('/usr/bin/true')) ? '/usr/bin/true' : '/bin/true';
-        const env = buildGuestEnv({
-          home: guest.home,
-          configDir: guest.cfg,
-          tmpDir: guest.tmp,
-          hostEnv,
-          claudeDir: claudeDirOf(claude.realPath),
-          shell: '/bin/sh',
-          browser,
-          sessionId: id,
-        });
-        assertGuestEnv(env, { apiKeyAllowed: false });
-        withTestGuestEnv(env, this.launchConfig.testGuestEnv);
-        const spec = buildLoginSandboxSpec({
-          sessionId: id,
-          command: loginCommand({ tmpDir: guest.tmp, cwd: settingsDir, claude: claude.realPath, browser }),
-          guestDir: guest.root,
-          guestHome: guest.home,
-          settingsDir,
-          claudeRealPath: claude.realPath,
-          hookSocketPath: ctx.config.runPaths.hook,
-          env,
-          programs: [claude.realPath, browser, ...((await isExecutable('/usr/bin/security')) ? ['/usr/bin/security'] : [])],
-        });
-        let wrapped: WrappedCommand;
-        try {
-          wrapped = await ctx.services.sandbox.wrap(spec);
-        } catch (err) {
-          if (err instanceof SmurgError && err.code === 'sandbox_unavailable') throw err;
-          throw refuseSandbox('wrap-failed', { error: err instanceof SmurgError ? err.code : 'unknown' });
-        }
-        let managed: Managed | null = null;
-        let pty: PtySession;
-        try {
-          this.assertWrapped(wrapped, false);
-          if (aborted()) throw new AuthorizationError(undefined, { reason: 'owner-removed' });
-          pty = new PtySession({
-            ownerUserId: userId,
-            spawn: { file: wrapped.file, args: [...wrapped.args], cwd: wrapped.cwd, env: { ...wrapped.env }, cols: input.cols, rows: input.rows },
-            log: ctx.log.child({ module: 'pty', session: id }),
-            onResize: () => {
-              if (managed) this.publish(managed, 'updated');
-            },
-            onExit: (exit) => {
-              this.releaseWrapped(wrapped);
-              if (managed) this.onPtyExit(managed, exit);
-            },
-          });
-        } catch (err) {
-          this.releaseWrapped(wrapped); // never started
-          throw err;
-        }
-        managed = this.newManaged({ id, kind: 'login', member, sandboxed: true, root: { kind: 'main' }, worktreeId: null, title: `Claude 訂閱登入（${member.displayName}）`, pty, settingsDir, hookRegistered: false });
-        managed.launch = { claude, env, cwd: settingsDir, tmpDir: guest.tmp, spec: null };
-        return managed;
-      });
-      this.sessions.set(m.id, m);
-      undo.length = 0;
-      if (aborted()) {
-        await this.finish(m, 'kicked', true);
-        throw new AuthorizationError(undefined, { reason: 'owner-removed' });
-      }
-      m.loginTimer = setTimeout(() => void this.finish(m, 'terminated', true), this.limits.loginMaxMs);
-      m.loginTimer.unref?.();
-      ctx.audit.record({ actor: { kind: 'user', userId, displayName: member.displayName }, action: 'session.create', outcome: 'ok', target: m.id, detail: { sessionId: m.id, kind: 'login', sandboxed: true } });
-      this.publish(m, 'created');
-      this.ensureDescendantTracking();
-      return this.info(m);
-    } catch (err) {
-      for (const step of undo.reverse()) {
-        try {
-          await step();
-        } catch (stepErr) {
-          this.logError('login rollback step failed', stepErr);
-        }
-      }
-      throw err;
-    } finally {
-      this.loginStarting.delete(userId);
-    }
-  }
-
-  private async launch(input: PayloadOf<'session.create'>, member: MemberRecord, sandboxed: boolean): Promise<SessionInfo> {
+  private async launch(input: PayloadOf<'session.create'>, member: MemberRecord): Promise<SessionInfo> {
     const ctx = this.ctx;
     const userId = member.userId;
     const epoch = this.userEpochs.get(userId) ?? 0;
@@ -656,29 +371,13 @@ export class SessionManagerImpl implements SessionManager {
         }
       }
     };
-    const refuseSandbox = (reason: string, detail: Record<string, unknown> = {}): SmurgError => {
-      ctx.audit.record({ actor: { kind: 'user', userId, displayName: member.displayName }, action: 'sandbox.refused', outcome: 'denied', target: id, detail: { reason, kind, ...detail } });
-      return new SmurgError('sandbox_unavailable', '無法啟動客人沙盒，已拒絕開啟 session', { reason, ...detail });
-    };
     const aborted = (): boolean => this.stopping || (this.userEpochs.get(userId) ?? 0) !== epoch || ctx.members.active(userId) === null;
 
     try {
-      // 1. The sandbox first: nothing is prepared or spawned for a guest the daemon cannot confine.
-      if (sandboxed) {
-        let preflight;
-        try {
-          preflight = await ctx.services.sandbox.preflight();
-        } catch (err) {
-          throw refuseSandbox('preflight-error', { error: err instanceof SmurgError ? err.code : 'unknown' });
-        }
-        if (!preflight.ok) throw refuseSandbox(preflight.reason);
-      }
-
-      // 2. The root: the main share, or the session's worktree (the WorktreeManager registers it as a root).
+      // 1. The root: the main share, or the session's worktree (the WorktreeManager registers it as a root).
       let root: RootRef = { kind: 'main' };
       let rootPath = ctx.roots.main.realPath;
       let worktreeId: string | null = null;
-      let sharedLinks = ctx.roots.main.sharedLinks;
       if (input.workspace.mode === 'worktree') {
         const principal = ctx.members.principalOf(userId);
         if (!principal) throw new AuthorizationError(undefined, { reason: 'not-a-member' });
@@ -692,53 +391,31 @@ export class SessionManagerImpl implements SessionManager {
         undo.push(() => ctx.services.worktrees.releaseFromSession(acquired, id, { keep: true }));
         root = handle.root.ref;
         rootPath = handle.root.realPath;
-        sharedLinks = handle.root.sharedLinks;
       }
 
-      // 3. The claude binary and its version (agent sessions; guest terminals only use it for PATH).
+      // 2. The claude binary and its version (agent sessions). A version smurg did not verify only warns: it is the
+      //    host's own CLI (Claude Code updates itself; an update must not lock anyone out).
       const hostEnv = this.hostEnv();
       let claude: ClaudeBinary | null = null;
       if (kind === 'agent') {
         claude = await resolveClaude(this.launchConfig.claudePath, hostEnv['PATH']);
-        if (!claude) {
-          if (sandboxed) throw refuseSandbox('claude-not-found');
-          throw sessionError('not_found', '找不到 claude 指令', 'claude-not-found');
-        }
+        if (!claude) throw sessionError('not_found', '找不到 claude 指令', 'claude-not-found');
         const output = await this.requireProbe().output(claude);
         const verdict = claudeVersionVerdict(output, this.launchConfig);
-        if (!verdict.ok) {
-          if (sandboxed) throw refuseSandbox('claude-version', { version: verdict.version ?? 'unrecognized', minimum: this.launchConfig.claudeMinVersion });
-          this.warnVersion(member, verdict.version, 'below-minimum');
-        } else if (verdict.warning !== null) {
-          this.warnVersion(member, verdict.version, verdict.warning);
-        }
-      } else if (sandboxed) {
-        claude = await resolveClaude(this.launchConfig.claudePath, hostEnv['PATH']).catch(() => null);
+        if (!verdict.ok) this.warnVersion(member, verdict.version, 'below-minimum');
+        else if (verdict.warning !== null) this.warnVersion(member, verdict.version, verdict.warning);
       }
 
-      // 4. Hooks (agent sessions): the per-session token and the daemon-owned launch files.
+      // 3. Hooks (agent sessions): the per-session token and the daemon-owned launch files.
       let hookEnv: Readonly<Record<string, string>> = {};
       let hookRegistered = false;
-      /** A dir under <stateDir>/sessions this module created (removed when the session ends). */
-      let settingsDir: string | null = null;
-      /** The session's daemon-owned launch dir (the sandbox's read-only settingsDir). */
-      let launchDir: string | null = null;
       let claudeArgs: string[] = [];
       const self = this.launchConfig.selfCommand;
-      const ownDir = async (): Promise<string> => {
-        const dir = join(this.requireSessionsDir(), id);
-        this.liveDoc?.update((draft) => {
-          draft.live.push(id);
-        });
-        undo.push(() => this.forgetLive(id));
-        undo.push(() => removeSessionFiles(dir));
-        return dir;
-      };
       if (kind === 'agent') {
         if (self === null) throw sessionError('internal', 'smurg hook 未設定，無法啟動 agent session', 'hooks-unavailable');
         let credentials: HookSessionCredentials;
         try {
-          credentials = ctx.services.hooks.registerSession({ sessionId: id, ownerUserId: userId, agentName: agentDisplayName(member.displayName), root, sandboxed });
+          credentials = ctx.services.hooks.registerSession({ sessionId: id, ownerUserId: userId, agentName: agentDisplayName(member.displayName), root });
         } catch (err) {
           this.logError('hook registration failed', err);
           throw sessionError('internal', 'hook 服務無法使用，無法啟動 agent session', 'hooks-unavailable');
@@ -755,148 +432,57 @@ export class SessionManagerImpl implements SessionManager {
           this.logError('hook launch files could not be written', err);
           throw sessionError('internal', 'hook 設定檔無法寫入，無法啟動 agent session', 'hooks-unavailable');
         }
-        const files = await this.checkedLaunchFiles(written, sandboxed);
-        launchDir = files.dir;
-        claudeArgs = files.claudeArgs;
-      }
-      if (sandboxed && launchDir === null) {
-        // Terminals have no launch files, but the sandbox wants an existing daemon-owned settings dir: an empty one.
-        settingsDir = await ownDir();
-        await mkdir(settingsDir, { mode: 0o700 });
-        launchDir = settingsDir;
+        claudeArgs = (await this.checkedLaunchFiles(written)).claudeArgs;
       }
 
-      // 5. Environment and command, then spawn. Guests: under the per-guest lock (their dir must not change meanwhile).
-      const spawnSession = async (): Promise<Managed> => {
-        let file: string;
-        let args: string[];
-        let env: Record<string, string>;
-        let cwd = rootPath;
-        let launch: LaunchContext;
-        /** Guests: what the sandbox handed out, released when the process exits or never starts (release()). */
-        let wrappedCommand: WrappedCommand | null = null;
-        if (!sandboxed) {
-          env = buildHostEnv({ hostEnv, home: this.launchConfig.hostHome, sessionId: id, hookEnv });
-          if (kind === 'agent') {
-            file = (claude as ClaudeBinary).realPath;
-            args = claudeArgs;
-          } else {
-            file = await this.pickShell(this.options.hostShell, hostEnv['SHELL'], null);
-            args = ['-l'];
-          }
-          launch = { claude, env, cwd, tmpDir: null, spec: null };
-        } else {
-          const guest = await this.prepareGuestDir(userId, kind === 'agent' ? { projectPath: rootPath, ...(input.apiKey !== undefined ? { apiKeySuffix: apiKeyApprovalSuffix(input.apiKey) } : {}) } : null);
-          const shell = await this.pickShell(this.options.guestShell, hostEnv['SHELL'], this.launchConfig.hostHome);
-          const guestEnv = buildGuestEnv({
-            home: guest.home,
-            configDir: guest.cfg,
-            tmpDir: guest.tmp,
-            hostEnv,
-            claudeDir: claudeDirOf(claude?.realPath ?? null),
-            shell,
-            browser: (await isExecutable('/usr/bin/true')) ? '/usr/bin/true' : '/bin/true',
-            sessionId: id,
-            hookEnv,
-          });
-          if (input.apiKey !== undefined) guestEnv['ANTHROPIC_API_KEY'] = input.apiKey;
-          assertGuestEnv(guestEnv, { apiKeyAllowed: input.apiKey !== undefined });
-          withTestGuestEnv(guestEnv, this.launchConfig.testGuestEnv);
-          const inner = kind === 'agent' ? guestCommand(guest.tmp, (claude as ClaudeBinary).realPath, claudeArgs) : guestCommand(guest.tmp, shell, ['-l']);
-          const specBase: Omit<SandboxSpec, 'command'> = (() => {
-            const { command: _command, ...rest } = buildSandboxSpec({
-              sessionId: id,
-              command: inner,
-              rootPath,
-              shareRealPath: ctx.roots.main.realPath,
-              worktree: worktreeId === null ? null : { worktreesDir: ctx.roots.worktreesDir, sharedLinks },
-              guestDir: guest.root,
-              settingsDir: launchDir as string,
-              claudeRealPath: claude?.realPath ?? null,
-              hookSocketPath: ctx.config.runPaths.hook,
-              env: guestEnv,
-            });
-            return rest;
-          })();
-          let wrapped: WrappedCommand;
-          try {
-            wrapped = await ctx.services.sandbox.wrap({ ...specBase, command: inner });
-          } catch (err) {
-            // wrap() audits its own sandbox_unavailable refusals; anything else is refused (and audited) here.
-            if (err instanceof SmurgError && err.code === 'sandbox_unavailable') throw err;
-            throw refuseSandbox('wrap-failed', { error: err instanceof SmurgError ? err.code : 'unknown' });
-          }
-          wrappedCommand = wrapped;
-          try {
-            this.assertWrapped(wrapped, input.apiKey !== undefined);
-          } catch (err) {
-            this.releaseWrapped(wrapped); // never started
-            throw err;
-          }
-          file = wrapped.file;
-          args = [...wrapped.args];
-          env = { ...wrapped.env };
-          cwd = wrapped.cwd;
-          launch = { claude, env: guestEnv, cwd: rootPath, tmpDir: guest.tmp, spec: specBase };
-        }
-        let m: Managed | null = null;
-        let pty: PtySession;
-        try {
-          if (aborted()) throw new AuthorizationError(undefined, { reason: 'owner-removed' });
-          pty = new PtySession({
-            ownerUserId: userId,
-            spawn: { file, args, cwd, env, cols: input.cols, rows: input.rows },
-            log: ctx.log.child({ module: 'pty', session: id }),
-            onResize: () => {
-              if (m) this.publish(m, 'updated');
-            },
-            onExit: (exit) => {
-              this.releaseWrapped(wrappedCommand);
-              if (m) this.onPtyExit(m, exit);
-            },
-            onOutput: (chunk) => {
-              if (m) this.observeLoginHints(m, chunk);
-            },
-          });
-        } catch (err) {
-          this.releaseWrapped(wrappedCommand); // never started
-          throw err;
-        }
-        m = this.newManaged({
-          id,
-          kind,
-          member,
-          sandboxed,
-          root,
-          worktreeId,
-          title: input.title ?? (kind === 'agent' ? agentDisplayName(member.displayName) : `終端機（${member.displayName}）`),
-          pty,
-          settingsDir,
-          hookRegistered,
-        });
-        m.launch = launch;
-        m.wrapped = wrappedCommand;
-        return m;
-      };
-      const m = sandboxed ? await this.userLock.run(userId, spawnSession) : await spawnSession();
-      this.sessions.set(m.id, m);
-      // Every session is in live.json while it runs (agent sessions already are, with their settings dir).
-      if (!(this.liveDoc?.get().live.includes(m.id) ?? true)) {
-        this.liveDoc?.update((draft) => {
-          draft.live.push(m.id);
-        });
+      // 4. Environment and command, then spawn.
+      const env = buildHostEnv({ hostEnv, home: this.launchConfig.hostHome, sessionId: id, hookEnv });
+      let file: string;
+      let args: string[];
+      if (kind === 'agent') {
+        file = (claude as ClaudeBinary).realPath;
+        args = claudeArgs;
+      } else {
+        file = await this.pickShell(this.options.hostShell, hostEnv['SHELL']);
+        args = ['-l'];
       }
+      if (aborted()) throw new AuthorizationError(undefined, { reason: 'owner-removed' });
+      let m: Managed | null = null;
+      const pty = new PtySession({
+        ownerUserId: userId,
+        spawn: { file, args, cwd: rootPath, env, cols: input.cols, rows: input.rows },
+        log: ctx.log.child({ module: 'pty', session: id }),
+        onResize: () => {
+          if (m) this.publish(m, 'updated');
+        },
+        onExit: (exit) => {
+          if (m) this.onPtyExit(m, exit);
+        },
+        onOutput: (chunk) => {
+          if (m) this.observeLoginHints(m, chunk);
+        },
+      });
+      m = this.newManaged({
+        id,
+        kind,
+        member,
+        root,
+        worktreeId,
+        title: input.title ?? (kind === 'agent' ? agentDisplayName(member.displayName) : `終端機（${member.displayName}）`),
+        pty,
+        hookRegistered,
+      });
+      m.launch = { claude, env, cwd: rootPath };
+      this.sessions.set(m.id, m);
+      // Every session is in live.json while it runs: its processes are found after a hard death (REL-09).
+      this.liveDoc?.update((draft) => {
+        draft.live.push(id);
+      });
       // Everything below belongs to the session now: ending it releases hooks, settings, worktree.
       undo.length = 0;
       if (aborted()) {
         await this.finish(m, 'kicked', true);
         throw new AuthorizationError(undefined, { reason: 'owner-removed' });
-      }
-      // Linux (reviews RV-1, RV-2): from now on the session ends when the sandbox no longer holds. One that was revoked
-      // before it could be watched never counts as started.
-      if (this.watchSandbox(m)) {
-        await this.finish(m, 'terminated', true);
-        throw refuseSandbox('protected-changed');
       }
       m.presence = kind === 'agent' && this.setPresence(m, member);
       ctx.audit.record({
@@ -904,7 +490,7 @@ export class SessionManagerImpl implements SessionManager {
         action: 'session.create',
         outcome: 'ok',
         target: m.id,
-        detail: { sessionId: m.id, kind, sandboxed, root: rootRefKey(root), ...(worktreeId ? { worktreeId } : {}), apiKeySupplied: input.apiKey !== undefined },
+        detail: { sessionId: m.id, kind, root: rootRefKey(root), ...(worktreeId ? { worktreeId } : {}) },
       });
       this.publish(m, 'created');
       this.ensureDescendantTracking();
@@ -920,12 +506,10 @@ export class SessionManagerImpl implements SessionManager {
     readonly id: string;
     readonly kind: SessionKind;
     readonly member: MemberRecord;
-    readonly sandboxed: boolean;
     readonly root: RootRef;
     readonly worktreeId: string | null;
     readonly title: string;
     readonly pty: PtySession;
-    readonly settingsDir: string | null;
     readonly hookRegistered: boolean;
   }): Managed {
     return {
@@ -933,13 +517,11 @@ export class SessionManagerImpl implements SessionManager {
       kind: input.kind,
       ownerUserId: input.member.userId,
       ownerName: input.member.displayName,
-      sandboxed: input.sandboxed,
       root: input.root,
       worktreeId: input.worktreeId,
       createdAt: this.ctx.clock.now(),
       title: input.title,
       pty: input.pty,
-      settingsDir: input.settingsDir,
       hookRegistered: input.hookRegistered,
       presence: false,
       status: 'running',
@@ -954,24 +536,10 @@ export class SessionManagerImpl implements SessionManager {
       loginCheck: null,
       loginHintTimer: undefined,
       retentionTimer: undefined,
-      loginTimer: undefined,
       hints: input.kind === 'agent' ? new LoginHintDetector() : null,
       known: new Map(),
       persistedProcs: '',
-      wrapped: null,
-      unwatchSandbox: null,
     };
-  }
-
-  /** srt adds its proxy variables; it must never add a credential (fail closed if a wrapper ever does). */
-  private assertWrapped(wrapped: WrappedCommand, apiKeyAllowed: boolean): void {
-    if (typeof wrapped.file !== 'string' || !isAbsolute(wrapped.file) || !Array.isArray(wrapped.args)) throw new SmurgError('sandbox_unavailable', undefined, { reason: 'wrap-invalid' });
-    const credentials = Object.keys(wrapped.env).filter(
-      (name) =>
-        (/^ANTHROPIC_/.test(name) && !(apiKeyAllowed && name === 'ANTHROPIC_API_KEY') && !(this.launchConfig.testGuestEnv && name in this.launchConfig.testGuestEnv)) ||
-        /^(CLAUDE_CODE_OAUTH_TOKEN|CLAUDE_CODE_USE_[A-Z_]+|AWS_[A-Z_]+|SSH_AUTH_SOCK|NODE_OPTIONS)$/.test(name),
-    );
-    if (credentials.length > 0) throw new SmurgError('sandbox_unavailable', undefined, { reason: 'wrap-env' });
   }
 
   private setPresence(m: Managed, member: MemberRecord): boolean {
@@ -1002,7 +570,7 @@ export class SessionManagerImpl implements SessionManager {
   }
 
   /** Fail closed on launch files that do not look like smurg's: a missing flag must never start a hook-less agent. */
-  private async checkedLaunchFiles(files: unknown, sandboxed: boolean): Promise<{ dir: string; claudeArgs: string[] }> {
+  private async checkedLaunchFiles(files: unknown): Promise<{ dir: string; claudeArgs: string[] }> {
     const record = files !== null && typeof files === 'object' ? (files as Record<string, unknown>) : {};
     const dir = record['dir'];
     const args = record['claudeArgs'];
@@ -1013,7 +581,6 @@ export class SessionManagerImpl implements SessionManager {
     if (typeof dir !== 'string' || !isAbsolute(dir) || !Array.isArray(args) || !args.every((arg) => typeof arg === 'string')) throw bad('shape');
     const list = args as string[];
     if (!list.includes('--settings') || !list.includes('--mcp-config')) throw bad('flags');
-    if (sandboxed && !list.includes('--strict-mcp-config')) throw bad('strict');
     if (list.some((arg) => /^--(dangerously-skip-permissions|allow-dangerously-skip-permissions|permission-mode)/.test(arg))) throw bad('permissions');
     const info = await stat(dir).catch(() => null);
     if (!info?.isDirectory()) throw bad('dir');
@@ -1024,183 +591,14 @@ export class SessionManagerImpl implements SessionManager {
     return this.options.hostEnv ? this.options.hostEnv() : process.env;
   }
 
-  /** The first usable shell: the configured one, the host's $SHELL, then system shells. Guests: never one in the host home. */
-  private async pickShell(configured: string | undefined, envShell: string | undefined, deniedHome: string | null): Promise<string> {
+  /** The first usable shell: the configured one, the host's $SHELL, then system shells. */
+  private async pickShell(configured: string | undefined, envShell: string | undefined): Promise<string> {
     const candidates = [configured, envShell, '/bin/zsh', '/bin/bash', '/bin/sh'];
     for (const candidate of candidates) {
       if (!candidate || !isAbsolute(candidate)) continue;
-      if (deniedHome && (candidate === deniedHome || candidate.startsWith(`${deniedHome}/`))) continue;
       if (await isExecutable(candidate)) return candidate;
     }
     throw sessionError('internal', '找不到可用的 shell', 'no-shell');
-  }
-
-  // =================================================================================================================
-  // Guest dirs
-  // =================================================================================================================
-
-  /**
-   * The guest's dir for a new session. The trust seed is written only when the guest has no running session (see
-   * guest-store.ts: never write into a guest tree a guest process could race); with sessions running, the existing dir
-   * is used as is and Claude may show its trust dialog for a new root. Runs under the per-guest lock.
-   */
-  private async prepareGuestDir(userId: UserId, seed: { readonly projectPath: string; readonly apiKeySuffix?: string } | null): Promise<GuestPaths> {
-    const store = this.requireStore();
-    const busy = [...this.sessions.values()].some((m) => m.ownerUserId === userId && m.sandboxed && m.status !== 'exited');
-    if (busy) {
-      if (!(await store.exists(userId))) throw sessionError('internal', '客人的暫存目錄不見了', 'guest-dir-missing');
-      if (seed) this.ctx.log.info('guest has a running session: trust seed skipped', { user: userId });
-      return store.pathsFor(userId);
-    }
-    await store.withQuarantine(userId, async (paths) => {
-      if (!seed) return;
-      const existing = await readGuestFile(join(paths.cfg, '.claude.json'), CLAUDE_JSON_MAX_BYTES);
-      let parsed: unknown = {};
-      if (existing) {
-        try {
-          parsed = JSON.parse(existing.toString('utf8'));
-        } catch {
-          parsed = {};
-        }
-      }
-      const merged = mergeClaudeJson(parsed, seed);
-      await writeGuestFileAtomic(paths.cfg, '.claude.json', new TextEncoder().encode(`${JSON.stringify(merged, null, 2)}\n`));
-    });
-    return store.pathsFor(userId);
-  }
-
-  private membersByGuestKey(): Map<string, MemberRecord> {
-    const out = new Map<string, MemberRecord>();
-    const store = this.store;
-    if (!store) return out;
-    for (const member of this.ctx.members.list({ includeKicked: true })) out.set(guestKeyOf(member.userId), member);
-    return out;
-  }
-
-  /** §11 D-9 retention: at start and daily, the dirs of members not connected for 7 days (and orphans) go. */
-  async sweepGuestDirs(): Promise<number> {
-    const store = this.store;
-    if (!store || this.stopping) return 0;
-    const byKey = this.membersByGuestKey();
-    const now = this.ctx.clock.now();
-    let removed = 0;
-    for (const key of await store.keys()) {
-      // The member as they are NOW (the loop awaits): a member who disconnected a moment ago was seen then (a
-      // disconnect updates lastSeenAt), not at the connect of a connection that lasted for days.
-      const known = byKey.get(key);
-      const member = known ? (this.ctx.members.get(known.userId) ?? known) : undefined;
-      if (!member || member.status === 'kicked') {
-        if (member) await this.removeGuestDirNow(member.userId);
-        else await store.removeKey(key);
-        removed++;
-        continue;
-      }
-      if (member.role === 'host') continue;
-      if (this.ctx.hub.isOnline(member.userId)) continue;
-      if ([...this.sessions.values()].some((m) => m.ownerUserId === member.userId && m.status !== 'exited')) continue;
-      if (now - member.lastSeenAt < this.limits.guestRetentionMs) continue;
-      await this.removeGuestDirNow(member.userId);
-      removed++;
-    }
-    return removed;
-  }
-
-  /** Kill sessions, best-effort `claude auth logout` (1 s), `rm -rf` the guest dir, keychain cleanup (macOS). */
-  async removeGuestDir(userId: UserId): Promise<void> {
-    await this.killAllForUser(userId, 'left');
-    await this.removeGuestDirNow(userId);
-  }
-
-  private async removeGuestDirNow(userId: UserId): Promise<void> {
-    const store = this.store;
-    if (!store) return;
-    const paths = store.pathsFor(userId);
-    let claudeRan = false;
-    const removed = await this.userLock.run(userId, async () => {
-      if (!(await store.exists(userId))) return false;
-      // Claude Code writes <cfg>/.claude.json on its first start (and the daemon seeds it for agent sessions): without
-      // it, claude never ran with this config dir and cannot have created keychain items for it (see below).
-      claudeRan = (await Promise.all(['.claude.json', '.credentials.json'].map((name) => lstat(join(paths.cfg, name)).catch(() => null)))).some((st) => st !== null);
-      // Logout runs first: afterwards there is nothing it could use (the credential is in the dir), and it must not
-      // run after the removal (it could re-create the config dir). rm -rf is what really removes the credential.
-      await this.logout(paths).catch((err: unknown) => this.logError('guest logout failed', err));
-      await store.remove(userId);
-      this.ctx.log.info('guest dir removed', { user: userId });
-      return true;
-    });
-    // Only when claude ran with this config dir: the host's keychain is not touched for a guest who only used a
-    // terminal (nothing there to delete; tests with the production composition kick such guests).
-    if (removed && claudeRan) await this.deleteDerivedKeychainItems(paths.cfg).catch((err: unknown) => this.logError('keychain cleanup failed', err));
-  }
-
-  /** `claude auth logout` inside the guest's own sandbox (never unsandboxed: the guest controls that config). */
-  private async logout(paths: GuestPaths): Promise<void> {
-    const credentials = await lstat(join(paths.cfg, '.credentials.json')).catch(() => null);
-    if (!credentials?.isFile()) return;
-    if (isStubService(this.ctx.services.sandbox)) return;
-    const hostEnv = this.hostEnv();
-    const claude = await resolveClaude(this.launchConfig.claudePath, hostEnv['PATH']);
-    if (!claude) return;
-    const id = `ses_${randomBytes(16).toString('hex')}`;
-    const env = buildGuestEnv({
-      home: paths.home,
-      configDir: paths.cfg,
-      tmpDir: paths.tmp,
-      hostEnv,
-      claudeDir: claudeDirOf(claude.realPath),
-      shell: '/bin/sh',
-      browser: '/usr/bin/true',
-      sessionId: id,
-    });
-    const command = guestCommand(paths.tmp, claude.realPath, ['auth', 'logout']);
-    const settingsDir = join(this.requireSessionsDir(), id);
-    await mkdir(settingsDir, { mode: 0o700 });
-    try {
-      const spec = buildSandboxSpec({
-        sessionId: id,
-        command,
-        rootPath: this.ctx.roots.main.realPath,
-        shareRealPath: this.ctx.roots.main.realPath,
-        worktree: null,
-        guestDir: paths.root,
-        settingsDir,
-        claudeRealPath: claude.realPath,
-        hookSocketPath: this.ctx.config.runPaths.hook,
-        env,
-      });
-      const wrapped = await this.ctx.services.sandbox.wrap(spec);
-      const abort = new AbortController();
-      const unwatch = this.watchHelper(wrapped, abort);
-      try {
-        await this.runner(wrapped.file, wrapped.args, { env: wrapped.env, cwd: wrapped.cwd, timeoutMs: this.limits.logoutTimeoutMs, maxStdoutBytes: 4096, signal: abort.signal });
-      } finally {
-        unwatch();
-        this.releaseWrapped(wrapped);
-      }
-    } finally {
-      await removeSessionFiles(settingsDir).catch(() => {});
-    }
-  }
-
-  /**
-   * claude-hooks.md §5.3: the two keychain items Claude Code derives from a config dir, deleted host-side as belt and
-   * braces (a hardened sandbox makes the login fall back to cfg/.credentials.json). Only those two exact names.
-   */
-  private async deleteDerivedKeychainItems(configDir: string): Promise<void> {
-    if (process.platform !== 'darwin' && this.options.keychain === undefined) return;
-    const h8 = createHash('sha256').update(configDir.normalize('NFC'), 'utf8').digest('hex').slice(0, 8);
-    const services = [`Claude Code-credentials-${h8}`, `Claude Code-${h8}`];
-    const account = this.hostEnv()['USER'] ?? '';
-    if (this.options.keychain) {
-      await this.options.keychain(services, account);
-      return;
-    }
-    if (!/^[A-Za-z0-9._-]{1,64}$/.test(account)) return;
-    const env: Record<string, string> = { PATH: '/usr/bin:/bin' };
-    if (this.launchConfig.hostHome) env['HOME'] = this.launchConfig.hostHome;
-    await Promise.all(
-      services.map((service) => this.runner('/usr/bin/security', ['delete-generic-password', '-a', account, '-s', service], { env, cwd: '/', timeoutMs: 3_000, maxStdoutBytes: 4096 })),
-    );
   }
 
   // =================================================================================================================
@@ -1209,8 +607,6 @@ export class SessionManagerImpl implements SessionManager {
 
   async attach(input: PayloadOf<'session.attach'>, conn: ClientConnection, principal: Principal): Promise<SessionAttachStart> {
     const m = this.requireSession(input.sessionId);
-    // A login shows its owner a login URL and takes their pasted code: nobody else may watch it (D-12).
-    if (m.kind === 'login' && principal.userId !== m.ownerUserId) throw sessionError('not_found', '找不到這個 session', 'unknown-session');
     const channelId = conn.channelId;
     const sessionId = m.id;
     const hub = this.ctx.hub;
@@ -1258,9 +654,10 @@ export class SessionManagerImpl implements SessionManager {
     for (const m of this.sessions.values()) if (m.pty.detach(channelId)) this.publish(m, 'updated');
   }
 
+  /** Keystrokes from any member who may drive sessions (`session.drive`: the host, 「可使用 agent」), into any session. */
   input(input: PayloadOf<'exec.input'>, conn: ClientConnection, principal: Principal): void {
     const m = this.requireSession(input.sessionId);
-    this.requireOwnerPrincipal(m, principal);
+    this.requireDriver(principal);
     if (!m.pty.input(conn.channelId, input.data)) throw sessionError('conflict', 'session 已結束', 'session-exited');
   }
 
@@ -1271,13 +668,13 @@ export class SessionManagerImpl implements SessionManager {
   }
 
   /**
-   * The ONLY path of suggestion text into a PTY (R6), called after the owner accepted it: a paste, then Enter. Like a
-   * terminal, the paste is bracketed when the program enabled bracketed paste (Claude Code does), so newlines inside
-   * the suggestion stay part of one prompt instead of submitting it line by line.
+   * The ONLY path of suggestion text into a PTY (R6), called after a member who may drive the session accepted it: a
+   * paste, then Enter. Like a terminal, the paste is bracketed when the program enabled bracketed paste (Claude Code
+   * does), so newlines inside the suggestion stay part of one prompt instead of submitting it line by line.
    */
   pasteSuggestion(sessionId: string, text: string, acceptedBy: Principal): void {
     const m = this.requireSession(sessionId);
-    this.requireOwnerPrincipal(m, acceptedBy);
+    this.requireDriver(acceptedBy);
     // No escape (it could end the paste early and inject keys) and no other control characters but tab and newline.
     // eslint-disable-next-line no-control-regex
     const clean = text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '').replace(/\r?\n/g, '\r');
@@ -1297,6 +694,13 @@ export class SessionManagerImpl implements SessionManager {
     }
   }
 
+  /** `session.drive` (the host, 「可使用 agent」): may type into any session and decide its suggestions (§11 D-15). */
+  private requireDriver(principal: Principal): void {
+    if (principal.kind !== 'user' || principal.userId === null || !principalCan(principal, 'session.drive')) {
+      throw new AuthorizationError(undefined, { reason: 'capability' });
+    }
+  }
+
   ownerOf(sessionId: string): UserId | null {
     return this.sessions.get(sessionId)?.ownerUserId ?? null;
   }
@@ -1307,36 +711,18 @@ export class SessionManagerImpl implements SessionManager {
 
   async loginStatus(sessionId: string, principal: Principal): Promise<LoginState> {
     const m = this.requireSession(sessionId);
-    this.requireOwnerPrincipal(m, principal);
+    this.requireDriver(principal);
     if (m.kind !== 'agent' || m.status === 'exited') return m.login;
     return this.checkLogin(m);
   }
 
-  /** `claude auth status --json` in the session's exact environment (guests: inside their sandbox). */
+  /** `claude auth status --json` in the session's exact environment (the host's Claude login, §11 D-15). */
   private checkLogin(m: Managed): Promise<LoginState> {
     if (m.loginCheck) return m.loginCheck;
     const run = async (): Promise<LoginState> => {
       const launch = m.launch;
       if (!launch?.claude || !launch.env || m.status === 'exited') return m.login;
-      let result;
-      if (!m.sandboxed) {
-        result = await this.runner(launch.claude.realPath, ['auth', 'status', '--json'], { env: launch.env, cwd: launch.cwd, timeoutMs: this.limits.authStatusTimeoutMs, maxStdoutBytes: 64 * 1024 });
-      } else {
-        if (!launch.spec || !launch.tmpDir) return m.login;
-        const command = guestCommand(launch.tmpDir, launch.claude.realPath, ['auth', 'status', '--json']);
-        // A helper, not the agent: without the hook token (it needs none, and the sandbox tests the hook only for the
-        // agent's own launch).
-        const env = Object.fromEntries(Object.entries(launch.spec.env).filter(([name]) => name !== 'SMURG_SESSION_TOKEN' && name !== 'SMURG_HOOK_SOCKET'));
-        const wrapped = await this.ctx.services.sandbox.wrap({ ...launch.spec, env, command });
-        const abort = new AbortController();
-        const unwatch = this.watchHelper(wrapped, abort);
-        try {
-          result = await this.runner(wrapped.file, wrapped.args, { env: wrapped.env, cwd: wrapped.cwd, timeoutMs: this.limits.authStatusTimeoutMs, maxStdoutBytes: 64 * 1024, signal: abort.signal });
-        } finally {
-          unwatch();
-          this.releaseWrapped(wrapped);
-        }
-      }
+      const result = await this.runner(launch.claude.realPath, ['auth', 'status', '--json'], { env: launch.env, cwd: launch.cwd, timeoutMs: this.limits.authStatusTimeoutMs, maxStdoutBytes: 64 * 1024 });
       const login = parseAuthStatus(result);
       // The session may have ended while the check ran.
       if (login !== m.login && (m.status as SessionStatus) !== 'exited') {
@@ -1368,34 +754,6 @@ export class SessionManagerImpl implements SessionManager {
   }
 
   // =================================================================================================================
-  // Import config
-  // =================================================================================================================
-
-  async importConfig(input: PayloadOf<'session.importConfig'>, principal: Principal): Promise<ResultInputOf<'session.importConfig'>> {
-    const userId = principal.userId;
-    const member = userId !== null && principal.kind === 'user' ? this.ctx.members.active(userId) : null;
-    // own-guest-dir: only a sandboxed session owner (runner) has a guest dir; the payload names no user at all.
-    if (!member || userId === null || !can(member.role, 'session.create.sandboxed')) throw new AuthorizationError(undefined, { reason: 'not-a-guest' });
-    const files = validateImport(input.files, (path) => this.ctx.paths.lexical(path));
-    const store = this.requireStore();
-    const written = await this.userLock.run(userId, async () => {
-      if ([...this.sessions.values()].some((m) => m.ownerUserId === userId && m.status !== 'exited')) {
-        throw sessionError('conflict', '請先結束你所有的 session，再匯入個人設定', 'sessions-running');
-      }
-      return store.withQuarantine(userId, (paths) => writeImport(paths.cfg, files));
-    });
-    this.ctx.audit.record({
-      actor: principal.actor,
-      action: 'session.import-config',
-      outcome: 'ok',
-      target: userId,
-      // Names only: the files are the member's personal configuration.
-      detail: { count: written.length, names: written },
-    });
-    return { written };
-  }
-
-  // =================================================================================================================
   // Ending
   // =================================================================================================================
 
@@ -1406,8 +764,7 @@ export class SessionManagerImpl implements SessionManager {
     const keep = input.keepWorktree !== false;
     const already = m.ending !== null;
     await this.finish(m, 'ended', keep, principal);
-    // A login's end is audited once, with its outcome (cleanupLogin).
-    if (!already && m.kind !== 'login') {
+    if (!already) {
       this.ctx.audit.record({ actor: principal.actor, action: 'session.end', outcome: 'ok', target: m.id, detail: { sessionId: m.id, kind: m.kind, keepWorktree: keep } });
     }
   }
@@ -1418,10 +775,26 @@ export class SessionManagerImpl implements SessionManager {
     this.ctx.audit.record({ actor: by.actor, action: 'session.terminate', outcome: 'ok', target: m.id, detail: { sessionId: m.id, ownerUserId: m.ownerUserId, kind: m.kind } });
   }
 
+  /**
+   * The member who opened these sessions was kicked, left, or lost 「可使用 agent」 (§11 D-15): every session they
+   * opened ends, each audited as `session.terminate` by the system with the reason. A creation in flight for them is
+   * abandoned (userEpochs).
+   */
   async killAllForUser(userId: UserId, reason: 'kicked' | 'left' | 'role-changed'): Promise<void> {
     this.userEpochs.set(userId, (this.userEpochs.get(userId) ?? 0) + 1);
-    const mine = [...this.sessions.values()].filter((m) => m.ownerUserId === userId && m.status !== 'exited');
-    await Promise.all(mine.map((m) => this.finish(m, reason, true)));
+    const mine = [...this.sessions.values()].filter((m) => m.ownerUserId === userId && m.status !== 'exited' && m.ending === null);
+    await Promise.all(
+      mine.map(async (m) => {
+        await this.finish(m, reason, true);
+        this.ctx.audit.record({
+          actor: SYSTEM_ACTOR,
+          action: 'session.terminate',
+          outcome: 'ok',
+          target: m.id,
+          detail: { sessionId: m.id, ownerUserId: m.ownerUserId, kind: m.kind, reason },
+        });
+      }),
+    );
   }
 
   /** Idempotent: the first reason wins; every caller waits for the same teardown. */
@@ -1441,85 +814,17 @@ export class SessionManagerImpl implements SessionManager {
     return m.ending;
   }
 
-  /**
-   * A guest process started from `wrapped` exited or never started: the sandbox may drop its count of it (Linux:
-   * srt removes bubblewrap's mount points for absent write-denied names from the share once no guest process runs).
-   * Idempotent; nothing for a host process.
-   */
-  private releaseWrapped(wrapped: WrappedCommand | null): void {
-    if (wrapped === null) return;
-    try {
-      this.ctx.services.sandbox.release?.(wrapped);
-    } catch (err) {
-      this.logError('sandbox release failed', err);
-    }
-  }
-
-  /**
-   * Linux (reviews RV-1, RV-2; ARCHITECTURE §7.6 "Linux, protected entries while a guest runs"): ends a guest session
-   * when its sandbox no longer holds (the host replaced, removed or created a host-only or host-private entry of its
-   * root while it ran: bubblewrap's mounts cannot follow that). True when that had happened before the session could
-   * be watched (the caller ends it and refuses the start).
-   */
-  private watchSandbox(m: Managed): boolean {
-    const sandbox = this.ctx.services.sandbox;
-    if (m.wrapped === null || isStubService(sandbox) || typeof sandbox.onRevoked !== 'function') return false;
-    let registering = true;
-    let already = false;
-    const stop = sandbox.onRevoked(m.wrapped, (revocation) => {
-      if (registering) already = true;
-      else void this.endRevoked(m, revocation);
-    });
-    registering = false;
-    m.unwatchSandbox = stop;
-    return already;
-  }
-
-  private async endRevoked(m: Managed, revocation: SandboxRevocation): Promise<void> {
-    if (m.ending !== null || m.status === 'exited') return;
-    const ending = this.finish(m, 'terminated', true);
-    const paths = revocation.paths.map((path) => relative(revocation.root, path) || '.');
-    this.ctx.audit.record({
-      actor: SYSTEM_ACTOR,
-      action: 'session.terminate',
-      outcome: 'ok',
-      target: m.id,
-      detail: { sessionId: m.id, ownerUserId: m.ownerUserId, kind: m.kind, reason: 'sandbox-protected-changed', paths: paths.slice(0, 10) },
-    });
-    const activity = this.ctx.services.activity;
-    if (!isStubService(activity)) {
-      // Names come from the share (any directory on the way may be oddly named): plain text, bounded.
-      const plain = (path: string): string => path.replace(new RegExp(LOG_UNSAFE_CHARACTER.source, 'g'), '?').slice(0, 120);
-      const total = paths.length + (revocation.more ?? 0);
-      const named = paths.slice(0, 3).map(plain).join('、') + (total > 3 ? ` 等 ${total} 個` : '');
-      // Neutral (review GR-13): the daemon cannot tell who made the change; a guest's new name ends this session too.
-      this.safely('activity.notify', () =>
-        activity.notify(m.ownerUserId, {
-          from: SYSTEM_ACTOR,
-          text: `這個資料夾裡只有主人能使用的檔案有變動（${named}），執行中的沙盒無法跟上這種變動，為了安全，你的「${m.title}」已被結束。可以重新開啟一個新的 session。`,
-        }),
-      );
-    }
-    await ending;
-  }
-
-  /** A helper process (auth status, logout) of a guest: killed when its sandbox no longer holds (watchSandbox). */
-  private watchHelper(wrapped: WrappedCommand, abort: AbortController): () => void {
-    const sandbox = this.ctx.services.sandbox;
-    if (isStubService(sandbox) || typeof sandbox.onRevoked !== 'function') return () => {};
-    return sandbox.onRevoked(wrapped, () => abort.abort());
-  }
-
   /** The PTY exited on its own (`exit`, a crash). */
   private onPtyExit(m: Managed, exit: PtyExit): void {
     m.exitCode = exit.exitCode;
     if (m.ending) return; // an explicit end is already tearing it down
     m.endReason = 'exit';
     m.ending = (async () => {
-      // A guest's leftovers (background jobs) would keep the sandbox's write access after the session is gone: they
-      // go too, found by the env marker and the remembered descendants (the PTY child is reaped: its pid may be
-      // reused, so it counts no more). A host's nohup jobs are theirs to keep, as in any terminal.
-      if (m.sandboxed) await this.killSessionProcesses(m, false);
+      // A session another member opened runs as the host: its leftovers (background jobs) go with it, found by the
+      // env marker and the remembered descendants (the PTY child is reaped: its pid may be reused, so it counts no
+      // more), so that removing that member later ends everything they started. The host's own nohup jobs are theirs
+      // to keep, as in any terminal.
+      if (m.ownerUserId !== this.ctx.members.hostUserId()) await this.killSessionProcesses(m, false);
       await this.cleanup(m, 'exit', true);
     })().catch((err: unknown) => this.logError('session exit handling failed', err));
   }
@@ -1554,8 +859,8 @@ export class SessionManagerImpl implements SessionManager {
 
   private async trackDescendants(): Promise<void> {
     if (this.tracking) return;
-    const guests = [...this.sessions.values()].filter((m) => m.pty.running && m.ending === null);
-    if (guests.length === 0) {
+    const running = [...this.sessions.values()].filter((m) => m.pty.running && m.ending === null);
+    if (running.length === 0) {
       if (this.trackTimer !== undefined) clearInterval(this.trackTimer);
       this.trackTimer = undefined;
       return;
@@ -1565,7 +870,7 @@ export class SessionManagerImpl implements SessionManager {
       const rows = await this.inspector.table();
       const byPid = new Map(rows.map((row) => [row.pid, row]));
       const uid = typeof process.getuid === 'function' ? process.getuid() : -1;
-      for (const m of guests) {
+      for (const m of running) {
         if (!m.pty.running || m.ending !== null) continue;
         // Keep what is still the same process (an orphaned job has no ppid link any more), add today's descendants.
         const next = new Map<number, KnownProcess>();
@@ -1590,20 +895,13 @@ export class SessionManagerImpl implements SessionManager {
   private async cleanup(m: Managed, reason: SessionEndReason, keepWorktree: boolean): Promise<void> {
     if (m.cleaned) return;
     m.cleaned = true;
-    m.unwatchSandbox?.();
-    m.unwatchSandbox = null;
     const services = this.ctx.services;
     if (m.loginHintTimer !== undefined) clearTimeout(m.loginHintTimer);
-    if (m.loginTimer !== undefined) clearTimeout(m.loginTimer);
-    if (m.kind === 'login') {
-      await this.cleanupLogin(m, reason);
-      return;
-    }
     m.status = 'exited';
     m.endedAt = this.ctx.clock.now();
     const exit = m.pty.exit;
     if (exit) m.exitCode = exit.exitCode;
-    m.launch = null; // the guest's apiKey leaves memory with it
+    m.launch = null;
     m.known = new Map();
     if (m.hookRegistered) {
       this.safely('hooks.unregisterSession', () => services.hooks.unregisterSession(m.id));
@@ -1620,7 +918,6 @@ export class SessionManagerImpl implements SessionManager {
         this.logError('worktree release failed', err);
       }
     }
-    if (m.settingsDir) await removeSessionFiles(m.settingsDir).catch((err: unknown) => this.logError('session files removal failed', err));
     this.forgetLive(m.id);
     const session = this.info(m);
     this.ctx.bus.emit('session.exited', { session, reason });
@@ -1631,37 +928,6 @@ export class SessionManagerImpl implements SessionManager {
       m.retentionTimer.unref?.();
       const exited = [...this.sessions.values()].filter((other) => other.status === 'exited').sort((a, b) => (a.endedAt ?? 0) - (b.endedAt ?? 0));
       for (const old of exited.slice(0, Math.max(0, exited.length - MAX_EXITED_RETAINED))) this.forget(old);
-    }
-  }
-
-  /**
-   * A login process ended (D-12): its outcome is audited (the exit code only: its output is the owner's), the owner's
-   * clients learn it, and the owner's agent sessions check their login again (the credential is in the guest dir).
-   */
-  private async cleanupLogin(m: Managed, reason: SessionEndReason): Promise<void> {
-    // Everything anyone can observe changes at once (status, audit, the owner's session.state); the files go after.
-    m.status = 'exited';
-    m.endedAt = this.ctx.clock.now();
-    const exit = m.pty.exit;
-    if (exit) m.exitCode = exit.exitCode;
-    m.launch = null;
-    m.known = new Map();
-    this.forgetLive(m.id);
-    this.ctx.audit.record({
-      actor: { kind: 'user', userId: m.ownerUserId, displayName: m.ownerName },
-      action: 'session.end',
-      outcome: 'ok',
-      target: m.id,
-      detail: { sessionId: m.id, kind: 'login', reason, ...(m.exitCode !== undefined ? { exitCode: m.exitCode } : {}) },
-    });
-    this.publish(m, 'updated');
-    if (m.settingsDir) await removeSessionFiles(m.settingsDir).catch((err: unknown) => this.logError('session files removal failed', err));
-    for (const agent of this.sessions.values()) {
-      if (agent.kind === 'agent' && agent.ownerUserId === m.ownerUserId && agent.status !== 'exited') void this.checkLogin(agent).catch(() => {});
-    }
-    if (!this.stopping) {
-      m.retentionTimer = setTimeout(() => this.forget(m), Math.min(this.limits.exitedRetentionMs, LOGIN_EXITED_RETENTION_MS));
-      m.retentionTimer.unref?.();
     }
   }
 
@@ -1716,11 +982,6 @@ export class SessionManagerImpl implements SessionManager {
 
   private logError(message: string, err: unknown): void {
     this.ctx.log.error(message, { error: err instanceof SmurgError ? `${err.code}:${String(err.detail?.['reason'] ?? '')}` : err instanceof Error ? err.name : 'unknown' });
-  }
-
-  private requireStore(): GuestStore {
-    if (!this.store) throw sessionError('internal', 'session 服務尚未啟動', 'not-started');
-    return this.store;
   }
 
   private requireSessionsDir(): string {

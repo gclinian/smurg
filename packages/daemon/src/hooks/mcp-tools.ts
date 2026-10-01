@@ -235,7 +235,6 @@ function listSessions(tc: McpToolContext, args: unknown): JsonObject {
       ownerUserId: session.ownerUserId,
       title: session.title,
       status: session.status,
-      sandboxed: session.sandboxed,
       root: session.root.kind === 'main' ? 'main' : `worktree:${session.root.worktreeId}`,
       isYou: session.id === sessionId,
       editing: editing.get(session.id) ?? [],

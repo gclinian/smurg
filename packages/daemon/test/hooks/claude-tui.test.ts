@@ -2,7 +2,7 @@
 // owner REJECTS the permission prompt of an agent edit. Claude Code then fires no PostToolUse, no
 // PostToolUseFailure and no Stop; the next event is the UserPromptSubmit of the owner's next prompt, and that is where
 // the daemon releases the lock. Driven through a real PTY (node-pty, as the daemon runs sessions) against the mock
-// Anthropic API; the host variant of the session settings keeps the permission prompt (defaultMode 'default').
+// Anthropic API; the session settings keep the permission prompt (defaultMode 'default', for every session).
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MAIN_ROOT } from '@smurg/protocol';
@@ -10,7 +10,7 @@ import * as pty from 'node-pty';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { DaemonEvents } from '../../src/core/interfaces.ts';
 import { TEST_HOST_USER } from '../../src/testing/index.ts';
-import { findClaude, isolatedEnv, killSpawnedGroup, MOCK_API_KEY, ownProcessGroup, startClaudeDaemon, type ClaudeDaemon } from './claude-harness.ts';
+import { findClaude, isolatedEnv, killSpawnedGroup, MOCK_API_KEY, ownProcessGroup, seedClaudeTrust, startClaudeDaemon, type ClaudeDaemon } from './claude-harness.ts';
 import { registerAgent } from './helpers.ts';
 import { startMockAnthropic } from './mock-anthropic.ts';
 
@@ -88,12 +88,12 @@ describe.skipIf(claude === null)(`interactive session (${V}, real PTY, mock Anth
 
   it(`lock released after a rejected permission prompt (next prompt): no Post event and no Stop after "No", the owner's next prompt releases it (${V})`, async () => {
     const free = join(env.root, 'free.txt');
-    const session = registerAgent(env.hooks, { userId: TEST_HOST_USER, name: 'Host' }, { sandboxed: false });
+    const session = registerAgent(env.hooks, { userId: TEST_HOST_USER, name: 'Host' });
     const files = await env.hooks.writeSessionFiles(session.sessionId);
-    const guest = await env.guestDir('tui');
-    // A configured Claude Code (theme chosen) so the first screen is the prompt; trust + key approval from the writer.
-    await writeFile(join(guest, 'cfg', '.claude.json'), JSON.stringify({ hasCompletedOnboarding: true, theme: 'dark' }));
-    await env.hooks.seedGuestClaudeConfig({ cfgDir: join(guest, 'cfg'), cwd: env.root, apiKey: MOCK_API_KEY });
+    const isolated = await env.isolatedDir('tui');
+    // A configured Claude Code (theme chosen) so the first screen is the prompt; then trust + key approval.
+    await writeFile(join(isolated, 'cfg', '.claude.json'), JSON.stringify({ hasCompletedOnboarding: true, theme: 'dark' }));
+    await seedClaudeTrust({ cfgDir: join(isolated, 'cfg'), cwd: env.root, apiKey: MOCK_API_KEY });
     const mock = await startMockAnthropic([
       { tools: [{ name: 'Read', input: { file_path: free } }] },
       { tools: [{ name: 'Edit', input: { file_path: free, old_string: 'free', new_string: 'EDITED' } }] },
@@ -108,7 +108,7 @@ describe.skipIf(claude === null)(`interactive session (${V}, real PTY, mock Anth
       cols: 140,
       rows: 45,
       cwd: env.root,
-      env: isolatedEnv(guest, mock.url, { ...session.env, COLORTERM: 'truecolor' }),
+      env: isolatedEnv(isolated, mock.url, { ...session.env, COLORTERM: 'truecolor' }),
     });
     const screen = new Screen(child);
     try {

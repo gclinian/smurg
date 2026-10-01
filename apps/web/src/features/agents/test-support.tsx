@@ -7,7 +7,6 @@ import type { Role, SessionInfo, Welcome } from '@smurg/protocol';
 import type { ILinkProvider, Terminal } from '@xterm/xterm';
 import { renderInWorkspace } from '../../testing/services.tsx';
 import type { FakeConnection } from '../../testing/fake-connection.ts';
-import type { WorkspaceStores } from '../../lib/stores/index.ts';
 import type { TerminalGeometry } from './terminal-fit.ts';
 import { ViewerFactoryContext, createXtermViewer, type TerminalViewer, type ViewerFactory } from './viewer.ts';
 
@@ -150,52 +149,4 @@ export async function nextRequest<T extends Parameters<FakeConnection['pendingOf
       await new Promise((resolve) => setTimeout(resolve, 5));
     });
   }
-}
-
-/** Every store's state as text (Maps, Sets and bytes included): what a secret must never be found in. */
-export function storesText(stores: WorkspaceStores): string {
-  const seen = new WeakSet<object>();
-  const replacer = (_key: string, value: unknown): unknown => {
-    if (value instanceof Map) return { map: [...value.entries()] };
-    if (value instanceof Set) return { set: [...value.values()] };
-    if (value instanceof Uint8Array) return { bytes: new TextDecoder().decode(value) };
-    if (typeof value === 'object' && value !== null) {
-      if (seen.has(value)) return '[seen]';
-      seen.add(value);
-    }
-    return value;
-  };
-  return Object.entries(stores)
-    .map(([name, store]) => `${name}=${JSON.stringify((store as { getState(): unknown }).getState(), replacer)}`)
-    .join('\n');
-}
-
-/** Web storage as text. */
-export function webStorageText(): string {
-  const dump = (storage: Storage): string => Array.from({ length: storage.length }, (_, i) => `${storage.key(i)}=${storage.getItem(storage.key(i) ?? '')}`).join('\n');
-  return `${dump(window.localStorage)}\n${dump(window.sessionStorage)}`;
-}
-
-/** Records everything written to the console while a test runs (restore() when done). */
-export function captureConsole(): { text(): string; restore(): void } {
-  const methods = ['log', 'info', 'warn', 'error', 'debug', 'trace'] as const;
-  const lines: string[] = [];
-  const originals = methods.map((method) => [method, console[method]] as const);
-  for (const method of methods) {
-    console[method] = (...args: unknown[]) => {
-      lines.push(args.map((arg) => (typeof arg === 'string' ? arg : (() => {
-        try {
-          return JSON.stringify(arg);
-        } catch {
-          return String(arg);
-        }
-      })())).join(' '));
-    };
-  }
-  return {
-    text: () => lines.join('\n'),
-    restore() {
-      for (const [method, original] of originals) console[method] = original;
-    },
-  };
 }

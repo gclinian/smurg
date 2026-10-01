@@ -23,10 +23,10 @@
 #
 #   --notices FILE  the third-party notices of this build (default <dist>/THIRD-PARTY-NOTICES.txt, which
 #                  scripts/build-sea.sh writes next to the executable). Required: the assembly refuses without it, and
-#                  refuses a file that is empty, does not mention node-pty, @parcel/watcher,
-#                  @anthropic-ai/sandbox-runtime and Node.js (what the executables bundle), or is not complete: the
-#                  committed packages/cli/THIRD-PARTY-NOTICES.txt (its Node.js section is a placeholder), or a file
-#                  without exactly one line `node@X.Y.Z (the Node.js runtime)` and the Node.js LICENSE
+#                  refuses a file that is empty, does not mention node-pty, @parcel/watcher and Node.js (what the
+#                  executables bundle), or is not complete: the committed packages/cli/THIRD-PARTY-NOTICES.txt (its
+#                  Node.js section is a placeholder), or a file without exactly one line
+#                  `node@X.Y.Z (the Node.js runtime)` and the Node.js LICENSE
 #   --require-all  refuse unless all four executables are there (a release; without it any subset is taken)
 #   --check-arch   check with `file` that each executable is the Mach-O / ELF of its name's architecture
 #   --notes FILE   write the release notes (the private GitHub release, the internal record): the CHANGELOG section
@@ -219,7 +219,7 @@ fi
 [ -f "$notices" ] || { echo "release-assets: $notices is missing: THIRD-PARTY-NOTICES.txt (the licenses of the third-party software in the executables) is part of every release; give it with --notices FILE (docs/RELEASING.md §4)" >&2; exit 1; }
 [ -s "$notices" ] || { echo "release-assets: $notices is empty" >&2; exit 1; }
 unmentioned=()
-for component in node-pty @parcel/watcher @anthropic-ai/sandbox-runtime Node.js; do
+for component in node-pty @parcel/watcher Node.js; do
   grep -qF -- "$component" "$notices" || unmentioned+=("$component")
 done
 [ "${#unmentioned[@]}" = 0 ] || { echo "release-assets: $notices does not mention ${unmentioned[*]} (bundled in every executable): not the notices of this build?" >&2; exit 1; }

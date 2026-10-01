@@ -21,7 +21,7 @@ export interface WorktreeStack {
   git(args: readonly string[], cwd?: string): Promise<string>;
   /** Like git(), but resolves with the exit code instead of throwing. */
   gitCode(args: readonly string[], cwd?: string): Promise<{ code: number; stdout: string; stderr: string }>;
-  connect(userId: string, role: 'runner' | 'editor' | 'viewer'): Promise<TestClient>;
+  connect(userId: string, role: 'agent' | 'editor' | 'viewer'): Promise<TestClient>;
   principal(userId: string): Principal;
   worktreeDir(worktreeId: string): string;
   cleanup(): Promise<void>;

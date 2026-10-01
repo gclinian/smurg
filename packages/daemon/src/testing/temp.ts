@@ -31,17 +31,8 @@ export async function removeTempDir(dir: string): Promise<void> {
 }
 
 const RUN_PREFIX = 'smurg-run-';
-/**
- * The longest socket name anything creates in a run dir. Not the daemon's own `<12 chars>.hook` (17 bytes): when
- * TMPDIR is too deep the sandbox module lets srt create its proxy sockets here (sandbox/checks.ts,
- * srtSocketDirProblem), and srt's names are twice as long. Budgeting for the hook socket only made every real-sandbox
- * test refuse to start under macOS's default TMPDIR (/var/folders/…/T), while passing under a short one.
- */
-const LONGEST_SOCKET_NAMES = [
-  'abcdefghijkl.hook',
-  `srt-mux-${'9'.repeat(7)}-zzzzzz.sock`, // pid: up to 7 digits on Linux
-  `claude-socks-${'f'.repeat(16)}.sock`,
-];
+/** The longest socket names the daemon creates in a run dir (`<12 chars>.hook`, the share lock `<12>.<hex4>.lk`). */
+const LONGEST_SOCKET_NAMES = ['abcdefghijkl.hook', 'abcdefghijkl.ffff.lk'];
 
 async function runDirBases(): Promise<string[]> {
   const bases = [await realpath(tmpdir())];
@@ -53,7 +44,7 @@ async function runDirBases(): Promise<string[]> {
 /**
  * A fresh private (0700) directory for the daemon's Unix sockets (DaemonConfigInput.runDir), short enough for
  * macOS's 103-byte socket paths: under the OS temp dir when that is short enough, else under /tmp. It is the one
- * test directory that may not live below a long sandbox TMPDIR (a socket path there would be truncated silently).
+ * test directory that may not live below a long TMPDIR (a socket path there would be truncated silently).
  */
 export async function createTempRunDir(): Promise<string> {
   for (const base of await runDirBases()) {

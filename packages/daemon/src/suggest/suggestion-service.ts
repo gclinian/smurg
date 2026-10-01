@@ -1,9 +1,10 @@
-// SuggestionService (SPEC R6, D2; ARCHITECTURE §5.6). Anyone who may suggest (editor, runner, host) proposes text for
-// SOMEONE ELSE's session; only that session's owner can accept it (optionally edited: accepted-modified) or reject it.
+// SuggestionService (SPEC R6, D2; ARCHITECTURE §5.6, §11 D-15). Anyone who may suggest (editor, 可使用 agent, host)
+// proposes text for SOMEONE ELSE's session; a member who may drive sessions (`session.drive`: the host, 「可使用 agent」)
+// accepts it (optionally edited: accepted-modified) or rejects it, on any session.
 //
-// THE INVARIANT (R6.1): before the owner accepts, not one byte of a suggestion reaches the session. The text lives
+// THE INVARIANT (R6.1): before such a member accepts, not one byte of a suggestion reaches the session. The text lives
 // in this service and in suggestions.json, nowhere near a PTY. There is exactly one call of
-// SessionManager.pasteSuggestion() in the whole daemon: in accept() below, after the ownership and pending checks,
+// SessionManager.pasteSuggestion() in the whole daemon: in accept() below, after the capability and pending checks,
 // with the sanitised text (sanitize.ts). There is no auto-accept path and no setting for one.
 //
 // R6.3: every step is audited with the author, the content (`text` / `finalText` are kept whole through
@@ -22,7 +23,7 @@ import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
 import type { MemberRecord, PersistentDocument, Principal, SuggestionService, UserId } from '../core/interfaces.ts';
 import { DisposableStack, newId, type Disposable } from '../core/lifecycle.ts';
-import { SYSTEM_ACTOR, isHostPrincipal, principalCan } from '../core/permissions.ts';
+import { SYSTEM_ACTOR, principalCan } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { sanitizeSuggestionForPaste } from './sanitize.ts';
 import {
@@ -240,12 +241,11 @@ export class SuggestionServiceImpl implements SuggestionService {
 
   async accept(input: PayloadOf<'suggest.accept'>, principal: Principal): Promise<Suggestion> {
     const stored = this.requireStored(input.suggestionId);
-    // suggestion-session-owner: nobody but the session's owner, and only while the suggestion is pending.
-    this.requireSessionOwner(stored, principal);
+    // session.drive (any session), and only while the suggestion is pending.
+    this.requireDriver(principal);
     if (stored.status !== 'pending') throw NOT_PENDING(stored.status);
-    const session = this.requireRunningSession(stored.sessionId);
-    if (session.ownerUserId !== principal.userId) throw new AuthorizationError(undefined, { reason: 'not-owner:session' });
-    // `text` is what the owner saw (or typed): exactly that is pasted. Equal to the current text, it is a plain accept.
+    this.requireRunningSession(stored.sessionId);
+    // `text` is what the member saw (or typed): exactly that is pasted. Equal to the current text, it is a plain accept.
     const modified = input.text !== undefined && input.text !== stored.text;
     if (input.text === undefined && stored.editedAt !== undefined && this.ctx.clock.now() - stored.editedAt < this.acceptAfterEditMs) {
       this.ctx.audit.record({
@@ -287,7 +287,7 @@ export class SuggestionServiceImpl implements SuggestionService {
 
   async reject(input: PayloadOf<'suggest.reject'>, principal: Principal): Promise<Suggestion> {
     const stored = this.requireStored(input.suggestionId);
-    this.requireSessionOwner(stored, principal);
+    this.requireDriver(principal);
     if (stored.status !== 'pending') throw NOT_PENDING(stored.status);
     const updated = this.update(stored.id, (draft) => {
       draft.status = 'rejected';
@@ -300,13 +300,13 @@ export class SuggestionServiceImpl implements SuggestionService {
     return toSuggestion(updated);
   }
 
-  /** Suggestions the caller is a party of (author, session owner; the host sees all), newest first. */
+  /** The caller's own suggestions; every suggestion for a member who may decide them (session.drive). Newest first. */
   list(input: PayloadOf<'suggest.list'>, principal: Principal): Suggestion[] {
-    const host = isHostPrincipal(principal);
+    const driver = principal.userId !== null && principalCan(principal, 'session.drive');
     const userId = principal.userId;
     return this.stored()
       .filter((item) => input.sessionId === undefined || item.sessionId === input.sessionId)
-      .filter((item) => host || (userId !== null && (item.author.userId === userId || item.sessionOwnerUserId === userId)))
+      .filter((item) => driver || (userId !== null && item.author.userId === userId))
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, LIST_MAX_ITEMS)
       .map(toSuggestion);
@@ -368,11 +368,15 @@ export class SuggestionServiceImpl implements SuggestionService {
     });
   }
 
-  /** suggest.updated to the session owner, the author and the host (recipients:suggestion-parties). */
+  /**
+   * suggest.updated to the author and to every member who may decide it (session.drive: the host, 「可使用 agent」;
+   * recipients:suggestion-parties).
+   */
   private publish(item: StoredSuggestion, previous: StoredSuggestion | null): void {
     const suggestion = toSuggestion(item);
     this.ctx.bus.emit('suggestion.changed', { suggestion, previous: previous ? toSuggestion(previous) : null });
-    const parties = new Set<UserId>([item.sessionOwnerUserId, item.author.userId, this.ctx.members.hostUserId()]);
+    const parties = new Set<UserId>([item.author.userId, this.ctx.members.hostUserId()]);
+    for (const member of this.ctx.members.list()) if (member.status === 'active' && can(member.role, 'session.drive')) parties.add(member.userId);
     for (const userId of parties) this.ctx.hub.sendToUser(userId, 'suggest.updated', { suggestion });
   }
 
@@ -416,9 +420,10 @@ export class SuggestionServiceImpl implements SuggestionService {
     return updated;
   }
 
-  private requireSessionOwner(stored: StoredSuggestion, principal: Principal): void {
-    if (principal.userId === null || principal.userId !== stored.sessionOwnerUserId) {
-      throw new AuthorizationError('只有 session 的擁有者可以處理這則建議', { reason: 'not-owner:session' });
+  /** session.drive (the host, 「可使用 agent」): may decide suggestions on any session (§11 D-15). */
+  private requireDriver(principal: Principal): void {
+    if (principal.userId === null || !principalCan(principal, 'session.drive')) {
+      throw new AuthorizationError('只有主人和「可使用 agent」的成員可以處理建議', { reason: 'capability' });
     }
   }
 

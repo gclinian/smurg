@@ -17,24 +17,8 @@ import {
   hostSettingsSchema,
   type HostSettings,
 } from '@smurg/protocol';
-import { isLocalHostname, isWorkspaceId } from '@smurg/protocol/relay';
+import { isWorkspaceId } from '@smurg/protocol/relay';
 import { runPathsFor, type RunPaths } from './sockets.ts';
-
-/** Allow-list the guests' sandboxes start with (R5); the host edits it in the console. */
-export const DEFAULT_ALLOWED_DOMAINS: readonly string[] = Object.freeze([
-  'api.anthropic.com',
-  'claude.ai',
-  '*.claude.ai',
-  'console.anthropic.com',
-  'platform.claude.com',
-  'statsig.anthropic.com',
-  'registry.npmjs.org',
-  'pypi.org',
-  'files.pythonhosted.org',
-  'github.com',
-  'codeload.github.com',
-  'objects.githubusercontent.com',
-]);
 
 export function defaultHostSettings(): HostSettings {
   return hostSettingsSchema.parse({
@@ -42,7 +26,6 @@ export function defaultHostSettings(): HostSettings {
     agentLockTimeoutMs: AGENT_LOCK_TTL_MS,
     uploadChunkSize: DEFAULT_CHUNK_SIZE,
     sharedDirs: [],
-    allowedDomains: [...DEFAULT_ALLOWED_DOMAINS],
     diskReserveBytes: DISK_RESERVE_BYTES_DEFAULT,
     diskReservePercent: DISK_RESERVE_PERCENT_DEFAULT,
   });
@@ -123,27 +106,27 @@ export interface LimitsConfig {
 }
 
 /**
- * What the sessions / sandbox / hooks modules need to launch Claude Code (ARCHITECTURE §7.6). Seams, so tests never
- * touch the developer's real home, real `claude` or the real Anthropic API.
+ * What the sessions / hooks modules need to launch Claude Code (ARCHITECTURE §7.6). Seams, so tests never touch the
+ * developer's real home, real `claude` or the real Anthropic API.
  */
 export interface SessionLaunchConfig {
   /**
-   * The host's home directory: the guests' sandbox denies reading it (R5.1) and the preflight canary lives below it.
-   * createDaemon fills it from `homeDir` (default os.homedir()); tests pass a temporary fake home. null ⇒ the sandbox
-   * module must refuse guest sessions (fail closed).
+   * The host's home directory: `HOME` of every session (they all run like the host's own, §11 D-15). createDaemon
+   * fills it from `homeDir` (default os.homedir()); tests pass a temporary fake home, so a session never reads the
+   * developer's rc files. null ⇒ the host's own HOME from its environment.
    */
   readonly hostHome: string | null;
   /** Absolute path of the `claude` executable; null ⇒ looked up on PATH when a session starts. */
   readonly claudePath: string | null;
   /**
-   * Oldest Claude Code version guest sessions may run (refused below it, fail closed): the oldest version the hook
-   * and sandbox setup is verified on. A property of smurg's setup, not of any model: which model a session uses is
-   * between its owner's CLI and account. See claudeVersionVerdict().
+   * Oldest Claude Code version the hook setup is verified on: an older `claude` starts with a warning (never a
+   * refusal: every session is the host's own CLI). A property of smurg's setup, not of any model: which model a
+   * session uses is between the host's CLI and account. See claudeVersionVerdict().
    */
   readonly claudeMinVersion: string;
   /**
-   * Versions the hook and sandbox setup is verified on end to end, ascending (claude-hooks.md ran every experiment on
-   * each). A version ≥ claudeMinVersion that is not listed starts with a warning, never a refusal.
+   * Versions the hook setup is verified on end to end, ascending (claude-hooks.md ran every experiment on each). Any
+   * other version starts with a warning, never a refusal.
    */
   readonly claudeVerifiedVersions: readonly string[];
   /**
@@ -152,43 +135,6 @@ export interface SessionLaunchConfig {
    * production. null ⇒ the hooks module refuses to start sessions.
    */
   readonly selfCommand: { readonly file: string; readonly args: readonly string[] } | null;
-  /**
-   * TEST ONLY: extra environment for guest sessions, e.g. ANTHROPIC_BASE_URL of a mock Anthropic API on 127.0.0.1
-   * (the guest env allow-list otherwise forbids ANTHROPIC_*). Accepted only when the daemon has no relay or a local
-   * one; resolveConfig refuses it for any other relay.
-   */
-  readonly testGuestEnv: Readonly<Record<string, string>> | null;
-  /**
-   * ARCHITECTURE §11 D-12 (implemented as recommended by the project lead; the owner's confirmation of the default is
-   * pending): a guest may start their own Claude subscription login (a `login` session: the fixed `claude auth login`
-   * in that guest's sandbox, which may listen on loopback). false ⇒ refused; guests log in with an API key only.
-   * Published to clients as PublicSettings.guestSubscriptionLogin. Default true.
-   */
-  readonly guestSubscriptionLogin: boolean;
-  /**
-   * ARCHITECTURE §11 D-14 (owner decision 2026-10-01): a guest's sandboxed agent / terminal session may use the shared
-   * MAIN workspace (workspace.mode 'main'). false ⇒ such a session.create is refused (`forbidden`, reason
-   * 'main-workspace-off', audited) and guests get worktree mode only (a git share). Default: on a Linux host false
-   * (bubblewrap cannot deny new nested host-only names by pattern, and the host's edits of protected entries reach a
-   * running guest until the guard ends it: §12), elsewhere true (`defaultGuestMainWorkspace`). The host opens it with
-   * `smurg host --allow-main-workspace-guests`. A guest's login session (kind 'login', nothing of the share) and the
-   * host's own unsandboxed sessions are not affected. Published to clients as PublicSettings.guestMainWorkspace.
-   */
-  readonly guestMainWorkspace: boolean;
-}
-
-/**
- * The default of config.sessions.guestMainWorkspace on a host platform (ARCHITECTURE §11 D-14): off on Linux only.
- * The platform is the daemon's own (createDaemon passes it; the sandbox runs on the same machine).
- */
-export function defaultGuestMainWorkspace(platform: NodeJS.Platform): boolean {
-  return platform !== 'linux';
-}
-
-/** What resolveConfig needs to know about the machine besides the input (createDaemon passes its own view). */
-export interface ResolveConfigEnvironment {
-  /** The host platform; decides the defaults that differ per platform (config.sessions.guestMainWorkspace). */
-  readonly platform: NodeJS.Platform;
 }
 
 /**
@@ -207,13 +153,13 @@ export interface ActivityConfig {
 export const DEFAULT_ACTIVITY_CONFIG: ActivityConfig = Object.freeze({ attributeBashEdits: true });
 
 /**
- * Claude Code versions the hook and sandbox setup is verified on (claude-hooks.md: the spike and its verification ran
- * on both). The session settings are written to work on each of them (ARCHITECTURE §7.6 "Claude Code version").
- * Adding one means re-running that spike (mock Anthropic API only) on it.
+ * Claude Code versions the hook setup is verified on (claude-hooks.md: the spike and its verification ran on both).
+ * The session settings are written to work on each of them (ARCHITECTURE §7.6 "Claude Code version"). Adding one
+ * means re-running that spike (mock Anthropic API only) on it.
  */
 export const CLAUDE_VERIFIED_VERSIONS: readonly string[] = Object.freeze(['2.1.220', '2.1.283']);
 
-/** The oldest verified version: guest sessions on an older `claude` are refused. */
+/** The oldest verified version: an older `claude` starts with a warning. */
 export const CLAUDE_MIN_VERSION = '2.1.220';
 
 export interface DaemonConfig {
@@ -325,10 +271,9 @@ function origin(name: string, url: string): string {
 
 /**
  * Validates the input and fills in defaults. Throws on anything unusable instead of guessing (fail closed): a
- * relative state dir or share dir, an invalid workspace id, a malformed URL, a non-positive tunable. `machine` is the
- * host the daemon runs on (createDaemon's platform; tests name one): some defaults differ per platform.
+ * relative state dir or share dir, an invalid workspace id, a malformed URL, a non-positive tunable.
  */
-export function resolveConfig(input: DaemonConfigInput, machine: ResolveConfigEnvironment): DaemonConfig {
+export function resolveConfig(input: DaemonConfigInput): DaemonConfig {
   if (!isAbsolute(input.stateDir)) throw new TypeError('config stateDir must be an absolute path');
   if (!isAbsolute(input.shareDir)) throw new TypeError('config shareDir must be an absolute path');
   if (input.runDir !== undefined && !isAbsolute(input.runDir)) throw new TypeError('config runDir must be an absolute path');
@@ -351,7 +296,7 @@ export function resolveConfig(input: DaemonConfigInput, machine: ResolveConfigEn
   for (const [key, value] of Object.entries(limits)) positive(`limits.${key}`, value);
   const defaultSettings = hostSettingsSchema.parse({ ...defaultHostSettings(), ...input.defaultSettings });
   const runDir = resolve(input.runDir ?? join(stateDir, 'run'));
-  const sessions = resolveSessions(input.sessions ?? {}, relayUrl, machine.platform);
+  const sessions = resolveSessions(input.sessions ?? {});
   const activity = resolveActivity(input.activity ?? {});
   return Object.freeze({
     stateDir,
@@ -381,9 +326,7 @@ function resolveActivity(input: Partial<ActivityConfig>): ActivityConfig {
   return Object.freeze({ attributeBashEdits });
 }
 
-const ENV_NAME = /^[A-Z_][A-Z0-9_]{0,127}$/;
-
-function resolveSessions(input: Partial<SessionLaunchConfig>, relayUrl: string | null, platform: NodeJS.Platform): SessionLaunchConfig {
+function resolveSessions(input: Partial<SessionLaunchConfig>): SessionLaunchConfig {
   const absoluteOrNull = (name: string, value: string | null | undefined): string | null => {
     if (value === undefined || value === null) return null;
     if (!isAbsolute(value)) throw new TypeError(`config sessions.${name} must be an absolute path`);
@@ -392,14 +335,6 @@ function resolveSessions(input: Partial<SessionLaunchConfig>, relayUrl: string |
   const selfCommand = input.selfCommand ?? null;
   if (selfCommand !== null && (!isAbsolute(selfCommand.file) || !selfCommand.args.every((arg) => typeof arg === 'string'))) {
     throw new TypeError('config sessions.selfCommand must name an absolute executable');
-  }
-  const testGuestEnv = input.testGuestEnv ?? null;
-  if (testGuestEnv !== null) {
-    // A test seam must never reach a real deployment: only without a relay or with a local one.
-    if (relayUrl !== null && !isLocalHostname(new URL(relayUrl).hostname)) throw new TypeError('config sessions.testGuestEnv is for tests with a local relay only');
-    for (const [key, value] of Object.entries(testGuestEnv)) {
-      if (!ENV_NAME.test(key) || typeof value !== 'string' || value.includes('\u0000')) throw new TypeError(`config sessions.testGuestEnv has an invalid entry ${key}`);
-    }
   }
   const claudeMinVersion = input.claudeMinVersion ?? CLAUDE_MIN_VERSION;
   if (typeof claudeMinVersion !== 'string' || !VERSION.test(claudeMinVersion)) throw new TypeError('config sessions.claudeMinVersion must be MAJOR.MINOR.PATCH');
@@ -415,19 +350,12 @@ function resolveSessions(input: Partial<SessionLaunchConfig>, relayUrl: string |
   if (compareClaudeVersions(claudeVerifiedVersions[claudeVerifiedVersions.length - 1] as string, claudeMinVersion) < 0) {
     throw new TypeError('config sessions.claudeMinVersion is newer than every verified version');
   }
-  const guestSubscriptionLogin = input.guestSubscriptionLogin ?? true;
-  if (typeof guestSubscriptionLogin !== 'boolean') throw new TypeError('config sessions.guestSubscriptionLogin must be a boolean');
-  const guestMainWorkspace = input.guestMainWorkspace ?? defaultGuestMainWorkspace(platform);
-  if (typeof guestMainWorkspace !== 'boolean') throw new TypeError('config sessions.guestMainWorkspace must be a boolean');
   return Object.freeze({
     hostHome: absoluteOrNull('hostHome', input.hostHome),
     claudePath: absoluteOrNull('claudePath', input.claudePath),
     claudeMinVersion,
     claudeVerifiedVersions: Object.freeze(claudeVerifiedVersions),
     selfCommand: selfCommand === null ? null : Object.freeze({ file: resolve(selfCommand.file), args: Object.freeze([...selfCommand.args]) }),
-    testGuestEnv: testGuestEnv === null ? null : Object.freeze({ ...testGuestEnv }),
-    guestSubscriptionLogin,
-    guestMainWorkspace,
   });
 }
 
@@ -451,8 +379,8 @@ export function compareClaudeVersions(a: string, b: string): number {
 
 /**
  * The version `claude --version` prints first ("2.1.283 (Claude Code)"), or null when its output does not start with a
- * plain MAJOR.MINOR.PATCH. A pre-release ("2.1.300-beta.1") is not recognised: it is refused like any output the
- * daemon cannot read (fail closed), because a pre-release sorts before its release.
+ * plain MAJOR.MINOR.PATCH. A pre-release ("2.1.300-beta.1") is not recognised (a pre-release sorts before its
+ * release): it gets the warning of any output the daemon cannot read.
  */
 export function parseClaudeVersion(output: string): string | null {
   const match = /^\s*(\S+?)(?:\s|\(|$)/.exec(output);
@@ -469,12 +397,12 @@ export type ClaudeVersionVerdict =
    * least the minimum but not listed (between two verified versions).
    */
   | { readonly ok: true; readonly version: string; readonly warning: 'newer-than-verified' | 'unverified' }
-  /** Refuse guest sessions (fail closed). `unrecognized`: `claude --version` printed no version we can read. */
+  /** Older than the minimum, or `unrecognized`: `claude --version` printed no version we can read. */
   | { readonly ok: false; readonly version: string | null; readonly reason: 'below-minimum' | 'unrecognized' };
 
 /**
- * Decides what a session may do with the `claude` whose `--version` printed `versionOutput`. The caller refuses a
- * guest session on `ok: false`; a host session (the host's own, unsandboxed CLI) is not refused but gets the warning.
+ * Judges the `claude` whose `--version` printed `versionOutput`. Nothing is refused for it (every session is the
+ * host's own, unsandboxed CLI, §11 D-15): `ok: false` and every warning are logged and shown to the session's owner.
  */
 export function claudeVersionVerdict(
   versionOutput: string,

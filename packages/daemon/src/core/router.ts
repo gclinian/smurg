@@ -1,6 +1,7 @@
 // The Router (ARCHITECTURE §2 rule 1): every inbound Envelope has already been decoded and schema-validated by the
 // hub (decodeEnvelope rejects unknown types, wrong directions and wrong channels). Here: member still active →
-// capability of the CURRENT role (registry mayInvoke) → handler. Ownership and path checks stay in handlers.
+// a local (control-socket) channel sends only what `smurg attach` needs (local/local-channel.ts) → capability of the
+// CURRENT role (registry mayInvoke) → handler. Ownership and path checks stay in handlers.
 // Every refusal is audited exactly once: capability denials here, handler denials through ctx.deny() /
 // PathDeniedError, and any forbidden / host_only / path_denied error a handler threw without auditing.
 import {
@@ -11,6 +12,7 @@ import {
   type ClientEnvelope,
   type RequestType,
 } from '@smurg/protocol';
+import { localChannelAllows, localChannelRefusal } from '../local/local-channel.ts';
 import { AuthorizationError, isAuthorizationError, isPathDeniedError, notImplemented } from './errors.ts';
 import type {
   AuditLog,
@@ -155,6 +157,20 @@ export class RouterImpl implements Router {
         detail: { type, reason: 'not-a-member', userId: conn.userId },
       });
       this.sink.reply(conn, id, 'error', new SmurgError('unauthorized').toPayload());
+      this.sink.denied(conn);
+      return;
+    }
+    if (conn.mode === 'local' && !localChannelAllows(type)) {
+      // Review F1: the control socket admits the host's OS account, which every session runs as. Only what `smurg
+      // attach` sends passes there (local/local-channel.ts LOCAL_CHANNEL_TYPES); the rest is the host's, on the web.
+      this.audit.record({
+        actor: principal.actor,
+        action: 'authz.denied',
+        outcome: 'denied',
+        target: type,
+        detail: { type, reason: 'control-socket', role: member.role },
+      });
+      this.sink.reply(conn, id, 'error', localChannelRefusal().toPayload());
       this.sink.denied(conn);
       return;
     }

@@ -1,10 +1,10 @@
 // Unix socket paths (ARCHITECTURE §7.1): `<runDir>/<short>.ctl` (control socket: host only),
-// `<runDir>/<short>.hook` (hook + MCP socket, the only socket exposed into guest sandboxes) and the shared-folder lock
+// `<runDir>/<short>.hook` (hook + MCP socket of the sessions) and the shared-folder lock
 // `<runDir>/<short>.<hex4>.lk` (one per daemon instance, workspace/share-lock.ts).
 //
 // macOS limits sun_path to 104 bytes including the terminating NUL (Linux: 108). Node does NOT fail on a longer path:
 // it binds the socket at a silently truncated path in another directory (verified by the contract review), where it
-// sits outside the private run dir and no sandbox allow-list entry matches it. So every socket path is checked here
+// sits outside the private run dir. So every socket path is checked here
 // and anything too long fails closed, before any bind or connect.
 import { createHash } from 'node:crypto';
 import { isAbsolute, join } from 'node:path';

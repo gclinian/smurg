@@ -64,7 +64,6 @@ export function makeSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
     ownerUserId: HOST_USER,
     ownerName: 'Ian',
     title: 'Claude',
-    sandboxed: false,
     root: MAIN_ROOT,
     status: 'running',
     cols: 120,

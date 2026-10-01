@@ -1,6 +1,6 @@
 // 「在編輯器選取程式碼後，可以一鍵把它作為建議送進別人的 session（或直接送進自己的 session）」 (SPEC R6), when the
-// editor did not say which session: pick one. One's own session gets the code pasted (no Enter); someone else's gets a
-// suggestion draft to complete and send.
+// editor did not say which session: pick one. A member who may type into sessions (the host, 可使用 agent) gets the
+// code pasted (no Enter); an editor gets a suggestion draft to complete and send.
 import { useEffect, useId, useState } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
 import { tApp } from '../../strings/app.ts';
@@ -13,15 +13,16 @@ export interface SendSelectionDialogProps {
   readonly selection: SelectionPayload | null;
   /** Running sessions, the member's own first. */
   readonly sessions: readonly SessionInfo[];
-  readonly userId: string | null;
+  /** Types into any session (session.drive): every choice is a paste. */
+  readonly canDrive: boolean;
   readonly canSuggest: boolean;
   onChoose(sessionId: string): void;
   onClose(): void;
 }
 
-export function SendSelectionDialog({ selection, sessions, userId, canSuggest, onChoose, onClose }: SendSelectionDialogProps) {
+export function SendSelectionDialog({ selection, sessions, canDrive, canSuggest, onChoose, onClose }: SendSelectionDialogProps) {
   const name = useId();
-  const choices = sessions.filter((session) => session.ownerUserId === userId || canSuggest);
+  const choices = canDrive || canSuggest ? sessions : [];
   const [chosen, setChosen] = useState<string | null>(null);
   const open = selection !== null;
 
@@ -59,7 +60,7 @@ export function SendSelectionDialog({ selection, sessions, userId, canSuggest, o
             <label key={session.id} className="suggest-choice">
               <input type="radio" name={name} checked={current === session.id} onChange={() => setChosen(session.id)} />
               <span>
-                {session.ownerUserId === userId
+                {canDrive
                   ? t('send.own', { title: session.title })
                   : t('send.other', { owner: session.ownerName, title: plainSessionTitle(session) })}
               </span>

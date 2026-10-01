@@ -22,13 +22,6 @@ export type MockIdpBehaviour = {
   googleNonce?: string;
   /** id_token `aud` replaced by this value. */
   googleAudience?: string;
-  /**
-   * Like the real providers' login / consent pages: the authorize endpoint answers with an HTML page whose form the
-   * person submits (POST), and only that POST redirects back to the relay. The page's CSP lists its own origin and the
-   * registered callback's origin in form-action, as a provider that allows its OAuth app's callback would; Chromium
-   * applies it to every redirect that follows the submission.
-   */
-  loginForm?: boolean;
 };
 
 type PendingCode = { provider: 'github' | 'google'; challenge: string; redirectUri: string; nonce?: string };
@@ -72,20 +65,6 @@ export async function startMockIdp(): Promise<MockIdp> {
     res.writeHead(302, { location: to.href });
     res.end();
   };
-  // loginForm: authorize requests waiting for the person to press the button on the IdP's page.
-  const pendingApprovals = new Map<string, { q: URLSearchParams; code: string }>();
-  const approveOrRedirect = (res: ServerResponse, q: URLSearchParams, code: string, label: string) => {
-    if (!behaviour.loginForm) return redirectBack(res, q, code);
-    const ticket = b64url(randomBytes(16));
-    pendingApprovals.set(ticket, { q, code });
-    const callbackOrigin = new URL(q.get('redirect_uri') ?? '').origin;
-    res.writeHead(200, {
-      'content-type': 'text/html; charset=utf-8',
-      'content-security-policy': `default-src 'none'; form-action 'self' ${callbackOrigin}`,
-    });
-    res.end(`<!doctype html><title>Mock ${label}</title><h1>Mock ${label}</h1>
-<form method="post" action="/approve"><input type="hidden" name="ticket" value="${ticket}"><button type="submit">Authorize smurg</button></form>`);
-  };
 
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://idp.invalid');
@@ -99,13 +78,7 @@ export async function startMockIdp(): Promise<MockIdp> {
       if (q.get('code_challenge_method') !== 'S256' || !q.get('code_challenge')) return json(res, 400, { error: 'pkce required' });
       const code = b64url(randomBytes(16));
       codes.set(code, { provider: 'github', challenge: q.get('code_challenge') ?? '', redirectUri: q.get('redirect_uri') ?? '' });
-      return approveOrRedirect(res, q, code, 'GitHub');
-    }
-    if (req.method === 'POST' && url.pathname === '/approve') {
-      const pending = pendingApprovals.get(form.get('ticket') ?? '');
-      pendingApprovals.delete(form.get('ticket') ?? '');
-      if (!pending) return json(res, 400, { error: 'unknown ticket' });
-      return redirectBack(res, pending.q, pending.code);
+      return redirectBack(res, q, code);
     }
     if (req.method === 'POST' && url.pathname === '/login/oauth/access_token') {
       const pending = codes.get(form.get('code') ?? '');
@@ -141,7 +114,7 @@ export async function startMockIdp(): Promise<MockIdp> {
         redirectUri: q.get('redirect_uri') ?? '',
         nonce: q.get('nonce') ?? '',
       });
-      return approveOrRedirect(res, q, code, 'Google');
+      return redirectBack(res, q, code);
     }
     if (req.method === 'POST' && url.pathname === '/token') {
       const pending = codes.get(form.get('code') ?? '');

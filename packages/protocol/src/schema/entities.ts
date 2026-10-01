@@ -4,7 +4,6 @@ import { FORBIDDEN_RECORD_KEYS } from '../errors.ts';
 import { roleSchema } from '../roles.ts';
 import {
   ACTIVITY_SUMMARY_MAX_CHARS,
-  ALLOWED_DOMAINS_MAX,
   AUDIT_DETAIL_MAX_KEYS,
   AUDIT_TARGET_MAX_CHARS,
   CONFLICT_HUNKS_MAX,
@@ -21,7 +20,6 @@ import {
 } from './limits.ts';
 import { entryPathSchema, entryRefSchema, fileRefSchema, pathSegmentSchema, relPathSchema, rootRefSchema } from './paths.ts';
 import {
-  allowedDomainSchema,
   avatarUrlSchema,
   byteCountSchema,
   colorSchema,
@@ -96,31 +94,23 @@ export const HUMAN_LOCK_IDLE_MS_RANGE = { min: 1_000, max: 3_600_000 } as const;
 export const AGENT_LOCK_TIMEOUT_MS_RANGE = { min: 1_000, max: 600_000 } as const;
 
 /**
- * Settings every member receives in the Welcome. `sharedDirs` are paths in the main root (D12).
- * `guestSubscriptionLogin` (addition, ARCHITECTURE §11 D-12): whether a guest may start a `login` session (their
- * Claude subscription login); false ⇒ guests log in with an API key only. It is the daemon's configuration
- * (config.sessions.guestSubscriptionLogin), not a console setting: HostSettings / admin.settings.set do not carry it.
- * `guestMainWorkspace` (addition, ARCHITECTURE §11 D-14): whether a sandboxed (guest) agent / terminal session may use
- * the shared main workspace (workspace.mode 'main'); false ⇒ guests get worktree mode only (a git share) and
- * session.create of a sandboxed main-mode session is refused (`forbidden`, detail.reason 'main-workspace-off'). Off by
- * default on a Linux host, on by default on macOS; the daemon's configuration (config.sessions.guestMainWorkspace,
- * `smurg host --allow-main-workspace-guests` / `--no-main-workspace-guests`), not a console setting either. A guest's
- * `login` session (mode 'main', nothing of the share) is not affected.
- * Both are optional so that a client can tell "not said" (an older daemon) from an explicit answer.
+ * Settings every member receives in the Welcome. `sharedDirs` are paths in the main root (D12). (Protocol 2,
+ * ARCHITECTURE §11 D-15: the guest switches `guestSubscriptionLogin` and `guestMainWorkspace` of protocol 1 are gone
+ * with the guest sandbox.)
  */
 export const publicSettingsSchema = z.strictObject({
   humanLockIdleMs: z.int().min(HUMAN_LOCK_IDLE_MS_RANGE.min).max(HUMAN_LOCK_IDLE_MS_RANGE.max),
   agentLockTimeoutMs: z.int().min(AGENT_LOCK_TIMEOUT_MS_RANGE.min).max(AGENT_LOCK_TIMEOUT_MS_RANGE.max),
   uploadChunkSize: z.int().min(MIN_CHUNK_SIZE).max(MAX_CHUNK_SIZE),
   sharedDirs: z.array(entryPathSchema).max(SHARED_DIRS_MAX),
-  guestSubscriptionLogin: z.boolean().optional(),
-  guestMainWorkspace: z.boolean().optional(),
 });
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;
 
-/** Host-only settings. `diskReservePercent` is a percentage of the volume size (0–100); bytes are bytes (5 GiB = 5 × 2^30). */
-export const hostSettingsSchema = publicSettingsSchema.omit({ guestSubscriptionLogin: true, guestMainWorkspace: true }).extend({
-  allowedDomains: z.array(allowedDomainSchema).max(ALLOWED_DOMAINS_MAX),
+/**
+ * Host-only settings. `diskReservePercent` is a percentage of the volume size (0–100); bytes are bytes (5 GiB = 5 × 2^30).
+ * (Protocol 2: the guest sandbox's network allow-list `allowedDomains` is gone.)
+ */
+export const hostSettingsSchema = publicSettingsSchema.extend({
   diskReserveBytes: byteCountSchema,
   diskReservePercent: z.number().min(0).max(100),
 });
@@ -246,14 +236,8 @@ export const SESSION_STATUSES = ['starting', 'running', 'exited'] as const;
 export const sessionStatusSchema = z.enum(SESSION_STATUSES);
 export type SessionStatus = z.infer<typeof sessionStatusSchema>;
 
-/**
- * `login` (addition, ARCHITECTURE §11 D-12): a guest's own Claude subscription login. The daemon runs the fixed
- * command `claude auth login` in that guest's sandbox (nothing about it comes from the client); only its owner sees
- * it, attaches to it and types into it (the login URL and the pasted code), and it ends when the command exits or
- * after 10 minutes. Refused for the host, and when the host switched guest subscription logins off
- * (PublicSettings.guestSubscriptionLogin false).
- */
-export const SESSION_KINDS = ['agent', 'terminal', 'login'] as const;
+/** A Claude Code session, or a plain shell. (Protocol 1's guest `login` process is gone, ARCHITECTURE §11 D-15.) */
+export const SESSION_KINDS = ['agent', 'terminal'] as const;
 export const sessionKindSchema = z.enum(SESSION_KINDS);
 export type SessionKind = z.infer<typeof sessionKindSchema>;
 
@@ -263,8 +247,9 @@ export type LoginState = z.infer<typeof loginStateSchema>;
 
 /**
  * Why an exited session ended (review WEB-12: a session the host terminated must not look like a normal exit to its
- * owner): its process exited by itself (`exit`), its owner ended it, the host terminated it, its owner was kicked /
- * left / lost the role that may own sessions, or the daemon stopped. Same words as the daemon's `session.exited`.
+ * owner): its process exited by itself (`exit`), its owner ended it, the host terminated it, its owner (the member who
+ * opened it) was kicked / left / lost the role 「可使用 agent」, or the daemon stopped. Same words as the daemon's
+ * `session.exited`.
  */
 export const SESSION_END_REASONS = ['exit', 'ended', 'terminated', 'kicked', 'left', 'role-changed', 'stopped'] as const;
 export const sessionEndReasonSchema = z.enum(SESSION_END_REASONS);
@@ -273,13 +258,18 @@ export type SessionEndReason = z.infer<typeof sessionEndReasonSchema>;
 export const terminalColsSchema = z.int().min(1).max(TERMINAL_COLS_MAX);
 export const terminalRowsSchema = z.int().min(1).max(TERMINAL_ROWS_MAX);
 
+/**
+ * A PTY session. Every session runs like the host's own (ARCHITECTURE §11 D-15): the host's OS user, unsandboxed, the
+ * host's Claude Code login. `ownerUserId` / `ownerName`: the member who OPENED it (attribution: the agent is
+ * 「Claude（ownerName）」, its locks and edits carry ownerUserId). `login` is the host's Claude login as that session
+ * sees it. (Protocol 1's `sandboxed` is gone.)
+ */
 export const sessionInfoSchema = z.strictObject({
   id: opaqueIdSchema,
   kind: sessionKindSchema,
   ownerUserId: userIdSchema,
   ownerName: displayNameSchema,
   title: shortTextSchema,
-  sandboxed: z.boolean(),
   root: rootRefSchema,
   status: sessionStatusSchema,
   exitCode: z.int().optional(),
@@ -488,8 +478,6 @@ export const AUDIT_ACTIONS = [
   'session.create',
   'session.end',
   'session.terminate',
-  'session.import-config',
-  'sandbox.refused',
   'suggest.create',
   'suggest.edit',
   'suggest.accept',

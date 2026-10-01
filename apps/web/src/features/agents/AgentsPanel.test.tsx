@@ -1,7 +1,8 @@
 // The agents panel with a FakeConnection and the REAL xterm.js viewer (jsdom): every session of the workspace has a tab,
 // the terminal attaches while shown (snapshot or delta, then live output placed by offset: no gap, no duplicate),
-// detaches when hidden, attaches again after a reconnect from the last offset, never answers terminal queries, and
-// sends input and its size only for the session's owner (SPEC R4, R7 agent panel, goal 2; ARCHITECTURE §5.5, §7.6).
+// detaches when hidden, attaches again after a reconnect from the last offset, never answers terminal queries, sends
+// input for whoever may type (the host and 可使用 agent, into ANY session: session.drive) and the size only from the
+// panel of the member who opened the session (SPEC R4, R7 agent panel, goal 2; ARCHITECTURE §5.5, §7.6; protocol v2).
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { SmurgError, worktreeRoot, type SessionInfo } from '@smurg/protocol';
@@ -20,7 +21,6 @@ const amyTerminal = makeSession({
   title: '測試',
   ownerUserId: 'dev:amy',
   ownerName: 'Amy',
-  sandboxed: true,
   root: worktreeRoot('wt_1'),
   createdAt: 2,
   cols: 80,
@@ -39,24 +39,26 @@ function snapshot(conn: Awaited<ReturnType<typeof renderWithSessions>>['conn'], 
 }
 
 describe('agents panel: every session of the workspace, for everyone (SPEC goal 2)', () => {
-  it('shows a tab per session with owner, kind, status, where it runs and whether it is sandboxed — also to a viewer', async () => {
+  it('shows a tab per session with who opened it, kind, status, where it runs and that it runs as the host — also to a viewer', async () => {
     const { conn } = await renderWithSessions(<AgentsPanel />, { role: 'viewer', sessions: [hostAgent, { ...amyTerminal, status: 'exited', exitCode: 3 }] });
     await act(async () => {
       conn.respond('worktree.list', { worktrees: [makeWorktree({ id: 'wt_1', branch: 'smurg/amy/wt_1' })] });
       conn.respond('worktree.merge.list', { requests: [] });
     });
     const tabs = screen.getAllByRole('tab');
-    expect(tabs.map((tab) => tab.textContent)).toEqual([expect.stringContaining('Claude（Ian）'), expect.stringContaining('測試（Amy）')]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual([expect.stringContaining('Claude（Ian 開的）'), expect.stringContaining('測試（Amy 開的）')]);
 
     // One compact line (WEB-02); the rest behind 「詳細資訊」.
     const hostSummary = screen.getByLabelText('Claude 的資訊');
-    expect(hostSummary.textContent).toContain('Ian');
+    expect(hostSummary.textContent).toContain('Ian 開的');
     expect(hostSummary.textContent).toContain('執行中');
     expect(hostSummary.textContent).toContain('主工作區');
     fireEvent.click(within(screen.getByRole('tabpanel')).getByRole('button', { name: '詳細資訊' }));
     const hostInfo = screen.getByLabelText('Claude 的詳細資訊');
     expect(hostInfo.textContent).toContain('agent（Claude Code）');
-    expect(hostInfo.textContent).toContain('沒有沙盒（主人的 session）');
+    expect(hostInfo.textContent).toContain('開啟的人Ian 開的');
+    expect(hostInfo.textContent).toContain('主人的電腦，使用主人的 Claude 帳號');
+    expect(hostInfo.textContent).not.toContain('沙盒');
 
     fireEvent.click(tabs[1]!);
     fireEvent.click(within(screen.getByRole('tabpanel')).getByRole('button', { name: '詳細資訊' }));
@@ -65,21 +67,31 @@ describe('agents panel: every session of the workspace, for everyone (SPEC goal 
     expect(amyInfo.textContent).toContain('已結束（結束代碼 3）');
     // Whose worktree and for what (WEB-18), with the branch as a detail.
     expect(amyInfo.textContent).toContain('我的 worktree（測試） · smurg/amy/wt_1');
-    expect(amyInfo.textContent).toContain('在沙盒內執行');
+    expect(amyInfo.textContent).toContain('主人的電腦，使用主人的 Claude 帳號');
     // A viewer can watch but cannot open sessions: the dialog says why.
     fireEvent.click(screen.getByRole('button', { name: '新增 session' }));
     expect(await screen.findByText(/你的角色是「旁觀」/)).toBeTruthy();
   });
 
-  it("a default title that already names the owner is not suffixed again: 「終端機（王小明）」, not 「…（王小明）（王小明）」 (WEB-06)", async () => {
+  it("a default title that already names the person who opened it is not suffixed again: 「終端機（王小明 開的）」, not 「…（王小明）（王小明 開的）」 (WEB-06)", async () => {
     const ming = makeSession({ id: 'sess_ming', kind: 'terminal', ownerUserId: 'dev:ming', ownerName: '王小明', title: '終端機（王小明）' });
     await renderWithSessions(<AgentsPanel />, { role: 'editor', sessions: [ming] });
-    expect(screen.getByRole('tab').textContent).toContain('終端機（王小明）');
-    expect(screen.getByRole('tab').textContent).not.toContain('（王小明）（王小明）');
+    expect(screen.getByRole('tab').textContent).toContain('終端機（王小明 開的）');
+    expect(screen.getByRole('tab').textContent).not.toContain('（王小明）（王小明');
+  });
+
+  it('offers no guest login, API key or 「匯入個人設定」 to anyone: only 「新增 session」', async () => {
+    for (const role of ['agent', 'host'] as const) {
+      const view = await renderWithSessions(<AgentsPanel />, { role, sessions: [hostAgent] });
+      expect(screen.queryByRole('button', { name: '更多動作' })).toBeNull();
+      expect(screen.queryByText(/匯入個人設定|用 Claude 訂閱登入|API key/)).toBeNull();
+      expect(screen.getByRole('button', { name: '新增 session' })).toBeTruthy();
+      view.unmount();
+    }
   });
 
   it('shows a guest the exact commands to attach the session in their own terminal, and that the host must send a CLI link (SPEC-09)', async () => {
-    await renderWithSessions(<AgentsPanel />, { role: 'runner', sessions: [hostAgent] });
+    await renderWithSessions(<AgentsPanel />, { role: 'agent', sessions: [hostAgent] });
     fireEvent.click(within(screen.getByRole('tabpanel')).getByRole('button', { name: '在自己的終端機接上' }));
     const dialog = screen.getByRole('dialog', { name: '在自己的終端機接上這個 session' });
     const origin = window.location.origin;
@@ -275,7 +287,7 @@ describe('agents panel: the viewer never answers terminal queries', () => {
   }
 });
 
-describe('agents panel: input and size only from the owner', () => {
+describe('agents panel: input from the host and 可使用 agent (any session), the size only from the owner', () => {
   it("the owner's keystrokes go to the PTY as exec.input, and the owner's viewport is proposed as the PTY size", async () => {
     const recording = recordingViewerFactory();
     recording.proposed = { cols: 132, rows: 43 };
@@ -302,29 +314,55 @@ describe('agents panel: input and size only from the owner', () => {
     expect(attach.payload).toEqual({ sessionId: 'sess_host', cols: 80, rows: 24 });
   });
 
-  it('everyone else watches read-only: typing sends nothing, no size is proposed, the suggestion hint is shown', async () => {
+  it("a 可使用 agent member types straight into the HOST's session (exec.input), but proposes no size and cannot end it", async () => {
     const recording = recordingViewerFactory();
     recording.proposed = { cols: 200, rows: 60 };
-    const { conn } = await renderWithSessions(<AgentsPanel />, { role: 'runner', sessions: [hostAgent], recording });
+    const { conn } = await renderWithSessions(<AgentsPanel />, { role: 'agent', sessions: [hostAgent], recording });
     const attach = await nextRequest(conn, 'session.attach');
+    // Not the owner: no viewport with the attach (the PTY size stays the owner's).
     expect(attach.payload).toEqual({ sessionId: 'sess_host' });
     await act(async () => {
       snapshot(conn, hostAgent, '$ ', 2);
     });
     const term = recording.viewers[0]!.term;
-    expect(term.options.disableStdin).toBe(true);
+    expect(term.options.disableStdin).toBe(false);
     await act(async () => {
-      term.input('rm -rf /\r', true);
-      term.paste('echo pasted');
+      term.input('echo from-amy\r', true);
     });
-    expect(conn.notificationsOf('exec.input')).toEqual([]);
+    expect(conn.notificationsOf('exec.input').map((n) => [n.payload.sessionId, decoder.decode(n.payload.data)])).toEqual([['sess_host', 'echo from-amy\r']]);
     expect(conn.notificationsOf('exec.resize')).toEqual([]);
-    // A compact badge on the session's line; the full hint in the details (WEB-02: it cost the watcher 3 rows).
-    expect(within(screen.getByRole('tabpanel')).getByText('只能觀看')).toBeTruthy();
-    fireEvent.click(within(screen.getByRole('tabpanel')).getByRole('button', { name: '詳細資訊' }));
-    expect(screen.getByText(/這是 Ian 的 session，你只能觀看/)).toBeTruthy();
-    expect(within(screen.getByRole('tabpanel')).queryByRole('button', { name: '結束 session' })).toBeNull();
+    expect(within(screen.getByRole('tabpanel')).queryByText('只能觀看')).toBeNull();
+    // Ending stays with the person who opened it (and the host's 強制終止).
+    expect(within(screen.getByRole('tabpanel')).queryByRole('button', { name: /結束 session|強制終止/ })).toBeNull();
   });
+
+  for (const role of ['editor', 'viewer'] as const) {
+    it(`${role === 'editor' ? 'an editor' : 'a viewer'} watches read-only: typing sends nothing, no size is proposed, the hint says how to take part`, async () => {
+      const recording = recordingViewerFactory();
+      recording.proposed = { cols: 200, rows: 60 };
+      const { conn } = await renderWithSessions(<AgentsPanel />, { role, sessions: [hostAgent], recording });
+      const attach = await nextRequest(conn, 'session.attach');
+      expect(attach.payload).toEqual({ sessionId: 'sess_host' });
+      await act(async () => {
+        snapshot(conn, hostAgent, '$ ', 2);
+      });
+      const term = recording.viewers[0]!.term;
+      expect(term.options.disableStdin).toBe(true);
+      await act(async () => {
+        term.input('rm -rf /\r', true);
+        term.paste('echo pasted');
+      });
+      expect(conn.notificationsOf('exec.input')).toEqual([]);
+      expect(conn.notificationsOf('exec.resize')).toEqual([]);
+      // A compact badge on the session's line; the full hint in the details (WEB-02: it cost the watcher 3 rows).
+      expect(within(screen.getByRole('tabpanel')).getByText('只能觀看')).toBeTruthy();
+      fireEvent.click(within(screen.getByRole('tabpanel')).getByRole('button', { name: '詳細資訊' }));
+      const hint = screen.getByText(/這是 Ian 開的 session，你只能觀看/);
+      if (role === 'editor') expect(hint.textContent).toContain('由主人或「可使用 agent」的成員決定是否採用');
+      else expect(hint.textContent).not.toContain('建議');
+      expect(within(screen.getByRole('tabpanel')).queryByRole('button', { name: '結束 session' })).toBeNull();
+    });
+  }
 
   it("an ended session's terminal is read-only for its owner too", async () => {
     const ended = { ...hostAgent, status: 'exited' as const, exitCode: 0 };
@@ -344,7 +382,7 @@ describe('agents panel: input and size only from the owner', () => {
 
 describe('agents panel: file paths in the output open the file (SPEC R7)', () => {
   it("links only paths that exist in the session's own root, and opens them at the line; paths outside the tree are never looked up", async () => {
-    const worktreeAgent = makeSession({ id: 'sess_wt', ownerUserId: 'dev:bob', ownerName: 'Bob', sandboxed: true, root: worktreeRoot('wt_1') });
+    const worktreeAgent = makeSession({ id: 'sess_wt', ownerUserId: 'dev:bob', ownerName: 'Bob', root: worktreeRoot('wt_1') });
     const { conn, recording, session } = await renderWithSessions(<AgentsPanel />, { role: 'editor', sessions: [worktreeAgent] });
     const stats: string[] = [];
     conn.handle('file.stat', (ref) => {
@@ -433,28 +471,30 @@ describe("agents panel: the owner's viewport drives the PTY size (policy `owner`
     });
   });
 
-  it('a watcher never resizes the PTY, whatever the size of its panel', async () => {
-    await withResizeObserver(async () => {
-      const recording = recordingViewerFactory();
-      recording.proposed = { cols: 60, rows: 20 };
-      const { conn } = await renderWithSessions(<AgentsPanel />, { role: 'runner', sessions: [hostAgent], recording });
-      await nextRequest(conn, 'session.attach');
-      await act(async () => {
-        snapshot(conn, hostAgent, '$ ', 2);
+  for (const role of ['agent', 'editor'] as const) {
+    it(`${role === 'agent' ? 'a 可使用 agent member (who may type)' : 'a watcher'} never resizes someone else's PTY, whatever the size of its panel`, async () => {
+      await withResizeObserver(async () => {
+        const recording = recordingViewerFactory();
+        recording.proposed = { cols: 60, rows: 20 };
+        const { conn } = await renderWithSessions(<AgentsPanel />, { role, sessions: [hostAgent], recording });
+        await nextRequest(conn, 'session.attach');
+        await act(async () => {
+          snapshot(conn, hostAgent, '$ ', 2);
+        });
+        await fireResize();
+        expect(conn.notificationsOf('exec.resize')).toEqual([]);
+        const term = recording.viewers[0]!.term;
+        expect([term.cols, term.rows]).toEqual([120, 40]);
+        // It may draw the PTY-sized terminal smaller instead (never reflowed), and it is told why the panel scrolls.
+        expect(screen.getByRole('button', { name: '縮放以符合寬度' })).toBeTruthy();
+        expect(screen.getByTestId('terminal-size-hint').textContent).toContain('實際大小 120 × 40');
+        fireEvent.click(screen.getByRole('button', { name: '縮放以符合寬度' }));
+        expect(screen.queryByTestId('terminal-size-hint')).toBeNull();
+        expect(screen.getByRole('button', { name: '以原始大小顯示' }).getAttribute('aria-pressed')).toBe('true');
+        expect(conn.notificationsOf('exec.resize')).toEqual([]);
       });
-      await fireResize();
-      expect(conn.notificationsOf('exec.resize')).toEqual([]);
-      const term = recording.viewers[0]!.term;
-      expect([term.cols, term.rows]).toEqual([120, 40]);
-      // It may draw the PTY-sized terminal smaller instead (never reflowed), and it is told why the panel scrolls.
-      expect(screen.getByRole('button', { name: '縮放以符合寬度' })).toBeTruthy();
-      expect(screen.getByTestId('terminal-size-hint').textContent).toContain('實際大小 120 × 40');
-      fireEvent.click(screen.getByRole('button', { name: '縮放以符合寬度' }));
-      expect(screen.queryByTestId('terminal-size-hint')).toBeNull();
-      expect(screen.getByRole('button', { name: '以原始大小顯示' }).getAttribute('aria-pressed')).toBe('true');
-      expect(conn.notificationsOf('exec.resize')).toEqual([]);
     });
-  });
+  }
 
   it('LEAD-01: the owner of a shell in a narrow panel gets the columns the panel shows (not 80 clipped at its edge), and every later size', async () => {
     await withResizeObserver(async () => {
@@ -563,18 +603,46 @@ describe("agents panel: the owner's viewport drives the PTY size (policy `owner`
 });
 
 describe('agents panel: ending sessions', () => {
-  it('the owner may end their own session; the host may terminate anyone’s; others neither', async () => {
-    const runnerAgent = makeSession({ id: 'sess_amy', ownerUserId: 'dev:amy', ownerName: 'Amy', sandboxed: true, createdAt: 5 });
-    const asRunner = await renderWithSessions(<AgentsPanel />, { role: 'runner', sessions: [runnerAgent, hostAgent] });
+  it('the person who opened a session may end it; the host may terminate anyone’s; others neither', async () => {
+    const amyAgent = makeSession({ id: 'sess_amy', ownerUserId: 'dev:amy', ownerName: 'Amy', createdAt: 5 });
+    const asAgent = await renderWithSessions(<AgentsPanel />, { role: 'agent', sessions: [amyAgent, hostAgent] });
     const tabs = screen.getAllByRole('tab');
     fireEvent.click(tabs.find((tab) => tab.textContent?.includes('Amy'))!);
     expect(within(screen.getByRole('tabpanel')).getByRole('button', { name: '結束 session' })).toBeTruthy();
     fireEvent.click(tabs.find((tab) => tab.textContent?.includes('Ian'))!);
     expect(within(screen.getByRole('tabpanel')).queryByRole('button', { name: /結束 session|強制終止/ })).toBeNull();
-    asRunner.unmount();
+    asAgent.unmount();
 
-    await renderWithSessions(<AgentsPanel />, { role: 'host', sessions: [runnerAgent] });
+    await renderWithSessions(<AgentsPanel />, { role: 'host', sessions: [amyAgent] });
     fireEvent.click(within(screen.getByRole('tabpanel')).getByRole('button', { name: '強制終止' }));
     expect(screen.getByRole('alertdialog', { name: '強制終止 session' })).toBeTruthy();
+  });
+});
+
+describe("agents panel: a logged-out agent (every session uses the host's Claude login)", () => {
+  const loggedOut = { ...hostAgent, login: 'logged-out' as const };
+
+  it('the host is told to /login in the terminal, and may re-check (session.loginStatus)', async () => {
+    const { conn } = await renderWithSessions(<AgentsPanel />, { role: 'host', sessions: [loggedOut] });
+    const panel = within(screen.getByRole('tabpanel'));
+    expect(panel.getByText('你的 Claude Code 還沒有登入。點一下終端機，輸入 /login，依照畫面上的指示登入。')).toBeTruthy();
+    fireEvent.click(panel.getByRole('button', { name: '重新檢查登入狀態' }));
+    const check = await nextRequest(conn, 'session.loginStatus');
+    expect(check.payload).toEqual({ sessionId: 'sess_host' });
+    await act(async () => {
+      conn.respond('session.loginStatus', { login: 'logged-in' });
+    });
+    expect(panel.queryByText(/還沒有登入。點一下終端機/)).toBeNull();
+  });
+
+  it('a 可使用 agent member may re-check too; an editor only reads that the host must log in', async () => {
+    const asAgent = await renderWithSessions(<AgentsPanel />, { role: 'agent', sessions: [loggedOut] });
+    expect(screen.getByText(/主人的 Claude Code 還沒有登入/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '重新檢查登入狀態' })).toBeTruthy();
+    asAgent.unmount();
+    await renderWithSessions(<AgentsPanel />, { role: 'editor', sessions: [loggedOut] });
+    expect(screen.getByText(/主人的 Claude Code 還沒有登入/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '重新檢查登入狀態' })).toBeNull();
+    expect(screen.queryByText(/API key|訂閱/)).toBeNull();
   });
 });

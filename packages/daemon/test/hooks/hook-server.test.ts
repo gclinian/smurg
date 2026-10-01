@@ -39,9 +39,9 @@ function capture<K extends keyof DaemonEvents>(d: HookDaemon, name: K): DaemonEv
   return events;
 }
 
-/** A runner (guest) member: admitted through a real invite so the agent's owner is active. */
-async function withGuest(d: HookDaemon): Promise<void> {
-  await d.t.connect({ userId: IAN.userId, displayName: IAN.name, role: 'runner' });
+/** A 「可使用 agent」 member: admitted through a real invite so the agent's owner is active. */
+async function withAgentMember(d: HookDaemon): Promise<void> {
+  await d.t.connect({ userId: IAN.userId, displayName: IAN.name, role: 'agent' });
 }
 
 describe('hook socket', () => {
@@ -106,7 +106,7 @@ describe('PreToolUse → agent lock', () => {
 
   it('R8: 兩個 agent 同時修改同一個檔案時，後到者被擋下 — the hook socket decision in isolation', async () => {
     const d = await setup();
-    await withGuest(d);
+    await withAgentMember(d);
     const first = registerAgent(d.hooks, HOST);
     const second = registerAgent(d.hooks, IAN);
     const path = join(d.t.root, 'src', 'a.ts');
@@ -266,13 +266,13 @@ describe('forged events (everything on the socket is a claim)', () => {
     expect(d.fakes.locks.list().map((l) => l.file)).toEqual([{ root: { kind: 'worktree', worktreeId: 'wt_one' }, path: 'a.txt' }]);
   });
 
-  it("host-only paths (.claude/**) are denied for a guest's agent and allowed for the host's agent", async () => {
+  it("host-only paths (.claude/**) are denied for a member's agent (it is the member who opened it) and allowed for the host's agent", async () => {
     const d = await setup();
-    await withGuest(d);
-    const guest = registerAgent(d.hooks, IAN);
+    await withAgentMember(d);
+    const ians = registerAgent(d.hooks, IAN);
     const host = registerAgent(d.hooks, HOST);
     const settings = join(d.t.root, '.claude', 'settings.json');
-    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, guest.token, pre(settings)))).toMatch(/只有主人可以修改這個路徑/);
+    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, ians.token, pre(settings)))).toMatch(/只有主人可以修改這個路徑/);
     expect((await hookRequest(d.hooks.socketPath, host.token, pre(settings)))['hookOutput']).toBeNull();
     const audit = await d.t.ctx.audit.query({ limit: 20 });
     expect(audit.find((e) => e.action === 'path.denied')?.detail).toMatchObject({ reason: 'host-only' });
@@ -316,7 +316,7 @@ describe('forged events (everything on the socket is a claim)', () => {
 
   it("the owner is no longer a member (kicked): the session's PreToolUse is denied", async () => {
     const d = await setup();
-    await withGuest(d);
+    await withAgentMember(d);
     const s = registerAgent(d.hooks, IAN);
     const hostPrincipal = d.t.ctx.members.principalOf(HOST.userId);
     if (!hostPrincipal) throw new Error('no host principal');
@@ -396,7 +396,7 @@ describe('Bash activity events (D-13)', () => {
 
   it('a Bash Pre / Post opens and closes the TOKEN\'s session window; never a decision, even when the session is unknown or over budget', async () => {
     const d = await setup();
-    await withGuest(d);
+    await withAgentMember(d);
     const ian = registerAgent(d.hooks, IAN);
     const other = registerAgent(d.hooks, IAN);
     const w = bashWindows(d);
@@ -418,7 +418,7 @@ describe('Bash activity events (D-13)', () => {
 
   it('Stop, UserPromptSubmit, SessionEnd and the end of the session close every open window of that session only', async () => {
     const d = await setup();
-    await withGuest(d);
+    await withAgentMember(d);
     const ian = registerAgent(d.hooks, IAN);
     const other = registerAgent(d.hooks, IAN);
     const w = bashWindows(d);
@@ -436,7 +436,7 @@ describe('Bash activity events (D-13)', () => {
 
   it('a flood of forged Bash events is bounded: at most 8 open windows per session, and the per-session budget (burst 60) — the rest are ignored', async () => {
     const d = await setup();
-    await withGuest(d);
+    await withAgentMember(d);
     const ian = registerAgent(d.hooks, IAN);
     const w = bashWindows(d);
     for (let i = 0; i < 20; i++) await hookRequest(d.hooks.socketPath, ian.token, bashEvent('PreToolUse', `open_${i}`));
@@ -456,7 +456,7 @@ describe('Bash activity events (D-13)', () => {
     const off = new HookServerImpl({ ...d.t.ctx, config: { ...d.t.ctx.config, runPaths: { ...d.t.ctx.config.runPaths, hook: `${d.t.ctx.config.runPaths.hook}2` }, activity: { attributeBashEdits: false } } });
     await off.start();
     try {
-      await withGuest(d);
+      await withAgentMember(d);
       const ian = registerAgent(off, IAN);
       const w = bashWindows(d);
       expect((await hookRequest(off.socketPath, ian.token, bashEvent('PreToolUse', 'tu_off')))['hookOutput']).toBeNull();
@@ -464,16 +464,5 @@ describe('Bash activity events (D-13)', () => {
     } finally {
       await off.stop();
     }
-  });
-
-  it('the hook self-test probe is answered for the token\'s own session only (SEC-D-05 follow-up)', async () => {
-    const d = await setup();
-    await withGuest(d);
-    const ian = registerAgent(d.hooks, IAN);
-    const nonce = 'ab'.repeat(16);
-    expect((await hookRequest(d.hooks.socketPath, ian.token, { hook_event_name: 'SmurgProbe', smurg_probe: nonce }))['hookOutput']).toEqual({ smurgProbe: { nonce, sessionId: ian.sessionId } });
-    // No nonce: no answer; an unknown token: no answer (the prober sees nothing and refuses the session).
-    expect((await hookRequest(d.hooks.socketPath, ian.token, { hook_event_name: 'SmurgProbe' }))['hookOutput']).toBeNull();
-    expect((await hookRequest(d.hooks.socketPath, 'y'.repeat(43), { hook_event_name: 'SmurgProbe', smurg_probe: nonce }).catch(() => ({ hookOutput: null })))['hookOutput']).toBeNull();
   });
 });

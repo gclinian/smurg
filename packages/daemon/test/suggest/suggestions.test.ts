@@ -32,12 +32,12 @@ afterEach(async () => {
   t = null;
 }, 60_000);
 
-/** Host, Amy (runner, owns ses_amy) and Bob (editor). */
+/** Host, Amy (可使用 agent, owns ses_amy) and Bob (editor). */
 async function start(limits: Parameters<typeof createSuggestModule>[0] = {}): Promise<Stack> {
   const fake = new RecordingSessions();
   t = await createTestDaemon({ modules: [recordingSessionsModule(fake), createSuggestModule(limits)] });
   const host = await t.connectHost();
-  const amy = await t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'runner' });
+  const amy = await t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'agent' });
   const bob = await t.connect({ userId: 'dev:bob', displayName: 'Bob', role: 'editor' });
   fake.add('ses_amy', 'dev:amy', 'Amy');
   fake.add('ses_host', TEST_HOST_USER, TEST_HOST_NAME);
@@ -79,10 +79,10 @@ describe('who may suggest', { timeout: 60_000 }, () => {
     const denied = (await auditOf(s, 'authz.denied')).filter((entry) => entry.target === 'suggest.create');
     expect(denied[0]).toMatchObject({ actor: { userId: 'dev:amy' }, detail: { reason: 'target-session-not-own' } });
     expect(await settleError(s.host.conn.request('suggest.create', { sessionId: 'ses_host', text: 'mine' }))).toMatchObject({ code: 'forbidden', reason: 'target-session-not-own' });
-    // Someone else's session is fine, for editors, runners and the host alike.
+    // Someone else's session is fine, for editors, 可使用 agent members and the host alike.
     await s.bob.conn.request('suggest.create', { sessionId: 'ses_amy', text: 'from an editor' });
     await s.host.conn.request('suggest.create', { sessionId: 'ses_amy', text: 'from the host' });
-    await s.amy.conn.request('suggest.create', { sessionId: 'ses_host', text: 'from a runner' });
+    await s.amy.conn.request('suggest.create', { sessionId: 'ses_host', text: 'from an agent member' });
     expect(s.service.pending()).toHaveLength(3);
   });
 
@@ -95,14 +95,16 @@ describe('who may suggest', { timeout: 60_000 }, () => {
 });
 
 describe('R6 flow', { timeout: 60_000 }, () => {
-  it('R6.1 擁有者確認之前，建議內容完全不會進入 agent session — nothing reaches the paste function before the owner accepts', async () => {
+  it('R6.1 擁有者確認之前，建議內容完全不會進入 agent session — nothing reaches the paste function before a member who may drive the session accepts', async () => {
     const s = await start();
+    const vera = await s.t.connect({ userId: 'dev:vera', role: 'viewer' });
     const marker = `MARK-${Math.random().toString(36).slice(2)}`;
     const { suggestion } = await s.bob.conn.request('suggest.create', { sessionId: 'ses_amy', text: `請看一下 ${marker}` });
     expect(suggestion).toMatchObject({ status: 'pending', author: { userId: 'dev:bob', displayName: 'Bob' } });
     await s.bob.conn.request('suggest.edit', { suggestionId: suggestion.id, text: `請再看一下 ${marker}` });
-    // Nobody but the owner can push it through: the author, the host, a third member.
-    for (const who of [s.bob, s.host]) {
+    // Nobody who may not drive sessions (§11 D-15: the host and 可使用 agent may) can push it through: the author (an
+    // editor), a viewer.
+    for (const who of [s.bob, vera]) {
       expect(await settleError(who.conn.request('suggest.accept', { suggestionId: suggestion.id }))).toMatchObject({ code: 'forbidden' });
       expect(await settleError(who.conn.request('suggest.accept', { suggestionId: suggestion.id, text: 'hijacked' }))).toMatchObject({ code: 'forbidden' });
     }
@@ -196,48 +198,59 @@ describe('R6 flow', { timeout: 60_000 }, () => {
     for (const entry of [...created, accepted, rejected, edited, withdrawn]) expect(typeof entry?.at).toBe('number');
   });
 
-  it('suggest.updated reaches the session owner, the author and the host, and nobody else', async () => {
+  it('suggest.updated reaches the author and every member who may decide it (the host, 可使用 agent), and nobody else', async () => {
     const s = await start();
     const carl = await s.t.connect({ userId: 'dev:carl', role: 'editor' });
+    const dora = await s.t.connect({ userId: 'dev:dora', role: 'agent' });
     const seen = new Map<string, Suggestion[]>();
-    for (const [name, client] of [['host', s.host], ['amy', s.amy], ['bob', s.bob], ['carl', carl]] as const) {
+    for (const [name, client] of [['host', s.host], ['amy', s.amy], ['bob', s.bob], ['carl', carl], ['dora', dora]] as const) {
       seen.set(name, []);
       client.conn.on('suggest.updated', (payload) => seen.get(name)?.push(payload.suggestion));
     }
     const { suggestion } = await s.bob.conn.request('suggest.create', { sessionId: 'ses_amy', text: 'hello' });
     await s.amy.conn.request('suggest.reject', { suggestionId: suggestion.id });
-    await waitFor(() => (seen.get('bob')?.length ?? 0) >= 2 && (seen.get('amy')?.length ?? 0) >= 2 && (seen.get('host')?.length ?? 0) >= 2, { what: 'suggest.updated' });
+    await waitFor(() => ['bob', 'amy', 'host', 'dora'].every((name) => (seen.get(name)?.length ?? 0) >= 2), { what: 'suggest.updated' });
     await settle(20);
     expect(seen.get('amy')?.map((item) => item.status)).toEqual(['pending', 'rejected']);
+    // Dora did not open the session: she may decide it all the same (session.drive), so she is told.
+    expect(seen.get('dora')?.map((item) => item.status)).toEqual(['pending', 'rejected']);
     expect(seen.get('carl')).toEqual([]);
     // suggest.list follows the same rule.
     expect((await carl.conn.request('suggest.list', {})).suggestions).toEqual([]);
+    expect((await dora.conn.request('suggest.list', {})).suggestions.map((item) => item.id)).toEqual([suggestion.id]);
     expect((await s.bob.conn.request('suggest.list', { sessionId: 'ses_amy' })).suggestions.map((item) => item.id)).toEqual([suggestion.id]);
     expect((await s.amy.conn.request('suggest.list', {})).suggestions.map((item) => item.id)).toEqual([suggestion.id]);
     expect((await s.host.conn.request('suggest.list', {})).suggestions.map((item) => item.id)).toEqual([suggestion.id]);
   });
 
-  it('only the owner accepts: the author, the host and any other member are refused (audited), and nothing is pasted', async () => {
+  it('who accepts (§11 D-15): any member who may drive sessions (the host, 可使用 agent), on ANY session; the author (an editor) and a viewer are refused (audited), and nothing is pasted', async () => {
     const s = await start();
-    const carl = await s.t.connect({ userId: 'dev:carl', role: 'runner' });
+    const carl = await s.t.connect({ userId: 'dev:carl', role: 'agent' });
+    const vera = await s.t.connect({ userId: 'dev:vera', role: 'viewer' });
     const { suggestion } = await s.bob.conn.request('suggest.create', { sessionId: 'ses_amy', text: 'accept me' });
-    for (const who of [s.bob, s.host, carl]) {
+    for (const who of [s.bob, vera]) {
       expect(await settleError(who.conn.request('suggest.accept', { suggestionId: suggestion.id }))).toMatchObject({ code: 'forbidden' });
       expect(await settleError(who.conn.request('suggest.accept', { suggestionId: suggestion.id, text: 'hijacked' }))).toMatchObject({ code: 'forbidden' });
+      expect(await settleError(who.conn.request('suggest.reject', { suggestionId: suggestion.id }))).toMatchObject({ code: 'forbidden' });
     }
     // Even a caller that skips the router (the service checks again).
-    const hostPrincipal = s.t.ctx.members.principalOf(TEST_HOST_USER);
-    if (!hostPrincipal) throw new Error('host');
-    expect(await settleError(s.service.accept({ suggestionId: suggestion.id }, hostPrincipal))).toMatchObject({ code: 'forbidden', reason: 'not-owner:session' });
+    const bobPrincipal = s.t.ctx.members.principalOf('dev:bob');
+    if (!bobPrincipal) throw new Error('bob');
+    expect(await settleError(s.service.accept({ suggestionId: suggestion.id }, bobPrincipal))).toMatchObject({ code: 'forbidden', reason: 'capability' });
     expect(s.fake.pastes).toEqual([]);
-    // The six refusals that came through the router are audited (the direct call above had no request to audit).
-    const denied = (await auditOf(s, 'authz.denied')).filter((entry) => entry.target === 'suggest.accept');
-    expect(denied.map((entry) => (entry.actor.kind === 'user' ? entry.actor.userId : '')).sort()).toEqual(['dev:bob', 'dev:bob', 'dev:carl', 'dev:carl', 'dev:host', 'dev:host']);
-    expect((await s.amy.conn.request('suggest.accept', { suggestionId: suggestion.id })).suggestion.status).toBe('accepted');
-    expect(s.fake.pastes).toEqual([{ sessionId: 'ses_amy', text: 'accept me', by: 'dev:amy' }]);
+    // The refusals that came through the router are audited (the direct call above had no request to audit).
+    const denied = (await auditOf(s, 'authz.denied')).filter((entry) => entry.target === 'suggest.accept' || entry.target === 'suggest.reject');
+    expect(denied.map((entry) => (entry.actor.kind === 'user' ? entry.actor.userId : '')).sort()).toEqual(['dev:bob', 'dev:bob', 'dev:bob', 'dev:vera', 'dev:vera', 'dev:vera']);
+    // Carl did not open Amy's session, and still decides it: he may type into it anyway.
+    expect((await carl.conn.request('suggest.accept', { suggestionId: suggestion.id })).suggestion).toMatchObject({ status: 'accepted' });
+    expect(s.fake.pastes).toEqual([{ sessionId: 'ses_amy', text: 'accept me', by: 'dev:carl' }]);
+    expect((await auditOf(s, 'suggest.accept')).find((entry) => entry.target === suggestion.id && entry.outcome === 'ok')).toMatchObject({ actor: { userId: 'dev:carl' } });
+    // The host decides suggestions on a member's session too.
+    const { suggestion: second } = await s.bob.conn.request('suggest.create', { sessionId: 'ses_amy', text: 'host decides' });
+    expect((await s.host.conn.request('suggest.reject', { suggestionId: second.id, reason: '主人拒絕' })).suggestion).toMatchObject({ status: 'rejected', rejectReason: '主人拒絕' });
   });
 
-  it('only the author edits or withdraws, only while pending; only the owner rejects', async () => {
+  it('only the author edits or withdraws, only while pending; a member who may drive sessions rejects', async () => {
     const s = await start();
     const { suggestion } = await s.bob.conn.request('suggest.create', { sessionId: 'ses_amy', text: 'v1' });
     expect(await settleError(s.amy.conn.request('suggest.edit', { suggestionId: suggestion.id, text: 'owner rewrites' }))).toMatchObject({ code: 'forbidden' });
@@ -352,8 +365,8 @@ describe('the invariant, in the code itself', () => {
     const service = code(await readFile(join(srcDir, 'suggest', 'suggestion-service.ts'), 'utf8'));
     const acceptBody = service.slice(service.indexOf('  async accept('), service.indexOf('  async reject('));
     expect(acceptBody).toContain('.pasteSuggestion(');
-    expect(acceptBody.indexOf('this.requireSessionOwner(')).toBeGreaterThan(-1);
-    expect(acceptBody.indexOf('this.requireSessionOwner(')).toBeLessThan(acceptBody.indexOf('.pasteSuggestion('));
+    expect(acceptBody.indexOf('this.requireDriver(')).toBeGreaterThan(-1);
+    expect(acceptBody.indexOf('this.requireDriver(')).toBeLessThan(acceptBody.indexOf('.pasteSuggestion('));
     expect(acceptBody.indexOf("stored.status !== 'pending'")).toBeLessThan(acceptBody.indexOf('.pasteSuggestion('));
     // No switch, flag or setting that would accept on the owner's behalf.
     for (const file of await readdir(join(srcDir, 'suggest'))) {

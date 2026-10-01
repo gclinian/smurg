@@ -181,18 +181,17 @@ describe('R2 踢人', () => {
   });
 
   it('被踢的使用者…他的 session 程序被終止', async () => {
-    // The guest's session runs in the main workspace: open it to guests explicitly, so the test is the same on a Linux
-    // host, where it is off by default (ARCHITECTURE §11 D-14).
-    const stack = await startStack({ relay, sessions: { guestMainWorkspace: true } });
+    const stack = await startStack({ relay });
     try {
-      // A runner starts a terminal session with a background process, the host kicks them, and within 3 s both the
-      // session and the PROCESS are gone (not only the daemon's belief in session.list: ARCHITECTURE §11 D-3).
+      // An 「可使用 agent」 member starts a terminal session (it runs as the host's OS user, §11 D-15) with a background
+      // process, the host kicks them, and within 3 s both the session and the PROCESS are gone (not only the daemon's
+      // belief in session.list: ARCHITECTURE §11 D-3).
       // A composition without the real sessions module fails here instead of skipping (review SPEC-11).
       expect(isStubService(stack.daemon.ctx.services.sessions), 'the default composition provides SessionManager').toBe(false);
-      const carol = await stack.join({ name: 'carol', role: 'runner' });
+      const carol = await stack.join({ name: 'carol', role: 'agent' });
       const { session } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
       await waitUntil(async () => (await carol.conn.request('session.list', {})).sessions.some((s) => s.id === session.id && s.status === 'running'), 10_000, 'the session to run');
-      // A unique argument identifies the child without a pid (a sandbox's PID namespace would print another pid).
+      // A unique argument identifies the child without a pid.
       const marker = `sleep ${600_000 + Math.floor(Math.random() * 99_999)}`;
       expect(carol.conn.notify('exec.input', { sessionId: session.id, data: new TextEncoder().encode(`${marker} &\r`) })).toBe(true);
       await waitUntil(async () => (await processesRunning(marker)) > 0, 10_000, 'the background process to start');
@@ -201,10 +200,10 @@ describe('R2 踢人', () => {
       await waitUntil(
         async () => (await stack.hostClient.conn.request('session.list', {})).sessions.every((s) => s.id !== session.id || s.status === 'exited'),
         KICK_DEADLINE_MS,
-        'the kicked runner\'s session to exit',
+        'the kicked member\'s session to exit',
       );
       await waitUntil(async () => (await processesRunning(marker)) === 0, Math.max(0, KICK_DEADLINE_MS - (Date.now() - t0)), 'the session\'s process to be gone');
-      console.info(`[R2] kick: runner's session and its process gone after ${Date.now() - t0} ms`);
+      console.info(`[R2] kick: the agent member's session and its process gone after ${Date.now() - t0} ms`);
     } finally {
       await stack.stop();
     }
@@ -224,7 +223,7 @@ describe('R2 偽造的客戶端請求', () => {
       // Other forged requests: escalating one's own role, admin actions from a non-host.
       await expect(bob.conn.request('admin.member.setRole', { userId: bob.userId, role: 'editor' })).rejects.toMatchObject({ code: 'forbidden' });
       await expect(amy.conn.request('admin.member.kick', { userId: stack.host.userId })).rejects.toMatchObject({ code: 'forbidden' });
-      await expect(amy.conn.request('admin.invite.create', { role: 'runner' })).rejects.toMatchObject({ code: 'forbidden' });
+      await expect(amy.conn.request('admin.invite.create', { role: 'agent' })).rejects.toMatchObject({ code: 'forbidden' });
 
       // A client that does not use the SDK at all: a viewer's device speaking the raw protocol.
       const eve = await stack.newDevice('eve');

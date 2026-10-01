@@ -376,6 +376,25 @@ describe('the two home pages', () => {
     expect(text).toMatch(path === 'index.html' ? /can’t run (?:your|their) own/ : /無法自己架設/);
   });
 
+  it.each(Object.values(HOME_PAGES))('%s: claims no sandbox for teammates, and says what the 「可使用 agent」 role means and that it runs as the host (owner decision 2026-10-01)', (path) => {
+    const text = page(path).elements.find((el) => el.tag === 'body')?.text() ?? '';
+    const titles = page(path).byTag('title').map((t) => t.text()).join('\n');
+    for (const all of [text, titles]) {
+      expect(all).not.toMatch(/Seatbelt|bubblewrap|AppArmor|socat|ripgrep|allow-listed|白名單|guest sandbox|客人沙盒|in a sandbox|在沙盒裡執行|--allow-main-workspace-guests|\brunners?\b|可執行 agent|API key/i);
+    }
+    if (path === HOME_PAGES.en) {
+      expect(text).toContain('“can use agents”');
+      expect(text).toMatch(/runs? (?:on the host’s computer )?as the host/);
+      expect(text).toContain('run any command on your computer, read your home folder and use your Claude account');
+      expect(text).toContain('fully trust');
+    } else {
+      expect(text).toContain('「可使用 agent」');
+      expect(text).toContain('以主人的身分');
+      expect(text).toContain('執行任何指令、讀你的家目錄、用你的 Claude 帳號');
+      expect(text).toContain('完全信任');
+    }
+  });
+
   it.each(Object.values(HOME_PAGES))('%s: the workspace picture is labelled, in Traditional Chinese inside, with a valid workspace id', (path) => {
     const p = page(path);
     const mock = p.elements.find((el) => el.attr('class') === 'mock');
@@ -424,6 +443,19 @@ describe('the generated pages', () => {
     const pre = p.elements.find((el) => el.tag === 'pre' && el.attr('class') === 'license-text');
     expect(rawText(pre as El)).toBe(readFileSync(join(REPO_ROOT, 'LICENSE'), 'utf8').replace(/\s+$/, ''));
     expect(first(p, 'html')?.attr('lang')).toBe('en');
+  });
+
+  it('the guides explain the 「可使用 agent」 role and its risk, and offer no guest sandbox, guest Claude login or removed option', () => {
+    const hosting = siteText('docs/hosting/index.html');
+    const joining = siteText('docs/joining/index.html');
+    for (const [path, html] of [['docs/hosting/index.html', hosting], ['docs/joining/index.html', joining]] as const) {
+      expect(html, path).not.toMatch(/客人沙盒|bubblewrap|AppArmor|Seatbelt|--allow-main-workspace-guests|--no-main-workspace-guests|--no-guest-subscription-login|可執行 agent|runner|用 Claude 訂閱登入|匯入個人設定/);
+    }
+    expect(hosting).toContain('id="5-可使用-agent角色與-agent-的-shell-指令"');
+    for (const text of ['在你的電腦上執行任何指令', '讀取你的家目錄', '使用你的 Claude 帳號', '只把這個角色給你完全信任的人', '用量和費用都算在你身上', '--role agent']) {
+      expect(hosting, text).toContain(text);
+    }
+    expect(joining).toContain('以主人的身分');
   });
 
   it('the notices are the file the build was given, byte for byte (here the tests\' fixture)', () => {

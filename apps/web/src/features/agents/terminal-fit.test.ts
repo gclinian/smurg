@@ -42,8 +42,8 @@ describe('planOwnerSize: the PTY follows the owner panel, columns and rows', () 
     expect(planOwnerSize(panel(300, 200), OWNER_SIZE_FLOOR.agent)).toMatchObject({ cols: 80, rows: 24, narrow: true, short: true });
   });
 
-  it('the floors: Claude Code 80 × 24 (agent), 80 × 12 (login), the daemon clamp 20 × 5 (terminal); the ceiling 500 × 200', () => {
-    expect(OWNER_SIZE_FLOOR).toEqual({ agent: { cols: 80, rows: 24 }, login: { cols: 80, rows: 12 }, terminal: { cols: 20, rows: 5 } });
+  it('the floors: Claude Code 80 × 24 (agent), the daemon clamp 20 × 5 (terminal); the ceiling 500 × 200', () => {
+    expect(OWNER_SIZE_FLOOR).toEqual({ agent: { cols: 80, rows: 24 }, terminal: { cols: 20, rows: 5 } });
     expect(PTY_SIZE_MIN).toEqual({ cols: 20, rows: 5 });
     expect(planOwnerSize(panel(60, 40), OWNER_SIZE_FLOOR.terminal)).toMatchObject({ cols: 20, rows: 5, narrow: true, short: true });
     expect(planOwnerSize(panel(9000, 9000), OWNER_SIZE_FLOOR.terminal)).toMatchObject({ cols: 500, rows: 200 });

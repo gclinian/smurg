@@ -128,8 +128,9 @@ export function isRelPathWithin(path: string, ancestor: string): boolean {
 // Host-only paths (ARCHITECTURE §5.2) and hidden temp files
 // ---------------------------------------------------------------------------------------------------------------
 
-// Directories whose contents the host's unsandboxed tools load automatically. Matched at ANY depth and after
-// foldPathName (APFS is case-insensitive by default: `.Claude/settings.json` is `.claude/settings.json`).
+// Directories whose contents the host's tools load automatically (and every agent session's, all of which run as the
+// host: ARCHITECTURE §11 D-15). Matched at ANY depth and after foldPathName (APFS is case-insensitive by default:
+// `.Claude/settings.json` is `.claude/settings.json`).
 const HOST_ONLY_DIRS: ReadonlySet<string> = new Set(['.claude', '.git', '.smurg', '.vscode', '.idea']);
 const HOST_ONLY_FILES: ReadonlySet<string> = new Set(['.mcp.json', '.envrc']);
 
@@ -151,7 +152,7 @@ export function foldPathName(name: string): string {
  * Whether only the host may write `path` through `file.*`, `doc.*` or uploads (ARCHITECTURE §5.2): anything inside
  * `.claude/`, `.git/`, `.smurg/`, `.vscode/`, `.idea/`, and any `.mcp.json` or `.envrc`. This matches more than the
  * architecture's root-anchored list on purpose (nested `.claude/` directories, every spelling a case-insensitive file
- * system folds together, see foldPathName): a false "host-only" costs a guest one refused write, a false "not
+ * system folds together, see foldPathName): a false "host-only" costs a member one refused write, a false "not
  * host-only" can run code on the host. The daemon checks the resolved on-disk path as well; this lexical test is not
  * a substitute for that.
  */
@@ -164,8 +165,9 @@ export function isHostOnlyPath(path: string): boolean {
 
 /**
  * The host's personal Claude Code files inside the share (any depth): `settings.local.json` can hold `env` secrets and
- * hook commands, `CLAUDE.local.md` is the host's private memory. Guest agents' sandboxes read-deny them; the daemon's
- * PathGuard refuses them to every non-host principal (isHostPrivatePath). One list for both (review SEC-D-03).
+ * hook commands, `CLAUDE.local.md` is the host's private memory. The daemon's PathGuard refuses them to every non-host
+ * member through smurg (file.*, doc.*, downloads, uploads: isHostPrivatePath; review SEC-D-03). Agent sessions run as
+ * the host (ARCHITECTURE §11 D-15) and can read them like any other file of the host's.
  */
 export const HOST_PERSONAL_FILES: readonly string[] = Object.freeze(['.claude/settings.local.json', 'CLAUDE.local.md']);
 /** Directories whose contents are the host's private data (any depth): `.git` (remote URLs, reflogs, extraheader tokens). */
@@ -180,9 +182,9 @@ const HOST_PERSONAL_SUFFIXES: readonly (readonly string[])[] = HOST_PERSONAL_FIL
 /**
  * Whether `path` is the host's private data that no other member may read (or write) through `file.*`, `doc.*`,
  * downloads or uploads: inside any `.git`, any `.envrc`, and the HOST_PERSONAL_FILES at any depth, under every spelling
- * a case-insensitive file system folds onto them (foldPathName). The sandbox hides the same files from guest agents; a
- * guest human must not be able to read what the guest's agent cannot (review SEC-D-03). Lexical only: the daemon also
- * checks the resolved and on-disk spellings.
+ * a case-insensitive file system folds onto them (foldPathName; review SEC-D-03). This binds what members do through
+ * smurg; it is not a boundary for agent or terminal sessions, which run as the host (ARCHITECTURE §11 D-15). Lexical
+ * only: the daemon also checks the resolved and on-disk spellings.
  */
 export function isHostPrivatePath(path: string): boolean {
   const segments = relPathSegments(path).map(foldPathName);

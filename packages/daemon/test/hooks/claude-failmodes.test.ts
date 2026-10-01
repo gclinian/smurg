@@ -18,7 +18,7 @@ import { createServer, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { TEST_HOST_USER } from '../../src/testing/index.ts';
-import { findClaude, isolatedEnv, MOCK_API_KEY, runClaude, startClaudeDaemon, type ClaudeDaemon } from './claude-harness.ts';
+import { findClaude, isolatedEnv, MOCK_API_KEY, runClaude, seedClaudeTrust, startClaudeDaemon, type ClaudeDaemon } from './claude-harness.ts';
 import { registerAgent } from './helpers.ts';
 import { startMockAnthropic, type MockAnthropic, type MockStep } from './mock-anthropic.ts';
 
@@ -41,7 +41,7 @@ describe.skipIf(claude === null)(`the lock hook fails closed and the Bash activi
 
   beforeAll(async () => {
     env = await startClaudeDaemon(FILES);
-    env.daemon.ctx.members.admitMember({ userId: IAN.userId, displayName: IAN.name, role: 'runner', at: Date.now() });
+    env.daemon.ctx.members.admitMember({ userId: IAN.userId, displayName: IAN.name, role: 'agent', at: Date.now() });
   }, 60_000);
 
   afterAll(async () => {
@@ -84,20 +84,20 @@ describe.skipIf(claude === null)(`the lock hook fails closed and the Bash activi
   async function runWith(label: string, socket: string, token?: string): Promise<{ results: Map<string, { isError: boolean; text: string }>; offered: readonly string[]; mock: MockAnthropic }> {
     for (const [rel, content] of Object.entries(FILES)) await writeFile(path(rel), content);
     const marker = path(`bash-ran-${label}.txt`);
-    const session = registerAgent(env.hooks, IAN, { sandboxed: true });
+    const session = registerAgent(env.hooks, IAN);
     const files = await env.hooks.writeSessionFiles(session.sessionId);
     const settings = JSON.parse(await readFile(files.settingsPath, 'utf8')) as { hooks: Record<string, { matcher?: string; hooks: { args?: string[] }[] }[]> };
     // Both hooks are registered: the lock hook for the edit tools, the Bash activity hook for Bash.
     expect(settings.hooks['PreToolUse']?.map((group) => group.matcher)).toEqual(['Edit|Write|MultiEdit|NotebookEdit', 'Bash']);
     expect(settings.hooks['PreToolUse']?.[0]?.hooks[0]?.args?.at(-1)).toBe('hook');
     expect(settings.hooks['PreToolUse']?.[1]?.hooks[0]?.args?.slice(-2)).toEqual(['hook', 'bash-activity']);
-    const guest = await env.guestDir(label);
-    await env.hooks.seedGuestClaudeConfig({ cfgDir: join(guest, 'cfg'), cwd: env.root, apiKey: MOCK_API_KEY });
+    const isolated = await env.isolatedDir(label);
+    await seedClaudeTrust({ cfgDir: join(isolated, 'cfg'), cwd: env.root, apiKey: MOCK_API_KEY });
     const mock = await startMockAnthropic(steps(marker));
     try {
       const result = await runClaude(claude as NonNullable<typeof claude>, {
         cwd: env.root,
-        env: isolatedEnv(guest, mock.url, { ...session.env, SMURG_HOOK_SOCKET: socket, ...(token !== undefined ? { SMURG_SESSION_TOKEN: token } : {}) }),
+        env: isolatedEnv(isolated, mock.url, { ...session.env, SMURG_HOOK_SOCKET: socket, ...(token !== undefined ? { SMURG_SESSION_TOKEN: token } : {}) }),
         args: ['-p', 'run the scripted tools', '--output-format', 'json', '--no-session-persistence', '--permission-mode', 'acceptEdits', '--allowedTools', 'Bash', ...files.claudeArgs],
         timeoutMs: 150_000,
       });
@@ -142,7 +142,7 @@ describe.skipIf(claude === null)(`the lock hook fails closed and the Bash activi
   it(`stopped: the session's daemon was stopped — every edit tool denied, the Bash command runs (${V})`, async () => {
     stopped = await startClaudeDaemon({});
     stopped.daemon.ctx.members.admitMember({ userId: HOST.userId, displayName: HOST.name, role: 'host', at: Date.now() });
-    const orphan = registerAgent(stopped.hooks, IAN, { sandboxed: true });
+    const orphan = registerAgent(stopped.hooks, IAN);
     const socket = orphan.env['SMURG_HOOK_SOCKET'] as string;
     await stopped.daemon.stop();
     console.log(`[claude-failmodes] the stopped daemon's socket path ${existsSync(socket) ? 'still exists' : 'is gone'}`);

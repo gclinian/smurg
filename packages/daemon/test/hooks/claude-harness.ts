@@ -6,7 +6,7 @@
 // config.sessions.selfCommand = node + an entry script that runs `smurg hook` / `smurg mcp` from this package.
 import { execFile, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { access, constants, mkdir, writeFile } from 'node:fs/promises';
+import { access, constants, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -65,8 +65,8 @@ export async function findClaude(): Promise<{ readonly binary: ClaudeBinary | nu
 }
 
 /**
- * An environment built from nothing (the guest-env pattern of claude-hooks.md §4): temporary HOME, CLAUDE_CONFIG_DIR
- * and TMPDIR under `dir`, the mock API with a dummy key, no telemetry, no auto-update, no browser.
+ * An environment built from nothing (the scrub list of claude-hooks.md §4): temporary HOME, CLAUDE_CONFIG_DIR and
+ * TMPDIR under `dir`, the mock API with a dummy key, no telemetry, no auto-update, no browser.
  */
 export function isolatedEnv(dir: string, mockUrl: string, extra: Readonly<Record<string, string>> = {}): Record<string, string> {
   return {
@@ -88,6 +88,40 @@ export function isolatedEnv(dir: string, mockUrl: string, extra: Readonly<Record
     BROWSER: '/usr/bin/true',
     ...extra,
   };
+}
+
+/**
+ * Trusts `cwd` in the isolated `<cfgDir>/.claude.json` (projects[realpath(cwd)].hasTrustDialogAccepted): without it the
+ * trust dialog withholds every hook, and on 2.1.283 its default answer quits. With `apiKey`, also approves its last 20
+ * characters (the "Detected a custom API key" dialog defaults to "No" on 2.1.283). Keeps whatever the file already
+ * holds. The product does not write this file (every session uses the host's own Claude Code config); only these
+ * tests, whose CLAUDE_CONFIG_DIR starts empty, need it. Returns the file's path.
+ */
+export async function seedClaudeTrust(input: { readonly cfgDir: string; readonly cwd: string; readonly apiKey?: string }): Promise<string> {
+  const path = join(input.cfgDir, '.claude.json');
+  const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+  let existing: unknown = null;
+  try {
+    existing = JSON.parse(await readFile(path, 'utf8'));
+  } catch {
+    existing = null;
+  }
+  const config: Record<string, unknown> = isObject(existing) ? { ...existing } : {};
+  const projects: Record<string, unknown> = isObject(config['projects']) ? { ...config['projects'] } : {};
+  const cwd = await realpath(input.cwd);
+  const current = projects[cwd];
+  projects[cwd] = { ...(isObject(current) ? current : {}), hasTrustDialogAccepted: true };
+  config['projects'] = projects;
+  if (input.apiKey !== undefined && input.apiKey.length > 0) {
+    const suffix = input.apiKey.slice(-20);
+    const responses: Record<string, unknown> = isObject(config['customApiKeyResponses']) ? { ...config['customApiKeyResponses'] } : {};
+    const list = (value: unknown): string[] => (Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []);
+    responses['approved'] = [...list(responses['approved']).filter((item) => item !== suffix), suffix];
+    responses['rejected'] = list(responses['rejected']).filter((item) => item !== suffix);
+    config['customApiKeyResponses'] = responses;
+  }
+  await writeFile(path, JSON.stringify(config), { mode: 0o600 });
+  return path;
 }
 
 let ownGroup: number | null = null;
@@ -164,8 +198,8 @@ export interface ClaudeDaemon {
   readonly root: string;
   readonly base: string;
   readonly runDir: string;
-  /** A fresh guest dir (home, cfg, tmp) for one claude run. */
-  guestDir(label: string): Promise<string>;
+  /** A fresh isolated dir (home, cfg, tmp; see isolatedEnv) for one claude run. */
+  isolatedDir(label: string): Promise<string>;
   cleanup(): Promise<void>;
 }
 
@@ -207,7 +241,7 @@ export async function startClaudeDaemon(files: Readonly<Record<string, string>>)
     await daemon.start();
     const hooks = daemon.ctx.services.hooks;
     if (!(hooks instanceof HookServerImpl)) throw new Error('the hooks slot is not the HookServerImpl');
-    let guests = 0;
+    let runs = 0;
     return {
       daemon,
       hooks,
@@ -215,9 +249,9 @@ export async function startClaudeDaemon(files: Readonly<Record<string, string>>)
       root,
       base,
       runDir,
-      guestDir: async (label: string) => {
-        guests += 1;
-        const dir = join(base, `guest-${guests}-${label.replace(/[^a-z0-9-]/gi, '')}`);
+      isolatedDir: async (label: string) => {
+        runs += 1;
+        const dir = join(base, `run-${runs}-${label.replace(/[^a-z0-9-]/gi, '')}`);
         for (const sub of ['home', 'cfg', 'tmp']) await mkdir(join(dir, sub), { recursive: true, mode: 0o700 });
         return dir;
       },

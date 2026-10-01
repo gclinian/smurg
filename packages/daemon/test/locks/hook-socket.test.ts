@@ -60,10 +60,10 @@ interface Agent {
 async function setup(): Promise<{ readonly d: TestDaemon; readonly ian: Agent; readonly hosts: Agent }> {
   const d = await createTestDaemon({ modules: [locksModule, hooksModule], project: { files: { 'src/app.ts': 'export const a = 1;\n' } } });
   t = d;
-  await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'runner' });
+  await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
   const hooks = d.ctx.services.hooks;
   const agent = (sessionId: string, ownerUserId: string, name: string): Agent => {
-    const { token } = hooks.registerSession({ sessionId, ownerUserId, agentName: `Claude（${name}）`, root: MAIN_ROOT, sandboxed: ownerUserId !== 'dev:host' });
+    const { token } = hooks.registerSession({ sessionId, ownerUserId, agentName: `Claude（${name}）`, root: MAIN_ROOT });
     return {
       sessionId,
       hook: async (hookInput) => {

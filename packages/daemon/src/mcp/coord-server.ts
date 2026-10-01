@@ -4,7 +4,7 @@
 // (op 'mcp'); the daemon decides everything (src/hooks/mcp-tools.ts).
 //
 // It must start FAST and never imports the daemon (src/daemon.ts, src/index.ts, `@smurg/daemon`), zod or anything
-// heavy (node-pty, srt, yjs). The CLI loads it through the package export `@smurg/daemon/mcp`
+// heavy (node-pty, yjs). The CLI loads it through the package export `@smurg/daemon/mcp`
 // (test/composition.test.ts checks the import graph). So the protocol is implemented here directly: MCP's stdio
 // transport is newline-delimited JSON-RPC 2.0, and a tools-only server needs initialize, ping, tools/list and
 // tools/call (plus notifications/cancelled). Tool failures are results with `isError: true` (the model reads them);

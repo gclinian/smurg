@@ -5,7 +5,7 @@
 // channel.closed{kicked} and a relay peer.kick, and member.kicked is emitted. A kicked member can only come back
 // through an invite created AFTER the kick, with a NEW device key: an old multi-use link cannot undo a kick.
 import { createHash } from 'node:crypto';
-import { SmurgError, toHex, type DeviceInfo, type GuestRole, type Member, type MemberWithDevices } from '@smurg/protocol';
+import { SmurgError, isGuestRole, toHex, type DeviceInfo, type GuestRole, type Member, type MemberWithDevices } from '@smurg/protocol';
 import type { AuditLog, ClientKind, DeviceRecord, EventBus, Hub, MemberDirectory, MemberRecord, PersistentDocument, Principal, UserId } from '../core/interfaces.ts';
 import { toDisposable, type Clock, type Disposable } from '../core/lifecycle.ts';
 import type { Logger } from '../core/logger.ts';
@@ -152,7 +152,7 @@ export class MemberDirectoryImpl implements MemberDirectory {
     const target = this.active(userId);
     if (!target) throw new SmurgError('not_found', '找不到這位成員');
     if (userId === this.deps.hostUserId || target.role === 'host') throw new SmurgError('bad_request', '不能變更主人的角色', { reason: 'host' });
-    if (!['runner', 'editor', 'viewer'].includes(role)) throw new SmurgError('bad_request', undefined, { reason: 'role' });
+    if (!isGuestRole(role)) throw new SmurgError('bad_request', undefined, { reason: 'role' });
     const from = target.role;
     if (from === role) return this.toMember(target);
     this.deps.state.update((draft) => {

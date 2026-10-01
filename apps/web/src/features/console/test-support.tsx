@@ -16,7 +16,7 @@ export const HOST: MemberWithDevices = {
   devices: [{ deviceId: 'dev_host_cli', name: 'MacBook', kind: 'cli', addedAt: T0, lastSeenAt: T0, revoked: false }],
 };
 export const AMY: MemberWithDevices = {
-  ...makeMember({ userId: 'dev:amy', displayName: 'Amy', role: 'runner' }),
+  ...makeMember({ userId: 'dev:amy', displayName: 'Amy', role: 'agent' }),
   devices: [
     { deviceId: 'dev_amy_web', name: 'Chrome', kind: 'web', addedAt: T0, lastSeenAt: T0, revoked: false },
     { deviceId: 'dev_amy_cli', name: 'amy-laptop', kind: 'cli', addedAt: T0, lastSeenAt: T0, revoked: false },
@@ -37,7 +37,6 @@ export const SETTINGS: HostSettings = {
   agentLockTimeoutMs: 60_000,
   uploadChunkSize: 4 * 1024 * 1024,
   sharedDirs: ['data'],
-  allowedDomains: ['pypi.org'],
   diskReserveBytes: 5 * GIB,
   diskReservePercent: 5,
 };
@@ -78,8 +77,8 @@ export function defaultFixture(): ConsoleFixture {
     audit: [makeAudit(1, { action: 'auth.connect', target: 'dev_amy_web' }), makeAudit(2), makeAudit(3, { action: 'authz.denied', outcome: 'denied', target: 'file.write', actor: { kind: 'user', userId: 'dev:bob', displayName: 'Bob' }, detail: { reason: 'forbidden-role' } })],
     sessions: [
       makeSession({ id: 'sess_host', title: 'Claude', createdAt: T0 }),
-      makeSession({ id: 'sess_amy', ownerUserId: 'dev:amy', ownerName: 'Amy', title: '登入頁', sandboxed: true, root: { kind: 'worktree', worktreeId: 'wt_1' }, attached: 2, createdAt: T0 + 1 }),
-      makeSession({ id: 'sess_old', kind: 'terminal', ownerUserId: 'dev:amy', ownerName: 'Amy', title: '終端機', sandboxed: true, status: 'exited', exitCode: 0, createdAt: T0 - 1 }),
+      makeSession({ id: 'sess_amy', ownerUserId: 'dev:amy', ownerName: 'Amy', title: '登入頁', root: { kind: 'worktree', worktreeId: 'wt_1' }, attached: 2, createdAt: T0 + 1 }),
+      makeSession({ id: 'sess_old', kind: 'terminal', ownerUserId: 'dev:amy', ownerName: 'Amy', title: '終端機', status: 'exited', exitCode: 0, createdAt: T0 - 1 }),
     ],
     suggestions: [
       makeSuggestion({ id: 'sug_pending', sessionId: 'sess_amy', author: { userId: HOST_USER, displayName: 'Ian' }, text: '先補上表單驗證的測試' }),

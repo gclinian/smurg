@@ -11,7 +11,7 @@ import { toDisposable } from '../../src/core/lifecycle.ts';
 import { silentLogger } from '../../src/core/logger.ts';
 import { ControlServer, ControlSocketError, probeControlSocket } from '../../src/local/control-server.ts';
 import { createLocalControlModule, localControlModule } from '../../src/local/module.ts';
-import { CTL_CONTROL_MAX_BYTES, CTL_FRAME_KIND, encodeCtlFrame } from '../../src/local/protocol.ts';
+import { CTL_CONTROL_MAX_BYTES, CTL_FRAME_KIND, CTL_STOP_REASON, CtlProtocolError, encodeCtlFrame, parseCtlRequest } from '../../src/local/protocol.ts';
 import { createTempRunDir, removeTempRunDir, waitFor } from '../../src/testing/index.ts';
 import { LOCAL_HOST_USER, connectRaw, startLocalDaemon, type LocalDaemon, type RawCtlClient } from './helpers.ts';
 
@@ -31,6 +31,12 @@ async function client(path: string): Promise<RawCtlClient> {
   cleanups.push(async () => c.close());
   return c;
 }
+
+/** session.list answered with no sessions: a request `smurg attach` sends, without the real sessions module. */
+const sessionListModule: FeatureModule = {
+  name: 'session-list',
+  register: (router) => router.handle('session.list', () => ({ sessions: [] })),
+};
 
 function header(length: number, kind: number): Uint8Array {
   const b = Buffer.alloc(5);
@@ -60,9 +66,8 @@ const fakeStatus = (workspaceId: string): DaemonStatus => ({
   handshakes: { handshakes: 0, accepted: 0, failed: 0, refusedByRateLimit: 0, kickedForFailures: 0, kickedIdle: 0 },
   fingerprint: '0000 1111',
   relayUrl: null,
-  switches: { guestSubscriptionLogin: true, attributeBashEdits: true, guestMainWorkspace: true },
+  switches: { attributeBashEdits: true },
   isGitRepo: false,
-  sandbox: null,
 });
 
 function fakeLifecycle(workspaceId = 'ws_fake_lifecycle01'): DaemonLifecycle & { stops: string[] } {
@@ -166,16 +171,19 @@ describe('ops', () => {
   });
 
   it('attach carries envelopes both ways on a logical channel of the host (requests, answers, events, acks), audited as local', async () => {
-    const d = await daemonWith({ modules: [localControlModule] });
+    const d = await daemonWith({ modules: [localControlModule, sessionListModule] });
     const c = await client(d.ctlPath);
     c.request({ v: 1, op: 'attach', deviceName: 'smurg CLI (test)' });
     const response = await c.response();
     if (!response.ok || response.op !== 'attach') throw new Error('attach refused');
     expect(response.welcome.member).toMatchObject({ userId: LOCAL_HOST_USER, role: 'host' });
     expect(response.welcome.resumed).toBe(false);
-    // client → daemon → client: a request routed like any relay client's
-    const answer = await c.call('admin.invite.list', {});
-    expect(answer.type).toBe('admin.invite.list.ok');
+    // client → daemon → client: a request `smurg attach` sends, routed like any relay client's
+    const answer = await c.call('session.list', {});
+    expect(answer).toMatchObject({ type: 'session.list.ok', payload: { sessions: [] } });
+    // ...and one it does not send: refused over the socket (review F1), whatever the host's role allows on the web
+    const refused = await c.call('admin.invite.list', {});
+    expect(refused).toMatchObject({ type: 'error', payload: { code: 'forbidden', detail: { reason: 'control-socket' } } });
     // daemon → client: fan-out reaches the local channel
     d.daemon.ctx.hub.broadcast('presence.heartbeat', { at: 1_700_000_000_000 });
     await waitFor(() => c.envelopes.some((e) => e.type === 'presence.heartbeat' && (e.payload as { at: number }).at === 1_700_000_000_000), { what: 'the broadcast' });
@@ -187,17 +195,21 @@ describe('ops', () => {
     await waitFor(() => d.daemon.ctx.hub.connections().length === 0, { what: 'the local connection to end' });
     await d.daemon.ctx.audit.flush();
     const entries = await d.daemon.ctx.audit.query({ limit: 50 });
-    expect(entries.find((e) => e.action === 'auth.connect')?.detail).toMatchObject({ mode: 'local' });
-    expect(entries.find((e) => e.action === 'auth.disconnect')?.detail).toMatchObject({ mode: 'local' });
+    expect(entries.find((e) => e.action === 'auth.connect')?.detail).toMatchObject({ mode: 'local', via: 'control-socket' });
+    expect(entries.find((e) => e.action === 'auth.disconnect')?.detail).toMatchObject({ mode: 'local', via: 'control-socket' });
+    expect(entries.find((e) => e.action === 'authz.denied' && e.target === 'admin.invite.list')).toMatchObject({
+      actor: { kind: 'user', userId: LOCAL_HOST_USER },
+      detail: { type: 'admin.invite.list', reason: 'control-socket', via: 'control-socket' },
+    });
   });
 
   it('a re-attach resumes the logical channel and replays what was queued while away', async () => {
-    const d = await daemonWith({ modules: [localControlModule] });
+    const d = await daemonWith({ modules: [localControlModule, sessionListModule] });
     const first = await client(d.ctlPath);
     first.request({ v: 1, op: 'attach', deviceName: 'smurg CLI' });
     const welcome = await first.response();
     if (!welcome.ok || welcome.op !== 'attach') throw new Error('attach refused');
-    await first.call('admin.invite.list', {});
+    await first.call('session.list', {});
     const lastSeq = Math.max(...first.envelopes.map((e) => e.seq));
     first.close();
     await waitFor(() => d.daemon.ctx.hub.connections().length === 0, { what: 'disconnect' });
@@ -216,7 +228,7 @@ describe('ops', () => {
     attached.request({ v: 1, op: 'attach', deviceName: 'watcher' });
     await attached.response();
     const stopper = await client(d.ctlPath);
-    stopper.request({ v: 1, op: 'stop', reason: 'test' });
+    stopper.request({ v: 1, op: 'stop' });
     expect(await stopper.response()).toEqual({ ok: true, op: 'stop' });
     await stopper.waitClosed();
     expect(stopper.errored).toBe(false);
@@ -280,13 +292,37 @@ describe('ops', () => {
     stopper.request({ v: 1, op: 'stop' });
     expect(await stopper.response()).toEqual({ ok: true, op: 'stop' });
     await waitFor(() => calls.length === 1, { what: 'the stop routine' });
-    expect(calls[0]?.reason).toBe('smurg stop');
+    expect(calls[0]?.reason).toBe(CTL_STOP_REASON);
     const again = await client(d.ctlPath);
     again.request({ v: 1, op: 'stop' });
     expect(await again.response()).toEqual({ ok: true, op: 'stop' });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(calls).toHaveLength(1);
     expect(d.daemon.status().stopped).toBe(false);
+  });
+
+  // Verification F-2 (2026-10-02): whoever reaches the socket (any session of a 「可使用 agent」 member) used to choose
+  // the daemon's stop reason, and `smurg host` took 'start-failed' / 'summary-failed' for its own stops: the daemon
+  // stopped while the host's terminal was never told. The request names no reason now; the reason is always the same.
+  it('a stop request names no reason: one that does is refused and stops nothing; the reason is always CTL_STOP_REASON (verification F-2)', async () => {
+    const calls: string[] = [];
+    const module = createLocalControlModule({ requestStop: (_ctx, reason) => calls.push(reason) });
+    const d = await daemonWith({ modules: [module] });
+    for (const reason of ['start-failed', 'summary-failed', 'smurg stop']) {
+      const forged = await client(d.ctlPath);
+      forged.send(encodeCtlFrame(CTL_FRAME_KIND.control, new TextEncoder().encode(JSON.stringify({ v: 1, op: 'stop', reason }))));
+      expect(await forged.response()).toMatchObject({ ok: false, error: { code: 'bad_request' } });
+      await forged.waitClosed();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls).toEqual([]);
+    expect(d.daemon.status().stopped).toBe(false);
+    expect(() => parseCtlRequest(new TextEncoder().encode('{"v":1,"op":"stop","reason":"start-failed"}'))).toThrow(CtlProtocolError);
+    const stopper = await client(d.ctlPath);
+    stopper.request({ v: 1, op: 'stop' });
+    expect(await stopper.response()).toEqual({ ok: true, op: 'stop' });
+    await waitFor(() => calls.length === 1, { what: 'the stop routine' });
+    expect(calls).toEqual([CTL_STOP_REASON]);
   });
 
   it('an attach while the daemon is not running is refused with an error response', async () => {

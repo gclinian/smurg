@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { equalBytes, toHex } from '../bytes.ts';
 import { CHANNEL_FRAME, HANDSHAKE_WIRE_VERSION } from '../channel/frames.ts';
+import { PROTOCOL_VERSION } from '../constants.ts';
 import { HANDSHAKE_MODE_BYTES } from '../invite.ts';
 import { PEER_KICK_REASON_IDLE } from '../relay/close-codes.ts';
 import { MAIN_ROOT } from '../schema/paths.ts';
@@ -539,7 +540,7 @@ describe('resume after a reconnect (ARCHITECTURE §4)', () => {
     const world = createWorld();
     const { conn } = await online(world);
     const [first] = world.daemon.hellos;
-    expect(first).toMatchObject({ protocolVersion: 1, purpose: 'interactive', clientKind: 'web', deviceName: 'Test browser' });
+    expect(first).toMatchObject({ protocolVersion: PROTOCOL_VERSION, purpose: 'interactive', clientKind: 'web', deviceName: 'Test browser' });
     expect(first?.resume).toBeUndefined();
     expect(first?.cnfNonce).toHaveLength(32);
     world.daemon.broadcast('file.changed', changed('1'));

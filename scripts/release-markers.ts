@@ -87,7 +87,7 @@ export function nodeAgreementProblems(nodes: ReadonlyMap<string, string>, notice
   return [];
 }
 
-/** `node X.Y.Z` at the end of `smurg --version` (`smurg 0.1.0 (protocol v1, daemon 0.1.0, node 22.23.3)`), or null. */
+/** `node X.Y.Z` at the end of `smurg --version` (`smurg 1.2.3 (protocol v2, daemon 1.2.3, node 22.23.3)`), or null. */
 export function nodeOfVersionLine(line: string): string | null {
   return /[ (]node ([0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6})\)$/.exec(line.trim())?.[1] ?? null;
 }

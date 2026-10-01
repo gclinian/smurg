@@ -1,12 +1,16 @@
-// `smurg attach [session] [--workspace W] [--invite -|URL] [--relay URL] [--no-browser]` (SPEC R4, ARCHITECTURE §8):
+// `smurg attach [session] [--workspace W] [--invite -|URL] [--relay URL] [--no-browser] [--accept-new-key]` (SPEC R4, ARCHITECTURE §8):
 //  - a `smurg host` of that workspace runs on this machine → attach through its control socket, as the host;
 //  - otherwise → join through the relay with the CLI device key (first time: an invite; later: the pinned daemon key).
 // The invite link carries its secret after `#`: it is read from a prompt (`--invite -`, not echoed) or SMURG_INVITE,
 // so it stays out of argv (`ps`) and shell history; a link given on the command line still works, with a warning.
 // Without a session it lists the sessions; with one it takes over the terminal (attach/attach-session.ts).
+// An invite whose daemon key differs from the key this device pinned for the workspace (the host started over with new
+// workspace keys, HOSTING §5.1 / §8 — or someone poses as the host) is explained and used only after the person's
+// explicit yes at a terminal or --accept-new-key (verification M1; the web asks the same, 「主人的電腦金鑰和之前不同」).
 import { hostname } from 'node:os';
-import { InviteLinkError, parseInviteUrl, type SessionInfo } from '@smurg/protocol';
+import { InviteLinkError, can, daemonKeyFingerprint, equalBytes, formatFingerprintForDisplay, parseInviteUrl, type SessionInfo } from '@smurg/protocol';
 import type { ConnectionRelay } from '@smurg/protocol/client';
+import { readPinnedDaemonKey } from '@smurg/protocol/node';
 import { booleanOption, parseArgs, stringOption } from '../cli/args.ts';
 import { CliError, usageError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
@@ -26,7 +30,7 @@ import { say, type CommandContext } from './context.ts';
 /** `smurg attach --help`; the --relay default depends on the built-in relay (../relay/default-relay.ts). */
 export function attachUsage(): string {
   const relayDefault = DEFAULT_RELAY_URL === null ? '邀請連結的網址或上次使用的 relay' : `邀請連結的網址、上次使用的 relay，或內建的公用 relay ${DEFAULT_RELAY_URL}`;
-  return `用法：smurg attach [session] [--workspace 工作區ID] [--invite -|邀請連結] [--relay 網址] [--no-browser]
+  return `用法：smurg attach [session] [--workspace 工作區ID] [--invite -|邀請連結] [--relay 網址] [--no-browser] [--accept-new-key]
 
   把 agent session 接到這個終端機。不指定 session 時列出所有 session。
   session 可以是列表中的編號、session ID 或 ID 的開頭。
@@ -38,8 +42,10 @@ export function attachUsage(): string {
   --workspace ID      指定工作區（預設：目前資料夾所分享的工作區，或唯一一個）
   --relay 網址        relay 的網址（預設：${relayDefault}）
   --no-browser        需要登入 relay 時不自動開啟瀏覽器，只顯示網址（SMURG_NO_BROWSER=1 也一樣）
+  --accept-new-key    邀請連結的主人金鑰和這台電腦上次記錄的不同時（「主人的電腦金鑰和之前不同」），
+                      不再詢問就改用邀請連結的金鑰。只在你已經透過其他管道向主人確認過金鑰指紋時使用。
 
-  接上之後：按 Ctrl-] 離開（session 繼續執行）。只有 session 的擁有者可以輸入，其他人是唯讀。
+  接上之後：按 Ctrl-] 離開（session 繼續執行）。主人和「可使用 agent」的組員可以在任何 session 裡輸入，其他角色唯讀。
   說明（組員指南）：https://smurg.ai/docs/joining/#10-用終端機cli加入選用
 `;
 }
@@ -63,8 +69,7 @@ export function formatSessionList(sessions: readonly SessionInfo[], me: string):
   if (sessions.length === 0) return '這個工作區目前沒有 session。';
   const lines = ['編號  session ID                        類型      擁有者        狀態        標題'];
   sessions.forEach((s, i) => {
-    // 'login' (§11 D-12): the member's own Claude login process; the daemon lists it to its owner only.
-    const kind = s.kind === 'agent' ? 'agent' : s.kind === 'login' ? '登入程序' : '終端機';
+    const kind = s.kind === 'agent' ? 'agent' : '終端機';
     const owner = s.ownerUserId === me ? `${s.ownerName}（你）` : s.ownerName;
     lines.push(`${String(i + 1).padEnd(4)}  ${s.id.padEnd(32)}  ${kind.padEnd(8)}  ${owner.padEnd(12)}  ${statusText(s).padEnd(10)}  ${s.title}`);
   });
@@ -157,14 +162,64 @@ async function explainLoginOrigin(ctx: CommandContext, origin: string): Promise<
   );
 }
 
-async function openChannel(ctx: CommandContext, target: Target, deps: AttachDeps, noBrowser: boolean): Promise<WorkspaceChannel> {
+/** What `smurg attach` says when the invite's daemon key is not the one this device pinned (the web's keyChange text). */
+export function keyChangeNotice(pinned: string, invited: string): string {
+  return [
+    '',
+    '主人的電腦金鑰和之前不同',
+    '  你之前加入過這個工作區，當時主人電腦的金鑰和這個邀請連結記載的不一樣。',
+    '  這通常是因為主人重新設定了工作區（例如收回「可使用 agent」之後換了新的金鑰）或重新安裝了 smurg；',
+    '  但也可能是有人想冒充主人。',
+    `  上次記錄的金鑰指紋：${pinned}`,
+    `  邀請連結的金鑰指紋：${invited}`,
+    '  只有在你已經透過其他管道（當面、電話或你們平常使用的通訊軟體）向主人確認，這個新連結確實是主人剛剛給你的，',
+    '  而且主人用 smurg status 看到的「daemon 金鑰指紋」和上面「邀請連結的金鑰指紋」相同，才繼續。',
+    '',
+  ].join('\n');
+}
+
+/**
+ * Verification M1: the invite names another daemon key than the pin of this workspace. Never accepted silently (SPEC
+ * R3): the person reads why and both fingerprints, then answers y at a terminal or passed --accept-new-key; only then
+ * the connection prefers the invite (its key is verified against the invite's `k` and replaces the pin). Returns
+ * whether to prefer the invite; throws when the person did not confirm (nothing was sent, the pin is unchanged).
+ */
+async function confirmNewHostKey(ctx: CommandContext, target: Target, accept: boolean): Promise<boolean> {
+  const invite = target.invite;
+  if (target.kind !== 'relay' || invite === undefined) return false;
+  // An unreadable pin is the connection's to report (storage-error), as it is without an invite.
+  const pinned = await readPinnedDaemonKey(ctx.paths.stateDir, target.workspaceId).catch(() => null);
+  if (pinned === null) return false;
+  const pinnedFingerprint = daemonKeyFingerprint(pinned);
+  if (equalBytes(pinnedFingerprint, invite.fingerprint)) return false;
+  ctx.io.stderr.write(`${keyChangeNotice(formatFingerprintForDisplay(pinnedFingerprint), formatFingerprintForDisplay(invite.fingerprint))}\n`);
+  if (accept) {
+    ctx.io.stderr.write('已指定 --accept-new-key：改用邀請連結的金鑰。\n');
+    return true;
+  }
+  const answer = await ctx.io.readLine('確認過了嗎？輸入 y 用新的連結加入，其他輸入取消：');
+  if (answer !== null && /^(?:y|yes)$/i.test(answer)) return true;
+  throw new CliError('已取消，沒有連線；這台電腦記錄的主人金鑰沒有改變。', {
+    hint: answer === null ? '不在終端機裡執行時無法詢問：向主人確認過金鑰指紋之後，加上 --accept-new-key 再執行一次。' : '向主人確認過金鑰指紋之後再執行一次。',
+  });
+}
+
+async function openChannel(ctx: CommandContext, target: Target, deps: AttachDeps, noBrowser: boolean, acceptNewKey: boolean): Promise<WorkspaceChannel> {
   if (target.kind === 'local') return LocalWorkspaceChannel.open(target.ctlPath as string, { deviceName: deviceName() });
   const origin = target.relay as string;
+  const preferInvite = await confirmNewHostKey(ctx, target, acceptNewKey);
   if (!deps.relayFor) await explainLoginOrigin(ctx, origin);
   const relay = deps.relayFor
     ? await deps.relayFor(origin)
     : relayApi(ctx.io, origin, { kind: 'bearer', token: (await ensureSession(ctx, origin, { interactive: true, noBrowser })).session.token });
-  const channel = await RelayWorkspaceChannel.open({ relay, workspaceId: target.workspaceId, stateDir: ctx.paths.stateDir, invite: target.invite ?? null, deviceName: deviceName() });
+  const channel = await RelayWorkspaceChannel.open({
+    relay,
+    workspaceId: target.workspaceId,
+    stateDir: ctx.paths.stateDir,
+    invite: target.invite ?? null,
+    ...(preferInvite ? { preferInvite: true } : {}),
+    deviceName: deviceName(),
+  });
   await rememberJoined(ctx.paths, { workspaceId: target.workspaceId, relay: origin, name: channel.welcome.workspace.name, joinedAt: ctx.io.now() });
   return channel;
 }
@@ -214,7 +269,14 @@ export function exitCodeOf(outcome: AttachOutcome): number {
 
 export async function runAttach(argv: readonly string[], ctx: CommandContext, deps: AttachDeps = {}): Promise<number> {
   const args = parseArgs(argv, {
-    options: { workspace: { kind: 'string' }, invite: { kind: 'string' }, relay: { kind: 'string' }, browser: { kind: 'boolean' }, help: { kind: 'boolean', short: 'h' } },
+    options: {
+      workspace: { kind: 'string' },
+      invite: { kind: 'string' },
+      relay: { kind: 'string' },
+      browser: { kind: 'boolean' },
+      'accept-new-key': { kind: 'boolean' },
+      help: { kind: 'boolean', short: 'h' },
+    },
     positionals: ['session'],
   });
   if (args.options['help']) {
@@ -231,7 +293,7 @@ export async function runAttach(argv: readonly string[], ctx: CommandContext, de
     ...(stringOption(args, 'relay') !== undefined ? { relay: stringOption(args, 'relay') as string } : {}),
   };
   const target = await resolveTarget(ctx, flags);
-  const channel = await openChannel(ctx, target, deps, booleanOption(args, 'browser') === false);
+  const channel = await openChannel(ctx, target, deps, booleanOption(args, 'browser') === false, booleanOption(args, 'accept-new-key') === true);
   try {
     const me = channel.welcome.member.userId;
     const { sessions } = await channel.request('session.list', {});
@@ -243,8 +305,8 @@ export async function runAttach(argv: readonly string[], ctx: CommandContext, de
     const session = pickSession(sessions, wanted);
     if (session.status === 'exited') throw new CliError(`session「${session.title}」已經結束（結束代碼 ${session.exitCode ?? 0}）`);
     const isOwner = session.ownerUserId === me;
-    say(ctx, `接上 session「${session.title}」（${session.ownerName}${isOwner ? '，你的 session' : ''}）。按 Ctrl-] 離開。`);
-    if (!isOwner) say(ctx, readOnlyNotice(session));
+    say(ctx, `接上 session「${session.title}」（${session.ownerName}${isOwner ? '，你的 session' : ' 開的'}）。按 Ctrl-] 離開。`);
+    if (!can(channel.welcome.member.role, 'session.drive')) say(ctx, readOnlyNotice(session));
     const outcome = await attachSession({ channel, session, terminal, io: ctx.io, utf8: localeIsUtf8(ctx.io.env) });
     return exitCodeOf(outcome);
   } finally {

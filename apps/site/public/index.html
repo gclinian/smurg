@@ -107,8 +107,8 @@
           </div>
           <div class="m-agents">
             <div class="m-ph">agent<span class="m-btn">＋ 新增 session</span></div>
-            <div class="m-tabs"><span class="on"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude（Amy）</span><span><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude（Ian）</span></div>
-            <div class="m-banner m-banner-info">這是 Amy 的 session，你只能觀看。</div>
+            <div class="m-tabs"><span class="on"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude（Amy 開的）</span><span><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude（Ian 開的）</span></div>
+            <div class="m-banner m-banner-info">這是 Amy 開的 session，你只能觀看。想讓它做什麼，請在下方的「建議」提出，由主人或「可使用 agent」的成員決定是否採用。</div>
             <pre class="m-term"><span class="m-prompt">&gt; add a test for the expired-session redirect</span><span> </span><span><span class="m-ok">●</span> <span class="m-tool">Read</span>(src/login.ts)</span><span class="m-dim">  └ Read 11 lines</span><span><span class="m-ok">●</span> <span class="m-tool">Update</span>(tests/login.test.ts)</span><span class="m-dim">  └ Added “redirects an expired session”</span><span><span class="m-ok">●</span> <span class="m-tool">Bash</span>(pnpm test tests/login.test.ts)</span><span class="m-dim">  └ Tests passed</span><span>● The new test covers the expired-session redirect.</span><span class="m-prompt">&gt; <span class="m-caret"></span></span></pre>
             <div class="m-suggest">
               <div class="m-ph">建議</div>
@@ -208,7 +208,7 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <p class="kicker step-num">Step 3</p>
         <h3>Work with agents together</h3>
-        <p>Editors and runners edit the same files at once; everyone sees every Claude Code session live. To steer someone else’s agent, editors and runners send a suggestion, and its owner decides. Teammates with the runner role start their own sessions, sandboxed on the host’s computer and signed in to their own Claude account.</p>
+        <p>Editors edit the same files at once; everyone sees every Claude Code session live and editors send suggestions to steer an agent. Teammates the host fully trusts can get the “can use agents” role: they open agent sessions and type into any session, and those sessions run as the host, with the host’s Claude account, on the host’s computer.</p>
       </li>
     </ol>
   </div>
@@ -231,11 +231,11 @@ smurg host ~/projects/my-app</code></pre>
       </li>
       <li>
         <h3>Claude Code sessions</h3>
-        <p>Real Claude Code runs on the host’s computer. Everyone sees every session live, including what happened before they opened it, and can follow one in their own terminal with <code>smurg attach</code>. Suggestions go to the session’s owner, who accepts them, edits them first or rejects them; nothing reaches an agent without the owner. Runners can bring their own <code>CLAUDE.md</code>, commands and skills.</p>
+        <p>Real Claude Code runs on the host’s computer. Everyone sees every session live, including what happened before they opened it, and can follow one in their own terminal with <code>smurg attach</code>. Suggestions wait until the host or a teammate with the “can use agents” role accepts them, edits them first or rejects them; nothing reaches an agent before that.</p>
       </li>
       <li>
         <h3>Worktrees and merge requests</h3>
-        <p>If the folder is a git repository, an agent can work in its own worktree on its own branch, away from the main workspace. When it is done, its owner asks the host to merge; the host reads the full diff and merges or rejects it. A conflict stops the merge and leaves the main workspace as it was.</p>
+        <p>If the folder is a git repository, an agent can work in its own worktree on its own branch, away from the main workspace. When it is done, a teammate with the “can use agents” role (or the host) requests a merge; the host reads the full diff and merges or rejects it. A conflict stops the merge and leaves the main workspace as it was.</p>
       </li>
       <li>
         <h3>Locks and attribution</h3>
@@ -243,7 +243,7 @@ smurg host ~/projects/my-app</code></pre>
       </li>
       <li>
         <h3>Roles and a host console</h3>
-        <p>Invite people as viewer, editor or runner (who may start agents). The host console lists members, roles, invite links, sessions and the audit log; one click removes a member or ends a session. If the host’s computer sleeps or goes offline, everyone sees it within seconds.</p>
+        <p>Invite people as viewer, editor or “can use agents” (who may open agent sessions and type into them, as the host). The host console lists members, roles, invite links, sessions and the audit log; one click removes a member or ends a session. If the host’s computer sleeps or goes offline, everyone sees it within seconds.</p>
       </li>
     </ul>
   </div>
@@ -259,7 +259,7 @@ smurg host ~/projects/my-app</code></pre>
 
     <figure class="diagram">
       <svg class="dg wide" viewBox="0 0 880 340" role="img" aria-labelledby="sec-wide-title">
-        <title id="sec-wide-title">The host’s computer holds the shared folder, the host’s Claude Code sessions, keys and the audit log, and a sandbox for teammates’ sessions. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name and picture; at sign-in also the email), its IP address, the workspace code, and the size and time of each message.</title>
+        <title id="sec-wide-title">The host’s computer holds the shared folder, the host’s Claude Code sessions, keys and the audit log, and the sessions that teammates with the “can use agents” role open there, which run as the host with no sandbox. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name and picture; at sign-in also the email), its IP address, the workspace code, and the size and time of each message.</title>
         <rect class="bx" x="8" y="8" width="330" height="324" rx="14"/>
         <text class="tt" x="30" y="46">Your computer (host)</text>
         <text class="tm" x="30" y="68">Files and sessions stay here</text>
@@ -272,10 +272,10 @@ smurg host ~/projects/my-app</code></pre>
         <path class="ln" d="M41 164h11v4M48 164v3"/>
         <text class="ts" x="64" y="169">Keys and audit log</text>
         <rect class="ac-dash" x="24" y="192" width="298" height="124" rx="10"/>
-        <text class="ts ta" x="42" y="220">Guest sandbox</text>
-        <text class="ts" x="42" y="246">Teammates’ sessions and terminals</text>
-        <text class="tm" x="42" y="272">Shared folder or worktree, own temp</text>
-        <text class="tm" x="42" y="292">folder, allow-listed hosts only</text>
+        <text class="ts ta" x="42" y="220">Teammates you fully trust</text>
+        <text class="ts" x="42" y="246">Open sessions that run as you</text>
+        <text class="tm" x="42" y="272">Your account, files and Claude</text>
+        <text class="tm" x="42" y="292">login; no sandbox</text>
 
         <rect class="bx" x="392" y="100" width="136" height="140" rx="12"/>
         <text class="tt" x="460" y="132" text-anchor="middle">Relay</text>
@@ -301,7 +301,7 @@ smurg host ~/projects/my-app</code></pre>
       </svg>
 
       <svg class="dg tall" viewBox="0 0 360 780" role="img" aria-labelledby="sec-tall-title">
-        <title id="sec-tall-title">The host’s computer holds the shared folder, the host’s Claude Code sessions, keys and the audit log, and a sandbox for teammates’ sessions. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name and picture; at sign-in also the email), its IP address, the workspace code, and the size and time of each message.</title>
+        <title id="sec-tall-title">The host’s computer holds the shared folder, the host’s Claude Code sessions, keys and the audit log, and the sessions that teammates with the “can use agents” role open there, which run as the host with no sandbox. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name and picture; at sign-in also the email), its IP address, the workspace code, and the size and time of each message.</title>
         <rect class="bx" x="8" y="8" width="344" height="304" rx="14"/>
         <text class="tt" x="28" y="44">Your computer (host)</text>
         <text class="tm" x="28" y="68">Files and sessions stay here</text>
@@ -314,10 +314,10 @@ smurg host ~/projects/my-app</code></pre>
         <path class="ln" d="M39 163h11v4M46 163v3"/>
         <text class="ts" x="62" y="168">Keys and audit log</text>
         <rect class="ac-dash" x="22" y="190" width="316" height="108" rx="10"/>
-        <text class="ts ta" x="38" y="216">Guest sandbox</text>
-        <text class="ts" x="38" y="240">Teammates’ sessions and terminals</text>
-        <text class="tm" x="38" y="264">Shared folder or worktree, own temp</text>
-        <text class="tm" x="38" y="284">folder, allow-listed hosts only</text>
+        <text class="ts ta" x="38" y="216">Teammates you fully trust</text>
+        <text class="ts" x="38" y="240">Open sessions that run as you</text>
+        <text class="tm" x="38" y="264">Your account, files and Claude</text>
+        <text class="tm" x="38" y="284">login; no sandbox</text>
 
         <text class="ta" x="256" y="352" text-anchor="end">end-to-end encrypted</text>
         <rect class="bx" x="40" y="380" width="280" height="130" rx="12"/>
@@ -356,8 +356,8 @@ smurg host ~/projects/my-app</code></pre>
         <p>Files, Claude Code sessions and the audit log live on the host’s computer; the relay stores none of them. While that computer sleeps or smurg is stopped, nobody can use the workspace; it reconnects when the host is back.</p>
       </div>
       <div>
-        <h3>Teammates’ agents run in a sandbox</h3>
-        <p>Sessions and terminals that teammates start on the host’s computer run in a sandbox (Seatbelt on macOS, bubblewrap on Linux). They can use the shared folder, or their own worktree, and their own temporary folder; they can’t read the rest of the host’s home folder or other teammates’ data, and they reach only allow-listed hosts such as Anthropic’s and common package registries. On a Linux host they work only in their own worktree by default. If the sandbox can’t start, the session doesn’t start.</p>
+        <h3>Agents run as the host</h3>
+        <p>Every agent and terminal session runs on the host’s computer as the host: the host’s account, files and Claude Code login, with no sandbox. Besides the host, only teammates with the “can use agents” role open sessions or type into them; editors send suggestions and viewers watch. That role lets someone make an agent run any command on your computer, read your home folder and use your Claude account, so give it only to people you fully trust.</p>
       </div>
       <div>
         <h3>What the relay sees</h3>
@@ -369,10 +369,9 @@ smurg host ~/projects/my-app</code></pre>
       <h3>What smurg can’t protect you from</h3>
       <ul>
         <li>Everyone in a workspace can read every file in the shared folder, <code>.env</code> files included; only <code>.git</code>, <code>.envrc</code>, smurg’s own <code>.smurg</code> folder and the host’s personal Claude Code settings are hidden. Don’t share a folder that holds passwords, keys or personal data.</li>
-        <li>The host’s own Claude Code sessions are not sandboxed and read what teammates write. A file could hide instructions meant for them (prompt injection), so keep Claude Code’s permission prompts on.</li>
-        <li>A teammate who runs an agent signs in to their own Claude account on the host’s computer, so the host can technically read that credential. Use an API key with a spending limit.</li>
+        <li>Agent sessions are not sandboxed and read what teammates write. A file could hide instructions meant for them (prompt injection), so keep Claude Code’s permission prompts on.</li>
+        <li>A teammate with the “can use agents” role can do on your computer whatever you can: run any command, read your home folder, spend your Claude usage. smurg can’t limit that.</li>
         <li>The web app is served by the relay. As with any end-to-end encryption in a browser, a tampered app could leak keys; the CLI doesn’t have this problem.</li>
-        <li>The sandbox doesn’t limit memory, disk or CPU: a teammate’s processes can slow down the host’s computer.</li>
       </ul>
       <p class="more"><a href="/docs/hosting/">Read the host guide before you share</a> (in Traditional Chinese)</p>
     </div>
@@ -393,7 +392,7 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <div>
           <dt>Claude Code</dt>
-          <dd>To run agent sessions, the host’s computer needs Claude Code (the <code>claude</code> command) 2.1.220 or later. Worktrees need the shared folder to be a git repository.</dd>
+          <dd>To run agent sessions, the host’s computer needs Claude Code (the <code>claude</code> command) 2.1.220 or later, signed in: every session uses the host’s login. Worktrees need the shared folder to be a git repository.</dd>
         </div>
         <div>
           <dt>Teammates</dt>
@@ -451,12 +450,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>Do teammates need their own Claude account?</h3>
-        <p>Only to run agents of their own. Viewers watch every session; editors also send suggestions. Neither needs a Claude account. Teammates with the runner role sign in to their own account inside their sandbox, with an API key or a Claude subscription (the subscription sign-in has not yet been tested end to end with a real account). That login is kept on the host’s computer, so use an API key with a spending limit; leaving the workspace logs them out and deletes their temporary folder there. Agents always run on the host’s computer, so the host needs Claude Code installed.</p>
-      </div>
-      <div>
-        <h3>Anything to know about Linux?</h3>
-        <p>On a Linux host, teammates’ sessions run only in their own git worktree by default, so the shared folder must be a git repository for them to start sessions. With the <code>--allow-main-workspace-guests</code> option, <code>smurg host</code> opens the main workspace to them too; read the limits that come with it first (<a href="/docs/hosting/">host guide</a>, §4 and §5).</p>
-        <p>The guest sandbox needs bubblewrap 0.8 or later, socat and ripgrep: Ubuntu 24.04 and Debian 12 or later are fine, while Ubuntu 22.04’s bubblewrap is too old for teammates’ sessions. The installer checks for these and for Ubuntu’s AppArmor restriction, and installs what is missing with sudo only if you agree. The full test suite passes on Ubuntu 24.04, but nobody has hosted a real workspace on Linux yet.</p>
+        <p>No. Every agent runs on the host’s computer with the host’s Claude Code login, so its usage counts against the host’s account. Viewers watch every session, editors also send suggestions, and teammates with the “can use agents” role open sessions and type into them, all as the host. The host needs Claude Code installed and signed in.</p>
       </div>
       <div>
         <h3>Can I see the source code?</h3>

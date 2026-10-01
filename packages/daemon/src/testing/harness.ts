@@ -50,7 +50,7 @@ export interface TestDaemonOptions {
   readonly timing?: Partial<TimingConfig>;
   readonly limits?: Partial<LimitsConfig>;
   /**
-   * Session launch inputs (claudePath, selfCommand, testGuestEnv, version policy). `hostHome` defaults to the test's
+   * Session launch inputs (claudePath, selfCommand, version policy). `hostHome` defaults to the test's
    * fake home, never the developer's.
    */
   readonly sessions?: Partial<SessionLaunchConfig>;

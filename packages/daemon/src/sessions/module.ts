@@ -1,9 +1,9 @@
-// Feature module of src/sessions/ (ARCHITECTURE §7.2, §7.6): PTY sessions (session.*, exec.*), guest environments and
-// dirs, login detection, killTree (R4, R2 kick, R11). Slot: `sessions` (SessionManager).
+// Feature module of src/sessions/ (ARCHITECTURE §7.2, §7.6): PTY sessions (session.*, exec.*), login detection,
+// killTree (R4, R2 kick, R11). Slot: `sessions` (SessionManager).
 //
-// create() builds the service only; start() prepares its directories and runs the guest-dir retention sweep (it must
-// succeed in every harness: fake home, temp state dir, no real claude, no selfCommand: sessions that cannot start are
-// refused when they are requested, never at daemon start); stop() ends every session and removes every guest dir.
+// create() builds the service only; start() prepares its directories and ends what a run that died hard left behind
+// (it must succeed in every harness: fake home, temp state dir, no real claude, no selfCommand: sessions that cannot
+// start are refused when they are requested, never at daemon start); stop() ends every session.
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import { toDisposable } from '../core/lifecycle.ts';
 import { registerSessionHandlers } from './handlers.ts';

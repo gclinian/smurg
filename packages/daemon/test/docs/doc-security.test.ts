@@ -148,7 +148,7 @@ describe('doc.* refusals', { timeout: 30_000 }, () => {
     const todo = await DocClient.open(amyConn.conn, { root: MAIN_ROOT, path: 'j/todo.txt' });
     await waitFor(() => notes.synced && todo.synced, { what: 'sync' });
 
-    // READ: a guest's sandboxed shell swaps `k` for a link to the outside; the watcher reports it.
+    // READ: an agent session's shell swaps `k` for a link to the outside; the watcher reports it.
     await rm(join(t.root, 'k'), { recursive: true });
     await symlink(outside, join(t.root, 'k'));
     t.ctx.bus.emit('file.changed', { root: MAIN_ROOT, changes: [{ path: 'k', change: 'unlinkDir' }, { path: 'k', change: 'add' }] });

@@ -30,13 +30,6 @@ export const RELAY_PATHS = {
   deviceStart: '/auth/device/start',
   /** POST `{ deviceCode }` → bearer session once approved; until then 400 with a DEVICE_TOKEN_ERRORS code. */
   deviceToken: '/auth/device/token',
-  /**
-   * DEPRECATED (2026-10-01): the CLI loopback login of smurg 0.1.0 (GET confirmation page, POST same-origin form).
-   * Kept working for released executables; removed once a CLI without it has been out for a while.
-   */
-  cliStart: '/auth/cli/start',
-  /** DEPRECATED with cliStart: POST `{ code, codeVerifier }` → bearer token. */
-  cliToken: '/auth/cli/token',
   /** POST: clears the browser session cookie. */
   logout: '/auth/logout',
   /** GET: the current session's identity. */

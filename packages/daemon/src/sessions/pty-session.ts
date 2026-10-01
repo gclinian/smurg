@@ -12,7 +12,8 @@
 //    still has more than 1 MiB queued (review REL-06): all members share ONE socket from the daemon to the relay, so a
 //    chatty terminal must not bury everyone's replies, doc sync and heartbeats under tens of megabytes. The program
 //    in the PTY then writes at the speed of the slowest live link, as over ssh.
-// Who may type is decided by the SessionManager (owner only); this class only tracks which viewer drives the size.
+// Who may type is decided by the SessionManager (session.drive: the host, 「可使用 agent」); this class only tracks which
+// viewer drives the size (the owner's, policy `owner`).
 import * as pty from 'node-pty';
 import type { IPty } from 'node-pty';
 import type { Logger } from '../core/logger.ts';
@@ -158,7 +159,7 @@ export class PtySession {
       if (this.state === 'running') this.pty.write(reply);
     });
     this.tail = new RawTail(options.rawTailBytes ?? DEFAULT_RAW_TAIL_BYTES);
-    // Everything the child gets is the caller's explicit environment: never the daemon's own (guest env: allow-list).
+    // Everything the child gets is the caller's explicit environment (host-env.ts), never the daemon's own as it is.
     this.pty = pty.spawn(options.spawn.file, [...options.spawn.args], {
       name: 'xterm-256color',
       cols,
@@ -389,7 +390,7 @@ export class PtySession {
     return removed;
   }
 
-  /** Owner keystrokes. `key` (the sending channel) becomes the size driver when it is an attached owner viewer. */
+  /** Keystrokes (any member who may drive the session). `key` becomes the size driver when it is an attached owner viewer. */
   input(key: string, data: Uint8Array): boolean {
     if (this.state !== 'running') return false;
     const viewer = this.viewers.get(key);

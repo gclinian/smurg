@@ -13,6 +13,8 @@ import { makeDirs, isolatedEnv, type Dirs } from './helpers.ts';
 
 const run = promisify(execFile);
 const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
+/** The release version every workspace package carries (scripts/release-assets.sh --publish-checks keeps them equal). */
+const VERSION = (JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 const RECORDER = fileURLToPath(new URL('./fixtures/record-modules.mjs', import.meta.url));
 
 /** The start-up bound of the task: `smurg hook` / `smurg mcp` must start in well under this. */
@@ -61,12 +63,12 @@ const MCP_INITIALIZE = `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initi
 
 describe('smurg CLI', () => {
   it('builds a version banner from all workspace packages', () => {
-    expect(versionBanner()).toMatch(/^smurg 0\.1\.0 \(protocol v1, daemon 0\.1\.0, node \d+\.\d+\.\d+\)$/);
+    expect(versionBanner()).toBe(`smurg ${VERSION} (protocol v2, daemon ${VERSION}, node ${process.versions.node})`);
   });
 
   it('runs from source with plain node', async () => {
     const { stdout, stderr } = await run(process.execPath, [MAIN, '--version'], { timeout: 20_000 });
-    expect(stdout.trim()).toBe(`smurg 0.1.0 (protocol v1, daemon 0.1.0, node ${process.versions.node})`);
+    expect(stdout.trim()).toBe(`smurg ${VERSION} (protocol v2, daemon ${VERSION}, node ${process.versions.node})`);
     expect(stderr).toBe('');
   });
 
@@ -126,9 +128,9 @@ describe('smurg hook / smurg mcp start fast (they run inside every Claude Code s
       /\/cli\/src\/(cli|commands|channel|attach|relay|state)\//, // the dispatcher and every other command
       /\/cli\/src\/version\.ts$/,
       /\/daemon\/src\/(daemon|index)\.ts$/,
-      /\/daemon\/src\/(core|sessions|sandbox|files|docs|locks|worktree|suggest|local|net)\//,
+      /\/daemon\/src\/(core|sessions|files|docs|locks|worktree|suggest|local|net)\//,
       /\/protocol\/src\//,
-      /node_modules\/(\.pnpm\/)?(node-pty|@anthropic-ai|@parcel|yjs|y-protocols|@xterm|zod|@msgpack|@noble|ws)[@/]/,
+      /node_modules\/(\.pnpm\/)?(node-pty|@parcel|yjs|y-protocols|@xterm|zod|@msgpack|@noble|ws)[@/]/,
     ];
     const offending = loaded.filter((url) => forbidden.some((pattern) => pattern.test(url)));
     expect(offending).toEqual([]);

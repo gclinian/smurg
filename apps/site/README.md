@@ -96,7 +96,8 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
 
 - Landing pages: both languages have the same sections and ids in the same order (`test/site.test.ts` checks). Change
   the English page first, then the Traditional Chinese one, with the terms the app and the docs use (主人, 組員,
-  邀請連結, 「旁觀」「可編輯」「可執行 agent」, worktree, agent, session, 沙盒, 網頁版).
+  邀請連結, 「旁觀」「可編輯」「可使用 agent」, worktree, agent, session, 網頁版). There is no sandbox any more
+  (ARCHITECTURE §11 D-15): say so plainly (「沒有沙盒」) where it matters, never describe one.
 - Only state what `README.md`, `CHANGELOG.md`, `SPEC.md` and `docs/` back. When in doubt, cut the sentence. Never call
   smurg open source or name its former license: the source is private, LICENSE is proprietary.
 - The docs pages: edit `docs/HOSTING.md`, `docs/JOINING.md` or `CHANGELOG.md` themselves; the page chrome (header,

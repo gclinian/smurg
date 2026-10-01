@@ -1,9 +1,9 @@
 // The terminal viewer the agents panel paints into: xterm.js through lib/xterm.ts, loaded lazily (lib/lazy.ts — xterm
 // must never reach the entry chunk). createViewerTerminal() already registers the FULL query-swallow set, orders
 // resizes with the output stream and paints snapshots after a reset; this adapter adds what the panel needs on top:
-// owner-only input (a non-owner's terminal has stdin disabled, so xterm emits nothing at all — not even focus or mouse
-// reports), the geometry the owner's panel offers (terminal-fit.ts turns it into the PTY size), theme switching and
-// file-path links.
+// input only from those who may type (host and 可使用 agent; everyone else's terminal has stdin disabled, so xterm
+// emits nothing at all — not even focus or mouse reports), the geometry the owner's panel offers (terminal-fit.ts turns
+// it into the PTY size), theme switching and file-path links.
 //
 // The factory is injectable (ViewerFactoryContext) so tests can hold on to the real xterm instance they render.
 import { createContext, useContext } from 'react';

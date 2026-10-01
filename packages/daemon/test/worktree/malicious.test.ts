@@ -44,7 +44,7 @@ async function clearMarkers(): Promise<void> {
 }
 
 async function amyWorktree(s: WorktreeStack) {
-  const amy = await s.connect('dev:amy', 'runner');
+  const amy = await s.connect('dev:amy', 'agent');
   const handle = await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_evil' });
   return { amy, worktreeId: handle.worktree.id, dir: s.worktreeDir(handle.worktree.id) };
 }

@@ -9,17 +9,7 @@ import {
 import { handleCreateWorkspace, handleIdentityToken, handleJwks, handleRoomDebug } from './api.ts';
 import { handleDeviceDebug, handleDevicePage, handleDeviceStart, handleDeviceToken } from './auth/device.ts';
 import { SigningKeyError, signingKeys } from './auth/keys.ts';
-import {
-  handleCallback,
-  handleCliStart,
-  handleCliToken,
-  handleDevStart,
-  handleDevToken,
-  handleLogin,
-  handleLoginOptions,
-  handleLogout,
-  handleMe,
-} from './auth/routes.ts';
+import { handleCallback, handleDevStart, handleDevToken, handleLogin, handleLoginOptions, handleLogout, handleMe } from './auth/routes.ts';
 import type { RequestContext } from './context.ts';
 import { RelayConfigError, parseRelayConfig, parseRoomConfig, type RelayConfig } from './lib/config.ts';
 import { DEVICE_DEBUG_PATH } from './lib/device.ts';
@@ -91,11 +81,6 @@ async function route(ctx: RequestContext): Promise<Response> {
       return handleDeviceStart(ctx);
     case RELAY_PATHS.deviceToken:
       return handleDeviceToken(ctx);
-    // Deprecated: the loopback login of smurg 0.1.0 (auth/routes.ts).
-    case RELAY_PATHS.cliStart:
-      return handleCliStart(ctx);
-    case RELAY_PATHS.cliToken:
-      return handleCliToken(ctx);
     case RELAY_PATHS.logout:
       return handleLogout(ctx);
     case ROOM_DEBUG_PATH:

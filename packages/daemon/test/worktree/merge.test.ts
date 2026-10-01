@@ -18,7 +18,7 @@ afterEach(async () => {
 }, 60_000);
 
 async function amyWorktree(s: WorktreeStack): Promise<{ amy: TestClient; worktreeId: string; dir: string }> {
-  const amy = await s.connect('dev:amy', 'runner');
+  const amy = await s.connect('dev:amy', 'agent');
   const handle = await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_amy' });
   return { amy, worktreeId: handle.worktree.id, dir: s.worktreeDir(handle.worktree.id) };
 }
@@ -68,21 +68,27 @@ describe('worktree.merge.request', { timeout: 60_000 }, () => {
     expect(second.request.commit).toBe(request.commit);
   });
 
-  it('only the worktree owner may request a merge (audited), and only with the capability', async () => {
+  it('anyone with worktree.merge.request (the host, 可使用 agent) may request a merge of any worktree (§11 D-15); an editor may not (audited)', async () => {
     stack = await startWorktreeStack();
     const s = stack;
-    const { worktreeId } = await amyWorktree(s);
+    const { worktreeId, dir } = await amyWorktree(s);
     const bob = await s.connect('dev:bob', 'editor');
-    const carl = await s.connect('dev:carl', 'runner');
+    const carl = await s.connect('dev:carl', 'agent');
     expect(await settleError(bob.conn.request('worktree.merge.request', { worktreeId }))).toMatchObject({ code: 'forbidden' });
-    expect(await settleError(carl.conn.request('worktree.merge.request', { worktreeId }))).toMatchObject({ code: 'forbidden' });
-    expect(await settleError(s.host.conn.request('worktree.merge.request', { worktreeId }))).toMatchObject({ code: 'forbidden' });
     const denied = (await s.t.ctx.audit.query({ limit: 100 })).filter((entry) => entry.action === 'authz.denied' && entry.target === 'worktree.merge.request');
-    expect(denied.length).toBe(3);
-    expect((await s.t.ctx.audit.query({ limit: 100 })).some((entry) => entry.action === 'worktree.merge.request')).toBe(false);
+    expect(denied.map((entry) => (entry.actor.kind === 'user' ? entry.actor.userId : ''))).toEqual(['dev:bob']);
+    // Carl did not open Amy's worktree, but he may type into her session anyway: he may ask the host to merge it.
+    await writeFile(join(dir, 'from-carl.txt'), 'carl\n');
+    const byCarl = (await carl.conn.request('worktree.merge.request', { worktreeId, message: 'Carl 的請求' })).request;
+    expect(byCarl).toMatchObject({ worktreeId, requestedBy: { userId: 'dev:carl' }, status: 'pending' });
+    expect((await s.git(['log', '-1', '--format=%an|%s'], dir)).trim()).toBe('carl|Carl 的請求');
+    const byHost = (await s.host.conn.request('worktree.merge.request', { worktreeId })).request;
+    expect(byHost).toMatchObject({ worktreeId, requestedBy: { userId: s.host.userId }, commit: byCarl.commit });
+    const requests = (await s.t.ctx.audit.query({ limit: 100 })).filter((entry) => entry.action === 'worktree.merge.request' && entry.outcome === 'ok');
+    expect(requests.map((entry) => (entry.actor.kind === 'user' ? entry.actor.userId : '')).sort()).toEqual(['dev:carl', s.host.userId].sort());
   });
 
-  it('refuses a guest merge that carries host-only paths or the daemon directory (no ref is left behind)', async () => {
+  it('refuses a merge request of a member who is not the host that carries host-only paths or the daemon directory (no ref is left behind)', async () => {
     stack = await startWorktreeStack();
     const s = stack;
     const { amy, worktreeId, dir } = await amyWorktree(s);
@@ -105,31 +111,6 @@ describe('worktree.merge.request', { timeout: 60_000 }, () => {
     expect((await s.git(['for-each-ref', 'refs/smurg/'])).trim()).toBe('');
     const audit = await s.t.ctx.audit.query({ limit: 50 });
     expect(audit.filter((entry) => entry.action === 'worktree.merge.request' && entry.outcome === 'denied').length).toBe(3);
-  });
-
-  it('leaves out the mount points a running Linux sandbox keeps in the worktree (bubblewrap: empty read-only files under the denied names), and only those', async () => {
-    stack = await startWorktreeStack();
-    const s = stack;
-    const { amy, worktreeId, dir } = await amyWorktree(s);
-    // What bubblewrap leaves on the host for `--ro-bind /dev/null <absent path>` while the guest's session runs (seen
-    // on Ubuntu 24.04: the host-only names of sandbox/policy.ts at the top of the worktree, mode 0444, empty).
-    const mountPoints = ['.claude', '.envrc', '.idea', '.mcp.json', '.smurg', '.vscode'];
-    for (const name of mountPoints) await writeFile(join(dir, name), '', { mode: 0o444 });
-    await writeFile(join(dir, 'feature.txt'), 'the guest\'s work\n');
-    // An empty read-only file anywhere else is the guest's own: it is part of the request.
-    await writeFile(join(dir, 'empty-read-only.txt'), '', { mode: 0o444 });
-
-    const { request } = await amy.conn.request('worktree.merge.request', { worktreeId, message: 'with a live sandbox' });
-    const files = (await s.git(['diff-tree', '-r', '--no-commit-id', '--name-only', `${request.commit}^`, request.commit])).trim().split('\n').sort();
-    expect(files).toEqual(['empty-read-only.txt', 'feature.txt']);
-    // The mount points are left exactly where they are (the running sandbox needs them), and still not committed.
-    for (const name of mountPoints) expect((await lstat(join(dir, name))).size).toBe(0);
-    expect((await s.git(['status', '--porcelain=v1', '--untracked-files=all'], dir)).split('\n').filter(Boolean).sort()).toEqual(mountPoints.map((name) => `?? ${name}`));
-
-    // The same name with content, or writable, is not a mount point: it is refused like any host-only path.
-    await rm(join(dir, '.mcp.json'), { force: true });
-    await writeFile(join(dir, '.mcp.json'), '', { mode: 0o644 });
-    expect(await settleError(amy.conn.request('worktree.merge.request', { worktreeId }))).toMatchObject({ code: 'host_only', reason: 'host-only-paths' });
   });
 });
 
@@ -188,8 +169,10 @@ describe('R9 merge review', { timeout: 60_000 }, () => {
       if (file.path === 'new-name.txt') expect(one.diff).toContain('rename from old-name.txt');
     }
     expect(hugeTruncated).toBe(true);
-    // The owner may review too; nobody else.
+    // Whoever may request a merge may review it (§11 D-15): the requester, any 可使用 agent member; an editor may not.
     await amy.conn.request('worktree.merge.diff', { requestId: request.id });
+    const carl = await s.connect('dev:carl', 'agent');
+    await expect(carl.conn.request('worktree.merge.fileDiff', { requestId: request.id, path: 'src/app.ts' })).resolves.toMatchObject({ path: 'src/app.ts' });
     const bob = await s.connect('dev:bob', 'editor');
     expect(await settleError(bob.conn.request('worktree.merge.diff', { requestId: request.id }))).toMatchObject({ code: 'forbidden' });
     expect(await settleError(bob.conn.request('worktree.merge.fileDiff', { requestId: request.id, path: 'src/app.ts' }))).toMatchObject({ code: 'forbidden' });

@@ -1,17 +1,18 @@
 import { defineStrings } from '../../strings/catalog.ts';
 
-// Namespace of the suggest feature (suggestion composer, the owner's queue, the author's list).
+// Namespace of the suggest feature (suggestion composer, the queue of those who may type into a session, the author's
+// list). Protocol v2: the host and 可使用 agent members decide on suggestions to ANY session; editors suggest.
 export const t = defineStrings('suggest', {
   title: '建議',
   'empty.noSession': '還沒有 session。有人開啟 session 後，可以在這裡對它提出建議。',
-  'session.label': '{owner}的「{title}」',
+  'session.label': '{owner} 開的「{title}」',
 
-  'composer.label': '給{owner}的「{title}」的建議',
+  'composer.label': '給 {owner} 開的「{title}」的建議',
   'composer.placeholder': '想請 agent 做什麼？例如：先幫這個函式補上測試。',
-  'composer.hint': '建議會先進入 {owner} 的佇列；{owner} 確認後，才會以 {owner} 的身分送進 session。',
+  'composer.hint': '建議會先進入等待清單；主人或「可使用 agent」的成員採用後，才會送進 session。',
   'composer.send': '送出建議',
   'composer.shortcut': 'Ctrl + Enter 送出',
-  'composer.sent': '已送出建議，等待 {owner} 決定。',
+  'composer.sent': '已送出建議，等待主人或「可使用 agent」的成員決定。',
   'composer.failed': '無法送出建議：{message}',
   'composer.exited': '這個 session 已結束，不能再提出建議。',
   'composer.viewer': '你的角色是「旁觀」，可以觀看 session，但不能提出建議。',
@@ -24,7 +25,7 @@ export const t = defineStrings('suggest', {
   'quote.header': '{path} 第 {range} 行：',
 
   'queue.title': '等待你決定的建議（{count}）',
-  'queue.lead': '其他人對這個 session 的建議。只有你採用之後，內容才會以你的身分送進 session。',
+  'queue.lead': '其他人對這個 session 的建議。採用之後，內容才會送進 session；主人和「可使用 agent」的成員都可以處理。',
   'queue.empty': '目前沒有等待你處理的建議。',
   'queue.from': '{name} 提出',
   'queue.accept': '採用',
@@ -38,7 +39,7 @@ export const t = defineStrings('suggest', {
   'queue.rejected': '已拒絕 {name} 的建議。',
   'queue.failed': '無法處理這則建議：{message}',
   'queue.exited': '這個 session 已結束，無法再採用建議。',
-  'queue.others': '你的其他 session 還有 {count} 則建議等待處理。',
+  'queue.others': '其他 session 還有 {count} 則建議等待處理。',
   'queue.goOthers': '前往查看',
   'queue.history': '已處理的建議',
 
@@ -61,20 +62,19 @@ export const t = defineStrings('suggest', {
   'mine.more': '顯示更多（還有 {count} 則）',
   'mine.failed': '無法更新建議：{message}',
 
-  'notice.accepted': '{owner} 採用了你的建議',
-  'notice.acceptedModified': '{owner} 修改後採用了你的建議',
-  'notice.rejected': '{owner} 拒絕了你的建議',
+  'notice.accepted': '你的建議已被採用',
+  'notice.acceptedModified': '你的建議已修改後採用',
+  'notice.rejected': '你的建議被拒絕了',
   'notice.reason': '原因：{reason}',
-  'notice.owner': 'session 擁有者',
 
   'send.title': '把選取的程式碼送到 session',
   'send.lead': '{path} 第 {range} 行',
   'send.target': '要送到哪個 session？',
-  'send.own': '貼到我的 {title}（不會自動按 Enter）',
-  'send.other': '作為建議送給{owner}的「{title}」',
+  'send.own': '貼到「{title}」（不會自動按 Enter）',
+  'send.other': '作為建議送給 {owner} 開的「{title}」',
   'send.none': '目前沒有執行中的 session。',
   'send.confirm': '繼續',
-  'send.pasted': '已貼到你的 {title}。確認內容後，在終端機按 Enter 送出。',
+  'send.pasted': '已貼到「{title}」。確認內容後，在終端機按 Enter 送出。',
   'send.missing': '找不到這個 session，它可能已經結束。',
   'send.exited': '這個 session 已結束。',
   'send.tooLong': '選取的內容太長，無法一次貼上。',

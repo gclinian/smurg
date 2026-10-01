@@ -50,17 +50,19 @@ describe('selection → agent text (R6 在編輯器選取程式碼後，可以�
     expect(buildSelectionPayload(FILE, { startLine: 1, startColumn: 1, endLine: 1, endColumn: 70_001 }, huge, 's')).toEqual({ ok: false, problem: 'too-large' });
   });
 
-  it('targets: own running agent sessions (direct) and other people’s (suggestion); never terminals or ended sessions', () => {
+  it('targets: the host and 可使用 agent type into every running agent session; an editor suggests to other people’s; never terminals or ended sessions', () => {
     const sessions = [
       makeSession({ id: 'mine', ownerUserId: 'dev:amy', ownerName: 'Amy' }),
       makeSession({ id: 'mine-terminal', kind: 'terminal', ownerUserId: 'dev:amy' }),
       makeSession({ id: 'ian', ownerUserId: 'dev:host', ownerName: 'Ian' }),
       makeSession({ id: 'ian-old', ownerUserId: 'dev:host', status: 'exited' }),
     ];
-    const runner = sessionTargets(sessions, 'dev:amy', capabilitiesForRole('runner'));
-    expect(runner.own.map((s) => s.id)).toEqual(['mine']);
-    expect(runner.others.map((s) => s.id)).toEqual(['ian']);
-    // An editor cannot own sessions but can suggest.
+    for (const role of ['agent', 'host'] as const) {
+      const driver = sessionTargets(sessions, 'dev:amy', capabilitiesForRole(role));
+      expect(driver.own.map((s) => s.id), role).toEqual(['mine', 'ian']);
+      expect(driver.others, role).toEqual([]);
+    }
+    // An editor cannot type but can suggest (never to a session of their own).
     const editor = sessionTargets(sessions, 'dev:amy', capabilitiesForRole('editor'));
     expect(editor.own).toEqual([]);
     expect(editor.others.map((s) => s.id)).toEqual(['ian']);
@@ -69,5 +71,6 @@ describe('selection → agent text (R6 在編輯器選取程式碼後，可以�
     expect(viewer).toEqual({ own: [], others: [] });
     expect(canSendToAgent(capabilitiesForRole('viewer'))).toBe(false);
     expect(canSendToAgent(capabilitiesForRole('editor'))).toBe(true);
+    expect(canSendToAgent(capabilitiesForRole('agent'))).toBe(true);
   });
 });

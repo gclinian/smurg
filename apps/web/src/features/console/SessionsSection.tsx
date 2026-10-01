@@ -1,6 +1,7 @@
 // Every session of the workspace (SPEC R11 「所有 session（狀態、擁有者、所在 worktree）」「一鍵終止任何 session」): status,
-// owner, where it runs (main workspace or which worktree), sandboxed or not, viewers; 「終止」 sends
-// admin.session.terminate at once (one click, as SPEC R11 asks; the session's worktree is kept).
+// who opened it, where it runs (main workspace or which worktree), viewers; 「終止」 sends admin.session.terminate at
+// once (one click, as SPEC R11 asks; the session's worktree is kept). Every session runs on the host's computer with
+// the host's Claude account (protocol v2), so there is no sandbox column.
 import { useState } from 'react';
 import type { SessionInfo, WorktreeInfo } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -92,11 +93,6 @@ export function SessionsSection({ now }: { now: number }) {
       },
     },
     { id: 'where', header: t('sessions.col.where'), cell: (session) => whereLabel(session, worktrees) },
-    {
-      id: 'sandbox',
-      header: t('sessions.col.sandbox'),
-      cell: (session) => <Badge tone={session.sandboxed ? 'info' : 'warning'}>{session.sandboxed ? t('sessions.sandboxed') : t('sessions.unsandboxed')}</Badge>,
-    },
     { id: 'viewers', header: t('sessions.col.viewers'), align: 'end', cell: (session) => t('sessions.viewers', { count: session.attached }) },
     {
       id: 'actions',

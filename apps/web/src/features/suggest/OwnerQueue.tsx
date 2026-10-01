@@ -1,7 +1,8 @@
-// The session owner's queue beside their terminal (SPEC R6 「session 擁有者看到建議佇列，可以採用、修改後採用、拒絕」):
-// proposer, time, the text; accept, edit then accept, or reject with a reason. Accepting is the ONLY way a suggestion's
-// text reaches the PTY (the daemon pastes it as the owner after the ownership check). There is deliberately no
-// "accept automatically" option anywhere (SPEC 「沒有自動採用選項」).
+// The queue of suggestions beside a terminal (SPEC R6 「看到建議佇列，可以採用、修改後採用、拒絕」), for everyone who may
+// type into the session — the host and 可使用 agent members, on ANY session (protocol v2, `session.drive`): proposer,
+// time, the text; accept, edit then accept, or reject with a reason. Accepting is the ONLY way a suggestion's text
+// reaches the PTY (the daemon pastes it after its check). There is deliberately no "accept automatically" option
+// anywhere (SPEC 「沒有自動採用選項」).
 import { useState } from 'react';
 import type { SessionInfo, Suggestion } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -123,7 +124,7 @@ function QueueItem({ suggestion, session, now }: { suggestion: Suggestion; sessi
 export interface OwnerQueueProps {
   readonly session: SessionInfo;
   readonly now: number;
-  /** Pending suggestions on the owner's OTHER sessions, and a way to go there. */
+  /** Pending suggestions on OTHER sessions this member decides on too, and a way to go there. */
   readonly othersPending: number;
   onShowOthers(): void;
 }

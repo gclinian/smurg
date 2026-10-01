@@ -1,6 +1,6 @@
-// The suggestion composer under someone else's terminal (SPEC R6 「可編輯以上的角色可以對別人的 session 提建議」):
-// text for the agent, optionally with the code selection it was made from. It only ever creates a suggestion; the
-// session owner decides. There is no way to send text into another person's session from here.
+// The suggestion composer under a session an editor may not type into (SPEC R6 「可編輯以上的角色可以對別人的 session
+// 提建議」): text for the agent, optionally with the code selection it was made from. It only ever creates a suggestion;
+// the host or a 可使用 agent member decides. There is no way to send text into the session from here.
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import type { SessionInfo, Suggestion } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -67,7 +67,7 @@ export function Composer({ session, draft, onChange, focusToken, onFocused }: Co
     try {
       await stores.suggestions.create({ sessionId: session.id, text, ...(draft.source ? { source: draft.source } : {}) });
       onChange({ text: '', source: null });
-      toast.show({ tone: 'success', title: t('composer.sent', { owner: session.ownerName }) });
+      toast.show({ tone: 'success', title: t('composer.sent') });
     } catch (failure) {
       setSendError(t('composer.failed', { message: describeError(failure) }));
     } finally {
@@ -125,7 +125,7 @@ export function Composer({ session, draft, onChange, focusToken, onFocused }: Co
         </div>
       ) : null}
       <p id={hintId} className="suggest-note">
-        {t('composer.hint', { owner: session.ownerName })}
+        {t('composer.hint')}
       </p>
       <div className="suggest-composer__actions">
         <span className="suggest-note">{t('composer.shortcut')}</span>

@@ -28,7 +28,6 @@ describe('error codes', () => {
       'conflict',
       'locked',
       'path_denied',
-      'sandbox_unavailable',
       'insufficient_disk',
       'too_large',
       'host_only',

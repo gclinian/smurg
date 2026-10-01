@@ -26,7 +26,7 @@ export type MessageChannel = 'interactive' | 'transfer' | 'both';
 
 /**
  * What the Router checks before a handler runs (for d2c events: what a recipient must have).
- *  - a Capability, or a list meaning "any of them" (session.create: host → .host, runner → .sandboxed);
+ *  - a Capability, or a list meaning "any of them";
  *  - 'none': any admitted member;
  *  - 'owner-checked-in-handler': no capability applies; the handler MUST perform the ownership checks listed in
  *    `checks` (e.g. exec.input: caller owns the session).
@@ -45,17 +45,11 @@ export const HANDLER_CHECKS = [
   'transfer-connection', // only the connection that began/resumed this upload/download
   'doc-subscriber', // only a connection that opened this docId
   'doc-content-needs-file.write', // content-carrying sync messages from members without file.write are dropped + audited
-  'session-owner', // caller owns the session (host: admin.session.terminate instead)
-  'sandbox-by-role', // the role decides sandboxed vs host session; the client never chooses
-  'api-key-sandboxed-only', // session.create.apiKey only for sandboxed sessions
-  'login-own-guest-only', // session.create kind 'login': the caller's own login, sandboxed roles only, fixed command (D-12)
-  'own-guest-dir', // writes only into the caller's own guest config dir
+  'session-owner', // caller opened (owns) the session (host: admin.session.terminate instead)
   'target-session-not-own', // suggest.create: the target session belongs to someone else
   'suggestion-author-pending', // caller authored the suggestion and it is still pending
-  'suggestion-session-owner', // caller owns the suggestion's session and it is still pending
-  'worktree-owner', // caller owns the worktree
+  'suggestion-pending', // the suggestion is still pending (accept / reject: any session the caller may drive)
   'worktree-owner-or-host', // caller owns the worktree, or is the host
-  'merge-request-owner-or-host', // caller owns the request's worktree, or is the host
   'human-lock-holder', // caller is one of the human lock's holders
   'recipients:all', // fan-out to every admitted member holding `capability`
   'recipients:self', // only the member (or connection) concerned
@@ -63,7 +57,7 @@ export const HANDLER_CHECKS = [
   'recipients:host', // host connections only
   'recipients:doc-subscribers', // connections that opened the doc
   'recipients:attached-viewers', // connections attached to the session
-  'recipients:suggestion-parties', // session owner, suggestion author and host
+  'recipients:suggestion-parties', // the suggestion's author and every member holding session.drive (host, 可使用 agent)
   'recipients:transfer-connection', // the transfer connection of that download
   'recipients:notified-member', // the connections of the member being notified
 ] as const;
@@ -159,7 +153,7 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'channel.closed': event(channel.channelClosedPayloadSchema, 'none', { channel: 'both', checks: ['recipients:self'] }),
   'channel.ack': both(channel.channelAckPayloadSchema, 'none'),
   'channel.leave': request(channel.channelLeavePayloadSchema, channel.channelLeaveResultSchema, 'none', {
-    addition: 'SPEC R4: a guest who leaves is logged out and their temp dir deleted within 5 s; a disconnect must not do that',
+    addition: 'SPEC R4 「客人離開」: the sessions a member opened end when they leave; a disconnect must not do that',
   }),
   error: event(errorPayloadSchema, 'none', { channel: 'both', checks: ['recipients:requester'] }),
 
@@ -291,18 +285,12 @@ export const MESSAGE_REGISTRY = Object.freeze({
   }),
 
   // ---- session.* and exec.* (§5.5) -----------------------------------------------------------------------------
-  'session.create': request(
-    sessions.sessionCreatePayloadSchema,
-    sessions.sessionCreateResultSchema,
-    ['session.create.host', 'session.create.sandboxed'],
-    { checks: ['sandbox-by-role', 'api-key-sandboxed-only', 'login-own-guest-only'], sensitive: true, redact: ['apiKey'] },
-  ),
+  'session.create': request(sessions.sessionCreatePayloadSchema, sessions.sessionCreateResultSchema, 'session.create'),
   'session.list': request(sessions.sessionListPayloadSchema, sessions.sessionListResultSchema, 'session.view'),
   'session.loginStatus': request(
     sessions.sessionLoginStatusPayloadSchema,
     sessions.sessionLoginStatusResultSchema,
-    OWNER,
-    { checks: ['session-owner'] },
+    'session.drive',
   ),
   'session.attach': request(sessions.sessionAttachPayloadSchema, sessions.sessionAttachResultSchema, 'session.view', {
     resultSensitive: true,
@@ -312,17 +300,11 @@ export const MESSAGE_REGISTRY = Object.freeze({
     checks: ['session-owner'],
   }),
   'session.state': event(sessions.sessionStatePayloadSchema, 'session.view', { checks: ['recipients:all'] }),
-  'session.importConfig': request(
-    sessions.sessionImportConfigPayloadSchema,
-    sessions.sessionImportConfigResultSchema,
-    'session.create.sandboxed',
-    { checks: ['own-guest-dir'], sensitive: true },
-  ),
   'exec.output': event(sessions.execOutputPayloadSchema, 'session.view', {
     checks: ['recipients:attached-viewers'],
     sensitive: true,
   }),
-  'exec.input': notify(sessions.execInputPayloadSchema, OWNER, { checks: ['session-owner'], sensitive: true }),
+  'exec.input': notify(sessions.execInputPayloadSchema, 'session.drive', { sensitive: true }),
   'exec.resize': both(sessions.execResizePayloadSchema, OWNER, {
     checks: ['session-owner', 'recipients:attached-viewers'],
   }),
@@ -337,11 +319,11 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'suggest.withdraw': request(suggestions.suggestWithdrawPayloadSchema, suggestions.suggestionResultSchema, OWNER, {
     checks: ['suggestion-author-pending'],
   }),
-  'suggest.accept': request(suggestions.suggestAcceptPayloadSchema, suggestions.suggestionResultSchema, OWNER, {
-    checks: ['suggestion-session-owner'],
+  'suggest.accept': request(suggestions.suggestAcceptPayloadSchema, suggestions.suggestionResultSchema, 'session.drive', {
+    checks: ['suggestion-pending'],
   }),
-  'suggest.reject': request(suggestions.suggestRejectPayloadSchema, suggestions.suggestionResultSchema, OWNER, {
-    checks: ['suggestion-session-owner'],
+  'suggest.reject': request(suggestions.suggestRejectPayloadSchema, suggestions.suggestionResultSchema, 'session.drive', {
+    checks: ['suggestion-pending'],
   }),
   'suggest.list': request(suggestions.suggestListPayloadSchema, suggestions.suggestListResultSchema, 'session.view'),
   'suggest.updated': event(suggestions.suggestUpdatedPayloadSchema, 'session.view', {
@@ -357,20 +339,17 @@ export const MESSAGE_REGISTRY = Object.freeze({
     worktrees.worktreeMergeRequestPayloadSchema,
     worktrees.mergeRequestResultSchema,
     'worktree.merge.request',
-    { checks: ['worktree-owner'] },
   ),
   'worktree.merge.list': request(worktrees.worktreeMergeListPayloadSchema, worktrees.worktreeMergeListResultSchema, 'file.read'),
-  'worktree.merge.diff': request(worktrees.worktreeMergeDiffPayloadSchema, worktrees.worktreeMergeDiffResultSchema, OWNER, {
-    checks: ['merge-request-owner-or-host'],
+  'worktree.merge.diff': request(worktrees.worktreeMergeDiffPayloadSchema, worktrees.worktreeMergeDiffResultSchema, 'worktree.merge.request', {
     resultSensitive: true,
     redact: ['diff'],
   }),
   'worktree.merge.fileDiff': request(
     worktrees.worktreeMergeFileDiffPayloadSchema,
     worktrees.worktreeMergeFileDiffResultSchema,
-    OWNER,
+    'worktree.merge.request',
     {
-      checks: ['merge-request-owner-or-host'],
       resultSensitive: true,
       redact: ['diff'],
       addition: 'R9 「主人看到完整 diff」: worktree.merge.diff is capped at 1 MiB, so every file must be reviewable on its own',

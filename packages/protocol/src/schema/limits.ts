@@ -42,8 +42,6 @@ export const MERGE_MESSAGE_MAX_CHARS = 4_000;
 export const NOTIFY_TEXT_MAX_CHARS = 2_000;
 /** Audit `target` (usually a path or an id). */
 export const AUDIT_TARGET_MAX_CHARS = 4_200;
-/** A guest's own Anthropic API key (`session.create.apiKey`). */
-export const API_KEY_MAX_CHARS = 256;
 /** ETag of a single-file download (size + mtime + inode, formatted by the daemon). */
 export const ETAG_MAX_CHARS = 128;
 
@@ -68,14 +66,6 @@ export const EXEC_INPUT_MAX_BYTES = 1 * MiB;
 export const EXEC_OUTPUT_MAX_BYTES = 4 * MiB;
 /** `session.attach` result data: a serialized mirror (5000 lines of scrollback) or a raw delta. */
 export const TERMINAL_ATTACH_MAX_BYTES = MAX_CHUNK_SIZE;
-/** `session.importConfig`: files per request and bytes per file. */
-export const IMPORT_CONFIG_MAX_FILES = 500;
-export const IMPORT_CONFIG_FILE_MAX_BYTES = 1 * MiB;
-/**
- * `session.importConfig`: content bytes of ONE request, well under MAX_APP_MESSAGE (a whole Envelope). Clients split
- * a larger import into several requests; each request is written as a whole or not at all.
- */
-export const IMPORT_CONFIG_TOTAL_MAX_BYTES = 7 * MiB;
 /** `doc.conflict.get`: the full text an agent/process wrote (a document is at most MAX_DOC_BYTES). */
 export const CONFLICT_AGENT_VERSION_MAX_BYTES = MAX_DOC_BYTES;
 
@@ -105,9 +95,8 @@ export const CONFLICT_HUNKS_MAX = 64;
 export const MERGE_FILES_MAX = 10_000;
 /** Devices per member in `admin.member.list`. */
 export const DEVICES_PER_MEMBER_MAX = 100;
-/** Shared read-only directories (D12) and allowed network domains (R5) in the host settings. */
+/** Shared read-only directories (D12) in the host settings. */
 export const SHARED_DIRS_MAX = 64;
-export const ALLOWED_DOMAINS_MAX = 256;
 /** Keys in an audit entry's `detail`. */
 export const AUDIT_DETAIL_MAX_KEYS = 64;
 

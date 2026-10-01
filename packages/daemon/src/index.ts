@@ -7,12 +7,10 @@ export { DAEMON_VERSION, DEFAULT_FEATURE_MODULES, createDaemon, type Daemon, typ
 export {
   CLAUDE_MIN_VERSION,
   CLAUDE_VERIFIED_VERSIONS,
-  DEFAULT_ALLOWED_DOMAINS,
   DEFAULT_LIMITS,
   DEFAULT_TIMING,
   claudeVersionVerdict,
   compareClaudeVersions,
-  defaultGuestMainWorkspace,
   defaultHostSettings,
   parseClaudeVersion,
   resolveConfig,
@@ -20,7 +18,6 @@ export {
   type DaemonConfig,
   type DaemonConfigInput,
   type LimitsConfig,
-  type ResolveConfigEnvironment,
   type SessionLaunchConfig,
   type TimingConfig,
 } from './core/config.ts';
@@ -31,6 +28,7 @@ export {
   CTL_FRAME_KIND,
   CTL_FRAME_MAX_BYTES,
   CTL_PROTOCOL_VERSION,
+  CTL_STOP_REASON,
   CtlFrameDecoder,
   CtlProtocolError,
   ctlRequestSchema,

@@ -202,10 +202,9 @@ async function removeTree(dir: string): Promise<void> {
  * Removes `<worktreesDir>/<id>`. If the entry is not the real directory the daemon made (a symlink put in its
  * place), only the entry itself goes: nothing is ever removed through a link.
  *
- * The tree is first renamed to `<id>.removing-<hex>`, a name no sandbox may write (a worktree session may write only
- * below `<worktrees>/<id>`, every other session nothing below `.smurg`), and only then deleted. fs.rm walks by path:
- * a guest process that outlived its session (ARCHITECTURE §11 D-3) could otherwise swap a directory for a symlink in
- * the middle of the recursive delete and have the daemon delete through it.
+ * The tree is first renamed to `<id>.removing-<hex>`, a name no session works in, and only then deleted. fs.rm walks
+ * by path: a process that outlived its session (ARCHITECTURE §11 D-3) could otherwise swap a directory for a symlink
+ * in the middle of the recursive delete and have the daemon delete through it.
  */
 export async function removeWorktreeDir(worktreesDir: string, worktreeId: string): Promise<void> {
   const dir = join(worktreesDir, worktreeId);

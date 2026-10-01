@@ -1,5 +1,11 @@
 # Claude Code hooks, config dirs, MCP config and login detection
 
+> **Note (2026-10-01).** The parts of this report about guest sessions in srt's sandbox (a guest's own config dir and
+> login, hooks reachable from inside the sandbox, `CLAUDE_CONFIG_DIR` and the host's `~/.claude` for guests) are
+> historical: the owner removed guests' own agents and the guest sandbox (`docs/ARCHITECTURE.md` §11 D-15). Every
+> session now runs as the host, with the host's config dir and login. The findings about hooks, MCP config and login
+> detection themselves still apply.
+
 Research spike for smurg [Prototype] (spec R4, R5, R8, §11, §13).
 Target: originally **Claude Code 2.1.220** (the CLI installed on the host dev machine), macOS arm64, 2026-09-27.
 **Verified and re-run on 2.1.283** (the version smurg must pin, because the team develops on Opus 5.5; see §1.7).

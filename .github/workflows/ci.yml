@@ -7,7 +7,8 @@
 # Google Chrome is preinstalled on both (images/macos/macos-15-arm64-Readme.md "Browsers": Google Chrome 152;
 # images/ubuntu/Ubuntu2404-Readme.md "Browsers": Google Chrome 153 at /usr/bin/google-chrome), which is where
 # apps/web/e2e/chrome.ts looks, so the real-browser tests run. `claude` is not installed: the real-claude tests skip
-# and say so. The Linux job installs what the guest sandbox needs, as scripts/install.sh does for a host.
+# and say so. No system package is installed on either runner: a host needs none (there is no guest sandbox,
+# ARCHITECTURE §11 D-15).
 name: CI
 
 on:
@@ -15,15 +16,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      linux-userns:
-        description: >-
-          Ubuntu: how bubblewrap gets its user namespaces. "profile" = the AppArmor profile for /usr/bin/bwrap that
-          scripts/install.sh installs (what a host gets); "sysctl" = lift the restriction for the whole machine, to
-          tell a profile problem from a code problem.
-        type: choice
-        options: [profile, sysctl]
-        default: profile
 
 permissions:
   contents: read
@@ -60,25 +52,6 @@ jobs:
           node-version-file: .nvmrc
           package-manager-cache: false
 
-      - name: "Linux: bubblewrap, socat, ripgrep and the AppArmor user-namespace setup (as scripts/install.sh)"
-        if: runner.os == 'Linux'
-        env:
-          USERNS_MODE: ${{ inputs.linux-userns || 'profile' }}
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends bubblewrap socat ripgrep
-          restricted="$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)"
-          echo "kernel.apparmor_restrict_unprivileged_userns=$restricted (mode: $USERNS_MODE)"
-          if [ "$restricted" = 1 ] && [ "$USERNS_MODE" = sysctl ]; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          elif [ "$restricted" = 1 ]; then
-            # The same profile scripts/install.sh installs and `smurg host` prints: only /usr/bin/bwrap gets userns.
-            printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' 'profile smurg-bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '}' |
-              sudo tee /etc/apparmor.d/smurg-bwrap >/dev/null
-            sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap
-          fi
-
       - name: Repo-local pnpm
         run: scripts/bootstrap-tools.sh
 
@@ -105,11 +78,6 @@ jobs:
             # (the runner's bash has -o pipefail: `| head` may cut a writer short, so these never fail the step)
             ldd --version 2>&1 | head -1 || true
             google-chrome --version || echo 'no Google Chrome: the browser tests skip'
-            bwrap --version || true
-            socat -V 2>&1 | grep -m1 'socat version' || true
-            rg --version 2>&1 | head -1 || true
-            # The probe srt runs before sandboxing (linux-sandbox-utils.js): can bubblewrap create a user namespace?
-            if bwrap --unshare-user --dev-bind / / true; then echo 'bwrap user namespace: ok'; else echo '::warning::bwrap cannot create a user namespace: the guest sandbox tests will fail'; fi
           fi
           command -v claude || echo 'no claude on PATH: the real-claude tests skip'
 

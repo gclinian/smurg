@@ -1,10 +1,10 @@
 // zod schemas of the hook + MCP socket protocol (ARCHITECTURE §7.7), daemon side. Everything that arrives on the
-// socket is a CLAIM from a process inside a (possibly sandboxed) session: these schemas bound every field before any
+// socket is a CLAIM from a process inside a session: these schemas bound every field before any
 // decision is taken, and identity never comes from here (the daemon derives session and owner from the token).
 // The clients (hook-cli.ts, ../mcp/coord-server.ts) do not load this file: they must start without zod (wire.ts).
 import { NOTIFY_TEXT_MAX_CHARS, displayNameSchema, multilineTextSchema, userIdSchema } from '@smurg/protocol';
 import { z } from 'zod';
-import { HOOK_PROBE_NONCE_PATTERN, MCP_TOOL_NAMES, REQUEST_ID_PATTERN, WAIT_FOR_LOCK_MAX_SECONDS } from './wire.ts';
+import { MCP_TOOL_NAMES, REQUEST_ID_PATTERN, WAIT_FOR_LOCK_MAX_SECONDS } from './wire.ts';
 
 /** Absolute or relative file paths from Claude Code; PATH_MAX-sized with room for Linux's 4,095 bytes. */
 const MAX_PATH_CHARS = 4_096;
@@ -37,8 +37,6 @@ export const hookInputSchema = z.object({
   source: shortString.optional(),
   reason: shortString.optional(),
   stop_hook_active: z.boolean().optional(),
-  /** The hook self-test's nonce (event SmurgProbe, wire.ts). */
-  smurg_probe: z.string().regex(HOOK_PROBE_NONCE_PATTERN).optional(),
 });
 export type HookInput = z.infer<typeof hookInputSchema>;
 

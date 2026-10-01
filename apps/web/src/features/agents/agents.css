@@ -1,4 +1,4 @@
-/* The agents panel (session tabs, terminal, dialogs, login guide). Tokens from src/ui/tokens.css. */
+/* The agents panel (session tabs, terminal, dialogs). Tokens from src/ui/tokens.css. */
 
 .agents-panel .ui-panel__body {
   display: flex;
@@ -159,8 +159,6 @@
   display: flex;
   flex: 1;
   min-height: 0;
-  /* The login guide sits beside the terminal when there is room, above it when the panel is narrow. */
-  container-type: inline-size;
 }
 .agents-session__layout {
   display: flex;
@@ -263,138 +261,6 @@
   pointer-events: none;
 }
 
-/* ---------------------------------------------------------------- login guide (beside the terminal) */
-/* Beside, not over: the owner must see the login URL and the code prompt in the terminal while following the steps
-   (their viewport, and with it the PTY, gets narrower instead). */
-.agents-login {
-  flex: 0 0 min(340px, 45%);
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--color-surface-2);
-  border-left: var(--border-width) solid var(--color-border-strong);
-}
-/* Narrow panel: the guide goes ABOVE the terminal (never over it: step 1 is 「點一下終端機」), at most half the height,
-   scrolling on its own. */
-@container (max-width: 560px) {
-  .agents-session__layout {
-    flex-direction: column;
-  }
-  .agents-login {
-    order: -1;
-    flex: 0 1 auto;
-    max-height: 50%;
-    border-left: none;
-    border-bottom: var(--border-width) solid var(--color-border-strong);
-  }
-}
-.agents-login__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-5);
-  border-bottom: var(--border-width) solid var(--color-border);
-}
-.agents-login__title {
-  margin: 0;
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-}
-.agents-login__body {
-  flex: 1;
-  overflow: auto;
-  padding: var(--space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-}
-.agents-login__body p {
-  margin: 0;
-}
-.agents-login__method h4 {
-  margin: 0 0 var(--space-3);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-}
-.agents-login__steps {
-  margin: 0;
-  padding-left: var(--space-7);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.agents-login__note {
-  color: var(--color-text-muted);
-  margin-top: var(--space-3) !important;
-}
-.agents-login__key {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin-top: var(--space-3);
-}
-.agents-login__check {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-3);
-}
-.agents-login__result:empty {
-  display: none;
-}
-
-/* ---------------------------------------------------------------- a guest's login process (session kind 'login') */
-/* The steps above the login's own terminal (the URL and the code prompt are in it), scrolling on their own. */
-.agents-loginproc {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-.agents-loginproc__guide {
-  flex: none;
-  max-height: 45%;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-  background: var(--color-surface-2);
-  border-bottom: var(--border-width) solid var(--color-border-strong);
-}
-.agents-loginproc__title {
-  margin: 0;
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-}
-.agents-loginproc__private,
-.agents-loginproc__checking {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  margin: 0;
-  color: var(--color-text-muted);
-}
-.agents-loginproc__private > svg {
-  flex: none;
-  margin-top: 3px;
-}
-.agents-loginproc__retry {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-2);
-}
-.agents-login__error {
-  margin: 0;
-  color: var(--color-danger);
-}
-
 /* ---------------------------------------------------------------- dialogs */
 .agents-form {
   display: flex;
@@ -453,69 +319,18 @@
   font-size: var(--text-sm);
   color: var(--color-text-muted);
 }
-.agents-check {
+/* The one line that says where a session runs (the host's computer, the host's Claude account). */
+.agents-form__runs-as {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  cursor: pointer;
-}
-.agents-form__key {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-/* ---------------------------------------------------------------- import */
-.agents-import {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-}
-.agents-import__pickers {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-}
-.agents-import__picker {
-  display: flex;
-  flex-direction: column;
+  align-items: flex-start;
   gap: var(--space-2);
-}
-.agents-import__pick-label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-}
-.agents-import__input {
-  font-size: var(--text-sm);
-}
-.agents-import__heading {
-  margin: 0 0 var(--space-3);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-}
-.agents-import__files {
   margin: 0;
-  padding: 0;
-  list-style: none;
-  max-height: 200px;
-  overflow: auto;
   font-size: var(--text-sm);
-}
-.agents-import__files li {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-1) 0;
-}
-.agents-import__files code {
-  font-family: var(--font-mono);
-  overflow-wrap: anywhere;
-}
-.agents-import__files--skipped {
   color: var(--color-text-muted);
+}
+.agents-form__runs-as > svg {
+  flex: none;
+  margin-top: 3px;
 }
 
 /* ---------------------------------------------------------------- attach in your own terminal */

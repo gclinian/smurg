@@ -1,5 +1,5 @@
 // Runs ComputeJobs (merge + diff) on ONE long-lived worker thread, so the daemon's event loop keeps serving terminals,
-// the hook socket and srt's proxy while a 5 MiB file is diffed (ARCHITECTURE §0 rule 5, §7.5).
+// and the hook socket while a 5 MiB file is diffed (ARCHITECTURE §0 rule 5, §7.5).
 //
 // The worker is started lazily and unref()'d (it never keeps the process alive). If it cannot be started at all
 // (e.g. a bundle that did not ship compute-worker), jobs fall back to running inline: every algorithm is bounded by

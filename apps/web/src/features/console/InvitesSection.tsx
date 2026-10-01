@@ -1,11 +1,13 @@
 // Invites (SPEC R2 「主人產生邀請連結，可設定角色、有效期限、使用次數」): create one, see the ones on file with their
-// remaining uses, revoke.
+// remaining uses, revoke. An invite with 「可使用 agent」 is created only after the host confirmed the risk
+// (RoleRiskDialog): whoever uses it runs anything on the host's computer, with the host's Claude account.
 //
 // The link carries the one-time secret (ARCHITECTURE §4.1). It is shown ONCE, in the dialog right after creation, and
 // lives only in that dialog's React state: the admin store never keeps it (it returns it from createInvite), nothing
 // logs it, and closing the dialog drops it. Losing it means revoking the invite and creating a new one.
 import { useState } from 'react';
 import { GUEST_ROLES, type GuestRole, type InviteInfo } from '@smurg/protocol';
+import { isRiskyRole } from '../../lib/capabilities.ts';
 import { describeError } from '../../lib/errors.ts';
 import { formatDateTime, formatRole } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
@@ -24,10 +26,11 @@ import {
   type ExpiryId,
   type InviteState,
 } from './invite-form.ts';
+import { RoleRiskDialog } from './RoleRiskDialog.tsx';
 import { t } from './strings.ts';
 
 const ROLE_HINT: Record<GuestRole, () => string> = {
-  runner: () => t('invites.roleHint.runner'),
+  agent: () => t('invites.roleHint.agent'),
   editor: () => t('invites.roleHint.editor'),
   viewer: () => t('invites.roleHint.viewer'),
 };
@@ -53,6 +56,8 @@ export function InvitesSection({ now }: { now: number }) {
   const [createError, setCreateError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedLink | null>(null);
   const [revoking, setRevoking] = useState<ReadonlySet<string>>(new Set());
+  /** The risk of 「可使用 agent」 is on screen: the invite is created only on 「我了解」. */
+  const [confirmingRisk, setConfirmingRisk] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
 
   const uses = parseMaxUses(maxUses);
@@ -136,7 +141,9 @@ export function InvitesSection({ now }: { now: number }) {
         className="console-invite-form"
         onSubmit={(event) => {
           event.preventDefault();
-          void create();
+          if ('error' in uses || creating) return;
+          if (isRiskyRole(role)) setConfirmingRisk(true);
+          else void create();
         }}
       >
         <Select<GuestRole>
@@ -172,6 +179,16 @@ export function InvitesSection({ now }: { now: number }) {
           {showInactive ? t('invites.hideInactive') : t('invites.showInactive', { count: inactive.length })}
         </Button>
       ) : null}
+      <RoleRiskDialog
+        open={confirmingRisk}
+        title={t('roleRisk.inviteTitle')}
+        confirmLabel={t('roleRisk.confirmInvite')}
+        onCancel={() => setConfirmingRisk(false)}
+        onConfirm={() => {
+          setConfirmingRisk(false);
+          void create();
+        }}
+      />
       <InviteLinkDialog created={created} onClose={() => setCreated(null)} />
     </>
   );

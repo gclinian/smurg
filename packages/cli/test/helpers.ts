@@ -7,6 +7,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTempDir, createTempRunDir, registerTestProcess, removeTempDir, removeTempRunDir, waitFor } from '@smurg/daemon/testing';
+import type { SessionInfo } from '@smurg/protocol';
 import type { AttachTerminal, CliIo, CliSignal } from '../src/cli/io.ts';
 
 export const CLI_MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
@@ -97,8 +98,6 @@ export interface TestIo extends CliIo {
   readonly terminal: FakeTerminal;
   readonly exits: number[];
   readonly opened: string[];
-  /** Directories the command asked to make its working directory (recorded; the test process's own stays). */
-  readonly chdirs: string[];
   signal(signal: CliSignal): void;
   runExitHandlers(): void;
 }
@@ -109,6 +108,8 @@ export function testIo(options: {
   readonly terminal?: FakeTerminal;
   readonly openUrl?: (url: string) => Promise<boolean>;
   readonly readSecret?: (prompt: string) => Promise<string | null>;
+  /** CliIo.readLine (a y/N question at a terminal); absent: no answer (null), as without a terminal. */
+  readonly readLine?: (prompt: string) => Promise<string | null>;
   readonly now?: () => number;
   /** CliIo.delay (the login's polling); absent: real timers. */
   readonly delay?: (ms: number) => Promise<void>;
@@ -119,7 +120,6 @@ export function testIo(options: {
   const exitHandlers = new Set<() => void>();
   const exits: number[] = [];
   const opened: string[] = [];
-  const chdirs: string[] = [];
   const io: TestIo = {
     env: options.env,
     cwd: options.cwd ?? (options.env['HOME'] as string),
@@ -139,11 +139,9 @@ export function testIo(options: {
       return options.openUrl ? options.openUrl(url) : false;
     },
     readSecret: (prompt) => (options.readSecret ? options.readSecret(prompt) : Promise.resolve(null)),
+    readLine: (prompt) => (options.readLine ? options.readLine(prompt) : Promise.resolve(null)),
     exit: (code) => {
       exits.push(code);
-    },
-    chdir: (dir) => {
-      chdirs.push(dir);
     },
     now: options.now ?? (() => Date.now()),
     ...(options.delay ? { delay: options.delay } : {}),
@@ -151,7 +149,6 @@ export function testIo(options: {
     err: () => err,
     exits,
     opened,
-    chdirs,
     signal: (signal) => {
       signals.emit(signal);
     },
@@ -182,6 +179,8 @@ export interface DaemonProc {
   readonly child: ChildProcess;
   readonly pid: number;
   readonly ctlPath: string;
+  /** The host terminal the fixture opened at the start (`hostTerminal`), else null. */
+  readonly session: SessionInfo | null;
   /** SIGTERM (graceful) to the recorded pid, then wait for exit. */
   stop(): Promise<void>;
   /** SIGKILL to the recorded pid (a daemon crash), then wait for exit. */
@@ -194,8 +193,13 @@ function assertOwnChild(pid: number | undefined): number {
   return pid as number;
 }
 
-export async function startDaemonProc(dirs: Dirs, workspaceId: string): Promise<DaemonProc> {
-  const child = spawn(process.execPath, [DAEMON_FIXTURE, dirs.project, workspaceId], { env: isolatedEnv(dirs), stdio: ['ignore', 'pipe', 'pipe'] });
+/**
+ * `hostTerminal`: the title of a terminal session of the host the fixture opens before it is ready (the control socket
+ * cannot open sessions, review F1; in production the host opens them in the web app).
+ */
+export async function startDaemonProc(dirs: Dirs, workspaceId: string, options: { readonly hostTerminal?: string } = {}): Promise<DaemonProc> {
+  const args = [DAEMON_FIXTURE, dirs.project, workspaceId, ...(options.hostTerminal !== undefined ? [options.hostTerminal] : [])];
+  const child = spawn(process.execPath, args, { env: isolatedEnv(dirs), stdio: ['ignore', 'pipe', 'pipe'] });
   const pid = assertOwnChild(child.pid);
   registerTestProcess(pid, dirs.project); // its argv; ended after the run if this worker dies before stop()
   let stdout = '';
@@ -215,11 +219,13 @@ export async function startDaemonProc(dirs: Dirs, workspaceId: string): Promise<
   }
   if (!alive) throw new Error(`daemon fixture exited early: ${stderr.slice(0, 2000)}`);
   const ctlPath = (/ready (\S+)/.exec(stdout) as RegExpExecArray)[1] as string;
+  const sessionLine = /^session (.+)$/m.exec(stdout);
+  const session = sessionLine ? (JSON.parse(sessionLine[1] as string) as SessionInfo) : null;
   const signalOnce = async (signal: 'SIGTERM' | 'SIGKILL'): Promise<void> => {
     if (alive) process.kill(pid, signal);
     await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 10_000))]);
     if (alive) process.kill(pid, 'SIGKILL');
     await exited;
   };
-  return { child, pid, ctlPath, stop: () => signalOnce('SIGTERM'), crash: () => signalOnce('SIGKILL'), exited };
+  return { child, pid, ctlPath, session, stop: () => signalOnce('SIGTERM'), crash: () => signalOnce('SIGKILL'), exited };
 }

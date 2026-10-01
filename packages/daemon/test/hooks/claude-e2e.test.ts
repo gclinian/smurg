@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { DaemonEvents } from '../../src/core/interfaces.ts';
 import { buildSessionSettings, writePrivateJson } from '../../src/hooks/settings-writer.ts';
 import { TEST_HOST_USER } from '../../src/testing/index.ts';
-import { findClaude, isolatedEnv, MOCK_API_KEY, runClaude, startClaudeDaemon, type ClaudeDaemon, type ClaudeRun } from './claude-harness.ts';
+import { findClaude, isolatedEnv, MOCK_API_KEY, runClaude, seedClaudeTrust, startClaudeDaemon, type ClaudeDaemon, type ClaudeRun } from './claude-harness.ts';
 import { registerAgent } from './helpers.ts';
 import { startMockAnthropic, type MockAnthropic, type MockStep } from './mock-anthropic.ts';
 
@@ -40,8 +40,8 @@ describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthr
 
   beforeAll(async () => {
     env = await startClaudeDaemon({ 'locked.txt': LOCKED, 'free.txt': FREE, 'notes/readme.md': '# notes\n' });
-    // Ian (a runner) owns the guest sessions; the lock manager says Amy is typing in locked.txt.
-    env.daemon.ctx.members.admitMember({ userId: IAN.userId, displayName: IAN.name, role: 'runner', at: Date.now() });
+    // Ian (a 「可使用 agent」 member) opens the sessions; the lock manager says Amy is typing in locked.txt.
+    env.daemon.ctx.members.admitMember({ userId: IAN.userId, displayName: IAN.name, role: 'agent', at: Date.now() });
     env.fakes.locks.holdHuman(main('locked.txt'), 'Amy');
   });
 
@@ -64,18 +64,20 @@ describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthr
     return { events, stop: () => subscription.dispose() };
   }
 
-  /** Registers a session with the hook server, writes its launch files, seeds the guest config, runs claude -p. */
+  /**
+   * Registers Ian's session with the hook server, writes its launch files, trusts the project in the run's isolated
+   * Claude Code config, runs claude -p.
+   */
   async function run(
     label: string,
     steps: readonly MockStep[],
-    options: { readonly sandboxed?: boolean; readonly extraEnv?: Readonly<Record<string, string>>; readonly permissionMode?: string | null; readonly settingsOverride?: Record<string, unknown>; readonly prepareGuest?: (guestDir: string) => Promise<void> } = {},
+    options: { readonly extraEnv?: Readonly<Record<string, string>>; readonly permissionMode?: string | null; readonly settingsOverride?: Record<string, unknown>; readonly prepareConfig?: (isolatedDir: string) => Promise<void> } = {},
   ): Promise<{ readonly run: ClaudeRun; readonly mock: MockAnthropic; readonly sessionId: string; readonly agentLocksAtExit: readonly string[] }> {
-    const sandboxed = options.sandboxed ?? true;
-    const session = registerAgent(env.hooks, sandboxed ? IAN : HOST, { sandboxed });
+    const session = registerAgent(env.hooks, IAN);
     const files = await env.hooks.writeSessionFiles(session.sessionId);
-    const guest = await env.guestDir(label);
-    await env.hooks.seedGuestClaudeConfig({ cfgDir: join(guest, 'cfg'), cwd: env.root, apiKey: MOCK_API_KEY });
-    await options.prepareGuest?.(guest);
+    const isolated = await env.isolatedDir(label);
+    await seedClaudeTrust({ cfgDir: join(isolated, 'cfg'), cwd: env.root, apiKey: MOCK_API_KEY });
+    await options.prepareConfig?.(isolated);
     let args = [...files.claudeArgs];
     if (options.settingsOverride) {
       await writePrivateJson(files.dir, 'override.json', options.settingsOverride);
@@ -86,7 +88,7 @@ describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthr
       const permission = options.permissionMode === undefined ? ['--permission-mode', 'acceptEdits'] : options.permissionMode === null ? [] : ['--permission-mode', options.permissionMode];
       const result = await runClaude(claude as NonNullable<typeof claude>, {
         cwd: env.root,
-        env: isolatedEnv(guest, mock.url, { ...session.env, ...options.extraEnv }),
+        env: isolatedEnv(isolated, mock.url, { ...session.env, ...options.extraEnv }),
         args: ['-p', 'do the scripted edits', '--output-format', 'json', '--no-session-persistence', ...permission, ...args],
         timeoutMs: 120_000,
       });
@@ -153,7 +155,7 @@ describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthr
 
   it(`R8: 兩個 agent 同時修改同一個檔案時，後到者被擋下 — the second agent's real Edit is refused and names the first (${V})`, async () => {
     await resetFiles();
-    const first = registerAgent(env.hooks, HOST, { sandboxed: false });
+    const first = registerAgent(env.hooks, HOST);
     expect(env.fakes.locks.requestAgent({ file: main('free.txt'), sessionId: first.sessionId, ownerUserId: HOST.userId, agentName: 'Claude（Host）', sessionRoot: MAIN_ROOT }).granted).toBe(true);
     try {
       const { mock } = await run('two-agents', [readBoth(), { tools: [{ name: 'Edit', input: { file_path: path('free.txt'), old_string: 'free', new_string: 'SECOND' } }] }, { text: 'DONE' }]);
@@ -226,8 +228,7 @@ describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthr
       await writeFile(path('.claude/settings.json'), JSON.stringify({ disableAllHooks: true, env: { CLAUDE_CODE_SIMPLE: '1' } }));
       await writeFile(path('.claude/settings.local.json'), JSON.stringify({ disableAllHooks: true }));
       try {
-        await expectLockHookRan('project-disable', { sandboxed: true });
-        await expectLockHookRan('project-disable-host', { sandboxed: false });
+        await expectLockHookRan('project-disable', {});
       } finally {
         await rm(path('.claude'), { recursive: true, force: true });
       }
@@ -241,15 +242,15 @@ describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthr
       await expectLockHookRan('env-simple', { extraEnv: { CLAUDE_CODE_SIMPLE: '1' } });
     }, 180_000);
 
-    it(`hooks still run when the guest's own settings ($CLAUDE_CONFIG_DIR/settings.json) try disableAllHooks, CLAUDE_CODE_SIMPLE and CLAUDE_CODE_SAFE_MODE (${V})`, async () => {
-      await expectLockHookRan('guest-settings', {
-        prepareGuest: (guest) => writeFile(join(guest, 'cfg', 'settings.json'), JSON.stringify({ disableAllHooks: true, env: { CLAUDE_CODE_SAFE_MODE: '1', CLAUDE_CODE_SIMPLE: '1' } })),
+    it(`hooks still run when the user settings ($CLAUDE_CONFIG_DIR/settings.json, which an agent running as the host can write) try disableAllHooks, CLAUDE_CODE_SIMPLE and CLAUDE_CODE_SAFE_MODE (${V})`, async () => {
+      await expectLockHookRan('user-settings', {
+        prepareConfig: (isolated) => writeFile(join(isolated, 'cfg', 'settings.json'), JSON.stringify({ disableAllHooks: true, env: { CLAUDE_CODE_SAFE_MODE: '1', CLAUDE_CODE_SIMPLE: '1' } })),
       });
     }, 180_000);
 
     it(`control: without smurg's env neutralizers, CLAUDE_CODE_SAFE_MODE=1 really switches every hook off and the held file is overwritten (${V})`, async () => {
       await resetFiles();
-      const settings = buildSessionSettings({ variant: 'guest', command: env.daemon.config.sessions.selfCommand as NonNullable<typeof env.daemon.config.sessions.selfCommand>, rootRealPath: env.root });
+      const settings = buildSessionSettings({ command: env.daemon.config.sessions.selfCommand as NonNullable<typeof env.daemon.config.sessions.selfCommand> });
       delete settings['env'];
       await run('control-safe-mode', [readBoth(), editLocked(), { text: 'DONE' }], { extraEnv: { CLAUDE_CODE_SAFE_MODE: '1' }, settingsOverride: settings });
       expect(await read('locked.txt')).toBe('HACKED from Amy\n');

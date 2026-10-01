@@ -224,7 +224,7 @@ const editable = isDocEditable(useStore(docs, selectActiveDoc));   // agent 鎖�
 const mine = useStore(sessions, (s) => selectSessionsOf(s, userId), shallowEqual);
 const off = sessions.stream(id, { output: (chunk) => viewer.write(chunk.data), resize: ({ cols, rows }) => viewer.resize(cols, rows) });
 const attached = await sessions.attach({ sessionId: id, haveOffset, cols, rows });   // 先 stream 再 attach
-sessions.input(id, bytes);                     // 只有擁有者；sessions.resize / end / loginStatus / importConfig / create
+sessions.input(id, bytes);                     // 主人與「可使用 agent」（session.drive，任何 session）；resize 只從開啟的人的面板送；end / loginStatus / create
 ```
 
 **suggestions**（`suggestions.ts`）— 建議（R6）；沒有自動採用
@@ -286,7 +286,9 @@ transfers.cancel(id);                          // 呼叫註冊的取消函式
 
 ```tsx
 const canWrite = useCan('file.write');
-const caps = useCapabilities();                // caps.can('admin'), caps.sessionCreate, caps.isHost, caps.role
+const caps = useCapabilities();                // caps.can('admin'), caps.canCreateSession, caps.canDrive, caps.isHost, caps.role
+drivesSession(caps, session);                  // 可以在這個 session 裡輸入、處理它的建議（主人與「可使用 agent」，任何執行中的 session）
+isRiskyRole(role);                             // 給出這個角色前，控制台要主人確認風險（「可使用 agent」）
 <Can capability="suggest.create" fallback={null}><SuggestButton /></Can>
 ```
 
@@ -387,37 +389,35 @@ const { createViewerTerminal } = await loadXterm();
   （DA1/DA2/DA3、DSR/CPR/DECXCPR、DECRQM、DECRQSS、XTWINOPS 回報、OSC 4/10/11/12 查詢；有測試），
   依串流順序套用 resize，快照先 reset 再畫。附帶 web-links、unicode11 addon（fit addon 不再使用：`@xterm/addon-fit`
   仍在 package.json，可在下次調整相依時移除）。
-- 終端機大小（review LEAD-01，`features/agents/terminal-fit.ts`）：**擁有者**的面板決定 PTY 大小——欄和列都依可見區域計算
+- 終端機大小（review LEAD-01，`features/agents/terminal-fit.ts`）：**開啟 session 的人**（擁有者）的面板決定 PTY 大小（主人和
+  「可使用 agent」的成員都可以在任何 session 裡輸入，但大小只跟著擁有者，面板之間不會互相搶）——欄和列都依可見區域計算
   （`viewer.ts` 的 `measureTerminal` 量面板，`planOwnerSize` 算大小），隨 `session.attach` 送出，之後面板大小改變、窗格或
   抽屜開關、字型載入完成、分頁重新可見時（150 ms debounce）送 `exec.resize`；daemon 的 `exec.resize` 依串流順序套用。
-  下限：Claude Code（agent）80 × 24（pty-packaging.md F16/F17 驗證的大小）、登入程序 80 × 12、一般終端機只有 daemon 的
-  20 × 5。面板比下限小時終端機維持下限、面板可捲動，上方一行提示說明（`data-testid="terminal-size-hint"`），不會默默裁掉。
+  下限：Claude Code（agent）80 × 24（pty-packaging.md F16/F17 驗證的大小）、一般終端機只有 daemon 的 20 × 5。面板比下限小時終端機維持下限、面板可捲動，上方一行提示說明（`data-testid="terminal-size-hint"`），不會默默裁掉。
   其他人（以及擁有者另一個不在主導大小的視窗）以 PTY 的大小顯示，比面板大時兩個方向都可捲動、捲軸一直看得到，
   「縮放以符合寬度」只縮小畫面、不重新排列。viewport 帶 `data-cols`/`data-rows`（實際大小）、`data-fit-cols`/`data-fit-rows`
   （這個面板放得下的大小）、`data-driving`，給測試用。
 
-### 登入引導與活動動態（as built）
+### 角色、session 與活動動態（as built，協定 v2，主人決定 2026-10-01）
 
-- **客人的 Claude 訂閱登入**（ARCHITECTURE §11 D-12）：客人的 agent 在沙盒裡不能自己完成 `/login`，所以登入說明
-  （`features/agents/LoginGuide.tsx`）的「用 Claude 訂閱登入」送 `session.create { kind: 'login', workspace: { mode: 'main' }, cols, rows }`，
-  daemon 在客人自己的沙盒裡執行固定的 `claude auth login`，只有客人看得到。它以自己的分頁顯示（`LoginProcess.tsx`：步驟 → 在自己的
-  瀏覽器開網址、登入、把授權碼貼回終端機；取消不需確認），結束後用 `session.loginStatus` 重新檢查客人執行中的 agent，並說明下一步
-  （不需要重開 session）。同一個入口也在 agent 面板的「更多動作」裡。`PublicSettings.guestSubscriptionLogin` 為 `false` 時只提供
-  API key，並用一句話說明原因；`undefined`（daemon 沒說）兩種都提供，daemon 關閉時的拒絕照原文顯示。主人的 session 照舊在自己的
-  終端機輸入 `/login`。「主人在技術上可以讀取客人的憑證」的說明一直都在。
-- **客人的主工作區 session**（ARCHITECTURE §11 D-14）：`PublicSettings.guestMainWorkspace` 為 `false`（Linux 主人電腦的預設，
-  `smurg host --allow-main-workspace-guests` 才開放）時，「新增 session」對客人（沙盒 session）把「共享主工作區」設為不能選、
-  預設選「我的新 worktree」，並說明原因：`WorkspaceInfo.platform` 是 `linux` 時說是 Linux 的預設（那裡的沙盒無法完整保護
-  主工作區裡主人的設定檔），其他平台只說主人關閉了這個功能，兩者都說主人怎麼開放（`features/agents/new-session.ts` 的
-  `keptOutOfMain` / `effectiveWhere`：表單停在「共享主工作區」或選項消失時改用新的 worktree，送出的永遠不是 `mode: 'main'`）。
-  分享的資料夾不是 git 儲存庫時客人沒有任何 session 可開：對話框只說明原因和主人的兩個做法（重新分享時開放主工作區，或改成 git
-  儲存庫），agent 面板的空白狀態也這樣說，不提供「新增 session」按鈕。daemon 的拒絕（`forbidden`、`main-workspace-off`）照原文顯示，
-  附上改選 worktree 的提示，不會顯示成角色問題。`undefined`（daemon 沒說）照舊開放；主人自己的 session 和客人的登入程序
-  （`kind: 'login'`、`mode: 'main'`）都不受影響。設定在 Welcome 和 `channel.settingsUpdated` 裡，對話框開著時改變也會跟著更新。
+- **沒有客人沙盒，也沒有客人自己的 agent**：每個 session 都在主人的電腦上、以主人的身分、用主人的 Claude 帳號執行。
+  主人和「可使用 agent」（角色 `agent`）的成員可以開 session（`session.create`：主工作區、新的 worktree 或自己保留的
+  worktree），也可以在**任何** session 裡直接輸入、採用或拒絕建議（`session.drive`）；「可編輯」只能提出建議；「旁觀」只能看。
+  主人可以終止任何 session；開啟的人可以結束自己開的。
+- **新增 session**（`features/agents/new-session.ts`、`NewSessionDialog.tsx`）：主人與「可使用 agent」看到同樣的選項，
+  一行說明 session 在主人的電腦上、用主人的 Claude 帳號執行（`data-testid="new-session-runs-as"`）。沒有 API key、
+  沒有沙盒說明、沒有登入程序。
+- **session 面板**：分頁標示「{名稱}（{開啟的人} 開的）」（`plainSessionTitle` 會去掉 daemon 預設標題裡的「（Amy）」）；
+  不能輸入的人看到「只能觀看」，詳細資訊裡告訴「可編輯」怎麼提建議。agent 沒有登入時（那是主人的 Claude 登入）主人看到
+  「在終端機輸入 /login」，其他人看到請主人登入；可以輸入的人可以「重新檢查登入狀態」（`session.loginStatus`）。
+- **建議**：可以輸入的人（主人、「可使用 agent」）看到焦點 session 的建議佇列；「可編輯」看到建議輸入框；通知不指名是誰
+  採用或拒絕（`Suggestion` 沒有這個欄位）。編輯器的「送到 agent」：可以輸入的人直接貼進任何 agent session，「可編輯」提出建議。
+- **控制台**：角色清單是「可使用 agent／可編輯／旁觀」。選「可使用 agent」建立邀請或變更成員角色時，先顯示風險的確認對話框
+  （`features/console/RoleRiskDialog.tsx`，`data-testid="role-risk-text"`），主人按「我了解…」後才送出；取消就什麼都不送。
+  拿掉成員的「可使用 agent」時，若他開的 session 還在執行，也會先確認（那些 session 會結束）。設定裡沒有沙盒網域。
 - **活動動態**：agent 透過 shell 指令造成的修改（daemon 判斷後是 `agent.edit`，actor 是那個 agent，帶 `via: 'bash'`，
   ARCHITECTURE §5.4、§11 D-13）顯示為那個 agent 的修改，旁邊有小小的「透過指令」標記；標記只看 `via` 欄位，不看摘要的文字。
-  「外部程式」只在 daemon 這樣說時出現（`system` actor）。daemon 會在 Welcome 和 `channel.settingsUpdated` 帶上
-  `PublicSettings.guestSubscriptionLogin` 與 `PublicSettings.guestMainWorkspace`。
+  「外部程式」只在 daemon 這樣說時出現（`system` actor）。
 
 ## 測試
 
@@ -436,15 +436,13 @@ project 的暫存目錄，不動 `dist/`），再由真的 relay（`startLocalRe
 
 | 檔案 | 驗收標準 |
 |---|---|
-| `built-app.smoke.test.ts` | 邀請連結加入 → 開檔 → 輸入 → 磁碟、R7.1b 兩個瀏覽器同時編輯、R8.2b agent 鎖定的唯讀提示、「可執行 agent」開沙盒終端機、CSP |
+| `built-app.smoke.test.ts` | 邀請連結加入 → 開檔 → 輸入 → 磁碟、R7.1b 兩個瀏覽器同時編輯、R8.2b agent 鎖定的唯讀提示、「可使用 agent」開終端機（以主人的使用者執行）、CSP |
 | `terminal.smoke.test.ts` | LEAD-01：擁有者的 PTY 跟著面板（窄的 420 px 與寬的面板，`stty size` 等於面板放得下的大小，終端機沒有任何部分落在可見、可捲動的容器外）；觀看者以 PTY 大小顯示，80 欄的整行可以捲動看到，「縮放以符合寬度」 |
-| `login.smoke.test.ts` | 未登入載入 `/`、`/join/<id>`：零主控台錯誤、零失敗請求；D-12 客人從登入說明開始訂閱登入，登入程序的終端機顯示登入網址和貼上代碼的提示（真的 `claude`，mock API，從不完成登入；沒有驗證過版本的 `claude` 時跳過並說明） |
-| `acceptance.smoke.test.ts` | R11.1c 控制台一鍵終止與踢人、R6 建議（修改後採用、拒絕、提出者看到結果）、R9 worktree 合併（完整 diff、合併、拒絕後 worktree 不變）、R8.4 真的衝突出現在衝突面板 |
-| `main-workspace.smoke.test.ts` | §11 D-14：主人不開放客人使用主工作區（明確設定 `sessions.guestMainWorkspace: false`，macOS 與 Linux 相同）時，客人的對話框「共享主工作區」不能選、預設「我的新 worktree」並說明原因，終端機在客人自己的 worktree 開啟並執行指令；daemon 拒絕客人 `mode: 'main'` 的請求（`main-workspace-off`）；主人的 session 照舊在主工作區 |
+| `login.smoke.test.ts` | 未登入載入 `/`、`/join/<id>`：零主控台錯誤、零失敗請求；CLI 的裝置代碼登入 |
+| `acceptance.smoke.test.ts` | R11.1c 控制台一鍵終止與踢人、R6 建議（修改後採用、拒絕、提出者看到結果）、R9 worktree 合併（完整 diff、合併、拒絕後 worktree 不變）、R8.4 真的衝突出現在衝突面板；「可使用 agent」的成員開自己的 session（以主人的使用者執行）並直接在主人的 session 裡輸入、採用「可編輯」的建議；控制台給出「可使用 agent」前的風險確認（邀請與變更角色） |
 | `transfer-resume.smoke.test.ts` | R7.3：透過 `drop-proxy.ts`（relay 前的 TCP proxy）在上傳一半時切斷傳輸 socket，上傳自己續傳完成、內容相同、只補送沒到的部分 |
 
-沒有系統 Chrome 時會跳過並印出原因。客人在主工作區開 session 的 smoke 測試（`built-app`、`acceptance`、`login`）在 stack 明確設定
-`sessions: { guestMainWorkspace: true }`，所以在 Linux（預設不開放，§11 D-14）和 macOS 測的是同一件事。
+沒有系統 Chrome 時會跳過並印出原因。
 
 `src/testing/`：
 

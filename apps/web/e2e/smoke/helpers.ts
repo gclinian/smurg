@@ -35,7 +35,7 @@ export interface SmokeEnv {
   newPage(options?: { readonly width?: number; readonly height?: number }): Promise<Page>;
   problemsOf(page: Page): PageProblems;
   /** A fresh invite of the host (through admin.invite.create), pointing at `origin`. */
-  invite(role: 'editor' | 'runner' | 'viewer'): Promise<string>;
+  invite(role: 'agent' | 'editor' | 'viewer'): Promise<string>;
   /** A fresh host link of the host themself (a new device of the host's account), pointing at `origin`. */
   hostLink(): string;
   /** The daemon's last log lines and audit entries, and every session's state: what a failed test prints. */
@@ -130,7 +130,7 @@ export async function startSmoke(options: SmokeOptions = {}): Promise<SmokeEnv> 
       async diagnostics() {
         const sessions = stack.daemon.ctx.services.sessions
           .list()
-          .map((s) => `${s.id} ${s.kind} owner=${s.ownerUserId} sandboxed=${s.sandboxed} status=${s.status}${s.endReason === undefined ? '' : ` endReason=${s.endReason}`}`);
+          .map((s) => `${s.id} ${s.kind} owner=${s.ownerUserId} root=${s.root.kind} status=${s.status}${s.endReason === undefined ? '' : ` endReason=${s.endReason}`}`);
         const audit = await stack.audit(DIAGNOSTIC_AUDIT_ENTRIES).catch(() => []);
         const lines = daemonLog.lines();
         return [
@@ -174,8 +174,8 @@ export async function workspaceOnline(page: Page): Promise<void> {
   await page.getByRole('banner', { name: '工作區' }).getByText('已連線').waitFor({ timeout: STEP_MS });
 }
 
-/** A guest through a fresh invite of `role`. */
-export async function joinAs(page: Page, env: SmokeEnv, name: string, role: 'editor' | 'runner' | 'viewer' = 'editor'): Promise<void> {
+/** A guest through a fresh invite of `role` (`agent`: 「可使用 agent」). */
+export async function joinAs(page: Page, env: SmokeEnv, name: string, role: 'agent' | 'editor' | 'viewer' = 'editor'): Promise<void> {
   await joinWith(page, env, await env.invite(role), name);
 }
 

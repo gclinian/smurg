@@ -39,7 +39,7 @@ describe('R8 檔案鎖 (acceptance)', () => {
     const d = await daemon();
     const host = await d.connectHost();
     const amy = await d.connect({ userId: AMY.userId, displayName: AMY.displayName, role: 'editor' });
-    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'runner' });
+    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
     const states = recorder(host.conn, 'lock.state');
     const activity = recorder(amy.conn, 'activity.event');
 
@@ -70,7 +70,7 @@ describe('R8 檔案鎖 (acceptance)', () => {
     const host = await d.connectHost();
     const amy = await d.connect({ userId: AMY.userId, displayName: AMY.displayName, role: 'editor' });
     const vera = await d.connect({ userId: 'dev:vera', displayName: 'Vera', role: 'viewer' });
-    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'runner' });
+    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
     const seen = [host, amy, vera].map((client) => recorder(client.conn, 'lock.state'));
 
     expect(preToolUse(d, IAN, APP).granted).toBe(true);
@@ -122,7 +122,7 @@ describe('R8 檔案鎖 (acceptance)', () => {
   it('R8.3 兩個 agent 同時修改同一個檔案時，後到者被擋下', async () => {
     const d = await daemon();
     const host = await d.connectHost();
-    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'runner' });
+    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
     const activity = recorder(host.conn, 'activity.event');
 
     expect(preToolUse(d, IAN, APP).granted).toBe(true);
@@ -141,7 +141,7 @@ describe('R8 檔案鎖 (acceptance)', () => {
     const d = await daemon();
     const host = await d.connectHost();
     const amy = await d.connect({ userId: AMY.userId, displayName: AMY.displayName, role: 'editor' });
-    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'runner' });
+    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
     const live = recorder(amy.conn, 'activity.event');
 
     // (1) An Edit through the hook: PreToolUse, the tool writes, the watcher sees it, PostToolUse. One entry.
@@ -286,7 +286,7 @@ describe('R8 human lock over the wire', () => {
     const host = await d.connectHost();
     const amy = await d.connect({ userId: AMY.userId, displayName: AMY.displayName, role: 'editor' });
     await d.connect({ userId: BOB.userId, displayName: BOB.displayName, role: 'editor' });
-    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'runner' });
+    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
     const seen = recorder(host.conn, 'lock.state');
     humanTypes(d, AMY, main('README.md'));
     humanTypes(d, BOB, main('notes.txt'));

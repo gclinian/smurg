@@ -25,7 +25,6 @@ export function sessionInfo(session: SimSession, status: SessionInfo['status'] =
     ownerUserId: session.ownerUserId,
     ownerName: session.ownerName,
     title: 'claude',
-    sandboxed: session.ownerUserId !== 'dev:host',
     root: session.root,
     status,
     cols: 80,

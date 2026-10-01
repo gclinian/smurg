@@ -1,10 +1,10 @@
 {
   "name": "@smurg/daemon",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
-  "description": "Host-side daemon: files, documents, locks, PTY sessions, sandbox, hooks, audit log.",
+  "description": "Host-side daemon: files, documents, locks, PTY sessions, hooks, audit log.",
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing/index.ts",
@@ -18,7 +18,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.77",
     "@parcel/watcher": "2.6.0",
     "@smurg/protocol": "workspace:*",
     "@xterm/addon-serialize": "0.14.0",

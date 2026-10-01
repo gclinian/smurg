@@ -1,6 +1,7 @@
-// session.* and exec.* handlers (ARCHITECTURE §5.5; registry checks in brackets). The router has already checked the
-// capability of the caller's CURRENT role; ownership is checked here with req.requireOwner (audited authz.denied), so
-// a viewer's or collaborator's keystrokes never reach a PTY: they use suggestions (R6).
+// session.* and exec.* handlers (ARCHITECTURE §5.5, §11 D-15; registry checks in brackets). The router has already
+// checked the capability of the caller's CURRENT role: `session.drive` (the host, 「可使用 agent」) types into any session,
+// so an editor's or viewer's keystrokes never reach a PTY (they use suggestions, R6). What only the session's owner
+// (the member who opened it) may do is checked here with req.requireOwner (audited authz.denied).
 import type { DaemonContext } from '../core/context.ts';
 import type { RequestContext, Router } from '../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../core/lifecycle.ts';
@@ -15,17 +16,12 @@ export function registerSessionHandlers(router: Router, ctx: DaemonContext, sess
     req.requireOwner(owner, 'session');
   };
 
-  // [session.create.host | session.create.sandboxed] sandbox-by-role, api-key-sandboxed-only, login-own-guest-only
+  // [session.create]: the session runs like the host's own; the caller becomes its owner.
   stack.add(router.handle('session.create', async (payload, req) => ({ session: await sessions.create(payload, req.conn, req.principal) })));
-  // [session.view]: every agent / terminal session, and the caller's own login sessions (D-12: nobody else's).
-  stack.add(router.handle('session.list', (_payload, req) => ({ sessions: sessions.listFor(req.userId) })));
-  // (owner) session-owner
-  stack.add(
-    router.handle('session.loginStatus', async (payload, req) => {
-      requireOwner(payload.sessionId, req);
-      return { login: await sessions.loginStatus(payload.sessionId, req.principal) };
-    }),
-  );
+  // [session.view]: every session.
+  stack.add(router.handle('session.list', () => ({ sessions: sessions.list() })));
+  // [session.drive]: any session.
+  stack.add(router.handle('session.loginStatus', async (payload, req) => ({ login: await sessions.loginStatus(payload.sessionId, req.principal) })));
   // [session.view]: the viewer goes live only after the .ok went out (no gap, no duplicate).
   stack.add(
     router.handle('session.attach', async (payload, req) => {
@@ -43,15 +39,10 @@ export function registerSessionHandlers(router: Router, ctx: DaemonContext, sess
       return {};
     }),
   );
-  // [session.create.sandboxed] own-guest-dir
-  stack.add(router.handle('session.importConfig', (payload, req) => sessions.importConfig(payload, req.principal)));
-  // (owner) session-owner: everyone else is refused and audited.
-  stack.add(
-    router.on('exec.input', (payload, req) => {
-      requireOwner(payload.sessionId, req);
-      sessions.input(payload, req.conn, req.principal);
-    }),
-  );
+  // [session.drive]: any session.
+  stack.add(router.on('exec.input', (payload, req) => sessions.input(payload, req.conn, req.principal)));
+  // (owner) session-owner: the PTY follows its owner's viewport (resize policy `owner`); everyone else is refused and
+  // audited.
   stack.add(
     router.on('exec.resize', (payload, req) => {
       requireOwner(payload.sessionId, req);

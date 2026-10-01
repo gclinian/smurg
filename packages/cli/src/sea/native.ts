@@ -7,13 +7,10 @@
 //   <cache>/native-<id>/node-pty/{package.json, lib/**, prebuilds/<platform>-<arch>/{pty.node, spawn-helper}}
 //   <cache>/native-<id>/parcel-watcher/watcher.node
 //   <cache>/native-<id>/lib/compute-worker.ts        the docs module's worker (a CJS bundle; see below)
-//   <cache>/native-<id>/node_modules/@anthropic-ai/sandbox-runtime/package.json   (srt's version for the pin check)
-//   <cache>/native-<id>/vendor/seccomp/<arch>/apply-seccomp                       (Linux only, used by srt)
 //
 // The bundle's banner (build-sea.ts) sets `globalThis.__smurgSea = { dir, manifest }` and points every bundled
 // `import.meta.url` at `<dir>/lib/smurg.cjs`, so code that locates files next to itself finds them in that dir: the
-// docs compute worker (`./compute-worker.ts`), srt's vendor binaries (`../vendor/…`) and srt's package.json (through
-// node_modules resolution). <cache> is $SMURG_CACHE_DIR, else ~/Library/Caches/smurg (macOS) or
+// docs compute worker (`./compute-worker.ts`). <cache> is $SMURG_CACHE_DIR, else ~/Library/Caches/smurg (macOS) or
 // $XDG_CACHE_HOME/smurg (~/.cache/smurg).
 //
 // Other builds' dirs (an upgrade) are removed after NATIVE_KEEP_DAYS without use (pruneNativeCache).
@@ -28,7 +25,7 @@ import { basename, dirname, join, sep } from 'node:path';
 
 export interface NativeFile {
   readonly sha256: string;
-  /** 0o600 for data, 0o700 for executables (spawn-helper, apply-seccomp). */
+  /** 0o600 for data, 0o700 for executables (spawn-helper). */
   readonly mode: number;
 }
 

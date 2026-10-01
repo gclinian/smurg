@@ -1,17 +1,17 @@
-// One tab of the agents panel: who owns the session, what it is, whether it runs, where (main workspace or which
-// worktree) and whether it is sandboxed; the terminal; and, for the owner of a logged-out agent, the login guide.
-import { useEffect, useState } from 'react';
+// One tab of the agents panel: who opened the session, what it is, whether it runs, where (main workspace or which
+// worktree); the terminal. Every session runs as the host — the host's computer, the host's Claude account (protocol
+// v2) — so the host and members with 「可使用 agent」 type into any of them; editors suggest below; viewers watch.
+import { useState } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
+import { drivesSession } from '../../lib/capabilities.ts';
 import { useStore } from '../../lib/store.ts';
-import { useStores } from '../../lib/workspace/context.tsx';
-import { Badge, Banner, Button, IconButton } from '../../ui/index.ts';
+import { useCapabilities, useStores } from '../../lib/workspace/context.tsx';
+import { Badge, Banner, Button, IconButton, useToast } from '../../ui/index.ts';
 import { useWorkbenchLayout } from '../../lib/workspace/layout.tsx';
-import { IconEye, IconInfo, IconKey, IconMaximize, IconMinimize, IconMinus, IconPlus, IconRefresh, IconTerminal, IconTrash } from '../../ui/icons.tsx';
+import { IconEye, IconInfo, IconMaximize, IconMinimize, IconMinus, IconPlus, IconRefresh, IconTerminal, IconTrash } from '../../ui/icons.tsx';
 import { AttachDialog } from './AttachDialog.tsx';
-import { LoginGuide, effectiveLogin, type LoginCheck } from './LoginGuide.tsx';
-import { LoginProcess } from './LoginProcess.tsx';
 import { SessionTerminal } from './SessionTerminal.tsx';
-import { branchOf, kindLabel, ownerLabel, sandboxLabel, statusLabel, whereLabel } from './session-info.ts';
+import { branchOf, effectiveLogin, kindLabel, openedByLabel, statusLabel, whereLabel, type LoginCheck } from './session-info.ts';
 import { t } from './strings.ts';
 
 export interface SessionViewProps {
@@ -23,17 +23,17 @@ export interface SessionViewProps {
   readonly keepTerminal: boolean;
   onEnd(session: SessionInfo): void;
   onTerminate(session: SessionInfo): void;
-  /** A session opened to replace this one (API-key login). */
-  onReplaced(session: SessionInfo): void;
 }
 
-export function SessionView({ session, selfUserId, isHost, active, keepTerminal, onEnd, onTerminate, onReplaced }: SessionViewProps) {
+export function SessionView({ session, selfUserId, isHost, active, keepTerminal, onEnd, onTerminate }: SessionViewProps) {
   const stores = useStores();
+  const caps = useCapabilities();
+  const toast = useToast();
   const worktrees = useStore(stores.worktrees, (state) => state.worktrees);
   const isOwner = selfUserId !== null && session.ownerUserId === selfUserId;
+  const driving = drivesSession(caps, session);
   const [scaled, setScaled] = useState(false);
   const [check, setCheck] = useState<LoginCheck | null>(null);
-  const [guideHidden, setGuideHidden] = useState(false);
   const [checking, setChecking] = useState(false);
   const [details, setDetails] = useState(false);
   const [attaching, setAttaching] = useState(false);
@@ -41,19 +41,19 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
 
   const login = effectiveLogin(session, check);
   const exited = session.status === 'exited';
-  const needsLogin = session.kind === 'agent' && !exited && login === 'logged-out';
-  const showGuide = isOwner && needsLogin && !guideHidden;
+  const loggedOut = session.kind === 'agent' && !exited && login === 'logged-out';
 
-  // A new "logged out" report from the daemon shows the guide again.
-  useEffect(() => {
-    if (session.login === 'logged-out') setGuideHidden(false);
-  }, [session.login]);
-
+  // session.loginStatus needs session.drive: the host and 可使用 agent re-check (the host's Claude login).
   const checkLogin = async (): Promise<void> => {
     setChecking(true);
     const against = session.login;
     try {
-      setCheck({ login: await stores.sessions.loginStatus(session.id), against });
+      const result = await stores.sessions.loginStatus(session.id);
+      setCheck({ login: result, against });
+      toast.show({
+        tone: result === 'logged-in' ? 'success' : 'info',
+        title: result === 'logged-in' ? t('login.result.loggedIn') : result === 'logged-out' ? t('login.result.loggedOut') : t('login.result.unknown'),
+      });
     } catch {
       setCheck({ login: 'unknown', against });
     } finally {
@@ -61,12 +61,13 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
     }
   };
 
+  const opener = openedByLabel(session, selfUserId);
   const infoRows: readonly (readonly [string, string])[] = [
-    [t('info.owner'), ownerLabel(session, selfUserId)],
+    [t('info.owner'), opener],
     [t('info.kind'), kindLabel(session)],
     [t('info.status'), statusLabel(session)],
     [t('info.where'), whereLabel(session, worktrees, selfUserId) + (branchOf(session, worktrees) ? ` · ${branchOf(session, worktrees)}` : '')],
-    [t('info.sandbox'), sandboxLabel(session)],
+    [t('info.runsAs'), t('runsAs.value')],
     [t('info.viewers'), t('viewers', { count: session.attached })],
   ];
 
@@ -78,13 +79,13 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
         {/* One line (review WEB-02: the header took ~100 px of a 6-row terminal); the rest behind 「詳細資訊」. */}
         <div className="agents-summary" aria-label={t('info.label', { title: session.title })} role="group">
           {statusBadge}
-          <span className="agents-summary__item" title={ownerLabel(session, selfUserId)}>
-            {ownerLabel(session, selfUserId)}
+          <span className="agents-summary__item" title={opener}>
+            {opener}
           </span>
           <span className="agents-summary__item agents-summary__where" title={branchOf(session, worktrees) ?? where}>
             {where}
           </span>
-          {!isOwner && !exited ? (
+          {!driving && !exited ? (
             <Badge tone="neutral">
               <IconEye size={12} /> {t('terminal.watchOnly')}
             </Badge>
@@ -109,12 +110,7 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
               onClick={() => layout.toggle('agentsWide')}
             />
           ) : null}
-          {isOwner && needsLogin && guideHidden ? (
-            <Button size="sm" variant="secondary" icon={<IconKey />} onClick={() => setGuideHidden(false)}>
-              {t('action.loginGuide')}
-            </Button>
-          ) : null}
-          {isOwner && session.kind === 'agent' && !exited && login === 'unknown' ? (
+          {driving && session.kind === 'agent' && login === 'unknown' ? (
             <Button size="sm" variant="ghost" icon={<IconRefresh />} loading={checking} onClick={() => void checkLogin()}>
               {t('login.check')}
             </Button>
@@ -128,12 +124,7 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
             pressed={scaled}
             onClick={() => setScaled((value) => !value)}
           />
-          {isOwner && !exited && session.kind === 'login' ? (
-            // Cancelling one's own login needs no confirmation: nothing is lost, it can be started again.
-            <Button size="sm" variant="ghost" icon={<IconTrash />} onClick={() => void stores.sessions.end(session.id).catch(() => {})}>
-              {t('loginProcess.cancel')}
-            </Button>
-          ) : isOwner && !exited ? (
+          {isOwner && !exited ? (
             <Button size="sm" variant="ghost" icon={<IconTrash />} onClick={() => onEnd(session)}>
               {t('action.end')}
             </Button>
@@ -159,36 +150,39 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
               </div>
             ))}
           </dl>
-          {!isOwner && !exited ? <p className="agents-session__hint">{t('terminal.readOnly', { owner: session.ownerName })}</p> : null}
+          {!driving && !exited ? (
+            <p className="agents-session__hint">
+              {caps.can('suggest.create') ? t('terminal.readOnly', { owner: session.ownerName }) : t('terminal.readOnlyViewer', { owner: session.ownerName })}
+            </p>
+          ) : null}
         </div>
       ) : null}
-      {exited && session.kind !== 'login' ? <p className="agents-session__note">{t('terminal.exited')}</p> : null}
-      {!isOwner && needsLogin ? (
-        <Banner tone="info" live="none">
-          {t('login.watcher', { owner: session.ownerName })}
+      {exited ? <p className="agents-session__note">{t('terminal.exited')}</p> : null}
+      {loggedOut ? (
+        <Banner
+          tone="info"
+          live="none"
+          actions={
+            driving ? (
+              <Button size="sm" variant="secondary" icon={<IconRefresh />} loading={checking} onClick={() => void checkLogin()}>
+                {t('login.recheck')}
+              </Button>
+            ) : undefined
+          }
+        >
+          {isHost ? t('login.notice.host') : t('login.notice.member')}
         </Banner>
       ) : null}
 
-      {session.kind === 'login' ? (
-        <div className="agents-session__stage">
-          <LoginProcess session={session} isOwner={isOwner} active={active} keepTerminal={keepTerminal} scaled={scaled} onFocus={onReplaced} />
+      <div className="agents-session__stage">
+        <div className="agents-session__layout">
+          {keepTerminal ? (
+            <SessionTerminal session={session} isOwner={isOwner} canType={driving} active={active} scaled={scaled} />
+          ) : (
+            <p className="agents-session__note">{t('notice.pausedKeepAlive')}</p>
+          )}
         </div>
-      ) : (
-        <div className="agents-session__stage" data-guide={showGuide || undefined}>
-          {/* The guide sits beside the terminal, or above it in a narrow panel — never over it (WEB-02): its first step
-              is 「點一下終端機」 (the host's /login) or the login process of its own. */}
-          <div className="agents-session__layout">
-            {keepTerminal ? (
-              <SessionTerminal session={session} isOwner={isOwner} active={active} scaled={scaled} />
-            ) : (
-              <p className="agents-session__note">{t('notice.pausedKeepAlive')}</p>
-            )}
-            {showGuide ? (
-              <LoginGuide session={session} check={check} onChecked={setCheck} onHide={() => setGuideHidden(true)} onReplaced={onReplaced} />
-            ) : null}
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

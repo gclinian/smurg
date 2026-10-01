@@ -15,16 +15,18 @@ export interface MergeRequestItemProps {
   readonly userId: string | null;
   /** The viewer decides merges (the host). */
   readonly isHost: boolean;
+  /** The viewer may read the diff (worktree.merge.request: the host and 可使用 agent, any request). */
+  readonly canView: boolean;
   readonly now: number;
   /** Opens the review (the host) or the read-only diff (the requester). */
   onOpen(requestId: string): void;
 }
 
-export function MergeRequestItem({ request, worktree, userId, isHost, now, onOpen }: MergeRequestItemProps) {
+export function MergeRequestItem({ request, worktree, userId, isHost, canView, now, onOpen }: MergeRequestItemProps) {
   const name = request.requestedBy.displayName;
   const mine = userId !== null && (request.requestedBy.userId === userId || worktree?.ownerUserId === userId);
-  // worktree.merge.diff is for the worktree's owner and the host (ARCHITECTURE §5.7).
-  const canOpen = isHost || mine;
+  // worktree.merge.diff needs worktree.merge.request (protocol v2: the host and 可使用 agent, for any request).
+  const canOpen = isHost || canView;
   return (
     <li className="worktree-mr" data-status={request.status}>
       <div className="worktree-mr__head">

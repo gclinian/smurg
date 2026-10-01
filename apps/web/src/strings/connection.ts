@@ -75,7 +75,7 @@ export const tConn = defineStrings('conn', {
   'closed.local.title': '連線已關閉',
   'closed.local.body': '你已離開這個工作區。',
   'closed.kicked.title': '你已被移出工作區',
-  'closed.kicked.body': '主人已將你移出這個工作區，你的 agent session 也已結束。若需要再次加入，請向主人索取新的邀請連結。',
+  'closed.kicked.body': '主人已將你移出這個工作區，你開的 session 也已結束。若需要再次加入，請向主人索取新的邀請連結。',
   'closed.revoked.title': '這個裝置已被撤銷',
   'closed.revoked.body': '主人撤銷了這個瀏覽器的裝置金鑰。若需要再次加入，請向主人索取新的邀請連結。',
   'closed.login-required.title': '請重新登入',

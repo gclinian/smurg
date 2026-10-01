@@ -11,6 +11,7 @@ import {
   deriveInviteKeys,
   fromHex,
   generateInviteSecret,
+  isGuestRole,
   toHex,
   type DaemonInviteKey,
   type GuestRole,
@@ -72,7 +73,7 @@ export class InviteServiceImpl implements InviteService {
 
   create(input: { readonly role: GuestRole; readonly expiresInSec?: number; readonly maxUses?: number }, by: Principal): { readonly invite: InviteInfo; readonly url: string } {
     if (by.kind !== 'system' && by.role !== 'host') throw new SmurgError('forbidden');
-    if (!['runner', 'editor', 'viewer'].includes(input.role)) throw new SmurgError('bad_request', undefined, { reason: 'role' });
+    if (!isGuestRole(input.role)) throw new SmurgError('bad_request', undefined, { reason: 'role' });
     const expiresInSec = input.expiresInSec ?? DEFAULT_INVITE_TTL_SEC;
     const now = this.deps.clock.now();
     const { record, url } = this.mint({

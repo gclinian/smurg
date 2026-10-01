@@ -1,5 +1,5 @@
-// 「送到 agent」 (SPEC R6): an editor selection becomes text for an agent session — a suggestion for someone else's
-// session, or a direct paste into one of your own. The command carries the file and the line range with the code (the
+// 「送到 agent」 (SPEC R6): an editor selection becomes text for an agent session — a direct paste for those who may type
+// into sessions (the host and 可使用 agent, any session: protocol v2 `session.drive`), a suggestion for editors. The command carries the file and the line range with the code (the
 // suggest feature puts them in front of it: the agent only sees text), and the code is cleaned for the terminal: it
 // ends up in a PTY as a bracketed paste, where ESC or a C1 control could end the paste early and turn the rest into
 // keystrokes (the protocol refuses them anyway), and bidi overrides could make it read differently than it runs.
@@ -80,25 +80,24 @@ export function buildSelectionPayload(file: FileRef, selection: EditorSelection 
 }
 
 export interface SessionTargets {
-  /** The member's own running agent sessions: the selection goes straight in. */
+  /** Running agent sessions the member types into (the host and 可使用 agent: every one): the selection goes straight in. */
   readonly own: readonly SessionInfo[];
-  /** Other people's running agent sessions: the selection becomes a suggestion their owner decides on. */
+  /** Running agent sessions the member may only suggest to (an editor: other people's): someone who may type decides. */
   readonly others: readonly SessionInfo[];
 }
 
 /**
- * Where a selection may go. Terminals are never offered: pasted code would run as shell commands. Suggestions need
- * `suggest.create`; a member can only own sessions if the role can create them.
+ * Where a selection may go. Terminals are never offered: pasted code would run as shell commands. Typing needs
+ * `session.drive`; suggestions need `suggest.create` and never target one's own session (the daemon's rule).
  */
-export function sessionTargets(sessions: readonly SessionInfo[], userId: string | null, caps: Pick<Capabilities, 'can' | 'sessionCreate'>): SessionTargets {
+export function sessionTargets(sessions: readonly SessionInfo[], userId: string | null, caps: Pick<Capabilities, 'can' | 'canDrive'>): SessionTargets {
   const running = sessions.filter((session) => session.kind === 'agent' && session.status !== 'exited');
-  return {
-    own: userId === null || caps.sessionCreate === null ? [] : running.filter((session) => session.ownerUserId === userId),
-    others: userId === null || !caps.can('suggest.create') ? [] : running.filter((session) => session.ownerUserId !== userId),
-  };
+  if (userId === null) return { own: [], others: [] };
+  if (caps.canDrive) return { own: running, others: [] };
+  return { own: [], others: caps.can('suggest.create') ? running.filter((session) => session.ownerUserId !== userId) : [] };
 }
 
 /** Whether the 「送到 agent」 action is offered at all for this role. */
-export function canSendToAgent(caps: Pick<Capabilities, 'can' | 'sessionCreate'>): boolean {
-  return caps.can('suggest.create') || caps.sessionCreate !== null;
+export function canSendToAgent(caps: Pick<Capabilities, 'can' | 'canDrive'>): boolean {
+  return caps.can('suggest.create') || caps.canDrive;
 }

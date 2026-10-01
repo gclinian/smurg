@@ -1,5 +1,6 @@
-// `smurg licenses [--third-party]` from source: smurg's LICENSE, then the executable's third-party notices (srt's
-// Apache-2.0 text among them) with the Node.js section of the running Node; --third-party prints the notices alone.
+// `smurg licenses [--third-party]` from source: smurg's LICENSE, then the executable's third-party notices (an
+// Apache-2.0 text among them: fast-diff's) with the Node.js section of the running Node; --third-party prints the
+// notices alone.
 // The single executable prints its embedded copies instead: packages/cli/test/sea.test.ts.
 import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -25,8 +26,11 @@ describe('smurg licenses', () => {
     expect(all.stdout).toBe(`${LICENSE}\n${notices.stdout}`);
     expect(LICENSE).toMatch(/^smurg\n\nCopyright \(c\) 2026 .+\. All rights reserved\.\n/);
     expect(notices.stdout.startsWith('smurg: third-party notices of the smurg executable\n')).toBe(true);
-    expect(notices.stdout).toContain('\n@anthropic-ai/sandbox-runtime@');
+    expect(notices.stdout).toContain('\nnode-pty@');
+    expect(notices.stdout).toContain('\nfast-diff@');
     expect(notices.stdout).toContain('Apache License');
+    // Nothing of the guest sandbox since the owner removed it (2026-10-01, ARCHITECTURE §11 D-15).
+    expect(notices.stdout).not.toContain('sandbox-runtime');
     // The Node.js section comes from the running Node's distribution when it has its LICENSE (nvm, setup-node).
     const node = nodeDistributionLicense(process.execPath, process.versions.node);
     expect(notices.stdout).toBe(node === null ? COMMITTED : composeExecutableNotices(COMMITTED, node));

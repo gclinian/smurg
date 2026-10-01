@@ -2,38 +2,37 @@
 
 smurg 是一個多人 × 多 agent 的即時協作工作區：你在自己的電腦上執行 `smurg host`，把一個專案資料夾分享出去，
 組員打開你私訊給他們的邀請連結，就能在瀏覽器裡和你一起即時編輯檔案。大家也能即時看到每一個 Claude Code session
-在做什麼，對它提出建議，有權限的組員還能開自己的 agent。檔案和 agent 都留在你的電腦上，中間轉送資料的 relay
-只看得到端對端加密後的資料。產品介紹：https://smurg.ai；使用說明：https://smurg.ai/docs/；網頁版（公用 relay）：
-https://app.smurg.ai。
+在做什麼，對它提出建議；你完全信任的組員（「可使用 agent」）還能在你的電腦上開 agent。檔案和 agent 都留在你的
+電腦上，中間轉送資料的 relay 只看得到端對端加密後的資料。產品介紹：https://smurg.ai；使用說明：
+https://smurg.ai/docs/；網頁版（公用 relay）：https://app.smurg.ai。
 
 > **狀態：原型（v0.1.0）**。在 macOS（Apple Silicon）上開發和測試；其他平台與真實帳號的部分見下面的
 > 「還沒驗證的」。歡迎試用，但請不要分享放了密碼、金鑰或個人資料的資料夾（[`docs/HOSTING.md`](docs/HOSTING.md) §4）。
 
 ## 現在能做什麼
 
-- 主人一個指令分享資料夾並印出邀請連結；組員用連結加入，角色有「旁觀」「可編輯」「可執行 agent」三種。
+- 主人一個指令分享資料夾並印出邀請連結；組員用連結加入，角色有「旁觀」「可編輯」「可使用 agent」三種。
 - 瀏覽器裡的檔案樹和編輯器：多人即時共同編輯、自動存檔；拖曳上傳（斷線後可續傳）、下載檔案或整個資料夾（zip）。
-- 在主人的電腦上執行真正的 Claude Code。主人的 session 不放沙盒；「可執行 agent」的組員開自己的 session，放在沙盒裡，
-  用自己的 Claude 帳號登入。每個人都即時看得到每個 session 的畫面，也可以用 `smurg attach` 接到自己的終端機。
+- 在主人的電腦上執行真正的 Claude Code。主人和「可使用 agent」的組員都能開 agent 和終端機 session，也能在任何 session
+  裡直接輸入；這些 session 都**以主人的身分**執行（主人的 Claude Code 登入、主人的電腦，沒有沙盒），所以這個角色只給
+  主人完全信任的人（[`docs/HOSTING.md`](docs/HOSTING.md) §5.1）。每個人都即時看得到每個 session 的畫面，也可以用
+  `smurg attach` 接到自己的終端機。
 - 人和 agent 都有檔案鎖：有人正在打字的檔案 agent 改不了；agent 正在改的檔案，編輯器暫時唯讀。互相重疊時保留人打的
   內容，另一方的版本放進衝突面板。活動動態標示每一次修改是誰、哪個 agent 做的。
-- 對別人的 agent 提出建議，由 session 的擁有者採用、修改後採用或拒絕。
-- agent 可以在自己的 git worktree 裡工作，完成後請主人看過完整的 diff 再合併。組員開 session 時可以選共享主工作區或
-  自己的 worktree；**Linux 主人預設只開放 worktree**（`smurg host --allow-main-workspace-guests` 開放主工作區）。
+- 「可編輯」的組員對 agent 提出建議，由開 session 的人、主人或「可使用 agent」的組員採用、修改後採用或拒絕。
+- agent 可以在自己的 git worktree 裡工作，完成後請主人看過完整的 diff 再合併。開 session 時可以選共享主工作區或
+  一個新的 worktree。
 - 主人控制台：成員、角色、邀請連結、session、操作紀錄，一鍵踢人或終止 session。
 - 主人的電腦睡眠或斷線時，所有人幾秒內看到「主人已離線」。
 
 ## 還沒驗證的、已知的限制
 
-- **Linux 主人**：全部測試（包括組員的沙盒、組員終端機裡的 Ctrl-C 與調整視窗大小）在 Ubuntu 24.04 上通過（arm64 虛擬機，
-  以及 GitHub Actions 的 x64），但還沒有人真的在 Linux 上當過主人：沒有在 Linux 沙盒裡跑過真正的 Claude Code，安裝程式的
-  Linux 部分也還沒在全新的電腦上跑過。需要 bubblewrap 0.8 以上（Ubuntu 24.04、Debian 12 以上）。Linux 沙盒做不到 macOS
-  的幾點（例如組員在主工作區的子資料夾裡新增 `.claude` 設定），所以 Linux 主人預設不讓組員在共享主工作區開 session：
-  組員只能用自己的 worktree（資料夾不是 git repository 時，組員預設不能開 session）；主人用
-  `--allow-main-workspace-guests` 開放之前，請先看這些限制（[`docs/HOSTING.md`](docs/HOSTING.md) §4、§5；
-  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §11 D-14、§12）。
-  組員用什麼作業系統都可以（瀏覽器）。
-- **組員用 Claude 訂閱帳號登入**（在主人電腦上的登入程序）還沒有用真正的帳號從頭到尾測試過；用 API key 登入可以。
+- **「可使用 agent」沒有任何隔離**：這個角色的組員開的 session 以主人的身分在主人的電腦上執行，可以執行任何指令、讀主人
+  的家目錄、用主人的 Claude 帳號（費用算主人的）。smurg 不限制這些事，只把這個角色給完全信任的人
+  （[`docs/HOSTING.md`](docs/HOSTING.md) §5.1；[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §11 D-15、§12）。
+- **Linux 主人**：全部測試（包括終端機裡的 Ctrl-C 與調整視窗大小）在 Ubuntu 24.04 上通過（arm64 虛擬機，以及 GitHub
+  Actions 的 x64），但還沒有人真的在 Linux 上當過主人：沒有在 Linux 上跑過真正的 Claude Code，安裝程式也還沒在全新的
+  Linux 電腦上跑過。組員用什麼作業系統都可以（瀏覽器）。
 - **macOS 執行檔沒有 Apple 的開發者簽章**（只有 ad-hoc 簽章）。請用下面的一行指令安裝：它先驗證 sha256，再移除
   macOS 的隔離標記（quarantine）。只有 Apple Silicon 的執行檔在開發機上測試過；Intel Mac 與 Linux 的執行檔由 GitHub
   Actions 在各自的平台上建置，並在那裡跑冒煙測試。
@@ -52,12 +51,13 @@ curl -fsSL https://smurg.ai/install.sh | sh
 ```
 
 `https://smurg.ai/install.sh` 只是轉到 `https://downloads.smurg.ai/latest/install.sh`（最新版本的安裝程式）；安裝程式從
-`https://downloads.smurg.ai/v<版本>/` 下載，特定版本：`curl -fsSL https://downloads.smurg.ai/v0.1.0/install.sh | sh`。
+`https://downloads.smurg.ai/v<版本>/` 下載，特定版本：`curl -fsSL https://downloads.smurg.ai/v<版本>/install.sh | sh`。
 安裝程式會下載這台電腦的單一執行檔（不需要 Node.js），**只在 sha256 與這個版本的 `SHA256SUMS` 相符時**安裝到
 `~/.local/bin/smurg`。`~/.local/bin` 不在 `PATH` 裡時，它會印出要加到 shell 設定檔的那一行（macOS 預設就不在）。
-在 Linux 上它還會檢查客人沙盒需要的套件，**經你同意後**才用 `sudo` 安裝。細節見 [`docs/HOSTING.md`](docs/HOSTING.md) §1。
+在每個平台上都一樣：不需要 `sudo`，也不安裝任何系統套件。細節見 [`docs/HOSTING.md`](docs/HOSTING.md) §1。
 
-- 要在 session 裡執行 Claude Code，這台電腦還需要 `claude` 指令（2.1.220 以上）；要用 worktree，資料夾要是 git repository。
+- 要在 session 裡執行 Claude Code，這台電腦還需要已經登入的 `claude` 指令（2.1.220 以上）：每個 agent session 都用
+  這個登入；要用 worktree，資料夾要是 git repository。
 - 升級：再執行一次同一行指令。移除：刪除 `~/.local/bin/smurg`、`~/.smurg`（登入、金鑰、工作區狀態）和快取目錄
   （macOS：`~/Library/Caches/smurg`；Linux：`~/.cache/smurg`）。
 
@@ -72,8 +72,8 @@ smurg host ~/projects/my-app     # 分享資料夾；在前景執行，按 Ctrl-
    打開網址、登入你的 Google 帳號、輸入代碼，確認頁上的帳號沒錯就按「允許」（有桌面時 smurg 也會自動打開這個網址；
    透過 SSH 也一樣，不需要轉接埠）。不加 `--relay` 時，smurg 使用內建的公用 relay https://app.smurg.ai（也是網頁版的網址）。
    （跳過這一步也可以：`smurg host` 發現還沒登入時會先請你登入。）
-2. `smurg host` 會印出**你自己的連結**（在瀏覽器以主人身分打開工作區，不要給別人）、**邀請組員的連結**（預設角色
-   「可編輯」、7 天內有效）、分享前須知，以及組員的沙盒在這台電腦上能不能用。
+2. `smurg host` 只印出兩個連結：**你自己的連結**（在瀏覽器以主人身分打開工作區，不要給別人）和**邀請組員的連結**
+   （預設角色「可編輯」、7 天內有效；`--role agent` 改成「可使用 agent」，先讀 [`docs/HOSTING.md`](docs/HOSTING.md) §5.1）。
 3. 把邀請連結**私訊**給組員：連結 `#` 之後的部分就是密鑰，不要貼在公開的地方。
 
 分享之前請先讀 [`docs/HOSTING.md`](docs/HOSTING.md)（尤其是 §4「分享前必讀」）。
@@ -81,18 +81,18 @@ smurg host ~/projects/my-app     # 分享資料夾；在前景執行，按 Ctrl-
 ## 快速開始：組員
 
 1. 用電腦上的 Chrome 打開主人私訊給你的邀請連結（不需要安裝任何東西；Safari、Firefox 還沒測試過）。
-2. 按「使用 Google 登入」。smurg 只用登入確認你是誰，不會取得你的程式碼或 Claude 帳號。
+2. 按「使用 Google 登入」。smurg 只用登入確認你是誰，不會取得你的程式碼；你不需要 Claude 帳號。
 3. 確認畫面上的工作區和你的身分，按「加入」。
 
-第一次使用 smurg 或 Claude Code 的人也看得懂的完整說明（角色、共同編輯、檔案鎖、建議、開自己的 agent 並登入 Claude、
-worktree、離開）：[`docs/JOINING.md`](docs/JOINING.md)。想在自己的終端機看 session：照上面的「安裝」裝好 smurg，執行
+第一次使用 smurg 或 Claude Code 的人也看得懂的完整說明（角色、共同編輯、檔案鎖、建議、開 agent session、worktree、
+離開）：[`docs/JOINING.md`](docs/JOINING.md)。想在自己的終端機看 session：照上面的「安裝」裝好 smurg，執行
 `smurg attach --invite -`，再貼上邀請連結（JOINING §10）。
 
 ## 文件
 
 | 文件 | 內容 |
 |---|---|
-| [`docs/HOSTING.md`](docs/HOSTING.md) | 主人指南：安裝、登入、公用 relay、分享、分享前須知、組員的 Claude 登入、停止、疑難排解 |
+| [`docs/HOSTING.md`](docs/HOSTING.md) | 主人指南：安裝、登入、公用 relay、分享、分享前須知、「可使用 agent」角色與風險、停止、疑難排解 |
 | [`docs/JOINING.md`](docs/JOINING.md) | 組員指南：第一次使用 smurg 和 Claude Code 的人也看得懂 |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | 維護者：部署公用 relay、發佈新版本、部署產品介紹頁、回復舊版（英文） |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 各套件之間的約定（寫程式前請先讀 §0 的規則）、刻意偏離 SPEC 的地方（§11）、已知限制（§12） |
@@ -127,7 +127,7 @@ gh repo clone gclinian/smurg && cd smurg       # 私人 repository：需要成�
 scripts/bootstrap-tools.sh                      # 第一次：把固定版本的 pnpm 安裝到 .tools/（不做全域安裝）
 source scripts/env.sh                           # 每個新的 shell 都要執行（bash、zsh 皆可）
 scripts/with-install-lock.sh pnpm install       # 安裝相依套件（約佔 1 GB 磁碟空間，全部放在 repo 裡）
-scripts/dev-stack.sh --role runner              # 在這台電腦上啟動整個系統試用（不需要任何帳號）；Ctrl-C 全部停止
+scripts/dev-stack.sh --role agent               # 在這台電腦上啟動整個系統試用（不需要任何帳號）；Ctrl-C 全部停止
 ```
 
 `scripts/env.sh` 會把 Node 22 與 repo 內的 pnpm 放到 `PATH` 最前面，並把工具狀態留在 repo 裡
@@ -146,7 +146,7 @@ apps/
   site/        產品介紹頁 smurg.ai（靜態頁面，加上 /install.sh 等轉址的小 Worker）
 packages/
   protocol/    訊息 schema（zod）、常數、角色、Noise 加密通道、relay 控制訊框與路由
-  daemon/      主人端 daemon（檔案、文件、檔案鎖、PTY session、沙盒、hooks）
+  daemon/      主人端 daemon（檔案、文件、檔案鎖、PTY session、worktree、hooks）
   cli/         `smurg` 指令
 tests/
   e2e/         跨套件的驗收測試（真的 relay + daemon + 無頭客戶端）
@@ -205,7 +205,7 @@ scripts/dev-stack.sh --help                 # 選項：--dir、--relay-port、--
    `smurg login --no-browser --dev-user amy --relay http://localhost:8787`，再
    `smurg attach --invite - --relay http://localhost:8787`（執行後貼上邀請連結）。邀請連結指向網頁的 origin（:5173），
    CLI 則要直接連 relay（:8787）：登入是依網址分開記錄的，沒有 `--relay` 時 CLI 會要求另外登入 :5173，並提示改用 `--relay`。
-4. 按 Ctrl-C：先讓 `smurg host` 正常停止（中斷所有連線、結束 session、刪除客人的暫存目錄），再停止網頁伺服器與 relay。
+4. 按 Ctrl-C：先讓 `smurg host` 正常停止（中斷所有連線、結束 session），再停止網頁伺服器與 relay。
    每個子程式都在自己的 process group 裡，腳本只會對它自己啟動並記錄下來的 process group 送訊號。
 
 `<dir>` 預設是 `$TMPDIR/smurg-dev-stack`。`smurg` 在這裡用假的 `HOME`（`<dir>/home`）和自己的 `SMURG_HOME`，
@@ -227,9 +227,9 @@ scripts/dev-stack.sh --help                 # 選項：--dir、--relay-port、--
 
 | 指令 | 用途 |
 |---|---|
-| `smurg host <資料夾> [--relay 網址] [--role runner\|editor\|viewer] [--expires 期限] [--max-uses 次數] [--name 名稱] [--web-origin 網址] [--no-keep-awake] [--no-browser] [--no-guest-subscription-login] [--no-bash-attribution] [--allow-main-workspace-guests \| --no-main-workspace-guests]` | 分享資料夾（前景執行），只印出兩個連結：你自己的和給組員的。組員的訂閱登入程序與 agent 的 shell 指令通知預設開啟（用兩個 `--no-…` 選項關閉），客人的主工作區 session 在 Linux 預設未開放、macOS 預設開放（用 `--allow-main-workspace-guests` / `--no-main-workspace-guests` 改變）；這些設定的意思與分享前須知在 `docs/HOSTING.md` §4、§5，終端機不重複。只在需要你處理時提示：客人沙盒無法使用（附修正指令）、無法防止睡眠或防止睡眠失效、relay 連線中斷／恢復、relay 拒絕登入（在另一個終端機 `smurg login` 後自動改用新登入）、狀態檔寫不進磁碟 |
-| `smurg attach [session] [--workspace ID] [--invite -\|連結] [--relay 網址] [--no-browser]` | 把 session 接到終端機（不指定 session 時列出）；本機正在分享時直接以主人身分接上，否則用這台電腦的裝置金鑰透過 relay 加入。`--invite -` 會提示貼上邀請連結（不顯示、不進 shell 歷史）；也可用 `SMURG_INVITE`。只有第一次需要邀請連結。Ctrl-] 離開 |
-| `smurg status [--workspace ID]` / `smurg stop [--workspace ID]` | 查看／停止這台電腦上正在分享的工作區（透過 daemon 的控制 socket）。`status` 顯示 `smurg host` 啟動時不印的資訊：資料夾、relay 與連線、daemon 金鑰指紋、防止睡眠、客人沙盒、三項設定目前的狀態、紀錄檔的位置 |
+| `smurg host <資料夾> [--relay 網址] [--role agent\|editor\|viewer] [--expires 期限] [--max-uses 次數] [--name 名稱] [--web-origin 網址] [--no-keep-awake] [--no-browser] [--no-bash-attribution]` | 分享資料夾（前景執行），只印出兩個連結：你自己的和給組員的（`--role agent` 是「可使用 agent」：拿到連結的人以你的身分在你的電腦上開 agent，先讀 `docs/HOSTING.md` §5.1）。agent 的 shell 指令通知預設開啟（`--no-bash-attribution` 關閉）；分享前須知與各項設定的意思在 `docs/HOSTING.md` §4、§5，終端機不重複。只在需要你處理時提示：無法防止睡眠或防止睡眠失效、relay 連線中斷／恢復、relay 拒絕登入（在另一個終端機 `smurg login` 後自動改用新登入）、狀態檔寫不進磁碟 |
+| `smurg attach [session] [--workspace ID] [--invite -\|連結] [--relay 網址] [--no-browser] [--accept-new-key]` | 把 session 接到終端機（不指定 session 時列出）；本機正在分享時直接以主人身分接上，否則用這台電腦的裝置金鑰透過 relay 加入。主人和「可使用 agent」的組員可以輸入，其他角色唯讀。`--invite -` 會提示貼上邀請連結（不顯示、不進 shell 歷史）；也可用 `SMURG_INVITE`。只有第一次需要邀請連結。邀請連結的主人金鑰和上次記錄的不同時，先說明「主人的電腦金鑰和之前不同」並問過你（不在終端機裡執行時要加 `--accept-new-key`）才繼續。Ctrl-] 離開 |
+| `smurg status [--workspace ID]` / `smurg stop [--workspace ID]` | 查看／停止這台電腦上正在分享的工作區（透過 daemon 的控制 socket）。`status` 顯示 `smurg host` 啟動時不印的資訊：資料夾、relay 與連線、daemon 金鑰指紋、防止睡眠、agent 的 shell 指令通知、紀錄檔的位置 |
 | `smurg login [--relay 網址] [--dev-user 名稱] [--no-browser]` | 用代碼登入 relay：印出 relay 的 `/device` 網址和一組代碼，在任何裝置的瀏覽器登入、輸入代碼並按「允許」（透過 SSH 也一樣；登入方式在瀏覽器裡選，公用 relay 只提供 Google）。登入資料存在 `$SMURG_HOME/credentials.json`，權限 0600，依網址分開記錄；`--dev-user` 只能用在本機的 relay |
 | `smurg logout [--relay 網址] [--all]` | 忘記 relay 的登入資料 |
 | `smurg licenses [--third-party]` | 印出 smurg 的授權條款（`LICENSE`）與執行檔裡第三方軟體的授權聲明（建置時嵌入執行檔；`--third-party` 只印後者，和發佈的 `THIRD-PARTY-NOTICES.txt` 相同） |

@@ -1,9 +1,11 @@
 // Third-party notices (scripts/third-party-notices.ts; LICENSE: smurg is proprietary, the packages it bundles keep their
 // own licenses). The committed files must be exactly what pnpm-lock.yaml and node_modules give now; generation is
 // deterministic and does not depend on which platform's native packages are installed; a bundled package without a
-// license file fails loudly; every license and NOTICE file of every bundled package is reproduced (srt's Apache-2.0
-// text included); every package esbuild puts into the executable is listed; the Node.js section is filled in from the
-// Node distribution's LICENSE. Fixtures are fake pnpm installs in a temp dir (no network).
+// license file fails loudly; every license and NOTICE file of every bundled package is reproduced (an Apache-2.0 text
+// in full included); every package esbuild puts into the executable is listed; the Node.js section is filled in from the
+// Node distribution's LICENSE; nothing of the guest sandbox is left (owner decision 2026-10-01, ARCHITECTURE §11 D-15:
+// no @anthropic-ai/sandbox-runtime, no note on its glibc-linked apply-seccomp). Fixtures are fake pnpm installs in a
+// temp dir (no network).
 import { mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative } from 'node:path';
@@ -220,18 +222,24 @@ describe('the committed notices of this repository', () => {
     }
   });
 
-  it("carry @anthropic-ai/sandbox-runtime's Apache-2.0 LICENSE in full (and its NOTICE, whenever the package has one)", () => {
+  it("carry an Apache-2.0 package's LICENSE in full (fast-diff's, and its NOTICE whenever the package has one), then the Node.js placeholder", () => {
     const text = readFileSync(join(ROOT, NOTICES_FILES.executable), 'utf8');
-    const srt = dependencyClosure(ROOT, 'packages/cli', RELEASE_TARGETS).get(`@anthropic-ai/sandbox-runtime@${(JSON.parse(readFileSync(join(ROOT, 'packages/daemon/package.json'), 'utf8')) as { dependencies: Record<string, string> }).dependencies['@anthropic-ai/sandbox-runtime']}`);
-    expect(srt?.dir).toBeTruthy();
-    const dir = srt?.dir as string;
+    const version = (JSON.parse(readFileSync(join(ROOT, 'packages/daemon/package.json'), 'utf8')) as { dependencies: Record<string, string> }).dependencies['fast-diff'];
+    const fastDiff = dependencyClosure(ROOT, 'packages/cli', RELEASE_TARGETS).get(`fast-diff@${version}`);
+    expect(fastDiff?.dir).toBeTruthy();
+    const dir = fastDiff?.dir as string;
     const license = normaliseText(readFileSync(join(dir, 'LICENSE'), 'utf8'));
     expect(license).toMatch(/^\s*Apache License\n\s*Version 2\.0, January 2004\n/);
-    expect(text).toContain(`License: Apache-2.0\nSource: https://github.com/anthropics/sandbox-runtime\n\n----- LICENSE -----\n${license}`);
+    expect(text).toContain(`fast-diff@${version}\nLicense: Apache-2.0\nSource: https://github.com/jhchen/fast-diff\n\n----- LICENSE -----\n${license}`);
     for (const name of readdirSync(dir).filter((file) => /^notice/i.test(file))) expect(text).toContain(`----- ${name} -----\n${normaliseText(readFileSync(join(dir, name), 'utf8'))}`);
-    // The Linux executables carry srt's statically linked apply-seccomp: the glibc note, then the Node.js placeholder.
-    expect(text).toContain('statically\nlinked with the GNU C Library (glibc)');
     expect(text.endsWith(`\n${NODE_PENDING_SECTION}`)).toBe(true);
+  });
+
+  it('name nothing of the guest sandbox any more: no @anthropic-ai/sandbox-runtime, no apply-seccomp, no glibc note (owner decision 2026-10-01)', () => {
+    const text = readFileSync(join(ROOT, NOTICES_FILES.executable), 'utf8');
+    expect(text).not.toMatch(/sandbox-runtime|apply-seccomp|GNU C Library|glibc\)/);
+    expect([...dependencyClosure(ROOT, 'packages/cli', RELEASE_TARGETS).keys()].filter((key) => key.startsWith('@anthropic-ai/sandbox-runtime@'))).toEqual([]);
+    expect(listedPackages(text).has('@anthropic-ai/sandbox-runtime')).toBe(false);
   });
 
   it('list every npm package esbuild bundles into the executable, and the native parts', async () => {
@@ -251,7 +259,8 @@ describe('the committed notices of this repository', () => {
         if (name !== null) bundled.add(name);
       }
     }
-    for (const name of ['@anthropic-ai/sandbox-runtime', 'zod', 'yjs', 'ws', 'jose', '@xterm/headless']) expect(bundled).toContain(name);
+    for (const name of ['zod', 'yjs', 'ws', 'jose', '@xterm/headless', 'fast-diff']) expect(bundled).toContain(name);
+    expect(bundled).not.toContain('@anthropic-ai/sandbox-runtime');
     expect(uncoveredPackages('executable', bundled)).toEqual([]);
     expect(uncoveredPackages('executable', ['left-pad'])).toEqual(['left-pad']);
   });
@@ -287,7 +296,7 @@ describe('the Node.js section and the helpers', () => {
     expect(bundledPackageOf('/r/node_modules/.pnpm/x@1/node_modules/')).toBeNull();
     const listed = listedPackages(readFileSync(join(ROOT, NOTICES_FILES.executable), 'utf8'));
     expect(listed.get('zod')?.length).toBeGreaterThanOrEqual(1);
-    expect(listed.has('node-pty') && listed.has('@parcel/watcher') && listed.has('@anthropic-ai/sandbox-runtime')).toBe(true);
+    expect(listed.has('node-pty') && listed.has('@parcel/watcher') && listed.has('fast-diff')).toBe(true);
     const lock = parseLockfile("lockfileVersion: '9.0'\n\npackages:\n\n  '@a/b@1.0.0':\n    resolution: {integrity: sha512-x}\n    cpu: [x64, '!arm']\n\nsnapshots:\n\n  c@2.0.0(d@1.0.0):\n    dependencies:\n      d: 1.0.0\n    transitivePeerDependencies:\n      - '@e/f'\n  g@1.0.0: {}\n");
     expect(lock).toEqual({
       lockfileVersion: '9.0',

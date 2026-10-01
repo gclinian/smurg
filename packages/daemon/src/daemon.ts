@@ -20,7 +20,6 @@ import { filesModule } from './files/module.ts';
 import { hooksModule } from './hooks/module.ts';
 import { localControlModule } from './local/module.ts';
 import { locksModule } from './locks/module.ts';
-import { sandboxModule } from './sandbox/module.ts';
 import { sessionsModule } from './sessions/module.ts';
 import { suggestModule } from './suggest/module.ts';
 import { worktreeModule } from './worktree/module.ts';
@@ -46,13 +45,13 @@ import { DisposableStack, systemClock, type Clock } from './core/lifecycle.ts';
 import { createLineLogger, type Logger } from './core/logger.ts';
 import { SYSTEM_ACTOR } from './core/permissions.ts';
 import { RouterImpl } from './core/router.ts';
-import { FileStateStore } from './core/state-store.ts';
-import { createStubService, isStubService } from './core/stubs.ts';
+import { FileStateStore, StateFileError } from './core/state-store.ts';
+import { createStubService } from './core/stubs.ts';
 import { STATE_DOCUMENT, initialWorkspaceState, workspaceStateSchema } from './core/workspace-state.ts';
 import { ChannelServer } from './net/channel-server.ts';
 import { wsHostSocketFactory, type HostSocketFactory } from './net/host-socket.ts';
 import { IdentityVerifier, jwksKeySource, staticKeySource, type IdentityKeySource } from './net/identity.ts';
-import { LocalChannel } from './local/local-channel.ts';
+import { LOCAL_CHANNEL_VIA, LocalChannel } from './local/local-channel.ts';
 import { RelayLink } from './net/relay-connection.ts';
 import { PathGuardImpl } from './workspace/path-guard.ts';
 import { KeepAwake } from './workspace/power.ts';
@@ -74,14 +73,13 @@ export const DAEMON_VERSION: string = daemonPackage.version;
  * start and still up while their users stop:
  *  - locks (LockManager, presence, activity): in-memory state that hooks, files, docs and sessions consult; its
  *    kick / leave listeners drop human locks before later modules react to the same event;
- *  - sandbox: preflight before any guest process can be wrapped;
  *  - hooks: the hook socket listens before any session starts, and closes only after sessions are gone, so a dying
  *    session's Stop / SessionEnd hooks are still answered (and its agent locks released);
  *  - files (watcher, uploads, downloads), then docs: docs builds on file events and flushes dirty documents in its
  *    stop() while the watcher is still running;
  *  - worktree: kept worktrees are registered as roots before a session may be started in one;
- *  - sessions: after everything it launches with; its stop() (end every session, remove guest dirs) runs before
- *    worktree, hooks, sandbox and locks stop;
+ *  - sessions: after everything it launches with; its stop() (end every session) runs before worktree, hooks and
+ *    locks stop;
  *  - suggest: accept pastes into a session, so it stops (no more pastes) before sessions do;
  *  - local: the control socket opens last (a local `smurg attach` never sees a half-started daemon). Its module stops
  *    first, but the socket itself closes only when the registrations are disposed (after every module stopped), so
@@ -89,7 +87,6 @@ export const DAEMON_VERSION: string = daemonPackage.version;
  */
 export const DEFAULT_FEATURE_MODULES: readonly FeatureModule[] = Object.freeze([
   locksModule,
-  sandboxModule,
   hooksModule,
   filesModule,
   docsModule,
@@ -114,7 +111,7 @@ export interface DaemonOptions {
   readonly power?: PowerService;
   /**
    * The host's home directory (default: os.homedir()): refused as a share, and the default of
-   * config.sessions.hostHome (the region guest sandboxes may not read). Tests pass a temporary fake home.
+   * config.sessions.hostHome (every session's HOME). Tests pass a temporary fake home.
    */
   readonly homeDir?: string;
   readonly random?: () => number;
@@ -166,14 +163,10 @@ function sanitizeName(name: string, fallback: string): string {
 export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
   const platform = process.platform;
   if (platform !== 'darwin' && platform !== 'linux') throw new Error(`smurg hosts run on macOS and Linux only (this is ${platform})`);
-  // The platform decides per-platform defaults (config.sessions.guestMainWorkspace: off on Linux, §11 D-14).
-  const config = resolveConfig(
-    {
-      ...options.config,
-      sessions: { ...options.config.sessions, hostHome: options.config.sessions?.hostHome ?? options.homeDir ?? homedir() },
-    },
-    { platform },
-  );
+  const config = resolveConfig({
+    ...options.config,
+    sessions: { ...options.config.sessions, hostHome: options.config.sessions?.hostHome ?? options.homeDir ?? homedir() },
+  });
   const clock = options.clock ?? systemClock;
   const log = options.log ?? createLineLogger();
 
@@ -192,7 +185,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     store = await FileStateStore.open(config.workspaceStateDir, log.child({ module: 'state' }));
     identity = await loadOrCreateDaemonIdentity(config.workspaceStateDir);
     state = await store.coreDocument(STATE_DOCUMENT, workspaceStateSchema, () => initialWorkspaceState(config.workspaceId, config.defaultSettings));
-    if (state.get().workspaceId !== config.workspaceId) throw new Error('state.json belongs to another workspace');
+    if (state.get().workspaceId !== config.workspaceId) throw new StateFileError(join(config.workspaceStateDir, 'state.json'), 'state file belongs to another workspace');
     audit = await JsonlAuditLog.open(join(config.workspaceStateDir, 'audit.jsonl'), {
       clock,
       log: log.child({ module: 'audit' }),
@@ -201,6 +194,12 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       deniedPerActorPerMinute: config.limits.auditDeniedPerActorPerMinute,
     });
   } catch (err) {
+    // The host is sent to the log for the reason (review F3): say which file and why. StateFileError / KeyFileError
+    // messages are ours: paths and schema paths with zod's messages, never the values (describeIssues).
+    log.error('workspace state refused; the daemon does not start', {
+      error: err instanceof Error ? err.name : 'unknown',
+      reason: err instanceof StateFileError || (err instanceof Error && err.name === 'KeyFileError') ? err.message : errnoCodeOf(err),
+    });
     await shareLock.release();
     throw err;
   }
@@ -227,9 +226,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     });
     members.setHub(hub);
     // "Last seen" is the last moment a member was CONNECTED: the end of a connection counts, not only its start
-    // (admission). Without it the guest-dir retention (§11 D-9: not connected for 7 days) removed the dir of a member
-    // who had stayed connected for more than 7 days whenever one of their reconnects coincided with the sweep
-    // (finish-gate, 2026-09-29: a relay-link blip is enough).
+    // (admission), so the console's 「最後上線」 of a member who stayed connected for days is not their first connect.
     const lastSeen = bus.on('conn.closed', ({ conn }) => members.touch(conn.userId, conn.deviceId, clock.now()));
     const router = new RouterImpl({ sink: hub, members, audit, log: log.child({ module: 'router' }) });
     hub.setRouter(router);
@@ -238,8 +235,6 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       audit,
       bus,
       mainRealPath: roots.main.realPath,
-      guestSubscriptionLogin: config.sessions.guestSubscriptionLogin,
-      guestMainWorkspace: config.sessions.guestMainWorkspace,
     });
     const invites = new InviteServiceImpl({
       state,
@@ -267,12 +262,6 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
 
     const services = {} as { -readonly [K in FeatureServiceName]: FeatureServices[K] };
     for (const name of FEATURE_SERVICE_NAMES) (services as Record<FeatureServiceName, unknown>)[name] = createStubService(name);
-    /** DaemonStatus.sandbox: the last guest sandbox check, null before the first one or without a sandbox module. */
-    const lastSandboxCheck = (): DaemonStatus['sandbox'] => {
-      if (isStubService(services.sandbox)) return null;
-      const last = services.sandbox.lastPreflight?.() ?? null;
-      return last === null ? null : { ok: last.ok, reason: last.ok ? null : last.reason };
-    };
     const stopping = new AbortController();
     // Bound to the Daemon object below (it exists before any module can call these).
     let daemonRef: Daemon | null = null;
@@ -444,15 +433,21 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       log.info('daemon stopped', { workspace: config.workspaceId });
     };
 
-    /** The host's own machine, through the control socket: same hub, router and audit as a relay client. */
+    /**
+     * The host's own machine, through the control socket: same hub and router as a relay client, but the router lets
+     * only what `smurg attach` sends through (local/local-channel.ts LOCAL_CHANNEL_TYPES: the socket authenticates the
+     * host's OS account, which every session runs as), the hub sends it unasked only what `smurg attach` consumes
+     * (LOCAL_CHANNEL_RECEIVES: no audit feed, no host notices), and every audit entry it causes says
+     * `via: 'control-socket'`.
+     */
     const attachLocal = (input: LocalAttachInput): LocalAttachment => {
       if (!started || stopped) throw new SmurgError('unauthorized', undefined, { reason: 'not-running' });
       const member = members.active(input.userId);
       if (input.userId !== config.hostUserId || member?.role !== 'host') {
-        audit.record({ actor: SYSTEM_ACTOR, action: 'auth.rejected', outcome: 'denied', target: input.userId, detail: { reason: 'local-not-host', mode: 'local' } });
+        audit.record({ actor: SYSTEM_ACTOR, action: 'auth.rejected', outcome: 'denied', target: input.userId, detail: { via: LOCAL_CHANNEL_VIA, reason: 'local-not-host', mode: 'local' } });
         throw new SmurgError('forbidden', undefined, { reason: 'local-not-host' });
       }
-      const admission = hub.prepareAdmission({ purpose: 'interactive', userId: member.userId, deviceId: LOCAL_DEVICE_ID, resume: input.resume });
+      const admission = hub.prepareAdmission({ purpose: 'interactive', userId: member.userId, deviceId: LOCAL_DEVICE_ID, resume: input.resume, local: true });
       const channel = new LocalChannel({ send: (bytes) => input.send(bytes), close: () => input.close() });
       const connection = hub.attach({
         channel,
@@ -471,7 +466,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
         action: 'auth.connect',
         outcome: 'ok',
         target: LOCAL_DEVICE_ID,
-        detail: { mode: 'local', purpose: 'interactive', resumed: admission.resumed, clientKind: 'cli' },
+        detail: { via: LOCAL_CHANNEL_VIA, mode: 'local', purpose: 'interactive', resumed: admission.resumed, clientKind: 'cli' },
       });
       const welcome: Welcome = {
         channelId: admission.channelId,
@@ -536,20 +531,17 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
           handshakes: { ...channelServer.stats },
           fingerprint,
           relayUrl: config.relayUrl,
-          switches: {
-            guestSubscriptionLogin: config.sessions.guestSubscriptionLogin,
-            attributeBashEdits: config.activity.attributeBashEdits,
-            guestMainWorkspace: config.sessions.guestMainWorkspace,
-          },
+          switches: { attributeBashEdits: config.activity.attributeBashEdits },
           isGitRepo: workspace.info.isGitRepo,
-          sandbox: lastSandboxCheck(),
         };
       },
     };
     daemonRef = daemon;
     return daemon;
   } catch (err) {
-    // Nothing was started yet; release what is open so a failed composition leaves no handle behind.
+    // Nothing was started yet; release what is open so a failed composition leaves no handle behind. The host's
+    // terminal points at the log for the reason: at least which error it was.
+    log.error('daemon composition failed', { error: err instanceof Error ? err.name : 'unknown', reason: err instanceof StateFileError ? err.message : errnoCodeOf(err) });
     await audit.close().catch(() => {});
     await shareLock.release();
     throw err;

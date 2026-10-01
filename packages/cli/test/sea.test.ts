@@ -4,17 +4,22 @@
 // It runs the BINARY (no Node from node_modules, no source files) with an isolated environment: `--version`, the
 // host's NODE_OPTIONS ignored, `smurg hook` / `smurg mcp` and their start-up time, then a real workspace: `smurg login
 // --dev-user` against a fake relay HTTP API, `smurg host` with every production module (node-pty, the file watcher and
-// the docs worker extracted from the binary), a host terminal session created through the control socket and shown by
-// `smurg attach` in a real PTY (keystrokes in, output back, Ctrl-] out, terminal restored), and `smurg stop`.
+// the docs worker extracted from the binary), its relay links tunnelled to an in-memory relay, a host terminal session
+// created by the host as a relay client (the web app's way: the control socket cannot open sessions, review F1) and
+// shown by `smurg attach` in a real PTY (keystrokes in, output back, Ctrl-] out, terminal restored), and `smurg stop`.
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
+import { generateKeyPairSync } from 'node:crypto';
+import { lstat, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
-import { runPathsFor } from '@smurg/daemon';
-import { waitFor } from '@smurg/daemon/testing';
-import { LocalWorkspaceChannel } from '../src/channel/local-channel.ts';
+import { systemClock } from '@smurg/daemon';
+import { PROTOCOL_VERSION, parseInviteUrl } from '@smurg/protocol';
+import { MemoryRelay, TestIdentityIssuer, waitFor } from '@smurg/daemon/testing';
+import { RelayWorkspaceChannel } from '../src/channel/relay-channel.ts';
+import { statePaths } from '../src/state/paths.ts';
+import { rememberSharedFolder } from '../src/state/workspaces.ts';
 import { startFakeRelay } from './fake-relay.ts';
 import { isolatedEnv, makeDirs, type Dirs } from './helpers.ts';
 import { localTerminal } from './viewer.ts';
@@ -60,8 +65,10 @@ describe.skipIf(BINARY === null)('the single executable (SMURG_SEA_BINARY)', () 
   it('smurg --version works from the binary alone, and the host NODE_OPTIONS never reaches it', async () => {
     const s = await setup();
     const { stdout } = await run(s.bin, ['--version'], { env: s.env, cwd: s.dirs.home, timeout: 30_000 });
-    // A release build prints its --version (build-sea.ts), any other build `<package version>-dev`.
-    expect(stdout).toMatch(/^smurg \d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)? \(protocol v1, daemon \S+, node \d+\.\d+\.\d+\)\n$/);
+    // A release build prints its --version (build-sea.ts), any other build `<package version>-dev`; the protocol is the
+    // one of the source it was built from (2 since ARCHITECTURE §11 D-15).
+    expect(PROTOCOL_VERSION).toBe(2);
+    expect(stdout).toMatch(new RegExp(`^smurg \\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)? \\(protocol v${PROTOCOL_VERSION}, daemon \\S+, node \\d+\\.\\d+\\.\\d+\\)\\n$`));
     if (process.env['SMURG_SEA_VERSION']) expect(stdout.startsWith(`smurg ${process.env['SMURG_SEA_VERSION']} (`)).toBe(true);
     // The binary runs on this machine, so it is this machine's build: its release name is smurg-<platform>-<arch>
     // (the asset scripts/install.sh downloads), unless --out gave it another name.
@@ -89,19 +96,21 @@ describe.skipIf(BINARY === null)('the single executable (SMURG_SEA_BINARY)', () 
     await expect(lstat(s.cache)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('smurg licenses prints the embedded LICENSE and third-party notices (srt Apache-2.0, Node.js LICENSE); --third-party is the release file', async () => {
+  it('smurg licenses prints the embedded LICENSE and third-party notices (an Apache-2.0 text, Node.js LICENSE); --third-party is the release file', async () => {
     const s = await setup();
     const all = await run(s.bin, ['licenses'], { env: s.env, cwd: s.dirs.home, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
     const license = await readFile(join(REPO_ROOT, 'LICENSE'), 'utf8');
     expect(all.stdout.startsWith(license)).toBe(true);
     const thirdParty = await run(s.bin, ['licenses', '--third-party'], { env: s.env, cwd: s.dirs.home, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
     expect(all.stdout).toBe(`${license}\n${thirdParty.stdout}`);
-    // srt's own Apache-2.0 LICENSE (and NOTICE, if its package has one), and the Node.js runtime's LICENSE.
-    const srt = join(REPO_ROOT, 'packages', 'daemon', 'node_modules', '@anthropic-ai', 'sandbox-runtime');
-    expect(thirdParty.stdout).toContain('\n@anthropic-ai/sandbox-runtime@');
-    const srtLicense = (await readFile(join(srt, 'LICENSE'), 'utf8')).replace(/[ \t]+$/gm, '').trim();
-    expect(thirdParty.stdout).toContain(srtLicense);
-    for (const name of await readdir(srt)) if (/^notice/i.test(name)) expect(thirdParty.stdout).toContain((await readFile(join(srt, name), 'utf8')).replace(/[ \t]+$/gm, '').trim());
+    // fast-diff's own Apache-2.0 LICENSE (and NOTICE, if its package has one), and the Node.js runtime's LICENSE.
+    // Nothing of the guest sandbox (srt) since the owner removed it (2026-10-01, ARCHITECTURE §11 D-15).
+    const fastDiff = join(REPO_ROOT, 'packages', 'daemon', 'node_modules', 'fast-diff');
+    expect(thirdParty.stdout).toContain('\nfast-diff@');
+    const fastDiffLicense = (await readFile(join(fastDiff, 'LICENSE'), 'utf8')).replace(/[ \t]+$/gm, '').trim();
+    expect(thirdParty.stdout).toContain(fastDiffLicense);
+    for (const name of await readdir(fastDiff)) if (/^notice/i.test(name)) expect(thirdParty.stdout).toContain((await readFile(join(fastDiff, name), 'utf8')).replace(/[ \t]+$/gm, '').trim());
+    expect(thirdParty.stdout).not.toMatch(/sandbox-runtime|apply-seccomp/);
     expect(thirdParty.stdout).toMatch(/\nnode@\d+\.\d+\.\d+ \(the Node\.js runtime\)\n/);
     expect(thirdParty.stdout).toContain('Node.js is licensed for use as follows:');
     expect(thirdParty.stdout).not.toContain('In the copy of this file that is built');
@@ -117,6 +126,13 @@ describe.skipIf(BINARY === null)('the single executable (SMURG_SEA_BINARY)', () 
     await writeFile(join(s.dirs.project, 'notes.txt'), 'hello\n');
     const login = await run(s.bin, ['login', '--relay', relay.origin, '--dev-user', 'host'], { env: s.env, timeout: 30_000 });
     expect(login.stdout).toContain('dev:host');
+    // The folder's workspace id, as an earlier `smurg host` would have remembered it: the in-memory relay the host
+    // sockets are tunnelled to serves one workspace.
+    const workspaceId = `ws_sea_${Math.random().toString(36).slice(2, 14)}`;
+    await rememberSharedFolder(statePaths(s.env), { folder: await realpath(s.dirs.project), relay: relay.origin, workspaceId, createdAt: 1 });
+    const memory = new MemoryRelay(workspaceId);
+    const issuer = new TestIdentityIssuer(relay.origin, generateKeyPairSync('ed25519'), systemClock);
+    relay.tunnel(memory, issuer);
 
     const host: ChildProcess = spawn(s.bin, ['host', s.dirs.project, '--relay', relay.origin, '--no-keep-awake'], { env: s.env, cwd: s.dirs.project, stdio: ['ignore', 'pipe', 'pipe'] });
     const hostPid = host.pid;
@@ -139,7 +155,8 @@ describe.skipIf(BINARY === null)('the single executable (SMURG_SEA_BINARY)', () 
     await waitFor(() => (hostOut.match(/\/join\//g) ?? []).length === 2 || !hostAlive, { timeoutMs: 60_000, what: 'the host summary' });
     if (!hostAlive) throw new Error(`smurg host ended: ${hostErr}${hostOut}`);
     // The start prints only the two links (owner decision 2026-10-01); the workspace id is in them.
-    const workspaceId = (/\/join\/(ws_[A-Za-z0-9_-]+)#/.exec(hostOut) as RegExpExecArray)[1] as string;
+    expect((/\/join\/(ws_[A-Za-z0-9_-]+)#/.exec(hostOut) as RegExpExecArray)[1]).toBe(workspaceId);
+    const hostLink = (hostOut.match(/https?:\/\/\S+\/join\/\S+/g) ?? [])[0] as string;
 
     // The native parts were extracted into the cache, verified, private.
     const nativeDirs = (await readdir(s.cache)).filter((name) => name.startsWith('native-'));
@@ -148,18 +165,31 @@ describe.skipIf(BINARY === null)('the single executable (SMURG_SEA_BINARY)', () 
     expect((await lstat(join(native, 'node-pty', 'prebuilds', `${process.platform}-${process.arch}`, 'pty.node'))).isFile()).toBe(true);
     if (process.platform === 'darwin') expect((await lstat(join(native, 'node-pty', 'prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper'))).mode & 0o777).toBe(0o700);
     if (process.platform === 'linux') {
-      // Linux: node-pty needs no spawn-helper (forkpty); srt's seccomp helper is extracted executable, owner only.
+      // Linux: node-pty needs no spawn-helper (forkpty).
       await expect(lstat(join(native, 'node-pty', 'prebuilds', `linux-${process.arch}`, 'spawn-helper'))).rejects.toMatchObject({ code: 'ENOENT' });
-      expect((await lstat(join(native, 'vendor', 'seccomp', process.arch, 'apply-seccomp'))).mode & 0o777).toBe(0o700);
     }
+    // Nothing of the guest sandbox is packed any more (2026-10-01): no srt package.json, no apply-seccomp.
+    await expect(lstat(join(native, 'vendor'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(join(native, 'node_modules'))).rejects.toMatchObject({ code: 'ENOENT' });
     expect((await lstat(join(native, 'parcel-watcher', 'watcher.node'))).mode & 0o777).toBe(0o600);
     expect((await lstat(join(native, 'lib', 'compute-worker.ts'))).isFile()).toBe(true);
     expect((await lstat(native)).mode & 0o777).toBe(0o700);
 
-    // A host terminal session (node-pty inside the binary), created through the control socket.
-    const ctl = runPathsFor(join(s.dirs.stateDir, 'run'), workspaceId).ctl;
-    const channel = await LocalWorkspaceChannel.open(ctl, { deviceName: 'sea smoke' });
+    // A host terminal session (node-pty inside the binary), created by the host as a relay client through the binary's
+    // relay links (the web app's way; the control socket only serves `smurg attach`).
+    await waitFor(() => memory.hostOnline('ws'), { timeoutMs: 30_000, what: 'the binary daemon at the (tunnelled) relay' });
+    const hostDevice = await makeDirs();
+    cleanups.push(() => hostDevice.cleanup());
+    const invite = parseInviteUrl(hostLink);
+    const channel = await RelayWorkspaceChannel.open({
+      relay: memory.apiFor({ userId: 'dev:host', displayName: 'host' }, issuer),
+      workspaceId,
+      stateDir: hostDevice.stateDir,
+      invite: { fingerprint: invite.fingerprint, secret: invite.secret },
+      deviceName: 'sea smoke',
+    });
     cleanups.push(() => channel.close());
+    expect(channel.welcome.member.role).toBe('host');
     const { session } = await channel.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24, title: 'sea' });
 
     const script = `${s.bin} attach ${session.id} --workspace ${workspaceId}; echo "attach-exit=$?"; exec sleep 120`;

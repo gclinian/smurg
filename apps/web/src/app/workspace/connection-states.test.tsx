@@ -163,7 +163,9 @@ describe('connection states in the UI', () => {
     const { services, conn } = await openAdmitted();
     await userEvent.click(screen.getByRole('button', { name: '離開' }));
     const dialog = await screen.findByRole('alertdialog', { name: '離開這個工作區？' });
-    expect(dialog.textContent).toContain('Claude 登入資料也會從主人的電腦刪除');
+    expect(dialog.textContent).toContain('你在這個工作區開的 session 會結束。');
+    // There is no guest login on the host's computer any more (protocol v2).
+    expect(dialog.textContent).not.toContain('Claude 登入資料');
     conn.handle('channel.leave', () => ({}));
     await userEvent.click(within(dialog).getByRole('button', { name: '離開' }));
     await waitFor(() => expect(services.router.getState().pathname).toBe('/'));
@@ -203,7 +205,7 @@ describe('connection states in the UI', () => {
     const services = createTestServices({ path: `/w/${WORKSPACE_ID}/console` });
     render(<App services={services} />);
     await waitFor(() => expect(services.connections).toHaveLength(1));
-    act(() => services.connections[0]!.conn.admit(makeWelcome({ role: 'runner' })));
+    act(() => services.connections[0]!.conn.admit(makeWelcome({ role: 'agent' })));
     expect(await screen.findByText('只有主人可以使用控制台')).toBeTruthy();
   });
 });

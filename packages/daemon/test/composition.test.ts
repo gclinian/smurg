@@ -36,9 +36,6 @@ function fakeSessions(calls: string[]): FeatureModule {
           await new Promise((resolve) => setTimeout(resolve, 20));
           calls.push(`kill:${userId}:${reason}`);
         },
-        removeGuestDir: async (userId: string) => {
-          calls.push(`rm:${userId}`);
-        },
       } as unknown as FeatureServices['sessions'],
     }),
     register: () => toDisposable(() => {}),
@@ -46,38 +43,38 @@ function fakeSessions(calls: string[]): FeatureModule {
 }
 
 describe('per-member teardown', () => {
-  it('kick through the console waits for sessions and the guest dir before answering', async () => {
+  it('kick through the console waits for the sessions the member opened before answering', async () => {
     const calls: string[] = [];
     t = await createTestDaemon({ modules: [fakeSessions(calls)] });
     const host = await t.connectHost();
-    await t.connect({ userId: 'dev:rita', role: 'runner' });
+    await t.connect({ userId: 'dev:rita', role: 'agent' });
     await host.conn.request('admin.member.kick', { userId: 'dev:rita' });
-    expect(calls).toEqual(['kill:dev:rita:kicked', 'rm:dev:rita']);
+    expect(calls).toEqual(['kill:dev:rita:kicked']);
   });
 
   it('a kick from any other path still ends the sessions', async () => {
     const calls: string[] = [];
     t = await createTestDaemon({ modules: [fakeSessions(calls)] });
-    await t.connect({ userId: 'dev:rita', role: 'runner' });
+    await t.connect({ userId: 'dev:rita', role: 'agent' });
     t.ctx.members.kick('dev:rita', SYSTEM_PRINCIPAL);
-    await waitFor(() => calls.length === 2, { what: 'teardown' });
-    expect(calls).toEqual(['kill:dev:rita:kicked', 'rm:dev:rita']);
+    await waitFor(() => calls.length === 1, { what: 'teardown' });
+    expect(calls).toEqual(['kill:dev:rita:kicked']);
   });
 
-  it('leaving ends the sessions; a demotion ends them only when the new role cannot own sessions', async () => {
+  it('leaving ends the sessions; a demotion ends them only when the new role cannot open sessions (below 「可使用 agent」)', async () => {
     const calls: string[] = [];
     t = await createTestDaemon({ modules: [fakeSessions(calls)] });
     const host = await t.connectHost();
-    const rita = await t.connect({ userId: 'dev:rita', role: 'runner' });
+    const rita = await t.connect({ userId: 'dev:rita', role: 'agent' });
     await t.connect({ userId: 'dev:eddie', role: 'editor' });
     await host.conn.request('admin.member.setRole', { userId: 'dev:eddie', role: 'viewer' });
     expect(calls).toEqual([]);
     await host.conn.request('admin.member.setRole', { userId: 'dev:rita', role: 'editor' });
-    expect(calls).toEqual(['kill:dev:rita:role-changed', 'rm:dev:rita']);
+    expect(calls).toEqual(['kill:dev:rita:role-changed']);
     calls.length = 0;
     await waitFor(() => rita.conn.getState().kind === 'online');
     await rita.conn.request('channel.leave', {});
-    expect(calls).toEqual(['kill:dev:rita:left', 'rm:dev:rita']);
+    expect(calls).toEqual(['kill:dev:rita:left']);
   });
 });
 
@@ -122,7 +119,7 @@ describe('composition', () => {
 
 describe('DEFAULT_FEATURE_MODULES', () => {
   // The order is explained next to the list in src/daemon.ts: providers first, the control socket last.
-  const AREAS = ['locks', 'sandbox', 'hooks', 'files', 'docs', 'worktree', 'sessions', 'suggest', 'local'];
+  const AREAS = ['locks', 'hooks', 'files', 'docs', 'worktree', 'sessions', 'suggest', 'local'];
 
   it('lists every feature module exactly once, in dependency order', () => {
     const names = DEFAULT_FEATURE_MODULES.map((module) => module.name);
@@ -163,7 +160,7 @@ describe('entry points Claude Code runs inside sessions', () => {
   // nothing they load at runtime may reach the daemon or its heavy / native dependencies. Type-only imports are
   // erased and do not count; `import { type X }` does (it still loads the module under verbatimModuleSyntax).
   const FORBIDDEN_FILES = ['src/daemon.ts', 'src/index.ts', 'src/testing/'];
-  const FORBIDDEN_PACKAGES = /^(?:@smurg\/daemon(?:\/|$)|node-pty$|@anthropic-ai\/sandbox-runtime|@parcel\/watcher|yjs$|y-protocols|@xterm\/)/;
+  const FORBIDDEN_PACKAGES = /^(?:@smurg\/daemon(?:\/|$)|node-pty$|@parcel\/watcher|yjs$|y-protocols|@xterm\/)/;
 
   it.each(ENTRIES)('$file never loads the daemon (runtime import graph)', async ({ file }) => {
     const { files, packages } = await runtimeImportClosure(join(PACKAGE_DIR, file));

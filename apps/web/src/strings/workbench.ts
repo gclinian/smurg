@@ -27,7 +27,7 @@ export const tWorkbench = defineStrings('workbench', {
   'topbar.leave': '離開',
   'topbar.more': '更多選項',
   'leave.title': '離開這個工作區？',
-  'leave.body': '你在這個工作區的 agent session 會結束，你的 Claude 登入資料也會從主人的電腦刪除。之後仍可以用這個瀏覽器重新連線。',
+  'leave.body': '你在這個工作區開的 session 會結束。之後仍可以用這個瀏覽器重新連線。',
   'leave.bodyHost': '你是主人：離開只會關閉這個分頁的連線，不會停止分享。要停止分享，請在主人電腦的終端機執行 smurg stop。',
   'leave.confirm': '離開',
   'leave.failed': '離開時發生問題：{reason}',

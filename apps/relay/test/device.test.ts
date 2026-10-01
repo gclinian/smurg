@@ -1,8 +1,8 @@
 // The CLI's device-code login against the real relay (local workerd) and the mock IdP: start → /device needs a login
 // (and comes back) → the code, wrong and right, as people type it → the confirmation screen → allow / deny, bound to
 // the browser's account → the session, once. Expiry (through the dev-only debug route: nobody waits ten minutes), the
-// alarm that deletes it, the rate limits, CSRF, framing, slow_down and the token endpoint's errors. The deprecated
-// loopback routes keep their own tests (auth.test.ts). Every negative case asserts the exact outcome.
+// alarm that deletes it, the rate limits, CSRF, framing, slow_down and the token endpoint's errors. Every negative case
+// asserts the exact outcome.
 import {
   DEVICE_LOGIN_INTERVAL_SECONDS,
   DEVICE_LOGIN_TTL_SECONDS,

@@ -76,23 +76,22 @@ const ARCH_CATALOG: readonly (readonly [string, ArchDir, string])[] = [
   ['activity.event', 'd→c', ''],
   ['activity.list', 'c→d', '[file.read]'],
   // §5.5
-  ['session.create', 'c→d', '[session.create.*]'],
+  ['session.create', 'c→d', '[session.create]'],
   ['session.list', 'c→d', '[session.view]'],
-  ['session.loginStatus', 'c→d', '(owner)'],
+  ['session.loginStatus', 'c→d', '[session.drive]'],
   ['session.attach', 'c→d', '[session.view]'],
   ['session.detach', 'c→d', ''],
   ['session.end', 'c→d', '(owner)'],
   ['session.state', 'd→c', ''],
-  ['session.importConfig', 'c→d', '[session.create.sandboxed]'],
   ['exec.output', 'd→c', ''],
-  ['exec.input', 'c→d', '(owner)'],
+  ['exec.input', 'c→d', '[session.drive]'],
   ['exec.resize', 'both', '(owner)'],
   // §5.6
   ['suggest.create', 'c→d', '[suggest.create]'],
   ['suggest.edit', 'c→d', '(author, pending)'],
   ['suggest.withdraw', 'c→d', '(author, pending)'],
-  ['suggest.accept', 'c→d', '(session owner)'],
-  ['suggest.reject', 'c→d', '(session owner)'],
+  ['suggest.accept', 'c→d', '[session.drive]'],
+  ['suggest.reject', 'c→d', '[session.drive]'],
   ['suggest.list', 'c→d', '[session.view]'],
   ['suggest.updated', 'd→c', ''],
   // §5.7
@@ -100,7 +99,7 @@ const ARCH_CATALOG: readonly (readonly [string, ArchDir, string])[] = [
   ['worktree.remove', 'c→d', '(owner or host)'],
   ['worktree.merge.request', 'c→d', '[worktree.merge.request]'],
   ['worktree.merge.list', 'c→d', '[file.read]'],
-  ['worktree.merge.diff', 'c→d', '(owner or host)'],
+  ['worktree.merge.diff', 'c→d', '[worktree.merge.request]'],
   ['worktree.merge.approve', 'c→d', '[worktree.merge.decide]'],
   ['worktree.merge.reject', 'c→d', '[worktree.merge.decide]'],
   ['worktree.updated', 'd→c', ''],
@@ -135,7 +134,6 @@ const DEVIATING_ACCESS: Readonly<Record<string, { expected: MessageAccess; note:
 function expectedAccess(type: string, dir: ArchDir, notation: string): MessageAccess {
   const deviation = DEVIATING_ACCESS[type];
   if (deviation !== undefined) return deviation.expected;
-  if (notation === '[session.create.*]') return ['session.create.host', 'session.create.sandboxed'];
   const bracket = /^\[(.+)\]$/.exec(notation);
   if (bracket !== null) return bracket[1] as MessageAccess;
   if (notation.startsWith('(')) return 'owner-checked-in-handler';
@@ -213,9 +211,7 @@ describe('required capability matches ARCHITECTURE', () => {
     const ownershipChecks = new Set([
       'session-owner',
       'suggestion-author-pending',
-      'suggestion-session-owner',
       'worktree-owner-or-host',
-      'merge-request-owner-or-host',
     ]);
     for (const type of MESSAGE_TYPES) {
       const spec = MESSAGE_REGISTRY[type];
@@ -227,11 +223,16 @@ describe('required capability matches ARCHITECTURE', () => {
 
   it('the resource rules of ARCHITECTURE §3 are attached to their types', () => {
     expect(MESSAGE_REGISTRY['suggest.create'].checks).toContain('target-session-not-own');
-    expect(MESSAGE_REGISTRY['worktree.merge.request'].checks).toContain('worktree-owner');
+    // ARCHITECTURE §11 D-15: any member who may request a merge may request it for any worktree.
+    expect(MESSAGE_REGISTRY['worktree.merge.request'].checks).toEqual([]);
+    expect(MESSAGE_REGISTRY['suggest.accept'].checks).toEqual(['suggestion-pending']);
+    expect(MESSAGE_REGISTRY['suggest.reject'].checks).toEqual(['suggestion-pending']);
+    expect(MESSAGE_REGISTRY['session.end'].checks).toEqual(['session-owner']);
+    expect(MESSAGE_REGISTRY['exec.resize'].checks).toContain('session-owner');
     expect(MESSAGE_REGISTRY['lock.release'].checks).toContain('human-lock-holder');
     expect(MESSAGE_REGISTRY['file.upload.chunk'].checks).toContain('transfer-connection');
     expect(MESSAGE_REGISTRY['doc.sync'].checks).toContain('doc-content-needs-file.write');
-    expect(MESSAGE_REGISTRY['session.create'].checks).toEqual(['sandbox-by-role', 'api-key-sandboxed-only', 'login-own-guest-only']);
+    expect(MESSAGE_REGISTRY['session.create'].checks).toEqual([]);
   });
 
   it('events name their recipients; c2d types do not', () => {
@@ -279,8 +280,6 @@ describe('sensitivity', () => {
     'file.download.chunk',
     'doc.sync',
     'doc.conflict',
-    'session.create',
-    'session.importConfig',
     'exec.output',
     'exec.input',
   ];
@@ -359,11 +358,18 @@ describe('wire types and router checks', () => {
     expect(mayInvoke('viewer', 'file.upload.chunk')).toBe(false);
     expect(mayInvoke('viewer', 'doc.sync')).toBe(true); // content is dropped by the handler
     expect(mayInvoke('editor', 'session.create')).toBe(false);
-    expect(mayInvoke('runner', 'session.create')).toBe(true);
+    expect(mayInvoke('agent', 'session.create')).toBe(true);
     expect(mayInvoke('host', 'session.create')).toBe(true);
-    expect(mayInvoke('host', 'session.importConfig')).toBe(false);
-    expect(mayInvoke('runner', 'admin.member.kick')).toBe(false);
-    expect(mayInvoke('viewer', 'exec.input')).toBe(true); // owner check happens in the handler
+    expect(mayInvoke('host', 'session.importConfig')).toBe(false); // gone with the guest sandbox (D-15)
+    expect(mayInvoke('agent', 'admin.member.kick')).toBe(false);
+    // ARCHITECTURE §11 D-15: typing into a session and deciding its suggestions is session.drive, for ANY session.
+    for (const type of ['exec.input', 'suggest.accept', 'suggest.reject', 'session.loginStatus']) {
+      expect(mayInvoke('host', type)).toBe(true);
+      expect(mayInvoke('agent', type)).toBe(true);
+      expect(mayInvoke('editor', type)).toBe(false);
+      expect(mayInvoke('viewer', type)).toBe(false);
+    }
+    expect(mayInvoke('viewer', 'exec.resize')).toBe(true); // the owner check happens in the handler
     for (const role of ROLES) {
       expect(mayInvoke(role, 'file.changed')).toBe(false); // d→c
       expect(mayInvoke(role, 'file.tree.ok')).toBe(false); // responses are not invocable

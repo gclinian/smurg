@@ -318,14 +318,14 @@ describe('envelope shape, type, direction and channel', () => {
 
   it('reports payload issues by path without echoing values', () => {
     const decoded = decodeEnvelope(
-      rawEnvelope({ type: 'session.create', id: 's', seq: 0, payload: { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24, apiKey: 'sk ant SECRET' } }),
+      rawEnvelope({ type: 'session.create', id: 's', seq: 0, payload: { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24, title: 'SECRET\u001b[31m' } }),
       FROM_CLIENT,
     );
     expect(decoded.ok).toBe(false);
     if (decoded.ok) return;
     expect(decoded.type).toBe('session.create');
     expect(JSON.stringify(decoded.error.detail)).not.toContain('SECRET');
-    expect(JSON.stringify(decoded.error.detail)).toContain('apiKey');
+    expect(JSON.stringify(decoded.error.detail)).toContain('title');
   });
 
   it('normalises paths (NFC) on both ends', () => {
@@ -386,9 +386,9 @@ describe('ClientHello', () => {
 
   it('reports another protocol version as `version`, before strict parsing', () => {
     const future = msgpackEncode({ ...hello, protocolVersion: PROTOCOL_VERSION + 1, newField: true });
-    const decoded = decodeClientHello(future);
-    expect(decoded.ok).toBe(false);
-    if (!decoded.ok) expect(decoded.reason).toBe('version');
+    expect(decodeClientHello(future)).toMatchObject({ ok: false, reason: 'version' });
+    // An older peer (protocol 1): its hello is otherwise valid; the version decides before anything else.
+    expect(decodeClientHello(msgpackEncode({ ...hello, protocolVersion: PROTOCOL_VERSION - 1 }))).toMatchObject({ ok: false, reason: 'version' });
   });
 
   it('refuses malformed hellos', () => {

@@ -97,9 +97,11 @@ describe('the notices a preview publishes when none is named (a deploy must name
     const expected = execFileSync(process.execPath, [join(REPO_ROOT, 'scripts', 'third-party-notices.ts'), '--executable'], { cwd: REPO_ROOT }).toString('utf8');
     expect(notices).toBe(expected);
     expect(notices).not.toContain(NOTICES_PLACEHOLDER);
-    for (const name of ['node-pty', '@parcel/watcher', '@anthropic-ai/sandbox-runtime', `node@${process.versions.node} (the Node.js runtime)`]) {
+    for (const name of ['node-pty', '@parcel/watcher', `node@${process.versions.node} (the Node.js runtime)`]) {
       expect(notices, name).toContain(name);
     }
+    // Nothing of the guest sandbox (there is none: ARCHITECTURE §11 D-15).
+    expect(notices).not.toMatch(/sandbox-runtime|apply-seccomp/);
     expect(notices).not.toMatch(/gclinian/i);
   });
 });

@@ -3,10 +3,12 @@
 // detach when hidden, attach again after a full resync from the last rendered offset.
 //
 // Rules this component keeps:
-//  - the viewer never answers terminal queries (createViewerTerminal registers the full swallow set; a non-owner's
-//    terminal additionally has stdin disabled, so xterm emits nothing at all);
+//  - the viewer never answers terminal queries (createViewerTerminal registers the full swallow set; the terminal of
+//    someone who may not type additionally has stdin disabled, so xterm emits nothing at all);
 //  - it renders at exactly the PTY's size (session.attach / exec.resize), never at the panel's, and never reflows;
-//  - the OWNER's panel drives the PTY size (policy `owner`, review LEAD-01): columns AND rows fitted to the visible
+//  - the panel of the member who OPENED the session drives the PTY size (policy `owner`, review LEAD-01; the daemon
+//    would take a resize from any driver, the web sends it from the opener only, so panels never fight over it):
+//    columns AND rows fitted to the visible
 //    area (terminal-fit.ts), sent with session.attach and then as exec.resize (debounced) whenever the panel is
 //    resized, a pane or the drawer is toggled, a font finished loading or the browser tab becomes visible again; the
 //    daemon's exec.resize echo is applied in stream order (F18). Below the program's floor (Claude Code: 80 × 24) the
@@ -14,7 +16,8 @@
 //  - everyone else (and the owner's second window, while the other one drives) sees the PTY's size: when it is bigger
 //    than the panel, the terminal area scrolls both ways with visible scrollbars, a hint says so, and 「縮放以符合寬度」
 //    draws it smaller (never reflowed);
-//  - input and resize are sent only by the session's owner, and only while it runs;
+//  - input is sent by whoever may type (the host and 可使用 agent, into any session: `session.drive`), resize by the
+//    session's owner only, both only while it runs;
 //  - file paths in the output become links when they exist in the session's root (path-links.ts).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { EXEC_INPUT_MAX_BYTES, parentRelPath, type FileEntry, type FileRef, type SessionInfo } from '@smurg/protocol';
@@ -64,14 +67,17 @@ type Phase = 'waiting' | 'loading' | 'connecting' | 'live' | 'error';
 
 export interface SessionTerminalProps {
   readonly session: SessionInfo;
+  /** The member who opened it: their panel drives the PTY size. */
   readonly isOwner: boolean;
+  /** Keystrokes go to the session (host and 可使用 agent, any running session). */
+  readonly canType: boolean;
   /** The session's tab is the selected one. */
   readonly active: boolean;
   /** Draw the PTY-sized terminal smaller so it fits the panel's width (never reflows; the PTY keeps its size). */
   readonly scaled: boolean;
 }
 
-export function SessionTerminal({ session, isOwner, active, scaled }: SessionTerminalProps) {
+export function SessionTerminal({ session, isOwner, canType, active, scaled }: SessionTerminalProps) {
   const stores = useStores();
   const conn = useConnection();
   const factory = useViewerFactory();
@@ -94,7 +100,7 @@ export function SessionTerminal({ session, isOwner, active, scaled }: SessionTer
   const [errorText, setErrorText] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
 
-  const readOnly = !isOwner || session.status === 'exited';
+  const readOnly = !canType || session.status === 'exited';
   const latest = useRef({ session, isOwner, readOnly, resolvedTheme });
   latest.current = { session, isOwner, readOnly, resolvedTheme };
   // The size the terminal renders (the PTY's, known once the daemon sent it: snapshot, delta or exec.resize, applied in
@@ -211,7 +217,7 @@ export function SessionTerminal({ session, isOwner, active, scaled }: SessionTer
     return () => feed.detach();
   }, [feed, visible, generation, retry]);
 
-  // Owner-only input, and only while the session runs.
+  // Input from whoever may type (session.drive), and only while the session runs.
   useEffect(() => {
     if (!viewer) return;
     viewer.setReadOnly(readOnly);

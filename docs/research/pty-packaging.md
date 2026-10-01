@@ -1,5 +1,10 @@
 # Research: node-pty on this toolchain, scrollback / multi-attach, single-executable packaging
 
+> **Note (2026-10-01).** Where this report mentions srt (sandboxed guest PTYs, srt's assets in the single executable,
+> `apply-seccomp`), it is historical: the guest sandbox was removed (`docs/ARCHITECTURE.md` §11 D-15), and the
+> executable carries no srt files any more (`scripts/build-sea.ts`). The node-pty, scrollback and packaging findings
+> still apply.
+
 Scope: SPEC R4 (PTY sessions, multi-attach, full scrollback on re-attach, `smurg attach`), R2 (kicked user's processes gone within 3 s), R1 (prevent sleep while hosting), section 6 (single executable, node-pty native module) and the section 13 row "node-pty 原生模組在單一執行檔發佈下能正常運作".
 
 Host used: macOS 26.5.1 (Darwin 25.5) arm64, Node v25.4.0 and v22.22.1 (nvm), plus official Node v24.21.0 and v26.10.0 tarballs downloaded (checksums verified) into the spike dir only. bun 1.3.11, Xcode CLT, pnpm 10.34.5 via `npx`.

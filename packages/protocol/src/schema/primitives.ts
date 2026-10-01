@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { relayAvatarUrlSchema, relayDisplayNameSchema, relayUserIdSchema } from '../relay/frames.ts';
 import { WORKSPACE_ID_PATTERN } from '../relay/routes.ts';
 import {
-  API_KEY_MAX_CHARS,
   ENVELOPE_ID_MAX_CHARS,
   ETAG_MAX_CHARS,
   IDENTITY_TOKEN_MAX_CHARS,
@@ -166,25 +165,6 @@ export const identityTokenSchema = z
   .string()
   .max(IDENTITY_TOKEN_MAX_CHARS)
   .regex(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/, 'not a compact JWS');
-
-/** A guest's own Anthropic API key: printable ASCII, no whitespace. The format beyond that is Anthropic's business. */
-export const apiKeySchema = z.string().regex(new RegExp(`^[\\x21-\\x7e]{1,${API_KEY_MAX_CHARS}}$`), 'not an API key');
-
-const DOMAIN_LABEL = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
-const DOMAIN_PATTERN = new RegExp(`^(?:\\*\\.)?(?:${DOMAIN_LABEL}\\.)+${DOMAIN_LABEL}(?::([0-9]{1,5}))?$`);
-/**
- * Network allow-list entry for guest sandboxes (srt syntax): `example.com`, `*.example.com`, optional `:port`.
- * Lowercase only, at least two labels, at most 253 characters for the host part.
- */
-export const allowedDomainSchema = z
-  .string()
-  .max(253 + 6)
-  .regex(DOMAIN_PATTERN, 'not a domain (example.com, *.example.com, optional :port)')
-  .refine((entry) => {
-    const port = DOMAIN_PATTERN.exec(entry)?.[1];
-    const host = port === undefined ? entry : entry.slice(0, -(port.length + 1));
-    return host.length <= 253 && (port === undefined || (Number(port) >= 1 && Number(port) <= 65_535));
-  }, 'domain too long or port out of range');
 
 // ---------------------------------------------------------------------------------------------------------------
 // Bytes

@@ -22,21 +22,30 @@ describe('host console: invites', () => {
     const log = vi.spyOn(console, 'log');
     const view = renderConsole();
     const invites = await section('邀請連結');
-    fireEvent.change(within(invites).getByLabelText('角色'), { target: { value: 'runner' } });
-    expect(within(invites).getByText('可以編輯檔案，也可以在沙盒裡開自己的 agent 和終端機。')).toBeTruthy();
+    const roles = within(invites).getByLabelText('角色') as HTMLSelectElement;
+    expect([...roles.options].map((option) => option.textContent)).toEqual(['可使用 agent', '可編輯', '旁觀']);
+    fireEvent.change(roles, { target: { value: 'agent' } });
+    expect(within(invites).getByText('可以開 agent 和終端機（在你的電腦上、用你的 Claude 帳號執行），也可以在任何 session 裡直接輸入。')).toBeTruthy();
     fireEvent.change(within(invites).getByLabelText('有效期限'), { target: { value: '1d' } });
     fireEvent.change(within(invites).getByLabelText('可使用次數'), { target: { value: '3' } });
     fireEvent.click(within(invites).getByRole('button', { name: '建立邀請連結' }));
-    expect(view.conn.lastRequest('admin.invite.create')?.payload).toEqual({ role: 'runner', expiresInSec: 86_400, maxUses: 3 });
+    // 「可使用 agent」: the risk first, nothing created before the host confirms.
+    const risk = screen.getByRole('alertdialog', { name: '建立「可使用 agent」的邀請連結？' });
+    expect(within(risk).getByTestId('role-risk-text').textContent).toBe(
+      '可使用 agent 的人可以請 agent 在你的電腦上執行任何指令、讀取你家目錄裡的檔案，並使用你的 Claude 帳號。只開給你完全信任的人。',
+    );
+    expect(view.conn.requestsOf('admin.invite.create')).toHaveLength(0);
+    fireEvent.click(within(risk).getByRole('button', { name: '我了解，建立邀請連結' }));
+    expect(view.conn.lastRequest('admin.invite.create')?.payload).toEqual({ role: 'agent', expiresInSec: 86_400, maxUses: 3 });
 
-    const invite: InviteInfo = { id: 'inv_new', role: 'runner', createdAt: Date.now(), expiresAt: Date.now() + DAY, maxUses: 3, uses: 0, revoked: false };
+    const invite: InviteInfo = { id: 'inv_new', role: 'agent', createdAt: Date.now(), expiresAt: Date.now() + DAY, maxUses: 3, uses: 0, revoked: false };
     view.fixture.invites = [...view.fixture.invites, invite];
     await act(async () => {
       view.conn.respond('admin.invite.create', { invite, url: SECRET_URL });
     });
     const dialog = screen.getByRole('dialog', { name: '邀請連結已建立' });
     expect((within(dialog).getByLabelText('邀請連結') as HTMLInputElement).value).toBe(SECRET_URL);
-    expect(within(dialog).getByText('角色「可執行 agent」，1 天後到期，可以使用 3 次。')).toBeTruthy();
+    expect(within(dialog).getByText('角色「可使用 agent」，1 天後到期，可以使用 3 次。')).toBeTruthy();
     expect(within(dialog).getByText(/只透過私人管道/)).toBeTruthy();
     expect(within(dialog).getByText(/只會顯示這一次/)).toBeTruthy();
     await act(async () => {
@@ -56,6 +65,20 @@ describe('host console: invites', () => {
     expect(log.mock.calls.flat().some((value) => containsString(value, 'SECRETsecret'))).toBe(false);
     // The list shows the new invite (reloaded after creation), with its uses left.
     await waitFor(() => expect(within(invites).getByText('已用 0 次，剩 3 次')).toBeTruthy());
+  });
+
+  it('an 「可使用 agent」 invite cancelled at the risk step is never created; editor and viewer invites need no confirmation', async () => {
+    const view = renderConsole();
+    const invites = await section('邀請連結');
+    fireEvent.change(within(invites).getByLabelText('角色'), { target: { value: 'agent' } });
+    fireEvent.click(within(invites).getByRole('button', { name: '建立邀請連結' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '取消' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(view.conn.requestsOf('admin.invite.create')).toHaveLength(0);
+    fireEvent.change(within(invites).getByLabelText('角色'), { target: { value: 'viewer' } });
+    fireEvent.click(within(invites).getByRole('button', { name: '建立邀請連結' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(view.conn.lastRequest('admin.invite.create')?.payload).toMatchObject({ role: 'viewer' });
   });
 
   it('validates the number of uses and sends none for an unlimited invite', async () => {
@@ -191,14 +214,15 @@ describe('host console: settings', () => {
     const save = within(settings).getByRole('button', { name: '儲存設定' }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
 
+    // No setting of a guest sandbox (protocol v2: there is none).
+    expect(within(settings).queryByText(/沙盒|網域/)).toBeNull();
     fireEvent.change(shared, { target: { value: 'data\ncheckpoints/' } });
-    fireEvent.change(within(settings).getByLabelText('客人沙盒可以連線的額外網域'), { target: { value: 'pypi.org\nHuggingFace.co' } });
     fireEvent.change(within(settings).getByLabelText('agent 修改鎖逾時（秒）'), { target: { value: '90' } });
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
-    expect(view.conn.lastRequest('admin.settings.set')?.payload).toEqual({ sharedDirs: ['data', 'checkpoints'], allowedDomains: ['pypi.org', 'huggingface.co'], agentLockTimeoutMs: 90_000 });
+    expect(view.conn.lastRequest('admin.settings.set')?.payload).toEqual({ sharedDirs: ['data', 'checkpoints'], agentLockTimeoutMs: 90_000 });
     await act(async () => {
-      view.conn.respond('admin.settings.set', { settings: { ...SETTINGS, sharedDirs: ['data', 'checkpoints'], allowedDomains: ['pypi.org', 'huggingface.co'], agentLockTimeoutMs: 90_000 } });
+      view.conn.respond('admin.settings.set', { settings: { ...SETTINGS, sharedDirs: ['data', 'checkpoints'], agentLockTimeoutMs: 90_000 } });
     });
     expect(screen.getByText('設定已儲存並立即套用。')).toBeTruthy();
     expect(shared.value).toBe('data\ncheckpoints');
@@ -210,11 +234,11 @@ describe('host console: settings', () => {
     const settings = await section('設定');
     await within(settings).findByLabelText('共享資料夾（在 worktree 裡唯讀）');
     fireEvent.change(within(settings).getByLabelText('共享資料夾（在 worktree 裡唯讀）'), { target: { value: '../outside' } });
-    fireEvent.change(within(settings).getByLabelText('客人沙盒可以連線的額外網域'), { target: { value: 'https://evil.example' } });
+    fireEvent.change(within(settings).getByLabelText('agent 修改鎖逾時（秒）'), { target: { value: '601' } });
     fireEvent.change(within(settings).getByLabelText('編輯鎖閒置釋放時間（秒）'), { target: { value: '0' } });
     fireEvent.change(within(settings).getByLabelText('保留磁碟空間（%）'), { target: { value: '150' } });
     expect(within(settings).getByText(/「\.\.\/outside」不是有效的資料夾路徑/)).toBeTruthy();
-    expect(within(settings).getByText(/「https:\/\/evil\.example」不是有效的網域/)).toBeTruthy();
+    expect(within(settings).getByText('請輸入 1 到 600 之間的數字。')).toBeTruthy();
     expect(within(settings).getByText('請輸入 1 到 3600 之間的數字。')).toBeTruthy();
     expect(within(settings).getByText('請輸入 0 到 100 之間的數字。')).toBeTruthy();
     expect(within(settings).getByText('有 4 個欄位需要修正。')).toBeTruthy();
@@ -246,7 +270,7 @@ describe('host console: settings', () => {
     const settings = await section('設定');
     const idle = (await within(settings).findByLabelText('編輯鎖閒置釋放時間（秒）')) as HTMLInputElement;
     const reads = view.conn.requestsOf('admin.settings.get').length;
-    view.fixture.settings = { ...SETTINGS, humanLockIdleMs: 45_000, allowedDomains: ['pypi.org', 'example.com'] };
+    view.fixture.settings = { ...SETTINGS, humanLockIdleMs: 45_000, sharedDirs: ['data', 'models'] };
     act(() =>
       view.conn.emit('channel.settingsUpdated', {
         settings: { humanLockIdleMs: 45_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: ['data'] },
@@ -254,6 +278,6 @@ describe('host console: settings', () => {
     );
     await waitFor(() => expect(idle.value).toBe('45'));
     expect(view.conn.requestsOf('admin.settings.get').length).toBe(reads + 1);
-    expect((within(settings).getByLabelText('客人沙盒可以連線的額外網域') as HTMLTextAreaElement).value).toBe('pypi.org\nexample.com');
+    expect((within(settings).getByLabelText('共享資料夾（在 worktree 裡唯讀）') as HTMLTextAreaElement).value).toBe('data\nmodels');
   });
 });

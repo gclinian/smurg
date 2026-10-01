@@ -1,9 +1,15 @@
 // TEST ONLY: the relay's HTTP API as far as the CLI uses it (relay README "路由"), on 127.0.0.1: dev login, the
 // device-code login (start, the token endpoint, and /device standing in for the person in the browser), /api/me and the
 // workspace claim. Every request is recorded. Tokens are made up; nothing here is a real credential.
+// tunnel(): for a daemon in ANOTHER process (the single executable), the host sockets (/ws/host/…, /xfer/host/…) are
+// bridged to an in-memory relay of @smurg/daemon/testing and the JWKS serves its test issuer's key, so a test can
+// reach that daemon as a relay client (MemoryRelay.apiFor) — the way the host's web app does.
 import { randomBytes, randomInt } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { WebSocketServer, type WebSocket } from 'ws';
+import { MAX_RELAY_FRAME } from '@smurg/protocol';
+import type { MemoryRelay, TestIdentityIssuer } from '@smurg/daemon/testing';
 
 type User = { userId: string; displayName: string; provider: 'github' | 'google' | 'dev' };
 
@@ -37,6 +43,8 @@ export interface FakeRelay {
    * `network` (the connection is dropped).
    */
   pollScript: string[];
+  /** Bridges host sockets to `memory` and serves `issuer`'s key at /.well-known/jwks.json (see the header). */
+  tunnel(memory: MemoryRelay, issuer: TestIdentityIssuer): void;
   close(): Promise<void>;
 }
 
@@ -80,7 +88,12 @@ export async function startFakeRelay(): Promise<FakeRelay> {
     device: { interval: 1, expiresIn: 600 },
     startError: null,
     pollScript: [],
+    tunnel: () => {},
     close: async () => {},
+  };
+  let tunnel: { readonly memory: MemoryRelay; readonly issuer: TestIdentityIssuer } | null = null;
+  relay.tunnel = (memory, issuer) => {
+    tunnel = { memory, issuer };
   };
   const issue = (user: User): Record<string, unknown> => {
     const token = `fake.${b64url(randomBytes(24))}`;
@@ -162,10 +175,59 @@ export async function startFakeRelay(): Promise<FakeRelay> {
         // This fake tunnels nothing: a logged-in client is refused (the SDK ends as closed(relay-refused) at once).
         return json(res, bearer ? 403 : 401, { error: bearer ? 'forbidden' : 'unauthorized' });
       }
-      if (url.pathname === '/.well-known/jwks.json') return json(res, 200, { keys: [] });
+      if (url.pathname === '/.well-known/jwks.json') {
+        if (!tunnel) return json(res, 200, { keys: [] });
+        const jwk = tunnel.issuer.publicKey.export({ format: 'jwk' });
+        return json(res, 200, { keys: [{ ...jwk, kid: tunnel.issuer.kid, alg: 'EdDSA', use: 'sig' }] });
+      }
       return json(res, 404, { error: 'not_found' });
     })().catch(() => {
       if (!res.headersSent) json(res, 500, { error: 'internal' });
+    });
+  });
+  // Host sockets of a tunnelled workspace: every frame both ways between the remote daemon and the in-memory relay.
+  const sockets = new Set<WebSocket>();
+  const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: MAX_RELAY_FRAME + 1024 });
+  server.on('upgrade', (req, socket, head) => {
+    const current = tunnel;
+    if (!current) {
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      sockets.add(ws);
+      const authorization = req.headers['authorization'];
+      // Frames the daemon sends before the in-memory relay accepted the socket wait here.
+      let early: (string | Uint8Array)[] | null = [];
+      const host = current.memory.hostSocketFactory()(`http://memory.invalid${req.url ?? '/'}`, typeof authorization === 'string' ? { authorization } : {}, {
+        open: () => {
+          const queued = early ?? [];
+          early = null;
+          for (const frame of queued) host.send(frame);
+        },
+        message: (data) => {
+          if (ws.readyState === ws.OPEN) ws.send(data);
+        },
+        close: (code, reason) => {
+          try {
+            ws.close(code, reason);
+          } catch {
+            ws.terminate(); // 1005 / 1006 cannot be sent
+          }
+        },
+        error: () => ws.terminate(),
+      });
+      ws.on('message', (data, isBinary) => {
+        const buffer = Array.isArray(data) ? Buffer.concat(data) : data instanceof ArrayBuffer ? Buffer.from(data) : data;
+        const frame = isBinary ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength).slice() : buffer.toString('utf8');
+        if (early) early.push(frame);
+        else host.send(frame);
+      });
+      ws.on('close', () => {
+        sockets.delete(ws);
+        host.terminate();
+      });
+      ws.on('error', () => undefined);
     });
   });
   await new Promise<void>((resolve) => server.listen({ host: '127.0.0.1', port: 0 }, resolve));
@@ -173,6 +235,8 @@ export async function startFakeRelay(): Promise<FakeRelay> {
   (relay as { origin: string }).origin = `http://127.0.0.1:${port}`;
   relay.close = () =>
     new Promise<void>((resolve) => {
+      for (const ws of sockets) ws.terminate();
+      wss.close();
       server.closeAllConnections();
       server.close(() => resolve());
     });

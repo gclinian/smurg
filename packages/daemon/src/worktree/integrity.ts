@@ -1,6 +1,6 @@
 // Before the daemon runs git inside a worktree it checks that the clone's git directory is still the one it made.
-// The worktree is guest-controlled (the sandbox keeps a guest out of <worktree>/.git and PathGuard makes .git
-// host-only, but the daemon itself is not sandboxed, so it does not rely on either): a tampered repository could
+// The worktree is written by the sessions running in it (PathGuard makes .git host-only for members, but a session's
+// agent or shell can write anything there, so the daemon does not rely on it): a tampered repository could
 // otherwise make the DAEMON run code through repository config (core.fsmonitor, filter/diff/merge drivers,
 // core.alternateRefsCommand, include.path) or redirect it to another repository (a .git symlink, `commondir`,
 // alternates). Fail closed: any difference refuses the operation.

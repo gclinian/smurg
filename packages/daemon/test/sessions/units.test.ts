@@ -1,15 +1,12 @@
-// Unit tests of the sessions module's pure parts: raw tail, terminal mirror, environments (R4.3's allow-list),
-// launch files, sandbox spec, import validation, kill-tree selection guards (ARCHITECTURE §0 rule 1), login parsing.
+// Unit tests of the sessions module's pure parts: raw tail, terminal mirror, the session environment (the host's own,
+// ARCHITECTURE §11 D-15), kill-tree selection guards (ARCHITECTURE §0 rule 1), login parsing.
 import xtermHeadless from '@xterm/headless';
 import { describe, expect, it } from 'vitest';
 import { LoginHintDetector, parseAuthStatus } from '../../src/sessions/claude.ts';
-import { GuestEnvError, LOGIN_OVERRIDE_VARS, assertGuestEnv, buildGuestEnv, buildHostEnv, withTestGuestEnv } from '../../src/sessions/guest-env.ts';
-import { validateImport } from '../../src/sessions/import-config.ts';
+import { buildHostEnv } from '../../src/sessions/host-env.ts';
 import { envEntryPidsFromPs, identityOf, isSafePgid, killTree, parseProcessTable, releaseStoppedProcesses, rememberDescendants, selectTargets, stoppedProcesses, type ProcessInspector, type ProcessRow } from '../../src/sessions/kill-tree.ts';
-import { apiKeyApprovalSuffix, mergeClaudeJson } from '../../src/sessions/launch-files.ts';
 import { RawTail } from '../../src/sessions/raw-tail.ts';
 import { runProcess } from '../../src/sessions/process-run.ts';
-import { buildSandboxSpec, guestCommand, shellQuote } from '../../src/sessions/sandbox-spec.ts';
 import { TermMirror } from '../../src/sessions/term-mirror.ts';
 import { createMemoryLogger } from '../../src/core/logger.ts';
 
@@ -25,15 +22,12 @@ async function waitUntilTrue(predicate: () => boolean, timeoutMs = 5_000): Promi
 }
 
 describe('helper processes (process-run.ts)', () => {
-  it('a helper whose signal is aborted is killed at once, like at its deadline; an aborted signal starts nothing (a guest sandbox that no longer holds, SandboxService.onRevoked)', async () => {
-    const abort = new AbortController();
+  it('a helper is killed at its deadline (timedOut), and its stdout is bounded', async () => {
     const started = Date.now();
-    const running = runProcess('/bin/sh', ['-c', 'echo started; exec sleep 30'], { env: { PATH: '/usr/bin:/bin' }, cwd: '/', timeoutMs: 20_000, signal: abort.signal });
-    setTimeout(() => abort.abort(), 200);
-    const result = await running;
+    const result = await runProcess('/bin/sh', ['-c', 'echo started; exec sleep 30'], { env: { PATH: '/usr/bin:/bin' }, cwd: '/', timeoutMs: 300 });
     expect(Date.now() - started).toBeLessThan(10_000);
-    expect(result).toMatchObject({ signal: 'SIGKILL', timedOut: false, spawnError: false });
-    expect(await runProcess('/bin/sh', ['-c', 'echo never'], { env: { PATH: '/usr/bin:/bin' }, cwd: '/', timeoutMs: 20_000, signal: abort.signal })).toEqual({ code: null, signal: null, stdout: '', timedOut: false, spawnError: true });
+    expect(result).toMatchObject({ signal: 'SIGKILL', timedOut: true, spawnError: false, stdout: 'started\n' });
+    expect(await runProcess('/bin/sh', ['-c', 'printf 0123456789'], { env: { PATH: '/usr/bin:/bin' }, cwd: '/', timeoutMs: 20_000, maxStdoutBytes: 4 })).toMatchObject({ code: 0, stdout: '0123' });
   });
 });
 
@@ -142,7 +136,7 @@ describe('TermMirror', () => {
   });
 });
 
-describe('guest environment (R4.3: the host environment never reaches a guest)', () => {
+describe('session environment (every session is the host\'s own, ARCHITECTURE §11 D-15)', () => {
   const hostEnv = {
     USER: 'host',
     LANG: 'zh_TW.UTF-8',
@@ -153,60 +147,11 @@ describe('guest environment (R4.3: the host environment never reaches a guest)',
     CLAUDE_CODE_OAUTH_TOKEN: 'oauth',
     CLAUDE_CODE_USE_BEDROCK: '1',
     CLAUDE_CODE_USE_VERTEX: '1',
-    CLAUDE_SECURESTORAGE_CONFIG_DIR: '',
     AWS_SECRET_ACCESS_KEY: 'aws',
-    GITHUB_TOKEN: 'gh',
-    HTTPS_PROXY: 'http://proxy',
-    NODE_OPTIONS: '--require=/x',
-    SSH_AUTH_SOCK: '/tmp/agent',
     CLAUDECODE: '1',
   };
-  const base = { home: '/g/home', configDir: '/g/cfg', tmpDir: '/g/tmp', hostEnv, claudeDir: '/opt/claude', shell: '/bin/bash', browser: '/usr/bin/true', sessionId: 'ses_1' };
 
-  it('is built from the allow-list only', () => {
-    const env = buildGuestEnv({ ...base, hookEnv: { SMURG_HOOK_SOCKET: '/run/x.hook', SMURG_SESSION_TOKEN: 't', SMURG_SESSION_ID: 'other', EVIL: '1' } });
-    expect(Object.keys(env).sort()).toEqual(
-      [
-        'BROWSER',
-        'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
-        'CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL',
-        'CLAUDE_CONFIG_DIR',
-        'COLORTERM',
-        'DISABLE_AUTOUPDATER',
-        'HOME',
-        'LANG',
-        'LOGNAME',
-        'PATH',
-        'SHELL',
-        'SMURG_HOOK_SOCKET',
-        'SMURG_SESSION_ID',
-        'SMURG_SESSION_TOKEN',
-        'TERM',
-        'TMPDIR',
-        'USER',
-      ].sort(),
-    );
-    expect(env['PATH']).toBe('/opt/claude:/usr/bin:/bin:/usr/sbin:/sbin');
-    expect(env['HOME']).toBe('/g/home');
-    expect(env['SMURG_SESSION_ID']).toBe('ses_1');
-    for (const name of LOGIN_OVERRIDE_VARS) expect(env[name]).toBeUndefined();
-    expect(JSON.stringify(env)).not.toContain('secret');
-  });
-
-  it('the deny-pattern assertion refuses every credential or override variable, except the guest\'s own key', () => {
-    for (const name of [...LOGIN_OVERRIDE_VARS, 'HTTPS_PROXY', 'https_proxy', 'NODE_OPTIONS', 'SSH_AUTH_SOCK', 'GITHUB_TOKEN', 'MY_SECRET', 'DYLD_INSERT_LIBRARIES', 'XDG_CONFIG_HOME', 'CLAUDECODE', 'SMURG_OTHER']) {
-      expect(() => assertGuestEnv({ PATH: '/usr/bin', [name]: 'x' }, { apiKeyAllowed: false }), name).toThrow(GuestEnvError);
-    }
-    expect(() => assertGuestEnv({ ANTHROPIC_API_KEY: 'k' }, { apiKeyAllowed: true })).not.toThrow();
-    expect(() => assertGuestEnv({ ANTHROPIC_AUTH_TOKEN: 'k' }, { apiKeyAllowed: true })).toThrow(GuestEnvError);
-  });
-
-  it('test-only extras never replace a variable smurg set', () => {
-    const env = withTestGuestEnv({ HOME: '/g/home' }, { HOME: '/evil', ANTHROPIC_BASE_URL: 'http://127.0.0.1:1', SMURG_SESSION_ID: 'x' });
-    expect(env).toEqual({ HOME: '/g/home', ANTHROPIC_BASE_URL: 'http://127.0.0.1:1' });
-  });
-
-  it('host sessions keep the host environment minus what a parent Claude Code session injected', () => {
+  it('keeps the host environment minus what a parent Claude Code session injected, whoever opened the session', () => {
     const env = buildHostEnv({
       hostEnv: {
         ...hostEnv,
@@ -225,6 +170,7 @@ describe('guest environment (R4.3: the host environment never reaches a guest)',
       },
       home: '/fake/home',
       sessionId: 'ses_2',
+      hookEnv: { SMURG_HOOK_SOCKET: '/run/x.hook', SMURG_SESSION_TOKEN: 't', SMURG_SESSION_ID: 'other', EVIL: '1' },
     });
     for (const name of ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_AGENT_SDK_VERSION', 'CLAUDE_PREVIEW_X', 'AI_AGENT', 'CLAUDE_PID', 'CLAUDE_EFFORT', 'CLAUDE_CODE_SAFE_MODE', 'CLAUDE_CODE_SIMPLE']) {
       expect(env[name], name).toBeUndefined();
@@ -238,75 +184,10 @@ describe('guest environment (R4.3: the host environment never reaches a guest)',
     expect(env['HOME']).toBe('/fake/home');
     expect(env['SMURG_SESSION_ID']).toBe('ses_2');
     expect(env['TERM']).toBe('xterm-256color');
-  });
-});
-
-// The settings.json / mcp.json builders are the hooks module's (one writer: test/hooks/settings-writer.test.ts).
-describe('launch files', () => {
-  it('seeds trust and key approval into .claude.json without losing the guest\'s own state', () => {
-    const merged = mergeClaudeJson({ theme: 'dark', projects: { '/p': { history: [1] } }, customApiKeyResponses: { rejected: ['12345678901234567890'] } }, { projectPath: '/p', apiKeySuffix: apiKeyApprovalSuffix('sk-ant-xx-12345678901234567890') });
-    expect(merged).toEqual({ theme: 'dark', projects: { '/p': { history: [1], hasTrustDialogAccepted: true } }, customApiKeyResponses: { approved: ['12345678901234567890'], rejected: [] } });
-    expect(mergeClaudeJson('garbage', { projectPath: '/q' })).toEqual({ projects: { '/q': { hasTrustDialogAccepted: true } } });
-  });
-});
-
-describe('sandbox spec', () => {
-  const common = {
-    sessionId: 'ses_1',
-    command: 'exec x',
-    shareRealPath: '/srv/share',
-    guestDir: '/state/guests/k/u',
-    settingsDir: '/state/sessions/ses_1',
-    claudeRealPath: '/opt/claude/2.1.283',
-    hookSocketPath: '/run/x.hook',
-    env: { HOME: '/state/guests/k/u/home' },
-  };
-
-  it('main workspace: <share>/.smurg hidden, host-only paths not writable', () => {
-    const spec = buildSandboxSpec({ ...common, rootPath: '/srv/share', worktree: null });
-    expect(spec.denyReadPaths).toContain('/srv/share/.smurg');
-    expect(spec.denyWritePaths).toEqual(expect.arrayContaining(['/srv/share/.smurg', '/srv/share/.claude', '/srv/share/.mcp.json', '/srv/share/.git', '/srv/share/.envrc', '/srv/share/.vscode', '/srv/share/.idea']));
-    expect(spec.extraReadPaths).toEqual(['/opt/claude/2.1.283']); // smurg hook / mcp: the sandbox module's carve-outs
-    expect(spec.hookSocketPath).toBe('/run/x.hook');
-  });
-
-  it('worktree mode (R9.1): the main share and every sibling worktree are denied, wherever the share lives', () => {
-    const spec = buildSandboxSpec({
-      ...common,
-      rootPath: '/srv/share/.smurg/worktrees/wt1',
-      worktree: { worktreesDir: '/srv/share/.smurg/worktrees', sharedLinks: [{ path: 'data', mainPath: 'data', targetRealPath: '/srv/share/data' }] },
-    });
-    expect(spec.denyReadPaths).toEqual(expect.arrayContaining(['/srv/share', '/srv/share/.smurg/worktrees']));
-    expect(spec.denyWritePaths).toEqual(expect.arrayContaining(['/srv/share', '/srv/share/.smurg/worktrees', '/srv/share/.smurg/worktrees/wt1/.git', '/srv/share/.smurg/worktrees/wt1/data']));
-    expect(spec.readOnlyPaths).toEqual(['/srv/share/data']);
-    expect(spec.extraReadPaths).toEqual(['/opt/claude/2.1.283']); // .git/objects: the sandbox module's own carve-out
-  });
-
-  it('quotes the guest command for the shell', () => {
-    expect(shellQuote("a'b")).toBe(`'a'\\''b'`);
-    expect(guestCommand('/g/tmp', '/opt/claude', ['--settings', '/s p/x.json'])).toBe(`export TMPDIR='/g/tmp'; exec '/opt/claude' '--settings' '/s p/x.json'`);
-  });
-});
-
-describe('session.importConfig validation (path safety)', () => {
-  const lexical = (path: unknown): string => {
-    if (typeof path !== 'string' || path.includes('..') || path.startsWith('/')) throw new Error('lexical');
-    return path.normalize('NFC');
-  };
-  const file = (relPath: string, size = 3) => ({ relPath, content: new Uint8Array(size) });
-
-  it('accepts CLAUDE.md, commands/** and skills/** only', () => {
-    expect(validateImport([file('CLAUDE.md'), file('commands/a.md'), file('skills/s/SKILL.md')], lexical).map((f) => f.relPath)).toEqual(['CLAUDE.md', 'commands/a.md', 'skills/s/SKILL.md']);
-    for (const bad of ['settings.json', '.claude.json', 'commands', 'agents/x.md', '.credentials.json']) expect(() => validateImport([file(bad)], lexical), bad).toThrow();
-    expect(() => validateImport([file('../CLAUDE.md')], lexical)).toThrow();
-  });
-
-  it('refuses names a case-insensitive file system folds together, file/dir clashes and oversized content', () => {
-    expect(() => validateImport([file('commands/A.md'), file('commands/a.md')], lexical)).toThrow(/不分大小寫/);
-    expect(() => validateImport([file('skills/ſkill.md'), file('skills/skill.md')], lexical)).toThrow();
-    expect(() => validateImport([file('commands/a'), file('commands/a/b.md')], lexical)).toThrow();
-    expect(() => validateImport([file('commands/x.md', 1024 * 1024 + 1)], lexical)).toThrow();
-    expect(() => validateImport([file('commands/.x.smurg-aa.tmp')], lexical)).toThrow();
+    // Only the hook's two variables come from the hook registration (never another session id or anything else).
+    expect(env['SMURG_HOOK_SOCKET']).toBe('/run/x.hook');
+    expect(env['SMURG_SESSION_TOKEN']).toBe('t');
+    expect(env['EVIL']).toBeUndefined();
   });
 });
 

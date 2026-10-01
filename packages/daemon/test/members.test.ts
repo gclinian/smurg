@@ -36,7 +36,7 @@ describe('kick (R2) and revoked device keys (R3)', () => {
   it('closes every channel within 3 s, revokes the device keys, audits and emits member.kicked', async () => {
     t = await createTestDaemon();
     const host = await t.connectHost();
-    const amy = await t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'runner' });
+    const amy = await t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'agent' });
     const transfer = await amy.transfer();
     const kicked: DaemonEvents['member.kicked'][] = [];
     t.ctx.bus.on('member.kicked', (event) => kicked.push(event));
@@ -86,7 +86,7 @@ describe('kick (R2) and revoked device keys (R3)', () => {
     t = await createTestDaemon();
     const amy = await t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
     const bob = { userId: 'dev:bob', displayName: 'Bob' };
-    const fresh = t.createInvite('runner', { maxUses: 1 });
+    const fresh = t.createInvite('agent', { maxUses: 1 });
     const asBob = (inviteUrl: string | null): Connection => {
       const invite = inviteUrl === null ? null : parseInviteUrl(inviteUrl);
       return new Connection({
@@ -116,7 +116,7 @@ describe('kick (R2) and revoked device keys (R3)', () => {
     expect(t.ctx.members.get('dev:bob')).toBeNull();
     expect(t.ctx.members.devicesOf('dev:amy').map((d) => d.revoked)).toEqual([false]);
     const bobOnHisOwnDevice = await t.connect({ userId: 'dev:bob', displayName: 'Bob', inviteUrl: fresh });
-    expect(bobOnHisOwnDevice.welcome?.member).toMatchObject({ userId: 'dev:bob', role: 'runner' });
+    expect(bobOnHisOwnDevice.welcome?.member).toMatchObject({ userId: 'dev:bob', role: 'agent' });
     expect((await amy.reconnect()).welcome?.member).toMatchObject({ userId: 'dev:amy' });
     const rejected = (await t.ctx.audit.query({ limit: 100 })).filter((e) => e.action === 'auth.rejected');
     expect(rejected.map((e) => [e.target, e.detail?.['reason'], e.detail?.['why']])).toEqual(

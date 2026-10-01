@@ -33,7 +33,7 @@ describe('suggest + sessions (real modules, real PTY)', { timeout: 120_000 }, ()
     const updates = recorder(amy.conn, 'suggest.updated');
 
     const { session } = await host.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 100, rows: 30 });
-    expect(session).toMatchObject({ ownerUserId: d.hostUserId, sandboxed: false, status: 'running' });
+    expect(session).toMatchObject({ ownerUserId: d.hostUserId, status: 'running' });
     const screen = terminalText(host.conn, session.id);
     await host.conn.request('session.attach', { sessionId: session.id });
     // The shell is up (its own output), so anything that would reach it would show.

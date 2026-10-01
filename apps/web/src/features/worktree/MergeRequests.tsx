@@ -1,9 +1,9 @@
 // Merge requests (SPEC R9 「合併：worktree 擁有者提出合併請求 → 主人看到完整 diff → 確認後合併」). Shown as the
 // workbench's 「合併請求」 drawer tab and inside the host console:
-//  - worktree owners (runner, host) see their worktrees with 「請求合併」;
+//  - worktree owners (可使用 agent, host) see their worktrees with 「請求合併」;
 //  - everyone sees the requests and their status; the requester reads the outcome (merged, rejected with the reason,
 //    conflict with the files);
-//  - the host opens 「審核」 (MergeReview.tsx), the requester may open the same diff read-only.
+//  - the host opens 「審核」 (MergeReview.tsx); 可使用 agent members may open the same diff read-only (any request).
 import { useState } from 'react';
 import type { WorktreeInfo } from '@smurg/protocol';
 import { useStore } from '../../lib/store.ts';
@@ -49,6 +49,7 @@ export function MergeRequestsSection({ headingLevel = 3 }: MergeRequestsSectionP
       worktree={state.worktrees.get(request.worktreeId) ?? null}
       userId={userId}
       isHost={isHost}
+      canView={canRequest}
       now={now}
       onOpen={setReviewing}
     />

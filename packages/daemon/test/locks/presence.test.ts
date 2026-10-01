@@ -123,7 +123,7 @@ describe('presence of agents', () => {
   it('presence of agents: one entry per running agent session, 「Claude（owner）」, a stable readable colour, its current file', async () => {
     const d = await daemon();
     const host = await d.connectHost();
-    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'runner' });
+    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
     const states = recorder(host.conn, 'presence.state');
     const ian = agentSession('ses_ian', 'dev:ian', 'Ian');
     const hosts = agentSession('ses_host', 'dev:host', 'Host');

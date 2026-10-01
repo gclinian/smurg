@@ -1,6 +1,5 @@
 // Response helpers. Every relay response is uncacheable and nosniff; HTML pages also get a CSP that allows no
-// script at all and no framing (the only pages the relay renders are /device, the CLI login confirmation, "continue"
-// pages and error pages).
+// script at all and no framing (the only pages the relay renders are /device and error pages).
 
 const BASE_HEADERS: Record<string, string> = {
   'cache-control': 'no-store',

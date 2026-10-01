@@ -1,5 +1,5 @@
 // Pending suggestions across every session (SPEC R11 「待處理的建議」): a read-only overview. Accepting or rejecting is
-// the session owner's decision, taken at the session (R6: the host has no shortcut around the owner).
+// done at the session, by the host or a 可使用 agent member (protocol v2 `session.drive`, R6: never automatically).
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { selectSuggestionList } from '../../lib/stores/suggestions.ts';
 import { formatRelativeTime } from '../../lib/format.ts';

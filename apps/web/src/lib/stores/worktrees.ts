@@ -17,7 +17,7 @@ export interface WorktreesStore extends ReadableStore<WorktreesState> {
   reload(): Promise<void>;
   /** Owner or host. */
   remove(worktreeId: string): Promise<void>;
-  /** Owner (runner or host): commits the worktree and asks the host to merge exactly that commit. */
+  /** Host or 可使用 agent (worktree.merge.request): commits the worktree and asks the host to merge exactly that commit. */
   requestMerge(worktreeId: string, message?: string): Promise<MergeRequest>;
   /** Owner of the worktree or host: the full diff under review (capped at 1 MiB: see fileDiff). */
   diff(requestId: string): Promise<ResultOf<'worktree.merge.diff'>>;

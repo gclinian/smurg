@@ -31,8 +31,6 @@ const ACTION_KEY = {
   'session.create': 'audit.action.session.create',
   'session.end': 'audit.action.session.end',
   'session.terminate': 'audit.action.session.terminate',
-  'session.import-config': 'audit.action.session.import-config',
-  'sandbox.refused': 'audit.action.sandbox.refused',
   'suggest.create': 'audit.action.suggest.create',
   'suggest.edit': 'audit.action.suggest.edit',
   'suggest.accept': 'audit.action.suggest.accept',

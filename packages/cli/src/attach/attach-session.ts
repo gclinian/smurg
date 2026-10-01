@@ -5,7 +5,7 @@
 // detaches (also in its kitty / CSI-u form). The output goes through an allow-list filter (./output-filter.ts): no
 // query, OSC 52, DCS, APC or other unknown sequence reaches the local terminal (the daemon's mirror answers queries). The local terminal is restored on EVERY way out: detach, the session's exit (whose exit
 // code becomes ours), a lost connection, a signal, an exception, process exit.
-import { EXEC_INPUT_MAX_BYTES, type SessionInfo } from '@smurg/protocol';
+import { EXEC_INPUT_MAX_BYTES, can, type SessionInfo } from '@smurg/protocol';
 import type { WorkspaceChannel } from '../channel/channel.ts';
 import type { ChannelEnd } from '../channel/channel.ts';
 import type { AttachTerminal, CliIo, CliSignal } from '../cli/io.ts';
@@ -98,7 +98,10 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
   const me = channel.welcome.member.userId;
   let session = options.session;
   const sessionId = session.id;
+  /** The owner (who opened it) drives the PTY size (resize policy `owner`). */
   const isOwner = session.ownerUserId === me;
+  /** The host and 「可使用 agent」 type into any session (`session.drive`, ARCHITECTURE §11 D-15); others only watch. */
+  const canType = can(channel.welcome.member.role, 'session.drive');
   const newFilter = (): OutputFilter => new OutputFilter({ utf8: options.utf8 ?? true });
   let filter = newFilter();
   let kitty = 0;
@@ -179,7 +182,7 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
   const updateTitle = (status: 'online' | 'host-offline' | 'reconnecting' = 'online'): void => {
     const local = terminal.size();
     const parts = [`smurg：${session.title}`];
-    if (!isOwner) parts.push('唯讀');
+    if (!canType) parts.push('唯讀');
     if (status === 'host-offline') parts.push('主人已離線，等待重新連線…');
     if (status === 'reconnecting') parts.push('重新連線中…');
     if (!isOwner && local && (local.cols < ptySize.cols || local.rows < ptySize.rows)) parts.push(`session 視窗是 ${ptySize.cols}×${ptySize.rows}，請放大終端機`);
@@ -272,8 +275,8 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
       const cut = findDetach(chunk);
       const data = cut >= 0 ? chunk.subarray(0, cut) : chunk;
       if (data.length > 0) {
-        if (isOwner && session.status !== 'exited') sendInput(data);
-        else if (!isOwner) {
+        if (canType && session.status !== 'exited') sendInput(data);
+        else if (!canType) {
           // Read-only: a bell at most once a second instead of silently eating keys; the title says why.
           const now = Date.now();
           if (now - lastBell > 1_000) {
@@ -301,7 +304,7 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
   return done;
 }
 
-/** The zh-TW line printed BEFORE the terminal is taken over, for someone who does not own the session. */
+/** The zh-TW line printed BEFORE the terminal is taken over, for someone whose role may not type into sessions. */
 export function readOnlyNotice(session: SessionInfo): string {
-  return `唯讀模式：這個 session 屬於 ${session.ownerName}，只有擁有者可以輸入（想參與可以在網頁上提出建議）。按 Ctrl-] 離開。`;
+  return `唯讀模式：這個 session 是 ${session.ownerName} 開的，你的角色不能在 session 裡輸入（想參與可以在網頁上提出建議）。按 Ctrl-] 離開。`;
 }

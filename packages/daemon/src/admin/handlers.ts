@@ -1,6 +1,6 @@
 // Handlers of every admin.* request (all require `admin`, checked by the router) and channel.leave, plus the live
 // audit feed (admin.audit.entry to host connections only) and the per-user teardown that kick, leave and demotion
-// share (sessions killed, guest dir removed, uploads aborted: R2's 3 s / R4's 5 s).
+// share (the sessions the member opened killed, uploads aborted: R2's 3 s / R4's 5 s).
 import { SmurgError, can, type Role } from '@smurg/protocol';
 import type { DaemonContext } from '../core/context.ts';
 import type { Router, UserId } from '../core/interfaces.ts';
@@ -8,7 +8,7 @@ import { DisposableStack, type Disposable } from '../core/lifecycle.ts';
 import { SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 
-/** How long kick / leave wait for sessions and the guest dir before answering (R2: 3 s for the whole kick). */
+/** How long kick / leave wait for sessions before answering (R2: 3 s for the whole kick). */
 const TEARDOWN_TIMEOUT_MS = 2_500;
 
 async function withTimeout(label: string, ctx: DaemonContext, work: () => Promise<unknown>): Promise<void> {
@@ -27,27 +27,21 @@ async function withTimeout(label: string, ctx: DaemonContext, work: () => Promis
 }
 
 /**
- * Ends everything a member runs on the host: sessions (killTree), their guest directory (which is what removes a
- * guest's Claude credential), their uploads. Stub services (features not built yet) are skipped.
+ * Ends everything a member runs on the host: the sessions they opened (killTree; they run as the host's OS user,
+ * §11 D-15), their uploads. Stub services (features not built yet) are skipped.
  */
 export async function teardownUser(ctx: DaemonContext, userId: UserId, reason: 'kicked' | 'left' | 'role-changed'): Promise<void> {
   const steps: Promise<void>[] = [];
   const sessions = ctx.services.sessions;
-  if (!isStubService(sessions)) {
-    steps.push(
-      withTimeout('sessions', ctx, async () => {
-        await sessions.killAllForUser(userId, reason);
-        await sessions.removeGuestDir(userId);
-      }),
-    );
-  }
+  if (!isStubService(sessions)) steps.push(withTimeout('sessions', ctx, () => sessions.killAllForUser(userId, reason)));
   const uploads = ctx.services.uploads;
   if (!isStubService(uploads) && reason !== 'role-changed') steps.push(withTimeout('uploads', ctx, () => uploads.abortAllForUser(userId)));
   await Promise.all(steps);
 }
 
+/** Whether `role` may open sessions (the host, 「可使用 agent」): a member set below it loses the sessions they opened. */
 function mayOwnSessions(role: Role): boolean {
-  return can(role, 'session.create.host') || can(role, 'session.create.sandboxed');
+  return can(role, 'session.create');
 }
 
 /**

@@ -12,14 +12,14 @@
 // Attribution of an unattributed disk change (the watcher saw it, nobody announced it): the agent session holding the
 // agent lock on that file at that time (or releasing it moments before: the watcher lags the write), else a session
 // whose PostToolUse (or FileChanged hook) named the file within the window (then it is that edit's echo); in a
-// worktree root, where only the worktree owner's sandboxed sessions can write (review SPEC-01: an agent's Bash `sed`,
-// a formatter), the one agent session running there, else the owner; else 'external'.
+// worktree root, where normally only the sessions running in it write (review SPEC-01: an agent's Bash `sed`, a
+// formatter), the one agent session running there, else its owner; else 'external'.
 //   agent.file-changed (FileChanged hook)  → agent.edit       + audit agent.edit      (ARCHITECTURE D-6)
 //
 // Bash windows (ARCHITECTURE §11 D-13, config.activity.attributeBashEdits): the Bash activity hook reports when a
 // session starts and finishes a shell command (agent.tool.pre / agent.tool.post with tool 'Bash' and no file). A change
 // nobody claimed (no lock, no Post echo, no announced writer) that falls inside the Bash window of EXACTLY ONE session
-// that could have written it (an unsandboxed session anywhere; a sandboxed one only in its own root), with a grace of
+// (every session runs unsandboxed, §11 D-15: any of them could have written anywhere), with a grace of
 // BASH_WINDOW_GRACE_MS after the command finished for the watcher's latency, and whose root contains the file, is that
 // agent's: agent.edit, via 'bash' (「…透過 shell 指令修改了…」). Two or more such windows, or none, or a writer in
 // another root: 「外部程式」 as before. Never guess. The decision is then announced as agent.tool.post (tool 'Bash',
@@ -505,8 +505,8 @@ export class ActivityFeedImpl implements ActivityFeed {
 
   /**
    * The ONE agent session whose shell command wrote an unclaimed change in `root` just now (§11 D-13). Every session
-   * with a Bash window at `now` that could have written into `root` counts: an unsandboxed (host) session could write
-   * anywhere, a sandboxed one only its own root. Exactly one such session, an agent session of this very root: that
+   * with a Bash window at `now` counts (all run unsandboxed, §11 D-15: any could have written anywhere). Exactly one
+   * such session, an agent session of this very root: that
    * agent. None: null (the other rules apply). Two or more, or one of another root: 'ambiguous' (「外部程式」, and no
    * other rule may name anyone either). A session the session manager does not know (any more) counts as a possible
    * writer and is never the answer.
@@ -522,13 +522,9 @@ export class ActivityFeedImpl implements ActivityFeed {
       return null; // no SessionManager (stub): no roots known, no attribution
     }
     const byId = new Map(infos.map((info) => [info.id, info]));
-    const writers = covering.filter((sessionId) => {
-      const info = byId.get(sessionId);
-      return info === undefined || !info.sandboxed || rootRefEquals(info.root, root);
-    });
-    if (writers.length === 0) return null;
-    if (writers.length !== 1) return 'ambiguous';
-    const info = byId.get(writers[0] as string);
+    // Every session runs unsandboxed (§11 D-15): each one with an open Bash window could have written anywhere.
+    if (covering.length !== 1) return 'ambiguous';
+    const info = byId.get(covering[0] as string);
     if (info === undefined || info.kind !== 'agent' || !rootRefEquals(info.root, root)) return 'ambiguous';
     return this.agentActor(info.id, info.ownerUserId);
   }
@@ -555,9 +551,9 @@ export class ActivityFeedImpl implements ActivityFeed {
   }
 
   /**
-   * Who wrote an unannounced change in worktree `worktreeId`: only its owner's sessions (sandboxed to it) can. The one
-   * agent session running there, or the owner when that is ambiguous (a terminal too, or several agents); null when
-   * no session of it runs (then it is the host's own doing, or unknown: external).
+   * Who wrote an unannounced change in worktree `worktreeId`: normally the sessions running in it. The one agent
+   * session running there, or its owner when that is ambiguous (a terminal too, or several agents); null when no
+   * session of it runs, or sessions of several members do (then it is the host's own doing, or unknown: external).
    */
   private worktreeWriter(worktreeId: string): AgentActor | Extract<Actor, { kind: 'user' }> | null {
     let running: ReturnType<SessionManager['list']>;

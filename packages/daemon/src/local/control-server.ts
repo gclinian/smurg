@@ -1,7 +1,9 @@
 // The daemon's control socket (ARCHITECTURE §7.1 `run/<short>.ctl`, §8): `smurg stop`, `smurg status` and the host's
 // local `smurg attach`, speaking the frames of ./protocol.ts. There is no Noise here: the socket is 0600 inside the
-// 0700 run dir, so the host's OS account is the credential, and a local attach is a normal logical channel of the host
-// (DaemonLifecycle.attachLocal: same seq/outbox/resume, router and audit as a relay client).
+// 0700 run dir, so the host's OS account is the credential, and a local attach is a logical channel of the host
+// (DaemonLifecycle.attachLocal: same seq/outbox/resume and router as a relay client) that may send only what `smurg
+// attach` sends (./local-channel.ts LOCAL_CHANNEL_TYPES; every session runs as that OS account, so whoever drives one
+// can connect here) and whose audit entries say `via: 'control-socket'`.
 //
 // Robustness rules this file keeps:
 //  - One client cannot stall another: every connection is handled on its own, nothing awaits a client, a client that
@@ -21,6 +23,7 @@ import type { Logger } from '../core/logger.ts';
 import {
   CTL_CONTROL_MAX_BYTES,
   CTL_FRAME_KIND,
+  CTL_STOP_REASON,
   CtlFrameDecoder,
   CtlProtocolError,
   encodeCtlControl,
@@ -204,10 +207,10 @@ class ControlConnection {
         return;
       }
       case 'stop': {
-        const reason = request.reason ?? 'smurg stop';
         server.log.info('stop requested on the control socket');
         // The requester gets its answer first; the daemon stops once the reply is flushed (or the client is gone).
-        this.respondAndEnd({ ok: true, op: 'stop' }, () => server.stopRequested(reason));
+        // Always the same reason (verification F-2): the client does not choose it.
+        this.respondAndEnd({ ok: true, op: 'stop' }, () => server.stopRequested(CTL_STOP_REASON));
         return;
       }
       case 'attach': {

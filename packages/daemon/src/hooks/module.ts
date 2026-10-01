@@ -4,7 +4,7 @@
 // (`smurg hook`) and src/mcp/coord-server.ts (`smurg mcp`).
 // Slot: `hooks` (HookServer; the implementation also writes the session launch files, see HookServerImpl).
 //
-// Order (src/daemon.ts): after locks and sandbox, before sessions. start() opens the socket before any session can
+// Order (src/daemon.ts): after locks, before sessions. start() opens the socket before any session can
 // start; stop() runs after the sessions module stopped, so a dying session's Stop / SessionEnd hooks are still
 // answered. start() never depends on selfCommand or a claude binary: without selfCommand the daemon runs and only
 // writeSessionFiles() refuses (fail closed at session start, not at daemon start).

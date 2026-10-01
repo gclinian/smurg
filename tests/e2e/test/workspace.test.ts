@@ -2,7 +2,7 @@
 // source-first entry points load without a build, and the `smurg` bin runs. Real acceptance tests go next to this
 // file, one per requirement (r1.*.test.ts … r11.*.test.ts, ARCHITECTURE §10).
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,8 @@ import { MAX_RELAY_FRAME as RELAY_MAX_RELAY_FRAME, wsClientUrl } from '@smurg/pr
 import { describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
+/** The release version every workspace package carries (scripts/release-assets.sh --publish-checks keeps them equal). */
+const VERSION = (JSON.parse(readFileSync(require.resolve('@smurg/daemon/package.json'), 'utf8')) as { version: string }).version;
 const run = promisify(execFile);
 const E2E_DIR = fileURLToPath(new URL('..', import.meta.url));
 
@@ -26,8 +28,8 @@ describe('workspace wiring', () => {
   });
 
   it('loads the source-first entry points', () => {
-    expect(PROTOCOL_VERSION).toBe(1);
-    expect(DAEMON_VERSION).toBe('0.1.0');
+    expect(PROTOCOL_VERSION).toBe(2);
+    expect(DAEMON_VERSION).toBe(VERSION);
     expect(RELAY_MAX_RELAY_FRAME).toBe(MAX_RELAY_FRAME);
     expect(wsClientUrl('http://127.0.0.1:8787', 'AbCdEfGh_-012345')).toBe('ws://127.0.0.1:8787/ws/AbCdEfGh_-012345/client');
   });
@@ -40,6 +42,6 @@ describe('workspace wiring', () => {
   it('runs the smurg bin installed by pnpm', async () => {
     const bin = join(E2E_DIR, 'node_modules', '.bin', 'smurg');
     const { stdout } = await run(bin, ['--version'], { timeout: 10_000 });
-    expect(stdout).toMatch(/^smurg 0\.1\.0 \(protocol v1, daemon 0\.1\.0, node /);
+    expect(stdout.startsWith(`smurg ${VERSION} (protocol v${PROTOCOL_VERSION}, daemon ${VERSION}, node `)).toBe(true);
   });
 });

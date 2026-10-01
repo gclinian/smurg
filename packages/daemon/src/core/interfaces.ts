@@ -168,21 +168,22 @@ export interface DaemonEvents {
   /** A user was admitted into the workspace for the first time (or again after a kick, through a newer invite). */
   'member.joined': { readonly member: MemberRecord; readonly device: DeviceRecord; readonly inviteId: string };
   /**
-   * `channel.leave` (R4). Membership and devices stay. The core runs SessionManager.killAllForUser + removeGuestDir
-   * and UploadService.abortAllForUser for this event (the handler awaits them: R4, within 5 s); other listeners
+   * `channel.leave` (R4). Membership and devices stay. The core runs SessionManager.killAllForUser and
+   * UploadService.abortAllForUser for this event (the handler awaits them: R4, within 5 s); other listeners
    * release everything else they hold for the user (human locks, doc subscriptions, presence).
    */
   'member.left': { readonly userId: UserId; readonly by: Actor };
   /**
    * Kick (R2): devices are already revoked and channels closed when this fires. The core runs
-   * SessionManager.killAllForUser + removeGuestDir and UploadService.abortAllForUser for this event (the console's
+   * SessionManager.killAllForUser and UploadService.abortAllForUser for this event (the console's
    * kick awaits them: R2, within 3 s); other listeners drop every other per-user resource (human locks, doc
    * subscriptions, presence, pending suggestions).
    */
   'member.kicked': { readonly userId: UserId; readonly by: Actor; readonly revokedDevices: readonly string[] };
   /**
    * Role changed without a kick. The member's channels were closed with `role-changed` (they reconnect with the new
-   * role). When the new role may not own sessions any more, the core runs killAllForUser('role-changed') for it.
+   * role). When the new role may not open sessions any more (below 「可使用 agent」), the core runs
+   * killAllForUser('role-changed') for it: the sessions that member opened end.
    */
   'member.role-changed': { readonly userId: UserId; readonly from: Role; readonly to: Role; readonly by: Actor };
   'device.added': { readonly device: DeviceRecord };
@@ -243,13 +244,6 @@ export interface DaemonEvents {
    * again; members cannot connect meanwhile), 'replaced', 'stopped'. `reason` / `status` say why it left `online`.
    */
   'relay.link': { readonly purpose: ChannelPurpose; readonly state: string; readonly reason?: string; readonly status?: number };
-  /**
-   * Linux (reviews RV-1, RV-2): a host-only or host-private entry of `root` was replaced, removed or created while
-   * guest processes ran there (or were being started), which the guest sandbox cannot follow. `revoked` guest processes
-   * are being ended (0: none ran any more); the host should check `paths` (relative to the root, at most 20; `more`
-   * counts the rest). `smurg host` prints it.
-   */
-  'sandbox.protected-changed': { readonly root: RootRef; readonly paths: readonly string[]; readonly more: number; readonly revoked: number };
 }
 
 export type DaemonEventName = keyof DaemonEvents;
@@ -436,9 +430,11 @@ export interface Hub {
 
 /**
  * A host-local client of the control socket (`smurg attach` on the host's own machine). There is no Noise and no
- * relay: the socket is 0600 inside the 0700 run dir, so the host's OS account is the credential. Everything else is
- * the same as for a relay client: the same logical channel (seq, outbox, resume), Router, audit (auth.connect /
- * auth.disconnect with mode 'local') and fan-out.
+ * relay: the socket is 0600 inside the 0700 run dir, so the host's OS account is the credential. The same logical
+ * channel (seq, outbox, resume), Router and fan-out as a relay client, with two differences (review F1: every session
+ * runs as that OS account): the router accepts only what `smurg attach` sends (src/local/local-channel.ts
+ * LOCAL_CHANNEL_TYPES), and every audit entry the connection causes (auth.connect / auth.disconnect with mode 'local'
+ * included) carries `detail.via: 'control-socket'`.
  */
 export interface LocalAttachInput {
   /** Must be the host (anything else is refused with `forbidden`). */
@@ -490,14 +486,12 @@ export interface DaemonStatus {
   /**
    * What the host's terminal no longer explains at the start (`smurg host` prints only the two links; `smurg status`
    * shows these, ARCHITECTURE §8): the daemon key's fingerprint as members compare it (Daemon.fingerprint), the relay,
-   * the switches of §11 D-12 / D-13 / D-14 as the daemon runs with them, whether the share is a git repository (guests'
-   * worktrees need one) and the last guest sandbox check (null before the first, or without a sandbox).
+   * the switch of §11 D-13 as the daemon runs with it, and whether the share is a git repository (worktrees need one).
    */
   readonly fingerprint: string;
   readonly relayUrl: string | null;
-  readonly switches: { readonly guestSubscriptionLogin: boolean; readonly attributeBashEdits: boolean; readonly guestMainWorkspace: boolean };
+  readonly switches: { readonly attributeBashEdits: boolean };
   readonly isGitRepo: boolean;
-  readonly sandbox: { readonly ok: boolean; readonly reason: string | null } | null;
 }
 
 /**
@@ -990,177 +984,52 @@ export interface SessionAttachStart {
 }
 
 /**
- * PTY sessions (R4; ARCHITECTURE §7.6). Module: src/sessions/. The core calls killAllForUser + removeGuestDir itself
- * on kick, leave and a demotion (and awaits them), so the session manager does not need to act on those events; it
- * listens to channel.discarded (detach viewers keyed by channelId) and daemon.stopping.
+ * PTY sessions (R4; ARCHITECTURE §7.6, §11 D-15). Module: src/sessions/. Every session runs like the host's own (the
+ * host's OS user, unsandboxed, the host's environment and Claude Code login), whoever opened it; its owner is the
+ * member who opened it. The core calls killAllForUser itself on kick, leave and a demotion below 「可使用 agent」 (and
+ * awaits it), so the session manager does not need to act on those events; it listens to channel.discarded (detach
+ * viewers keyed by channelId) and daemon.stopping.
  *
- * Launch inputs come from ctx.config.sessions (hostHome, claudePath, claudeMinVersion, selfCommand, testGuestEnv) and
- * the hook socket path from ctx.config.runPaths.hook; nothing reads os.homedir() or process.env for them.
+ * Launch inputs come from ctx.config.sessions (hostHome, claudePath, claudeMinVersion, selfCommand) and the hook
+ * socket path from ctx.config.runPaths.hook; nothing reads os.homedir() for them.
  *
  * End of life (contract review C17):
  *  - session.end {keepWorktree: false} is the ONLY path that removes the session's worktree with it;
  *  - a natural exit (/exit, crash), session.end without keepWorktree, admin.session.terminate, a kick and stopAll()
  *    all KEEP the worktree (WorktreeInfo.kept = true); the UI offers 「刪除 worktree」 through worktree.remove (R9.4);
- *  - stopAll() (`smurg stop`, ARCHITECTURE §8) ends every session AND runs removeGuestDir for every guest, so no guest
- *    credential stays on the host after a stop.
- *  - a disconnect keeps sessions and the guest dir (R4); an explicit channel.leave removes them (the core calls
- *    removeGuestDir). Retention (ARCHITECTURE §11 D-9): at start and daily, removeGuestDir for every member whose last
- *    connection (MemberRecord.lastSeenAt) is older than 7 days and who has no running session.
+ *  - stopAll() (`smurg stop`, ARCHITECTURE §8) ends every session;
+ *  - a disconnect keeps sessions (R4); an explicit channel.leave ends the sessions the member opened.
  */
 export interface SessionManager {
-  /** sandbox-by-role: the role decides (host → unsandboxed, runner → SandboxService); apiKey only when sandboxed. */
+  /** `session.create` (host, 「可使用 agent」): the caller becomes the session's owner. */
   create(input: Req<'session.create'>, conn: ClientConnection, principal: Principal): Promise<SessionInfo>;
-  /**
-   * Every agent / terminal session. Sessions of kind 'login' (a guest's Claude login, §11 D-12) are private to their
-   * owner and left out here and in get(): no other module (suggestions, presence, the console) ever sees one.
-   */
+  /** Every session, oldest first. */
   list(): SessionInfo[];
-  /** session.list for one member: list() plus that member's OWN login sessions. */
-  listFor(userId: UserId | null): SessionInfo[];
-  /** An agent / terminal session; null for a login session (see list()). */
   get(sessionId: string): SessionInfo | null;
   attach(input: Req<'session.attach'>, conn: ClientConnection, principal: Principal): Promise<SessionAttachStart>;
   /** Viewers are keyed by the logical channel (conn.channelId), not the socket: an attach survives a resume. */
   detach(sessionId: string, channelId: string): void;
-  /** Owner only (throws AuthorizationError otherwise). */
+  /** `session.drive` (host, 「可使用 agent」), any session (throws AuthorizationError otherwise). */
   input(input: PayloadOf<'exec.input'>, conn: ClientConnection, principal: Principal): void;
+  /** Owner only (resize policy `owner`). */
   resize(input: PayloadOf<'exec.resize'>, conn: ClientConnection, principal: Principal): void;
   /** Owner only. */
   end(input: Req<'session.end'>, principal: Principal): Promise<void>;
   /** admin.session.terminate: any session, audited `session.terminate`. */
   terminate(sessionId: string, by: Principal): Promise<void>;
+  /** Ends every session `userId` opened (kick, leave, demotion), each audited `session.terminate` by the system. */
   killAllForUser(userId: UserId, reason: 'kicked' | 'left' | 'role-changed'): Promise<void>;
-  /** Kill sessions, `rm -rf` the guest dir, best-effort `claude auth logout` (1 s), keychain cleanup. */
-  removeGuestDir(userId: UserId): Promise<void>;
+  /** `session.drive`, any session. */
   loginStatus(sessionId: string, principal: Principal): Promise<LoginState>;
-  importConfig(input: Req<'session.importConfig'>, principal: Principal): Promise<Res<'session.importConfig'>>;
   /**
    * The ONLY function that writes suggestion text into a PTY (R6): bracketed paste + Enter. Called by
-   * SuggestionService.accept after the ownership check; there is no auto-accept path.
+   * SuggestionService.accept after its checks (`session.drive`, pending); there is no auto-accept path.
    */
   pasteSuggestion(sessionId: string, text: string, acceptedBy: Principal): void;
   /** Actor of the session's agent (「Claude（owner）」), or null for terminals / unknown sessions. */
   agentActor(sessionId: string): Actor | null;
-  /** stop(): end every session and remove every guest dir (daemon shutdown, `smurg stop`). */
+  /** stop(): end every session (daemon shutdown, `smurg stop`). */
   stopAll(): Promise<void>;
-}
-
-export type SandboxPreflight =
-  | { readonly ok: true; readonly platform: 'darwin' | 'linux' }
-  | { readonly ok: false; readonly reason: string; readonly detail?: string };
-
-/**
- * What one guest process may touch (ARCHITECTURE §7.6). The wrapper builds srt's policy from it: broad denyRead
- * regions (config.sessions.hostHome, other users' homes, temp regions), then the allowRead / allowWrite carve-outs
- * below.
- *
- * Worktree mode (R9.1, contract review C7): `rootPath` is the worktree, and the policy MUST ALSO deny reading and
- * writing the main share and every sibling worktree, wherever the share lives (it may be outside every broad deny
- * region, e.g. /srv/proj): denyReadPaths and denyWritePaths contain `<share>` and `<share>/.smurg/worktrees`, with
- * allowRead carve-outs for the session's worktree, `<share>/.git` (read-only: shared-clone objects) and the shared
- * read-only dirs, and allowWrite only for the worktree and the guest dir. Main-workspace mode denies
- * `<share>/.smurg` for reading and writing. The host-only paths of ARCHITECTURE §5.2 are denyWrite in both modes,
- * and they must hold against every spelling a case-insensitive file system folds onto them (`.vſcode`, see
- * foldPathName in @smurg/protocol): verify srt/seatbelt matching with such a spelling before relying on it.
- */
-export interface SandboxSpec {
-  readonly sessionId: string;
-  /** Shell command to run inside the sandbox (e.g. `exec claude --settings …`). */
-  readonly command: string;
-  /** Session root (main share or worktree dir): read + write. */
-  readonly rootPath: string;
-  /** The guest's private dir (HOME, CLAUDE_CONFIG_DIR, TMPDIR): read + write. */
-  readonly guestDir: string;
-  /** Daemon-owned settings dir of the session: read only. */
-  readonly settingsDir: string;
-  /** Shared read-only dirs (D12). */
-  readonly readOnlyPaths: readonly string[];
-  /** Extra read-only paths (the claude binary's directory). */
-  readonly extraReadPaths: readonly string[];
-  /**
-   * Host-only paths (denyWrite), hidden ones (deny read+write, e.g. <share>/.smurg) and, in worktree mode, the main
-   * share and the sibling worktrees (see above). Not only paths inside rootPath.
-   */
-  readonly denyWritePaths: readonly string[];
-  readonly denyReadPaths: readonly string[];
-  /** The hook socket (the only Unix socket reachable from inside). */
-  readonly hookSocketPath: string;
-  /** Clean allow-list environment (ARCHITECTURE §7.6), never the host's. */
-  readonly env: Readonly<Record<string, string>>;
-  /**
-   * A guest's Claude LOGIN process (session kind 'login', ARCHITECTURE §7.6, §11 D-12): sandbox mode 'login'.
-   * `rootPath` is then the guest's home inside `guestDir`; nothing of the share is readable, the env carries no hook
-   * token, and the one extra right (bind + accept on loopback) is added by the profile hardening. Only the sessions
-   * module's login launch sets it.
-   */
-  readonly loginProcess?: true;
-  /**
-   * With `loginProcess`: the only programs the process may exec besides the sandbox's shell (macOS exec allow-list):
-   * the claude binary, the no-op BROWSER, /usr/bin/security. Absolute, existing files outside every guest-writable
-   * or daemon-state path; an empty or missing list is refused.
-   */
-  readonly loginPrograms?: readonly string[];
-}
-
-export interface WrappedCommand {
-  readonly file: string;
-  readonly args: readonly string[];
-  readonly env: Readonly<Record<string, string>>;
-  readonly cwd: string;
-}
-
-/** srt wrapper for guest processes (R5; ARCHITECTURE §7.6). Module: src/sandbox/. Fails closed: no fallback. */
-export interface SandboxService {
-  /** Platform, dependencies, profile hardening and the canary self-test. */
-  preflight(): Promise<SandboxPreflight>;
-  /** The outcome of the last preflight(), null before the first (DaemonStatus.sandbox, `smurg status`). Optional for fakes. */
-  lastPreflight?(): SandboxPreflight | null;
-  /** Throws SmurgError('sandbox_unavailable') (and audits `sandbox.refused`) when anything is off. */
-  wrap(spec: SandboxSpec): Promise<WrappedCommand>;
-  /**
-   * The process started from `wrapped` has exited (or was never started). Linux: bubblewrap leaves a mount-point file
-   * or directory on the HOST for every absent write-denied name (e.g. `<share>/.mcp.json`), which srt may remove only
-   * once no sandbox of this daemon still runs; each wrap counts until it is released (idempotent; a no-op on macOS).
-   * Optional for fakes.
-   */
-  release?(wrapped: WrappedCommand): void;
-  /**
-   * Linux (reviews RV-1, RV-2; ARCHITECTURE §7.6 "Linux, protected entries while a guest runs"): `listener` runs once
-   * when the sandbox of the process started from `wrapped` no longer holds, because a host-only or host-private entry
-   * of its root was replaced, removed or created while it ran (bubblewrap's mounts cannot follow that). At once when
-   * that already happened. The caller ends the process (fail closed). Returns a function that removes the listener;
-   * on macOS (Seatbelt matches paths, nothing to follow) the listener never runs. Optional for fakes.
-   */
-  onRevoked?(wrapped: WrappedCommand, listener: (revocation: SandboxRevocation) => void): () => void;
-  /**
-   * One batch of the file watcher for the root at `rootPath` (absolute paths as reported, any event type), handed over
-   * as it arrives: the sandbox compares the protected entries it names with what its running guest processes were
-   * started with. Cheap when no guest process runs there. Optional for fakes.
-   */
-  fileEvents?(rootPath: string, events: readonly WatchedPathEvent[]): void;
-  /**
-   * The file watcher may have missed events of the root at `rootPath` (it reported an error): the sandbox compares
-   * everything it guards there again at once (review GR-1). Optional for fakes.
-   */
-  fileWatchGap?(rootPath: string): void;
-  /** settings.changed → allowedDomains. */
-  setAllowedDomains(domains: readonly string[]): Promise<void>;
-}
-
-/** A file-watcher event as the sandbox sees it (SandboxService.fileEvents): "look at this path again". */
-export interface WatchedPathEvent {
-  readonly path: string;
-  readonly type: 'create' | 'update' | 'delete';
-}
-
-/** Why a WrappedCommand was revoked (SandboxService.onRevoked). */
-export interface SandboxRevocation {
-  /** realpath of the session root. */
-  readonly root: string;
-  /** The protected entries that changed (absolute, sorted; at most the first 100, review GR-2). */
-  readonly paths: readonly string[];
-  /** How many more changed (not listed in `paths`); absent when none. */
-  readonly more?: number;
 }
 
 export interface HookSessionRegistration {
@@ -1169,7 +1038,6 @@ export interface HookSessionRegistration {
   /** 「Claude（owner）」 */
   readonly agentName: string;
   readonly root: RootRef;
-  readonly sandboxed: boolean;
 }
 
 export interface HookSessionCredentials {
@@ -1180,11 +1048,11 @@ export interface HookSessionCredentials {
 
 /** The daemon-owned launch files of one agent session (ARCHITECTURE §7.6 "Launch"). */
 export interface SessionLaunchFiles {
-  /** `<stateDir>/sessions/<workspace key>/<hex(sessionId)>` (0700): the sandbox's read-only SandboxSpec.settingsDir. */
+  /** `<stateDir>/sessions/<workspace key>/<hex(sessionId)>` (0700). */
   readonly dir: string;
   readonly settingsPath: string;
   readonly mcpConfigPath: string;
-  /** `--settings <…> --mcp-config <…>` (+ `--strict-mcp-config` when sandboxed); never a permission flag. */
+  /** `--settings <…> --mcp-config <…>`; never a permission flag. */
   readonly claudeArgs: readonly string[];
 }
 
@@ -1199,7 +1067,7 @@ export interface HookServer {
   unregisterSession(sessionId: string): void;
   /**
    * The ONE writer of a registered session's settings.json (hooks, kill-switch neutralizers, permissions) and mcp.json
-   * (the coordination MCP server): the guest variant for sandboxed sessions, the host variant otherwise. Refuses
+   * (the coordination MCP server), the same for every session (all run like the host's own, §11 D-15). Refuses
    * (fail closed, `internal` with reason 'no-self-command') without config.sessions.selfCommand.
    */
   writeSessionFiles(sessionId: string): Promise<SessionLaunchFiles>;
@@ -1213,7 +1081,7 @@ export interface SuggestionService {
   /** Author, pending only. */
   edit(input: Req<'suggest.edit'>, principal: Principal): Promise<Suggestion>;
   withdraw(input: Req<'suggest.withdraw'>, principal: Principal): Promise<Suggestion>;
-  /** Session owner, pending only; then SessionManager.pasteSuggestion (the only path into a PTY). */
+  /** `session.drive` (any session), pending only; then SessionManager.pasteSuggestion (the only path into a PTY). */
   accept(input: Req<'suggest.accept'>, principal: Principal): Promise<Suggestion>;
   reject(input: Req<'suggest.reject'>, principal: Principal): Promise<Suggestion>;
   list(input: Req<'suggest.list'>, principal: Principal): Suggestion[];
@@ -1240,15 +1108,16 @@ export interface WorktreeManager {
   /** worktree-owner-or-host. */
   remove(worktreeId: string, principal: Principal): Promise<void>;
   /**
-   * worktree-owner. Commits the worktree's working tree (as the owner, with `message`; nothing to commit is fine) onto
+   * Any member with `worktree.merge.request` (host, 「可使用 agent」), any worktree (§11 D-15). Commits the worktree's
+   * working tree (with `message`; nothing to commit is fine) onto
    * smurg/<owner>/<id>, fetches that commit into the main repository as refs/smurg/merge/<requestId>, and records its
    * id in MergeRequest.commit. diff / fileDiff / approve work on exactly that commit (contract review C6).
    */
   requestMerge(input: Req<'worktree.merge.request'>, principal: Principal): Promise<MergeRequest>;
   listMerges(principal: Principal): MergeRequest[];
-  /** merge-request-owner-or-host. The whole diff of the request's commit, cut at MERGE_DIFF_MAX_BYTES (`truncated`). */
+  /** `worktree.merge.request`. The whole diff of the request's commit, cut at MERGE_DIFF_MAX_BYTES (`truncated`). */
   diff(input: Req<'worktree.merge.diff'>, principal: Principal): Promise<Res<'worktree.merge.diff'>>;
-  /** merge-request-owner-or-host. One file of `diff().files` (refused for any other path; `git … -- <path>`). */
+  /** `worktree.merge.request`. One file of `diff().files` (refused for any other path; `git … -- <path>`). */
   fileDiff(input: Req<'worktree.merge.fileDiff'>, principal: Principal): Promise<Res<'worktree.merge.fileDiff'>>;
   approve(input: Req<'worktree.merge.approve'>, principal: Principal): Promise<MergeRequest>;
   reject(input: Req<'worktree.merge.reject'>, principal: Principal): Promise<MergeRequest>;
@@ -1264,7 +1133,6 @@ export interface FeatureServices {
   readonly presence: PresenceService;
   readonly activity: ActivityFeed;
   readonly sessions: SessionManager;
-  readonly sandbox: SandboxService;
   readonly hooks: HookServer;
   readonly suggestions: SuggestionService;
   readonly worktrees: WorktreeManager;
@@ -1281,7 +1149,6 @@ export const FEATURE_SERVICE_NAMES: readonly FeatureServiceName[] = Object.freez
   'presence',
   'activity',
   'sessions',
-  'sandbox',
   'hooks',
   'suggestions',
   'worktrees',
@@ -1297,7 +1164,6 @@ export const FEATURE_SERVICE_LABELS: Readonly<Record<FeatureServiceName, string>
   presence: 'PresenceService',
   activity: 'ActivityFeed',
   sessions: 'SessionManager',
-  sandbox: 'SandboxService',
   hooks: 'HookServer',
   suggestions: 'SuggestionService',
   worktrees: 'WorktreeManager',

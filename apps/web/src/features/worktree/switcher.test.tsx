@@ -37,7 +37,7 @@ describe('WorktreeSwitcher: main workspace or any worktree, with owner and branc
   });
 
   it('lists the main workspace and every worktree with its owner and branch, and switches the file tree', async () => {
-    const { stores, conn } = setup('runner', [AMY, IAN]);
+    const { stores, conn } = setup('agent', [AMY, IAN]);
     await settle();
     const select = screen.getByLabelText('檢視的工作區') as HTMLSelectElement;
     // Whose worktree and for what (WEB-18: not the branch id, which the details below show); without a known session,
@@ -53,7 +53,7 @@ describe('WorktreeSwitcher: main workspace or any worktree, with owner and branc
     expect(within(details).getByText('擁有者：Ian')).toBeTruthy();
     expect(within(details).getByText('分支：smurg/ian/wt_ian')).toBeTruthy();
     expect(within(details).getByText('已保留（目前沒有 session）')).toBeTruthy();
-    // Not the runner's worktree: no merge request, no removal.
+    // Not this member's worktree: no merge request, no removal.
     expect(within(details).queryByRole('button')).toBeNull();
 
     fireEvent.change(select, { target: { value: 'main' } });
@@ -61,7 +61,7 @@ describe('WorktreeSwitcher: main workspace or any worktree, with owner and branc
   });
 
   it('the owner sees the shared read-only folders and can ask for a merge from here', async () => {
-    const { conn } = setup('runner', [AMY]);
+    const { conn } = setup('agent', [AMY]);
     await settle();
     fireEvent.change(screen.getByLabelText('檢視的工作區'), { target: { value: 'wt:wt_amy' } });
     const details = screen.getByRole('group', { name: '目前檢視的 worktree' });

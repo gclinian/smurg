@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_FEATURE_MODULES, createDaemon, silentLogger, type Daemon } from '@smurg/daemon';
 import { waitFor } from '@smurg/daemon/testing';
 import { runCli } from '../src/cli/run.ts';
-import { formatSessionList } from '../src/commands/attach.ts';
+import { attachUsage, formatSessionList } from '../src/commands/attach.ts';
 import { LocalWorkspaceChannel } from '../src/channel/local-channel.ts';
 import { echoSessions, type EchoSessions } from './fixtures/echo-sessions.ts';
 import { fakeTerminal, makeDirs, testIo, type Dirs } from './helpers.ts';
@@ -14,6 +14,9 @@ const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   while (cleanups.length > 0) await Promise.resolve((cleanups.pop() as () => Promise<void> | void)()).catch(() => {});
 });
+
+/** The host's sessions, opened on the daemon side (as from the web): the control socket cannot open any (review F1). */
+const HOST = { ownerUserId: 'dev:host', ownerName: 'Host' } as const;
 
 interface Local {
   readonly dirs: Dirs;
@@ -47,8 +50,8 @@ describe('smurg attach (arguments, list, refusals)', () => {
     expect(await runCli(['attach'], empty)).toBe(0);
     expect(empty.out()).toContain('本機');
     expect(empty.out()).toContain('目前沒有 session');
-    await l.host.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24, title: '第一個' });
-    await l.host.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24, title: 'Claude（Host）' });
+    l.echo.open({ ...HOST, kind: 'terminal', title: '第一個' });
+    l.echo.open({ ...HOST, kind: 'agent', title: 'Claude（Host）' });
     const io = testIo({ env: l.env });
     expect(await runCli(['attach'], io)).toBe(0);
     expect(io.out()).toMatch(/1\s+ses_\S+\s+終端機\s+Host（你）\s+執行中\s+第一個/);
@@ -56,10 +59,37 @@ describe('smurg attach (arguments, list, refusals)', () => {
     expect(io.out()).toContain('smurg attach <編號或 session ID>');
   });
 
+  it('the control socket carries only what smurg attach sends (review F1): anything else is refused as forbidden and audited via control-socket', async () => {
+    const l = await local();
+    const attempts = [
+      ['session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 }],
+      ['admin.member.list', {}],
+      ['admin.member.setRole', { userId: 'dev:carol', role: 'editor' }],
+      ['admin.invite.create', { role: 'agent' }],
+      ['worktree.merge.approve', { requestId: 'mr_nope' }],
+      ['channel.leave', {}],
+    ] as const;
+    for (const [type, payload] of attempts) {
+      const refused = await l.host.request(type as never, payload as never).then(
+        () => 'accepted',
+        (err: unknown) => err,
+      );
+      expect({ type, refused }).toMatchObject({ type, refused: { code: 'forbidden', detail: { reason: 'control-socket' } } });
+    }
+    expect(l.echo.sessions.size).toBe(0);
+    // What the attach itself needs still works over the same channel.
+    expect(await l.host.request('session.list', {})).toEqual({ sessions: [] });
+    await l.daemon.ctx.audit.flush();
+    const denied = (await l.daemon.ctx.audit.query({ limit: 100 })).filter((e) => e.action === 'authz.denied').reverse();
+    expect(denied.map((e) => [e.target, e.actor.kind === 'user' ? e.actor.userId : e.actor.kind, e.detail?.['reason'], e.detail?.['via']])).toEqual(
+      attempts.map(([type]) => [type, 'dev:host', 'control-socket', 'control-socket']),
+    );
+  });
+
   it('picks a session by its number and attaches; Ctrl-] detaches with exit 0 and restores the terminal', async () => {
     const l = await local();
-    await l.host.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24, title: 'one' });
-    const { session } = await l.host.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24, title: 'two' });
+    l.echo.open({ ...HOST, kind: 'terminal', title: 'one' });
+    const session = l.echo.open({ ...HOST, kind: 'terminal', title: 'two' });
     l.echo.print(session.id, 'marker-two\r\n');
     const terminal = fakeTerminal({ cols: 90, rows: 20 });
     const io = testIo({ env: l.env, terminal });
@@ -75,14 +105,14 @@ describe('smurg attach (arguments, list, refusals)', () => {
 
   it('refuses in zh-TW with exit 2: no terminal, an unknown session, an ambiguous prefix; an ended session is exit 1', async () => {
     const l = await local();
-    const { session } = await l.host.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24, title: 'x' });
+    const session = l.echo.open({ ...HOST, kind: 'terminal', title: 'x' });
     const noTty = testIo({ env: l.env, terminal: fakeTerminal({ isTTY: false }) });
     expect(await runCli(['attach', session.id], noTty)).toBe(2);
     expect(noTty.err()).toContain('需要在終端機中執行');
     const unknown = testIo({ env: l.env });
     expect(await runCli(['attach', 'ses_nope'], unknown)).toBe(2);
     expect(unknown.err()).toContain('找不到 session「ses_nope」');
-    await l.host.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24, title: 'y' });
+    l.echo.open({ ...HOST, kind: 'terminal', title: 'y' });
     const ambiguous = testIo({ env: l.env });
     expect(await runCli(['attach', 'ses_'], ambiguous)).toBe(2);
     expect(ambiguous.err()).toContain('符合多個 session');
@@ -93,17 +123,18 @@ describe('smurg attach (arguments, list, refusals)', () => {
     expect(ended.err()).toContain('已經結束（結束代碼 3）');
   });
 
-  it('lists a member\'s own Claude login process (session kind login, §11 D-12) as such, not as a terminal', () => {
-    const base = { ownerUserId: 'dev:amy', ownerName: 'Amy', sandboxed: true, root: { kind: 'main' as const }, status: 'running' as const, cols: 80, rows: 24, createdAt: 1, login: 'unknown' as const, attached: 0 };
+  it('lists every session under the member who opened it (they all run as the host, §11 D-15): agent or terminal, the own ones marked', () => {
+    const base = { root: { kind: 'main' as const }, status: 'running' as const, cols: 80, rows: 24, createdAt: 1, login: 'unknown' as const, attached: 0 };
     const text = formatSessionList(
       [
-        { ...base, id: 'ses_login', kind: 'login', title: 'Claude 登入' },
-        { ...base, id: 'ses_term', kind: 'terminal', title: 'shell' },
+        { ...base, id: 'ses_amy_agent', kind: 'agent', ownerUserId: 'dev:amy', ownerName: 'Amy', title: 'Claude（Amy）' },
+        { ...base, id: 'ses_host_term', kind: 'terminal', ownerUserId: 'dev:host', ownerName: 'Host', title: '終端機（Host）' },
       ],
       'dev:amy',
     );
-    expect(text).toMatch(/1\s+ses_login\s+登入程序\s+Amy（你）/);
-    expect(text).toMatch(/2\s+ses_term\s+終端機\s+Amy（你）/);
+    expect(text).toMatch(/1\s+ses_amy_agent\s+agent\s+Amy（你）\s+執行中\s+Claude（Amy）/);
+    expect(text).toMatch(/2\s+ses_host_term\s+終端機\s+Host\s+執行中\s+終端機（Host）/);
+    expect(text).not.toContain('Host（你）');
   });
 
   it('with nothing to attach to (no local host, never joined) or a malformed invite: exit 2 with what to do', async () => {
@@ -117,5 +148,14 @@ describe('smurg attach (arguments, list, refusals)', () => {
     const bad = testIo({ env });
     expect(await runCli(['attach', '--invite', 'https://smurg.app/join/ws_x#k=nope'], bad)).toBe(2);
     expect(bad.err()).toContain('邀請連結不正確');
+  });
+
+  it('--help says who may type: the host and 「可使用 agent」 members into any session, every other role read-only (§11 D-15)', async () => {
+    const usage = attachUsage();
+    expect(usage).toContain('接上之後：按 Ctrl-] 離開（session 繼續執行）。主人和「可使用 agent」的組員可以在任何 session 裡輸入，其他角色唯讀。');
+    expect(usage).not.toContain('只有 session 的擁有者');
+    const io = testIo({ env: {} });
+    expect(await runCli(['attach', '--help'], io)).toBe(0);
+    expect(io.out()).toContain('主人和「可使用 agent」的組員可以在任何 session 裡輸入');
   });
 });

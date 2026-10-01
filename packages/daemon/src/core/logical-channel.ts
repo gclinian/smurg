@@ -36,12 +36,19 @@ export class LogicalChannel {
   private bytes = 0;
   private readonly limits: LogicalChannelLimits;
 
-  constructor(id: string, userId: string, deviceId: string, createdAt: number, limits: LogicalChannelLimits) {
+  /**
+   * A channel of the control socket (DaemonLifecycle.attachLocal): the hub delivers only LOCAL_CHANNEL_RECEIVES to it
+   * unasked, and only a local admission may resume it.
+   */
+  readonly local: boolean;
+
+  constructor(id: string, userId: string, deviceId: string, createdAt: number, limits: LogicalChannelLimits, options: { readonly local?: boolean } = {}) {
     this.id = id;
     this.userId = userId;
     this.deviceId = deviceId;
     this.createdAt = createdAt;
     this.limits = limits;
+    this.local = options.local === true;
   }
 
   get outboxLength(): number {

@@ -9,6 +9,7 @@
 // Bounded (security review F5): `denied` entries are recorded up to a budget per actor and minute, the rest are
 // counted in one summary entry; the file is rotated to audit.1.jsonl / audit.2.jsonl (0600) at a size cap, and
 // queries page through the rotated files too.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { constants as fsConstants } from 'node:fs';
 import { open, rename, type FileHandle } from 'node:fs/promises';
 import {
@@ -23,6 +24,7 @@ import {
   type AuditAction,
   type AuditEntry,
 } from '@smurg/protocol';
+import { LOCAL_CHANNEL_VIA } from '../local/local-channel.ts';
 import type { AuditInput, AuditLog, AuditQuery } from './interfaces.ts';
 import { newId, toDisposable, type Clock, type Disposable } from './lifecycle.ts';
 import type { Logger } from './logger.ts';
@@ -63,6 +65,28 @@ const SECRET_KEYS: ReadonlySet<string> = new Set(
     'hash',
   ].map((key) => key.toLowerCase()),
 );
+
+/**
+ * Where the work that records an entry came from, when that matters to the reader of the log: `control-socket` for
+ * everything a local channel's messages cause (review F1: the control socket admits the host's OS account, which every
+ * session runs as, so "the host" there may be someone who drives a session). Set by the hub around a local
+ * connection's inbound messages; record() puts it in `detail.via`.
+ */
+const auditVia = new AsyncLocalStorage<string>();
+
+/** Runs `fn`; every audit entry recorded inside it (synchronously or in its async continuations) gets `detail.via`. */
+export function withAuditVia<T>(via: string, fn: () => T): T {
+  return auditVia.run(via, fn);
+}
+
+/** `detail` with the current audit origin (withAuditVia) as `via`, first (so the key cap never drops it). */
+function withVia(detail: Readonly<Record<string, unknown>> | undefined): Readonly<Record<string, unknown>> | undefined {
+  const via = auditVia.getStore();
+  if (via === undefined) return detail;
+  const merged: Record<string, unknown> = { via, ...detail };
+  merged['via'] = via;
+  return merged;
+}
 
 const MAX_STRING = 2_000;
 /** A top-level `fullText` key keeps up to this many characters (a whole suggestion, R6.3). */
@@ -248,12 +272,14 @@ function isMissing(err: unknown): boolean {
   return typeof cause === 'object' && cause !== null && (cause as { code?: unknown }).code === 'ENOENT';
 }
 
-/** One actor's `denied` entries in the current minute. */
+/** One actor's `denied` entries from one origin (`detail.via`) in the current minute. */
 interface DeniedWindow {
   start: number;
   count: number;
   suppressed: number;
   readonly actor: Actor;
+  /** `detail.via` of the refusals this window counts (e.g. 'control-socket'); undefined for the relay channels. */
+  readonly via: string | undefined;
   action: AuditAction;
 }
 
@@ -261,6 +287,15 @@ function actorKey(actor: Actor): string {
   if (actor.kind === 'user') return `u:${actor.userId}`;
   if (actor.kind === 'agent') return `a:${actor.ownerUserId}`;
   return 'system';
+}
+
+/**
+ * The origin that gets a refusal budget of its own (admitDenied): the control socket (`detail.via` 'control-socket',
+ * set by withAuditVia or explicitly), else undefined (the relay channels). A fixed set, so an actor never has more
+ * than two budgets whatever a detail says.
+ */
+function deniedOriginOf(entry: AuditEntry): string | undefined {
+  return entry.detail?.['via'] === LOCAL_CHANNEL_VIA ? LOCAL_CHANNEL_VIA : undefined;
 }
 
 export class JsonlAuditLog implements AuditLog {
@@ -334,7 +369,7 @@ export class JsonlAuditLog implements AuditLog {
   record(input: AuditInput): AuditEntry {
     const at = Math.max(this.clock.now(), this.lastAt + 1);
     this.lastAt = at;
-    const detail = sanitizeAuditDetail(input.detail, input.fullText);
+    const detail = sanitizeAuditDetail(withVia(input.detail), input.fullText);
     const target = clampTarget(input.target);
     let entry: AuditEntry = {
       id: newId('au'),
@@ -415,10 +450,15 @@ export class JsonlAuditLog implements AuditLog {
   /**
    * The per-actor budget of `denied` entries: within budget → record; the first one over budget → record it and
    * say that the rest of the minute is only counted; later ones → counted (summary entry when the window ends).
+   * One budget per actor AND origin (`detail.via`; verification F-3, 2026-10-02): a local channel's actor is the host,
+   * and a flood through the control socket (which any session of a 「可使用 agent」 member reaches) must not use up the
+   * budget of the host's own refusals on the web, nor leave a summary that cannot say where the counted ones came
+   * from. Two budgets per actor at most: the relay channels and the control socket (deniedOriginOf).
    */
   private admitDenied(entry: AuditEntry): boolean {
     if (this.deniedPerActor === 0) return true;
-    const key = actorKey(entry.actor);
+    const via = deniedOriginOf(entry);
+    const key = `${actorKey(entry.actor)}|${via ?? ''}`;
     const now = entry.at;
     let window = this.deniedWindows.get(key);
     if (window && now - window.start >= DENIED_WINDOW_MS) {
@@ -433,7 +473,7 @@ export class JsonlAuditLog implements AuditLog {
           this.deniedWindows.delete(k);
         }
       }
-      window = { start: now, count: 0, suppressed: 0, actor: entry.actor, action: entry.action };
+      window = { start: now, count: 0, suppressed: 0, actor: entry.actor, via, action: entry.action };
       this.deniedWindows.set(key, window);
     }
     window.count++;
@@ -461,7 +501,7 @@ export class JsonlAuditLog implements AuditLog {
       action: window.action,
       outcome: 'denied',
       target: 'audit-rate-limit',
-      detail: { reason: 'audit-rate-limit', notRecorded: counted, windowStart: window.start, windowMs: DENIED_WINDOW_MS },
+      detail: { ...(window.via === undefined ? {} : { via: window.via }), reason: 'audit-rate-limit', notRecorded: counted, windowStart: window.start, windowMs: DENIED_WINDOW_MS },
     });
   }
 

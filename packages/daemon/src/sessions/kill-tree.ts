@@ -10,7 +10,7 @@
 //   orphaned by a natural `exit` has lost its ppid link) count while they are provably the same process (same start
 //   time, uid and full command line) and still orphans.
 // Every candidate is re-validated right before it is signalled: an integer pid > 1, same uid, not the daemon, not one
-// of the daemon's ancestors, not in the daemon's process group, not a zombie. There is NO system-wide "looks sandboxed"
+// of the daemon's ancestors, not in the daemon's process group, not a zombie. There is NO system-wide "looks like a session"
 // sweep (§11 D-3: two research spikes killed unrelated processes of the host user that way). A set larger than
 // `maxPids` is implausible for one session: the kill is aborted and logged loudly instead of signalling it.
 //
@@ -24,8 +24,8 @@
 // repeat in rounds. The process table is read with an asynchronous execFile of `ps` (never spawnSync: ARCHITECTURE §0
 // rule 5).
 //
-// Known limit (D-3): on macOS a process that setsid()s AND scrubs its environment is found by none of (a)–(c). On Linux
-// srt's PID namespace (`--unshare-pid --die-with-parent`) takes it down with the sandbox.
+// Known limit (D-3): a process that setsid()s AND scrubs its environment is found by none of (a)–(c), on macOS and on
+// Linux alike (sessions are not sandboxed: no PID namespace takes it down, §11 D-15).
 import { execFile } from 'node:child_process';
 import { readFile, readdir } from 'node:fs/promises';
 import type { Logger } from '../core/logger.ts';

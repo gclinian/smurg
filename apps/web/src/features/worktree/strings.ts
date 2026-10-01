@@ -28,7 +28,7 @@ export const t = defineStrings('worktree', {
   'list.caption': '合併請求',
   'list.loading': '正在載入合併請求…',
   'list.failed': '無法載入合併請求：{message}',
-  'list.empty': '還沒有合併請求。worktree 的擁有者可以請主人把 worktree 的修改合併回主工作區。',
+  'list.empty': '還沒有合併請求。主人和「可使用 agent」的成員可以請主人把 worktree 的修改合併回主工作區。',
   'list.pendingTitle': '等待審核（{count}）',
   'list.decidedTitle': '已處理',
   'item.title': '{name} 的合併請求',

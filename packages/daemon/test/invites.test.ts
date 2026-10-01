@@ -27,12 +27,12 @@ function usesOf(t: TestDaemon, inviteId: string): number | undefined {
 describe('invites', () => {
   it('admits a guest through an invite with the invite role and consumes one use', async () => {
     t = await createTestDaemon();
-    const { invite, url } = t.ctx.invites.create({ role: 'runner', maxUses: 3 }, SYSTEM_PRINCIPAL);
+    const { invite, url } = t.ctx.invites.create({ role: 'agent', maxUses: 3 }, SYSTEM_PRINCIPAL);
     const rita = await t.connect({ userId: 'dev:rita', inviteUrl: url });
-    expect(rita.welcome?.member.role).toBe('runner');
+    expect(rita.welcome?.member.role).toBe('agent');
     expect(usesOf(t, invite.id)).toBe(1);
     const entry = (await t.ctx.audit.query({ limit: 50 })).find((e) => e.action === 'auth.join');
-    expect(entry).toMatchObject({ outcome: 'ok', actor: { kind: 'user', userId: 'dev:rita' }, detail: { role: 'runner', newMember: true } });
+    expect(entry).toMatchObject({ outcome: 'ok', actor: { kind: 'user', userId: 'dev:rita' }, detail: { role: 'agent', newMember: true } });
     // The link (it contains the secret) never reaches the audit log, and nothing the host or the log sees reveals
     // the Noise invite id (knowing it would let anyone forge a msg1 that passes the daemon's pre-DH filter).
     const auditText = JSON.stringify(await t.ctx.audit.query({ limit: 500 }));
@@ -120,8 +120,8 @@ describe('invites', () => {
   it('an existing member cannot add a device through a link of another role (no role change by invite)', async () => {
     t = await createTestDaemon();
     await t.connect({ userId: 'dev:vera', role: 'viewer' });
-    const runnerLink = t.createInvite('runner');
-    const again = await t.connect({ userId: 'dev:vera', inviteUrl: runnerLink, waitOnline: false });
+    const agentLink = t.createInvite('agent');
+    const again = await t.connect({ userId: 'dev:vera', inviteUrl: agentLink, waitOnline: false });
     expect(await finalState(again)).toMatchObject({ kind: 'rejected', reason: 'invite-invalid' });
     expect(t.ctx.members.devicesOf('dev:vera')).toHaveLength(1);
     expect(t.ctx.members.roleOf('dev:vera')).toBe('viewer');

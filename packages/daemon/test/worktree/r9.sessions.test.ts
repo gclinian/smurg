@@ -3,7 +3,7 @@
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { OutputCollector, UnconfinedSandbox, testSessionsModule, typeInto, unconfinedSandboxModule, waitUntil, type TestSessions } from '../suggest/session-support.ts';
+import { OutputCollector, testSessionsModule, typeInto, waitUntil, type TestSessions } from '../suggest/session-support.ts';
 import { settleError, startWorktreeStack, type WorktreeStack } from './support.ts';
 
 let stack: WorktreeStack | null = null;
@@ -68,17 +68,16 @@ describe('R9.4 keep a worktree and continue in it', { timeout: 60_000 }, () => {
     expect(await readFile(join(s.t.root, 'README.md'), 'utf8')).toBe('# demo\n');
   }, 60_000);
 
-  it('a guest continues only in their own kept worktree', async () => {
+  it('a 可使用 agent member continues only in their own kept worktree (R9, unchanged by §11 D-15)', async () => {
     sessions = await testSessionsModule();
-    const sandbox = new UnconfinedSandbox();
-    stack = await startWorktreeStack({ extraModules: [unconfinedSandboxModule(sandbox)], laterModules: [sessions.module] });
+    stack = await startWorktreeStack({ laterModules: [sessions.module] });
     const s = stack;
-    const amy = await s.connect('dev:amy', 'runner');
-    const bob = await s.connect('dev:bob', 'runner');
+    const amy = await s.connect('dev:amy', 'agent');
+    const bob = await s.connect('dev:bob', 'agent');
     const { session } = await amy.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'worktree' }, cols: 80, rows: 24 });
     const worktreeId = session.root.kind === 'worktree' ? session.root.worktreeId : '';
-    // The session was confined to the worktree (what the sandbox module turns into srt's policy).
-    expect(sandbox.specs.at(-1)?.rootPath).toBe(s.worktreeDir(worktreeId));
+    expect(s.manager.get(worktreeId)).toMatchObject({ ownerUserId: 'dev:amy', sessionId: session.id });
+    expect(s.t.ctx.roots.get(session.root)?.realPath).toBe(s.worktreeDir(worktreeId));
     await amy.conn.request('session.end', { sessionId: session.id, keepWorktree: true });
     await waitUntil(() => s.manager.get(worktreeId)?.kept === true, 'kept');
 

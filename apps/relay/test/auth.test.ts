@@ -1,18 +1,16 @@
-// Login and session tests against a mock IdP: GitHub (state + PKCE), Google OIDC (state + nonce + PKCE), the CLI
-// loopback flow, cookie vs bearer sessions with the Origin allow-list, workspace ownership, and the dev-login gate
-// (both halves). Every negative case asserts the exact outcome.
+// Login and session tests against a mock IdP: GitHub (state + PKCE), Google OIDC (state + nonce + PKCE), cookie vs
+// bearer sessions with the Origin allow-list, workspace ownership, the dev-login gate (both halves), and the removed
+// CLI loopback routes. The CLI's device-code login: device.test.ts. Every negative case asserts the exact outcome.
 import { createHash, randomBytes } from 'node:crypto';
 import { RELAY_PATHS, authCallbackPath, authLoginPath, relayHttpUrl } from '@smurg/protocol/relay';
 import { SignJWT, importJWK } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { RelayUpgradeError, startLocalRelay, type DevSession, type LocalRelay, type RelaySocket } from '../test-support/index.ts';
-import { cliConfirmCode } from '../src/lib/validate.ts';
-import { CookieBrowser, loopbackListener, metaRefreshTarget, type Hop } from './browser.ts';
+import { CookieBrowser } from './browser.ts';
 import { closeAll, open, openClient, randomWorkspaceId, tunnelUrl } from './helpers.ts';
 import { GITHUB_USER, GOOGLE_USER, startMockIdp, type MockIdp } from './mock-idp.ts';
 
 const b64url = (bytes: Buffer) => bytes.toString('base64url');
-const s256 = (verifier: string) => b64url(createHash('sha256').update(verifier).digest());
 const EVIL_ORIGIN = 'https://evil.example';
 
 let idp: MockIdp;
@@ -45,45 +43,6 @@ async function browserLogin(provider: 'github' | 'google', returnTo?: string): P
   if (returnTo !== undefined) start.searchParams.set('return_to', returnTo);
   await browser.get(start.href);
   return browser;
-}
-
-function cliStartUrl(fields: Record<string, string>): string {
-  const start = new URL(url(RELAY_PATHS.cliStart));
-  for (const [k, v] of Object.entries(fields)) start.searchParams.set(k, v);
-  return start.href;
-}
-
-/**
- * Runs the CLI loopback flow like a browser: the link only shows the confirmation page (nothing reaches the IdP or
- * the listener), the person continues with the page's same-origin form, and the relay's pages lead on to the
- * listener. Returns the loopback parameters, the listener's PKCE verifier and every hop.
- */
-async function cliFlow(query: Record<string, string>): Promise<{ params: URLSearchParams; verifier: string; state: string; hops: Hop[]; port: number }> {
-  const listener = await loopbackListener();
-  try {
-    const verifier = b64url(randomBytes(48));
-    const state = b64url(randomBytes(24));
-    const fields = { port: String(listener.port), state, code_challenge: s256(verifier), ...query };
-    const browser = new CookieBrowser();
-    const authorizeBefore = idp.seen.authorize.length;
-    const confirm = await browser.get(cliStartUrl(fields), { meta: true });
-    expect(confirm.res.status).toBe(200);
-    expect(confirm.body).toContain('<form method="post" action="/auth/cli/start"');
-    expect(listener.requests).toEqual([]);
-    expect(idp.seen.authorize.length).toBe(authorizeBefore);
-    await browser.submit(url(RELAY_PATHS.cliStart), fields, { origin: relay.origin, meta: true });
-    return { params: await listener.callback, verifier, state, hops: browser.hops, port: listener.port };
-  } finally {
-    await listener.close();
-  }
-}
-
-async function cliToken(code: string, codeVerifier: string): Promise<Response> {
-  return fetch(url(RELAY_PATHS.cliToken), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code, codeVerifier }),
-  });
 }
 
 describe('GitHub OAuth App flow (browser)', () => {
@@ -200,195 +159,25 @@ describe('Google OIDC flow (browser)', () => {
   });
 });
 
-describe('CLI loopback login', () => {
-  it('returns a PKCE-bound code to 127.0.0.1 that only the verifier holder can exchange (GitHub)', async () => {
-    const { params, verifier, state } = await cliFlow({ provider: 'github' });
-    expect(params.get('state')).toBe(state);
-    const code = params.get('code') ?? '';
-    expect(code).not.toBe('');
-
-    const wrong = await cliToken(code, b64url(randomBytes(48)));
-    expect(wrong.status).toBe(400);
-    expect(await wrong.json()).toMatchObject({ error: 'pkce_mismatch' });
-    const garbage = await cliToken('not-a-code', verifier);
-    expect(garbage.status).toBe(400);
-    expect(await garbage.json()).toMatchObject({ error: 'invalid_code' });
-
-    const ok = await cliToken(code, verifier);
-    expect(ok.status).toBe(200);
-    const body = (await ok.json()) as { token: string; tokenType: string; user: { userId: string } };
-    expect(body.tokenType).toBe('Bearer');
-    expect(body.user.userId).toBe(`github:${GITHUB_USER.id}`);
-    expect((await me({ authorization: `Bearer ${body.token}` })).body['user']).toMatchObject({ userId: `github:${GITHUB_USER.id}` });
-  });
-
-  it('works with the dev provider and shows every configured choice without a provider', async () => {
-    const { params, verifier } = await cliFlow({ provider: 'dev', user: 'carol' });
-    const ok = await cliToken(params.get('code') ?? '', verifier);
-    expect(ok.status).toBe(200);
-    expect(((await ok.json()) as { user: { userId: string } }).user.userId).toBe('dev:carol');
-
-    const state = b64url(randomBytes(24));
-    const page = await fetch(cliStartUrl({ port: '43210', state, code_challenge: s256('x'.repeat(43)) }));
-    expect(page.status).toBe(200);
-    expect(page.headers.get('content-security-policy')).toContain("default-src 'none'");
-    expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
-    const html = await page.text();
-    expect(html).toContain('name="provider" value="github"');
-    expect(html).toContain('name="provider" value="google"');
-    expect(html).toContain('name="provider" value="dev"');
-    expect(html).toContain(await cliConfirmCode(state));
-  });
-
-  it('ends at a relay page that continues to 127.0.0.1, never a redirect to it (OWNER-01)', async () => {
-    // Chromium applies the submitting page's CSP form-action to every redirect of a form submission, so a 302 to the
-    // loopback after the dev form (or after an IdP's consent form) is blocked. cli-login.browser.test.ts proves the
-    // flow in a real browser; here the exact responses.
-    const queries: Record<string, string>[] = [{ provider: 'dev', user: 'carol' }, { provider: 'github' }, { provider: 'google' }];
-    for (const query of queries) {
-      const { hops, port } = await cliFlow(query);
-      const loopback = `http://127.0.0.1:${port}/`;
-      const reached = hops.findIndex((hop) => hop.url.startsWith(loopback));
-      expect(reached, JSON.stringify(query)).toBe(hops.length - 1);
-      expect(hops.filter((hop) => hop.location?.startsWith(loopback)), JSON.stringify(query)).toEqual([]);
-      const last = hops[reached - 1];
-      expect(last?.url.startsWith(relay.origin), JSON.stringify(query)).toBe(true);
-      expect(last?.status, JSON.stringify(query)).toBe(200);
-    }
-
-    const listenerPort = '43210';
-    const state = b64url(randomBytes(24));
-    const fields = { port: listenerPort, state, code_challenge: s256('x'.repeat(43)), provider: 'dev', user: 'carol' };
-    const { res, body } = await new CookieBrowser().submit(url(RELAY_PATHS.cliStart), fields, { origin: relay.origin, follow: false });
-    expect(res.status).toBe(200);
-    expect(res.headers.get('location')).toBeNull();
-    expect(res.headers.get('content-security-policy')).toBe(
-      "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-    );
-    expect(res.headers.get('referrer-policy')).toBe('no-referrer');
-    expect(res.headers.get('cache-control')).toBe('no-store');
-    const target = new URL(metaRefreshTarget(body) ?? '');
-    expect(`${target.origin}${target.pathname}`).toBe(`http://127.0.0.1:${listenerPort}/callback`);
-    expect(target.searchParams.get('state')).toBe(state);
-    expect(target.searchParams.get('code')).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
-    expect(body).toContain(`href="${target.href.replace(/&/g, '&amp;')}"`);
-  });
-
-  it('forwards a provider error to the CLI listener instead of a code', async () => {
-    const listener = await loopbackListener();
-    try {
-      const verifier = b64url(randomBytes(48));
-      const fields = { port: String(listener.port), state: 'cli-state-0123456789', code_challenge: s256(verifier), provider: 'github' };
-      const browser = new CookieBrowser();
-      const { res, body } = await browser.submit(url(RELAY_PATHS.cliStart), fields, { origin: relay.origin, follow: false });
-      expect(res.status).toBe(200);
-      expect(browser.jar.has('smurg_tx')).toBe(true);
-      const providerState = new URL(metaRefreshTarget(body) ?? '').searchParams.get('state') ?? '';
-      expect(providerState).toMatch(/^[A-Za-z0-9_-]{43}$/);
-      await browser.get(url(`${authCallbackPath('github')}?error=access_denied&state=${providerState}`), { meta: true });
-      const params = await listener.callback;
-      expect(params.get('error')).toBe('access_denied');
-      expect(params.get('state')).toBe('cli-state-0123456789');
-      expect(params.has('code')).toBe(false);
-    } finally {
-      await listener.close();
-    }
-  });
-
-  it('rejects malformed CLI parameters', async () => {
-    const challenge = s256('y'.repeat(43));
-    const cases = [
-      `port=80&state=${'s'.repeat(20)}&code_challenge=${challenge}`,
-      `port=70000&state=${'s'.repeat(20)}&code_challenge=${challenge}`,
-      `port=43210&state=short&code_challenge=${challenge}`,
-      `port=43210&state=${'s'.repeat(20)}&code_challenge=plain-challenge`,
-      `state=${'s'.repeat(20)}&code_challenge=${challenge}`,
-      `port=43210&state=${'s'.repeat(20)}&code_challenge=${challenge}&provider=gitlab`,
-      `port=43210&state=${'s'.repeat(20)}&code_challenge=${challenge}&provider=dev&user=bad%20name`,
+describe('the removed CLI loopback login (smurg 0.1.0)', () => {
+  it('answers 404 on /auth/cli/start and /auth/cli/token, whatever the method, and sets nothing', async () => {
+    const authorizeBefore = idp.seen.authorize.length;
+    const query = `port=43210&state=${'s'.repeat(20)}&code_challenge=${'A'.repeat(43)}`;
+    const form = { 'content-type': 'application/x-www-form-urlencoded', origin: relay.origin, 'sec-fetch-site': 'same-origin' };
+    const requests: [string, RequestInit][] = [
+      [`/auth/cli/start?${query}&provider=github`, {}],
+      [`/auth/cli/start?${query}&provider=dev&user=mallory`, {}],
+      ['/auth/cli/start', { method: 'POST', headers: form, body: `${query}&provider=dev&user=mallory` }],
+      ['/auth/cli/token', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: 'x', codeVerifier: 'y'.repeat(43) }) }],
     ];
-    for (const query of cases) {
-      const res = await fetch(url(`${RELAY_PATHS.cliStart}?${query}`), { redirect: 'manual' });
-      expect(res.status, query).toBe(400);
-      const posted = await new CookieBrowser().submit(url(RELAY_PATHS.cliStart), Object.fromEntries(new URLSearchParams(query)), {
-        origin: relay.origin,
-        follow: false,
-      });
-      expect(posted.res.status, `POST ${query}`).toBe(400);
+    for (const [path, init] of requests) {
+      const res = await fetch(url(path), { redirect: 'manual', ...init });
+      expect(res.status, path).toBe(404);
+      expect(await res.json(), path).toEqual({ error: 'not_found' });
+      expect(res.headers.getSetCookie(), path).toEqual([]);
     }
-  });
-});
-
-describe('CLI login confirmation (SEC-E-03)', () => {
-  it('never signs in from a link: GET with any provider only shows the confirmation page', async () => {
-    const listener = await loopbackListener();
-    try {
-      for (const provider of ['github', 'google', 'dev']) {
-        const state = b64url(randomBytes(24));
-        const fields: Record<string, string> = { port: String(listener.port), state, code_challenge: s256(b64url(randomBytes(48))), provider };
-        if (provider === 'dev') fields['user'] = 'mallory';
-        const authorizeBefore = idp.seen.authorize.length;
-        const browser = new CookieBrowser();
-        const { res, body, url: landed } = await browser.get(cliStartUrl(fields), { meta: true });
-        expect(res.status, provider).toBe(200);
-        expect(landed, provider).toBe(cliStartUrl(fields));
-        expect(res.headers.getSetCookie(), provider).toEqual([]);
-        expect(res.headers.get('content-security-policy'), provider).toContain("frame-ancestors 'none'");
-        expect(res.headers.get('referrer-policy'), provider).toBe('same-origin');
-        expect(idp.seen.authorize.length, provider).toBe(authorizeBefore);
-        expect(body, provider).toContain(await cliConfirmCode(state));
-        expect(body, provider).toContain('只有在你剛剛自己在終端機執行了 <code>smurg login</code>');
-        // Only the requested provider is offered, and only as a POST form.
-        expect(body.match(/<form /g)?.length, provider).toBe(1);
-        expect(body, provider).toContain(`<form method="post" action="/auth/cli/start" data-provider="${provider}">`);
-        expect(body, provider).not.toMatch(/href="[^"]*provider=/);
-      }
-      expect(listener.requests).toEqual([]);
-    } finally {
-      await listener.close();
-    }
-  });
-
-  it('continues only from a same-origin form POST of the confirmation page', async () => {
-    const listener = await loopbackListener();
-    try {
-      const verifier = b64url(randomBytes(48));
-      const fields = { port: String(listener.port), state: b64url(randomBytes(24)), code_challenge: s256(verifier) };
-      const refused: [string, { origin: string | null; site?: string | null }, Record<string, string>][] = [
-        ['no Origin', { origin: null, site: null }, { provider: 'github' }],
-        ['Origin null', { origin: 'null', site: null }, { provider: 'github' }],
-        ['another site', { origin: EVIL_ORIGIN, site: 'cross-site' }, { provider: 'github' }],
-        ['another site without Sec-Fetch-Site', { origin: EVIL_ORIGIN, site: null }, { provider: 'dev', user: 'mallory' }],
-        ['a sibling origin', { origin: 'http://127.0.0.1:1', site: 'same-site' }, { provider: 'dev', user: 'mallory' }],
-        ['a forged Origin but cross-site fetch metadata', { origin: relay.origin, site: 'cross-site' }, { provider: 'google' }],
-        ['a forged Origin but same-site fetch metadata', { origin: relay.origin, site: 'same-site' }, { provider: 'dev', user: 'mallory' }],
-      ];
-      const authorizeBefore = idp.seen.authorize.length;
-      for (const [label, how, extra] of refused) {
-        const browser = new CookieBrowser();
-        const { res, body } = await browser.submit(url(RELAY_PATHS.cliStart), { ...fields, ...extra }, { ...how, meta: true });
-        expect(res.status, label).toBe(403);
-        expect(body, label).toContain('不是從 relay 的確認頁面送出的');
-        expect(browser.jar.size, label).toBe(0);
-      }
-      const json = await fetch(url(RELAY_PATHS.cliStart), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', origin: relay.origin, 'sec-fetch-site': 'same-origin' },
-        body: JSON.stringify({ ...fields, provider: 'dev', user: 'mallory' }),
-      });
-      expect(json.status).toBe(415);
-      expect(idp.seen.authorize.length).toBe(authorizeBefore);
-      expect(listener.requests).toEqual([]);
-
-      // Positive control: the same request from the page itself goes on to the IdP through a relay page.
-      const browser = new CookieBrowser();
-      const { res, body } = await browser.submit(url(RELAY_PATHS.cliStart), { ...fields, provider: 'github' }, { origin: relay.origin, follow: false });
-      expect(res.status).toBe(200);
-      expect(metaRefreshTarget(body)?.startsWith(`${idp.base}/login/oauth/authorize?`)).toBe(true);
-      expect(browser.jar.has('smurg_tx')).toBe(true);
-      expect(res.headers.get('referrer-policy')).toBe('no-referrer');
-    } finally {
-      await listener.close();
-    }
+    expect(idp.seen.authorize.length).toBe(authorizeBefore);
+    expect(Object.values(RELAY_PATHS).filter((path) => path.startsWith('/auth/cli'))).toEqual([]);
   });
 });
 
@@ -539,16 +328,6 @@ describe('dev-only login gate', () => {
     expect((await relay.fetch(`${remote}${RELAY_PATHS.devToken}`, devToken)).status).toBe(404);
     expect((await relay.fetch(`${remote}${RELAY_PATHS.devStart}?user=mallory`)).status).toBe(404);
     expect((await relay.fetch(`${remote}/api/debug/room?kind=ws&workspaceId=${randomWorkspaceId()}`)).status).toBe(404);
-    const cli = `port=43210&state=${'s'.repeat(20)}&code_challenge=${s256('z'.repeat(43))}&provider=dev&user=mallory`;
-    expect((await relay.fetch(`${remote}${RELAY_PATHS.cliStart}?${cli}`)).status).toBe(404);
-    const confirm = (host: string) =>
-      relay.fetch(`${host}${RELAY_PATHS.cliStart}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded', origin: relay.origin, 'sec-fetch-site': 'same-origin' },
-        body: cli,
-      });
-    expect((await confirm(remote)).status).toBe(404);
-    expect((await confirm('http://localhost')).status).toBe(200);
     // A dev session is not honoured on that hostname either.
     expect((await relay.fetch(`${remote}${RELAY_PATHS.me}`, { headers: { authorization: `Bearer ${alice.token}` } })).status).toBe(401);
     expect((await relay.fetch(`http://localhost${RELAY_PATHS.devToken}`, devToken)).status).toBe(200);
@@ -567,24 +346,18 @@ describe('dev-only login gate', () => {
       expect((await fetch(at(RELAY_PATHS.jwks))).status).toBe(200);
       expect((await fetch(at(RELAY_PATHS.devToken), post)).status).toBe(404);
       expect((await fetch(at(`${RELAY_PATHS.devStart}?user=mallory`), { redirect: 'manual' })).status).toBe(404);
-      const cli = `port=43210&state=${'s'.repeat(20)}&code_challenge=${s256('z'.repeat(43))}`;
-      expect((await fetch(at(`${RELAY_PATHS.cliStart}?${cli}&provider=dev&user=mallory`))).status).toBe(404);
-      const confirm = await new CookieBrowser().submit(at(RELAY_PATHS.cliStart), Object.fromEntries(new URLSearchParams(`${cli}&provider=dev&user=mallory`)), {
-        origin: prodLike.origin,
-        follow: false,
-      });
-      expect(confirm.res.status).toBe(404);
-      const chooser = await (await fetch(at(`${RELAY_PATHS.cliStart}?${cli}`))).text();
-      expect(chooser).not.toContain('value="dev"');
+      const chooser = await (await fetch(at(RELAY_PATHS.device))).text();
+      expect(chooser).toContain('data-provider="github"');
+      expect(chooser).not.toContain('data-provider="dev"');
       await expect(prodLike.devLogin('mallory')).rejects.toThrow(/HTTP 404/);
       expect((await fetch(at(`/api/debug/room?kind=ws&workspaceId=${randomWorkspaceId()}`))).status).toBe(404);
 
       const devSession = { authorization: `Bearer ${alice.token}` };
       expect((await fetch(at(RELAY_PATHS.me), { headers: devSession })).status).toBe(401);
       // Positive control: a GitHub session from the other relay (same key and issuer) is accepted.
-      const { params, verifier } = await cliFlow({ provider: 'github' });
-      const github = (await (await cliToken(params.get('code') ?? '', verifier)).json()) as { token: string };
-      expect((await fetch(at(RELAY_PATHS.me), { headers: { authorization: `Bearer ${github.token}` } })).status).toBe(200);
+      const github = (await browserLogin('github')).jar.get('smurg_session');
+      expect(github).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+      expect((await fetch(at(RELAY_PATHS.me), { headers: { authorization: `Bearer ${github}` } })).status).toBe(200);
     } finally {
       await prodLike.stop();
     }

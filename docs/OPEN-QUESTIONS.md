@@ -8,18 +8,28 @@ and run** (the release plan, `docs/RELEASING.md`; Q2's owner question about the 
 on 2026-10-01** (the CLI logs in by device code, everywhere); Q3–Q6, Q8–Q11 and Q13 are not decided in code; **Q14** (the
 copyright holder and a legal review of the license) is new.
 
+**Superseded on 2026-10-01 by the owner's decision to remove guests' own agents and the guest sandbox**
+(`docs/ARCHITECTURE.md` §11 D-15): there is no guest sandbox (Seatbelt / bubblewrap through
+`@anthropic-ai/sandbox-runtime`, the AppArmor profile, the protected-entry guard), no guest Claude login or API key, and
+no Linux main-workspace switch (D-14). The host can give a member the role 「可使用 agent」 (`agent`, replacing
+`runner`): that member opens agent and terminal sessions that run AS THE HOST (the host's account and Claude Code
+login, on the host's computer, no sandbox), in the main workspace or a worktree, and types into any session; editors
+keep suggestions, viewers watch, worktrees and merge requests stay. So the sandbox parts of **Q2**, **Q3**, **Q5**,
+the guest-login half of **Q12** and **Q13** are superseded (each says so below, the question kept as the record); Q4
+and Q14 are updated.
+
 The two departures from SPEC.md's wording that the review round left **pending approval** were implemented on
 2026-09-29 as the project lead recommended, each behind a switch that is on by default (`docs/ARCHITECTURE.md` §11):
 
 - **D-12** (review SPEC-04): a guest logs in with their Claude subscription through a separate login process that the
   daemon runs in the guest's sandbox and that may listen on a local port while it runs (`smurg host
   --no-guest-subscription-login` turns it off: guests then log in with an API key only). The guest's agent sessions
-  still cannot listen at all.
+  still cannot listen at all. **Superseded 2026-10-01 (D-15): guests no longer log in to Claude at all.**
 - **D-13** (review SPEC-01): agents' Bash commands are reported to the daemon (start and end, not their content), so an
   agent's shell edits in the main workspace appear as that agent in the activity feed instead of 「外部程式」
   (`smurg host --no-bash-attribution` turns it off).
 
-What is still the owner's to decide about them is whether those defaults are right: **Q12**. The remaining entries do
+What is still the owner's to decide about them is whether those defaults are right: **Q12** (now D-13 only). The remaining entries do
 not depart from SPEC.md's wording; they are listed in the order the owner may want to take them.
 
 ---
@@ -125,7 +135,15 @@ Without signing, macOS Gatekeeper quarantines a downloaded binary and the 3-minu
 
 </details>
 
-## Q2. Linux verification (reviews SPEC-05, CLI-09; SPEC D8) — **decided 2026-09-30, run 2026-10-01; its owner question decided 2026-10-01**
+## Q2. Linux verification (reviews SPEC-05, CLI-09; SPEC D8) — **decided 2026-09-30, run 2026-10-01; its owner question decided 2026-10-01, then superseded the same day (D-15)**
+
+**Superseded 2026-10-01 (owner, ARCHITECTURE §11 D-15).** Everything below about the guest sandbox on Linux
+(bubblewrap, the AppArmor profile, srt's `apply-seccomp`, the main-workspace switch D-14 and the sandbox's residuals)
+is history: the sandbox is gone, CI no longer installs bubblewrap / socat / ripgrep or the AppArmor profile, and the
+installer no longer installs anything but the executable. What stands: GitHub Actions on ubuntu-24.04 runs the whole
+gate, and the release workflow builds and smoke-tests the Linux executables. Still manual on a real Ubuntu 24.04
+machine: a real `claude` in an agent session, keep-awake through `systemd-inhibit` from a desktop session, and the R1.1
+timing on a fresh machine.
 
 **Decision.** Option 1: GitHub Actions on ubuntu-24.04 is the Linux verification. CI (`.github/workflows/ci.yml`) runs
 `pnpm check` there on every push to `main` and every pull request, after installing bubblewrap, socat, ripgrep and the
@@ -219,7 +237,12 @@ tells the host before they open such a folder. Option 2 costs every non-git shar
 
 </details>
 
-## Q3. `.git` and credentials in the main workspace (reviews WEB-17, SEC-D-03 residual)
+## Q3. `.git` and credentials in the main workspace (reviews WEB-17, SEC-D-03 residual) — **superseded 2026-10-01 (D-15)**
+
+**Superseded.** There are no sandboxed guest agents any more: every session runs as the host and reads everything the
+host can, `.git/config` included. Guest PEOPLE still cannot read `.git` through `file.*` (PathGuard, unchanged). What
+remains of the question is the host's own hygiene (no token in a remote URL), which `docs/HOSTING.md` §4 / §5.1 cover
+for members with the 「可使用 agent」 role. The question as it stood:
 
 **Current behaviour.** Guest people (every non-host role, viewers included) can no longer read or download anything
 under any `.git`, nor `.envrc` or the host's personal Claude Code files: PathGuard refuses them (`host-private`), the
@@ -237,15 +260,21 @@ and a token in a remote URL is the actual problem.
 
 ## Q4. Should `.env` files join the host-private class? (review SEC-D-03, protocol-core question 2)
 
-**Current behaviour.** `.env` / `.env.*` are ordinary project files: every member can read them, and guest agents can
-read them in their sandbox. `docs/HOSTING.md` tells the host that every member sees every file, `.env` included.
+**Current behaviour.** `.env` / `.env.*` are ordinary project files: every member can read them (and every agent
+session, which runs as the host since D-15, reads them whatever this decides). `docs/HOSTING.md` tells the host that
+every member sees every file, `.env` included.
 
-**Options.** 1. Keep. 2. Host-private by default (projects that need `.env` to run break for guest agents). 3. A host
-setting (off by default) that makes `.env*` host-private.
+**Options.** 1. Keep. 2. Host-private by default for people (`file.*`, the tree, zips; agent sessions are not
+affected). 3. A host setting (off by default) that makes `.env*` host-private for people.
 
 **Recommendation.** Option 3 for the launch phase; option 1 for the prototype.
 
-## Q5. Guest symlinks that point outside the share (review SEC-D-04, part 2)
+## Q5. Guest symlinks that point outside the share (review SEC-D-04, part 2) — **superseded 2026-10-01 (D-15)**
+
+**Superseded.** A member who can open sessions (「可使用 agent」) runs them as the host and can do anything the host can,
+a symlink out of the share being the least of it; editors and viewers create no symlinks (`file.*` never makes one).
+The daemon still never follows a link out of the share for anyone, and a worktree merge still refuses one. The
+question as it stood:
 
 **Current behaviour.** A guest agent in the main workspace can create a symlink inside the share that points outside
 it (npm and pnpm create links all the time). The daemon never follows such a link for anyone (PathGuard), and a
@@ -262,8 +291,7 @@ problem, attributed like any other change.
 
 **Current behaviour.** Relay sessions (browser cookie and CLI bearer token) are stateless 7-day EdDSA tokens. The CLI
 login can no longer be completed by a link alone (since 2026-10-01 the person types the CLI's code on the relay's
-/device page and presses 「允許」, Q7; the deprecated loopback login kept for smurg 0.1.0 has its confirmation page),
-but a token that leaks stays valid until it expires.
+/device page and presses 「允許」, Q7), but a token that leaks stays valid until it expires.
 
 **Options.** 1. A per-account generation number in a Durable Object checked on every request, with a
 "log out everywhere" endpoint (one lookup per request). 2. Shorter CLI sessions (e.g. 1 day) with a refresh token.
@@ -281,8 +309,8 @@ and polls `POST /auth/device/token` (every 5 s, 5 s more after each `slow_down`;
 person logs in to the relay in any browser (a phone will do), types the code, sees the account, the IP address and
 approximate location of the machine that asked and the time, and presses 「允許」 or 「拒絕」; the session the CLI gets
 is that browser session's account, issued once. Pending logins and the rate limits live in a new SQLite-backed Durable
-Object (`DeviceLoginDO`, wrangler migration `v2`). The loopback routes (`/auth/cli/start`, `/auth/cli/token`) stay for
-the released smurg 0.1.0, deprecated: they are removed once a CLI without them has been out for a while. As built:
+Object (`DeviceLoginDO`, wrangler migration `v2`). The loopback routes (`/auth/cli/start`, `/auth/cli/token`) are removed
+(owner, 2026-10-01: no installed CLI uses them). As built:
 `docs/ARCHITECTURE.md` §6, `apps/relay/README.md`, `docs/HOSTING.md` §2.
 
 <details><summary>The question as it stood before the decision</summary>
@@ -332,15 +360,21 @@ fails and the member keeps access.
 ## Q11. Bringing main's changes into a worktree (review SPEC-03)
 
 **Current behaviour.** SPEC R9 says conflicts are listed and the host handles them; the UI now tells the host to merge
-in their own terminal (`git merge refs/smurg/merge/<id>`) or reject. A requester cannot update their worktree from the
-main workspace (guests cannot write any `.git`).
+in their own terminal (`git merge refs/smurg/merge/<id>`) or reject. smurg has no operation that updates a worktree
+from the main workspace; since D-15 (2026-10-01) a member with 「可使用 agent」 can run `git merge` in a terminal session
+of that worktree themselves (it runs as the host), editors and viewers cannot.
 
 **Options.** 1. A `worktree.update` operation run by the daemon (a merge into a folder the guest can modify at the same
 time: needs a careful design). 2. Keep.
 
 **Recommendation.** Option 2 for the prototype.
 
-## Q12. The defaults of the two switches of D-12 and D-13 (ARCHITECTURE §11)
+## Q12. The defaults of the two switches of D-12 and D-13 (ARCHITECTURE §11) — **D-12's half superseded 2026-10-01 (D-15); D-13 still open**
+
+**D-12 is gone with the guest sandbox** (D-15): no member logs in to Claude, every agent uses the host's own login, and
+`--no-guest-subscription-login` no longer exists. What stays open is D-13's default (Bash attribution, on unless
+`--no-bash-attribution`): option 3 below, or keep. Since every session now runs as the host, a member's agent's shell
+edits are attributed like the host's own (anywhere in the session's root). The question as it stood:
 
 **Current behaviour.** Both switches are on unless the host turns them off when starting `smurg host`;
 `docs/HOSTING.md` §5 explains each one and `smurg status` shows whether it is on (since 2026-10-01 the start of
@@ -376,7 +410,11 @@ local services, an exec allow-list on macOS), and without it a guest with a subs
 hook fails open and can only ever attribute changes within the reporting session's own root. Both can be turned off per
 share without a new build.
 
-## Q13. Resource limits of guest sandboxes (review attack F2)
+## Q13. Resource limits of guest sandboxes (review attack F2) — **superseded 2026-10-01 (D-15)**
+
+**Superseded.** There is no guest sandbox to limit: sessions opened by members with 「可使用 agent」 run as the host, with
+the host's own limits, and the host hands that role only to people they fully trust (`docs/HOSTING.md` §5.1). The
+question as it stood:
 
 **Current behaviour** (ARCHITECTURE §12 "Resource limits"). Neither sandbox limits memory, disk space, CPU time or
 file size, and no guest gets a cgroup of its own. A guest can slow the host's machine down, use up its memory (the
@@ -428,8 +466,10 @@ carries the same placeholder.
    - whether the web app's use (people who only open an invite link) is covered by the same terms or needs its own
      notice;
    - the third-party obligations: every bundled package's license and notice files are reproduced (generated,
-     `scripts/third-party-notices.ts`); the Linux executables also contain srt's `apply-seccomp`, a program statically
-     linked with the GNU C Library (LGPL-2.1-or-later). Its notices name glibc and its source; whether LGPL's terms for
+     `scripts/third-party-notices.ts`). **Since D-15 (2026-10-01) the executables contain no statically linked program:
+     srt and its `apply-seccomp` are gone from the build.** What follows concerns only v0.1.0's Linux executables, which
+     stay published on `downloads.smurg.ai` (never deleted, `docs/RELEASING.md`): they contain srt's `apply-seccomp`, a
+     program statically linked with the GNU C Library (LGPL-2.1-or-later). Its notices name glibc and its source; whether LGPL's terms for
      static linking need more (for example offering the object code of `apply-seccomp` for relinking, a written offer
      of the source, or pointing at srt's source) is open. Facts for the reviewer (checked 2026-10-01 on
      `@anthropic-ai/sandbox-runtime` 0.0.77, `vendor/seccomp/{x64,arm64}/apply-seccomp`): both are statically linked,

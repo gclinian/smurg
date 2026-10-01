@@ -24,6 +24,7 @@ import {
   IMMUTABLE,
   LATEST_CACHE,
   NOTICES,
+  NOTICE_COMPONENTS,
   TEXT_TYPE,
   REHEARSAL_ENV,
   UPLOAD_ORDER,
@@ -31,6 +32,7 @@ import {
   depsFromEnvironment,
   main,
   parsePublishArgs,
+  noticesProblems,
   parseSha256Sums,
   PublishError,
   type PublishDeps,
@@ -52,7 +54,7 @@ const FILE_SAYS: Readonly<Record<string, string>> = {
 const FAKE_NODE = '22.23.3';
 /** Notices as scripts/build-sea.sh writes them: the packages, then the Node.js section with its LICENSE. */
 const noticesOf = (node: string): string =>
-  `smurg: third-party notices\n\nnode-pty@1.2.0  MIT\n@parcel/watcher@2.6.0  MIT\n@anthropic-ai/sandbox-runtime@0.0.77  Apache-2.0\n\n${'='.repeat(80)}\nnode@${node} (the Node.js runtime)\n\n----- LICENSE -----\nNode.js is licensed for use as follows:\n\nCopyright Node.js contributors.\n`;
+  `smurg: third-party notices\n\nnode-pty@1.2.0  MIT\n@parcel/watcher@2.6.0  MIT\n\n${'='.repeat(80)}\nnode@${node} (the Node.js runtime)\n\n----- LICENSE -----\nNode.js is licensed for use as follows:\n\nCopyright Node.js contributors.\n`;
 const NOTICES_TEXT = noticesOf(FAKE_NODE);
 /** The repository's committed notices: complete but for the Node.js section (a placeholder). */
 const COMMITTED_NOTICES = fileURLToPath(new URL('../THIRD-PARTY-NOTICES.txt', import.meta.url));
@@ -382,6 +384,14 @@ describe('arguments', () => {
   });
 });
 
+describe('the notices a release must carry', () => {
+  it('name node-pty, @parcel/watcher and Node.js (nothing of the guest sandbox: there is none, ARCHITECTURE §11 D-15)', () => {
+    expect([...NOTICE_COMPONENTS]).toEqual(['node-pty', '@parcel/watcher', 'Node.js']);
+    expect(noticesProblems(NOTICES_TEXT)).toEqual([]);
+    expect(noticesProblems('node-pty  MIT\n')).toEqual([expect.stringContaining('does not mention @parcel/watcher, Node.js'), expect.stringContaining('no complete Node.js section')]);
+  });
+});
+
 describe('publishing a version (scripts/release-assets.sh → scripts/publish-downloads.ts)', () => {
   it('a dry run checks the files and prints the plan; it uploads nothing and never runs wrangler', async () => {
     const w = await world();
@@ -555,7 +565,7 @@ describe('publishing a version (scripts/release-assets.sh → scripts/publish-do
     ];
     const noNotices = await w.release('9.8.7');
     await writeFile(join(noNotices, NOTICES), 'smurg: third-party notices\n\nnode-pty  MIT\n');
-    cases.push(['9.8.7', noNotices, `${NOTICES} does not mention @parcel/watcher, @anthropic-ai/sandbox-runtime, Node.js`]);
+    cases.push(['9.8.7', noNotices, `${NOTICES} does not mention @parcel/watcher, Node.js`]);
     // The committed notices (names everything, Node.js included, but its Node.js section is the placeholder).
     const unfilled = await w.release('9.8.7');
     await writeFile(join(unfilled, NOTICES), await readFile(COMMITTED_NOTICES));

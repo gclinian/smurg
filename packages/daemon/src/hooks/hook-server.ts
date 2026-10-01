@@ -1,5 +1,5 @@
-// The hook + MCP socket (ARCHITECTURE §7.7): a Unix socket at config.runPaths.hook (0600, inside the 0700 run dir),
-// the ONLY socket reachable from inside guest sandboxes. Newline-delimited JSON; see wire.ts for the format.
+// The hook + MCP socket (ARCHITECTURE §7.7): a Unix socket at config.runPaths.hook (0600, inside the 0700 run dir).
+// Newline-delimited JSON; see wire.ts for the format.
 //
 // Everything that arrives here is a claim from a process inside a session, and the agent can read its own token:
 //  * identity = the token (hashed lookup) → the registered session and its owner; never the payload;
@@ -9,8 +9,7 @@
 //  * a PreToolUse is always answered within HOOK_SERVER_DECISION_MS, with a deny when anything is uncertain;
 //  * a Bash PreToolUse / PostToolUse (the Bash ACTIVITY hook, §11 D-13) is never a decision: it opens / closes the
 //    session's Bash window (rate-limited separately, ignored when config.activity.attributeBashEdits is off) and is
-//    answered with null, whatever happens;
-//  * the hook self-test event (HOOK_PROBE_EVENT) is answered with hookProbeAnswer(nonce, the token's session).
+//    answered with null, whatever happens.
 // Events of one session are handled in arrival order (a Post event must not overtake the Pre it belongs to).
 import { createHash, randomBytes } from 'node:crypto';
 import { chmod, lstat, unlink } from 'node:fs/promises';
@@ -36,19 +35,15 @@ import { hookSocketRequestSchema, requestEnvelopeSchema, type HookInput, type Pa
 import {
   removeAllSessionFiles,
   removeSessionFiles,
-  seedGuestClaudeConfig,
   watchableTopLevelNames,
   writeSessionFiles,
-  projectMcpServerNames,
   type SessionFiles,
 } from './settings-writer.ts';
 import {
   HOOK_ENV,
-  HOOK_PROBE_EVENT,
   HOOK_REQUEST_MAX_BYTES,
   HOOK_RESPONSE_MAX_BYTES,
   HOOK_SERVER_DECISION_MS,
-  hookProbeAnswer,
   preToolUseDeny,
   type JsonObject,
 } from './wire.ts';
@@ -204,9 +199,8 @@ export class HookServerImpl implements HookServer {
   // -------------------------------------------------------------------------------------------------------------------
 
   /**
-   * Writes settings.json + mcp.json of a REGISTERED session (host variant for unsandboxed sessions, guest variant for
-   * sandboxed ones) and returns their paths and the flags for `claude`. Refuses (fail closed) without
-   * config.sessions.selfCommand: a session whose hooks cannot run must not start.
+   * Writes settings.json + mcp.json of a REGISTERED session and returns their paths and the flags for `claude`. Refuses
+   * (fail closed) without config.sessions.selfCommand: a session whose hooks cannot run must not start.
    */
   async writeSessionFiles(sessionId: string): Promise<SessionFiles> {
     const entry = this.byId.get(sessionId);
@@ -215,14 +209,12 @@ export class HookServerImpl implements HookServer {
     if (command === null) throw new SmurgError('internal', 'smurg 沒有設定 hook 指令，無法啟動 agent session', { reason: 'no-self-command' });
     const reg = entry.registration;
     const root = await this.ctx.paths.resolve({ root: reg.root, path: '' }, { principal: SYSTEM_PRINCIPAL, allowRoot: true, mustExist: true });
-    const variant = reg.sandboxed ? 'guest' : 'host';
-    const projectMcpServers = variant === 'guest' ? await this.projectMcpServers(reg) : [];
     const fileChangedNames = await watchableTopLevelNames(root.realPath);
     return writeSessionFiles({
       stateDir: this.ctx.config.stateDir,
       workspaceId: this.ctx.config.workspaceId,
       sessionId,
-      settings: { variant, command, rootRealPath: root.realPath, projectMcpServers, fileChangedNames, bashActivity: this.ctx.config.activity.attributeBashEdits },
+      settings: { command, fileChangedNames, bashActivity: this.ctx.config.activity.attributeBashEdits },
     });
   }
 
@@ -231,32 +223,9 @@ export class HookServerImpl implements HookServer {
     return removeSessionFiles(this.ctx.config.stateDir, this.ctx.config.workspaceId, sessionId);
   }
 
-  /**
-   * Guests: pre-seeds `<cfgDir>/.claude.json` (trust for the cwd's realpath, approval of their own API key).
-   * PRECONDITION: no process of that guest may run while this writes (a sandboxed process can swap any entry of its
-   * guest dir for a symlink between the checks and the rename). Not in the HookServer contract: the sessions module
-   * seeds the file itself, in quarantine (src/sessions/guest-store.ts withQuarantine); this stays for the hook tests.
-   */
-  seedGuestClaudeConfig(input: { readonly cfgDir: string; readonly cwd: string; readonly apiKey?: string | null }): Promise<string> {
-    return seedGuestClaudeConfig(input);
-  }
-
   /** Registered sessions (tests, status). */
   sessionCount(): number {
     return this.byId.size;
-  }
-
-  private async projectMcpServers(reg: HookSessionRegistration): Promise<string[]> {
-    try {
-      // Through PathGuard: `.mcp.json` could be a symlink out of the share or a FIFO.
-      const { bytes } = await this.ctx.paths.readFile(
-        { root: reg.root, path: '.mcp.json' },
-        { principal: SYSTEM_PRINCIPAL, maxBytes: 1024 * 1024, audit: false },
-      );
-      return projectMcpServerNames(new TextDecoder().decode(bytes));
-    } catch {
-      return [];
-    }
   }
 
   // -------------------------------------------------------------------------------------------------------------------
@@ -483,10 +452,6 @@ export class HookServerImpl implements HookServer {
 
   /** Hook events of one session run in order; a PreToolUse is decided within HOOK_SERVER_DECISION_MS or denied. */
   private enqueueHook(entry: SessionEntry, input: HookInput): Promise<JsonObject | null> {
-    if (input.hook_event_name === HOOK_PROBE_EVENT) {
-      const nonce = input.smurg_probe;
-      return Promise.resolve(nonce !== undefined && this.isRegistered(entry) ? hookProbeAnswer(nonce, entry.registration.sessionId) : null);
-    }
     if (isBashActivityEvent(input)) return this.enqueueBash(entry, input);
     const isPre = input.hook_event_name === 'PreToolUse';
     const run = async (): Promise<PreToolUseOutcome> => {

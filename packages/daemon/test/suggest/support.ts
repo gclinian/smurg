@@ -1,7 +1,7 @@
 // TEST ONLY: a daemon with the real suggest module and a recording stand-in for the SessionManager: it knows which
 // sessions run and who owns them, and records every call of pasteSuggestion (the single function that writes
 // suggestion text into a PTY). Real-PTY checks live in r6.pty.test.ts.
-import type { SessionInfo } from '@smurg/protocol';
+import { can, type SessionInfo } from '@smurg/protocol';
 import type { FeatureModule } from '../../src/core/context.ts';
 import { AuthorizationError } from '../../src/core/errors.ts';
 import type { Principal, SessionManager } from '../../src/core/interfaces.ts';
@@ -25,7 +25,6 @@ export class RecordingSessions {
       ownerUserId,
       ownerName,
       title: `Claude（${ownerName}）`,
-      sandboxed: false,
       root: { kind: 'main' },
       status: 'running',
       cols: 80,
@@ -56,14 +55,13 @@ export class RecordingSessions {
 
   /** The core's kick / leave teardown calls these. */
   async killAllForUser(): Promise<void> {}
-  async removeGuestDir(): Promise<void> {}
   async stopAll(): Promise<void> {}
 
-  /** Like the real one: the owner only, a running session only. */
+  /** Like the real one: a member who may drive sessions (session.drive: the host, 可使用 agent), a running session. */
   pasteSuggestion(sessionId: string, text: string, acceptedBy: Principal): void {
     const info = this.sessions.get(sessionId);
     if (!info || info.status === 'exited') throw new Error('session gone');
-    if (acceptedBy.userId !== info.ownerUserId) throw new AuthorizationError(undefined, { reason: 'not-owner:session' });
+    if (acceptedBy.role === null || !can(acceptedBy.role, 'session.drive')) throw new AuthorizationError(undefined, { reason: 'capability' });
     this.pastes.push({ sessionId, text, by: acceptedBy.userId });
   }
 }

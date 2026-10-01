@@ -1,8 +1,7 @@
 // The `claude` executable a session launches (ARCHITECTURE §7.6 "Claude Code version", "Login guide"):
-//  - resolved from config.sessions.claudePath or the host's PATH, then realpath'd (the guest sandbox may read exactly
-//    that file, and guests exec it by that path);
-//  - its `--version` is read asynchronously with an isolated, credential-free environment (never the host's or a
-//    guest's configuration) and cached by file identity, then judged by claudeVersionVerdict();
+//  - resolved from config.sessions.claudePath or the host's PATH, then realpath'd (sessions exec it by that path);
+//  - its `--version` is read asynchronously with an isolated, credential-free environment (never the host's
+//    configuration) and cached by file identity, then judged by claudeVersionVerdict();
 //  - `claude auth status --json` decides the login state; TUI strings are hints only.
 import { constants as fsConstants } from 'node:fs';
 import { access, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
@@ -41,7 +40,7 @@ export async function resolveClaude(configured: string | null, pathEnv: string |
   return null;
 }
 
-/** An environment that carries nothing of anyone: `--version` must not read the host's or a guest's settings. */
+/** An environment that carries nothing of anyone: `--version` must not read the host's settings. */
 function isolatedEnv(dir: string): Record<string, string> {
   return {
     PATH: '/usr/bin:/bin:/usr/sbin:/sbin',

@@ -1,5 +1,12 @@
 # Research: Anthropic sandbox-runtime (srt) wrapping whole guest processes
 
+> **Historical (2026-10-01).** The project owner removed guests' own agents and the whole guest sandbox on 2026-10-01
+> (`docs/ARCHITECTURE.md` §11 D-15): smurg no longer uses `@anthropic-ai/sandbox-runtime`, Seatbelt, bubblewrap or an
+> AppArmor profile. Sessions opened by members with the role 「可使用 agent」 run unsandboxed, as the host
+> (ARCHITECTURE §12). This report is kept as the record of what was verified and decided before; **nothing in it
+> describes the current code**, and its recommendations are not to be implemented. Its spike incident (below) and the
+> process-signal rule it led to (ARCHITECTURE §0 rule 1) still stand.
+
 Scope: SPEC R5 (whole section), R4 guest-session bullets, R9 (worktree scope and read-only shared-folder symlinks), and the SPEC section 13 rows about srt with Seatbelt/node-pty and `CLAUDE_CONFIG_DIR`.
 Machine: macOS 26.5.1 (Darwin 25.5, arm64), Node v25.4.0 (also re-run on v22.22.1), Claude Code 2.1.220 (native binary).
 Spike: `/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/sandbox`. The final run had **134 automated checks, all passing** (8 suites, about 4 minutes).

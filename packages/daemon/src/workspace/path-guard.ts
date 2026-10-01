@@ -1,6 +1,6 @@
-// PathGuard (SPEC R1; ARCHITECTURE §7.4). The daemon is NOT sandboxed and acts for guests, so every path from a
-// client, a hook or the MCP socket is resolved here before any fs call, and resolved AGAIN right before every read
-// and write: a guest can swap a parent directory for a symlink at any time (yjs-monaco.md verification item 1).
+// PathGuard (SPEC R1; ARCHITECTURE §7.4). The daemon acts for every member, so every path from a client, a hook or
+// the MCP socket is resolved here before any fs call, and resolved AGAIN right before every read and write: a
+// session can swap a parent directory for a symlink at any time (yjs-monaco.md verification item 1).
 //
 // resolve(): lexical layer → root still the registered directory → walk every component with lstat, resolving
 // symlinks with realpath and requiring every step to stay inside the root (a registered read-only shared link is the
@@ -359,9 +359,9 @@ export class PathGuardImpl implements PathGuard {
       if (readOnly) throw new PathDeniedError('read-only', target);
       if (hostOnly && !isPrivileged) throw new PathDeniedError('host-only', target);
     }
-    // Reads too (review SEC-D-03): what the guests' sandbox hides from their agents (.git, .envrc, the host's personal
-    // Claude Code files) is not handed to a guest human through file.read / download / doc.open either. Decided on
-    // the request's, the resolved and the on-disk spelling, like host-only.
+    // Reads too (review SEC-D-03): the host-private files (.git, .envrc, the host's personal Claude Code files) are not
+    // handed to anyone but the host through file.read / download / doc.open. Decided on the request's, the resolved and
+    // the on-disk spelling, like host-only.
     if (!isPrivileged && (isHostPrivatePath(path) || isHostPrivatePath(resolvedRel) || isHostPrivatePath(diskRel))) {
       throw new PathDeniedError('host-private', target);
     }

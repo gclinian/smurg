@@ -13,10 +13,10 @@ import {
   isGuestRole,
   isRole,
   roleSchema,
-  sessionCreateCapability,
 } from './roles.ts';
 
-// SPEC §8, transcribed row by row. Columns: 主人 host | 可執行 agent runner | 可編輯 editor | 旁觀 viewer.
+// SPEC §8 as the owner changed it on 2026-10-01 (ARCHITECTURE §11 D-15: no guest sandbox, 「可使用 agent」 replaces
+// 「可執行 agent」), transcribed row by row. Columns: 主人 host | 可使用 agent agent | 可編輯 editor | 旁觀 viewer.
 // '—' (not applicable) and '❌' both mean "does not have it". '提出請求' (may request) is its own cell value.
 type Cell = '✅' | '❌' | '—' | '提出請求';
 type SpecRow = { readonly spec: string; readonly cells: readonly [Cell, Cell, Cell, Cell]; readonly capabilities: readonly Capability[] };
@@ -27,12 +27,16 @@ const SPEC_8: readonly SpecRow[] = [
   { spec: '下載檔案', cells: ['✅', '✅', '✅', '✅'], capabilities: ['file.download'] },
   { spec: '對別人的 session 提建議', cells: ['✅', '✅', '✅', '❌'], capabilities: ['suggest.create'] },
   {
-    spec: '開自己的 agent session 和一般終端機（沙盒內）',
-    cells: ['—', '✅', '❌', '❌'],
-    capabilities: ['session.create.sandboxed'],
+    spec: '開 agent session 和一般終端機（以主人的身分執行，無沙盒，用主人的 Claude 登入）',
+    cells: ['✅', '✅', '❌', '❌'],
+    capabilities: ['session.create'],
+  },
+  {
+    spec: '直接在任何 session 裡輸入、採用或拒絕別人對它的建議',
+    cells: ['✅', '✅', '❌', '❌'],
+    capabilities: ['session.drive'],
   },
   // 「請主人代為執行 [上線]」 (R10) is launch-phase: it has no capability in the prototype (see below).
-  { spec: '主人 session（無沙盒）', cells: ['✅', '❌', '❌', '❌'], capabilities: ['session.create.host'] },
   {
     spec: '邀請、改角色、踢人、看操作紀錄、強制釋放檔案鎖',
     cells: ['✅', '❌', '❌', '❌'],
@@ -40,7 +44,7 @@ const SPEC_8: readonly SpecRow[] = [
   },
 ];
 
-// 「合併 worktree 回主工作區」: host ✅, runner 提出請求, editor ❌, viewer ❌. ARCHITECTURE §3 splits it into
+// 「合併 worktree 回主工作區」: host ✅, agent 提出請求, editor ❌, viewer ❌. ARCHITECTURE §3 splits it into
 // merge.decide (the ✅) and merge.request (the 提出請求; the host may also request).
 const MERGE_ROW = { cells: ['✅', '提出請求', '❌', '❌'] as const };
 
@@ -51,8 +55,8 @@ const ARCH_3: Record<Capability, readonly [boolean, boolean, boolean, boolean]> 
   'session.view': [true, true, true, true],
   'file.write': [true, true, true, false],
   'suggest.create': [true, true, true, false],
-  'session.create.sandboxed': [false, true, false, false],
-  'session.create.host': [true, false, false, false],
+  'session.create': [true, true, false, false],
+  'session.drive': [true, true, false, false],
   'worktree.merge.request': [true, true, false, false],
   'worktree.merge.decide': [true, false, false, false],
   'lock.force-release': [true, false, false, false],
@@ -61,9 +65,10 @@ const ARCH_3: Record<Capability, readonly [boolean, boolean, boolean, boolean]> 
 
 describe('roles', () => {
   it('are exactly the four of SPEC §8, in its column order', () => {
-    expect(ROLES).toEqual(['host', 'runner', 'editor', 'viewer']);
-    expect(GUEST_ROLES).toEqual(['runner', 'editor', 'viewer']);
+    expect(ROLES).toEqual(['host', 'agent', 'editor', 'viewer']);
+    expect(GUEST_ROLES).toEqual(['agent', 'editor', 'viewer']);
   });
+
 
   it('validate strictly', () => {
     for (const role of ROLES) expect(roleSchema.parse(role)).toBe(role);
@@ -136,22 +141,23 @@ describe('can()', () => {
     expect(can('viewer', 'admin')).toBe(false);
   });
 
-  it('is not monotone in role order, so roles must never be compared', () => {
-    expect(can('runner', 'session.create.sandboxed')).toBe(true);
-    expect(can('host', 'session.create.sandboxed')).toBe(false);
-  });
-
   it('capabilitiesOf lists the row', () => {
     expect(capabilitiesOf('viewer')).toEqual(['file.read', 'file.download', 'session.view']);
     expect(capabilitiesOf('editor')).toEqual(['file.read', 'file.download', 'file.write', 'session.view', 'suggest.create']);
+    expect(capabilitiesOf('agent')).toEqual([
+      'file.read',
+      'file.download',
+      'file.write',
+      'session.view',
+      'session.create',
+      'session.drive',
+      'suggest.create',
+      'worktree.merge.request',
+    ]);
   });
-});
 
-describe('sessionCreateCapability', () => {
-  it('lets the role, not the client, decide the sandbox', () => {
-    expect(sessionCreateCapability('host')).toBe('session.create.host');
-    expect(sessionCreateCapability('runner')).toBe('session.create.sandboxed');
-    expect(sessionCreateCapability('editor')).toBeNull();
-    expect(sessionCreateCapability('viewer')).toBeNull();
+  it("the agent role is everything but the host's administration", () => {
+    const hostOnly = CAPABILITIES.filter((capability) => can('host', capability) && !can('agent', capability));
+    expect(hostOnly).toEqual(['worktree.merge.decide', 'lock.force-release', 'admin']);
   });
 });

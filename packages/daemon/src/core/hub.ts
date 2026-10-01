@@ -17,6 +17,8 @@ import {
   type Role,
   type SecureChannel,
 } from '@smurg/protocol';
+import { LOCAL_CHANNEL_VIA, localChannelReceives } from '../local/local-channel.ts';
+import { withAuditVia } from './audit.ts';
 import type { LimitsConfig, TimingConfig } from './config.ts';
 import type {
   AuditLog,
@@ -229,24 +231,32 @@ export class HubImpl implements Hub {
     readonly userId: UserId;
     readonly deviceId: string;
     readonly resume?: { readonly channelId: string; readonly lastSeq: number } | undefined;
+    /** A control-socket channel (DaemonLifecycle.attachLocal): receives only LOCAL_CHANNEL_RECEIVES unasked. */
+    readonly local?: boolean;
   }): HubAdmission {
     if (input.purpose === 'transfer') return { purpose: 'transfer', channelId: newId('xf'), resumed: false, replayFrom: 0 };
+    const local = input.local === true;
     const want = input.resume;
     const existing = want ? this.channels.get(want.channelId) : undefined;
-    if (want && existing && existing.userId === input.userId && existing.deviceId === input.deviceId && existing.canResumeFrom(want.lastSeq)) {
+    const sameDevice = existing !== undefined && existing.userId === input.userId && existing.deviceId === input.deviceId && existing.local === local;
+    if (want && existing && sameDevice && existing.canResumeFrom(want.lastSeq)) {
       existing.trim(want.lastSeq);
       return { purpose: 'interactive', channelId: existing.id, resumed: true, replayFrom: want.lastSeq };
     }
     // The client could not continue: the old logical channel (if it was this device's) is replaced for good.
-    if (existing && existing.userId === input.userId && existing.deviceId === input.deviceId) this.discard(existing, 'interactive');
+    if (existing && sameDevice) this.discard(existing, 'interactive');
     // A device reconnecting fresh (page reload) leaves its disconnected channels behind; stop queueing for them.
     for (const channel of [...this.channels.values()]) {
-      if (channel.deviceId === input.deviceId && channel.userId === input.userId && !this.channelConn.has(channel.id)) this.discard(channel, 'interactive');
+      if (channel.deviceId === input.deviceId && channel.userId === input.userId && channel.local === local && !this.channelConn.has(channel.id)) this.discard(channel, 'interactive');
     }
-    const channel = new LogicalChannel(newId('ch'), input.userId, input.deviceId, this.clock.now(), {
-      maxEntries: this.limits.outboxMaxEntries,
-      maxBytes: this.limits.outboxMaxBytes,
-    });
+    const channel = new LogicalChannel(
+      newId('ch'),
+      input.userId,
+      input.deviceId,
+      this.clock.now(),
+      { maxEntries: this.limits.outboxMaxEntries, maxBytes: this.limits.outboxMaxBytes },
+      { local },
+    );
     this.channels.set(channel.id, channel);
     return { purpose: 'interactive', channelId: channel.id, resumed: false, replayFrom: 0 };
   }
@@ -257,11 +267,15 @@ export class HubImpl implements Hub {
     let logical: LogicalChannel | null = null;
     if (admission.purpose === 'interactive') {
       logical = this.channels.get(admission.channelId) ?? null;
-      if (!logical || logical.userId !== input.userId) {
-        // Discarded between admit() and now (kick, role change): the client must start over.
+      if (!logical || logical.userId !== input.userId || logical.local !== (input.mode === 'local')) {
+        // Discarded between admit() and now (kick, role change): the client must start over. (A local connection
+        // only ever binds a local logical channel and vice versa: what reaches it is filtered by that flag.)
         input.channel.close();
         return null;
       }
+    } else if (input.mode === 'local') {
+      input.channel.close();
+      return null;
     }
     if (this.stopped || this.roleOf(input.userId) === null) {
       input.channel.close();
@@ -278,8 +292,11 @@ export class HubImpl implements Hub {
     } else {
       this.transferByChannel.set(conn.channelId, conn);
     }
-    // Register at once: pipelined requests may already be waiting behind the verdict.
-    input.channel.onMessage((bytes) => this.onMessage(conn, bytes));
+    // Register at once: pipelined requests may already be waiting behind the verdict. Whatever a local (control-socket)
+    // connection's message causes is audited with detail.via 'control-socket' (review F1: that "host" is whoever runs
+    // as the host's OS account).
+    if (conn.mode === 'local') input.channel.onMessage((bytes) => withAuditVia(LOCAL_CHANNEL_VIA, () => this.onMessage(conn, bytes)));
+    else input.channel.onMessage((bytes) => this.onMessage(conn, bytes));
     input.channel.onClose((event) => this.detach(conn, event.initiator === 'error' ? 'error' : 'disconnected', { closeChannel: false }));
     if (logical && admission.resumed) {
       // Rule 5: everything the client has not processed, in order, before anything new.
@@ -351,6 +368,10 @@ export class HubImpl implements Hub {
       this.log.warn('fan-out refused by the registry', { type, reason: role === null ? 'not-a-member' : 'role' });
       return false;
     }
+    if (this.localRefuses(recipient, type)) {
+      this.log.debug('fan-out not sent to a local channel', { type });
+      return false;
+    }
     return this.deliver(recipient, type, payload, newId('ev'));
   }
 
@@ -368,6 +389,7 @@ export class HubImpl implements Hub {
       if (recipient.channelId === options.exclude) continue;
       const role = this.roleOf(recipient.userId);
       if (role === null || !mayReceive(role, type)) continue;
+      if (this.localRefuses(recipient, type)) continue;
       if (options.capability !== undefined && !can(role, options.capability)) continue;
       if (options.filter && !options.filter(recipient, role)) continue;
       if (this.deliver(recipient, type, payload, newId('ev'))) count++;
@@ -483,6 +505,17 @@ export class HubImpl implements Hub {
       return { channelId: transfer.channelId, userId: transfer.userId, purpose: 'transfer', conn: transfer };
     }
     return null;
+  }
+
+  /**
+   * A local (control-socket) logical channel receives unasked only what `smurg attach` consumes
+   * (local/local-channel.ts LOCAL_CHANNEL_RECEIVES): checked per logical channel, so a disconnected one's outbox does
+   * not collect the rest either. (A recipient whose logical channel is gone gets nothing anyway: deliver().)
+   */
+  private localRefuses(recipient: Recipient, type: string): boolean {
+    if (recipient.purpose !== 'interactive') return false;
+    const channel = this.channels.get(recipient.channelId);
+    return channel !== undefined && channel.local && !localChannelReceives(type);
   }
 
   private channelConnOf(channelId: string): HubConnection | undefined {
@@ -628,7 +661,13 @@ export class HubImpl implements Hub {
       action: 'auth.disconnect',
       outcome: 'ok',
       target: conn.deviceId,
-      detail: { purpose: conn.purpose, mode: conn.mode, reason, durationMs: Math.max(0, this.clock.now() - conn.openedAt) },
+      detail: {
+        ...(conn.mode === 'local' ? { via: LOCAL_CHANNEL_VIA } : {}),
+        purpose: conn.purpose,
+        mode: conn.mode,
+        reason,
+        durationMs: Math.max(0, this.clock.now() - conn.openedAt),
+      },
     });
     if (conn.logical) {
       if (this.channelConn.get(conn.logical.id) === conn) {

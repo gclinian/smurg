@@ -1,6 +1,6 @@
 // What the host reviews before a merge (R9 「主人看到完整 diff」, ARCHITECTURE §5.7): the complete file list, the
 // unified diff (cut at a file boundary when it exceeds the message limit), one file's diff on demand, and the policy
-// every merge request of a guest must pass. All of it runs on the MAIN repository, on fixed object ids; nothing here
+// every merge request not made by the host must pass. All of it runs on the MAIN repository, on fixed object ids; nothing here
 // reads the worktree's files, so a symlink in a worktree is only ever a git object here, never followed.
 import { MERGE_DIFF_MAX_BYTES, MERGE_FILES_MAX, SmurgError, isHostOnlyPath, isSmurgDirName, relPathSegments, truncateToUtf8Bytes, type ResultInputOf } from '@smurg/protocol';
 import { firstLine, requireOk, type GitRunner } from './git.ts';

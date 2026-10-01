@@ -247,7 +247,6 @@ export function sessionInfo(id: string, owner: { readonly userId: string; readon
     ownerUserId: owner.userId,
     ownerName: owner.name,
     title: `Claude（${owner.name}）`,
-    sandboxed: owner.userId !== 'dev:host',
     root: { kind: 'main' },
     status: 'running',
     cols: 120,

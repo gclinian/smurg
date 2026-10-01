@@ -20,14 +20,15 @@ import { createProbe, type Probe } from './fixtures/probe-module.ts';
 
 // Transcribed from ARCHITECTURE §3 (independently of @smurg/protocol's roles.ts, which the daemon uses).
 const ARCH3: Readonly<Record<Capability, readonly Role[]>> = {
-  'file.read': ['host', 'runner', 'editor', 'viewer'],
-  'file.download': ['host', 'runner', 'editor', 'viewer'],
-  'session.view': ['host', 'runner', 'editor', 'viewer'],
-  'file.write': ['host', 'runner', 'editor'],
-  'suggest.create': ['host', 'runner', 'editor'],
-  'session.create.sandboxed': ['runner'],
-  'session.create.host': ['host'],
-  'worktree.merge.request': ['host', 'runner'],
+  'file.read': ['host', 'agent', 'editor', 'viewer'],
+  'file.download': ['host', 'agent', 'editor', 'viewer'],
+  'session.view': ['host', 'agent', 'editor', 'viewer'],
+  'file.write': ['host', 'agent', 'editor'],
+  'suggest.create': ['host', 'agent', 'editor'],
+  // ARCHITECTURE §11 D-15: 「可使用 agent」 opens sessions (like the host's own) and types into any session.
+  'session.create': ['host', 'agent'],
+  'session.drive': ['host', 'agent'],
+  'worktree.merge.request': ['host', 'agent'],
   'worktree.merge.decide': ['host'],
   'lock.force-release': ['host'],
   admin: ['host'],
@@ -40,7 +41,7 @@ function expectedAllowed(role: Role, type: RequestType | InboundNotifyType): boo
   return caps.some((cap) => ARCH3[cap].includes(role));
 }
 
-const ROLES: readonly Role[] = ['host', 'runner', 'editor', 'viewer'];
+const ROLES: readonly Role[] = ['host', 'agent', 'editor', 'viewer'];
 const REQUEST_TYPES = MESSAGE_TYPES.filter((type): type is RequestType => MESSAGE_REGISTRY[type].result !== null);
 const NOTIFY_TYPES = Object.keys(NOTIFY_SAMPLES) as InboundNotifyType[];
 
@@ -55,7 +56,7 @@ beforeAll(async () => {
   t = await createTestDaemon({ modules: [probe.module] });
   t.ctx.audit.subscribe((entry) => audit.push(entry));
   clients.set('host', await t.connectHost());
-  clients.set('runner', await t.connect({ userId: 'dev:rita', role: 'runner' }));
+  clients.set('agent', await t.connect({ userId: 'dev:rita', role: 'agent' }));
   clients.set('editor', await t.connect({ userId: 'dev:eddie', role: 'editor' }));
   clients.set('viewer', await t.connect({ userId: 'dev:vera', role: 'viewer' }));
   for (const role of ROLES) transfers.set(role, await (clients.get(role) as TestClient).transfer());

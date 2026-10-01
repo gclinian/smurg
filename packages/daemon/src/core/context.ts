@@ -54,7 +54,7 @@ export interface DaemonContext {
 }
 
 export interface FeatureModule {
-  /** Unique, e.g. 'files', 'docs', 'locks', 'sessions', 'sandbox', 'hooks', 'suggest', 'worktree'. */
+  /** Unique, e.g. 'files', 'docs', 'locks', 'sessions', 'hooks', 'suggest', 'worktree'. */
   readonly name: string;
   /**
    * Builds the services this module implements (a slot may be filled by exactly one module). Runs once, in module

@@ -4,6 +4,7 @@
 // Chrome driven headless by playwright-core in a fresh context (no profile, no cookies imported; login is the relay's
 // dev login). Join with an invite link → the workspace is visible → open a file → type → the file on disk changes.
 import { readFile } from 'node:fs/promises';
+import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -33,9 +34,6 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     stack = await startStack({
       relay,
       projectFiles: { 'README.md': '# 班級專案\n', 'src/app.ts': ORIGINAL, 'src/join.ts': JOIN_ORIGINAL },
-      // The runner's terminal (below) runs in the main workspace of a share that is not git: open it to guests
-      // explicitly, so the test is the same on a Linux host, where it is off by default (ARCHITECTURE §11 D-14).
-      sessions: { guestMainWorkspace: true },
     });
     browser = await chromium.launch(chromeLaunchOptions(chrome as string));
   }, 180_000);
@@ -80,7 +78,7 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
   }
 
   /** Joins through a fresh invite with the relay's dev login; resolves on the connected workspace. */
-  async function joinWorkspace(page: Page, name: string, role: 'editor' | 'runner' = 'editor'): Promise<void> {
+  async function joinWorkspace(page: Page, name: string, role: 'editor' | 'agent' = 'editor'): Promise<void> {
     await page.goto(await stack.createInvite(role));
     await page.getByTestId('join-login').waitFor({ timeout: 60_000 });
     await page.getByLabel('帳號名稱').fill(name);
@@ -206,9 +204,9 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     await waitUntil(async () => (await readFile(onDisk, 'utf8')).includes('<!-- again -->'), 30_000, 'the edit after the release on disk');
   });
 
-  it('a runner opens a sandboxed terminal from the agents panel and runs a command in it (the built app, real PTY, real srt)', async () => {
+  it('a 可使用 agent member opens a terminal from the agents panel and runs a command in it — on the host\'s computer, as the host\'s user, no sandbox (the built app, real PTY)', async () => {
     const page = await freshPage();
-    await joinWorkspace(page, 'gina', 'runner');
+    await joinWorkspace(page, 'gina', 'agent');
     await page.getByRole('button', { name: '新增 session' }).first().click();
     const dialog = page.getByRole('dialog', { name: '新增 session' });
     await dialog.waitFor({ timeout: 15_000 });
@@ -217,11 +215,12 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     const viewport = page.locator('.agents-term__viewport[data-phase="live"]');
     await viewport.waitFor({ timeout: 60_000 });
     const sessions = stack.daemon.ctx.services.sessions.list();
-    expect(sessions.find((session) => session.ownerUserId === 'dev:gina')).toMatchObject({ kind: 'terminal', sandboxed: true, status: 'running' });
+    expect(sessions.find((session) => session.ownerUserId === 'dev:gina')).toMatchObject({ kind: 'terminal', status: 'running', root: { kind: 'main' } });
     await viewport.click();
-    await page.keyboard.type('echo web-$((5*5))');
+    await page.keyboard.type('echo web-$((5*5))-$(id -un)');
     await page.keyboard.press('Enter');
-    await page.waitForFunction(() => (document.querySelector('.agents-term__viewport')?.textContent ?? '').includes('web-25'), undefined, { timeout: 30_000 });
+    const expected = `web-25-${userInfo().username}`;
+    await page.waitForFunction((text) => (document.querySelector('.agents-term__viewport')?.textContent ?? '').includes(text), expected, { timeout: 30_000 });
   });
 
   it('the app is served with a Content-Security-Policy, frame and sniffing protections; the build manifest is not served (SEC-E-04)', async () => {

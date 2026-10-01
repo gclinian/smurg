@@ -1,34 +1,11 @@
-// TEST ONLY: the real sessions module with test seams (a controlled host environment, /bin/sh, a no-op keychain so
-// the real keychain is never touched), a stand-in sandbox for guest terminals (NOT a sandbox: it runs the command
-// unconfined; srt is the sandbox module's business, tested there), and a terminal output collector.
+// TEST ONLY: the real sessions module with test seams (a controlled host environment, /bin/sh) and a terminal output
+// collector.
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Connection } from '@smurg/protocol/client';
 import type { FeatureModule } from '../../src/core/context.ts';
-import { toDisposable } from '../../src/core/lifecycle.ts';
-import type { SandboxPreflight, SandboxService, SandboxSpec, WrappedCommand } from '../../src/core/interfaces.ts';
 import { createSessionsModule } from '../../src/sessions/module.ts';
 import { registerTestDir } from '../../src/testing/run-registry.ts';
-
-/** Runs the guest command as it is (records the spec). Never use outside tests. */
-export class UnconfinedSandbox implements SandboxService {
-  readonly specs: SandboxSpec[] = [];
-
-  async preflight(): Promise<SandboxPreflight> {
-    return { ok: true, platform: process.platform === 'linux' ? 'linux' : 'darwin' };
-  }
-
-  async wrap(spec: SandboxSpec): Promise<WrappedCommand> {
-    this.specs.push(spec);
-    return { file: '/bin/sh', args: ['-c', spec.command], env: { ...spec.env }, cwd: spec.rootPath };
-  }
-
-  async setAllowedDomains(): Promise<void> {}
-}
-
-export function unconfinedSandboxModule(sandbox: UnconfinedSandbox): FeatureModule {
-  return { name: 'test-unconfined-sandbox', create: () => ({ sandbox }), register: () => toDisposable(() => {}) };
-}
 
 export interface TestSessions {
   readonly module: FeatureModule;
@@ -36,7 +13,7 @@ export interface TestSessions {
   cleanup(): Promise<void>;
 }
 
-/** The real sessions module for host and guest TERMINALS (no claude, no hooks needed). */
+/** The real sessions module for TERMINALS of any member (no claude, no hooks needed). */
 export async function testSessionsModule(): Promise<TestSessions> {
   const scratch = await mkdtemp(join(process.env['TMPDIR'] ?? '/tmp', 'smurg-collab-sessions-'));
   registerTestDir(scratch);
@@ -53,8 +30,6 @@ export async function testSessionsModule(): Promise<TestSessions> {
   const module = createSessionsModule({
     hostEnv: () => hostEnv,
     hostShell: '/bin/sh',
-    guestShell: '/bin/sh',
-    keychain: async () => {},
   });
   return { module, hostHome, cleanup: () => rm(scratch, { recursive: true, force: true }) };
 }

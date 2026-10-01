@@ -1,15 +1,14 @@
 // The merge-request commit (ARCHITECTURE §5.7 "What a merge request contains"): the worktree's working tree committed
-// onto its branch as the owner. The daemon's git is NOT sandboxed and the tree is guest-writable while the guest's
-// agent runs, so `git add` can be raced: a directory swapped for a symlink between git's directory walk and its
-// open() makes git read a HOST file (`~/.ssh/id_rsa`) under a worktree name. Written into the clone's objects, that
-// blob would be readable by the guest (the sandbox lets it read its own clone).
+// onto its branch. The tree is written by the sessions running in it while a request is made, so `git add` can be
+// raced: a directory swapped for a symlink between git's directory walk and its open() makes git read a file outside
+// the worktree (`~/.ssh/id_rsa`) under a worktree name, and the merge would carry it into the host's repository.
 //
 // So the commit is built in a daemon-private object store with a private index (GIT_OBJECT_DIRECTORY,
-// GIT_INDEX_FILE; state dir, outside every sandbox), and every blob it adds is VERIFIED against a careful re-read of
-// the worktree (no symlink on the way, O_NOFOLLOW, the opened file is the one lstat saw, a single hard link, the same
-// bytes). Only a verified commit is published: its objects copied into the clone, the branch moved (with the old
-// value as a guard), the index installed. A lost race or a concurrent edit refuses the request (retry), and nothing
-// the verification did not vouch for ever reaches a place a guest can read.
+// GIT_INDEX_FILE; state dir), and, for a request by anyone but the host, every blob it adds is VERIFIED against a
+// careful re-read of the worktree (no symlink on the way, O_NOFOLLOW, the opened file is the one lstat saw, a single
+// hard link, the same bytes). Only a verified commit is published: its objects copied into the clone, the branch
+// moved (with the old value as a guard), the index installed. A lost race or a concurrent edit refuses the request
+// (retry), and nothing the verification did not vouch for reaches the request the host reviews.
 //
 // The verification is itself a sequence of path-based checks (Node has no openat / O_BENEATH): an attacker would have
 // to win the race against git AND against this re-read, whose checks bracket the open. Documented as residual risk.
@@ -18,7 +17,6 @@ import { constants as fsConstants, type Stats } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, open, readdir, readlink, realpath, rename, rm, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SmurgError } from '@smurg/protocol';
-import { HOST_ONLY_DIR_NAMES, HOST_ONLY_FILE_NAMES } from '../sandbox/policy.ts';
 import { firstLine, requireOk, type GitIdentity, type GitObjectStore, type GitRunner } from './git.ts';
 import { parseRawDiff, type RawDiffEntry } from './git-parse.ts';
 import { WorktreeTamperedError } from './integrity.ts';
@@ -41,8 +39,8 @@ export interface StageCommitInput {
   /** Daemon-private directory for staging stores (state dir, 0700). */
   readonly stagingRoot: string;
   /**
-   * Re-read and compare every blob before publishing it. The host's own worktree skips it: the host's agent is not
-   * sandboxed and can read everything the daemon can.
+   * Re-read and compare every blob before publishing it. A request of the host skips it: the host reviews and merges
+   * their own request anyway.
    */
   readonly verify: boolean;
   readonly limits?: Partial<StageCommitLimits>;
@@ -250,29 +248,6 @@ async function publishObjects(from: string, to: string): Promise<void> {
   }
 }
 
-/**
- * bubblewrap's mount points at the top of the worktree (Linux). A guest's sandbox denies writing the host-only names at
- * the top of its session root (sandbox/policy.ts hostOnlyWriteDenies); srt enforces a deny on a path that does not
- * exist with `--ro-bind /dev/null <path>`, and bubblewrap creates that mount point ON THE HOST: an empty read-only file
- * `.claude`, `.smurg`, `.mcp.json`, … in the worktree. srt removes them only once none of the daemon's sandboxes runs
- * any more, so a merge request made while the guest's session is still open finds them, and `git add --all` stages
- * them (the request was then refused: 「合併內容不可以包含 .smurg 資料夾」). They are not the guest's work: the commit
- * leaves them out, exactly as they are in the branch head.
- *
- * Recognised the way srt recognises its own leftovers (isStaleBwrapMountPoint: an empty regular file without any
- * write bit and with a single link), and only under the exact names the sandbox denies at the top of the root.
- * Nothing else makes such a file there: the guest's sandbox and PathGuard refuse those names to guests, and git checks
- * files out with their write bits.
- */
-export async function sandboxMountPoints(workTree: string): Promise<string[]> {
-  const found: string[] = [];
-  for (const name of [...HOST_ONLY_DIR_NAMES, ...HOST_ONLY_FILE_NAMES]) {
-    const st = await lstatOrNull(join(workTree, name));
-    if (st !== null && st.isFile() && st.size === 0 && (st.mode & 0o222) === 0 && st.nlink === 1) found.push(name);
-  }
-  return found;
-}
-
 /** Removes staging stores a stopped daemon left behind (they are the daemon's own, never shared). */
 export async function sweepStaging(stagingRoot: string): Promise<void> {
   let names: string[];
@@ -319,11 +294,6 @@ export async function stageCommit(input: StageCommitInput): Promise<StageCommitR
     }
 
     requireOk(await git.run({ gitDir, workTree, store, args: ['add', '--all'], timeoutMs }), '暫存 worktree 的變更');
-    // The sandbox's mount points go back to what the branch head has there (nothing): never part of the request.
-    const mountPoints = await sandboxMountPoints(workTree);
-    if (mountPoints.length > 0) {
-      requireOk(await git.run({ gitDir, workTree, store, args: ['reset', '--quiet', head, '--', ...mountPoints], timeoutMs }), '暫存 worktree 的變更');
-    }
     const staged = await git.run({ gitDir, workTree, store, args: ['diff', '--cached', '--quiet', '--no-ext-diff', head], timeoutMs });
     if (staged.code === 0) return { commit: head, created: false };
     if (staged.code !== 1) requireOk(staged, '檢查 worktree 的變更');

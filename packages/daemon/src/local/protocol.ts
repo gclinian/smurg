@@ -6,9 +6,12 @@
 //   kind 0x02 ENVELOPE  one msgpack Envelope (at most MAX_APP_MESSAGE), both ways, only after a successful attach
 // The client's first frame is a CONTROL request; the daemon answers with exactly one CONTROL response.
 //   status → { ok, op: 'status', status } and the daemon closes the socket;
-//   stop   → { ok, op: 'stop' }, the daemon closes the socket and stops (channels get channel.closed{stopped});
+//   stop   → { ok, op: 'stop' }, the daemon closes the socket and stops (channels get channel.closed{stopped}); the
+//            request names no reason: the daemon's stop reason is always CTL_STOP_REASON (verification F-2);
 //   attach → { ok, op: 'attach', welcome }, then ENVELOPE frames until either side closes. The connection is a
-//            normal logical channel of the host (DaemonLifecycle.attachLocal): same seq/outbox/resume, router, audit.
+//            logical channel of the host (DaemonLifecycle.attachLocal): same seq/outbox/resume and router, but only
+//            the messages `smurg attach` sends are accepted (./local-channel.ts LOCAL_CHANNEL_TYPES; anything else is
+//            refused `forbidden` {reason: 'control-socket'}), and its audit entries carry `via: 'control-socket'`.
 // Anything else (unknown kind, oversized frame, invalid JSON, a second request) ends the connection.
 // There is no Noise: the socket is 0600 inside the 0700 run dir, so only the host's OS account can connect.
 import { z } from 'zod';
@@ -31,9 +34,17 @@ export class CtlProtocolError extends Error {
 
 const version = z.literal(CTL_PROTOCOL_VERSION);
 
+/**
+ * The daemon's stop reason for every `stop` of the control socket. The request carries no reason of its own (it used
+ * to: verification F-2, 2026-10-02): whoever reaches the socket (every session of a 「可使用 agent」 member runs as the
+ * host's OS account) must not choose the text that `smurg host` and the daemon's listeners read, e.g. one of `smurg
+ * host`'s own stop reasons, which made the host's terminal miss the stop.
+ */
+export const CTL_STOP_REASON = 'smurg stop';
+
 export const ctlRequestSchema = z.discriminatedUnion('op', [
   z.strictObject({ v: version, op: z.literal('status') }),
-  z.strictObject({ v: version, op: z.literal('stop'), reason: shortTextSchema.optional() }),
+  z.strictObject({ v: version, op: z.literal('stop') }),
   z.strictObject({
     v: version,
     op: z.literal('attach'),
@@ -69,9 +80,8 @@ export const daemonStatusSchema = z.strictObject({
   // command still reads a daemon of an older build that was started before an upgrade.
   fingerprint: z.string().max(200).optional(),
   relayUrl: z.string().max(2_048).nullable().optional(),
-  switches: z.strictObject({ guestSubscriptionLogin: z.boolean(), attributeBashEdits: z.boolean(), guestMainWorkspace: z.boolean() }).optional(),
+  switches: z.strictObject({ attributeBashEdits: z.boolean() }).optional(),
   isGitRepo: z.boolean().optional(),
-  sandbox: z.strictObject({ ok: z.boolean(), reason: z.string().max(200).nullable() }).nullable().optional(),
 });
 
 /** A status as the control socket carries it (the fields added after 0.1.0 may be missing: an older daemon). */

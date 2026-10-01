@@ -3,7 +3,7 @@ import { CAPABILITIES, CAPABILITY_MATRIX, ROLES } from '@smurg/protocol';
 import { describe, expect, it } from 'vitest';
 import { WorkspaceTestProviders, createTestWorkspace } from '../testing/services.tsx';
 import { makeMember } from '../testing/fixtures.ts';
-import { canRole, capabilitiesForRole } from './capabilities.ts';
+import { canRole, capabilitiesForRole, drivesSession, isRiskyRole } from './capabilities.ts';
 import { Can, useCan, useCapabilities } from './workspace/context.tsx';
 
 describe('capability helper (UI hiding only; the daemon enforces)', () => {
@@ -25,12 +25,31 @@ describe('capability helper (UI hiding only; the daemon enforces)', () => {
     expect(canRole('host', 'root' as never)).toBe(false);
   });
 
-  it('knows which session a role creates (host: unsandboxed, runner: sandboxed, others: none)', () => {
-    expect(capabilitiesForRole('host').sessionCreate).toBe('session.create.host');
-    expect(capabilitiesForRole('runner').sessionCreate).toBe('session.create.sandboxed');
-    expect(capabilitiesForRole('editor').sessionCreate).toBeNull();
-    expect(capabilitiesForRole('viewer').sessionCreate).toBeNull();
+  it('the host and 「可使用 agent」 open sessions and type into any session; editors and viewers do neither', () => {
+    for (const role of ['host', 'agent'] as const) {
+      expect(capabilitiesForRole(role).canCreateSession, role).toBe(true);
+      expect(capabilitiesForRole(role).canDrive, role).toBe(true);
+    }
+    for (const role of ['editor', 'viewer', null] as const) {
+      expect(capabilitiesForRole(role).canCreateSession, String(role)).toBe(false);
+      expect(capabilitiesForRole(role).canDrive, String(role)).toBe(false);
+    }
     expect(capabilitiesForRole(null).all).toEqual([]);
+  });
+
+  it('a driver types into any running session, never into an ended one; nobody else types', () => {
+    expect(drivesSession(capabilitiesForRole('agent'), { status: 'running' })).toBe(true);
+    expect(drivesSession(capabilitiesForRole('host'), { status: 'starting' })).toBe(true);
+    expect(drivesSession(capabilitiesForRole('agent'), { status: 'exited' })).toBe(false);
+    expect(drivesSession(capabilitiesForRole('editor'), { status: 'running' })).toBe(false);
+    expect(drivesSession(capabilitiesForRole('viewer'), { status: 'running' })).toBe(false);
+  });
+
+  it('only 「可使用 agent」 is a role whose hand-out asks the host to confirm the risk', () => {
+    expect(isRiskyRole('agent')).toBe(true);
+    expect(isRiskyRole('editor')).toBe(false);
+    expect(isRiskyRole('viewer')).toBe(false);
+    expect(isRiskyRole('host')).toBe(false);
   });
 
   it("useCan('file.write') follows a live role change (channel.memberUpdated)", () => {

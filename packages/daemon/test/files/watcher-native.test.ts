@@ -8,9 +8,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { FeatureModule } from '../../src/core/context.ts';
-import type { DaemonEvents, WatchedPathEvent } from '../../src/core/interfaces.ts';
-import { toDisposable } from '../../src/core/lifecycle.ts';
+import type { DaemonEvents } from '../../src/core/interfaces.ts';
 import type { FileWatcher, NativeWatcherEvent, NativeWatcherModule, NativeWatcherSubscription, WatcherOptions } from '../../src/files/watcher.ts';
 import { waitFor } from '../../src/testing/index.ts';
 import { startFilesDaemon, type FilesTest } from './helpers.ts';
@@ -104,8 +102,8 @@ class RecordingNative implements NativeWatcherModule {
   }
 }
 
-async function start(native: RecordingNative, watcher: WatcherOptions = {}, extraModules: readonly FeatureModule[] = []): Promise<FilesTest> {
-  const f = await startFilesDaemon({ project: { files: { 'README.md': '# hi\n' } }, files: { watcher: { native, ...watcher } }, extraModules: [...extraModules] });
+async function start(native: RecordingNative, watcher: WatcherOptions = {}): Promise<FilesTest> {
+  const f = await startFilesDaemon({ project: { files: { 'README.md': '# hi\n' } }, files: { watcher: { native, ...watcher } } });
   started.push(f);
   return f;
 }
@@ -165,80 +163,6 @@ describe('file watcher: calls into the native module', { timeout: 60_000 }, () =
     expect(native.liveDirs()).toEqual([]);
     expect(native.failedSubscribes).toEqual([]);
     expect(native.unsubscribedAt.size).toBeGreaterThan(0); // the scenario did subscribe and release repeatedly
-  });
-
-  it('every batch is handed to the guest sandbox as reported, before any filtering (reviews RV-1, RV-2: it compares the protected entries a batch names)', async () => {
-    const native = new RecordingNative();
-    const seen: { root: string; events: WatchedPathEvent[] }[] = [];
-    const sandbox: FeatureModule = {
-      name: 'sandbox-recorder',
-      create: () => ({
-        sandbox: {
-          preflight: async () => ({ ok: true, platform: 'linux' }),
-          wrap: async () => {
-            throw new Error('not in this test');
-          },
-          setAllowedDomains: async () => {},
-          fileEvents: (root: string, events: readonly WatchedPathEvent[]) => {
-            seen.push({ root, events: [...events] });
-          },
-        },
-      }),
-      register: () => toDisposable(() => {}),
-    };
-    const f = await start(native, {}, [sandbox]);
-    await waitFor(() => watcherOf(f).watchedRoots().includes('main'), { what: 'the main subscription' });
-    const mainDir = f.t.ctx.roots.main.realPath;
-    const events: NativeWatcherEvent[] = [
-      { path: join(mainDir, '.envrc'), type: 'create' },
-      { path: join(mainDir, '.claude', 'settings.local.json'), type: 'update' },
-      { path: join(mainDir, 'notes.md.smurg-1a2b.tmp'), type: 'create' }, // a temp name the watcher itself ignores
-      { path: join(mainDir, 'gone'), type: 'delete' },
-    ];
-    native.emit(mainDir, events);
-    await waitFor(() => seen.length === 1, { what: 'the batch handed to the sandbox' });
-    expect(seen[0]?.root).toBe(mainDir);
-    expect([...(seen[0]?.events ?? [])].sort((a, b) => a.path.localeCompare(b.path))).toEqual([...events].sort((a, b) => a.path.localeCompare(b.path)));
-  });
-
-  it('the guest sandbox gets a batch as it arrives, not after the debounce or behind the previous batch\'s recheck; a watcher error makes it look at everything it guards (reviews GR-3, GR-1)', async () => {
-    const native = new RecordingNative();
-    const seen: { root: string; events: WatchedPathEvent[] }[] = [];
-    const gaps: string[] = [];
-    const sandbox: FeatureModule = {
-      name: 'sandbox-recorder',
-      create: () => ({
-        sandbox: {
-          preflight: async () => ({ ok: true, platform: 'linux' }),
-          wrap: async () => {
-            throw new Error('not in this test');
-          },
-          setAllowedDomains: async () => {},
-          fileEvents: (root: string, events: readonly WatchedPathEvent[]) => {
-            seen.push({ root, events: [...events] });
-          },
-          fileWatchGap: (root: string) => {
-            gaps.push(root);
-          },
-        },
-      }),
-      register: () => toDisposable(() => {}),
-    };
-    // A debounce far longer than the test: the files module's own batch is never processed meanwhile.
-    const f = await start(native, { debounceMs: 60_000, maxWaitMs: 60_000 }, [sandbox]);
-    const changed: DaemonEvents['file.changed'][] = [];
-    f.t.ctx.bus.on('file.changed', (event) => changed.push(event));
-    await waitFor(() => watcherOf(f).watchedRoots().includes('main'), { what: 'the main subscription' });
-    const mainDir = f.t.ctx.roots.main.realPath;
-    native.emit(mainDir, [{ path: join(mainDir, 'sub', '.envrc'), type: 'create' }]);
-    native.emit(mainDir, [{ path: join(mainDir, 'dist', 'a.js'), type: 'create' }]);
-    // Synchronously, one call per native batch, while the files module still waits for its quiet period.
-    expect(seen.map((batch) => batch.events.map((event) => event.path))).toEqual([[join(mainDir, 'sub', '.envrc')], [join(mainDir, 'dist', 'a.js')]]);
-    expect(changed).toEqual([]);
-    expect(gaps).toEqual([]);
-    const callback = native.callbacks.find((sub) => sub.dir === mainDir)?.fn as Callback;
-    callback(new Error('Events were dropped by the FSEvents client'), []);
-    expect(gaps).toEqual([mainDir]);
   });
 
   it('the events of a removed root, or of a stopped watcher, reach nobody', async () => {

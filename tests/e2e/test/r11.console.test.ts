@@ -1,21 +1,21 @@
 // SPEC R11 acceptance (host console and audit log), prototype scope, through the same encrypted admin requests the
 // web console sends. The console UI itself (「一鍵」) is covered by the browser tests in apps/web/e2e (planned).
 //  - 「主人能從控制台一鍵終止任何 session 或踢掉任何成員」
-//  - 「所有 R4–R9 定義的事件都出現在操作紀錄裡」: one scenario through the real relay touches every R4–R9 action
+//  - 「所有 R4–R9 定義的事件都出現在操作紀錄裡」: one scenario through the real relay touches every R4–R9 action of the
+//    protocol's audit vocabulary (AUDIT_ACTIONS)
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isStubService } from '@smurg/daemon';
-import { MAIN_ROOT, type AuditEntry } from '@smurg/protocol';
+import { AUDIT_ACTIONS, MAIN_ROOT, type AuditAction, type AuditEntry } from '@smurg/protocol';
 import { uploadRootHash, type Connection } from '@smurg/protocol/client';
 import { startLocalRelay, type LocalRelay } from '@smurg/relay/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 // The daemon's test Yjs client (a provider over doc.* with per-docId buffering): test-only relative import.
 import { DocClient } from '../../../packages/daemon/test/docs/helpers.ts';
 import { startStack, waitUntil } from '../src/harness.ts';
-import { createTempDir, removeTempDir } from '../src/temp.ts';
 
 /** The `smurg` command as sessions run it in development (node + the CLI's source entry). */
 const CLI_MAIN = fileURLToPath(new URL('../../../packages/cli/src/main.ts', import.meta.url));
@@ -37,7 +37,7 @@ describe('R11 主人控制台', () => {
       const guests = await Promise.all([
         stack.join({ name: 'amy', role: 'editor' }),
         stack.join({ name: 'bob', role: 'viewer' }),
-        stack.join({ name: 'carol', role: 'runner' }),
+        stack.join({ name: 'carol', role: 'agent' }),
       ]);
       const hostConsole = stack.hostClient.conn;
       const online = await hostConsole.request('admin.member.list', {});
@@ -66,13 +66,12 @@ describe('R11 主人控制台', () => {
   });
 
   it('主人能從控制台一鍵終止任何 session', async () => {
-    // Carol's terminal runs in the main workspace: open it to guests explicitly, so the test is the same on a Linux
-    // host, where it is off by default (ARCHITECTURE §11 D-14).
-    const stack = await startStack({ relay, sessions: { guestMainWorkspace: true } });
+    const stack = await startStack({ relay });
     try {
       // A composition without the real sessions module fails here instead of skipping (review SPEC-11).
       expect(isStubService(stack.daemon.ctx.services.sessions), 'the default composition provides SessionManager').toBe(false);
-      const carol = await stack.join({ name: 'carol', role: 'runner' });
+      // An 「可使用 agent」 member's terminal (it runs as the host, §11 D-15): one request from the console ends it.
+      const carol = await stack.join({ name: 'carol', role: 'agent' });
       const { session } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
       await stack.hostClient.conn.request('admin.session.terminate', { sessionId: session.id });
       await waitUntil(
@@ -80,6 +79,8 @@ describe('R11 主人控制台', () => {
         5_000,
         'the session to exit',
       );
+      const ended = (await stack.hostClient.conn.request('session.list', {})).sessions.find((s) => s.id === session.id);
+      expect(ended).toMatchObject({ status: 'exited', endReason: 'terminated', endedBy: { userId: stack.host.userId } });
     } finally {
       await stack.stop();
     }
@@ -109,28 +110,22 @@ describe('R11 主人控制台', () => {
 
   it('所有 R4–R9 定義的事件都出現在操作紀錄裡', async () => {
     const savedShell = process.env['SHELL'];
-    // Sessions start the host's $SHELL: a plain POSIX shell whatever the developer uses.
+    // Every session starts the host's $SHELL (§11 D-15): a plain POSIX shell whatever the developer uses.
     process.env['SHELL'] = '/bin/sh';
-    const bin = await createTempDir('old-claude');
-    // A `claude` older than the verified minimum: a runner's agent session must be refused (R5, fail closed).
-    await writeFile(join(bin, 'claude'), '#!/bin/sh\necho "2.0.0 (Claude Code)"\n');
-    await chmod(join(bin, 'claude'), 0o755);
     const stack = await startStack({
       relay,
       git: true,
       projectFiles: { 'README.md': '# e2e\n', 'src/app.ts': 'export const a = 1;\n', 'conflict.txt': 'line one\nline two\n', 'notes/keep.md': 'keep\n' },
       // No disk reserve: the upload must not depend on this machine's free space.
       settings: { diskReserveBytes: 0, diskReservePercent: 0 },
-      // Carol's terminal and agent (refused for its `claude` version) ask for the main workspace: open it to guests
-      // explicitly, so the test is the same on a Linux host, where it is off by default (ARCHITECTURE §11 D-14).
-      sessions: { claudePath: join(bin, 'claude'), guestMainWorkspace: true },
     });
     const docs: DocClient[] = [];
     try {
       const host = stack.hostClient.conn;
       const amy = await stack.join({ name: 'amy', role: 'editor' });
-      const carol = await stack.join({ name: 'carol', role: 'runner' });
-      const dave = await stack.join({ name: 'dave', role: 'runner' });
+      // 「可使用 agent」 members (§11 D-15): they open sessions; Dave later leaves.
+      const carol = await stack.join({ name: 'carol', role: 'agent' });
+      const dave = await stack.join({ name: 'dave', role: 'agent' });
       const main = (path: string) => ({ root: MAIN_ROOT, path });
       const bytes = (text: string) => new TextEncoder().encode(text);
 
@@ -156,7 +151,7 @@ describe('R11 主人控制台', () => {
       appDoc.text.insert(0, '// amy\n');
       await waitUntil(() => stack.daemon.ctx.services.locks.get(main('src/app.ts'))?.kind === 'human', 15_000, 'Amy\'s lock');
       await waitUntil(async () => (await readFile(join(stack.root, 'src', 'app.ts'), 'utf8')).startsWith('// amy'), 15_000, 'the autosave');
-      const agent = stack.daemon.ctx.services.hooks.registerSession({ sessionId: 'ses_r11_agent', ownerUserId: carol.userId, agentName: 'Claude（Carol）', root: MAIN_ROOT, sandboxed: true });
+      const agent = stack.daemon.ctx.services.hooks.registerSession({ sessionId: 'ses_r11_agent', ownerUserId: carol.userId, agentName: 'Claude（Carol）', root: MAIN_ROOT });
       const appPath = join(stack.root, 'src', 'app.ts');
       expect((await runHook(agent.env, 'PreToolUse', appPath, stack.root)).stdout).toContain('Amy');
       await amy.conn.request('lock.release', { file: main('src/app.ts') });
@@ -180,7 +175,7 @@ describe('R11 主人控制台', () => {
       await waitUntil(() => stack.daemon.ctx.services.locks.get(main('conflict.txt'))?.kind === 'human', 15_000, 'Amy\'s lock again');
       await host.request('lock.forceRelease', { file: main('conflict.txt') });
 
-      // R4 / R9 sessions and worktrees of a runner.
+      // R4 / R9 sessions and worktrees of an 「可使用 agent」 member.
       const { session: inWorktree } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'worktree' }, cols: 80, rows: 24 });
       const worktreeId = (inWorktree.root as { worktreeId: string }).worktreeId;
       const wt = { kind: 'worktree' as const, worktreeId };
@@ -195,12 +190,11 @@ describe('R11 主人控制台', () => {
       const { session: toTerminate } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
       await host.request('admin.session.terminate', { sessionId: toTerminate.id });
       await waitUntil(async () => (await host.request('session.list', {})).sessions.every((s) => s.ownerUserId !== carol.userId || s.status === 'exited'), 10_000, 'Carol\'s sessions to end');
-      await carol.conn.request('session.importConfig', { files: [{ relPath: 'CLAUDE.md', content: bytes('# Carol 的個人設定\n') }] });
-      // R5 an agent session on a `claude` below the verified minimum is refused (and audited).
-      const refused = await carol.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24 }).catch((e: unknown) => e);
-      expect(refused).toMatchObject({ code: 'sandbox_unavailable' });
-      // R4 a guest leaves (「離開」).
+      // R4 a member leaves (「離開」): the session they opened ends with them (§11 D-15).
+      const { session: davesTerminal } = await dave.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
       await dave.conn.leave();
+      await waitUntil(async () => (await host.request('session.list', {})).sessions.some((s) => s.id === davesTerminal.id && s.status === 'exited'), 5_000, 'Dave\'s session to end');
+      expect((await host.request('session.list', {})).sessions.find((s) => s.id === davesTerminal.id)).toMatchObject({ status: 'exited', endReason: 'left' });
 
       // R6 suggestions for the host's own terminal.
       const { session: hostTerminal } = await host.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
@@ -212,15 +206,22 @@ describe('R11 主人控制台', () => {
       const { suggestion: s3 } = await amy.conn.request('suggest.create', { sessionId: hostTerminal.id, text: 'echo three' });
       await host.request('suggest.accept', { suggestionId: s3.id });
 
-      // Every R4–R9 action of ARCHITECTURE §5.8, read from the console like the host does.
-      const expected = [
-        'session.create', 'session.end', 'session.terminate', 'session.import-config', 'member.leave', // R4
-        'sandbox.refused', // R5
+      // Every R4–R9 action of ARCHITECTURE §5.8, read from the console like the host does. (R5's own action went with
+      // the guest sandbox, §11 D-15: its sessions are R4's.)
+      const expected: readonly AuditAction[] = [
+        'session.create', 'session.end', 'session.terminate', 'member.leave', // R4
         'suggest.create', 'suggest.edit', 'suggest.accept', 'suggest.reject', 'suggest.withdraw', // R6
         'file.write', 'file.create', 'file.rename', 'file.delete', 'file.upload', 'file.download', 'doc.edit', // R7
         'agent.edit', 'external.change', 'doc.conflict', 'doc.conflict-resolve', 'lock.acquire', 'lock.release', 'lock.denied', 'lock.force-release', // R8
         'worktree.create', 'worktree.remove', 'worktree.merge.request', 'worktree.merge.approve', 'worktree.merge.reject', // R9
       ];
+      // The list is exactly the protocol's vocabulary minus what R4–R9 do not define (identity, authorization, path
+      // refusals: R2 / R3; the console's own actions: R11): a new or removed action cannot slip past this test.
+      const notR4toR9 = new Set<AuditAction>([
+        'auth.join', 'auth.connect', 'auth.disconnect', 'auth.rejected', 'authz.denied', 'path.denied',
+        'member.role', 'member.kick', 'invite.create', 'invite.revoke', 'device.revoke', 'settings.change',
+      ]);
+      expect([...expected].sort()).toEqual(AUDIT_ACTIONS.filter((action) => !notR4toR9.has(action)).sort());
       const logged = async (): Promise<Set<string>> => {
         const actions = new Set<string>();
         let before: number | undefined;
@@ -287,9 +288,12 @@ describe('R11 主人控制台', () => {
       expect(one('file.download', 'main:README.md')).toMatchObject({ actor: user(amy.userId) });
       expect(one('session.end', inWorktree.id)).toMatchObject({ actor: user(carol.userId), detail: { keepWorktree: true } });
       expect(one('session.terminate', toTerminate.id)).toMatchObject({ actor: hostUser, detail: { ownerUserId: carol.userId } });
-      expect(one('session.create', hostTerminal.id)).toMatchObject({ actor: hostUser, detail: { sandboxed: false } });
-      expect(one('session.import-config', carol.userId)).toMatchObject({ actor: user(carol.userId), detail: { names: ['CLAUDE.md'] } });
-      expect(one('sandbox.refused')).toMatchObject({ outcome: 'denied', actor: user(carol.userId), detail: { reason: 'claude-version' } });
+      expect(one('session.terminate', davesTerminal.id)).toMatchObject({ actor: { kind: 'system' }, detail: { ownerUserId: dave.userId, kind: 'terminal', reason: 'left' } });
+      // Who opened each session; every session runs as the host, so there is no sandbox flag any more (§11 D-15).
+      const hostCreate = one('session.create', hostTerminal.id);
+      expect(hostCreate).toMatchObject({ actor: hostUser, detail: { sessionId: hostTerminal.id, kind: 'terminal', root: 'main' } });
+      expect(hostCreate.detail).not.toHaveProperty('sandboxed');
+      expect(one('session.create', inWorktree.id)).toMatchObject({ actor: user(carol.userId), detail: { kind: 'terminal', root: `wt:${worktreeId}`, worktreeId } });
       expect(one('member.leave', dave.userId)).toMatchObject({ actor: user(dave.userId) });
       expect(one('suggest.create', s3.id)).toMatchObject({ actor: user(amy.userId), detail: { authorUserId: amy.userId, text: 'echo three' } });
       expect(one('suggest.edit', s1.id)).toMatchObject({ actor: user(amy.userId), detail: { text: 'echo one, edited' } });
@@ -306,7 +310,6 @@ describe('R11 主人控制台', () => {
     } finally {
       for (const doc of docs) doc.destroy();
       await stack.stop();
-      await removeTempDir(bin);
       if (savedShell === undefined) delete process.env['SHELL'];
       else process.env['SHELL'] = savedShell;
     }

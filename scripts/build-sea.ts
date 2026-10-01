@@ -15,14 +15,14 @@
 //     packages/cli/dist/smurg-<platform>-<arch> (unless --out), the asset name scripts/install.sh downloads.
 //
 //  1. esbuild bundles packages/cli/src/main.ts into one CommonJS file. `import.meta.url` is defined as a variable the
-//     banner sets (ESM dependencies such as srt read it at load time and would crash on an empty import.meta), and
+//     banner sets (code that reads it at load time would crash on an empty import.meta; the daemon finds its docs
+//     compute worker next to it), and
 //     `node-pty` / `@parcel/watcher` are replaced by small modules that load their native parts from the extracted
 //     cache (packages/cli/src/sea/native.ts). The banner starts with the build marker `smurg-build-version=X.Y.Z;`
 //     (scripts/release-markers.ts), which the release checks read from each executable without running it; the
 //     bundle must not name the private repository (the executables are public).
 //  2. The native parts become SEA assets with a sha256 manifest: node-pty (lib + this platform's prebuild, including
-//     macOS's spawn-helper), @parcel/watcher's binding, the docs module's compute worker (bundled separately),
-//     srt's package.json (its version pin check) and, on Linux, srt's apply-seccomp.
+//     macOS's spawn-helper), @parcel/watcher's binding and the docs module's compute worker (bundled separately).
 //     Licenses: packages/cli/THIRD-PARTY-NOTICES.txt must be up to date with pnpm-lock.yaml and list every package
 //     esbuild's metafile and the native assets name (scripts/third-party-notices.ts); LICENSE and the complete notices
 //     (that file with the LICENSE of the Node.js distribution of --node) become the assets `smurg licenses` prints.
@@ -53,10 +53,9 @@
 //    (`node scripts/prebuild.js || node-gyp rebuild`) finds them, so no compiler runs; the build packs
 //    prebuilds/<platform>-<arch> and refuses when it is missing (a node-gyp build in build/Release is never packed).
 //    The prebuild needs glibc >= 2.28 and libstdc++ (GLIBCXX_3.4.22) at run time (pty-packaging.md F4, gotcha 24):
-//    Ubuntu 20.04 and later have both. The other native parts come from npm too: @parcel/watcher-linux-<arch>-glibc
-//    and srt's vendor/seccomp/<arch>/apply-seccomp (x64 and arm64 only). bubblewrap, socat and ripgrep are needed
-//    by a HOST at run time (the guest sandbox), not by the build or the smoke test (a host terminal session only);
-//    postject injects the blob into the ELF (Node < 25.5; no signing on Linux).
+//    Ubuntu 20.04 and later have both. The other native part comes from npm too: @parcel/watcher-linux-<arch>-glibc.
+//    A host needs no system package at run time; postject injects the blob into the ELF (Node < 25.5; no signing on
+//    Linux).
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -227,16 +226,6 @@ function collectNative(work: string, computeWorker: string): Collected {
   add('parcel-watcher/watcher.node', join(packageDir(watcherRequire, bindingPackage), 'watcher.node'));
   // The docs module's compute worker, found by the daemon as `./compute-worker.ts` next to import.meta.url.
   add('lib/compute-worker.ts', computeWorker);
-  // srt: its version for the sandbox module's pin check, and (Linux) the seccomp helper it runs inside bwrap.
-  const srt = packageDir(daemonRequire, '@anthropic-ai/sandbox-runtime');
-  const srtPackage = JSON.parse(readFileSync(join(srt, 'package.json'), 'utf8')) as { name: string; version: string };
-  const srtPackagePath = join(work, 'srt-package.json');
-  writeFileSync(srtPackagePath, `${JSON.stringify({ name: srtPackage.name, version: srtPackage.version })}\n`);
-  add('node_modules/@anthropic-ai/sandbox-runtime/package.json', srtPackagePath);
-  if (process.platform === 'linux') {
-    const arch = process.arch === 'x64' ? 'x64' : 'arm64';
-    add(`vendor/seccomp/${arch}/apply-seccomp`, join(srt, 'vendor', 'seccomp', arch, 'apply-seccomp'), 0o700);
-  }
 
   const assets: Record<string, string> = {};
   const manifestFiles: Record<string, { sha256: string; mode: number }> = {};
@@ -249,7 +238,7 @@ function collectNative(work: string, computeWorker: string): Collected {
   const manifestPath = join(work, 'native-manifest.json');
   writeFileSync(manifestPath, JSON.stringify(manifest));
   assets['native/manifest.json'] = manifestPath;
-  return { assets, manifest, packages: ['node-pty', '@parcel/watcher', bindingPackage, '@anthropic-ai/sandbox-runtime'] };
+  return { assets, manifest, packages: ['node-pty', '@parcel/watcher', bindingPackage] };
 }
 
 async function main(): Promise<void> {

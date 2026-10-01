@@ -234,8 +234,8 @@ describe('EditorArea: tabs, lazy editor, collaborative binding', () => {
     // Terminals are never offered (pasted code would run as shell commands).
     expect(within(menu).queryByText(/zsh/)).toBeNull();
     // One click sends it as a suggestion (SPEC R6 「一鍵」, review SPEC-08); the draft is the second choice.
-    expect(within(menu).getByRole('menuitem', { name: '先寫進給Ian「Claude」的建議草稿' })).toBeTruthy();
-    fireEvent.click(within(menu).getByRole('menuitem', { name: '作為建議送給Ian的「Claude」' }));
+    expect(within(menu).getByRole('menuitem', { name: '先寫進給 Ian 開的「Claude」的建議草稿' })).toBeTruthy();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: '作為建議送給 Ian 開的「Claude」' }));
     await waitFor(() => expect(sent).toHaveLength(1));
     // The file and line range with the selected code; the suggest feature quotes it under the path.
     expect(sent[0]).toEqual({ file: FILE, startLine: 2, endLine: 2, sessionId: 'sess_ian', text: 'console.log(greeting)', mode: 'send' });

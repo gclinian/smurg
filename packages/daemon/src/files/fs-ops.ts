@@ -1,13 +1,13 @@
-// Guarded mutations of the shared folder. The daemon is not sandboxed and a guest's agent can swap any directory of
-// the share for a symlink at any moment (yjs-monaco.md verification item 1), so every operation here:
+// Guarded mutations of the shared folder. A session's agent or shell can swap any directory of the share for a
+// symlink at any moment (yjs-monaco.md verification item 1), so every operation here:
 //  1. resolves (or re-validates) the path through PathGuard immediately before the syscall,
 //  2. performs one path-based syscall, and
 //  3. checks afterwards that what happened happened inside the root, undoing it when it did not.
 // The window between 1 and 2 cannot be closed without openat()/renameat2(), which Node does not offer; 3 turns a lost
 // race into a refused request instead of an escape.
 //
-// Deletion never walks a tree the guests can still write: the entry is first renamed into `<share>/.smurg/trash`
-// (atomic, same volume, and unreachable for guests: PathGuard hides .smurg, the sandbox denies it), and only there is
+// Deletion never walks a tree members can still write: the entry is first renamed into `<share>/.smurg/trash`
+// (atomic, same volume, and unreachable for members other than the host: PathGuard hides .smurg), and only there is
 // it removed recursively. A recursive delete in place would follow a directory that was swapped for a symlink
 // halfway through and delete files outside the share.
 import { constants as fsConstants } from 'node:fs';

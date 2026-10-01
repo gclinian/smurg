@@ -1,20 +1,23 @@
 import { z } from 'zod';
 
-// Roles and capabilities (ARCHITECTURE §3, which encodes the table in SPEC §8).
+// Roles and capabilities (ARCHITECTURE §3, which encodes the table in SPEC §8 as changed by the owner on 2026-10-01,
+// §11 D-15: no guest sandbox; the role 「可使用 agent」 (`agent`) replaced 「可執行 agent」).
 //
 // This is the only place the matrix exists. The daemon enforces it (Router → can()); the web app uses it only to hide
-// UI. Roles are deliberately NOT ranked: SPEC §8 is not monotone (the host cannot open a sandboxed session, which a
-// runner can), so "role >= editor" style comparisons would grant things the table does not. Always ask can().
+// UI. Roles are deliberately NOT ranked: never write "role >= editor" style comparisons, always ask can().
 
 /**
- * Workspace roles in the column order of SPEC §8: 主人, 可執行 agent, 可編輯, 旁觀.
+ * Workspace roles in the column order of SPEC §8: 主人, 可使用 agent, 可編輯, 旁觀.
  * The order is for display only; never derive permissions from it.
+ * `agent` (「可使用 agent」, ARCHITECTURE §11 D-15): opens agent and terminal sessions that run exactly like the host's
+ * own (the host's OS user, unsandboxed, the host's Claude Code login) and types into any session. It is NOT an Actor of
+ * kind 'agent' (a Claude Code session); the two are different types.
  */
-export const ROLES = ['host', 'runner', 'editor', 'viewer'] as const;
+export const ROLES = ['host', 'agent', 'editor', 'viewer'] as const;
 export type Role = (typeof ROLES)[number];
 
 /** Roles a host can hand out through invites and `admin.member.setRole` (`Exclude<Role, 'host'>`). */
-export const GUEST_ROLES = ['runner', 'editor', 'viewer'] as const;
+export const GUEST_ROLES = ['agent', 'editor', 'viewer'] as const;
 export type GuestRole = (typeof GUEST_ROLES)[number];
 
 export const roleSchema = z.enum(ROLES);
@@ -23,7 +26,7 @@ export const guestRoleSchema = z.enum(GUEST_ROLES);
 /** SPEC §8 column headings, for UI labels (zh-TW). */
 export const ROLE_LABELS_ZH_TW: Readonly<Record<Role, string>> = Object.freeze({
   host: '主人',
-  runner: '可執行 agent',
+  agent: '可使用 agent',
   editor: '可編輯',
   viewer: '旁觀',
 });
@@ -33,8 +36,8 @@ export const CAPABILITIES = [
   'file.download',
   'file.write', // edit, create, rename, delete, upload
   'session.view',
-  'session.create.sandboxed', // own agent session / terminal, inside srt
-  'session.create.host', // unsandboxed host session
+  'session.create', // open agent / terminal sessions: the host's OS user, unsandboxed, the host's Claude login (D-15)
+  'session.drive', // type into ANY session, resize it, accept / reject suggestions on it, check its login (D-15)
   'suggest.create',
   'worktree.merge.request',
   'worktree.merge.decide',
@@ -50,17 +53,17 @@ type Matrix = { readonly [C in Capability]: { readonly [R in Role]: boolean } };
 // Written out cell by cell (not derived) so a reviewer can hold it next to ARCHITECTURE §3 and SPEC §8;
 // roles.test.ts checks every cell against a transcription of the SPEC table.
 const MATRIX: Matrix = {
-  'file.read': { host: true, runner: true, editor: true, viewer: true },
-  'file.download': { host: true, runner: true, editor: true, viewer: true },
-  'session.view': { host: true, runner: true, editor: true, viewer: true },
-  'file.write': { host: true, runner: true, editor: true, viewer: false },
-  'suggest.create': { host: true, runner: true, editor: true, viewer: false },
-  'session.create.sandboxed': { host: false, runner: true, editor: false, viewer: false },
-  'session.create.host': { host: true, runner: false, editor: false, viewer: false },
-  'worktree.merge.request': { host: true, runner: true, editor: false, viewer: false },
-  'worktree.merge.decide': { host: true, runner: false, editor: false, viewer: false },
-  'lock.force-release': { host: true, runner: false, editor: false, viewer: false },
-  admin: { host: true, runner: false, editor: false, viewer: false },
+  'file.read': { host: true, agent: true, editor: true, viewer: true },
+  'file.download': { host: true, agent: true, editor: true, viewer: true },
+  'session.view': { host: true, agent: true, editor: true, viewer: true },
+  'file.write': { host: true, agent: true, editor: true, viewer: false },
+  'suggest.create': { host: true, agent: true, editor: true, viewer: false },
+  'session.create': { host: true, agent: true, editor: false, viewer: false },
+  'session.drive': { host: true, agent: true, editor: false, viewer: false },
+  'worktree.merge.request': { host: true, agent: true, editor: false, viewer: false },
+  'worktree.merge.decide': { host: true, agent: false, editor: false, viewer: false },
+  'lock.force-release': { host: true, agent: false, editor: false, viewer: false },
+  admin: { host: true, agent: false, editor: false, viewer: false },
 };
 
 for (const row of Object.values(MATRIX)) Object.freeze(row);
@@ -92,15 +95,4 @@ export function isGuestRole(value: unknown): value is GuestRole {
 
 export function isCapability(value: unknown): value is Capability {
   return typeof value === 'string' && (CAPABILITIES as readonly string[]).includes(value);
-}
-
-/**
- * The capability that `session.create` needs for this role, which also decides whether the session is sandboxed:
- * host → `session.create.host` (unsandboxed, D3), runner → `session.create.sandboxed`. A client never chooses
- * `sandboxed` (ARCHITECTURE §5.5). `null` means the role may not create sessions at all.
- */
-export function sessionCreateCapability(role: Role): 'session.create.host' | 'session.create.sandboxed' | null {
-  if (can(role, 'session.create.host')) return 'session.create.host';
-  if (can(role, 'session.create.sandboxed')) return 'session.create.sandboxed';
-  return null;
 }

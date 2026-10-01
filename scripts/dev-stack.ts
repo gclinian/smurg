@@ -39,7 +39,7 @@ const USAGE = `用法：scripts/dev-stack.sh [選項]
   --relay-port 埠號     relay 的埠號（預設 8787）
   --web-port 埠號       網頁開發伺服器的埠號（預設 5173）
   --host-user 名稱      主人的開發用帳號（預設 host，身分是 dev:host）
-  --role 角色           邀請連結的角色：runner、editor（預設）、viewer
+  --role 角色           邀請連結的角色：agent（可使用 agent）、editor（預設）、viewer
 `;
 
 interface Options {
@@ -79,7 +79,7 @@ function parseOptions(argv: readonly string[]): Options {
   const hostUser = values['host-user'] ?? 'host';
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(hostUser)) fail('--host-user 只能包含英數字、「.」「_」「-」');
   const role = values['role'] ?? 'editor';
-  if (!['runner', 'editor', 'viewer'].includes(role)) fail('--role 只能是 runner、editor 或 viewer');
+  if (!['agent', 'editor', 'viewer'].includes(role)) fail('--role 只能是 agent、editor 或 viewer');
   const relayPort = port('relay-port', 8787);
   const webPort = port('web-port', 5173);
   if (relayPort === webPort) fail('--relay-port 和 --web-port 不能相同');

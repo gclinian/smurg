@@ -29,7 +29,7 @@ describe('docs + locks + hooks (real modules, real hook entry)', { timeout: 120_
     const amy = await d.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
     const cara = await d.connect({ userId: 'dev:cara', displayName: 'Cara', role: 'editor' });
     const vera = await d.connect({ userId: 'dev:vera', displayName: 'Vera', role: 'viewer' });
-    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'runner' });
+    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
     const lockStates = [host, amy, cara, vera].map((client) => recorder(client.conn, 'lock.state'));
     const activity = recorder(host.conn, 'activity.event');
     const absApp = join(d.root, 'src', 'app.ts');
@@ -38,8 +38,8 @@ describe('docs + locks + hooks (real modules, real hook entry)', { timeout: 120_
     const hostDoc = await DocClient.open(host.conn, APP);
     await waitFor(() => amyDoc.synced && hostDoc.synced && amyDoc.text.toString() === ORIGINAL, { what: 'both editors synced' });
 
-    // The agent session of Ian (a runner): registered with the real hook server, as the sessions module does.
-    const agent = d.ctx.services.hooks.registerSession({ sessionId: 'ses_integration_ian', ownerUserId: 'dev:ian', agentName: 'Claude（Ian）', root: MAIN_ROOT, sandboxed: true });
+    // The agent session Ian (a 「可使用 agent」 member) opened: registered with the real hook server, as the sessions module does.
+    const agent = d.ctx.services.hooks.registerSession({ sessionId: 'ses_integration_ian', ownerUserId: 'dev:ian', agentName: 'Claude（Ian）', root: MAIN_ROOT });
 
     // 1. Amy types her first character: the human lock is hers.
     amyDoc.text.insert(0, '// amy\n');

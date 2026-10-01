@@ -51,21 +51,6 @@ export const BASH_HOOK_DEADLINE_MS = 1_000;
 /** `timeout` of the Bash activity command hook in the session settings (seconds; Claude Code's own limit). */
 export const BASH_HOOK_TIMEOUT_SECONDS = 5;
 
-/**
- * The in-sandbox hook self-test (review SEC-D-05 follow-up): before a guest agent session starts, the sandbox runs
- * the real `smurg hook` inside that session's own policy with this event and a fresh nonce, and requires the daemon's
- * answer, hookProbeAnswer(nonce, sessionId), on the hook's stdout. Claude Code never sends this event; a session that
- * forges it only learns its own session id.
- */
-export const HOOK_PROBE_EVENT = 'SmurgProbe';
-/** The field of the probe event that carries the nonce (32 lowercase hex characters). */
-export const HOOK_PROBE_FIELD = 'smurg_probe';
-export const HOOK_PROBE_NONCE_PATTERN = /^[0-9a-f]{32}$/;
-
-export function hookProbeAnswer(nonce: string, sessionId: string): JsonObject {
-  return { smurgProbe: { nonce, sessionId } };
-}
-
 /** Tools whose PreToolUse takes the agent lock. `MultiEdit` does not exist on the verified versions; listing it is harmless. */
 export const EDIT_TOOL_NAMES: readonly string[] = Object.freeze(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 /** Exact-name matcher for the edit tools (claude-hooks.md §1.3). */
@@ -192,8 +177,6 @@ export function projectHookInput(raw: unknown): JsonObject {
   set('source', shortString(input['source']));
   set('reason', shortString(input['reason']));
   if (typeof input['stop_hook_active'] === 'boolean') out['stop_hook_active'] = input['stop_hook_active'];
-  // The hook self-test (never sent by Claude Code)
-  set(HOOK_PROBE_FIELD, shortString(input[HOOK_PROBE_FIELD]));
   return out;
 }
 

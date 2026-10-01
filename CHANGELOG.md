@@ -3,20 +3,39 @@
 每個發佈版本的變更都記在這裡（格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)，版本號依照
 [語意化版本](https://semver.org/lang/zh-TW/)）。每個版本的段落也是那個版本的發佈說明；沒有對應段落的版本不會發佈。
 
-## [Unreleased]
+## [0.2.0] - 2026-10-02
 
-- `smurg host` 開始分享時只印出兩個連結（你自己的、給組員的）和停止的方法。分享前須知、三項設定的意思、金鑰指紋、
-  防止睡眠與紀錄檔的說明都在[主人指南](docs/HOSTING.md)（§3 到 §7），終端機只在需要你處理時提示：客人沙盒無法使用
-  （附修正指令）、無法防止睡眠，以及分享中的連線、登入與狀態檔問題。`smurg status` 現在也顯示 relay 的網址、daemon
-  金鑰指紋、客人沙盒是否可用、三項設定目前的狀態和紀錄檔的位置。
+- **「可執行 agent」改成「可使用 agent」，組員不再有自己的 agent 和沙盒**：主人可以把「可使用 agent」給完全信任的組員，
+  他就能在主人的電腦上開 agent 和終端機（共享主工作區或 worktree），也能直接在任何 session 裡輸入。這些 session
+  **以主人的身分執行**：用主人的 Claude Code 登入（費用算主人的）、在主人的電腦上、沒有沙盒，所以這個組員能讓 agent
+  執行任何指令、讀主人的家目錄。「可編輯」照舊提出建議，「旁觀」照舊只能看；worktree 照舊，「可使用 agent」的組員可以為任何 worktree 提出
+  合併請求，合併仍由主人決定。
+  見[主人指南](docs/HOSTING.md) §5.1，包括收回這個角色之後要做的檢查。
+- 因此移除：客人沙盒（macOS 的 Seatbelt、Linux 的 bubblewrap）、組員登入 Claude 與 API key、「匯入個人設定」、
+  `--no-guest-subscription-login` 與 `--allow-main-workspace-guests` / `--no-main-workspace-guests`。安裝程式在 Linux 上
+  也不再安裝 bubblewrap、socat、ripgrep 或 AppArmor 設定檔：每個平台都只安裝執行檔，不需要 sudo。
+- 這台電腦上的控制 socket（`smurg attach` 在主人自己的電腦上用的）現在只能列出、接上 session 和在 session 裡輸入。
+  因為每個 session 都以主人的作業系統帳號執行，有「可使用 agent」的組員也連得到它；改角色、踢人、終止 session、
+  核准合併、邀請連結、設定和操作紀錄都只能在網頁上做；即時的操作紀錄和只給主人的通知也不會送到控制 socket。透過控制
+  socket 做的事，操作紀錄會註明 `via: control-socket`，被拒絕的次數也另外計算，不會擠掉你在網頁上被拒絕的紀錄。
+- 主人換了工作區的金鑰之後（例如收回「可使用 agent」之後把工作區狀態移走再分享，見[主人指南](docs/HOSTING.md) §5.1），
+  用 `smurg attach` 加入過的組員拿新的邀請連結加入時，`smurg attach` 會像網頁一樣說明「主人的電腦金鑰和之前不同」，
+  印出上次記錄的和邀請連結的金鑰指紋，組員輸入 `y` 確認（不在終端機裡執行時加上 `--accept-new-key`）才改用新的金鑰；
+  以前只會中止連線，沒有辦法繼續。`smurg attach --help` 也改正了：主人和「可使用 agent」的組員可以在任何 session 裡輸入。
+- 工作區的狀態檔是別的 smurg 版本寫的（或格式不對）時，`smurg host` 說清楚是這個原因，把哪個檔案、什麼問題記在紀錄檔，
+  並說明怎麼重新分享（把 `~/.smurg/workspaces/<工作區代碼>/` 移走再分享一次，組員重新加入）。smurg 不轉換其他版本的狀態。
+- `smurg host` 開始分享時只印出兩個連結（你自己的、給組員的）和停止的方法。分享前須知、各項設定的意思、金鑰指紋、
+  防止睡眠與紀錄檔的說明都在[主人指南](docs/HOSTING.md)（§3 到 §7），終端機只在需要你處理時提示：無法防止睡眠，
+  以及分享中的連線、登入與狀態檔問題。`smurg status` 現在也顯示 relay 的網址、daemon 金鑰指紋、agent 的 shell 指令
+  通知是否開啟和紀錄檔的位置。
 - **用代碼登入 relay**：`smurg login`（以及需要登入時的 `smurg host`、`smurg attach`）印出一個網址
   （公用 relay：`https://app.smurg.ai/device`）和一組 8 個英文字母的代碼（10 分鐘內有效）。在任何裝置（電腦或手機）的
   瀏覽器打開網址、用 Google 帳號登入、輸入代碼，確認頁會列出要登入的帳號、這次登入從哪裡要求（IP 位址和大概位置）和時間，
   按「允許」就完成；只有你自己剛執行 `smurg login` 時才按「允許」，別人給你的代碼請按「拒絕」。有桌面的電腦會自動打開
   這個網址（不帶代碼）；**透過 SSH 使用時不再需要 `ssh -L` 轉接埠**，用你面前的電腦或手機輸入代碼就好。等待時按 Ctrl-C
   可以取消。見[主人指南](docs/HOSTING.md) §2。
-- 舊的登入方式（瀏覽器確認頁上的確認碼，登入結果回到這台電腦的本機埠）不再使用；relay 仍然接受 0.1.0 用它登入，
-  之後會移除，請升級。`smurg login --provider` 已移除：登入方式在瀏覽器裡選。
+- 舊的登入方式（瀏覽器確認頁上的確認碼，登入結果回到這台電腦的本機埠）已移除。`smurg login --provider` 也已移除：
+  登入方式在瀏覽器裡選。
 
 ## [0.1.0] - 2026-10-01
 

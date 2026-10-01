@@ -1,5 +1,5 @@
 // Every token the relay mints is an EdDSA JWT with its own `typ` and audience, so one kind can never be replayed as
-// another (a session token is not an identity token, an OAuth transaction is not a CLI code).
+// another (a session token is not an identity token, an OAuth transaction is not a session).
 import { IDENTITY_CNF_MEMBER, IDENTITY_TOKEN_AUDIENCE_PREFIX, IDENTITY_TOKEN_TTL_SECONDS, IDENTITY_TOKEN_TYP } from '@smurg/protocol/relay';
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 import type { SigningKeys } from './keys.ts';
@@ -8,10 +8,8 @@ export type TokenKind = { typ: string; aud: string; ttlSeconds: number };
 
 /** Relay session: browser cookie or CLI/daemon bearer token. Stateless, so it cannot be revoked before it expires. */
 export const SESSION_TOKEN: TokenKind = { typ: 'smurg-session+jwt', aud: 'smurg-relay', ttlSeconds: 7 * 24 * 3600 };
-/** OAuth transaction (state, PKCE verifier, nonce, CLI parameters) kept in a short-lived cookie. */
+/** OAuth transaction (state, PKCE verifier, nonce, return URL) kept in a short-lived cookie. */
 export const OAUTH_TX_TOKEN: TokenKind = { typ: 'smurg-oauth-tx+jwt', aud: 'smurg-oauth-tx', ttlSeconds: 600 };
-/** CLI loopback code: bound to the CLI's PKCE challenge, exchanged at POST /auth/cli/token. */
-export const CLI_CODE_TOKEN: TokenKind = { typ: 'smurg-cli-code+jwt', aud: 'smurg-cli-code', ttlSeconds: 60 };
 
 // Identity token (ARCHITECTURE §4.2): forwarded by the client inside the encrypted channel to the daemon, which
 // verifies it with the relay's JWKS. These strings are the wire contract with the daemon: one definition, in

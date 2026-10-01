@@ -1,16 +1,16 @@
 // The files a Claude Code session is launched with (ARCHITECTURE §7.6 "Launch", §11 D-1): the daemon-owned
-// settings.json passed with `--settings` (hooks + kill-switch neutralizers + permissions), the mcp.json passed with
-// `--mcp-config` (the coordination server), and — for guests — the pre-seeded `<guest>/cfg/.claude.json` (trust, and
-// approval of the guest's own API key), without which the trust dialog withholds every hook.
+// settings.json passed with `--settings` (hooks + kill-switch neutralizers + permissions) and the mcp.json passed with
+// `--mcp-config` (the coordination server). Every session gets the same files (they all run like the host's own,
+// §11 D-15).
 //
 // Why `--settings` and not the project's `.claude/`: flag settings rank above user, project and local settings, so a
 // planted `disableAllHooks: true` or an `env.CLAUDE_CODE_SIMPLE` elsewhere cannot switch smurg's lock hooks off
-// (claude-hooks.md §1.1, §1.2, experiments C, C3, exp-v-hook-kill), and the file lives outside the shared folder and
-// outside every guest's writable sandbox. The builders are pure; the writers write 0600 files atomically.
+// (claude-hooks.md §1.1, §1.2, experiments C, C3, exp-v-hook-kill), and the file lives outside the shared folder. The
+// builders are pure; the writers write 0600 files atomically.
 import { constants as fsConstants } from 'node:fs';
-import { lstat, open, readdir, realpath, rename, rm, unlink } from 'node:fs/promises';
+import { open, readdir, rename, rm, unlink } from 'node:fs/promises';
 import { randomBytes, createHash } from 'node:crypto';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { ensurePrivateDirectory } from '@smurg/protocol/node';
 import type { SessionLaunchFiles } from '../core/interfaces.ts';
 import { syncDirectory } from '../core/state-store.ts';
@@ -21,11 +21,8 @@ import {
   HOOK_CLI_BASH_ACTIVITY_ARG,
   HOOK_COMMAND_TIMEOUT_SECONDS,
   MCP_SERVER_NAME,
-  isJsonObject,
   type JsonObject,
 } from './wire.ts';
-
-export type SessionVariant = 'host' | 'guest';
 
 /** How a session runs `smurg` (config.sessions.selfCommand): `hook` / `mcp` are appended to `args`. */
 export interface SelfCommand {
@@ -34,12 +31,7 @@ export interface SelfCommand {
 }
 
 export interface SessionSettingsInput {
-  readonly variant: SessionVariant;
   readonly command: SelfCommand;
-  /** realpath of the session root (the session's cwd): guests exclude the CLAUDE.md files of all its ancestors. */
-  readonly rootRealPath: string;
-  /** Server names of `<root>/.mcp.json`: guests list them in disabledMcpjsonServers (2.1.220's dialog, §7.6). */
-  readonly projectMcpServers?: readonly string[];
   /** Literal file names in the session root that the FileChanged hook watches (activity feed only, D-6). */
   readonly fileChangedNames?: readonly string[];
   /**
@@ -70,25 +62,7 @@ export function fileChangedMatcher(names: readonly string[]): string | null {
   return usable.length > 0 ? usable.join('|') : null;
 }
 
-/**
- * `claudeMdExcludes` for a guest: Claude Code loads CLAUDE.md files from every ancestor of its cwd (claude-hooks.md
- * §5.1, M3), so a share under the host's home would pull in the host's own `~/CLAUDE.md`; a worktree session would
- * pull in the main share's. The sandbox's read-deny is the second layer.
- */
-export function claudeMdExcludesFor(rootRealPath: string): string[] {
-  if (!isAbsolute(rootRealPath)) throw new TypeError('rootRealPath must be absolute');
-  const out: string[] = [];
-  let dir = dirname(resolve(rootRealPath));
-  for (;;) {
-    out.push(join(dir, 'CLAUDE.md'), join(dir, 'CLAUDE.local.md'), join(dir, '.claude', 'CLAUDE.md'), join(dir, '.claude', 'rules', '**'));
-    const up = dirname(dir);
-    if (up === dir) break;
-    dir = up;
-  }
-  return out;
-}
-
-/** The session settings file (ARCHITECTURE §7.6), host or guest variant. */
+/** The session settings file (ARCHITECTURE §7.6). */
 export function buildSessionSettings(input: SessionSettingsInput): JsonObject {
   const handler = hookHandler(input.command);
   const all = [{ hooks: [handler] }];
@@ -107,22 +81,17 @@ export function buildSessionSettings(input: SessionSettingsInput): JsonObject {
   };
   const watch = fileChangedMatcher(input.fileChangedNames ?? []);
   if (watch !== null) hooks['FileChanged'] = [{ matcher: watch, hooks: [handler] }];
-  const permissions: JsonObject = { allow: [`mcp__${MCP_SERVER_NAME}`], disableBypassPermissionsMode: 'disable' };
-  // 2.1.283 starts interactive sessions in auto mode, without edit prompts; the host keeps their prompts (SPEC §11).
-  if (input.variant === 'host') permissions['defaultMode'] = 'default';
+  // 2.1.283 starts interactive sessions in auto mode, without edit prompts; sessions keep their prompts (SPEC §11).
+  const permissions: JsonObject = { allow: [`mcp__${MCP_SERVER_NAME}`], disableBypassPermissionsMode: 'disable', defaultMode: 'default' };
   const settings: JsonObject = {
     disableAllHooks: false,
-    // Safe mode and bare mode switch off every hook, --settings ones included, from the launch env or a user-settings
-    // env block the guest's agent can write; the --settings env wins over both (claude-hooks.md §1.2).
+    // Safe mode and bare mode switch off every hook, --settings ones included, from the launch env or a user- or
+    // project-settings env block an agent can write; the --settings env wins over both (claude-hooks.md §1.2).
     env: { CLAUDE_CODE_SAFE_MODE: '0', CLAUDE_CODE_SIMPLE: '0' },
     disableDeepLinkRegistration: 'disable',
     permissions,
     hooks,
   };
-  if (input.variant === 'guest') {
-    settings['claudeMdExcludes'] = claudeMdExcludesFor(input.rootRealPath);
-    settings['disabledMcpjsonServers'] = [...new Set(input.projectMcpServers ?? [])];
-  }
   return settings;
 }
 
@@ -132,122 +101,8 @@ export function buildMcpConfig(command: SelfCommand): JsonObject {
 }
 
 /** The flags every session gets (never a permission-mode flag, never --dangerously-skip-permissions). */
-export function claudeArgsFor(variant: SessionVariant, files: { readonly settingsPath: string; readonly mcpConfigPath: string }): string[] {
-  const args = ['--settings', files.settingsPath, '--mcp-config', files.mcpConfigPath];
-  // Guests get only smurg's MCP server; the host keeps their own.
-  if (variant === 'guest') args.push('--strict-mcp-config');
-  return args;
-}
-
-const MCP_SERVER_NAMES_MAX = 200;
-
-/** Server names of a `.mcp.json` text (exact names: disabledMcpjsonServers has no wildcard). Invalid JSON ⇒ []. */
-export function projectMcpServerNames(jsonText: string): string[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonText);
-  } catch {
-    return [];
-  }
-  if (!isJsonObject(parsed) || !isJsonObject(parsed['mcpServers'])) return [];
-  return Object.keys(parsed['mcpServers'])
-    .filter((name) => name.length > 0 && name.length <= 256)
-    .slice(0, MCP_SERVER_NAMES_MAX);
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
-// Guest .claude.json
-// ---------------------------------------------------------------------------------------------------------------------
-
-/** How much of an existing `.claude.json` is read back (the guest's own Claude Code keeps state in it). */
-const CLAUDE_JSON_MAX_BYTES = 4 * 1024 * 1024;
-
-function stringList(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-}
-
-/**
- * `existing` with the session's cwd trusted (`projects[realpath(cwd)].hasTrustDialogAccepted`; without it the trust
- * dialog withholds every hook, and on 2.1.283 its default answer quits) and, when the guest supplied their own API
- * key, its last 20 characters approved (the "Detected a custom API key" dialog defaults to "No" on 2.1.283).
- * Onboarding is left alone so a guest who is not logged in sees Claude Code's own login screens.
- */
-export function mergeGuestClaudeJson(existing: unknown, cwdRealPath: string, apiKey?: string | null): JsonObject {
-  const base: JsonObject = isJsonObject(existing) ? { ...existing } : {};
-  const projects: JsonObject = isJsonObject(base['projects']) ? { ...base['projects'] } : {};
-  const current = projects[cwdRealPath];
-  projects[cwdRealPath] = { ...(isJsonObject(current) ? current : {}), hasTrustDialogAccepted: true };
-  base['projects'] = projects;
-  if (typeof apiKey === 'string' && apiKey.length > 0) {
-    const suffix = apiKey.slice(-20);
-    const responses: JsonObject = isJsonObject(base['customApiKeyResponses']) ? { ...base['customApiKeyResponses'] } : {};
-    responses['approved'] = [...stringList(responses['approved']).filter((item) => item !== suffix), suffix];
-    responses['rejected'] = stringList(responses['rejected']).filter((item) => item !== suffix);
-    base['customApiKeyResponses'] = responses;
-  }
-  return base;
-}
-
-class GuestConfigError extends Error {}
-
-/** A directory the guest could have swapped for a symlink since the daemon created it is refused, not followed. */
-async function assertPlainDirectory(dir: string): Promise<void> {
-  const st = await lstat(dir);
-  if (st.isSymbolicLink()) throw new GuestConfigError('guest config dir is a symlink');
-  if (!st.isDirectory()) throw new GuestConfigError('guest config dir is not a directory');
-  if ((await realpath(dir)) !== dir) throw new GuestConfigError('guest config dir is reached through a symlink');
-}
-
-/** Reads a regular file without following a symlink or blocking on a FIFO; null when absent or not a regular file. */
-async function readRegularFile(path: string, maxBytes: number): Promise<string | null> {
-  let handle;
-  try {
-    handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
-  } catch {
-    return null;
-  }
-  try {
-    const st = await handle.stat();
-    if (!st.isFile() || st.size > maxBytes) return null;
-    return await handle.readFile('utf8');
-  } finally {
-    await handle.close();
-  }
-}
-
-/**
- * Pre-seeds `<cfgDir>/.claude.json` for a guest session (ARCHITECTURE §7.6). `cfgDir` is the guest's
- * CLAUDE_CONFIG_DIR, which the guest's sandbox can write: it must be a plain directory (no symlink anywhere on the
- * path) and the written file is checked after the rename, so a swapped directory cannot make the daemon write the
- * host's own `~/.claude.json`. Returns the file's path.
- */
-export async function seedGuestClaudeConfig(input: { readonly cfgDir: string; readonly cwd: string; readonly apiKey?: string | null }): Promise<string> {
-  if (!isAbsolute(input.cfgDir) || !isAbsolute(input.cwd)) throw new TypeError('cfgDir and cwd must be absolute');
-  const cfgDir = resolve(input.cfgDir);
-  await assertPlainDirectory(cfgDir);
-  const cwdRealPath = await realpath(input.cwd);
-  const target = join(cfgDir, '.claude.json');
-  const existingText = await readRegularFile(target, CLAUDE_JSON_MAX_BYTES);
-  let existing: unknown = null;
-  if (existingText !== null) {
-    try {
-      existing = JSON.parse(existingText);
-    } catch {
-      existing = null;
-    }
-  }
-  const merged = mergeGuestClaudeJson(existing, cwdRealPath, input.apiKey ?? null);
-  const placed = await writePrivateJson(cfgDir, '.claude.json', merged);
-  // Post-move check: the file must be where we meant it to be (the guest may have swapped the directory meanwhile).
-  const landed = await realpath(target).catch(() => null);
-  if (landed !== target) {
-    if (landed !== null) {
-      const st = await lstat(landed).catch(() => null);
-      if (st !== null && st.ino === placed.ino && st.dev === placed.dev) await unlink(landed).catch(() => {});
-    }
-    throw new GuestConfigError('guest config dir changed while writing .claude.json');
-  }
-  return target;
+export function claudeArgsFor(files: { readonly settingsPath: string; readonly mcpConfigPath: string }): string[] {
+  return ['--settings', files.settingsPath, '--mcp-config', files.mcpConfigPath];
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -316,7 +171,7 @@ export async function writeSessionFiles(input: WriteSessionFilesInput): Promise<
   const mcpConfigPath = join(dir, 'mcp.json');
   await writePrivateJson(dir, 'settings.json', buildSessionSettings(input.settings));
   await writePrivateJson(dir, 'mcp.json', buildMcpConfig(input.settings.command));
-  return Object.freeze({ dir, settingsPath, mcpConfigPath, claudeArgs: Object.freeze(claudeArgsFor(input.settings.variant, { settingsPath, mcpConfigPath })) });
+  return Object.freeze({ dir, settingsPath, mcpConfigPath, claudeArgs: Object.freeze(claudeArgsFor({ settingsPath, mcpConfigPath })) });
 }
 
 /** Removes one session's directory (session ended). */

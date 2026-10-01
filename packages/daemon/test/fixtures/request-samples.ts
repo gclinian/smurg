@@ -39,7 +39,6 @@ export const REQUEST_SAMPLES: { readonly [T in RequestType]: PayloadInputOf<T> }
   'session.loginStatus': { sessionId: 'sess_nope' },
   'session.attach': { sessionId: 'sess_nope' },
   'session.end': { sessionId: 'sess_nope' },
-  'session.importConfig': { files: [{ relPath: 'CLAUDE.md', content: bytes(4) }] },
   'suggest.create': { sessionId: 'sess_nope', text: 'please run the tests' },
   'suggest.edit': { suggestionId: 'sg_nope', text: 'better' },
   'suggest.withdraw': { suggestionId: 'sg_nope' },

@@ -1,17 +1,18 @@
 // The suggestions panel under the agents panel (SPEC R6). It follows the session the agents panel shows
-// (sessions.focusedId):
-//  - someone else's session → the composer (editor and up) — the terminal above is read-only for you;
-//  - your own session → your queue of pending suggestions, to accept / edit then accept / reject;
+// (sessions.focusedId). Protocol v2: the host and 可使用 agent members type into ANY session and decide on its
+// suggestions (`session.drive`); editors suggest; viewers watch.
+//  - a member who may type → the queue of pending suggestions of that session, to accept / edit then accept / reject;
+//  - an editor → the composer (the terminal above is read-only for them);
 //  - always → what you proposed, with edit / withdraw while pending and the outcome afterwards.
-// It also handles the editor's `sendSelectionAsSuggestion`: into your own session the selection is pasted as input
-// (bracketed paste, no Enter); for someone else's it becomes a suggestion draft. Nothing here, or anywhere, accepts a
-// suggestion automatically.
+// It also handles the editor's `sendSelectionAsSuggestion`: into a session the member may type into, the selection is
+// pasted as input (bracketed paste, no Enter); otherwise it becomes a suggestion draft. Nothing here, or anywhere,
+// accepts a suggestion automatically.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EXEC_INPUT_MAX_BYTES, type SessionInfo } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectUserId } from '../../lib/stores/workspace.ts';
-import { useCan, useCommandHandler, useCommands, useStores } from '../../lib/workspace/context.tsx';
+import { useCan, useCapabilities, useCommandHandler, useCommands, useStores } from '../../lib/workspace/context.tsx';
 import { useWorkbenchLayout } from '../../lib/workspace/layout.tsx';
 import { Badge, EmptyState, IconButton, Panel, useToast } from '../../ui/index.ts';
 import { IconChevronDown, IconChevronUp, IconLightbulb } from '../../ui/icons.tsx';
@@ -43,6 +44,7 @@ export function SuggestionsPanel(_props: SuggestionsPanelProps) {
   const commands = useCommands();
   const toast = useToast();
   const canSuggest = useCan('suggest.create');
+  const canDrive = useCapabilities().canDrive;
   const userId = useStore(stores.workspace, selectUserId);
   const sessionsState = useStore(stores.sessions);
   const suggestionsState = useStore(stores.suggestions);
@@ -52,7 +54,6 @@ export function SuggestionsPanel(_props: SuggestionsPanelProps) {
 
   const sessions = sessionsState.sessions;
   const focused: SessionInfo | null = (sessionsState.focusedId !== null ? sessions.get(sessionsState.focusedId) : undefined) ?? null;
-  const isOwner = focused !== null && userId !== null && focused.ownerUserId === userId;
 
   const [drafts, setDrafts] = useState<ReadonlyMap<string, ComposerDraft>>(new Map());
   /** The composer of `sessionId` takes focus once (a selection was just put into its draft). */
@@ -68,15 +69,17 @@ export function SuggestionsPanel(_props: SuggestionsPanelProps) {
     });
   }, []);
 
-  // Pending suggestions on the member's own sessions: this one's are the queue, the others are pointed to.
+  // Pending suggestions this member decides on (any session, for the host and 可使用 agent): the focused session's are
+  // the queue, the others are pointed to.
   const pendingMine = useMemo(() => {
     const counts = new Map<string, number>();
+    if (!canDrive) return counts;
     for (const suggestion of suggestionsState.suggestions.values()) {
-      if (suggestion.status !== 'pending' || sessions.get(suggestion.sessionId)?.ownerUserId !== userId) continue;
+      if (suggestion.status !== 'pending' || !sessions.has(suggestion.sessionId)) continue;
       counts.set(suggestion.sessionId, (counts.get(suggestion.sessionId) ?? 0) + 1);
     }
     return counts;
-  }, [suggestionsState, sessions, userId]);
+  }, [suggestionsState, sessions, canDrive]);
   const pendingTotal = [...pendingMine.values()].reduce((sum, n) => sum + n, 0);
   const othersPending = pendingTotal - (focused !== null ? (pendingMine.get(focused.id) ?? 0) : 0);
 
@@ -104,8 +107,9 @@ export function SuggestionsPanel(_props: SuggestionsPanelProps) {
       toast.show({ tone: 'warning', title: t('send.exited') });
       return;
     }
-    if (session.ownerUserId === userId) {
-      // One's own session: typed in as a paste, like a terminal would; the owner reviews it and presses Enter.
+    if (canDrive) {
+      // A session this member may type into (any, for the host and 可使用 agent): typed in as a paste, like a terminal
+      // would; they review it and press Enter.
       const bytes = bracketedPaste(selection.text);
       if (bytes.byteLength > EXEC_INPUT_MAX_BYTES) {
         toast.show({ tone: 'warning', title: t('send.tooLong') });
@@ -131,13 +135,13 @@ export function SuggestionsPanel(_props: SuggestionsPanelProps) {
       // One click: the quoted selection becomes a pending suggestion (the owner still decides).
       const source = sourceOf(selection);
       stores.suggestions.create({ sessionId: session.id, text: quote, ...(source ? { source } : {}) }).then(
-        () => toast.show({ tone: 'success', title: t('composer.sent', { owner: session.ownerName }) }),
+        () => toast.show({ tone: 'success', title: t('composer.sent') }),
         (error: unknown) => toast.show({ tone: 'danger', title: t('send.suggestFailed', { message: describeError(error) }) }),
       );
       stores.sessions.focus(session.id);
       return;
     }
-    // Someone else's session: a draft to complete and send (the owner decides).
+    // A session this member may not type into: a draft to complete and send (the host or 可使用 agent decides).
     const previous = drafts.get(session.id) ?? EMPTY_DRAFT;
     setDraft(session.id, {
       text: previous.text.trim() === '' ? quote : `${previous.text.replace(/\s*$/u, '')}\n\n${quote}`,
@@ -157,7 +161,7 @@ export function SuggestionsPanel(_props: SuggestionsPanelProps) {
   let main;
   if (focused === null) {
     main = <EmptyState compact icon={<IconLightbulb />} title={t('empty.noSession')} />;
-  } else if (isOwner) {
+  } else if (canDrive) {
     main = (
       <OwnerQueue
         session={focused}
@@ -213,7 +217,7 @@ export function SuggestionsPanel(_props: SuggestionsPanelProps) {
       <SendSelectionDialog
         selection={choosing}
         sessions={running}
-        userId={userId}
+        canDrive={canDrive}
         canSuggest={canSuggest}
         onClose={() => setChoosing(null)}
         onChoose={(sessionId) => {

@@ -167,7 +167,8 @@ export async function handlePreToolUse(ctx: DaemonContext, state: HookSessionSta
   }
   let file: FileRef;
   try {
-    // Host-only paths for guests, the hidden .smurg, read-only shared dirs, special files, hard links (audited).
+    // Host-only paths for members other than the host, the hidden .smurg, read-only shared dirs, special files, hard
+    // links (audited): an agent is its owner (the member who opened the session).
     file = (await ctx.paths.resolve(located.ref, { principal, forWrite: true })).ref;
   } catch (err) {
     releaseHeld(ctx, state, null);

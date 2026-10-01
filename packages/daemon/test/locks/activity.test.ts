@@ -178,7 +178,7 @@ describe('bus → activity + audit', () => {
   it('lock denials are bounded per session in the feed (forged PreToolUse floods)', async () => {
     const d = await daemon();
     const host = await d.connectHost();
-    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'runner' });
+    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
     const live = recorder(host.conn, 'activity.event');
     d.ctx.services.locks.touchHuman(main('README.md'), { userId: 'dev:host', displayName: 'Host' });
     const ian = agentSession('ses_ian', 'dev:ian', 'Ian');
@@ -238,7 +238,7 @@ describe('who changed a file nobody announced (review SPEC-01: Bash edits, FileC
   const WT = { kind: 'worktree', worktreeId: 'wt_bob1' } as const;
 
   function sessionInfo(id: string, kind: 'agent' | 'terminal', root: SessionInfo['root']): SessionInfo {
-    return { id, kind, ownerUserId: 'dev:bob', ownerName: 'Bob', title: id, sandboxed: true, root, status: 'running', cols: 80, rows: 24, createdAt: 1, login: 'unknown', attached: 0 };
+    return { id, kind, ownerUserId: 'dev:bob', ownerName: 'Bob', title: id, root, status: 'running', cols: 80, rows: 24, createdAt: 1, login: 'unknown', attached: 0 };
   }
 
   async function feed(sessions: SessionInfo[]): Promise<{ readonly bus: TypedEventBus; readonly events: ActivityEvent[]; readonly audit: RecordingAudit }> {
@@ -312,7 +312,7 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
   const OWNERS: Record<string, string> = { 'dev:amy': 'Amy', 'dev:bob': 'Bob', 'dev:host': 'Host' };
 
   function info(id: string, owner: string, root: SessionInfo['root'], extra: Partial<SessionInfo> = {}): SessionInfo {
-    return { id, kind: 'agent', ownerUserId: owner, ownerName: OWNERS[owner] ?? owner, title: id, sandboxed: owner !== 'dev:host', root, status: 'running', cols: 80, rows: 24, createdAt: 1, login: 'unknown', attached: 0, ...extra };
+    return { id, kind: 'agent', ownerUserId: owner, ownerName: OWNERS[owner] ?? owner, title: id, root, status: 'running', cols: 80, rows: 24, createdAt: 1, login: 'unknown', attached: 0, ...extra };
   }
 
   async function feed(sessions: SessionInfo[], options: { readonly attributeBashEdits?: boolean; readonly lockOf?: (file: FileRef) => unknown } = {}) {
@@ -393,14 +393,14 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
     expect(f.events.map((e) => e.via)).toEqual(['bash', undefined]);
   });
 
-  it('a change in another root is not attributed: a guest\'s main-workspace window never claims a worktree change (and its other owner\'s window there)', async () => {
+  it('a change in another root is not attributed: a member\'s main-workspace window never claims a worktree change (and its other owner\'s window there)', async () => {
     const f = await feed([info('ses_amy', 'dev:amy', MAIN_ROOT)]);
     f.bashStart('ses_amy', 'dev:amy');
     f.changed(WT, 'wt-file.txt');
     expect(kinds(f.events)).toEqual([['external.change', 'system', 'wt-file.txt']]);
   });
 
-  it('the host\'s unsandboxed session could write anywhere: its open window makes a guest\'s change ambiguous, and it never claims another root', async () => {
+  it('every session runs unsandboxed and could write anywhere (§11 D-15): any other open window makes a change ambiguous, and a window never claims another root', async () => {
     const f = await feed([info('ses_amy', 'dev:amy', MAIN_ROOT), info('ses_host', 'dev:host', MAIN_ROOT), info('ses_bob_wt', 'dev:bob', { kind: 'worktree', worktreeId: 'wt_bob' })]);
     f.bashStart('ses_host', 'dev:host');
     f.changed({ kind: 'worktree', worktreeId: 'wt_bob' }, 'x.txt'); // the host's session is main-rooted: not its change to claim
@@ -408,18 +408,22 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
     f.changed(MAIN_ROOT, 'y.txt'); // amy or the host: ambiguous
     f.bashEnd('ses_amy', 'dev:amy');
     f.bashStart('ses_bob_wt', 'dev:bob');
-    f.changed({ kind: 'worktree', worktreeId: 'wt_bob' }, 'z.txt'); // bob (sandboxed to wt_bob) or the host: ambiguous
-    // Not even the SPEC-01 worktree rule may name bob's agent while the host's shell command could have written it.
+    f.changed({ kind: 'worktree', worktreeId: 'wt_bob' }, 'z.txt'); // bob, amy (still in her grace) or the host: ambiguous
+    // Not even the SPEC-01 worktree rule may name bob's agent while another shell command could have written it.
     expect(kinds(f.events)).toEqual([
       ['external.change', 'system', 'x.txt'],
       ['external.change', 'system', 'y.txt'],
       ['external.change', 'system', 'z.txt'],
     ]);
-    // Once the host's command is over (and its grace), bob's own window names bob's agent.
+    // Once the host's command is over (and its grace, and amy's), bob's own window names bob's agent.
     f.bashEnd('ses_host', 'dev:host');
     f.clock.advance(3_100);
     f.changed({ kind: 'worktree', worktreeId: 'wt_bob' }, 'later.txt');
     expect(kinds(f.events).at(-1)).toEqual(['agent.edit', 'Claude（Bob）', 'later.txt']);
+    // A member's main-workspace session is no less able to write into bob's worktree than the host's: ambiguous again.
+    f.bashStart('ses_amy', 'dev:amy');
+    f.changed({ kind: 'worktree', worktreeId: 'wt_bob' }, 'amy-too.txt');
+    expect(kinds(f.events).at(-1)).toEqual(['external.change', 'system', 'amy-too.txt']);
   });
 
   it('forged Bash windows only ever attribute changes in the session\'s own root, and only to that session', async () => {
@@ -427,14 +431,20 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
     // A prompt-injected agent opens windows as fast as it may: it can claim unannounced changes of its own root…
     for (let i = 0; i < 5; i++) f.bashStart('ses_mallory', 'dev:bob');
     f.changed(MAIN_ROOT, 'm.txt');
-    // …but never one of another root, never for someone else: amy's worktree change stays amy's (her only session there).
+    // …but never one of another root, never for someone else: amy's worktree change is not bob's. Its shell could have
+    // written there (every session runs unsandboxed), so not even the worktree rule names amy: 「外部程式」.
     f.changed(WT, 'amy.txt');
     expect(kinds(f.events)).toEqual([
       ['agent.edit', 'Claude（Bob）', 'm.txt'],
-      ['agent.edit', 'Claude（Amy）', 'amy.txt'],
+      ['external.change', 'system', 'amy.txt'],
     ]);
+    // Once its windows are closed (and the grace is over), amy's worktree change is amy's again (her only session there).
+    for (let i = 0; i < 5; i++) f.bashEnd('ses_mallory', 'dev:bob');
+    f.clock.advance(3_100);
+    f.changed(WT, 'amy-later.txt');
+    expect(kinds(f.events).at(-1)).toEqual(['agent.edit', 'Claude（Amy）', 'amy-later.txt']);
     // Only the shell-window attribution is marked via 'bash'; amy's is the worktree rule's (no mark).
-    expect(f.events.map((e) => e.via)).toEqual(['bash', undefined]);
+    expect(f.events.map((e) => e.via)).toEqual(['bash', undefined, undefined]);
     expect(f.announced.filter((a) => a.file !== null).map((a) => a.sessionId)).toEqual(['ses_mallory']);
   });
 

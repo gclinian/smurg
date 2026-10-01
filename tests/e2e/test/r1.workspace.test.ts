@@ -36,7 +36,7 @@ async function joinGuests(stack: Stack): Promise<StackClient[]> {
   return Promise.all([
     stack.join({ name: 'amy', role: 'editor' }),
     stack.join({ name: 'bob', role: 'viewer' }),
-    stack.join({ name: 'carol', role: 'runner' }),
+    stack.join({ name: 'carol', role: 'agent' }),
   ]);
 }
 
