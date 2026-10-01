@@ -68,7 +68,7 @@ describe('relay choice', () => {
     const login = testIo({ env: s.env, openUrl: browserOpening });
     expect(await runCli(['login'], login)).toBe(2);
     expect(login.err()).toContain('沒有指定 relay');
-    expect(login.err()).toContain('目前沒有官方的公開 relay');
+    expect(login.err()).toContain('這個 smurg 沒有內建的公用 relay（說明：https://smurg.ai/docs/hosting/');
     const host = testIo({ env: s.env, openUrl: browserOpening });
     expect(await runCli(['host', s.dirs.project, '--no-keep-awake'], host)).toBe(2);
     expect(host.err()).toContain('沒有指定 relay');

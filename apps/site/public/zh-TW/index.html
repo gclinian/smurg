@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>smurg：讓組員和 Claude Code 一起即時工作的工作區</title>
-<meta name="description" content="從自己的電腦分享專案資料夾。組員用瀏覽器和你即時編輯檔案，一起看和指揮在你電腦上執行的 Claude Code session。端對端加密、開放原始碼，支援 macOS 與 Linux。">
+<meta name="description" content="從自己的電腦分享專案資料夾。組員用瀏覽器和你即時編輯檔案，一起看和指揮在你電腦上執行的 Claude Code session。端對端加密，支援 macOS 與 Linux，原型期間免費。">
 <link rel="canonical" href="https://smurg.ai/zh-TW/">
 <link rel="alternate" hreflang="en" href="https://smurg.ai/">
 <link rel="alternate" hreflang="zh-TW" href="https://smurg.ai/zh-TW/">
@@ -17,7 +17,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="smurg">
 <meta property="og:title" content="smurg：讓組員和 Claude Code 一起即時工作的工作區">
-<meta property="og:description" content="從自己的電腦分享專案資料夾。組員用瀏覽器和你即時編輯檔案，一起看和指揮在你電腦上執行的 Claude Code session。端對端加密、開放原始碼。">
+<meta property="og:description" content="從自己的電腦分享專案資料夾。組員用瀏覽器和你即時編輯檔案，一起看和指揮在你電腦上執行的 Claude Code session。端對端加密。">
 <meta property="og:url" content="https://smurg.ai/zh-TW/">
 <meta property="og:locale" content="zh_TW">
 <meta property="og:locale:alternate" content="en_US">
@@ -41,7 +41,7 @@
         <li class="jump"><a href="#features">功能</a></li>
         <li class="jump"><a href="#security">安全</a></li>
         <li class="jump"><a href="#faq">常見問題</a></li>
-        <li><a href="https://github.com/gclinian/smurg">GitHub</a></li>
+        <li><a href="/docs/">文件</a></li>
         <li class="lang"><a href="/" hreflang="en" lang="en">English</a></li>
       </ul>
     </nav>
@@ -51,7 +51,7 @@
 <main id="main">
 
 <section class="hero wrap" aria-labelledby="hero-title">
-  <p class="eyebrow"><span class="chip">v0.1.0 原型</span> <span>開放原始碼 · macOS 與 Linux</span></p>
+  <p class="eyebrow"><span class="chip">v0.1.0 原型</span> <span>原型期間免費 · macOS 與 Linux</span></p>
   <h1 id="hero-title">架在你自己電腦上的<wbr>即時工作區，<wbr>讓組員和 Claude&nbsp;Code <wbr>一起工作。</h1>
   <p class="lede">用 <code>smurg host</code> 分享一個專案資料夾：組員用瀏覽器加入，和你即時編輯檔案，一起看和指揮在你電腦上執行的 Claude Code session；中間的 relay 只轉送端對端加密後的資料。</p>
 
@@ -62,7 +62,7 @@
       <button type="button" class="copy" data-copy="install-cmd" data-done="已複製" data-fail="請按 ⌘C 或 Ctrl+C" hidden>複製</button>
     </div>
     <p class="visually-hidden" role="status" id="copy-status"></p>
-    <p class="install-note">支援 macOS（Apple silicon、Intel）與 Linux（x64、arm64，glibc）。安裝程式從 GitHub Releases 下載單一執行檔，只在 sha256 與這個版本的 <code>SHA256SUMS</code> 相符時，才安裝到 <code>~/.local/bin/smurg</code>。不需要 Node.js。</p>
+    <p class="install-note">支援 macOS（Apple silicon、Intel）與 Linux（x64、arm64，glibc）。安裝程式從 <code>downloads.smurg.ai</code> 下載單一執行檔，只在 sha256 與這個版本的 <code>SHA256SUMS</code> 相符時，才安裝到 <code>~/.local/bin/smurg</code>。不需要 Node.js。</p>
     <p class="ui-note">收到邀請連結了嗎？用 Chrome 打開就好，不需要安裝任何東西。</p>
   </div>
 
@@ -361,7 +361,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>relay 看得到什麼</h3>
-        <p>每條連線是哪個 Google 帳號（帳號 ID、名稱、大頭貼；登入時 Google 也會給 relay 帳號的 email，只有帳號沒有名稱時拿來當顯示名稱）、從哪個 IP 位址連線、連到哪個工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。看不到檔案內容、檔名、終端機畫面、指令、邀請連結的密鑰或任何金鑰。它只保存每個工作區的代碼和主人是哪個帳號。架設 relay 的人和 Cloudflare 也看得到同樣的內容。</p>
+        <p>每條連線是哪個 Google 帳號（帳號 ID、名稱、大頭貼；登入時 Google 也會給 relay 帳號的 email，只有帳號沒有名稱時拿來當顯示名稱）、從哪個 IP 位址連線、連到哪個工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。看不到檔案內容、檔名、終端機畫面、指令、邀請連結的密鑰或任何金鑰。它只保存每個工作區的代碼和主人是哪個帳號。架設 relay 的 smurg 維護者和 Cloudflare 也看得到同樣的內容。</p>
       </div>
     </div>
 
@@ -374,7 +374,7 @@ smurg host ~/projects/my-app</code></pre>
         <li>網頁版由 relay 提供。和所有在瀏覽器裡做的端對端加密一樣，被竄改的網頁可能洩漏金鑰；CLI 沒有這個問題。</li>
         <li>沙盒沒有限制記憶體、磁碟空間和 CPU：組員的程序可能讓主人的電腦變慢。</li>
       </ul>
-      <p class="more"><a href="https://github.com/gclinian/smurg/blob/main/docs/HOSTING.md">分享之前，請先讀主人指南</a></p>
+      <p class="more"><a href="/docs/hosting/">分享之前，請先讀主人指南</a></p>
     </div>
   </div>
 </section>
@@ -405,27 +405,28 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <div>
           <dt>relay</dt>
-          <dd>公用 relay 使用 Cloudflare 的免費方案，請合理使用：所有人共用每天的用量上限，用完時到台灣時間早上 8 點（UTC 0 點）之前，所有人都無法連線。需要大量使用時，可以用自己的 Cloudflare 帳號架設 relay。</dd>
+          <dd>公用 relay 使用 Cloudflare 的免費方案，請合理使用：所有人共用每天的用量上限，用完時到台灣時間早上 8 點（UTC 0 點）之前，所有人都無法連線。目前只有這一個 relay：relay 的原始碼沒有公開，所以無法自己架設。</dd>
         </div>
       </dl>
-      <p class="status">v0.1.0 是第一個公開版本，目前是原型。開發和測試都在 Apple silicon 的 macOS 上進行；Intel Mac 與 Linux 的執行檔由 GitHub Actions 建置並跑冒煙測試。已知限制列在<a href="https://github.com/gclinian/smurg/blob/main/CHANGELOG.md">變更紀錄</a>裡。</p>
+      <p class="status">v0.1.0 是第一個公開版本，目前是原型。開發和測試都在 Apple silicon 的 macOS 上進行；Intel Mac 與 Linux 的執行檔由 GitHub Actions 建置並跑冒煙測試。已知限制列在<a href="/docs/changelog/">變更紀錄</a>裡。</p>
     </div>
   </div>
 </section>
 
-<section class="section" id="source" aria-labelledby="source-title">
+<section class="section" id="docs" aria-labelledby="docs-title">
   <div class="wrap section-grid">
     <div>
       <p class="kicker">05</p>
-      <h2 id="source-title">開放原始碼</h2>
+      <h2 id="docs-title">文件</h2>
     </div>
     <div>
-      <p class="lead-text">smurg 以 Apache License 2.0 授權開放原始碼。程式碼、文件和發佈的執行檔都在 GitHub 上，你也可以用自己的 Cloudflare 帳號架設 relay。</p>
+      <p class="lead-text">主人指南說明怎麼安裝、分享資料夾、分享前要確認什麼，以及出問題時怎麼處理；組員指南說明怎麼加入、各種角色、一起編輯，以及和 agent 一起工作。</p>
       <ul class="links-list">
-        <li><a href="https://github.com/gclinian/smurg">github.com/gclinian/smurg</a></li>
-        <li><a href="https://github.com/gclinian/smurg/releases">發佈版本</a></li>
-        <li><a href="https://github.com/gclinian/smurg/blob/main/LICENSE">授權條款（Apache-2.0）</a></li>
-        <li><a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md">自己架設 relay</a></li>
+        <li><a href="/docs/hosting/">主人指南</a></li>
+        <li><a href="/docs/joining/">組員指南</a></li>
+        <li><a href="/docs/changelog/">變更紀錄</a></li>
+        <li><a href="/license/">授權條款</a></li>
+        <li><a href="/third-party-notices.txt">第三方授權聲明</a></li>
       </ul>
     </div>
   </div>
@@ -440,12 +441,12 @@ smurg host ~/projects/my-app</code></pre>
     <div class="faq">
       <div>
         <h3>需要安裝 Node.js 嗎？</h3>
-        <p>不需要。安裝程式會下載為你的電腦建置的單一執行檔，安裝它不需要 sudo；要升級時，再執行一次同一行指令。只有要修改 smurg 本身的原始碼時，才需要 Node.js。用瀏覽器加入的組員不需要安裝任何東西。</p>
+        <p>不需要。安裝程式會下載為你的電腦建置的單一執行檔，安裝它不需要 sudo；要升級時，再執行一次同一行指令。用瀏覽器加入的組員不需要安裝任何東西。</p>
         <p>macOS 的執行檔只有 ad-hoc 簽章，沒有 Apple 的開發者簽章（Developer ID）。請用上面那行指令安裝：安裝程式驗證 sha256 之後，會移除 quarantine 標記。用瀏覽器下載的執行檔會被 Gatekeeper 擋下。</p>
       </div>
       <div>
         <h3>relay 看得到什麼？</h3>
-        <p>每條連線的 Google 帳號（帳號 ID、名稱、大頭貼；登入時還有 email）和 IP 位址、工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。檔案、檔名、終端機畫面、指令和金鑰，都在主人的電腦和每位組員之間端對端加密。連這些都不想讓別人知道的話，可以自己架設 relay。</p>
+        <p>每條連線的 Google 帳號（帳號 ID、名稱、大頭貼；登入時還有 email）和 IP 位址、工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。檔案、檔名、終端機畫面、指令和金鑰，都在主人的電腦和每位組員之間端對端加密。目前沒有其他 relay 可以選：relay 的原始碼沒有公開，主人無法自己架設。如果一個專案連這些都不能讓別人知道，就不要用 smurg 分享它。</p>
       </div>
       <div>
         <h3>組員需要自己的 Claude 帳號嗎？</h3>
@@ -453,8 +454,12 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>Linux 有什麼要注意的？</h3>
-        <p>主人的電腦是 Linux 時，組員的 session 預設只能在自己的 git worktree 裡執行，所以分享的資料夾必須是 git repository，組員才能開 session。<code>smurg host</code> 加上 <code>--allow-main-workspace-guests</code> 選項分享時，組員也能在共享主工作區開 session，開始訊息會列出隨之而來的限制（<a href="https://github.com/gclinian/smurg/blob/main/docs/HOSTING.md">主人指南</a> §4、§5）。</p>
+        <p>主人的電腦是 Linux 時，組員的 session 預設只能在自己的 git worktree 裡執行，所以分享的資料夾必須是 git repository，組員才能開 session。<code>smurg host</code> 加上 <code>--allow-main-workspace-guests</code> 選項分享時，組員也能在共享主工作區開 session，開始訊息會列出隨之而來的限制（<a href="/docs/hosting/">主人指南</a> §4、§5）。</p>
         <p>客人沙盒需要 bubblewrap 0.8 以上、socat 和 ripgrep：Ubuntu 24.04、Debian 12 以上都可以；Ubuntu 22.04 的 bubblewrap 太舊，組員的 session 無法啟動。安裝程式會檢查這些套件和 Ubuntu 的 AppArmor 限制，經你同意後才用 sudo 安裝缺少的部分。完整的測試在 Ubuntu 24.04 上通過，但還沒有人真的在 Linux 上當過主人。</p>
+      </div>
+      <div>
+        <h3>看得到原始碼嗎？</h3>
+        <p>看不到，原始碼沒有公開。執行檔在原型階段可以免費下載和使用，條款見<a href="/license/">授權條款</a>。smurg 用到的其他專案的元件，依它們各自的授權條款提供，列在執行檔的<a href="/third-party-notices.txt">第三方授權聲明</a>和<a href="https://app.smurg.ai/third-party-notices.txt">網頁版的第三方授權聲明</a>。</p>
       </div>
       <div>
         <h3>支援哪些瀏覽器？</h3>
@@ -472,13 +477,13 @@ smurg host ~/projects/my-app</code></pre>
 
 <footer class="site-footer">
   <div class="wrap footer-row">
-    <p>smurg 以 Apache License 2.0 授權開放原始碼。</p>
+    <p>smurg 的執行檔在原型階段可以免費下載和使用。</p>
     <nav aria-label="頁尾">
       <ul>
-        <li><a href="https://github.com/gclinian/smurg">GitHub</a></li>
-        <li><a href="https://github.com/gclinian/smurg/releases">發佈版本</a></li>
-        <li><a href="https://github.com/gclinian/smurg/tree/main/docs">文件</a></li>
-        <li><a href="https://github.com/gclinian/smurg/blob/main/CHANGELOG.md">變更紀錄</a></li>
+        <li><a href="/docs/">文件</a></li>
+        <li><a href="/docs/changelog/">變更紀錄</a></li>
+        <li><a href="/license/">授權條款</a></li>
+        <li><a href="/third-party-notices.txt">第三方授權聲明</a></li>
         <li><a href="https://app.smurg.ai/">網頁版</a></li>
         <li><a href="/" hreflang="en" lang="en">English</a></li>
       </ul>

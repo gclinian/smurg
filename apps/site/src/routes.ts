@@ -1,11 +1,13 @@
 // The redirects of smurg.ai, apart from the Worker entry (src/index.ts): workerd treats every named export of the
-// entry module as an entrypoint, so constants and helpers live here, where the tests import them too.
+// entry module as an entrypoint, so constants and helpers live here, where the tests and the build import them too.
 //
-//   /install.sh          302  the latest release's install.sh on GitHub (it downloads from GitHub, checks SHA256SUMS)
-//   /github              302  the repository
-//   /docs                302  the repository's docs folder
-//   /docs/<file>         302  that file in the repository's docs folder (plain names only)
+//   /install.sh          302  https://downloads.smurg.ai/latest/install.sh (the newest release's installer, whose
+//                             base URL is pinned to that release's downloads.smurg.ai/v<X.Y.Z>/; it checks SHA256SUMS)
 //   www.smurg.ai/<path>  301  https://smurg.ai/<path>  (query kept; defence in depth, see below)
+//
+// Everything else is a static file of dist/ (scripts/build.ts: public/ plus the docs pages generated from the
+// repository): /, /zh-TW/, /docs/…, /license/, /third-party-notices.txt and the 404 pages. The source repository is
+// private, so nothing here points at GitHub any more (/github and the /docs redirects to GitHub are gone).
 //
 // The Worker runs only for the paths in WORKER_PATHS (wrangler.jsonc `assets.run_worker_first`, kept equal by
 // test/config.test.ts). Everything else, the pages, the stylesheet, the script, the icon and the 404 page for unknown
@@ -15,32 +17,16 @@
 // anyway (defence in depth).
 
 export const CANONICAL_HOST = 'smurg.ai';
-export const REPOSITORY = 'https://github.com/gclinian/smurg';
-export const INSTALL_SCRIPT = `${REPOSITORY}/releases/latest/download/install.sh`;
-export const DOCS = `${REPOSITORY}/tree/main/docs`;
-/** Prefix of a file in the docs folder. */
-export const DOCS_FILE_BASE = `${REPOSITORY}/blob/main/docs/`;
+/** The release downloads (Cloudflare R2 behind a custom domain; docs/RELEASING.md). */
+export const DOWNLOADS = 'https://downloads.smurg.ai';
+/** The newest release's installer: `curl -fsSL https://smurg.ai/install.sh | sh` runs it. */
+export const INSTALL_SCRIPT = `${DOWNLOADS}/latest/install.sh`;
 
 /** Exact paths that redirect; 302 so the targets can change without stale browser caches. */
-export const REDIRECTS: ReadonlyMap<string, string> = new Map([
-  ['/install.sh', INSTALL_SCRIPT],
-  ['/github', REPOSITORY],
-  ['/github/', REPOSITORY],
-  ['/docs', DOCS],
-  ['/docs/', DOCS],
-]);
+export const REDIRECTS: ReadonlyMap<string, string> = new Map([['/install.sh', INSTALL_SCRIPT]]);
 
-/**
- * The `run_worker_first` patterns (wrangler.jsonc): every redirect path above, and everything under /docs/. wrangler
- * refuses a pattern that another one already covers, so `/docs/` is left to `/docs/*`.
- */
-export const WORKER_PATHS: readonly string[] = ['/install.sh', '/github', '/github/', '/docs', '/docs/*'];
-
-/**
- * A path under /docs/ that is forwarded to GitHub: plain names only. No segment starts with a dot (so no `..`, no
- * `.git`), no empty segment, no percent-encoding.
- */
-const DOCS_FILE = /^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$/;
+/** The `run_worker_first` patterns (wrangler.jsonc): every redirect path above, nothing else. */
+export const WORKER_PATHS: readonly string[] = ['/install.sh'];
 
 /** The static-assets binding (wrangler.jsonc `assets.binding`). */
 export interface Env {
@@ -77,11 +63,6 @@ export function route(request: Request): Response | null {
 
   const location = REDIRECTS.get(url.pathname);
   if (location !== undefined) return redirect(location, 302, 300);
-
-  if (url.pathname.startsWith('/docs/')) {
-    const file = url.pathname.slice('/docs/'.length).replace(/\/$/, '');
-    if (DOCS_FILE.test(file)) return redirect(`${DOCS_FILE_BASE}${file}`, 302, 300);
-  }
 
   return null;
 }

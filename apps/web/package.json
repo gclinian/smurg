@@ -2,8 +2,7 @@
   "name": "@smurg/web",
   "version": "0.1.0",
   "private": true,
-  "license": "Apache-2.0",
-  "repository": "github:gclinian/smurg",
+  "license": "UNLICENSED",
   "type": "module",
   "description": "smurg web app: React + Vite SPA (Monaco, Yjs, xterm.js). Served by the relay Worker in production.",
   "exports": {

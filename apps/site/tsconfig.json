@@ -1,11 +1,12 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    // The Worker uses only Request, Response and URL, which the DOM library declares; the tests run in Node.
+    // The Worker uses only Request, Response and URL, which the DOM library declares; the build and the tests run in
+    // Node.
     "lib": ["ES2023", "DOM"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "types": ["node"]
   },
-  "include": ["src", "test", "vitest.config.ts"]
+  "include": ["src", "scripts", "test", "vitest.config.ts"]
 }

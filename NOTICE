@@ -1,2 +1,7 @@
 smurg
-Copyright 2026 gclinian
+Copyright (c) 2026 <COPYRIGHT HOLDER>. All rights reserved. The terms are in LICENSE.
+
+The third-party software smurg contains, with its licenses and notices (generated, never edited by hand:
+node scripts/third-party-notices.ts):
+  packages/cli/THIRD-PARTY-NOTICES.txt      the smurg executable (the Node.js runtime's LICENSE is added when it is built)
+  apps/web/public/third-party-notices.txt   the web app (https://app.smurg.ai/third-party-notices.txt)

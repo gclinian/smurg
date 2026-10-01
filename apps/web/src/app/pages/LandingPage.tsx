@@ -13,6 +13,11 @@ import { Link } from '../navigation.tsx';
 import { useAppServices } from '../services.tsx';
 import { ThemeMenu } from '../ThemeMenu.tsx';
 
+/** The user guides and smurg's license on the product site; the web app's own third-party notices on this origin. */
+const DOCS_URL = 'https://smurg.ai/docs/';
+const LICENSE_URL = 'https://smurg.ai/license/';
+const NOTICES_PATH = '/third-party-notices.txt';
+
 type Me = { readonly kind: 'loading' } | { readonly kind: 'anonymous' } | { readonly kind: 'user'; readonly user: RelayUser } | { readonly kind: 'error'; readonly message: string };
 
 export function LandingPage() {
@@ -124,6 +129,12 @@ export function LandingPage() {
           </div>
         </section>
       </main>
+      <footer className="app-landing__footer">
+        <a href={DOCS_URL}>{tApp('landing.footer.docs')}</a>
+        <a href={LICENSE_URL}>{tApp('landing.footer.license')}</a>
+        {/* Served by this origin from the web build (public/third-party-notices.txt), not an in-app route. */}
+        <a href={NOTICES_PATH}>{tApp('landing.footer.notices')}</a>
+      </footer>
     </div>
   );
 }

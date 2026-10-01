@@ -1,10 +1,11 @@
 # Open questions for the project owner
 
 Decisions left open after the review round of 2026-09-29 and the round that followed it the same day. Each entry gives
-the current behaviour, the options and a recommendation. **Q1 was decided on 2026-09-30 and Q2 decided and run** (the release
-plan, `docs/RELEASING.md`; Q2's owner question about the Linux sandbox's residuals was decided on 2026-10-01:
-main-workspace guest sessions are off by default on Linux, `docs/ARCHITECTURE.md` §11 D-14); Q3–Q11 and Q13 are not
-decided in code.
+the current behaviour, the options and a recommendation. **Q1 was decided on 2026-09-30 and its source and download
+parts replaced on 2026-10-01** (private source, public binaries on Cloudflare R2, a proprietary license), **Q2 decided
+and run** (the release plan, `docs/RELEASING.md`; Q2's owner question about the Linux sandbox's residuals was decided on
+2026-10-01: main-workspace guest sessions are off by default on Linux, `docs/ARCHITECTURE.md` §11 D-14); Q3–Q11 and
+Q13 are not decided in code; **Q14** (the copyright holder and a legal review of the license) is new.
 
 The two departures from SPEC.md's wording that the review round left **pending approval** were implemented on
 2026-09-29 as the project lead recommended, each behind a switch that is on by default (`docs/ARCHITECTURE.md` §11):
@@ -22,17 +23,44 @@ not depart from SPEC.md's wording; they are listed in the order the owner may wa
 
 ---
 
-## Q1. Releases: hosting, build matrix, signing, an operated relay (review CLI-01, SPEC R1 「一行指令安裝」) — **decided 2026-09-30**
+## Q1. Releases: hosting, build matrix, signing, an operated relay (review CLI-01, SPEC R1 「一行指令安裝」) — **decided 2026-09-30; source, downloads and license replaced 2026-10-01**
 
-**Decision (project owner, 2026-09-30).** Runbook: `docs/RELEASING.md`.
+**Decision (project owner, 2026-10-01), replacing the "public GitHub repository" plan of 2026-09-30.** Runbook:
+`docs/RELEASING.md`.
 
-- **Source**: GitHub `gclinian/smurg`, created private and switched to **public** once a release is verified;
-  license Apache-2.0.
-- **Downloads**: **GitHub Releases** (R2 and other object storage are not used). The one-line install is
-  `curl -fsSL https://smurg.ai/install.sh | sh` (decided 2026-10-01; smurg.ai, `apps/site`, answers it with a 302 to
-  `https://github.com/gclinian/smurg/releases/latest/download/install.sh`, which stays the fallback when smurg.ai is
-  unreachable); each release's `install.sh` has that release's download location filled in by
-  `scripts/release-assets.sh` and downloads only from GitHub Releases.
+- **Source**: GitHub `gclinian/smurg` **stays private**; it is never made public and nothing is pushed to a public place.
+- **License**: **proprietary** (`LICENSE`): "Copyright (c) 2026 <COPYRIGHT HOLDER>. All rights reserved." plus short
+  terms for the free executables and web app (free of charge during the prototype; no redistribution, modification or
+  reverse engineering except where the law allows; "as is"; third-party components under their own licenses). Every
+  `package.json` says `"license": "UNLICENSED"` and stays `"private": true`. The third-party notices are generated
+  from the dependency graph (`scripts/third-party-notices.ts`), embedded in the executable (`smurg licenses`), published
+  with each release and served by the web app and smurg.ai. The holder's name and a legal review are open: Q14.
+- **Downloads**: the executables are **public**, on **Cloudflare R2** (bucket `smurg-downloads`, custom domain
+  `https://downloads.smurg.ai`): `v<X.Y.Z>/` holds a release's four executables, `SHA256SUMS`, `install.sh` and
+  `THIRD-PARTY-NOTICES.txt` and is never overwritten; `latest/install.sh` (pinned to the newest version) and
+  `latest/VERSION` are switched after every file of the version was verified through the public URL. The one-line
+  install stays `curl -fsSL https://smurg.ai/install.sh | sh`; smurg.ai answers it with a 302 to
+  `https://downloads.smurg.ai/latest/install.sh`. There is no GitHub fallback (release downloads of a private
+  repository need a login). GitHub Actions still builds on a tag and keeps a GitHub release in the private repository
+  as the internal record; a person (owner or lead) uploads with the repository's wrangler login, so no Cloudflare token
+  is stored in GitHub.
+- **User docs** move to `https://smurg.ai/docs/` (HOSTING, JOINING and the CHANGELOG rendered at build time, in
+  Traditional Chinese), with `/license/` and `/third-party-notices.txt`. The internal docs (ARCHITECTURE, RELEASING,
+  ACCEPTANCE, this file, research) are not published.
+- **Consequences** (stated in HOSTING §2, ARCHITECTURE §12): nobody outside the project can deploy a relay of their own
+  (`apps/relay` is private), so the D-5 advice "hosts who cannot accept what the shared relay sees deploy their own
+  relay" has no path for them; `--relay` stays for relays the owner runs. A private repository does not keep the code
+  secret (the executables contain the JavaScript program, the web app's code is public by nature): the license is what
+  protects it. GitHub Actions minutes are billed on a private repository (`docs/RELEASING.md`).
+
+What the decision of 2026-09-30 said about the source and downloads (superseded):
+
+- ~~**Source**: created private and switched to **public** once a release is verified; license Apache-2.0.~~
+- ~~**Downloads**: **GitHub Releases** (R2 and other object storage are not used), with the GitHub URL
+  `releases/latest/download/install.sh` as the fallback of the one-line install.~~
+
+The rest of the decision of 2026-09-30 stands:
+
 - **Build matrix**: GitHub Actions on a tag `v*` (`.github/workflows/release.yml`), each target on its own runner:
   macOS Apple Silicon (`macos-15`), macOS Intel (`macos-15-intel`), Linux x64 (`ubuntu-24.04`), Linux arm64
   (`ubuntu-24.04-arm`). The plan named `macos-14` and `macos-13`; neither is usable: `macos-13` was retired on
@@ -52,20 +80,21 @@ not depart from SPEC.md's wording; they are listed in the order the owner may wa
   hostname is off now). It is the CLI's built-in default relay (`DEFAULT_RELAY_URL`; the release workflow refuses a
   tag while it is unset or the user docs do not name it), which ends "no default relay" (review CLI-12: the reason was
   that a guessed domain would receive logins; an operated one does not have that problem). **Login: Google only**,
-  with an OAuth client the owner creates. Self-hosted relays still deploy to their own account's workers.dev by
-  default (`apps/relay/README.md`).
+  with an OAuth client the owner creates. (Self-hosted relays by other people are no longer possible since the
+  source stays private, 2026-10-01; another relay the owner runs deploys to its account's workers.dev by default,
+  `apps/relay/README.md`.)
 - **Domain** (2026-10-01): `smurg.ai` on the same Cloudflare account. `https://smurg.ai` is the product page
   (`apps/site`, the Worker's one custom domain; `www.smurg.ai` is redirected to it by a zone Redirect Rule, never a
-  custom domain). **Deployed 2026-10-01**, before the first release, at the owner's request ("deploy first"); until
-  the first release is published and the repository is public, its install line and its links into the repository
-  end in a 404 (`docs/RELEASING.md` §4.1, §6). `https://app.smurg.ai` is the shared relay and web app.
+  custom domain). **Deployed 2026-10-01**, before the first release, at the owner's request ("deploy first"); its
+  install line works once the first release is on `https://downloads.smurg.ai` and the site is redeployed with the
+  new redirect (`docs/RELEASING.md`). `https://app.smurg.ai` is the shared relay and web app.
 - **First version**: v0.1.0.
 
-**Still open** (none blocks v0.1.0):
+**Still open** (none of these blocks v0.1.0; the copyright holder does: Q14):
 
 1. **Signed checksums**: `SHA256SUMS` comes from the same release as the executables, so a compromised GitHub account
-   or workflow could publish matching ones. A minisign or Sigstore signature with a key pinned in `install.sh` would
-   close that.
+   or workflow, or the Cloudflare account that holds the bucket, could publish matching ones. A minisign or Sigstore
+   signature with a key pinned in `install.sh` would close that.
 2. **Developer ID signing and notarization**, if Gatekeeper starts to stop curl-installed ad-hoc binaries or a
    browser-download path is wanted.
 3. **Free → Paid plan** when usage says so (estimate in `docs/RELEASING.md` §8: a class working at the same time is
@@ -357,3 +386,42 @@ state. Processes:
    file-size limit caps one file, not the disk.
 
 **Recommendation.** Option 1 for the prototype, option 2 and the disk part of option 3 at launch; not option 4.
+
+## Q14. The copyright holder, and a legal review of the license (decision of 2026-10-01, Q1)
+
+**Current state.** `LICENSE` says "Copyright (c) 2026 <COPYRIGHT HOLDER>. All rights reserved." followed by short
+terms the project wrote itself (free use during the prototype; no redistribution, modification, decompiling or reverse
+engineering except where the law allows; "as is" without warranty; third-party components under their own licenses).
+The placeholder stays until the owner names the holder: `scripts/release-assets.sh --publish-checks` (run before a
+tag is built) and the smurg.ai build refuse it, so **no release can be published until this is answered**. `NOTICE`
+carries the same placeholder.
+
+**To decide.**
+1. **Who holds the copyright**: the owner as a natural person (their legal name), or a company. The name goes into
+   `LICENSE` and `NOTICE` (nothing else needs to change: the notices files do not name the holder).
+2. **A legal review before the first public release.** The text is not legal advice. Points a lawyer should look at:
+   - the grant ("download, install and use, free of charge, while smurg is a prototype") and what happens after the
+     prototype (the terms do not say how they may change, or for how long a version's grant lasts);
+   - the reverse-engineering clause against the law of the users' countries (for example the EU's and Taiwan's
+     allowances for interoperability), and whether the warranty disclaimer needs a liability limitation and consumer-law
+     wording;
+   - whether the web app's use (people who only open an invite link) is covered by the same terms or needs its own
+     notice;
+   - the third-party obligations: every bundled package's license and notice files are reproduced (generated,
+     `scripts/third-party-notices.ts`); the Linux executables also contain srt's `apply-seccomp`, a program statically
+     linked with the GNU C Library (LGPL-2.1-or-later). Its notices name glibc and its source; whether LGPL's terms for
+     static linking need more (for example offering the object code of `apply-seccomp` for relinking, a written offer
+     of the source, or pointing at srt's source) is open. Facts for the reviewer (checked 2026-10-01 on
+     `@anthropic-ai/sandbox-runtime` 0.0.77, `vendor/seccomp/{x64,arm64}/apply-seccomp`): both are statically linked,
+     stripped ELF executables whose only toolchain string is `GCC: (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0`, so they
+     were built on Ubuntu 24.04, whose GNU C Library is **glibc 2.39** (Ubuntu's source package `glibc`, series noble:
+     https://launchpad.net/ubuntu/+source/glibc; upstream https://sourceware.org/glibc/). The binaries do not name the
+     exact Ubuntu package revision. They do not contain libseccomp (no `seccomp_*` symbols: srt compiles its BPF filter
+     at build time with a separate generator that links libseccomp, and embeds only the filter bytes). The source of
+     `apply-seccomp` is not in the npm package; srt's build script (`vendor/seccomp/build.ts`) compiles it from
+     `vendor/seccomp-src` of srt's repository (https://github.com/anthropics/sandbox-runtime, Apache-2.0). Two packages
+     (`@xterm/headless`, `@xterm/addon-serialize`) are published without a license file; the notices reproduce the
+     xterm.js repository's MIT license for them.
+
+**Recommendation.** Name the holder now (it blocks the release), and have `LICENSE` and the notices reviewed before
+v0.1.0 is announced publicly.

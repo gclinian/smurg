@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>smurg: a real-time workspace for your team and Claude Code</title>
-<meta name="description" content="Share a project folder from your own computer. Teammates edit files with you in real time and watch and steer Claude Code sessions on your machine. End-to-end encrypted, open source, macOS and Linux.">
+<meta name="description" content="Share a project folder from your own computer. Teammates edit files with you in real time and watch and steer Claude Code sessions on your machine. End-to-end encrypted, for macOS and Linux, free during the prototype.">
 <link rel="canonical" href="https://smurg.ai/">
 <link rel="alternate" hreflang="en" href="https://smurg.ai/">
 <link rel="alternate" hreflang="zh-TW" href="https://smurg.ai/zh-TW/">
@@ -17,7 +17,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="smurg">
 <meta property="og:title" content="smurg: a real-time workspace for your team and Claude Code">
-<meta property="og:description" content="Share a project folder from your own computer. Teammates edit files with you and watch and steer Claude Code sessions on your machine. End-to-end encrypted, open source.">
+<meta property="og:description" content="Share a project folder from your own computer. Teammates edit files with you and watch and steer Claude Code sessions on your machine. End-to-end encrypted.">
 <meta property="og:url" content="https://smurg.ai/">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="zh_TW">
@@ -41,7 +41,7 @@
         <li class="jump"><a href="#features">Features</a></li>
         <li class="jump"><a href="#security">Security</a></li>
         <li class="jump"><a href="#faq">FAQ</a></li>
-        <li><a href="https://github.com/gclinian/smurg">GitHub</a></li>
+        <li><a href="/docs/">Docs</a></li>
         <li class="lang"><a href="/zh-TW/" hreflang="zh-TW" lang="zh-TW">繁體中文</a></li>
       </ul>
     </nav>
@@ -51,7 +51,7 @@
 <main id="main">
 
 <section class="hero wrap" aria-labelledby="hero-title">
-  <p class="eyebrow"><span class="chip">v0.1.0 prototype</span> <span>Open source · macOS and Linux</span></p>
+  <p class="eyebrow"><span class="chip">v0.1.0 prototype</span> <span>Free during the prototype · macOS and Linux</span></p>
   <h1 id="hero-title">A real-time workspace for your team and Claude&nbsp;Code, hosted on your own computer.</h1>
   <p class="lede">Share a project folder with <code>smurg host</code>: teammates join from a browser, edit files with you in real time, and watch and steer the Claude Code sessions on your machine, while the relay in between only forwards end-to-end encrypted data.</p>
 
@@ -62,7 +62,7 @@
       <button type="button" class="copy" data-copy="install-cmd" data-done="Copied" data-fail="Press ⌘C or Ctrl+C" hidden>Copy</button>
     </div>
     <p class="visually-hidden" role="status" id="copy-status"></p>
-    <p class="install-note">For macOS (Apple silicon, Intel) and Linux (x64, arm64, glibc). The script downloads one executable from GitHub Releases and installs it to <code>~/.local/bin/smurg</code> only if its SHA-256 matches the release’s <code>SHA256SUMS</code>. No Node.js needed.</p>
+    <p class="install-note">For macOS (Apple silicon, Intel) and Linux (x64, arm64, glibc). The script downloads one executable from <code>downloads.smurg.ai</code> and installs it to <code>~/.local/bin/smurg</code> only if its SHA-256 matches the release’s <code>SHA256SUMS</code>. No Node.js needed.</p>
     <p class="ui-note">Got an invite link? Open it in Chrome; there is nothing to install. The app’s interface is currently in Traditional Chinese; English is coming.</p>
   </div>
 
@@ -361,7 +361,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>What the relay sees</h3>
-        <p>Which Google account each connection belongs to (its ID, name and picture; at sign-in Google also gives the relay the account’s email, used as the display name only when the account has no name), its IP address, the workspace code, and the size and time of each message, so it can tell who worked with whom, and when. Not file contents, file names, terminal output, commands, the invite secret or any key. It keeps only each workspace’s code and its owner’s account. Whoever runs the relay, and Cloudflare, can see the same.</p>
+        <p>Which Google account each connection belongs to (its ID, name and picture; at sign-in Google also gives the relay the account’s email, used as the display name only when the account has no name), its IP address, the workspace code, and the size and time of each message, so it can tell who worked with whom, and when. Not file contents, file names, terminal output, commands, the invite secret or any key. It keeps only each workspace’s code and its owner’s account. smurg’s maintainer, who runs the relay, and Cloudflare can see the same.</p>
       </div>
     </div>
 
@@ -374,7 +374,7 @@ smurg host ~/projects/my-app</code></pre>
         <li>The web app is served by the relay. As with any end-to-end encryption in a browser, a tampered app could leak keys; the CLI doesn’t have this problem.</li>
         <li>The sandbox doesn’t limit memory, disk or CPU: a teammate’s processes can slow down the host’s computer.</li>
       </ul>
-      <p class="more"><a href="https://github.com/gclinian/smurg/blob/main/docs/HOSTING.md">Read the host guide before you share</a></p>
+      <p class="more"><a href="/docs/hosting/">Read the host guide before you share</a> (in Traditional Chinese)</p>
     </div>
   </div>
 </section>
@@ -405,27 +405,29 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <div>
           <dt>Relay</dt>
-          <dd>The shared relay runs on Cloudflare’s free plan and is for fair use: everyone shares one daily quota, and when it runs out nobody can connect until 00:00 UTC (08:00 in Taiwan). For heavy use, run your own relay on your own Cloudflare account.</dd>
+          <dd>The shared relay runs on Cloudflare’s free plan and is for fair use: everyone shares one daily quota, and when it runs out nobody can connect until 00:00 UTC (08:00 in Taiwan). It is the only relay for now: its source isn’t public, so you can’t run your own.</dd>
         </div>
       </dl>
-      <p class="status">v0.1.0 is the first public release, a prototype. It was developed and tested on macOS on Apple silicon; the Intel Mac and Linux builds are built and smoke-tested on GitHub Actions. Known limits are listed in the <a href="https://github.com/gclinian/smurg/blob/main/CHANGELOG.md">changelog</a>.</p>
+      <p class="status">v0.1.0 is the first public release, a prototype. It was developed and tested on macOS on Apple silicon; the Intel Mac and Linux builds are built and smoke-tested on GitHub Actions. Known limits are listed in the <a href="/docs/changelog/">changelog</a>.</p>
     </div>
   </div>
 </section>
 
-<section class="section" id="source" aria-labelledby="source-title">
+<section class="section" id="docs" aria-labelledby="docs-title">
   <div class="wrap section-grid">
     <div>
       <p class="kicker">05</p>
-      <h2 id="source-title">Open source</h2>
+      <h2 id="docs-title">Documentation</h2>
     </div>
     <div>
-      <p class="lead-text">smurg is open source under the Apache License 2.0. The code, the documentation and the release builds are on GitHub, and you can run your own relay on your own Cloudflare account.</p>
+      <p class="lead-text">The host guide covers installing, sharing a folder, what to check before you share and what to do when something goes wrong; the guide for teammates covers joining, roles, editing together and working with agents.</p>
+      <p class="ui-note">The guides are in Traditional Chinese for now.</p>
       <ul class="links-list">
-        <li><a href="https://github.com/gclinian/smurg">github.com/gclinian/smurg</a></li>
-        <li><a href="https://github.com/gclinian/smurg/releases">Releases</a></li>
-        <li><a href="https://github.com/gclinian/smurg/blob/main/LICENSE">Licence (Apache-2.0)</a></li>
-        <li><a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md">Run your own relay</a></li>
+        <li><a href="/docs/hosting/">Host guide</a></li>
+        <li><a href="/docs/joining/">Guide for teammates</a></li>
+        <li><a href="/docs/changelog/">Changelog</a></li>
+        <li><a href="/license/">License</a></li>
+        <li><a href="/third-party-notices.txt">Third-party notices</a></li>
       </ul>
     </div>
   </div>
@@ -440,12 +442,12 @@ smurg host ~/projects/my-app</code></pre>
     <div class="faq">
       <div>
         <h3>Do I need Node.js?</h3>
-        <p>No. The installer downloads a single executable built for your computer; installing it needs no sudo, and to upgrade you run the same line again. Node.js is only needed to work on smurg’s own source code. Teammates who join in a browser install nothing.</p>
+        <p>No. The installer downloads a single executable built for your computer; installing it needs no sudo, and to upgrade you run the same line again. Teammates who join in a browser install nothing.</p>
         <p>The macOS executable has only an ad-hoc signature, not an Apple Developer ID. Install it with the line above: after checking the SHA-256, the installer removes the quarantine flag. A copy downloaded with a browser is blocked by Gatekeeper.</p>
       </div>
       <div>
         <h3>What does the relay see?</h3>
-        <p>The Google account of each connection (ID, name and picture; at sign-in also the email), its IP address, the workspace code, and the size and time of each message, so it can tell who worked with whom, and when. Files, file names, terminal output, commands and keys are end-to-end encrypted between the host’s computer and each teammate. If even that is too much, run your own relay.</p>
+        <p>The Google account of each connection (ID, name and picture; at sign-in also the email), its IP address, the workspace code, and the size and time of each message, so it can tell who worked with whom, and when. Files, file names, terminal output, commands and keys are end-to-end encrypted between the host’s computer and each teammate. There is no other relay to choose for now: the relay’s source isn’t public, so hosts can’t run their own. If what the relay sees is too much for a project, don’t share it with smurg.</p>
       </div>
       <div>
         <h3>Do teammates need their own Claude account?</h3>
@@ -453,8 +455,12 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>Anything to know about Linux?</h3>
-        <p>On a Linux host, teammates’ sessions run only in their own git worktree by default, so the shared folder must be a git repository for them to start sessions. With the <code>--allow-main-workspace-guests</code> option, <code>smurg host</code> opens the main workspace to them too, and the start message lists the limits that come with it (<a href="https://github.com/gclinian/smurg/blob/main/docs/HOSTING.md">host guide</a>, §4 and §5).</p>
+        <p>On a Linux host, teammates’ sessions run only in their own git worktree by default, so the shared folder must be a git repository for them to start sessions. With the <code>--allow-main-workspace-guests</code> option, <code>smurg host</code> opens the main workspace to them too, and the start message lists the limits that come with it (<a href="/docs/hosting/">host guide</a>, §4 and §5).</p>
         <p>The guest sandbox needs bubblewrap 0.8 or later, socat and ripgrep: Ubuntu 24.04 and Debian 12 or later are fine, while Ubuntu 22.04’s bubblewrap is too old for teammates’ sessions. The installer checks for these and for Ubuntu’s AppArmor restriction, and installs what is missing with sudo only if you agree. The full test suite passes on Ubuntu 24.04, but nobody has hosted a real workspace on Linux yet.</p>
+      </div>
+      <div>
+        <h3>Can I see the source code?</h3>
+        <p>No, the source code is not public. The executables are free to download and use during the prototype, under the terms of the <a href="/license/">license</a>. The components smurg is built from keep their own licenses, listed in the <a href="/third-party-notices.txt">third-party notices</a> of the executables and in those of the <a href="https://app.smurg.ai/third-party-notices.txt">web app</a>.</p>
       </div>
       <div>
         <h3>Which browsers work?</h3>
@@ -472,13 +478,13 @@ smurg host ~/projects/my-app</code></pre>
 
 <footer class="site-footer">
   <div class="wrap footer-row">
-    <p>smurg is open source under the Apache License 2.0.</p>
+    <p>The smurg executables are free to download and use during the prototype.</p>
     <nav aria-label="Footer">
       <ul>
-        <li><a href="https://github.com/gclinian/smurg">GitHub</a></li>
-        <li><a href="https://github.com/gclinian/smurg/releases">Releases</a></li>
-        <li><a href="https://github.com/gclinian/smurg/tree/main/docs">Docs</a></li>
-        <li><a href="https://github.com/gclinian/smurg/blob/main/CHANGELOG.md">Changelog</a></li>
+        <li><a href="/docs/">Docs</a></li>
+        <li><a href="/docs/changelog/">Changelog</a></li>
+        <li><a href="/license/">License</a></li>
+        <li><a href="/third-party-notices.txt">Third-party notices</a></li>
         <li><a href="https://app.smurg.ai/">Web app</a></li>
         <li><a href="/zh-TW/" hreflang="zh-TW" lang="zh-TW">繁體中文</a></li>
       </ul>

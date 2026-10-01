@@ -216,6 +216,18 @@
   color: var(--color-text-muted);
   margin-top: var(--space-3);
 }
+.app-landing__footer {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 var(--space-6) var(--space-8);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+  font-size: var(--text-sm);
+}
+.app-landing__footer a {
+  color: var(--color-text-muted);
+}
 .app-landing__signed-in {
   display: flex;
   align-items: center;

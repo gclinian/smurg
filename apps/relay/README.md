@@ -139,6 +139,10 @@ pnpm dev:web            # Vite 在 localhost:5173，把 relay 路徑代理到 87
 
 ## 部署到 Cloudflare
 
+**只有專案的維護者會部署 relay**：smurg 的原始碼（包括這個套件）不公開（2026-10-01 起，`docs/OPEN-QUESTIONS.md` Q1），
+所以專案以外的人無法自己架設 relay，主人都用公用 relay https://app.smurg.ai。下面「自己架設」的兩節是維護者另外架設
+一個 relay（例如測試用、另一個 Cloudflare 帳號）的步驟；`smurg login --relay <網址>` 用來連到這樣的 relay。
+
 relay 是一個 Cloudflare 帳號上的一個 Worker（Workers **Free** 方案），登入只用 Google（部署的人自己建立的 OAuth client）。
 網頁（`apps/web` 的建置結果）由同一個 Worker 提供，所以網頁、登入與 WebSocket 都在同一個 origin。relay **只有一個公開網址**，
 由 `wrangler.jsonc` 最上層決定，`scripts/deploy-relay.sh` 只接受下面兩種形式，其他的一律拒絕：
@@ -146,7 +150,7 @@ relay 是一個 Cloudflare 帳號上的一個 Worker（Workers **Free** 方案�
 | 形式 | `wrangler.jsonc` 最上層 | 網址 | 用在 |
 |---|---|---|---|
 | 自訂網域 | `"workers_dev": false`；`"routes"` 剛好一個 `{ "pattern": "<網域>", "custom_domain": true }`；`RELAY_ISSUER`、`ALLOWED_ORIGINS` 都是 `https://<網域>` | `https://<網域>` | **專案的公用 relay https://app.smurg.ai**（提交的 `wrangler.jsonc` 就是這個形式，2026-10-01 起；之前是 `https://smurg-relay.gclin-ian.workers.dev`，現在回 404）。網域的 zone 必須在同一個 Cloudflare 帳號 |
-| workers.dev | `"workers_dev": true`；沒有 `"routes"`；`RELAY_ISSUER`、`ALLOWED_ORIGINS` 第一次部署前是 `""` | `https://smurg-relay.<子網域>.workers.dev` | **自己架設時的預設**：不需要自己的網域 |
+| workers.dev | `"workers_dev": true`；沒有 `"routes"`；`RELAY_ISSUER`、`ALLOWED_ORIGINS` 第一次部署前是 `""` | `https://smurg-relay.<子網域>.workers.dev` | **另外架設的 relay（維護者，例如測試用）的預設**：不需要自己的網域 |
 
 兩種形式都關閉 `preview_urls`（每個版本都會多一個公開網址，而且連到同一批 Durable Object），也不會同時開著 workers.dev
 與自訂網域。
@@ -205,8 +209,8 @@ relay 是一個 Cloudflare 帳號上的一個 Worker（Workers **Free** 方案�
 
 ### 自己架設：workers.dev（預設）
 
-學校、團隊或任何人都可以在自己的 Cloudflare 帳號架設，不需要網域。提交的 `wrangler.jsonc` 是公用 relay 的設定，所以先改成
-workers.dev 的形式（只改這幾行）：
+維護者另外架設一個 relay（例如測試用）時，不需要網域。提交的 `wrangler.jsonc` 是公用 relay 的設定，所以先在另一份
+checkout 裡改成 workers.dev 的形式（只改這幾行，不要提交）：
 
 ```jsonc
 "workers_dev": true,          // 原本是 false

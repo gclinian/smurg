@@ -2,8 +2,7 @@
   "name": "@smurg/daemon",
   "version": "0.1.0",
   "private": true,
-  "license": "Apache-2.0",
-  "repository": "github:gclinian/smurg",
+  "license": "UNLICENSED",
   "type": "module",
   "description": "Host-side daemon: files, documents, locks, PTY sessions, sandbox, hooks, audit log.",
   "exports": {

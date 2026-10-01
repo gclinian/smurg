@@ -2,8 +2,7 @@
   "name": "@smurg/protocol",
   "version": "0.1.0",
   "private": true,
-  "license": "Apache-2.0",
-  "repository": "github:gclinian/smurg",
+  "license": "UNLICENSED",
   "type": "module",
   "description": "smurg wire protocol: constants, zod schemas, roles, Noise channel, framing, invite links, client SDK, relay control frames.",
   "exports": {

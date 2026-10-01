@@ -1,23 +1,14 @@
-// wrangler.jsonc, read by wrangler itself: where the site is served, and which requests run the Worker. Every request
-// that runs the Worker counts against the account's daily Workers Free quota, which the shared relay uses too
-// (docs/RELEASING.md §8), so the Worker runs first only for its own redirect paths.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// wrangler.jsonc, read by wrangler itself: where the site is served, what is built before a deploy, and which requests
+// run the Worker. Every request that runs the Worker counts against the account's daily Workers Free quota, which the
+// shared relay uses too (docs/RELEASING.md §8), so the Worker runs first only for its own redirect.
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { unstable_readConfig } from 'wrangler';
 import { REDIRECTS, WORKER_PATHS } from '../src/routes.ts';
+import { DIST, SITE_ROOT, testSite } from './html.ts';
 
-const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const PUBLIC = join(ROOT, 'public');
-const config = unstable_readConfig({ config: join(ROOT, 'wrangler.jsonc'), env: '' }, { hideWarnings: true });
-
-function files(dir = PUBLIC): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const path = join(dir, name);
-    return statSync(path).isDirectory() ? files(path) : [relative(PUBLIC, path).split('\\').join('/')];
-  });
-}
+const config = unstable_readConfig({ config: join(SITE_ROOT, 'wrangler.jsonc'), env: '' }, { hideWarnings: true });
 
 /** A run_worker_first pattern as wrangler matches it: `*` is any run of characters. */
 function matches(pattern: string, path: string): boolean {
@@ -30,7 +21,7 @@ describe('wrangler.jsonc', () => {
     expect(config.name).toBe('smurg-site');
     expect(config.main).toMatch(/[/\\]src[/\\]index\.ts$/);
     // The same date as apps/relay (<= the workerd of the repo's wrangler).
-    const relay = unstable_readConfig({ config: join(ROOT, '..', 'relay', 'wrangler.jsonc'), env: '' }, { hideWarnings: true });
+    const relay = unstable_readConfig({ config: join(SITE_ROOT, '..', 'relay', 'wrangler.jsonc'), env: '' }, { hideWarnings: true });
     expect(config.compatibility_date).toBe(relay.compatibility_date);
     expect(config.workers_dev).toBe(false);
     expect(config.preview_urls).toBe(false);
@@ -39,39 +30,48 @@ describe('wrangler.jsonc', () => {
     expect(config.routes).toEqual([{ pattern: 'smurg.ai', custom_domain: true }]);
   });
 
-  it('serves public/ with a real 404 page and trailing-slash handling', () => {
-    expect(resolve(ROOT, config.assets?.directory ?? '')).toBe(PUBLIC);
+  it('builds dist/ before every deploy, dry run and dev session, with this checkout’s scripts/build.ts', () => {
+    // wrangler runs the command from its own working directory: the path goes through SMURG_ROOT, and the shell
+    // stops with a message when scripts/env.sh was not sourced.
+    expect(config.build.command).toBe('node "${SMURG_ROOT:?run source scripts/env.sh first}/apps/site/scripts/build.ts"');
+    expect(config.build.cwd).toBeUndefined();
+  });
+
+  it('serves the built dist/ with a real 404 page and trailing-slash handling', () => {
+    expect(resolve(SITE_ROOT, config.assets?.directory ?? '')).toBe(DIST);
     expect(config.assets?.binding).toBe('ASSETS');
     expect(config.assets?.not_found_handling).toBe('404-page');
     expect(config.assets?.html_handling).toBe('auto-trailing-slash');
+    // dist/ is build output: the repository's .gitignore keeps it out of git.
+    expect(readFileSync(join(SITE_ROOT, '..', '..', '.gitignore'), 'utf8')).toMatch(/^dist\/$/m);
   });
 
-  it('runs the Worker first only for its redirect paths (src/routes.ts WORKER_PATHS)', () => {
+  it('runs the Worker first only for /install.sh (src/routes.ts WORKER_PATHS)', () => {
     expect(config.assets?.run_worker_first).toEqual([...WORKER_PATHS]);
-    for (const path of [...REDIRECTS.keys(), '/docs/HOSTING.md', '/docs/research/relay.md']) {
-      expect(WORKER_PATHS.some((pattern) => matches(pattern, path)), path).toBe(true);
-    }
-    // Every pattern is needed: none is covered by another (wrangler refuses redundant patterns).
-    for (const pattern of WORKER_PATHS) {
-      expect(WORKER_PATHS.filter((other) => other !== pattern && matches(other, pattern.replace('*', 'x'))), pattern).toEqual([]);
-    }
+    expect(WORKER_PATHS).toEqual(['/install.sh']);
+    for (const path of REDIRECTS.keys()) expect(WORKER_PATHS.some((pattern) => matches(pattern, path)), path).toBe(true);
   });
 
-  it('never runs the Worker for a page, the stylesheet, the script or the icon', () => {
-    const served = files().filter((path) => !path.startsWith('_'));
-    expect(served.length).toBeGreaterThan(5);
+  it('never runs the Worker for a page, a doc, the stylesheet, the script, the icon or the notices', () => {
+    const served = [...testSite().files.keys()].filter((path) => !path.startsWith('_'));
+    expect(served.length).toBeGreaterThan(10);
     for (const path of served) {
       const urls = [`/${path}`];
       if (path === 'index.html') urls.push('/');
-      if (path.endsWith('/index.html')) urls.push(`/${path.slice(0, -'index.html'.length)}`);
+      if (path.endsWith('/index.html')) urls.push(`/${path.slice(0, -'index.html'.length)}`, `/${path.slice(0, -'/index.html'.length)}`);
       for (const url of urls) expect(WORKER_PATHS.filter((pattern) => matches(pattern, url)), url).toEqual([]);
     }
   });
 
-  it('is documented in README.md: the redirect table, the quota rule and the www Redirect Rule', () => {
-    const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
-    for (const path of ['/install.sh', '/github', '/docs', '/docs/<file>']) expect(readme, path).toContain(`\`${path}\``);
-    expect(readme).toContain('run_worker_first');
-    expect(readme).toContain('Redirect Rule');
+  it('is documented in README.md: the paths, the build, the quota rule and the www Redirect Rule', () => {
+    const readme = readFileSync(join(SITE_ROOT, 'README.md'), 'utf8');
+    for (const path of ['/install.sh', '/docs/', '/docs/hosting/', '/docs/joining/', '/docs/changelog/', '/license/', '/third-party-notices.txt']) {
+      expect(readme, path).toContain(`\`${path}\``);
+    }
+    for (const word of ['run_worker_first', 'Redirect Rule', 'scripts/build.ts', 'SMURG_SITE_THIRD_PARTY_NOTICES', 'SMURG_SITE_ALLOW_PLACEHOLDER', '<COPYRIGHT HOLDER>']) {
+      expect(readme, word).toContain(word);
+    }
+    // No link into the private repository (it names github.com only to explain what the build refuses).
+    expect(readme).not.toMatch(/github\.com\/gclinian/i);
   });
 });

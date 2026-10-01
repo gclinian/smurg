@@ -79,8 +79,9 @@ describe('smurg CLI', () => {
 
   it('--help lists every command in zh-TW', async () => {
     const { stdout } = await run(process.execPath, [MAIN, '--help'], { timeout: 20_000 });
-    for (const command of ['host', 'attach', 'stop', 'status', 'login', 'logout']) expect(stdout).toContain(`  ${command}`);
+    for (const command of ['host', 'attach', 'stop', 'status', 'login', 'logout', 'licenses']) expect(stdout).toContain(`  ${command}`);
     expect(stdout).toContain('SMURG_HOME');
+    expect(stdout).toContain('https://smurg.ai/docs/');
   });
 });
 

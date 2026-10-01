@@ -17,10 +17,15 @@
 //  1. esbuild bundles packages/cli/src/main.ts into one CommonJS file. `import.meta.url` is defined as a variable the
 //     banner sets (ESM dependencies such as srt read it at load time and would crash on an empty import.meta), and
 //     `node-pty` / `@parcel/watcher` are replaced by small modules that load their native parts from the extracted
-//     cache (packages/cli/src/sea/native.ts).
+//     cache (packages/cli/src/sea/native.ts). The banner starts with the build marker `smurg-build-version=X.Y.Z;`
+//     (scripts/release-markers.ts), which the release checks read from each executable without running it; the
+//     bundle must not name the private repository (the executables are public).
 //  2. The native parts become SEA assets with a sha256 manifest: node-pty (lib + this platform's prebuild, including
 //     macOS's spawn-helper), @parcel/watcher's binding, the docs module's compute worker (bundled separately),
 //     srt's package.json (its version pin check) and, on Linux, srt's apply-seccomp.
+//     Licenses: packages/cli/THIRD-PARTY-NOTICES.txt must be up to date with pnpm-lock.yaml and list every package
+//     esbuild's metafile and the native assets name (scripts/third-party-notices.ts); LICENSE and the complete notices
+//     (that file with the LICENSE of the Node.js distribution of --node) become the assets `smurg licenses` prints.
 //  3. The blob is made by the SAME Node binary that becomes the executable (--node, default: the Node running this
 //     script, i.e. the 22 LTS that scripts/env.sh selects; releases use it too: .github/workflows/release.yml installs
 //     .nvmrc's Node on each runner, the Node the gate is verified with). Node >= 25.5 uses `node --build-sea`; older
@@ -29,12 +34,14 @@
 //  4. macOS: the copied node's signature is removed before injection and the result is signed ad hoc (an unsigned
 //     arm64 binary is killed at start).
 //  5. The executable must run here: `<out> --version` has to print `smurg <version> (…` (every platform, so a Linux
-//     build is proven to start on the machine that built it even with --no-smoke).
+//     build is proven to start on the machine that built it even with --no-smoke), and it must carry its build marker
+//     and the download URL of the Node.js release it is a copy of (only a warning when --node is not a release build).
 //  6. Smoke test (unless --no-smoke): packages/cli/test/sea.test.ts runs the binary: --version, NODE_OPTIONS ignored,
 //     `smurg hook` / `smurg mcp` (start-up time), login + host + a terminal session through `smurg attach` in a real
 //     PTY, and `smurg stop`.
 //
-// Output: packages/cli/dist/smurg-<platform>-<arch> (about 110 MiB) and its sha256 on stdout. Nothing is downloaded:
+// Output: packages/cli/dist/smurg-<platform>-<arch> (about 110 MiB) and its sha256 on stdout, and next to it
+// THIRD-PARTY-NOTICES.txt (the notices it embeds, for the release: scripts/release-assets.sh). Nothing is downloaded:
 // every input is already in node_modules, and the Node binary is one that is installed.
 //
 // What a build machine needs (each target is built on its own platform: the other platforms' optional dependencies are
@@ -56,6 +63,9 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSy
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { NOTICE_ASSETS } from '../packages/cli/src/licenses/notices.ts';
+import { buildMarker, markerProblems, markersOfFile, NODE_RELEASE_URL_PREFIX } from './release-markers.ts';
+import { bundledPackageOf, executableNotices, generateNotices, NOTICES_FILES, uncoveredPackages } from './third-party-notices.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CLI = join(ROOT, 'packages', 'cli');
@@ -72,7 +82,7 @@ interface EsbuildPluginBuild {
   onLoad(options: { filter: RegExp; namespace: string }, callback: (args: { path: string }) => { contents: string; loader: 'js'; resolveDir: string }): void;
 }
 interface Esbuild {
-  build(options: Record<string, unknown> & { plugins?: { name: string; setup(build: EsbuildPluginBuild): void }[] }): Promise<unknown>;
+  build(options: Record<string, unknown> & { plugins?: { name: string; setup(build: EsbuildPluginBuild): void }[] }): Promise<{ metafile?: { inputs: Record<string, unknown> } }>;
 }
 
 interface Options {
@@ -184,6 +194,8 @@ function packageDir(req: NodeJS.Require, name: string): string {
 interface Collected {
   readonly assets: Record<string, string>;
   readonly manifest: { id: string; files: Record<string, { sha256: string; mode: number }> };
+  /** The npm packages the native assets come from (checked against the third-party notices). */
+  readonly packages: readonly string[];
 }
 
 function collectNative(work: string, computeWorker: string): Collected {
@@ -237,7 +249,7 @@ function collectNative(work: string, computeWorker: string): Collected {
   const manifestPath = join(work, 'native-manifest.json');
   writeFileSync(manifestPath, JSON.stringify(manifest));
   assets['native/manifest.json'] = manifestPath;
-  return { assets, manifest };
+  return { assets, manifest, packages: ['node-pty', '@parcel/watcher', bindingPackage, '@anthropic-ai/sandbox-runtime'] };
 }
 
 async function main(): Promise<void> {
@@ -261,19 +273,33 @@ async function main(): Promise<void> {
   mkdirSync(work, { recursive: true });
   mkdirSync(dirname(options.out), { recursive: true });
 
+  // The third-party notices the executable carries (scripts/third-party-notices.ts): the committed file must be what
+  // pnpm-lock.yaml and node_modules give now, and it must list every package the bundle and the native assets contain.
+  if (readFileSync(join(ROOT, NOTICES_FILES.executable), 'utf8') !== generateNotices('executable')) {
+    throw new Error(`${NOTICES_FILES.executable} is out of date (pnpm-lock.yaml changed): run  node scripts/third-party-notices.ts  and commit the result`);
+  }
   const esbuild = cliRequire('esbuild') as Esbuild;
-  const common = { bundle: true, platform: 'node' as const, format: 'cjs' as const, target: `node${major}`, logLevel: 'warning' as const, legalComments: 'none' as const };
+  const common = { bundle: true, platform: 'node' as const, format: 'cjs' as const, target: `node${major}`, logLevel: 'warning' as const, legalComments: 'none' as const, metafile: true };
+  const bundled = new Set<string>();
+  const record = (result: { metafile?: { inputs: Record<string, unknown> } }): void => {
+    for (const input of Object.keys(result.metafile?.inputs ?? {})) {
+      const name = bundledPackageOf(input);
+      if (name !== null) bundled.add(name);
+    }
+  };
   // 1. the docs compute worker (its own thread, its own file)
   const computeWorker = join(work, 'compute-worker.cjs');
-  await esbuild.build({ ...common, entryPoints: [join(DAEMON, 'src', 'docs', 'compute-worker.ts')], outfile: computeWorker });
+  record(await esbuild.build({ ...common, entryPoints: [join(DAEMON, 'src', 'docs', 'compute-worker.ts')], outfile: computeWorker }));
   // 2. the whole CLI + daemon
   const bundle = join(work, 'smurg.cjs');
-  await esbuild.build({
+  const main = await esbuild.build({
     ...common,
     entryPoints: [join(CLI, 'src', 'main.ts')],
     outfile: bundle,
     define: { 'import.meta.url': '__smurgImportMetaUrl', __SMURG_BUILD_VERSION__: JSON.stringify(options.version) },
-    banner: { js: BANNER },
+    // The build marker first (scripts/release-markers.ts): release-assets.sh and publish-downloads.sh read the version
+    // of every executable from it, also of those that cannot run on the machine checking them.
+    banner: { js: `/* ${buildMarker(options.version)} */\n${BANNER}` },
     plugins: [
       {
         name: 'smurg-sea-native',
@@ -284,11 +310,32 @@ async function main(): Promise<void> {
       },
     ],
   });
+  record(main);
   process.stdout.write(`bundle: ${(statSync(bundle).size / 1048576).toFixed(1)} MiB, compute worker: ${(statSync(computeWorker).size / 1024).toFixed(0)} KiB\n`);
+  // The program is public (every release executable contains it): it must not name the private repository (esbuild
+  // inlines a whole package.json that the code imports, for example), and it carries exactly one build marker.
+  for (const file of [bundle, computeWorker]) {
+    const text = readFileSync(file, 'utf8');
+    const named = /gclinian\/smurg/i.exec(text);
+    if (named !== null) throw new Error(`${relative(ROOT, file)} names the private repository (…${text.slice(Math.max(0, named.index - 60), named.index + 40)}…): remove it from the source it comes from`);
+  }
+  const markerCount = readFileSync(bundle, 'utf8').split(buildMarker(options.version)).length - 1;
+  if (markerCount !== 1) throw new Error(`the bundle has ${markerCount} build markers (${buildMarker(options.version)}), not one`);
 
   // 3. assets + manifest
-  const { assets, manifest } = collectNative(work, computeWorker);
+  const { assets, manifest, packages: nativePackages } = collectNative(work, computeWorker);
   process.stdout.write(`native assets: ${Object.keys(manifest.files).length} files, id ${manifest.id}\n`);
+  for (const name of nativePackages) bundled.add(name);
+  const missing = uncoveredPackages('executable', bundled);
+  if (missing.length > 0) throw new Error(`the executable would contain ${missing.join(', ')}, which ${NOTICES_FILES.executable} does not list (scripts/third-party-notices.ts)`);
+  // smurg's LICENSE and the complete third-party notices (with the LICENSE of the Node.js that becomes the executable)
+  // as SEA assets for `smurg licenses`; the same notices next to the executable for the release.
+  const notices = executableNotices(options.node, nodeVersion);
+  const noticesPath = join(work, 'THIRD-PARTY-NOTICES.txt');
+  writeFileSync(noticesPath, notices);
+  assets[NOTICE_ASSETS.license] = join(ROOT, 'LICENSE');
+  assets[NOTICE_ASSETS.thirdParty] = noticesPath;
+  process.stdout.write(`notices: ${bundled.size} bundled packages listed in ${NOTICES_FILES.executable}, Node.js ${nodeVersion} LICENSE added\n`);
 
   // 4. the executable
   const seaConfigPath = join(work, 'sea-config.json');
@@ -321,6 +368,24 @@ async function main(): Promise<void> {
   const reported = execFileSync(options.out, ['--version'], { env: { PATH: '/usr/bin:/bin', HOME: work, SMURG_HOME: join(work, 'smurg-home'), SMURG_NO_BROWSER: '1' }, timeout: 60_000 }).toString();
   if (!reported.startsWith(`smurg ${options.version} (`)) throw new Error(`${options.out} --version printed ${JSON.stringify(reported)}, not smurg ${options.version} (…)`);
   process.stdout.write(`${relative(ROOT, options.out)} --version: ${reported.trim()}\nsha256 ${sha256(readFileSync(options.out))}  ${relative(ROOT, options.out)}\n`);
+  // What the release checks read from the file without running it (scripts/release-markers.ts): the build marker, and
+  // the download URL of the Node.js release it is a copy of.
+  const markers = await markersOfFile(options.out);
+  const problems = markerProblems(relative(ROOT, options.out), markers, options.version);
+  if (markers.nodeVersions.length === 1 && markers.nodeVersions[0] !== nodeVersion) problems.push(`it names Node.js ${markers.nodeVersions[0] as string}, but it is a copy of ${options.node} (${nodeVersion})`);
+  if (problems.length > 0) {
+    const nodeOnly = problems.every((p) => p.includes(NODE_RELEASE_URL_PREFIX));
+    // A Node.js that is not a release build (built from source without release URLs): fine for trying it here, but
+    // scripts/release-assets.sh and scripts/publish-downloads.sh refuse such an executable in a release.
+    if (nodeOnly) process.stdout.write(`warning: ${problems.join('; ')}: a release refuses this executable (use an official Node.js build)\n`);
+    else throw new Error(problems.join('; '));
+  } else {
+    process.stdout.write(`markers: ${buildMarker(options.version)} Node.js ${nodeVersion} (${NODE_RELEASE_URL_PREFIX}${nodeVersion}/)\n`);
+  }
+  // The notices it embeds (`smurg licenses --third-party` prints the same bytes), for the release's THIRD-PARTY-NOTICES.txt.
+  const noticesOut = join(dirname(options.out), 'THIRD-PARTY-NOTICES.txt');
+  writeFileSync(noticesOut, notices);
+  process.stdout.write(`notices ${relative(ROOT, noticesOut)}\n`);
 
   // 6. smoke test with the real binary
   if (options.smoke) {

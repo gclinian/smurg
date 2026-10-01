@@ -17,6 +17,9 @@ export const tApp = defineStrings('app', {
   'landing.recent.open': '開啟',
   'landing.recent.forget': '從清單移除',
   'landing.recent.lastOpened': '上次開啟：{time}',
+  'landing.footer.docs': '說明文件',
+  'landing.footer.license': '授權條款',
+  'landing.footer.notices': '第三方軟體授權聲明',
 
   'login.title': '登入',
   'login.lead': '請先登入。smurg 只用登入來確認你是誰，不會取得你的程式碼或 Claude 憑證。',

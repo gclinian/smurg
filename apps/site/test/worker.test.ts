@@ -2,7 +2,7 @@
 // workerd behind the real static-assets layer).
 import { describe, expect, it } from 'vitest';
 import worker from '../src/index.ts';
-import { DOCS, DOCS_FILE_BASE, INSTALL_SCRIPT, REPOSITORY, type Env } from '../src/routes.ts';
+import { DOWNLOADS, INSTALL_SCRIPT, REDIRECTS, WORKER_PATHS, type Env } from '../src/routes.ts';
 
 /** A stand-in for the static-assets binding: records what reached it. */
 function assets(): Env & { seen: string[] } {
@@ -23,54 +23,31 @@ async function get(url: string, env = assets()): Promise<Response> {
 }
 
 describe('smurg.ai worker', () => {
-  it('302s /install.sh to the latest release install script on GitHub, query ignored', async () => {
-    expect(INSTALL_SCRIPT).toBe('https://github.com/gclinian/smurg/releases/latest/download/install.sh');
+  it('302s /install.sh to the newest release’s installer on downloads.smurg.ai, query ignored', async () => {
+    expect(DOWNLOADS).toBe('https://downloads.smurg.ai');
+    expect(INSTALL_SCRIPT).toBe('https://downloads.smurg.ai/latest/install.sh');
     for (const path of ['/install.sh', '/install.sh?x=1']) {
       const response = await get(`https://smurg.ai${path}`);
       expect(response.status, path).toBe(302);
       expect(response.headers.get('location'), path).toBe(INSTALL_SCRIPT);
-      // "latest" moves with every release: a short cache.
+      // "latest" moves with every release: a short cache (the same as latest/install.sh's own Cache-Control).
       expect(response.headers.get('cache-control'), path).toBe('public, max-age=300');
     }
   });
 
-  it('302s /github and /docs (with or without a trailing slash, query ignored)', async () => {
-    expect(REPOSITORY).toBe('https://github.com/gclinian/smurg');
-    expect(DOCS).toBe('https://github.com/gclinian/smurg/tree/main/docs');
-    for (const path of ['/github', '/github/', '/github?x=1']) {
-      const response = await get(`https://smurg.ai${path}`);
-      expect(response.status, path).toBe(302);
-      expect(response.headers.get('location'), path).toBe(REPOSITORY);
-    }
-    for (const path of ['/docs', '/docs/', '/docs?x=1']) {
-      const response = await get(`https://smurg.ai${path}`);
-      expect(response.status, path).toBe(302);
-      expect(response.headers.get('location'), path).toBe(DOCS);
-    }
+  it('has that one redirect and nothing else: no GitHub, no docs redirects (the docs are pages of the site now)', () => {
+    expect([...REDIRECTS]).toEqual([['/install.sh', 'https://downloads.smurg.ai/latest/install.sh']]);
+    expect(WORKER_PATHS).toEqual(['/install.sh']);
   });
 
-  it('302s /docs/<file> to that file in the docs folder', async () => {
-    expect(DOCS_FILE_BASE).toBe('https://github.com/gclinian/smurg/blob/main/docs/');
-    for (const [path, file] of [
-      ['/docs/HOSTING.md', 'HOSTING.md'],
-      ['/docs/JOINING.md', 'JOINING.md'],
-      ['/docs/research/', 'research'],
-      ['/docs/research/relay.md', 'research/relay.md'],
-    ] as const) {
-      const response = await get(`https://smurg.ai${path}`);
-      expect(response.status, path).toBe(302);
-      expect(response.headers.get('location'), path).toBe(`${DOCS_FILE_BASE}${file}`);
-    }
-  });
-
-  it('forwards only plain docs paths; anything else goes to the assets (the 404 page)', async () => {
+  it('hands /github, /docs and every other request to the static assets, unchanged', async () => {
     const env = assets();
-    const paths = ['/docs/.git/config', '/docs/%2e%2e/x', '/docs/a%20b', '/docs/a//b', '/docs/.env', '/docs/x/../../y'];
+    const paths = ['/', '/zh-TW/', '/style.css', '/install', '/install.sh/', '/github', '/github/', '/docs', '/docs/', '/docs/hosting/', '/docs/HOSTING.md', '/license/', '/third-party-notices.txt', '/no-such-page'];
     for (const path of paths) {
       const response = await get(`https://smurg.ai${path}`, env);
       expect(response.status, path).toBe(200);
     }
-    expect(env.seen).toHaveLength(paths.length);
+    expect(env.seen).toEqual(paths.map((path) => `https://smurg.ai${path}`));
   });
 
   it('301s every www path that reaches it to the apex over https, keeping path and query', async () => {
@@ -87,30 +64,20 @@ describe('smurg.ai worker', () => {
     }
   });
 
-  it('never redirects to another host (no open redirect through the path)', async () => {
+  it('never redirects to another host than smurg.ai and downloads.smurg.ai (no open redirect through the path)', async () => {
     for (const url of [
       'https://www.smurg.ai//evil.example/x',
       'https://www.smurg.ai/%2F%2Fevil.example',
       'https://www.smurg.ai/\\evil.example',
-      'https://smurg.ai/docs//evil.example',
-      'https://smurg.ai/docs/%2F%2Fevil.example',
+      'https://smurg.ai//evil.example',
+      'https://smurg.ai/install.sh//evil.example',
+      'https://smurg.ai/%2F%2Fevil.example/install.sh',
     ]) {
       const response = await get(url);
       const location = response.headers.get('location');
       if (location === null) continue; // handed to the assets
-      const host = new URL(location).host;
-      expect(['smurg.ai', 'github.com'], url).toContain(host);
+      expect(['smurg.ai', 'downloads.smurg.ai'], url).toContain(new URL(location).host);
     }
-  });
-
-  it('hands every other request to the static assets, unchanged', async () => {
-    const env = assets();
-    const paths = ['/', '/zh-TW/', '/style.css', '/install', '/install.sh/', '/githubx', '/documentation', '/no-such-page'];
-    for (const path of paths) {
-      const response = await get(`https://smurg.ai${path}`, env);
-      expect(response.status, path).toBe(200);
-    }
-    expect(env.seen).toEqual(paths.map((path) => `https://smurg.ai${path}`));
   });
 
   it('redirects carry no body and basic headers', async () => {

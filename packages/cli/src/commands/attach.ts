@@ -40,6 +40,7 @@ export function attachUsage(): string {
   --no-browser        需要登入 relay 時不自動開啟瀏覽器，只顯示網址（SMURG_NO_BROWSER=1 也一樣）
 
   接上之後：按 Ctrl-] 離開（session 繼續執行）。只有 session 的擁有者可以輸入，其他人是唯讀。
+  說明（組員指南）：https://smurg.ai/docs/joining/#10-用終端機cli加入選用
 `;
 }
 

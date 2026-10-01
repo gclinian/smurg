@@ -42,8 +42,8 @@ export function pickRelay(flag: string | undefined, io: CliIo, credentials: Cred
   if (builtIn !== null) return { origin: relayOriginOf(builtIn, 'smurg 內建的公用 relay'), source: 'built-in' };
   throw usageError(
     '沒有指定 relay',
-    '請用 --relay <網址> 指定要使用的 relay（或設定環境變數 SMURG_RELAY_URL）；登入過一次之後會記住。目前沒有官方的公開 relay，' +
-      '請使用你或學校部署的 relay（部署方式見 apps/relay/README.md；本機開發：http://localhost:8787）。',
+    '請用 --relay <網址> 指定要使用的 relay（或設定環境變數 SMURG_RELAY_URL）；登入過一次之後會記住。這個 smurg 沒有內建的公用 relay' +
+      '（說明：https://smurg.ai/docs/hosting/；本機開發：http://localhost:8787）。',
   );
 }
 

@@ -783,8 +783,10 @@ Hibernation API only (`ctx.acceptWebSocket(ws, tags)`); all routing state lives 
 socket attachments and `ctx.storage.kv` — never in memory, because local workerd really hibernates after ~10 s.
 The Worker also serves the web SPA (assets + `run_worker_first`), so web app and relay share one origin. For the
 shared relay that origin is `https://app.smurg.ai`, a Cloudflare Custom Domain with the Worker's workers.dev hostname
-off (it was `https://smurg-relay.gclin-ian.workers.dev` until 2026-10-01); a self-hosted relay defaults to its own
-account's workers.dev. `scripts/deploy-relay.sh` deploys exactly one of these two shapes (`docs/RELEASING.md` §2).
+off (it was `https://smurg-relay.gclin-ian.workers.dev` until 2026-10-01); another relay the owner runs (a test relay)
+defaults to its account's workers.dev. `scripts/deploy-relay.sh` deploys exactly one of these two shapes
+(`docs/RELEASING.md` §2). The source is private (2026-10-01, `docs/OPEN-QUESTIONS.md` Q1), so nobody outside the project
+deploys a relay of their own (§12).
 
 | Route | Purpose |
 |---|---|
@@ -1703,12 +1705,30 @@ version is injected at build time; other builds say `<package version>-dev`); `s
 release's `SHA256SUMS` and an `install.sh` with the release URL filled in; `scripts/install.sh` installs only a
 sha256-verified executable into `~/.local/bin` (macOS: it removes the quarantine attribute after the check) and, on
 Linux, sets up the sandbox dependencies and the AppArmor profile with the host's consent. The executable's extracted
-native dir of an older build is removed after 30 days unused. Releases (decided 2026-09-30, `docs/OPEN-QUESTIONS.md`
-Q1): GitHub Releases of `gclinian/smurg`, built by `.github/workflows/release.yml` on a tag `v*` on `macos-15`,
-`macos-15-intel`, `ubuntu-24.04` and `ubuntu-24.04-arm`, macOS signed ad hoc only; the one-line install is
-`curl -fsSL https://smurg.ai/install.sh | sh` (since 2026-10-01; the product page `apps/site`, live since that day,
-answers it with a 302 to `https://github.com/gclinian/smurg/releases/latest/download/install.sh`, the same file, which
-is also the fallback). Runbook: `docs/RELEASING.md`.
+native dir of an older build is removed after 30 days unused. Releases (decided 2026-10-01, replacing the plan of
+2026-09-30; `docs/OPEN-QUESTIONS.md` Q1): the source stays private; `.github/workflows/release.yml` builds the four
+executables on a tag `v*` (`macos-15`, `macos-15-intel`, `ubuntu-24.04`, `ubuntu-24.04-arm`; macOS signed ad hoc only) and
+keeps a GitHub release in the private repository as the internal record; a person then verifies the files and uploads
+them to Cloudflare R2 behind `https://downloads.smurg.ai` (`v<X.Y.Z>/`, immutable, then `latest/`); the one-line install
+`curl -fsSL https://smurg.ai/install.sh | sh` is a 302 from the product page `apps/site` to
+`https://downloads.smurg.ai/latest/install.sh`, with no GitHub fallback. Every executable carries a build marker
+(`smurg-build-version=X.Y.Z;`, a comment build-sea puts at the top of the bundle) and, as any Node.js release build, the
+download URL of its Node.js release; `scripts/release-assets.sh` and `scripts/publish-downloads.sh` read both from all
+four executables (`scripts/release-markers.ts`), so a release cannot mix in an executable of another version or another
+Node.js than the one whose LICENSE its notices carry. The bundle must not name the private repository (build-sea
+refuses it: a `package.json` the code imports is inlined whole, so the private `package.json` files have no
+`repository` field). Runbook: `docs/RELEASING.md`.
+
+**Licenses.** smurg is proprietary (`LICENSE`; every `package.json` says `"license": "UNLICENSED"` and
+`"private": true`). The third-party notices are generated, never written by hand: `scripts/third-party-notices.ts` walks
+`pnpm-lock.yaml`'s production closure of `@smurg/cli` (with the daemon and protocol, for the four release targets) and of
+`@smurg/web`, and reproduces every package's license and notice files from `node_modules` into
+`packages/cli/THIRD-PARTY-NOTICES.txt` and `apps/web/public/third-party-notices.txt` (a package without one fails the
+generation; `pnpm check` fails while a committed file is stale). `scripts/build-sea.ts` refuses a stale file or a bundled
+package it does not list (esbuild's metafile and the native assets), fills in the Node.js section from the LICENSE of the
+Node distribution the executable is copied from, and embeds the result with `LICENSE` as SEA assets: `smurg licenses
+[--third-party]` prints them, and the same notices are written next to the executable for the release. The web build
+(`apps/web/vite.config.ts`) refuses the same way and serves the file as `/third-party-notices.txt`.
 
 ---
 
@@ -1850,13 +1870,23 @@ the audit entry; two or more such windows, none, or a writer of another root: �
 
 Left after the review round of 2026-09-29 (owner questions with options and recommendations: `docs/OPEN-QUESTIONS.md`):
 
-- **Releases** (review CLI-01, SPEC R1 「一行指令安裝」; decided 2026-09-30, `docs/OPEN-QUESTIONS.md` Q1,
-  `docs/RELEASING.md`): GitHub Releases, built by GitHub Actions on a tag `v*` for macOS arm64 / x64 and Linux x64 /
-  arm64, each on its own runner (`macos-15`, `macos-15-intel`, `ubuntu-24.04`, `ubuntu-24.04-arm`). The workflows
-  cannot run locally; until the first tag only macOS arm64 was ever built, and R1.1 (fresh machine to invite link in 3 minutes) is measured by hand after it. macOS
-  executables carry an ad-hoc signature only (no Developer ID, not notarized); the installer relies on `curl` setting no
-  quarantine attribute and removes one after the sha256 check. `SHA256SUMS` is not signed,
-  so it does not protect against a compromised GitHub account or workflow.
+- **Releases** (review CLI-01, SPEC R1 「一行指令安裝」; decided 2026-09-30, replaced 2026-10-01: private source, public
+  binaries; `docs/OPEN-QUESTIONS.md` Q1, `docs/RELEASING.md`): built by GitHub Actions on a tag `v*` for macOS arm64 /
+  x64 and Linux x64 / arm64, each on its own runner (`macos-15`, `macos-15-intel`, `ubuntu-24.04`, `ubuntu-24.04-arm`),
+  kept as a GitHub release of the private repository, and published by a person to Cloudflare R2
+  (`https://downloads.smurg.ai`). The workflows cannot run locally, and R1.1 (fresh machine to invite link in 3
+  minutes) is measured by hand after the first release. macOS executables carry an ad-hoc signature only (no Developer
+  ID, not notarized); the installer relies on `curl` setting no quarantine attribute and removes one after the sha256
+  check. `SHA256SUMS` is not signed, so it does not protect against a compromised GitHub account or workflow, or a
+  compromised Cloudflare account that holds the bucket.
+- **Private source, public code** (2026-10-01). The repository is private, but that does not keep the code secret: each
+  executable contains smurg's whole JavaScript program (a Node SEA embeds the bundle, and it can be extracted from the
+  file), and the web app's code is served to every browser that opens `https://app.smurg.ai`. What protects the code
+  is the license (`LICENSE`: use free of charge, no redistribution, modification or reverse engineering beyond what the
+  law allows), not secrecy. The license text was written without a lawyer and names no copyright holder yet
+  (`<COPYRIGHT HOLDER>`; `docs/OPEN-QUESTIONS.md` Q14). The third-party components keep their own licenses: their notices
+  travel with every copy (§8 "Licenses"). GitHub Actions minutes are billed on a private repository
+  (`docs/RELEASING.md`).
 - **The shared relay** (Cloudflare Workers free plan, the custom domain `https://app.smurg.ai` (workers.dev until
   2026-10-01), Google login only; the CLI's default): the free
   plan's daily limits (100,000 requests, 100,000 Durable Object rows written, … `docs/RELEASING.md` §8) are shared by
@@ -1865,7 +1895,10 @@ Left after the review round of 2026-09-29 (owner questions with options and reco
   ~720 rows written per workspace-hour while anyone is connected, and a busy terminal watched by several members costs
   far more. The free plan's 10 ms CPU limit per request was not measured against the login routes. Every deploy
   disconnects every socket (clients reconnect). The operator of the shared relay (and Cloudflare) can see what D-5 says
-  a relay sees, for every workspace on it; hosts who cannot accept that deploy their own relay (`--relay`). Its web
+  a relay sees, for every workspace on it. With the source private (2026-10-01), D-5's way out, "hosts who cannot
+  accept that deploy their own relay", has no path for anyone outside the project: `apps/relay` is in the private
+  repository. `--relay` still exists, for relays the owner runs; `docs/HOSTING.md` §2.1 / §2.2 tell hosts that there is no
+  alternative to the shared relay and not to share what they cannot let it see. Its web
   app is one build for every host's daemon, and it decodes the daemon's messages with strict objects (§5), so it
   refuses a daemon newer than itself (a field the daemon added is an unknown key to it; the reverse works, additions
   are optional): the shared relay is redeployed from each release's commit before the release is published

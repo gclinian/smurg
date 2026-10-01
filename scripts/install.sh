@@ -4,9 +4,10 @@
 #
 #   curl -fsSL https://smurg.ai/install.sh | sh
 #
-# https://smurg.ai/install.sh only redirects (302, apps/site) to this same file of the latest release,
-# https://github.com/gclinian/smurg/releases/latest/download/install.sh, which also works directly when smurg.ai is
-# unreachable. Or, downloaded first:  sh install.sh [--base-url URL] [--prefix DIR] [--yes] [--no-deps]
+# https://smurg.ai/install.sh only redirects (302, apps/site) to https://downloads.smurg.ai/latest/install.sh, the copy
+# of this file that belongs to the newest version; every version also keeps its own at
+# https://downloads.smurg.ai/v<X.Y.Z>/install.sh (scripts/publish-downloads.sh uploads both; docs/RELEASING.md).
+# Or, downloaded first:  sh install.sh [--base-url URL] [--prefix DIR] [--yes] [--no-deps]
 #
 #  1. picks the single executable for this machine (smurg-darwin-arm64, smurg-darwin-x64, smurg-linux-x64,
 #     smurg-linux-arm64; glibc only; an x86_64 shell under Rosetta on Apple silicon gets the arm64 build), downloads it
@@ -22,9 +23,11 @@
 #     `sudo apt-get install …` and installs an AppArmor profile for /usr/bin/bwrap; otherwise it prints the commands.
 #
 # The release URL: --base-url, else $SMURG_INSTALL_BASE_URL, else the one scripts/release-assets.sh wrote below when
-# the release was built (the GitHub release download URL of that tag). https only (http only for 127.0.0.1 /
-# localhost, for tests). Nothing else is contacted; nothing outside <prefix>/bin and a temporary directory is written
-# except, with consent, the apt packages and /etc/apparmor.d/smurg-bwrap.
+# the release was built (https://downloads.smurg.ai/v<X.Y.Z>, the version's own files: so the latest/ copy installs
+# exactly its version). https only (http only for 127.0.0.1 / localhost, for tests). Nothing else is contacted;
+# nothing outside <prefix>/bin and a temporary directory is written except, with consent, the apt packages and
+# /etc/apparmor.d/smurg-bwrap. The version's THIRD-PARTY-NOTICES.txt (the licenses of the third-party software in the
+# executable) stays at the release URL; the summary says where.
 #
 # Written for POSIX sh (dash, bash and zsh in sh mode, macOS /bin/sh): no bashisms. Everything runs from `main` on the
 # last line, so a download cut short by the network (`curl … | sh`) runs nothing.
@@ -68,7 +71,7 @@ parse_args() {
     esac
   done
 
-  [ -n "$base_url" ] || fail '沒有指定下載位置。請用 --base-url <網址>（或 SMURG_INSTALL_BASE_URL）指定提供 smurg 的人給你的發佈網址。' 2
+  [ -n "$base_url" ] || fail '沒有指定下載位置（這份 install.sh 還沒有填入發佈網址）。請改用 curl -fsSL https://smurg.ai/install.sh | sh，或用 --base-url <網址>（或 SMURG_INSTALL_BASE_URL）指定發佈檔案所在的網址。' 2
   base_url="${base_url%/}"
   case "$base_url" in
     https://*) scheme=https ;;
@@ -342,10 +345,12 @@ summary() {
       say '  客人沙盒需要的套件與 AppArmor：沒有檢查（--no-deps）'
     fi
   fi
+  say '  smurg 的授權條款：https://smurg.ai/license/'
+  say "  第三方元件的授權條款：$base_url/THIRD-PARTY-NOTICES.txt"
   path_hint
   say ''
   say '下一步：'
-  say '  smurg login                   # 用瀏覽器以 Google 帳號登入 smurg 內建的公用 relay（自己架設的 relay：加上 --relay <網址>）'
+  say '  smurg login                   # 用瀏覽器以 Google 帳號登入 smurg 內建的公用 relay（維護者提供的其他 relay：加上 --relay <網址>）'
   say '  smurg host <專案資料夾>       # 分享資料夾並印出邀請連結；smurg host 會檢查客人沙盒是否可用'
 }
 

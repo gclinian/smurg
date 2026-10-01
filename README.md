@@ -3,7 +3,8 @@
 smurg 是一個多人 × 多 agent 的即時協作工作區：你在自己的電腦上執行 `smurg host`，把一個專案資料夾分享出去，
 組員打開你私訊給他們的邀請連結，就能在瀏覽器裡和你一起即時編輯檔案。大家也能即時看到每一個 Claude Code session
 在做什麼，對它提出建議，有權限的組員還能開自己的 agent。檔案和 agent 都留在你的電腦上，中間轉送資料的 relay
-只看得到端對端加密後的資料。產品介紹：https://smurg.ai；網頁版（公用 relay）：https://app.smurg.ai。
+只看得到端對端加密後的資料。產品介紹：https://smurg.ai；使用說明：https://smurg.ai/docs/；網頁版（公用 relay）：
+https://app.smurg.ai。
 
 > **狀態：原型（v0.1.0）**。在 macOS（Apple Silicon）上開發和測試；其他平台與真實帳號的部分見下面的
 > 「還沒驗證的」。歡迎試用，但請不要分享放了密碼、金鑰或個人資料的資料夾（[`docs/HOSTING.md`](docs/HOSTING.md) §4）。
@@ -37,7 +38,7 @@ smurg 是一個多人 × 多 agent 的即時協作工作區：你在自己的電
   macOS 的隔離標記（quarantine）。只有 Apple Silicon 的執行檔在開發機上測試過；Intel Mac 與 Linux 的執行檔由 GitHub
   Actions 在各自的平台上建置，並在那裡跑冒煙測試。
 - **公用 relay 用 Cloudflare 的免費方案**：所有人共用每天的用量上限，用完時到台灣時間早上 8 點前都無法連線
-  （[`docs/HOSTING.md`](docs/HOSTING.md) §2）。不想受這個限制，可以自己架設 relay。
+  （[`docs/HOSTING.md`](docs/HOSTING.md) §2）。原始碼不公開，其他人無法自己架設 relay，所以目前沒有辦法避開這個限制。
 - 主人只能用 macOS 或 Linux（不支援 Windows）。「上線」階段的功能還沒有做，例如主人代為執行組員的指令、操作紀錄篩選。
 - 其他已知限制：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §12；還沒決定的事項：
   [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md)；每一條驗收標準目前的狀態：[`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md)。
@@ -50,8 +51,8 @@ macOS（Apple Silicon、Intel）或 Linux（x64、arm64，glibc）：
 curl -fsSL https://smurg.ai/install.sh | sh
 ```
 
-`https://smurg.ai/install.sh` 只是轉到 GitHub 上最新版本的 `install.sh`；連不上 smurg.ai 時，改用同一個檔案的 GitHub 網址：
-`curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh | sh`。
+`https://smurg.ai/install.sh` 只是轉到 `https://downloads.smurg.ai/latest/install.sh`（最新版本的安裝程式）；安裝程式從
+`https://downloads.smurg.ai/v<版本>/` 下載，特定版本：`curl -fsSL https://downloads.smurg.ai/v0.1.0/install.sh | sh`。
 安裝程式會下載這台電腦的單一執行檔（不需要 Node.js），**只在 sha256 與這個版本的 `SHA256SUMS` 相符時**安裝到
 `~/.local/bin/smurg`。`~/.local/bin` 不在 `PATH` 裡時，它會印出要加到 shell 設定檔的那一行（macOS 預設就不在）。
 在 Linux 上它還會檢查客人沙盒需要的套件，**經你同意後**才用 `sudo` 安裝。細節見 [`docs/HOSTING.md`](docs/HOSTING.md) §1。
@@ -91,19 +92,25 @@ worktree、離開）：[`docs/JOINING.md`](docs/JOINING.md)。想在自己的終
 
 | 文件 | 內容 |
 |---|---|
-| [`docs/HOSTING.md`](docs/HOSTING.md) | 主人指南：安裝、登入、公用 relay 與自己架設 relay、分享、分享前須知、組員的 Claude 登入、停止、疑難排解 |
+| [`docs/HOSTING.md`](docs/HOSTING.md) | 主人指南：安裝、登入、公用 relay、分享、分享前須知、組員的 Claude 登入、停止、疑難排解 |
 | [`docs/JOINING.md`](docs/JOINING.md) | 組員指南：第一次使用 smurg 和 Claude Code 的人也看得懂 |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | 維護者：部署公用 relay、發佈新版本、部署產品介紹頁、回復舊版（英文） |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 各套件之間的約定（寫程式前請先讀 §0 的規則）、刻意偏離 SPEC 的地方（§11）、已知限制（§12） |
 | [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) | 每一條驗收標準、對應的自動化測試和狀態 |
 | [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md) | 還沒決定的事項與已經做的決定 |
 | [`SPEC.md`](SPEC.md)、[`docs/research/`](docs/research/) | 需求；寫程式前做過的技術驗證 |
-| [`apps/relay/README.md`](apps/relay/README.md) | relay 的路由、設定與自己部署的方法 |
+| [`apps/relay/README.md`](apps/relay/README.md) | relay 的路由、設定與部署（維護者） |
 | [`apps/site/README.md`](apps/site/README.md) | 產品介紹頁 smurg.ai：內容、轉址與部署（英文） |
 
 ## 授權
 
-Apache License 2.0，見 [`LICENSE`](LICENSE)。
+smurg 是專有軟體（proprietary），原始碼不公開；執行檔與網頁版在原型階段免費使用。條款見 [`LICENSE`](LICENSE)
+（授權條款網頁：https://smurg.ai/license/）。執行檔與網頁版包含的第三方軟體，各自依照它們自己的授權：清單與授權全文是
+[`packages/cli/THIRD-PARTY-NOTICES.txt`](packages/cli/THIRD-PARTY-NOTICES.txt)（執行檔；`smurg licenses` 印出的版本另外
+加上 Node.js 的授權）與 [`apps/web/public/third-party-notices.txt`](apps/web/public/third-party-notices.txt)（網頁版，
+https://app.smurg.ai/third-party-notices.txt）。這兩個檔案由 `node scripts/third-party-notices.ts` 從 `pnpm-lock.yaml` 與
+安裝好的套件產生，不要手動修改：相依套件改變後重新產生並提交（`pnpm check`、`scripts/build-sea.sh` 與網頁的建置都會拒絕
+過時的檔案）。
 
 ---
 
@@ -116,7 +123,7 @@ Apache License 2.0，見 [`LICENSE`](LICENSE)。
 指令（2.1.220 以上）。
 
 ```sh
-git clone https://github.com/gclinian/smurg.git && cd smurg
+gh repo clone gclinian/smurg && cd smurg       # 私人 repository：需要成員權限
 scripts/bootstrap-tools.sh                      # 第一次：把固定版本的 pnpm 安裝到 .tools/（不做全域安裝）
 source scripts/env.sh                           # 每個新的 shell 都要執行（bash、zsh 皆可）
 scripts/with-install-lock.sh pnpm install       # 安裝相依套件（約佔 1 GB 磁碟空間，全部放在 repo 裡）
@@ -225,6 +232,7 @@ scripts/dev-stack.sh --help                 # 選項：--dir、--relay-port、--
 | `smurg status [--workspace ID]` / `smurg stop [--workspace ID]` | 查看／停止這台電腦上正在分享的工作區（透過 daemon 的控制 socket） |
 | `smurg login [--relay 網址] [--provider github\|google] [--dev-user 名稱] [--no-browser]` | 登入 relay（登入資料存在 `$SMURG_HOME/credentials.json`，權限 0600，依網址分開記錄）；公用 relay 只提供 Google 登入；`--dev-user` 只能用在本機的 relay |
 | `smurg logout [--relay 網址] [--all]` | 忘記 relay 的登入資料 |
+| `smurg licenses [--third-party]` | 印出 smurg 的授權條款（`LICENSE`）與執行檔裡第三方軟體的授權聲明（建置時嵌入執行檔；`--third-party` 只印後者，和發佈的 `THIRD-PARTY-NOTICES.txt` 相同） |
 
 選擇 relay 的順序：`--relay`、環境變數 `SMURG_RELAY_URL`、上次登入的 relay，都沒有時使用內建的公用 relay
 https://app.smurg.ai（`smurg attach` 先用邀請連結的網址，或上次加入那個工作區時用的 relay）。所有狀態都放在
@@ -239,7 +247,11 @@ https://app.smurg.ai（`smurg attach` 先用邀請連結的網址，或上次加
 （`smurg host`）會把它們解壓縮到快取目錄 `~/Library/Caches/smurg/native-<id>`（Linux：`$XDG_CACHE_HOME/smurg`），
 每次啟動都用 sha256 驗證；`SMURG_CACHE_DIR` 可以改變位置；其他版本的目錄超過 30 天沒用會被刪除。
 
-正式版本由 GitHub Actions 在推送 `v*` 標籤時（`.github/workflows/release.yml`），為四個平台各自建置、跑冒煙測試，
-再用 `scripts/release-assets.sh` 產生 `SHA256SUMS` 與 `install.sh`，發佈到 GitHub Releases；推送到 `main` 與 pull request
-由 `.github/workflows/ci.yml` 在 macOS 與 Ubuntu 上跑 `pnpm check`。公用 relay 由維護者用 `scripts/deploy-relay.sh`
-部署到 Cloudflare Workers 的自訂網域 app.smurg.ai（每次發佈新版本前，從那個 commit 重新部署）；產品介紹頁 smurg.ai（`apps/site`）已在 2026-10-01 部署（在第一個版本發佈之前，依擁有者的要求；`www.smurg.ai` 由 zone 的 Redirect Rule 轉到 `smurg.ai`）；在第一個版本發佈、而且 repository 公開之前，它的安裝指令和連到 repository 的連結都會是 404，之後不必為此重新部署就會正常；線上的頁面是 `cb99aa0` 的版本，發佈第一個版本時會從同一個 commit 重新部署一次。步驟見 [`docs/RELEASING.md`](docs/RELEASING.md)；每個版本的變更見 [`CHANGELOG.md`](CHANGELOG.md)。
+正式版本由 GitHub Actions 在推送 `v*` 標籤時（`.github/workflows/release.yml`）為四個平台各自建置、跑冒煙測試，
+再用 `scripts/release-assets.sh` 產生 `SHA256SUMS`、`install.sh` 與 `THIRD-PARTY-NOTICES.txt`，在這個私人 repository 留一份
+GitHub release 作為內部紀錄。公開的下載位置是 Cloudflare R2 的 https://downloads.smurg.ai（`v<版本>/` 與 `latest/`），由
+維護者在自己的電腦上驗證後上傳（不經過 CI）；推送到 `main` 與 pull request 由 `.github/workflows/ci.yml` 在 macOS 與
+Ubuntu 上跑 `pnpm check`。公用 relay 由維護者用 `scripts/deploy-relay.sh` 部署到 Cloudflare Workers 的自訂網域
+app.smurg.ai（每次發佈新版本前，從那個 commit 重新部署）；產品介紹頁與使用說明 smurg.ai（`apps/site`，含
+https://smurg.ai/docs/ 與 https://smurg.ai/license/）也由維護者部署。步驟見 [`docs/RELEASING.md`](docs/RELEASING.md)；
+每個版本的變更見 [`CHANGELOG.md`](CHANGELOG.md)。

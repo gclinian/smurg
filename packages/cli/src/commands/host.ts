@@ -94,6 +94,8 @@ export function hostUsage(): string {
   --no-main-workspace-guests
                       不開放客人在共享主工作區開 session：客人只能在自己的 worktree 裡工作（分享的資料夾必須是
                       git repository，否則客人無法開 session）
+
+  說明（主人指南，分享前請先讀 §4）：https://smurg.ai/docs/hosting/
 `;
 }
 

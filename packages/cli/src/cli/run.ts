@@ -13,11 +13,13 @@ export const USAGE = `smurg — 多人 × 多 agent 即時協作工作區
   attach [session]     把 agent session 接到這個終端機（不指定時列出 session）
   stop                 停止分享（中斷所有連線、結束所有 session）
   status               顯示正在分享的工作區
-  login                登入 relay（Google；自己架設的 relay 也可以設定 GitHub）
+  login                登入 relay（公用 relay 用 Google）
   logout               登出 relay
+  licenses             顯示授權條款與第三方軟體的授權聲明
   --version            顯示版本
 
 每個指令都可以加 --help 查看說明。狀態與金鑰存在 ~/.smurg（可用 SMURG_HOME 改變位置）。
+說明文件：https://smurg.ai/docs/
 `;
 
 export async function runCli(argv: readonly string[], io: CliIo): Promise<number> {
@@ -54,6 +56,10 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       case 'logout': {
         const [{ runLogin, runLogout }, { commandContext }] = await Promise.all([import('../commands/login.ts'), import('../commands/context.ts')]);
         return await (command === 'login' ? runLogin : runLogout)(rest, commandContext(io));
+      }
+      case 'licenses': {
+        const { runLicenses } = await import('../commands/licenses.ts');
+        return runLicenses(rest, io);
       }
       default:
         throw usageError(`不認得的指令「${command}」`, '執行 smurg --help 查看所有指令。');

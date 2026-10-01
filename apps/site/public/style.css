@@ -1497,7 +1497,7 @@ h3 {
   color: var(--subtle);
 }
 
-/* ---- open source ---- */
+/* ---- documentation links ---- */
 .links-list {
   display: flex;
   flex-wrap: wrap;
@@ -1516,6 +1516,11 @@ h3 {
 
 html:lang(zh-TW) .lead-text {
   line-height: 1.85;
+}
+
+.lead-text + .ui-note {
+  margin-top: 1.25rem;
+  max-width: var(--measure);
 }
 
 /* ---- FAQ ---- */
@@ -1593,6 +1598,272 @@ html:lang(zh-TW) .lead-text {
   list-style: none;
 }
 
+/* ---- docs: the pages generated from the repository's Markdown (/docs/…, /license/; scripts/site.ts) ---- */
+.doc-layout {
+  display: grid;
+  gap: 2rem;
+  padding-block: clamp(2rem, 5vw, 3.5rem) clamp(3.5rem, 8vw, 6rem);
+}
+
+@media (min-width: 1024px) {
+  .doc-layout {
+    grid-template-columns: 13.5rem minmax(0, 1fr);
+    gap: 4rem;
+  }
+
+  .doc-side {
+    position: sticky;
+    top: 1.5rem;
+    align-self: start;
+    max-height: calc(100vh - 3rem);
+    overflow-y: auto;
+  }
+}
+
+.doc-nav ul,
+.doc-toc ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doc-nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.25rem;
+}
+
+.doc-nav a,
+.doc-toc a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.9375rem;
+}
+
+.doc-nav a:hover,
+.doc-toc a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.doc-nav a[aria-current='page'] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* The page's own contents only beside the text; on narrower screens the docs' own lists of sections do the job. */
+.doc-toc {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .doc-nav ul,
+  .doc-toc ul {
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .doc-toc {
+    display: block;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .doc-toc a {
+    font-size: 0.875rem;
+    line-height: 1.45;
+  }
+}
+
+.doc {
+  min-width: 0;
+  max-width: 46rem;
+}
+
+.doc-single {
+  /* the license keeps its own 120-column lines: room for them, wrapping only on narrower screens */
+  max-width: 66rem;
+  padding-block: clamp(2rem, 5vw, 3.5rem) clamp(3.5rem, 8vw, 6rem);
+}
+
+.doc h1 {
+  font-size: clamp(1.875rem, 1.4rem + 1.8vw, 2.625rem);
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+html:lang(zh-TW) .doc h1 {
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
+
+.doc h2 {
+  margin-top: 3rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--border);
+  font-size: 1.5rem;
+  line-height: 1.35;
+}
+
+.doc h3 {
+  margin-top: 2rem;
+}
+
+.doc h4 {
+  margin: 1.5rem 0 0;
+  font-size: 1rem;
+}
+
+.doc h2,
+.doc h3,
+.doc h4 {
+  scroll-margin-top: 1rem;
+}
+
+.doc p,
+.doc ul,
+.doc ol,
+.doc pre,
+.doc blockquote,
+.doc .table-wrap {
+  margin: 1rem 0 0;
+}
+
+.doc ul,
+.doc ol {
+  padding-left: 1.4rem;
+}
+
+.doc li + li,
+.doc li > ul,
+.doc li > ol,
+.doc li > p {
+  margin-top: 0.4rem;
+}
+
+.doc li > p:first-child {
+  margin-top: 0;
+}
+
+/* Long commands and paths in running text may wrap here (the landing page keeps its short ones on one line). */
+.doc :not(pre) > code {
+  padding: 0.05em 0.3em;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.doc pre {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.doc pre code {
+  font-size: inherit;
+}
+
+.doc blockquote {
+  padding-left: 0.85rem;
+  border-left: 2px solid var(--border-strong);
+  color: var(--muted);
+}
+
+.doc hr {
+  margin: 2.5rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.table-wrap:focus-visible {
+  outline-offset: 2px;
+}
+
+.doc table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.doc th,
+.doc td {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.doc th {
+  background: var(--panel);
+  font-weight: 600;
+}
+
+.doc .ta-center {
+  text-align: center;
+}
+
+.doc .ta-right {
+  text-align: right;
+}
+
+.doc-lede {
+  font-size: 1.125rem;
+  color: var(--muted);
+}
+
+.doc .doc-note {
+  padding-left: 0.85rem;
+  border-left: 2px solid var(--accent);
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+
+.doc-cards {
+  display: grid;
+  gap: 1.5rem;
+  margin: 2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doc .doc-cards li {
+  margin: 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.doc .doc-cards h2 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 1.125rem;
+}
+
+.doc .doc-cards p {
+  margin-top: 0.4rem;
+  color: var(--muted);
+}
+
+.license-text {
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
 /* Colour changes only; nothing slides or fades, and nothing at all when reduced motion is asked for. */
 @media (prefers-reduced-motion: no-preference) {
   a,
@@ -1605,6 +1876,7 @@ html:lang(zh-TW) .lead-text {
 
 @media print {
   .site-header nav,
+  .doc-side,
   .copy,
   .skip {
     display: none;

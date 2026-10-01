@@ -1,0 +1,18 @@
+THIRD-PARTY NOTICES (test fixture of apps/site, not the real notices)
+
+The site tests publish this file as https://smurg.ai/third-party-notices.txt, so that they do not depend on the
+Node.js distribution that runs them. A deploy publishes the release's THIRD-PARTY-NOTICES.txt instead
+(apps/site/scripts/site.ts, readNotices).
+
+================================================================================
+example-package@1.0.0
+
+Copyright (c) Example Authors. Licensed under the MIT License. © 2026, ünïcödé.
+
+================================================================================
+node@22.0.0 (the Node.js runtime)
+
+----- LICENSE -----
+Node.js is licensed for use as follows:
+
+(The LICENSE of a Node.js release; this fixture only has its first line.)

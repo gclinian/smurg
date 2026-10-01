@@ -2,8 +2,7 @@
   "name": "@smurg/cli",
   "version": "0.1.0",
   "private": true,
-  "license": "Apache-2.0",
-  "repository": "github:gclinian/smurg",
+  "license": "UNLICENSED",
   "type": "module",
   "description": "The `smurg` command: host / attach / stop (+ internal hook, mcp, login).",
   "bin": {

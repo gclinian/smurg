@@ -1,7 +1,7 @@
 # 主人指南：用 smurg 分享資料夾
 
 這份文件寫給**主人**：在自己的電腦上執行 `smurg host`，把一個專案資料夾分享給組員的人。組員請看
-[`JOINING.md`](JOINING.md)。（原型階段：以下是目前實作的行為。）
+[組員指南](JOINING.md)。（原型階段：以下是目前實作的行為。）
 
 ## 1. 安裝
 
@@ -11,13 +11,9 @@
 curl -fsSL https://smurg.ai/install.sh | sh
 ```
 
-`https://smurg.ai/install.sh` 只是轉到 GitHub 上最新版本的 `install.sh`（smurg.ai 只負責轉址，安裝程式和執行檔都從
-GitHub Releases 下載並核對 `SHA256SUMS`）。
-連不上 smurg.ai 時，改用同一個檔案的 GitHub 網址：
-
-```sh
-curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh | sh
-```
+`https://smurg.ai/install.sh` 只是轉到 `https://downloads.smurg.ai/latest/install.sh`，也就是最新版本的安裝程式；
+安裝程式從 `https://downloads.smurg.ai/v<版本>/` 下載那個版本的執行檔，並核對同一個版本的 `SHA256SUMS`。要安裝特定
+版本，直接執行那個版本的安裝程式，例如 `curl -fsSL https://downloads.smurg.ai/v0.1.0/install.sh | sh`。
 
 安裝程式會下載這台電腦的單一執行檔（不需要 Node.js），**只在 sha256 與這個版本的 `SHA256SUMS` 相符時**安裝到
 `~/.local/bin/smurg`，並告訴你怎麼把 `~/.local/bin` 加到 `PATH`（加好之後要重新開一個終端機）。在 Linux 上它還會檢查
@@ -29,7 +25,9 @@ curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh
   （quarantine），所以第一次執行時不會被 Gatekeeper 擋下。請用上面的指令安裝，不要用瀏覽器下載執行檔再手動執行。
 - 升級：再執行一次同一行指令（會取代 `~/.local/bin/smurg`；正在分享時請先停止分享）。`smurg --version` 顯示目前的版本。
 - 要在 session 裡執行 Claude Code，這台電腦還需要 `claude` 指令（2.1.220 以上）。
-- 想從原始碼執行（例如要修改 smurg）：見 README「從原始碼開發」。
+- smurg 是免費使用的專有軟體，原始碼不公開：可以免費下載和使用，但不能散布、修改或反組譯（法律允許的範圍除外），條款見
+  https://smurg.ai/license/。執行檔裡的第三方軟體與它們的授權：`smurg licenses`，或
+  https://smurg.ai/third-party-notices.txt。
 
 ## 2. 登入 relay
 
@@ -54,7 +52,7 @@ smurg login          # 用瀏覽器以 Google 帳號登入；不加 --relay 時�
 smurg 的維護者在 Cloudflare 上架設了一個所有人都可以使用的 relay：https://app.smurg.ai（也是網頁版：組員的邀請連結
 和工作區都在這個網址上）。發佈版的 smurg 預設就用它，**你不需要部署任何東西**，只要有 Google 帳號（主人和組員都用 Google 登入）。
 
-**relay 看得到什麼**（ARCHITECTURE §11 D-5）：
+**relay 看得到什麼**：
 
 - 看不到：檔案內容、檔名、終端機畫面、你或組員輸入的指令、邀請連結的密鑰、任何金鑰。這些在你的電腦和組員的瀏覽器
   （或 CLI）之間端對端加密，relay 只轉送加密後的資料。
@@ -62,7 +60,8 @@ smurg 的維護者在 Cloudflare 上架設了一個所有人都可以使用的 r
   名稱時拿來當顯示名稱）、**從哪個 IP 位址連線**、連到哪個工作區代碼，以及每筆資料的大小和時間。從這些可以看出誰和誰
   在什麼時候一起工作、傳了多少資料。
 - 保存：每個工作區的代碼和它的主人是哪個帳號。登入本身不保存（relay 的登入是有效 7 天的簽章權杖）。
-- 架設者（smurg 的維護者）和 Cloudflare 因此也可能知道上面「看得到」的內容。不能接受的話，請自己架設 relay（§2.2）。
+- 架設者（smurg 的維護者）和 Cloudflare 因此也可能知道上面「看得到」的內容。不能接受的話，請不要用 smurg 分享：smurg 的
+  原始碼不公開，目前沒有辦法自己架設 relay（§2.2）。
 
 **免費方案的限制**：公用 relay 用 Cloudflare 的免費方案，**所有使用公用 relay 的人共用**每天固定的用量：
 
@@ -71,23 +70,21 @@ smurg 的維護者在 Cloudflare 上架設了一個所有人都可以使用的 r
 - 一天的用量用完時，**所有人**（不只你）都可能連不上：新的連線和登入會失敗，已經連著的也可能中斷，直到台灣時間
   **早上 8 點**（UTC 0 點）重新計算。這時主人的終端機會提示與 relay 的連線中斷，組員看到「無法連上伺服器」，瀏覽器也
   可能顯示 Cloudflare 的錯誤頁（Error 1027）。
-- 維護者會觀察用量，必要時改用付費方案。整班同時長時間使用、或不能接受中斷時，請自己架設 relay（§2.2），用你自己的
-  Cloudflare 帳號與額度。
+- 維護者會觀察用量，必要時改用付費方案。目前只有這一個公用 relay，沒有辦法改用自己的（§2.2）：整班同時長時間使用、
+  或不能接受中斷時，請先考慮這個限制。
 
-### 2.2 自己架設 relay
+### 2.2 其他 relay（`--relay`）
 
-你、學校或團隊也可以把 relay 部署到自己的 Cloudflare 帳號（步驟見 [`apps/relay/README.md`](../apps/relay/README.md)
-「部署到 Cloudflare」與「之後」：Cloudflare 帳號，加上你自己申請的 Google OAuth client。預設部署在你帳號的 workers.dev
-子網域，網址像 `https://smurg-relay.<你的子網域>.workers.dev`，不需要自己的網域；也可以用你在 Cloudflare 上的網域。
-`scripts/deploy-relay.sh` 部署的是只用 Google 登入的設定，要用 GitHub 登入得自己修改設定）。之後用 `--relay` 指定它：
+smurg 只提供執行檔，relay 的原始碼不公開，所以目前**沒有辦法自己架設 relay**：每個人都用公用 relay（§2.1）。
+`--relay` 選項仍然存在，用來連到 smurg 的維護者另外提供的 relay（例如測試用）：
 
 ```sh
-smurg login --relay https://relay.example.edu      # 換成你的 relay；出現哪些登入按鈕由你的設定決定
+smurg login --relay https://relay.example.org      # 換成維護者給你的網址；出現哪些登入按鈕由那個 relay 決定
 smurg host ~/projects/my-app                        # 用上次登入的 relay
 ```
 
 選擇 relay 的順序：`--relay`、環境變數 `SMURG_RELAY_URL`、上次登入的 relay，都沒有時才用公用 relay。要換回
-公用 relay：`smurg login --relay https://app.smurg.ai`。你印出的邀請連結會指向你的 relay，組員不需要另外設定。
+公用 relay：`smurg login --relay https://app.smurg.ai`。你印出的邀請連結會指向你用的 relay，組員不需要另外設定。
 
 ## 3. 分享
 
@@ -114,7 +111,7 @@ smurg host ~/projects/my-app
 角色：`viewer` 只能看；`editor` 可以編輯檔案；`runner` 還可以在你的電腦上執行 agent（在沙盒裡）。
 之後可以在網頁的主人控制台管理成員、角色、邀請與 session，查看操作紀錄。
 
-## 4. 分享前必讀（SPEC §11）
+## 4. 分享前必讀
 
 - **資料夾裡的檔案，每個成員都看得到**（旁觀者也一樣），例如 `.env`、設定檔。組員（人）看不到、也下載不到的只有：
   smurg 自己的 `.smurg/`、所有 `.git` 資料夾、`.envrc`，以及你個人的 Claude Code 設定（`.claude/settings.local.json`、

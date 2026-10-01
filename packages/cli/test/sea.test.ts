@@ -9,6 +9,7 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runPathsFor } from '@smurg/daemon';
@@ -20,6 +21,7 @@ import { localTerminal } from './viewer.ts';
 
 const run = promisify(execFile);
 const BINARY = process.env['SMURG_SEA_BINARY'] ? resolve(process.env['SMURG_SEA_BINARY']) : null;
+const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -85,6 +87,27 @@ describe.skipIf(BINARY === null)('the single executable (SMURG_SEA_BINARY)', () 
     expect(JSON.parse(mcp.stdout.split('\n')[0] as string)).toMatchObject({ id: 1, result: { serverInfo: { name: 'smurg' } } });
     // Neither needed the native parts: nothing was extracted.
     await expect(lstat(s.cache)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('smurg licenses prints the embedded LICENSE and third-party notices (srt Apache-2.0, Node.js LICENSE); --third-party is the release file', async () => {
+    const s = await setup();
+    const all = await run(s.bin, ['licenses'], { env: s.env, cwd: s.dirs.home, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
+    const license = await readFile(join(REPO_ROOT, 'LICENSE'), 'utf8');
+    expect(all.stdout.startsWith(license)).toBe(true);
+    const thirdParty = await run(s.bin, ['licenses', '--third-party'], { env: s.env, cwd: s.dirs.home, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
+    expect(all.stdout).toBe(`${license}\n${thirdParty.stdout}`);
+    // srt's own Apache-2.0 LICENSE (and NOTICE, if its package has one), and the Node.js runtime's LICENSE.
+    const srt = join(REPO_ROOT, 'packages', 'daemon', 'node_modules', '@anthropic-ai', 'sandbox-runtime');
+    expect(thirdParty.stdout).toContain('\n@anthropic-ai/sandbox-runtime@');
+    const srtLicense = (await readFile(join(srt, 'LICENSE'), 'utf8')).replace(/[ \t]+$/gm, '').trim();
+    expect(thirdParty.stdout).toContain(srtLicense);
+    for (const name of await readdir(srt)) if (/^notice/i.test(name)) expect(thirdParty.stdout).toContain((await readFile(join(srt, name), 'utf8')).replace(/[ \t]+$/gm, '').trim());
+    expect(thirdParty.stdout).toMatch(/\nnode@\d+\.\d+\.\d+ \(the Node\.js runtime\)\n/);
+    expect(thirdParty.stdout).toContain('Node.js is licensed for use as follows:');
+    expect(thirdParty.stdout).not.toContain('In the copy of this file that is built');
+    // The file build-sea.ts writes next to the binary is the same text.
+    const beside = join(resolve(s.bin, '..'), 'THIRD-PARTY-NOTICES.txt');
+    if (await lstat(beside).then(() => true, () => false)) expect(await readFile(beside, 'utf8')).toBe(thirdParty.stdout);
   });
 
   it('login, host with every production module, a terminal session through smurg attach in a real PTY, and smurg stop', async () => {
