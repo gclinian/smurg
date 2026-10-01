@@ -112,6 +112,8 @@ export interface FakeSrt extends SrtApi {
     readonly update: SrtBaseConfig[];
     readonly wrap: { command: string; custom: SrtSessionConfig }[];
     reset: number;
+    /** cleanupAfterCommand() calls (srt's count of running wraps goes down by one each). */
+    cleanups: number;
   };
 }
 
@@ -128,7 +130,7 @@ export interface FakeSrtOptions {
 }
 
 export function fakeSrt(options: FakeSrtOptions): FakeSrt {
-  const calls = { initialize: [] as SrtBaseConfig[], initializeTmpdir: [] as string[], update: [] as SrtBaseConfig[], wrap: [] as { command: string; custom: SrtSessionConfig }[], reset: 0 };
+  const calls = { initialize: [] as SrtBaseConfig[], initializeTmpdir: [] as string[], update: [] as SrtBaseConfig[], wrap: [] as { command: string; custom: SrtSessionConfig }[], reset: 0, cleanups: 0 };
   let updates = 0;
   return {
     calls,
@@ -154,7 +156,9 @@ export function fakeSrt(options: FakeSrtOptions): FakeSrt {
         ? syntheticDarwinCommand(command, syntheticDarwinProfile(custom.filesystem.allowWrite))
         : syntheticLinuxCommand(command, '/usr/bin/bwrap', syntheticLinuxMounts(custom, options.proxySockets?.() ?? []));
     },
-    cleanupAfterCommand: () => {},
+    cleanupAfterCommand: () => {
+      calls.cleanups++;
+    },
     linuxProxySockets: () => (options.platform === 'linux' ? (options.proxySockets?.() ?? []) : []),
     reset: async () => {
       calls.reset++;

@@ -3,7 +3,7 @@
 // disk rule before anything is written, conflict policies, permissions, abort, kick and the sweep.
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, lstat, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -382,6 +382,45 @@ describe('upload plan (folder drops)', () => {
     expect(exists).toMatchObject({ code: 'conflict', reason: 'exists' });
     expect(exists?.detail?.['paths']).toEqual([{ path: 'docs/a.txt', reason: 'exists' }]);
     await expect(lstat(join(f.t.root, 'new'))).rejects.toThrow();
+  });
+
+  // review RCR-3: the numbered name comes from the upload's own (NFC) spelling, as the single-file path numbers it, and
+  // a candidate counts as taken under either spelling (Linux maps an NFC name onto its one NFD twin).
+  const pair = (a: string, b: string): { path: string; kind: 'file'; size: number }[] => [
+    { path: a, kind: 'file', size: 1 },
+    { path: b, kind: 'file', size: 1 },
+  ];
+  const NFD = (s: string): string => s.normalize('NFD');
+
+  it('renames after the upload’s own spelling: readme.md next to README.md becomes readme (1).md, like a single upload (case-insensitive file systems)', async (context) => {
+    const { ft: f, xfer } = await setup();
+    context.skip((await lstat(join(f.t.root, 'readme.md')).catch(() => null)) === null, 'case-sensitive file system: readme.md does not collide');
+    const plan = await xfer.request('file.upload.plan', { root: MAIN_ROOT, entries: pair('readme.md', 'other.txt'), onConflict: 'rename' });
+    expect(plan.renamed).toEqual([{ from: 'readme.md', to: 'readme (1).md' }]);
+  });
+
+  it.runIf(process.platform === 'linux')('Linux: next to an NFD café.txt the numbered name is NFC and misses neither the batch nor an existing name of either spelling', async () => {
+    const { ft: f, xfer } = await setup();
+    const cases: { readonly disk: readonly [string, string][]; readonly batch: readonly [string, string] }[] = [
+      { disk: [[NFD('café.txt'), 'x']], batch: ['café.txt', 'café (1).txt'] }, // the batch's own café (1).txt
+      { disk: [[NFD('café.txt'), 'x'], ['café (1).txt', 'y']], batch: ['café.txt', 'other.txt'] }, // an NFC one on disk
+      { disk: [[NFD('café.txt'), 'x'], [NFD('café (1).txt'), 'y']], batch: ['café.txt', 'other.txt'] }, // an NFD one on disk
+      { disk: [['café.txt', 'x'], [NFD('café (1).txt'), 'y']], batch: ['café.txt', 'other.txt'] }, // NFC original, NFD numbered
+    ];
+    for (const [i, c] of cases.entries()) {
+      const dir = `rcr3-${i}`;
+      for (const [name, content] of c.disk) {
+        await mkdir(join(f.t.root, dir), { recursive: true });
+        await writeFile(join(f.t.root, dir, name), content);
+      }
+      const plan = await xfer.request('file.upload.plan', { root: MAIN_ROOT, entries: pair(`${dir}/${c.batch[0]}`, `${dir}/${c.batch[1]}`), onConflict: 'rename' });
+      expect(plan.renamed, `case ${i}`).toEqual([{ from: `${dir}/café.txt`, to: `${dir}/café (2).txt` }]);
+      expect(plan.renamed[0]?.to.normalize('NFC')).toBe(plan.renamed[0]?.to);
+    }
+    // and the upload lands where the plan said, next to the untouched originals
+    const run = await upload(xfer, { path: 'rcr3-0/café (2).txt', size: 3, source: bytesSource(new TextEncoder().encode('new')) });
+    expect(run.entry?.path).toBe('rcr3-0/café (2).txt');
+    expect(await readFile(join(f.t.root, 'rcr3-0', NFD('café.txt')), 'utf8')).toBe('x');
   });
 });
 

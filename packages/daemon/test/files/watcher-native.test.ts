@@ -8,7 +8,9 @@ import { existsSync } from 'node:fs';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { DaemonEvents } from '../../src/core/interfaces.ts';
+import type { FeatureModule } from '../../src/core/context.ts';
+import type { DaemonEvents, WatchedPathEvent } from '../../src/core/interfaces.ts';
+import { toDisposable } from '../../src/core/lifecycle.ts';
 import type { FileWatcher, NativeWatcherEvent, NativeWatcherModule, NativeWatcherSubscription, WatcherOptions } from '../../src/files/watcher.ts';
 import { waitFor } from '../../src/testing/index.ts';
 import { startFilesDaemon, type FilesTest } from './helpers.ts';
@@ -102,8 +104,8 @@ class RecordingNative implements NativeWatcherModule {
   }
 }
 
-async function start(native: RecordingNative, watcher: WatcherOptions = {}): Promise<FilesTest> {
-  const f = await startFilesDaemon({ project: { files: { 'README.md': '# hi\n' } }, files: { watcher: { native, ...watcher } } });
+async function start(native: RecordingNative, watcher: WatcherOptions = {}, extraModules: readonly FeatureModule[] = []): Promise<FilesTest> {
+  const f = await startFilesDaemon({ project: { files: { 'README.md': '# hi\n' } }, files: { watcher: { native, ...watcher } }, extraModules: [...extraModules] });
   started.push(f);
   return f;
 }
@@ -163,6 +165,40 @@ describe('file watcher: calls into the native module', { timeout: 60_000 }, () =
     expect(native.liveDirs()).toEqual([]);
     expect(native.failedSubscribes).toEqual([]);
     expect(native.unsubscribedAt.size).toBeGreaterThan(0); // the scenario did subscribe and release repeatedly
+  });
+
+  it('every batch is handed to the guest sandbox as reported, before any filtering (reviews RV-1, RV-2: it compares the protected entries a batch names)', async () => {
+    const native = new RecordingNative();
+    const seen: { root: string; events: WatchedPathEvent[] }[] = [];
+    const sandbox: FeatureModule = {
+      name: 'sandbox-recorder',
+      create: () => ({
+        sandbox: {
+          preflight: async () => ({ ok: true, platform: 'linux' }),
+          wrap: async () => {
+            throw new Error('not in this test');
+          },
+          setAllowedDomains: async () => {},
+          fileEvents: (root: string, events: readonly WatchedPathEvent[]) => {
+            seen.push({ root, events: [...events] });
+          },
+        },
+      }),
+      register: () => toDisposable(() => {}),
+    };
+    const f = await start(native, {}, [sandbox]);
+    await waitFor(() => watcherOf(f).watchedRoots().includes('main'), { what: 'the main subscription' });
+    const mainDir = f.t.ctx.roots.main.realPath;
+    const events: NativeWatcherEvent[] = [
+      { path: join(mainDir, '.envrc'), type: 'create' },
+      { path: join(mainDir, '.claude', 'settings.local.json'), type: 'update' },
+      { path: join(mainDir, 'notes.md.smurg-1a2b.tmp'), type: 'create' }, // a temp name the watcher itself ignores
+      { path: join(mainDir, 'gone'), type: 'delete' },
+    ];
+    native.emit(mainDir, events);
+    await waitFor(() => seen.length === 1, { what: 'the batch handed to the sandbox' });
+    expect(seen[0]?.root).toBe(mainDir);
+    expect([...(seen[0]?.events ?? [])].sort((a, b) => a.path.localeCompare(b.path))).toEqual([...events].sort((a, b) => a.path.localeCompare(b.path)));
   });
 
   it('the events of a removed root, or of a stopped watcher, reach nobody', async () => {

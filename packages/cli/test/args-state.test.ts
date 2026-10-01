@@ -73,6 +73,7 @@ describe('state paths', () => {
       credentials: '/tmp/x/credentials.json',
       workspaces: '/tmp/x/workspaces.json',
       logsDir: '/tmp/x/logs',
+      daemonCwd: '/tmp/x/cwd',
     });
     expect(statePaths({ HOME: '/home/amy' }).stateDir).toBe('/home/amy/.smurg');
     expect(() => statePaths({ SMURG_HOME: 'relative/dir' })).toThrow(/絕對路徑/);

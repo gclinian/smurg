@@ -24,7 +24,7 @@ import yazl from 'yazl';
 import { DOWNLOAD_SKIPPED_MAX, SmurgError, checkRelPath, isHiddenTempName, isHostPrivatePath, isSmurgDirName, type FileRef } from '@smurg/protocol';
 import { isPathDeniedError } from '../core/errors.ts';
 import type { PathGuard, Principal, ResolvedPath } from '../core/interfaces.ts';
-import { errnoCode, isInside, unaddressableNames } from '../workspace/fs-util.ts';
+import { SpellingIndex, errnoCode, isInside, unaddressableNames } from '../workspace/fs-util.ts';
 import { joinRel } from './util.ts';
 
 /** Already-compressed formats are stored, not deflated again (transfer.md §1.6). */
@@ -103,6 +103,9 @@ export function createZipSource(options: ZipSourceOptions): ZipSource {
   const largeEntryBytes = options.largeEntryBytes ?? ZIP64_ENTRY_BYTES;
   let cancelled = false;
   let zip64 = false;
+  // Linux: one listing per directory for the NFC → on-disk mapping of the whole archive, not one per NFD-named file
+  // (review RCR-2; each file is resolved twice: resolve, then openRead's revalidate).
+  const spellings = new SpellingIndex();
 
   const skip = (path: string, reason: string): void => {
     if (skipped.length < DOWNLOAD_SKIPPED_MAX) skipped.push({ path, reason: reason.slice(0, 200) });
@@ -119,7 +122,7 @@ export function createZipSource(options: ZipSourceOptions): ZipSource {
   const openLazily = async (item: WalkFile): Promise<Readable> => {
     if (cancelled) return Readable.from([]);
     const ref: FileRef = { root, path: item.refPath };
-    const guardOptions = { principal: options.principal, mustExist: true, finalSymlink: 'deny' as const };
+    const guardOptions = { principal: options.principal, mustExist: true, finalSymlink: 'deny' as const, spellings };
     try {
       const resolved = await options.paths.resolve(ref, guardOptions);
       const file = await options.paths.openRead(resolved, guardOptions);
@@ -163,7 +166,7 @@ export function createZipSource(options: ZipSourceOptions): ZipSource {
     }
     const baseIdentity = options.base.identity;
     const stack: StackItem[] = [{ name: '', refPath: options.base.ref.path, resolved: options.base, dev: baseIdentity?.dev ?? -1, ino: baseIdentity?.ino ?? -1 }];
-    const baseOptions = { principal: options.principal, mustExist: true, allowRoot: true };
+    const baseOptions = { principal: options.principal, mustExist: true, allowRoot: true, spellings };
     const dirOptions = { ...baseOptions, finalSymlink: 'deny' as const };
     while (stack.length > 0 && !cancelled) {
       const dir = stack.pop() as StackItem;

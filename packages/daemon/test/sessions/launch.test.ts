@@ -139,6 +139,42 @@ describe('who may create and drive sessions', { timeout: 60_000 }, () => {
     expect(s.fakes.sandbox.released).toHaveLength(2);
     expect(s.sessions.list().filter((m) => m.status !== 'exited')).toEqual([]);
   });
+
+  // Linux (reviews RV-1, RV-2): bubblewrap's mounts cannot follow the host's change of a protected entry (an atomic save
+  // of .envrc, `git switch`); the sandbox revokes what runs in that root and the session ends, fail closed.
+  it('a guest session whose sandbox is revoked ends (terminated, audited by the system, its owner told); the host\'s session and another root\'s go on; one revoked before it could be watched is refused', async () => {
+    const s = await stack();
+    const host = await s.t.connectHost();
+    const runner = await s.t.connect({ userId: 'dev:carol', role: 'runner' });
+    const hostSession = (await host.conn.request('session.create', terminal)).session;
+    const guestSession = (await runner.conn.request('session.create', terminal)).session;
+    const share = s.t.ctx.roots.main.realPath;
+    expect(s.fakes.sandbox.watched).toHaveLength(1);
+    expect(s.fakes.sandbox.revoke(join(share, 'elsewhere'), { root: join(share, 'elsewhere'), paths: [] })).toBe(0);
+    expect(s.fakes.sandbox.revoke(share, { root: share, paths: [join(share, '.envrc'), join(share, 'sub', 'CLAUDE.local.md')] })).toBe(1);
+    await waitFor(() => s.sessions.get(guestSession.id)?.status === 'exited', 'the guest session to end');
+    expect(s.sessions.get(guestSession.id)).toMatchObject({ status: 'exited', endReason: 'terminated' });
+    expect(s.sessions.get(guestSession.id)?.endedBy).toBeUndefined();
+    expect(s.sessions.get(hostSession.id)?.status).toBe('running');
+    await waitFor(() => s.fakes.sandbox.released.length === 1, 'the wrap to be released');
+    expect(s.fakes.sandbox.listening()).toBe(0);
+    const terminated = (await s.t.ctx.audit.query({ limit: 50 })).filter((e) => e.action === 'session.terminate');
+    expect(terminated).toHaveLength(1);
+    expect(terminated[0]).toMatchObject({ actor: { kind: 'system' }, target: guestSession.id, detail: { reason: 'sandbox-protected-changed', paths: ['.envrc', 'sub/CLAUDE.local.md'], ownerUserId: 'dev:carol' } });
+    expect(s.fakes.activity.notifications).toHaveLength(1);
+    expect(s.fakes.activity.notifications[0]?.userId).toBe('dev:carol');
+    expect(s.fakes.activity.notifications[0]?.text).toContain('.envrc、sub/CLAUDE.local.md');
+    expect(s.fakes.activity.notifications[0]?.text).toContain('已被結束');
+
+    // Revoked between the wrap and the start (a change while it was being prepared): not started, refused.
+    s.fakes.sandbox.revokeOnWrap = { root: share, paths: [join(share, '.mcp.json')] };
+    const err = await runner.conn.request('session.create', terminal).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'sandbox_unavailable', detail: { reason: 'protected-changed' } });
+    expect(s.sessions.list().filter((m) => m.ownerUserId === 'dev:carol' && m.status !== 'exited')).toEqual([]);
+    await waitFor(() => s.fakes.sandbox.released.length === 2, 'the refused wrap to be released');
+    const refused = (await s.t.ctx.audit.query({ limit: 50 })).filter((e) => e.action === 'sandbox.refused');
+    expect(refused.at(-1)).toMatchObject({ detail: { reason: 'protected-changed' } });
+  });
 });
 
 describe('agent sessions (ARCHITECTURE §7.6)', { timeout: 60_000 }, () => {

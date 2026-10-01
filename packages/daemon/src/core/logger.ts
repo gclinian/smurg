@@ -24,10 +24,23 @@ export interface LineLoggerOptions {
   readonly now?: () => number;
 }
 
+/**
+ * What JSON.stringify leaves raw but a terminal may act on or a reader may misread: DEL and the C1 controls (U+0080–
+ * U+009F; a terminal that takes them as controls reads U+009B as CSI and U+009D as OSC, e.g. a clipboard write), the
+ * line and paragraph separators and the bidirectional overrides. Logged values can be names a guest chose (a directory
+ * in the share, review attack F1), and the host reads the log in a terminal (`smurg host`: a file, errors on stderr).
+ */
+const RAW_AFTER_JSON = /[\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g;
+
+/** JSON.stringify, with RAW_AFTER_JSON escaped as `\uXXXX` too (still valid JSON). */
+export function quoteForLog(value: string): string {
+  return JSON.stringify(value).replace(RAW_AFTER_JSON, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
 function formatValue(value: string | number | boolean | null): string {
   if (typeof value !== 'string') return String(value);
   // Quote anything that could be confused with the key=value structure or smuggle a fake line.
-  return /^[\w.:/@+-]*$/.test(value) && value.length > 0 ? value : JSON.stringify(value);
+  return /^[\w.:/@+-]*$/.test(value) && value.length > 0 ? value : quoteForLog(value);
 }
 
 /** One `time level message key=value …` line per call. */
@@ -38,7 +51,7 @@ export function createLineLogger(options: LineLoggerOptions = {}, base: LogField
   const emit = (level: LogLevel, message: string, fields?: LogFields): void => {
     if (LEVEL_RANK[level] < threshold) return;
     const merged = { ...base, ...fields };
-    let line = `${new Date(now()).toISOString()} ${level} ${JSON.stringify(message)}`;
+    let line = `${new Date(now()).toISOString()} ${level} ${quoteForLog(message)}`;
     for (const [key, value] of Object.entries(merged)) {
       if (value === undefined) continue;
       line += ` ${key}=${formatValue(value)}`;

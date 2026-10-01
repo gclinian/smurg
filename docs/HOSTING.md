@@ -13,8 +13,9 @@ curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh
 
 安裝程式會下載這台電腦的單一執行檔（不需要 Node.js），**只在 sha256 與這個版本的 `SHA256SUMS` 相符時**安裝到
 `~/.local/bin/smurg`，並告訴你怎麼把 `~/.local/bin` 加到 `PATH`（加好之後要重新開一個終端機）。在 Linux 上它還會檢查
-客人沙盒需要的套件（bubblewrap、socat、ripgrep）和 Ubuntu 24.04 以上的 AppArmor 限制，**經你同意後**用 `sudo` 安裝
-套件與只放寬 `/usr/bin/bwrap` 的 AppArmor 設定檔；不同意時它只印出指令。
+客人沙盒需要的套件（bubblewrap、socat、ripgrep）和 Ubuntu 24.04 以上的 AppArmor 限制（實際試跑一次 bubblewrap 來判斷，
+設定檔存在但沒有生效也看得出來），**經你同意後**用 `sudo` 安裝套件與只放寬 `/usr/bin/bwrap` 的 AppArmor 設定檔；
+不同意時它只印出指令。
 
 - macOS 的執行檔沒有 Apple 的開發者簽章（只有 ad-hoc 簽章）。安裝程式驗證 sha256 之後，會移除 macOS 的隔離標記
   （quarantine），所以第一次執行時不會被 Gatekeeper 擋下。請用上面的指令安裝，不要用瀏覽器下載執行檔再手動執行。
@@ -115,6 +116,11 @@ smurg host ~/projects/my-app
   技術上你讀得到。請組員使用有花費上限的 API key；組員按「離開」或被移出時，smurg 會登出並刪除他們的暫存目錄
   （沒有連線超過 7 天的也會刪除）。
 - 組員只能在 `smurg host` 執行、而且你的電腦連線時使用這個工作區。
+- **Linux：組員的程序執行時，不要編輯只有你能使用的檔案**（`.envrc`、`.mcp.json`、`.claude/`、`CLAUDE.local.md`，
+  任何一層）。Linux 的沙盒在組員的程序執行中跟不上這種變動：smurg 會在發現後（約 0.1 秒內）結束那個資料夾裡組員的
+  程序，並在終端機列出檔名，但在那之前組員的程序可能讀到新的內容或改寫它。你自己的 Claude Code 在你選「不再詢問」
+  時也會寫入 `.claude/settings.local.json`，`git switch`、`git clean` 也可能動到 `.claude/`。要編輯之前，請先請組員
+  結束 session（macOS 的沙盒沒有這個問題）。
 
 ## 5. 組員的 Claude 登入、agent 的 shell 指令
 
@@ -167,6 +173,10 @@ agent 用 Edit、Write 等工具改檔案時，smurg 本來就知道是哪個 ag
 **闔上筆電螢幕仍然會睡眠**，這時組員會看到「主人已離線」。沒有防止睡眠（`--no-keep-awake`、Linux 找不到
 `systemd-inhibit`）或之後失效時，`smurg host` 會在終端機提示。
 
+在 Ubuntu 上透過 SSH 啟動 `smurg host` 時，系統（polkit）預設不允許防止睡眠，開始訊息會寫「未啟用（系統（polkit）不允許
+防止睡眠…）」（在 Ubuntu 24.04 上驗證過；其他發行版或公司自訂的 polkit 規則也可能拒絕，訊息相同）。要防止睡眠，請在這台電腦的桌面登入後啟動 `smurg host`；沒有桌面的伺服器通常本來就
+不會自動睡眠。
+
 ## 7. 狀態與停止
 
 ```sh
@@ -194,6 +204,8 @@ smurg stop            # 停止分享：中斷所有連線、結束所有 session
 | 「無法寫入 smurg 的狀態檔」 | 磁碟已滿或沒有權限。剛才的變更（踢人、改角色、撤銷邀請）現在有效，但寫入成功前停止分享的話，重新啟動後會消失。 |
 | 「客人沙盒：無法使用（dependency-missing）」 | Linux：`sudo apt-get install bubblewrap socat ripgrep`，重新執行 `smurg host`。bubblewrap 需要 0.8 以上（`bwrap --version`）：Ubuntu 24.04、Debian 12 以上內建的版本即可；Ubuntu 22.04 的 0.6 太舊。 |
 | 「客人沙盒：無法使用（apparmor-userns）」 | Ubuntu 24.04 以上：照 smurg 印出的指令安裝 `/etc/apparmor.d/smurg-bwrap`（只放寬 bubblewrap）。 |
+| 「客人沙盒：無法使用（daemon-cwd）」 | 重新執行 `smurg host`（smurg 的 daemon 從 `~/.smurg/cwd` 執行，這個資料夾在分享期間被刪除了）。 |
+| 「⚠ 客人程序執行時，……裡只有主人能使用的檔案有變動」 | Linux：你、你的工具或 `git` 在組員的程序執行時改了列出的檔案（§4）。smurg 已結束那個資料夾裡組員的程序，組員可以重新開 session。請確認這些檔案現在的內容是你自己的（組員在被結束之前可能改寫了它）。 |
 | 「smurg 狀態目錄的路徑太長」 | 把 `SMURG_HOME` 設成較短的路徑（Unix socket 路徑有長度上限）。 |
 | 組員看到「主人已離線」 | `smurg host` 沒有在執行，或電腦在睡眠 / 沒有網路。 |
 | 組員說「這個工作區的主人沒有開放 Claude 訂閱登入」 | 你用 `--no-guest-subscription-login` 啟動了分享。要開放的話，停止分享後不加這個選項重新執行；否則請組員用自己的 API key。 |

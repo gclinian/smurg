@@ -3,7 +3,7 @@
 import type { Stats } from 'node:fs';
 import { lstat, readdir, realpath } from 'node:fs/promises';
 import { sep } from 'node:path';
-import type { FileIdentity } from '../core/interfaces.ts';
+import type { FileIdentity, SpellingLookup } from '../core/interfaces.ts';
 
 // ---------------------------------------------------------------------------------------------------------------
 // Unicode spellings of one name (ARCHITECTURE §7.4: every FileRef path is NFC). APFS compares names
@@ -37,6 +37,55 @@ export async function otherSpellings(dir: string, name: string): Promise<string[
     throw err;
   }
   return names.filter((entry) => entry !== name && NON_ASCII.test(entry) && entry.normalize('NFC') === name);
+}
+
+/** The most directories one SpellingIndex keeps (the oldest listing is dropped first). */
+const SPELLING_INDEX_DIRS = 1024;
+
+/**
+ * otherSpellings for ONE operation (review RCR-2; ResolveOptions.spellings): each directory is listed once, on its
+ * first missed name, and indexed by NFC form. Without it every miss listed the whole directory again, so a zip or a
+ * watcher batch over a folder of n Mac-made (NFD) names cost n listings of n entries (measured on ext4: a 20,000-file
+ * zip 374 s instead of 26 s). A snapshot: an entry created after the listing is not seen by this operation (its
+ * create event starts another). The mapping itself is unchanged: an exact NFC twin is looked up live first, and the
+ * entry found here goes through every PathGuard check like any other.
+ */
+export class SpellingIndex implements SpellingLookup {
+  private readonly dirs = new Map<string, Promise<ReadonlyMap<string, readonly string[]>>>();
+
+  async otherSpellings(dir: string, name: string): Promise<string[]> {
+    if (!MAY_HAVE_OTHER_SPELLING.test(name)) return [];
+    let index = this.dirs.get(dir);
+    if (index === undefined) {
+      if (this.dirs.size >= SPELLING_INDEX_DIRS) this.dirs.delete(this.dirs.keys().next().value as string);
+      index = indexSpellings(dir);
+      this.dirs.set(dir, index);
+      index.catch(() => this.dirs.delete(dir)); // a failed listing is not remembered
+    }
+    return [...((await index).get(name) ?? [])];
+  }
+}
+
+/** NFC form → the names of `dir` that are not NFC and normalise to it; empty when the directory cannot be listed. */
+async function indexSpellings(dir: string): Promise<ReadonlyMap<string, readonly string[]>> {
+  const out = new Map<string, string[]>();
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch (err) {
+    const code = errnoCode(err);
+    if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'EACCES' || code === 'EPERM') return out;
+    throw err;
+  }
+  for (const entry of names) {
+    if (!NON_ASCII.test(entry)) continue;
+    const nfc = entry.normalize('NFC');
+    if (nfc === entry) continue;
+    const group = out.get(nfc);
+    if (group) group.push(entry);
+    else out.set(nfc, [entry]);
+  }
+  return out;
 }
 
 /**

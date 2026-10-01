@@ -15,20 +15,24 @@
 //   * the Claude LOGIN process of a guest (ARCHITECTURE §11 D-12; a spec with `loginProcess: true`)
 //     runs in mode 'login': the guest dir only, nothing of the share, and the one extra right to listen on loopback,
 //     added by the hardening step (bind + accept, never an outbound connection).
+// And on Linux (reviews RV-1, RV-2, 2026-10-01): bubblewrap's mounts cannot follow a protected entry the host replaces,
+// removes or creates while a guest process runs, so ProtectedEntryGuard (guard.ts) records what each wrap() saw and
+// revokes what runs in a root where that changed (onRevoked; the sessions module ends it).
 //
 // Launch inputs come from ctx.config (hostHome, stateDir, runPaths.hook, sessions.selfCommand), never from
 // os.homedir() or process.env. Nothing here blocks the event loop except inside srt itself (see gotchas).
 import { randomBytes } from 'node:crypto';
-import { lstat, readFile, readdir, realpath, rm, rmdir, mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, normalize, resolve } from 'node:path';
+import { closeSync, lstatSync, readdirSync, rmdirSync, type Dirent, type Stats } from 'node:fs';
+import { lstat, readFile, readdir, realpath, rm, rmdir, mkdir, unlink } from 'node:fs/promises';
+import { release as osRelease, tmpdir } from 'node:os';
+import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import { SmurgError, allowedDomainSchema } from '@smurg/protocol';
 import { z } from 'zod';
 // The hook socket's wire format (a dependency-free protocol file, like the MCP server uses): the self-test must send
 // exactly what the daemon's hook server answers.
 import { HOOK_ENV, HOOK_PROBE_EVENT, HOOK_PROBE_FIELD, hookProbeAnswer } from '../hooks/wire.ts';
 import type { DaemonContext } from '../core/context.ts';
-import type { PersistentDocument, SandboxPreflight, SandboxService, SandboxSpec, WrappedCommand } from '../core/interfaces.ts';
+import type { PersistentDocument, SandboxPreflight, SandboxRevocation, SandboxService, SandboxSpec, WatchedPathEvent, WrappedCommand } from '../core/interfaces.ts';
 import { SYSTEM_ACTOR } from '../core/permissions.ts';
 import {
   LINUX_TOOL_DIRS,
@@ -43,11 +47,14 @@ import {
   supportedPlatform,
   type CheckIo,
 } from './checks.ts';
+import { ProtectedEntryGuard, holdInode, type GuardBreach, type GuardTicket } from './guard.ts';
 import { DARWIN_SANDBOX_EXEC, HardeningError, SRT_PINNED_VERSION, hardenDarwinCommand, hardenLinuxCommand, linuxArgsFilePath, shellQuote } from './harden.ts';
 import {
   HOST_ONLY_DIR_NAMES,
   HOST_ONLY_FILE_NAMES,
+  HOST_PERSONAL_FILES,
   PolicyError,
+  SRT_GLOB_CHARS,
   SRT_OWN_WRITE_PATHS,
   buildBaseConfig,
   buildSessionPolicy,
@@ -61,7 +68,7 @@ import {
   type SessionPolicyInput,
   type SrtBaseConfig,
 } from './policy.ts';
-import { SandboxRefusal, isSandboxRefusal, refusalMessage } from './refusal.ts';
+import { DAEMON_CWD_UNRESOLVABLE_MESSAGE, SandboxRefusal, isSandboxRefusal, refusalMessage } from './refusal.ts';
 import { RuntimeBrokenError, RuntimeBusyError, RuntimeInitError, loadSrt, processSrtRuntime, type SrtApi, type SrtRuntime } from './runtime.ts';
 import { createNodePtyRunner, isDirectory, judgeSelfTest, prepareSelfTest, selfTestScript, type PtyRunner } from './selftest.ts';
 
@@ -84,6 +91,12 @@ export interface SandboxServiceOptions {
   readonly shell?: string;
   /** The temp dir srt puts its proxy socket in (srt reads os.tmpdir() itself; injectable for the length check's tests). */
   readonly tmpDir?: () => string;
+  /** Linux: tasks per guest sandbox (default LINUX_GUEST_TASK_LIMIT; tests use a small one to see it hold). */
+  readonly linuxTaskLimit?: number;
+  /** The kernel release (default os.release(); linuxCountsTasksPerUserNamespace decides on it). */
+  readonly kernelRelease?: () => string;
+  /** Linux: how often the protected entries of a root with guest processes are compared again (guard.ts GUARD_POLL_MS). */
+  readonly guardPollMs?: number;
 }
 
 interface Ready {
@@ -101,6 +114,8 @@ interface ResolvedSpec {
   readonly tmpDir: string;
   /** Login mode on macOS: the programs the process may exec (the shell first); null otherwise. */
   readonly execAllow: readonly string[] | null;
+  /** Linux agent / terminal processes: the root's protected entries as this wrap saw them (ProtectedEntryGuard). */
+  readonly ticket: GuardTicket | null;
 }
 
 /**
@@ -180,34 +195,139 @@ function isAtOrUnderAny(p: string, dirs: readonly string[]): boolean {
 const LINUX_NESTED_HOST_ONLY_MAX = 1000;
 /** Directories the nested walk does not enter (srt's own mandatory-deny scan skips node_modules too). */
 const LINUX_NESTED_WALK_SKIP: ReadonlySet<string> = new Set(['node_modules']);
+/**
+ * Directory listings the nested walk keeps in flight (review RCR-7): one after the other it cost ~40 µs per directory
+ * (2.0–2.5 s for 50k directories on the Linux VM), sixteen at a time ~0.2 s, with the same result.
+ */
+const LINUX_NESTED_WALK_CONCURRENCY = 16;
+/** Log lines per wrap() naming nested host-only entries the Linux sandbox cannot deny (warnUnprotected). */
+const UNPROTECTED_WARN_LINES = 20;
+/** Paths a `sandbox.protected-changed` event names (the rest is counted). */
+const PROTECTED_CHANGED_SHOWN = 20;
+
+function closeQuietly(fd: number): void {
+  try {
+    closeSync(fd);
+  } catch {
+    // already closed
+  }
+}
+
+/**
+ * Linux: the most tasks (processes and threads) one guest sandbox may hold (review attack F2, a partial mitigation;
+ * ARCHITECTURE §12 "Resource limits"). Set with `ulimit -u` as the first step INSIDE the sandbox, i.e. after bubblewrap
+ * made the guest's own user namespace: since Linux 5.14 RLIMIT_NPROC is counted per user namespace (ucounts), so the
+ * limit counts this sandbox's tasks only, whatever the host user runs (measured on 6.8: with the host user at 141
+ * tasks, a sandbox limited to 32 still started 27 processes of its own). Set OUTSIDE (before bwrap) it would cap the
+ * host user's whole count and break guests whenever the host is busy. It cannot be raised from inside (the hard limit
+ * is lowered too). Well above what a build or a test run of a guest normally holds, well below the host user's own
+ * limit (31414 on the 8 GB test VM): a fork bomb in one sandbox no longer takes every process slot of the host user,
+ * so the daemon can still start processes. Memory, disk and CPU stay unlimited, and the limit is per sandbox: a guest
+ * with the most sessions (SessionLimits.maxSessionsPerUser, 8) can hold eight times as many. On an older kernel (or a
+ * release string that does not say) it is not set at all: there it would count every task of the host user.
+ */
+export const LINUX_GUEST_TASK_LIMIT = 4096;
+
+/**
+ * Whether this Linux kernel counts RLIMIT_NPROC per user namespace (5.14 and later: "Reimplement RLIMIT_NPROC on top
+ * of ucounts"), from `os.release()` ("6.8.0-85-generic"). False when the release cannot be read.
+ */
+export function linuxCountsTasksPerUserNamespace(release: string): boolean {
+  const match = /^(\d+)\.(\d+)(?:\D|$)/.exec(release);
+  if (match === null) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major > 5 || (major === 5 && minor >= 14);
+}
+
+/** Why an existing nested host-only entry cannot be denied on Linux (NestedHostOnly.unprotected). */
+export type UnprotectedReason = 'glob-characters' | 'not-utf8';
+
+export interface NestedHostOnly {
+  /** Denied literally: one read-only bind each (SessionPolicyInput.nestedHostOnlyPaths). Sorted. */
+  readonly deny: readonly string[];
+  /**
+   * Entries srt cannot be given, so guests can write them (logged for the host; review attack F1): a path with a glob
+   * character (`*`, `?`, `[`, `]`: srt drops such a write deny on Linux without a word, and a refused one used to refuse
+   * every guest session in that root), or one that is not UTF-8 (no JavaScript string spells it: srt would deny a path
+   * that does not exist, and bubblewrap would put a mount point there). `path` is the UTF-8 reading (lossy for the
+   * second kind). Sorted by path.
+   */
+  readonly unprotected: readonly { readonly path: string; readonly reason: UnprotectedReason }[];
+}
+
+const SLASH = Buffer.from('/');
 
 /**
  * Linux: the host-only entries (HOST_ONLY_DIR_NAMES, HOST_ONLY_FILE_NAMES) that exist BELOW the top of `root`. srt
  * drops write-deny globs on Linux (bubblewrap binds concrete paths only: `<root>/**\/.claude` protected nothing), so
  * each existing match becomes a literal deny (a read-only bind) instead. A NEW name below the top cannot be blocked
  * with mounts at all (ARCHITECTURE §12). The walk follows no symlink, does not enter a match (denied whole) or the
- * top-level `.smurg` (denied), and skips node_modules. Null when there are more than LINUX_NESTED_HOST_ONLY_MAX.
+ * top-level `.smurg` (denied), and skips node_modules. It runs on every wrap() (a list kept from an earlier walk would
+ * miss a repository the host cloned since) and lists up to LINUX_NESTED_WALK_CONCURRENCY directories at once. Names are
+ * read as bytes, so a directory whose name is not UTF-8 is still entered and what is below it reported. Null when
+ * there are more than LINUX_NESTED_HOST_ONLY_MAX entries (denied and unprotected together). `personal`, when given,
+ * also receives the host's personal memory files met on the way (`CLAUDE.local.md` below the top, UTF-8 paths only):
+ * srt read-denies them by glob, and the sandbox guard records them (guard.ts).
  */
-async function nestedHostOnlyPaths(root: string): Promise<string[] | null> {
+export async function nestedHostOnlyPaths(root: string, concurrency = LINUX_NESTED_WALK_CONCURRENCY, personal?: string[]): Promise<NestedHostOnly | null> {
   const names = new Set([...HOST_ONLY_DIR_NAMES, ...HOST_ONLY_FILE_NAMES]);
-  const found: string[] = [];
-  const queue: string[] = [];
-  const top = await readdir(root, { withFileTypes: true }).catch(() => []);
-  for (const entry of top) if (entry.isDirectory() && !names.has(entry.name) && !LINUX_NESTED_WALK_SKIP.has(entry.name)) queue.push(join(root, entry.name));
-  while (queue.length > 0) {
-    const dir = queue.pop() as string;
-    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      const path = join(dir, entry.name);
-      if (names.has(entry.name)) {
-        found.push(path);
-        if (found.length > LINUX_NESTED_HOST_ONLY_MAX) return null;
-      } else if (entry.isDirectory() && !LINUX_NESTED_WALK_SKIP.has(entry.name)) {
-        queue.push(path);
+  const personalNames = new Set(HOST_PERSONAL_FILES.filter((rel) => !rel.includes('/')));
+  const deny: string[] = [];
+  const unprotected: { path: string; reason: UnprotectedReason }[] = [];
+  const queue: Buffer[] = [];
+  let found = 0;
+  let tooMany = false;
+  const list = (dir: Buffer): Promise<Dirent<Buffer>[]> => readdir(dir, { withFileTypes: true, encoding: 'buffer' }).catch(() => []);
+  const rootBytes = Buffer.from(root, 'utf8');
+  for (const entry of await list(rootBytes)) {
+    const name = entry.name.toString('utf8');
+    if (entry.isDirectory() && !names.has(name) && !LINUX_NESTED_WALK_SKIP.has(name)) queue.push(Buffer.concat([rootBytes, SLASH, entry.name]));
+  }
+  const visit = async (dir: Buffer): Promise<void> => {
+    for (const entry of await list(dir)) {
+      const name = entry.name.toString('utf8');
+      const bytes = Buffer.concat([dir, SLASH, entry.name]);
+      if (names.has(name)) {
+        found++;
+        if (found > LINUX_NESTED_HOST_ONLY_MAX) tooMany = true;
+        const path = bytes.toString('utf8');
+        if (!Buffer.from(path, 'utf8').equals(bytes)) unprotected.push({ path, reason: 'not-utf8' });
+        else if (SRT_GLOB_CHARS.test(path)) unprotected.push({ path, reason: 'glob-characters' });
+        else deny.push(path);
+      } else if (entry.isDirectory() && !LINUX_NESTED_WALK_SKIP.has(name)) {
+        queue.push(bytes);
+      } else if (personal !== undefined && personalNames.has(name) && personal.length < LINUX_NESTED_HOST_ONLY_MAX) {
+        const path = bytes.toString('utf8');
+        if (Buffer.from(path, 'utf8').equals(bytes)) personal.push(path);
       }
     }
-  }
-  return found.sort();
+  };
+  await new Promise<void>((done) => {
+    let active = 0;
+    const pump = (): void => {
+      while (!tooMany && active < Math.max(1, concurrency) && queue.length > 0) {
+        active++;
+        void visit(queue.pop() as Buffer).finally(() => {
+          active--;
+          pump();
+        });
+      }
+      if (active === 0 && (tooMany || queue.length === 0)) done();
+    };
+    pump();
+  });
+  if (tooMany) return null;
+  return { deny: deny.sort(), unprotected: unprotected.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)) };
+}
+
+/**
+ * srt's own test for a mount point an earlier sandbox left behind (linux-sandbox-utils.js isStaleBwrapMountPoint;
+ * also worktree/stage-commit.ts sandboxMountPoints): bubblewrap makes it with ensure_file(dest, 0444) — an empty
+ * regular file with no write bit and one link. Files made on purpose carry write bits, content or more links.
+ */
+function isStaleMountPointFile(st: Stats): boolean {
+  return st.isFile() && st.size === 0 && (st.mode & 0o222) === 0 && st.nlink === 1;
 }
 
 /** The names of `names` that do not exist in `dir` (lstat: a dangling symlink exists). */
@@ -217,17 +337,21 @@ async function absentNames(dir: string, names: readonly string[]): Promise<strin
 }
 
 /**
- * Linux: the empty directories bubblewrap may make in a session root for the absent host-only DIRECTORY names
- * (policy.ts linuxDirPlaceholderDenies), recorded in the workspace state before a sandbox can make them. srt removes
- * them once no sandbox of this daemon runs; a daemon that died first (SIGKILL, OOM, power loss) leaves them in the
- * host's project, where srt cannot tell them from the host's own empty directories and an empty `.git/` would make
- * the next start take a non-repository for a git repository. The next daemon removes the recorded ones that are still
- * empty directories before it starts its first sandbox (none of the dead daemon's survives it: bubblewrap runs with
- * --die-with-parent), and never while a sandbox of its own runs (removing a mount point under a running sandbox
- * detaches its mount and lifts the deny).
+ * Linux: the empty directories the service makes in a session root for the absent host-only DIRECTORY names
+ * (holdPlaceholderDirs), and the absent host-only FILE names at the top of the root, where bubblewrap leaves srt's
+ * mount point (an empty 0444 file) while a guest process runs; recorded in the workspace state before either can exist.
+ * The service removes its directories once no wrap() is in flight and no WrappedCommand it handed out is unreleased
+ * (srt removes its files once its count of running wraps is zero), and then empties the record. A daemon that died
+ * first (SIGKILL, OOM, power loss) leaves them in the host's project: an empty `.git/` would make the next start take
+ * a non-repository for a git repository, and an empty `.mcp.json` / `.envrc` trips up the host's own Claude Code and
+ * direnv. The next daemon removes, before its first sandbox, the recorded directories that are still empty and the
+ * recorded files that still look exactly like srt's leftovers (isStaleMountPointFile; srt itself would only take them
+ * at the next guest sandbox in that root). None of the dead daemon's sandboxes survives it (bubblewrap runs with
+ * --die-with-parent), and nothing is removed while a sandbox of this daemon runs (removing a mount point under a
+ * running sandbox detaches its mount and lifts the deny).
  */
 const PLACEHOLDER_DOCUMENT = 'sandbox-placeholders';
-/** The most recent entries kept (five names per root: the share and each worktree). */
+/** The most recent entries kept (at most seven names per root: the share and each worktree). */
 const PLACEHOLDER_RECORD_MAX = 1000;
 const placeholderDocumentSchema = z.strictObject({ paths: z.array(z.string().min(1).max(4096)).max(PLACEHOLDER_RECORD_MAX) });
 type PlaceholderDocument = z.output<typeof placeholderDocumentSchema>;
@@ -255,6 +379,10 @@ export class SandboxServiceImpl implements SandboxService {
   private readonly selfTestTimeoutMs: number;
   private readonly shell: string;
   private readonly tmpDir: () => string;
+  private readonly linuxTaskLimit: number;
+  private readonly kernelRelease: () => string;
+  /** Linux: the host was told once that its kernel gets no task limit (taskLimitPrefix). */
+  private taskLimitSkipLogged = false;
   /** This service's identity as the srt runtime's owner. */
   private readonly owner = Object.freeze({ kind: 'smurg-sandbox-owner' });
   private api: SrtApi | null = null;
@@ -267,8 +395,28 @@ export class SandboxServiceImpl implements SandboxService {
   private readonly issued = new WeakSet<WrappedCommand>();
   /** Linux: the placeholder record (PLACEHOLDER_DOCUMENT), opened on first use. */
   private placeholders: Promise<PersistentDocument<PlaceholderDocument>> | null = null;
+  /** The same document once it is open (dropOwnPlaceholders updates it synchronously). */
+  private placeholderRecord: PersistentDocument<PlaceholderDocument> | null = null;
   /** Linux: the sweep of a previous daemon's placeholders, run once before this service's first sandbox. */
   private placeholderSweep: Promise<void> | null = null;
+  /** Linux: the sweep has finished (from then on the record holds only this service's own placeholders). */
+  private placeholderSweepDone = false;
+  /**
+   * wrap() calls in flight plus WrappedCommands handed out and not yet released (review RCR-1). While it is above
+   * zero the service's own placeholder directories stay: a wrap() in flight chose its policy while they existed, and a
+   * sandbox that runs has them mounted.
+   */
+  private live = 0;
+  /**
+   * Linux: the empty host-only directories this service made (path → the directory's dev / ino, and a descriptor that
+   * holds its inode until it is removed: ext4 hands a freed inode number straight back, so without it a host's own
+   * directory made at that name in its place could carry the same dev / ino; review RV-3), holdPlaceholderDirs.
+   */
+  private readonly ownPlaceholders = new Map<string, { readonly dev: bigint; readonly ino: bigint; readonly fd: number | null }>();
+  /** Linux: what a running guest's mounts cannot follow (reviews RV-1, RV-2; guard.ts). */
+  private readonly guard: ProtectedEntryGuard;
+  /** Linux: nested host-only entries already named in the log as not deniable (warnUnprotected). */
+  private readonly warnedUnprotected = new Set<string>();
 
   constructor(ctx: DaemonContext, options: SandboxServiceOptions = {}) {
     this.ctx = ctx;
@@ -282,6 +430,11 @@ export class SandboxServiceImpl implements SandboxService {
     this.selfTestTimeoutMs = options.selfTestTimeoutMs ?? 30_000;
     this.shell = options.shell ?? '/bin/bash';
     this.tmpDir = options.tmpDir ?? tmpdir;
+    const taskLimit = options.linuxTaskLimit ?? LINUX_GUEST_TASK_LIMIT;
+    if (!Number.isSafeInteger(taskLimit) || taskLimit < 1) throw new RangeError('linuxTaskLimit must be a positive integer');
+    this.linuxTaskLimit = taskLimit;
+    this.kernelRelease = options.kernelRelease ?? osRelease;
+    this.guard = new ProtectedEntryGuard({ log: ctx.log, onBreach: (breach) => this.reportBreach(breach), ...(options.guardPollMs === undefined ? {} : { pollMs: options.guardPollMs }) });
   }
 
   // ------------------------------------------------------------------------------------------------------------------
@@ -291,6 +444,9 @@ export class SandboxServiceImpl implements SandboxService {
   async preflight(): Promise<SandboxPreflight> {
     try {
       const ready = await this.ensureReady();
+      // The synthetic root below says nothing about where the daemon runs: a working directory inside the share would
+      // refuse every guest session, so the host is told now (linux-binary F1).
+      await this.checkDaemonCwd(ready, [this.ctx.roots.main.realPath]);
       await this.syntheticSelfTest(ready);
       return { ok: true, platform: ready.platform };
     } catch (err) {
@@ -301,11 +457,29 @@ export class SandboxServiceImpl implements SandboxService {
   }
 
   async wrap(spec: SandboxSpec): Promise<WrappedCommand> {
+    // Counted from before the spec is resolved (review RCR-1): the placeholder directories this wrap's policy relies on
+    // stay until it failed or what it hands out is released.
+    this.live++;
+    let handedOut = false;
+    try {
+      const wrapped = await this.wrapCounted(spec);
+      handedOut = true;
+      return wrapped;
+    } finally {
+      if (!handedOut) this.unhold();
+    }
+  }
+
+  private async wrapCounted(spec: SandboxSpec): Promise<WrappedCommand> {
+    /** Linux: the guard's record this wrap entered, until it is handed out or the wrap fails. */
+    let ticket: GuardTicket | null = null;
     try {
       const ready = await this.ensureReady();
       const resolved = await this.resolveSpec(spec, ready);
+      ticket = resolved.ticket;
       const policy = buildSessionPolicy(resolved.input);
       if (policy.dropped.length > 0) this.ctx.log.debug('redundant sandbox write denies dropped', { count: policy.dropped.length });
+      await this.checkDaemonCwd(ready, policy.writeRoots);
       const loopbackListen = resolved.input.mode === 'login';
       // The canary runs system tools (cat, ls, stty): it gets the login's network rules but not its exec allow-list.
       await this.selfTest(ready, policy, resolved.input.rootPath, resolved.input.guestDir, undefined, loopbackListen);
@@ -315,12 +489,23 @@ export class SandboxServiceImpl implements SandboxService {
       // `${CLAUDE_CODE_TMPDIR:-/tmp}/claude-<uid>`, which is the HOST user's own Claude temp dir and stays denied.
       // Both point into the guest's private dir instead (verified on 2.1.220 and 2.1.283, test/sandbox).
       const tmp = shellQuote(resolved.tmpDir);
-      const inner = `export TMPDIR=${tmp} CLAUDE_CODE_TMPDIR=${tmp}; ${spec.command}`;
+      const inner = `${this.taskLimitPrefix(ready)}export TMPDIR=${tmp} CLAUDE_CODE_TMPDIR=${tmp}; ${spec.command}`;
       const command = await this.wrapHardened(ready, inner, policy, loopbackListen, resolved.execAllow);
       const wrapped: WrappedCommand = Object.freeze({ file: this.shell, args: Object.freeze(['-c', command]), env: Object.freeze({ ...spec.env }), cwd: resolved.input.rootPath });
+      if (ticket !== null) {
+        const entered = ticket;
+        ticket = null;
+        if (!this.guard.issue(entered, wrapped)) {
+          // A protected entry of the root changed after this wrap chose its policy (reviews RV-1, RV-2): what srt was
+          // told may not be what is there now. srt counted the command; nothing will run it.
+          (await this.srt()).cleanupAfterCommand();
+          throw new SandboxRefusal('protected-changed', 'a protected entry of the session root changed while the sandbox was being prepared');
+        }
+      }
       this.issued.add(wrapped);
       return wrapped;
     } catch (err) {
+      if (ticket !== null) this.guard.leave(ticket);
       const refusal = this.toRefusal(err);
       const target = typeof spec?.sessionId === 'string' && spec.sessionId.length > 0 ? spec.sessionId.slice(0, 200) : 'unknown';
       this.ctx.audit.record({ actor: SYSTEM_ACTOR, action: 'sandbox.refused', outcome: 'denied', target, detail: { reason: refusal.reason, platform: this.platformName } });
@@ -330,15 +515,110 @@ export class SandboxServiceImpl implements SandboxService {
   }
 
   /**
+   * Linux: the sandboxed shell's first step, at most linuxTaskLimit tasks in this sandbox (LINUX_GUEST_TASK_LIMIT; set
+   * inside the guest's user namespace, so it counts this sandbox only). It fails only when the hard limit is already
+   * lower, which then stays. Nothing on macOS (Seatbelt has no resource control, and macOS counts processes per user
+   * with no namespace), nor on a kernel that would count the host user's tasks too (logged once).
+   */
+  private taskLimitPrefix(ready: Ready): string {
+    if (ready.platform !== 'linux') return '';
+    const release = this.kernelRelease();
+    if (linuxCountsTasksPerUserNamespace(release)) return `ulimit -u ${this.linuxTaskLimit} 2>/dev/null; `;
+    if (!this.taskLimitSkipLogged) {
+      this.taskLimitSkipLogged = true;
+      this.ctx.log.warn('guest sandboxes get no task limit: this kernel counts tasks per user, not per sandbox (Linux 5.14 or later needed)', { kernel: release.slice(0, 80) });
+    }
+    return '';
+  }
+
+  /**
    * The process of a WrappedCommand this service handed out has exited, or was never started. srt counts every wrap:
-   * on Linux the mount-point files bubblewrap left on the host for absent write-denied names (`<share>/.mcp.json`, an
-   * empty `<share>/.claude/`) are removed when the count is back to zero, i.e. when no sandbox of this daemon runs, and
-   * never earlier (deleting one under a running sandbox would detach its mount and lift the deny). Idempotent; an
-   * unknown object is ignored.
+   * on Linux the mount-point files bubblewrap left on the host for absent write-denied names (`<share>/.mcp.json`,
+   * `.envrc`) are removed when the count is back to zero, and this service's own placeholder directories
+   * (`<share>/.claude/`, holdPlaceholderDirs) when nothing of it runs or is being wrapped; never earlier (deleting one
+   * under a running sandbox would detach its mount and lift the deny). Idempotent; an unknown object is ignored.
    */
   release(wrapped: WrappedCommand): void {
     if (!this.issued.delete(wrapped)) return;
+    // Before srt's cleanup and the placeholders' removal: the guard's last look sees them as the process left them.
+    this.guard.release(wrapped);
     this.api?.cleanupAfterCommand();
+    this.unhold();
+  }
+
+  /**
+   * Linux (reviews RV-1, RV-2): `listener` runs once the sandbox of `wrapped` no longer holds (a protected entry of
+   * its root was replaced, removed or created while it ran; guard.ts); the caller ends the process.
+   */
+  onRevoked(wrapped: WrappedCommand, listener: (revocation: SandboxRevocation) => void): () => void {
+    return this.guard.onRevoked(wrapped, listener);
+  }
+
+  /** The file watcher's batch for the root at `rootPath` (Linux: compared with what running guests were started with). */
+  fileEvents(rootPath: string, events: readonly WatchedPathEvent[]): void {
+    if (this.platformName !== 'linux') return;
+    this.guard.changed(rootPath, events);
+  }
+
+  /**
+   * A protected entry changed while guest processes ran in its root (or were being started there): the log, and the
+   * host's terminal through `sandbox.protected-changed` (packages/cli host.ts). The revoked processes' owners (the
+   * sessions module) end them.
+   */
+  private reportBreach(breach: GuardBreach): void {
+    const info = this.ctx.roots.list().find((root) => root.realPath === breach.root);
+    const rel = breach.paths.map((path) => relative(breach.root, path) || '.');
+    const shown = rel.slice(0, PROTECTED_CHANGED_SHOWN);
+    this.ctx.log.warn(
+      breach.revoked > 0
+        ? 'a host-only entry changed while guest processes ran in its folder; the Linux sandbox cannot follow that, so they are ended'
+        : 'a host-only entry changed while guest processes ran in its folder (the Linux sandbox cannot follow that); check it',
+      { root: info?.key ?? 'unknown', paths: shown.join(', '), more: rel.length - shown.length, revoked: breach.revoked },
+    );
+    if (info === undefined) return;
+    this.ctx.bus.emit('sandbox.protected-changed', { root: info.ref, paths: shown, more: rel.length - shown.length, revoked: breach.revoked });
+  }
+
+  /** One wrap() finished without handing anything out, or one WrappedCommand was released. */
+  private unhold(): void {
+    this.live--;
+    if (this.live === 0) this.dropOwnPlaceholders();
+  }
+
+  /**
+   * Linux, once nothing of this service runs or is being wrapped (`live` is 0): removes the empty host-only
+   * directories it made (holdPlaceholderDirs) that are still the same empty directory (a host who filled one, or put
+   * another in its place, keeps it), and empties the placeholder record (no placeholder of this service can exist now;
+   * before the sweep ran the record is a previous daemon's, and only this service's own entries are dropped).
+   * Synchronous on purpose (at most five small lstat / readdir / rmdir per root): a wrap() that starts right after must
+   * find each name either still there or already gone, never vanishing under its policy.
+   */
+  private dropOwnPlaceholders(): void {
+    if (this.ownPlaceholders.size === 0 && !this.placeholderSweepDone) return;
+    const own = [...this.ownPlaceholders];
+    this.ownPlaceholders.clear();
+    for (const [path, id] of own) {
+      try {
+        const st = lstatSync(path, { bigint: true });
+        if (st.isDirectory() && st.dev === id.dev && st.ino === id.ino && readdirSync(path).length === 0) rmdirSync(path);
+      } catch {
+        // gone, or not inspectable: nothing of ours to remove
+      } finally {
+        if (id.fd !== null) closeQuietly(id.fd);
+      }
+    }
+    // The record is open whenever a placeholder was made (recorded first) and once the sweep ran; updated in this same
+    // turn, so no wrap() can record a name between the removal and this update.
+    const doc = this.placeholderRecord;
+    if (doc === null || doc.get().paths.length === 0) return;
+    const ownPaths = new Set(own.map(([path]) => path));
+    const failed = (err: unknown): void => this.ctx.log.warn('sandbox placeholder record not saved', { error: err instanceof Error ? err.message : String(err) });
+    try {
+      doc.update((draft) => ({ paths: this.placeholderSweepDone ? [] : draft.paths.filter((p) => !ownPaths.has(p)) }));
+      doc.flush().catch(failed);
+    } catch (err) {
+      failed(err); // kept: the next start's sweep checks every entry before it removes anything
+    }
   }
 
   async setAllowedDomains(domains: readonly string[]): Promise<void> {
@@ -358,11 +638,30 @@ export class SandboxServiceImpl implements SandboxService {
     }
   }
 
-  /** Daemon stop: stops srt's proxies. Idempotent. */
+  /**
+   * Daemon stop: stops srt's proxies. Idempotent. The sessions module has ended every guest process by now; the
+   * placeholder record is saved, empty once nothing of this service runs (review RCR-5: a record kept after a clean
+   * stop made the next start remove the host's own empty `.vscode` / `.claude` made in between). A placeholder still
+   * held (a WrappedCommand never released) stays recorded: removing a mount point under a sandbox that might still run
+   * would lift its deny, so the next start's sweep takes it.
+   */
   async dispose(): Promise<void> {
     this.disposed = true;
     this.ready = null;
+    this.guard.dispose();
+    // Placeholders still held stay (recorded: the next start's sweep takes them); their descriptors go now, once.
+    for (const [path, id] of this.ownPlaceholders) {
+      if (id.fd === null) continue;
+      closeQuietly(id.fd);
+      this.ownPlaceholders.set(path, { dev: id.dev, ino: id.ino, fd: null });
+    }
     await this.runtime.release(this.owner);
+    try {
+      await this.placeholderSweep;
+      await this.placeholderRecord?.flush();
+    } catch (err) {
+      this.ctx.log.warn('sandbox placeholder record not saved', { error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   // ------------------------------------------------------------------------------------------------------------------
@@ -424,39 +723,78 @@ export class SandboxServiceImpl implements SandboxService {
     return ready;
   }
 
+  /**
+   * Linux (review linux-binary F1): srt resolves its mandatory write denies against the daemon's OWN working directory
+   * on every wrap (linux-sandbox-utils.js linuxGetCwdMandatoryDenyPaths: `.bashrc`, `.gitconfig`, `.gitmodules`,
+   * `.profile`, `.ripgreprc`, …, `.claude/commands`, `.claude/agents`). A working directory at or below a write root (a
+   * `smurg host .` typed inside the project) made bubblewrap put eight more empty 0444 files into the host's project
+   * for as long as a guest process ran, and a project with a `.claude/` of its own refused every guest session ("Can't
+   * create file at <share>/.claude/commands: Read-only file system", reported as a failed self-test). `smurg host`
+   * therefore runs from an empty directory of its own (packages/cli host.ts, `<stateDir>/cwd`); any caller that does
+   * not is refused here with a reason that says so. An ancestor of the share is harmless (srt skips denies outside the
+   * write roots). macOS: srt's denies there are patterns, and bubblewrap's mount points do not exist.
+   */
+  private async checkDaemonCwd(ready: Ready, writeRoots: readonly string[]): Promise<void> {
+    if (ready.platform !== 'linux') return;
+    let cwd: string;
+    try {
+      cwd = await realpath(process.cwd());
+    } catch (err) {
+      // Not "started inside the share" (review RV-4): `smurg host` runs from <stateDir>/cwd, and this one was removed
+      // while the daemon ran (or a caller's cwd is gone). A restart makes it again.
+      throw new SandboxRefusal('daemon-cwd', `the daemon's working directory cannot be resolved: ${err instanceof Error ? err.message : String(err)}`, { message: DAEMON_CWD_UNRESOLVABLE_MESSAGE });
+    }
+    const inside = writeRoots.find((root) => cwd === root || isStrictlyUnder(cwd, root));
+    if (inside !== undefined) throw new SandboxRefusal('daemon-cwd', `the daemon's working directory ${cwd} is at or inside ${inside}, where the guest sandbox writes`);
+  }
+
   private placeholderDoc(): Promise<PersistentDocument<PlaceholderDocument>> {
-    this.placeholders ??= this.ctx.state.document(PLACEHOLDER_DOCUMENT, placeholderDocumentSchema, () => ({ paths: [] }));
+    this.placeholders ??= this.ctx.state.document(PLACEHOLDER_DOCUMENT, placeholderDocumentSchema, () => ({ paths: [] })).then((doc) => {
+      this.placeholderRecord = doc;
+      return doc;
+    });
     return this.placeholders;
   }
 
   /**
    * Linux, once, before this service's first sandbox: removes the recorded placeholders (PLACEHOLDER_DOCUMENT) that are
-   * still EMPTY directories (never a symlink, a file or a directory with content), then forgets the record.
+   * still EMPTY directories or files exactly like srt's leftovers (never a symlink, a directory with content or a file
+   * someone wrote), then forgets the record.
    */
   private sweepPlaceholders(): Promise<void> {
     this.placeholderSweep ??= (async () => {
       const doc = await this.placeholderDoc();
       const recorded = [...doc.get().paths];
-      if (recorded.length === 0) return;
+      if (recorded.length === 0) {
+        this.placeholderSweepDone = true;
+        return;
+      }
       let removed = 0;
       for (const path of recorded) {
         try {
-          if ((await lstat(path)).isDirectory() && (await readdir(path)).length === 0) {
+          const st = await lstat(path);
+          if (st.isDirectory() && (await readdir(path)).length === 0) {
             await rmdir(path);
+            removed++;
+          } else if (HOST_ONLY_FILE_NAMES.includes(basename(path)) && isStaleMountPointFile(st)) {
+            await unlink(path);
             removed++;
           }
         } catch {
           // gone, or not inspectable: nothing of ours to remove
         }
       }
-      doc.update(() => ({ paths: [] }));
+      // Only the dead daemon's entries: a placeholder this service made meanwhile (it cannot have: the sweep runs before
+      // this service's first sandbox) would stay recorded.
+      doc.update((draft) => ({ paths: draft.paths.filter((path) => !recorded.includes(path) || this.ownPlaceholders.has(path)) }));
       await doc.flush();
+      this.placeholderSweepDone = true;
       if (removed > 0) this.ctx.log.info('removed sandbox mount points a previous daemon left in the project', { count: removed });
     })();
     return this.placeholderSweep;
   }
 
-  /** Linux: records `paths` (placeholders a sandbox about to start may make) on disk before it starts. */
+  /** Linux: records `paths` (placeholders about to be made) on disk before they are made. */
   private async recordPlaceholders(paths: readonly string[]): Promise<void> {
     if (paths.length === 0) return;
     const doc = await this.placeholderDoc();
@@ -467,6 +805,34 @@ export class SandboxServiceImpl implements SandboxService {
       return { paths: next.slice(-PLACEHOLDER_RECORD_MAX) };
     });
     await doc.flush();
+  }
+
+  /**
+   * Linux (review RCR-1): makes every HOST_ONLY_DIR_NAME that is absent at the top of `root` exist as an empty
+   * directory of this service's own, recorded first (the crash sweep), so every srt wrap of this wrap() — the canary,
+   * the hook probe, the session itself — finds an existing directory and binds it read-only. bubblewrap then makes no
+   * mount point for these names at all: srt would otherwise decide their form on each wrap from whether they exist at
+   * that moment, and another guest's process ending in between (srt removes its mount points when its count of running
+   * wraps reaches zero) turned them into empty 0444 FILES in the host's project for the whole session (`mkdir -p
+   * .claude/x`: "Not a directory"; git: "invalid gitfile format"), while a name that appeared in between made bubblewrap
+   * abort ("Can't create file … Read-only file system"). The directories stay while `live` is above zero
+   * (dropOwnPlaceholders). A name someone else creates meanwhile is left to them.
+   */
+  private async holdPlaceholderDirs(root: string): Promise<void> {
+    const paths = (await absentNames(root, HOST_ONLY_DIR_NAMES)).map((name) => join(root, name));
+    // srt's file form stays for these (bubblewrap mounts /dev/null on them); recorded so a crash does not leave them.
+    const files = (await absentNames(root, HOST_ONLY_FILE_NAMES)).map((name) => join(root, name));
+    await this.recordPlaceholders([...paths, ...files]);
+    for (const path of paths) {
+      try {
+        await mkdir(path);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'EEXIST') continue;
+        throw new PolicyError(`cannot make the empty ${basename(path)} directory the sandbox mounts read-only: ${(err as NodeJS.ErrnoException).code ?? 'error'}`);
+      }
+      const held = await holdInode(path);
+      if (held !== null) this.ownPlaceholders.set(path, held);
+    }
   }
 
   /**
@@ -526,10 +892,18 @@ export class SandboxServiceImpl implements SandboxService {
       .filter((p) => !(mode === 'worktree' && p === shareGit));
     const extraDenyRead = await Promise.all(stringArray('denyReadPaths', spec.denyReadPaths).map((p) => denyPathForm(p)));
     const extraDenyWrite = await Promise.all(stringArray('denyWritePaths', spec.denyWritePaths).map((p) => denyPathForm(p)));
+    let nestedHostOnly: readonly string[] = [];
+    /** Linux: every existing protected entry below the top that the guard records (guard.ts). */
+    let guarded: string[] = [];
     if (ready.platform === 'linux' && !isLoginSpec(spec)) {
-      const nested = await nestedHostOnlyPaths(root);
+      const personal: string[] = [];
+      const nested = await nestedHostOnlyPaths(root, undefined, personal);
       if (nested === null) throw new PolicyError(`more than ${LINUX_NESTED_HOST_ONLY_MAX} host-only entries below the top of the session root`);
-      extraDenyWrite.push(...nested);
+      // An entry srt cannot be given is left out and named in the log, never a reason to refuse: guests make
+      // directories, and one oddly named one refused every guest session in this root (review attack F1).
+      this.warnUnprotected(nested.unprotected);
+      nestedHostOnly = nested.deny;
+      guarded = [...nested.deny, ...nested.unprotected.filter((entry) => entry.reason !== 'not-utf8').map((entry) => entry.path), ...personal];
     }
     const hookSocketPath = this.ctx.config.runPaths.hook;
     if (typeof spec.hookSocketPath !== 'string' || normalize(spec.hookSocketPath) !== hookSocketPath) {
@@ -546,8 +920,7 @@ export class SandboxServiceImpl implements SandboxService {
     if (mode === 'login' && readOnlyPaths.length > 0) throw new PolicyError('the login process gets no shared dirs');
     const envTmp = spec.env['TMPDIR'];
     const tmpCandidate = typeof envTmp === 'string' && isAbsolute(envTmp) ? ((await realpathOrNull(envTmp)) ?? resolve(envTmp)) : null;
-    const absentHostOnlyDirs = ready.platform === 'linux' && mode !== 'login' ? await absentNames(root, HOST_ONLY_DIR_NAMES) : [];
-    await this.recordPlaceholders(absentHostOnlyDirs.map((name) => join(root, name)));
+    if (ready.platform === 'linux' && mode !== 'login') await this.holdPlaceholderDirs(root);
     const tmpDir = tmpCandidate !== null && isStrictlyUnder(tmpCandidate, guestDir) ? tmpCandidate : join(guestDir, 'tmp');
     let execAllow: string[] | null = null;
     if (mode === 'login' && ready.platform === 'darwin') {
@@ -558,9 +931,13 @@ export class SandboxServiceImpl implements SandboxService {
         if (isAtOrUnderAny(program, [ready.stateDir, guestDir, share])) throw new PolicyError('a login program must not live where the daemon or a guest writes');
       }
     }
+    // Linux, last (nothing after it may throw): the root's protected entries as this wrap sees them, with the
+    // placeholders in place and before srt expands its globs (reviews RV-1, RV-2; wrapCounted hands the ticket back).
+    const ticket = ready.platform === 'linux' && mode !== 'login' ? await this.guard.enter(root, guarded) : null;
     return {
       tmpDir,
       execAllow,
+      ticket,
       input: {
         platform: ready.platform,
         hostHome: ready.hostHome,
@@ -577,12 +954,32 @@ export class SandboxServiceImpl implements SandboxService {
         shareGitObjectsDir,
         extraDenyRead,
         extraDenyWrite,
+        ...(nestedHostOnly.length > 0 ? { nestedHostOnlyPaths: nestedHostOnly } : {}),
         hookSocketPath,
         envNames,
         proxySocketPaths: ready.proxySockets,
-        absentHostOnlyDirs,
       },
     };
+  }
+
+  /**
+   * Linux: names in the log, once per daemon, each existing nested host-only entry the sandbox cannot deny (srt cannot
+   * be given its path, NestedHostOnly.unprotected): guests can write it like a NEW nested name (ARCHITECTURE §12), and
+   * the host should know, since an entry made by the host itself (a nested repository in `app/[slug]/`) is unprotected
+   * too. At most UNPROTECTED_WARN_LINES lines per wrap, then a count.
+   */
+  private warnUnprotected(entries: NestedHostOnly['unprotected']): void {
+    const fresh = entries.filter((entry) => !this.warnedUnprotected.has(entry.path));
+    if (fresh.length === 0) return;
+    for (const entry of fresh.slice(0, UNPROTECTED_WARN_LINES)) {
+      const message =
+        entry.reason === 'glob-characters'
+          ? 'guests can write this host-only entry: the Linux sandbox cannot deny a path with glob characters'
+          : 'guests can write this host-only entry: its path is not UTF-8, which the Linux sandbox cannot name (host-private files below that directory are not hidden either)';
+      this.ctx.log.warn(message, { path: entry.path, why: entry.reason });
+    }
+    if (fresh.length > UNPROTECTED_WARN_LINES) this.ctx.log.warn('more host-only entries guests can write (not listed)', { count: fresh.length - UNPROTECTED_WARN_LINES });
+    for (const entry of fresh) if (this.warnedUnprotected.size < LINUX_NESTED_HOST_ONLY_MAX) this.warnedUnprotected.add(entry.path);
   }
 
   private checkEnv(env: unknown): string[] {
@@ -757,6 +1154,8 @@ export class SandboxServiceImpl implements SandboxService {
     const canaries = join(scratch, 'canaries');
     try {
       await Promise.all([root, guestDir, settingsDir, canaries].map((dir) => mkdir(dir, { recursive: true, mode: 0o700 })));
+      // Linux: the host-only directory names exist, as a session's placeholders do (holdPlaceholderDirs).
+      if (ready.platform === 'linux') await Promise.all(HOST_ONLY_DIR_NAMES.map((name) => mkdir(join(root, name))));
       const real = await realpath(scratch);
       const policy = buildSessionPolicy({
         platform: ready.platform,
@@ -777,8 +1176,6 @@ export class SandboxServiceImpl implements SandboxService {
         hookSocketPath: this.ctx.config.runPaths.hook,
         envNames: [],
         proxySocketPaths: ready.proxySockets,
-        // the fresh root has none of them: the preflight exercises the directory-form placeholders too
-        absentHostOnlyDirs: ready.platform === 'linux' ? [...HOST_ONLY_DIR_NAMES] : [],
       });
       await this.selfTest(ready, policy, join(real, 'root'), join(real, 'guest'), join(real, 'canaries'));
     } finally {

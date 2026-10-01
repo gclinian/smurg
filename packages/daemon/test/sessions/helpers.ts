@@ -15,6 +15,7 @@ import type {
   LockManager,
   PresenceService,
   SandboxPreflight,
+  SandboxRevocation,
   SandboxService,
   SandboxSpec,
   SessionLaunchFiles,
@@ -50,12 +51,62 @@ export class FakeSandbox implements SandboxService {
   async wrap(spec: SandboxSpec): Promise<WrappedCommand> {
     this.wraps.push(spec);
     if (this.wrapError) throw this.wrapError;
-    return { file: '/bin/sh', args: ['-c', spec.command], env: { ...spec.env, ...(this.wrapExtraEnv ?? {}) }, cwd: spec.rootPath };
+    const wrapped = { file: '/bin/sh', args: ['-c', spec.command], env: { ...spec.env, ...(this.wrapExtraEnv ?? {}) }, cwd: spec.rootPath };
+    this.handedOut.push(wrapped);
+    if (this.revokeOnWrap !== null) this.revoked.set(wrapped, this.revokeOnWrap);
+    return wrapped;
   }
 
   release(wrapped: WrappedCommand): void {
     this.released.push(wrapped);
   }
+
+  /** onRevoked listeners per handed-out command (the real one: a protected entry changed while it ran, guard.ts). */
+  private readonly revocationListeners = new Map<WrappedCommand, Set<(revocation: SandboxRevocation) => void>>();
+  private readonly revoked = new Map<WrappedCommand, SandboxRevocation>();
+  /** Every onRevoked registration, in order. */
+  readonly watched: WrappedCommand[] = [];
+  /** Handed-out commands revoked at once, from the next wrap() on (a change while the session was being started). */
+  revokeOnWrap: SandboxRevocation | null = null;
+
+  onRevoked(wrapped: WrappedCommand, listener: (revocation: SandboxRevocation) => void): () => void {
+    this.watched.push(wrapped);
+    const done = this.revoked.get(wrapped);
+    if (done !== undefined) {
+      listener(done);
+      return () => {};
+    }
+    let set = this.revocationListeners.get(wrapped);
+    if (set === undefined) {
+      set = new Set();
+      this.revocationListeners.set(wrapped, set);
+    }
+    set.add(listener);
+    const own = set;
+    return () => {
+      own.delete(listener);
+    };
+  }
+
+  /** Revokes every command handed out with `rootPath` (what the real sandbox does when a protected entry changed). */
+  revoke(rootPath: string, revocation: SandboxRevocation): number {
+    let count = 0;
+    for (const wrapped of [...this.handedOut]) {
+      if (wrapped.cwd !== rootPath || this.revoked.has(wrapped)) continue;
+      this.revoked.set(wrapped, revocation);
+      count++;
+      for (const listener of this.revocationListeners.get(wrapped) ?? []) listener(revocation);
+      this.revocationListeners.delete(wrapped);
+    }
+    return count;
+  }
+
+  /** Listeners still registered (removed when a session ends). */
+  listening(): number {
+    return [...this.revocationListeners.values()].reduce((sum, set) => sum + set.size, 0);
+  }
+
+  private readonly handedOut: WrappedCommand[] = [];
 
   async setAllowedDomains(): Promise<void> {}
 }

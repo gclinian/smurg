@@ -1,20 +1,22 @@
 // SandboxService with injected seams (platform, srt, the pty runner, file checks): every refusal reason, the Linux
 // branch on any machine (the real bubblewrap runs in r5.sandbox.test.ts on Linux), live allow-list changes, and the
 // process-wide srt runtime.
-import { existsSync, lstatSync, realpathSync } from 'node:fs';
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { existsSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
+import { mkdir, readFile, rename, rmdir, symlink, unlink, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { SmurgError, type AuditEntry } from '@smurg/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import type { SandboxSpec } from '../../src/core/interfaces.ts';
 import { SYSTEM_PRINCIPAL } from '../../src/core/permissions.ts';
 import { APPARMOR_USERNS_SYSCTL, srtSocketDirProblem, type CheckIo } from '../../src/sandbox/checks.ts';
 import { createSandboxModule } from '../../src/sandbox/module.ts';
 import { SrtRuntime, RuntimeBusyError, type SrtApi } from '../../src/sandbox/runtime.ts';
-import { SandboxServiceImpl, type SandboxServiceOptions } from '../../src/sandbox/service.ts';
+import { LINUX_GUEST_TASK_LIMIT, SandboxServiceImpl, linuxCountsTasksPerUserNamespace, type SandboxServiceOptions } from '../../src/sandbox/service.ts';
 import type { PtyRunInput, PtyRunResult, PtyRunner } from '../../src/sandbox/selftest.ts';
 import { buildBaseConfig } from '../../src/sandbox/policy.ts';
 import { LINUX_SESSION_PRELUDE, shellQuote } from '../../src/sandbox/harden.ts';
+import { waitFor } from '../../src/testing/index.ts';
 import { createSandboxFixture, printWarningsOnFailure, type SandboxFixture, type SandboxFixtureOptions } from './helpers.ts';
 import { fakeSrt, syntheticDarwinCommand, syntheticDarwinProfile, syntheticLinuxCommand, type FakeSrt, type FakeSrtOptions } from './synthetic-srt.ts';
 
@@ -92,6 +94,32 @@ function runner(mode: 'ok' | 'exit1' | 'leak-canary' | 'write-probe' | 'no-marke
   };
 }
 
+/** runner() whose next run waits until the test lets it go (holdNext): a wrap() held in its canary self-test. */
+function holdingRunner(): ReturnType<typeof runner> & { holdNext(): { readonly reached: Promise<void>; release(): void } } {
+  const inner = runner();
+  let pending: { readonly reached: () => void; readonly wait: Promise<void> } | null = null;
+  return {
+    runs: inner.runs,
+    async run(input) {
+      const hold = pending;
+      pending = null;
+      if (hold !== null) {
+        hold.reached();
+        await hold.wait;
+      }
+      return inner.run(input);
+    },
+    holdNext() {
+      let reached: () => void = () => {};
+      let release: () => void = () => {};
+      const atHold = new Promise<void>((resolve) => (reached = resolve));
+      const wait = new Promise<void>((resolve) => (release = resolve));
+      pending = { reached, wait };
+      return { reached: atHold, release };
+    },
+  };
+}
+
 interface Harness {
   readonly f: SandboxFixture;
   readonly srt: FakeSrt;
@@ -121,6 +149,8 @@ async function harness(
     runtime: new SrtRuntime(),
     runner: run,
     io: io(platform === 'linux' ? LINUX_EXEC : DARWIN_EXEC),
+    // Linux: a kernel that counts tasks per user namespace (the task limit is set), whatever this machine runs
+    kernelRelease: () => '6.8.0-85-generic',
     ...options.service,
   });
   current = await createSandboxFixture({ ...options.fixture, module });
@@ -430,17 +460,33 @@ describe('SandboxService happy paths with a fake srt', () => {
     expect(f.warnings().join('\n')).toContain('bridge socket is missing');
   }, TIMEOUT);
 
-  it('Linux: the empty directories bubblewrap may leave for absent host-only directory names are recorded before a sandbox runs; a later daemon removes those still empty', async () => {
-    const { f } = await harness('linux');
+  it('Linux: the absent host-only directory names are made as empty directories, recorded first with the file names srt will hold, for as long as a guest process runs; a later daemon removes what a dead one left that is still untouched', async () => {
+    const { f, srt } = await harness('linux');
     const record = async (): Promise<{ paths: string[] }> => JSON.parse(await readFile(join(f.ctx.state.dir, 'sandbox-placeholders.json'), 'utf8')) as { paths: string[] };
-    await f.sandbox.wrap(await specFor(f));
-    // `.smurg` exists in every share (its read-only tmpfs needs no placeholder); the others are absent in this one
-    expect((await record()).paths.sort()).toEqual(['.claude', '.git', '.idea', '.vscode'].map((name) => join(f.share, name)).sort());
-    // What a daemon that died during a guest session leaves (srt had no chance to clean up), plus the host's own work.
-    await mkdir(join(f.share, '.claude'));
-    await mkdir(join(f.share, '.vscode'));
+    const names = ['.claude', '.git', '.idea', '.vscode'];
+    await f.sandbox.wrap(await specFor(f)); // never released: the daemon "dies" with the guest process running
+    // `.smurg` exists in every share; the others are absent in this one and exist now as the service's empty
+    // directories; `.mcp.json` / `.envrc` are recorded for bubblewrap's file mount points (made by the real srt only)
+    expect((await record()).paths.sort()).toEqual([...names, '.envrc', '.mcp.json'].map((name) => join(f.share, name)).sort());
+    for (const name of names) {
+      expect(lstatSync(join(f.share, name)).isDirectory(), name).toBe(true);
+      expect(readdirSync(join(f.share, name)), name).toEqual([]);
+    }
+    // bubblewrap is asked for no mount point for them: every srt wrap sees existing directories, the same policy each time
+    for (const call of srt.calls.wrap) expect(call.custom.filesystem.denyWrite.filter((p) => p.includes('.smurg-no-such-entry'))).toEqual([]);
+    expect(srt.calls.wrap.at(-1)?.custom).toEqual(srt.calls.wrap.at(-2)?.custom);
+    // srt's file mount points (empty, 0444) exist once the command is handed out: the service makes them as bubblewrap
+    // would (sandbox/guard.ts placeMountPoints), so that the host's removal of one while the guest runs is noticed.
+    for (const name of ['.mcp.json', '.envrc']) {
+      const st = lstatSync(join(f.share, name));
+      expect([st.isFile(), st.size, (st.mode & 0o777).toString(8)], name).toEqual([true, 0, '444']);
+    }
+    // What the dead daemon leaves (srt's empty 0444 `.mcp.json`), plus the host's own work meanwhile.
+    await unlink(join(f.share, '.envrc'));
+    await writeFile(join(f.share, '.envrc'), '', { mode: 0o644 }); // the host's own, empty but writable
     await writeFile(join(f.share, '.vscode', 'settings.json'), '{}\n');
     await mkdir(join(f.base, 'elsewhere'));
+    await rmdir(join(f.share, '.idea'));
     await symlink(join(f.base, 'elsewhere'), join(f.share, '.idea'));
     const next = new SandboxServiceImpl(f.ctx, {
       platform: 'linux',
@@ -452,12 +498,291 @@ describe('SandboxService happy paths with a fake srt', () => {
     try {
       expect(await next.preflight()).toEqual({ ok: true, platform: 'linux' });
       expect(existsSync(join(f.share, '.claude'))).toBe(false); // an empty placeholder: removed
+      expect(existsSync(join(f.share, '.git'))).toBe(false);
+      expect(existsSync(join(f.share, '.mcp.json'))).toBe(false); // exactly srt's leftover: removed
+      expect(lstatSync(join(f.share, '.envrc')).isFile()).toBe(true); // written by someone: kept
       expect(await readFile(join(f.share, '.vscode', 'settings.json'), 'utf8')).toBe('{}\n'); // content: kept
       expect(lstatSync(join(f.share, '.idea')).isSymbolicLink()).toBe(true); // not a directory: kept
       expect(existsSync(join(f.base, 'elsewhere'))).toBe(true);
       expect((await record()).paths).toEqual([]);
     } finally {
       await next.dispose();
+    }
+  }, TIMEOUT);
+
+  it('Linux: a guest process that ends while another wrap() is in flight removes none of the directories that wrap chose its policy with (review RCR-1); they go, and the record empties, once nothing runs or is being wrapped', async () => {
+    const run = holdingRunner();
+    const { f, srt } = await harness('linux', { runner: run });
+    const names = ['.claude', '.git', '.idea', '.vscode'];
+    const present = (): string[] => names.filter((name) => existsSync(join(f.share, name)));
+    const record = async (): Promise<string[]> => (JSON.parse(await readFile(join(f.ctx.state.dir, 'sandbox-placeholders.json'), 'utf8')) as { paths: string[] }).paths.sort();
+    const a = await f.sandbox.wrap(await specFor(f, { sessionId: 'ses_a' }));
+    expect(present()).toEqual(names);
+    // B's canary is held: B's policy was chosen while A's directories exist. A's process ends now.
+    const hold = run.holdNext();
+    const bWrap = f.sandbox.wrap(await specFor(f, { sessionId: 'ses_b' }));
+    await hold.reached;
+    const cleanups = srt.calls.cleanups;
+    f.sandbox.release?.(a);
+    expect(srt.calls.cleanups).toBe(cleanups + 1); // srt learns that A ended…
+    expect(present()).toEqual(names); // …but nothing B relies on vanished
+    hold.release();
+    const b = await bWrap;
+    expect(present()).toEqual(names);
+    // every srt wrap of B (canary, session) saw the same existing directories: one policy, no child deny
+    const bCalls = srt.calls.wrap.slice(-2);
+    expect(bCalls[0]?.custom).toEqual(bCalls[1]?.custom);
+    for (const name of names) expect(bCalls[1]?.custom.filesystem.denyWrite).toContain(join(f.share, name));
+    expect(await record()).toEqual([...names, '.envrc', '.mcp.json'].map((name) => join(f.share, name)).sort());
+    f.sandbox.release?.(b);
+    expect(present()).toEqual([]); // at once: a wrap() starting now finds them gone, never vanishing under it
+    await waitFor(async () => (await record()).length === 0, { what: 'the placeholder record to be emptied' });
+  }, TIMEOUT);
+
+  it('Linux: a wrap() that is refused gives its placeholders back at once', async () => {
+    const { f } = await harness('linux', { runner: runner('no-marker') });
+    expect((await refusal(f, await specFor(f))).detail).toEqual({ reason: 'self-test-failed' });
+    expect(['.claude', '.git', '.idea', '.vscode'].filter((name) => existsSync(join(f.share, name)))).toEqual([]);
+  }, TIMEOUT);
+
+  it('Linux: after a clean stop the record is empty, so an empty directory the host makes before the next start survives it (review RCR-5); a dead daemon’s record outlives a daemon that ran no guest', async () => {
+    const { f } = await harness('linux');
+    const service = f.ctx.services.sandbox as SandboxServiceImpl;
+    const doc = await f.ctx.state.document('sandbox-placeholders', z.object({ paths: z.array(z.string()) }), () => ({ paths: [] }));
+    const w = await f.sandbox.wrap(await specFor(f));
+    expect(doc.get().paths).toHaveLength(6);
+    f.sandbox.release?.(w);
+    await service.dispose(); // a clean stop
+    expect(doc.get().paths).toEqual([]);
+    const onDisk = JSON.parse(await readFile(join(f.ctx.state.dir, 'sandbox-placeholders.json'), 'utf8')) as { paths: string[] };
+    expect(onDisk.paths).toEqual([]);
+    await mkdir(join(f.share, '.vscode')); // the host's own, before adding a file to it
+    const nextService = (): SandboxServiceImpl =>
+      new SandboxServiceImpl(f.ctx, { platform: 'linux', loadSrt: async () => fakeSrt({ platform: 'linux', proxySockets: () => [join(f.runDir, 'claude-http-unit.sock')] }), runtime: new SrtRuntime(), runner: runner(), io: io(LINUX_EXEC) });
+    const second = nextService();
+    try {
+      expect(await second.preflight()).toEqual({ ok: true, platform: 'linux' });
+      expect(lstatSync(join(f.share, '.vscode')).isDirectory()).toBe(true);
+    } finally {
+      await second.dispose();
+    }
+    // A daemon that died left an empty `.claude` and its record; the next one runs no guest and stops cleanly…
+    await mkdir(join(f.share, '.claude'));
+    doc.update(() => ({ paths: [join(f.share, '.claude')] }));
+    await doc.flush();
+    await nextService().dispose();
+    expect(doc.get().paths).toEqual([join(f.share, '.claude')]);
+    // …so the one after it still removes the leftover before its first sandbox.
+    const fourth = nextService();
+    try {
+      expect(await fourth.preflight()).toEqual({ ok: true, platform: 'linux' });
+      expect(existsSync(join(f.share, '.claude'))).toBe(false);
+      expect(lstatSync(join(f.share, '.vscode')).isDirectory()).toBe(true);
+    } finally {
+      await fourth.dispose();
+    }
+  }, TIMEOUT);
+
+  it('Linux: a daemon whose working directory is in the share or a guest dir is refused (daemon-cwd), and its preflight says so; an ancestor of the share is fine (review linux-binary F1)', async () => {
+    const { f, srt } = await harness('linux');
+    const before = process.cwd();
+    const guest = await f.guest('alice');
+    await mkdir(join(f.share, 'src'), { recursive: true });
+    try {
+      for (const dir of [f.share, join(f.share, 'src'), guest.home]) {
+        process.chdir(dir);
+        const pre = await f.sandbox.preflight();
+        if (dir === guest.home) expect(pre).toEqual({ ok: true, platform: 'linux' }); // the preflight looks at the share
+        else expect(pre).toMatchObject({ ok: false, reason: 'daemon-cwd' });
+        const err = await refusal(f, await specFor(f));
+        expect(err.detail).toEqual({ reason: 'daemon-cwd' });
+        expect(err.message).toContain('分享的資料夾以外');
+      }
+      expect(srt.calls.wrap.filter((call) => call.custom.filesystem.allowWrite.includes(f.share))).toEqual([]); // nothing of the session was wrapped
+      expect(['.claude', '.git', '.idea', '.vscode'].filter((name) => existsSync(join(f.share, name)))).toEqual([]);
+      expect(f.warnings().join('\n')).toContain('where the guest sandbox writes');
+      process.chdir(dirname(f.share));
+      expect(await f.sandbox.preflight()).toEqual({ ok: true, platform: 'linux' });
+      f.sandbox.release?.(await f.sandbox.wrap(await specFor(f)));
+    } finally {
+      process.chdir(before);
+    }
+  }, TIMEOUT);
+
+  it('Linux: a daemon whose working directory was removed while it ran is refused (daemon-cwd) with a text that says so, not "started inside the share" (review RV-4)', async () => {
+    const { f } = await harness('linux');
+    const before = process.cwd();
+    const gone = join(f.base, 'daemon-cwd-gone');
+    await mkdir(gone);
+    try {
+      process.chdir(gone);
+      await rmdir(gone);
+      const pre = await f.sandbox.preflight();
+      expect(pre).toMatchObject({ ok: false, reason: 'daemon-cwd' });
+      expect(pre.ok ? '' : pre.detail).toContain('工作目錄已經不存在');
+      const err = await refusal(f, await specFor(f));
+      expect(err.detail).toEqual({ reason: 'daemon-cwd' });
+      expect(err.message).toContain('請主人重新執行 smurg host');
+      expect(err.message).not.toContain('分享的資料夾裡面啟動');
+      expect(f.warnings().join('\n')).toContain('cannot be resolved');
+    } finally {
+      process.chdir(before);
+    }
+  }, TIMEOUT);
+
+  it('Linux: a protected entry the host changes while a guest process runs revokes that process (once; at once for a later listener) and tells the host; an in-place edit and other guests coming and going change nothing; a wrap() in flight meanwhile is refused (reviews RV-1, RV-2)', async () => {
+    const run = holdingRunner();
+    const { f } = await harness('linux', { runner: run, fixture: { files: { '.envrc': 'export A=1\n', 'sub/x.txt': 'x\n' } } });
+    const service = f.ctx.services.sandbox;
+    const events: unknown[] = [];
+    f.ctx.bus.on('sandbox.protected-changed', (event) => events.push(event));
+    const a = await f.sandbox.wrap(await specFor(f, { sessionId: 'ses_a' }));
+    const revoked: unknown[] = [];
+    const stop = f.sandbox.onRevoked?.(a, (revocation) => revoked.push(revocation));
+    const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 100));
+    // An in-place edit keeps the entry (the guest's mount holds), and another guest's process coming and going
+    // (srt's mount points and the service's placeholders) is no change.
+    await writeFile(join(f.share, '.envrc'), 'export A=2\n', { flag: 'a' });
+    service.fileEvents?.(f.share, [{ path: join(f.share, '.envrc'), type: 'update' }]);
+    f.sandbox.release?.(await f.sandbox.wrap(await specFor(f, { sessionId: 'ses_b' })));
+    await settle();
+    expect(revoked).toEqual([]);
+    expect(events).toEqual([]);
+    // The host's editor saves atomically, and the host makes a read-denied file in a subfolder: one batch.
+    await writeFile(join(f.share, '.envrc.tmp'), 'export A=3\n');
+    await rename(join(f.share, '.envrc.tmp'), join(f.share, '.envrc'));
+    await writeFile(join(f.share, 'sub', 'CLAUDE.local.md'), 'notes\n');
+    service.fileEvents?.(f.share, [
+      { path: join(f.share, '.envrc.tmp'), type: 'delete' },
+      { path: join(f.share, '.envrc'), type: 'create' },
+      { path: join(f.share, 'sub', 'CLAUDE.local.md'), type: 'create' },
+    ]);
+    await waitFor(() => revoked.length > 0, { what: 'the revocation' });
+    await settle();
+    const paths = [join(f.share, '.envrc'), join(f.share, 'sub', 'CLAUDE.local.md')];
+    expect(revoked).toEqual([{ root: f.share, paths }]);
+    expect(events).toEqual([{ root: { kind: 'main' }, paths: ['.envrc', 'sub/CLAUDE.local.md'], more: 0, revoked: 1 }]);
+    const late: unknown[] = [];
+    f.sandbox.onRevoked?.(a, (revocation) => late.push(revocation));
+    expect(late).toEqual([{ root: f.share, paths }]);
+    expect(f.warnings().join('\n')).toContain('so they are ended');
+    stop?.();
+    f.sandbox.release?.(a);
+    // A wrap() whose policy was chosen before the change (held at its canary) is not handed out.
+    const c = await f.sandbox.wrap(await specFor(f, { sessionId: 'ses_c' }));
+    const hold = run.holdNext();
+    const inFlight = f.sandbox.wrap(await specFor(f, { sessionId: 'ses_d' })).then(
+      () => null,
+      (err: unknown) => err as SmurgError,
+    );
+    await hold.reached;
+    await rmdir(join(f.share, '.vscode')); // the host's `git clean -fd` takes the service's empty placeholder
+    service.fileEvents?.(f.share, [{ path: join(f.share, '.vscode'), type: 'delete' }]);
+    await waitFor(() => events.length === 2, { what: 'the second notice' });
+    hold.release();
+    const refused = await inFlight;
+    expect(refused).toBeInstanceOf(SmurgError);
+    expect(refused?.detail).toEqual({ reason: 'protected-changed' });
+    expect(refused?.message).toContain('請再試一次');
+    expect((await refusedAudit(f)).map((entry) => entry.detail?.['reason'])).toContain('protected-changed');
+    expect(events[1]).toEqual({ root: { kind: 'main' }, paths: ['.vscode'], more: 0, revoked: 1 });
+    f.sandbox.release?.(c);
+  }, TIMEOUT);
+
+  it('Linux: the host\'s own empty directory made in place of a service placeholder while a guest runs is kept when the guest ends (review RV-3: the placeholder\'s inode is held, so the new one cannot reuse its number)', async () => {
+    const { f } = await harness('linux');
+    let kept = 0;
+    for (let i = 0; i < 5; i++) {
+      const wrapped = await f.sandbox.wrap(await specFor(f, { sessionId: `ses_e3_${i}` }));
+      await rmdir(join(f.share, '.vscode'));
+      await mkdir(join(f.share, '.vscode')); // the host's own, empty for now
+      f.sandbox.release?.(wrapped);
+      if (existsSync(join(f.share, '.vscode'))) kept++;
+      await rmdir(join(f.share, '.vscode'));
+    }
+    expect(kept).toBe(5);
+    expect(['.claude', '.git', '.idea'].filter((name) => existsSync(join(f.share, name)))).toEqual([]);
+  }, TIMEOUT);
+
+  it('Linux: oddly named directories a guest made in the share refuse nobody (review attack F1): control characters are denied literally, glob characters cannot be and are named in the log, once', async () => {
+    const { f, srt } = await harness('linux');
+    const p = (...rel: string[]): string => join(f.share, ...rel);
+    for (const dir of [p('ev*il', '.git'), p('brack[et]'), p('ctl\u0001x', '.git'), p('nl\nline', '.claude'), p('sane', '.vscode')]) await mkdir(dir, { recursive: true });
+    await writeFile(p('brack[et]', '.mcp.json'), '{}\n');
+    await writeFile(p('sane', '.vscode', 'tasks.json'), '{}\n');
+    const unprotectedLines = (): string[] => f.warnings().filter((line) => line.includes('guests can write this host-only entry'));
+    // every guest's session starts, again and again
+    for (const guestName of ['alice', 'bob', 'alice']) {
+      const guest = await f.guest(guestName);
+      const wrapped = await f.sandbox.wrap(f.spec({ sessionId: 'ses_unit', command: 'echo hi', guest, settingsDir: await f.settingsDir(`ses_${guestName}`, '{}\n') }));
+      f.sandbox.release?.(wrapped);
+      const denyWrite = srt.calls.wrap.at(-1)?.custom.filesystem.denyWrite ?? [];
+      expect(denyWrite).toEqual(expect.arrayContaining([p('ctl\u0001x', '.git'), p('nl\nline', '.claude'), p('sane', '.vscode')]));
+      // only the policy's own `<root>/**/<name>` patterns (srt drops them on Linux), no walked path with a glob character
+      expect(denyWrite.filter((path) => /[*?[\]]/.test(path.replace(`${f.share}/**/`, '')))).toEqual([]);
+    }
+    expect(await refusedAudit(f)).toEqual([]);
+    // named once per daemon, with why, the path quoted so no character of it can forge a log line
+    expect(unprotectedLines()).toHaveLength(2);
+    expect(unprotectedLines()[0]).toContain(`path=${JSON.stringify(p('brack[et]', '.mcp.json'))} why=glob-characters`);
+    expect(unprotectedLines()[1]).toContain(`path=${JSON.stringify(p('ev*il', '.git'))} why=glob-characters`);
+    // the session command: at most LINUX_GUEST_TASK_LIMIT tasks in the sandbox (review attack F2), set inside it
+    expect(srt.calls.wrap.at(-1)?.command.startsWith(`ulimit -u ${LINUX_GUEST_TASK_LIMIT} 2>/dev/null; export TMPDIR=`)).toBe(true);
+  }, TIMEOUT);
+
+  it('macOS: the same share needs no literal list: Seatbelt denies every host-only name at any depth by pattern, nothing is logged, no task limit is set', async () => {
+    const { f, srt } = await harness('darwin');
+    const p = (...rel: string[]): string => join(f.share, ...rel);
+    for (const dir of [p('ev*il', '.git'), p('brack[et]'), p('ctl\u0001x', '.git'), p('nl\nline', '.claude'), p('sane', '.vscode')]) await mkdir(dir, { recursive: true });
+    await writeFile(p('brack[et]', '.mcp.json'), '{}\n');
+    for (const guestName of ['alice', 'bob']) {
+      const guest = await f.guest(guestName);
+      await f.sandbox.wrap(f.spec({ sessionId: 'ses_unit', command: 'echo hi', guest, settingsDir: await f.settingsDir(`ses_${guestName}`, '{}\n') }));
+    }
+    const denyWrite = srt.calls.wrap.at(-1)?.custom.filesystem.denyWrite ?? [];
+    for (const name of ['.git', '.claude', '.vscode', '.mcp.json']) expect(denyWrite).toContain(`${f.share}/**/${name}`);
+    expect(denyWrite.filter((path) => path.startsWith(`${f.share}/`) && !path.includes('/**/') && path.split('/').length > f.share.split('/').length + 1)).toEqual([]);
+    expect(f.warnings()).toEqual([]);
+    expect(srt.calls.wrap.at(-1)?.command.startsWith('export TMPDIR=')).toBe(true);
+  }, TIMEOUT);
+
+  it('Linux: the task limit needs a kernel that counts tasks per user namespace (5.14 or later, review attack F2); on an older one it is left out and the host is told once', async () => {
+    for (const [release, counts] of [
+      ['6.8.0-85-generic', true],
+      ['5.14.0-427.el9.x86_64', true],
+      ['5.15.0-1', true],
+      ['10.0', true],
+      ['5.13.19', false],
+      ['5.10.0-28-amd64', false],
+      ['4.19.0', false],
+      ['', false],
+      ['unknown', false],
+      ['5', false],
+    ] as const) {
+      expect(linuxCountsTasksPerUserNamespace(release), release).toBe(counts);
+    }
+    const { f, srt } = await harness('linux', { service: { kernelRelease: () => '5.10.0-28-amd64' } });
+    for (const guestName of ['alice', 'bob']) {
+      const guest = await f.guest(guestName);
+      const wrapped = await f.sandbox.wrap(f.spec({ sessionId: 'ses_unit', command: 'echo hi', guest, settingsDir: await f.settingsDir(`ses_${guestName}`, '{}\n') }));
+      f.sandbox.release?.(wrapped);
+      expect(srt.calls.wrap.at(-1)?.command.startsWith('export TMPDIR=')).toBe(true);
+    }
+    const told = f.warnings().filter((line) => line.includes('guest sandboxes get no task limit'));
+    expect(told).toHaveLength(1);
+    expect(told[0]).toContain('kernel=5.10.0-28-amd64');
+    expect(await refusedAudit(f)).toEqual([]);
+  }, TIMEOUT);
+
+  it('macOS: the working directory does not matter (srt’s denies there are patterns, no mount points)', async () => {
+    const { f } = await harness('darwin');
+    const before = process.cwd();
+    try {
+      process.chdir(f.share);
+      expect(await f.sandbox.preflight()).toEqual({ ok: true, platform: 'darwin' });
+      await f.sandbox.wrap(await specFor(f));
+    } finally {
+      process.chdir(before);
     }
   }, TIMEOUT);
 

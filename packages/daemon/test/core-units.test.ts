@@ -1,5 +1,5 @@
 // Unit tests of the small core pieces: logical-channel bookkeeping (the daemon half of the resume contract), the
-// router's per-message role check and error mapping, stubs, the event bus, backoff.
+// router's per-message role check and error mapping, stubs, the event bus, backoff, the line logger's quoting.
 import { describe, expect, it } from 'vitest';
 import { SmurgError, type ClientEnvelope } from '@smurg/protocol';
 import { JsonlAuditLog } from '../src/core/audit.ts';
@@ -7,7 +7,7 @@ import { TypedEventBus } from '../src/core/bus.ts';
 import type { ClientConnection, MemberRecord } from '../src/core/interfaces.ts';
 import { ManualClock } from '../src/core/lifecycle.ts';
 import { LogicalChannel } from '../src/core/logical-channel.ts';
-import { createMemoryLogger, silentLogger } from '../src/core/logger.ts';
+import { createLineLogger, createMemoryLogger, quoteForLog, silentLogger } from '../src/core/logger.ts';
 import { RouterImpl, type ReplySink } from '../src/core/router.ts';
 import { createStubService, isStubService } from '../src/core/stubs.ts';
 import { PathDeniedError } from '../src/core/errors.ts';
@@ -173,5 +173,22 @@ describe('stubs, bus, rate limits', () => {
     expect(backoffDelay(3, options, () => 0.5)).toBe(4_000);
     expect(backoffDelay(30, options, () => 0.5)).toBe(30_000);
     expect(backoffDelay(0, options, () => 0)).toBe(350);
+  });
+
+  it('the line logger writes one line per call and no character a terminal could act on, whatever a value holds (a guest-made directory name, review attack F1)', () => {
+    const lines: string[] = [];
+    const log = createLineLogger({ write: (line) => lines.push(line), now: () => 0 });
+    const name = '/p/a\nfake 2026 error "x"\u001b[2J\u007f\u009b2J\u009d52;c;Y2xpcA==\u009c\u0085\u2028\u202e\u2066b/.git';
+    log.warn(`message ${name}`, { path: name, plain: '/p/ok/.git', n: 3 });
+    expect(lines).toHaveLength(1);
+    const line = lines[0] as string;
+    // nothing below U+0020, DEL, C1, a line separator or a bidirectional control is left raw
+    expect(line).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/);
+    expect(line.startsWith('1970-01-01T00:00:00.000Z warn "message /p/a\\nfake 2026 error \\"x\\"\\u001b[2J\\u007f\\u009b2J')).toBe(true);
+    expect(line.endsWith(' plain=/p/ok/.git n=3')).toBe(true);
+    // the quoted value is still JSON and reads back exactly
+    const quoted = /path=("(?:[^"\\]|\\.)*")/.exec(line)?.[1] as string;
+    expect(JSON.parse(quoted)).toBe(name);
+    expect(quoteForLog('/p/ü/.git')).toBe('"/p/ü/.git"');
   });
 });

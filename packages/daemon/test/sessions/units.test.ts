@@ -8,6 +8,7 @@ import { validateImport } from '../../src/sessions/import-config.ts';
 import { envEntryPidsFromPs, identityOf, isSafePgid, killTree, parseProcessTable, releaseStoppedProcesses, rememberDescendants, selectTargets, stoppedProcesses, type ProcessInspector, type ProcessRow } from '../../src/sessions/kill-tree.ts';
 import { apiKeyApprovalSuffix, mergeClaudeJson } from '../../src/sessions/launch-files.ts';
 import { RawTail } from '../../src/sessions/raw-tail.ts';
+import { runProcess } from '../../src/sessions/process-run.ts';
 import { buildSandboxSpec, guestCommand, shellQuote } from '../../src/sessions/sandbox-spec.ts';
 import { TermMirror } from '../../src/sessions/term-mirror.ts';
 import { createMemoryLogger } from '../../src/core/logger.ts';
@@ -22,6 +23,19 @@ async function waitUntilTrue(predicate: () => boolean, timeoutMs = 5_000): Promi
     await new Promise((resolve) => setTimeout(resolve, 2));
   }
 }
+
+describe('helper processes (process-run.ts)', () => {
+  it('a helper whose signal is aborted is killed at once, like at its deadline; an aborted signal starts nothing (a guest sandbox that no longer holds, SandboxService.onRevoked)', async () => {
+    const abort = new AbortController();
+    const started = Date.now();
+    const running = runProcess('/bin/sh', ['-c', 'echo started; exec sleep 30'], { env: { PATH: '/usr/bin:/bin' }, cwd: '/', timeoutMs: 20_000, signal: abort.signal });
+    setTimeout(() => abort.abort(), 200);
+    const result = await running;
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(result).toMatchObject({ signal: 'SIGKILL', timedOut: false, spawnError: false });
+    expect(await runProcess('/bin/sh', ['-c', 'echo never'], { env: { PATH: '/usr/bin:/bin' }, cwd: '/', timeoutMs: 20_000, signal: abort.signal })).toEqual({ code: null, signal: null, stdout: '', timedOut: false, spawnError: true });
+  });
+});
 
 describe('RawTail', () => {
   it('returns exact deltas by absolute offset and refuses evicted or future offsets', () => {

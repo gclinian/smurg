@@ -1,7 +1,9 @@
 // Keeps the host awake while sharing (SPEC R1 「主持期間防止電腦進入睡眠」; pty-packaging.md §6.7):
 //   macOS: `caffeinate -i -w <daemon pid>` — exits on its own when the daemon dies, even on SIGKILL.
 //   Linux: `systemd-inhibit --what=sleep:idle … cat` with cat's stdin a pipe from the daemon — daemon death closes the
-//          pipe, cat exits, the inhibitor is released. (Unverified on a real Linux host; ARCHITECTURE §12.)
+//          pipe, cat exits, the inhibitor is released. Refused (reason 'the inhibitor was refused') for a host started
+//          over SSH: polkit's inhibit-block-sleep is allow_any=no (verified on Ubuntu 24.04); unverified with a local
+//          desktop session (ARCHITECTURE §12).
 // stop() signals ONLY the child this service spawned and recorded (ARCHITECTURE §0 rule 1).
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
@@ -34,6 +36,23 @@ async function defaultFindSystemdInhibit(): Promise<string | null> {
     }
   }
   return null;
+}
+
+/**
+ * How long start() waits for an inhibitor that ends right away before it reports keep-awake as active (linux-binary
+ * F5: over SSH, polkit refuses systemd-inhibit's sleep block within ~20 ms, and the start summary said 「已啟用」 in
+ * most runs, then 「已失效」 two seconds later).
+ */
+const SETTLE_MS = 250;
+/** stderr of an inhibitor the system refused (systemd-inhibit through logind / polkit). */
+const REFUSED = /access denied|permission denied|not authori[sz]ed|interactive authentication required/i;
+/** The most bytes of an inhibitor's stderr kept for the log. */
+const STDERR_MAX = 200;
+
+/** The first line of `text`, control characters removed (for the log). */
+function firstLine(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return (text.split(/\r?\n/).find((line) => line.trim() !== '') ?? '').replace(/\u001b\[[0-9;]*[A-Za-z]/g, '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, STDERR_MAX);
 }
 
 function assertOwnChildPid(pid: number | undefined): pid is number {
@@ -71,7 +90,8 @@ export class KeepAwake implements PowerService {
     }
     let child: ChildProcess;
     try {
-      child = this.spawnFn(plan.file, plan.args, { stdio: plan.pipeStdin ? ['pipe', 'ignore', 'ignore'] : 'ignore', detached: false });
+      // stderr is read (its first line only) so a refusal can say why: over SSH, polkit refuses the sleep block.
+      child = this.spawnFn(plan.file, plan.args, { stdio: [plan.pipeStdin ? 'pipe' : 'ignore', 'ignore', 'pipe'], detached: false });
     } catch (err) {
       this.current = { active: false, mechanism: 'none', pid: null, reason: `spawn failed: ${err instanceof Error ? err.name : 'error'}` };
       return this.current;
@@ -87,16 +107,44 @@ export class KeepAwake implements PowerService {
     }
     this.child = child;
     this.exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
-    child.once('exit', (code, signal) => {
-      if (this.child !== child) return;
-      this.child = null;
-      this.current = { active: false, mechanism: 'none', pid: null, reason: 'the inhibitor exited' };
-      this.options.log.warn('keep-awake inhibitor exited', { code: code ?? null, signal: signal ?? null });
+    let stderr = '';
+    const stderrDone = new Promise<void>((resolve) => {
+      const stream = child.stderr;
+      if (!stream) return resolve();
+      // Read to the end (a full pipe must never stall the inhibitor), keep the first bytes.
+      stream.on('data', (chunk: Buffer | string) => {
+        if (stderr.length < STDERR_MAX * 4) stderr += String(chunk).slice(0, STDERR_MAX * 4 - stderr.length);
+      });
+      stream.once('end', () => resolve());
+      stream.once('close', () => resolve());
+      stream.once('error', () => resolve());
     });
-    // Neither the child nor its stdin pipe may keep the daemon alive on their own.
+    /** Resolves once an exit of this child was recorded with its reason (never for a child that keeps running). */
+    const settled = new Promise<void>((resolve) => {
+      child.once('exit', (code, signal) => {
+        if (this.child !== child) return resolve();
+        this.child = null;
+        this.current = { active: false, mechanism: 'none', pid: null, reason: 'the inhibitor exited' };
+        const tail = new Promise<void>((done) => setTimeout(done, 500));
+        void Promise.race([stderrDone, tail]).then(() => {
+          const line = firstLine(stderr);
+          // e.g. "Failed to inhibit: Access denied" (systemd-inhibit from an SSH session: logind's polkit action
+          // org.freedesktop.login1.inhibit-block-sleep is allow_any=no on Ubuntu)
+          if (REFUSED.test(line) && this.child === null && this.current.reason === 'the inhibitor exited') {
+            this.current = { active: false, mechanism: 'none', pid: null, reason: 'the inhibitor was refused' };
+          }
+          this.options.log.warn('keep-awake inhibitor exited', { code: code ?? null, signal: signal ?? null, ...(line === '' ? {} : { stderr: line }) });
+          resolve();
+        });
+      });
+    });
+    // Neither the child nor its pipes may keep the daemon alive on their own.
     child.unref();
     (child.stdin as { unref?: () => void } | null)?.unref?.();
+    (child.stderr as { unref?: () => void } | null)?.unref?.();
     this.current = { active: true, mechanism: plan.mechanism, pid: child.pid, reason: null };
+    // An inhibitor that is refused ends at once: report that, not a keep-awake that is lost a moment later.
+    await Promise.race([settled, new Promise<void>((resolve) => setTimeout(resolve, SETTLE_MS))]);
     return this.current;
   }
 

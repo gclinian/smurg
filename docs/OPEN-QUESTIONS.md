@@ -2,8 +2,8 @@
 
 Decisions left open after the review round of 2026-09-29 and the round that followed it the same day. Each entry gives
 the current behaviour, the options and a recommendation. **Q1 was decided on 2026-09-30 and Q2 decided and run** (the release
-plan, `docs/RELEASING.md`; Q2 keeps one owner question about the Linux sandbox's residuals); Q3–Q11 are not decided
-in code.
+plan, `docs/RELEASING.md`; Q2 keeps one owner question about the Linux sandbox's residuals); Q3–Q11 and Q13 are not
+decided in code.
 
 The two departures from SPEC.md's wording that the review round left **pending approval** were implemented on
 2026-09-29 as the project lead recommended, each behind a switch that is on by default (`docs/ARCHITECTURE.md` §11):
@@ -122,20 +122,33 @@ guest's file system from mounts of concrete paths, so three things macOS Seatbel
 
 - In a guest session in the MAIN workspace, a guest can create a NEW host-only name below the top of the share
   (`sub/.claude/settings.json`, `sub/.mcp.json`, `sub/.git/…`, `sub/.vscode/…`). Existing ones at any depth and every
-  name at the top are protected, `file.*` refuses these paths to guests and a worktree merge refuses them. Such a file
+  name at the top are protected while the host does not remove, rename or replace them (fourth item), `file.*` refuses
+  these paths to guests and a worktree merge refuses them; since 2026-10-01 such a new name (except `.git`) ends that
+  root's guest processes and is named on the host's terminal (the daemon cannot tell who made it). Such a file
   can run code in the host's UNSANDBOXED tools once the host opens that subfolder (a Claude Code started there, git's
-  `core.fsmonitor` or hooks of a nested repository, a VS Code task).
+  `core.fsmonitor` or hooks of a nested repository, a VS Code task). An existing one whose path holds a glob character
+  (`*`, `?`, `[`, `]`, e.g. below `app/[slug]/`) or is not UTF-8 is not protected either; the daemon names each such
+  path in its log (review attack F1: such a directory, made by a guest, used to refuse every guest session).
 - A guest can remove or re-point the read-only shared link in its own worktree (R9.2): the shared folder stays
   read-only, and the daemon refuses the tampered link.
 - A Unix socket in a directory the guest can read (the share, its guest dir) can be connected to.
+- While a guest process runs, a host-only or host-private entry the HOST replaces, removes or creates in that root
+  (an atomic save of `.envrc` or `.mcp.json`, the host's own Claude Code writing `.claude/settings.local.json`,
+  `git switch` / `git clean` of `.claude/`) is no longer covered by the guest's sandbox (reviews RV-1, RV-2). The daemon
+  notices it and ends every guest process of that root (measured 10–110 ms; `.git` within its 2 s check) and names
+  the paths on the host's terminal; until then the guest can read the new content or write the name. The host is
+  told (HOSTING §4) to stop guest sessions before editing these files.
 
-Options for the first (the other two need no change):
+Options for the first (the second and third need no change; the fourth is a window the owner should know of, with
+nothing better to build on bubblewrap than what is built):
 1. Accept and document it (what is built): the host is told in ARCHITECTURE §12 and ACCEPTANCE.
 2. On Linux, run guest agents in worktree mode only when the share is a git repository, and allow main-workspace guest
    sessions only with an explicit host switch; non-git shares would need that switch for any guest agent.
 3. A host-side check: the daemon already lists the share's existing host-only names when it wraps a guest command; it
    would report every new one that appears below the top while a guest session runs (file watcher) to the host's
-   terminal, the console and the audit log, and offer to remove it.
+   terminal, the console and the audit log, and offer to remove it. Partly built since 2026-10-01 (the guard of the
+   fourth item): a new name (`.git` excepted) ends that root's guest processes, is named on the host's terminal and in
+   the log, and the ended sessions are audited; not in the console, and nothing offers to remove it.
 
 **Recommendation.** Option 3, and option 1 until it is built: it keeps main-workspace guest sessions on Linux and
 tells the host before they open such a folder. Option 2 costs every non-git share its guest agents.
@@ -278,3 +291,34 @@ explains each one in its start summary, and echoes it there when it is off.
 local services, an exec allow-list on macOS), and without it a guest with a subscription cannot use it at all; the Bash
 hook fails open and can only ever attribute changes within the reporting session's own root. Both can be turned off per
 share without a new build.
+
+## Q13. Resource limits of guest sandboxes (review attack F2)
+
+**Current behaviour** (ARCHITECTURE §12 "Resource limits"). Neither sandbox limits memory, disk space, CPU time or
+file size, and no guest gets a cgroup of its own. A guest can slow the host's machine down, use up its memory (the
+kernel or macOS then ends processes, possibly the daemon) or fill the disk that holds the share and the daemon's
+state. Processes:
+- Linux: at most 4096 processes and threads per sandbox (built 2026-10-01), counted inside the sandbox's own user
+  namespace, so it does not depend on what the host runs and a guest cannot raise it. Before, one guest's fork bomb
+  could take every process slot of the host user, the daemon's included. A guest with 8 sessions can still hold
+  8 × 4096.
+- macOS: none. Seatbelt has no resource control, and macOS counts processes per user (2666 on the development Mac,
+  shared by every process of the host user), so a fork bomb in a guest session leaves the daemon and the host's own
+  apps without a process slot until the session ends.
+
+**Options.**
+1. Keep (documented). Guests are people the host invited, and the host can end any session or kick the guest.
+2. Linux: a cgroup per guest, all of its sessions together (`systemd-run --user --scope -p MemoryMax=…
+   -p TasksMax=… -p CPUWeight=…` around bubblewrap). Needs the host user's systemd instance with the memory and pids
+   controllers delegated (Ubuntu 24.04's `user@.service` delegates pids, memory and cpu: seen in the test VM, where
+   the user's instance runs; no such scope was tried, and a host without a user instance has none); where it is
+   missing, guest sessions would be refused or run without it (a host setting).
+3. Both platforms: a daemon-side watchdog. Below a free-memory or free-disk threshold it ends the guest session that is
+   growing and tells the host. On macOS also a per-user process limit for guest sessions below the host's own limit
+   (e.g. 2666 − 256), which keeps a reserve of process slots for the daemon; how many a guest then gets depends on
+   what else the host runs.
+4. An address-space or file-size limit in the session prelude: cheap, but Node / V8, the JVM and sanitizer builds
+   reserve far more address space than they use, so a limit they survive does not stop an out-of-memory machine, and a
+   file-size limit caps one file, not the disk.
+
+**Recommendation.** Option 1 for the prototype, option 2 and the disk part of option 3 at launch; not option 4.

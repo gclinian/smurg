@@ -22,6 +22,8 @@ export interface RunOptions {
   readonly timeoutMs: number;
   /** stdout is cut here (auth status prints a few hundred bytes). */
   readonly maxStdoutBytes?: number;
+  /** Aborted: the helper is killed like at the deadline (a guest sandbox that no longer holds, SandboxService.onRevoked). */
+  readonly signal?: AbortSignal;
 }
 
 export type ProcessRunner = (file: string, args: readonly string[], options: RunOptions) => Promise<RunResult>;
@@ -35,6 +37,7 @@ export function runningHelperPids(): ReadonlySet<number> {
 
 export const runProcess: ProcessRunner = async (file, args, options) => {
   const ownPgid = await ownProcessGroup();
+  if (options.signal?.aborted === true) return { code: null, signal: null, stdout: '', timedOut: false, spawnError: true };
   return new Promise((resolve) => {
     const maxBytes = options.maxStdoutBytes ?? 1024 * 1024;
     let stdout = '';
@@ -64,12 +67,15 @@ export const runProcess: ProcessRunner = async (file, args, options) => {
       timedOut = true;
       kill();
     }, options.timeoutMs);
+    const onAbort = (): void => kill();
+    options.signal?.addEventListener('abort', onAbort, { once: true });
     child.stdout?.setEncoding('utf8');
     child.stdout?.on('data', (chunk: string) => {
       if (stdout.length < maxBytes) stdout += chunk.slice(0, maxBytes - stdout.length);
     });
     child.on('error', () => {
       if (pid !== undefined) helpers.delete(pid);
+      options.signal?.removeEventListener('abort', onAbort);
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -80,6 +86,7 @@ export const runProcess: ProcessRunner = async (file, args, options) => {
     });
     child.on('close', (code, signal) => {
       if (pid !== undefined) helpers.delete(pid);
+      options.signal?.removeEventListener('abort', onAbort);
       if (settled) return;
       settled = true;
       clearTimeout(timer);

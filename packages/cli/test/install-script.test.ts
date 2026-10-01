@@ -118,8 +118,12 @@ async function fakeTools(dir: string): Promise<string> {
     `#!/bin/sh\nif [ "\${FAKE_MUSL:-0}" = 1 ]; then echo 'musl libc (x86_64)' >&2; echo 'Version 1.2.4' >&2; exit 1; fi\necho 'ldd (Ubuntu GLIBC 2.39-0ubuntu8) 2.39'\n`,
   );
   await writeExecutable(join(bin, 'sysctl'), `#!/bin/sh\n${log}\n[ -n "\${FAKE_TRANSLATED:-}" ] || { echo "sysctl: unknown oid '$2'" >&2; exit 1; }\necho "$FAKE_TRANSLATED"\n`);
-  // Never root here, whoever runs the tests: the root branch would run apt-get and tee directly.
-  await writeExecutable(join(bin, 'id'), `#!/bin/sh\n[ "$1" = -u ] && { echo 1000; exit 0; }\nexec /usr/bin/id "$@"\n`);
+  // Never root here unless a test says so (FAKE_UID=0), whoever runs the tests: the root branch would run apt-get and
+  // tee directly (their stand-ins below only log "UNEXPECTED direct").
+  await writeExecutable(join(bin, 'id'), `#!/bin/sh\n[ "$1" = -u ] && { echo "\${FAKE_UID:-1000}"; exit 0; }\nexec /usr/bin/id "$@"\n`);
+  // runuser -u USER -- CMD…: logged, then CMD runs with FAKE_AS_USER=USER (a stand-in bwrap can then act as the
+  // unprivileged user the AppArmor restriction applies to).
+  await writeExecutable(join(bin, 'runuser'), `#!/bin/sh\n${log}\n[ "$1" = -u ] || exit 2\nuser="$2"; shift 2; [ "$1" = -- ] && shift\nFAKE_AS_USER="$user" exec "$@"\n`);
   await writeExecutable(
     join(bin, 'xattr'),
     `#!/bin/sh\n${log}\ncase "$1" in\n  -p) [ "\${FAKE_QUARANTINE:-0}" = 1 ] && { echo '0081;00000000;Safari;'; exit 0; }; echo "xattr: $3: No such xattr: $2" >&2; exit 1 ;;\n  -d) exit 0 ;;\nesac\nexit 2\n`,
@@ -137,13 +141,18 @@ interface Sysroot {
   readonly tools?: readonly string[];
   readonly restricted?: '0' | '1';
   readonly profile?: boolean;
+  /** The body of the stand-in /usr/bin/bwrap (default: `exit 0`, a bubblewrap that can create its namespaces). */
+  readonly bwrap?: string;
 }
 
 /** A fake root for the Linux checks: which tools exist, the AppArmor switch, an existing profile. */
 async function fakeSysroot(dir: string, spec: Sysroot): Promise<string> {
   const root = join(dir, 'sysroot');
   await mkdir(root, { recursive: true });
-  for (const tool of spec.tools ?? []) await writeExecutable(join(root, tool === 'apparmor_parser' ? 'usr/sbin' : 'usr/bin', tool), '#!/bin/sh\nexit 0\n');
+  for (const tool of spec.tools ?? []) {
+    const body = tool === 'bwrap' && spec.bwrap !== undefined ? spec.bwrap : 'exit 0';
+    await writeExecutable(join(root, tool === 'apparmor_parser' ? 'usr/sbin' : 'usr/bin', tool), `#!/bin/sh\n${body}\n`);
+  }
   if (spec.restricted !== undefined) {
     await mkdir(join(root, 'proc/sys/kernel'), { recursive: true });
     await writeFile(join(root, 'proc/sys/kernel/apparmor_restrict_unprivileged_userns'), `${spec.restricted}\n`);
@@ -455,7 +464,7 @@ describe('scripts/install.sh on Linux: the guest sandbox needs, with consent onl
     const done = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', ready.prefix, '--yes'], ready.env);
     expect(done.code).toBe(0);
     expect(done.out).toContain('客人沙盒需要的套件：已經有 bubblewrap、socat、ripgrep');
-    expect(done.out).toContain('AppArmor：已經有 /etc/apparmor.d/smurg-bwrap');
+    expect(done.out).toContain('AppArmor：已生效（bubblewrap 可以建立客人沙盒）');
     expect((await ready.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual([]);
 
     const open = await faked(LINUX_X64, { FAKE_APT_EXIT: '100' }, { tools: ['bwrap', 'apt-get'], restricted: '0' });
@@ -464,6 +473,69 @@ describe('scripts/install.sh on Linux: the guest sandbox needs, with consent onl
     expect(failed.out).toContain('套件安裝失敗，請自行安裝：sudo apt-get install socat ripgrep');
     expect(failed.out).toContain('AppArmor：不需要');
     expect((await open.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual(['sudo apt-get update -qq', 'sudo apt-get install -y socat ripgrep']);
+  });
+
+  // review linux-binary F4: the AppArmor step is decided by what bubblewrap can do (the daemon's own probe), not by
+  // whether /etc/apparmor.d/smurg-bwrap exists: a profile file that is not loaded left bubblewrap blocked while the
+  // installer said 「已經有」 and offered nothing.
+  const blockedUntilInstalled = 'if [ -s "$FAKE_TEE_OUT" ]; then exit 0; fi; echo "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted" >&2; exit 1';
+  const withProfileFile = (bwrap: string): Sysroot => ({ tools: ['bwrap', 'socat', 'rg', 'apt-get', 'apparmor_parser'], restricted: '1', profile: true, bwrap });
+
+  it('a profile file that is there but not in effect (bubblewrap still refused) is not taken for done: the fix is printed, and installed with consent', async () => {
+    const release = await serve(fullRelease());
+    const asked = await faked(LINUX_X64, {}, withProfileFile(blockedUntilInstalled));
+    const printed = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', asked.prefix], asked.env);
+    expect(printed.code).toBe(0);
+    expect(printed.out).toContain('/etc/apparmor.d/smurg-bwrap 已經存在，但沒有生效');
+    expect(printed.out).toContain('sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap');
+    expect(printed.out).toContain('AppArmor：還沒處理');
+    expect((await asked.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual([]);
+
+    const yes = await faked(LINUX_X64, {}, withProfileFile(blockedUntilInstalled));
+    const fixed = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', yes.prefix, '--yes'], yes.env);
+    expect(fixed.code).toBe(0);
+    expect((await yes.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual(['sudo tee /etc/apparmor.d/smurg-bwrap', 'sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap']);
+    expect(await readFile(yes.teeOut, 'utf8')).toBe(APPARMOR_PROFILE);
+    expect(fixed.out).toContain('AppArmor：已安裝 /etc/apparmor.d/smurg-bwrap（只放寬 /usr/bin/bwrap）');
+  });
+
+  it('run as root (sudo sh install.sh) the probe runs as the user sudo came from, else nobody: root\'s own bubblewrap passes without the profile, which is not proof (review RV-5)', async () => {
+    const release = await serve(fullRelease());
+    // A bubblewrap without the profile: refused for an unprivileged user, fine for root.
+    const rootOnly = 'if [ -n "${FAKE_AS_USER:-}" ]; then echo "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted" >&2; exit 1; fi; exit 0';
+    const sysroot: Sysroot = { tools: ['bwrap', 'socat', 'rg', 'apparmor_parser'], restricted: '1', bwrap: rootOnly };
+    for (const [env, user] of [
+      [{ FAKE_UID: '0', SUDO_USER: 'alice' }, 'alice'],
+      [{ FAKE_UID: '0' }, 'nobody'],
+      [{ FAKE_UID: '0', SUDO_USER: 'root' }, 'nobody'],
+    ] as const) {
+      const f = await faked(LINUX_X64, env, sysroot);
+      const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
+      expect(result.code, user).toBe(0);
+      expect(result.out, user).toContain('AppArmor：還沒處理');
+      expect(result.out, user).not.toContain('已生效');
+      expect(result.out, user).toContain('sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap');
+      expect((await f.calls()).filter((call) => call.startsWith('runuser')), user).toEqual([`runuser -u ${user} -- ${f.sysroot}/usr/bin/bwrap --unshare-user --unshare-net --ro-bind / / -- /bin/true`]);
+      expect((await f.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call)), user).toEqual([]);
+    }
+    // With the profile in effect the user's bubblewrap works too: then it is.
+    const loaded = await faked(LINUX_X64, { FAKE_UID: '0', SUDO_USER: 'alice' }, { ...sysroot, bwrap: 'exit 0' });
+    const ok = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', loaded.prefix], loaded.env);
+    expect(ok.out).toContain('AppArmor：已生效');
+  });
+
+  it('a bubblewrap that fails for another reason is not blamed on AppArmor; without bubblewrap the file alone is reported as unconfirmed', async () => {
+    const release = await serve(fullRelease());
+    const other = await faked(LINUX_X64, {}, withProfileFile('echo "bwrap: execvp /bin/true: No such file or directory" >&2; exit 1'));
+    const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', other.prefix, '--yes'], other.env);
+    expect(result.code).toBe(0);
+    expect(result.out).toContain('AppArmor：無法確認（bubblewrap：bwrap: execvp /bin/true: No such file or directory；smurg host 會再檢查）');
+    expect((await other.calls()).filter((call) => /^(sudo|UNEXPECTED)/.test(call))).toEqual([]);
+
+    const noBwrap = await faked(LINUX_X64, {}, { tools: ['socat', 'rg', 'apparmor_parser'], restricted: '1', profile: true });
+    const checked = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', noBwrap.prefix], noBwrap.env);
+    expect(checked.code).toBe(0);
+    expect(checked.out).toContain('AppArmor：已經有 /etc/apparmor.d/smurg-bwrap（還沒有 bubblewrap 可以確認是否生效；smurg host 會檢查）');
   });
 
   it('--no-deps checks nothing', async () => {

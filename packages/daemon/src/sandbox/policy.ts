@@ -203,6 +203,16 @@ export interface SessionPolicyInput {
   /** Extra denies from the SandboxSpec (the sessions module's view of host-only / hidden paths). */
   readonly extraDenyRead: readonly string[];
   readonly extraDenyWrite: readonly string[];
+  /**
+   * Linux only (main and worktree mode): the EXISTING host-only entries below the top of the root
+   * (SandboxServiceImpl nestedHostOnlyPaths), denied for writing literally: bubblewrap binds each one read-only. Guests
+   * can name these (a directory a guest made), so unlike every other path here they may hold control characters: they
+   * never reach a Seatbelt string, srt passes them to bubblewrap byte for byte (single-quoted on its command line, or
+   * NUL-separated in its arguments file) and the hardening parses both exactly. Never a glob character (srt drops such
+   * a write deny on Linux without a word) and never a NUL; the service leaves such entries out and logs them (review
+   * attack F1: one refused entry used to refuse every guest's session in that root).
+   */
+  readonly nestedHostOnlyPaths?: readonly string[];
   readonly hookSocketPath: string;
   /** Names the spawn environment sets on purpose; their login-override deny is skipped. */
   readonly envNames: readonly string[];
@@ -213,8 +223,6 @@ export interface SessionPolicyInput {
    * too (measured: every request failed). Read-only file carve-outs, like the hook socket. Default: none (macOS).
    */
   readonly proxySocketPaths?: readonly string[];
-  /** Linux: the HOST_ONLY_DIR_NAMES missing at the top of the root when the service looked (linuxDirPlaceholderDenies). */
-  readonly absentHostOnlyDirs?: readonly string[];
 }
 
 export interface SessionPolicy {
@@ -268,6 +276,25 @@ export class PolicyError extends Error {
 function checkPath(label: string, p: string): string {
   if (typeof p !== 'string' || !isAbsolute(p)) throw new PolicyError(`${label} must be an absolute path`);
   if (UNSAFE_PATH.test(p)) throw new PolicyError(`${label} contains characters the sandbox cannot express (glob or control characters)`);
+  const n = normalize(p);
+  const trimmed = n.length > 1 && n.endsWith('/') ? n.slice(0, -1) : n;
+  if (trimmed !== p) throw new PolicyError(`${label} is not a normalised path`);
+  return p;
+}
+
+/** The characters srt 0.0.77 reads as glob syntax (sandbox-utils.js containsGlobChars). */
+export const SRT_GLOB_CHARS = /[*?[\]]/;
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/**
+ * Linux, a path bubblewrap takes literally (SessionPolicyInput.nestedHostOnlyPaths): absolute and normalised, no glob
+ * character (srt's wrapWithSandbox drops a write deny holding one on Linux, silently: the deny would be lost), no NUL
+ * (neither a command line nor srt's arguments file can carry it) and no lone surrogate (its UTF-8 would name another
+ * file). Control characters are allowed: nothing of a Linux policy is a Seatbelt string.
+ */
+function checkLinuxLiteralPath(label: string, p: string): string {
+  if (typeof p !== 'string' || !isAbsolute(p)) throw new PolicyError(`${label} must be an absolute path`);
+  if (SRT_GLOB_CHARS.test(p) || p.includes('\u0000') || LONE_SURROGATE.test(p)) throw new PolicyError(`${label} contains characters bubblewrap cannot be given literally`);
   const n = normalize(p);
   const trimmed = n.length > 1 && n.endsWith('/') ? n.slice(0, -1) : n;
   if (trimmed !== p) throw new PolicyError(`${label} is not a normalised path`);
@@ -428,28 +455,6 @@ export function hostOnlyWriteDenies(root: string): string[] {
   return [...names.map((name) => join(root, name)), ...names.map((name) => `${root}/**/${name}`)];
 }
 
-/**
- * Linux: a child name that never exists, below each host-only DIRECTORY name at the top of the root. bubblewrap can
- * only block an ABSENT write-denied name by mounting something on it, and the mount point it creates for that is left
- * in the host's share (srt removes it once no sandbox runs, SandboxService.release). For a leaf deny srt mounts
- * /dev/null, i.e. an empty 0444 FILE `.claude` / `.git` / `.vscode` appears in the host's project and the host's own
- * tools break on it (`mkdir .claude` EEXIST, git "invalid gitfile format"). For an absent INTERMEDIATE component srt
- * mounts an empty read-only directory instead (linux-sandbox-utils.js "Fix 2"), which the host sees as an ordinary
- * empty directory it can use (git ignores an empty `.git/`): denying this child makes srt choose that form. When the
- * name exists, the child is inside a read-only deny and srt makes no mount point for it.
- */
-export const LINUX_DIR_PLACEHOLDER_CHILD = '.smurg-no-such-entry';
-
-/**
- * The child denies for the host-only directory names `absent` (names the service found missing at the top of the
- * root). Only for absent ones: under an existing name (bound read-only) srt would still put a mount point for the
- * child there whenever the root lies below a read-deny tmpfs (as it does under /home), and bubblewrap cannot create it
- * in a read-only mount ("Can't create file … Read-only file system": measured, the sandbox did not start).
- */
-export function linuxDirPlaceholderDenies(root: string, absent: readonly string[]): string[] {
-  return HOST_ONLY_DIR_NAMES.filter((name) => absent.includes(name)).map((name) => join(root, name, LINUX_DIR_PLACEHOLDER_CHILD));
-}
-
 /** Host-personal files (and `.envrc`) hidden at any depth of the root. */
 export function hostPersonalReadDenies(root: string): string[] {
   return [...HOST_PERSONAL_FILES, ...HOST_PRIVATE_READ_DENIED_NAMES].flatMap((rel) => [join(root, rel), `${root}/**/${rel}`]);
@@ -482,6 +487,10 @@ export function buildSessionPolicy(input: SessionPolicyInput): SessionPolicy {
   const gitObjects = input.shareGitObjectsDir === null ? null : checkPath('share git objects', input.shareGitObjectsDir);
   const proxySockets = (input.proxySocketPaths ?? []).map((p) => checkPath('proxy socket', p));
   if (platform !== 'linux' && proxySockets.length > 0) throw new PolicyError('proxy socket carve-outs are for Linux only');
+  // macOS denies the host-only names at any depth by pattern; a literal list is bubblewrap's (Linux) only.
+  const nestedHostOnly = (input.nestedHostOnlyPaths ?? []).map((p) => checkLinuxLiteralPath('nested host-only path', p));
+  if (nestedHostOnly.length > 0 && (platform !== 'linux' || mode === 'login')) throw new PolicyError('nested host-only paths are for a Linux agent or terminal session only');
+  for (const p of nestedHostOnly) if (!isStrictlyUnder(p, root)) throw new PolicyError('a nested host-only path must be inside the session root');
 
   // ---- layout rules (ARCHITECTURE §7.1, §7.6) ----
   if (mode === 'login') return buildLoginPolicy(input, { hostHome, stateDir, share, worktreesDir, root, guestDir, settingsDir, extraRead, extraDenyRead, extraDenyWrite, readOnly, selfPaths, proxySockets });
@@ -538,9 +547,12 @@ export function buildSessionPolicy(input: SessionPolicyInput): SessionPolicy {
   const writeRoots = unique([root, guestDir]);
   const dropped: string[] = [];
   const denyWrite: string[] = [];
+  // Linux: bubblewrap can block an ABSENT write-denied name only by mounting something on it, which leaves a mount
+  // point in the host's share while the sandbox runs (/dev/null: an empty 0444 file). The service therefore makes the
+  // absent host-only DIRECTORY names exist, as empty directories of its own, before it wraps (SandboxServiceImpl
+  // holdPlaceholderDirs); only `.mcp.json` and `.envrc` keep srt's file form.
   const candidates = unique([
     ...hostOnlyWriteDenies(root),
-    ...(platform === 'linux' ? linuxDirPlaceholderDenies(root, input.absentHostOnlyDirs ?? []) : []),
     ...readOnly,
     settingsDir,
     ...(mode === 'main' ? [join(share, '.smurg')] : []),
@@ -549,6 +561,7 @@ export function buildSessionPolicy(input: SessionPolicyInput): SessionPolicy {
     // does not exist makes bubblewrap create a placeholder file on the host.
     ...(platform === 'darwin' ? SRT_SHARED_TMP : []),
     ...extraDenyWrite,
+    ...nestedHostOnly,
   ]);
   for (const deny of candidates) {
     if (writeRoots.includes(deny)) throw new PolicyError('a write root is also denied for writing');

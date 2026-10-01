@@ -299,23 +299,51 @@ Inside the sandbox, measured:
    - srt removes the mount points only through `cleanupAfterCommand()`, once its count of running wraps is back to
      zero, and the daemon never called it after a session process.
    - Fixes:
-     - For each absent DIRECTORY name, the policy also denies a child that never exists
-       (`policy.ts linuxDirPlaceholderDenies`). srt then mounts an empty read-only directory instead ("Fix 2" in
-       `linux-sandbox-utils.js`), which the host sees as an ordinary empty directory. Git ignores an empty `.git/`
-       and never stages an empty directory.
+     - For each absent DIRECTORY name the service makes an empty directory of its own before it wraps
+       (`service.ts holdPlaceholderDirs`), and bubblewrap binds it read-only. The host sees an ordinary empty
+       directory; git ignores an empty `.git/` and never stages an empty directory. (The first fix, a denied child
+       that never exists so that srt chose its empty-directory form, raced: srt decides the form on each wrap and
+       removes its mount points when its count reaches zero, so another guest's process ending during a `wrap()`
+       brought the 0444 files back for a whole session, and a start in one root while a guest ran in another aborted
+       in bubblewrap. Review RCR-1, 2026-10-01; `test/sandbox/placeholders.real.test.ts`.)
+     - The service keeps its directories while any `wrap()` is in flight or any WrappedCommand it handed out is
+       unreleased, and removes them (still empty, same inode) synchronously once none is.
      - `SandboxService.release()` is called by the sessions module whenever a guest process exits or never started.
        The self-tests release their own wraps.
-     - The service records these directories before a sandbox can make them (state document `sandbox-placeholders`).
-       The next daemon removes the recorded ones that are still empty before its first sandbox, which covers a
-       daemon that died without cleaning up.
+     - The service records the directories, and the absent file names srt will hold, before either can exist (state
+       document `sandbox-placeholders`) and empties the record once nothing runs. The next daemon removes the recorded
+       directories that are still empty and the recorded files that still look like srt's leftovers (empty, no write
+       bit, one link) before its first sandbox, which covers a daemon that died without cleaning up.
      - The file names `.mcp.json` and `.envrc` keep srt's file form while a guest process runs.
-       `worktree/stage-commit.ts` keeps them out of a merge.
+       `worktree/stage-commit.ts` keeps them out of a merge. Since review RV-2 the service makes that empty 0444 file
+       itself when it hands a command out (item 11).
+     - Review RV-3: ext4 hands a freed inode number straight back (a probe: `rmdir` + `mkdir` gave the same number 20
+       times of 20), so a host's own empty directory made in place of a placeholder while a guest ran had the same
+       dev / ino and was removed with it. The service holds an `O_PATH` descriptor on each placeholder until it removes
+       it: 0 times of 20.
+     - srt resolves its own mandatory denies against the daemon's working directory; `smurg host` runs its daemon
+       from `<stateDir>/cwd`, and a daemon whose cwd is in a write root is refused (`daemon-cwd`, review F1).
 6. **srt drops write-deny globs on Linux**: bubblewrap mounts concrete paths only, so `<root>/**/.claude` protected
    nothing.
    - The service now walks the root and adds every EXISTING host-only entry below the top as a literal deny (a
      read-only bind; it follows no symlink and skips `node_modules`). More than 1000 such entries refuse the session.
    - A NEW host-only name below the top (`sub/.claude/settings.json`, `sub/.mcp.json`) cannot be blocked with mounts:
      a residual (ARCHITECTURE §12).
+   - srt drops a Linux write deny when its PATH holds `*`, `?`, `[` or `]` anywhere (`sandbox-manager.js`
+     `stripWriteGlobs` / `getFsWriteConfig`, a debug line only), so an existing entry such as `ev*il/.git` or
+     `app/[slug]/.claude` cannot be denied through srt. Appending our own `--ro-bind` for it in the hardening was
+     rejected: a read-only bind of the host's directory would bring back the read masks srt put below it
+     (`settings.local.json`, `.envrc`, `CLAUDE.local.md`), which srt re-applies only for its own binds. Such entries are
+     left out and logged; before (review attack F1, 2026-10-01) the policy refused the path, and with it every later
+     guest session in that root (`dos.ts`: `ev*il`, `brack[et]`, `nl\nline`, `ctl\x01x` → refused; `plain`, `sp ace`,
+     `;`, backtick, `$` → started, nothing injected).
+   - Control characters are fine on Linux: srt single-quotes a word with a newline on bubblewrap's command line and
+     NUL-separates its arguments file, and the hardening parses both byte for byte (`harden.test.ts` runs the hardened
+     command through bash into a stand-in bwrap). A name that is not UTF-8 cannot be given at all (no string spells
+     it); srt's read-deny globs do not reach below it either: `.envrc` and `CLAUDE.local.md` there were readable
+     (`test/sandbox/odd-names.real.test.ts`).
+   - macOS is not affected: the walk is Linux-only, and Seatbelt's `<root>/**/<name>` patterns denied every planted
+     entry below `ev*il`, `brack[et]`, `q?m`, `nl\nline`, `cr\rx`, `tab\tx`, `ctl\x01x`, `del\x7fx` (measured).
 7. **R9.2 read-only shared links**: bubblewrap can only mount on what a symlink points at, never on the link. The
    target stays read-only, but a guest can remove or re-point the link, which is an entry of its own writable worktree.
    The daemon's path guard refuses a re-pointed shared link (`shared-link-tampered`), so the host never follows it.
@@ -333,6 +361,53 @@ Inside the sandbox, measured:
      its own over any writable bind that is neither a write root nor a bridge socket (then hidden and read-only).
    - srt's `java-proxy-agent.jar` read carve-out creates a skeleton under the daemon's `node_modules`. It is hidden like
      every other skeleton.
+10. **Resources, the kernel surface and the mount table** (review attack F2–F4, 2026-10-01):
+    - `ulimit -a` inside a guest sandbox was the host user's own: max user processes 31414, memory, virtual memory,
+      file size and CPU time unlimited; `/proc/self/cgroup` the daemon's own
+      (`/user.slice/user-501.slice/session-2.scope`). bubblewrap and srt set no resource limit. Fix (partial): the
+      sandboxed shell runs `ulimit -u 4096` first. Since Linux 5.14 RLIMIT_NPROC is counted per user namespace
+      (ucounts), and bubblewrap has made the guest's by then: with the host user at 141 tasks, a sandbox limited to 32
+      still started 27 processes; soft and hard read 32 inside and `ulimit -u 100000` failed. The daemon leaves it out
+      on an older kernel (it would count the host user's tasks). No fork bomb was run.
+    - macOS, inside a guest sandbox: `ulimit -u` 2666 (= `kern.maxprocperuid`, the host user's), the rest unlimited,
+      as outside. Seatbelt sets nothing.
+    - `Seccomp: 0` (above): every system call an unprivileged user may make reaches the kernel.
+    - `/proc/self/mountinfo` lists the host-side path of every mount: the share, the guest dir
+      (`<stateDir>/guests/<workspace id>/<key>`), the settings dir, the `smurg` command's paths, srt's bridge socket
+      and install path (`/home/<host user>/…/sandbox-runtime/vendor/java-proxy-agent/srt-proxy-agent.jar`), and the
+      host's own mounts through the recursive `--ro-bind / /`. A guest cannot mount over it (`mount: must be
+      superuser`).
+
+11. **The host changes a protected entry while a guest runs** (reviews RV-1, RV-2, diff-review E1–E7, 2026-10-01).
+    Every protection above is a mount on a directory entry as it was when bubblewrap started. Measured on the reviewed
+    tree and on b97cdee: the host's atomic save (temp file renamed over) of `.envrc` and `.claude/settings.local.json`
+    let the running guest read the new content; files the host created after the start (`.claude/settings.local.json`,
+    `sub/.envrc`, `CLAUDE.local.md`) were readable at once (srt expands its read-deny globs at the start and mounts
+    nothing on an absent path); the host's `rmdir` of the empty `.claude` placeholder, or a rename of its own `.claude`
+    (`git switch`), let the guest plant `.claude/settings.json`; an atomic save of `.mcp.json` let it rewrite the file.
+    Nothing a mount does can follow the entry.
+    - The fix is a detection (`sandbox/guard.ts`, ARCHITECTURE §7.6 "Linux, protected entries while a guest runs"):
+      the service records every protected entry of a root with guest processes (top-level names, the walk's nested
+      entries, `settings.local.json` in each `.claude`, nested `CLAUDE.local.md`), holding an `O_PATH` descriptor on
+      each existing one (item 5), and compares on every file-watcher batch (a protected name at any depth, the subtree
+      of a directory that appeared: @parcel/watcher on inotify reports a directory moved in, or made and filled at
+      once, as one `create` of the directory), every 2 s (`.git`, which the watcher ignores), on the next wrap and at
+      the last release. A difference revokes every command handed out for the root (`SandboxService.onRevoked`; the
+      sessions module ends them) and refuses a wrap in flight there.
+    - What @parcel/watcher 2.6.0 reports (probe in the VM): an in-place write → `update`; a rename over → `create`;
+      `rmdir` + `mkdir`, or `unlink` + create, in one batch → `update`; a file made and removed in one batch →
+      nothing; a directory renamed → `delete` of the old name, `create` of the new one, nothing for what it holds;
+      `.git` at any depth → nothing (the daemon's ignore list).
+    - srt's own 0444 mount point for an absent `.mcp.json` / `.envrc` appears when bubblewrap starts and goes when
+      srt's count of running wraps is zero. The host removing it while the guest runs lifts the deny (the guest could
+      then create the name); to tell that from srt's cleanup the guard must have seen the file, and a removal within
+      the ~50 ms before the first watcher batch left no event at all. So the service makes the file itself when it
+      hands a command out (as bubblewrap would; srt then tracks and removes it with its other mount points).
+    - Measured with real bubblewrap and the real watcher (`test/sandbox/placeholders.real.test.ts`): the guest process
+      was revoked 10–110 ms after the host's change (E1, E2, E3, E5, E6, E7, srt's file removed); `.git` replaced:
+      within the poll (300 ms in the test, 2 s in the daemon). An in-place edit revoked nothing, other guests coming
+      and going beside a running one revoked nothing, and a wrap held at its self-test while the host saved `.envrc`
+      was refused (`protected-changed`).
 
 ### Network and the login process (D-12)
 
@@ -358,16 +433,24 @@ while the host cannot connect.
 
 ### Residuals on Linux (ARCHITECTURE §12)
 
-- A new host-only name below the top of the root cannot be blocked (item 6).
+- A new host-only name below the top of the root cannot be blocked (item 6), nor an existing one whose path holds a
+  glob character or is not UTF-8 (logged).
+- No memory, disk or CPU limit; 4096 tasks per sandbox (item 10). No seccomp filter. The mount table shows host paths.
 - A guest can remove or re-point a shared link in its own worktree (item 7).
 - A socket in a readable directory is connectable (item 8).
 - While a guest process runs, the host's project shows bubblewrap's placeholders: empty directories for absent
   `.claude` / `.git` / `.vscode` / `.idea`, and empty read-only files for absent `.mcp.json` / `.envrc`.
+- A protected entry the host replaces, removes or creates while a guest runs is seen by the guest until the daemon
+  notices and ends its processes (item 11: 10–110 ms measured; `.git` within 2 s); not noticed in `node_modules`,
+  for a new nested `.git`, or without the file watcher.
 - The real-sandbox tests ran on arm64 only. x64 is CI's.
 
 ### Tests that run on Linux
 
 - `test/sandbox/r5.sandbox.test.ts` (R5, R9 at the sandbox level)
+- `odd-names.real.test.ts` (guest-made odd names, the task limit; its odd-name half runs on macOS too)
+- `placeholders.real.test.ts` (bubblewrap's mount points, the daemon's working directory, and item 11 with the real
+  file watcher); `guard.test.ts` runs on both platforms (no sandbox)
 - `hook-selftest.real.test.ts`
 - `network-listen.real.test.ts` (Linux describe)
 - `service.test.ts`

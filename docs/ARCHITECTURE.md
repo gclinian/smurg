@@ -871,6 +871,7 @@ As built (relay report; details in `apps/relay/README.md`):
 ├── run/<short>.<hex4>.lk            share-lock socket of a running daemon (per instance; named in the folder's marker)
 ├── pins/<hex(utf8(workspaceId))>.pub   CLI pins of verified daemon keys (§4.2)
 ├── logs/<workspaceId>.log           daemon log of `smurg host` (0600; never invite links or secrets)
+├── cwd/                             empty (0700): `smurg host` runs its daemon from here (§7.6, srt reads the cwd)
 ├── sessions/<wsKey>/<hex(sessionId)>/  daemon-owned launch files of an agent session: settings.json (hooks), mcp.json
 │                                    (wsKey: 24 hex of the workspace id; hex(sessionId): case-fold safe)
 ├── guests/<wsKey16>/<userKey16>/    per-guest dir (16 hex of sha256 of the workspace / user id): home/ (HOME),
@@ -883,6 +884,7 @@ As built (relay report; details in `apps/relay/README.md`):
     ├── activity.jsonl               rotated at 8 MiB into activity.1.jsonl
     ├── conflicts.json + conflicts/  conflict records and the agents' full versions (docs module)
     ├── suggestions.json
+    ├── sandbox-placeholders.json    Linux: host-only names the guest sandbox holds in a root while it runs (§7.6)
     ├── git-home/, git-template/, git-staging/   private dirs of the worktree module's git runs
     └── uploads/                     partial uploads: <id>.json manifest, <id>.log journal, <id>.part
 ```
@@ -966,8 +968,10 @@ keyed by its `channelId`), `settings.changed`,
 `session.created`, `session.updated`, `session.exited`, `suggestion.changed`, `worktree.changed`, `merge.changed`,
 `daemon.stopping`, `state.write` (`{ document, ok }`: a state document the disk refused, or wrote again; review REL-14),
 `relay.link` (`{ purpose, state, reason?, status? }`: every state change of a relay link, `auth-rejected` included;
-reviews CLI-10, REL-08). Payloads: `core/interfaces.ts` (`DaemonEvents`). `smurg host` prints `state.write` and
-`relay.link` on the host's terminal (§8).
+reviews CLI-10, REL-08), `sandbox.protected-changed` (`{ root, paths, more, revoked }`: Linux, a host-only or
+host-private entry changed while guest processes ran in that root, §7.6; reviews RV-1, RV-2). Payloads:
+`core/interfaces.ts` (`DaemonEvents`). `smurg host` prints `state.write`, `relay.link` and
+`sandbox.protected-changed` on the host's terminal (§8).
 
 Per-client state that must survive a resume (doc subscriptions, attached terminals) is keyed by the logical channel
 (`conn.channelId`), never by the socket (`conn.id`); service methods say `channelId` where they mean it. The core runs
@@ -1036,13 +1040,20 @@ Additional rules (daemon-core; security review F1):
   check works on that spelling. APFS keeps an entry's stored spelling when a file is renamed over it, so a
   request-spelled path (NFC `café` onto a stored NFD `cafe` + U+0301, `readme.md` onto `README.md`) failed the
   post-move check, which removed the file (fixed 2026-10-01). A case-only or normalisation-only move is renamed to the
-  requested spelling (`files/fs-ops.ts` moveResolved).
+  requested spelling (`files/fs-ops.ts` moveResolved). A name the caller makes up next to an existing one is built from
+  the REQUEST's spelling: the upload plan numbers `readme.md` next to `README.md` as `readme (1).md`, as a single
+  upload does, and counts a candidate as taken under either spelling (review RCR-3).
 - Linux (2026-10-01): ext4, btrfs, xfs and tmpfs compare names byte by byte while every request is NFC, so an entry
   stored in another normalisation (NFD) would be listed but never reachable. A segment that is not found is mapped onto
   the ONE entry of its directory whose NFC form equals it (an exact NFC twin wins; two or more other spellings count as
   not found), and it then goes through every check like any other entry. Directory listings and the zip walker leave out
   names no request can reach (an NFD twin next to its NFC name); the zip reports them as `duplicate-name`
-  (`workspace/fs-util.ts` otherSpellings / unaddressableNames).
+  (`workspace/fs-util.ts` otherSpellings / unaddressableNames). Looking for the other spelling lists the directory: a
+  zip download, a watcher batch, an upload plan and a `file.tree` (review RV-7: a folder of n Mac-made sub-directories
+  cost 2n listings of it at depth 2) each keep one listing per directory for the whole operation, up to 1024
+  directories at a time (an older one is listed again if needed; it never fails) (`ResolveOptions.spellings`, fs-util
+  SpellingIndex, review RCR-2; without it a folder of n Mac-made names cost n listings of n entries: a 20,000-file zip
+  took 374 s instead of 26 s on ext4). A single request that misses still lists its directory once.
 
 ### 7.5 Documents, locks and reconciliation (see `docs/research/yjs-monaco.md`)
 
@@ -1250,19 +1261,106 @@ except the user's provider variables; always drop `CLAUDE_CODE_SAFE_MODE` and `C
   tmpfs of its own on top. `--new-session` is decided by the outer shell at run time: dropped only for a session
   leader with a controlling terminal and a terminal on stdin (node-pty's fresh pty; with it a resize sent no SIGWINCH
   and Ctrl-C ended bwrap and the whole session), kept for everything else. srt drops write-deny globs on Linux, so
-  every EXISTING host-only entry below the top of the root becomes a literal deny (more than 1000: refused); an
-  absent host-only DIRECTORY name at the top is held by an empty read-only directory (a denied child that never
-  exists makes srt choose that form) instead of srt's empty 0444 file, which broke the host's own `mkdir .claude` and
-  git while a guest ran.
-- Linux mount points on the host: bubblewrap leaves a mount point in the root for every absent write-denied name
-  (empty directories for `.claude` / `.git` / `.vscode` / `.idea`, empty read-only files for `.mcp.json` / `.envrc`),
-  and srt removes them once its count of running wraps is back to zero (never earlier: removing one under a running
-  sandbox detaches its mount and lifts the deny). The sessions module calls `SandboxService.release(wrapped)` when a
-  guest process exits or never starts (the self-tests release their own); the service records the directory ones in
-  the workspace state before a sandbox can make them, and a daemon that starts after a crash removes the recorded ones
-  that are still empty before its first sandbox. `worktree/stage-commit.ts` keeps the file ones out of a merge.
+  every EXISTING host-only entry below the top of the root becomes a literal deny (more than 1000: refused; the walk
+  runs on every `wrap()`, skips only `node_modules` and lists 16 directories at a time, review RCR-7). srt also drops
+  a Linux write deny whose PATH holds a glob character (`*`, `?`, `[`, `]` anywhere in it), and no string names a path
+  that is not UTF-8: such an entry is left out and named in the daemon's log instead (warn `guests can write this
+  host-only entry`, once per daemon; review attack F1, 2026-10-01: a guest who made `ev*il/.git` in the share refused
+  every later guest session there, `sandbox_unavailable`, until the host found the directory). The path is
+  JSON-quoted with DEL, the C1 controls and the bidirectional controls escaped as well (`core/logger.ts`
+  `quoteForLog`, every logged value), so a name cannot act on the host's terminal. Control characters, a newline
+  included, are no obstacle on Linux (nothing there is a Seatbelt string):
+  srt and the hardening keep their bytes on bubblewrap's command line and in its arguments file, so such an entry is
+  bound read-only like any other (`SessionPolicyInput.nestedHostOnlyPaths`; every other policy path still refuses
+  them). macOS needs no list: Seatbelt's `<root>/**/<name>` patterns match whatever the directories on the way are
+  called (measured with the same names, `test/sandbox/odd-names.real.test.ts`).
+- Linux mount points on the host: bubblewrap can block an ABSENT write-denied name only by mounting something on it,
+  and the mount point stays in the host's project while the sandbox runs. srt mounts `/dev/null` on an absent leaf
+  (an empty 0444 FILE on the host) and removes its mount points once its count of running wraps is back to zero (never
+  earlier: removing one under a running sandbox detaches its mount and lifts the deny); it decides the form on each
+  wrap from whether the name exists at that moment. So the service makes every absent host-only DIRECTORY name at the
+  top of a root (`.claude` / `.git` / `.vscode` / `.idea`, and `.smurg` in a worktree) exist as an empty directory of
+  its own before it wraps, and bubblewrap binds it read-only: no mount point for these names, and one policy for the
+  canary, the hook probe and the session (`holdPlaceholderDirs`, review RCR-1: another guest's process ending during a
+  `wrap()` turned them into 0444 files in the host's project for a whole session, and a start in one root while a guest
+  ran in another aborted in bubblewrap). The service keeps them while any `wrap()` is in flight or any WrappedCommand
+  it handed out is unreleased, then removes those still empty and still the same directory (dev / ino), at once and
+  synchronously. It holds an `O_PATH` descriptor on each meanwhile (review RV-3: ext4 hands a freed inode number
+  straight back, so a directory the host made in its place, `rmdir` + `mkdir`, carried the same dev / ino 5 times of 5
+  and was removed; a held inode cannot be freed, so the host's directory now always has another number and is kept).
+  `.mcp.json` / `.envrc` keep srt's file form; the service makes that empty 0444 file itself when it hands a command
+  out, exactly as bubblewrap would make its mount point a moment later (srt chose its binds while the name was absent
+  or its own mount point, so srt tracks the path and removes the file with its others), so that the guard below sees
+  it before anyone could remove it. The sessions module calls `SandboxService.release(wrapped)`
+  when a guest process exits or never starts (the self-tests release their own). Both forms are recorded in the
+  workspace state (`sandbox-placeholders`) before either can exist and the record is emptied once nothing runs
+  (review RCR-5: a record kept after a clean stop made the next start remove the host's own empty `.vscode`); a daemon
+  that starts after a crash removes the recorded directories that are still empty and the recorded files that still
+  look exactly like srt's leftovers (empty, no write bit, one link) before its first sandbox. `worktree/stage-commit.ts`
+  keeps the file ones out of a merge.
+- Linux, the daemon's working directory (review linux-binary F1): srt resolves its own mandatory write denies against
+  `process.cwd()` on every wrap (`.bashrc`, `.gitconfig`, `.gitmodules`, `.profile`, `.ripgreprc`, `.zshrc`, …,
+  `.vscode`, `.idea`, `.claude/commands`, `.claude/agents`, and a depth-3 ripgrep scan below it). A daemon started with
+  its cwd in the share (`cd project && smurg host .`) got eight more empty 0444 files in the host's project while a
+  guest ran; a project with a `.claude/` of its own refused every guest session, any other project every second guest
+  process while one ran ("Can't create file at <share>/.claude/commands: Read-only file system", reported as a failed
+  self-test while the start said 「可用」).
+  `smurg host` therefore runs its daemon from `<stateDir>/cwd` (empty, 0700; `CliIo.chdir`), and the service refuses
+  a wrap, and fails the preflight, with reason `daemon-cwd` when the cwd is at or below a write root (the share, a
+  worktree, a guest dir). An ancestor of the share is harmless (srt skips denies outside the write roots). The denies
+  srt derived from a cwd inside the share (`<share>/.gitmodules`, …) applied only by that accident and no longer do;
+  guests may write those names in the share like any other file (macOS: srt's rules there are patterns, no mount
+  points; the check is Linux-only). A working directory that cannot be resolved (`<stateDir>/cwd` removed while the
+  daemon ran) is refused with `daemon-cwd` too, with its own text (「…工作目錄已經不存在…請主人重新執行 smurg host」,
+  review RV-4); `smurg host`'s sandbox report adds the fix (run `smurg host` again) to either.
+- **Linux, protected entries while a guest runs** (reviews RV-1, RV-2, 2026-10-01; `sandbox/guard.ts`). bubblewrap
+  protects a host-only or host-private name by a mount on the entry as it is when the guest process starts: a
+  read-only bind of `.claude/`, `.git`, `.vscode`, `.idea`, `.mcp.json`, `.envrc` and of every existing nested host-only
+  entry, `/dev/null` over the read-denied `.envrc`, `.claude/settings.local.json` and `CLAUDE.local.md` that existed
+  when srt expanded its globs, srt's mount point over an absent `.mcp.json` / `.envrc`. A mount sits on a directory
+  entry. When the HOST replaces such an entry while the guest runs (an editor's atomic save; Claude Code's "don't ask
+  again" writing `.claude/settings.local.json`), removes it (`git clean -fd` of an empty placeholder) or renames it
+  (`git switch` to a branch without `.claude/`), the kernel detaches the guest's mount; a read-denied file the host
+  creates after the start was never covered. Measured (diff-review E1–E7, on the reviewed tree and on b97cdee): the
+  guest read the new `.envrc` and `settings.local.json`, read a `sub/.envrc` and a `CLAUDE.local.md` made after its
+  start, planted `.claude/settings.json` once the placeholder was removed or the host's `.claude` renamed, and rewrote
+  `.mcp.json` after an atomic save. No mount can follow that, so the service watches for it:
+  - for every root with a guest process running or being wrapped, it records the state of each protected entry as the
+    latest `wrap()` saw it (with the placeholders in place, before srt expands its globs): the top-level names
+    (`.claude`, `.git`, `.smurg`, `.vscode`, `.idea`, `.mcp.json`, `.envrc`, `CLAUDE.local.md`,
+    `.claude/settings.local.json`) and the existing nested entries the walk found (with `settings.local.json` inside
+    each nested `.claude`, and nested `CLAUDE.local.md`), holding an `O_PATH` descriptor on each existing one so that a
+    replacement always has another inode number (above; a probe: inode reused 20 of 20 times without, 0 of 20 with);
+  - it compares again on every file-watcher batch of that root (`SandboxService.fileEvents`, called by
+    `files/watcher.ts` with the batch as reported: a protected name at any depth, and the subtree of every directory
+    that appeared, made or moved in, since inotify reports the directory only), every 2 s for the recorded entries
+    (`GUARD_POLL_MS`: the watcher ignores `.git`, and inotify can drop events), on every later `wrap()` in the root (its
+    fresh view against the record), and once more for the top-level names when the root's last process is released;
+  - a difference (an entry replaced or removed, a protected name that appeared) revokes every WrappedCommand handed out
+    for that root (`SandboxService.onRevoked`): the sessions module ends those sessions (`terminated`, audited as
+    `session.terminate` by the system with `reason: 'sandbox-protected-changed'` and the paths; the owner is told in the
+    activity feed) and kills a helper process (`claude auth status`, logout); a `wrap()` in flight there is refused
+    (`protected-changed`: 「…請再試一次」); the log and the host's terminal name the paths and say to stop guest
+    sessions before editing them (`sandbox.protected-changed`, §7.3). Not a change: the same entry edited in place (the
+    mount holds), srt's 0444 mount point appearing when a process starts or going while nothing runs, the service's own
+    placeholders. A NEW nested `.git` is not looked for (the watcher never reports `.git`, and a guest's `git clone`
+    makes one: §12).
+  It is a detection, not a prevention: until the change is noticed and the processes are ended the guest sees it
+  (measured with bubblewrap and the real watcher in the VM: revoked 10–110 ms after the host's change; `.git` through
+  the poll). A protected name a guest makes (a new `sub/.vscode/`, a `CLAUDE.local.md` its own Claude Code writes) ends
+  that root's guest processes the same way: the daemon cannot tell who made it, and the host should look at it. Tests:
+  `test/sandbox/guard.test.ts`, `placeholders.real.test.ts` (real bubblewrap and watcher: E1, E2, E3, E5, E6, E7, srt's
+  file removed, `.git` replaced, a wrap in flight, other guests coming and going), `service.test.ts`,
+  `test/sessions/launch.test.ts`, `test/files/watcher-native.test.ts`.
 - Inner `export TMPDIR=<guest>/tmp` and `CLAUDE_CODE_TMPDIR=<guest>/tmp` (srt forces its own TMPDIR; Claude Code
   2.1.283 otherwise writes to `/tmp/claude-<uid>`, the host user's own dir, and fails).
+- Linux, tasks (review attack F2, 2026-10-01): before that, the sandboxed shell runs `ulimit -u 4096`
+  (`LINUX_GUEST_TASK_LIMIT`, soft and hard: nothing inside can raise it). bubblewrap has made the guest's user
+  namespace by then, and since Linux 5.14 RLIMIT_NPROC is counted per user namespace, so the limit counts that
+  sandbox's processes and threads only, whatever the host user runs (measured on 6.8: with the host user at 141 tasks,
+  a sandbox limited to 32 started 27 processes; `test/sandbox/odd-names.real.test.ts`). On an older kernel (decided
+  from `os.release()`) it would count the host user's tasks too, and is left out with one warning in the log. It is
+  the only resource limit of a guest sandbox (§12 "Resource limits"); macOS sets none.
 - As built (sandbox module, verified with srt 0.0.77 on macOS): worktree mode carves out only `<share>/.git/objects`
   (the host's `.git/config` can hold tokens and stays hidden; an `extraReadPaths` entry equal to `<share>/.git` is
   replaced by that carve-out); host-only denyWrite covers every `.git` at any depth, the worktree's own included; the
@@ -1294,8 +1392,9 @@ except the user's provider variables; always drop `CLAUDE_CODE_SAFE_MODE` and `C
 - **Preflight before every guest session:** platform supported, sandboxing enabled, dependencies present
   (`sandbox-exec` executable on macOS; `bwrap` 0.8 or later (it must know `--disable-userns`, `--chmod`,
   `--remount-ro`), `socat`, `rg` and srt's network bridge socket on Linux), the wrapped command really contains the
-  sandbox launcher, and a functional self-test (a canary file in the denied home is unreadable and unwritable from
-  inside). Any failure ⇒ `sandbox_unavailable`, audit `sandbox.refused`, **no** fallback. A failed self-test on Linux
+  sandbox launcher, Linux: the daemon's working directory outside the share (`daemon-cwd`, above), and a functional
+  self-test (a canary file in the denied home is unreadable and unwritable from inside). Any failure ⇒
+  `sandbox_unavailable`, audit `sandbox.refused`, **no** fallback. A failed self-test on Linux
   is reported as `apparmor-userns` (with the fix) only when the restriction is on AND a bare `bwrap --unshare-user
   --unshare-net` fails with "Permission denied" / "Operation not permitted" (verified by unloading the profile);
   otherwise it keeps its own reason.
@@ -1460,7 +1559,7 @@ hook before an agent session starts (§7.6). A session that forges it only learn
 
 | Command | Behaviour |
 |---|---|
-| `smurg host <folder> [--relay URL] [--role R] [--expires D] [--max-uses N] [--name N] [--web-origin URL] [--no-keep-awake] [--no-browser] [--no-guest-subscription-login] [--no-bash-attribution]` | refuse a folder that is already shared, that overlaps a folder a running host of this state dir shares (inside or around it, whatever the relay; CLI-05) or that contains a home directory (CLI-04), all before any login; login if needed (a stored login with less than 24 h left counts as missing); start daemon in the foreground, print host link + invite link (on `--web-origin`, e.g. the Vite dev server), keep machine awake (a later loss is printed); then report whether the guest sandbox works here (the daemon's sandbox preflight, with Linux fix commands). The two `--no-…` switches set `config.sessions.guestSubscriptionLogin` and `config.activity.attributeBashEdits` to false (§11 D-12, D-13; both default true); the start summary explains each switch that is on (the guest's separate login process may listen on a local port while it runs, nothing else of a guest may; agents' Bash commands are reported to the daemon, not their content) and echoes each one that is off |
+| `smurg host <folder> [--relay URL] [--role R] [--expires D] [--max-uses N] [--name N] [--web-origin URL] [--no-keep-awake] [--no-browser] [--no-guest-subscription-login] [--no-bash-attribution]` | refuse a folder that is already shared, that overlaps a folder a running host of this state dir shares (inside or around it, whatever the relay; CLI-05) or that contains a home directory (CLI-04), all before any login; login if needed (a stored login with less than 24 h left counts as missing); change to `<stateDir>/cwd` (empty, 0700: srt resolves the guest sandbox's own denies against the cwd, §7.6); start daemon in the foreground, print host link + invite link (on `--web-origin`, e.g. the Vite dev server), keep machine awake (a later loss is printed); then report whether the guest sandbox works here (the daemon's sandbox preflight, with Linux fix commands). The two `--no-…` switches set `config.sessions.guestSubscriptionLogin` and `config.activity.attributeBashEdits` to false (§11 D-12, D-13; both default true); the start summary explains each switch that is on (the guest's separate login process may listen on a local port while it runs, nothing else of a guest may; agents' Bash commands are reported to the daemon, not their content) and echoes each one that is off |
 | `smurg attach [session] [--workspace W] [--invite -\|URL] [--relay URL] [--no-browser]` | local daemon running → attach through the control socket as host; otherwise join through the relay with the CLI device key. The invite (its `#` part is the secret) comes from a no-echo prompt (`--invite -`) or `SMURG_INVITE`; a link in argv still works, with a warning (it is visible in `ps` and lands in shell history) |
 | `smurg stop [--workspace W]` | ask the daemon (control socket) to stop: closes all channels, ends sessions, removes guest temp dirs; returns when the daemon is fully stopped |
 | `smurg status [--workspace W]` | every running daemon of this state dir: relay, connections, keep-awake (same zh-TW wording as `host`) |
@@ -1643,8 +1742,8 @@ the audit entry; two or more such windows, none, or a writer of another root: �
   verification"). The guest sandbox (bubblewrap under Ubuntu 24.04's AppArmor user-namespace restriction, with the
   `smurg-bwrap` profile) is verified there: R5 and R9 at the sandbox level, guest terminals, the login process with a
   stand-in `claude`, the hook self-test (§7.6, "Linux, in more detail" below). Not run on Linux: a real `claude`,
-  keep-awake through `systemd-inhibit` with a real login session, the installer on a fresh machine
-  (`docs/OPEN-QUESTIONS.md` Q2).
+  keep-awake through `systemd-inhibit` from a local desktop session (from an SSH session polkit refuses it on Ubuntu:
+  verified, and `smurg host` says so), the installer on a fresh machine (`docs/OPEN-QUESTIONS.md` Q2).
 - **Real accounts are not exercised by the tests.** Claude login inside a guest sandbox, real Google / GitHub OAuth
   and a real Cloudflare deployment need credentials. The owner's first deploy of the shared relay (`docs/RELEASING.md`
   §2) is the first real Google login and the first real Cloudflare run; GitHub login is not configured on the shared
@@ -1676,28 +1775,121 @@ Left after the review round of 2026-09-29 (owner questions with options and reco
   hook self-test, the login process, the network namespace, guest terminals: resize reaches the program as SIGWINCH
   and Ctrl-C interrupts the foreground program, not the session) run on Linux; the Seatbelt profile-text tests stay
   macOS-only. srt's `apply-seccomp` never runs (`allowAllUnixSockets` skips srt's seccomp filter), so it needs no
-  AppArmor profile. bubblewrap 0.8 or later is required for `--disable-userns` (older: refused with an upgrade hint;
-  Ubuntu 22.04 ships 0.6.1, so guest sessions are refused there; Debian 12 and Ubuntu 24.04 ship 0.8 / 0.9). What bubblewrap cannot
-  express, by design of a mount-based sandbox (macOS Seatbelt denies these by pattern):
+  AppArmor profile. The consequence (review attack F4): a guest has no seccomp filter at all (`Seccomp: 0`), i.e.
+  every system call the kernel and its sysctls leave to an unprivileged user (io_uring, `keyctl`, `userfaultfd`,
+  `perf_event_open`, `ptrace` of its own processes, …). The sandbox rests on namespaces, `--cap-drop ALL`,
+  `--disable-userns` (no nested user namespace, the usual way into the kernel's privileged code) and the mounts, so a
+  kernel privilege escalation through an unprivileged system call defeats it; keeping the host's kernel updated is
+  part of hosting guests. A guest also reads its own `/proc/self/mountinfo` (review attack F3; measured): the
+  host-side path of every mount of its sandbox and every mount point of the host system (`--ro-bind / /` is
+  recursive: `/run/user/<uid>`, removable media under `/media/<user>`, …). Most of it a guest knows anyway (its `HOME`
+  is `<stateDir>/guests/<workspace id>/<its own key>`, below the host home and the host's user name; its session's
+  settings path is on Claude Code's command line); mountinfo adds the install paths of srt and `smurg` (on the VM
+  `/home/<host user>/…/node_modules/.pnpm/@anthropic-ai+sandbox-runtime@0.0.77/…`), the names of srt's bridge sockets,
+  and the host's own mounts. Contents stay as the policy says. bubblewrap cannot hide it cheaply: procfs makes the
+  file per process (a mount over `/proc/self/mountinfo` would cover one process's file, and a guest cannot mount),
+  srt binds every path at its own name (the share must keep its path), and no `/proc` at all breaks ordinary tools.
+  macOS has no mount table of this kind. bubblewrap 0.8 or later is required for `--disable-userns` (older: refused
+  with an upgrade hint; Ubuntu 22.04 ships 0.6.1, so guest sessions are refused there; Debian 12 and Ubuntu 24.04 ship
+  0.8 / 0.9). What bubblewrap cannot express, by design of a mount-based sandbox (macOS Seatbelt denies these by
+  pattern):
   - a NEW host-only name below the top of the root (`sub/.claude/settings.json`, `sub/.mcp.json`, `sub/.git/config`)
-    can be created by a guest; existing ones at any depth and every name at the top are protected. Such a file can
+    can be created by a guest; existing ones at any depth and every name at the top are protected while the host does
+    not remove, rename or replace them (next item: the daemon then ends the guest's processes; a guest's new name
+    other than `.git` ends them too, and the host is told the path). Such a file can
     run code in the host's UNSANDBOXED tools opened in that subfolder (a Claude Code started there, git hooks or
     `core.fsmonitor` of a nested repository, a VS Code task). A worktree merge refuses such paths (`host-only-paths`)
-    and `file.*` refuses them to guests, so this is a residual of main-workspace guest sessions;
+    and `file.*` refuses them to guests, so this is a residual of main-workspace guest sessions. An EXISTING entry
+    whose path holds a glob character (`app/[slug]/.claude`, a guest's `ev*il/.git`) or is not UTF-8 is not protected
+    either (§7.6): the daemon names each such path in its log once. Below a directory whose name is not UTF-8 the
+    host-private files are readable too (`.envrc`, `CLAUDE.local.md`: measured; srt cannot name them either).
+    Guest-made entries count toward the walk's limit: a guest who makes more than 1000 host-only entries below the
+    top of the share refuses every later guest session in the main workspace until the host removes them (fail
+    closed on purpose: denying only some would let decoys unprotect the host's own nested repository; the log says
+    why);
   - a read-only shared link in a guest's worktree (R9.2) can be removed or re-pointed by the guest (bubblewrap mounts
     on what a link points at, never on the link); the target stays read-only and the daemon refuses a re-pointed link
     (`shared-link-tampered`);
   - a Unix socket in a directory the guest can read (the share, its guest dir) is connectable (`allowUnixSockets` is
     ignored on Linux; the host session's socket directories are hidden instead, abstract sockets are cut off by the
     network namespace);
-  - while a guest process runs, bubblewrap's mount points for absent host-only names are visible in the host's
-    project (empty directories `.claude` / `.git` / `.vscode` / `.idea`, empty read-only files `.mcp.json` /
-    `.envrc`); they are removed once no guest process runs, or at the next start after a crash (the directories). A
+  - while a guest process runs, a protected entry the HOST replaces, removes or creates in that root is not covered by
+    the guest's sandbox any more (§7.6 "Linux, protected entries while a guest runs"; reviews RV-1, RV-2): an atomic
+    save of `.envrc` or `.mcp.json`, the host's own Claude Code answering 「don't ask again」 (it writes
+    `.claude/settings.local.json`), `git switch` or `git clean -fd` taking `.claude/` or an empty placeholder, a
+    `CLAUDE.local.md` or a nested `.envrc` made after the guest started. The daemon notices the change and ends every
+    guest process of that root, and `smurg host` names the paths; until then (measured 10–110 ms; `.git`, which the
+    watcher ignores, within the 2 s check) the guest can read the new content (a secret in `.envrc`, an `env` block of
+    `settings.local.json`) or write the name (plant `.claude/settings.json` hooks or a `.mcp.json` server that the
+    host's unsandboxed tools run later). So: stop guest sessions before editing `.envrc`, `.mcp.json`, `.claude/` or
+    `CLAUDE.local.md` in the share, and look at a path `smurg host` names. Not covered at all: inside `node_modules`
+    (the watcher ignores it; srt's read-deny globs do reach it), the protected names inside a folder of more than 10,000
+    directories that appears at once (logged), an ancestor's `CLAUDE.md`, a new nested `.git`, and, without the file
+    watcher (its native module missing), everything but the recorded entries' 2 s check and the next `wrap()`. An
+    in-place edit of a read-denied file the walk does not record (inside a host-only directory: it does not enter them)
+    ends the guests' processes although their mount held (fail closed);
+  - while a guest process runs, the names that hold absent host-only names are visible in the host's project: empty
+    directories `.claude` / `.git` / `.vscode` / `.idea` (the service's own, bound read-only) and srt's empty
+    read-only files `.mcp.json` / `.envrc` (the host's `git status` lists the two files as untracked). They are removed
+    once no guest process runs, or, after a crash, at the next start before its first sandbox (review F6; an empty
+    directory the host makes at one of those names between the crash and that start is taken for a leftover). A
     leftover empty `.git` is not taken for a repository: `workspace/share.ts` needs a `.git` directory with a `HEAD`
-    file or a `gitdir:` file, and writes `info/exclude` only into a real one.
+    file or a `HEAD` symlink into `refs/` (git's own rule; review RCR-4), or a `gitdir:` file, and writes
+    `info/exclude` only into a real one.
   The first three need the owner's confirmation (a mount-based sandbox cannot do better; the alternatives are
-  worktree-only guest agents on Linux, or a host-side check of new host-only names after each guest session).
-  The installer's Linux branch on a fresh machine is unverified.
+  worktree-only guest agents on Linux, or a host-side check of new host-only names after each guest session: the guard
+  of §7.6 now ends the session and names such a path while it runs, `.git` excepted), and so does the fourth's window
+  (`docs/OPEN-QUESTIONS.md` Q2).
+  The installer's Linux branch on a fresh machine is unverified; its AppArmor step decides by a bare bubblewrap run
+  (the daemon's own probe), so a profile file that is there but not loaded is offered again (review F4). Run as root
+  (`sudo sh install.sh`) the probe runs as the user sudo came from, else as `nobody` (`runuser`): root's own bubblewrap
+  passes whether or not the profile is loaded, since the restriction applies to unprivileged users only (review RV-5,
+  measured in the VM with a copy of bwrap the profile does not cover).
+  Costs and leftovers of the Linux sandbox that are not fixed in this release (reviews RCR-7, RCR-2, F6):
+  - every guest process start (and each `claude auth status` / logout helper of a guest) walks the session root
+    outside `node_modules` for existing host-only names (~0.2 s per 50,000 directories, not blocking), and srt then
+    expands smurg's three read-deny globs (`<root>/**/.claude/settings.local.json`, `**/CLAUDE.local.md`, `**/.envrc`)
+    with a SYNCHRONOUS walk of the whole root, `node_modules` included, on each of its 2–3 wraps per start: measured
+    0.2 s of blocked event loop per wrap on a pnpm project, ~1 s per 50,000 directories. Meanwhile other guests' hook
+    round trips (5 s deadline), terminals and the network proxy wait: a departure from §0 rule 5 inside srt. Handing
+    srt literal paths from smurg's own walk instead would have to reproduce srt's handling of symlinked and
+    unlistable directories (not done);
+  - a single request that misses its NFC name (a create, an upload's commit) still lists its directory once, so an
+    upload of n new non-ASCII names into a folder of m entries costs n listings of m entries;
+  - while guest processes run in a root, the guard (§7.6) costs one `lstat` per path of every watcher batch there and
+    a listing of each directory that appeared (at most 10,000 directories per scan), an `lstat` of every recorded entry
+    every 2 s, and one open descriptor per existing protected entry (at most about 2,000 per root: the walk's limit of
+    1000 entries, a `settings.local.json` inside each nested `.claude`, the nested `CLAUDE.local.md`);
+  - a daemon killed hard (SIGKILL, OOM) leaves srt's network bridge (`socat UNIX-LISTEN:/tmp/claude-http-*.sock`, ~3 MB,
+    idle, reachable by the host user only, never by guests) and its sockets in `/tmp` until reboot; srt starts it
+    without a parent-death signal and exposes no pid.
+- **Resource limits** (review attack F2, 2026-10-01; owner question `docs/OPEN-QUESTIONS.md` Q13). A guest sandbox
+  limits no memory, disk space, CPU time or file size, on either platform, and puts the guest in no cgroup of its own.
+  A guest can therefore slow the host's machine down or exhaust its memory or the disk that holds the share and the
+  state dir (the daemon's state writes then fail: "State written late" below). No fork bomb was run (shared machines):
+  the limits were read with `ulimit` inside real guest sandboxes, and the task limit was checked with a few dozen
+  `sleep`s.
+  - Linux: the one limit is 4096 tasks (processes and threads) per sandbox, counted inside its own user namespace
+    (§7.6). Without it a guest's fork bomb could take every process slot of the host user (RLIMIT_NPROC counts the
+    real user, the daemon included: 31414 on the 8 GB test VM), after which the daemon can start no process, its `ps`
+    for ending a session included. A guest with its 8 sessions (`SessionLimits.maxSessionsPerUser`) can still hold
+    8 × 4096, more than that VM's 31414. Guest processes stay in the daemon's own cgroup (measured in the VM, a daemon
+    started over SSH: `0::/user.slice/user-501.slice/session-2.scope`), so when memory runs out the kernel's OOM
+    killer chooses among all of them, the daemon included. A kernel older than 5.14 counts tasks per user, so there
+    the limit is left out (logged).
+  - macOS: Seatbelt has no resource control. Inside a guest sandbox the host user's own limits apply (measured:
+    `ulimit -u` 2666, which is `kern.maxprocperuid` and counts every process of the host user; memory, file size and
+    CPU time unlimited), so a fork bomb in a guest session can take the host user's last process slot (the daemon
+    and the host's own apps then start nothing) until the session ends. macOS counts processes per user with no namespace:
+    a limit per sandbox does not exist there.
+  - Not built (Q13): an address-space or file-size limit in the session prelude (Node / V8, the JVM and sanitizer
+    builds reserve far more address space than they use, so a limit they survive does not stop an out-of-memory
+    machine, and `RLIMIT_FSIZE` caps one file, not the disk); a cgroup per guest on Linux (`systemd-run --user
+    --scope -p MemoryMax=… -p TasksMax=…` around bubblewrap: needs the host user's systemd instance with the memory
+    controller delegated, as Ubuntu 24.04's `user@.service` does; not tried); on macOS a per-user `ulimit -u` below
+    the host's limit that keeps a reserve of process slots for the daemon (how much a guest gets then depends on what
+    else the host runs); a daemon-side watchdog that ends the guest session that is growing when memory or disk runs
+    short.
 - **Subscription login of guests** (D-12) and **Bash edits** (D-13): implemented 2026-09-29 as recommended by the
   project lead, both switchable, the owner's confirmation of the defaults is pending (§11). A real account's login was
   never completed in a test (URL shown, code never pasted); on Linux the login process has its own network namespace
@@ -1738,7 +1930,12 @@ Left after the review round of 2026-09-29 (owner questions with options and reco
 - **Hook reachability** (review SEC-D-05): a guest agent is refused when `smurg hook` cannot be exposed in its sandbox,
   and (since 2026-09-29) when the real hook, run inside that session's own sandbox with a probe event, does not bring
   back the daemon's answer (§7.6). A host's (unsandboxed) agent runs no such self-test.
-- **Keep-awake** is reported active as soon as the inhibitor starts; a later loss is printed within 2 s (CLI-13).
+- **Keep-awake** is reported active once the inhibitor has run for 250 ms; one that ends at once is reported with its
+  reason (`the inhibitor was refused` when its stderr says it was refused: `systemd-inhibit` from an SSH session, where
+  polkit's `org.freedesktop.login1.inhibit-block-sleep` is `allow_any=no` on Ubuntu, verified there only; any other
+  polkit refusal, a site rule for a local session included, gets the same text, which says polkit and gives SSH on
+  Ubuntu as the example, review RV-6; its first stderr line goes to the log). A later loss is printed within 2 s
+  (CLI-13).
 - **Native file watcher** (macOS, @parcel/watcher 2.6.0; 2026-09-29, §7.5): the daemon no longer makes overlapping or
   failing native calls, but three races are inside the native module and cannot be closed from JS: FSEvents stops the
   stream of a root that is deleted or moved away on its own thread while an unsubscribe of that root may be running

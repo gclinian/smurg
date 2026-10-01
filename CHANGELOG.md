@@ -4,7 +4,7 @@
 [語意化版本](https://semver.org/lang/zh-TW/)）。推送 `v*` 標籤時，發佈流程（`.github/workflows/release.yml`）會把
 該版本的段落放進 GitHub Release 的說明（`scripts/release-assets.sh --notes`）；沒有對應段落的版本不會發佈。
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-01
 
 第一個公開版本：原型（[`SPEC.md`](SPEC.md) 的 [Prototype] 範圍）。一個人（主人）在自己的電腦上執行 `smurg host`，
 把一個專案資料夾分享出來；組員用瀏覽器或 `smurg` 指令透過 relay 連進來，一起即時編輯檔案，一起看和指揮
@@ -39,9 +39,16 @@ Claude Code。檔案和 agent session 都留在主人的電腦上；relay 只轉
   x64），但還沒有人真的在 Linux 上當過主人：沒有在 Linux 沙盒裡跑過真正的 Claude Code，安裝程式的 Linux 部分也還沒在
   全新的電腦上跑過。客人沙盒需要 bubblewrap 0.8 以上（Ubuntu 24.04、Debian 12 以上內建的版本即可；Ubuntu 22.04 的
   0.6 太舊，客人 session 會被拒絕）。Linux 的沙盒有幾點做不到 macOS 的程度，最主要的是：組員在**主工作區**開的
-  session 可以在子資料夾裡新增 `.claude`、`.mcp.json`、`.git` 這類只有主人能改的設定（最上層和已經存在的都擋得住），
-  主人在那個子資料夾裡打開自己的工具時要先檢查（[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §12）。組員用什麼
-  作業系統都可以（瀏覽器）。
+  session 可以在子資料夾裡新增 `.claude`、`.mcp.json`、`.git` 這類只有主人能改的設定（最上層和已經存在的擋得住，
+  前提是主人沒有在組員的程序執行中刪除、改名或取代它們），主人在那個子資料夾裡打開自己的工具時要先檢查
+  （[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §12）。組員的程序執行期間，主人在分享的資料夾裡儲存、新增、刪除或
+  改名（例如 `git switch`）`.envrc`、`.mcp.json`、`.claude/`（包括主人自己的 Claude Code 選「不再詢問」時寫入的
+  `.claude/settings.local.json`）、`CLAUDE.local.md` 這類檔案，沙盒無法跟上：smurg 會在發現後（約 0.1 秒內）結束那個資料夾裡所有組員的程序，並在
+  `smurg host` 的終端機列出檔名，但在那之前組員的程序可能讀到新的內容或改寫它。所以要編輯這些檔案之前，請先請組員
+  結束 session。組員的程序執行期間，專案最上層原本沒有的 `.claude`、`.git`、`.vscode`、`.idea` 會暫時出現為空的
+  資料夾，`.mcp.json`、`.envrc` 為空的唯讀檔案（`git status` 會列出這兩個檔案），程序都結束後就會移除。透過 SSH
+  啟動 `smurg host` 時，Ubuntu 預設不允許防止睡眠。
+  組員用什麼作業系統都可以（瀏覽器）。
 - **macOS 執行檔沒有 Apple 簽章**：只有 ad-hoc 簽章，沒有 Developer ID 簽章與公證。用上面的 `curl` 安裝不會被
   Gatekeeper 擋下（安裝程式在驗證 sha256 之後，會移除下載檔案可能帶有的 quarantine 屬性）；用瀏覽器下載的執行檔
   會被擋下。
@@ -49,6 +56,10 @@ Claude Code。檔案和 agent session 都留在主人的電腦上；relay 只轉
   Cloudflare 上量過，[`docs/RELEASING.md`](docs/RELEASING.md) §8），大約 4–7 個整天都有人連線的工作區就會用完，大家一起
   看一個大量輸出的終端機用得更快；用完時到台灣時間早上 8 點（UTC 0 點）之前，所有人都無法連線。重度使用請部署自己的
   relay。
+- **客人沙盒沒有記憶體、磁碟空間與 CPU 的上限**（macOS 與 Linux）：組員的程序可以讓主人的電腦變慢、用光記憶體或
+  磁碟空間；程序數在 Linux 上每個沙盒最多 4096 個，macOS 上則和主人自己共用同一個上限，所以 fork bomb 會讓主人的
+  電腦開不了新程序，直到那個 session 結束（[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §12、
+  [`docs/OPEN-QUESTIONS.md`](docs/OPEN-QUESTIONS.md) Q13）。
 - 組員用 Claude 訂閱帳號登入的流程還沒有用真正的帳號從頭到尾測試過（API key 登入沒有這個問題）。
 - 「上線」階段的功能還沒有做，例如主人代為執行組員的指令、操作紀錄篩選。其他已知限制見
   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §12。

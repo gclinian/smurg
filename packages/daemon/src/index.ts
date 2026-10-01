@@ -50,7 +50,7 @@ export type * from './core/interfaces.ts';
 export { FEATURE_SERVICE_LABELS, FEATURE_SERVICE_NAMES, LOCAL_DEVICE_ID } from './core/interfaces.ts';
 export { AuthorizationError, PATH_DENIED_REASONS, PathDeniedError, isAuthorizationError, isPathDeniedError, notImplemented, type PathDeniedReason } from './core/errors.ts';
 export { DisposableStack, ManualClock, ShiftableClock, monotonicNow, newId, systemClock, toDisposable, type Clock, type Disposable } from './core/lifecycle.ts';
-export { createLineLogger, createMemoryLogger, silentLogger, type LogFields, type Logger, type LogLevel } from './core/logger.ts';
+export { createLineLogger, createMemoryLogger, quoteForLog, silentLogger, type LogFields, type Logger, type LogLevel } from './core/logger.ts';
 export { SYSTEM_ACTOR, SYSTEM_PRINCIPAL, agentDisplayName, agentPrincipalFor, isHostPrincipal, principalCan, userActor, userPrincipal } from './core/permissions.ts';
 export { auditDetailForMessage, sanitizeAuditDetail } from './core/audit.ts';
 export { createStubService, isStubService } from './core/stubs.ts';

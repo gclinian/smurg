@@ -30,7 +30,7 @@ import { isPathDeniedError } from '../core/errors.ts';
 import type { FileIdentity, FileService, Principal, ResolveOptions, ResolvedPath } from '../core/interfaces.ts';
 import { isHostPrincipal, SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
-import { errnoCode, identityOf, lstatOrNull, realpathOrNull, unaddressableNames } from '../workspace/fs-util.ts';
+import { SpellingIndex, errnoCode, identityOf, lstatOrNull, realpathOrNull, unaddressableNames } from '../workspace/fs-util.ts';
 import { ChangeAttribution } from './attribution.ts';
 import { entryFromIdentity } from './entries.ts';
 import {
@@ -133,13 +133,17 @@ export class FileServiceImpl implements FileService {
     if (base.identity?.kind !== 'dir') throw badRequest('not-a-directory', '這不是資料夾');
     const entries: FileEntry[] = [];
     let truncated = false;
+    // Linux: one listing per directory for the NFC → on-disk mapping of every sub-directory resolved below, and of its
+    // check after the listing (review RV-7: a folder of n Mac-made (NFD) sub-directories cost 2n listings of that
+    // folder, as RCR-2 measured for zips).
+    const spellings = new SpellingIndex();
     const queue: { readonly ref: FileRef; readonly level: number; readonly resolved: ResolvedPath | null }[] = [{ ref: base.ref, level: 1, resolved: base }];
     while (queue.length > 0 && !truncated) {
       const next = queue.shift() as (typeof queue)[number];
       // A sub-directory is resolved again right before it is read (it may have been swapped since it was listed).
       let dir: ResolvedPath;
       try {
-        dir = next.resolved ?? (await this.ctx.paths.resolve(next.ref, { principal, mustExist: true, finalSymlink: 'deny' }));
+        dir = next.resolved ?? (await this.ctx.paths.resolve(next.ref, { principal, mustExist: true, finalSymlink: 'deny', spellings }));
       } catch (err) {
         if (isPathDeniedError(err) || (err instanceof SmurgError && err.code === 'not_found') || errnoCode(err) === 'ENAMETOOLONG') continue;
         throw err;
@@ -147,7 +151,7 @@ export class FileServiceImpl implements FileService {
       if (dir.identity?.kind !== 'dir') continue;
       let listed: FileEntry[];
       try {
-        listed = await this.listDirectory(dir, principal);
+        listed = await this.listDirectory(dir, principal, spellings);
       } catch (err) {
         // A sub-directory the OS cannot list (REL-13: deeper than PATH_MAX): skipped; the listing itself still works.
         if (next.resolved === null && UNLISTABLE.has(errnoCode(err) ?? '')) continue;
@@ -430,8 +434,12 @@ export class FileServiceImpl implements FileService {
    * One directory: readdir → lstat every child (never following it) → re-validate the directory (same object, still
    * inside the root) so a directory swapped for a symlink while it was being read is refused, not listed.
    */
-  private async listDirectory(dir: ResolvedPath, principal: Principal): Promise<FileEntry[]> {
-    const options: ResolveOptions = { principal, mustExist: true, allowRoot: true };
+  /**
+   * `spellings`: the operation's index (file.tree), also for the check that the directory is still the one listed: a
+   * stale entry there only makes that check fail (the object is compared), never pass.
+   */
+  private async listDirectory(dir: ResolvedPath, principal: Principal, spellings?: SpellingIndex): Promise<FileEntry[]> {
+    const options: ResolveOptions = { principal, mustExist: true, allowRoot: true, ...(spellings === undefined ? {} : { spellings }) };
     let names: string[];
     try {
       names = await readdir(dir.realPath);

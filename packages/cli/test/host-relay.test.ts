@@ -4,7 +4,7 @@
 // with the printed invite using the CLI device key and pin files, is read-only on the host's session, sees what a
 // second viewer sees (R4.1), and later reconnects with the pinned key only. `smurg stop` and Ctrl-C end the host.
 import { generateKeyPairSync } from 'node:crypto';
-import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_FEATURE_MODULES, systemClock, toDisposable, type Daemon, type FeatureModule, type PowerService, type PowerStatus, type SandboxPreflight } from '@smurg/daemon';
@@ -162,6 +162,17 @@ describe('smurg host', () => {
     }
   });
 
+  it('runs its daemon from an empty private directory of its own, not from where it was typed (srt resolves the guest sandbox denies against the working directory: review linux-binary F1)', async () => {
+    const h = await startHost();
+    const daemonCwd = join(h.dirs.stateDir, 'cwd');
+    expect(h.io.chdirs).toEqual([daemonCwd]);
+    expect((await lstat(daemonCwd)).isDirectory()).toBe(true);
+    expect((await lstat(daemonCwd)).mode & 0o777).toBe(0o700);
+    expect(await readdir(daemonCwd)).toEqual([]);
+    // The folder was resolved against the directory the command was typed in (the test io's cwd), before the change.
+    expect(h.daemon.config.shareDir).toBe(await realpath(h.dirs.project));
+  });
+
   it('Ctrl-C stops gracefully (exit 0); a second Ctrl-C right away is ignored, a later one while stopping leaves at once (130; CLI-06)', async () => {
     const h = await startHost();
     h.io.signal('SIGINT');
@@ -209,6 +220,20 @@ describe('smurg host', () => {
     await waitFor(() => h.io.out().includes('relay 的登入將在'), { what: 'the expiry reminder' });
     // Secrets never reach the terminal.
     for (const token of [renewed, 'other.account-token', 'short.lived-token']) expect(h.io.out()).not.toContain(token);
+  });
+
+  it('a host-only entry that changed while guests ran is told on the terminal: which names, that the guests\' processes were ended, what to do; odd names are shown escaped (reviews RV-1, RV-2)', async () => {
+    const h = await startHost();
+    h.daemon.ctx.bus.emit('sandbox.protected-changed', { root: { kind: 'main' }, paths: ['.envrc', '.claude/settings.local.json'], more: 3, revoked: 2 });
+    const out = h.io.out();
+    expect(out).toContain('分享的資料夾裡只有主人能使用的檔案有變動：.envrc、.claude/settings.local.json 等另外 3 個');
+    expect(out).toContain('已結束分享的資料夾裡的客人程序');
+    expect(out).toContain('請先請客人結束 session');
+    h.daemon.ctx.bus.emit('sandbox.protected-changed', { root: { kind: 'worktree', worktreeId: 'wt_x' }, paths: ['ev\u001b[31mil/.git'], more: 0, revoked: 0 });
+    const second = h.io.out().slice(out.length);
+    expect(second).toContain('worktree wt_x裡只有主人能使用的檔案有變動："ev\\u001b[31mil/.git"');
+    expect(second).not.toContain('\u001b');
+    expect(second).not.toContain('已結束');
   });
 
   it('a state file the disk refuses is told on the terminal, and so is its recovery (REL-14)', async () => {
@@ -298,6 +323,8 @@ describe('smurg host', () => {
     expect(fix).toContain('bubblewrap 需要 0.8 以上的版本');
     expect(sandboxFix('apparmor-userns', 'linux').join('\n')).toContain('sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap');
     expect(sandboxFix('dependency-missing', 'darwin')).toEqual([]);
+    // Review RV-4: the daemon's working directory (smurg host makes it in the state dir) went away while it ran.
+    expect(sandboxFix('daemon-cwd', 'linux').join('\n')).toContain('重新執行 smurg host');
   });
 
   it('keep-awake lost after the start (the inhibitor exited) is told on the host terminal (CLI-13)', async () => {
@@ -308,6 +335,13 @@ describe('smurg host', () => {
     status = { active: false, mechanism: 'none', pid: null, reason: 'the inhibitor exited' };
     await waitFor(() => h.io.out().includes('防止睡眠已失效'), { timeoutMs: 10_000, what: 'the keep-awake warning' });
     expect(h.io.out()).toContain('⚠ 防止睡眠已失效：未啟用（防睡眠程式已經結束）');
+  });
+
+  it('keep-awake the system refuses (Linux over SSH: polkit) is told in the summary with the reason and what to do (linux-binary F5)', async () => {
+    const status: PowerStatus = { active: false, mechanism: 'none', pid: null, reason: 'the inhibitor was refused' };
+    const power: PowerService = { start: async () => status, stop: async () => {}, status: () => status };
+    const h = await startHost([], [], power);
+    expect(h.io.out()).toContain('防止睡眠：未啟用（系統（polkit）不允許防止睡眠（例如透過 SSH 登入時，Ubuntu 預設如此）；請在這台電腦的桌面登入後執行 smurg host，或請系統管理員允許）');
   });
 
   it('explains the guests\' subscription login and the shell-command notices by default, and passes both switches on to the daemon (§11 D-12, D-13)', async () => {

@@ -1,6 +1,11 @@
 // The rewrites of srt's generated text (src/sandbox/harden.ts) are pinned: against srt 0.0.77's REAL output on macOS
 // (the text they are verified on), and on synthetic variants that must all fail closed.
+import { execFile } from 'node:child_process';
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
+import { createTempDir, removeTempDir } from '../../src/testing/index.ts';
 import {
   DARWIN_SECURITYD_LINES,
   DARWIN_TTY_PRELUDE,
@@ -26,6 +31,7 @@ import { SRT_OWN_WRITE_PATHS, buildBaseConfig, buildSessionPolicy } from '../../
 import { SrtRuntime, loadSrt } from '../../src/sandbox/runtime.ts';
 import { syntheticDarwinCommand, syntheticDarwinProfile, syntheticLinuxCommand } from './synthetic-srt.ts';
 
+const execFileAsync = promisify(execFile);
 const ROOTS = ['/w/proj', '/w/state/guests/ws/alice'];
 const opts = { shell: '/bin/bash', writeRoots: ROOTS, srtOwnWritePaths: SRT_OWN_WRITE_PATHS };
 
@@ -273,6 +279,35 @@ describe('hardenLinuxCommand (srt 0.0.77 shape; its REAL output is hardened and 
     expect(() => hardenLinuxCommand(viaFile, '/usr/bin/bwrap', { argsFileWords: [...file, '--new-session'] })).toThrow(HardeningError);
     expect(() => hardenLinuxCommand(viaFile, '/usr/bin/bwrap', { argsFileWords: [...file, '--bind', '/x'] })).toThrow(/missing its arguments/);
     expect(() => hardenLinuxCommand(viaFile.replace('--args 9', '--args 3'), '/usr/bin/bwrap', { argsFileWords: file })).toThrow(/--args/);
+  });
+
+  it('mount paths with a newline or another control character (a guest-made directory, review attack F1) keep their exact bytes on the command line, through bash, and in the arguments file', async () => {
+    const nl = '/home/u/p/nl\nline/.git';
+    const ctl = '/home/u/p/c\u0001t\u007f \'q\'/.claude';
+    const hidden = '/home/u/x\ny/.mcp.json'; // below a tmpfs: its directories are hidden by name
+    const mounts = ['--ro-bind', '/', '/', '--bind', '/home/u/p', '/home/u/p', '--tmpfs', '/home', '--bind', '/home/u/p', '/home/u/p', '--ro-bind', nl, nl, '--ro-bind', ctl, ctl, '--ro-bind', hidden, hidden];
+    // A stand-in "bwrap" that prints every argument it gets, NUL-terminated: what bash hands to the real one.
+    const dir = await createTempDir('harden-bytes');
+    try {
+      const printer = join(dir, 'bwrap');
+      await writeFile(printer, '#!/bin/sh\nfor a in "$@"; do printf \'%s\\000\' "$a"; done\n', { mode: 0o755 });
+      const out = hardenLinuxCommand(syntheticLinuxCommand('echo hi', printer, mounts), printer);
+      expect(out).toContain(` --chmod 0111 ${shellQuote('/home/u/x\ny')} `);
+      const { stdout } = await execFileAsync('/bin/bash', ['-c', out], { encoding: 'buffer' });
+      const words = stdout.toString('utf8').split('\u0000').slice(0, -1);
+      const at = words.indexOf('--ro-bind', words.indexOf('--tmpfs'));
+      expect(words.slice(at, at + 9)).toEqual(['--ro-bind', nl, nl, '--ro-bind', ctl, ctl, '--ro-bind', hidden, hidden]);
+      expect(words.slice(words.indexOf('--disable-userns'), words.indexOf('--'))).toEqual(['--disable-userns', '--chmod', '0111', '/home', '--chmod', '0111', '/home/u', '--chmod', '0111', '/home/u/x\ny', '--remount-ro', '/home']);
+      expect(words.slice(-3)).toEqual(['/bin/bash', '-c', 'echo hi']);
+    } finally {
+      await removeTempDir(dir);
+    }
+    // srt's arguments file (NUL-separated words): parsed byte for byte, a newline is no separator there
+    const viaFile = `/bin/sh -c 'exec 9<"$1" && shift && exec "$@"' srt-args /proc/4242/fd/31 /usr/bin/bwrap --new-session --die-with-parent --unshare-net --args 9 --dev /dev --unshare-pid --unshare-user --cap-drop ALL --proc /proc -- /bin/bash -c 'echo hi'`;
+    const fileOut = hardenLinuxCommand(viaFile, '/usr/bin/bwrap', { argsFileWords: mounts });
+    expect(beforeSeparator(fileOut).endsWith(` --disable-userns --chmod 0111 /home --chmod 0111 /home/u --chmod 0111 ${shellQuote('/home/u/x\ny')} --remount-ro /home`)).toBe(true);
+    // a NUL cannot be in a file name, and a word holding one is refused rather than split
+    expect(() => linuxHiddenDirs([{ kind: 'bind', dest: '/' }, { kind: 'tmpfs', dest: '/home' }, { kind: 'bind', dest: '/home/a\u0000b' }])).toThrow(HardeningError);
   });
 
   it('a writable bind the policy does not name (srt\'s own /tmp/claude, when it exists) gets a tmpfs of its own, hidden and read-only', () => {

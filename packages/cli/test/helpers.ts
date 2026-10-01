@@ -97,6 +97,8 @@ export interface TestIo extends CliIo {
   readonly terminal: FakeTerminal;
   readonly exits: number[];
   readonly opened: string[];
+  /** Directories the command asked to make its working directory (recorded; the test process's own stays). */
+  readonly chdirs: string[];
   signal(signal: CliSignal): void;
   runExitHandlers(): void;
 }
@@ -115,6 +117,7 @@ export function testIo(options: {
   const exitHandlers = new Set<() => void>();
   const exits: number[] = [];
   const opened: string[] = [];
+  const chdirs: string[] = [];
   const io: TestIo = {
     env: options.env,
     cwd: options.cwd ?? (options.env['HOME'] as string),
@@ -137,11 +140,15 @@ export function testIo(options: {
     exit: (code) => {
       exits.push(code);
     },
+    chdir: (dir) => {
+      chdirs.push(dir);
+    },
     now: options.now ?? (() => Date.now()),
     out: () => out,
     err: () => err,
     exits,
     opened,
+    chdirs,
     signal: (signal) => {
       signals.emit(signal);
     },

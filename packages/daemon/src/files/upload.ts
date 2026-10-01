@@ -16,6 +16,7 @@ import { lstat, mkdir, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   SmurgError,
+  baseNameOfRelPath,
   can,
   foldPathName,
   insufficientDiskError,
@@ -33,7 +34,7 @@ import { PathDeniedError } from '../core/errors.ts';
 import type { ClientConnection, FileIdentity, Principal, ResolvedPath, RootInfo, UploadService, UserId } from '../core/interfaces.ts';
 import { newId } from '../core/lifecycle.ts';
 import { syncDirectory } from '../core/state-store.ts';
-import { errnoCode, identityOf, isInside, lstatOrNull, realpathOrNull } from '../workspace/fs-util.ts';
+import { SpellingIndex, errnoCode, identityOf, isInside, lstatOrNull, realpathOrNull } from '../workspace/fs-util.ts';
 import { diskReport, insufficientDiskMessage, nodeStatfs, probeVolume, type StatfsFunction } from './disk.ts';
 import type { FileServiceImpl } from './file-service.ts';
 import { existsError, makeDirectory, numberedName, placeNoClobber } from './fs-ops.ts';
@@ -188,8 +189,10 @@ export class UploadServiceImpl implements UploadService {
     // 2. Every path through PathGuard for writing (host-only, read-only, symlinks, containment) before anything happens.
     const entries = [...seen.values()];
     for (const entry of entries) await this.files.refuseDaemonOwned({ root: input.root, path: entry.path }, principal);
+    // Linux: one listing per directory for the NFC → on-disk mapping of the whole plan (review RCR-2).
+    const spellings = new SpellingIndex();
     const resolved = await mapLimit(entries, PLAN_RESOLVE_CONCURRENCY, (entry) =>
-      this.ctx.paths.resolve({ root: input.root, path: entry.path }, { principal, forWrite: true, finalSymlink: 'deny' }),
+      this.ctx.paths.resolve({ root: input.root, path: entry.path }, { principal, forWrite: true, finalSymlink: 'deny', spellings }),
     );
 
     // 3. Against what exists.
@@ -215,7 +218,7 @@ export class UploadServiceImpl implements UploadService {
       } else if (input.onConflict === 'overwrite') {
         await this.files.refuseIfLocked(target, false);
       } else {
-        const to = await this.freeName(target, taken, keyOf);
+        const to = await this.freeName(target, taken, keyOf, spellings);
         renamed.push({ from: entry.path, to });
         finalPaths.set(entry.path, to);
       }
@@ -633,14 +636,22 @@ export class UploadServiceImpl implements UploadService {
     return result;
   }
 
-  /** `name (1).ext` … that is neither on disk nor taken by another entry of the batch. */
-  private async freeName(target: ResolvedPath, taken: Set<string>, keyOf: (path: string) => string): Promise<string> {
+  /**
+   * `name (1).ext` … that is neither on disk nor taken by another entry of the batch. Numbered from the REQUEST's
+   * spelling, as place() numbers it (review RCR-3): `target.name` is the file system's spelling of the entry in the
+   * way (`README.md` for a request `readme.md` on APFS, an NFD `café.txt` on Linux), which made the plan promise
+   * `README (1).md` and, on Linux, an NFD name that missed the batch's own NFC `café (1).txt`. A candidate counts as on
+   * disk under either spelling: PathGuard maps an NFC name onto its one NFD twin (Linux, `spellings`).
+   */
+  private async freeName(target: ResolvedPath, taken: Set<string>, keyOf: (path: string) => string, spellings: SpellingIndex): Promise<string> {
     const parent = parentRelPath(target.ref.path) ?? '';
+    const base = baseNameOfRelPath(target.ref.path);
     for (let n = 1; n <= RENAME_ATTEMPTS; n++) {
-      const name = numberedName(target.name, n);
+      const name = numberedName(base, n);
       const path = parent === '' ? name : `${parent}/${name}`;
       if (taken.has(keyOf(path))) continue;
       if ((await lstatOrNull(join(target.parentRealPath, name))) !== null) continue;
+      if ((await spellings.otherSpellings(target.parentRealPath, name)).length > 0) continue;
       taken.add(keyOf(path));
       return path;
     }

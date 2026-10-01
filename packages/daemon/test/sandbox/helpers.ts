@@ -178,6 +178,7 @@ export async function createSandboxFixture(options: SandboxFixtureOptions = {}):
       },
       setAllowedDomains: (domains) => service.setAllowedDomains(domains),
       release: (wrapped) => service.release?.(wrapped),
+      onRevoked: (wrapped, listener) => service.onRevoked?.(wrapped, listener) ?? (() => {}),
     };
     const fixture: SandboxFixture = {
       daemon,

@@ -11,6 +11,10 @@
 // (isHiddenTempName) in JS. Changes inside a directory that worktrees share read-only (D12) are also reported for
 // those worktrees under the link's path, so a tree showing the worktree updates too.
 //
+// Every batch also goes, as reported and before any filtering, to the guest sandbox (SandboxService.fileEvents;
+// reviews RV-1, RV-2): on Linux a protected entry the host changes while a guest process runs in that root ends the
+// guest's processes (sandbox/guard.ts).
+//
 // Native calls (2026-09-29: a test worker died with SIGTRAP, "memory corruption of free block" inside
 // FSEventStreamCreate; yjs-monaco.md "Watcher crash"). @parcel/watcher 2.6.0 keeps process-global state that its
 // libuv pool threads and its FSEvents thread change without the locks the JS thread takes, so:
@@ -46,6 +50,8 @@ import { isPathDeniedError } from '../core/errors.ts';
 import type { FileChange, RootInfo } from '../core/interfaces.ts';
 import type { Disposable } from '../core/lifecycle.ts';
 import { SYSTEM_PRINCIPAL } from '../core/permissions.ts';
+import { isStubService } from '../core/stubs.ts';
+import { SpellingIndex } from '../workspace/fs-util.ts';
 import type { FileServiceImpl } from './file-service.ts';
 import { joinRel, mapLimit, toPosix } from './util.ts';
 
@@ -468,6 +474,7 @@ export class FileWatcher {
       if (watch.closed || watch.pending.size === 0) return;
       const batch = [...watch.pending.entries()];
       watch.pending = new Map();
+      this.tellSandbox(watch.root, batch);
       try {
         const changes = await this.recheck(watch.root, batch);
         if (!watch.closed && !this.stopped) this.publish(watch.root.ref, changes);
@@ -478,8 +485,30 @@ export class FileWatcher {
     return watch.flushing;
   }
 
+  /**
+   * Linux (reviews RV-1, RV-2): the guest sandbox compares the protected entries a batch names (and what a directory
+   * that appeared holds) with what its running guest processes were started with, and ends them when one changed. Every
+   * path of the batch, before any filtering here (`.git` and node_modules never arrive: the native ignore).
+   */
+  private tellSandbox(root: RootInfo, batch: readonly (readonly [string, ParcelEventType])[]): void {
+    const sandbox = this.ctx.services.sandbox;
+    if (isStubService(sandbox) || typeof sandbox.fileEvents !== 'function') return;
+    try {
+      sandbox.fileEvents(
+        root.realPath,
+        batch.map(([path, type]) => ({ path, type })),
+      );
+    } catch (err) {
+      this.ctx.log.error('file watcher: the sandbox could not check a batch', { root: root.key, error: err instanceof Error ? err.message.slice(0, 200) : 'unknown' });
+    }
+  }
+
   /** Looks at every path of a batch again and turns it into at most one FileChange each. */
   private async recheck(root: RootInfo, batch: readonly (readonly [string, ParcelEventType])[]): Promise<FileChange[]> {
+    // Linux: one listing per directory for the NFC → on-disk mapping of the whole batch (review RCR-2: a batch of n
+    // Mac-made (NFD) or deleted non-ASCII names listed their directory n times). Every path of the batch existed or
+    // was gone before the batch started, so a listing taken during it is no staler than the events themselves.
+    const spellings = new SpellingIndex();
     const results = await mapLimit(batch, RECHECK_CONCURRENCY, async ([abs, type]): Promise<FileChange | null> => {
       const rel = toPosix(relative(root.realPath, abs));
       if (rel === '' || rel.startsWith('..')) return null;
@@ -494,7 +523,7 @@ export class FileWatcher {
       const ref: FileRef = { root: root.ref, path };
       let kind: 'file' | 'dir' | 'symlink' | 'other' | null;
       try {
-        const resolved = await this.ctx.paths.resolve(ref, { principal: SYSTEM_PRINCIPAL, audit: false, finalSymlink: 'self' });
+        const resolved = await this.ctx.paths.resolve(ref, { principal: SYSTEM_PRINCIPAL, audit: false, finalSymlink: 'self', spellings });
         kind = resolved.exists ? (resolved.identity?.kind ?? null) : null;
       } catch (err) {
         // Not reachable inside the root any more (a parent swapped for a link, a vanished parent): gone for clients.

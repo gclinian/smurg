@@ -2,7 +2,7 @@
 // `.git/info/exclude` (never the user's .gitignore). It also refuses share locations that would expose the daemon's
 // own secrets or the whole home directory to guests: ~/.smurg must stay outside the shared folder (§2 rule 3).
 import { constants as fsConstants } from 'node:fs';
-import { lstat, mkdir, open, readFile, realpath } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, readlink, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { isInside, lstatOrNull } from './fs-util.ts';
@@ -62,7 +62,7 @@ export async function prepareShare(
 }
 
 /**
- * What `<share>/.git` is: a git directory (it has a HEAD file), a gitfile (`gitdir: …`, a linked worktree or a
+ * What `<share>/.git` is: a git directory (it has a HEAD file, or a HEAD symlink into refs/), a gitfile (`gitdir: …`, a linked worktree or a
  * submodule) or neither. Merely existing is not enough: on Linux a daemon that crashed during a guest session can leave
  * bubblewrap's EMPTY mount point for the protected name `.git` (a directory, or a read-only empty file) in a folder
  * that is no repository (ARCHITECTURE §7.6 "Linux mount points"). Taking that for a repository would offer worktree
@@ -72,8 +72,15 @@ async function gitKind(gitPath: string): Promise<'dir' | 'file' | 'none'> {
   const st = await lstatOrNull(gitPath);
   if (st === null || st === 'not-directory') return 'none';
   if (st.isDirectory()) {
-    const head = await lstatOrNull(join(gitPath, 'HEAD'));
-    return head !== null && head !== 'not-directory' && head.isFile() ? 'dir' : 'none';
+    // git's own rule (validate_headref): HEAD is a regular file, or a symlink into refs/ (core.preferSymlinkRefs, older
+    // repositories; it dangles while the branch is unborn or after `git gc` packed the ref). Review RCR-4.
+    const headPath = join(gitPath, 'HEAD');
+    const head = await lstatOrNull(headPath);
+    if (head === null || head === 'not-directory') return 'none';
+    if (head.isFile()) return 'dir';
+    if (!head.isSymbolicLink()) return 'none';
+    const target = await readlink(headPath).catch(() => null);
+    return target !== null && target.startsWith('refs/') ? 'dir' : 'none';
   }
   if (!st.isFile() || st.size === 0) return 'none';
   const handle = await open(gitPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW).catch(() => null);

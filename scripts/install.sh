@@ -231,33 +231,85 @@ linux_sandbox_setup() {
 
   apparmor_state='不需要（這台電腦沒有限制 user namespace）'
   restricted="$(cat "$sysroot/proc/sys/kernel/apparmor_restrict_unprivileged_userns" 2>/dev/null || echo 0)"
-  if [ "$restricted" = 1 ] && [ -e "$sysroot/etc/apparmor.d/smurg-bwrap" ]; then
-    apparmor_state='已經有 /etc/apparmor.d/smurg-bwrap'
-  elif [ "$restricted" = 1 ]; then
-    apparmor_state='還沒處理（見上方的指令）'
-    profile='abi <abi/4.0>,
+  [ "$restricted" = 1 ] || return 0
+  # Decided by what bubblewrap can do, not by whether the profile FILE exists: a file that is there but not loaded
+  # (apparmor_parser failed, the profile was removed with -R, the file was edited) left bubblewrap blocked while this
+  # said 「已經有」 (review linux-binary F4). The probe is the daemon's own (sandbox/checks.ts bwrapUsernsBlocked).
+  userns=unknown
+  if bwrap_userns_probe; then
+    userns=works
+  elif [ -x "$sysroot/usr/bin/bwrap" ]; then
+    case "$probe_err" in
+      *'Permission denied'* | *'Operation not permitted'*) userns=blocked ;;
+      *) userns=other ;;
+    esac
+  fi
+  if [ "$userns" = works ]; then
+    apparmor_state='已生效（bubblewrap 可以建立客人沙盒）'
+    return 0
+  fi
+  if [ "$userns" = other ]; then
+    # Not the restriction's way of failing: nothing to fix here; smurg host checks the whole sandbox.
+    apparmor_state="無法確認（bubblewrap：$(printf '%s\n' "$probe_err" | sed -n '1p' | cut -c1-160)；smurg host 會再檢查）"
+    return 0
+  fi
+  if [ "$userns" = unknown ] && [ -e "$sysroot/etc/apparmor.d/smurg-bwrap" ]; then
+    apparmor_state='已經有 /etc/apparmor.d/smurg-bwrap（還沒有 bubblewrap 可以確認是否生效；smurg host 會檢查）'
+    return 0
+  fi
+  apparmor_state='還沒處理（見上方的指令）'
+  profile='abi <abi/4.0>,
 include <tunables/global>
 profile smurg-bwrap /usr/bin/bwrap flags=(unconfined) {
   userns,
 }'
-    say 'smurg 安裝：這台電腦的 AppArmor 限制了 user namespace（Ubuntu 24.04 以上的預設），客人沙盒（bubblewrap）會無法啟動。'
-    if have_tool apparmor_parser && can_be_root && ask '要安裝只放寬 /usr/bin/bwrap 的 AppArmor 設定檔（/etc/apparmor.d/smurg-bwrap）嗎？'; then
-      if printf '%s\n' "$profile" | as_root tee /etc/apparmor.d/smurg-bwrap >/dev/null && as_root apparmor_parser -r /etc/apparmor.d/smurg-bwrap </dev/null; then
+  say 'smurg 安裝：這台電腦的 AppArmor 限制了 user namespace（Ubuntu 24.04 以上的預設），客人沙盒（bubblewrap）會無法啟動。'
+  if [ -e "$sysroot/etc/apparmor.d/smurg-bwrap" ]; then
+    say '  /etc/apparmor.d/smurg-bwrap 已經存在，但沒有生效（沒有載入，或內容不對）：會重新寫入並載入。'
+  fi
+  if have_tool apparmor_parser && can_be_root && ask '要安裝只放寬 /usr/bin/bwrap 的 AppArmor 設定檔（/etc/apparmor.d/smurg-bwrap）嗎？'; then
+    if printf '%s\n' "$profile" | as_root tee /etc/apparmor.d/smurg-bwrap >/dev/null && as_root apparmor_parser -r /etc/apparmor.d/smurg-bwrap </dev/null; then
+      if [ "$userns" = blocked ] && ! bwrap_userns_probe; then
+        apparmor_state='已安裝 /etc/apparmor.d/smurg-bwrap，但 bubblewrap 仍然無法建立 user namespace（smurg host 會再檢查）'
+        say 'smurg 安裝：AppArmor 設定檔已安裝，但 bubblewrap 仍然無法啟動。'
+      else
         apparmor_state='已安裝 /etc/apparmor.d/smurg-bwrap（只放寬 /usr/bin/bwrap）'
         say 'smurg 安裝：AppArmor 設定檔已安裝。'
-      else
-        say 'smurg 安裝：AppArmor 設定檔安裝失敗，請參考下面的指令自行處理。'
       fi
+    else
+      say 'smurg 安裝：AppArmor 設定檔安裝失敗，請參考下面的指令自行處理。'
     fi
-    case "$apparmor_state" in
-      已安裝*) ;;
-      *)
-        say '  請自行建立 /etc/apparmor.d/smurg-bwrap，內容如下，再執行 sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap：'
-        printf '%s\n' "$profile" | sed 's/^/    /'
-        say '  或（放寬整台電腦的限制，不建議）：sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0'
-        ;;
-    esac
   fi
+  case "$apparmor_state" in
+    已安裝*) ;;
+    *)
+      say '  請自行建立 /etc/apparmor.d/smurg-bwrap，內容如下，再執行 sudo apparmor_parser -r /etc/apparmor.d/smurg-bwrap：'
+      printf '%s\n' "$profile" | sed 's/^/    /'
+      say '  或（放寬整台電腦的限制，不建議）：sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0'
+      ;;
+  esac
+}
+
+# Can /usr/bin/bwrap create the user and network namespaces a guest sandbox needs? Its error text is left in
+# $probe_err. False (with an empty $probe_err) when there is no /usr/bin/bwrap: the AppArmor profile names that path.
+# The restriction applies to unprivileged users only: run as root (`sudo sh install.sh`, a root login) bubblewrap
+# passes whether or not the profile is loaded, while `smurg host` runs as the user and stays blocked (review RV-5).
+# So as root the probe runs as the user sudo came from (else nobody), through runuser; without runuser it cannot be
+# decided here (the daemon checks again).
+bwrap_userns_probe() {
+  probe_err=''
+  [ -x "$sysroot/usr/bin/bwrap" ] || return 1
+  if [ "$(id -u)" != 0 ]; then
+    probe_err="$("$sysroot/usr/bin/bwrap" --unshare-user --unshare-net --ro-bind / / -- /bin/true 2>&1 >/dev/null </dev/null)"
+    return
+  fi
+  probe_user="${SUDO_USER:-nobody}"
+  [ -n "$probe_user" ] && [ "$probe_user" != root ] || probe_user=nobody
+  if ! command -v runuser >/dev/null 2>&1; then
+    probe_err="cannot run the check as $probe_user (no runuser)"
+    return 1
+  fi
+  probe_err="$(cd / && runuser -u "$probe_user" -- "$sysroot/usr/bin/bwrap" --unshare-user --unshare-net --ro-bind / / -- /bin/true 2>&1 >/dev/null </dev/null)"
 }
 
 # ---- what happened, and how to run it

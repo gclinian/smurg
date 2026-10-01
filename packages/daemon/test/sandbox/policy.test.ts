@@ -327,6 +327,24 @@ describe('buildSessionPolicy refuses what it cannot express safely', () => {
     expect(() => buildSessionPolicy(mainInput(overrides))).toThrow(PolicyError);
   });
 
+  it('Linux: nested host-only entries are denied literally, control characters included (no Seatbelt string); a glob character, a NUL, a lone surrogate, a path outside the root, macOS and the login process are refused (review attack F1)', () => {
+    const P = '/home/host/p';
+    const linux = (nested: readonly string[], overrides: Partial<SessionPolicyInput> = {}): SessionPolicyInput =>
+      mainInput({ platform: 'linux', hostHome: '/home/host', stateDir: '/home/host/.smurg', shareDir: P, worktreesDir: `${P}/.smurg/worktrees`, rootPath: P, guestDir: '/home/host/.smurg/guests/w/a', settingsDir: '/home/host/.smurg/sessions/s', readOnlyPaths: [], extraReadPaths: [], hookSocketPath: '/home/host/.smurg/run/a.hook', nestedHostOnlyPaths: nested, ...overrides });
+    const odd = [`${P}/nl\nline/.git`, `${P}/ctl\u0001x/.claude`, `${P}/del\u007fx/.mcp.json`, `${P}/sane/.vscode`];
+    const policy = buildSessionPolicy(linux(odd));
+    expect(policy.perSession.filesystem.denyWrite).toEqual(expect.arrayContaining(odd));
+    for (const path of odd) expect(canWrite(policy, `${path}/config`), path).toBe(false);
+    expect(canWrite(policy, `${P}/nl\nline/README.md`)).toBe(true);
+    // the same entries as ordinary deny paths are still refused: those reach srt from the spec, not from a walk
+    expect(() => buildSessionPolicy(linux([], { extraDenyWrite: [`${P}/nl\nline/.git`] }))).toThrow(PolicyError);
+    for (const bad of [`${P}/ev*il/.git`, `${P}/brack[et]/.mcp.json`, `${P}/q?/.git`, `${P}/n\u0000ul/.git`, `${P}/\uD800x/.git`, `${P}/a/../b/.git`, 'rel/.git', P, '/home/host/elsewhere/.git']) {
+      expect(() => buildSessionPolicy(linux([bad])), JSON.stringify(bad)).toThrow(PolicyError);
+    }
+    expect(() => buildSessionPolicy(mainInput({ nestedHostOnlyPaths: [`${SHARE}/sub/.git`] }))).toThrow(/Linux agent or terminal session only/);
+    expect(() => buildSessionPolicy(linux([`${P}/sub/.git`], { mode: 'login' }))).toThrow(/Linux agent or terminal session only/);
+  });
+
   it('refuses, in worktree mode, a carve-out into the share that is not structural', () => {
     expect(() => buildSessionPolicy(worktreeInput({ extraReadPaths: [`${SRV}/src`] }))).toThrow(PolicyError);
     expect(() => buildSessionPolicy(worktreeInput({ rootPath: `${SRV}/elsewhere` }))).toThrow(PolicyError);

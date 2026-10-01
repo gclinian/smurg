@@ -18,6 +18,8 @@ export const SANDBOX_REFUSAL_REASONS = [
   'root-unknown', // the session root is neither the share nor a registered worktree
   'hook-unreachable', // `smurg hook` could not run inside this sandbox: the agent's file locks would not exist
   'hook-self-test-failed', // the real `smurg hook`, run inside this session's sandbox with a probe event, did not answer right
+  'daemon-cwd', // Linux: the daemon's working directory is inside the share or a guest dir (srt resolves denies against it)
+  'protected-changed', // Linux: a host-only / host-private entry of the root changed while the sandbox was being prepared
   'wrap-failed', // anything else while wrapping (fail closed)
 ] as const;
 
@@ -43,6 +45,11 @@ const MESSAGES: Readonly<Record<SandboxRefusalReason, string>> = {
   'hook-self-test-failed':
     '在沙盒裡試跑 smurg 的檔案鎖程式失敗（程式無法啟動、連不到 smurg daemon，或回答不正確），agent 的檔案鎖會失效，因此拒絕開啟客人的 agent session。' +
     '請主人確認 smurg 安裝在共享資料夾和 ~/.smurg 以外的地方、smurg host 仍在執行，然後再開一次 session；若仍失敗，請主人查看 daemon 的紀錄。',
+  'daemon-cwd':
+    '主人的 smurg 是在分享的資料夾裡面啟動的（工作目錄在分享的資料夾裡），Linux 的沙盒在這種情況下會在主人的專案裡留下檔案，並拒絕同時執行的客人程序，因此拒絕開啟客人 session。' +
+    '請主人在分享的資料夾以外的地方啟動 smurg host。',
+  'protected-changed':
+    '準備沙盒時，分享的資料夾裡只有主人能使用的檔案（例如 .envrc、.claude/、.mcp.json）剛好有變動，沙盒無法確定設定仍然正確，因此這次沒有開啟客人 session。請再試一次。',
   'wrap-failed': '沙盒無法啟動，因此拒絕開啟客人 session。請主人查看 daemon 的紀錄。',
 };
 
@@ -62,6 +69,13 @@ export class SandboxRefusal extends Error {
 export function isSandboxRefusal(value: unknown): value is SandboxRefusal {
   return value instanceof SandboxRefusal;
 }
+
+/**
+ * `daemon-cwd` when the daemon's working directory cannot be resolved (review RV-4: it was deleted while the daemon
+ * ran; `smurg host` itself never starts inside the share any more, it runs from `<stateDir>/cwd`).
+ */
+export const DAEMON_CWD_UNRESOLVABLE_MESSAGE =
+  '主人的 smurg daemon 的工作目錄已經不存在（可能被刪除了），Linux 的沙盒無法確認它不在分享的資料夾裡，因此拒絕開啟客人 session。請主人重新執行 smurg host。';
 
 /** The generic zh-TW message of a reason. */
 export function refusalMessage(reason: SandboxRefusalReason): string {

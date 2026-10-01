@@ -47,6 +47,11 @@ export interface CliIo {
   readSecret(prompt: string): Promise<string | null>;
   /** Leaves immediately with `code` (a second Ctrl-C while stopping). */
   exit(code: number): void;
+  /**
+   * Changes the process's working directory (`smurg host` runs its daemon from a directory of its own; `cwd` above
+   * keeps the directory the command was typed in). Absent: nothing changes (tests that run a command in-process).
+   */
+  chdir?(dir: string): void;
   /** fetch / WebSocket for the relay; default: the runtime's own. */
   readonly fetch?: typeof globalThis.fetch;
   readonly WebSocket?: typeof globalThis.WebSocket;
@@ -204,6 +209,7 @@ export function processIo(): CliIo {
     openUrl: (url) => openInBrowser(url, processSituation()),
     readSecret: readSecretFromStdin,
     exit: (code) => process.exit(code),
+    chdir: (dir) => process.chdir(dir),
     now: () => Date.now(),
   };
 }

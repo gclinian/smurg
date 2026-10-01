@@ -1,12 +1,17 @@
 // Share preparation and configuration: the daemon only creates `.smurg/` inside the shared folder (and excludes it
 // from git), and refuses locations that would expose its own state or the whole home directory. Also the Claude Code
 // version policy of config.sessions (minimum, verified versions, verdict).
-import { readFile, readdir, stat, mkdir, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { lstat, readFile, readdir, readlink, stat, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CLAUDE_MIN_VERSION, CLAUDE_VERIFIED_VERSIONS, claudeVersionVerdict, compareClaudeVersions, parseClaudeVersion, resolveConfig } from '../src/core/config.ts';
 import { ShareError, prepareShare } from '../src/workspace/share.ts';
 import { createTempDir, createTempProject, removeTempDir } from '../src/testing/temp.ts';
+import { isolatedGitEnv } from '../src/testing/index.ts';
+
+const execFileAsync = promisify(execFile);
 
 let base: string;
 
@@ -55,6 +60,47 @@ describe('prepareShare', () => {
     const project = await createTempProject(base, 'linked', { files: { '.git': 'gitdir: /elsewhere/.git/worktrees/linked\n' } });
     expect(await prepareShare(project, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: true });
     expect(await readFile(join(project, '.git'), 'utf8')).toBe('gitdir: /elsewhere/.git/worktrees/linked\n');
+  });
+
+  // review RCR-4: git accepts a HEAD that is a symlink into refs/ (core.preferSymlinkRefs, older repositories), also a
+  // dangling one (an unborn branch, a ref that `git gc` packed). Such a share is a repository: worktree mode is
+  // offered and `.smurg/` is excluded (otherwise the host's `git add -A` would stage it).
+  it('takes a repository whose HEAD is a symlink into refs/ for one, also a dangling one, and excludes .smurg once; a HEAD link elsewhere is not one', async () => {
+    const gitHome = join(base, 'git-home');
+    await mkdir(gitHome, { recursive: true });
+    const git = async (cwd: string, ...args: string[]): Promise<string> => (await execFileAsync('git', ['-c', 'core.preferSymlinkRefs=true', ...args], { cwd, env: isolatedGitEnv(gitHome) })).stdout;
+    const state = join(base, 'state');
+    const home = { homeDir: join(base, 'home') };
+
+    const repo = await createTempProject(base, 'symhead', { files: { 'a.txt': 'a' } });
+    await git(repo, 'init', '-q', '-b', 'main');
+    await git(repo, 'add', '-A');
+    await git(repo, 'commit', '-q', '-m', 'first');
+    expect((await lstat(join(repo, '.git', 'HEAD'))).isSymbolicLink()).toBe(true);
+    expect(await readlink(join(repo, '.git', 'HEAD'))).toBe('refs/heads/main');
+    expect((await git(repo, 'rev-parse', '--is-inside-work-tree')).trim()).toBe('true');
+    expect(await prepareShare(repo, state, home)).toMatchObject({ isGitRepo: true });
+    await prepareShare(repo, state, home);
+    const exclude = await readFile(join(repo, '.git', 'info', 'exclude'), 'utf8');
+    expect(exclude.split('\n').filter((line) => line === '/.smurg/')).toHaveLength(1);
+    await writeFile(join(repo, '.smurg', 'daemon-lock.json'), '{}\n');
+    expect(await git(repo, 'status', '--porcelain')).toBe('');
+    // `git gc` packs the branch ref: HEAD dangles, and it is still git's repository and ours.
+    await git(repo, 'gc', '-q');
+    expect(await stat(join(repo, '.git', 'HEAD')).catch(() => null)).toBeNull();
+    expect(await prepareShare(repo, state, home)).toMatchObject({ isGitRepo: true });
+
+    const unborn = await createTempProject(base, 'unborn', { files: { 'a.txt': 'a' } });
+    await git(unborn, 'init', '-q', '-b', 'main');
+    expect((await git(unborn, 'rev-parse', '--is-inside-work-tree')).trim()).toBe('true');
+    expect(await prepareShare(unborn, state, home)).toMatchObject({ isGitRepo: true });
+
+    // A HEAD symlink to anything outside refs/ (git: "not a git repository"), and a .git with no HEAD: not repositories.
+    const elsewhere = await createTempProject(base, 'elsewhere', { files: { 'a.txt': 'a', 'target.txt': 'ref: refs/heads/main\n' } });
+    await mkdir(join(elsewhere, '.git'));
+    await symlink(join(elsewhere, 'target.txt'), join(elsewhere, '.git', 'HEAD'));
+    expect(await prepareShare(elsewhere, state, home)).toMatchObject({ isGitRepo: false });
+    expect(await readdir(join(elsewhere, '.git'))).toEqual(['HEAD']);
   });
 
   it('refuses the file system root, the home directory, and any overlap with the state directory', async () => {

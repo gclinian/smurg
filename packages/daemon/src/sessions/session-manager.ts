@@ -14,7 +14,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { access, lstat, mkdir, readdir, realpath, stat } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import { z } from 'zod';
 import {
   EXEC_OUTPUT_MAX_BYTES,
@@ -40,6 +40,7 @@ import type {
   MemberRecord,
   PersistentDocument,
   Principal,
+  SandboxRevocation,
   SandboxSpec,
   SessionAttachStart,
   SessionManager,
@@ -161,6 +162,10 @@ interface Managed {
   known: Map<number, KnownProcess>;
   /** Digest list of the processes last written to live.json (unchanged scans write nothing). */
   persistedProcs: string;
+  /** Guests: what the sandbox handed out for the PTY (SandboxService.onRevoked watches it). */
+  wrapped: WrappedCommand | null;
+  /** Removes the sandbox revocation listener (watchSandbox). */
+  unwatchSandbox: (() => void) | null;
 }
 
 const LIVE_DOCUMENT = 'sessions';
@@ -833,6 +838,7 @@ export class SessionManagerImpl implements SessionManager {
           hookRegistered,
         });
         m.launch = launch;
+        m.wrapped = wrappedCommand;
         return m;
       };
       const m = sandboxed ? await this.userLock.run(userId, spawnSession) : await spawnSession();
@@ -848,6 +854,12 @@ export class SessionManagerImpl implements SessionManager {
       if (aborted()) {
         await this.finish(m, 'kicked', true);
         throw new AuthorizationError(undefined, { reason: 'owner-removed' });
+      }
+      // Linux (reviews RV-1, RV-2): from now on the session ends when the sandbox no longer holds. One that was revoked
+      // before it could be watched never counts as started.
+      if (this.watchSandbox(m)) {
+        await this.finish(m, 'terminated', true);
+        throw refuseSandbox('protected-changed');
       }
       m.presence = kind === 'agent' && this.setPresence(m, member);
       ctx.audit.record({
@@ -909,6 +921,8 @@ export class SessionManagerImpl implements SessionManager {
       hints: input.kind === 'agent' ? new LoginHintDetector() : null,
       known: new Map(),
       persistedProcs: '',
+      wrapped: null,
+      unwatchSandbox: null,
     };
   }
 
@@ -1118,9 +1132,12 @@ export class SessionManagerImpl implements SessionManager {
         env,
       });
       const wrapped = await this.ctx.services.sandbox.wrap(spec);
+      const abort = new AbortController();
+      const unwatch = this.watchHelper(wrapped, abort);
       try {
-        await this.runner(wrapped.file, wrapped.args, { env: wrapped.env, cwd: wrapped.cwd, timeoutMs: this.limits.logoutTimeoutMs, maxStdoutBytes: 4096 });
+        await this.runner(wrapped.file, wrapped.args, { env: wrapped.env, cwd: wrapped.cwd, timeoutMs: this.limits.logoutTimeoutMs, maxStdoutBytes: 4096, signal: abort.signal });
       } finally {
+        unwatch();
         this.releaseWrapped(wrapped);
       }
     } finally {
@@ -1274,9 +1291,12 @@ export class SessionManagerImpl implements SessionManager {
         // agent's own launch).
         const env = Object.fromEntries(Object.entries(launch.spec.env).filter(([name]) => name !== 'SMURG_SESSION_TOKEN' && name !== 'SMURG_HOOK_SOCKET'));
         const wrapped = await this.ctx.services.sandbox.wrap({ ...launch.spec, env, command });
+        const abort = new AbortController();
+        const unwatch = this.watchHelper(wrapped, abort);
         try {
-          result = await this.runner(wrapped.file, wrapped.args, { env: wrapped.env, cwd: wrapped.cwd, timeoutMs: this.limits.authStatusTimeoutMs, maxStdoutBytes: 64 * 1024 });
+          result = await this.runner(wrapped.file, wrapped.args, { env: wrapped.env, cwd: wrapped.cwd, timeoutMs: this.limits.authStatusTimeoutMs, maxStdoutBytes: 64 * 1024, signal: abort.signal });
         } finally {
+          unwatch();
           this.releaseWrapped(wrapped);
         }
       }
@@ -1398,6 +1418,60 @@ export class SessionManagerImpl implements SessionManager {
     }
   }
 
+  /**
+   * Linux (reviews RV-1, RV-2; ARCHITECTURE §7.6 "Linux, protected entries while a guest runs"): ends a guest session
+   * when its sandbox no longer holds (the host replaced, removed or created a host-only or host-private entry of its
+   * root while it ran: bubblewrap's mounts cannot follow that). True when that had happened before the session could
+   * be watched (the caller ends it and refuses the start).
+   */
+  private watchSandbox(m: Managed): boolean {
+    const sandbox = this.ctx.services.sandbox;
+    if (m.wrapped === null || isStubService(sandbox) || typeof sandbox.onRevoked !== 'function') return false;
+    let registering = true;
+    let already = false;
+    const stop = sandbox.onRevoked(m.wrapped, (revocation) => {
+      if (registering) already = true;
+      else void this.endRevoked(m, revocation);
+    });
+    registering = false;
+    m.unwatchSandbox = stop;
+    return already;
+  }
+
+  private async endRevoked(m: Managed, revocation: SandboxRevocation): Promise<void> {
+    if (m.ending !== null || m.status === 'exited') return;
+    const ending = this.finish(m, 'terminated', true);
+    const paths = revocation.paths.map((path) => relative(revocation.root, path) || '.');
+    this.ctx.audit.record({
+      actor: SYSTEM_ACTOR,
+      action: 'session.terminate',
+      outcome: 'ok',
+      target: m.id,
+      detail: { sessionId: m.id, ownerUserId: m.ownerUserId, kind: m.kind, reason: 'sandbox-protected-changed', paths: paths.slice(0, 10) },
+    });
+    const activity = this.ctx.services.activity;
+    if (!isStubService(activity)) {
+      // Names come from the share (any directory on the way may be oddly named): plain text, bounded.
+      // eslint-disable-next-line no-control-regex
+      const plain = (path: string): string => path.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, '?').slice(0, 120);
+      const named = paths.slice(0, 3).map(plain).join('、') + (paths.length > 3 ? ` 等 ${paths.length} 個` : '');
+      this.safely('activity.notify', () =>
+        activity.notify(m.ownerUserId, {
+          from: SYSTEM_ACTOR,
+          text: `主人在這個資料夾裡變更了只有主人能使用的檔案（${named}），執行中的沙盒無法跟上這種變更，為了安全，你的「${m.title}」已被結束。可以重新開啟一個新的 session。`,
+        }),
+      );
+    }
+    await ending;
+  }
+
+  /** A helper process (auth status, logout) of a guest: killed when its sandbox no longer holds (watchSandbox). */
+  private watchHelper(wrapped: WrappedCommand, abort: AbortController): () => void {
+    const sandbox = this.ctx.services.sandbox;
+    if (isStubService(sandbox) || typeof sandbox.onRevoked !== 'function') return () => {};
+    return sandbox.onRevoked(wrapped, () => abort.abort());
+  }
+
   /** The PTY exited on its own (`exit`, a crash). */
   private onPtyExit(m: Managed, exit: PtyExit): void {
     m.exitCode = exit.exitCode;
@@ -1478,6 +1552,8 @@ export class SessionManagerImpl implements SessionManager {
   private async cleanup(m: Managed, reason: SessionEndReason, keepWorktree: boolean): Promise<void> {
     if (m.cleaned) return;
     m.cleaned = true;
+    m.unwatchSandbox?.();
+    m.unwatchSandbox = null;
     const services = this.ctx.services;
     if (m.loginHintTimer !== undefined) clearTimeout(m.loginHintTimer);
     if (m.loginTimer !== undefined) clearTimeout(m.loginTimer);

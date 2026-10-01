@@ -243,6 +243,13 @@ export interface DaemonEvents {
    * again; members cannot connect meanwhile), 'replaced', 'stopped'. `reason` / `status` say why it left `online`.
    */
   'relay.link': { readonly purpose: ChannelPurpose; readonly state: string; readonly reason?: string; readonly status?: number };
+  /**
+   * Linux (reviews RV-1, RV-2): a host-only or host-private entry of `root` was replaced, removed or created while
+   * guest processes ran there (or were being started), which the guest sandbox cannot follow. `revoked` guest processes
+   * are being ended (0: none ran any more); the host should check `paths` (relative to the root, at most 20; `more`
+   * counts the rest). `smurg host` prints it.
+   */
+  'sandbox.protected-changed': { readonly root: RootRef; readonly paths: readonly string[]; readonly more: number; readonly revoked: number };
 }
 
 export type DaemonEventName = keyof DaemonEvents;
@@ -619,6 +626,18 @@ export interface ResolveOptions {
   readonly finalSymlink?: 'follow' | 'self' | 'deny';
   /** Write the `path.denied` audit entry here (default true). */
   readonly audit?: boolean;
+  /**
+   * Linux (normalisation-sensitive file systems): the directory listings of ONE operation for the NFC → on-disk
+   * mapping (workspace/fs-util.ts SpellingIndex). A zip download, a watcher batch and an upload plan each pass one, so a
+   * directory is listed once per operation instead of once per missed name (review RCR-2). Never kept across
+   * operations: a listing is a snapshot.
+   */
+  readonly spellings?: SpellingLookup;
+}
+
+/** fs-util otherSpellings(dir, name), answered from one listing of `dir` per lookup object (ResolveOptions.spellings). */
+export interface SpellingLookup {
+  otherSpellings(dir: string, name: string): Promise<string[]>;
 }
 
 /**
@@ -1092,8 +1111,36 @@ export interface SandboxService {
    * Optional for fakes.
    */
   release?(wrapped: WrappedCommand): void;
+  /**
+   * Linux (reviews RV-1, RV-2; ARCHITECTURE §7.6 "Linux, protected entries while a guest runs"): `listener` runs once
+   * when the sandbox of the process started from `wrapped` no longer holds, because a host-only or host-private entry
+   * of its root was replaced, removed or created while it ran (bubblewrap's mounts cannot follow that). At once when
+   * that already happened. The caller ends the process (fail closed). Returns a function that removes the listener;
+   * on macOS (Seatbelt matches paths, nothing to follow) the listener never runs. Optional for fakes.
+   */
+  onRevoked?(wrapped: WrappedCommand, listener: (revocation: SandboxRevocation) => void): () => void;
+  /**
+   * One batch of the file watcher for the root at `rootPath` (absolute paths as reported, any event type): the sandbox
+   * compares the protected entries it names with what its running guest processes were started with. Cheap when no
+   * guest process runs there. Optional for fakes.
+   */
+  fileEvents?(rootPath: string, events: readonly WatchedPathEvent[]): void;
   /** settings.changed → allowedDomains. */
   setAllowedDomains(domains: readonly string[]): Promise<void>;
+}
+
+/** A file-watcher event as the sandbox sees it (SandboxService.fileEvents): "look at this path again". */
+export interface WatchedPathEvent {
+  readonly path: string;
+  readonly type: 'create' | 'update' | 'delete';
+}
+
+/** Why a WrappedCommand was revoked (SandboxService.onRevoked). */
+export interface SandboxRevocation {
+  /** realpath of the session root. */
+  readonly root: string;
+  /** The protected entries that changed (absolute, sorted). */
+  readonly paths: readonly string[];
 }
 
 export interface HookSessionRegistration {

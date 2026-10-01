@@ -267,7 +267,7 @@ export class PathGuardImpl implements PathGuard {
       if (st === null && this.normalisationSensitive) {
         // Not there under its NFC spelling: the one entry of this (contained, symlink-free) directory that spells the
         // same name differently, if there is exactly one. It goes through every check below like any other entry.
-        const others = await otherSpellings(current, segment);
+        const others = options.spellings !== undefined ? await options.spellings.otherSpellings(current, segment) : await otherSpellings(current, segment);
         if (others.length === 1) {
           const onDisk = join(current, others[0] as string);
           const found = await lstatOrNull(onDisk);

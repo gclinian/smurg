@@ -24,10 +24,10 @@ source scripts/env.sh     # Node 22 LTS + the repo's pnpm; leave TMPDIR as it is
 pnpm check                # type check of every package, then every vitest project; exit 0 = green
 ```
 
-- **Expected result** on macOS (2026-10-01, linux-gate): `Test Files  230 passed | 2 skipped (232)` and `Tests  3522
-  passed | 9 skipped (3531)`, about 190–290 s from start to exit depending on what else the machine is doing (3:11 on
-  that run; the web-smoke project runs last, ~30 s of it), nothing printed by `[smurg test run]` (below). On Linux:
-  "Linux verification" below.
+- **Expected result** on macOS (2026-10-01, after the second review round of the Linux fixes): `Test Files  234 passed
+  | 3 skipped (237)` and `Tests  3561 passed | 22 skipped (3583)`, about 190–290 s from start to exit depending on what
+  else the machine is doing (3:43 on that run; the web-smoke project runs last, ~30 s of it), nothing printed by
+  `[smurg test run]` (below). On Linux: "Linux verification" below.
 - **On GitHub Actions** (`.github/workflows/ci.yml`, every push to `main`): the same gate on `macos-15` and
   `ubuntu-24.04` (x64). The runners have no `claude` (those tests skip) and Linux skips the macOS-only tests and runs
   the Linux-only ones, so the counts differ from the owner's machine: see "Linux verification" below.
@@ -44,9 +44,13 @@ pnpm check                # type check of every package, then every vitest proje
   green, the last one at a load average above 40.
 - **Skipped by default** (the 2 files / 4 tests): `packages/cli/test/sea.test.ts` (3 tests; needs a built single
   executable, `SMURG_SEA_BINARY=<path>`, which `scripts/build-sea.sh` runs) and `packages/cli/test/dev-stack.test.ts`
-  (1 test; `SMURG_TEST_DEV_STACK=1`: it starts the whole dev stack on fixed ports). On macOS 5 more tests skip inside
-  files that run: they are Linux-only (the network-namespace describe of `daemon/sandbox/network-listen.real.test.ts`,
-  the NFD-twin tests of `daemon/path-guard.test.ts` and `daemon/files/download.test.ts`). Other skips depend on the machine,
+  (1 test; `SMURG_TEST_DEV_STACK=1`: it starts the whole dev stack on fixed ports). On macOS one more file skips
+  whole, `daemon/sandbox/placeholders.real.test.ts` (6 tests, bubblewrap's mount points and what the host changes
+  while a guest runs: Linux-only), and 12 more tests skip inside files that run: they are Linux-only too (the
+  network-namespace describe of `daemon/sandbox/network-listen.real.test.ts`, the task-limit describe of
+  `daemon/sandbox/odd-names.real.test.ts`, the NFD-twin tests of `daemon/path-guard.test.ts` and
+  `daemon/files/download.test.ts`, the Linux describe of `daemon/files/nfd-listings.test.ts`, the NFD case of the
+  upload plan in `daemon/files/upload.test.ts`). Other skips depend on the machine,
   and change the counts: the real-browser tests skip without system Chrome, the real-`claude` tests (R5.3, R5.5, R8.1
   with `claude`, SPEC §13 items 1, 2, 5) skip loudly without a `claude` of a verified version, the macOS-only tests
   (keychain, `caffeinate`, the sandbox's Seatbelt profile) do not run on Linux.
@@ -76,7 +80,11 @@ prompt line in the web smoke test; `docs/research/sandbox.md` "Linux, verified 2
   ripgrep, Node 22.22.1, `kernel.apparmor_restrict_unprivileged_userns=1` (stock) with the `smurg-bwrap` profile that
   `scripts/install.sh` and CI install. Two consecutive full `pnpm check` runs green (linux-gate, 2026-10-01):
   `Test Files  216 passed | 16 skipped (232)`, `Tests  3452 passed | 79 skipped (3531)`, ~165 s each, nothing left
-  behind. The 16 skipped files: no Google Chrome exists for Linux arm64 (the 5 web-smoke files, `web/e2e/browser.e2e`,
+  behind. After the fixes of the reviews (fix-confirmed, same day, two runs): `Test Files  219 passed | 16 skipped
+  (235)`, `Tests  3474 passed | 80 skipped (3554)`, ~170 s each (the one more skipped test: the upload plan's
+  case-only collision, which needs a case-insensitive file system). After the second review round (attack-f1-docs and
+  follow-up, same day): `Test Files  221 passed | 16 skipped (237)`, `Tests  3503 passed | 80 skipped (3583)`, 199 s,
+  nothing left behind. The 16 skipped files: no Google Chrome exists for Linux arm64 (the 5 web-smoke files, `web/e2e/browser.e2e`,
   `web/…/transfer.browser`, `relay/cli-login.browser`); no `claude` (the 4 `daemon/hooks/claude-*` files; inside other
   files r5.claude, claude-real, claude-login-pickup and the real-claude part of login.real skip too); Seatbelt only
   (`daemon/sandbox/login-policy.real`, `daemon/sessions/login-profile.real`); opt-in as on macOS (`cli/sea`,
@@ -93,15 +101,36 @@ prompt line in the web smoke test; `docs/research/sandbox.md` "Linux, verified 2
 - **What runs on Linux and not on macOS**: the Linux describe of `daemon/sandbox/network-listen.real.test.ts` (a guest's
   listener is unreachable from the host, host services only through the proxy), the abstract-socket probe of R5, the
   hardened bubblewrap command checked in R5's first test, the NFD-twin tests of `daemon/path-guard.test.ts` and
-  `daemon/files/download.test.ts`.
+  `daemon/files/download.test.ts`, `daemon/sandbox/placeholders.real.test.ts` (bubblewrap's mount points in the host's
+  project while guests come and go, across roots, and the daemon's working directory; protected entries the host
+  changes while a guest runs, with the real file watcher), the Linux describe of
+  `daemon/files/nfd-listings.test.ts` (one directory listing per operation for Mac-made names) and the NFD case of the
+  upload plan's numbering in `daemon/files/upload.test.ts`.
+- **Fixed after the reviews of the Linux commit** (2026-10-01, fix-confirmed): the daemon's working directory
+  (`smurg host .` typed inside the project broke concurrent guests and left srt's dotfiles in the project), a race
+  that turned the host-only directory placeholders into 0444 files, the placeholder record after a clean stop, the
+  O(n²) NFC mapping in zips and watcher batches, the upload plan's numbered names, a symlinked `.git/HEAD`, the
+  keep-awake report over SSH and the installer's AppArmor check (ARCHITECTURE §7.6, §12). After the review of that
+  fix (2026-10-01, follow-up): a host-only or host-private entry the host replaces, removes or creates while a guest
+  runs (an atomic save of `.envrc`, `git switch` of `.claude/`, a `settings.local.json` written after the start) now
+  ends that root's guest processes and is named on the host's terminal (it used to stay readable or writable for the
+  guest; also on b97cdee), the host's own directory made in place of a placeholder is kept, the daemon-cwd text for a
+  working directory that is gone, the installer's AppArmor check run as root, the keep-awake text, and `file.tree`'s
+  NFC mapping (ARCHITECTURE §7.4, §7.6, §12).
 - **Still not run on Linux**: a real `claude` in the Linux sandbox (R5.3, R5.5, the hooks, the login process with the
-  real `claude`), the installer's Linux branch on a fresh machine, keep-awake through `systemd-inhibit` with a real
-  login session, R1.1's timing (`docs/OPEN-QUESTIONS.md` Q2).
+  real `claude`), the installer's Linux branch on a fresh machine, keep-awake through `systemd-inhibit` from a local
+  desktop session (from an SSH session polkit refuses it: checked in the VM, and `smurg host` reports it as refused),
+  R1.1's timing (`docs/OPEN-QUESTIONS.md` Q2).
 - **Linux-only residuals** (bubblewrap mounts concrete paths; ARCHITECTURE §12 "Linux, in more detail"): in a guest
   session in the MAIN workspace a guest can create a NEW host-only name below the top of the share
-  (`sub/.claude/settings.json`, `sub/.mcp.json`, `sub/.git/…`); a guest can remove or re-point a read-only shared link
-  in its own worktree (the target stays read-only, the daemon refuses the tampered link); a Unix socket in a directory
-  the guest can read is connectable. The R5 / R9 tests assert each platform's own behaviour there.
+  (`sub/.claude/settings.json`, `sub/.mcp.json`, `sub/.git/…`; except for `.git` this now ends that root's guest
+  processes and is named to the host); a guest can remove or re-point a read-only shared link in its own worktree (the
+  target stays read-only, the daemon refuses the tampered link); a Unix socket in a directory the guest can read is
+  connectable; a protected entry the HOST replaces, removes or creates while a guest runs (an atomic save of `.envrc`,
+  the host's own Claude Code writing `.claude/settings.local.json`, `git switch` of `.claude/`) is seen by the guest
+  until the daemon notices it and ends that root's guest processes (measured 10–110 ms in the VM; `.git` within the
+  daemon's 2 s check), so the host is told to stop guest sessions before editing such files. The R5 / R9 tests and
+  `daemon/sandbox/placeholders.real.test.ts` assert each platform's own behaviour there.
 
 ## Other ways to run
 
@@ -289,10 +318,10 @@ locked file under every spelling, then accepted and seen by the open editors), `
 - Linux: the whole gate runs on Ubuntu 24.04 (VM and CI, "Linux verification" above), R5 and R9 included; guest
   terminals get SIGWINCH on resize and Ctrl-C interrupts the foreground program, not the session
   (`daemon/sessions/real-modules.test.ts`). Not run on Linux: a real `claude` (R5.3, R5.5, the hooks, the login
-  process), keep-awake with a real login session, the installer on a fresh machine (`docs/OPEN-QUESTIONS.md` Q2).
+  process), keep-awake from a local desktop session, the installer on a fresh machine (`docs/OPEN-QUESTIONS.md` Q2).
   The Linux sandbox's residuals (a NEW host-only name below the top of the share in main-workspace guest sessions, a
-  worktree's shared link, sockets in readable directories) are listed in ARCHITECTURE §12 and need the owner's
-  confirmation.
+  worktree's shared link, sockets in readable directories, the window before a protected entry the host changes while
+  a guest runs ends that guest's processes) are listed in ARCHITECTURE §12 and need the owner's confirmation.
 - Browsers other than Chrome (Safari/WebKit's wrapped device keys, Firefox) were not run.
 - R7.2 at the full 10 GB is manual. R1.1: an installer exists, but no release is hosted, built for every platform or
   signed yet, so the fresh-machine timing cannot be done (`docs/RELEASING.md`).
@@ -301,7 +330,12 @@ locked file under every spelling, then accepted and seen by the open editors), `
   whether guest sessions can run (with the fix commands). The profile it writes is the one the VM and CI run with
   (verified: with it the sandbox works under the stock restriction, without it `smurg host` reports `apparmor-userns`
   and the fix); srt's `apply-seccomp` never runs (no seccomp filter with `allowAllUnixSockets`), so it needs no
-  profile. The installer's Linux branch itself (apt-get through sudo with consent) ran only against stand-ins.
+  profile. The installer's Linux branch itself (apt-get through sudo with consent) ran only against stand-ins; its
+  AppArmor step decides by a bare bubblewrap run, and was run once against the VM's real system with the profile
+  unloaded (it offered to write and load it again; before, a profile file that was not loaded was reported as done).
+  Run as root it runs that check as the user sudo came from (else `nobody`): root's own bubblewrap passes without the
+  profile (checked in the VM with a copy of bwrap the profile does not cover: refused as the user and through
+  `runuser`, exit 0 as root), so `sudo sh install.sh` reported 「已生效」 for a host that stayed blocked (review RV-5).
 - A real `claude` driving the web editor's lock banner is not automated (the banner is driven through the lock manager,
   as the hook socket does; the real `claude`'s lock requests are proven at the daemon level).
 - R4 「登入引導」: a guest's subscription login (§11 D-12, on by default, owner's confirmation of the default pending,

@@ -33,6 +33,7 @@ import {
   createDaemon,
   createLineLogger,
   isStubService,
+  quoteForLog,
   type Daemon,
   type FeatureModule,
   type HostSocketFactory,
@@ -237,6 +238,23 @@ async function openLog(ctx: CommandContext, workspaceId: string): Promise<{ logg
   };
 }
 
+/**
+ * The daemon runs from an empty, private directory of its own (`<stateDir>/cwd`), wherever `smurg host` was typed
+ * (review linux-binary F1). srt resolves the guest sandbox's mandatory write denies against the process's working
+ * directory on every wrap: after `cd project && smurg host .` bubblewrap put empty 0444 `.bashrc`, `.gitconfig`,
+ * `.gitmodules`, … into the host's project while a guest process ran, and a project with a `.claude/` of its own
+ * refused every guest session. Every path of this command is absolute by now (the folder was resolved against
+ * `io.cwd`), and the daemon passes an explicit working directory to everything it starts.
+ */
+async function enterDaemonCwd(ctx: CommandContext): Promise<void> {
+  try {
+    await ensurePrivateDirectory(ctx.paths.daemonCwd);
+    ctx.io.chdir?.(ctx.paths.daemonCwd);
+  } catch (err) {
+    throw stateProblem(err, 'daemon 的工作目錄');
+  }
+}
+
 /** A daemon start failure as the person should read it. */
 function daemonProblem(err: unknown, logPath: string): CliError {
   if (err instanceof CliError) return err;
@@ -381,6 +399,12 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     throw err;
   }
   const log = await openLog(ctx, workspaceId);
+  try {
+    await enterDaemonCwd(ctx);
+  } catch (err) {
+    await log.close();
+    throw err;
+  }
   const modules = deps.daemon?.modules ?? DEFAULT_FEATURE_MODULES;
   const power = new HostPower(deps.daemon?.power ?? new KeepAwake({ enabled: keepAwake, log: log.logger.child({ module: 'power' }) }));
   let daemon: Daemon;
@@ -585,6 +609,10 @@ export function watchRelay(ctx: CommandContext, daemon: Daemon, target: RelayWat
       tell('✓ smurg 的狀態檔已重新寫入成功。');
     }
   });
+  // Linux (reviews RV-1, RV-2): a host-only entry changed while guests ran there; the daemon ends their processes.
+  const onProtected = daemon.ctx.bus.on('sandbox.protected-changed', ({ root, paths, more, revoked }) => {
+    tell(protectedChangedText(root.kind === 'worktree' ? root.worktreeId : null, paths, more, revoked));
+  });
   let busy = false;
   const poll = setInterval(() => {
     if (busy) return;
@@ -625,8 +653,27 @@ export function watchRelay(ctx: CommandContext, daemon: Daemon, target: RelayWat
       cancelDownNotice();
       onLink.dispose();
       onState.dispose();
+      onProtected.dispose();
     },
   };
+}
+
+/**
+ * The host's notice for `sandbox.protected-changed` (zh-TW). Names come from the share (a guest may have chosen the
+ * directories on the way): anything but plain characters is shown quoted and escaped.
+ */
+export function protectedChangedText(worktreeId: string | null, paths: readonly string[], more: number, revoked: number): string {
+  const shown = (path: string): string => (/^[^\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069"\\]+$/.test(path) ? path : quoteForLog(path));
+  const where = worktreeId === null ? '分享的資料夾' : `worktree ${worktreeId}`;
+  const names = paths.map(shown).join('、') + (more > 0 ? ` 等另外 ${more} 個` : '');
+  const ended =
+    revoked > 0
+      ? `Linux 的沙盒在客人程序執行中無法跟上這種變動（客人可能讀到新的內容或改寫它），所以 smurg 已結束${where}裡的客人程序（客人可以重新開啟）。`
+      : 'Linux 的沙盒在客人程序執行中無法跟上這種變動（客人可能讀到新的內容或改寫它）。';
+  return (
+    `\n⚠ 客人程序執行時，${where}裡只有主人能使用的檔案有變動：${names}。\n  ${ended}\n` +
+    '  請確認這些檔案現在的內容是你自己的；之後要編輯 .envrc、.claude/、.mcp.json 或 CLAUDE.local.md 之前，請先請客人結束 session。'
+  );
 }
 
 /** Linux fixes the host can run themselves (the refusal text itself is written for guests). */
@@ -649,6 +696,11 @@ export function sandboxFix(reason: string, platform: NodeJS.Platform = process.p
       '  bubblewrap 需要 0.8 以上的版本（用 bwrap --version 查看）：Ubuntu 24.04、Debian 12 以上內建的版本即可；Ubuntu 22.04 內建的 0.6 太舊，',
       '  需要更新作業系統或另外安裝較新的 bubblewrap。',
     ];
+  }
+  if (reason === 'daemon-cwd') {
+    // Review RV-4: smurg host itself runs its daemon from <stateDir>/cwd; this reason means that directory went away
+    // while it ran (or another program embeds the daemon inside the share).
+    return ['  修正方法：重新執行 smurg host（它會從 ~/.smurg/cwd 啟動 daemon，不在分享的資料夾裡）。'];
   }
   return [];
 }
