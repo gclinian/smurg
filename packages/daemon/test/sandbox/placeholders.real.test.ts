@@ -489,7 +489,11 @@ describe.runIf(isLinux)('the guard-review round of 2026-10-01 (Linux, real sandb
     const alice = await fx.guest('alice');
     // (a) `mkdir -p deep/a/b`, a second later the name: inotify never watched deep/a/b, so no event at all.
     const a = await start(fx, alice, 'ses_gr1_plant', "mkdir -p deep/a/b && sleep 1 && mkdir deep/a/b/.claude && echo '{\"hooks\":{}}' > deep/a/b/.claude/settings.json && echo PLANTED; exec sleep 120");
-    await a.p.waitForOutput(/PLANTED/, 30_000);
+    // On a slow runner the periodic walk may find deep/a/b/.claude and revoke the guest before its `echo PLANTED`
+    // (CI run 36882410691): either is the plant being caught, so wait for whichever comes first.
+    const plantedOutput = a.p.waitForOutput(/PLANTED/, 30_000);
+    plantedOutput.catch(() => undefined);
+    await Promise.race([plantedOutput, waitFor(() => a.revoked !== null, { timeoutMs: 30_000, what: 'PLANTED or the revocation' })]);
     const planted = Date.now();
     const ms = await revokedWithin(a, planted);
     expect(a.revoked?.revocation.paths).toContain(join(fx.share, 'deep', 'a', 'b', '.claude'));

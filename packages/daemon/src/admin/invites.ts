@@ -74,9 +74,11 @@ export class InviteServiceImpl implements InviteService {
     if (by.kind !== 'system' && by.role !== 'host') throw new SmurgError('forbidden');
     if (!['runner', 'editor', 'viewer'].includes(input.role)) throw new SmurgError('bad_request', undefined, { reason: 'role' });
     const expiresInSec = input.expiresInSec ?? DEFAULT_INVITE_TTL_SEC;
+    const now = this.deps.clock.now();
     const { record, url } = this.mint({
       role: input.role,
-      expiresAt: this.deps.clock.now() + expiresInSec * 1000,
+      createdAt: now,
+      expiresAt: now + expiresInSec * 1000,
       ...(input.maxUses === undefined ? {} : { maxUses: input.maxUses }),
       createdBy: by.userId,
       host: false,
@@ -101,6 +103,7 @@ export class InviteServiceImpl implements InviteService {
     }
     const { record, url } = this.mint({
       role: 'host',
+      createdAt: now,
       boundUserId: this.deps.hostUserId,
       expiresAt: now + DEFAULT_INVITE_TTL_SEC * 1000,
       maxUses: 1,
@@ -168,6 +171,8 @@ export class InviteServiceImpl implements InviteService {
 
   private mint(input: {
     readonly role: Role;
+    /** One clock reading for createdAt and expiresAt: the lifetime is exactly what was asked for. */
+    readonly createdAt: number;
     readonly boundUserId?: UserId;
     readonly expiresAt?: number;
     readonly maxUses?: number;
@@ -183,7 +188,7 @@ export class InviteServiceImpl implements InviteService {
       pskHex: toHex(psk),
       role: input.role,
       ...(input.boundUserId === undefined ? {} : { boundUserId: input.boundUserId }),
-      createdAt: this.deps.clock.now(),
+      createdAt: input.createdAt,
       createdBy: input.createdBy,
       ...(input.expiresAt === undefined ? {} : { expiresAt: input.expiresAt }),
       ...(input.maxUses === undefined ? {} : { maxUses: input.maxUses }),
