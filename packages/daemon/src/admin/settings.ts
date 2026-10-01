@@ -20,16 +20,29 @@ export interface SettingsDeps {
    * PublicSettings so a client offers only what the daemon allows. The daemon enforces it on its own either way.
    */
   readonly guestSubscriptionLogin: boolean;
+  /**
+   * config.sessions.guestMainWorkspace (ARCHITECTURE §11 D-14): whether guests' sandboxed sessions may use the main
+   * workspace (off by default on a Linux host). Configuration as well; published so the new-session dialog offers
+   * only what the daemon allows (worktree mode otherwise). The daemon enforces it on its own (SessionManager.create).
+   */
+  readonly guestMainWorkspace: boolean;
+}
+
+/** The daemon-configuration switches every member is told about (PublicSettings). */
+export interface PublicSwitches {
+  readonly guestSubscriptionLogin: boolean;
+  readonly guestMainWorkspace: boolean;
 }
 
 /** What every member sees: the host settings a client works with, plus the switches of the daemon's configuration. */
-export function publicSettingsOf(settings: HostSettings, config: { readonly guestSubscriptionLogin: boolean }): PublicSettings {
+export function publicSettingsOf(settings: HostSettings, config: PublicSwitches): PublicSettings {
   return {
     humanLockIdleMs: settings.humanLockIdleMs,
     agentLockTimeoutMs: settings.agentLockTimeoutMs,
     uploadChunkSize: settings.uploadChunkSize,
     sharedDirs: [...settings.sharedDirs],
     guestSubscriptionLogin: config.guestSubscriptionLogin,
+    guestMainWorkspace: config.guestMainWorkspace,
   };
 }
 
@@ -45,7 +58,7 @@ export class SettingsServiceImpl implements SettingsService {
   }
 
   public(): PublicSettings {
-    return publicSettingsOf(this.get(), { guestSubscriptionLogin: this.deps.guestSubscriptionLogin });
+    return publicSettingsOf(this.get(), { guestSubscriptionLogin: this.deps.guestSubscriptionLogin, guestMainWorkspace: this.deps.guestMainWorkspace });
   }
 
   async update(patch: HostSettingsPatch, by: Principal): Promise<HostSettings> {

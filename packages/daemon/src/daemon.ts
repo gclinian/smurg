@@ -164,14 +164,18 @@ function sanitizeName(name: string, fallback: string): string {
 }
 
 export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
-  const config = resolveConfig({
-    ...options.config,
-    sessions: { ...options.config.sessions, hostHome: options.config.sessions?.hostHome ?? options.homeDir ?? homedir() },
-  });
-  const clock = options.clock ?? systemClock;
-  const log = options.log ?? createLineLogger();
   const platform = process.platform;
   if (platform !== 'darwin' && platform !== 'linux') throw new Error(`smurg hosts run on macOS and Linux only (this is ${platform})`);
+  // The platform decides per-platform defaults (config.sessions.guestMainWorkspace: off on Linux, §11 D-14).
+  const config = resolveConfig(
+    {
+      ...options.config,
+      sessions: { ...options.config.sessions, hostHome: options.config.sessions?.hostHome ?? options.homeDir ?? homedir() },
+    },
+    { platform },
+  );
+  const clock = options.clock ?? systemClock;
+  const log = options.log ?? createLineLogger();
 
   // ~/.smurg must be private: refuse (never chmod) a directory other users can read.
   await ensurePrivateDirectory(config.stateDir);
@@ -229,7 +233,14 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     const lastSeen = bus.on('conn.closed', ({ conn }) => members.touch(conn.userId, conn.deviceId, clock.now()));
     const router = new RouterImpl({ sink: hub, members, audit, log: log.child({ module: 'router' }) });
     hub.setRouter(router);
-    const settings = new SettingsServiceImpl({ state, audit, bus, mainRealPath: roots.main.realPath, guestSubscriptionLogin: config.sessions.guestSubscriptionLogin });
+    const settings = new SettingsServiceImpl({
+      state,
+      audit,
+      bus,
+      mainRealPath: roots.main.realPath,
+      guestSubscriptionLogin: config.sessions.guestSubscriptionLogin,
+      guestMainWorkspace: config.sessions.guestMainWorkspace,
+    });
     const invites = new InviteServiceImpl({
       state,
       audit,

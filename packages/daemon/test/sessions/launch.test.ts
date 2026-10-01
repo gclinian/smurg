@@ -3,6 +3,8 @@
 import { lstat, mkdir, readFile, readdir, readlink, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { defaultGuestMainWorkspace } from '../../src/core/config.ts';
+import { MAIN_WORKSPACE_OFF_MESSAGES } from '../../src/sessions/session-manager.ts';
 import { TEST_HOST_USER } from '../../src/testing/index.ts';
 import { TestViewer, sleep, typeInto, waitFor } from './helpers.ts';
 import { startSessionStack, type SessionStack } from './setup.ts';
@@ -165,6 +167,9 @@ describe('who may create and drive sessions', { timeout: 60_000 }, () => {
     expect(s.fakes.activity.notifications[0]?.userId).toBe('dev:carol');
     expect(s.fakes.activity.notifications[0]?.text).toContain('.envrc、sub/CLAUDE.local.md');
     expect(s.fakes.activity.notifications[0]?.text).toContain('已被結束');
+    // Review GR-13: the daemon cannot tell who made the change (a guest's new name ends the session too): no blame.
+    expect(s.fakes.activity.notifications[0]?.text).toContain('這個資料夾裡只有主人能使用的檔案有變動');
+    expect(s.fakes.activity.notifications[0]?.text).not.toContain('主人在這個資料夾裡變更了');
 
     // Revoked between the wrap and the start (a change while it was being prepared): not started, refused.
     s.fakes.sandbox.revokeOnWrap = { root: share, paths: [join(share, '.mcp.json')] };
@@ -298,6 +303,88 @@ describe('worktree sessions and accepted suggestions', { timeout: 60_000 }, () =
     s.sessions.pasteSuggestion(session.id, 'line one\nline two', hostPrincipal as never);
     await waitFor(() => view.received.includes('^[[200~line one'), 'the bracketed paste');
     expect(amy.userId).toBe('dev:amy');
+  });
+});
+
+// ARCHITECTURE §11 D-14 (owner decision 2026-10-01): guests' sandboxed sessions in the main workspace are off by
+// default on a Linux host (config.sessions.guestMainWorkspace; `smurg host --allow-main-workspace-guests` opens them).
+describe('guests in the main workspace (ARCHITECTURE §11 D-14)', { timeout: 60_000 }, () => {
+  const mainOffAudit = async (s: SessionStack): Promise<unknown[]> =>
+    (await s.t.ctx.audit.query({ limit: 50 })).filter((e) => e.action === 'session.create' && e.outcome === 'denied' && e.detail?.['reason'] === 'main-workspace-off');
+
+  it('switched off: a guest\'s terminal and agent in the main workspace are refused (forbidden, main-workspace-off, zh-TW), audited, nothing prepared; their worktree works; the host is not affected', async () => {
+    const s = await stack({ git: true, guestMainWorkspace: false });
+    expect(s.t.ctx.workspace.info.isGitRepo).toBe(true);
+    const host = await s.t.connectHost();
+    const carol = await s.t.connect({ userId: 'dev:carol', role: 'runner' });
+    expect(carol.welcome?.settings.guestMainWorkspace).toBe(false);
+    for (const request of [terminal, agent, { ...agent, apiKey: 'sk-ant-api03-test-key-0000000000' }, { ...terminal, title: 'main please' }]) {
+      const err = await carol.conn.request('session.create', request).then(() => null, (e: unknown) => e);
+      expect(err).toMatchObject({ code: 'forbidden', message: MAIN_WORKSPACE_OFF_MESSAGES.useWorktree, detail: { reason: 'main-workspace-off' } });
+    }
+    expect(MAIN_WORKSPACE_OFF_MESSAGES.useWorktree).toContain('worktree');
+    expect(MAIN_WORKSPACE_OFF_MESSAGES.useWorktree).toContain('--allow-main-workspace-guests');
+    // Refused before anything was prepared: no sandbox, no hook registration, no guest dir, no session.
+    expect(s.fakes.sandbox.wraps).toEqual([]);
+    expect(s.fakes.hooks.registered.size).toBe(0);
+    expect(await exists(s.sessions.guestPaths('dev:carol').root)).toBe(false);
+    expect(s.sessions.list()).toEqual([]);
+    const denied = await mainOffAudit(s);
+    expect(denied).toHaveLength(4);
+    expect(denied[denied.length - 1]).toMatchObject({ actor: { kind: 'user', userId: 'dev:carol' }, target: 'main', detail: { kind: 'terminal', sandboxed: true, root: 'main', reason: 'main-workspace-off' } });
+    expect(denied.map((e) => (e as { detail: { kind: string } }).detail.kind).sort()).toEqual(['agent', 'agent', 'terminal', 'terminal']);
+    // The guest's own worktree is what they get.
+    const inWorktree = (await carol.conn.request('session.create', { ...terminal, workspace: { mode: 'worktree' } })).session;
+    expect(inWorktree).toMatchObject({ sandboxed: true, ownerUserId: 'dev:carol', root: { kind: 'worktree' } });
+    expect(s.fakes.sandbox.wraps).toHaveLength(1);
+    expect(s.fakes.sandbox.wraps[0]?.rootPath).not.toBe(s.t.ctx.roots.main.realPath);
+    // The host's own (unsandboxed) sessions keep the main workspace.
+    const hostSession = (await host.conn.request('session.create', terminal)).session;
+    expect(hostSession).toMatchObject({ sandboxed: false, root: { kind: 'main' }, status: 'running' });
+    const hostAgent = (await host.conn.request('session.create', agent)).session;
+    expect(hostAgent).toMatchObject({ sandboxed: false, root: { kind: 'main' } });
+    expect(await mainOffAudit(s)).toHaveLength(4);
+  });
+
+  it('switched off on a share that is not a git repository: the refusal says that there is no worktree either and how the host opens it', async () => {
+    const s = await stack({ guestMainWorkspace: false });
+    expect(s.t.ctx.workspace.info.isGitRepo).toBe(false);
+    const carol = await s.t.connect({ userId: 'dev:carol', role: 'runner' });
+    await expect(carol.conn.request('session.create', agent)).rejects.toMatchObject({ code: 'forbidden', message: MAIN_WORKSPACE_OFF_MESSAGES.noWorktree, detail: { reason: 'main-workspace-off' } });
+    expect(MAIN_WORKSPACE_OFF_MESSAGES.noWorktree).toContain('不是 git 儲存庫'); // the web's word for it (review WEB-D14-1)
+    expect(MAIN_WORKSPACE_OFF_MESSAGES.noWorktree).toContain('--allow-main-workspace-guests');
+    expect(s.fakes.sandbox.wraps).toEqual([]);
+    expect(await mainOffAudit(s)).toHaveLength(1);
+  });
+
+  it('a member who may not own sessions is refused for that, not for the main workspace', async () => {
+    const s = await stack({ git: true, guestMainWorkspace: false });
+    const amy = await s.t.connect({ userId: 'dev:amy', role: 'editor' });
+    const err = await amy.conn.request('session.create', terminal).then(() => null, (e: { code: string; detail?: { reason?: string } }) => e);
+    expect(err?.code).toBe('forbidden');
+    expect(err?.detail?.reason).not.toBe('main-workspace-off');
+    expect(await mainOffAudit(s)).toHaveLength(0);
+  });
+
+  it('switched on (smurg host --allow-main-workspace-guests): a guest\'s session runs in the main workspace, sandboxed', async () => {
+    const s = await stack({ guestMainWorkspace: true });
+    const carol = await s.t.connect({ userId: 'dev:carol', role: 'runner' });
+    expect(carol.welcome?.settings.guestMainWorkspace).toBe(true);
+    const session = (await carol.conn.request('session.create', terminal)).session;
+    expect(session).toMatchObject({ sandboxed: true, root: { kind: 'main' } });
+    expect(s.fakes.sandbox.wraps[0]?.rootPath).toBe(s.t.ctx.roots.main.realPath);
+  });
+
+  it('the platform\'s default decides when the host said nothing: refused on a Linux host, allowed on macOS', async () => {
+    const s = await stack({ guestMainWorkspace: 'platform' });
+    const open = defaultGuestMainWorkspace(process.platform);
+    expect(open).toBe(process.platform !== 'linux');
+    expect(s.t.ctx.config.sessions.guestMainWorkspace).toBe(open);
+    const carol = await s.t.connect({ userId: 'dev:carol', role: 'runner' });
+    expect(carol.welcome?.settings.guestMainWorkspace).toBe(open);
+    const result = await carol.conn.request('session.create', terminal).then(({ session }) => session, (e: unknown) => e);
+    if (open) expect(result).toMatchObject({ sandboxed: true, root: { kind: 'main' } });
+    else expect(result).toMatchObject({ code: 'forbidden', detail: { reason: 'main-workspace-off' } });
   });
 });
 

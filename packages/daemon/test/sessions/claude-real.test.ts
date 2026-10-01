@@ -91,6 +91,8 @@ beforeAll(async () => {
     claudePath: claude,
     selfCommand: { file: process.execPath, args: [CLI_MAIN] },
     testGuestEnv: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' },
+    // The guest's agent runs in the main workspace: opened explicitly (off by default on Linux, §11 D-14).
+    guestMainWorkspace: true,
   };
   const fakes: FeatureModule = {
     name: 'session-test-fakes',

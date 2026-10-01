@@ -4,18 +4,28 @@
 //   runner → a sandboxed session (session.create.sandboxed), and may bring their own API key for an agent;
 //   editor / viewer → no session; the dialog says why.
 // Worktrees (R9) need a git repository; a kept worktree of one's own can be continued (R9.4).
+// The shared main workspace is open to sandboxed (guest) sessions unless the host's daemon says otherwise
+// (PublicSettings.guestMainWorkspace false, ARCHITECTURE §11 D-14: the default on a Linux host): then guests work in a
+// worktree only, and on a share that is not a git repository they cannot open sessions at all (their subscription
+// login, a `login` session that touches nothing of the share, is not affected). The host's own sessions never are.
 import { API_KEY_MAX_CHARS, apiKeySchema, type PayloadInputOf, type Role, type SessionInfo, type WorkspaceInfo, type WorktreeInfo } from '@smurg/protocol';
 import { canRole } from '../../lib/capabilities.ts';
 
 export type SessionKind = 'agent' | 'terminal';
 
-export type CreateBlockReason = 'role-editor' | 'role-viewer' | 'not-admitted';
+/** guest-sessions-off: a guest on a host that keeps guests out of the main workspace, in a share that is not git. */
+export type CreateBlockReason = 'role-editor' | 'role-viewer' | 'not-admitted' | 'guest-sessions-off';
 
 export interface NewSessionOptions {
   readonly canCreate: boolean;
   readonly blockedBy: CreateBlockReason | null;
   /** true: runner (sandboxed guest session); false: host session; null: cannot create. */
   readonly sandboxed: boolean | null;
+  readonly main: {
+    readonly available: boolean;
+    /** host-off: the host did not open the main workspace to guests (PublicSettings.guestMainWorkspace false). */
+    readonly unavailableReason: 'host-off' | null;
+  };
   readonly worktree: {
     readonly available: boolean;
     readonly unavailableReason: 'not-git' | null;
@@ -24,25 +34,41 @@ export interface NewSessionOptions {
   };
 }
 
+/** Whether `role` opens sandboxed sessions and the host keeps those out of the main workspace. */
+export function keptOutOfMain(role: Role | null, guestMainWorkspace: boolean | undefined): boolean {
+  return canRole(role, 'session.create.sandboxed') && !canRole(role, 'session.create.host') && guestMainWorkspace === false;
+}
+
+/** No session of one's own at all: kept out of the main workspace, and the share has no worktrees (not git). */
+export function guestSessionsOff(role: Role | null, workspace: WorkspaceInfo | null, guestMainWorkspace: boolean | undefined): boolean {
+  return keptOutOfMain(role, guestMainWorkspace) && workspace?.isGitRepo !== true;
+}
+
 export function newSessionOptions(input: {
   readonly role: Role | null;
   readonly userId: string | null;
   readonly workspace: WorkspaceInfo | null;
   readonly worktrees: readonly WorktreeInfo[];
   readonly sessions: ReadonlyMap<string, SessionInfo>;
+  /** PublicSettings.guestMainWorkspace; undefined (an older daemon, or no Welcome yet) ⇒ open, as before. */
+  readonly guestMainWorkspace?: boolean | undefined;
 }): NewSessionOptions {
   const { role, userId, workspace } = input;
   const host = canRole(role, 'session.create.host');
   const sandboxed = canRole(role, 'session.create.sandboxed');
-  const canCreate = (host || sandboxed) && userId !== null;
+  const isGit = workspace?.isGitRepo === true;
+  const mainOff = keptOutOfMain(role, input.guestMainWorkspace);
+  const allowed = (host || sandboxed) && userId !== null;
+  const canCreate = allowed && !guestSessionsOff(role, workspace, input.guestMainWorkspace);
   const blockedBy: CreateBlockReason | null = canCreate
     ? null
-    : role === 'editor'
-      ? 'role-editor'
-      : role === 'viewer'
-        ? 'role-viewer'
-        : 'not-admitted';
-  const isGit = workspace?.isGitRepo === true;
+    : allowed
+      ? 'guest-sessions-off'
+      : role === 'editor'
+        ? 'role-editor'
+        : role === 'viewer'
+          ? 'role-viewer'
+          : 'not-admitted';
   const kept = isGit
     ? input.worktrees
         .filter((worktree) => {
@@ -57,12 +83,26 @@ export function newSessionOptions(input: {
     canCreate,
     blockedBy,
     sandboxed: canCreate ? !host : null,
+    main: { available: !mainOff, unavailableReason: mainOff ? 'host-off' : null },
     worktree: { available: isGit, unavailableReason: isGit ? null : 'not-git', kept },
   };
 }
 
 /** 'main' | 'worktree:new' | 'worktree:<id>' — the value of the 「工作位置」 choice. */
 export type WhereChoice = 'main' | 'worktree:new' | `worktree:${string}`;
+
+/** The preselected 「工作位置」: the shared main workspace, or a new worktree of one's own when guests are kept out of it. */
+export function defaultWhere(options: NewSessionOptions): WhereChoice {
+  return !options.main.available && options.worktree.available ? 'worktree:new' : 'main';
+}
+
+/** `where` if the options still offer it (the settings or the worktree list may change while the dialog is open). */
+export function effectiveWhere(options: NewSessionOptions, where: WhereChoice): WhereChoice {
+  if (where === 'main') return options.main.available ? 'main' : defaultWhere(options);
+  if (!options.worktree.available) return defaultWhere(options);
+  if (where === 'worktree:new' || options.worktree.kept.some((worktree) => where === `worktree:${worktree.id}`)) return where;
+  return defaultWhere(options);
+}
 
 export interface NewSessionForm {
   readonly kind: SessionKind;
@@ -89,9 +129,11 @@ export function buildCreatePayload(
   form: NewSessionForm,
   size: { readonly cols: number; readonly rows: number },
 ): PayloadInputOf<'session.create'> {
+  // A guest kept out of the main workspace never asks for it: their own new worktree instead (the daemon would refuse).
+  const where = form.where === 'main' && !options.main.available ? defaultWhere(options) : form.where;
   let workspace: PayloadInputOf<'session.create'>['workspace'] = { mode: 'main' };
-  if (form.where !== 'main' && options.worktree.available) {
-    const id = form.where.slice('worktree:'.length);
+  if (where !== 'main' && options.worktree.available) {
+    const id = where.slice('worktree:'.length);
     workspace = id === 'new' ? { mode: 'worktree' } : { mode: 'worktree', worktreeId: id };
   }
   const title = form.title.trim();

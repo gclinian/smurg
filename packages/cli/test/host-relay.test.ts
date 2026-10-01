@@ -14,7 +14,7 @@ import xtermHeadless from '@xterm/headless';
 import { runCli } from '../src/cli/run.ts';
 import { runAttach } from '../src/commands/attach.ts';
 import { commandContext } from '../src/commands/context.ts';
-import { runHost, sandboxFix } from '../src/commands/host.ts';
+import { mainWorkspaceLines, runHost, sandboxFix, switchLines, type HostFacts } from '../src/commands/host.ts';
 import { LocalWorkspaceChannel } from '../src/channel/local-channel.ts';
 import { statePaths } from '../src/state/paths.ts';
 import { loadCredentials, saveSession } from '../src/state/credentials.ts';
@@ -234,6 +234,11 @@ describe('smurg host', () => {
     expect(second).toContain('worktree wt_x裡只有主人能使用的檔案有變動："ev\\u001b[31mil/.git"');
     expect(second).not.toContain('\u001b');
     expect(second).not.toContain('已結束');
+    // An invisible formatting character (a zero-width space, a right-to-left mark) is shown escaped too (review GR-14).
+    h.daemon.ctx.bus.emit('sandbox.protected-changed', { root: { kind: 'main' }, paths: ['se\u200bcret/.envrc', 'a\u200fb/.mcp.json'], more: 0, revoked: 1 });
+    const third = h.io.out().slice(out.length + second.length);
+    expect(third).toContain('"se\\u200bcret/.envrc"、"a\\u200fb/.mcp.json"');
+    expect(third).not.toMatch(/[\u200b\u200f]/);
   });
 
   it('a state file the disk refuses is told on the terminal, and so is its recovery (REL-14)', async () => {
@@ -389,6 +394,82 @@ describe('smurg host', () => {
     expect(other.io.out()).not.toContain('shell 指令通知：已關閉');
   });
 
+  // ARCHITECTURE §11 D-14 (owner decision 2026-10-01): guests' sessions in the main workspace are off by default on a
+  // Linux host and on by default on macOS; the host opens or closes them with a flag, and the summary says which.
+  it('guests in the main workspace: the platform\'s default unless the host said otherwise, passed to the daemon and told in the summary (§11 D-14)', async () => {
+    const linux = process.platform === 'linux';
+    const h = await startHost();
+    expect(h.daemon.config.sessions.guestMainWorkspace).toBe(!linux);
+    expect(h.daemon.ctx.settings.public().guestMainWorkspace).toBe(!linux);
+    const out = h.io.out();
+    expect(out).toContain(linux ? '客人的主工作區 session：未開放（Linux 預設）' : '客人的主工作區 session：已開放（macOS 預設）');
+    expect(out).toContain(linux ? '--allow-main-workspace-guests' : '--no-main-workspace-guests');
+    // In the switches section, after the SPEC §11 notes and before the keep-awake line.
+    expect(out.indexOf('客人的主工作區 session')).toBeGreaterThan(out.indexOf('■ 組員的 Claude 登入'));
+    expect(out.indexOf('客人的主工作區 session')).toBeLessThan(out.indexOf('防止睡眠：'));
+
+    const opened = await startHost(['--allow-main-workspace-guests']);
+    expect(opened.daemon.config.sessions.guestMainWorkspace).toBe(true);
+    expect(opened.io.out()).toContain('客人的主工作區 session：已開放（--allow-main-workspace-guests）');
+    // The Linux residuals are listed exactly when the main workspace is open to guests on Linux (§12).
+    expect(opened.io.out().includes('Linux 上的限制')).toBe(linux);
+
+    const closed = await startHost(['--no-main-workspace-guests']);
+    expect(closed.daemon.config.sessions.guestMainWorkspace).toBe(false);
+    expect(closed.daemon.ctx.settings.public().guestMainWorkspace).toBe(false);
+    const closedOut = closed.io.out();
+    expect(closedOut).toContain('客人的主工作區 session：未開放（--no-main-workspace-guests）');
+    // The test project is not a git repository: no worktree either, and the summary says so.
+    expect(closed.daemon.ctx.workspace.info.isGitRepo).toBe(false);
+    expect(closedOut).toContain('這個資料夾不是 git repository，沒有 worktree 可用，所以客人目前無法開 session');
+    expect(closedOut).not.toContain('Linux 上的限制');
+    // The other switches are untouched by it.
+    expect(closed.daemon.config.sessions.guestSubscriptionLogin).toBe(true);
+    expect(closed.daemon.config.activity.attributeBashEdits).toBe(true);
+  });
+
+  it('the main-workspace summary line for every platform, flag and share kind (§11 D-14, §12 "Linux, in more detail")', () => {
+    const facts = (platform: NodeJS.Platform, mainWorkspaceFlag: boolean | undefined, isGitRepo = true): HostFacts => ({ platform, isGitRepo, mainWorkspaceFlag });
+    const text = (open: boolean, f: HostFacts): string => mainWorkspaceLines(open, f).join('\n');
+    // Linux, the default: closed, why, and how to open it.
+    const linuxDefault = text(false, facts('linux', undefined));
+    expect(linuxDefault).toContain('客人的主工作區 session：未開放（Linux 預設）');
+    expect(linuxDefault).toContain('只能在自己的 worktree 裡開 agent 和終端機');
+    expect(linuxDefault).toContain('Linux 的沙盒（bubblewrap）擋不住');
+    expect(linuxDefault).toContain('--allow-main-workspace-guests');
+    expect(linuxDefault).not.toContain('不是 git repository');
+    // Linux, opened: the residual limits of §12, and how to close it again.
+    const linuxOpen = text(true, facts('linux', true));
+    expect(linuxOpen).toContain('客人的主工作區 session：已開放（--allow-main-workspace-guests）。Linux 上的限制');
+    for (const limit of ['sub/.claude/settings.json', 'sub/.mcp.json', 'sub/.git/config', '新的 .git 和 node_modules 裡的除外', '.envrc、.mcp.json、.claude/、CLAUDE.local.md', 'git switch', '.git 最多 2 秒', '請先請客人結束 session', '* ? [ ] 或不是 UTF-8', 'Unix socket']) {
+      expect(linuxOpen).toContain(limit);
+    }
+    // The guard-review round (GR-1, GR-4): names in directories made in one burst are found by the next walk, within
+    // seconds, and once more after the guest's process ended; the placeholders are kept out of the host's git.
+    for (const limit of ['通常幾秒內', '客人程序結束後也會再查一次', 'mkdir -p、git checkout、解壓縮', '.git/info/exclude', 'git add -f、git clean -x、git stash -a']) {
+      expect(linuxOpen).toContain(limit);
+    }
+    expect(linuxOpen).toContain('Linux 預設不開放');
+    // macOS: open by default, no Linux limits; closed with the flag.
+    const macDefault = text(true, facts('darwin', undefined));
+    expect(macDefault).toContain('客人的主工作區 session：已開放（macOS 預設）');
+    expect(macDefault).toContain('--no-main-workspace-guests');
+    expect(macDefault).not.toContain('Linux');
+    expect(text(true, facts('darwin', true))).toContain('已開放（--allow-main-workspace-guests）');
+    expect(text(false, facts('darwin', false))).toContain('未開放（--no-main-workspace-guests）');
+    expect(text(false, facts('darwin', false))).not.toContain('bubblewrap');
+    expect(text(false, facts('linux', false))).toContain('未開放（--no-main-workspace-guests）');
+    // Closed on a share that is not git: guests have no session at all, and are told nothing else is affected.
+    for (const platform of ['linux', 'darwin'] as const) {
+      expect(text(false, facts(platform, undefined, false))).toContain('不是 git repository，沒有 worktree 可用，所以客人目前無法開 session');
+      expect(text(true, facts(platform, undefined, false))).not.toContain('不是 git repository');
+    }
+    // In switchLines, between the subscription login and the Bash notices.
+    const all = switchLines({ guestSubscriptionLogin: false, attributeBashEdits: false, guestMainWorkspace: false }, facts('linux', undefined)).join('\n');
+    expect(all.indexOf('Claude 訂閱登入：已關閉')).toBeLessThan(all.indexOf('客人的主工作區 session'));
+    expect(all.indexOf('客人的主工作區 session')).toBeLessThan(all.indexOf('shell 指令通知：已關閉'));
+  });
+
   it('validates the two switches before anything else happens (exit 2), and --help lists them', async () => {
     const dirs = await makeDirs();
     cleanups.push(() => dirs.cleanup());
@@ -404,10 +485,18 @@ describe('smurg host', () => {
     await refused(['--guest-subscription-login', '--no-guest-subscription-login'], '不能同時指定');
     await refused(['--no-guest-login'], '不認得的選項 --no-guest-login');
     await refused(['--no-bash'], '不認得的選項 --no-bash');
+    // §11 D-14: exactly --allow-main-workspace-guests / --no-main-workspace-guests, never both.
+    await refused(['--allow-main-workspace-guests', '--no-main-workspace-guests'], '選項 --allow-main-workspace-guests 和 --no-main-workspace-guests 不能同時指定');
+    await refused(['--no-main-workspace-guests', '--allow-main-workspace-guests'], '不能同時指定');
+    await refused(['--main-workspace-guests'], '不認得的選項 --main-workspace-guests');
+    await refused(['--no-allow-main-workspace-guests'], '不認得的選項 --no-allow-main-workspace-guests');
+    await refused(['--allow-main-workspace-guests=yes'], '不接受值');
     const help = testIo({ env });
     expect(await runCli(['host', '--help'], help)).toBe(0);
     expect(help.out()).toContain('--no-guest-subscription-login');
     expect(help.out()).toContain('--no-bash-attribution');
+    expect(help.out()).toContain('--allow-main-workspace-guests');
+    expect(help.out()).toContain('--no-main-workspace-guests');
   });
 
   it('refuses a second host of the same folder while the first runs (exit 1)', async () => {

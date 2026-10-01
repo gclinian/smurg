@@ -6,7 +6,7 @@ import { lstat, readFile, readdir, readlink, stat, mkdir, symlink, writeFile } f
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CLAUDE_MIN_VERSION, CLAUDE_VERIFIED_VERSIONS, claudeVersionVerdict, compareClaudeVersions, parseClaudeVersion, resolveConfig } from '../src/core/config.ts';
+import { CLAUDE_MIN_VERSION, CLAUDE_VERIFIED_VERSIONS, claudeVersionVerdict, compareClaudeVersions, defaultGuestMainWorkspace, parseClaudeVersion, resolveConfig } from '../src/core/config.ts';
 import { ShareError, prepareShare } from '../src/workspace/share.ts';
 import { createTempDir, createTempProject, removeTempDir } from '../src/testing/temp.ts';
 import { isolatedGitEnv } from '../src/testing/index.ts';
@@ -141,9 +141,10 @@ describe('prepareShare', () => {
 
 describe('resolveConfig', () => {
   const valid = { stateDir: '/tmp/s', shareDir: '/tmp/p', workspaceId: 'ws_test_0123456789', hostUserId: 'dev:host', hostName: 'Host' };
+  const MAC = { platform: 'darwin' } as const;
 
   it('fills defaults and derives the workspace state dir', () => {
-    const config = resolveConfig({ ...valid, relayUrl: 'https://relay.example/ignored-path' });
+    const config = resolveConfig({ ...valid, relayUrl: 'https://relay.example/ignored-path' }, MAC);
     expect(config.workspaceStateDir).toBe('/tmp/s/workspaces/ws_test_0123456789');
     expect(config.relayUrl).toBe('https://relay.example');
     expect(config.webOrigin).toBe('https://relay.example');
@@ -156,16 +157,16 @@ describe('resolveConfig', () => {
   });
 
   it('puts the sockets in <stateDir>/run by default and refuses a run dir whose socket paths macOS would truncate', () => {
-    const config = resolveConfig(valid);
+    const config = resolveConfig(valid, MAC);
     expect(config.runDir).toBe('/tmp/s/run');
     expect(config.runPaths.hook).toMatch(/^\/tmp\/s\/run\/[A-Za-z0-9]{12}\.hook$/);
     expect(config.runPaths.ctl).toMatch(/^\/tmp\/s\/run\/[A-Za-z0-9]{12}\.ctl$/);
-    expect(() => resolveConfig({ ...valid, stateDir: `/${'s'.repeat(100)}` })).toThrow(/socket path/);
-    expect(resolveConfig({ ...valid, stateDir: `/${'s'.repeat(100)}`, runDir: '/tmp/r' }).runDir).toBe('/tmp/r');
+    expect(() => resolveConfig({ ...valid, stateDir: `/${'s'.repeat(100)}` }, MAC)).toThrow(/socket path/);
+    expect(resolveConfig({ ...valid, stateDir: `/${'s'.repeat(100)}`, runDir: '/tmp/r' }, MAC).runDir).toBe('/tmp/r');
   });
 
   it('session launch seams: defaults, absolute paths only, and a test-only guest env that no real relay accepts', () => {
-    const config = resolveConfig(valid);
+    const config = resolveConfig(valid, MAC);
     expect(config.sessions).toEqual({
       hostHome: null,
       claudePath: null,
@@ -174,30 +175,50 @@ describe('resolveConfig', () => {
       selfCommand: null,
       testGuestEnv: null,
       guestSubscriptionLogin: true,
+      guestMainWorkspace: true,
     });
     // ARCHITECTURE §11 D-12 / D-13 switches: on by default, booleans only.
     expect(config.activity).toEqual({ attributeBashEdits: true });
-    expect(resolveConfig({ ...valid, sessions: { guestSubscriptionLogin: false }, activity: { attributeBashEdits: false } })).toMatchObject({ sessions: { guestSubscriptionLogin: false }, activity: { attributeBashEdits: false } });
-    expect(() => resolveConfig({ ...valid, sessions: { guestSubscriptionLogin: 'no' as unknown as boolean } })).toThrow(/guestSubscriptionLogin/);
-    expect(() => resolveConfig({ ...valid, activity: { attributeBashEdits: 0 as unknown as boolean } })).toThrow(/attributeBashEdits/);
-    const local = resolveConfig({ ...valid, relayUrl: 'http://127.0.0.1:8787', sessions: { hostHome: '/tmp/fake-home', testGuestEnv: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' } } });
+    expect(resolveConfig({ ...valid, sessions: { guestSubscriptionLogin: false }, activity: { attributeBashEdits: false } }, MAC)).toMatchObject({ sessions: { guestSubscriptionLogin: false }, activity: { attributeBashEdits: false } });
+    expect(() => resolveConfig({ ...valid, sessions: { guestSubscriptionLogin: 'no' as unknown as boolean } }, MAC)).toThrow(/guestSubscriptionLogin/);
+    expect(() => resolveConfig({ ...valid, activity: { attributeBashEdits: 0 as unknown as boolean } }, MAC)).toThrow(/attributeBashEdits/);
+    const local = resolveConfig({ ...valid, relayUrl: 'http://127.0.0.1:8787', sessions: { hostHome: '/tmp/fake-home', testGuestEnv: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' } } }, MAC);
     expect(local.sessions.testGuestEnv).toEqual({ ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' });
-    expect(() => resolveConfig({ ...valid, relayUrl: 'https://smurg.app', sessions: { testGuestEnv: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' } } })).toThrow(/local relay only/);
-    expect(() => resolveConfig({ ...valid, sessions: { testGuestEnv: { 'bad-name': 'x' } } })).toThrow();
-    expect(() => resolveConfig({ ...valid, sessions: { hostHome: 'relative' } })).toThrow();
-    expect(() => resolveConfig({ ...valid, sessions: { selfCommand: { file: 'node', args: [] } } })).toThrow();
+    expect(() => resolveConfig({ ...valid, relayUrl: 'https://smurg.app', sessions: { testGuestEnv: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' } } }, MAC)).toThrow(/local relay only/);
+    expect(() => resolveConfig({ ...valid, sessions: { testGuestEnv: { 'bad-name': 'x' } } }, MAC)).toThrow();
+    expect(() => resolveConfig({ ...valid, sessions: { hostHome: 'relative' } }, MAC)).toThrow();
+    expect(() => resolveConfig({ ...valid, sessions: { selfCommand: { file: 'node', args: [] } } }, MAC)).toThrow();
+  });
+
+  // ARCHITECTURE §11 D-14 (owner decision 2026-10-01): guests' sessions in the main workspace are off by default on a
+  // Linux host (bubblewrap cannot deny new nested host-only names), on by default on macOS; the host's switch wins.
+  it('guests in the main workspace: off by default on Linux, on by default on macOS, the explicit switch wins, booleans only', () => {
+    const LINUX = { platform: 'linux' } as const;
+    expect(defaultGuestMainWorkspace('linux')).toBe(false);
+    expect(defaultGuestMainWorkspace('darwin')).toBe(true);
+    expect(resolveConfig(valid, LINUX).sessions.guestMainWorkspace).toBe(false);
+    expect(resolveConfig(valid, MAC).sessions.guestMainWorkspace).toBe(true);
+    expect(resolveConfig({ ...valid, sessions: { guestMainWorkspace: true } }, LINUX).sessions.guestMainWorkspace).toBe(true);
+    expect(resolveConfig({ ...valid, sessions: { guestMainWorkspace: false } }, MAC).sessions.guestMainWorkspace).toBe(false);
+    // Only this switch depends on the platform.
+    const { guestMainWorkspace: _onLinux, ...linuxRest } = resolveConfig(valid, LINUX).sessions;
+    const { guestMainWorkspace: _onMac, ...macRest } = resolveConfig(valid, MAC).sessions;
+    expect(linuxRest).toEqual(macRest);
+    expect(resolveConfig(valid, LINUX).activity).toEqual(resolveConfig(valid, MAC).activity);
+    expect(() => resolveConfig({ ...valid, sessions: { guestMainWorkspace: 'yes' as unknown as boolean } }, LINUX)).toThrow(/guestMainWorkspace/);
+    expect(() => resolveConfig({ ...valid, sessions: { guestMainWorkspace: 0 as unknown as boolean } }, MAC)).toThrow(/guestMainWorkspace/);
   });
 
   it('Claude Code version config: sorted, de-duplicated verified list; malformed values and a minimum above every verified version are refused', () => {
-    const config = resolveConfig({ ...valid, sessions: { claudeMinVersion: '2.1.250', claudeVerifiedVersions: ['2.1.283', '2.1.250', '2.1.283', '2.1.9'] } });
+    const config = resolveConfig({ ...valid, sessions: { claudeMinVersion: '2.1.250', claudeVerifiedVersions: ['2.1.283', '2.1.250', '2.1.283', '2.1.9'] } }, MAC);
     expect(config.sessions.claudeMinVersion).toBe('2.1.250');
     expect(config.sessions.claudeVerifiedVersions).toEqual(['2.1.9', '2.1.250', '2.1.283']);
     expect(Object.isFrozen(config.sessions.claudeVerifiedVersions)).toBe(true);
-    expect(() => resolveConfig({ ...valid, sessions: { claudeVerifiedVersions: [] } })).toThrow(/at least one/);
-    expect(() => resolveConfig({ ...valid, sessions: { claudeVerifiedVersions: ['2.1'] } })).toThrow(/MAJOR.MINOR.PATCH/);
-    expect(() => resolveConfig({ ...valid, sessions: { claudeVerifiedVersions: ['v2.1.283'] } })).toThrow(/MAJOR.MINOR.PATCH/);
-    expect(() => resolveConfig({ ...valid, sessions: { claudeMinVersion: '2.1.283-beta' } })).toThrow(/MAJOR.MINOR.PATCH/);
-    expect(() => resolveConfig({ ...valid, sessions: { claudeMinVersion: '2.1.300' } })).toThrow(/newer than every verified version/);
+    expect(() => resolveConfig({ ...valid, sessions: { claudeVerifiedVersions: [] } }, MAC)).toThrow(/at least one/);
+    expect(() => resolveConfig({ ...valid, sessions: { claudeVerifiedVersions: ['2.1'] } }, MAC)).toThrow(/MAJOR.MINOR.PATCH/);
+    expect(() => resolveConfig({ ...valid, sessions: { claudeVerifiedVersions: ['v2.1.283'] } }, MAC)).toThrow(/MAJOR.MINOR.PATCH/);
+    expect(() => resolveConfig({ ...valid, sessions: { claudeMinVersion: '2.1.283-beta' } }, MAC)).toThrow(/MAJOR.MINOR.PATCH/);
+    expect(() => resolveConfig({ ...valid, sessions: { claudeMinVersion: '2.1.300' } }, MAC)).toThrow(/newer than every verified version/);
   });
 
   it.each([
@@ -212,12 +233,12 @@ describe('resolveConfig', () => {
     [{ limits: { maxPendingHandshakes: -1 } }],
     [{ defaultSettings: { diskReservePercent: 101 } }],
   ])('rejects %j', (override) => {
-    expect(() => resolveConfig({ ...valid, ...override } as never)).toThrow();
+    expect(() => resolveConfig({ ...valid, ...override } as never, MAC)).toThrow();
   });
 });
 
 describe('Claude Code version policy (ARCHITECTURE §7.6)', () => {
-  const policy = resolveConfig({ stateDir: '/tmp/s', shareDir: '/tmp/p', workspaceId: 'ws_test_0123456789', hostUserId: 'dev:host', hostName: 'Host' }).sessions;
+  const policy = resolveConfig({ stateDir: '/tmp/s', shareDir: '/tmp/p', workspaceId: 'ws_test_0123456789', hostUserId: 'dev:host', hostName: 'Host' }, { platform: 'darwin' }).sessions;
 
   it('the minimum is the oldest verified version, 2.1.220, and both 2.1.220 and 2.1.283 are verified', () => {
     expect(CLAUDE_MIN_VERSION).toBe('2.1.220');

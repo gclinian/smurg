@@ -5,7 +5,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { STEP_MS, joinAs, joinAsHost, openSession, startSmoke, systemChrome, terminalShows, typeInTerminal, waitForTerminalText, waitUntil, type SmokeEnv } from './helpers.ts';
+import { STEP_MS, explainFailures, joinAs, joinAsHost, openSession, startSmoke, systemChrome, terminalShows, typeInTerminal, waitForTerminalText, waitUntil, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
 if (chrome === null) console.warn('[web smoke] SKIPPED: no system Chrome found (playwright-core downloads no browser); install Google Chrome to run it.');
@@ -17,7 +17,15 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
   let host: Page;
 
   beforeAll(async () => {
-    env = await startSmoke({ stack: { git: true, projectFiles: { 'README.md': '# 班級專案\n', 'src/app.ts': 'export const x = 1;\n', 'notes.md': NOTES } } });
+    env = await startSmoke({
+      stack: {
+        git: true,
+        projectFiles: { 'README.md': '# 班級專案\n', 'src/app.ts': 'export const x = 1;\n', 'notes.md': NOTES },
+        // Rita's terminal (R11.1c) runs in the main workspace: open it to guests explicitly, so the test is the same on
+        // a Linux host, where it is off by default (ARCHITECTURE §11 D-14). Wes works in a worktree either way (R9).
+        sessions: { guestMainWorkspace: true },
+      },
+    });
     host = await env.newPage();
     await joinAsHost(host, env);
   }, 180_000);
@@ -25,6 +33,9 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
   afterAll(async () => {
     await env?.stop();
   }, 60_000);
+
+  // A failed test prints the daemon's log tail, audit and sessions (CI run 36810877157 said only "Timeout").
+  explainFailures(() => env);
 
   /** The host's console, in the host's page. */
   async function openConsole(): Promise<void> {

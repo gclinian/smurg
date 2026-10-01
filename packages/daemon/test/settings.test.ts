@@ -3,6 +3,7 @@
 // the host-only fields never do.
 import { afterEach, describe, expect, it } from 'vitest';
 import type { PublicSettings } from '@smurg/protocol';
+import { defaultGuestMainWorkspace } from '../src/core/config.ts';
 import { createTestDaemon, waitFor, type TestDaemon } from '../src/testing/index.ts';
 
 let t: TestDaemon | null = null;
@@ -27,7 +28,7 @@ describe('admin.settings.set', () => {
     await waitFor(() => [...seen.values()].every((list) => list.length === 1), { what: 'channel.settingsUpdated everywhere' });
     for (const list of seen.values()) {
       expect(list[0]?.humanLockIdleMs).toBe(45_000);
-      expect(Object.keys(list[0] ?? {}).sort()).toEqual(['agentLockTimeoutMs', 'guestSubscriptionLogin', 'humanLockIdleMs', 'sharedDirs', 'uploadChunkSize']);
+      expect(Object.keys(list[0] ?? {}).sort()).toEqual(['agentLockTimeoutMs', 'guestMainWorkspace', 'guestSubscriptionLogin', 'humanLockIdleMs', 'sharedDirs', 'uploadChunkSize']);
     }
     // An editor cannot change them (router capability check), and nothing is broadcast then.
     await expect(eddie.conn.request('admin.settings.set', { humanLockIdleMs: 1_000 })).rejects.toMatchObject({ code: 'forbidden' });
@@ -66,4 +67,43 @@ describe('PublicSettings.guestSubscriptionLogin (ARCHITECTURE §11 D-12): the da
     expect(updates[0]?.guestSubscriptionLogin).toBe(false);
     expect(t.ctx.settings.public().guestSubscriptionLogin).toBe(false);
   });
+});
+
+describe('PublicSettings.guestMainWorkspace (ARCHITECTURE §11 D-14): the daemon publishes whether guests may use the main workspace', () => {
+  it('by default it is the platform\'s default (off on a Linux host, on on macOS), in the Welcome and in channel.settingsUpdated', async () => {
+    t = await createTestDaemon();
+    const expected = defaultGuestMainWorkspace(process.platform);
+    expect(expected).toBe(process.platform !== 'linux');
+    expect(t.daemon.config.sessions.guestMainWorkspace).toBe(expected);
+    const host = await t.connectHost();
+    const rita = await t.connect({ userId: 'dev:rita', role: 'runner' });
+    expect(host.welcome?.settings.guestMainWorkspace).toBe(expected);
+    expect(rita.welcome?.settings.guestMainWorkspace).toBe(expected);
+    const updates: PublicSettings[] = [];
+    rita.conn.on('channel.settingsUpdated', (payload) => updates.push(payload.settings));
+    await host.conn.request('admin.settings.set', { humanLockIdleMs: 40_000 });
+    await waitFor(() => updates.length === 1, { what: 'channel.settingsUpdated' });
+    expect(updates[0]?.guestMainWorkspace).toBe(expected);
+  });
+
+  for (const value of [false, true]) {
+    it(`set explicitly (config.sessions.guestMainWorkspace ${value}): every member is told ${value}, and the console cannot change it`, async () => {
+      t = await createTestDaemon({ sessions: { guestMainWorkspace: value } });
+      const host = await t.connectHost();
+      const eddie = await t.connect({ userId: 'dev:eddie', role: 'editor' });
+      const rita = await t.connect({ userId: 'dev:rita', role: 'runner' });
+      for (const client of [host, eddie, rita]) expect(client.welcome?.settings.guestMainWorkspace).toBe(value);
+      const updates: PublicSettings[] = [];
+      rita.conn.on('channel.settingsUpdated', (payload) => updates.push(payload.settings));
+      // Configuration, not a console setting: admin.settings.set refuses it (strict schema) …
+      await expect(host.conn.request('admin.settings.set', { guestMainWorkspace: !value } as never)).rejects.toMatchObject({ code: 'bad_request' });
+      // … and the host-only settings never carry it.
+      const { settings } = await host.conn.request('admin.settings.get', {});
+      expect(Object.keys(settings)).not.toContain('guestMainWorkspace');
+      await host.conn.request('admin.settings.set', { humanLockIdleMs: 40_000 });
+      await waitFor(() => updates.length === 1, { what: 'channel.settingsUpdated' });
+      expect(updates[0]?.guestMainWorkspace).toBe(value);
+      expect(t.ctx.settings.public().guestMainWorkspace).toBe(value);
+    });
+  }
 });

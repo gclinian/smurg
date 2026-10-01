@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // smurg.ai: the product page. Static files in public/ plus a small Worker (src/index.ts) for the /install.sh,
+  // /github and /docs redirects. The workspace app (relay + SPA) is a different Worker, on app.smurg.ai.
+  "name": "smurg-site",
+  "main": "src/index.ts",
+  // Same date as apps/relay: <= the workerd bundled with the repo's wrangler 4.142.0.
+  "compatibility_date": "2026-09-26",
+
+  // Served only on the custom domains below: no *.workers.dev hostname, no per-version preview URLs.
+  // Custom domains: on deploy, Cloudflare creates the DNS records and certificates (the smurg.ai zone must be on the
+  // same Cloudflare account). www.smurg.ai only redirects to the apex (README.md, "Deploying").
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "smurg.ai", "custom_domain": true },
+    { "pattern": "www.smurg.ai", "custom_domain": true }
+  ],
+
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    // Unknown paths get the nearest 404.html (public/zh-TW/404.html under /zh-TW/) with status 404.
+    "not_found_handling": "404-page",
+    // /zh-TW -> /zh-TW/, /index.html -> /
+    "html_handling": "auto-trailing-slash",
+    // QUOTA: Workers Free counts 100,000 Worker requests a day for the WHOLE Cloudflare account, and the shared relay
+    // lives on the same account (docs/RELEASING.md §8). Requests for static files that do not run the Worker are free
+    // and unlimited. So the Worker runs first only for its redirect paths (src/routes.ts WORKER_PATHS; a test keeps
+    // the two equal); pages, the stylesheet, the script, the icon and the 404 page cost no Worker request.
+    // www.smurg.ai -> smurg.ai for those is a Cloudflare Redirect Rule on the zone, which runs before Workers and costs
+    // no Worker request (README.md, "Deploying").
+    "run_worker_first": ["/install.sh", "/github", "/github/", "/docs", "/docs/*"]
+  }
+}

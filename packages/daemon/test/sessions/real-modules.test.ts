@@ -113,7 +113,8 @@ exec cat
       defaultSettings: { allowedDomains: [] },
       // The real `smurg hook` (node + the CLI's sources): a guest agent session starts only after the hook answered
       // from inside its sandbox (the in-sandbox hook self-test, SEC-D-05 follow-up).
-      sessions: { hostHome: home, claudePath: claude, selfCommand: { file: process.execPath, args: [CLI_MAIN] } },
+      // Guests' sessions here run in the main workspace: opened explicitly (off by default on Linux, §11 D-14).
+      sessions: { hostHome: home, claudePath: claude, selfCommand: { file: process.execPath, args: [CLI_MAIN] }, guestMainWorkspace: true },
     },
     modules: [fakeServices(), sandboxModule, hooksModule, createSessionsModule({ hostEnv: () => hostEnv, hostShell: '/bin/sh', guestShell: '/bin/sh', keychain: async () => {} })],
     homeDir: home,

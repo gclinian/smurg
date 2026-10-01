@@ -5,8 +5,9 @@
 // every step waits for a condition.
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
+import { beforeEach } from 'vitest';
 import { startLocalRelay, type LocalRelay, type StartLocalRelayOptions } from '../../../relay/test-support/index.ts';
-import { startStack, type Stack, type StackOptions } from '../../../../tests/e2e/src/harness.ts';
+import { bufferedLogger, startStack, type Stack, type StackOptions } from '../../../../tests/e2e/src/harness.ts';
 import { chromeLaunchOptions, systemChrome } from '../chrome.ts';
 
 export { waitUntil } from '../../../../tests/e2e/src/harness.ts';
@@ -37,7 +38,29 @@ export interface SmokeEnv {
   invite(role: 'editor' | 'runner' | 'viewer'): Promise<string>;
   /** A fresh host link of the host themself (a new device of the host's account), pointing at `origin`. */
   hostLink(): string;
+  /** The daemon's last log lines and audit entries, and every session's state: what a failed test prints. */
+  diagnostics(): Promise<string>;
   stop(): Promise<void>;
+}
+
+/** Daemon log lines a failed test prints (the daemon keeps more; a CI log must stay readable). */
+const DIAGNOSTIC_LOG_LINES = 300;
+/** Audit entries a failed test prints. */
+const DIAGNOSTIC_AUDIT_ENTRIES = 150;
+
+/**
+ * Registers, for every test of the calling suite, a dump of `env().diagnostics()` on stderr when the test fails: a
+ * browser test that times out says only what the page did not show, and the daemon behind it is silent otherwise.
+ */
+export function explainFailures(env: () => SmokeEnv | undefined): void {
+  beforeEach(({ onTestFailed }) => {
+    onTestFailed(async () => {
+      const current = env();
+      if (current === undefined) return;
+      const text = await current.diagnostics().catch((error: unknown) => `diagnostics failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`[web smoke] the daemon behind the failed test:\n${text}`);
+    });
+  });
 }
 
 export interface SmokeOptions {
@@ -55,7 +78,8 @@ export async function startSmoke(options: SmokeOptions = {}): Promise<SmokeEnv> 
   try {
     const relay = await startLocalRelay({ tap: false, webDist, ...(options.relayVars ? { vars: options.relayVars } : {}) });
     stops.push(() => relay.stop());
-    const stack = await startStack({ ...options.stack, relay });
+    const daemonLog = bufferedLogger();
+    const stack = await startStack({ log: daemonLog.log, ...options.stack, relay });
     stops.push(() => stack.stop());
     // Real scrollbars (playwright hides them in headless Chrome): the terminal tests measure what they cost.
     const browser = await chromium.launch({ ...chromeLaunchOptions(chrome), ignoreDefaultArgs: ['--hide-scrollbars'] });
@@ -102,6 +126,21 @@ export async function startSmoke(options: SmokeOptions = {}): Promise<SmokeEnv> 
       },
       hostLink() {
         return retarget(stack.daemon.internals.invites.createHostInvite().url);
+      },
+      async diagnostics() {
+        const sessions = stack.daemon.ctx.services.sessions
+          .list()
+          .map((s) => `${s.id} ${s.kind} owner=${s.ownerUserId} sandboxed=${s.sandboxed} status=${s.status}${s.endReason === undefined ? '' : ` endReason=${s.endReason}`}`);
+        const audit = await stack.audit(DIAGNOSTIC_AUDIT_ENTRIES).catch(() => []);
+        const lines = daemonLog.lines();
+        return [
+          `--- sessions (${sessions.length})`,
+          ...sessions,
+          `--- audit (last ${audit.length}, oldest first)`,
+          ...[...audit].reverse().map((e) => `${new Date(e.at).toISOString()} ${e.action} ${e.outcome} ${e.target ?? ''} ${JSON.stringify(e.detail ?? {})}`),
+          `--- daemon log (last ${Math.min(lines.length, DIAGNOSTIC_LOG_LINES)} of ${lines.length} lines kept)`,
+          ...lines.slice(-DIAGNOSTIC_LOG_LINES),
+        ].join('\n');
       },
       async stop() {
         for (const context of contexts.splice(0)) await context.close().catch(() => {});

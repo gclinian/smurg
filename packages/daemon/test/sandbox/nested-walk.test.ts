@@ -101,4 +101,26 @@ describe('nestedHostOnlyPaths (Linux nested host-only entries)', () => {
     expect(await nestedHostOnlyPaths(root, 1)).toBeNull();
     expect(await nestedHostOnlyPaths(join(root, 'missing'))).toEqual({ deny: [], unprotected: [] });
   }, 60_000);
+
+  it('the personal memory files the sandbox guard records: all of them, the same set whatever the order the listings finish in; more than 1000 is null like the host-only entries (review GR-6: a subset of 1000, different on every wrap, revoked the guests each time)', async () => {
+    const root = await createTempDir('nested-walk-personal');
+    temps.push(root);
+    const made: string[] = [];
+    for (let i = 0; i < 1000; i++) {
+      const dir = join(root, `g${i % 37}`, `p${i}`);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, 'CLAUDE.local.md'), 'x');
+      made.push(join(dir, 'CLAUDE.local.md'));
+    }
+    for (const concurrency of [1, 16, 64]) {
+      const personal: string[] = [];
+      expect(await nestedHostOnlyPaths(root, concurrency, personal)).toEqual({ deny: [], unprotected: [] });
+      expect(personal.sort()).toEqual([...made].sort());
+    }
+    await mkdir(join(root, 'one-more'));
+    await writeFile(join(root, 'one-more', 'CLAUDE.local.md'), 'x');
+    for (const concurrency of [1, 16]) expect(await nestedHostOnlyPaths(root, concurrency, [])).toBeNull();
+    // Without the personal list (a caller that does not record them), they do not count.
+    expect(await nestedHostOnlyPaths(root)).toEqual({ deny: [], unprotected: [] });
+  }, 60_000);
 });

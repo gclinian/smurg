@@ -181,7 +181,9 @@ describe('R2 踢人', () => {
   });
 
   it('被踢的使用者…他的 session 程序被終止', async () => {
-    const stack = await startStack({ relay });
+    // The guest's session runs in the main workspace: open it to guests explicitly, so the test is the same on a Linux
+    // host, where it is off by default (ARCHITECTURE §11 D-14).
+    const stack = await startStack({ relay, sessions: { guestMainWorkspace: true } });
     try {
       // A runner starts a terminal session with a background process, the host kicks them, and within 3 s both the
       // session and the PROCESS are gone (not only the daemon's belief in session.list: ARCHITECTURE §11 D-3).

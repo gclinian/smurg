@@ -19,9 +19,11 @@
 //    host created after the start was readable at once. The service now notices such a change (file watcher, a poll for
 //    `.git`, the next wrap) and revokes every process of that root (SandboxService.onRevoked; the sessions module ends
 //    them), and RV-3: the host's own directory made in place of a service placeholder is no longer taken for it.
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { appendFile, lstat, mkdir, readdir, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, lstat, mkdir, readFile, readdir, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { SmurgError } from '@smurg/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { DaemonEvents, SandboxRevocation, SandboxSpec, WrappedCommand } from '../../src/core/interfaces.ts';
@@ -355,6 +357,48 @@ describe.runIf(isLinux)('protected entries the host changes while a guest runs (
     process.stdout.write(`RV-2 revocation latency: ${latencies.join('; ')}\n`);
   }, TIMEOUT);
 
+  it("CI run 36810877157: a guest whose wrap() recorded its own canary's mount points (a loaded machine: the watcher and the poll saw them before srt removed them) is not revoked while its process is still starting", async () => {
+    const fx = await fixture({});
+    const alice = await fx.guest('alice');
+    const service = fx.ctx.services.sandbox as unknown as Record<string, unknown>;
+    const runner = service['runner'] as { run(input: unknown): Promise<unknown> };
+    // The canary is done, srt's cleanup not yet: its bubblewrap mount points stay long enough for the watcher's batch
+    // and a poll to record them (a busy CI runner; here, held).
+    service['runner'] = {
+      ...runner,
+      run: async (input: unknown) => {
+        const result = await runner.run(input);
+        await new Promise((resolve) => setTimeout(resolve, POLL_MS * 2));
+        return result;
+      },
+    };
+    // On a busy runner the watcher's batches also come late: the one for srt's cleanup only after the hand-out.
+    const fileEvents = (service['fileEvents'] as (root: string, events: unknown) => void).bind(service);
+    service['fileEvents'] = (root: string, events: unknown) => {
+      setTimeout(() => fileEvents(root, events), POLL_MS);
+    };
+    const settingsDir = await fx.settingsDir('ses_ci_r9', '{}\n');
+    const wrapped = await fx.sandbox.wrap(fx.spec({ sessionId: 'ses_ci_r9', command: 'echo R9-UP; exec sleep 120', guest: alice, settingsDir }));
+    service['runner'] = runner;
+    let revoked: SandboxRevocation | null = null;
+    fx.sandbox.onRevoked?.(wrapped, (revocation) => {
+      revoked = revocation;
+    });
+    // Handed out: srt's mount points exist, as bubblewrap makes them, before the process starts...
+    expect(await forms(fx.share, ['.mcp.json', '.envrc'])).toEqual({ '.mcp.json': 'file444', '.envrc': 'file444' });
+    // ...and while it starts slowly, the watcher's batch for srt's cleanup and the polls change nothing.
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS * 4));
+    delete service['fileEvents']; // the service's own method again
+    expect(revoked).toBeNull();
+    const p = startWrapped(wrapped, { timeoutMs: 120_000 });
+    expect(await up(p, /R9-UP/)).toBe('UP');
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS * 4));
+    expect(revoked).toBeNull();
+    expect(events).toEqual([]);
+    p.kill();
+    await p.exited;
+  }, TIMEOUT);
+
   it('a wrap() in flight while the host changes a protected entry is refused (protected-changed); guests starting and stopping beside a running one revoke nothing', async () => {
     const fx = await fixture({ '.envrc': 'export SECRET=x\n' });
     const alice = await fx.guest('alice');
@@ -397,5 +441,134 @@ describe.runIf(isLinux)('protected entries the host changes while a guest runs (
     // Nothing of either is left in the host's project once both are gone.
     await waitFor(async () => !existsSync(join(fx.share, '.claude')) && !existsSync(join(fx.share, '.vscode')), { what: 'the placeholders removed' });
     expect((await readdir(fx.share)).sort()).toEqual(['.envrc', '.smurg', 'README.md']);
+  }, TIMEOUT);
+});
+
+describe.runIf(isLinux)('the guard-review round of 2026-10-01 (Linux, real sandbox and watcher; GR-1, GR-3, GR-4)', () => {
+  const run = promisify(execFile);
+  let events: DaemonEvents['sandbox.protected-changed'][] = [];
+
+  /** A daemon with the sandbox (short guard poll and walk) and the real file watcher, run from its own directory. */
+  async function fixture(options: { readonly files?: Readonly<Record<string, string>>; readonly git?: boolean; readonly walkMs?: number } = {}): Promise<SandboxFixture> {
+    f = await createSandboxFixture({
+      files: { 'README.md': 'x\n', ...options.files },
+      ...(options.git === true ? { git: true } : {}),
+      module: createSandboxModule({ guardPollMs: 300, guardWalkMs: options.walkMs ?? 300 }),
+      extraModules: [filesModule],
+    });
+    const fx = f;
+    const own = join(fx.stateDir, 'cwd');
+    await mkdir(own, { mode: 0o700 });
+    process.chdir(own);
+    events = [];
+    fx.ctx.bus.on('sandbox.protected-changed', (event) => events.push(event));
+    await waitFor(() => filesInstanceOf(fx.ctx)?.watcher?.watchedRoots().includes('main') === true, { what: 'the file watcher on the share' });
+    return fx;
+  }
+
+  async function start(fx: SandboxFixture, guest: GuestDirs, id: string, command: string): Promise<GuardedProcess> {
+    const settingsDir = await fx.settingsDir(id, '{}\n');
+    const wrapped = await fx.sandbox.wrap(fx.spec({ sessionId: id, command, guest, settingsDir }));
+    const p = startWrapped(wrapped, { timeoutMs: 120_000 });
+    const g: GuardedProcess = { p, wrapped, revoked: null };
+    fx.sandbox.onRevoked?.(wrapped, (revocation) => {
+      g.revoked = { at: Date.now(), revocation };
+      p.kill();
+    });
+    return g;
+  }
+
+  async function revokedWithin(g: GuardedProcess, since: number, timeoutMs = 10_000): Promise<number> {
+    await waitFor(() => g.revoked !== null, { timeoutMs, what: 'the revocation of the guest process' });
+    await g.p.exited;
+    return (g.revoked?.at ?? 0) - since;
+  }
+
+  it('GR-1: a name in a directory the watcher never watched (made in one burst with its parent): a guest\'s two-step plant and the host\'s new secret there revoke the guest', async () => {
+    const fx = await fixture();
+    const alice = await fx.guest('alice');
+    // (a) `mkdir -p deep/a/b`, a second later the name: inotify never watched deep/a/b, so no event at all.
+    const a = await start(fx, alice, 'ses_gr1_plant', "mkdir -p deep/a/b && sleep 1 && mkdir deep/a/b/.claude && echo '{\"hooks\":{}}' > deep/a/b/.claude/settings.json && echo PLANTED; exec sleep 120");
+    await a.p.waitForOutput(/PLANTED/, 30_000);
+    const planted = Date.now();
+    const ms = await revokedWithin(a, planted);
+    expect(a.revoked?.revocation.paths).toContain(join(fx.share, 'deep', 'a', 'b', '.claude'));
+    expect(events.map((event) => event.paths)).toContainEqual(expect.arrayContaining(['deep/a/b/.claude']));
+    // (b) the host's `mkdir -p` (coreutils: every level in one go) before the guest starts, the secret file later.
+    await run('mkdir', ['-p', join(fx.share, 'svc', 'api', 'config')]);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const c = await start(fx, alice, 'ses_gr1_reader', 'echo UP; exec sleep 120');
+    await c.p.waitForOutput(/UP/, 30_000);
+    const written = Date.now();
+    await writeFile(join(fx.share, 'svc', 'api', 'config', '.envrc'), 'export TOKEN=host-secret\n');
+    const ms2 = await revokedWithin(c, written);
+    expect(c.revoked?.revocation.paths).toContain(join(fx.share, 'svc', 'api', 'config', '.envrc'));
+    process.stdout.write(`GR-1 revocation: two-step plant ${ms} ms, host secret in a mkdir -p directory ${ms2} ms\n`);
+  }, TIMEOUT);
+
+  it('GR-1: a guest that plants a name in such a directory and exits at once: the host is still told after the release (nothing left to revoke)', async () => {
+    const fx = await fixture({ walkMs: 3_600_000 });
+    const alice = await fx.guest('alice');
+    const g = await start(fx, alice, 'ses_gr1_exit', 'mkdir -p late/x && sleep 0.3 && mkdir late/x/.vscode && echo DONE');
+    await g.p.exited;
+    await waitFor(() => events.some((event) => event.paths.includes('late/x/.vscode')), { timeoutMs: 10_000, what: 'the host told of late/x/.vscode' });
+    expect(events.find((event) => event.paths.includes('late/x/.vscode'))?.revoked).toBe(0);
+  }, TIMEOUT);
+
+  it('GR-3: the host\'s new sub/.envrc right after a build wrote 20,000 files still revokes the guest at once (the sandbox hears of each watcher batch as it arrives, not behind the files module\'s own work)', async () => {
+    const fx = await fixture({ files: { 'sub/a.txt': 'a\n' } });
+    const alice = await fx.guest('alice');
+    const g = await start(fx, alice, 'ses_gr3', 'echo UP; exec sleep 120');
+    await g.p.waitForOutput(/UP/, 30_000);
+    for (let d = 0; d < 20; d++) {
+      await mkdir(join(fx.share, 'dist', `d${d}`), { recursive: true });
+      await Promise.all(Array.from({ length: 1000 }, (_, i) => writeFile(join(fx.share, 'dist', `d${d}`, `f${i}.js`), 'x')));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const written = Date.now();
+    await writeFile(join(fx.share, 'sub', '.envrc'), 'export SECRET=late\n');
+    const ms = await revokedWithin(g, written, 30_000);
+    process.stdout.write(`GR-3 revocation behind a 20,000-file build: ${ms} ms\n`);
+    expect(ms).toBeLessThan(3_000);
+  }, TIMEOUT);
+
+  it('GR-4: a git share: while a guest runs, the host\'s `git add -A` and `git stash -u` leave the placeholders alone; a checkout that puts a tracked empty .envrc in place revokes the guest, and that file is still there, unchanged, once the guest is gone', async () => {
+    const fx = await fixture({ git: true });
+    const env = fx.gitEnv();
+    const git = async (...args: string[]): Promise<string> => (await run('git', args, { cwd: fx.share, env })).stdout;
+    await git('checkout', '-q', '-b', 'with-envrc');
+    await writeFile(join(fx.share, '.envrc'), '');
+    await git('add', '.envrc');
+    await git('commit', '-q', '-m', 'an empty .envrc');
+    await git('checkout', '-q', 'main');
+    expect(existsSync(join(fx.share, '.envrc'))).toBe(false);
+    const alice = await fx.guest('alice');
+    const g = await start(fx, alice, 'ses_gr4', 'echo UP; exec sleep 120');
+    await g.p.waitForOutput(/UP/, 30_000);
+    for (const name of ['.mcp.json', '.envrc', '.claude', '.vscode', '.idea']) expect(existsSync(join(fx.share, name)), name).toBe(true);
+    await writeFile(join(fx.share, 'notes.txt'), 'mine\n');
+    await git('add', '-A');
+    expect(await git('diff', '--cached', '--name-only')).toBe('notes.txt\n');
+    await git('commit', '-q', '-m', 'work');
+    await writeFile(join(fx.share, 'wip.txt'), 'wip\n');
+    await git('stash', '-u', '-q');
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(g.revoked).toBeNull();
+    expect(events).toEqual([]);
+    await git('stash', 'pop', '-q');
+    await rm(join(fx.share, 'wip.txt'));
+    // The checkout replaces the ignored placeholder with the tracked file: the guest's mount is gone, so it ends.
+    const switched = Date.now();
+    await git('checkout', '-q', 'with-envrc');
+    const checkedOut = await lstat(join(fx.share, '.envrc'));
+    expect(checkedOut.mode & 0o222).not.toBe(0); // git's file (umask), not srt's 0444 one
+    await revokedWithin(g, switched);
+    expect(g.revoked?.revocation.paths).toContain(join(fx.share, '.envrc'));
+    await waitFor(() => !existsSync(join(fx.share, '.vscode')), { what: 'the placeholders gone' });
+    const kept = await lstat(join(fx.share, '.envrc'));
+    expect([kept.isFile(), kept.size, kept.ino, kept.mode]).toEqual([true, 0, checkedOut.ino, checkedOut.mode]);
+    expect(existsSync(join(fx.share, '.mcp.json'))).toBe(false);
+    expect(await git('status', '--porcelain', '--untracked-files=all')).toBe('');
+    expect(await readFile(join(fx.share, '.git', 'info', 'exclude'), 'utf8')).not.toContain('placeholders');
   }, TIMEOUT);
 });

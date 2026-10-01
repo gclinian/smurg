@@ -19,6 +19,9 @@ Claude Code。檔案和 agent session 都留在主人的電腦上；relay 只轉
   （bubblewrap、socat、ripgrep）與 Ubuntu 24.04 以上的 AppArmor 限制，**經主人同意後**才用 sudo 安裝。
 - 公用 relay https://smurg-relay.gclin-ian.workers.dev（Cloudflare Workers）是 smurg 內建的預設 relay，主人和組員都用 Google 帳號登入：`smurg login`。
   也可以照 [`apps/relay/README.md`](apps/relay/README.md) 部署自己的 relay，再用 `smurg login --relay <網址>` 指定。
+- 在 **Linux** 上分享時，組員的 session 預設只能在自己的 worktree 裡執行（分享的資料夾必須是 git repository）；
+  要讓組員也能在共享主工作區開 session，用 `smurg host --allow-main-workspace-guests` 分享（開始訊息會列出 Linux 上的
+  限制）。macOS 預設開放，`--no-main-workspace-guests` 可以關掉。
 
 ### 能做什麼
 
@@ -29,7 +32,9 @@ Claude Code。檔案和 agent session 都留在主人的電腦上；relay 只轉
 - 人和 agent 都有檔案鎖；互相重疊時保留人打的內容，另一方的版本放進衝突面板。活動動態標示每一次修改是誰、哪個
   agent 做的（包括 agent 用 shell 指令改的檔案）。
 - 對別人的 agent 提出建議，由 session 的擁有者採用、修改後採用或拒絕。
-- agent 可以在自己的 git worktree 裡工作，完成後由主人看過完整的 diff 再合併。
+- agent 可以在自己的 git worktree 裡工作，完成後由主人看過完整的 diff 再合併。組員開 session 時可以選共享主工作區
+  或自己的 worktree；Linux 主人預設只開放 worktree（`--allow-main-workspace-guests` 開放主工作區），組員的網頁會
+  說明原因。
 - 主人控制台：成員、角色、邀請連結、session、操作紀錄，一鍵踢人或終止 session。
 - 主人的電腦睡眠或斷線時，所有人幾秒內看到「主人已離線」。
 
@@ -38,17 +43,24 @@ Claude Code。檔案和 agent session 都留在主人的電腦上；relay 只轉
 - **Linux 主人**：完整的測試（包括客人沙盒 R5、worktree R9）在 Ubuntu 24.04 上通過（arm64 虛擬機與 GitHub Actions 的
   x64），但還沒有人真的在 Linux 上當過主人：沒有在 Linux 沙盒裡跑過真正的 Claude Code，安裝程式的 Linux 部分也還沒在
   全新的電腦上跑過。客人沙盒需要 bubblewrap 0.8 以上（Ubuntu 24.04、Debian 12 以上內建的版本即可；Ubuntu 22.04 的
-  0.6 太舊，客人 session 會被拒絕）。Linux 的沙盒有幾點做不到 macOS 的程度，最主要的是：組員在**主工作區**開的
-  session 可以在子資料夾裡新增 `.claude`、`.mcp.json`、`.git` 這類只有主人能改的設定（最上層和已經存在的擋得住，
+  0.6 太舊，客人 session 會被拒絕）。Linux 的沙盒有幾點做不到 macOS 的程度，所以 **Linux 主人預設不讓組員在共享
+  主工作區開 session**，組員只能用自己的 worktree；分享的資料夾不是 git repository 時，組員在 Linux 主人的電腦上
+  預設不能開 session（主人可以用 `--allow-main-workspace-guests` 開放）。主人開放之後，最主要的限制是：組員在主工作區
+  開的 session 可以在子資料夾裡新增 `.claude`、`.mcp.json`、`.git` 這類只有主人能改的設定（最上層和已經存在的擋得住，
   前提是主人沒有在組員的程序執行中刪除、改名或取代它們），主人在那個子資料夾裡打開自己的工具時要先檢查
-  （[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §12）。組員的程序執行期間，主人在分享的資料夾裡儲存、新增、刪除或
+  （[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §12）；組員的程序執行期間，主人在分享的資料夾裡儲存、新增、刪除或
   改名（例如 `git switch`）`.envrc`、`.mcp.json`、`.claude/`（包括主人自己的 Claude Code 選「不再詢問」時寫入的
-  `.claude/settings.local.json`）、`CLAUDE.local.md` 這類檔案，沙盒無法跟上：smurg 會在發現後（約 0.1 秒內）結束那個資料夾裡所有組員的程序，並在
-  `smurg host` 的終端機列出檔名，但在那之前組員的程序可能讀到新的內容或改寫它。所以要編輯這些檔案之前，請先請組員
-  結束 session。組員的程序執行期間，專案最上層原本沒有的 `.claude`、`.git`、`.vscode`、`.idea` 會暫時出現為空的
-  資料夾，`.mcp.json`、`.envrc` 為空的唯讀檔案（`git status` 會列出這兩個檔案），程序都結束後就會移除。透過 SSH
-  啟動 `smurg host` 時，Ubuntu 預設不允許防止睡眠。
+  `.claude/settings.local.json`）、`CLAUDE.local.md` 這類檔案，沙盒無法跟上：smurg 會在發現後（通常 0.1 秒內；在
+  `mkdir -p`、`git checkout`、解壓縮一次建好的多層子資料夾裡要等下一次掃描，通常幾秒內）結束那個資料夾裡所有組員的
+  程序，並在 `smurg host` 的終端機列出檔名，但在那之前組員的程序可能讀到新的內容或改寫它。所以要編輯這些檔案之前，
+  請先請組員結束 session。組員的程序執行期間，專案（或組員的 worktree）最上層原本沒有的 `.claude`、`.git`、`.vscode`、
+  `.idea` 會暫時出現為空的資料夾，`.mcp.json`、`.envrc` 為空的唯讀檔案，程序都結束後就會移除；在主人的 git
+  repository 裡它們會暫時列在 `.git/info/exclude`，所以 `git status`、`git add -A`、`git stash -u` 不會動到它們
+  （`git add -f`、`git clean -x`、`git stash -a` 仍會）。透過 SSH 啟動 `smurg host` 時，Ubuntu 預設不允許防止睡眠。
   組員用什麼作業系統都可以（瀏覽器）。
+- 組員在共享主工作區可以寫 `.gitmodules`、`.gitconfig`、`.bashrc`、`.zshrc`、`.profile` 這類檔名（macOS 與 Linux
+  都一樣：`smurg host` 一律從自己的工作目錄 `~/.smurg/cwd` 執行，沙盒不再依啟動 `smurg host` 的位置決定是否擋下這些
+  檔名）。git 和 shell 不會從專案資料夾執行它們；執行 `git submodule update` 之前請看一下 `.gitmodules`。
 - **macOS 執行檔沒有 Apple 簽章**：只有 ad-hoc 簽章，沒有 Developer ID 簽章與公證。用上面的 `curl` 安裝不會被
   Gatekeeper 擋下（安裝程式在驗證 sha256 之後，會移除下載檔案可能帶有的 quarantine 屬性）；用瀏覽器下載的執行檔
   會被擋下。

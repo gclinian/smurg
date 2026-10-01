@@ -127,11 +127,18 @@ export interface FakeSrtOptions {
   readonly wrapResult?: (command: string, custom: SrtSessionConfig) => string;
   /** Linux: the bridge sockets srt reports after initialize() (must exist: the service resolves them). */
   readonly proxySockets?: () => readonly string[];
+  /**
+   * Runs where srt removes its mount points: in the cleanupAfterCommand() call that brings its count of wrapped
+   * commands back to zero (cleanupBwrapMountPoints).
+   */
+  readonly onMountPointCleanup?: () => void;
 }
 
 export function fakeSrt(options: FakeSrtOptions): FakeSrt {
   const calls = { initialize: [] as SrtBaseConfig[], initializeTmpdir: [] as string[], update: [] as SrtBaseConfig[], wrap: [] as { command: string; custom: SrtSessionConfig }[], reset: 0, cleanups: 0 };
   let updates = 0;
+  /** Wrapped commands not yet cleaned up (srt's activeSandboxCount). */
+  let active = 0;
   return {
     calls,
     version: options.version === undefined ? '0.0.77' : options.version,
@@ -151,6 +158,7 @@ export function fakeSrt(options: FakeSrtOptions): FakeSrt {
     },
     wrapWithSandbox: async (command, _shell, custom) => {
       calls.wrap.push({ command, custom });
+      active++;
       if (options.wrapResult) return options.wrapResult(command, custom);
       return options.platform === 'darwin'
         ? syntheticDarwinCommand(command, syntheticDarwinProfile(custom.filesystem.allowWrite))
@@ -158,6 +166,8 @@ export function fakeSrt(options: FakeSrtOptions): FakeSrt {
     },
     cleanupAfterCommand: () => {
       calls.cleanups++;
+      if (active > 0) active--;
+      if (active === 0) options.onMountPointCleanup?.();
     },
     linuxProxySockets: () => (options.platform === 'linux' ? (options.proxySockets?.() ?? []) : []),
     reset: async () => {

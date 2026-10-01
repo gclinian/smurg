@@ -94,6 +94,23 @@ describe('who may start a login, and with what (D-12)', { timeout: 60_000 }, () 
     await expect(rita.conn.request('session.create', { ...agent, apiKey: 'sk-ant-api03-test-key-0000000000' })).resolves.toMatchObject({ session: { kind: 'agent' } });
   });
 
+  it('guests kept out of the main workspace (config.sessions.guestMainWorkspace false, §11 D-14): the login process still starts (it reads nothing of the share), while their agent in the main workspace is refused', async () => {
+    const s = await stack({ claudePath: await loginClaude(await standinDir(), true), guestMainWorkspace: false });
+    const rita = await s.t.connect({ userId: 'dev:rita', role: 'runner' });
+    expect(rita.welcome?.settings.guestMainWorkspace).toBe(false);
+    await expect(rita.conn.request('session.create', agent)).rejects.toMatchObject({ code: 'forbidden', detail: { reason: 'main-workspace-off' } });
+    expect(s.fakes.sandbox.wraps).toEqual([]);
+    const { session } = await rita.conn.request('session.create', login);
+    expect(session).toMatchObject({ kind: 'login', sandboxed: true, root: { kind: 'main' } });
+    const spec = s.fakes.sandbox.wraps.at(-1) as unknown as { rootPath: string; guestDir: string };
+    // Its root is the guest's own home, never the share.
+    expect(spec.rootPath).toBe(s.sessions.guestPaths('dev:rita').home);
+    expect(spec.rootPath).not.toBe(s.t.ctx.roots.main.realPath);
+    const audit = await s.t.ctx.audit.query({ limit: 20 });
+    expect(audit.filter((e) => e.action === 'session.create' && e.outcome === 'ok')).toEqual([expect.objectContaining({ detail: expect.objectContaining({ kind: 'login' }) })]);
+    await s.sessions.killAllForUser('dev:rita', 'left');
+  });
+
   it('only a guest who may own sandboxed sessions: the host (unsandboxed) and editors / viewers are refused', async () => {
     const s = await stack();
     const host = await s.t.connectHost();

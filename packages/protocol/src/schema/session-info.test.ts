@@ -62,3 +62,23 @@ describe('the guest subscription login (D-12)', () => {
     expect(hostSettingsPatchSchema.safeParse({ guestSubscriptionLogin: false }).success).toBe(false);
   });
 });
+
+// ARCHITECTURE §11 D-14 (owner decision 2026-10-01): whether guests may use the shared main workspace is the daemon's
+// configuration (off by default on a Linux host), published to every member, never a console setting.
+describe('guests in the main workspace (D-14)', () => {
+  const base = { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [] };
+
+  it('PublicSettings may say it (true / false / not said), only as a boolean', () => {
+    expect(publicSettingsSchema.parse({ ...base, guestMainWorkspace: false }).guestMainWorkspace).toBe(false);
+    expect(publicSettingsSchema.parse({ ...base, guestMainWorkspace: true }).guestMainWorkspace).toBe(true);
+    expect(publicSettingsSchema.parse(base).guestMainWorkspace).toBeUndefined();
+    expect(publicSettingsSchema.parse({ ...base, guestSubscriptionLogin: true, guestMainWorkspace: false })).toEqual({ ...base, guestSubscriptionLogin: true, guestMainWorkspace: false });
+    for (const bad of ['no', 0, 1, null]) expect(publicSettingsSchema.safeParse({ ...base, guestMainWorkspace: bad }).success).toBe(false);
+  });
+
+  it('HostSettings and admin.settings.set cannot carry it (the console cannot open the main workspace to guests)', () => {
+    const host = { ...base, allowedDomains: [], diskReserveBytes: 1, diskReservePercent: 5 };
+    expect(hostSettingsSchema.safeParse({ ...host, guestMainWorkspace: false }).success).toBe(false);
+    expect(hostSettingsPatchSchema.safeParse({ guestMainWorkspace: true }).success).toBe(false);
+  });
+});

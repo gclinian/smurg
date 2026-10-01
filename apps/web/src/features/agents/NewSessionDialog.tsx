@@ -1,9 +1,12 @@
 // 「新增 session」 (SPEC R4, R9): kind, where (shared main workspace / my worktree: a new one or one of my kept ones),
 // what the role allows, and the daemon's refusal in plain zh-TW — a sandbox refusal with its actionable message.
+// A guest on a host that keeps guests out of the main workspace (PublicSettings.guestMainWorkspace false, the Linux
+// default, ARCHITECTURE §11 D-14) sees 「共享主工作區」 disabled with the reason, starts in 「我的新 worktree」, and on a
+// share that is not a git repository is told that guest sessions are not available here and how the host opens them.
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
 import { shallowEqual, useStore } from '../../lib/store.ts';
-import { selectRole, selectUserId, selectWorkspaceInfo } from '../../lib/stores/workspace.ts';
+import { selectRole, selectSettings, selectUserId, selectWorkspaceInfo } from '../../lib/stores/workspace.ts';
 import { selectWorktreeList } from '../../lib/stores/worktrees.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
@@ -14,6 +17,7 @@ import {
   apiKeyApplies,
   apiKeyProblem,
   buildCreatePayload,
+  effectiveWhere,
   newSessionOptions,
   type NewSessionForm,
   type SessionKind,
@@ -37,11 +41,12 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
   const role = useStore(stores.workspace, selectRole);
   const userId = useStore(stores.workspace, selectUserId);
   const workspace = useStore(stores.workspace, selectWorkspaceInfo);
+  const guestMainWorkspace = useStore(stores.workspace, selectSettings)?.guestMainWorkspace;
   const worktreeList = useStore(stores.worktrees, selectWorktreeList, shallowEqual);
   const sessionMap = useStore(stores.sessions, (state) => state.sessions);
   const options = useMemo(
-    () => newSessionOptions({ role, userId, workspace, worktrees: worktreeList, sessions: sessionMap }),
-    [role, userId, workspace, worktreeList, sessionMap],
+    () => newSessionOptions({ role, userId, workspace, worktrees: worktreeList, sessions: sessionMap, guestMainWorkspace }),
+    [role, userId, workspace, worktreeList, sessionMap, guestMainWorkspace],
   );
 
   const [form, setForm] = useState<NewSessionForm>(INITIAL_FORM);
@@ -59,9 +64,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
   }, [open]);
 
   const keptChoices = options.worktree.kept.map((worktree) => ({ worktree, value: `worktree:${worktree.id}` as WhereChoice }));
-  const whereValid =
-    form.where === 'main' || (options.worktree.available && (form.where === 'worktree:new' || keptChoices.some((choice) => choice.value === form.where)));
-  const where: WhereChoice = whereValid ? form.where : 'main';
+  // The form starts at 「共享主工作區」; a guest kept out of it starts at 「我的新 worktree」 (and so does a choice that is gone).
+  const where: WhereChoice = effectiveWhere(options, form.where);
   const keyApplies = apiKeyApplies(options, form.kind);
   const keyInUse = keyApplies && useKey;
   const keyProblem = keyInUse ? apiKeyProblem(form.apiKey.trim()) : null;
@@ -89,6 +93,9 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
 
   const blockedText =
     options.blockedBy === 'role-editor' ? t('new.role.editor') : options.blockedBy === 'role-viewer' ? t('new.role.viewer') : t('new.role.unknown');
+  // Why guests are kept out of the main workspace: the Linux default (the sandbox there cannot protect the host's
+  // configuration files in it completely), or the host's own choice elsewhere.
+  const mainOffWhy = workspace?.platform === 'linux' ? t('new.where.mainOffWhyLinux') : t('new.where.mainOffWhyOther');
 
   const kindOption = (kind: SessionKind, hint: string) => (
     <label className="agents-choice">
@@ -133,12 +140,22 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
     >
       {!options.canCreate ? (
         <Banner tone="info" live="none">
-          {blockedText}
+          {options.blockedBy === 'guest-sessions-off' ? (
+            <>
+              <p>
+                {mainOffWhy}
+                {t('new.blocked.guestOff')}
+              </p>
+              <p>{t('new.blocked.guestOffHow')}</p>
+            </>
+          ) : (
+            blockedText
+          )}
         </Banner>
       ) : (
         <form id={formId} className="agents-form" onSubmit={(event) => void submit(event)} autoComplete="off">
           <Banner tone="neutral" live="none" icon={<IconShield />}>
-            {options.sandboxed ? t('new.sandbox.guest') : t('new.sandbox.host')}
+            {!options.sandboxed ? t('new.sandbox.host') : options.main.available ? t('new.sandbox.guest') : t('new.sandbox.guestWorktree')}
           </Banner>
 
           <fieldset className="agents-fieldset">
@@ -149,12 +166,18 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
 
           <fieldset className="agents-fieldset">
             <legend>{t('new.where')}</legend>
-            {whereOption('main', t('new.where.main'), t('new.where.mainHint'), false)}
+            {whereOption('main', t('new.where.main'), options.main.available ? t('new.where.mainHint') : t('new.where.mainOffHint'), !options.main.available)}
             {whereOption('worktree:new', t('new.where.worktreeNew'), options.worktree.available ? t(role === 'host' ? 'new.where.worktreeHintHost' : 'new.where.worktreeHint') : null, !options.worktree.available)}
             {keptChoices.map(({ worktree, value }) => (
               <div key={worktree.id}>{whereOption(value, t('new.where.worktreeKept', { branch: worktree.branch }), null, false)}</div>
             ))}
             {!options.worktree.available ? <p className="agents-fieldset__note">{t('new.where.notGit')}</p> : null}
+            {!options.main.available ? (
+              <p className="agents-fieldset__note" data-testid="new-session-main-off">
+                {mainOffWhy}
+                {t('new.where.mainOffThen')}
+              </p>
+            ) : null}
           </fieldset>
 
           <Input label={t('new.name')} hint={t('new.nameHint')} maxLength={256} value={form.title} onChange={(event) => update({ title: event.currentTarget.value })} />

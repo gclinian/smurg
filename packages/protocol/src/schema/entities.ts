@@ -100,7 +100,13 @@ export const AGENT_LOCK_TIMEOUT_MS_RANGE = { min: 1_000, max: 600_000 } as const
  * `guestSubscriptionLogin` (addition, ARCHITECTURE §11 D-12): whether a guest may start a `login` session (their
  * Claude subscription login); false ⇒ guests log in with an API key only. It is the daemon's configuration
  * (config.sessions.guestSubscriptionLogin), not a console setting: HostSettings / admin.settings.set do not carry it.
- * Optional so that a client can tell "not said" (an older daemon) from an explicit answer.
+ * `guestMainWorkspace` (addition, ARCHITECTURE §11 D-14): whether a sandboxed (guest) agent / terminal session may use
+ * the shared main workspace (workspace.mode 'main'); false ⇒ guests get worktree mode only (a git share) and
+ * session.create of a sandboxed main-mode session is refused (`forbidden`, detail.reason 'main-workspace-off'). Off by
+ * default on a Linux host, on by default on macOS; the daemon's configuration (config.sessions.guestMainWorkspace,
+ * `smurg host --allow-main-workspace-guests` / `--no-main-workspace-guests`), not a console setting either. A guest's
+ * `login` session (mode 'main', nothing of the share) is not affected.
+ * Both are optional so that a client can tell "not said" (an older daemon) from an explicit answer.
  */
 export const publicSettingsSchema = z.strictObject({
   humanLockIdleMs: z.int().min(HUMAN_LOCK_IDLE_MS_RANGE.min).max(HUMAN_LOCK_IDLE_MS_RANGE.max),
@@ -108,11 +114,12 @@ export const publicSettingsSchema = z.strictObject({
   uploadChunkSize: z.int().min(MIN_CHUNK_SIZE).max(MAX_CHUNK_SIZE),
   sharedDirs: z.array(entryPathSchema).max(SHARED_DIRS_MAX),
   guestSubscriptionLogin: z.boolean().optional(),
+  guestMainWorkspace: z.boolean().optional(),
 });
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;
 
 /** Host-only settings. `diskReservePercent` is a percentage of the volume size (0–100); bytes are bytes (5 GiB = 5 × 2^30). */
-export const hostSettingsSchema = publicSettingsSchema.omit({ guestSubscriptionLogin: true }).extend({
+export const hostSettingsSchema = publicSettingsSchema.omit({ guestSubscriptionLogin: true, guestMainWorkspace: true }).extend({
   allowedDomains: z.array(allowedDomainSchema).max(ALLOWED_DOMAINS_MAX),
   diskReserveBytes: byteCountSchema,
   diskReservePercent: z.number().min(0).max(100),

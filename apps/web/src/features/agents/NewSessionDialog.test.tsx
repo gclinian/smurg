@@ -10,13 +10,17 @@ import { captureConsole, storesText, webStorageText } from './test-support.tsx';
 
 const API_KEY = 'sk-ant-api03-SECRET-guest-key-0123456789';
 
-function renderDialog(role: Role, options: { git?: boolean } = {}) {
+function renderDialog(role: Role, options: { git?: boolean; guestMainWorkspace?: boolean; platform?: 'darwin' | 'linux' } = {}) {
   const onCreated = vi.fn();
   const onClose = vi.fn();
   const result = renderInWorkspace(<NewSessionDialog open onClose={onClose} onCreated={onCreated} />, { role, admit: false });
   const welcome = makeWelcome({ role });
   act(() => {
-    result.conn.admit({ ...welcome, workspace: { ...welcome.workspace, isGitRepo: options.git ?? true } });
+    result.conn.admit({
+      ...welcome,
+      workspace: { ...welcome.workspace, isGitRepo: options.git ?? true, ...(options.platform ? { platform: options.platform } : {}) },
+      settings: { ...welcome.settings, ...(options.guestMainWorkspace !== undefined ? { guestMainWorkspace: options.guestMainWorkspace } : {}) },
+    });
   });
   return { ...result, onCreated, onClose };
 }
@@ -93,6 +97,118 @@ describe('new session dialog: where it runs (R9)', () => {
     renderDialog('runner', { git: false });
     expect(screen.getByRole('radio', { name: /我的新 worktree/ })).toHaveProperty('disabled', true);
     expect(screen.getByText('這個資料夾不是 git 儲存庫，所以無法使用 worktree。')).toBeTruthy();
+  });
+});
+
+describe('new session dialog: a host that keeps guests out of the main workspace (PublicSettings.guestMainWorkspace false, §11 D-14)', () => {
+  const mainRadio = () => screen.getByRole('radio', { name: /共享主工作區/ });
+  const newWorktreeRadio = () => screen.getByRole('radio', { name: /我的新 worktree/ });
+
+  it('a guest on a Linux host (git share): 「共享主工作區」 is disabled with the reason, 「我的新 worktree」 is preselected and is what is sent', async () => {
+    const { conn, onCreated } = renderDialog('runner', { guestMainWorkspace: false, platform: 'linux' });
+    await act(async () => {
+      conn.respond('worktree.list', { worktrees: [makeWorktree({ id: 'wt_kept', branch: 'smurg/amy/wt_kept', kept: true })] });
+      conn.respond('worktree.merge.list', { requests: [] });
+    });
+    expect(mainRadio()).toHaveProperty('disabled', true);
+    expect(mainRadio()).toHaveProperty('checked', false);
+    expect(newWorktreeRadio()).toHaveProperty('checked', true);
+    expect(screen.getByText('主人沒有開放客人使用（原因見下方）。')).toBeTruthy();
+    const note = screen.getByTestId('new-session-main-off').textContent ?? '';
+    expect(note).toContain('這台主人電腦是 Linux：分享時預設不開放客人使用共享主工作區');
+    expect(note).toContain('沙盒無法完整保護主工作區裡主人的設定檔');
+    expect(note).toContain('你的 session 會在自己的 worktree 裡執行');
+    expect(note).toContain('smurg host --allow-main-workspace-guests');
+    // The sandbox banner names only the worktree.
+    expect(screen.getByText(/只能讀寫你的 worktree 和你自己的暫存目錄/)).toBeTruthy();
+    // Clicking the disabled choice changes nothing.
+    fireEvent.click(mainRadio());
+    expect(newWorktreeRadio()).toHaveProperty('checked', true);
+    fireEvent.click(screen.getByRole('radio', { name: /一般終端機/ }));
+    await submit();
+    expect(conn.lastRequest('session.create')?.payload).toEqual({ kind: 'terminal', workspace: { mode: 'worktree' }, cols: 100, rows: 30 });
+    await act(async () => {
+      conn.fail('session.create', new SmurgError('conflict', 'session 數量已達上限', { reason: 'session-limit' }));
+    });
+    // A kept worktree of one's own can still be continued.
+    fireEvent.click(screen.getByRole('radio', { name: /繼續我保留的 worktree：smurg\/amy\/wt_kept/ }));
+    await submit();
+    expect(conn.lastRequest('session.create')?.payload.workspace).toEqual({ mode: 'worktree', worktreeId: 'wt_kept' });
+    const created = makeSession({ id: 'sess_wt', ownerUserId: 'dev:amy', ownerName: 'Amy', sandboxed: true, root: worktreeRoot('wt_kept') });
+    await act(async () => {
+      conn.respond('session.create', { session: created });
+    });
+    expect(onCreated).toHaveBeenCalledWith(created);
+    // Never a main-mode request from this guest.
+    expect(conn.requestsOf('session.create').map((request) => request.payload.workspace.mode)).not.toContain('main');
+  });
+
+  it('on a host that is not Linux the reason is the host\'s own choice (no claim about Linux)', () => {
+    renderDialog('runner', { guestMainWorkspace: false, platform: 'darwin' });
+    const note = screen.getByTestId('new-session-main-off').textContent ?? '';
+    expect(note).toContain('主人分享時關閉了客人使用共享主工作區的功能。');
+    expect(note).not.toContain('Linux');
+    expect(newWorktreeRadio()).toHaveProperty('checked', true);
+  });
+
+  it('the setting arriving while the dialog is open (channel.settingsUpdated) moves the choice off the main workspace, and back', async () => {
+    const { conn } = renderDialog('runner', { platform: 'linux' });
+    expect(mainRadio()).toHaveProperty('checked', true);
+    expect(screen.queryByTestId('new-session-main-off')).toBeNull();
+    await act(async () => {
+      conn.emit('channel.settingsUpdated', { settings: { ...makeWelcome().settings, guestMainWorkspace: false } });
+    });
+    expect(mainRadio()).toHaveProperty('disabled', true);
+    expect(newWorktreeRadio()).toHaveProperty('checked', true);
+    await submit();
+    expect(conn.lastRequest('session.create')?.payload.workspace).toEqual({ mode: 'worktree' });
+    await act(async () => {
+      conn.fail('session.create', new SmurgError('conflict', 'session 數量已達上限', { reason: 'session-limit' }));
+    });
+    await act(async () => {
+      conn.emit('channel.settingsUpdated', { settings: { ...makeWelcome().settings, guestMainWorkspace: true } });
+    });
+    expect(mainRadio()).toHaveProperty('disabled', false);
+    expect(mainRadio()).toHaveProperty('checked', true);
+  });
+
+  it('a guest on a share that is not a git repository: no session can be opened here, the dialog says why and how the host opens them', () => {
+    renderDialog('runner', { git: false, guestMainWorkspace: false, platform: 'linux' });
+    const text = within(screen.getByRole('dialog')).getByText(/這個資料夾也不是 git 儲存庫/).closest('.ui-banner')?.textContent ?? '';
+    expect(text).toContain('這台主人電腦是 Linux：分享時預設不開放客人使用共享主工作區');
+    expect(text).toContain('所以這台主人電腦目前不能開啟客人的 session');
+    expect(text).toContain('請主人用 smurg host --allow-main-workspace-guests 重新分享');
+    expect(text).toContain('設成 git 儲存庫（至少有一個 commit）後重新分享');
+    expect(screen.queryByRole('button', { name: '開啟' })).toBeNull();
+    expect(screen.queryByRole('radio')).toBeNull();
+    expect(screen.getByRole('button', { name: '關閉' })).toBeTruthy();
+  });
+
+  it("the host's own session is not affected: the main workspace stays offered and preselected (git or not)", async () => {
+    for (const git of [true, false]) {
+      const { conn, unmount } = renderDialog('host', { git, guestMainWorkspace: false, platform: 'linux' });
+      expect(mainRadio()).toHaveProperty('disabled', false);
+      expect(mainRadio()).toHaveProperty('checked', true);
+      expect(screen.queryByTestId('new-session-main-off')).toBeNull();
+      await submit();
+      expect(conn.lastRequest('session.create')?.payload.workspace).toEqual({ mode: 'main' });
+      unmount();
+    }
+  });
+
+  it("the daemon's refusal (forbidden, main-workspace-off) is shown as it says, with what to do — never as a role problem", async () => {
+    // A client that did not know yet (an older settings state): the daemon refuses and says so.
+    const { conn } = renderDialog('runner');
+    await submit();
+    const message = '這台主人電腦沒有開放客人使用主工作區；請改用 worktree 模式，或請主人用 --allow-main-workspace-guests 重新分享';
+    await act(async () => {
+      conn.fail('session.create', new SmurgError('forbidden', message, { reason: 'main-workspace-off' }));
+    });
+    const alert = dialogAlert();
+    expect(alert.textContent).toContain('無法開啟 session');
+    expect(alert.textContent).toContain(message);
+    expect(alert.textContent).toContain('改選「我的新 worktree」');
+    expect(alert.textContent).not.toContain('你的角色不能執行這個動作');
   });
 });
 

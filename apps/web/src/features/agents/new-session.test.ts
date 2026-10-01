@@ -3,16 +3,29 @@
 import { describe, expect, it } from 'vitest';
 import type { Role, SessionInfo, WorkspaceInfo } from '@smurg/protocol';
 import { makeSession, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
-import { apiKeyApplies, apiKeyProblem, buildCreatePayload, newSessionOptions } from './new-session.ts';
+import {
+  apiKeyApplies,
+  apiKeyProblem,
+  buildCreatePayload,
+  defaultWhere,
+  effectiveWhere,
+  guestSessionsOff,
+  keptOutOfMain,
+  newSessionOptions,
+} from './new-session.ts';
 
 const workspace = (isGitRepo: boolean): WorkspaceInfo => ({ ...makeWelcome().workspace, isGitRepo });
-const options = (role: Role | null, extra: { git?: boolean; userId?: string; worktrees?: Parameters<typeof newSessionOptions>[0]['worktrees']; sessions?: SessionInfo[] } = {}) =>
+const options = (
+  role: Role | null,
+  extra: { git?: boolean; userId?: string; worktrees?: Parameters<typeof newSessionOptions>[0]['worktrees']; sessions?: SessionInfo[]; guestMainWorkspace?: boolean } = {},
+) =>
   newSessionOptions({
     role,
     userId: role === null ? null : (extra.userId ?? 'dev:amy'),
     workspace: workspace(extra.git ?? true),
     worktrees: extra.worktrees ?? [],
     sessions: new Map((extra.sessions ?? []).map((session) => [session.id, session])),
+    ...(extra.guestMainWorkspace !== undefined ? { guestMainWorkspace: extra.guestMainWorkspace } : {}),
   });
 
 describe('new session: what each role may open (the daemon decides again)', () => {
@@ -83,5 +96,67 @@ describe('new session: where it runs (R9)', () => {
     expect(apiKeyProblem('has space')).toBe('invalid');
     expect(apiKeyProblem('x'.repeat(257))).toBe('invalid');
     expect(apiKeyProblem('中文')).toBe('invalid');
+  });
+});
+
+describe('new session: a host that keeps guests out of the main workspace (PublicSettings.guestMainWorkspace, ARCHITECTURE §11 D-14)', () => {
+  const size = { cols: 100, rows: 30 };
+  const base = { kind: 'agent' as const, title: '', apiKey: '' };
+
+  it('undefined (an older daemon) and true leave everything as it was: the main workspace is offered and preselected', () => {
+    for (const guestMainWorkspace of [undefined, true]) {
+      const runner = options('runner', guestMainWorkspace === undefined ? {} : { guestMainWorkspace });
+      expect(runner).toMatchObject({ canCreate: true, blockedBy: null, sandboxed: true, main: { available: true, unavailableReason: null } });
+      expect(defaultWhere(runner)).toBe('main');
+      expect(buildCreatePayload(runner, { ...base, where: 'main' }, size).workspace).toEqual({ mode: 'main' });
+      const plain = options('runner', { git: false, ...(guestMainWorkspace === undefined ? {} : { guestMainWorkspace }) });
+      expect(plain).toMatchObject({ canCreate: true, main: { available: true } });
+    }
+  });
+
+  it('false, git share: a guest gets worktrees only — main unavailable with the reason, a new worktree preselected, never a main-mode request', () => {
+    const runner = options('runner', { guestMainWorkspace: false, worktrees: [makeWorktree({ id: 'wt_9', kept: true })] });
+    expect(runner).toMatchObject({ canCreate: true, blockedBy: null, sandboxed: true, main: { available: false, unavailableReason: 'host-off' } });
+    expect(runner.worktree).toMatchObject({ available: true, unavailableReason: null });
+    expect(defaultWhere(runner)).toBe('worktree:new');
+    // A form still at its initial 「共享主工作區」 (or anything forged) becomes the guest's own new worktree.
+    expect(effectiveWhere(runner, 'main')).toBe('worktree:new');
+    expect(effectiveWhere(runner, 'worktree:wt_9')).toBe('worktree:wt_9');
+    expect(effectiveWhere(runner, 'worktree:wt_gone')).toBe('worktree:new');
+    expect(buildCreatePayload(runner, { ...base, where: 'main' }, size).workspace).toEqual({ mode: 'worktree' });
+    expect(buildCreatePayload(runner, { ...base, kind: 'terminal', where: 'main' }, size).workspace).toEqual({ mode: 'worktree' });
+    expect(buildCreatePayload(runner, { ...base, where: 'worktree:wt_9' }, size).workspace).toEqual({ mode: 'worktree', worktreeId: 'wt_9' });
+    // The API key still applies to the guest's agent (it is their own login, wherever the session runs).
+    expect(apiKeyApplies(runner, 'agent')).toBe(true);
+  });
+
+  it('false, a share that is not git: a guest cannot open a session at all, and is told why (guest-sessions-off)', () => {
+    const plain = options('runner', { git: false, guestMainWorkspace: false });
+    expect(plain).toMatchObject({ canCreate: false, blockedBy: 'guest-sessions-off', sandboxed: null, main: { available: false, unavailableReason: 'host-off' } });
+    expect(plain.worktree).toMatchObject({ available: false, unavailableReason: 'not-git' });
+    expect(guestSessionsOff('runner', workspace(false), false)).toBe(true);
+    expect(guestSessionsOff('runner', workspace(true), false)).toBe(false);
+    expect(guestSessionsOff('runner', workspace(false), undefined)).toBe(false);
+    expect(guestSessionsOff('runner', null, false)).toBe(true);
+  });
+
+  it("the host's own (unsandboxed) sessions are never affected, git or not", () => {
+    for (const git of [true, false]) {
+      const host = options('host', { git, guestMainWorkspace: false });
+      expect(host).toMatchObject({ canCreate: true, blockedBy: null, sandboxed: false, main: { available: true, unavailableReason: null } });
+      expect(defaultWhere(host)).toBe('main');
+      expect(buildCreatePayload(host, { ...base, where: 'main' }, size).workspace).toEqual({ mode: 'main' });
+    }
+    expect(keptOutOfMain('host', false)).toBe(false);
+  });
+
+  it('editors and viewers keep their own reason (they open no session either way)', () => {
+    expect(options('editor', { guestMainWorkspace: false })).toMatchObject({ canCreate: false, blockedBy: 'role-editor' });
+    expect(options('viewer', { git: false, guestMainWorkspace: false })).toMatchObject({ canCreate: false, blockedBy: 'role-viewer' });
+    expect(keptOutOfMain('editor', false)).toBe(false);
+    expect(keptOutOfMain('viewer', false)).toBe(false);
+    expect(keptOutOfMain(null, false)).toBe(false);
+    expect(keptOutOfMain('runner', false)).toBe(true);
+    expect(keptOutOfMain('runner', true)).toBe(false);
   });
 });

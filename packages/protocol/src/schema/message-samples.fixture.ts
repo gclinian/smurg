@@ -136,11 +136,18 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   },
   'channel.settingsUpdated': {
     payload: {
-      valid: [{ settings: publicSettings }, { settings: { ...publicSettings, guestSubscriptionLogin: false } }],
+      valid: [
+        { settings: publicSettings },
+        { settings: { ...publicSettings, guestSubscriptionLogin: false } },
+        { settings: { ...publicSettings, guestSubscriptionLogin: true, guestMainWorkspace: false } },
+        { settings: { ...publicSettings, guestMainWorkspace: true } },
+      ],
       invalid: [
         { settings: hostSettings },
         { settings: { ...publicSettings, uploadChunkSize: 16 * MiB } },
         { settings: { ...publicSettings, guestSubscriptionLogin: 'yes' } },
+        { settings: { ...publicSettings, guestMainWorkspace: 'no' } },
+        { settings: { ...publicSettings, guestMainWorkspace: null } },
         {},
       ],
     },
@@ -612,7 +619,11 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
     payload: emptyOnly,
     result: {
       valid: [{ settings: hostSettings }],
-      invalid: [{ settings: { ...hostSettings, uploadChunkSize: 16 * MiB } }, { settings: { ...hostSettings, guestSubscriptionLogin: true } }],
+      invalid: [
+        { settings: { ...hostSettings, uploadChunkSize: 16 * MiB } },
+        { settings: { ...hostSettings, guestSubscriptionLogin: true } },
+        { settings: { ...hostSettings, guestMainWorkspace: true } },
+      ],
     },
   },
   'admin.settings.set': {
@@ -624,8 +635,9 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
         { diskReservePercent: 101 },
         { sandbox: false },
         { humanLockIdleMs: 10 },
-        // configuration, not a console setting (ARCHITECTURE §11 D-12)
+        // configuration, not a console setting (ARCHITECTURE §11 D-12, D-14)
         { guestSubscriptionLogin: false },
+        { guestMainWorkspace: true },
       ],
     },
     result: { valid: [{ settings: hostSettings }], invalid: [{ settings: { ...hostSettings, allowedDomains: ['a..b'] } }] },

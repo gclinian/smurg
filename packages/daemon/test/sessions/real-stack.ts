@@ -96,6 +96,8 @@ export async function startRealStack(options: RealStackOptions): Promise<RealSta
           hostHome: home,
           claudePath: options.claudePath,
           selfCommand: options.selfCommand ?? { file: process.execPath, args: [CLI_MAIN] },
+          // Guests' sessions here run in the main workspace: opened explicitly (off by default on Linux, §11 D-14).
+          guestMainWorkspace: true,
           ...options.sessions,
         },
         ...(options.activity ? { activity: options.activity } : {}),

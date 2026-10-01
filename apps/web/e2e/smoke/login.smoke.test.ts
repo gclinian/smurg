@@ -58,6 +58,10 @@ describe.skipIf(chrome === null)('logging in, in a real browser (built app, real
           // The mock API: a closed port on 127.0.0.1 (nothing leaves the machine; no account).
           testGuestEnv: { ANTHROPIC_BASE_URL: 'http://127.0.0.1:9' },
           ...(claude ? { claudePath: claude.path } : {}),
+          // Lena's agent runs in the main workspace of a share that is not git: open it to guests explicitly, so the
+          // test is the same on a Linux host, where it is off by default (ARCHITECTURE §11 D-14). Her login process
+          // (kind 'login') is not affected by the switch either way.
+          guestMainWorkspace: true,
         },
       },
     });

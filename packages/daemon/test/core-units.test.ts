@@ -7,7 +7,7 @@ import { TypedEventBus } from '../src/core/bus.ts';
 import type { ClientConnection, MemberRecord } from '../src/core/interfaces.ts';
 import { ManualClock } from '../src/core/lifecycle.ts';
 import { LogicalChannel } from '../src/core/logical-channel.ts';
-import { createLineLogger, createMemoryLogger, quoteForLog, silentLogger } from '../src/core/logger.ts';
+import { LOG_UNSAFE_CHARACTER, createLineLogger, createMemoryLogger, quoteForLog, silentLogger } from '../src/core/logger.ts';
 import { RouterImpl, type ReplySink } from '../src/core/router.ts';
 import { createStubService, isStubService } from '../src/core/stubs.ts';
 import { PathDeniedError } from '../src/core/errors.ts';
@@ -190,5 +190,20 @@ describe('stubs, bus, rate limits', () => {
     const quoted = /path=("(?:[^"\\]|\\.)*")/.exec(line)?.[1] as string;
     expect(JSON.parse(quoted)).toBe(name);
     expect(quoteForLog('/p/ü/.git')).toBe('"/p/ü/.git"');
+  });
+
+  it('invisible formatting characters in a logged name are escaped too, so a guest-made name cannot look like another (review GR-14)', () => {
+    const invisible = ['\u00ad', '\u061c', '\u180e', '\u200b', '\u200c', '\u200d', '\u200e', '\u200f', '\u2060', '\u2061', '\u2062', '\u2063', '\u2064', '\ufeff'];
+    for (const c of invisible) {
+      const name = `/p/se${c}cret/.envrc`;
+      const quoted = quoteForLog(name);
+      expect(quoted, `U+${c.charCodeAt(0).toString(16)}`).not.toContain(c);
+      expect(quoted).toContain(`\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+      expect(JSON.parse(quoted)).toBe(name);
+      expect(LOG_UNSAFE_CHARACTER.test(name)).toBe(true);
+    }
+    // Ordinary letters of any script stay as they are.
+    expect(quoteForLog('/p/日本語/ü/.git')).toBe('"/p/日本語/ü/.git"');
+    expect(LOG_UNSAFE_CHARACTER.test('/p/日本語/ü/.git')).toBe(false);
   });
 });

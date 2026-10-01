@@ -108,6 +108,11 @@ export function describeSessionError(error: unknown): SessionErrorView {
     if (error.code === 'forbidden' && errorReasonOf(error) === 'guest-subscription-login-off') {
       return { title: t('error.create'), message: describeError(error), hint: t('error.hint.loginOff') };
     }
+    // The host keeps guests out of the main workspace (ARCHITECTURE §11 D-14, the Linux default): the daemon's sentence
+    // says so and how the host opens it; the hint says what the guest can do in this dialog.
+    if (error.code === 'forbidden' && errorReasonOf(error) === 'main-workspace-off') {
+      return { title: t('error.create'), message: describeError(error), hint: t('error.hint.mainOff') };
+    }
     if (error.code === 'forbidden') return { title: t('error.create'), message: t('error.forbidden') };
     const hint = REASON_HINTS[errorReasonOf(error) ?? ''];
     if (hint !== undefined) return { title: t('error.create'), message: describeError(error), hint: t(hint) };

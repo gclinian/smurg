@@ -267,7 +267,9 @@ SSH with the port-forward line `smurg login` prints):
 4. Check: `smurg --version` is the tag; macOS: `xattr -l ~/.local/bin/smurg` shows no `com.apple.quarantine`;
    Ubuntu: the installer offered bubblewrap / socat / ripgrep and the AppArmor profile, and `smurg host` printed
    「客人沙盒：可用…」 afterwards.
-5. Join from another machine's browser with another Google account; open a terminal session.
+5. Join from another machine's browser with another Google account; open a terminal session. On the Ubuntu host the
+   guest gets 「我的 worktree」 only (ARCHITECTURE §11 D-14: share a git repository, or start `smurg host
+   --allow-main-workspace-guests` and check that the summary lists the Linux limits).
 6. Record the times, machines and anything that went wrong in `docs/ACCEPTANCE.md` (R1.1, and the Linux rows R5 / R9
    if the Ubuntu host was used for them).
 

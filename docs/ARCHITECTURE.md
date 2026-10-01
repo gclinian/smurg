@@ -425,7 +425,11 @@ type WorkspaceInfo = { id; name; hostUserId; hostName; platform: 'darwin'|'linux
 type PublicSettings = { humanLockIdleMs; agentLockTimeoutMs; uploadChunkSize; sharedDirs: string[];
                         guestSubscriptionLogin?: boolean /* addition: §11 D-12; config.sessions.guestSubscriptionLogin,
                            always filled by this daemon (Welcome and channel.settingsUpdated); not in HostSettings, so
-                           admin.settings.set refuses it; undefined only from an older daemon */ };
+                           admin.settings.set refuses it; undefined only from an older daemon */;
+                        guestMainWorkspace?: boolean /* addition: §11 D-14; config.sessions.guestMainWorkspace (off by
+                           default on a Linux host): whether a runner's agent / terminal may use the main workspace;
+                           false ⇒ worktree mode only. Filled, refused by admin.settings.set and undefined (= allowed,
+                           the old behaviour) exactly like guestSubscriptionLogin */ };
 ```
 
 ### 5.2 `file.*` (capability in brackets)
@@ -633,6 +637,12 @@ type SessionInfo = {
 
 The role decides which create-capability is required: host → `session.create.host` (unsandboxed),
 runner → `session.create.sandboxed`. A client can never choose `sandboxed`.
+With `config.sessions.guestMainWorkspace` off (the default on a Linux host, §11 D-14) a sandboxed `agent` /
+`terminal` session with `workspace.mode: 'main'` is refused before anything is prepared: `forbidden` with
+`detail.reason: 'main-workspace-off'` and a zh-TW message that points to worktree mode and to `smurg host
+--allow-main-workspace-guests` (or, on a share that is not a git repository, says there is no worktree mode either),
+audited as `session.create` / `denied` / target `main` with that reason. A `login` session (mode `main`, nothing of the
+share) and the host's own sessions are not affected.
 
 `exec.request.*` (R10, run-on-behalf) is reserved for the launch phase and not implemented.
 
@@ -1222,6 +1232,15 @@ except the user's provider variables; always drop `CLAUDE_CODE_SAFE_MODE` and `C
   `allowRead` = session root, the guest dir, the claude binary, the session's settings dir, shared read-only dirs.
 - `allowWrite` = session root + guest dir; `denyWrite` = shared read-only dirs + the host-only paths of §5.2.
   In main-workspace mode `<share>/.smurg` is denied for reading and writing.
+- **Main-workspace mode for guests is a host switch** (§11 D-14, owner decision 2026-10-01):
+  `config.sessions.guestMainWorkspace`, default `platform !== 'linux'` (`defaultGuestMainWorkspace` in
+  `core/config.ts`; the platform is the daemon's own, `createDaemon` passes it to `resolveConfig`), set by `smurg host
+  --allow-main-workspace-guests` / `--no-main-workspace-guests`, published as `PublicSettings.guestMainWorkspace`.
+  Off ⇒ `SessionManager.create` refuses a sandboxed agent / terminal session in mode `main` (`forbidden`,
+  `main-workspace-off`, audited) before the preflight, and guests work in their own worktree (a git share), which the
+  main-workspace residuals below cannot reach: the main workspace is denied to a worktree session as a whole. On Linux
+  everything below about guests in the main workspace ("protected entries while a guest runs" in the share, the nested
+  host-only names of §12) therefore only applies when the host opened it.
 - **Worktree mode (R9.1)** must deny the main workspace and every sibling worktree explicitly, wherever the share
   lives: the broad deny regions only cover it when the share happens to be under a home or temp dir (a share at
   `/srv/proj` would stay readable). `denyRead` and `denyWrite` get `<share>` and `<share>/.smurg/worktrees`, with
@@ -1291,7 +1310,19 @@ except the user's provider variables; always drop `CLAUDE_CODE_SAFE_MODE` and `C
   `.mcp.json` / `.envrc` keep srt's file form; the service makes that empty 0444 file itself when it hands a command
   out, exactly as bubblewrap would make its mount point a moment later (srt chose its binds while the name was absent
   or its own mount point, so srt tracks the path and removes the file with its others), so that the guard below sees
-  it before anyone could remove it. The sessions module calls `SandboxService.release(wrapped)`
+  it before anyone could remove it. In the share of a git repository the placeholders about to be made are listed in
+  `.git/info/exclude` first, in one block of the service's own (`sandbox/git-exclude.ts`, review GR-4: the host's `git
+  add -A` committed srt's files and srt's cleanup later deleted the tracked files from the working tree; `git stash -u`
+  / `git clean -fd` removed the placeholders, which ends the guests); the block goes with the placeholders, and one a
+  crashed daemon left goes with its sweep. `git add -f`, `git clean -x` and `git stash -a` still reach them (HOSTING
+  §4). srt's cleanup removes every empty regular file it tracked, whatever its mode: a top-level `.mcp.json` / `.envrc`
+  that is empty but has a write bit or a second link (the host's own file, e.g. a `git checkout` put a tracked empty
+  `.envrc` there while a guest ran) is moved aside for that call and put back at once (`SandboxServiceImpl.srtCleanup`).
+  The placeholders and srt's files are announced to the files module as the system's changes when they are made or
+  removed (`FileService.expectChange`, 10 s; `announceOwn`), so the watcher reports them with `by: system` and the
+  activity feed and the audit log do not say 「外部程式」 changed `.claude`, `.mcp.json`, … at every guest start and end
+  (the file tree still shows them; the guard gets every watcher batch before any attribution).
+  The sessions module calls `SandboxService.release(wrapped)`
   when a guest process exits or never starts (the self-tests release their own). Both forms are recorded in the
   workspace state (`sandbox-placeholders`) before either can exist and the record is emptied once nothing runs
   (review RCR-5: a record kept after a clean stop made the next start remove the host's own empty `.vscode`); a daemon
@@ -1310,7 +1341,12 @@ except the user's provider variables; always drop `CLAUDE_CODE_SAFE_MODE` and `C
   worktree, a guest dir). An ancestor of the share is harmless (srt skips denies outside the write roots). The denies
   srt derived from a cwd inside the share (`<share>/.gitmodules`, …) applied only by that accident and no longer do;
   guests may write those names in the share like any other file (macOS: srt's rules there are patterns, no mount
-  points; the check is Linux-only). A working directory that cannot be resolved (`<stateDir>/cwd` removed while the
+  points; the check is Linux-only). The chdir is made on macOS too, so there as well srt's mandatory write denies
+  (`.gitmodules`, `.gitconfig`, `.bashrc`, `.zshrc`, `.profile`, `.ripgreprc` at any depth) no longer reach the share
+  from wherever `smurg host` was typed (review GR-12, measured with real Seatbelt: all 7 writes denied with the cwd in
+  the share, allowed from `<stateDir>/cwd`). Kept on purpose: the protection depended on the directory the host
+  happened to type the command in, git and shells run nothing from these names in a project folder, and `.claude/**`
+  stays host-only (§5.2); CHANGELOG 0.1.0 and HOSTING §4 say so. A working directory that cannot be resolved (`<stateDir>/cwd` removed while the
   daemon ran) is refused with `daemon-cwd` too, with its own text (「…工作目錄已經不存在…請主人重新執行 smurg host」,
   review RV-4); `smurg host`'s sandbox report adds the fix (run `smurg host` again) to either.
 - **Linux, protected entries while a guest runs** (reviews RV-1, RV-2, 2026-10-01; `sandbox/guard.ts`). bubblewrap
@@ -1331,27 +1367,58 @@ except the user's provider variables; always drop `CLAUDE_CODE_SAFE_MODE` and `C
     `.claude/settings.local.json`) and the existing nested entries the walk found (with `settings.local.json` inside
     each nested `.claude`, and nested `CLAUDE.local.md`), holding an `O_PATH` descriptor on each existing one so that a
     replacement always has another inode number (above; a probe: inode reused 20 of 20 times without, 0 of 20 with);
-  - it compares again on every file-watcher batch of that root (`SandboxService.fileEvents`, called by
-    `files/watcher.ts` with the batch as reported: a protected name at any depth, and the subtree of every directory
-    that appeared, made or moved in, since inotify reports the directory only), every 2 s for the recorded entries
-    (`GUARD_POLL_MS`: the watcher ignores `.git`, and inotify can drop events), on every later `wrap()` in the root (its
-    fresh view against the record), and once more for the top-level names when the root's last process is released;
+  - it compares again on every file-watcher batch of that root as it arrives (`SandboxService.fileEvents`, called by
+    `files/watcher.ts` from the native callback with the batch as reported, not after the files module's debounce and
+    recheck; review GR-3: behind a build's 20,000 files that took ~11 s): a protected name at any depth (checked apart
+    from the scans, so a scan never holds it up), and the subtree of every directory that appeared, made or moved in,
+    since inotify reports the directory only (at most 10,000 listings per round in all, the rest is the walk's); every
+    2 s for the recorded entries (`GUARD_POLL_MS`: the watcher ignores `.git`); every `GUARD_WALK_MS` (2 s) at most,
+    spaced to ten times the walk's own duration, a walk of the whole root outside `node_modules` (the wrap's own walk,
+    `guardWalk`) for protected names the record does not have (review GR-1: @parcel/watcher 2.6.0's inotify backend
+    adds a watch to a new directory only when it handles that directory's own creation, so in directories made in one
+    burst with their parent, `mkdir -p`, a checkout, an unpack, a folder moved in, later changes produce no event at
+    all, and it drops an inotify queue overflow without an error; measured: a guest's two-step plant and the host's
+    new secret in a `mkdir -p` directory went unnoticed); at once when the watcher reports an error
+    (`SandboxService.fileWatchGap`); on every later `wrap()` in the root (its fresh view against the record; an entry
+    the record has and the walk did not name is looked at, never assumed gone, review GR-6); and when the root's last
+    process is released, the top-level names synchronously, then the rest of the record and one more walk without
+    blocking (a guest that planted a name and exited at once; the host is told, nothing is left to revoke);
   - a difference (an entry replaced or removed, a protected name that appeared) revokes every WrappedCommand handed out
     for that root (`SandboxService.onRevoked`): the sessions module ends those sessions (`terminated`, audited as
     `session.terminate` by the system with `reason: 'sandbox-protected-changed'` and the paths; the owner is told in the
     activity feed) and kills a helper process (`claude auth status`, logout); a `wrap()` in flight there is refused
     (`protected-changed`: 「…請再試一次」); the log and the host's terminal name the paths and say to stop guest
     sessions before editing them (`sandbox.protected-changed`, §7.3). Not a change: the same entry edited in place (the
-    mount holds), srt's 0444 mount point appearing when a process starts or going while nothing runs, the service's own
-    placeholders. A NEW nested `.git` is not looked for (the watcher never reports `.git`, and a guest's `git clone`
-    makes one: §12).
+    mount holds), srt's 0444 mount point appearing when a process starts or going (or made again) while nothing runs,
+    the same file with another mode (a `chmod` of the host's own empty `.envrc`, review GR-11; only while the guard
+    holds that inode, since an inode nobody holds can come back as another file's), the service's own placeholders. A
+    NEW nested `.git` is not looked for, by the walk either (a guest's `git clone` makes one: §12). srt's `.mcp.json` /
+    `.envrc` are made at the hand-out from what is on disk: made again when the record says absent or srt's own file
+    and nothing else of that root runs (the canary's own mount point, recorded by a look during the `wrap()`, is gone
+    by then: srt removed it when the canary ended), held as they are when there; while other commands of the root run,
+    srt's file is left as recorded (srt removes nothing then, so a file gone or replaced is the host's doing and is
+    reported). Readings are asynchronous while the record changes under them (a hand-out makes srt's files, a later
+    `wrap()` rewrites the record, and whether a process runs is decided when the reading is compared): one taken
+    before the record of its path was last written is checked again synchronously before it counts (review GR-5: a
+    stale reading revoked guests started after the real change and wrote the old state back; CI run 36810877157, R9 in
+    the browser smoke on ubuntu-24.04: a look that recorded the canary's mount point, or read `.mcp.json` as absent
+    just before the hand-out made it, revoked a runner's worktree terminal ~0.1 s after it started; reproduced in the
+    VM with the canary's cleanup held 150 ms and bubblewrap started 400 ms late). A breach names at most 100 paths
+    and counts the rest, and re-pins at most 256 entries (review GR-2: one batch of 60,000 changed paths, which a
+    guest could build in `node_modules` and move into the share with one rename, held the event loop for 5.6 s); a
+    root whose every command is revoked is not scanned any further. A `wrap()` whose entries cannot be held open
+    (`EMFILE`, `ENFILE`, `ENOMEM`) is refused (review GR-7), and more than 1000 nested `CLAUDE.local.md` refuse it
+    like more than 1000 host-only entries (GR-6).
   It is a detection, not a prevention: until the change is noticed and the processes are ended the guest sees it
-  (measured with bubblewrap and the real watcher in the VM: revoked 10–110 ms after the host's change; `.git` through
-  the poll). A protected name a guest makes (a new `sub/.vscode/`, a `CLAUDE.local.md` its own Claude Code writes) ends
-  that root's guest processes the same way: the daemon cannot tell who made it, and the host should look at it. Tests:
-  `test/sandbox/guard.test.ts`, `placeholders.real.test.ts` (real bubblewrap and watcher: E1, E2, E3, E5, E6, E7, srt's
-  file removed, `.git` replaced, a wrap in flight, other guests coming and going), `service.test.ts`,
-  `test/sessions/launch.test.ts`, `test/files/watcher-native.test.ts`.
+  (measured with bubblewrap and the real watcher in the VM: revoked 50–110 ms after the host's change, also right after
+  a build wrote 20,000 files; `.git` through the poll, ~0.2 s; a name in a directory the watcher never watched through
+  the walk, 0.1–2 s on a small tree, longer on a large one). A protected name a guest makes (a new `sub/.vscode/`, a
+  `CLAUDE.local.md` its own Claude Code writes) ends that root's guest processes the same way: the daemon cannot tell
+  who made it, and the host should look at it (the guest's notice says neutrally that a host-only file of the folder
+  changed, review GR-13). Tests: `test/sandbox/guard.test.ts`, `guard-races.test.ts`, `placeholders.real.test.ts`
+  (real bubblewrap and watcher: E1, E2, E3, E5, E6, E7, srt's file removed, `.git` replaced, a wrap in flight, other
+  guests coming and going; GR-1, GR-3, GR-4), `service.test.ts`, `nested-walk.test.ts`, `test/sessions/launch.test.ts`,
+  `test/files/watcher-native.test.ts`.
 - Inner `export TMPDIR=<guest>/tmp` and `CLAUDE_CODE_TMPDIR=<guest>/tmp` (srt forces its own TMPDIR; Claude Code
   2.1.283 otherwise writes to `/tmp/claude-<uid>`, the host user's own dir, and fails).
 - Linux, tasks (review attack F2, 2026-10-01): before that, the sandboxed shell runs `ulimit -u 4096`
@@ -1486,6 +1553,8 @@ Tests that start the real `claude` accept any verified version.
 - `testGuestEnv`: TEST ONLY, extra guest environment such as `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>` of the mock
   Anthropic API (`claude-hooks.md`); `resolveConfig` refuses it unless the daemon has no relay or a local one.
 - `guestSubscriptionLogin` (default true): guests may start their login process (§11 D-12).
+- `guestMainWorkspace` (default: false on a Linux host, true on macOS): guests' sandboxed agent / terminal sessions may
+  use the main workspace (§11 D-14); the default needs the platform, so `resolveConfig(input, { platform })` takes it.
 - `config.activity.attributeBashEdits` (default true, `ActivityConfig` in `core/config.ts`): the Bash activity hook and
   the attribution of Bash windows (§11 D-13); false ⇒ the Bash hook is not registered and Bash events are ignored.
 - The hook socket path is `config.runPaths.hook` (§7.1).
@@ -1559,7 +1628,7 @@ hook before an agent session starts (§7.6). A session that forges it only learn
 
 | Command | Behaviour |
 |---|---|
-| `smurg host <folder> [--relay URL] [--role R] [--expires D] [--max-uses N] [--name N] [--web-origin URL] [--no-keep-awake] [--no-browser] [--no-guest-subscription-login] [--no-bash-attribution]` | refuse a folder that is already shared, that overlaps a folder a running host of this state dir shares (inside or around it, whatever the relay; CLI-05) or that contains a home directory (CLI-04), all before any login; login if needed (a stored login with less than 24 h left counts as missing); change to `<stateDir>/cwd` (empty, 0700: srt resolves the guest sandbox's own denies against the cwd, §7.6); start daemon in the foreground, print host link + invite link (on `--web-origin`, e.g. the Vite dev server), keep machine awake (a later loss is printed); then report whether the guest sandbox works here (the daemon's sandbox preflight, with Linux fix commands). The two `--no-…` switches set `config.sessions.guestSubscriptionLogin` and `config.activity.attributeBashEdits` to false (§11 D-12, D-13; both default true); the start summary explains each switch that is on (the guest's separate login process may listen on a local port while it runs, nothing else of a guest may; agents' Bash commands are reported to the daemon, not their content) and echoes each one that is off |
+| `smurg host <folder> [--relay URL] [--role R] [--expires D] [--max-uses N] [--name N] [--web-origin URL] [--no-keep-awake] [--no-browser] [--no-guest-subscription-login] [--no-bash-attribution] [--allow-main-workspace-guests \| --no-main-workspace-guests]` | refuse a folder that is already shared, that overlaps a folder a running host of this state dir shares (inside or around it, whatever the relay; CLI-05) or that contains a home directory (CLI-04), all before any login; login if needed (a stored login with less than 24 h left counts as missing); change to `<stateDir>/cwd` (empty, 0700: srt resolves the guest sandbox's own denies against the cwd, §7.6); start daemon in the foreground, print host link + invite link (on `--web-origin`, e.g. the Vite dev server), keep machine awake (a later loss is printed); then report whether the guest sandbox works here (the daemon's sandbox preflight, with Linux fix commands). The two `--no-…` switches set `config.sessions.guestSubscriptionLogin` and `config.activity.attributeBashEdits` to false (§11 D-12, D-13; both default true); the start summary explains each switch that is on (the guest's separate login process may listen on a local port while it runs, nothing else of a guest may; agents' Bash commands are reported to the daemon, not their content) and echoes each one that is off. `--allow-main-workspace-guests` / `--no-main-workspace-guests` set `config.sessions.guestMainWorkspace` (§11 D-14; without either the daemon's platform default: off on Linux, on on macOS); the summary's line 「客人的主工作區 session」 says 未開放 or 已開放 and why (「Linux 預設」, 「macOS 預設」 or the flag), what guests get instead when it is closed (their worktree; on a share that is not git, no session at all), and, when it is open on Linux, the residual limits of §12 |
 | `smurg attach [session] [--workspace W] [--invite -\|URL] [--relay URL] [--no-browser]` | local daemon running → attach through the control socket as host; otherwise join through the relay with the CLI device key. The invite (its `#` part is the secret) comes from a no-echo prompt (`--invite -`) or `SMURG_INVITE`; a link in argv still works, with a warning (it is visible in `ps` and lands in shell history) |
 | `smurg stop [--workspace W]` | ask the daemon (control socket) to stop: closes all channels, ends sessions, removes guest temp dirs; returns when the daemon is fully stopped |
 | `smurg status [--workspace W]` | every running daemon of this state dir: relay, connections, keep-awake (same zh-TW wording as `host`) |
@@ -1568,6 +1637,9 @@ hook before an agent session starts (§7.6). A session that forges it only learn
 
 **Arguments** (`cli/args.ts`): unknown options, a string option given twice, a boolean together with its `--no-` form
 (`--bash-attribution --no-bash-attribution`) and surplus positionals are usage errors (exit 2), before anything else runs.
+A boolean may name its true form differently (`OptionSpec.positive`): `--allow-main-workspace-guests` /
+`--no-main-workspace-guests` are the only spellings of that switch (`--main-workspace-guests` and
+`--no-allow-main-workspace-guests` are unknown options), and the two together are refused like any flag and its negation.
 
 **Relay choice.** `--relay`, else `SMURG_RELAY_URL`, else the relay of the last login, else the built-in default: the
 shared relay the project operates on Cloudflare Workers (`packages/cli/src/relay/default-relay.ts`; its address is
@@ -1670,6 +1742,11 @@ As built after the review round (details in `apps/web/README.md`):
   { mode: 'main' }, cols, rows }` and shows that process's terminal (`LoginProcess.tsx`) with the steps and the notice
   that the host can technically read the credential; after it exits, the web re-checks `session.loginStatus` of the
   guest's running agents. With `PublicSettings.guestSubscriptionLogin === false` only the API key is offered.
+- The new-session dialog (`features/agents/new-session.ts`) follows `PublicSettings.guestMainWorkspace` (§11 D-14): when
+  it is `false`, a sandboxed member (runner) gets 「共享主工作區」 disabled with the reason and 「我的 worktree」
+  preselected; on a share that is not a git repository it says that guest sessions are not available on this host and
+  how the host opens them (`smurg host --allow-main-workspace-guests`). The login process (kind `login`, mode `main`)
+  and the host's own dialog are unchanged; the daemon refuses a main-mode request either way.
 - The activity feed shows an agent's shell edit (§11 D-13) as that agent's, with a small 「透過指令」 marker taken from
   `ActivityEvent.via === 'bash'` (never from the summary's wording); 「外部程式」 appears only for the daemon's `system`
   actor.
@@ -1698,7 +1775,7 @@ As built after the review round (details in `apps/web/README.md`):
 | Sandbox | `tests/e2e/r5.*` | real srt on the current OS; tests that need Linux/AppArmor are skipped on macOS and documented |
 | Claude-in-the-loop | `tests/e2e/claude.*` | opt-in (`SMURG_TEST_CLAUDE=1`): real `claude` with hooks (PreToolUse deny blocks Edit) |
 | Browser | `apps/web/e2e` (playwright-core + system Chrome) | join flow, 「主人已離線」, key-mismatch warning (Vite dev server) |
-| Built app | `apps/web/e2e/smoke` (own vitest project; at most 2 files at once, in the full gate after every other project) | `vite build` once, served by the real relay's Worker assets (`startLocalRelay({ webDist })`), a daemon with every module, system Chrome: join → type → disk, two-browser co-editing, agent-lock banner, a runner's terminal; the console's one-click terminate / kick (R11.1c), suggestions (R6), worktree merge (R9), a real conflict (R8.4), an upload resumed after a dropped transfer socket (R7.3, through a TCP proxy in front of the relay), a logged-out page load with a clean console, a guest's subscription login up to the code prompt (D-12), the terminal size (LEAD-01) |
+| Built app | `apps/web/e2e/smoke` (own vitest project; at most 2 files at once, in the full gate after every other project) | `vite build` once, served by the real relay's Worker assets (`startLocalRelay({ webDist })`), a daemon with every module, system Chrome: join → type → disk, two-browser co-editing, agent-lock banner, a runner's terminal; the console's one-click terminate / kick (R11.1c), suggestions (R6), worktree merge (R9), a real conflict (R8.4), an upload resumed after a dropped transfer socket (R7.3, through a TCP proxy in front of the relay), a logged-out page load with a clean console, a guest's subscription login up to the code prompt (D-12), the terminal size (LEAD-01), a runner kept out of the main workspace (§11 D-14, `main-workspace.smoke.test.ts`: the dialog offers their own worktree, the terminal runs there, the daemon refuses a main-mode request) |
 
 R3 and R5 acceptance criteria are hard gates: each criterion has a named automated test, listed in `docs/ACCEPTANCE.md`.
 
@@ -1706,7 +1783,10 @@ Harnesses: `@smurg/daemon/testing` (`createTestDaemon`: in-memory relay with a b
 project optionally a git repo, real SDK clients; `createTempRunDir`, `isolatedGitEnv`, …) and `tests/e2e/src/harness.ts`
 (`startStack`: real relay + daemon + clients; `git: true` shares a git repository; the host gets a fake home and a short
 socket dir). `tests/e2e` also depends on yjs / y-protocols / lib0 and `@xterm/headless` + `@xterm/addon-serialize` for
-the R7.1 (two Y.Docs) and R4.1 (terminal state) acceptance tests.
+the R7.1 (two Y.Docs) and R4.1 (terminal state) acceptance tests. Neither harness sets `config.sessions.guestMainWorkspace`
+(the platform default: off on Linux, §11 D-14): a test that runs a guest's session in the main workspace opens it
+explicitly (`sessions: { guestMainWorkspace: true }`; the daemon's session-test stacks `test/sessions/setup.ts` and
+`real-stack.ts` do so by default), so the same test runs on macOS and on Linux.
 
 ---
 
@@ -1716,7 +1796,7 @@ Each of these keeps the intent of the requirement and is backed by a verified fi
 
 **Status: D-1 to D-11 were reviewed and approved by the project owner on 2026-09-28** (D-1 to D-10 together, D-11
 separately the same evening). A departure added after that is not covered by this approval: mark it "pending approval"
-in its row until the owner has confirmed it.
+in its row until the owner has confirmed it. D-14 is the owner's own decision (2026-10-01, `docs/OPEN-QUESTIONS.md` Q2).
 
 | # | SPEC says | We do | Why (evidence) |
 |---|---|---|---|
@@ -1734,6 +1814,7 @@ in its row until the owner has confirmed it.
 | D-12 **(implemented 2026-09-29 as recommended by the project lead; switchable; the owner's confirmation of the default is pending; review SPEC-04)** | R4 登入引導 and §13 「Claude Code 在遠端 PTY 中的登入流程（顯示網址、貼上代碼）能順利完成」; §9 「有 Claude 訂閱的組員：用跟平常一樣的 Claude Code 操作方式」 | A guest logs in with their Claude subscription through a **dedicated login process** (session kind `login`, §7.6): the daemon itself runs the fixed `claude --setting-sources project --settings <inline> auth login --claudeai` in a PTY, in that guest's sandbox (same guest dir as `HOME` / `CLAUDE_CONFIG_DIR`, same environment allow-list, `BROWSER` a no-op, hardened profile: the credential lands in `<guest>/cfg/.credentials.json`), in sandbox mode `login` (the guest dir only, nothing of the share). Its one extra right: listen and accept TCP on "localhost" (Seatbelt; no UDP), no outbound connection; because Seatbelt's `localhost` admits every local address, it also may exec only `/bin/bash`, claude, the no-op `BROWSER` and `/usr/bin/security`. Only the guest themself starts it (one at a time), nobody else sees or attaches to it, its output is never logged; start and outcome (exit code) are audited; it ends when the command exits or after 10 minutes. The URL is shown and the guest pastes the code; afterwards the guest's running agent sessions report logged-in and a running Claude Code uses the new credential from its next prompt. The guest's AGENT sessions still cannot listen at all. Switch: `config.sessions.guestSubscriptionLogin` (default true; false ⇒ refused with 「…客人請…使用自己的 API key 登入」), published as `PublicSettings.guestSubscriptionLogin`. The host's own sessions are unaffected. | Verified with the real claude 2.1.220 and 2.1.283 in the real guest sandbox (mock API, no account, never completed): the login URL and 「Paste code here if prompted >」 appear and the callback server listens on 127.0.0.1 only; a probe inside the login process cannot connect to a TCP server on 127.0.0.1, read the fake host home or the share, write outside the guest dir or start another program; an ordinary guest session still cannot listen; a planted `env.BROWSER` in the guest's settings does not run (it did before `--setting-sources project`: `claude auth login` applies the user settings `env` and runs `$BROWSER`). srt's `allowLocalBinding` was rejected: workspace-wide, and it grants bind / accept on every address and connect to every localhost port. Independent security check (finish-gate, 2026-09-29): the login profile compared rule by rule with the agent session profile of the same guest; three findings fixed — srt's own bind / inbound rules on its proxy port let EVERY guest process (agent sessions too) listen on the LAN address at that port (now removed from every guest profile), the login listen covered UDP (now TCP only), and the login could read ancestor memory files of the share that an agent session cannot (now denied); attacks from inside the real sandbox (a host service on 127.0.0.1, the daemon's control socket, the fake host home, writes outside the guest dir) and through the daemon (another member's guest dir, attach / input / resize by others, request fields, a second login, the time limit) all fail. Residual: while it runs (≤ 10 min) the login process could listen on the LAN interfaces too, if a program other than Claude Code could run in it (the exec allow-list and the switched-off guest settings are what prevent that). Tests: `daemon/sessions/login.test.ts` (incl. › attacks on the login process), `login.real.test.ts`, `login-profile.real.test.ts`, `claude-login-pickup.test.ts`, `claude-real.test.ts` › SPEC §13 item 5 (the agent session itself still fails), `daemon/sandbox/login-policy.real.test.ts`, `network-listen.real.test.ts`, `harden.test.ts`, `policy.test.ts`. |
 | D-13 **(implemented 2026-09-29 as recommended by the project lead; switchable; the owner's confirmation of the default is pending; review SPEC-01)** | R8 acceptance 「每一次 agent 的修改都出現在活動動態中，標示是哪個 agent、屬於誰」; R11 「操作紀錄涵蓋…agent 修改」 | Edit / Write / MultiEdit / NotebookEdit changes (PostToolUse) and FileChanged-hook reports are attributed to the agent as before. NEW: **non-blocking Bash attribution.** A separate Bash ACTIVITY hook (`smurg hook bash-activity`, PreToolUse / PostToolUse / PostToolUseFailure of `Bash`, §7.7) only tells the daemon when a session starts and finishes a shell command; it never takes a lock, never decides, and fails OPEN (daemon unreachable ⇒ the command runs, nothing attributed), while the lock hook of the edit tools still fails closed. A disk change that nobody claimed (no agent lock, no Post echo, no announced writer) and that falls inside the Bash window of EXACTLY ONE session that could have written it (an unsandboxed host session anywhere, a sandboxed one only in its own root), with 3 s of grace after the command ended (watcher latency), and whose root contains the file, is that agent's: `agent.edit`, 「Claude（owner）透過 shell 指令修改了…」, marked `via: 'bash'` in the feed entry (§5.4) and
 the audit entry; two or more such windows, none, or a writer of another root: 「外部程式」 as before — and then not even the worktree rule below names anyone. In a worktree without a Bash window an unannounced change is still attributed to the one agent session running there, else to the worktree's owner. The decision is announced as `agent.tool.post` (tool `Bash`, the file), so the file tree badge and the R8 fallback's conflict record (whose source) follow the same rule; the fallback itself (human text kept, conflict record) is unchanged. Switch: `config.activity.attributeBashEdits` (default true; false ⇒ the Bash hooks are not registered and Bash events are ignored). | A session can forge Bash windows with its own token: they only ever attribute changes inside that session's own root, and only to that session (an agent can claim unannounced changes of its own root, never frame another agent or a person); forged windows are paired by `tool_use_id`, capped (8 open, 10 min each) and rate-limited (240 / min, burst 60). Known limits: a change the host's own tools (an editor outside smurg, a terminal) make during an agent's Bash window in the same root is attributed to that agent; for 5 s after a person's autosave the file module attributes any change of that file to that person (not part of this rule). Cost: ~52 ms per hook invocation with the dev entry (two per Bash call). Tests: `daemon/hooks/hook-cli.test.ts` (Bash hook exits 0 with no output within its deadline in every error case while the Edit hook denies), `hook-server.test.ts`, `settings-writer.test.ts`, `claude-bash.test.ts` (real claude: a scripted Bash edit in the activity feed as the agent), `daemon/locks/activity.test.ts`, `bash-attribution.real-modules.test.ts` (the conflict record's source). |
+| D-14 **(owner decision 2026-10-01, `docs/OPEN-QUESTIONS.md` Q2)** | R9 「開 agent session 時可以選擇「共享主工作區」或「我的 worktree」」 | On a **Linux** host, guests' (sandboxed) agent and terminal sessions in the MAIN workspace are **off by default**: guests get worktree mode only, which needs the share to be a git repository (on a share that is not git, guests have no sessions until the host opens the main workspace). The host opens it with `smurg host --allow-main-workspace-guests` (`config.sessions.guestMainWorkspace`); the start summary then lists the Linux residual limits (§12 "Linux, in more detail"). macOS is unchanged: open by default (`--no-main-workspace-guests` closes it on either platform). The daemon refuses a guest's main-mode `session.create` whatever a client sends (`forbidden` / `main-workspace-off`, a zh-TW message that points to worktree mode and to the host's flag, audited as a denied `session.create`) and publishes the switch (`PublicSettings.guestMainWorkspace`), so the web's new-session dialog does not offer 「共享主工作區」 to a guest while it is off, preselects 「我的 worktree」 and says why. A guest's login process (§11 D-12, mode `main` but nothing of the share) and the host's own sessions are not affected. | bubblewrap protects host-only names with mounts of concrete paths and cannot deny by pattern (macOS Seatbelt can): in the main workspace a guest can create NEW nested `.claude/settings.json`, `.mcp.json` or `.git` that the host's unsandboxed tools may run later, and the host's own edits of protected entries during a guest session reach the guest until the guard ends it (§7.6 "Linux, protected entries while a guest runs", §12; reviews RV-1, RV-2, attack F1). In worktree mode none of this reaches the host's project: the guest never sees the main workspace (R9.1), and what it writes there arrives only through a merge the host reviews, which refuses host-only paths (`host-only-paths`). The cost: on Linux a share that is not git has no guest sessions by default, and R9's choice is narrowed to the worktree unless the host opens the main workspace. Tests: `daemon/test/workspace.test.ts` › resolveConfig (the default per platform), `settings.test.ts` (published, not a console setting), `sessions/launch.test.ts` › guests in the main workspace, `sessions/login.test.ts` (the login process is unaffected), `cli/test/host-relay.test.ts` (flags, summary), `args-state.test.ts`, `tests/e2e/test/r9.main-workspace.test.ts`, the web's new-session dialog tests and `apps/web/e2e/smoke/main-workspace.smoke.test.ts`. |
 
 ## 12. Known limits of the prototype
 
@@ -1791,12 +1872,17 @@ Left after the review round of 2026-09-29 (owner questions with options and reco
   srt binds every path at its own name (the share must keep its path), and no `/proc` at all breaks ordinary tools.
   macOS has no mount table of this kind. bubblewrap 0.8 or later is required for `--disable-userns` (older: refused
   with an upgrade hint; Ubuntu 22.04 ships 0.6.1, so guest sessions are refused there; Debian 12 and Ubuntu 24.04 ship
-  0.8 / 0.9). What bubblewrap cannot express, by design of a mount-based sandbox (macOS Seatbelt denies these by
-  pattern):
+  0.8 / 0.9). **Guests in the main workspace are off by default on Linux** (owner decision 2026-10-01, §11 D-14):
+  guests work in their own worktree (a git share) unless the host starts `smurg host --allow-main-workspace-guests`,
+  whose start summary lists the first, third, fourth and fifth items below; the first and fourth (and the third for
+  the share) arise only then. What bubblewrap cannot express, by design of a mount-based sandbox (macOS Seatbelt denies
+  these by pattern):
   - a NEW host-only name below the top of the root (`sub/.claude/settings.json`, `sub/.mcp.json`, `sub/.git/config`)
     can be created by a guest; existing ones at any depth and every name at the top are protected while the host does
     not remove, rename or replace them (next item: the daemon then ends the guest's processes; a guest's new name
-    other than `.git` ends them too, and the host is told the path). Such a file can
+    other than `.git` ends them too, and the host is told the path: at once through the watcher, in a directory made
+    in one burst with its parent, which inotify never watches, through the guard's walk within seconds (review GR-1),
+    and once more after the guest's last process ended; never inside `node_modules`). Such a file can
     run code in the host's UNSANDBOXED tools opened in that subfolder (a Claude Code started there, git hooks or
     `core.fsmonitor` of a nested repository, a VS Code task). A worktree merge refuses such paths (`host-only-paths`)
     and `file.*` refuses them to guests, so this is a residual of main-workspace guest sessions. An EXISTING entry
@@ -1818,28 +1904,33 @@ Left after the review round of 2026-09-29 (owner questions with options and reco
     save of `.envrc` or `.mcp.json`, the host's own Claude Code answering 「don't ask again」 (it writes
     `.claude/settings.local.json`), `git switch` or `git clean -fd` taking `.claude/` or an empty placeholder, a
     `CLAUDE.local.md` or a nested `.envrc` made after the guest started. The daemon notices the change and ends every
-    guest process of that root, and `smurg host` names the paths; until then (measured 10–110 ms; `.git`, which the
-    watcher ignores, within the 2 s check) the guest can read the new content (a secret in `.envrc`, an `env` block of
+    guest process of that root, and `smurg host` names the paths; until then (measured 50–110 ms, also behind a
+    build's 20,000 files; `.git`, which the watcher ignores, within the 2 s check; in a directory made in one burst
+    with its parent, which inotify never watches, within the walk's interval: 2 s, ten times the walk's own duration
+    on a large tree; reviews GR-1, GR-3) the guest can read the new content (a secret in `.envrc`, an `env` block of
     `settings.local.json`) or write the name (plant `.claude/settings.json` hooks or a `.mcp.json` server that the
     host's unsandboxed tools run later). So: stop guest sessions before editing `.envrc`, `.mcp.json`, `.claude/` or
     `CLAUDE.local.md` in the share, and look at a path `smurg host` names. Not covered at all: inside `node_modules`
-    (the watcher ignores it; srt's read-deny globs do reach it), the protected names inside a folder of more than 10,000
-    directories that appears at once (logged), an ancestor's `CLAUDE.md`, a new nested `.git`, and, without the file
-    watcher (its native module missing), everything but the recorded entries' 2 s check and the next `wrap()`. An
+    (the watcher and the walk skip it; srt's read-deny globs do reach it), an ancestor's `CLAUDE.md`, a new nested
+    `.git`. Without the file watcher (its native module missing) the 2 s check of the record, the walk and the next
+    `wrap()` remain. An
     in-place edit of a read-denied file the walk does not record (inside a host-only directory: it does not enter them)
     ends the guests' processes although their mount held (fail closed);
   - while a guest process runs, the names that hold absent host-only names are visible in the host's project: empty
     directories `.claude` / `.git` / `.vscode` / `.idea` (the service's own, bound read-only) and srt's empty
-    read-only files `.mcp.json` / `.envrc` (the host's `git status` lists the two files as untracked). They are removed
+    read-only files `.mcp.json` / `.envrc` (in a git share they are listed in `.git/info/exclude` while they exist, so
+    the host's `git status`, `git add -A`, `git stash -u` and `git clean -fd` leave them alone; `git add -f`, `git clean
+    -x` and `git stash -a` do not: they commit or remove them, which ends the guests; review GR-4). They are removed
     once no guest process runs, or, after a crash, at the next start before its first sandbox (review F6; an empty
     directory the host makes at one of those names between the crash and that start is taken for a leftover). A
     leftover empty `.git` is not taken for a repository: `workspace/share.ts` needs a `.git` directory with a `HEAD`
     file or a `HEAD` symlink into `refs/` (git's own rule; review RCR-4), or a `gitdir:` file, and writes
     `info/exclude` only into a real one.
-  The first three need the owner's confirmation (a mount-based sandbox cannot do better; the alternatives are
-  worktree-only guest agents on Linux, or a host-side check of new host-only names after each guest session: the guard
-  of §7.6 now ends the session and names such a path while it runs, `.git` excepted), and so does the fourth's window
-  (`docs/OPEN-QUESTIONS.md` Q2).
+  Decided by the owner on 2026-10-01 (`docs/OPEN-QUESTIONS.md` Q2, §11 D-14): a mount-based sandbox cannot do better,
+  so main-workspace guest sessions are off by default on Linux, and a host who opens them is told these limits at the
+  start (the guard of §7.6 still ends the session and names such a path while it runs, and names it once more after
+  the session ended; `.git` and `node_modules` excepted). In worktree
+  mode the second item and the fifth (inside the guest's own worktree) remain, and the third for the guest's own dir.
   The installer's Linux branch on a fresh machine is unverified; its AppArmor step decides by a bare bubblewrap run
   (the daemon's own probe), so a profile file that is there but not loaded is offered again (review F4). Run as root
   (`sudo sh install.sh`) the probe runs as the user sudo came from, else as `nobody` (`runuser`): root's own bubblewrap
@@ -1857,9 +1948,12 @@ Left after the review round of 2026-09-29 (owner questions with options and reco
   - a single request that misses its NFC name (a create, an upload's commit) still lists its directory once, so an
     upload of n new non-ASCII names into a folder of m entries costs n listings of m entries;
   - while guest processes run in a root, the guard (§7.6) costs one `lstat` per path of every watcher batch there and
-    a listing of each directory that appeared (at most 10,000 directories per scan), an `lstat` of every recorded entry
-    every 2 s, and one open descriptor per existing protected entry (at most about 2,000 per root: the walk's limit of
-    1000 entries, a `settings.local.json` inside each nested `.claude`, the nested `CLAUDE.local.md`);
+    a listing of each directory that appeared (at most 10,000 listings per round), an `lstat` of every recorded entry
+    every 2 s, a walk of the root every 2 s or ten times its own duration (the same walk as each `wrap()`: ~0.2 s per
+    50,000 directories, not blocking; review GR-1), and one open descriptor per existing protected entry (at most about
+    3,000 per root: the walk's limit of 1000 entries, a `settings.local.json` inside each nested `.claude`, at most 1000
+    nested `CLAUDE.local.md`; review GR-15). A batch of tens of thousands of changed protected paths costs ~20 ms of
+    event loop (review GR-2);
   - a daemon killed hard (SIGKILL, OOM) leaves srt's network bridge (`socat UNIX-LISTEN:/tmp/claude-http-*.sock`, ~3 MB,
     idle, reachable by the host user only, never by guests) and its sockets in `/tmp` until reboot; srt starts it
     without a parent-death signal and exposes no pid.
@@ -1900,7 +1994,8 @@ Left after the review round of 2026-09-29 (owner questions with options and reco
   attributed to that person (`EXPECT_CHANGE_TTL_MS`), so an agent's shell write in that window is shown as the
   person's and a conflict then names the person as the other side. Recognising the autosave's own echo by content hash
   (the docs module knows it) would remove this; not done (a change to the files and docs modules' event flow).
-- **Guest agents in the main workspace can read `<share>/.git`** (incl. `.git/config`) through the sandbox, because
+- **Guest agents in the main workspace can read `<share>/.git`** (on Linux only when the host opened the main
+  workspace to guests, §11 D-14) (incl. `.git/config`) through the sandbox, because
   git needs it; guest people cannot (§5.2). They can also create symlinks in the share that point outside it: the
   daemon never follows them for anyone and a worktree merge refuses them, but the host's own unsandboxed tools could
   (review SEC-D-04). Both are owner questions.
@@ -1947,4 +2042,13 @@ Left after the review round of 2026-09-29 (owner questions with options and reco
   in 63 runs; subscribe / unsubscribe churn during continuous writes 2 in 120 runs (≈ 1 per 250k–500k native calls).
   Such a crash still ends the whole daemon and every session. Follow-up: a supervised child process that owns the
   native watcher (a crash then costs a watcher restart and a re-list), or a patched @parcel/watcher.
+- **Native file watcher on Linux** (@parcel/watcher 2.6.0, inotify; review GR-1, 2026-10-01): a new directory gets a
+  watch only when the backend handles that directory's own creation, so the subdirectories made in the same burst
+  (`mkdir -p`, a `git checkout`, an unpack) or moved in with their parent are never watched (measured: of a `mkdir -p
+  one/two/three` and three files only `one` and its own file were reported; FSEvents reports all), and an inotify
+  queue overflow is dropped without an error (319,496 of 320,001 creates reported, no error). Changes there reach
+  neither the file tree's live updates nor the activity feed; a client sees them at its next listing. The guest
+  sandbox does not rely on it (§7.6: the guard walks its roots). Follow-up: a patched @parcel/watcher that scans a
+  newly watched directory (adding watches and reporting what it holds) and reports IN_Q_OVERFLOW as an error, or a
+  periodic re-subscribe of a root that reported a new directory.
 - **`smurg attach` output** assumes a UTF-8 terminal unless the locale says otherwise.

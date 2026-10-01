@@ -3,7 +3,7 @@
 // terminal, read its buffer and ask its link provider.
 import { act } from '@testing-library/react';
 import type { ReactElement } from 'react';
-import type { Role, SessionInfo } from '@smurg/protocol';
+import type { Role, SessionInfo, Welcome } from '@smurg/protocol';
 import type { ILinkProvider, Terminal } from '@xterm/xterm';
 import { renderInWorkspace } from '../../testing/services.tsx';
 import type { FakeConnection } from '../../testing/fake-connection.ts';
@@ -116,16 +116,23 @@ export function terminalText(term: Terminal): string {
 
 export const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
 
-/** Renders `ui` in a workspace whose session.list answers `sessions`. */
+/** Renders `ui` in a workspace whose session.list answers `sessions` (admitted with `welcome` when given). */
 export async function renderWithSessions(
   ui: ReactElement,
-  options: { role?: Role; sessions: SessionInfo[]; recording?: RecordingFactory },
+  options: { role?: Role; sessions: SessionInfo[]; recording?: RecordingFactory; welcome?: Welcome },
 ) {
   installMatchMedia();
   const recording = options.recording ?? recordingViewerFactory();
   const result = renderInWorkspace(<ViewerFactoryContext.Provider value={recording.factory}>{ui}</ViewerFactoryContext.Provider>, {
     ...(options.role ? { role: options.role } : {}),
+    ...(options.welcome ? { admit: false } : {}),
   });
+  const welcome = options.welcome;
+  if (welcome) {
+    act(() => {
+      result.conn.admit(welcome);
+    });
+  }
   await act(async () => {
     result.conn.respond('session.list', { sessions: options.sessions });
   });

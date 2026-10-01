@@ -17,7 +17,8 @@ smurg 是一個多人 × 多 agent 的即時協作工作區：你在自己的電
 - 人和 agent 都有檔案鎖：有人正在打字的檔案 agent 改不了；agent 正在改的檔案，編輯器暫時唯讀。互相重疊時保留人打的
   內容，另一方的版本放進衝突面板。活動動態標示每一次修改是誰、哪個 agent 做的。
 - 對別人的 agent 提出建議，由 session 的擁有者採用、修改後採用或拒絕。
-- agent 可以在自己的 git worktree 裡工作，完成後請主人看過完整的 diff 再合併。
+- agent 可以在自己的 git worktree 裡工作，完成後請主人看過完整的 diff 再合併。組員開 session 時可以選共享主工作區或
+  自己的 worktree；**Linux 主人預設只開放 worktree**（`smurg host --allow-main-workspace-guests` 開放主工作區）。
 - 主人控制台：成員、角色、邀請連結、session、操作紀錄，一鍵踢人或終止 session。
 - 主人的電腦睡眠或斷線時，所有人幾秒內看到「主人已離線」。
 
@@ -26,7 +27,10 @@ smurg 是一個多人 × 多 agent 的即時協作工作區：你在自己的電
 - **Linux 主人**：全部測試（包括組員的沙盒、組員終端機裡的 Ctrl-C 與調整視窗大小）在 Ubuntu 24.04 上通過（arm64 虛擬機，
   以及 GitHub Actions 的 x64），但還沒有人真的在 Linux 上當過主人：沒有在 Linux 沙盒裡跑過真正的 Claude Code，安裝程式的
   Linux 部分也還沒在全新的電腦上跑過。需要 bubblewrap 0.8 以上（Ubuntu 24.04、Debian 12 以上）。Linux 沙盒做不到 macOS
-  的幾點（例如組員在主工作區的子資料夾裡新增 `.claude` 設定）見 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §12。
+  的幾點（例如組員在主工作區的子資料夾裡新增 `.claude` 設定），所以 Linux 主人預設不讓組員在共享主工作區開 session：
+  組員只能用自己的 worktree（資料夾不是 git repository 時，組員預設不能開 session）；主人用
+  `--allow-main-workspace-guests` 開放時，開始訊息會列出這些限制（[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §11
+  D-14、§12；[`docs/HOSTING.md`](docs/HOSTING.md) §5）。
   組員用什麼作業系統都可以（瀏覽器）。
 - **組員用 Claude 訂閱帳號登入**（在主人電腦上的登入程序）還沒有用真正的帳號從頭到尾測試過；用 API key 登入可以。
 - **macOS 執行檔沒有 Apple 的開發者簽章**（只有 ad-hoc 簽章）。請用下面的一行指令安裝：它先驗證 sha256，再移除
@@ -212,7 +216,7 @@ scripts/dev-stack.sh --help                 # 選項：--dir、--relay-port、--
 
 | 指令 | 用途 |
 |---|---|
-| `smurg host <資料夾> [--relay 網址] [--role runner\|editor\|viewer] [--expires 期限] [--max-uses 次數] [--name 名稱] [--web-origin 網址] [--no-keep-awake] [--no-browser] [--no-guest-subscription-login] [--no-bash-attribution]` | 分享資料夾（前景執行），印出主人連結、邀請連結、daemon 金鑰指紋、分享前須知，以及組員的訂閱登入程序與 agent 的 shell 指令通知這兩項設定（預設開啟；用兩個 `--no-…` 選項關閉，關閉時在開始訊息寫明；見 `docs/HOSTING.md` §5），接著報告客人沙盒是否可用；防止睡眠失效、relay 連線中斷／恢復、relay 拒絕登入（在另一個終端機 `smurg login` 後自動改用新登入）與狀態檔寫不進磁碟時會提示 |
+| `smurg host <資料夾> [--relay 網址] [--role runner\|editor\|viewer] [--expires 期限] [--max-uses 次數] [--name 名稱] [--web-origin 網址] [--no-keep-awake] [--no-browser] [--no-guest-subscription-login] [--no-bash-attribution] [--allow-main-workspace-guests \| --no-main-workspace-guests]` | 分享資料夾（前景執行），印出主人連結、邀請連結、daemon 金鑰指紋、分享前須知，以及組員的訂閱登入程序與 agent 的 shell 指令通知這兩項設定（預設開啟；用兩個 `--no-…` 選項關閉，關閉時在開始訊息寫明）和客人的主工作區 session（Linux 預設未開放、macOS 預設開放；用 `--allow-main-workspace-guests` / `--no-main-workspace-guests` 改變，開始訊息寫明並在 Linux 開放時列出限制；見 `docs/HOSTING.md` §5），接著報告客人沙盒是否可用；防止睡眠失效、relay 連線中斷／恢復、relay 拒絕登入（在另一個終端機 `smurg login` 後自動改用新登入）與狀態檔寫不進磁碟時會提示 |
 | `smurg attach [session] [--workspace ID] [--invite -\|連結] [--relay 網址] [--no-browser]` | 把 session 接到終端機（不指定 session 時列出）；本機正在分享時直接以主人身分接上，否則用這台電腦的裝置金鑰透過 relay 加入。`--invite -` 會提示貼上邀請連結（不顯示、不進 shell 歷史）；也可用 `SMURG_INVITE`。只有第一次需要邀請連結。Ctrl-] 離開 |
 | `smurg status [--workspace ID]` / `smurg stop [--workspace ID]` | 查看／停止這台電腦上正在分享的工作區（透過 daemon 的控制 socket） |
 | `smurg login [--relay 網址] [--provider github\|google] [--dev-user 名稱] [--no-browser]` | 登入 relay（登入資料存在 `$SMURG_HOME/credentials.json`，權限 0600，依網址分開記錄）；公用 relay 只提供 Google 登入；`--dev-user` 只能用在本機的 relay |

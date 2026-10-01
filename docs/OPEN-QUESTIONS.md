@@ -2,7 +2,8 @@
 
 Decisions left open after the review round of 2026-09-29 and the round that followed it the same day. Each entry gives
 the current behaviour, the options and a recommendation. **Q1 was decided on 2026-09-30 and Q2 decided and run** (the release
-plan, `docs/RELEASING.md`; Q2 keeps one owner question about the Linux sandbox's residuals); Q3–Q11 and Q13 are not
+plan, `docs/RELEASING.md`; Q2's owner question about the Linux sandbox's residuals was decided on 2026-10-01:
+main-workspace guest sessions are off by default on Linux, `docs/ARCHITECTURE.md` §11 D-14); Q3–Q11 and Q13 are not
 decided in code.
 
 The two departures from SPEC.md's wording that the review round left **pending approval** were implemented on
@@ -84,7 +85,7 @@ Without signing, macOS Gatekeeper quarantines a downloaded binary and the 3-minu
 
 </details>
 
-## Q2. Linux verification (reviews SPEC-05, CLI-09; SPEC D8) — **decided 2026-09-30, run 2026-10-01; one owner question left**
+## Q2. Linux verification (reviews SPEC-05, CLI-09; SPEC D8) — **decided 2026-09-30, run 2026-10-01; its owner question decided 2026-10-01**
 
 **Decision.** Option 1: GitHub Actions on ubuntu-24.04 is the Linux verification. CI (`.github/workflows/ci.yml`) runs
 `pnpm check` there on every push to `main` and every pull request, after installing bubblewrap, socat, ripgrep and the
@@ -116,6 +117,28 @@ parsing, the installer's Linux branch) were implemented and unit-tested with an 
 R9.1 / R9.2 had never run on Linux. Options were: 1. a Linux CI runner; 2. an owner-approved VM with a removable state
 directory; 3. declare hosts macOS-only for the prototype. (The failures of the first CI run were then reproduced in a
 Lima VM on the development Mac, 2026-10-01.)
+
+**Owner decision (2026-10-01) on the Linux sandbox's residuals: option 2.** On a Linux host, guests' (sandboxed) agent
+and terminal sessions in the MAIN workspace are **off by default**; guests get worktree mode only, which needs the share
+to be a git repository. The host opens the main workspace explicitly with `smurg host --allow-main-workspace-guests`,
+and the start summary then lists the Linux residual limits (below; ARCHITECTURE §12). macOS is unchanged (open by
+default; `--no-main-workspace-guests` closes it on either platform). Reason: bubblewrap cannot deny by pattern, so in
+main mode a guest can create new nested `.claude/settings.json`, `.mcp.json` or `.git`, and the host's edits of
+protected files during a guest session are visible to it; in worktree mode the guest never sees the main workspace.
+Built the same day (ARCHITECTURE §11 D-14): `config.sessions.guestMainWorkspace` (default `platform !== 'linux'`),
+published as `PublicSettings.guestMainWorkspace`; the daemon refuses a guest's main-mode `session.create`
+(`forbidden` / `main-workspace-off`, audited); the web's new-session dialog does not offer 「共享主工作區」 to guests
+while it is off and preselects 「我的 worktree」, and on a share that is not git says that guest sessions are not
+available on this host and how the host opens them. The cost the recommendation named stays: on Linux a share that is
+not git has no guest sessions by default. Option 3's guard (a new name ends the guest's processes and is named to the
+host) stays in place for a host who opens the main workspace. The guard-review round the same day (GR-1) found that
+the file watcher never reports names in directories made in one burst with their parent (`mkdir -p`, a checkout, an
+unpack: @parcel/watcher's inotify backend does not watch them) and drops an inotify overflow silently, so the coverage
+described below was overstated; since then the guard also walks the root every few seconds and once more after the
+guest's last process ended (ARCHITECTURE §7.6, §12), and the start summary of `--allow-main-workspace-guests` says that
+such names are found within seconds rather than at once.
+
+<details><summary>The question as it stood before the decision</summary>
 
 **Owner question: the Linux sandbox's residuals** (ARCHITECTURE §12 "Linux, in more detail"). bubblewrap builds the
 guest's file system from mounts of concrete paths, so three things macOS Seatbelt denies by pattern are open on Linux:
@@ -152,6 +175,8 @@ nothing better to build on bubblewrap than what is built):
 
 **Recommendation.** Option 3, and option 1 until it is built: it keeps main-workspace guest sessions on Linux and
 tells the host before they open such a folder. Option 2 costs every non-git share its guest agents.
+
+</details>
 
 ## Q3. `.git` and credentials in the main workspace (reviews WEB-17, SEC-D-03 residual)
 

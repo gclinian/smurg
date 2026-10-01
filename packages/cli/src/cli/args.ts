@@ -1,12 +1,18 @@
-// A small, strict argument parser: `--name value`, `--name=value`, boolean `--flag` / `--no-flag`, `-h`, and `--` to
-// end options. Unknown options, missing values, a string option given twice, `--flag` together with `--no-flag` and
-// surplus positionals are usage errors with a zh-TW message (the CLI never guesses what was meant).
+// A small, strict argument parser: `--name value`, `--name=value`, boolean `--flag` / `--no-flag` (or a positive form
+// of another name, `--allow-x` / `--no-x`), `-h`, and `--` to end options. Unknown options, missing values, a string
+// option given twice, a boolean together with its negation and surplus positionals are usage errors with a zh-TW
+// message (the CLI never guesses what was meant).
 import { usageError } from './errors.ts';
 
 export interface OptionSpec {
   readonly kind: 'string' | 'boolean';
   /** A one-letter alias (`-h`). */
   readonly short?: string;
+  /**
+   * A boolean whose positive form has a name of its own (`positive: 'allow-x'` on option `x`): exactly `--allow-x`
+   * (true) and `--no-x` (false) are accepted, never `--x` or `--no-allow-x`; the value is stored under the option's key.
+   */
+  readonly positive?: string;
 }
 
 export interface ArgsSpec {
@@ -27,6 +33,11 @@ export function parseArgs(argv: readonly string[], spec: ArgsSpec): ParsedArgs {
   const positionals: string[] = [];
   const shortNames = new Map<string, string>();
   for (const [name, option] of Object.entries(spec.options)) if (option.short) shortNames.set(option.short, name);
+  /** `--<positive>` → the option it sets (true). */
+  const positiveNames = new Map<string, string>();
+  for (const [name, option] of Object.entries(spec.options)) if (option.kind === 'boolean' && option.positive) positiveNames.set(option.positive, name);
+  /** How a boolean's true form is spelled. */
+  const trueForm = (name: string): string => spec.options[name]?.positive ?? name;
   let onlyPositionals = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string;
@@ -49,18 +60,28 @@ export function parseArgs(argv: readonly string[], spec: ArgsSpec): ParsedArgs {
       if (long === undefined) throw usageError(`不認得的選項 ${arg}`);
       name = long;
     }
-    let option = spec.options[name];
+    const given = name;
+    let option: OptionSpec | undefined;
     let negated = false;
-    if (option === undefined && name.startsWith('no-') && spec.options[name.slice(3)]?.kind === 'boolean') {
-      option = spec.options[name.slice(3)];
-      name = name.slice(3);
-      negated = true;
+    const positiveOf = positiveNames.get(name);
+    if (positiveOf !== undefined) {
+      option = spec.options[positiveOf];
+      name = positiveOf;
+    } else {
+      option = spec.options[name];
+      // A boolean with a positive form of its own has no `--<key>` spelling.
+      if (option?.positive !== undefined) option = undefined;
+      if (option === undefined && name.startsWith('no-') && spec.options[name.slice(3)]?.kind === 'boolean') {
+        option = spec.options[name.slice(3)];
+        name = name.slice(3);
+        negated = true;
+      }
     }
-    if (option === undefined) throw usageError(`不認得的選項 --${name}`);
+    if (option === undefined) throw usageError(`不認得的選項 --${given}`);
     if (option.kind === 'boolean') {
-      if (inline !== undefined) throw usageError(`選項 --${name} 不接受值`);
+      if (inline !== undefined) throw usageError(`選項 --${given} 不接受值`);
       // `--flag --no-flag`: the CLI does not guess which one was meant (a repeat of the same form is harmless).
-      if (options[name] !== undefined && options[name] !== !negated) throw usageError(`選項 --${name} 和 --no-${name} 不能同時指定`);
+      if (options[name] !== undefined && options[name] !== !negated) throw usageError(`選項 --${trueForm(name)} 和 --no-${name} 不能同時指定`);
       options[name] = !negated;
       continue;
     }

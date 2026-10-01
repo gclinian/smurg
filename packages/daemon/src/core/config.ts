@@ -165,6 +165,30 @@ export interface SessionLaunchConfig {
    * Published to clients as PublicSettings.guestSubscriptionLogin. Default true.
    */
   readonly guestSubscriptionLogin: boolean;
+  /**
+   * ARCHITECTURE §11 D-14 (owner decision 2026-10-01): a guest's sandboxed agent / terminal session may use the shared
+   * MAIN workspace (workspace.mode 'main'). false ⇒ such a session.create is refused (`forbidden`, reason
+   * 'main-workspace-off', audited) and guests get worktree mode only (a git share). Default: on a Linux host false
+   * (bubblewrap cannot deny new nested host-only names by pattern, and the host's edits of protected entries reach a
+   * running guest until the guard ends it: §12), elsewhere true (`defaultGuestMainWorkspace`). The host opens it with
+   * `smurg host --allow-main-workspace-guests`. A guest's login session (kind 'login', nothing of the share) and the
+   * host's own unsandboxed sessions are not affected. Published to clients as PublicSettings.guestMainWorkspace.
+   */
+  readonly guestMainWorkspace: boolean;
+}
+
+/**
+ * The default of config.sessions.guestMainWorkspace on a host platform (ARCHITECTURE §11 D-14): off on Linux only.
+ * The platform is the daemon's own (createDaemon passes it; the sandbox runs on the same machine).
+ */
+export function defaultGuestMainWorkspace(platform: NodeJS.Platform): boolean {
+  return platform !== 'linux';
+}
+
+/** What resolveConfig needs to know about the machine besides the input (createDaemon passes its own view). */
+export interface ResolveConfigEnvironment {
+  /** The host platform; decides the defaults that differ per platform (config.sessions.guestMainWorkspace). */
+  readonly platform: NodeJS.Platform;
 }
 
 /**
@@ -301,9 +325,10 @@ function origin(name: string, url: string): string {
 
 /**
  * Validates the input and fills in defaults. Throws on anything unusable instead of guessing (fail closed): a
- * relative state dir or share dir, an invalid workspace id, a malformed URL, a non-positive tunable.
+ * relative state dir or share dir, an invalid workspace id, a malformed URL, a non-positive tunable. `machine` is the
+ * host the daemon runs on (createDaemon's platform; tests name one): some defaults differ per platform.
  */
-export function resolveConfig(input: DaemonConfigInput): DaemonConfig {
+export function resolveConfig(input: DaemonConfigInput, machine: ResolveConfigEnvironment): DaemonConfig {
   if (!isAbsolute(input.stateDir)) throw new TypeError('config stateDir must be an absolute path');
   if (!isAbsolute(input.shareDir)) throw new TypeError('config shareDir must be an absolute path');
   if (input.runDir !== undefined && !isAbsolute(input.runDir)) throw new TypeError('config runDir must be an absolute path');
@@ -326,7 +351,7 @@ export function resolveConfig(input: DaemonConfigInput): DaemonConfig {
   for (const [key, value] of Object.entries(limits)) positive(`limits.${key}`, value);
   const defaultSettings = hostSettingsSchema.parse({ ...defaultHostSettings(), ...input.defaultSettings });
   const runDir = resolve(input.runDir ?? join(stateDir, 'run'));
-  const sessions = resolveSessions(input.sessions ?? {}, relayUrl);
+  const sessions = resolveSessions(input.sessions ?? {}, relayUrl, machine.platform);
   const activity = resolveActivity(input.activity ?? {});
   return Object.freeze({
     stateDir,
@@ -358,7 +383,7 @@ function resolveActivity(input: Partial<ActivityConfig>): ActivityConfig {
 
 const ENV_NAME = /^[A-Z_][A-Z0-9_]{0,127}$/;
 
-function resolveSessions(input: Partial<SessionLaunchConfig>, relayUrl: string | null): SessionLaunchConfig {
+function resolveSessions(input: Partial<SessionLaunchConfig>, relayUrl: string | null, platform: NodeJS.Platform): SessionLaunchConfig {
   const absoluteOrNull = (name: string, value: string | null | undefined): string | null => {
     if (value === undefined || value === null) return null;
     if (!isAbsolute(value)) throw new TypeError(`config sessions.${name} must be an absolute path`);
@@ -392,6 +417,8 @@ function resolveSessions(input: Partial<SessionLaunchConfig>, relayUrl: string |
   }
   const guestSubscriptionLogin = input.guestSubscriptionLogin ?? true;
   if (typeof guestSubscriptionLogin !== 'boolean') throw new TypeError('config sessions.guestSubscriptionLogin must be a boolean');
+  const guestMainWorkspace = input.guestMainWorkspace ?? defaultGuestMainWorkspace(platform);
+  if (typeof guestMainWorkspace !== 'boolean') throw new TypeError('config sessions.guestMainWorkspace must be a boolean');
   return Object.freeze({
     hostHome: absoluteOrNull('hostHome', input.hostHome),
     claudePath: absoluteOrNull('claudePath', input.claudePath),
@@ -400,6 +427,7 @@ function resolveSessions(input: Partial<SessionLaunchConfig>, relayUrl: string |
     selfCommand: selfCommand === null ? null : Object.freeze({ file: resolve(selfCommand.file), args: Object.freeze([...selfCommand.args]) }),
     testGuestEnv: testGuestEnv === null ? null : Object.freeze({ ...testGuestEnv }),
     guestSubscriptionLogin,
+    guestMainWorkspace,
   });
 }
 

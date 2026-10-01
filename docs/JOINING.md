@@ -127,6 +127,16 @@ smurg 用檔案鎖避免人和 agent 互相覆蓋。你會在編輯器上方或�
 再選工作位置：「共享主工作區」（直接改大家看到的檔案，有檔案鎖保護），或「我的新 worktree」（見 §7），按「開啟」。
 主人的電腦上找不到 Claude Code、版本太舊，或沙盒無法啟動時，session 不會開，畫面會說明原因：請轉告主人。
 
+**為什麼沒有「共享主工作區」可以選？** 主人的電腦是 **Linux** 時，smurg 預設不讓組員在共享主工作區開 session（主人
+用 `smurg host --allow-main-workspace-guests` 分享時才開放；macOS 的主人也可以用 `--no-main-workspace-guests` 關掉）。
+原因：Linux 的沙盒只能保護主工作區裡「已經存在」的主人設定檔，擋不住在子資料夾裡新建的（例如 `.claude/settings.json`、
+`.mcp.json`），而主人自己不在沙盒裡的工具之後可能會執行它們。這時「新增 session」裡的「共享主工作區」不能選，畫面會
+說明原因，預設選「我的新 worktree」：你的 agent 在自己的副本裡工作，做完再請主人合併（§7），沙盒在這種情況下能完整
+保護主人。分享的資料夾**不是 git repository** 時沒有 worktree 可用，所以你在這台主人電腦上**不能開自己的 session**
+（還是可以看別人的 session、編輯檔案、提出建議）；請主人用上面的選項重新分享，或把資料夾設成 git repository。
+直接送出主工作區的要求（例如用舊版的網頁）也會被拒絕，並顯示「這台主人電腦沒有開放客人使用主工作區」。用 Claude
+訂閱帳號登入（下面）不受影響。
+
 **用 Claude Code**：點一下終端機，用一般的句子輸入你要它做的事，按 Enter。它工作時畫面會一直更新；按 Esc 可以打斷它，
 輸入 `/exit` 結束。它可能會在改檔案或執行指令前問你是否允許：用方向鍵選擇後按 Enter。你的 session 畫面，工作區裡的
 **每個人都看得到**：不要在 session 裡貼上密碼或 API key。
@@ -167,7 +177,8 @@ smurg 用檔案鎖避免人和 agent 互相覆蓋。你會在編輯器上方或�
 
 ## 7. worktree 與合併請求
 
-主人分享的資料夾是 git repository 時，「可執行 agent」的組員開 session 可以選「**我的新 worktree**」：smurg 在主人電腦上
+主人分享的資料夾是 git repository 時，「可執行 agent」的組員開 session 可以選「**我的新 worktree**」（主人的電腦是
+Linux 時，預設只有這個選項，見 §6）：smurg 在主人電腦上
 為你建立一份獨立的工作副本（自己的分支），你的 agent 只在裡面改檔案，不會弄亂大家的主工作區；它也讀寫不到主工作區和
 別人的 worktree。
 

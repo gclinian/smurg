@@ -7,6 +7,10 @@
 // `sandbox.refused`, and nothing is spawned. The guest's own API key lives only in this process's memory and in that
 // PTY's environment: never persisted, logged or audited.
 //
+// Guests in the main workspace (ARCHITECTURE §11 D-14): with config.sessions.guestMainWorkspace off (the default on a
+// Linux host) a sandboxed agent / terminal session in mode 'main' is refused (`forbidden`, 'main-workspace-off',
+// audited as a denied session.create); guests use worktree mode. Login sessions and the host's own are not affected.
+//
 // Sessions of kind 'login' (ARCHITECTURE §11 D-12, login.ts): a guest's own Claude subscription login, the fixed
 // `claude auth login` in that guest's sandbox (mode 'login'). Private to their owner: not in list() / get() (so no
 // other module, member or MCP tool sees them), session.state goes to the owner only, only the owner attaches, and no
@@ -34,6 +38,7 @@ import {
 import { claudeVersionVerdict, type SessionLaunchConfig } from '../core/config.ts';
 import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
+import { LOG_UNSAFE_CHARACTER } from '../core/logger.ts';
 import type {
   ClientConnection,
   HookSessionCredentials,
@@ -62,6 +67,18 @@ import { PtySession, type PtyExit, type ViewerSink } from './pty-session.ts';
 import { buildSandboxSpec, guestCommand } from './sandbox-spec.ts';
 
 export type SessionEndReason = 'exit' | 'ended' | 'terminated' | 'kicked' | 'left' | 'role-changed' | 'stopped';
+
+/**
+ * What a guest reads when the host did not open the main workspace to guests (config.sessions.guestMainWorkspace off,
+ * the default on a Linux host; ARCHITECTURE §11 D-14): `forbidden` with detail.reason 'main-workspace-off'.
+ */
+export const MAIN_WORKSPACE_OFF_MESSAGES = Object.freeze({
+  /** The share is a git repository: the guest's own worktree is the way. */
+  useWorktree: '這台主人電腦沒有開放客人使用主工作區；請改用 worktree 模式（「我的 worktree」），或請主人用 smurg host --allow-main-workspace-guests 重新分享。',
+  /** Not a git repository: no worktree either, so no guest session at all until the host opens the main workspace. */
+  noWorktree:
+    '這台主人電腦沒有開放客人使用主工作區，而分享的資料夾不是 git 儲存庫、沒有 worktree 模式可用，所以目前無法開啟客人 session；請主人用 smurg host --allow-main-workspace-guests 重新分享。',
+});
 
 /** Seams for tests and for the composition (the default module passes none). */
 export interface SessionsModuleOptions {
@@ -430,6 +447,7 @@ export class SessionManagerImpl implements SessionManager {
     else if (can(member.role, 'session.create.sandboxed')) sandboxed = true;
     else throw new AuthorizationError(undefined, { reason: 'capability' });
     if (input.kind === 'login') this.checkLoginRequest(input, member, sandboxed);
+    else if (sandboxed && input.workspace.mode === 'main' && !this.launchConfig.guestMainWorkspace) throw this.refuseMainWorkspace(input.kind, member);
     if (input.apiKey !== undefined && !sandboxed) throw sessionError('bad_request', 'API key 只用於客人的沙盒 session', 'api-key-sandboxed-only');
     if (this.stopping || !this.started) throw sessionError('conflict', 'daemon 正在停止', 'stopping');
     const running = [...this.sessions.values()].filter((m) => m.status !== 'exited');
@@ -452,6 +470,25 @@ export class SessionManagerImpl implements SessionManager {
     let total = 0;
     for (const count of this.creating.values()) total += count;
     return total;
+  }
+
+  /**
+   * ARCHITECTURE §11 D-14 (owner decision 2026-10-01): with config.sessions.guestMainWorkspace off (the default on a
+   * Linux host) a guest's sandboxed agent / terminal session may not use the main workspace; worktree mode stays. The
+   * refusal is the daemon's own, whatever a client offered, and audited like the other switch refusals (session.create,
+   * denied). Nothing has been prepared yet.
+   */
+  private refuseMainWorkspace(kind: SessionKind, member: MemberRecord): SmurgError {
+    const reason = 'main-workspace-off';
+    this.ctx.audit.record({
+      actor: { kind: 'user', userId: member.userId, displayName: member.displayName },
+      action: 'session.create',
+      outcome: 'denied',
+      target: rootRefKey({ kind: 'main' }),
+      detail: { kind, sandboxed: true, root: rootRefKey({ kind: 'main' }), reason },
+    });
+    const message = this.ctx.workspace.info.isGitRepo ? MAIN_WORKSPACE_OFF_MESSAGES.useWorktree : MAIN_WORKSPACE_OFF_MESSAGES.noWorktree;
+    return new SmurgError('forbidden', message, { reason });
   }
 
   // =================================================================================================================
@@ -1452,13 +1489,14 @@ export class SessionManagerImpl implements SessionManager {
     const activity = this.ctx.services.activity;
     if (!isStubService(activity)) {
       // Names come from the share (any directory on the way may be oddly named): plain text, bounded.
-      // eslint-disable-next-line no-control-regex
-      const plain = (path: string): string => path.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, '?').slice(0, 120);
-      const named = paths.slice(0, 3).map(plain).join('、') + (paths.length > 3 ? ` 等 ${paths.length} 個` : '');
+      const plain = (path: string): string => path.replace(new RegExp(LOG_UNSAFE_CHARACTER.source, 'g'), '?').slice(0, 120);
+      const total = paths.length + (revocation.more ?? 0);
+      const named = paths.slice(0, 3).map(plain).join('、') + (total > 3 ? ` 等 ${total} 個` : '');
+      // Neutral (review GR-13): the daemon cannot tell who made the change; a guest's new name ends this session too.
       this.safely('activity.notify', () =>
         activity.notify(m.ownerUserId, {
           from: SYSTEM_ACTOR,
-          text: `主人在這個資料夾裡變更了只有主人能使用的檔案（${named}），執行中的沙盒無法跟上這種變更，為了安全，你的「${m.title}」已被結束。可以重新開啟一個新的 session。`,
+          text: `這個資料夾裡只有主人能使用的檔案有變動（${named}），執行中的沙盒無法跟上這種變動，為了安全，你的「${m.title}」已被結束。可以重新開啟一個新的 session。`,
         }),
       );
     }

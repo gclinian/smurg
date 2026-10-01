@@ -45,7 +45,7 @@ pnpm check                # type check of every package, then every vitest proje
 - **Skipped by default** (the 2 files / 4 tests): `packages/cli/test/sea.test.ts` (3 tests; needs a built single
   executable, `SMURG_SEA_BINARY=<path>`, which `scripts/build-sea.sh` runs) and `packages/cli/test/dev-stack.test.ts`
   (1 test; `SMURG_TEST_DEV_STACK=1`: it starts the whole dev stack on fixed ports). On macOS one more file skips
-  whole, `daemon/sandbox/placeholders.real.test.ts` (6 tests, bubblewrap's mount points and what the host changes
+  whole, `daemon/sandbox/placeholders.real.test.ts` (10 tests, bubblewrap's mount points and what the host changes
   while a guest runs: Linux-only), and 12 more tests skip inside files that run: they are Linux-only too (the
   network-namespace describe of `daemon/sandbox/network-listen.real.test.ts`, the task-limit describe of
   `daemon/sandbox/odd-names.real.test.ts`, the NFD-twin tests of `daemon/path-guard.test.ts` and
@@ -117,19 +117,51 @@ prompt line in the web smoke test; `docs/research/sandbox.md` "Linux, verified 2
   guest; also on b97cdee), the host's own directory made in place of a placeholder is kept, the daemon-cwd text for a
   working directory that is gone, the installer's AppArmor check run as root, the keep-awake text, and `file.tree`'s
   NFC mapping (ARCHITECTURE §7.4, §7.6, §12).
+- **Fixed after the guard review** (2026-10-01, guard-review GR-1 to GR-15, ARCHITECTURE §7.6, §12): protected names in
+  directories the inotify watcher never watches (made in one burst with their parent, or moved in) are now found by a
+  walk of the root every few seconds and once more after the guest's last process ended (they used to go unnoticed:
+  a guest's two-step plant, the host's new secret in a `mkdir -p` directory); the sandbox hears of each watcher batch as
+  it arrives (behind a build's 20,000 files the guest's window was ~11 s, now ~0.05 s); a batch of tens of thousands of
+  changed protected paths no longer stalls the daemon (5.6 s, now ~20 ms); the placeholders are kept out of the host's
+  git (`git add -A` committed them, `git stash -u` removed them), and srt's cleanup no longer deletes the host's own
+  empty `.envrc`; a stale reading no longer revokes guests started after the real change; more than 1000 nested
+  `CLAUDE.local.md` refuse the wrap instead of revoking on every wrap; a wrap that cannot hold the entries open is
+  refused; the placeholder descriptor leak, the log of unprotected names, the refusal reason while the daemon stops,
+  a `chmod` of the host's own empty `.envrc`, the guest's notice (no blame) and invisible characters in logged names.
+  Tests: `daemon/sandbox/guard.test.ts`, `guard-races.test.ts`, `service.test.ts`, `nested-walk.test.ts`,
+  `placeholders.real.test.ts` › the guard-review round …, `daemon/files/watcher-native.test.ts`,
+  `daemon/core-units.test.ts`, `daemon/sessions/launch.test.ts`, `cli/test/host-relay.test.ts`.
+- **Fixed after CI run 36810877157** (7a690c9, ubuntu-24.04: web-smoke R9 failed, a runner's worktree terminal ended
+  ~0.1 s after it started): the guard revoked the guest by mistake. A look during the `wrap()` recorded the canary's
+  own srt mount point, which srt removed when the canary ended, and the hand-out trusted that record and left
+  `.mcp.json` / `.envrc` absent; or a look read them absent just before the hand-out made them. The hand-out now decides
+  on what is on disk, and an older reading is read again before it counts (ARCHITECTURE §7.6). Reproduced in the VM with
+  the investigator's injected timing (canary's cleanup held 150 ms, bubblewrap started 400 ms late): the browser R9
+  failed on 7a690c9 exactly like CI (2 of 2) and passes on the fix (5 of 5, each hand-out found the canary's removed
+  mount point recorded); daemon level 32 of 32 terminals survived (7a690c9: 8 of 8 refused, 1 of 8 ended). Also:
+  srt's file already there at the hand-out is held (a file made in its place could otherwise take its inode number and
+  pass for it), and the sandbox's own placeholders and mount points no longer show as 「外部程式」 changes in the
+  activity feed and the audit log at every guest start and end. A failed web smoke test now prints the daemon's
+  sessions, audit and log tail. Tests: `daemon/sandbox/guard.test.ts` › CI run 36810877157 …, `guard-races.test.ts`,
+  `service.test.ts` › … is the system's change …, `placeholders.real.test.ts` › CI run 36810877157 ….
 - **Still not run on Linux**: a real `claude` in the Linux sandbox (R5.3, R5.5, the hooks, the login process with the
   real `claude`), the installer's Linux branch on a fresh machine, keep-awake through `systemd-inhibit` from a local
   desktop session (from an SSH session polkit refuses it: checked in the VM, and `smurg host` reports it as refused),
   R1.1's timing (`docs/OPEN-QUESTIONS.md` Q2).
-- **Linux-only residuals** (bubblewrap mounts concrete paths; ARCHITECTURE §12 "Linux, in more detail"): in a guest
+- **Linux-only residuals** (bubblewrap mounts concrete paths; ARCHITECTURE §12 "Linux, in more detail"). Since the
+  owner's decision of 2026-10-01 (ARCHITECTURE §11 D-14) guests' sessions in the main workspace are OFF by default on a
+  Linux host (worktree mode only; `smurg host --allow-main-workspace-guests` opens them and lists these limits), so the
+  main-workspace items below arise only when the host opened it: in a guest
   session in the MAIN workspace a guest can create a NEW host-only name below the top of the share
-  (`sub/.claude/settings.json`, `sub/.mcp.json`, `sub/.git/…`; except for `.git` this now ends that root's guest
-  processes and is named to the host); a guest can remove or re-point a read-only shared link in its own worktree (the
+  (`sub/.claude/settings.json`, `sub/.mcp.json`, `sub/.git/…`; except for `.git` and inside `node_modules` this now
+  ends that root's guest processes and is named to the host, at once or, in a directory inotify never watched, within
+  seconds through the guard's walk); a guest can remove or re-point a read-only shared link in its own worktree (the
   target stays read-only, the daemon refuses the tampered link); a Unix socket in a directory the guest can read is
   connectable; a protected entry the HOST replaces, removes or creates while a guest runs (an atomic save of `.envrc`,
   the host's own Claude Code writing `.claude/settings.local.json`, `git switch` of `.claude/`) is seen by the guest
-  until the daemon notices it and ends that root's guest processes (measured 10–110 ms in the VM; `.git` within the
-  daemon's 2 s check), so the host is told to stop guest sessions before editing such files. The R5 / R9 tests and
+  until the daemon notices it and ends that root's guest processes (measured 50–110 ms in the VM, also behind a build's
+  20,000 files; `.git` within the daemon's 2 s check; in a directory made in one burst with its parent within the
+  walk's interval, ~2 s), so the host is told to stop guest sessions before editing such files. The R5 / R9 tests and
   `daemon/sandbox/placeholders.real.test.ts` assert each platform's own behaviour there.
 
 ## Other ways to run
@@ -296,6 +328,7 @@ locked file under every spelling, then accepted and seen by the open editors), `
 
 | # | 驗收標準 | Automated test | Status |
 |---|---|---|---|
+| R9 (D-14) | 開 agent session 時可以選擇「共享主工作區」或「我的 worktree」 (the requirement's text, not a numbered criterion; narrowed on a Linux host by ARCHITECTURE §11 D-14, owner decision 2026-10-01) | `daemon/workspace.test.ts` › resolveConfig › guests in the main workspace: off by default on Linux, on by default on macOS …; `daemon/settings.test.ts` › PublicSettings.guestMainWorkspace …; `daemon/sessions/launch.test.ts` › guests in the main workspace (ARCHITECTURE §11 D-14) (refused with `forbidden` / `main-workspace-off` and audited, nothing prepared; the guest's worktree and the host's main workspace still work; the platform default enforced); `daemon/sessions/login.test.ts` › guests kept out of the main workspace … (the login process is unaffected); `tests/e2e/test/r9.main-workspace.test.ts` (real relay + daemon + sandbox); `cli/test/host-relay.test.ts` › guests in the main workspace … and › the main-workspace summary line …; `cli/test/args-state.test.ts` (`--allow-main-workspace-guests` / `--no-main-workspace-guests`); `web/src/features/agents/new-session.test.ts`, `NewSessionDialog.test.tsx` › new session dialog: a host that keeps guests out of the main workspace … (the main choice disabled with the reason, a new worktree preselected and sent, the setting changing while the dialog is open, a share that is not git), `web/e2e/smoke/main-workspace.smoke.test.ts` (real browsers on the built app: a runner's terminal opens in their own worktree; the daemon refuses a main-mode request whatever the client sends; the host's own session uses the main workspace) | `covered` (macOS and Linux): on macOS both choices by default; on Linux 「我的 worktree」 only unless the host opens the main workspace (`--allow-main-workspace-guests`), and on a share that is not git no guest session at all until then. The tests that run guests in the main workspace open it explicitly, so they run the same on both platforms. |
 | R9.1 | worktree 裡的 agent 無法讀寫主工作區或其他 worktree | `daemon/worktree/r9.real-sandbox.test.ts` › R9.1 …; R9.2 … (the real worktree, sessions and sandbox modules, real srt); `daemon/integration/sessions-sandbox-worktree.test.ts` (through the real `session.create` handler, every module composed); `daemon/sandbox/r5.sandbox.test.ts` › R9.1 … | `covered` (macOS and Linux). |
 | R9.2 | worktree 裡的 agent 可以讀取共享資料夾，但無法寫入 | `daemon/worktree/r9.real-sandbox.test.ts`; `daemon/sandbox/r5.sandbox.test.ts` › R9.2 …; `daemon/worktree/worktrees.test.ts` › D12 … | `covered` (macOS and Linux). Linux: the shared folder itself stays read-only, but the guest can remove or re-point the link to it in its own worktree (bubblewrap cannot mount on a symlink); the daemon then refuses the tampered link (`shared-link-tampered`) and never follows it (ARCHITECTURE §12). |
 | R9.3 | 主人拒絕合併時，worktree 保持原狀 | `daemon/worktree/merge.test.ts` › R9.3 主人拒絕合併時，worktree 保持原狀 …; `web/src/features/worktree/merge-requests.test.tsx` (the reject flow in the UI); `web/e2e/smoke/acceptance.smoke.test.ts` › R9 合併 — … (real browsers on the built app: the host reviews the complete diff and merges, the file reaches everyone's tree; a rejected request leaves the worktree's files as they were) | `covered` |
@@ -321,7 +354,9 @@ locked file under every spelling, then accepted and seen by the open editors), `
   process), keep-awake from a local desktop session, the installer on a fresh machine (`docs/OPEN-QUESTIONS.md` Q2).
   The Linux sandbox's residuals (a NEW host-only name below the top of the share in main-workspace guest sessions, a
   worktree's shared link, sockets in readable directories, the window before a protected entry the host changes while
-  a guest runs ends that guest's processes) are listed in ARCHITECTURE §12 and need the owner's confirmation.
+  a guest runs ends that guest's processes) are listed in ARCHITECTURE §12; the owner decided on 2026-10-01 (§11 D-14,
+  `docs/OPEN-QUESTIONS.md` Q2) that main-workspace guest sessions are off by default on Linux, so the main-workspace
+  ones apply only when the host opens them with `--allow-main-workspace-guests` (the start summary lists them).
 - Browsers other than Chrome (Safari/WebKit's wrapped device keys, Firefox) were not run.
 - R7.2 at the full 10 GB is manual. R1.1: an installer exists, but no release is hosted, built for every platform or
   signed yet, so the fresh-machine timing cannot be done (`docs/RELEASING.md`).

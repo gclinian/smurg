@@ -1,0 +1,1616 @@
+/*
+ * smurg.ai: one stylesheet for every page. Editorial and calm: type does the work, one accent colour, nothing moves.
+ * Colours and font stacks come from the app (apps/web/src/ui/tokens.css). Light by default here (a reading page),
+ * dark when the OS prefers it. Contrast (WCAG 2.1): body text >= 7:1, subtle text >= 5.2:1 on every surface it sits on,
+ * the accent >= 6.2:1, diagram lines >= 3.2:1 (non-text, 1.4.11).
+ */
+:root {
+  color-scheme: light dark;
+  --font-sans: system-ui, -apple-system, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei',
+    'Hiragino Sans', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, Consolas, 'Liberation Mono',
+    'Noto Sans Mono CJK TC', 'PingFang TC', 'Microsoft JhengHei', monospace;
+
+  --bg: #ffffff;
+  --panel: #f5f6f8;
+  --border: #d9dee6;
+  --border-strong: #b6bfcc;
+  --text: #1b1f27;
+  --muted: #485262;
+  --subtle: #5d6878;
+  --accent: #1d4ed8;
+  --accent-soft: rgb(29 78 216 / 0.08);
+  --focus: #2563eb;
+  --line: #7d8799;
+  --selection: rgb(29 78 216 / 0.18);
+
+  --measure: 40rem;
+  --radius: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115;
+    --panel: #151821;
+    --border: #2a3040;
+    --border-strong: #3d4559;
+    --text: #e6e9ef;
+    --muted: #aab3c3;
+    --subtle: #8e98ab;
+    --accent: #7cb0ff;
+    --accent-soft: rgb(124 176 255 / 0.12);
+    --focus: #9cc2ff;
+    --line: #5f6a80;
+    --selection: rgb(124 176 255 / 0.3);
+  }
+}
+
+/* ---- base ---- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 1.0625rem/1.65 var(--font-sans);
+  font-kerning: normal;
+  overflow-wrap: break-word;
+}
+
+/* CJK reads better with more leading and without negative tracking. */
+html:lang(zh-TW) body {
+  line-height: 1.8;
+}
+
+::selection {
+  background: var(--selection);
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+code,
+kbd {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+/* inline code and keys in running text (not the code blocks in pre.snippet) */
+p code,
+li > code,
+dd code,
+p kbd {
+  padding: 0.05em 0.3em;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  /* short commands, paths and keys: keep each on one line (the longest fits a 360 px screen) */
+  white-space: nowrap;
+}
+
+p kbd {
+  border-bottom-width: 2px;
+}
+
+svg {
+  display: block;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 76rem;
+  margin-inline: auto;
+  padding-inline: 16px;
+}
+
+@media (min-width: 640px) {
+  .wrap {
+    padding-inline: 32px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .wrap {
+    padding-inline: 48px;
+  }
+}
+
+.skip {
+  position: absolute;
+  left: 16px;
+  top: -100px;
+  z-index: 10;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.skip:focus {
+  top: 12px;
+}
+
+/* ---- header ---- */
+.site-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  min-height: 4rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 1.125rem;
+  letter-spacing: -0.01em;
+}
+
+.brand svg {
+  width: 26px;
+  height: 26px;
+}
+
+.mark-bg {
+  fill: var(--accent);
+}
+
+.mark-fg {
+  fill: var(--bg);
+}
+
+.mark-ln {
+  fill: none;
+  stroke: var(--bg);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.site-nav {
+  margin-left: auto;
+}
+
+.site-nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-nav a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.9375rem;
+}
+
+.site-nav a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.site-nav .lang a {
+  color: var(--text);
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+
+/* On small screens only the outbound links stay; the page itself is one linear read. */
+@media (max-width: 759px) {
+  .site-nav .jump {
+    display: none;
+  }
+}
+
+/* ---- hero ---- */
+.hero {
+  padding-block: clamp(3.5rem, 9vw, 8rem) clamp(3.5rem, 8vw, 6.5rem);
+}
+
+.eyebrow,
+.kicker {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+  color: var(--subtle);
+}
+
+.eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.6rem;
+  margin-bottom: 1.5rem;
+}
+
+/* each part stays on one line; on a phone the second goes under the chip */
+.eyebrow > span {
+  white-space: nowrap;
+}
+
+.chip {
+  padding: 0.1rem 0.6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text);
+}
+
+.hero h1 {
+  font-size: clamp(2.125rem, 1.25rem + 3.9vw, 4.5rem);
+  line-height: 1.05;
+  letter-spacing: -0.028em;
+  max-width: 22ch;
+  text-wrap: balance;
+}
+
+/* Break the Chinese headline only between phrases (the <wbr> in the markup), never inside a word like 即時. */
+html:lang(zh-TW) .hero h1 {
+  font-size: clamp(2rem, 1.2rem + 3.4vw, 4rem);
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  max-width: 15em;
+  word-break: keep-all;
+}
+
+.lede {
+  margin-top: 1.75rem;
+  max-width: 41rem;
+  font-size: clamp(1.125rem, 1.02rem + 0.45vw, 1.375rem);
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+html:lang(zh-TW) .lede {
+  line-height: 1.8;
+}
+
+.install {
+  margin-top: 2.75rem;
+  max-width: 41rem;
+}
+
+.install-label {
+  margin-bottom: 0.6rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.command {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.command code {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.85rem 1rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  /* wrap at the spaces only (after "-fsSL" on a phone), never inside the URL */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  /* one click or tap selects the whole command (the copy button is the other way) */
+  user-select: all;
+}
+
+.command code::before {
+  content: '$ ';
+  color: var(--subtle);
+  user-select: none;
+}
+
+.copy {
+  flex: 0 0 auto;
+  min-width: 5.75rem;
+  margin: 0;
+  padding: 0 1rem;
+  border: 0;
+  border-left: 1px solid var(--border-strong);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: transparent;
+  color: var(--text);
+  font: 500 0.9375rem/1 var(--font-sans);
+  cursor: pointer;
+}
+
+.copy:hover {
+  background: var(--accent-soft);
+}
+
+.copy:focus-visible {
+  outline-offset: -3px;
+}
+
+/* Phones: the command takes the full width and the button sits under it. */
+@media (max-width: 479px) {
+  .command {
+    flex-wrap: wrap;
+  }
+
+  .command code {
+    flex-basis: 100%;
+    font-size: 0.875rem;
+  }
+
+  .copy {
+    flex: 1 1 100%;
+    min-height: 2.75rem;
+    border-left: 0;
+    border-top: 1px solid var(--border-strong);
+    border-radius: 0 0 var(--radius) var(--radius);
+  }
+}
+
+.install-note {
+  margin-top: 0.85rem;
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+
+.ui-note {
+  margin-top: 1.25rem;
+  padding-left: 0.85rem;
+  border-left: 2px solid var(--accent);
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+
+/* ---- the workspace mock under the install line ----
+ * An illustration of the web app's workbench (apps/web/src/app/workspace/Workbench.tsx), not a screenshot. Its colours
+ * are the app's own (apps/web/src/ui/tokens.css, Monaco's vs / vs-dark token colours, the daemon's member and agent
+ * colours), so they are set here instead of coming from the page's tokens. It is a picture (role="img"): nothing in
+ * it is interactive. Hidden below 720 px, where its labels would be cut off. */
+.mock-figure {
+  display: none;
+  margin: clamp(2.5rem, 5vw, 3.5rem) 0 0;
+}
+
+@media (min-width: 720px) {
+  .mock-figure {
+    display: block;
+  }
+}
+
+.mock-figure figcaption {
+  max-width: 48rem;
+  margin-top: 0.85rem;
+  font-size: 0.875rem;
+  color: var(--subtle);
+}
+
+.mock {
+  --m-bg: #f5f6f8;
+  --m-s1: #ffffff;
+  --m-s3: #eef1f5;
+  --m-border: #d9dee6;
+  --m-border-strong: #b6bfcc;
+  --m-text: #1b1f27;
+  --m-muted: #485262;
+  --m-subtle: #5d6878;
+  --m-accent: #1d4ed8;
+  --m-accent-solid: #1d4ed8;
+  --m-accent-soft: rgb(29 78 216 / 0.1);
+  --m-success: #166534;
+  --m-success-soft: rgb(21 128 61 / 0.1);
+  --m-warning-soft: #fff7e0;
+  --m-warning-text: #7c2d12;
+  --m-code-bg: #ffffff;
+  --m-code-fg: #1b1f27;
+  --m-line-no: #687385;
+  --m-line-hl: #f5f6f8;
+  --m-shadow: 0 1px 2px rgb(15 17 21 / 0.06), 0 18px 48px rgb(15 17 21 / 0.1);
+  --tok-kw: #0000ff;
+  --tok-str: #a31515;
+  --tok-type: #267f99;
+  --tok-fn: #795e26;
+  --tok-var: #001080;
+  --ian: #4363d8;
+  --amy: #e6194b;
+  --ben: #2e8b3e;
+  --claude-amy: #9333ea;
+  --claude-ian: #d97706;
+  border: 1px solid var(--m-border-strong);
+  border-radius: 10px;
+  background: var(--m-bg);
+  box-shadow: var(--m-shadow);
+  color: var(--m-text);
+  font: 400 12px/1.45 var(--font-sans);
+  overflow: hidden;
+  user-select: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .mock {
+    --m-bg: #0f1115;
+    --m-s1: #151821;
+    --m-s3: #232838;
+    --m-border: #2a3040;
+    --m-border-strong: #3d4559;
+    --m-text: #e6e9ef;
+    --m-muted: #aab3c3;
+    --m-subtle: #8e98ab;
+    --m-accent: #7cb0ff;
+    --m-accent-solid: #2563eb;
+    --m-accent-soft: rgb(124 176 255 / 0.14);
+    --m-success: #4ade80;
+    --m-success-soft: rgb(74 222 128 / 0.12);
+    --m-warning-soft: rgb(251 191 36 / 0.12);
+    --m-warning-text: #fde68a;
+    --m-code-bg: #0f1115;
+    --m-code-fg: #e6e9ef;
+    --m-line-no: #7d879a;
+    --m-line-hl: #151821;
+    --m-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 18px 48px rgb(0 0 0 / 0.45);
+    --tok-kw: #569cd6;
+    --tok-str: #ce9178;
+    --tok-type: #4ec9b0;
+    --tok-fn: #dcdcaa;
+    --tok-var: #9cdcfe;
+  }
+}
+
+.mock * {
+  white-space: nowrap;
+}
+
+.m-app {
+  display: flex;
+  flex-direction: column;
+}
+
+.mock .ic {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.m-chrome {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 34px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--m-border);
+  background: var(--m-s3);
+}
+
+.m-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.m-dots i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--m-border-strong);
+}
+
+.m-url {
+  flex: 1;
+  max-width: 420px;
+  margin-inline: auto;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: var(--m-s1);
+  color: var(--m-muted);
+  font-size: 11px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.m-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--m-border);
+  background: var(--m-s1);
+}
+
+.m-word {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.m-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--m-border);
+}
+
+.m-ws {
+  font-weight: 600;
+}
+
+.m-host {
+  color: var(--m-muted);
+}
+
+.m-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--m-success-soft);
+  color: var(--m-success);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.m-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.m-spacer {
+  flex: 1;
+}
+
+.m-avs {
+  display: flex;
+}
+
+.mock .av {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: -4px;
+  border: 2px solid var(--m-s1);
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 700;
+  font-style: normal;
+}
+
+.mock .av:first-child {
+  margin-left: 0;
+}
+
+.mock .av .ic {
+  width: 12px;
+  height: 12px;
+}
+
+.av-ian {
+  background: var(--ian);
+  color: #ffffff;
+}
+
+.av-amy {
+  background: var(--amy);
+  color: #000000;
+}
+
+.av-ben {
+  background: var(--ben);
+  color: #000000;
+}
+
+.av-agent {
+  background: var(--claude-amy);
+  color: #ffffff;
+}
+
+.av-claude-ian {
+  background: var(--claude-ian);
+  color: #000000;
+}
+
+.mock .av-agent,
+.mock .av-claude-ian {
+  border-radius: 6px;
+}
+
+.m-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: 4px;
+  background: var(--m-s1);
+  font-size: 11px;
+}
+
+.m-btn-primary {
+  border-color: var(--m-accent-solid);
+  background: var(--m-accent-solid);
+  color: #ffffff;
+}
+
+/* 720 to 1023 px: the editor and the agents; from 1024 px also the file tree and the suggestion box. */
+.m-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 1px;
+  background: var(--m-border);
+}
+
+.m-files,
+.m-editor,
+.m-agents {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--m-s1);
+}
+
+.m-files,
+.m-suggest {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .m-body {
+    grid-template-columns: 196px minmax(0, 1fr) minmax(0, 0.82fr);
+  }
+
+  .m-files,
+  .m-suggest {
+    display: flex;
+  }
+}
+
+.m-ph {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--m-border);
+  color: var(--m-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.m-ph .m-btn {
+  height: 20px;
+  margin-left: auto;
+  font-weight: 400;
+}
+
+.m-switch {
+  margin: 8px 10px 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--m-border);
+  border-radius: 4px;
+  color: var(--m-muted);
+  font-size: 11px;
+}
+
+.m-tree {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.m-tree li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 23px;
+  padding: 0 8px 0 10px;
+  overflow: hidden;
+}
+
+.m-tree .d1 {
+  padding-left: 24px;
+}
+
+.m-tree .ic {
+  color: var(--m-subtle);
+}
+
+.m-tree .on {
+  background: var(--m-accent-soft);
+}
+
+.m-tag {
+  margin-left: auto;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.m-tag-human {
+  background: var(--m-warning-soft);
+  color: var(--m-warning-text);
+}
+
+.m-tag-agent {
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+}
+
+.m-tabs {
+  display: flex;
+  height: 30px;
+  border-bottom: 1px solid var(--m-border);
+  background: var(--m-s3);
+  overflow: hidden;
+}
+
+.m-tabs span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 12px;
+  border-right: 1px solid var(--m-border);
+  color: var(--m-muted);
+}
+
+.m-tabs .on {
+  background: var(--m-s1);
+  color: var(--m-text);
+  box-shadow: inset 0 2px 0 var(--m-accent-solid);
+}
+
+.m-count {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--m-accent-solid);
+  color: #ffffff;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 15px;
+}
+
+.m-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--m-border);
+  background: var(--m-warning-soft);
+  color: var(--m-warning-text);
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.m-banner-info {
+  background: var(--m-accent-soft);
+  color: var(--m-text);
+}
+
+.m-code,
+.m-term {
+  flex: 1;
+  margin: 0;
+  padding: 8px 0;
+  background: var(--m-code-bg);
+  color: var(--m-code-fg);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 19px;
+  overflow: hidden;
+}
+
+/* keep the indentation (`.mock *` would collapse it) */
+.m-code,
+.m-term,
+.m-code *,
+.m-term * {
+  white-space: pre;
+}
+
+.m-code > span,
+.m-term > span {
+  display: block;
+}
+
+.m-code > span {
+  padding-right: 8px;
+}
+
+.m-ln {
+  display: inline-block;
+  width: 34px;
+  padding-right: 12px;
+  color: var(--m-line-no);
+  font-style: normal;
+  text-align: right;
+}
+
+.m-hl {
+  background: var(--m-line-hl);
+}
+
+.tk-k {
+  color: var(--tok-kw);
+}
+
+.tk-s {
+  color: var(--tok-str);
+}
+
+.tk-t {
+  color: var(--tok-type);
+}
+
+.tk-f {
+  color: var(--tok-fn);
+}
+
+.tk-v {
+  color: var(--tok-var);
+}
+
+/* remote cursors, drawn the way y-monaco draws them in the app */
+.m-cur {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 19px;
+  vertical-align: top;
+}
+
+.m-cur::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 1px;
+  bottom: 1px;
+  border-left: 2px solid var(--c);
+}
+
+.m-cur b {
+  position: absolute;
+  left: -1px;
+  bottom: 17px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--c);
+  color: #000000;
+  font: 600 10px/15px var(--font-sans);
+}
+
+.m-cur-amy {
+  --c: var(--amy);
+}
+
+.m-cur-ben {
+  --c: var(--ben);
+}
+
+.m-sel-ben {
+  background: color-mix(in srgb, var(--ben) 25%, transparent);
+}
+
+.m-status {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 3px 10px;
+  border-top: 1px solid var(--m-border);
+  background: var(--m-s1);
+  color: var(--m-subtle);
+  font-size: 10.5px;
+}
+
+.m-term {
+  padding: 8px 10px;
+}
+
+.m-term > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.m-dim,
+.m-prompt {
+  color: var(--m-subtle);
+}
+
+.m-ok {
+  color: var(--m-success);
+}
+
+.m-tool {
+  font-weight: 700;
+}
+
+/* a block cursor; it does not blink (nothing on this page moves) */
+.m-caret {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  vertical-align: -2px;
+  background: var(--m-code-fg);
+}
+
+.m-suggest {
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 0 8px;
+  border-top: 1px solid var(--m-border);
+}
+
+.m-suggest .m-ph {
+  border-bottom: 0;
+}
+
+.m-input {
+  margin: 0 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: 4px;
+  color: var(--m-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.m-suggest .m-btn {
+  align-self: flex-end;
+  margin-right: 10px;
+}
+
+.m-drawer {
+  border-top: 1px solid var(--m-border);
+  background: var(--m-s1);
+}
+
+.m-feed {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.m-feed li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 12px;
+  overflow: hidden;
+}
+
+.mock .m-feed .av {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border: 0;
+  font-size: 8px;
+}
+
+.mock .m-feed .av .ic {
+  width: 11px;
+  height: 11px;
+}
+
+.m-what {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.m-via {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--m-s3);
+  color: var(--m-muted);
+  font-size: 10px;
+}
+
+.m-ago {
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--m-subtle);
+  font-size: 11px;
+}
+
+/* ---- sections ---- */
+.section {
+  border-top: 1px solid var(--border);
+  padding-block: clamp(3.5rem, 8vw, 6.5rem);
+}
+
+.section-grid {
+  display: grid;
+  gap: 2rem;
+}
+
+@media (min-width: 960px) {
+  .section-grid {
+    grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+    gap: 3.5rem;
+  }
+}
+
+.kicker {
+  margin-bottom: 0.85rem;
+}
+
+.section h2 {
+  font-size: clamp(1.625rem, 1.25rem + 1.2vw, 2.25rem);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+
+html:lang(zh-TW) .section h2 {
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+}
+
+.section-intro {
+  margin-top: 1rem;
+  max-width: var(--measure);
+  color: var(--muted);
+}
+
+.section-head-wide {
+  max-width: 48rem;
+  margin-bottom: clamp(2.5rem, 5vw, 3.5rem);
+}
+
+h3 {
+  font-size: 1.125rem;
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+}
+
+/* ---- steps ---- */
+.steps {
+  display: grid;
+  gap: 3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Three columns from 1100 px: narrower columns would cut the invite link in step 2 (it never wraps). */
+@media (min-width: 1100px) {
+  .steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2.5rem;
+  }
+}
+
+/* Single column (phones, tablets): keep the text at a reading measure under its drawing. */
+@media (max-width: 1099px) {
+  .step > :not(.step-figure) {
+    max-width: var(--measure);
+  }
+}
+
+.step-figure {
+  margin: 0 0 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.step-figure svg {
+  width: 100%;
+  height: auto;
+  max-width: 22rem;
+  margin-inline: auto;
+}
+
+.step-num {
+  margin-bottom: 0.4rem;
+}
+
+.step p {
+  margin-top: 0.6rem;
+  color: var(--muted);
+}
+
+.snippet {
+  margin: 1rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  /* never break a command or a link inside a token; the longest line fits a 360 px screen, scroll is the fallback */
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.snippet code {
+  font-size: inherit;
+}
+
+.snippet .c {
+  color: var(--subtle);
+}
+
+/* ---- diagrams (inline SVG; colours from the page) ---- */
+.dg {
+  color: var(--line);
+}
+
+.dg .ln {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dg .ln-soft {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.dg .bx {
+  fill: var(--bg);
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+
+.dg .ac {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dg .ac-dash {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 5;
+}
+
+.dg .acf {
+  fill: var(--accent);
+}
+
+.dg .soft {
+  fill: var(--accent-soft);
+}
+
+.dg .dot {
+  fill: var(--line);
+}
+
+.dg .bgf {
+  fill: var(--bg);
+}
+
+.dg .sf {
+  fill: var(--subtle);
+}
+
+.dg .cur {
+  fill: none;
+  stroke: var(--subtle);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* lines of text in the little editor drawings */
+.dg .bar {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.dg .bar.thin {
+  stroke-width: 3;
+}
+
+.dg text {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.dg .tt {
+  fill: var(--text);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.dg .ts {
+  fill: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+.dg .tm {
+  fill: var(--subtle);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.dg .ta {
+  fill: var(--accent);
+}
+
+.dg .tx {
+  font-size: 11px;
+}
+
+.dg .tb {
+  fill: var(--bg);
+}
+
+.dg .tick {
+  fill: none;
+  stroke: var(--bg);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---- features ---- */
+.features {
+  display: grid;
+  gap: 2.25rem 3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 720px) {
+  .features {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.features li {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.features p {
+  margin-top: 0.6rem;
+  color: var(--muted);
+}
+
+/* ---- security ---- */
+.diagram {
+  margin: 0 0 clamp(2.5rem, 5vw, 3.5rem);
+  padding: clamp(1rem, 3vw, 2rem);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.diagram svg {
+  width: 100%;
+  height: auto;
+}
+
+/* Two drawings of the same thing: stacked below 1000 px (labels stay >= 12 px), side by side above. */
+.diagram .tall {
+  max-width: 24rem;
+  margin-inline: auto;
+}
+
+.diagram .tall .tt {
+  font-size: 20px;
+}
+
+.diagram .tall .ts {
+  font-size: 16px;
+}
+
+.diagram .tall .tm {
+  font-size: 15px;
+}
+
+.diagram .tall text {
+  font-size: 14px;
+}
+
+.diagram .wide text {
+  font-size: 13px;
+}
+
+/* Phones: give the drawing the width, so its smallest label still renders at about 12 px. */
+@media (max-width: 479px) {
+  .diagram {
+    padding: 0.5rem;
+  }
+}
+
+.diagram .wide {
+  display: none;
+  max-width: 1000px;
+  margin-inline: auto;
+}
+
+@media (min-width: 1000px) {
+  .diagram .wide {
+    display: block;
+  }
+
+  .diagram .tall {
+    display: none;
+  }
+}
+
+.diagram figcaption {
+  margin-top: 1rem;
+  font-size: 0.9375rem;
+  color: var(--subtle);
+  text-align: center;
+}
+
+.points {
+  display: grid;
+  gap: 2.25rem 3rem;
+}
+
+@media (min-width: 720px) {
+  .points {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.points p,
+.limits li {
+  color: var(--muted);
+}
+
+.points p {
+  margin-top: 0.6rem;
+}
+
+.limits {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+  padding: 1.5rem clamp(1.25rem, 3vw, 2rem);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.limits ul {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.more {
+  margin-top: 1.5rem;
+  font-size: 0.9375rem;
+}
+
+/* ---- platforms ---- */
+.facts {
+  margin: 0;
+  display: grid;
+}
+
+.facts > div {
+  display: grid;
+  gap: 0.35rem;
+  padding-block: 1.1rem;
+  border-top: 1px solid var(--border);
+}
+
+.facts > div:last-child {
+  border-bottom: 1px solid var(--border);
+}
+
+@media (min-width: 720px) {
+  .facts > div {
+    grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
+    gap: 2rem;
+  }
+}
+
+.facts dt {
+  font-weight: 600;
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+.status {
+  margin-top: 1.5rem;
+  max-width: var(--measure);
+  font-size: 0.9375rem;
+  color: var(--subtle);
+}
+
+/* ---- open source ---- */
+.links-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.75rem;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lead-text {
+  max-width: var(--measure);
+  font-size: 1.1875rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+html:lang(zh-TW) .lead-text {
+  line-height: 1.85;
+}
+
+/* ---- FAQ ---- */
+.faq {
+  display: grid;
+  gap: 2.25rem;
+  max-width: 46rem;
+}
+
+.faq p {
+  margin-top: 0.6rem;
+  color: var(--muted);
+}
+
+/* ---- footer ---- */
+.site-footer {
+  border-top: 1px solid var(--border);
+  padding-block: 2.5rem 3rem;
+  font-size: 0.9375rem;
+  color: var(--subtle);
+}
+
+.footer-row {
+  display: grid;
+  gap: 1.25rem;
+}
+
+@media (min-width: 760px) {
+  .footer-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+}
+
+.footer-row ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.footer-row a {
+  color: var(--muted);
+}
+
+.footer-row a:hover {
+  color: var(--text);
+}
+
+/* ---- 404 ---- */
+.notfound {
+  padding-block: clamp(4rem, 12vw, 9rem);
+}
+
+.notfound h1 {
+  font-size: clamp(2rem, 1.4rem + 2.6vw, 3.25rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.notfound p {
+  margin-top: 1.25rem;
+  max-width: var(--measure);
+  color: var(--muted);
+}
+
+.notfound ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.75rem;
+  margin: 2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Colour changes only; nothing slides or fades, and nothing at all when reduced motion is asked for. */
+@media (prefers-reduced-motion: no-preference) {
+  a,
+  .copy {
+    transition:
+      color 120ms ease,
+      background-color 120ms ease;
+  }
+}
+
+@media print {
+  .site-header nav,
+  .copy,
+  .skip {
+    display: none;
+  }
+
+  .section {
+    break-inside: avoid-page;
+  }
+}

@@ -1,8 +1,11 @@
 // `smurg host <folder> [--relay URL] [--role R] [--expires D] [--max-uses N] [--name N] [--web-origin URL]
-//  [--no-keep-awake] [--no-browser] [--no-guest-subscription-login] [--no-bash-attribution]`
+//  [--no-keep-awake] [--no-browser] [--no-guest-subscription-login] [--no-bash-attribution]
+//  [--allow-main-workspace-guests | --no-main-workspace-guests]`
 // (SPEC R1, §6, §11; ARCHITECTURE §8): shares a folder from this machine. The two `--no-…` switches turn off the guests'
 // subscription login process (config.sessions.guestSubscriptionLogin, §11 D-12) and the Bash activity hook
-// (config.activity.attributeBashEdits, §11 D-13); the summary explains both when on and echoes them when off.
+// (config.activity.attributeBashEdits, §11 D-13); the summary explains both when on and echoes them when off. The third
+// switch opens or closes the main workspace to guests' sandboxed sessions (config.sessions.guestMainWorkspace, §11
+// D-14; default: closed on a Linux host, open on macOS); the summary says which, and lists the Linux limits when open.
 //
 //  1. validates the folder (exists, a directory, not the home directory, not a parent of — or inside — the state dir)
 //     and refuses a folder that is already being shared;
@@ -33,6 +36,7 @@ import {
   createDaemon,
   createLineLogger,
   isStubService,
+  LOG_UNSAFE_CHARACTER,
   quoteForLog,
   type Daemon,
   type FeatureModule,
@@ -83,6 +87,13 @@ export function hostUsage(): string {
   --no-bash-attribution
                       agent 執行 shell 指令時不通知 smurg（預設會通知指令的開始與結束，不含指令內容）；關閉後
                       agent 用 shell 指令改的檔案，在活動動態裡顯示為「外部程式」
+  --allow-main-workspace-guests
+                      開放客人（runner）在共享主工作區開 agent 和終端機（macOS 預設開放；Linux 預設不開放：Linux 的
+                      沙盒擋不住客人在子資料夾裡新建 .claude/settings.json 這類只有主人能用的檔案，開放前請先看
+                      smurg host 列出的限制）
+  --no-main-workspace-guests
+                      不開放客人在共享主工作區開 session：客人只能在自己的 worktree 裡工作（分享的資料夾必須是
+                      git repository，否則客人無法開 session）
 `;
 }
 
@@ -337,6 +348,8 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
       browser: { kind: 'boolean' },
       'guest-subscription-login': { kind: 'boolean' },
       'bash-attribution': { kind: 'boolean' },
+      // §11 D-14: `--allow-main-workspace-guests` / `--no-main-workspace-guests`, nothing else (cli/args.ts `positive`).
+      'main-workspace-guests': { kind: 'boolean', positive: 'allow-main-workspace-guests' },
       help: { kind: 'boolean', short: 'h' },
     },
     positionals: ['資料夾'],
@@ -355,10 +368,12 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   const name = parseName(stringOption(args, 'name'));
   const keepAwake = booleanOption(args, 'keep-awake') !== false;
   // ARCHITECTURE §11 D-12 / D-13: both on unless the host switches them off (`--no-…`; `--x --no-x` is refused).
-  const switches: HostSwitches = {
+  const switches: Pick<HostSwitches, 'guestSubscriptionLogin' | 'attributeBashEdits'> = {
     guestSubscriptionLogin: booleanOption(args, 'guest-subscription-login') ?? HOST_SWITCH_DEFAULTS.guestSubscriptionLogin,
     attributeBashEdits: booleanOption(args, 'bash-attribution') ?? HOST_SWITCH_DEFAULTS.attributeBashEdits,
   };
+  // §11 D-14: left to the daemon unless the host said it (its default depends on the platform: off on Linux).
+  const mainWorkspaceFlag = booleanOption(args, 'main-workspace-guests');
   const webOriginFlag = stringOption(args, 'web-origin');
   // The same rule as for a relay: https, or http on a local hostname (the link carries the invite secret).
   const webOrigin =
@@ -420,7 +435,11 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
         ...(webOrigin !== undefined ? { webOrigin } : {}),
         keepAwake,
         ...(name !== undefined ? { workspaceName: name } : {}),
-        sessions: { selfCommand: selfCommand(), guestSubscriptionLogin: switches.guestSubscriptionLogin },
+        sessions: {
+          selfCommand: selfCommand(),
+          guestSubscriptionLogin: switches.guestSubscriptionLogin,
+          ...(mainWorkspaceFlag !== undefined ? { guestMainWorkspace: mainWorkspaceFlag } : {}),
+        },
         activity: { attributeBashEdits: switches.attributeBashEdits },
       },
       relay: { token: session.token, ...(deps.daemon?.socketFactory ? { socketFactory: deps.daemon.socketFactory } : {}) },
@@ -491,8 +510,13 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   if (stopping === null) {
     try {
       // What the daemon runs with (not merely what was asked for) is what the host is told.
-      const inForce: HostSwitches = { guestSubscriptionLogin: daemon.config.sessions.guestSubscriptionLogin, attributeBashEdits: daemon.config.activity.attributeBashEdits };
-      printSummary(ctx, daemon, { origin, relaySource: relay.source, webOrigin: daemon.config.webOrigin, folder, role, expiresInSec, maxUses, userId: user.userId, logPath: log.path, switches: inForce });
+      const inForce: HostSwitches = {
+        guestSubscriptionLogin: daemon.config.sessions.guestSubscriptionLogin,
+        attributeBashEdits: daemon.config.activity.attributeBashEdits,
+        guestMainWorkspace: daemon.config.sessions.guestMainWorkspace,
+      };
+      const facts: HostFacts = { platform: daemon.ctx.workspace.info.platform, isGitRepo: daemon.ctx.workspace.info.isGitRepo, mainWorkspaceFlag };
+      printSummary(ctx, daemon, { origin, relaySource: relay.source, webOrigin: daemon.config.webOrigin, folder, role, expiresInSec, maxUses, userId: user.userId, logPath: log.path, switches: inForce, facts });
     } catch (err) {
       await daemon.stop(INTERNAL_STOP_SUMMARY_FAILED).catch(() => {});
       await cleanup();
@@ -663,7 +687,7 @@ export function watchRelay(ctx: CommandContext, daemon: Daemon, target: RelayWat
  * directories on the way): anything but plain characters is shown quoted and escaped.
  */
 export function protectedChangedText(worktreeId: string | null, paths: readonly string[], more: number, revoked: number): string {
-  const shown = (path: string): string => (/^[^\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069"\\]+$/.test(path) ? path : quoteForLog(path));
+  const shown = (path: string): string => (path.length > 0 && !LOG_UNSAFE_CHARACTER.test(path) && !/["\\]/.test(path) ? path : quoteForLog(path));
   const where = worktreeId === null ? '分享的資料夾' : `worktree ${worktreeId}`;
   const names = paths.map(shown).join('、') + (more > 0 ? ` 等另外 ${more} 個` : '');
   const ended =
@@ -733,18 +757,77 @@ export async function reportGuestSandbox(ctx: CommandContext, daemon: Daemon, st
   );
 }
 
-/** The two switches of `smurg host` (config.sessions.guestSubscriptionLogin, config.activity.attributeBashEdits). */
+/**
+ * The switches of `smurg host` as the daemon runs with them (config.sessions.guestSubscriptionLogin,
+ * config.activity.attributeBashEdits, config.sessions.guestMainWorkspace).
+ */
 export interface HostSwitches {
   readonly guestSubscriptionLogin: boolean;
   readonly attributeBashEdits: boolean;
+  readonly guestMainWorkspace: boolean;
+}
+
+/** What the summary's main-workspace line depends on besides the switch itself (§11 D-14). */
+export interface HostFacts {
+  /** The daemon's platform (WorkspaceInfo.platform): the default and the limits differ on Linux. */
+  readonly platform: NodeJS.Platform;
+  /** Whether the share is a git repository: without one guests have no worktree mode either. */
+  readonly isGitRepo: boolean;
+  /** `--allow-main-workspace-guests` (true), `--no-main-workspace-guests` (false), neither (undefined: the default). */
+  readonly mainWorkspaceFlag: boolean | undefined;
 }
 
 /**
- * What the two switches mean for the host (ARCHITECTURE §11 D-12, D-13), in the start summary: a switch left at its
+ * The summary line of guests' sessions in the main workspace (ARCHITECTURE §11 D-14, §12 "Linux, in more detail"):
+ * whether it is open and why (the platform's default or the host's flag); open on Linux, the residual limits of the
+ * Linux sandbox there; closed, what guests get instead (their worktree, or nothing without a git repository).
+ */
+export function mainWorkspaceLines(open: boolean, facts: HostFacts): string[] {
+  const linux = facts.platform === 'linux';
+  const why = facts.mainWorkspaceFlag === undefined ? (linux ? 'Linux 預設' : 'macOS 預設') : facts.mainWorkspaceFlag ? '--allow-main-workspace-guests' : '--no-main-workspace-guests';
+  if (!open) {
+    const lines = [`  · 客人的主工作區 session：未開放（${why}）。客人（runner）只能在自己的 worktree 裡開 agent 和終端機，看不到主工作區。`];
+    if (linux && facts.mainWorkspaceFlag === undefined) {
+      lines.push(
+        '    Linux 的沙盒（bubblewrap）擋不住客人在主工作區的子資料夾裡新建只有主人能用的檔案（例如 sub/.claude/settings.json），',
+        '    所以預設不開放。要開放的話，停止分享後加上 --allow-main-workspace-guests 重新執行（smurg host 會列出 Linux 上的限制）。',
+      );
+    }
+    if (!facts.isGitRepo) {
+      lines.push('    這個資料夾不是 git repository，沒有 worktree 可用，所以客人目前無法開 session（檔案、共同編輯等其他功能不受影響）。');
+    }
+    return lines;
+  }
+  if (!linux) {
+    return [
+      `  · 客人的主工作區 session：已開放（${why}）。客人（runner）開 session 時可以選擇共享主工作區或自己的 worktree。`,
+      '    不想開放的話，停止分享後加上 --no-main-workspace-guests 重新執行。',
+    ];
+  }
+  return [
+    `  · 客人的主工作區 session：已開放（${why}）。Linux 上的限制（macOS 沒有這些限制）：`,
+    '    - 客人可以在子資料夾裡新建只有主人能用的檔案（例如 sub/.claude/settings.json、sub/.mcp.json、sub/.git/config），',
+    '      你自己不在沙盒裡的工具（在那個子資料夾裡啟動的 Claude Code、git、VS Code）可能會執行它們。smurg 發現時（通常',
+    '      幾秒內；客人程序結束後也會再查一次）會結束客人的程序並在這裡列出路徑（新的 .git 和 node_modules 裡的除外）；',
+    '      使用那個子資料夾之前，請先檢查這些檔案。',
+    '    - 客人程序執行時，你取代、刪除或新建 .envrc、.mcp.json、.claude/、CLAUDE.local.md（編輯器存檔、Claude Code 的',
+    '      「don\'t ask again」、git switch、git clean），smurg 會結束客人的程序，但在那之前客人可能讀到或改寫新的內容',
+    '      （通常 0.1 秒內；在一次建好的多層子資料夾裡（mkdir -p、git checkout、解壓縮）要等下一次掃描，通常幾秒內；',
+    '      .git 最多 2 秒）。編輯這些檔案之前，請先請客人結束 session。',
+    '    - 客人程序執行時，專案最上層會有 smurg 的空白佔位（.claude/、.vscode/、.idea/、.mcp.json、.envrc），列在',
+    '      .git/info/exclude 裡，git add -A、git stash -u、git clean -fd 不會動到；git add -f、git clean -x、git stash -a',
+    '      仍會（客人的程序會因此結束）。',
+    '    - 路徑裡有 * ? [ ] 或不是 UTF-8 的這類檔案不受保護（紀錄檔會列出）；分享的資料夾裡的 Unix socket 客人也連得到。',
+    '    不想開放的話，停止分享後不加 --allow-main-workspace-guests 重新執行（Linux 預設不開放，客人只能用自己的 worktree）。',
+  ];
+}
+
+/**
+ * What the switches mean for the host (ARCHITECTURE §11 D-12, D-13, D-14), in the start summary: a switch left at its
  * default is explained (what it lets happen on this machine, and how to turn it off); a switch turned off is echoed.
  */
-export function switchLines(switches: HostSwitches): string[] {
-  const lines = ['■ 組員的 Claude 登入與 agent 的 shell 指令'];
+export function switchLines(switches: HostSwitches, facts: HostFacts): string[] {
+  const lines = ['■ 組員的 Claude 登入、客人的主工作區與 agent 的 shell 指令'];
   if (switches.guestSubscriptionLogin) {
     lines.push(
       '  · 組員可以用自己的 Claude 訂閱帳號登入：smurg 會在那位組員的沙盒裡另外執行一個登入程序（claude auth login，',
@@ -755,6 +838,7 @@ export function switchLines(switches: HostSwitches): string[] {
   } else {
     lines.push('  · 組員的 Claude 訂閱登入：已關閉（--no-guest-subscription-login）。組員只能用自己的 API key 登入。');
   }
+  lines.push(...mainWorkspaceLines(switches.guestMainWorkspace, facts));
   if (switches.attributeBashEdits) {
     lines.push(
       '  · 每個 agent（包括你自己的）執行 shell 指令時，會通知這台電腦上的 smurg 指令何時開始、何時結束（不含指令內容',
@@ -781,6 +865,7 @@ function printSummary(
     userId: string;
     logPath: string;
     switches: HostSwitches;
+    facts: HostFacts;
   },
 ): void {
   const principal = daemon.ctx.members.principalOf(s.userId);
@@ -816,7 +901,7 @@ function printSummary(
       '     技術上你讀得到。請組員使用有花費上限的 API key；組員離開或被移出時，smurg 會登出並刪除他們的暫存目錄。',
       '  3. 組員只能在 smurg host 執行、而且這台電腦連線時使用這個工作區。',
       '',
-      ...switchLines(s.switches),
+      ...switchLines(s.switches, s.facts),
       '',
       `防止睡眠：${powerText(daemon.status().power)}`,
       `daemon 紀錄檔：${s.logPath}（不含邀請連結）`,

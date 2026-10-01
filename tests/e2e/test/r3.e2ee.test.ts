@@ -81,7 +81,9 @@ function connIdsOf(stack: Stack, label: string): number[] {
 
 describe('R3 (a) relay byte tap', () => {
   it('在 relay 端記錄所有經過的位元組，找不到任何明文的檔案內容、終端機輸出或指令', async () => {
-    const stack = await startStack({ relay, projectFiles: { 'README.md': '# r3\n' } });
+    // Amy's terminal runs in the main workspace: open it to guests explicitly, so the test is the same on a Linux host,
+    // where it is off by default (ARCHITECTURE §11 D-14).
+    const stack = await startStack({ relay, projectFiles: { 'README.md': '# r3\n' }, sessions: { guestMainWorkspace: true } });
     try {
       const M = {
         fileContent: marker('FILE-CONTENT'),

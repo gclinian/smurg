@@ -66,7 +66,9 @@ describe('R11 主人控制台', () => {
   });
 
   it('主人能從控制台一鍵終止任何 session', async () => {
-    const stack = await startStack({ relay });
+    // Carol's terminal runs in the main workspace: open it to guests explicitly, so the test is the same on a Linux
+    // host, where it is off by default (ARCHITECTURE §11 D-14).
+    const stack = await startStack({ relay, sessions: { guestMainWorkspace: true } });
     try {
       // A composition without the real sessions module fails here instead of skipping (review SPEC-11).
       expect(isStubService(stack.daemon.ctx.services.sessions), 'the default composition provides SessionManager').toBe(false);
@@ -119,7 +121,9 @@ describe('R11 主人控制台', () => {
       projectFiles: { 'README.md': '# e2e\n', 'src/app.ts': 'export const a = 1;\n', 'conflict.txt': 'line one\nline two\n', 'notes/keep.md': 'keep\n' },
       // No disk reserve: the upload must not depend on this machine's free space.
       settings: { diskReserveBytes: 0, diskReservePercent: 0 },
-      sessions: { claudePath: join(bin, 'claude') },
+      // Carol's terminal and agent (refused for its `claude` version) ask for the main workspace: open it to guests
+      // explicitly, so the test is the same on a Linux host, where it is off by default (ARCHITECTURE §11 D-14).
+      sessions: { claudePath: join(bin, 'claude'), guestMainWorkspace: true },
     });
     const docs: DocClient[] = [];
     try {

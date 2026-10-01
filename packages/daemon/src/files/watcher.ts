@@ -11,9 +11,13 @@
 // (isHiddenTempName) in JS. Changes inside a directory that worktrees share read-only (D12) are also reported for
 // those worktrees under the link's path, so a tree showing the worktree updates too.
 //
-// Every batch also goes, as reported and before any filtering, to the guest sandbox (SandboxService.fileEvents;
-// reviews RV-1, RV-2): on Linux a protected entry the host changes while a guest process runs in that root ends the
-// guest's processes (sandbox/guard.ts).
+// Every native batch also goes, as reported, before any filtering and as it arrives, to the guest sandbox
+// (SandboxService.fileEvents; reviews RV-1, RV-2, GR-3): on Linux a protected entry the host changes while a guest
+// process runs in that root ends the guest's processes (sandbox/guard.ts). A watcher error tells it to look at
+// everything it guards (SandboxService.fileWatchGap). Linux, @parcel/watcher 2.6.0's inotify backend: a directory
+// made in one burst with its parent (`mkdir -p`, a checkout, an unpack) or moved in with its subdirectories gets no
+// watch below its top, so changes there are never reported (live updates miss them; the sandbox walks its roots
+// instead, review GR-1), and an inotify queue overflow is dropped without an error (ARCHITECTURE §12).
 //
 // Native calls (2026-09-29: a test worker died with SIGTRAP, "memory corruption of free block" inside
 // FSEventStreamCreate; yjs-monaco.md "Watcher crash"). @parcel/watcher 2.6.0 keeps process-global state that its
@@ -447,11 +451,16 @@ export class FileWatcher {
     if (events.some((event) => event.type === 'delete' && event.path === watch.root.realPath)) void this.dropLost(watch);
     if (err) {
       // FSEvents can drop events under load: nothing tells which paths; clients re-list on their next open. The root
-      // itself may be gone: look now rather than at the next periodic check.
+      // itself may be gone: look now rather than at the next periodic check. The guest sandbox compares everything it
+      // guards there at once (review GR-1).
       this.ctx.log.warn('file watcher reported an error', { root: watch.root.key, error: err.message.slice(0, 200) });
       void this.checkRoot(watch);
+      this.tellSandboxGap(watch.root);
     }
     if (events.length === 0) return;
+    // The guest sandbox gets the batch as it arrives, not after the debounce and the previous batch's recheck (review
+    // GR-3: behind a build's 20,000 files a guest's window grew from ~0.1 s to ~11 s).
+    this.tellSandbox(watch.root, events);
     if (watch.pending.size === 0) watch.firstPendingAt = Date.now();
     for (const event of events) {
       const previous = watch.pending.get(event.path);
@@ -474,7 +483,6 @@ export class FileWatcher {
       if (watch.closed || watch.pending.size === 0) return;
       const batch = [...watch.pending.entries()];
       watch.pending = new Map();
-      this.tellSandbox(watch.root, batch);
       try {
         const changes = await this.recheck(watch.root, batch);
         if (!watch.closed && !this.stopped) this.publish(watch.root.ref, changes);
@@ -488,18 +496,30 @@ export class FileWatcher {
   /**
    * Linux (reviews RV-1, RV-2): the guest sandbox compares the protected entries a batch names (and what a directory
    * that appeared holds) with what its running guest processes were started with, and ends them when one changed. Every
-   * path of the batch, before any filtering here (`.git` and node_modules never arrive: the native ignore).
+   * path of the native batch as it arrives, before any filtering here (`.git` and node_modules never arrive: the
+   * native ignore). Synchronous and cheap: the sandbox does its own checks.
    */
-  private tellSandbox(root: RootInfo, batch: readonly (readonly [string, ParcelEventType])[]): void {
+  private tellSandbox(root: RootInfo, events: readonly NativeWatcherEvent[]): void {
     const sandbox = this.ctx.services.sandbox;
     if (isStubService(sandbox) || typeof sandbox.fileEvents !== 'function') return;
     try {
       sandbox.fileEvents(
         root.realPath,
-        batch.map(([path, type]) => ({ path, type })),
+        events.map(({ path, type }) => ({ path, type })),
       );
     } catch (err) {
       this.ctx.log.error('file watcher: the sandbox could not check a batch', { root: root.key, error: err instanceof Error ? err.message.slice(0, 200) : 'unknown' });
+    }
+  }
+
+  /** The watcher may have missed events of `root` (it reported an error): the sandbox looks at everything it guards. */
+  private tellSandboxGap(root: RootInfo): void {
+    const sandbox = this.ctx.services.sandbox;
+    if (isStubService(sandbox) || typeof sandbox.fileWatchGap !== 'function') return;
+    try {
+      sandbox.fileWatchGap(root.realPath);
+    } catch (err) {
+      this.ctx.log.error('file watcher: the sandbox could not be told of a gap', { root: root.key, error: err instanceof Error ? err.message.slice(0, 200) : 'unknown' });
     }
   }
 

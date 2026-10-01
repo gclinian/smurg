@@ -1,16 +1,21 @@
 // SandboxService with injected seams (platform, srt, the pty runner, file checks): every refusal reason, the Linux
 // branch on any machine (the real bubblewrap runs in r5.sandbox.test.ts on Linux), live allow-list changes, and the
 // process-wide srt runtime.
-import { existsSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { existsSync, fstatSync, lstatSync, readdirSync, realpathSync, statSync, unlinkSync } from 'node:fs';
 import { mkdir, readFile, rename, rmdir, symlink, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { promisify } from 'node:util';
 import { SmurgError, type AuditEntry } from '@smurg/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import type { SandboxSpec } from '../../src/core/interfaces.ts';
+import type { FileChange, SandboxSpec } from '../../src/core/interfaces.ts';
+import { filesInstanceOf, filesModule } from '../../src/files/module.ts';
 import { SYSTEM_PRINCIPAL } from '../../src/core/permissions.ts';
 import { APPARMOR_USERNS_SYSCTL, srtSocketDirProblem, type CheckIo } from '../../src/sandbox/checks.ts';
 import { createSandboxModule } from '../../src/sandbox/module.ts';
+import { PLACEHOLDER_EXCLUDE_HEADER } from '../../src/sandbox/git-exclude.ts';
+import { createMemoryLogger } from '../../src/core/logger.ts';
 import { SrtRuntime, RuntimeBusyError, type SrtApi } from '../../src/sandbox/runtime.ts';
 import { LINUX_GUEST_TASK_LIMIT, SandboxServiceImpl, linuxCountsTasksPerUserNamespace, type SandboxServiceOptions } from '../../src/sandbox/service.ts';
 import type { PtyRunInput, PtyRunResult, PtyRunner } from '../../src/sandbox/selftest.ts';
@@ -19,6 +24,8 @@ import { LINUX_SESSION_PRELUDE, shellQuote } from '../../src/sandbox/harden.ts';
 import { waitFor } from '../../src/testing/index.ts';
 import { createSandboxFixture, printWarningsOnFailure, type SandboxFixture, type SandboxFixtureOptions } from './helpers.ts';
 import { fakeSrt, syntheticDarwinCommand, syntheticDarwinProfile, syntheticLinuxCommand, type FakeSrt, type FakeSrtOptions } from './synthetic-srt.ts';
+
+const execFileAsync = promisify(execFile);
 
 const TIMEOUT = 60_000;
 const DARWIN_EXEC = new Set(['/usr/bin/sandbox-exec']);
@@ -728,6 +735,182 @@ describe('SandboxService happy paths with a fake srt', () => {
     expect(unprotectedLines()[1]).toContain(`path=${JSON.stringify(p('ev*il', '.git'))} why=glob-characters`);
     // the session command: at most LINUX_GUEST_TASK_LIMIT tasks in the sandbox (review attack F2), set inside it
     expect(srt.calls.wrap.at(-1)?.command.startsWith(`ulimit -u ${LINUX_GUEST_TASK_LIMIT} 2>/dev/null; export TMPDIR=`)).toBe(true);
+  }, TIMEOUT);
+
+  it('Linux, a git share: while guest processes run, the absent placeholders are listed in .git/info/exclude (one block of the sandbox\'s own, the host\'s lines kept), so the host\'s `git add -A` / `git status` leave them alone; the block goes with them, and one a crashed daemon left goes before the first sandbox (review GR-4)', async () => {
+    const { f } = await harness('linux', { fixture: { git: true } });
+    const exclude = join(f.share, '.git', 'info', 'exclude');
+    const git = async (...args: string[]): Promise<string> => (await execFileAsync('git', args, { cwd: f.share, env: f.gitEnv() })).stdout;
+    // The host's own line, and a block a crashed daemon left behind that names the host's own (untracked) .vscode.
+    await writeFile(exclude, `${await readFile(exclude, 'utf8')}/build/\n${PLACEHOLDER_EXCLUDE_HEADER}\n/.vscode\n`);
+    await mkdir(join(f.share, '.vscode'));
+    await writeFile(join(f.share, '.vscode', 'settings.json'), '{}\n');
+    const wrapped = await f.sandbox.wrap(await specFor(f));
+    const during = await readFile(exclude, 'utf8');
+    expect(during.split(PLACEHOLDER_EXCLUDE_HEADER)).toHaveLength(2); // one block: the crashed daemon's went first
+    expect(during.split(`${PLACEHOLDER_EXCLUDE_HEADER}\n`)[1]).toBe('/.claude\n/.envrc\n/.idea\n/.mcp.json\n');
+    expect(during).toContain('/.smurg/');
+    expect(during).toContain('/build/\n');
+    for (const name of ['.mcp.json', '.envrc', '.claude', '.idea']) expect(existsSync(join(f.share, name)), name).toBe(true);
+    // The host's git sees its own new file and none of the placeholders.
+    expect(await git('status', '--porcelain', '--untracked-files=all')).toBe('?? .vscode/settings.json\n');
+    await git('add', '-A');
+    expect(await git('diff', '--cached', '--name-only')).toBe('.vscode/settings.json\n');
+    f.sandbox.release?.(wrapped);
+    const after = await readFile(exclude, 'utf8');
+    expect(after).not.toContain(PLACEHOLDER_EXCLUDE_HEADER);
+    expect(after).toContain('/.smurg/');
+    expect(after.endsWith('/build/\n')).toBe(true);
+  }, TIMEOUT);
+
+  it("Linux: srt's cleanup takes its own empty mount points, never the host's own empty file that took the name while a guest ran (a `git checkout` of a branch that tracks an empty .envrc; review GR-4)", async () => {
+    let share = '';
+    const { f } = await harness('linux', {
+      srt: {
+        platform: 'linux',
+        // What srt does when its count of wrapped commands is back to zero: every tracked path that is an empty file goes.
+        onMountPointCleanup: () => {
+          for (const name of ['.mcp.json', '.envrc']) {
+            try {
+              const st = statSync(join(share, name));
+              if (st.isFile() && st.size === 0) unlinkSync(join(share, name));
+            } catch {
+              // absent
+            }
+          }
+        },
+      },
+    });
+    share = f.share;
+    const wrapped = await f.sandbox.wrap(await specFor(f));
+    expect((lstatSync(join(f.share, '.envrc')).mode & 0o777).toString(8)).toBe('444');
+    await unlink(join(f.share, '.envrc'));
+    await writeFile(join(f.share, '.envrc'), '', { mode: 0o644 }); // the checkout's tracked empty file
+    f.sandbox.release?.(wrapped);
+    expect(existsSync(join(f.share, '.mcp.json'))).toBe(false); // srt's own: gone
+    const kept = lstatSync(join(f.share, '.envrc'));
+    expect([kept.isFile(), kept.size, (kept.mode & 0o777).toString(8)]).toEqual([true, 0, '644']);
+    expect(readdirSync(f.share).filter((name) => name.includes('.smurg-'))).toEqual([]);
+  }, TIMEOUT);
+
+  it('Linux: a placeholder the host removed while something of the service still ran, made again by a later wrap(), does not keep the earlier one\'s descriptor open (review GR-8)', async () => {
+    const { f } = await harness('linux', { service: { guardPollMs: 3_600_000 } });
+    const keep = await f.sandbox.wrap(await specFor(f, { sessionId: 'ses_keep' })); // the service stays live
+    const own = (f.ctx.services.sandbox as unknown as { ownPlaceholders: Map<string, { readonly ino: bigint; readonly fd: number | null }> }).ownPlaceholders;
+    const vscode = join(f.share, '.vscode');
+    const held: { readonly fd: number; readonly ino: bigint }[] = [];
+    const record = (): void => {
+      const entry = own.get(vscode);
+      if (entry !== undefined && entry.fd !== null) held.push({ fd: entry.fd, ino: entry.ino });
+    };
+    record();
+    for (let round = 0; round < 4; round++) {
+      await rmdir(vscode); // the host's `git clean -fd`
+      const again = await f.sandbox.wrap(await specFor(f, { sessionId: `ses_again_${round}` }));
+      f.sandbox.release?.(again);
+      record();
+    }
+    expect(held).toHaveLength(5);
+    // Every earlier descriptor was closed: none of them still holds its (removed) directory.
+    const leaked = held.slice(0, -1).filter(({ fd, ino }) => {
+      try {
+        return fstatSync(fd, { bigint: true }).ino === ino;
+      } catch {
+        return false;
+      }
+    });
+    expect(leaked).toEqual([]);
+    f.sandbox.release?.(keep);
+  }, TIMEOUT);
+
+  it("Linux: what the sandbox makes and removes at the top of a root for a guest (its placeholder directories, srt's mount points) is the system's change, not an external one (the activity feed and the audit log said 「外部程式」 changed .claude, .mcp.json, … at every guest start and end); the host's own change of a file is still external", async () => {
+    let share = '';
+    const { f } = await harness('linux', {
+      // srt at count zero: every tracked path that is an empty file goes.
+      srt: {
+        platform: 'linux',
+        onMountPointCleanup: () => {
+          for (const name of ['.mcp.json', '.envrc']) {
+            try {
+              const st = statSync(join(share, name));
+              if (st.isFile() && st.size === 0) unlinkSync(join(share, name));
+            } catch {
+              // absent
+            }
+          }
+        },
+      },
+      fixture: { extraModules: [filesModule] },
+    });
+    share = f.share;
+    await waitFor(() => filesInstanceOf(f.ctx)?.watcher?.watchedRoots().includes('main') === true, { what: 'the file watcher on the share' });
+    const changes: FileChange[] = [];
+    f.ctx.bus.on('file.changed', (event) => {
+      if (event.root.kind === 'main') changes.push(...event.changes);
+    });
+    const names = ['.claude', '.vscode', '.idea', '.mcp.json', '.envrc'];
+    const srtFiles = ['.mcp.json', '.envrc'];
+    const wrapped = await f.sandbox.wrap(await specFor(f));
+    await waitFor(() => srtFiles.every((name) => changes.some((c) => c.path === name)), { timeoutMs: 15_000, what: "the watcher reporting srt's mount points" });
+    f.sandbox.release?.(wrapped);
+    expect(names.filter((name) => existsSync(join(f.share, name)))).toEqual([]);
+    await waitFor(() => srtFiles.every((name) => changes.some((c) => c.path === name && c.change === 'unlink')), { timeoutMs: 15_000, what: 'the watcher reporting their removal' });
+    await writeFile(join(f.share, 'host-notes.txt'), 'the host writes\n');
+    await waitFor(() => changes.some((c) => c.path === 'host-notes.txt'), { timeoutMs: 15_000, what: "the host's own change" });
+    expect(changes.filter((c) => names.includes(c.path) && c.by?.kind !== 'system')).toEqual([]);
+    expect(changes.find((c) => c.path === 'host-notes.txt')?.by).toBeUndefined();
+  }, TIMEOUT);
+
+  it('Linux: the log of host-only entries guests can write says once that it is full, then nothing more (review GR-9: every wrap logged 21 lines once 1000 names were remembered)', () => {
+    const log = createMemoryLogger();
+    const ctx = { log } as unknown as ConstructorParameters<typeof SandboxServiceImpl>[0];
+    const service = new SandboxServiceImpl(ctx, { platform: 'linux', runner: runner(), kernelRelease: () => '6.8.0-85-generic' }) as unknown as {
+      warnUnprotected(entries: { path: string; reason: 'glob-characters' | 'not-utf8' }[]): void;
+    };
+    const batch = (k: number): { path: string; reason: 'glob-characters' }[] => Array.from({ length: 999 }, (_, i) => ({ path: `/share/g${k}*${i}/.git`, reason: 'glob-characters' }));
+    const renamed = batch(2);
+    const perWrap: number[] = [];
+    for (const entries of [batch(1), renamed, renamed, renamed, renamed]) {
+      const before = log.lines.length;
+      service.warnUnprotected(entries);
+      perWrap.push(log.lines.length - before);
+    }
+    expect(perWrap).toEqual([21, 21, 1, 0, 0]);
+    expect(log.lines.at(-1)?.message).toContain('no more are named until smurg restarts');
+  });
+
+  it('Linux: a wrap() in flight when the daemon stops is refused as such, not as a protected entry that changed (review GR-10)', async () => {
+    const run = holdingRunner();
+    const { f } = await harness('linux', { runner: run });
+    const hold = run.holdNext();
+    const inFlight = f.sandbox.wrap(await specFor(f)).then(
+      () => null,
+      (err: unknown) => err as SmurgError,
+    );
+    await hold.reached;
+    // What SandboxServiceImpl.dispose() does first: the guard goes.
+    ((f.ctx.services.sandbox as unknown as { guard: { dispose(): void } }).guard).dispose();
+    hold.release();
+    const refused = await inFlight;
+    expect(refused).toBeInstanceOf(SmurgError);
+    expect(refused?.detail).toEqual({ reason: 'wrap-failed' });
+    expect(refused?.message).not.toContain('請再試一次');
+    expect((await refusedAudit(f)).map((entry) => entry.detail?.['reason'])).toEqual(['wrap-failed']);
+  }, TIMEOUT);
+
+  it('Linux: more than 1000 CLAUDE.local.md below the top of the root refuse the wrap like more than 1000 host-only entries, instead of a different subset on every wrap (review GR-6)', async () => {
+    const { f } = await harness('linux');
+    for (let i = 0; i <= 1000; i += 100) {
+      await Promise.all(
+        Array.from({ length: Math.min(100, 1001 - i) }, async (_, k) => {
+          await mkdir(join(f.share, `g${(i + k) % 37}`, `p${i + k}`), { recursive: true });
+          await writeFile(join(f.share, `g${(i + k) % 37}`, `p${i + k}`, 'CLAUDE.local.md'), 'x\n');
+        }),
+      );
+    }
+    const err = await refusal(f, await specFor(f));
+    expect(err.detail).toEqual({ reason: 'policy-invalid' });
+    expect(f.warnings().join('\n')).toContain('CLAUDE.local.md');
   }, TIMEOUT);
 
   it('macOS: the same share needs no literal list: Seatbelt denies every host-only name at any depth by pattern, nothing is logged, no task limit is set', async () => {

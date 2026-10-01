@@ -201,6 +201,46 @@ describe('file watcher: calls into the native module', { timeout: 60_000 }, () =
     expect([...(seen[0]?.events ?? [])].sort((a, b) => a.path.localeCompare(b.path))).toEqual([...events].sort((a, b) => a.path.localeCompare(b.path)));
   });
 
+  it('the guest sandbox gets a batch as it arrives, not after the debounce or behind the previous batch\'s recheck; a watcher error makes it look at everything it guards (reviews GR-3, GR-1)', async () => {
+    const native = new RecordingNative();
+    const seen: { root: string; events: WatchedPathEvent[] }[] = [];
+    const gaps: string[] = [];
+    const sandbox: FeatureModule = {
+      name: 'sandbox-recorder',
+      create: () => ({
+        sandbox: {
+          preflight: async () => ({ ok: true, platform: 'linux' }),
+          wrap: async () => {
+            throw new Error('not in this test');
+          },
+          setAllowedDomains: async () => {},
+          fileEvents: (root: string, events: readonly WatchedPathEvent[]) => {
+            seen.push({ root, events: [...events] });
+          },
+          fileWatchGap: (root: string) => {
+            gaps.push(root);
+          },
+        },
+      }),
+      register: () => toDisposable(() => {}),
+    };
+    // A debounce far longer than the test: the files module's own batch is never processed meanwhile.
+    const f = await start(native, { debounceMs: 60_000, maxWaitMs: 60_000 }, [sandbox]);
+    const changed: DaemonEvents['file.changed'][] = [];
+    f.t.ctx.bus.on('file.changed', (event) => changed.push(event));
+    await waitFor(() => watcherOf(f).watchedRoots().includes('main'), { what: 'the main subscription' });
+    const mainDir = f.t.ctx.roots.main.realPath;
+    native.emit(mainDir, [{ path: join(mainDir, 'sub', '.envrc'), type: 'create' }]);
+    native.emit(mainDir, [{ path: join(mainDir, 'dist', 'a.js'), type: 'create' }]);
+    // Synchronously, one call per native batch, while the files module still waits for its quiet period.
+    expect(seen.map((batch) => batch.events.map((event) => event.path))).toEqual([[join(mainDir, 'sub', '.envrc')], [join(mainDir, 'dist', 'a.js')]]);
+    expect(changed).toEqual([]);
+    expect(gaps).toEqual([]);
+    const callback = native.callbacks.find((sub) => sub.dir === mainDir)?.fn as Callback;
+    callback(new Error('Events were dropped by the FSEvents client'), []);
+    expect(gaps).toEqual([mainDir]);
+  });
+
   it('the events of a removed root, or of a stopped watcher, reach nobody', async () => {
     const native = new RecordingNative();
     const f = await start(native);

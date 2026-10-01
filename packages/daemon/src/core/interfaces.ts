@@ -1120,11 +1120,16 @@ export interface SandboxService {
    */
   onRevoked?(wrapped: WrappedCommand, listener: (revocation: SandboxRevocation) => void): () => void;
   /**
-   * One batch of the file watcher for the root at `rootPath` (absolute paths as reported, any event type): the sandbox
-   * compares the protected entries it names with what its running guest processes were started with. Cheap when no
-   * guest process runs there. Optional for fakes.
+   * One batch of the file watcher for the root at `rootPath` (absolute paths as reported, any event type), handed over
+   * as it arrives: the sandbox compares the protected entries it names with what its running guest processes were
+   * started with. Cheap when no guest process runs there. Optional for fakes.
    */
   fileEvents?(rootPath: string, events: readonly WatchedPathEvent[]): void;
+  /**
+   * The file watcher may have missed events of the root at `rootPath` (it reported an error): the sandbox compares
+   * everything it guards there again at once (review GR-1). Optional for fakes.
+   */
+  fileWatchGap?(rootPath: string): void;
   /** settings.changed → allowedDomains. */
   setAllowedDomains(domains: readonly string[]): Promise<void>;
 }
@@ -1139,8 +1144,10 @@ export interface WatchedPathEvent {
 export interface SandboxRevocation {
   /** realpath of the session root. */
   readonly root: string;
-  /** The protected entries that changed (absolute, sorted). */
+  /** The protected entries that changed (absolute, sorted; at most the first 100, review GR-2). */
   readonly paths: readonly string[];
+  /** How many more changed (not listed in `paths`); absent when none. */
+  readonly more?: number;
 }
 
 export interface HookSessionRegistration {

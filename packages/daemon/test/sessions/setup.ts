@@ -26,10 +26,17 @@ export interface SessionStackOptions {
   /** Host environment of host sessions; default: a small controlled one (never process.env with real secrets). */
   readonly hostEnv?: (home: string) => Readonly<Record<string, string | undefined>>;
   readonly project?: Record<string, string>;
+  /** Make the shared project a git repository (WorkspaceInfo.isGitRepo). */
+  readonly git?: boolean;
   readonly extraModules?: readonly FeatureModule[];
   readonly fakes?: boolean;
   /** More of the daemon's config.sessions (e.g. guestSubscriptionLogin). */
   readonly daemonSessions?: Partial<SessionLaunchConfig>;
+  /**
+   * config.sessions.guestMainWorkspace (ARCHITECTURE §11 D-14). Default true: these tests run guests' sessions in the
+   * main workspace, which is off by default on a Linux host. 'platform' leaves it at this machine's default.
+   */
+  readonly guestMainWorkspace?: boolean | 'platform';
   /** A stand-in `claude` script to use instead of writeFakeClaude's (written by the test). */
   readonly claudePath?: string;
 }
@@ -65,8 +72,14 @@ export async function startSessionStack(options: SessionStackOptions = {}): Prom
   const t = await createTestDaemon({
     modules: [...(options.fakes === false ? [] : [fakeServicesModule(fakes)]), ...(options.extraModules ?? []), sessionsModule],
     // The hooks writer (HookServer.writeSessionFiles) reads the self command from the daemon's configuration.
-    sessions: { selfCommand: { file: '/usr/bin/true', args: [] }, ...options.daemonSessions },
-    ...(options.project ? { project: { files: options.project } } : {}),
+    // These tests run guests' sessions in the main workspace, so the stack opens it to guests explicitly (it is off by
+    // default on a Linux host, ARCHITECTURE §11 D-14); a test of the switch passes options.guestMainWorkspace.
+    sessions: {
+      selfCommand: { file: '/usr/bin/true', args: [] },
+      ...(options.guestMainWorkspace === 'platform' ? {} : { guestMainWorkspace: options.guestMainWorkspace ?? true }),
+      ...options.daemonSessions,
+    },
+    ...(options.project || options.git ? { project: { ...(options.project ? { files: options.project } : {}), ...(options.git ? { git: true } : {}) } } : {}),
   });
   const sessions = t.ctx.services.sessions as SessionManagerImpl;
   return {

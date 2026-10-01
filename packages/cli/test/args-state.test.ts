@@ -53,6 +53,33 @@ describe('parseArgs', () => {
     expect(parseArgs(['--no-all', '--no-all', 'dir'], spec).options).toEqual({ all: false });
   });
 
+  it('a boolean whose true form has a name of its own (--allow-x / --no-x): only those two spellings, never both', () => {
+    const named = { options: { 'main-workspace-guests': { kind: 'boolean' as const, positive: 'allow-main-workspace-guests' }, all: { kind: 'boolean' as const } }, positionals: ['folder'], minPositionals: 1 };
+    expect(parseArgs(['--allow-main-workspace-guests', 'dir'], named).options).toEqual({ 'main-workspace-guests': true });
+    expect(parseArgs(['--no-main-workspace-guests', 'dir'], named).options).toEqual({ 'main-workspace-guests': false });
+    expect(parseArgs(['dir'], named).options).toEqual({});
+    expect(parseArgs(['--allow-main-workspace-guests', '--allow-main-workspace-guests', 'dir'], named).options).toEqual({ 'main-workspace-guests': true });
+    const fails = (argv: string[], text: string): void => {
+      let error: unknown;
+      try {
+        parseArgs(argv, named);
+      } catch (err) {
+        error = err;
+      }
+      expect(error).toBeInstanceOf(CliError);
+      expect((error as CliError).exitCode).toBe(2);
+      expect((error as CliError).message).toContain(text);
+    };
+    fails(['--allow-main-workspace-guests', '--no-main-workspace-guests', 'dir'], '選項 --allow-main-workspace-guests 和 --no-main-workspace-guests 不能同時指定');
+    fails(['--no-main-workspace-guests', '--allow-main-workspace-guests', 'dir'], '不能同時指定');
+    // The key itself and the negation of the positive form are not spellings of it.
+    fails(['--main-workspace-guests', 'dir'], '不認得的選項 --main-workspace-guests');
+    fails(['--no-allow-main-workspace-guests', 'dir'], '不認得的選項 --no-allow-main-workspace-guests');
+    fails(['--allow-main-workspace-guests=yes', 'dir'], '選項 --allow-main-workspace-guests 不接受值');
+    // Other booleans are unchanged.
+    expect(parseArgs(['--no-all', '--allow-main-workspace-guests', 'dir'], named).options).toEqual({ all: false, 'main-workspace-guests': true });
+  });
+
   it('parses durations and counts', () => {
     expect(parseDuration('30m', 'x')).toBe(1800);
     expect(parseDuration('12h', 'x')).toBe(43_200);

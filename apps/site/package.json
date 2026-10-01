@@ -1,0 +1,26 @@
+{
+  "name": "@smurg/site",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": "github:gclinian/smurg",
+  "type": "module",
+  "description": "smurg.ai product page: hand-written static HTML/CSS served by a Cloudflare Worker with static assets, plus a few redirects.",
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "dev": "node ../../scripts/assert-env.mjs && wrangler dev --ip 127.0.0.1 --port ${SMURG_SITE_DEV_PORT:-8790}",
+    "typecheck": "node ../../scripts/assert-env.mjs && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "check": "pnpm run typecheck && pnpm run test",
+    "build": "node ../../scripts/assert-env.mjs && wrangler deploy --dry-run --outdir dist"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "parse5": "8.0.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.2",
+    "wrangler": "4.142.0"
+  }
+}

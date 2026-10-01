@@ -92,10 +92,11 @@ smurg host ~/projects/my-app
 - **邀請組員的連結**：預設角色是「可編輯」（editor），7 天內有效、不限次數。連結裡 `#` 之後就是密鑰：
   請用私訊傳給組員，不要貼在公開的地方。選項：`--role runner|editor|viewer`、`--expires 12h`、`--max-uses 3`、
   `--name 顯示名稱`。
-- **分享前須知**（§4）與**組員的 Claude 登入、agent 的 shell 指令**這兩項設定的說明（§5）。要關掉其中一項，
-  啟動時加上 `--no-guest-subscription-login` 或 `--no-bash-attribution`；關掉的項目會在這裡寫明「已關閉」。
-  這兩項設定只能在啟動時決定：要改就先停止分享，再用新的選項執行 `smurg host`（同一個資料夾的工作區和成員
-  都會保留，組員不用重新加入）。
+- **分享前須知**（§4）與**組員的 Claude 登入、客人的主工作區、agent 的 shell 指令**這三項設定的說明（§5）。要關掉
+  登入或 shell 指令通知，啟動時加上 `--no-guest-subscription-login` 或 `--no-bash-attribution`；關掉的項目會在這裡
+  寫明「已關閉」。客人的主工作區 session 在 **Linux 預設不開放**、macOS 預設開放，這一行會寫「未開放」或「已開放」
+  和原因；用 `--allow-main-workspace-guests` 開放、`--no-main-workspace-guests` 關閉。這些設定只能在啟動時決定：
+  要改就先停止分享，再用新的選項執行 `smurg host`（同一個資料夾的工作區和成員都會保留，組員不用重新加入）。
 - **daemon 金鑰指紋**：組員第一次加入時可以用其他管道（當面、電話）和你核對，確認沒有人（包括 relay）冒充你。
 - **客人沙盒是否可用**（啟動後幾秒內印出）：runner 角色的組員在你的電腦上開的 session 會在沙盒裡執行；沙盒無法使用
   時，smurg 會說明原因與修正指令（例如 Linux 缺少套件或 AppArmor 限制），在修好之前 runner 無法開 session，
@@ -109,22 +110,32 @@ smurg host ~/projects/my-app
 - **資料夾裡的檔案，每個成員都看得到**（旁觀者也一樣），例如 `.env`、設定檔。組員（人）看不到、也下載不到的只有：
   smurg 自己的 `.smurg/`、所有 `.git` 資料夾、`.envrc`，以及你個人的 Claude Code 設定（`.claude/settings.local.json`、
   `CLAUDE.local.md`）。但是組員在「共享主工作區」執行的 agent 仍然讀得到 `.git`（git 需要），所以不要把 token 寫在
-  git 的遠端網址裡。不要分享放了密碼、金鑰或個人資料的資料夾；也不能分享整個家目錄或包含家目錄的資料夾。
+  git 的遠端網址裡（在 Linux 上，只有你開放主工作區給客人時才會這樣，§5）。不要分享放了密碼、金鑰或個人資料的資料夾；也不能分享整個家目錄或包含家目錄的資料夾。
 - **你自己的 Claude Code session 不在沙盒裡**，而且會讀到組員寫入或修改的檔案。檔案裡可能藏有要 agent 執行的指示
   （prompt injection）。請保留 Claude Code 的權限確認，不要自動核准，並留意最近被組員修改過的檔案。
 - 組員在你的電腦上執行 agent 時，**他們的 Claude 登入憑證會存放在你的電腦上**（用訂閱帳號或 API key 登入都一樣），
   技術上你讀得到。請組員使用有花費上限的 API key；組員按「離開」或被移出時，smurg 會登出並刪除他們的暫存目錄
   （沒有連線超過 7 天的也會刪除）。
 - 組員只能在 `smurg host` 執行、而且你的電腦連線時使用這個工作區。
-- **Linux：組員的程序執行時，不要編輯只有你能使用的檔案**（`.envrc`、`.mcp.json`、`.claude/`、`CLAUDE.local.md`，
-  任何一層）。Linux 的沙盒在組員的程序執行中跟不上這種變動：smurg 會在發現後（約 0.1 秒內）結束那個資料夾裡組員的
-  程序，並在終端機列出檔名，但在那之前組員的程序可能讀到新的內容或改寫它。你自己的 Claude Code 在你選「不再詢問」
-  時也會寫入 `.claude/settings.local.json`，`git switch`、`git clean` 也可能動到 `.claude/`。要編輯之前，請先請組員
-  結束 session（macOS 的沙盒沒有這個問題）。
+- **Linux，你用 `--allow-main-workspace-guests` 開放了主工作區時：組員的程序執行時，不要編輯只有你能使用的檔案**
+  （`.envrc`、`.mcp.json`、`.claude/`、`CLAUDE.local.md`，任何一層）。Linux 的沙盒在組員的程序執行中跟不上這種變動：
+  smurg 會在發現後結束那個資料夾裡組員的程序，並在終端機列出檔名，但在那之前組員的程序可能讀到新的內容或改寫它
+  （通常 0.1 秒內；在一次建好的多層子資料夾裡，例如 `mkdir -p`、`git checkout`、解壓縮建立的資料夾，要等 smurg 下一次
+  掃描整個資料夾，通常幾秒內）。你自己的 Claude Code 在你選「不再詢問」時也會寫入 `.claude/settings.local.json`，
+  `git switch`、`git clean` 也可能動到 `.claude/`。要編輯之前，請先請組員結束 session（macOS 的沙盒沒有這個問題；
+  Linux 預設不開放主工作區給客人，組員只在自己的 worktree 裡工作時也沒有這個問題，§5）。
+- **Linux，組員的程序在主工作區執行時**，資料夾最上層原本沒有的 `.claude/`、`.vscode/`、`.idea/` 會暫時是 smurg 的
+  空資料夾，`.mcp.json`、`.envrc` 是空的唯讀檔案（沙盒需要它們）。smurg 把它們列在 `.git/info/exclude`，所以
+  `git status`、`git add -A`、`git stash -u`、`git clean -fd` 不會動到它們；不要用 `git add -f`、`git clean -x` 或
+  `git stash -a`，它們會把這些佔位加進你的 repository 或刪掉（組員的程序也會因此結束）。組員的程序都結束後，smurg
+  會移除這些佔位和 `.git/info/exclude` 裡的那幾行。
+- 組員在共享主工作區裡可以寫 `.gitmodules`、`.gitconfig`、`.bashrc`、`.zshrc`、`.profile` 這類檔名（macOS 和 Linux
+  都一樣；git 和 shell 不會從專案資料夾執行它們）。執行 `git submodule update` 之前，請看一下 `.gitmodules` 是否被改過。
 
-## 5. 組員的 Claude 登入、agent 的 shell 指令
+## 5. 組員的 Claude 登入、客人的主工作區、agent 的 shell 指令
 
-這兩項預設開啟，`smurg host` 的開始訊息會說明；不想要的話，啟動時用對應的選項關掉。
+登入與 shell 指令通知預設開啟；客人的主工作區在 Linux 預設不開放、在 macOS 預設開放。`smurg host` 的開始訊息會
+說明每一項；要改的話，啟動時用對應的選項。
 
 **組員用 Claude 訂閱帳號登入**（關掉：`--no-guest-subscription-login`）
 
@@ -150,6 +161,31 @@ Claude 訂閱帳號。組員的 agent 和終端機都在沙盒裡，不能在你
 關掉之後，組員開始登入程序時會看到「這個工作區的主人沒有開放 Claude 訂閱登入」，只能用自己的 API key。你自己的
 Claude Code 不受影響（你的 session 不在沙盒裡，照平常的方式登入）。組員在網頁的登入說明按「用 Claude 訂閱登入」開始
 登入程序；你關掉這項設定時，smurg 會告訴組員的網頁，登入說明就不再顯示這個按鈕，只提供 API key 並說明原因。
+
+**客人的主工作區 session**（Linux 預設不開放，開放：`--allow-main-workspace-guests`；macOS 預設開放，關閉：
+`--no-main-workspace-guests`）
+
+「可執行 agent」（runner）的組員開 agent 或終端機時，可以選「共享主工作區」（直接在你分享的資料夾裡工作）或
+「我的 worktree」（在 `.smurg/worktrees/` 裡一份自己的副本工作，改好之後送合併請求，由你看過 diff 再合併；資料夾
+必須是 git repository）。兩種都在沙盒裡執行。
+
+- **Linux 預設不開放主工作區給客人**（專案擁有者 2026-10-01 的決定）：組員只能用自己的 worktree。原因是 Linux 的沙盒
+  （bubblewrap）只能保護「已經存在」的檔案，沒辦法用規則擋下新的檔名：在主工作區裡，組員可以在子資料夾裡新建只有你
+  能用的檔案（例如 `sub/.claude/settings.json`、`sub/.mcp.json`、`sub/.git/config`），你之後在那個子資料夾裡用自己
+  不在沙盒裡的工具（Claude Code、git、VS Code）時，可能會執行它們；你在組員的程序執行時編輯 `.envrc`、`.mcp.json`、
+  `.claude/`、`CLAUDE.local.md`，組員也可能在 smurg 結束它的程序之前讀到新的內容（§4）。在 worktree 裡沒有這些問題：
+  組員看不到主工作區，他們的改動要經過你審核的合併才會進來，而合併會拒絕只有主人能用的檔案。
+- 分享的資料夾**不是 git repository** 時，Linux 上的組員預設**無法開 session**（沒有 worktree 可用）；檔案、共同編輯、
+  建議等其他功能不受影響。組員的網頁會說明原因和你可以怎麼開放。
+- 要在 Linux 上開放：停止分享，加上 `--allow-main-workspace-guests` 重新執行。開始訊息會列出 Linux 上的限制（上面那些，
+  加上：路徑裡有 `*`、`?`、`[`、`]` 或不是 UTF-8 的這類檔案不受保護；分享的資料夾裡的 Unix socket 組員連得到），
+  smurg 發現組員新建這類檔案時（通常幾秒內；組員的程序結束後也會再查一次）會結束他們的程序並在終端機列出路徑（新的
+  `.git` 和 `node_modules` 裡的除外）。開放之後請照 §4 的提醒做。
+- macOS 的沙盒可以用規則擋下這些檔名，所以預設開放；不想開放的話，加上 `--no-main-workspace-guests`，組員就只能用
+  自己的 worktree。
+- 不開放時，組員的網頁在「新增 session」裡不提供「共享主工作區」（顯示原因，預設選「我的 worktree」）；就算有人直接
+  送出要求，smurg 也會拒絕，並記在操作紀錄裡。你自己的 session 不受影響，組員的 Claude 訂閱登入程序也不受影響（它讀
+  不到分享的資料夾）。
 
 **agent 的 shell 指令通知**（關掉：`--no-bash-attribution`）
 
@@ -208,6 +244,7 @@ smurg stop            # 停止分享：中斷所有連線、結束所有 session
 | 「⚠ 客人程序執行時，……裡只有主人能使用的檔案有變動」 | Linux：你、你的工具或 `git` 在組員的程序執行時改了列出的檔案（§4）。smurg 已結束那個資料夾裡組員的程序，組員可以重新開 session。請確認這些檔案現在的內容是你自己的（組員在被結束之前可能改寫了它）。 |
 | 「smurg 狀態目錄的路徑太長」 | 把 `SMURG_HOME` 設成較短的路徑（Unix socket 路徑有長度上限）。 |
 | 組員看到「主人已離線」 | `smurg host` 沒有在執行，或電腦在睡眠 / 沒有網路。 |
+| 組員說「這台主人電腦沒有開放客人使用主工作區」 | Linux 預設如此（§5），或你用了 `--no-main-workspace-guests`。請組員改選「我的 worktree」（資料夾必須是 git repository）；要開放的話，停止分享後加上 `--allow-main-workspace-guests` 重新執行，並先看開始訊息列出的 Linux 限制。 |
 | 組員說「這個工作區的主人沒有開放 Claude 訂閱登入」 | 你用 `--no-guest-subscription-login` 啟動了分享。要開放的話，停止分享後不加這個選項重新執行；否則請組員用自己的 API key。 |
 | 組員在 agent session 裡輸入 `/login` 出現「Failed to start OAuth callback server」 | 組員的 agent session 在沙盒裡不能開網路埠，這是預期的。請組員改用 smurg 的登入程序（§5），或用 API key。 |
 | 活動動態裡 agent 用 shell 指令改的檔案顯示為「外部程式」 | 你用 `--no-bash-attribution` 啟動了分享，或同一段時間有兩個以上的 agent 在執行 shell 指令，smurg 無法確定是誰（§5）。 |

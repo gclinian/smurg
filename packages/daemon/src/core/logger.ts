@@ -27,10 +27,15 @@ export interface LineLoggerOptions {
 /**
  * What JSON.stringify leaves raw but a terminal may act on or a reader may misread: DEL and the C1 controls (U+0080–
  * U+009F; a terminal that takes them as controls reads U+009B as CSI and U+009D as OSC, e.g. a clipboard write), the
- * line and paragraph separators and the bidirectional overrides. Logged values can be names a guest chose (a directory
- * in the share, review attack F1), and the host reads the log in a terminal (`smurg host`: a file, errors on stderr).
+ * line and paragraph separators, the bidirectional overrides and isolates, and the invisible formatting characters that
+ * make a name look like another (review GR-14: the soft hyphen, the Arabic letter mark, the Mongolian vowel separator,
+ * U+200B–U+200F with LRM / RLM, U+2060–U+2064, the byte order mark). Logged values can be names a guest chose (a
+ * directory in the share, review attack F1), and the host reads the log in a terminal (`smurg host`: a file, errors on
+ * stderr).
  */
-const RAW_AFTER_JSON = /[\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g;
+const RAW_AFTER_JSON = /[\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
+/** RAW_AFTER_JSON and the C0 controls as a test: whether a value must be quoted to be shown as it is. */
+export const LOG_UNSAFE_CHARACTER = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/;
 
 /** JSON.stringify, with RAW_AFTER_JSON escaped as `\uXXXX` too (still valid JSON). */
 export function quoteForLog(value: string): string {

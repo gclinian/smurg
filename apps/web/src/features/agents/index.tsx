@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
 import { useStore } from '../../lib/store.ts';
-import { selectSettings, selectUserId } from '../../lib/stores/workspace.ts';
+import { selectRole, selectSettings, selectUserId, selectWorkspaceInfo } from '../../lib/stores/workspace.ts';
 import { useCapabilities, useCommandHandler, useCommands, useStores } from '../../lib/workspace/context.tsx';
 import { Badge, Banner, Button, EmptyState, Menu, Panel, Spinner, Tabs, useToast } from '../../ui/index.ts';
 import { IconAgent, IconKey, IconMore, IconPlus, IconTerminal, IconUpload } from '../../ui/icons.tsx';
@@ -15,6 +15,7 @@ import { ImportConfigDialog } from './ImportConfigDialog.tsx';
 import { startLoginProcess } from './LoginGuide.tsx';
 import { describeSessionError } from './session-info.ts';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
+import { guestSessionsOff } from './new-session.ts';
 import { SessionView } from './SessionView.tsx';
 import { statusLabel, tabLabel } from './session-info.ts';
 import { t } from './strings.ts';
@@ -36,7 +37,12 @@ export function AgentsPanel(_props: AgentsPanelProps) {
   const caps = useCapabilities();
   const userId = useStore(stores.workspace, selectUserId);
   const settings = useStore(stores.workspace, selectSettings);
+  const role = useStore(stores.workspace, selectRole);
+  const workspaceInfo = useStore(stores.workspace, selectWorkspaceInfo);
   const sessionsState = useStore(stores.sessions);
+  // A guest kept out of the main workspace in a share without worktrees (ARCHITECTURE §11 D-14) opens no session.
+  const ownSessionsOff = guestSessionsOff(role, workspaceInfo, settings?.guestMainWorkspace);
+  const canCreateOwn = caps.sessionCreate !== null && !ownSessionsOff;
   const toast = useToast();
 
   // While a full resync reloads the list, keep showing the last one: the terminals stay mounted and re-attach from
@@ -152,9 +158,9 @@ export function AgentsPanel(_props: AgentsPanelProps) {
           compact
           icon={<IconTerminal />}
           title={t('empty.title')}
-          description={caps.sessionCreate !== null ? t('empty.canCreate') : t('empty.cannotCreate')}
+          description={canCreateOwn ? t('empty.canCreate') : ownSessionsOff ? t('empty.guestOff') : t('empty.cannotCreate')}
           action={
-            caps.sessionCreate !== null ? (
+            canCreateOwn ? (
               <Button size="sm" variant="primary" icon={<IconPlus />} onClick={() => setNewOpen(true)}>
                 {t('action.new')}
               </Button>

@@ -321,6 +321,33 @@ describe('login guide: subscription login through the login process (D-12)', () 
     expect(within(screen.getByRole('tabpanel')).getByTestId('login-process').textContent).toContain('登入程序已執行 10 分鐘，自動結束了');
   });
 
+  it('a host that keeps guests out of the main workspace, on a share that is not git (§11 D-14): the empty panel says why, and the subscription login still starts (kind login, mode main)', async () => {
+    const base = makeWelcome({ role: 'runner' });
+    const welcome = { ...base, workspace: { ...base.workspace, isGitRepo: false, platform: 'linux' as const }, settings: { ...base.settings, guestMainWorkspace: false } };
+    const { conn, stores } = await renderWithSessions(<AgentsPanel />, { role: 'runner', sessions: [], welcome });
+    expect(screen.getByText(/這台主人電腦沒有開放客人使用共享主工作區，這個資料夾也不是 git 儲存庫/)).toBeTruthy();
+    expect(screen.queryByText('開一個 agent session 或終端機，所有組員都能即時看到它在做什麼。')).toBeNull();
+    // Only the header's 「新增 session」 (its dialog explains); the empty state offers none.
+    expect(screen.getAllByRole('button', { name: '新增 session' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: '更多動作' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: '用 Claude 訂閱登入' }));
+    });
+    expect(conn.lastRequest('session.create')?.payload).toEqual({ kind: 'login', workspace: { mode: 'main' }, cols: 100, rows: 30 });
+    await act(async () => {
+      conn.respond('session.create', { session: loginSession() });
+    });
+    expect(stores.sessions.getState().focusedId).toBe('sess_login');
+  });
+
+  it('a git share with guests kept out of the main workspace: the empty panel still offers 「新增 session」 (their worktree)', async () => {
+    const base = makeWelcome({ role: 'runner' });
+    const welcome = { ...base, settings: { ...base.settings, guestMainWorkspace: false } };
+    await renderWithSessions(<AgentsPanel />, { role: 'runner', sessions: [], welcome });
+    expect(screen.getByText('開一個 agent session 或終端機，所有組員都能即時看到它在做什麼。')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: '新增 session' })).toHaveLength(2);
+  });
+
   it("a runner can start it from the panel's menu too (no agent session needed)", async () => {
     const { conn, stores } = await renderWithSessions(<AgentsPanel />, { role: 'runner', sessions: [] });
     fireEvent.click(screen.getByRole('button', { name: '更多動作' }));

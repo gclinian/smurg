@@ -30,7 +30,13 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
   beforeAll(async () => {
     const webDist = join(process.env['TMPDIR'] as string, 'web-dist');
     relay = await startLocalRelay({ tap: false, webDist });
-    stack = await startStack({ relay, projectFiles: { 'README.md': '# 班級專案\n', 'src/app.ts': ORIGINAL, 'src/join.ts': JOIN_ORIGINAL } });
+    stack = await startStack({
+      relay,
+      projectFiles: { 'README.md': '# 班級專案\n', 'src/app.ts': ORIGINAL, 'src/join.ts': JOIN_ORIGINAL },
+      // The runner's terminal (below) runs in the main workspace of a share that is not git: open it to guests
+      // explicitly, so the test is the same on a Linux host, where it is off by default (ARCHITECTURE §11 D-14).
+      sessions: { guestMainWorkspace: true },
+    });
     browser = await chromium.launch(chromeLaunchOptions(chrome as string));
   }, 180_000);
 

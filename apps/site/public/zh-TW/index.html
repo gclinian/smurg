@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>smurg：讓組員和 Claude Code 一起即時工作的工作區</title>
+<meta name="description" content="從自己的電腦分享專案資料夾。組員用瀏覽器和你即時編輯檔案，一起看和指揮在你電腦上執行的 Claude Code session。端對端加密、開放原始碼，支援 macOS 與 Linux。">
+<link rel="canonical" href="https://smurg.ai/zh-TW/">
+<link rel="alternate" hreflang="en" href="https://smurg.ai/">
+<link rel="alternate" hreflang="zh-TW" href="https://smurg.ai/zh-TW/">
+<link rel="alternate" hreflang="x-default" href="https://smurg.ai/">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="smurg">
+<meta property="og:title" content="smurg：讓組員和 Claude Code 一起即時工作的工作區">
+<meta property="og:description" content="從自己的電腦分享專案資料夾。組員用瀏覽器和你即時編輯檔案，一起看和指揮在你電腦上執行的 Claude Code session。端對端加密、開放原始碼。">
+<meta property="og:url" content="https://smurg.ai/zh-TW/">
+<meta property="og:locale" content="zh_TW">
+<meta property="og:locale:alternate" content="en_US">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="smurg：讓組員和 Claude Code 一起即時工作的工作區">
+<meta name="twitter:description" content="從自己的電腦分享專案資料夾。組員用瀏覽器和你即時編輯檔案，一起看和指揮在你電腦上執行的 Claude Code session。">
+<script src="/copy.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">跳到主要內容</a>
+
+<header class="site-header">
+  <div class="wrap header-row">
+    <a class="brand" href="/zh-TW/" aria-label="smurg 首頁">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect class="mark-bg" width="32" height="32" rx="8"/><path class="mark-ln" d="M11 16 22 9.5M11 16l11 6.5"/><rect class="mark-fg" x="6.5" y="11.5" width="9" height="9" rx="2.25"/><circle class="mark-fg" cx="22.5" cy="9.5" r="3.25"/><circle class="mark-fg" cx="22.5" cy="22.5" r="3.25"/></svg>
+      <span>smurg</span>
+    </a>
+    <nav class="site-nav" aria-label="主要">
+      <ul>
+        <li class="jump"><a href="#how">怎麼運作</a></li>
+        <li class="jump"><a href="#features">功能</a></li>
+        <li class="jump"><a href="#security">安全</a></li>
+        <li class="jump"><a href="#faq">常見問題</a></li>
+        <li><a href="https://github.com/gclinian/smurg">GitHub</a></li>
+        <li class="lang"><a href="/" hreflang="en" lang="en">English</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero wrap" aria-labelledby="hero-title">
+  <p class="eyebrow"><span class="chip">v0.1.0 原型</span> <span>開放原始碼 · macOS 與 Linux</span></p>
+  <h1 id="hero-title">架在你自己電腦上的<wbr>即時工作區，<wbr>讓組員和 Claude&nbsp;Code <wbr>一起工作。</h1>
+  <p class="lede">用 <code>smurg host</code> 分享一個專案資料夾：組員用瀏覽器加入，和你即時編輯檔案，一起看和指揮在你電腦上執行的 Claude Code session；中間的 relay 只轉送端對端加密後的資料。</p>
+
+  <div class="install">
+    <p class="install-label" id="install-label">在要分享資料夾的電腦上安裝</p>
+    <div class="command" role="group" aria-labelledby="install-label">
+      <code id="install-cmd">curl -fsSL https://smurg.ai/install.sh | sh</code>
+      <button type="button" class="copy" data-copy="install-cmd" data-done="已複製" data-fail="請按 ⌘C 或 Ctrl+C" hidden>複製</button>
+    </div>
+    <p class="visually-hidden" role="status" id="copy-status"></p>
+    <p class="install-note">支援 macOS（Apple silicon、Intel）與 Linux（x64、arm64，glibc）。安裝程式從 GitHub Releases 下載單一執行檔，只在 sha256 與這個版本的 <code>SHA256SUMS</code> 相符時，才安裝到 <code>~/.local/bin/smurg</code>。不需要 Node.js。</p>
+    <p class="ui-note">收到邀請連結了嗎？用 Chrome 打開就好，不需要安裝任何東西。</p>
+  </div>
+
+  <figure class="mock-figure">
+    <div class="mock" role="img" aria-label="smurg 工作區在瀏覽器裡的示意圖：左邊是檔案樹；中間是共用的編輯器，Amy 和 Ben 正在 src/login.ts 裡打字；右邊是 Amy 的 Claude Code session，下面是建議輸入框；最下方是活動動態。">
+      <svg class="visually-hidden" aria-hidden="true" focusable="false">
+        <symbol id="i-agent" viewBox="0 0 16 16"><rect x="2.75" y="5.25" width="10.5" height="8" rx="2"/><path d="M8 2.25v3M6 9.25v.01M10 9.25v.01M6.25 11.5h3.5"/></symbol>
+        <symbol id="i-file" viewBox="0 0 16 16"><path d="M3.75 1.75h5.5l3 3v9.5h-8.5z"/><path d="M9.25 1.75v3h3"/></symbol>
+        <symbol id="i-folder" viewBox="0 0 16 16"><path d="M1.75 12.25V4.25a1 1 0 0 1 1-1h3.4l1.5 1.5h4.6a1 1 0 0 1 1 1v1"/><path d="M1.75 12.25l1.6-4.8a1 1 0 0 1 .95-.7h9.65a.75.75 0 0 1 .7 1l-1.5 4.5H1.75z"/></symbol>
+        <symbol id="i-folder-c" viewBox="0 0 16 16"><path d="M1.75 4.25a1 1 0 0 1 1-1h3.4l1.5 1.5h5.6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/></symbol>
+        <symbol id="i-lock" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.25"/><path d="M5.25 7V5a2.75 2.75 0 0 1 5.5 0v2"/></symbol>
+      </svg>
+      <div class="m-app" lang="zh-TW">
+        <div class="m-chrome"><span class="m-dots"><i></i><i></i><i></i></span><span class="m-url">app.smurg.ai/w/Q7mX2cK9vT4pL8nR3wZ5aB</span></div>
+        <div class="m-top">
+          <span class="m-word">smurg</span><span class="m-divider"></span><span class="m-ws">my-app</span><span class="m-host">主人：Ian</span><span class="m-pill">已連線</span>
+          <span class="m-spacer"></span>
+          <span class="m-avs"><i class="av av-ian">IA</i><i class="av av-amy">AM</i><i class="av av-ben">BE</i><i class="av av-agent"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i></span>
+          <span class="m-btn">主人控制台</span><span class="m-btn">離開</span>
+        </div>
+        <div class="m-body">
+          <div class="m-files">
+            <div class="m-ph">檔案</div>
+            <div class="m-switch">檢視的工作區：主工作區</div>
+            <ul class="m-tree">
+              <li><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg>src</li>
+              <li class="d1"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>app.ts</li>
+              <li class="d1 on"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>login.ts<span class="m-tag m-tag-human">Amy、Ben 編輯中</span></li>
+              <li class="d1"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>session.ts</li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg>tests</li>
+              <li class="d1"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>login.test.ts<span class="m-tag m-tag-agent">Claude（Amy）修改中</span></li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-folder-c"/></svg>data</li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>package.json</li>
+              <li><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>README.md</li>
+            </ul>
+          </div>
+          <div class="m-editor">
+            <div class="m-tabs"><span class="on">login.ts</span><span>app.ts</span></div>
+            <div class="m-banner"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg>Amy、Ben正在編輯這個檔案，agent 暫時不能修改它。</div>
+            <pre class="m-code"><span><i class="m-ln">1</i><span class="tk-k">import</span> { createSession } <span class="tk-k">from</span> <span class="tk-s">'./session.ts'</span>;</span><span><i class="m-ln">2</i><span class="tk-k">import</span> { verify, redirect } <span class="tk-k">from</span> <span class="tk-s">'./auth.ts'</span>;</span><span><i class="m-ln">3</i></span><span><i class="m-ln">4</i><span class="tk-k">export async function</span> <span class="tk-f">login</span>(<span class="tk-v">req</span>: <span class="tk-t">Request</span>): <span class="tk-t">Promise</span>&lt;<span class="tk-t">Response</span>&gt; {</span><span><i class="m-ln">5</i>  <span class="tk-k">const</span> <span class="tk-v">user</span> = <span class="tk-k">await</span> <span class="tk-f">verify</span>(<span class="tk-v">req</span>);</span><span><i class="m-ln">6</i>  <span class="tk-k">if</span> (!<span class="tk-v">user</span>) {</span><span class="m-hl"><i class="m-ln">7</i>    <span class="tk-k">return</span> <span class="tk-f">redirect</span>(<span class="tk-s">'/login?expired=1'</span><span class="m-cur m-cur-amy"><b>Amy</b></span>);</span><span><i class="m-ln">8</i>  }</span><span><i class="m-ln">9</i>  <span class="tk-k">const</span> <span class="tk-v">session</span> = <span class="tk-k">await</span> <span class="tk-f">createSession</span>(<span class="m-sel-ben"><span class="tk-v">user</span></span><span class="m-cur m-cur-ben"><b>Ben</b></span>);</span><span><i class="m-ln">10</i>  <span class="tk-k">return</span> <span class="tk-f">redirect</span>(<span class="tk-s">'/'</span>, <span class="tk-v">session</span>.<span class="tk-v">cookie</span>);</span><span><i class="m-ln">11</i>}</span></pre>
+            <div class="m-status"><span>TypeScript</span><span>已自動儲存</span></div>
+          </div>
+          <div class="m-agents">
+            <div class="m-ph">agent<span class="m-btn">＋ 新增 session</span></div>
+            <div class="m-tabs"><span class="on"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude（Amy）</span><span><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude（Ian）</span></div>
+            <div class="m-banner m-banner-info">這是 Amy 的 session，你只能觀看。</div>
+            <pre class="m-term"><span class="m-prompt">&gt; add a test for the expired-session redirect</span><span> </span><span><span class="m-ok">●</span> <span class="m-tool">Read</span>(src/login.ts)</span><span class="m-dim">  └ Read 11 lines</span><span><span class="m-ok">●</span> <span class="m-tool">Update</span>(tests/login.test.ts)</span><span class="m-dim">  └ Added “redirects an expired session”</span><span><span class="m-ok">●</span> <span class="m-tool">Bash</span>(pnpm test tests/login.test.ts)</span><span class="m-dim">  └ Tests passed</span><span>● The new test covers the expired-session redirect.</span><span class="m-prompt">&gt; <span class="m-caret"></span></span></pre>
+            <div class="m-suggest">
+              <div class="m-ph">建議</div>
+              <div class="m-input">想請 agent 做什麼？例如：先幫這個函式補上測試。</div>
+              <span class="m-btn m-btn-primary">送出建議</span>
+            </div>
+          </div>
+        </div>
+        <div class="m-drawer">
+          <div class="m-tabs"><span class="on">活動</span><span>衝突</span><span>傳輸</span><span>合併請求 <i class="m-count">1</i></span></div>
+          <ul class="m-feed">
+            <li><i class="av av-agent"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i><span class="m-what">Claude（Amy）修改了 tests/login.test.ts（Edit）</span><span class="m-ago">剛剛</span></li>
+            <li><i class="av av-ben">BE</i><span class="m-what"><strong>Ben</strong> 上傳 data/fixtures.json</span><span class="m-ago">1 分鐘前</span></li>
+            <li><i class="av av-claude-ian"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i><span class="m-what">Claude（Ian）透過 shell 指令修改了 package.json</span><span class="m-via">透過指令</span><span class="m-ago">3 分鐘前</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <figcaption>依照網頁版畫的示意圖，不是截圖：檔案樹、有 Amy 和 Ben 游標的共用編輯器、Amy 的 Claude Code session 和建議輸入框，以及活動動態。</figcaption>
+  </figure>
+</section>
+
+<section class="section" id="how" aria-labelledby="how-title">
+  <div class="wrap">
+    <div class="section-head-wide">
+      <p class="kicker">01</p>
+      <h2 id="how-title">怎麼運作</h2>
+      <p class="section-intro">一個人當主人，其他人用連結加入。資料夾、agent 和它們的輸出，都留在主人的電腦上。</p>
+    </div>
+
+    <ol class="steps">
+      <li class="step">
+        <div class="step-figure">
+          <svg class="dg" viewBox="0 0 280 150" aria-hidden="true" focusable="false">
+            <rect class="bx" x="20" y="12" width="150" height="96" rx="6"/>
+            <path class="bx" d="M12 114h166l10 12H2z"/>
+            <text x="34" y="40">$ <tspan class="ta">smurg host</tspan></text>
+            <path class="ln" d="M34 58h9l3 4h17v20H34z"/>
+            <text x="72" y="78">my-app/</text>
+            <path class="ln-soft" d="M170 47h24M170 87h24"/>
+            <rect class="bx" x="194" y="34" width="82" height="26" rx="13"/>
+            <text x="235" y="51" text-anchor="middle">你的連結</text>
+            <rect class="ac" x="194" y="74" width="82" height="26" rx="13"/>
+            <text class="ta" x="235" y="91" text-anchor="middle">邀請連結</text>
+          </svg>
+        </div>
+        <p class="kicker step-num">步驟 1</p>
+        <h3>主人分享資料夾</h3>
+        <p>先用 Google 帳號登入，再分享資料夾。smurg 在前景執行，會印出兩個連結：你自己的連結（以主人身分打開工作區，不要給別人），以及給組員的邀請連結（預設角色「可編輯」，7 天內有效）。按 <kbd>Ctrl-C</kbd> 停止分享。</p>
+        <pre class="snippet"><code>smurg login
+smurg host ~/projects/my-app</code></pre>
+      </li>
+
+      <li class="step">
+        <div class="step-figure">
+          <svg class="dg" viewBox="0 0 280 150" aria-hidden="true" focusable="false">
+            <rect class="ac" x="6" y="62" width="104" height="26" rx="13"/>
+            <text class="ta" x="58" y="79" text-anchor="middle">join/…#k=…</text>
+            <path class="ln" d="M110 75c22 0 22-37 46-37M110 75c22 0 22 37 46 37"/>
+            <rect class="bx" x="156" y="10" width="116" height="58" rx="6"/>
+            <path class="ln" d="M156 24h116"/>
+            <circle class="dot" cx="165" cy="17" r="2"/><circle class="dot" cx="173" cy="17" r="2"/><circle class="dot" cx="181" cy="17" r="2"/>
+            <circle class="ln" cx="176" cy="45" r="8"/>
+            <rect class="acf" x="200" y="37" width="58" height="18" rx="4"/>
+            <text class="tb" x="229" y="50" text-anchor="middle">加入</text>
+            <rect class="bx" x="156" y="84" width="116" height="56" rx="6"/>
+            <path class="ln" d="M156 98h116"/>
+            <circle class="dot" cx="165" cy="91" r="2"/><circle class="dot" cx="173" cy="91" r="2"/><circle class="dot" cx="181" cy="91" r="2"/>
+            <text x="166" y="124">$ smurg attach</text>
+          </svg>
+        </div>
+        <p class="kicker step-num">步驟 2</p>
+        <h3>組員加入</h3>
+        <p>用私訊傳送邀請連結：<code>#</code> 之後的部分就是密鑰。組員用 Chrome 打開連結、用 Google 登入、按「加入」，不需要安裝任何東西。想在終端機看 session 的話，<code>smurg attach --invite -</code> 也能加入。</p>
+        <pre class="snippet"><code>https://app.smurg.ai/join/&lt;id&gt;#…</code></pre>
+      </li>
+
+      <li class="step">
+        <div class="step-figure">
+          <svg class="dg" viewBox="0 0 280 150" aria-hidden="true" focusable="false">
+            <rect class="bx" x="6" y="6" width="268" height="138" rx="8"/>
+            <path class="ln" d="M6 24h268M148 24v120"/>
+            <circle class="dot" cx="16" cy="15" r="2"/><circle class="dot" cx="24" cy="15" r="2"/><circle class="dot" cx="32" cy="15" r="2"/>
+            <path class="bar" d="M20 42h70M20 56h104M32 70h80M32 84h58M20 98h92M20 112h46M20 126h84"/>
+            <path class="ac" d="M95 77v14"/>
+            <rect class="acf" x="99" y="77" width="32" height="14" rx="2"/>
+            <text class="tb" x="104" y="88">Amy</text>
+            <path class="cur" d="M71 105v14"/>
+            <rect class="sf" x="75" y="105" width="22" height="14" rx="2"/>
+            <text class="tb" x="80" y="116">你</text>
+            <text x="158" y="42">Claude（Amy）</text>
+            <path class="bar thin" d="M158 56h82M158 68h100M158 80h64"/>
+            <rect class="ac-dash" x="154" y="96" width="114" height="40" rx="5"/>
+            <text class="ta tx" x="161" y="113">建議</text>
+            <text class="tx" x="161" y="128">採用／拒絕</text>
+          </svg>
+        </div>
+        <p class="kicker step-num">步驟 3</p>
+        <h3>和 agent 一起工作</h3>
+        <p>「可編輯」和「可執行 agent」的組員可以同時編輯同一份檔案；每個人都即時看得到每一個 Claude Code session。想讓別人的 agent 做什麼，「可編輯」以上的組員可以送出建議，由 session 的擁有者決定。「可執行 agent」的組員可以開自己的 session：在主人電腦上的沙盒裡執行，用自己的 Claude 帳號登入。</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section class="section" id="features" aria-labelledby="features-title">
+  <div class="wrap section-grid">
+    <div>
+      <p class="kicker">02</p>
+      <h2 id="features-title">能做什麼</h2>
+    </div>
+    <ul class="features">
+      <li>
+        <h3>一起編輯</h3>
+        <p>瀏覽器裡的檔案樹和編輯器。好幾個人可以同時在同一份檔案裡打字，每個人的游標都標著名字，修改會自動存到主人的磁碟。agent 也一樣，會顯示成「Claude（擁有者）」。</p>
+      </li>
+      <li>
+        <h3>上傳與下載</h3>
+        <p>把檔案或整個資料夾拖到檔案樹就能上傳。大檔案斷線後會從中斷的地方繼續；主人的磁碟空間不夠時，上傳在開始前就會被拒絕。任何檔案都能下載，資料夾會打包成 zip。</p>
+      </li>
+      <li>
+        <h3>Claude Code session</h3>
+        <p>在主人的電腦上執行真正的 Claude Code。每個人都即時看得到每一個 session，包括打開之前的內容，也可以用 <code>smurg attach</code> 接到自己的終端機。建議會先送到 session 的擁有者，由他採用、修改後採用或拒絕；擁有者沒有同意，什麼都不會送進 agent。「可執行 agent」的組員可以匯入自己的 <code>CLAUDE.md</code>、自訂指令和 skills。</p>
+      </li>
+      <li>
+        <h3>worktree 與合併請求</h3>
+        <p>分享的資料夾是 git repository 時，agent 可以在自己的 worktree、自己的分支上工作，不會弄亂主工作區。做完之後，擁有者請主人合併；主人看過完整的 diff，再決定合併或拒絕。有衝突時合併會中止，主工作區保持原樣。</p>
+      </li>
+      <li>
+        <h3>檔案鎖與修改者標示</h3>
+        <p>你在檔案裡開始打字後，agent 就不能修改它，直到你停下來（預設 30 秒）或關掉檔案。agent 正在修改的檔案，在每個人的編輯器裡都會暫時唯讀。agent 用 shell 指令等其他方式改到這樣的檔案時，它的修改會合併進來；和正在編輯的內容重疊的部分，保留人打的內容，agent 的版本放進衝突面板。活動動態標示每一次修改是誰、哪個 agent 做的，包括用 shell 指令改的檔案。</p>
+      </li>
+      <li>
+        <h3>角色與主人控制台</h3>
+        <p>邀請時可以選「旁觀」「可編輯」或「可執行 agent」。主人控制台列出成員、角色、邀請連結、session 和操作紀錄，一鍵就能踢人或終止 session。主人的電腦睡眠或斷線時，所有人幾秒內就會看到。</p>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<section class="section" id="security" aria-labelledby="security-title">
+  <div class="wrap">
+    <div class="section-head-wide">
+      <p class="kicker">03</p>
+      <h2 id="security-title">安全模型，白話說明</h2>
+      <p class="section-intro">你的程式碼只會以加密後的形式經過 smurg 的 relay。以下說明這代表什麼，以及它做不到的地方。</p>
+    </div>
+
+    <figure class="diagram">
+      <svg class="dg wide" viewBox="0 0 880 340" role="img" aria-labelledby="sec-wide-title">
+        <title id="sec-wide-title">主人的電腦上有分享的資料夾、主人的 Claude Code session、金鑰與操作紀錄，以及放組員 session 的沙盒。每位組員的瀏覽器或 smurg CLI 都和它有一條自己的端對端加密通道。relay（Cloudflare Worker）只轉送這條通道裡的密文；它看得到每條連線的 Google 帳號（帳號 ID、名稱、大頭貼、email）、IP 位址、工作區代碼，以及每筆資料的大小和時間。</title>
+        <rect class="bx" x="8" y="8" width="330" height="324" rx="14"/>
+        <text class="tt" x="30" y="46">你的電腦（主人）</text>
+        <text class="tm" x="30" y="68">檔案和 session 都留在這裡</text>
+        <path class="ln" d="M30 93h8l3 4h11v14H30z"/>
+        <text class="ts" x="64" y="107">分享的資料夾</text>
+        <rect class="ln" x="30" y="124" width="22" height="17" rx="3"/>
+        <path class="ln" d="M35 130l3 3-3 3"/>
+        <text class="ts" x="64" y="138">你的 Claude Code session</text>
+        <circle class="ln" cx="36" cy="164" r="5"/>
+        <path class="ln" d="M41 164h11v4M48 164v3"/>
+        <text class="ts" x="64" y="169">金鑰與操作紀錄</text>
+        <rect class="ac-dash" x="24" y="192" width="298" height="124" rx="10"/>
+        <text class="ts ta" x="42" y="220">客人沙盒</text>
+        <text class="ts" x="42" y="246">組員的 session 與終端機</text>
+        <text class="tm" x="42" y="272">只能用分享的資料夾或 worktree、</text>
+        <text class="tm" x="42" y="292">自己的暫存目錄、白名單上的網域</text>
+
+        <rect class="bx" x="392" y="100" width="136" height="140" rx="12"/>
+        <text class="tt" x="460" y="132" text-anchor="middle">relay</text>
+        <text class="tm" x="460" y="152" text-anchor="middle">Cloudflare Worker</text>
+        <text class="tm" x="460" y="226" text-anchor="middle">只轉送密文</text>
+        <text class="ta" x="460" y="84" text-anchor="middle">端對端加密</text>
+        <text class="tm" x="460" y="268" text-anchor="middle">看得到：Google 帳號、IP、</text>
+        <text class="tm" x="460" y="286" text-anchor="middle">工作區代碼、大小、時間</text>
+
+        <text class="tt" x="582" y="46">組員</text>
+        <rect class="bx" x="582" y="80" width="290" height="88" rx="10"/>
+        <text class="ts" x="604" y="116">瀏覽器</text>
+        <text class="tm" x="604" y="140">編輯器、session、建議</text>
+        <rect class="bx" x="582" y="212" width="290" height="88" rx="10"/>
+        <text class="ts" x="604" y="248">smurg CLI</text>
+        <text class="tm" x="604" y="272">用 smurg attach 接到自己的終端機</text>
+
+        <path class="ac" d="M338 190H548c18 0 16-66 34-66M548 190c18 0 16 66 34 66"/>
+        <circle class="acf" cx="338" cy="190" r="4"/>
+        <circle class="bgf" cx="460" cy="190" r="14"/>
+        <path class="ac" d="M455 186v-4a5 5 0 0 1 10 0v4"/>
+        <rect class="acf" x="452" y="186" width="16" height="12" rx="2"/>
+      </svg>
+
+      <svg class="dg tall" viewBox="0 0 360 780" role="img" aria-labelledby="sec-tall-title">
+        <title id="sec-tall-title">主人的電腦上有分享的資料夾、主人的 Claude Code session、金鑰與操作紀錄，以及放組員 session 的沙盒。每位組員的瀏覽器或 smurg CLI 都和它有一條自己的端對端加密通道。relay（Cloudflare Worker）只轉送這條通道裡的密文；它看得到每條連線的 Google 帳號（帳號 ID、名稱、大頭貼、email）、IP 位址、工作區代碼，以及每筆資料的大小和時間。</title>
+        <rect class="bx" x="8" y="8" width="344" height="304" rx="14"/>
+        <text class="tt" x="28" y="44">你的電腦（主人）</text>
+        <text class="tm" x="28" y="68">檔案和 session 都留在這裡</text>
+        <path class="ln" d="M28 91h8l3 4h11v14H28z"/>
+        <text class="ts" x="62" y="106">分享的資料夾</text>
+        <rect class="ln" x="28" y="122" width="22" height="17" rx="3"/>
+        <path class="ln" d="M33 128l3 3-3 3"/>
+        <text class="ts" x="62" y="137">你的 Claude Code session</text>
+        <circle class="ln" cx="34" cy="163" r="5"/>
+        <path class="ln" d="M39 163h11v4M46 163v3"/>
+        <text class="ts" x="62" y="168">金鑰與操作紀錄</text>
+        <rect class="ac-dash" x="22" y="190" width="316" height="108" rx="10"/>
+        <text class="ts ta" x="38" y="216">客人沙盒</text>
+        <text class="ts" x="38" y="240">組員的 session 與終端機</text>
+        <text class="tm" x="38" y="264">只能用分享的資料夾或 worktree、</text>
+        <text class="tm" x="38" y="284">自己的暫存目錄、白名單上的網域</text>
+
+        <text class="ta" x="256" y="352" text-anchor="end">端對端加密</text>
+        <rect class="bx" x="40" y="380" width="280" height="130" rx="12"/>
+        <text class="tt" x="60" y="414">relay</text>
+        <text class="tm" x="60" y="438">Cloudflare Worker</text>
+        <text class="tm" x="60" y="486">只轉送密文</text>
+        <text class="tm" x="40" y="544">看得到：Google 帳號、IP、</text>
+        <text class="tm" x="40" y="564">工作區代碼、大小、時間</text>
+
+        <text class="tt" x="8" y="604">組員</text>
+        <rect class="bx" x="8" y="650" width="166" height="112" rx="10"/>
+        <text class="ts" x="24" y="684">瀏覽器</text>
+        <text class="tm" x="24" y="710">編輯器、session、</text>
+        <text class="tm" x="24" y="730">建議</text>
+        <rect class="bx" x="186" y="650" width="166" height="112" rx="10"/>
+        <text class="ts" x="202" y="684">smurg CLI</text>
+        <text class="tm" x="202" y="710">用 smurg attach</text>
+        <text class="tm" x="202" y="730">接到終端機</text>
+
+        <path class="ac" d="M268 312V620H91v30M268 620v30"/>
+        <circle class="acf" cx="268" cy="312" r="4"/>
+        <circle class="bgf" cx="268" cy="445" r="14"/>
+        <path class="ac" d="M263 441v-4a5 5 0 0 1 10 0v4"/>
+        <rect class="acf" x="260" y="441" width="16" height="12" rx="2"/>
+      </svg>
+      <figcaption>每個瀏覽器或終端機和主人的電腦之間，都有一條自己的加密通道。relay 只負責轉送，讀不到內容。</figcaption>
+    </figure>
+
+    <div class="points">
+      <div>
+        <h3>端對端加密</h3>
+        <p>每個瀏覽器和終端機都和主人的電腦各自建立一條加密通道（Noise 協定）。邀請連結 <code>#</code> 之後的部分帶著主人電腦金鑰的指紋和一組密鑰，瀏覽器不會把這一段送到任何伺服器。relay 想冒充主人時，連線會被拒絕。</p>
+      </div>
+      <div>
+        <h3>檔案留在主人的電腦上</h3>
+        <p>檔案、Claude Code session 和操作紀錄都在主人的電腦上，relay 不保存其中任何一樣。主人的電腦睡眠或 smurg 停止時，沒有人能使用工作區；主人回來後會自動重新連線。</p>
+      </div>
+      <div>
+        <h3>組員的 agent 在沙盒裡執行</h3>
+        <p>組員在主人電腦上開的 session 和終端機，都在沙盒裡執行（macOS 用 Seatbelt，Linux 用 bubblewrap）：只能使用分享的資料夾（或自己的 worktree）和自己的暫存目錄，讀不到主人家目錄裡的其他檔案，也讀不到其他組員的資料；網路只能連到白名單上的網域，例如 Anthropic 和常見的套件庫。主人的電腦是 Linux 時，組員預設只能在自己的 worktree 裡工作。沙盒無法啟動時，session 就不會開。</p>
+      </div>
+      <div>
+        <h3>relay 看得到什麼</h3>
+        <p>每條連線是哪個 Google 帳號（帳號 ID、名稱、大頭貼；登入時 Google 也會給 relay 帳號的 email，只有帳號沒有名稱時拿來當顯示名稱）、從哪個 IP 位址連線、連到哪個工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。看不到檔案內容、檔名、終端機畫面、指令、邀請連結的密鑰或任何金鑰。它只保存每個工作區的代碼和主人是哪個帳號。架設 relay 的人和 Cloudflare 也看得到同樣的內容。</p>
+      </div>
+    </div>
+
+    <div class="limits">
+      <h3>smurg 防不了的事</h3>
+      <ul>
+        <li>工作區裡的每個人都看得到分享資料夾裡的每個檔案，包括 <code>.env</code>；只有 <code>.git</code>、<code>.envrc</code>、smurg 自己的 <code>.smurg</code> 資料夾和主人個人的 Claude Code 設定看不到。不要分享放了密碼、金鑰或個人資料的資料夾。</li>
+        <li>主人自己的 Claude Code session 不在沙盒裡，而且會讀到組員寫的內容。檔案裡可能藏著要 agent 執行的指示（prompt injection），請保留 Claude Code 的權限確認。</li>
+        <li>組員在主人電腦上執行 agent 時，是在那台電腦上登入自己的 Claude 帳號，主人在技術上讀得到這份憑證。請使用有花費上限的 API key。</li>
+        <li>網頁版由 relay 提供。和所有在瀏覽器裡做的端對端加密一樣，被竄改的網頁可能洩漏金鑰；CLI 沒有這個問題。</li>
+        <li>沙盒沒有限制記憶體、磁碟空間和 CPU：組員的程序可能讓主人的電腦變慢。</li>
+      </ul>
+      <p class="more"><a href="https://github.com/gclinian/smurg/blob/main/docs/HOSTING.md">分享之前，請先讀主人指南</a></p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="platforms" aria-labelledby="platforms-title">
+  <div class="wrap section-grid">
+    <div>
+      <p class="kicker">04</p>
+      <h2 id="platforms-title">支援的平台與需求</h2>
+    </div>
+    <div>
+      <dl class="facts">
+        <div>
+          <dt>主人的電腦</dt>
+          <dd>macOS 11 以上（Apple silicon 或 Intel）；Linux 需要 glibc 2.28 以上（Ubuntu 20.04 以上），x64 或 arm64。不支援 Windows 主人，也不支援 musl 的 Linux（例如 Alpine）。</dd>
+        </div>
+        <div>
+          <dt>Claude Code</dt>
+          <dd>要執行 agent session，主人的電腦需要 Claude Code（<code>claude</code> 指令）2.1.220 以上。要用 worktree，分享的資料夾必須是 git repository。</dd>
+        </div>
+        <div>
+          <dt>組員</dt>
+          <dd>任何有瀏覽器的作業系統都可以。目前測試過的是電腦上的 Chrome，Safari 和 Firefox 還沒測試過。也可以在 macOS 或 Linux 上用 smurg CLI。</dd>
+        </div>
+        <div>
+          <dt>登入</dt>
+          <dd>Google 帳號，主人和組員都一樣。</dd>
+        </div>
+        <div>
+          <dt>relay</dt>
+          <dd>公用 relay 使用 Cloudflare 的免費方案，請合理使用：所有人共用每天的用量上限，用完時到台灣時間早上 8 點（UTC 0 點）之前，所有人都無法連線。需要大量使用時，可以用自己的 Cloudflare 帳號架設 relay。</dd>
+        </div>
+      </dl>
+      <p class="status">v0.1.0 是第一個公開版本，目前是原型。開發和測試都在 Apple silicon 的 macOS 上進行；Intel Mac 與 Linux 的執行檔由 GitHub Actions 建置並跑冒煙測試。已知限制列在<a href="https://github.com/gclinian/smurg/blob/main/CHANGELOG.md">變更紀錄</a>裡。</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="source" aria-labelledby="source-title">
+  <div class="wrap section-grid">
+    <div>
+      <p class="kicker">05</p>
+      <h2 id="source-title">開放原始碼</h2>
+    </div>
+    <div>
+      <p class="lead-text">smurg 以 Apache License 2.0 授權開放原始碼。程式碼、文件和發佈的執行檔都在 GitHub 上，你也可以用自己的 Cloudflare 帳號架設 relay。</p>
+      <ul class="links-list">
+        <li><a href="https://github.com/gclinian/smurg">github.com/gclinian/smurg</a></li>
+        <li><a href="https://github.com/gclinian/smurg/releases">發佈版本</a></li>
+        <li><a href="https://github.com/gclinian/smurg/blob/main/LICENSE">授權條款（Apache-2.0）</a></li>
+        <li><a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md">自己架設 relay</a></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="faq" aria-labelledby="faq-title">
+  <div class="wrap section-grid">
+    <div>
+      <p class="kicker">06</p>
+      <h2 id="faq-title">常見問題</h2>
+    </div>
+    <div class="faq">
+      <div>
+        <h3>需要安裝 Node.js 嗎？</h3>
+        <p>不需要。安裝程式會下載為你的電腦建置的單一執行檔，安裝它不需要 sudo；要升級時，再執行一次同一行指令。只有要修改 smurg 本身的原始碼時，才需要 Node.js。用瀏覽器加入的組員不需要安裝任何東西。</p>
+        <p>macOS 的執行檔只有 ad-hoc 簽章，沒有 Apple 的開發者簽章（Developer ID）。請用上面那行指令安裝：安裝程式驗證 sha256 之後，會移除 quarantine 標記。用瀏覽器下載的執行檔會被 Gatekeeper 擋下。</p>
+      </div>
+      <div>
+        <h3>relay 看得到什麼？</h3>
+        <p>每條連線的 Google 帳號（帳號 ID、名稱、大頭貼、email）和 IP 位址、工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。檔案、檔名、終端機畫面、指令和金鑰，都在主人的電腦和每位組員之間端對端加密。連這些都不想讓別人知道的話，可以自己架設 relay。</p>
+      </div>
+      <div>
+        <h3>組員需要自己的 Claude 帳號嗎？</h3>
+        <p>只有要開自己的 agent 時才需要。「旁觀」的組員可以看每一個 session；「可編輯」的組員還可以提出建議。這兩種都不需要 Claude 帳號。「可執行 agent」的組員在自己的沙盒裡登入自己的帳號，可以用 API key 或 Claude 訂閱帳號（訂閱帳號的登入還沒有用真正的帳號從頭到尾測試過）。這份登入資料存放在主人的電腦上，所以請使用有花費上限的 API key；組員離開工作區時，smurg 會登出並刪除他在那裡的暫存目錄。agent 一律在主人的電腦上執行，所以主人的電腦要裝好 Claude Code。</p>
+      </div>
+      <div>
+        <h3>Linux 有什麼要注意的？</h3>
+        <p>主人的電腦是 Linux 時，組員的 session 預設只能在自己的 git worktree 裡執行，所以分享的資料夾必須是 git repository，組員才能開 session。<code>smurg host</code> 加上 <code>--allow-main-workspace-guests</code> 選項分享時，組員也能在共享主工作區開 session，開始訊息會列出隨之而來的限制（<a href="https://github.com/gclinian/smurg/blob/main/docs/HOSTING.md">主人指南</a> §4、§5）。</p>
+        <p>客人沙盒需要 bubblewrap 0.8 以上、socat 和 ripgrep：Ubuntu 24.04、Debian 12 以上都可以；Ubuntu 22.04 的 bubblewrap 太舊，組員的 session 無法啟動。安裝程式會檢查這些套件和 Ubuntu 的 AppArmor 限制，經你同意後才用 sudo 安裝缺少的部分。完整的測試在 Ubuntu 24.04 上通過，但還沒有人真的在 Linux 上當過主人。</p>
+      </div>
+      <div>
+        <h3>支援哪些瀏覽器？</h3>
+        <p>測試過的是電腦上的 Chrome。Safari 和 Firefox 還沒測試過。</p>
+      </div>
+      <div>
+        <h3>主人的電腦睡眠時會怎樣？</h3>
+        <p>所有人幾秒內就會看到「主人已離線」。編輯的內容會留在瀏覽器裡，主人回來後再送出；這段期間無法操作 agent。分享期間 smurg 會防止電腦閒置時睡眠，但闔上筆電螢幕仍然會睡眠。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-row">
+    <p>smurg 以 Apache License 2.0 授權開放原始碼。</p>
+    <nav aria-label="頁尾">
+      <ul>
+        <li><a href="https://github.com/gclinian/smurg">GitHub</a></li>
+        <li><a href="https://github.com/gclinian/smurg/releases">發佈版本</a></li>
+        <li><a href="https://github.com/gclinian/smurg/tree/main/docs">文件</a></li>
+        <li><a href="https://github.com/gclinian/smurg/blob/main/CHANGELOG.md">變更紀錄</a></li>
+        <li><a href="https://app.smurg.ai/">網頁版</a></li>
+        <li><a href="/" hreflang="en" lang="en">English</a></li>
+      </ul>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

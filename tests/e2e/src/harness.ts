@@ -16,7 +16,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { createDaemon, DEFAULT_FEATURE_MODULES, silentLogger, type Daemon, type FeatureModule, type LimitsConfig, type Logger, type SessionLaunchConfig, type TimingConfig } from '@smurg/daemon';
+import { createDaemon, createLineLogger, DEFAULT_FEATURE_MODULES, silentLogger, type Daemon, type FeatureModule, type LimitsConfig, type Logger, type SessionLaunchConfig, type TimingConfig } from '@smurg/daemon';
 import { createTempRunDir, isolatedGitEnv, removeTempRunDir } from '@smurg/daemon/testing';
 import { parseInviteUrl, type AuditEntry, type GuestRole, type HostSettings, type Welcome } from '@smurg/protocol';
 import {
@@ -366,6 +366,22 @@ async function initGitRepo(dir: string, home: string): Promise<void> {
   await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: dir, env });
   await execFileAsync('git', ['add', '-A'], { cwd: dir, env });
   await execFileAsync('git', ['commit', '-q', '--allow-empty', '-m', 'initial'], { cwd: dir, env });
+}
+
+/**
+ * A daemon logger that keeps its last `max` lines in memory (debug level: the stack is silent otherwise), for a test to
+ * print when it fails. The daemon's log carries ids, codes and paths, never content or keys (core/logger.ts).
+ */
+export function bufferedLogger(max = 2_000): { readonly log: Logger; lines(): string[] } {
+  const kept: string[] = [];
+  const log = createLineLogger({
+    level: 'debug',
+    write: (line) => {
+      kept.push(line);
+      if (kept.length > max) kept.splice(0, kept.length - max);
+    },
+  });
+  return { log, lines: () => [...kept] };
 }
 
 /** Polls `check` every 50 ms until it holds; rejects after `timeoutMs`. */
