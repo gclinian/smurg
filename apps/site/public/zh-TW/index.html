@@ -259,7 +259,7 @@ smurg host ~/projects/my-app</code></pre>
 
     <figure class="diagram">
       <svg class="dg wide" viewBox="0 0 880 340" role="img" aria-labelledby="sec-wide-title">
-        <title id="sec-wide-title">主人的電腦上有分享的資料夾、主人的 Claude Code session、金鑰與操作紀錄，以及放組員 session 的沙盒。每位組員的瀏覽器或 smurg CLI 都和它有一條自己的端對端加密通道。relay（Cloudflare Worker）只轉送這條通道裡的密文；它看得到每條連線的 Google 帳號（帳號 ID、名稱、大頭貼、email）、IP 位址、工作區代碼，以及每筆資料的大小和時間。</title>
+        <title id="sec-wide-title">主人的電腦上有分享的資料夾、主人的 Claude Code session、金鑰與操作紀錄，以及放組員 session 的沙盒。每位組員的瀏覽器或 smurg CLI 都和它有一條自己的端對端加密通道。relay（Cloudflare Worker）只轉送這條通道裡的密文；它看得到每條連線的 Google 帳號（帳號 ID、名稱、大頭貼；登入時還有 email）、IP 位址、工作區代碼，以及每筆資料的大小和時間。</title>
         <rect class="bx" x="8" y="8" width="330" height="324" rx="14"/>
         <text class="tt" x="30" y="46">你的電腦（主人）</text>
         <text class="tm" x="30" y="68">檔案和 session 都留在這裡</text>
@@ -301,7 +301,7 @@ smurg host ~/projects/my-app</code></pre>
       </svg>
 
       <svg class="dg tall" viewBox="0 0 360 780" role="img" aria-labelledby="sec-tall-title">
-        <title id="sec-tall-title">主人的電腦上有分享的資料夾、主人的 Claude Code session、金鑰與操作紀錄，以及放組員 session 的沙盒。每位組員的瀏覽器或 smurg CLI 都和它有一條自己的端對端加密通道。relay（Cloudflare Worker）只轉送這條通道裡的密文；它看得到每條連線的 Google 帳號（帳號 ID、名稱、大頭貼、email）、IP 位址、工作區代碼，以及每筆資料的大小和時間。</title>
+        <title id="sec-tall-title">主人的電腦上有分享的資料夾、主人的 Claude Code session、金鑰與操作紀錄，以及放組員 session 的沙盒。每位組員的瀏覽器或 smurg CLI 都和它有一條自己的端對端加密通道。relay（Cloudflare Worker）只轉送這條通道裡的密文；它看得到每條連線的 Google 帳號（帳號 ID、名稱、大頭貼；登入時還有 email）、IP 位址、工作區代碼，以及每筆資料的大小和時間。</title>
         <rect class="bx" x="8" y="8" width="344" height="304" rx="14"/>
         <text class="tt" x="28" y="44">你的電腦（主人）</text>
         <text class="tm" x="28" y="68">檔案和 session 都留在這裡</text>
@@ -445,7 +445,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>relay 看得到什麼？</h3>
-        <p>每條連線的 Google 帳號（帳號 ID、名稱、大頭貼、email）和 IP 位址、工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。檔案、檔名、終端機畫面、指令和金鑰，都在主人的電腦和每位組員之間端對端加密。連這些都不想讓別人知道的話，可以自己架設 relay。</p>
+        <p>每條連線的 Google 帳號（帳號 ID、名稱、大頭貼；登入時還有 email）和 IP 位址、工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。檔案、檔名、終端機畫面、指令和金鑰，都在主人的電腦和每位組員之間端對端加密。連這些都不想讓別人知道的話，可以自己架設 relay。</p>
       </div>
       <div>
         <h3>組員需要自己的 Claude 帳號嗎？</h3>

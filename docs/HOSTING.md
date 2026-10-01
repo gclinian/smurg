@@ -8,6 +8,14 @@
 一行指令安裝（macOS：Apple Silicon、Intel；Linux：x64、arm64，glibc）：
 
 ```sh
+curl -fsSL https://smurg.ai/install.sh | sh
+```
+
+`https://smurg.ai/install.sh` 只是轉到 GitHub 上最新版本的 `install.sh`（smurg.ai 只負責轉址，安裝程式和執行檔都從
+GitHub Releases 下載並核對 `SHA256SUMS`）。
+連不上 smurg.ai 時，改用同一個檔案的 GitHub 網址：
+
+```sh
 curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh | sh
 ```
 
@@ -43,8 +51,8 @@ smurg login          # 用瀏覽器以 Google 帳號登入；不加 --relay 時�
 
 ### 2.1 公用 relay（預設）
 
-smurg 的維護者在 Cloudflare 上架設了一個所有人都可以使用的 relay：https://smurg-relay.gclin-ian.workers.dev。發佈版的 smurg 預設就用它，
-**你不需要部署任何東西**，只要有 Google 帳號（主人和組員都用 Google 登入）。
+smurg 的維護者在 Cloudflare 上架設了一個所有人都可以使用的 relay：https://app.smurg.ai（也是網頁版：組員的邀請連結
+和工作區都在這個網址上）。發佈版的 smurg 預設就用它，**你不需要部署任何東西**，只要有 Google 帳號（主人和組員都用 Google 登入）。
 
 **relay 看得到什麼**（ARCHITECTURE §11 D-5）：
 
@@ -69,8 +77,9 @@ smurg 的維護者在 Cloudflare 上架設了一個所有人都可以使用的 r
 ### 2.2 自己架設 relay
 
 你、學校或團隊也可以把 relay 部署到自己的 Cloudflare 帳號（步驟見 [`apps/relay/README.md`](../apps/relay/README.md)
-「部署到 Cloudflare」與「之後」：Cloudflare 帳號，加上你自己申請的 Google OAuth client；`scripts/deploy-relay.sh`
-部署的是只用 Google 登入的設定，要用 GitHub 登入得自己修改設定）。之後用 `--relay` 指定它：
+「部署到 Cloudflare」與「之後」：Cloudflare 帳號，加上你自己申請的 Google OAuth client。預設部署在你帳號的 workers.dev
+子網域，網址像 `https://smurg-relay.<你的子網域>.workers.dev`，不需要自己的網域；也可以用你在 Cloudflare 上的網域。
+`scripts/deploy-relay.sh` 部署的是只用 Google 登入的設定，要用 GitHub 登入得自己修改設定）。之後用 `--relay` 指定它：
 
 ```sh
 smurg login --relay https://relay.example.edu      # 換成你的 relay；出現哪些登入按鈕由你的設定決定
@@ -78,7 +87,7 @@ smurg host ~/projects/my-app                        # 用上次登入的 relay
 ```
 
 選擇 relay 的順序：`--relay`、環境變數 `SMURG_RELAY_URL`、上次登入的 relay，都沒有時才用公用 relay。要換回
-公用 relay：`smurg login --relay https://smurg-relay.gclin-ian.workers.dev`。你印出的邀請連結會指向你的 relay，組員不需要另外設定。
+公用 relay：`smurg login --relay https://app.smurg.ai`。你印出的邀請連結會指向你的 relay，組員不需要另外設定。
 
 ## 3. 分享
 

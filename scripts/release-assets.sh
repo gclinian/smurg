@@ -15,12 +15,14 @@
 # smurg-linux-x64, smurg-linux-arm64. For a GitHub release the base URL is the download URL of the tag,
 # https://github.com/<owner>/<repo>/releases/download/vX.Y.Z, so the install.sh behind
 # https://github.com/<owner>/<repo>/releases/latest/download/install.sh always installs the executables of its own
-# release.
+# release. For the official repository (github.com/gclinian/smurg) the install line people are given is
+# `curl -fsSL https://smurg.ai/install.sh | sh`: smurg.ai (apps/site) only answers that path with a 302 to the
+# GitHub URL above, so it is the same file; the GitHub URL stays the fallback when smurg.ai is unreachable.
 #
 #   --require-all  refuse unless all four executables are there (a release; without it any subset is taken)
 #   --check-arch   check with `file` that each executable is the Mach-O / ELF of its name's architecture
 #   --notes FILE   write the release notes: the CHANGELOG section of this version (refused when there is none), the
-#                  install command and the checksums
+#                  install commands (official repository: smurg.ai first, then the GitHub URLs) and the checksums
 #   --changelog F  the changelog to read (default CHANGELOG.md)
 #   --check-changelog  only check that the changelog has a section for X.Y.Z (and that the version and URL are
 #                  valid), print it and stop: the release workflow runs this before building anything
@@ -28,9 +30,13 @@
 #                  problem and stop (exit 1 on any): the section's heading has a date (`## [X.Y.Z] - YYYY-MM-DD`,
 #                  not `Unreleased`); no placeholder (<RELAY_URL>, <account-subdomain>) is left in the section or in
 #                  the user docs; DEFAULT_RELAY_URL (packages/cli/src/relay/default-relay.ts) is an https origin, since
-#                  every binary keeps its built-in relay forever; every package.json says version X.Y.Z (without a
-#                  pre-release part). The release workflow runs it before building: it fails a tag, and only warns
-#                  in a dry run.
+#                  every binary keeps its built-in relay forever, and the user docs (README.md, docs/HOSTING.md,
+#                  docs/JOINING.md) name that same relay; for the official repository, those three docs show the
+#                  install line `curl -fsSL https://smurg.ai/install.sh | sh`, and neither they nor the section name a
+#                  concrete *.workers.dev address other than the built-in relay (a stale address of the shared relay;
+#                  a self-hosted one is written with a <placeholder>); every package.json says version X.Y.Z (without a
+#                  pre-release part). The release workflow runs it before building: it fails a tag, and only warns in a
+#                  dry run.
 # The executable for this machine, if present, is run once: it must report exactly `smurg X.Y.Z (…`.
 # Nothing is uploaded or signed here.
 set -euo pipefail
@@ -59,7 +65,7 @@ while [ $# -gt 0 ]; do
     --check-arch) check_arch=1; shift ;;
     --check-changelog) check_changelog=1; shift ;;
     --publish-checks) publish_checks=1; shift ;;
-    -h | --help) sed -n '2,37p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,41p' "$0"; exit 0 ;;
     *) echo "release-assets: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -83,6 +89,22 @@ changelog_part() {
     inside { print }
   ' "$changelog"
 }
+# A GitHub release: its repository, its tag, and the URL that always serves the latest release's install.sh. The
+# official repository's latest release is also installed through https://smurg.ai/install.sh (a 302 to that URL); a
+# fork's is not (smurg.ai installs the official release), so it gets the GitHub URL only.
+official_repo='https://github.com/gclinian/smurg'
+official_install='https://smurg.ai/install.sh'
+repo_url=''
+tag=''
+latest=''
+short_latest=''
+if [[ "$base_url" =~ ^(https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)/releases/download/([^/]+)$ ]]; then
+  repo_url="${BASH_REMATCH[1]}"
+  tag="${BASH_REMATCH[2]}"
+  latest="$repo_url/releases/latest/download/install.sh"
+  [ "$repo_url" != "$official_repo" ] || short_latest="$official_install"
+fi
+
 section=''
 if [ -n "$notes" ] || [ "$check_changelog" = 1 ] || [ "$publish_checks" = 1 ]; then
   [ -f "$changelog" ] || { echo "release-assets: $changelog not found" >&2; exit 1; }
@@ -101,6 +123,30 @@ if [ "$publish_checks" = 1 ]; then
   default_relay=packages/cli/src/relay/default-relay.ts
   grep -Eq "^export const DEFAULT_RELAY_URL: string \| null = 'https://[a-z0-9.-]+';" "$default_relay" ||
     problems+=("$default_relay: DEFAULT_RELAY_URL is not the deployed relay's https origin (docs/RELEASING.md §3): a binary keeps its built-in relay forever")
+  relay_url="$(sed -n "s#^export const DEFAULT_RELAY_URL: string | null = '\(https://[a-z0-9.-]*\)';\$#\1#p" "$default_relay")"
+  if [ -n "$relay_url" ]; then
+    for doc in README.md docs/HOSTING.md docs/JOINING.md; do
+      [ -f "$doc" ] && grep -qF "$relay_url" "$doc" ||
+        problems+=("$doc does not name the built-in relay $relay_url (DEFAULT_RELAY_URL): the docs must say what the binary uses")
+    done
+  fi
+  if [ -n "$short_latest" ]; then
+    for doc in README.md docs/HOSTING.md docs/JOINING.md; do
+      [ -f "$doc" ] && grep -qF "curl -fsSL $short_latest | sh" "$doc" ||
+        problems+=("$doc does not show the official install line  curl -fsSL $short_latest | sh")
+    done
+    # The official relay is DEFAULT_RELAY_URL; any other concrete workers.dev address in what users read is a stale
+    # one (the shared relay left workers.dev on 2026-10-01). A self-hosted relay's address is written with a
+    # placeholder (https://smurg-relay.<你的子網域>.workers.dev), which this does not match.
+    stale_workers_dev() { { grep -Eo 'https://[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.workers\.dev' | sort -u | grep -vxF "${relay_url:-none}" | tr '\n' ' '; } || true; }
+    for doc in README.md docs/HOSTING.md docs/JOINING.md; do
+      [ -f "$doc" ] || continue
+      stale="$(stale_workers_dev < "$doc")"
+      [ -z "$stale" ] || problems+=("$doc names a workers.dev address that is not the built-in relay: ${stale% } (docs/RELEASING.md §3)")
+    done
+    stale="$(printf '%s\n' "$section" | stale_workers_dev)"
+    [ -z "$stale" ] || problems+=("$changelog: the $version section names a workers.dev address that is not the built-in relay: ${stale% }")
+  fi
   for pkg in package.json apps/*/package.json packages/*/package.json tests/*/package.json; do
     [ -f "$pkg" ] || continue
     pkg_version="$(sed -n 's/^  "version": "\([^"]*\)",\{0,1\}$/\1/p' "$pkg" | head -1)"
@@ -111,7 +157,7 @@ if [ "$publish_checks" = 1 ]; then
     printf '  - %s\n' "${problems[@]}" >&2
     exit 1
   fi
-  echo "release-assets: $version is ready to publish (dated changelog section, no placeholders, built-in relay set, package versions)"
+  echo "release-assets: $version is ready to publish (dated changelog section, no placeholders, built-in relay set and named in the docs, install line, no stale workers.dev address, package versions)"
   exit 0
 fi
 if [ "$check_changelog" = 1 ]; then
@@ -167,11 +213,7 @@ sed "s|^SMURG_RELEASE_BASE_URL=''\$|SMURG_RELEASE_BASE_URL='$base_url'|" scripts
 [ "$(grep -c "^SMURG_RELEASE_BASE_URL='$base_url'\$" "$out/install.sh")" = 1 ] || { echo 'release-assets: could not fill in the release URL' >&2; exit 1; }
 chmod 755 "$out/install.sh"
 
-latest=''
-if [[ "$base_url" =~ ^(https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)/releases/download/([^/]+)$ ]]; then
-  repo_url="${BASH_REMATCH[1]}"
-  tag="${BASH_REMATCH[2]}"
-  latest="$repo_url/releases/latest/download/install.sh"
+if [ -n "$repo_url" ]; then
   # Release notes live on the releases page: a relative link of the changelog ([x](docs/X.md)) points at the file as
   # it is in this tag.
   section="$(printf '%s\n' "$section" | sed -E "s|\]\(([^):/#][^):]*)\)|](${repo_url}/blob/${tag}/\1)|g")"
@@ -184,7 +226,12 @@ if [ -n "$notes" ]; then
     printf '## 安裝\n\n'
     printf 'macOS（Apple silicon、Intel）與 Linux（x64、arm64，glibc）：\n\n'
     printf '```sh\n'
-    [ -z "$latest" ] || printf '# 最新版本\ncurl -fsSL %s | sh\n' "$latest"
+    if [ -n "$short_latest" ]; then
+      printf '# 最新版本\ncurl -fsSL %s | sh\n' "$short_latest"
+      printf '# 最新版本（連不上 smurg.ai 時：同一個檔案在 GitHub 上的網址）\ncurl -fsSL %s | sh\n' "$latest"
+    elif [ -n "$latest" ]; then
+      printf '# 最新版本\ncurl -fsSL %s | sh\n' "$latest"
+    fi
     printf '# 這個版本（%s）\ncurl -fsSL %s/install.sh | sh\n' "$version" "$base_url"
     printf '```\n\n'
     # shellcheck disable=SC2016 # Markdown backticks, not a command substitution
@@ -198,5 +245,6 @@ fi
 
 echo "release-assets: $out"
 cat "$out/SHA256SUMS"
+[ -z "$short_latest" ] || echo "install the latest release with:  curl -fsSL $short_latest | sh"
 [ -z "$latest" ] || echo "install the latest release with:  curl -fsSL $latest | sh"
 echo "install this release with:  curl -fsSL $base_url/install.sh | sh"

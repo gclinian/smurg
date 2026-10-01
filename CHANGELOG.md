@@ -12,13 +12,17 @@ Claude Code。檔案和 agent session 都留在主人的電腦上；relay 只轉
 
 ### 安裝與登入
 
-- 一行指令安裝單一執行檔（不需要 Node.js）：
-  `curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh | sh`。
+- 一行指令安裝單一執行檔（不需要 Node.js）：`curl -fsSL https://smurg.ai/install.sh | sh`
+  （smurg.ai 只是轉到 GitHub 上最新版本的 `install.sh`；連不上 smurg.ai 時用
+  `curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh | sh`）。
   提供 macOS（Apple silicon、Intel）與 Linux（x64、arm64，glibc）四種版本；安裝程式只安裝 sha256 與發佈的
   `SHA256SUMS` 相符的執行檔，放在 `~/.local/bin/smurg`，不需要 sudo。Linux 上它會檢查客人沙盒需要的套件
   （bubblewrap、socat、ripgrep）與 Ubuntu 24.04 以上的 AppArmor 限制，**經主人同意後**才用 sudo 安裝。
-- 公用 relay https://smurg-relay.gclin-ian.workers.dev（Cloudflare Workers）是 smurg 內建的預設 relay，主人和組員都用 Google 帳號登入：`smurg login`。
-  也可以照 [`apps/relay/README.md`](apps/relay/README.md) 部署自己的 relay，再用 `smurg login --relay <網址>` 指定。
+- 公用 relay https://app.smurg.ai（Cloudflare Workers，也是網頁版：組員的邀請連結是
+  `https://app.smurg.ai/join/<工作區>#…`）是 smurg 內建的預設 relay，主人和組員都用 Google 帳號登入：`smurg login`。
+  也可以照 [`apps/relay/README.md`](apps/relay/README.md) 部署自己的 relay（預設在你自己 Cloudflare 帳號的
+  workers.dev 上），再用 `smurg login --relay <網址>` 指定。
+- 產品介紹頁：https://smurg.ai（英文）與 https://smurg.ai/zh-TW/（繁體中文）。
 - 在 **Linux** 上分享時，組員的 session 預設只能在自己的 worktree 裡執行（分享的資料夾必須是 git repository）；
   要讓組員也能在共享主工作區開 session，用 `smurg host --allow-main-workspace-guests` 分享（開始訊息會列出 Linux 上的
   限制）。macOS 預設開放，`--no-main-workspace-guests` 可以關掉。

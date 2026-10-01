@@ -52,7 +52,8 @@ host machine by scanning the process table).
 smurg/
 ├── apps/
 │   ├── web/            React + Vite SPA (Monaco, Yjs, xterm.js)
-│   └── relay/          Cloudflare Worker + Durable Objects (WorkspaceDO, TransferDO)
+│   ├── relay/          Cloudflare Worker + Durable Objects (WorkspaceDO, TransferDO); also serves the web SPA
+│   └── site/           smurg.ai product page (static files + a Worker for a few redirects; www is a zone rule)
 ├── packages/
 │   ├── protocol/       zod schemas, roles/capabilities, Noise channel, framing, invite links, client SDK
 │   ├── daemon/         host-side daemon (library + hook/MCP entry points)
@@ -276,6 +277,10 @@ client                          relay (WorkspaceDO)                        daemo
 ```
 https://<web-origin>/join/<workspaceId>#k=<daemon key fingerprint>&s=<one-time secret>
 ```
+
+In production `<web-origin>` is the relay's own origin (the relay Worker serves the web app, §6): for the shared relay
+`https://app.smurg.ai/join/<workspaceId>#…`. SPEC's example origin `https://smurg.app` is only an example (the project
+does not own that domain); the tests' fixtures use it as an arbitrary origin.
 
 The web app copies the fragment into `sessionStorage` and immediately removes it from the address bar
 (`history.replaceState`) before any navigation (including the OAuth redirect). That only rewrites the tab's own entry:
@@ -776,7 +781,10 @@ One Worker, two SQLite-backed Durable Object classes keyed by workspace id (`get
 base class: `WorkspaceDO` (interactive traffic + host liveness) and `TransferDO` (file chunks).
 Hibernation API only (`ctx.acceptWebSocket(ws, tags)`); all routing state lives in tags (`host`, `client`, `c:<conn>`),
 socket attachments and `ctx.storage.kv` — never in memory, because local workerd really hibernates after ~10 s.
-The Worker also serves the web SPA (assets + `run_worker_first`), so web app and relay share one origin.
+The Worker also serves the web SPA (assets + `run_worker_first`), so web app and relay share one origin. For the
+shared relay that origin is `https://app.smurg.ai`, a Cloudflare Custom Domain with the Worker's workers.dev hostname
+off (it was `https://smurg-relay.gclin-ian.workers.dev` until 2026-10-01); a self-hosted relay defaults to its own
+account's workers.dev. `scripts/deploy-relay.sh` deploys exactly one of these two shapes (`docs/RELEASING.md` §2).
 
 | Route | Purpose |
 |---|---|
@@ -854,15 +862,17 @@ As built (relay report; details in `apps/relay/README.md`):
   logged-out caller: the client SDK's login diagnosis (`probeLogin` in `client/engine.ts`), `RelayApi.me()`, the CLI's
   stored-session check and the relay tests rely on it.
 - The relay's `build` refuses to bundle a missing web build, the stand-in page that `pnpm dev:relay` and the tests put
-  into `apps/web/dist`, a build without `_headers` carrying a `/*` Content-Security-Policy with `frame-ancestors 'none'`,
-  and a build that would serve `.vite/manifest.json` (`.assetsignore` must list `.vite`) (`scripts/check-web-dist.ts`).
+  into `apps/web/dist`, a build without `_headers` carrying a `/*` Content-Security-Policy with `frame-ancestors 'none'`
+  or without a `/*` `Strict-Transport-Security` of at least a year (lines under another rule do not count), and a build that would serve `.vite/manifest.json` (`.assetsignore` must list `.vite`) (`scripts/check-web-dist.ts`).
 - The SPA's own security headers (review SEC-E-04) come from `apps/web/public/_headers`, which Workers static assets
   apply to every asset and SPA route (relay routes keep their own headers): `Content-Security-Policy: default-src
   'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src
   'self' data: https:; font-src 'self' data:; media-src 'self' blob:; object-src 'none'; base-uri 'none';
   frame-ancestors 'none'; form-action 'self'`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
-  `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`. The built-app smoke test runs the whole app
-  under it with zero violations. The Vite dev server does not apply `_headers`.
+  `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`, `Strict-Transport-Security:
+  max-age=31536000` (since 2026-10-01: the relay is a custom domain of `smurg.ai`, which is not HSTS-preloaded like
+  `*.workers.dev`; no `includeSubDomains`, no `preload`, as on smurg.ai; `scripts/deploy-relay.sh --check` requires it
+  on an https relay). The built-app smoke test runs the whole app under it with zero violations. The Vite dev server does not apply `_headers`.
 
 ---
 
@@ -1642,9 +1652,10 @@ A boolean may name its true form differently (`OptionSpec.positive`): `--allow-m
 `--no-allow-main-workspace-guests` are unknown options), and the two together are refused like any flag and its negation.
 
 **Relay choice.** `--relay`, else `SMURG_RELAY_URL`, else the relay of the last login, else the built-in default: the
-shared relay the project operates on Cloudflare Workers (`packages/cli/src/relay/default-relay.ts`; its address is
-written `<RELAY_URL>` in the docs until the first deploy, `docs/RELEASING.md` §3); `smurg attach` first takes the
-invite link's origin, or the relay a remembered join used. Before
+shared relay the project operates on Cloudflare Workers, `https://app.smurg.ai`
+(`packages/cli/src/relay/default-relay.ts`, `docs/RELEASING.md` §3; it was the workers.dev URL of the first deploy
+until 2026-10-01, before any release); `smurg attach` first takes the invite link's origin, or the relay a remembered
+join used. Before
 the release plan of 2026-09-30 there was no default (review CLI-12: a guessed domain would have received the host's
 login and every invite printed for it); an operated relay does not have that problem. Logins are stored per origin:
 an invite link carries the WEB origin, which is the relay in production but not in development (Vite on :5173 in front
@@ -1695,7 +1706,9 @@ Linux, sets up the sandbox dependencies and the AppArmor profile with the host's
 native dir of an older build is removed after 30 days unused. Releases (decided 2026-09-30, `docs/OPEN-QUESTIONS.md`
 Q1): GitHub Releases of `gclinian/smurg`, built by `.github/workflows/release.yml` on a tag `v*` on `macos-15`,
 `macos-15-intel`, `ubuntu-24.04` and `ubuntu-24.04-arm`, macOS signed ad hoc only; the one-line install is
-`curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh | sh`. Runbook: `docs/RELEASING.md`.
+`curl -fsSL https://smurg.ai/install.sh | sh` (since 2026-10-01; the product page `apps/site`, live since that day,
+answers it with a 302 to `https://github.com/gclinian/smurg/releases/latest/download/install.sh`, the same file, which
+is also the fallback). Runbook: `docs/RELEASING.md`.
 
 ---
 
@@ -1826,9 +1839,10 @@ the audit entry; two or more such windows, none, or a writer of another root: �
   keep-awake through `systemd-inhibit` from a local desktop session (from an SSH session polkit refuses it on Ubuntu:
   verified, and `smurg host` says so), the installer on a fresh machine (`docs/OPEN-QUESTIONS.md` Q2).
 - **Real accounts are not exercised by the tests.** Claude login inside a guest sandbox, real Google / GitHub OAuth
-  and a real Cloudflare deployment need credentials. The owner's first deploy of the shared relay (`docs/RELEASING.md`
-  §2) is the first real Google login and the first real Cloudflare run; GitHub login is not configured on the shared
-  relay and stays untested against the real provider.
+  and a real Cloudflare deployment need credentials. They were first exercised by hand on 2026-10-01: the shared relay
+  deployed to Cloudflare (`docs/RELEASING.md` §2, now at `https://app.smurg.ai`) and the owner's Google login in the
+  browser there; the CLI login and a second account joining are still to do. GitHub login is not configured on the
+  shared relay and stays untested against the real provider.
 - **Browser device keys are not encrypted at rest** (see §4.2).
 - The network allow-list is global to the daemon, not per guest (srt limitation).
 - Zip downloads are not resumable; archives that need ZIP64 for sizes/offsets cannot be opened by Apple's `ditto`
@@ -1843,14 +1857,20 @@ Left after the review round of 2026-09-29 (owner questions with options and reco
   executables carry an ad-hoc signature only (no Developer ID, not notarized); the installer relies on `curl` setting no
   quarantine attribute and removes one after the sha256 check. `SHA256SUMS` is not signed,
   so it does not protect against a compromised GitHub account or workflow.
-- **The shared relay** (Cloudflare Workers free plan, workers.dev, Google login only; the CLI's default): the free
+- **The shared relay** (Cloudflare Workers free plan, the custom domain `https://app.smurg.ai` (workers.dev until
+  2026-10-01), Google login only; the CLI's default): the free
   plan's daily limits (100,000 requests, 100,000 Durable Object rows written, … `docs/RELEASING.md` §8) are shared by
   everyone who uses it; when one is used up, connections and messages of that kind fail for every workspace until
   00:00 UTC. An estimate from the code (not measured on Cloudflare): the WorkspaceDO alarm alone costs ~720 requests and
   ~720 rows written per workspace-hour while anyone is connected, and a busy terminal watched by several members costs
   far more. The free plan's 10 ms CPU limit per request was not measured against the login routes. Every deploy
   disconnects every socket (clients reconnect). The operator of the shared relay (and Cloudflare) can see what D-5 says
-  a relay sees, for every workspace on it; hosts who cannot accept that deploy their own relay (`--relay`).
+  a relay sees, for every workspace on it; hosts who cannot accept that deploy their own relay (`--relay`). Its web
+  app is one build for every host's daemon, and it decodes the daemon's messages with strict objects (§5), so it
+  refuses a daemon newer than itself (a field the daemon added is an unknown key to it; the reverse works, additions
+  are optional): the shared relay is redeployed from each release's commit before the release is published
+  (`docs/RELEASING.md` §4 step 3), and a host running a build ahead of it (for example from `main`) cannot be joined
+  through it until the next deploy.
 - **Linux, in more detail** (reviews SPEC-05, CLI-09; verified 2026-10-01 on Ubuntu 24.04 arm64, kernel 6.8,
   bubblewrap 0.9.0, `docs/research/sandbox.md` "Linux, verified 2026-10-01"). The real-sandbox tests (R5, R9, the
   hook self-test, the login process, the network namespace, guest terminals: resize reaches the program as SIGWINCH

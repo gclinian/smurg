@@ -261,11 +261,14 @@ describe('R11 主人控制台', () => {
       // The agent's Edit is recorded ONCE, by whichever report reaches the daemon first: its PostToolUse hook (a process
       // of its own: `via: 'hook'`, the tool) or the file watcher while the agent still holds the lock (`via: 'watcher'`,
       // the change); the later report is the same edit and is not recorded again (locks/activity.ts agentEditSeen).
-      // Which one is first is timing: the hook on macOS and in the Linux VM, the watcher on the slower CI runner.
+      // Which one is first is timing: the hook on the development Mac and in the Linux VM, the watcher on the slower CI
+      // runners (both OSes seen). The watcher names the change as the file system reported it: FSEvents may coalesce the
+      // daemon's atomic autosave just before (a rename onto src/app.ts: a create) with the agent's in-place write into one
+      // event flagged as a create ('add', macOS-15 runner, CI run 36831446139); inotify reports the write as a change.
       const [agentEdit, ...moreAgentEdits] = all.filter((e) => e.action === 'agent.edit' && e.target === 'main:src/app.ts');
       expect(moreAgentEdits).toEqual([]);
       expect(agentEdit).toMatchObject({ actor: { kind: 'agent', sessionId: 'ses_r11_agent', ownerUserId: carol.userId, displayName: 'Claude（Carol）' }, detail: { sessionId: 'ses_r11_agent', ownerUserId: carol.userId } });
-      expect(agentEdit?.detail).toMatchObject(agentEdit?.detail?.['via'] === 'hook' ? { via: 'hook', tool: 'Edit' } : { via: 'watcher', change: 'change' });
+      expect(agentEdit?.detail).toMatchObject(agentEdit?.detail?.['via'] === 'hook' ? { via: 'hook', tool: 'Edit' } : { via: 'watcher', change: expect.stringMatching(/^(change|add)$/) });
       expect(one('lock.denied', 'main:src/app.ts')).toMatchObject({ outcome: 'denied', actor: { kind: 'agent', sessionId: 'ses_r11_agent' }, detail: { holders: ['Amy'] } });
       expect(one('lock.acquire', 'main:src/app.ts', 'user')).toMatchObject({ actor: user(amy.userId), detail: { kind: 'human' } });
       expect(one('lock.acquire', 'main:src/app.ts', 'agent')).toMatchObject({ actor: { kind: 'agent', sessionId: 'ses_r11_agent' }, detail: { kind: 'agent' } });

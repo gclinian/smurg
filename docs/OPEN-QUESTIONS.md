@@ -29,8 +29,10 @@ not depart from SPEC.md's wording; they are listed in the order the owner may wa
 - **Source**: GitHub `gclinian/smurg`, created private and switched to **public** once a release is verified;
   license Apache-2.0.
 - **Downloads**: **GitHub Releases** (R2 and other object storage are not used). The one-line install is
-  `curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh | sh`; each release's
-  `install.sh` has that release's download location filled in by `scripts/release-assets.sh`.
+  `curl -fsSL https://smurg.ai/install.sh | sh` (decided 2026-10-01; smurg.ai, `apps/site`, answers it with a 302 to
+  `https://github.com/gclinian/smurg/releases/latest/download/install.sh`, which stays the fallback when smurg.ai is
+  unreachable); each release's `install.sh` has that release's download location filled in by
+  `scripts/release-assets.sh` and downloads only from GitHub Releases.
 - **Build matrix**: GitHub Actions on a tag `v*` (`.github/workflows/release.yml`), each target on its own runner:
   macOS Apple Silicon (`macos-15`), macOS Intel (`macos-15-intel`), Linux x64 (`ubuntu-24.04`), Linux arm64
   (`ubuntu-24.04-arm`). The plan named `macos-14` and `macos-13`; neither is usable: `macos-13` was retired on
@@ -44,12 +46,19 @@ not depart from SPEC.md's wording; they are listed in the order the owner may wa
   This departs from the recommendation below: its premise was that Gatekeeper quarantines a downloaded binary, but
   `curl` sets no quarantine attribute (`docs/research/pty-packaging.md`, verification), and the installer is the
   supported path.
-- **Operated relay**: one relay on Cloudflare Workers, **free plan**, at the workers.dev subdomain
-  `https://smurg-relay.gclin-ian.workers.dev` (known after the owner's first deploy). It becomes the CLI's
-  built-in default relay (`DEFAULT_RELAY_URL`, set after the first deploy; the release workflow refuses a tag while it
-  is unset), which ends "no default relay" (review CLI-12: the reason was that
-  a guessed domain would receive logins; an operated one does not have that problem). **Login: Google only**, with an
-  OAuth client the owner creates.
+- **Operated relay**: one relay on Cloudflare Workers, **free plan**, serving the relay and the web app at the custom
+  domain **`https://app.smurg.ai`** (owner's decision 2026-10-01; it was the workers.dev URL
+  `https://smurg-relay.gclin-ian.workers.dev` from the first deploy until the same day, before any release; that
+  hostname is off now). It is the CLI's built-in default relay (`DEFAULT_RELAY_URL`; the release workflow refuses a
+  tag while it is unset or the user docs do not name it), which ends "no default relay" (review CLI-12: the reason was
+  that a guessed domain would receive logins; an operated one does not have that problem). **Login: Google only**,
+  with an OAuth client the owner creates. Self-hosted relays still deploy to their own account's workers.dev by
+  default (`apps/relay/README.md`).
+- **Domain** (2026-10-01): `smurg.ai` on the same Cloudflare account. `https://smurg.ai` is the product page
+  (`apps/site`, the Worker's one custom domain; `www.smurg.ai` is redirected to it by a zone Redirect Rule, never a
+  custom domain). **Deployed 2026-10-01**, before the first release, at the owner's request ("deploy first"); until
+  the first release is published and the repository is public, its install line and its links into the repository
+  end in a 404 (`docs/RELEASING.md` §4.1, §6). `https://app.smurg.ai` is the shared relay and web app.
 - **First version**: v0.1.0.
 
 **Still open** (none blocks v0.1.0):
@@ -61,7 +70,8 @@ not depart from SPEC.md's wording; they are listed in the order the owner may wa
    browser-download path is wanted.
 3. **Free → Paid plan** when usage says so (estimate in `docs/RELEASING.md` §8: a class working at the same time is
    likely to reach the daily limits, and then nobody can connect until 00:00 UTC).
-4. **A custom domain** for the relay: it would change the default relay built into every release (RELEASING §3).
+4. ~~**A custom domain** for the relay~~: decided 2026-10-01, before the first release: `https://app.smurg.ai`
+   (RELEASING §2, §3). Changing it again would change the default relay built into every release.
 5. **Intel Macs after August 2027**: GitHub then has no x86_64 macOS runner. `darwin-x64` would have to be built on
    Apple silicon with an x64 Node under Rosetta (which `scripts/build-sea.ts` refuses today, on purpose) or dropped.
 

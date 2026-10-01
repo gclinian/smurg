@@ -12,7 +12,8 @@ import { say, type CommandContext } from './context.ts';
 export function loginUsage(): string {
   return `用法：smurg login [--relay 網址] [--provider github|google] [--dev-user 名稱] [--no-browser]
 
-  用瀏覽器登入 relay（GitHub 或 Google），登入資料存在 ~/.smurg/credentials.json（權限 0600）。
+  用瀏覽器登入 relay（公用 relay 用 Google；自己架設的 relay 也可以設定 GitHub），登入資料存在
+  ~/.smurg/credentials.json（權限 0600）。
   --relay 網址        relay 的網址（${relayDefaultText()}）
   --provider 名稱     直接使用 github 或 google 登入（不指定時在網頁上選擇）
   --dev-user 名稱     只限本機開發：用 relay 的開發用登入（relay 必須在 localhost）

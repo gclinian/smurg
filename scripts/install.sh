@@ -2,9 +2,11 @@
 # smurg installer (SPEC R1 「一行指令安裝」, §6 發佈; R5: the Linux sandbox dependencies and the Ubuntu 24.04+ AppArmor
 # user-namespace restriction). One line for a host:
 #
-#   curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh | sh
+#   curl -fsSL https://smurg.ai/install.sh | sh
 #
-# or, downloaded first:  sh install.sh [--base-url URL] [--prefix DIR] [--yes] [--no-deps]
+# https://smurg.ai/install.sh only redirects (302, apps/site) to this same file of the latest release,
+# https://github.com/gclinian/smurg/releases/latest/download/install.sh, which also works directly when smurg.ai is
+# unreachable. Or, downloaded first:  sh install.sh [--base-url URL] [--prefix DIR] [--yes] [--no-deps]
 #
 #  1. picks the single executable for this machine (smurg-darwin-arm64, smurg-darwin-x64, smurg-linux-x64,
 #     smurg-linux-arm64; glibc only; an x86_64 shell under Rosetta on Apple silicon gets the arm64 build), downloads it

@@ -13,7 +13,7 @@ export const USAGE = `smurg — 多人 × 多 agent 即時協作工作區
   attach [session]     把 agent session 接到這個終端機（不指定時列出 session）
   stop                 停止分享（中斷所有連線、結束所有 session）
   status               顯示正在分享的工作區
-  login                登入 relay（GitHub 或 Google）
+  login                登入 relay（Google；自己架設的 relay 也可以設定 GitHub）
   logout               登出 relay
   --version            顯示版本
 

@@ -234,6 +234,8 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
       expect(res.headers.get('x-frame-options'), path).toBe('DENY');
       expect(res.headers.get('x-content-type-options'), path).toBe('nosniff');
       expect(res.headers.get('referrer-policy'), path).toBe('no-referrer');
+      // Sent over plain http here too (browsers ignore it there); it matters on https://app.smurg.ai.
+      expect(res.headers.get('strict-transport-security'), path).toBe('max-age=31536000');
     }
     const manifest = await fetch(`${relay.origin}/.vite/manifest.json`);
     expect(await manifest.text()).not.toMatch(/"isEntry"/);

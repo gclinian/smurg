@@ -19,7 +19,8 @@ Claude Code。主人（分享資料夾的人）請看 [`HOSTING.md`](HOSTING.md)
 ## 1. 用邀請連結加入
 
 邀請連結長這樣：`https://<網站>/join/<工作區代碼>#k=…&s=…`。主人用 smurg 的公用 relay 時，`<網站>` 就是
-https://smurg-relay.gclin-ian.workers.dev；主人自己架設 relay 時是他的網址。`#` 後面那一段是**密鑰**，有了它就能加入
+app.smurg.ai（連結是 `https://app.smurg.ai/join/…`；https://smurg.ai 只是 smurg 的介紹頁，不能打開工作區）；主人
+自己架設 relay 時是他的網址。`#` 後面那一段是**密鑰**，有了它就能加入
 工作區：不要轉貼到群組或公開的地方，也不要只複製 `#` 前面的部分。
 
 1. 用瀏覽器打開連結（電腦上的 Chrome 最穩；Safari、Firefox 還沒測試過）。
@@ -234,9 +235,10 @@ smurg 會自動刪除你的暫存目錄；主人停止分享（`smurg stop`）�
 （和主人用的是同一個程式；詳見 [README](../README.md)「安裝」）：
 
 ```sh
-curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh | sh
+curl -fsSL https://smurg.ai/install.sh | sh
 ```
 
+（連不上 smurg.ai 時：`curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh | sh`。）
 然後加入：
 
 ```sh

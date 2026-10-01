@@ -26,7 +26,7 @@ function matches(pattern: string, path: string): boolean {
 }
 
 describe('wrangler.jsonc', () => {
-  it('is the smurg-site Worker on smurg.ai and www.smurg.ai only', () => {
+  it('is the smurg-site Worker on the custom domain smurg.ai only (www is the zone Redirect Rule, never a route)', () => {
     expect(config.name).toBe('smurg-site');
     expect(config.main).toMatch(/[/\\]src[/\\]index\.ts$/);
     // The same date as apps/relay (<= the workerd of the repo's wrangler).
@@ -34,10 +34,9 @@ describe('wrangler.jsonc', () => {
     expect(config.compatibility_date).toBe(relay.compatibility_date);
     expect(config.workers_dev).toBe(false);
     expect(config.preview_urls).toBe(false);
-    expect(config.routes).toEqual([
-      { pattern: 'smurg.ai', custom_domain: true },
-      { pattern: 'www.smurg.ai', custom_domain: true },
-    ]);
+    // Exactly the routes deployed on 2026-10-01. www.smurg.ai is the owner's proxied DNS record and the zone Redirect
+    // Rule (www -> https://smurg.ai/<path>, 301): a www custom domain here would take that record over on deploy.
+    expect(config.routes).toEqual([{ pattern: 'smurg.ai', custom_domain: true }]);
   });
 
   it('serves public/ with a real 404 page and trailing-slash handling', () => {

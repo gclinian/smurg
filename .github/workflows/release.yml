@@ -1,17 +1,23 @@
 # A release: push a tag vX.Y.Z (CHANGELOG.md must have a `## [X.Y.Z] - YYYY-MM-DD` section) and this workflow
 #   1. checks the tag, the changelog and that nothing is left to fill in (scripts/release-assets.sh --publish-checks:
-#      the section's date, no <RELAY_URL> placeholder, DEFAULT_RELAY_URL set, every package.json at X.Y.Z), before any
+#      the section's date, no <RELAY_URL> placeholder, DEFAULT_RELAY_URL set and named in the user docs, the official
+#      install line in README.md, docs/HOSTING.md and docs/JOINING.md, every package.json at X.Y.Z), before any
 #      runner time is spent on builds;
 #   2. builds the single executable on each target's own runner with scripts/build-sea.sh --version X.Y.Z --target …,
 #      which also checks that it runs there and smoke-tests it (packages/cli/test/sea.test.ts);
 #   3. assembles the release with scripts/release-assets.sh: the four executables, SHA256SUMS, and install.sh with
 #      this tag's download URL baked in (https://github.com/<owner>/<repo>/releases/download/vX.Y.Z), plus the notes
-#      (the CHANGELOG section, the install command, the checksums);
+#      (the CHANGELOG section, the install commands, the checksums);
 #   4. creates the GitHub release as a draft with all six files, checks them, then publishes it (latest, unless the
 #      version has a pre-release part such as 0.2.0-rc.1). So the one-line install
-#        curl -fsSL https://github.com/<owner>/<repo>/releases/latest/download/install.sh | sh
+#        curl -fsSL https://smurg.ai/install.sh | sh
+#      (smurg.ai, apps/site, answers it with a 302 to the same file on GitHub:
+#        curl -fsSL https://github.com/<owner>/<repo>/releases/latest/download/install.sh | sh)
 #      never resolves to a release that is still missing a file, and that install.sh downloads the executable
-#      (smurg-<darwin|linux>-<arm64|x64>) and SHA256SUMS of its own release.
+#      (smurg-<darwin|linux>-<arm64|x64>) and SHA256SUMS of its own release. smurg.ai itself is deployed by hand
+#      (live since 2026-10-01; its /install.sh works once a release is Latest and the repository is public:
+#      docs/RELEASING.md §4.1, §6), and the shared relay is redeployed by hand from the tagged commit before the tag is
+#      pushed (§4 step 3): this workflow never deploys anything to Cloudflare.
 #
 # Runners (https://github.com/actions/runner-images README, read 2026-09-30; docs.github.com "GitHub-hosted runners
 # reference": all four are standard runners for public and private repositories):
@@ -217,4 +223,7 @@ jobs:
           expected='SHA256SUMS install.sh smurg-darwin-arm64 smurg-darwin-x64 smurg-linux-arm64 smurg-linux-x64'
           [ "$assets" = "$expected" ] || { echo "::error::the draft of $TAG has [$assets], not [$expected]; it stays a draft"; exit 1; }
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false -f make_latest="$make_latest" --jq '"published " + .html_url'
+          if [ "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" = 'https://github.com/gclinian/smurg' ]; then
+            echo 'install: curl -fsSL https://smurg.ai/install.sh | sh   (works once the repository is public: docs/RELEASING.md §6, §4.1)'
+          fi
           echo "install: curl -fsSL $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/latest/download/install.sh | sh"

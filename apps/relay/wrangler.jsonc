@@ -8,10 +8,17 @@
   // zod (control-frame schemas) makes the unminified bundle ~900 KiB; minified it starts faster. Inherited by env.dev.
   "minify": true,
 
-  // PRODUCTION runs on the workers.dev subdomain of the owner's Cloudflare account (Workers Free plan):
-  // https://smurg-relay.<account subdomain>.workers.dev. No per-version preview URLs: every version would get another
-  // public hostname in front of the same Durable Objects (README.md「部署到 Cloudflare」).
-  "workers_dev": true,
+  // PRODUCTION (the shared relay, deployed on 2026-10-01 with exactly this top level; env.dev below, local only, adds
+  // "routes": []) is the Cloudflare Custom Domain app.smurg.ai on the owner's account (Workers Free plan; the zone
+  // smurg.ai is on the same account): https://app.smurg.ai. wrangler creates the custom domain and its DNS record from
+  // the route below. The workers.dev hostname is OFF (it was https://smurg-relay.<account subdomain>.workers.dev until
+  // 2026-10-01; it answers 404 now), and there are no per-version preview URLs: either would be another public hostname
+  // in front of the same Durable Objects.
+  // A self-hosted relay may instead run on its own account's workers.dev ("workers_dev": true, no "routes"; the
+  // documented default for a self-hosted relay: edit the lines listed in README.md「自己架設：workers.dev（預設）」), or
+  // on a custom domain of its own (README.md「自己架設：自己的網域」).
+  "workers_dev": false,
+  "routes": [{ "pattern": "app.smurg.ai", "custom_domain": true }],
   "preview_urls": false,
 
   // One Worker, two SQLite-backed Durable Object classes keyed by workspace id (ARCHITECTURE §6). The Free plan only
@@ -44,10 +51,12 @@
   // PRODUCTION values live at the top level (relay.md gotcha 25); localhost values only under env.dev.
   "vars": {
     // The relay's origin: JWT `iss`, base of the OAuth redirect URI, and the only browser origin allowed to use cookie
-    // sessions. EMPTY until the first deploy: scripts/deploy-relay.sh reads the workers.dev URL from that deploy and
-    // writes it into both (README.md). An empty issuer fails closed: every relay route except /healthz answers 500.
-    "RELAY_ISSUER": "https://smurg-relay.gclin-ian.workers.dev",
-    "ALLOWED_ORIGINS": "https://smurg-relay.gclin-ian.workers.dev",
+    // sessions. With the custom domain above both are https://<that host> (scripts/deploy-relay.sh refuses anything
+    // else). On workers.dev they are EMPTY until the first deploy: scripts/deploy-relay.sh then reads the workers.dev URL
+    // from that deploy and writes it into both (README.md). An empty issuer fails closed: every relay route except
+    // /healthz answers 500.
+    "RELAY_ISSUER": "https://app.smurg.ai",
+    "ALLOWED_ORIGINS": "https://app.smurg.ai",
     // DEV-ONLY login provider: must stay "0" here; also hard-gated to local hostnames in code.
     "DEV_LOGIN": "0",
     // Test-only R3 byte tap: empty = off; also hard-gated to local collector URLs in code.
@@ -70,9 +79,13 @@
 
   "env": {
     // `wrangler dev --env dev` and createTestHarness({ env: "dev" }). `vars`, `durable_objects` and `secrets` are not
-    // inherited by environments, so they are repeated here (relay.md gotcha 15); `assets`, `migrations`, `workers_dev`
-    // and `preview_urls` are. Development may also use a GitHub OAuth app of its own (.dev.vars).
+    // inherited by environments, so they are repeated here (relay.md gotcha 15); `assets`, `migrations`, `workers_dev`,
+    // `preview_urls` and `routes` are. Development may also use a GitHub OAuth app of its own (.dev.vars).
     "dev": {
+      // NOT the production custom domain: inherited, `wrangler dev` would rewrite every request URL to
+      // http://app.smurg.ai (the dev login, gated to local hostnames, would be off), and a `wrangler deploy --env dev`
+      // would move app.smurg.ai to the smurg-relay-dev Worker (wrangler warns about exactly this).
+      "routes": [],
       "vars": {
         "RELAY_ISSUER": "http://localhost:8787",
         // Vite dev server (proxies the relay) and the relay itself when it serves a built SPA.

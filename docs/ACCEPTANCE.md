@@ -24,10 +24,12 @@ source scripts/env.sh     # Node 22 LTS + the repo's pnpm; leave TMPDIR as it is
 pnpm check                # type check of every package, then every vitest project; exit 0 = green
 ```
 
-- **Expected result** on macOS (2026-10-01, after the second review round of the Linux fixes): `Test Files  234 passed
-  | 3 skipped (237)` and `Tests  3561 passed | 22 skipped (3583)`, about 190–290 s from start to exit depending on what
-  else the machine is doing (3:43 on that run; the web-smoke project runs last, ~30 s of it), nothing printed by
-  `[smurg test run]` (below). On Linux: "Linux verification" below.
+- **Expected result** on macOS (2026-10-01, cb99aa0 plus the smurg.ai domain migration, its review fixes and the
+  site sync with the web app's HSTS): `Test Files  242 passed | 3 skipped (245)` and
+  `Tests  3713 passed | 27 skipped (3740)`, about 190–290 s from start to exit depending on what else the machine is
+  doing (4:05 on that run, vitest's own duration 238 s; the web-smoke
+  project runs last, ~30 s of it), nothing printed by `[smurg test run]` (below). On Linux: "Linux verification"
+  below.
 - **On GitHub Actions** (`.github/workflows/ci.yml`, every push to `main`): the same gate on `macos-15` and
   `ubuntu-24.04` (x64). The runners have no `claude` (those tests skip) and Linux skips the macOS-only tests and runs
   the Linux-only ones, so the counts differ from the owner's machine: see "Linux verification" below.
@@ -205,7 +207,7 @@ Test names quote the criterion, so `vitest run -t '<criterion text>'` finds the 
 
 | # | 驗收標準 | Automated test (file › test) | Status |
 |---|---|---|---|
-| R1.1 | 在全新的 macOS 和 Ubuntu 24.04 上，從執行安裝指令到產生邀請連結不超過 3 分鐘 | `packages/cli/test/install-script.test.ts` (the one-line installer `scripts/install.sh` against a release served on 127.0.0.1: installs only a sha256-verified executable, refuses a tampered or unlisted one and a non-https location); the single executable: `scripts/build-sea.sh --version`, smoke test `packages/cli/test/sea.test.ts` (opt-in with `SMURG_SEA_BINARY`); release files: `scripts/release-assets.sh` | `partly`: the release path is decided and built (2026-09-30, `docs/OPEN-QUESTIONS.md` Q1, runbook `docs/RELEASING.md`): GitHub Releases of `gclinian/smurg` built by `.github/workflows/release.yml` on a tag `v*` (four targets, each on its own runner; ad-hoc signature, no Developer ID), the one-line install `curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh \| sh`, and a shared relay on Cloudflare Workers that becomes the CLI's default. Checked locally on 2026-10-01 (release-verify): a real macOS arm64 build assembled exactly as the workflow does and installed with `curl … \| sh` from 127.0.0.1 (sha256 verified, quarantine removed, `--version` right; a wrong hash, a truncated file, a missing executable or `SHA256SUMS` refused). **No release exists yet**: the workflows have never run on GitHub, only macOS arm64 was ever built, and the relay has not been deployed. The 3-minute timing on fresh machines is `manual`, after the first release (`docs/RELEASING.md` §5). |
+| R1.1 | 在全新的 macOS 和 Ubuntu 24.04 上，從執行安裝指令到產生邀請連結不超過 3 分鐘 | `packages/cli/test/install-script.test.ts` (the one-line installer `scripts/install.sh` against a release served on 127.0.0.1: installs only a sha256-verified executable, refuses a tampered or unlisted one and a non-https location); the single executable: `scripts/build-sea.sh --version`, smoke test `packages/cli/test/sea.test.ts` (opt-in with `SMURG_SEA_BINARY`); release files: `scripts/release-assets.sh` | `partly`: the release path is decided and built (2026-09-30, `docs/OPEN-QUESTIONS.md` Q1, runbook `docs/RELEASING.md`): GitHub Releases of `gclinian/smurg` built by `.github/workflows/release.yml` on a tag `v*` (four targets, each on its own runner; ad-hoc signature, no Developer ID), the one-line install `curl -fsSL https://smurg.ai/install.sh \| sh` (since 2026-10-01: smurg.ai, `apps/site`, redirects to `https://github.com/gclinian/smurg/releases/latest/download/install.sh`, the fallback), and a shared relay on Cloudflare Workers, the CLI's default: `https://app.smurg.ai`. Checked locally on 2026-10-01 (release-verify): a real macOS arm64 build assembled exactly as the workflow does and installed with `curl … \| sh` from 127.0.0.1 (sha256 verified, quarantine removed, `--version` right; a wrong hash, a truncated file, a missing executable or `SHA256SUMS` refused). **No release exists yet**: the release workflow has never run on GitHub and only macOS arm64 was ever built; smurg.ai is deployed (2026-10-01, before the release, at the owner's request), but its install line ends in a 404 until the first release is published and the repository is public (`docs/RELEASING.md` §4.1, §6). The relay is deployed (2026-10-01, `https://app.smurg.ai`). The 3-minute timing on fresh machines is `manual`, after the first release (`docs/RELEASING.md` §5). |
 | R1.2a | 對分享資料夾以外路徑的請求（包括 symlink、`..`）一律被拒絕並記錄 — at the daemon's PathGuard | `r1.workspace.test.ts` › R1 分享資料夾以外的路徑 › …一律被拒絕並記錄 — PathGuard, for a guest and for the host | `covered` |
 | R1.2b | …一律被拒絕 — over the wire, from a forged client | `r1.workspace.test.ts` › … — a forged `..` file.read over the encrypted channel | `covered` |
 | R1.2c | …並記錄 — the forged request of R1.2b is audited | `r1.workspace.test.ts` › … — the forged `..` request is audited | `covered` |
@@ -237,7 +239,9 @@ form on another site stop at the confirmation page (review SEC-E-03)); `apps/rel
 confirmation (SEC-E-03); `web/src/app/pages/JoinPage.test.tsx` › SEC-E-02 (an invite link joins nothing until 「加入」).
 Which login buttons a page shows comes from the relay's `GET /api/login-options` (`apps/relay/test/login-options.test.ts`,
 real workerd; `apps/relay/test/lib.test.ts`); a logged-out page load of `/` and `/join/<id>` has zero console errors and
-zero failed requests (`web/e2e/smoke/login.smoke.test.ts`). Real GitHub / Google accounts are not exercised (opt-in).
+zero failed requests (`web/e2e/smoke/login.smoke.test.ts`). Real GitHub / Google accounts are not exercised (opt-in)
+(by hand: the owner's Google login in the browser on https://app.smurg.ai, 2026-10-01; the CLI login and a second
+account joining are still to do, `docs/RELEASING.md` §10).
 
 ## R3 端對端加密 — HARD GATE
 

@@ -119,7 +119,9 @@ describe('smurg.ai in workerd', () => {
     }
   });
 
-  it('sends www.smurg.ai to smurg.ai on the paths that run the Worker (301, path and query kept)', async () => {
+  it('still sends a www.smurg.ai request that reaches the Worker to smurg.ai (301, path and query kept)', async () => {
+    // In production www.smurg.ai is not a route of this Worker: the zone Redirect Rule answers it before any Worker
+    // runs (wrangler.jsonc). The Worker's own www branch is defence in depth for a www request that does reach it.
     for (const [from, to] of [
       ['https://www.smurg.ai/install.sh', 'https://smurg.ai/install.sh'],
       ['https://www.smurg.ai/github', 'https://smurg.ai/github'],
@@ -131,13 +133,18 @@ describe('smurg.ai in workerd', () => {
     }
   });
 
-  it('serves www.smurg.ai pages and unknown paths without running the Worker (a zone Redirect Rule redirects them)', async () => {
-    // The quota trade-off of wrangler.jsonc: a page view or a 404 costs no Worker request, so the www -> apex redirect
-    // for them is a Cloudflare Redirect Rule (README.md, "Deploying"); the pages name their canonical URL meanwhile.
-    // (Not "/": the harness hands a request for exactly a custom domain's root straight to the Worker.)
-    const page = await get('https://www.smurg.ai/zh-TW/');
-    expect(page.status).toBe(200);
-    expect(await page.text()).toBe(readPublic('zh-TW/index.html'));
+  it('answers a www.smurg.ai page or unknown path from the static assets, without running the Worker', async () => {
+    // The quota trade-off of wrangler.jsonc: a page view or a 404 costs no Worker request, so the Worker could not
+    // redirect these even if www reached it. In production it does not: the zone Redirect Rule sends every www path
+    // to the apex before any Worker (README.md, "Deploying"), and the pages name their canonical URL anyway.
+    for (const [path, file] of [
+      ['https://www.smurg.ai/', 'index.html'],
+      ['https://www.smurg.ai/zh-TW/', 'zh-TW/index.html'],
+    ] as const) {
+      const page = await get(path);
+      expect(page.status, path).toBe(200);
+      expect(await page.text(), path).toBe(readPublic(file));
+    }
     const missing = await get('https://www.smurg.ai/no-such-page');
     expect(missing.status).toBe(404);
     expect(await missing.text()).toBe(readPublic('404.html'));

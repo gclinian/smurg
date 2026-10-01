@@ -30,19 +30,54 @@ export function ensureWebDist(): boolean {
   return true;
 }
 
-export type WebDistProblem = 'missing' | 'stand-in' | 'no-index' | 'no-headers' | 'manifest-served';
+export type WebDistProblem = 'missing' | 'stand-in' | 'no-index' | 'no-headers' | 'no-hsts' | 'manifest-served';
+
+/** HSTS lifetime the web app's `_headers` must send at least: one year (the same line as apps/site/public/_headers). */
+export const HSTS_MIN_MAX_AGE = 31_536_000;
+
+/**
+ * The `max-age` of a `Strict-Transport-Security` value when it is at least HSTS_MIN_MAX_AGE, else null. Neither
+ * `includeSubDomains` nor `preload` is asked for (the zone's other hostnames are not this Worker's to commit).
+ */
+export function hstsMaxAge(value: string): number | null {
+  const match = /(?:^|;)\s*max-age\s*=\s*"?(\d+)"?\s*(?:;|$)/i.exec(value);
+  const maxAge = match === null ? Number.NaN : Number(match[1]);
+  return maxAge >= HSTS_MIN_MAX_AGE ? maxAge : null;
+}
+
+/**
+ * The header lines (`Name: value`, indentation removed) of the `/*` rule in a Cloudflare `_headers` file: the
+ * indented lines under a line that is exactly `/*`, up to the next rule. Only that rule covers `/` and every SPA
+ * route; a header under another rule (say `/assets/*`) does not protect the page.
+ */
+export function rootHeaderLines(headers: string): string[] {
+  const lines: string[] = [];
+  let inRoot = false;
+  for (const line of headers.split(/\r?\n/)) {
+    if (/^[ \t]+\S/.test(line)) {
+      if (inRoot) lines.push(line.trim());
+    } else if (line.trim() !== '' && !line.trimStart().startsWith('#')) {
+      inRoot = line.trim() === '/*';
+    }
+  }
+  return lines;
+}
 
 /**
  * Why `dir` cannot be deployed as the SPA, or null when it looks like a real `vite build`. Fail closed on the security
  * headers too (review SEC-E-04): the SPA's Content-Security-Policy / frame protection come from `_headers` (from
- * apps/web/public), and the build manifest must not be served (`.assetsignore` lists `.vite`).
+ * apps/web/public), so does its Strict-Transport-Security (at least a year: the relay is a custom domain of a zone
+ * that is not HSTS-preloaded, docs/RELEASING.md §2), and the build manifest must not be served (`.assetsignore` lists
+ * `.vite`).
  */
 export function webDistProblem(dir: string = WEB_DIST): WebDistProblem | null {
   if (!existsSync(dir)) return 'missing';
   if (existsSync(join(dir, STAND_IN_MARKER))) return 'stand-in';
   if (!existsSync(join(dir, 'index.html'))) return 'no-index';
-  const headers = existsSync(join(dir, '_headers')) ? readFileSync(join(dir, '_headers'), 'utf8') : '';
-  if (!/^\/\*[ \t]*$/m.test(headers) || !/^[ \t]+Content-Security-Policy:[^\n]*frame-ancestors 'none'/im.test(headers)) return 'no-headers';
+  const root = rootHeaderLines(existsSync(join(dir, '_headers')) ? readFileSync(join(dir, '_headers'), 'utf8') : '');
+  if (!root.some((line) => /^Content-Security-Policy:.*frame-ancestors 'none'/i.test(line))) return 'no-headers';
+  const hsts = root.find((line) => /^Strict-Transport-Security:/i.test(line))?.replace(/^Strict-Transport-Security:\s*/i, '');
+  if (hsts === undefined || hstsMaxAge(hsts) === null) return 'no-hsts';
   if (existsSync(join(dir, '.vite'))) {
     const ignored = existsSync(join(dir, '.assetsignore')) ? readFileSync(join(dir, '.assetsignore'), 'utf8').split(/\r?\n/).map((line) => line.trim()) : [];
     if (!ignored.includes('.vite') && !ignored.includes('.vite/')) return 'manifest-served';

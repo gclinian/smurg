@@ -5,13 +5,14 @@
 //   /github              302  the repository
 //   /docs                302  the repository's docs folder
 //   /docs/<file>         302  that file in the repository's docs folder (plain names only)
-//   www.smurg.ai/<path>  301  https://smurg.ai/<path>  (query kept)
+//   www.smurg.ai/<path>  301  https://smurg.ai/<path>  (query kept; defence in depth, see below)
 //
 // The Worker runs only for the paths in WORKER_PATHS (wrangler.jsonc `assets.run_worker_first`, kept equal by
 // test/config.test.ts). Everything else, the pages, the stylesheet, the script, the icon and the 404 page for unknown
-// paths, is answered by the static assets without it, so it costs no Worker request. www.smurg.ai on those paths is
-// redirected by a Cloudflare Redirect Rule on the zone (README.md, "Deploying"); the www branch below covers the
-// redirect paths, which do reach the Worker.
+// paths, is answered by the static assets without it, so it costs no Worker request. www.smurg.ai is not a route of
+// this Worker: the zone Redirect Rule sends every www path to https://smurg.ai/<path> before any Worker runs
+// (wrangler.jsonc; README.md, "Deploying"). The www branch below only answers a www request that reaches the Worker
+// anyway (defence in depth).
 
 export const CANONICAL_HOST = 'smurg.ai';
 export const REPOSITORY = 'https://github.com/gclinian/smurg';

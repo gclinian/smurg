@@ -142,7 +142,7 @@ export async function loopbackLogin(ctx: LoginContext, origin: string, options: 
 /** The relay's DEV-ONLY login; refused for any relay that is not on a local hostname. */
 export async function devLogin(ctx: LoginContext, origin: string, user: string): Promise<RelaySession> {
   if (!isLocalHostname(new URL(origin).hostname)) {
-    throw usageError('--dev-user 只能用在本機的 relay（localhost、127.0.0.1、[::1] 或 *.localhost）', `目前的 relay 是 ${origin}；請改用 smurg login 以 GitHub 或 Google 登入。`);
+    throw usageError('--dev-user 只能用在本機的 relay（localhost、127.0.0.1、[::1] 或 *.localhost）', `目前的 relay 是 ${origin}；請改用 smurg login，在瀏覽器裡用這個 relay 提供的方式登入（公用 relay：Google）。`);
   }
   if (!DEV_USER.test(user)) throw usageError('--dev-user 的名稱只能包含英數字、「.」「_」「-」，最多 64 個字元');
   try {

@@ -7,15 +7,18 @@
   // Same date as apps/relay: <= the workerd bundled with the repo's wrangler 4.142.0.
   "compatibility_date": "2026-09-26",
 
-  // Served only on the custom domains below: no *.workers.dev hostname, no per-version preview URLs.
-  // Custom domains: on deploy, Cloudflare creates the DNS records and certificates (the smurg.ai zone must be on the
-  // same Cloudflare account). www.smurg.ai only redirects to the apex (README.md, "Deploying").
+  // Served only on the custom domain below: no *.workers.dev hostname, no per-version preview URLs.
+  // Custom domain: on deploy, Cloudflare creates the DNS record and certificate for smurg.ai (the smurg.ai zone must
+  // be on the same Cloudflare account).
+  // The apex ONLY. Never add www.smurg.ai here: www is the owner's own proxied DNS record plus the zone Redirect Rule
+  // "www -> https://smurg.ai/<path>, 301, query kept" (created 2026-10-01; README.md, "Deploying"). The rule runs
+  // before any Worker, so this Worker never sees www traffic. A www custom domain would conflict with that record, and
+  // wrangler as run after `source scripts/env.sh` (CI=true) replaces an existing record without asking (header of
+  // apps/relay/scripts/deploy.ts, step 5). This is the route list deployed on 2026-10-01; test/config.test.ts asserts
+  // exactly it.
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [
-    { "pattern": "smurg.ai", "custom_domain": true },
-    { "pattern": "www.smurg.ai", "custom_domain": true }
-  ],
+  "routes": [{ "pattern": "smurg.ai", "custom_domain": true }],
 
   "assets": {
     "directory": "./public",
@@ -28,8 +31,8 @@
     // lives on the same account (docs/RELEASING.md §8). Requests for static files that do not run the Worker are free
     // and unlimited. So the Worker runs first only for its redirect paths (src/routes.ts WORKER_PATHS; a test keeps
     // the two equal); pages, the stylesheet, the script, the icon and the 404 page cost no Worker request.
-    // www.smurg.ai -> smurg.ai for those is a Cloudflare Redirect Rule on the zone, which runs before Workers and costs
-    // no Worker request (README.md, "Deploying").
+    // www.smurg.ai -> smurg.ai, for every path, is the zone Redirect Rule, which runs before Workers and costs no
+    // Worker request (README.md, "Deploying").
     "run_worker_first": ["/install.sh", "/github", "/github/", "/docs", "/docs/*"]
   }
 }

@@ -259,7 +259,7 @@ smurg host ~/projects/my-app</code></pre>
 
     <figure class="diagram">
       <svg class="dg wide" viewBox="0 0 880 340" role="img" aria-labelledby="sec-wide-title">
-        <title id="sec-wide-title">The host’s computer holds the shared folder, the host’s Claude Code sessions, keys and the audit log, and a sandbox for teammates’ sessions. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name, picture and email), its IP address, the workspace code, and the size and time of each message.</title>
+        <title id="sec-wide-title">The host’s computer holds the shared folder, the host’s Claude Code sessions, keys and the audit log, and a sandbox for teammates’ sessions. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name and picture; at sign-in also the email), its IP address, the workspace code, and the size and time of each message.</title>
         <rect class="bx" x="8" y="8" width="330" height="324" rx="14"/>
         <text class="tt" x="30" y="46">Your computer (host)</text>
         <text class="tm" x="30" y="68">Files and sessions stay here</text>
@@ -301,7 +301,7 @@ smurg host ~/projects/my-app</code></pre>
       </svg>
 
       <svg class="dg tall" viewBox="0 0 360 780" role="img" aria-labelledby="sec-tall-title">
-        <title id="sec-tall-title">The host’s computer holds the shared folder, the host’s Claude Code sessions, keys and the audit log, and a sandbox for teammates’ sessions. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name, picture and email), its IP address, the workspace code, and the size and time of each message.</title>
+        <title id="sec-tall-title">The host’s computer holds the shared folder, the host’s Claude Code sessions, keys and the audit log, and a sandbox for teammates’ sessions. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name and picture; at sign-in also the email), its IP address, the workspace code, and the size and time of each message.</title>
         <rect class="bx" x="8" y="8" width="344" height="304" rx="14"/>
         <text class="tt" x="28" y="44">Your computer (host)</text>
         <text class="tm" x="28" y="68">Files and sessions stay here</text>
@@ -445,7 +445,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>What does the relay see?</h3>
-        <p>The Google account of each connection (ID, name, picture and email), its IP address, the workspace code, and the size and time of each message, so it can tell who worked with whom, and when. Files, file names, terminal output, commands and keys are end-to-end encrypted between the host’s computer and each teammate. If even that is too much, run your own relay.</p>
+        <p>The Google account of each connection (ID, name and picture; at sign-in also the email), its IP address, the workspace code, and the size and time of each message, so it can tell who worked with whom, and when. Files, file names, terminal output, commands and keys are end-to-end encrypted between the host’s computer and each teammate. If even that is too much, run your own relay.</p>
       </div>
       <div>
         <h3>Do teammates need their own Claude account?</h3>

@@ -73,7 +73,8 @@ describe('smurg.ai worker', () => {
     expect(env.seen).toHaveLength(paths.length);
   });
 
-  it('301s every www path to the apex over https, keeping path and query', async () => {
+  it('301s every www path that reaches it to the apex over https, keeping path and query', async () => {
+    // Defence in depth: www.smurg.ai is not a route of this Worker (the zone Redirect Rule answers it first).
     for (const [from, to] of [
       ['https://www.smurg.ai/', 'https://smurg.ai/'],
       ['https://www.smurg.ai/zh-TW/?a=1&b=2', 'https://smurg.ai/zh-TW/?a=1&b=2'],

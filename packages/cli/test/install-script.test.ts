@@ -574,6 +574,8 @@ describe('scripts/install.sh: how to put the executable on PATH', () => {
 describe('scripts/release-assets.sh → install.sh (the files of a GitHub release)', () => {
   const BASE = 'https://github.com/gclinian/smurg/releases/download/v9.8.7';
   const LATEST = 'https://github.com/gclinian/smurg/releases/latest/download/install.sh';
+  /** The official install line's URL (apps/site: a 302 to LATEST); only the official repository's notes give it. */
+  const SHORT = 'https://smurg.ai/install.sh';
   const CHANGELOG = '# 變更紀錄\n\n## [9.9.0] - later\n\n- not this one\n\n## [9.8.7] - 2026-10-01\n\n第一版（[主人指南](docs/HOSTING.md#1-安裝)、[外部](https://example.com/x)、[錨點](#已知限制)）。\n\n### 已知限制\n\n- 很多。\n\n## [0.0.1]\n\n- older\n';
 
   async function releaseDirs(dirs: Dirs, names: readonly string[] = TARGETS.map((t) => t.name), sub = 'r'): Promise<{ dist: string; out: string; notes: string; changelog: string }> {
@@ -593,6 +595,7 @@ describe('scripts/release-assets.sh → install.sh (the files of a GitHub releas
     const dirs = await setup();
     const r = await releaseDirs(dirs);
     const built = await assets(['--version', '9.8.7', '--base-url', BASE, '--dist', r.dist, '--out', r.out, '--require-all', '--notes', r.notes, '--changelog', r.changelog]);
+    expect(built.out).toContain(`install the latest release with:  curl -fsSL ${SHORT} | sh`);
     expect(built.out).toContain(`install the latest release with:  curl -fsSL ${LATEST} | sh`);
     expect(built.code).toBe(0);
     const sums = await readFile(join(r.out, 'SHA256SUMS'), 'utf8');
@@ -612,8 +615,12 @@ describe('scripts/release-assets.sh → install.sh (the files of a GitHub releas
     expect(notes.startsWith('第一版（[主人指南](https://github.com/gclinian/smurg/blob/v9.8.7/docs/HOSTING.md#1-安裝)、[外部](https://example.com/x)、[錨點](#已知限制)）。\n\n### 已知限制\n\n- 很多。\n\n## 安裝\n')).toBe(true);
     expect(notes).not.toContain('not this one');
     expect(notes).not.toContain('older');
-    expect(notes).toContain(`curl -fsSL ${LATEST} | sh`);
-    expect(notes).toContain(`curl -fsSL ${BASE}/install.sh | sh`);
+    // The official install line first, then the same file's GitHub URL as the fallback, then this release's own.
+    const lines = notes.split('\n');
+    const order = [`curl -fsSL ${SHORT} | sh`, `curl -fsSL ${LATEST} | sh`, `curl -fsSL ${BASE}/install.sh | sh`].map((line) => lines.indexOf(line));
+    expect(order.every((at) => at > 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(notes).toContain('連不上 smurg.ai 時');
     expect(notes).toContain(sums);
 
     // `curl -fsSL …/install.sh | sh` with nothing but the baked-in URL: a stand-in curl serves the release directory
@@ -635,6 +642,19 @@ describe('scripts/release-assets.sh → install.sh (the files of a GitHub releas
       expect(call).toContain('--proto =https --proto-redir =https');
       expect(call).toMatch(new RegExp(`${BASE.replace(/[.]/g, '\\.')}/(SHA256SUMS|smurg-linux-x64)$`));
     }
+  });
+
+  it("a fork's release notes give its own GitHub URLs only (smurg.ai installs the official release)", async () => {
+    const dirs = await setup();
+    const r = await releaseDirs(dirs);
+    const forkBase = 'https://github.com/someone/smurg-fork/releases/download/v9.8.7';
+    const built = await assets(['--version', '9.8.7', '--base-url', forkBase, '--dist', r.dist, '--out', r.out, '--notes', r.notes, '--changelog', r.changelog]);
+    expect(built.code).toBe(0);
+    const notes = await readFile(r.notes, 'utf8');
+    expect(notes).toContain('curl -fsSL https://github.com/someone/smurg-fork/releases/latest/download/install.sh | sh');
+    expect(notes).toContain(`curl -fsSL ${forkBase}/install.sh | sh`);
+    expect(notes).not.toContain('smurg.ai');
+    expect(built.out).not.toContain('smurg.ai');
   });
 
   it('refuses a release that misses a platform (--require-all), a changelog without the version, a wrong version', async () => {
@@ -685,14 +705,14 @@ describe('scripts/release-assets.sh → install.sh (the files of a GitHub releas
     };
     const pkg = (version: string): string => `{\n  "name": "x",\n  "version": "${version}",\n  "private": true\n}\n`;
     const relay = (value: string): string => `// the built-in relay\nexport const DEFAULT_RELAY_URL: string | null = ${value};\n`;
-    const check = (version: string): Promise<Run> =>
-      runShell('/bin/bash', [script, '--version', version, '--base-url', BASE.replace('9.8.7', version), '--publish-checks'], { PATH: SYSTEM_PATH, HOME: '/nonexistent' });
+    const check = (version: string, base = BASE.replace('9.8.7', version)): Promise<Run> =>
+      runShell('/bin/bash', [script, '--version', version, '--base-url', base, '--publish-checks'], { PATH: SYSTEM_PATH, HOME: '/nonexistent' });
 
     // Everything still to fill in, as in the repository before the first deploy.
     await put('CHANGELOG.md', '# 變更紀錄\n\n## [9.8.7] - Unreleased\n\n- 公用 relay：<RELAY_URL>\n');
     await put('README.md', '公用 relay <RELAY_URL>\n');
     await put('docs/HOSTING.md', 'https://smurg-relay.<account-subdomain>.workers.dev\n');
-    await put('docs/JOINING.md', 'nothing to fill in\n');
+    await put('docs/JOINING.md', `nothing to fill in\ncurl -fsSL ${SHORT} | sh\n`);
     await put('packages/cli/src/relay/default-relay.ts', relay('null'));
     for (const path of ['package.json', 'apps/relay/package.json', 'packages/cli/package.json', 'tests/e2e/package.json']) await put(path, pkg('9.8.7'));
     await put('packages/daemon/package.json', pkg('0.0.0'));
@@ -706,16 +726,59 @@ describe('scripts/release-assets.sh → install.sh (the files of a GitHub releas
     expect(before.out).toContain('DEFAULT_RELAY_URL is not the deployed relay');
     expect(before.out).toContain("packages/daemon/package.json: version '0.0.0', not 9.8.7");
     expect(before.out).not.toContain('packages/cli/package.json');
+    // The official repository's docs show the smurg.ai install line.
+    expect(before.out).toContain(`README.md does not show the official install line  curl -fsSL ${SHORT} | sh`);
+    expect(before.out).toContain(`docs/HOSTING.md does not show the official install line  curl -fsSL ${SHORT} | sh`);
+
+    // Filled in, but README.md still names another relay than the binary's built-in one, and shows only the GitHub
+    // install URL (the fallback) instead of the official line.
+    await put('CHANGELOG.md', '# 變更紀錄\n\n## [9.8.7] - 2026-10-02\n\n- 公用 relay：https://app.example.org\n');
+    await put('README.md', `curl -fsSL ${LATEST} | sh\n公用 relay https://smurg-relay.example.workers.dev\n`);
+    await put('docs/HOSTING.md', `curl -fsSL ${SHORT} | sh\n公用 relay https://app.example.org\n`);
+    await put('docs/JOINING.md', `curl -fsSL ${SHORT} | sh\n邀請連結 https://app.example.org/join/<id>#…\n`);
+    await put('packages/cli/src/relay/default-relay.ts', relay("'https://app.example.org'"));
+    await put('packages/daemon/package.json', pkg('9.8.7'));
+    const stale = await check('9.8.7');
+    expect(stale.code).toBe(1);
+    expect(stale.out).toContain('README.md does not name the built-in relay https://app.example.org');
+    expect(stale.out).toContain(`README.md does not show the official install line  curl -fsSL ${SHORT} | sh`);
+    // The workers.dev address README.md still gives is not the built-in relay's: a stale address of the shared relay.
+    expect(stale.out).toContain('README.md names a workers.dev address that is not the built-in relay: https://smurg-relay.example.workers.dev');
+    expect(stale.out).not.toContain('docs/HOSTING.md');
+    expect(stale.out).not.toContain('docs/JOINING.md');
+    expect(stale.out).not.toContain('CHANGELOG.md');
+    // A fork's release is not installed through smurg.ai: its docs need no smurg.ai line (the relay check stays), and
+    // its relay may well be on workers.dev.
+    const fork = await check('9.8.7', 'https://github.com/someone/smurg-fork/releases/download/v9.8.7');
+    expect(fork.code).toBe(1);
+    expect(fork.out).toContain('README.md does not name the built-in relay');
+    expect(fork.out).not.toContain('install line');
+    expect(fork.out).not.toContain('workers.dev address');
 
     // Filled in: a pre-release tag of the same X.Y.Z passes too.
-    await put('CHANGELOG.md', '# 變更紀錄\n\n## [9.8.7] - 2026-10-02\n\n- 公用 relay：https://smurg-relay.example.workers.dev\n');
-    await put('README.md', '公用 relay https://smurg-relay.example.workers.dev\n');
-    await put('docs/HOSTING.md', 'https://smurg-relay.example.workers.dev\n');
-    await put('packages/cli/src/relay/default-relay.ts', relay("'https://smurg-relay.example.workers.dev'"));
-    await put('packages/daemon/package.json', pkg('9.8.7'));
+    await put('README.md', `curl -fsSL ${SHORT} | sh\n公用 relay https://app.example.org\n`);
     const ready = await check('9.8.7');
     expect(ready.out).toContain('9.8.7 is ready to publish');
     expect(ready.code).toBe(0);
+
+    // A self-hosted relay's workers.dev address written with a placeholder is fine; a concrete one other than the
+    // built-in relay is not, in the version's section either; and docs/JOINING.md shows the official install line too.
+    await put('docs/HOSTING.md', `curl -fsSL ${SHORT} | sh\n公用 relay https://app.example.org\n自己架設：https://smurg-relay.<你的子網域>.workers.dev\n`);
+    expect((await check('9.8.7')).code).toBe(0);
+    await put('CHANGELOG.md', '# 變更紀錄\n\n## [9.8.7] - 2026-10-02\n\n- 公用 relay：https://app.example.org（之前是 https://smurg-relay.old-sub.workers.dev）\n');
+    await put('docs/JOINING.md', '邀請連結 https://app.example.org/join/<id>#…\n');
+    const old = await check('9.8.7');
+    expect(old.code).toBe(1);
+    expect(old.out).toContain('CHANGELOG.md: the 9.8.7 section names a workers.dev address that is not the built-in relay: https://smurg-relay.old-sub.workers.dev');
+    expect(old.out).toContain(`docs/JOINING.md does not show the official install line  curl -fsSL ${SHORT} | sh`);
+    expect(old.out).not.toContain('docs/HOSTING.md');
+    expect(old.out).not.toContain('README.md');
+    // The built-in relay itself on workers.dev (as before 2026-10-01): naming it is not stale.
+    await put('packages/cli/src/relay/default-relay.ts', relay("'https://smurg-relay.mine.workers.dev'"));
+    for (const doc of ['README.md', 'docs/HOSTING.md', 'docs/JOINING.md']) await put(doc, `curl -fsSL ${SHORT} | sh\n公用 relay https://smurg-relay.mine.workers.dev\n`);
+    await put('CHANGELOG.md', '# 變更紀錄\n\n## [9.8.7] - 2026-10-02\n\n- 公用 relay：https://smurg-relay.mine.workers.dev\n');
+    expect((await check('9.8.7')).code).toBe(0);
+
     await put('CHANGELOG.md', '# 變更紀錄\n\n## [9.8.7-rc.1] - 2026-10-02\n\n- 試用版\n');
     expect((await check('9.8.7-rc.1')).code).toBe(0);
   });
