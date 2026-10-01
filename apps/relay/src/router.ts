@@ -7,6 +7,7 @@ import {
   matchTunnelPath,
 } from '@smurg/protocol/relay';
 import { handleCreateWorkspace, handleIdentityToken, handleJwks, handleRoomDebug } from './api.ts';
+import { handleDeviceDebug, handleDevicePage, handleDeviceStart, handleDeviceToken } from './auth/device.ts';
 import { SigningKeyError, signingKeys } from './auth/keys.ts';
 import {
   handleCallback,
@@ -21,6 +22,7 @@ import {
 } from './auth/routes.ts';
 import type { RequestContext } from './context.ts';
 import { RelayConfigError, parseRelayConfig, parseRoomConfig, type RelayConfig } from './lib/config.ts';
+import { DEVICE_DEBUG_PATH } from './lib/device.ts';
 import { errorResponse, textResponse } from './lib/http.ts';
 import { postTap } from './lib/tap.ts';
 import { ROOM_DEBUG_PATH } from './rooms/inspection.ts';
@@ -83,6 +85,13 @@ async function route(ctx: RequestContext): Promise<Response> {
       return handleDevStart(ctx);
     case RELAY_PATHS.devToken:
       return handleDevToken(ctx);
+    case RELAY_PATHS.device:
+      return handleDevicePage(ctx);
+    case RELAY_PATHS.deviceStart:
+      return handleDeviceStart(ctx);
+    case RELAY_PATHS.deviceToken:
+      return handleDeviceToken(ctx);
+    // Deprecated: the loopback login of smurg 0.1.0 (auth/routes.ts).
     case RELAY_PATHS.cliStart:
       return handleCliStart(ctx);
     case RELAY_PATHS.cliToken:
@@ -91,6 +100,8 @@ async function route(ctx: RequestContext): Promise<Response> {
       return handleLogout(ctx);
     case ROOM_DEBUG_PATH:
       return handleRoomDebug(ctx);
+    case DEVICE_DEBUG_PATH:
+      return handleDeviceDebug(ctx);
   }
   for (const provider of RELAY_AUTH_PROVIDERS) {
     if (path === authLoginPath(provider)) return handleLogin(ctx, provider);

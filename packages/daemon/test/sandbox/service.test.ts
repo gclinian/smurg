@@ -186,7 +186,10 @@ async function refusedAudit(f: SandboxFixture): Promise<AuditEntry[]> {
 describe('SandboxService refusals (fail closed, sandbox_unavailable + audit)', () => {
   it('refuses a platform without a guest sandbox', async () => {
     const { f } = await harness('win32');
+    // The last check is kept for `smurg status` (DaemonStatus.sandbox): nothing before the first one.
+    expect(f.daemon.status().sandbox).toBeNull();
     expect(await f.sandbox.preflight()).toMatchObject({ ok: false, reason: 'unsupported-platform' });
+    expect(f.daemon.status().sandbox).toEqual({ ok: false, reason: 'unsupported-platform' });
     const err = await refusal(f, await specFor(f));
     expect(err.code).toBe('sandbox_unavailable');
     expect(err.detail).toEqual({ reason: 'unsupported-platform' });
@@ -316,6 +319,8 @@ describe('SandboxService refusals (fail closed, sandbox_unavailable + audit)', (
     const { f, srt } = await harness('darwin', { service: { tmpDir: () => `/private/tmp/${'x'.repeat(90)}` } });
     const before = process.env['TMPDIR'];
     expect(await f.sandbox.preflight()).toEqual({ ok: true, platform: 'darwin' });
+    expect(f.ctx.services.sandbox.lastPreflight?.()).toEqual({ ok: true, platform: 'darwin' });
+    expect(f.daemon.status().sandbox).toEqual({ ok: true, reason: null });
     expect(srt.calls.initializeTmpdir).toEqual([f.runDir]);
     expect(process.env['TMPDIR']).toBe(before);
   }, TIMEOUT);

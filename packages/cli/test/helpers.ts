@@ -110,6 +110,8 @@ export function testIo(options: {
   readonly openUrl?: (url: string) => Promise<boolean>;
   readonly readSecret?: (prompt: string) => Promise<string | null>;
   readonly now?: () => number;
+  /** CliIo.delay (the login's polling); absent: real timers. */
+  readonly delay?: (ms: number) => Promise<void>;
 }): TestIo {
   let out = '';
   let err = '';
@@ -144,6 +146,7 @@ export function testIo(options: {
       chdirs.push(dir);
     },
     now: options.now ?? (() => Date.now()),
+    ...(options.delay ? { delay: options.delay } : {}),
     out: () => out,
     err: () => err,
     exits,

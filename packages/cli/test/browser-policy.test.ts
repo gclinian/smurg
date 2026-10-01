@@ -2,7 +2,7 @@
 // openInBrowser) is checked here with node:child_process MOCKED, so no real browser can start even if the policy
 // broke: SMURG_NO_BROWSER, CI, SSH, a stdin / stdout that is not a terminal and a Linux without a display all mean
 // "print the URL, spawn nothing". `host` and `attach` take --no-browser like `login`. Spawned CLIs (isolatedEnv, pipes)
-// print the login URL and the relay never sees the browser's request. A guest whose invite points at a different
+// print the login page (/device) and its code, and the relay never sees the browser's request. A guest whose invite points at a different
 // origin than their login (the dev stack: web :5173, relay :8787) is told which origin and how to fix it (OWNER-03).
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -14,7 +14,7 @@ import { runAttach, inviteLink } from '../src/commands/attach.ts';
 import { commandContext } from '../src/commands/context.ts';
 import { runCli } from '../src/cli/run.ts';
 import { browserOpening, startFakeRelay, type FakeRelay } from './fake-relay.ts';
-import { CLI_MAIN, isolatedEnv, makeDirs, testIo, type Dirs } from './helpers.ts';
+import { CLI_MAIN, isolatedEnv, makeDirs, testIo, type Dirs, type TestIo } from './helpers.ts';
 
 const opener = vi.hoisted(() => ({ calls: [] as { file: string; args: readonly string[] }[] }));
 vi.mock('node:child_process', async (importOriginal) => {
@@ -36,7 +36,7 @@ afterEach(async () => {
   while (cleanups.length > 0) await Promise.resolve((cleanups.pop() as () => Promise<void> | void)()).catch(() => {});
 });
 
-const URL_ = 'http://127.0.0.1:9/auth/cli/start?x=1';
+const URL_ = 'http://127.0.0.1:9/device';
 const desktop = (env: Record<string, string> = {}, platform: NodeJS.Platform = 'darwin'): BrowserSituation => ({ env, stdinIsTTY: true, stdoutIsTTY: true, platform });
 
 function invite(origin: string, workspaceId = 'ws_browserpolicy_0123'): string {
@@ -122,26 +122,43 @@ async function runUntil(dirs: Dirs, args: readonly string[], until: (out: string
 }
 
 describe('commands that log in never open a browser in an automated run', () => {
-  it('smurg host without a relay session: prints the login URL, says it did not open a browser, the relay sees no browser', async () => {
+  it('smurg host without a relay session: prints the login page and the code, opens no browser, the relay sees no browser', async () => {
     const s = await setup();
-    const out = await runUntil(s.dirs, ['host', s.dirs.project, '--relay', s.relay.origin, '--no-keep-awake'], (o) => o.includes('等待登入完成'));
-    expect(out).toContain(`${s.relay.origin}/auth/cli/start?`);
+    const out = await runUntil(s.dirs, ['host', s.dirs.project, '--relay', s.relay.origin, '--no-keep-awake'], (o) => o.includes('等待你在瀏覽器裡按'));
+    expect(out).toContain(`在任何裝置（電腦或手機）打開：\n  ${s.relay.origin}/device\n輸入代碼：`);
     await new Promise((r) => setTimeout(r, 300));
-    expect(out).toContain('沒有自動開啟瀏覽器');
-    expect(s.relay.requests.map((r) => r.path)).not.toContain('/auth/cli/start');
+    expect(out).not.toContain('已經用這台電腦的瀏覽器打開');
+    expect(s.relay.requests.map((r) => r.path)).not.toContain('/device');
+  });
+
+  it('smurg login over SSH: the page and the code are printed and the opener is never reached; the control on a desktop opens /device (never with the code)', async () => {
+    const s = await setup();
+    const env = { HOME: s.dirs.home, SMURG_HOME: s.dirs.stateDir };
+    for (const [situation, calls] of [
+      [desktop({ SSH_CONNECTION: '10.0.0.2 50000 10.0.0.1 22' }), []],
+      [desktop(), [{ file: '/usr/bin/open', args: [`${s.relay.origin}/device`] }]],
+    ] as const) {
+      opener.calls.length = 0;
+      // The person allows the login in some browser once the CLI waits (GET /device on the fake relay).
+      const io: TestIo = testIo({ env, openUrl: (url) => openInBrowser(url, situation), delay: async () => void (await browserOpening(`${s.relay.origin}/device`)) });
+      expect(await runCli(['login', '--relay', s.relay.origin], io)).toBe(0);
+      expect(io.out()).toContain(`  ${s.relay.origin}/device\n輸入代碼：`);
+      expect(opener.calls).toEqual(calls);
+      expect(io.out().includes('已經用這台電腦的瀏覽器打開')).toBe(calls.length > 0);
+    }
   });
 
   it('smurg attach --invite with split origins (logged in to the relay, invite on the web origin): names both origins and the fix, no browser', async () => {
     const s = await setup();
     const login = await runUntil(s.dirs, ['login', '--relay', s.relay.origin, '--dev-user', 'amy'], (o) => o.includes('已登入'));
     expect(login).toContain('已登入');
-    const out = await runUntil(s.dirs, ['attach', '--invite', invite(s.web.origin)], (o) => o.includes('等待登入完成'));
+    const out = await runUntil(s.dirs, ['attach', '--invite', invite(s.web.origin)], (o) => o.includes('等待你在瀏覽器裡按'));
     expect(out).toContain(`但還沒有登入 ${s.web.origin}`);
     expect(out).toContain(`--relay ${s.relay.origin}`);
-    expect(out).toContain(`${s.web.origin}/auth/cli/start?`);
+    expect(out).toContain(`  ${s.web.origin}/device\n`);
     expect(out).toContain('程序列表（ps）'); // the argv warning (CLI-08)
-    expect(s.web.requests.map((r) => r.path)).not.toContain('/auth/cli/start');
-    expect(s.relay.requests.map((r) => r.path)).not.toContain('/auth/cli/start');
+    expect(s.web.requests.map((r) => r.path)).not.toContain('/device');
+    expect(s.relay.requests.map((r) => r.path)).not.toContain('/device');
   });
 
   it('--no-browser on host and attach: the injected opener is never called even where opening is allowed', async () => {
@@ -151,10 +168,10 @@ describe('commands that log in never open a browser in an automated run', () => 
     // session, so the connection ends at once as closed(login-required).
     const io = testIo({ env, openUrl: async () => true, readSecret: async () => invite(s.web.origin) });
     const attach = runAttach(['--invite', '-', '--no-browser'], commandContext(io));
-    await waitFor(() => /https?:\/\/\S+\/auth\/cli\/start\S+/.test(io.out()), { what: 'the login URL' });
+    await waitFor(() => io.out().includes('等待你在瀏覽器裡按'), { what: 'the login page and code' });
     expect(io.opened).toEqual([]);
-    expect(io.out()).toContain('沒有自動開啟瀏覽器');
-    await browserOpening(/https?:\/\/\S+\/auth\/cli\/start\S+/.exec(io.out())?.[0] as string);
+    expect(io.out()).not.toContain('已經用這台電腦的瀏覽器打開');
+    await browserOpening(/https?:\/\/\S+\/device$/m.exec(io.out())?.[0] as string);
     await waitFor(() => s.web.tokens.size > 0, { what: 'the CLI token' });
     s.web.tokens.clear();
     await expect(attach).rejects.toThrow('relay 的登入已失效');
@@ -164,12 +181,12 @@ describe('commands that log in never open a browser in an automated run', () => 
     // host: a folder that is already being shared is refused BEFORE any login; the login itself honours --no-browser.
     const hostIo = testIo({ env, openUrl: async () => true });
     const host = runCli(['host', s.dirs.project, '--relay', s.relay.origin, '--no-browser', '--no-keep-awake'], hostIo);
-    await waitFor(() => hostIo.out().includes('等待登入完成'), { what: 'the host login prompt' });
+    await waitFor(() => hostIo.out().includes('等待你在瀏覽器裡按'), { what: 'the host login prompt' });
     expect(hostIo.opened).toEqual([]);
-    expect(hostIo.out()).toContain('沒有自動開啟瀏覽器');
-    // Let the login time out quickly is not possible from here: complete it with a login error instead.
+    expect(hostIo.out()).not.toContain('已經用這台電腦的瀏覽器打開');
+    // Waiting for the code to expire is not possible from here: end the login with 「拒絕」 instead.
     s.relay.loginError = 'access_denied';
-    await browserOpening(/https?:\/\/\S+\/auth\/cli\/start\S+/.exec(hostIo.out())?.[0] as string);
+    await browserOpening(/https?:\/\/\S+\/device$/m.exec(hostIo.out())?.[0] as string);
     expect(await host).toBe(4);
     expect(hostIo.opened).toEqual([]);
   });
@@ -203,7 +220,7 @@ describe('the invite link stays off the command line (CLI-08, SEC-E-06)', () => 
       child.stdin?.end(mode === 'stdin' ? `${link}\n` : '');
       try {
         // The invite was used: the CLI asks to log in to the invite's origin (and waits there).
-        await waitFor(() => out.includes(`${s.web.origin}/auth/cli/start?`), { timeoutMs: 30_000, what: `the login prompt (${mode})` });
+        await waitFor(() => out.includes(`${s.web.origin}/device\n`), { timeoutMs: 30_000, what: `the login prompt (${mode})` });
         const psArgs = await argsOf(pid as number);
         expect(psArgs.includes(secret), `${mode}: ${psArgs.replace(secret, '<secret>')}`).toBe(mode === 'argv');
       } finally {

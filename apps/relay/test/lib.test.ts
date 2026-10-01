@@ -1,5 +1,5 @@
 // Unit tests of the relay's pure modules (they run unchanged in Node): configuration parsing and its fail-closed
-// defaults, cookies, input validation, signing keys and tokens.
+// defaults, cookies, input validation, signing keys and tokens, the device-code login's helpers.
 import { RELAY_CLIENT_SWEEP_MS, RELAY_HOST_TIMEOUT_MS, relayLoginOptionsSchema } from '@smurg/protocol/relay';
 import { exportJWK, generateKeyPair } from 'jose';
 import { describe, expect, it } from 'vitest';
@@ -19,6 +19,7 @@ import {
   tapTarget,
 } from '../src/lib/config.ts';
 import { clearCookie, cookieNames, readCookie, serializeCookie } from '../src/lib/cookies.ts';
+import { ageText, minutesUntil, placeText, randomUserCode, requestPlace } from '../src/lib/device.ts';
 import { continuePage, escapeHtml } from '../src/lib/html.ts';
 import { cliConfirmCode, cliLoopbackUrl, parseCliParams, resolveReturnTo } from '../src/lib/validate.ts';
 import { generateSigningKey } from '../test-support/index.ts';
@@ -305,5 +306,44 @@ describe('signing keys and tokens', () => {
     ]) {
       await expect(parseSigningKeys(bad)).rejects.toThrow(SigningKeyError);
     }
+  });
+});
+
+describe('device-code login helpers (src/lib/device.ts)', () => {
+  it('draws user codes of eight letters from the RFC 8628 alphabet, every letter about equally often', () => {
+    const counts = new Map<string, number>();
+    const codes = new Set<string>();
+    for (let i = 0; i < 2_000; i++) {
+      const code = randomUserCode();
+      expect(code).toMatch(/^[BCDFGHJKLMNPQRSTVWXZ]{8}$/);
+      codes.add(code);
+      for (const c of code) counts.set(c, (counts.get(c) ?? 0) + 1);
+    }
+    expect(codes.size).toBe(2_000);
+    expect(counts.size).toBe(20);
+    // 16,000 letters, 800 expected each: rejection sampling keeps the alphabet uniform (no modulo bias).
+    for (const [letter, count] of counts) expect(Math.abs(count - 800), letter).toBeLessThan(200);
+  });
+
+  it('reads the client address and Cloudflare\'s place, and drops what is not plausible', () => {
+    const at = (headers: Record<string, string>, cf?: Record<string, unknown>) =>
+      requestPlace(Object.assign(new Request('https://relay.example/auth/device/start', { headers }), cf ? { cf } : {}));
+    expect(at({ 'cf-connecting-ip': '203.0.113.7' }, { country: 'TW', city: 'Taipei' })).toEqual({ ip: '203.0.113.7', country: 'TW', city: 'Taipei' });
+    expect(at({ 'cf-connecting-ip': '2001:db8::1' })).toEqual({ ip: '2001:db8::1', country: null, city: null });
+    expect(at({ 'cf-connecting-ip': '<script>' }, { country: 'taiwan', city: 42 })).toEqual({ ip: null, country: null, city: null });
+    expect(at({}, { country: 'TW', city: ` Tai\u0000pei${'x'.repeat(200)}` })).toEqual({ ip: null, country: 'TW', city: `Taipei${'x'.repeat(74)}` });
+  });
+
+  it('words the place and the age for the confirmation screen', () => {
+    expect(placeText('TW', 'Taipei')).toBe('Taipei，台灣');
+    expect(placeText('US', null)).toBe('美國');
+    expect(placeText('T1', null)).toBe('Tor 網路');
+    expect(placeText('XX', 'Somewhere')).toBe('Somewhere');
+    expect(placeText(null, null)).toBe('不明');
+    const created = Date.parse('2026-10-01T08:15:30Z');
+    expect(ageText(created, created + 59_000)).toBe('不到 1 分鐘前（2026-10-01 08:15 UTC）');
+    expect(ageText(created, created + 3 * 60_000 + 1)).toBe('3 分鐘前（2026-10-01 08:15 UTC）');
+    expect(minutesUntil(created + 9 * 60_000 + 1, created)).toBe('10 分鐘');
+    expect(minutesUntil(created, created)).toBe('1 分鐘');
   });
 });

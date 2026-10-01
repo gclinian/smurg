@@ -1,4 +1,4 @@
-// The keep-awake status in zh-TW, the same words in `smurg host`'s summary and in `smurg status` (CLI-13). The
+// The keep-awake status in zh-TW, the same words in `smurg host`'s notices and in `smurg status` (CLI-13). The
 // daemon's reasons are English identifiers for its log (packages/daemon/src/workspace/power.ts).
 import type { PowerStatus } from '@smurg/daemon';
 

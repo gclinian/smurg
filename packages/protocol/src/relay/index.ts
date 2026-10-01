@@ -3,6 +3,7 @@
 // test/entry-boundaries.test.ts enforces.
 export * from './binary.ts';
 export * from './close-codes.ts';
+export * from './device-login.ts';
 export * from './frames.ts';
 export * from './http.ts';
 export * from './routes.ts';

@@ -21,15 +21,21 @@
   "routes": [{ "pattern": "app.smurg.ai", "custom_domain": true }],
   "preview_urls": false,
 
-  // One Worker, two SQLite-backed Durable Object classes keyed by workspace id (ARCHITECTURE §6). The Free plan only
-  // allows SQLite-backed classes (`new_sqlite_classes`).
+  // One Worker, three SQLite-backed Durable Object classes (ARCHITECTURE §6): WorkspaceDO and TransferDO keyed by
+  // workspace id, DeviceLoginDO (2026-10-01) for the CLI's device-code login (pending logins keyed by user code, and its
+  // rate limits). The Free plan only allows SQLite-backed classes (`new_sqlite_classes`). Migrations are applied once,
+  // in order, by the deploy: never edit a tag that was deployed (v1 on 2026-10-01); a new class gets a new tag.
   "durable_objects": {
     "bindings": [
       { "name": "WORKSPACE", "class_name": "WorkspaceDO" },
-      { "name": "TRANSFER", "class_name": "TransferDO" }
+      { "name": "TRANSFER", "class_name": "TransferDO" },
+      { "name": "DEVICE_LOGIN", "class_name": "DeviceLoginDO" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorkspaceDO", "TransferDO"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["WorkspaceDO", "TransferDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["DeviceLoginDO"] }
+  ],
 
   // The Worker serves the web SPA too (same origin for cookies and WebSockets). Relay routes run before the assets;
   // everything else is the SPA, with the security headers of apps/web/public/_headers. Keep run_worker_first equal to
@@ -39,7 +45,7 @@
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/healthz", "/auth/*", "/api/*", "/ws/*", "/xfer/*", "/.well-known/*"]
+    "run_worker_first": ["/healthz", "/device", "/auth/*", "/api/*", "/ws/*", "/xfer/*", "/.well-known/*"]
   },
 
   // Secrets, never in this file: `wrangler secret put <NAME>` in production (README.md), `.dev.vars` locally
@@ -109,7 +115,8 @@
       "durable_objects": {
         "bindings": [
           { "name": "WORKSPACE", "class_name": "WorkspaceDO" },
-          { "name": "TRANSFER", "class_name": "TransferDO" }
+          { "name": "TRANSFER", "class_name": "TransferDO" },
+          { "name": "DEVICE_LOGIN", "class_name": "DeviceLoginDO" }
         ]
       },
       "secrets": { "required": ["RELAY_SIGNING_KEY"] }

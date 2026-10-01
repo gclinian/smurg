@@ -121,7 +121,7 @@ describe('RelayApi, bearer mode (CLI, tests)', () => {
     expect(created).toEqual([[`ws://127.0.0.1:8787/ws/${WS}/client`, { headers: { authorization: 'Bearer abc.def.ghi' } }]]);
   });
 
-  it('dev login and CLI code exchange are anonymous calls that return a bearer session', async () => {
+  it('dev login and the device-code login are anonymous calls that return a bearer session', async () => {
     const { fetch, calls } = fakeFetch(() => ({ status: 200, body: SESSION }));
     const anonymous = new RelayApi({ relayUrl: 'http://localhost:8787', auth: { kind: 'cookie' }, fetch });
     const session = await anonymous.devLogin('amy', 'Amy');
@@ -130,10 +130,31 @@ describe('RelayApi, bearer mode (CLI, tests)', () => {
     expect(JSON.parse(calls[0]?.body ?? '')).toEqual({ user: 'amy', displayName: 'Amy' });
     const bearer = anonymous.withBearer(session.token);
     expect(bearer.auth).toEqual({ kind: 'bearer', token: 'aaa.bbb.ccc' });
-    await bearer.exchangeCliCode('code.jwt.x', 'v'.repeat(43));
-    expect(calls[1]).toMatchObject({ url: 'http://localhost:8787/auth/cli/token' });
+    const deviceCode = `WDJBMJHT.${'s'.repeat(43)}`;
+    expect(await bearer.pollDeviceLogin(deviceCode)).toEqual(SESSION);
+    expect(calls[1]).toMatchObject({ url: 'http://localhost:8787/auth/device/token', method: 'POST' });
     expect(calls[1]?.headers['authorization']).toBeUndefined();
-    expect(JSON.parse(calls[1]?.body ?? '')).toEqual({ code: 'code.jwt.x', codeVerifier: 'v'.repeat(43) });
+    expect(JSON.parse(calls[1]?.body ?? '')).toEqual({ deviceCode });
+    await expect(bearer.pollDeviceLogin('WDJB-MJHT')).rejects.toThrow(TypeError);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('starts a device-code login (strict response) and reports the token endpoint\'s RFC 8628 errors by code', async () => {
+    const start = { deviceCode: `WDJBMJHT.${'s'.repeat(43)}`, userCode: 'WDJB-MJHT', verificationUri: 'http://localhost:8787/device', expiresIn: 600, interval: 5 };
+    const answers: { status: number; body: unknown }[] = [
+      { status: 200, body: start },
+      { status: 400, body: { error: 'authorization_pending' } },
+      { status: 400, body: { error: 'slow_down' } },
+      { status: 200, body: { ...start, userCode: 'WDJBMJHT' } },
+    ];
+    const { fetch, calls } = fakeFetch(() => answers.shift() ?? { status: 500, body: {} });
+    const api = new RelayApi({ relayUrl: 'http://localhost:8787', auth: { kind: 'cookie' }, fetch });
+    expect(await api.startDeviceLogin()).toEqual(start);
+    expect(calls[0]).toMatchObject({ url: 'http://localhost:8787/auth/device/start', method: 'POST', credentials: 'same-origin' });
+    expect(JSON.parse(calls[0]?.body ?? '')).toEqual({});
+    await expect(api.pollDeviceLogin(start.deviceCode)).rejects.toMatchObject({ status: 400, code: 'authorization_pending' });
+    await expect(api.pollDeviceLogin(start.deviceCode)).rejects.toMatchObject({ status: 400, code: 'slow_down' });
+    await expect(api.startDeviceLogin()).rejects.toMatchObject({ code: 'bad_response' });
   });
 
   it('refuses malformed tokens and non-https remote relays', () => {

@@ -487,6 +487,17 @@ export interface DaemonStatus {
   readonly onlineMembers: number;
   readonly power: PowerStatus;
   readonly handshakes: HandshakeStats;
+  /**
+   * What the host's terminal no longer explains at the start (`smurg host` prints only the two links; `smurg status`
+   * shows these, ARCHITECTURE §8): the daemon key's fingerprint as members compare it (Daemon.fingerprint), the relay,
+   * the switches of §11 D-12 / D-13 / D-14 as the daemon runs with them, whether the share is a git repository (guests'
+   * worktrees need one) and the last guest sandbox check (null before the first, or without a sandbox).
+   */
+  readonly fingerprint: string;
+  readonly relayUrl: string | null;
+  readonly switches: { readonly guestSubscriptionLogin: boolean; readonly attributeBashEdits: boolean; readonly guestMainWorkspace: boolean };
+  readonly isGitRepo: boolean;
+  readonly sandbox: { readonly ok: boolean; readonly reason: string | null } | null;
 }
 
 /**
@@ -1102,6 +1113,8 @@ export interface WrappedCommand {
 export interface SandboxService {
   /** Platform, dependencies, profile hardening and the canary self-test. */
   preflight(): Promise<SandboxPreflight>;
+  /** The outcome of the last preflight(), null before the first (DaemonStatus.sandbox, `smurg status`). Optional for fakes. */
+  lastPreflight?(): SandboxPreflight | null;
   /** Throws SmurgError('sandbox_unavailable') (and audits `sandbox.refused`) when anything is off. */
   wrap(spec: SandboxSpec): Promise<WrappedCommand>;
   /**

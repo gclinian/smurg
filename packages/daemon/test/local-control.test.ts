@@ -196,6 +196,24 @@ describe('control-socket framing', () => {
     const [decoded] = new CtlFrameDecoder().push(frame);
     expect(parseCtlResponse(decoded?.body as Uint8Array)).toMatchObject({ ok: true, op: 'status', status: { workspaceId: t.workspaceId, started: true } });
   });
+
+  it('the status names what `smurg status` shows the host (fingerprint, relay, switches, git, last sandbox check); a status without them (an older daemon) still parses', async () => {
+    t = await createTestDaemon();
+    const status = t.ctx.lifecycle.status();
+    const { config } = t.daemon;
+    expect(status).toMatchObject({
+      fingerprint: t.daemon.fingerprint,
+      relayUrl: config.relayUrl,
+      switches: { guestSubscriptionLogin: config.sessions.guestSubscriptionLogin, attributeBashEdits: config.activity.attributeBashEdits, guestMainWorkspace: config.sessions.guestMainWorkspace },
+      isGitRepo: t.ctx.workspace.info.isGitRepo,
+      // The real sandbox module, never asked yet.
+      sandbox: null,
+    });
+    const { fingerprint: _f, relayUrl: _r, switches: _s, isGitRepo: _g, sandbox: _b, ...older } = status;
+    const parsed = parseCtlResponse(new TextEncoder().encode(JSON.stringify({ ok: true, op: 'status', status: older })));
+    expect(parsed).toMatchObject({ ok: true, op: 'status', status: { workspaceId: t.workspaceId } });
+    expect(parsed.ok && parsed.op === 'status' ? parsed.status.fingerprint : 'no status').toBeUndefined();
+  });
 });
 
 describe('socket paths (contract review C1)', () => {

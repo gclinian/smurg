@@ -26,6 +26,13 @@ export class CookieBrowser {
   readonly jar = new Map<string, string>();
   readonly hops: Hop[] = [];
 
+  /** Sent with every request, e.g. `cf-connecting-ip` (local workerd keeps a client's own value). */
+  readonly headers: Record<string, string>;
+
+  constructor(headers: Record<string, string> = {}) {
+    this.headers = headers;
+  }
+
   cookieHeader(): string {
     return [...this.jar].map(([name, value]) => `${name}=${value}`).join('; ');
   }
@@ -71,7 +78,7 @@ export class CookieBrowser {
     let current = url;
     let request = first;
     for (let i = 0; i < 10; i++) {
-      const headers: Record<string, string> = { ...request.headers };
+      const headers: Record<string, string> = { ...this.headers, ...request.headers };
       if (this.jar.size > 0) headers['cookie'] = this.cookieHeader();
       const res = await fetch(current, { method: request.method, redirect: 'manual', headers, ...(request.body ? { body: request.body } : {}) });
       const setCookies = this.store(res);

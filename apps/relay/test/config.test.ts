@@ -25,15 +25,21 @@ describe('wrangler.jsonc', () => {
     expect(dev.compatibility_date).toBe('2026-09-26');
   });
 
-  it('declares WorkspaceDO and TransferDO as SQLite-backed Durable Objects in both environments', () => {
+  it('declares WorkspaceDO, TransferDO and DeviceLoginDO as SQLite-backed Durable Objects in both environments', () => {
     for (const config of [prod, dev]) {
       const bindings: { name: string; class_name: string }[] = config.durable_objects.bindings;
       expect(bindings.map((b) => [b.name, b.class_name])).toEqual([
         ['WORKSPACE', 'WorkspaceDO'],
         ['TRANSFER', 'TransferDO'],
+        ['DEVICE_LOGIN', 'DeviceLoginDO'],
       ]);
     }
-    expect(prod.migrations).toEqual([{ tag: 'v1', new_sqlite_classes: ['WorkspaceDO', 'TransferDO'] }]);
+    // v1 is deployed (2026-10-01) and must never change; DeviceLoginDO comes with its own tag (the device-code login).
+    expect(prod.migrations).toEqual([
+      { tag: 'v1', new_sqlite_classes: ['WorkspaceDO', 'TransferDO'] },
+      { tag: 'v2', new_sqlite_classes: ['DeviceLoginDO'] },
+    ]);
+    expect(dev.migrations).toEqual(prod.migrations);
   });
 
   it('serves the web SPA from ../web/dist and routes relay paths to the Worker first', () => {
@@ -77,6 +83,15 @@ describe('wrangler.jsonc', () => {
     expect(problems({}, { GOOGLE_CLIENT_ID: 'not a client id' })).toHaveLength(1);
     expect(problems({}, { GOOGLE_TOKEN_URL: 'https://evil.example/token' })).toHaveLength(1);
     expect(problems({ migrations: [{ tag: 'v1' }] })).toHaveLength(1);
+    // The deployed v1 stays as it is, DeviceLoginDO comes with v2, and its binding is there too.
+    const v1 = { tag: 'v1', new_sqlite_classes: ['WorkspaceDO', 'TransferDO'] };
+    expect(problems({ migrations: [v1] })).toHaveLength(1);
+    expect(problems({ migrations: [{ ...v1, new_sqlite_classes: ['WorkspaceDO', 'TransferDO', 'DeviceLoginDO'] }] })).toHaveLength(1);
+    expect(problems({ migrations: [{ tag: 'v2', new_sqlite_classes: ['DeviceLoginDO'] }, v1] })).toHaveLength(1);
+    // A key-value backed class (`new_classes`) is not available on the Free plan.
+    const kvBacked: { tag: string } = Object.assign({ tag: 'v2' }, { new_classes: ['DeviceLoginDO'] });
+    expect(problems({ migrations: [v1, kvBacked] })).toHaveLength(1);
+    expect(problems({ durable_objects: { bindings: base.durable_objects?.bindings?.slice(0, 2) ?? [] } })).toHaveLength(1);
     // The custom-domain shape: the origin must be https://<that host>, known before any deploy (never empty).
     expect(problems({}, { RELAY_ISSUER: 'https://other.smurg.ai', ALLOWED_ORIGINS: 'https://other.smurg.ai' })).toHaveLength(1);
     expect(problems({}, { RELAY_ISSUER: '', ALLOWED_ORIGINS: '' })).toHaveLength(1);

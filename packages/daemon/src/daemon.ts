@@ -47,7 +47,7 @@ import { createLineLogger, type Logger } from './core/logger.ts';
 import { SYSTEM_ACTOR } from './core/permissions.ts';
 import { RouterImpl } from './core/router.ts';
 import { FileStateStore } from './core/state-store.ts';
-import { createStubService } from './core/stubs.ts';
+import { createStubService, isStubService } from './core/stubs.ts';
 import { STATE_DOCUMENT, initialWorkspaceState, workspaceStateSchema } from './core/workspace-state.ts';
 import { ChannelServer } from './net/channel-server.ts';
 import { wsHostSocketFactory, type HostSocketFactory } from './net/host-socket.ts';
@@ -267,6 +267,12 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
 
     const services = {} as { -readonly [K in FeatureServiceName]: FeatureServices[K] };
     for (const name of FEATURE_SERVICE_NAMES) (services as Record<FeatureServiceName, unknown>)[name] = createStubService(name);
+    /** DaemonStatus.sandbox: the last guest sandbox check, null before the first one or without a sandbox module. */
+    const lastSandboxCheck = (): DaemonStatus['sandbox'] => {
+      if (isStubService(services.sandbox)) return null;
+      const last = services.sandbox.lastPreflight?.() ?? null;
+      return last === null ? null : { ok: last.ok, reason: last.ok ? null : last.reason };
+    };
     const stopping = new AbortController();
     // Bound to the Daemon object below (it exists before any module can call these).
     let daemonRef: Daemon | null = null;
@@ -528,6 +534,15 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
           onlineMembers: hub.onlineUserIds().size,
           power: power.status(),
           handshakes: { ...channelServer.stats },
+          fingerprint,
+          relayUrl: config.relayUrl,
+          switches: {
+            guestSubscriptionLogin: config.sessions.guestSubscriptionLogin,
+            attributeBashEdits: config.activity.attributeBashEdits,
+            guestMainWorkspace: config.sessions.guestMainWorkspace,
+          },
+          isGitRepo: workspace.info.isGitRepo,
+          sandbox: lastSandboxCheck(),
         };
       },
     };

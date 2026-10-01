@@ -30,8 +30,8 @@ https://app.smurg.ai。
   Linux 部分也還沒在全新的電腦上跑過。需要 bubblewrap 0.8 以上（Ubuntu 24.04、Debian 12 以上）。Linux 沙盒做不到 macOS
   的幾點（例如組員在主工作區的子資料夾裡新增 `.claude` 設定），所以 Linux 主人預設不讓組員在共享主工作區開 session：
   組員只能用自己的 worktree（資料夾不是 git repository 時，組員預設不能開 session）；主人用
-  `--allow-main-workspace-guests` 開放時，開始訊息會列出這些限制（[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §11
-  D-14、§12；[`docs/HOSTING.md`](docs/HOSTING.md) §5）。
+  `--allow-main-workspace-guests` 開放之前，請先看這些限制（[`docs/HOSTING.md`](docs/HOSTING.md) §4、§5；
+  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §11 D-14、§12）。
   組員用什麼作業系統都可以（瀏覽器）。
 - **組員用 Claude 訂閱帳號登入**（在主人電腦上的登入程序）還沒有用真正的帳號從頭到尾測試過；用 API key 登入可以。
 - **macOS 執行檔沒有 Apple 的開發者簽章**（只有 ad-hoc 簽章）。請用下面的一行指令安裝：它先驗證 sha256，再移除
@@ -64,13 +64,13 @@ curl -fsSL https://smurg.ai/install.sh | sh
 ## 快速開始：主人
 
 ```sh
-smurg login                      # 用瀏覽器以 Google 帳號登入公用 relay
+smurg login                      # 用代碼登入公用 relay（在任何裝置的瀏覽器以 Google 帳號確認）
 smurg host ~/projects/my-app     # 分享資料夾；在前景執行，按 Ctrl-C 停止
 ```
 
-1. `smurg login` 會打開瀏覽器，並在終端機印出一組**確認碼**；瀏覽器裡 relay 的確認頁顯示同一組碼時，才按
-   「使用 Google 繼續」並登入你的 Google 帳號。不加 `--relay` 時，smurg 使用內建的公用 relay
-   https://app.smurg.ai（也是網頁版的網址）。
+1. `smurg login` 在終端機印出一個網址（`https://app.smurg.ai/device`）和一組代碼。在任何裝置（電腦或手機）的瀏覽器
+   打開網址、登入你的 Google 帳號、輸入代碼，確認頁上的帳號沒錯就按「允許」（有桌面時 smurg 也會自動打開這個網址；
+   透過 SSH 也一樣，不需要轉接埠）。不加 `--relay` 時，smurg 使用內建的公用 relay https://app.smurg.ai（也是網頁版的網址）。
    （跳過這一步也可以：`smurg host` 發現還沒登入時會先請你登入。）
 2. `smurg host` 會印出**你自己的連結**（在瀏覽器以主人身分打開工作區，不要給別人）、**邀請組員的連結**（預設角色
    「可編輯」、7 天內有效）、分享前須知，以及組員的沙盒在這台電腦上能不能用。
@@ -215,8 +215,8 @@ scripts/dev-stack.sh --help                 # 選項：--dir、--relay-port、--
 
 ### 不要讓 smurg 打開瀏覽器
 
-`smurg login`、`smurg host`、`smurg attach` 在沒有 relay 登入時會進行瀏覽器登入。在自動化執行、測試、審查、SSH 或
-沒有終端機的情況下，**CLI 不會自己打開瀏覽器**，只把網址印出來：`SMURG_NO_BROWSER=1`（`scripts/env.sh` 已經設定）、
+`smurg login`、`smurg host`、`smurg attach` 在沒有 relay 登入時會用代碼登入，並在有桌面時打開 relay 的 `/device` 頁面。
+在自動化執行、測試、審查、SSH 或沒有終端機的情況下，**CLI 不會自己打開瀏覽器**，只把網址和代碼印出來：`SMURG_NO_BROWSER=1`（`scripts/env.sh` 已經設定）、
 `CI`、`SSH_CONNECTION`、標準輸入或輸出不是終端機、Linux 沒有顯示器，任何一個成立就不開。每個會登入的指令也都有
 `--no-browser`。自動化時請一律先用 `smurg login --no-browser --dev-user 名稱 --relay <下一個指令要用的那個網址>` 登入。
 真的要讓 CLI 打開瀏覽器登入真實的 relay 時，對那一個指令設定 `SMURG_NO_BROWSER=0 CI=false`。
@@ -227,10 +227,10 @@ scripts/dev-stack.sh --help                 # 選項：--dir、--relay-port、--
 
 | 指令 | 用途 |
 |---|---|
-| `smurg host <資料夾> [--relay 網址] [--role runner\|editor\|viewer] [--expires 期限] [--max-uses 次數] [--name 名稱] [--web-origin 網址] [--no-keep-awake] [--no-browser] [--no-guest-subscription-login] [--no-bash-attribution] [--allow-main-workspace-guests \| --no-main-workspace-guests]` | 分享資料夾（前景執行），印出主人連結、邀請連結、daemon 金鑰指紋、分享前須知，以及組員的訂閱登入程序與 agent 的 shell 指令通知這兩項設定（預設開啟；用兩個 `--no-…` 選項關閉，關閉時在開始訊息寫明）和客人的主工作區 session（Linux 預設未開放、macOS 預設開放；用 `--allow-main-workspace-guests` / `--no-main-workspace-guests` 改變，開始訊息寫明並在 Linux 開放時列出限制；見 `docs/HOSTING.md` §5），接著報告客人沙盒是否可用；防止睡眠失效、relay 連線中斷／恢復、relay 拒絕登入（在另一個終端機 `smurg login` 後自動改用新登入）與狀態檔寫不進磁碟時會提示 |
+| `smurg host <資料夾> [--relay 網址] [--role runner\|editor\|viewer] [--expires 期限] [--max-uses 次數] [--name 名稱] [--web-origin 網址] [--no-keep-awake] [--no-browser] [--no-guest-subscription-login] [--no-bash-attribution] [--allow-main-workspace-guests \| --no-main-workspace-guests]` | 分享資料夾（前景執行），只印出兩個連結：你自己的和給組員的。組員的訂閱登入程序與 agent 的 shell 指令通知預設開啟（用兩個 `--no-…` 選項關閉），客人的主工作區 session 在 Linux 預設未開放、macOS 預設開放（用 `--allow-main-workspace-guests` / `--no-main-workspace-guests` 改變）；這些設定的意思與分享前須知在 `docs/HOSTING.md` §4、§5，終端機不重複。只在需要你處理時提示：客人沙盒無法使用（附修正指令）、無法防止睡眠或防止睡眠失效、relay 連線中斷／恢復、relay 拒絕登入（在另一個終端機 `smurg login` 後自動改用新登入）、狀態檔寫不進磁碟 |
 | `smurg attach [session] [--workspace ID] [--invite -\|連結] [--relay 網址] [--no-browser]` | 把 session 接到終端機（不指定 session 時列出）；本機正在分享時直接以主人身分接上，否則用這台電腦的裝置金鑰透過 relay 加入。`--invite -` 會提示貼上邀請連結（不顯示、不進 shell 歷史）；也可用 `SMURG_INVITE`。只有第一次需要邀請連結。Ctrl-] 離開 |
-| `smurg status [--workspace ID]` / `smurg stop [--workspace ID]` | 查看／停止這台電腦上正在分享的工作區（透過 daemon 的控制 socket） |
-| `smurg login [--relay 網址] [--provider github\|google] [--dev-user 名稱] [--no-browser]` | 登入 relay（登入資料存在 `$SMURG_HOME/credentials.json`，權限 0600，依網址分開記錄）；公用 relay 只提供 Google 登入；`--dev-user` 只能用在本機的 relay |
+| `smurg status [--workspace ID]` / `smurg stop [--workspace ID]` | 查看／停止這台電腦上正在分享的工作區（透過 daemon 的控制 socket）。`status` 顯示 `smurg host` 啟動時不印的資訊：資料夾、relay 與連線、daemon 金鑰指紋、防止睡眠、客人沙盒、三項設定目前的狀態、紀錄檔的位置 |
+| `smurg login [--relay 網址] [--dev-user 名稱] [--no-browser]` | 用代碼登入 relay：印出 relay 的 `/device` 網址和一組代碼，在任何裝置的瀏覽器登入、輸入代碼並按「允許」（透過 SSH 也一樣；登入方式在瀏覽器裡選，公用 relay 只提供 Google）。登入資料存在 `$SMURG_HOME/credentials.json`，權限 0600，依網址分開記錄；`--dev-user` 只能用在本機的 relay |
 | `smurg logout [--relay 網址] [--all]` | 忘記 relay 的登入資料 |
 | `smurg licenses [--third-party]` | 印出 smurg 的授權條款（`LICENSE`）與執行檔裡第三方軟體的授權聲明（建置時嵌入執行檔；`--third-party` 只印後者，和發佈的 `THIRD-PARTY-NOTICES.txt` 相同） |
 

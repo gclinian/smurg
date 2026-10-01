@@ -1,5 +1,6 @@
 // Response helpers. Every relay response is uncacheable and nosniff; HTML pages also get a CSP that allows no
-// script at all (the only pages the relay renders are the CLI login confirmation, "continue" pages and error pages).
+// script at all and no framing (the only pages the relay renders are /device, the CLI login confirmation, "continue"
+// pages and error pages).
 
 const BASE_HEADERS: Record<string, string> = {
   'cache-control': 'no-store',
@@ -41,7 +42,8 @@ export type HtmlOptions = {
 };
 
 export function htmlResponse(html: string, status = 200, cookies: readonly string[] = [], options: HtmlOptions = {}): Response {
-  const extra: Record<string, string> = { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': HTML_CSP };
+  // X-Frame-Options next to frame-ancestors for browsers that predate CSP 2 (clickjacking of /device's 「允許」).
+  const extra: Record<string, string> = { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': HTML_CSP, 'x-frame-options': 'DENY' };
   if (options.referrerPolicy !== undefined) extra['referrer-policy'] = options.referrerPolicy;
   return new Response(html, { status, headers: headersWith(extra, cookies) });
 }

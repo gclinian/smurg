@@ -21,9 +21,21 @@ export const RELAY_PATHS = {
   devStart: '/auth/dev/start',
   /** POST `{ user }` → bearer token: dev-only login for automated tests. */
   devToken: '/auth/dev/token',
-  /** GET: CLI loopback login start (PKCE-bound code, relay.md §1.4). */
+  /**
+   * GET / POST (same-origin form): the page where a person logged in to the relay enters the CLI's user code and
+   * allows or denies the login (./device-login.ts). Short on purpose: it is typed on a phone.
+   */
+  device: '/device',
+  /** POST → `{ deviceCode, userCode, verificationUri, expiresIn, interval }` (`relayDeviceStartSchema`). */
+  deviceStart: '/auth/device/start',
+  /** POST `{ deviceCode }` → bearer session once approved; until then 400 with a DEVICE_TOKEN_ERRORS code. */
+  deviceToken: '/auth/device/token',
+  /**
+   * DEPRECATED (2026-10-01): the CLI loopback login of smurg 0.1.0 (GET confirmation page, POST same-origin form).
+   * Kept working for released executables; removed once a CLI without it has been out for a while.
+   */
   cliStart: '/auth/cli/start',
-  /** POST `{ code, code_verifier }` → bearer token. */
+  /** DEPRECATED with cliStart: POST `{ code, codeVerifier }` → bearer token. */
   cliToken: '/auth/cli/token',
   /** POST: clears the browser session cookie. */
   logout: '/auth/logout',
@@ -46,10 +58,10 @@ export const RELAY_PATHS = {
  * Path patterns the Worker must see before static assets (wrangler.jsonc `assets.run_worker_first`). Everything
  * else is the web SPA. Kept here so the relay config, its tests and the Vite dev proxy cannot drift apart.
  */
-export const RELAY_WORKER_FIRST_PATTERNS = ['/healthz', '/auth/*', '/api/*', '/ws/*', '/xfer/*', '/.well-known/*'] as const;
+export const RELAY_WORKER_FIRST_PATTERNS = ['/healthz', '/device', '/auth/*', '/api/*', '/ws/*', '/xfer/*', '/.well-known/*'] as const;
 
 /** Path prefixes the web dev server proxies to the relay dev server (apps/web/vite.config.ts). */
-export const RELAY_DEV_PROXY_PREFIXES = ['/healthz', '/auth/', '/api/', '/ws/', '/xfer/', '/.well-known/'] as const;
+export const RELAY_DEV_PROXY_PREFIXES = ['/healthz', '/device', '/auth/', '/api/', '/ws/', '/xfer/', '/.well-known/'] as const;
 
 export function authLoginPath(provider: RelayAuthProvider): string {
   assertProvider(provider);
@@ -153,6 +165,11 @@ export function relayHttpUrl(base: string | URL, path: string): string {
 /** `GET <relay>/api/login-options`: the login methods to offer (response: `relayLoginOptionsSchema`). */
 export function loginOptionsUrl(base: string | URL): string {
   return relayHttpUrl(base, RELAY_PATHS.loginOptions);
+}
+
+/** `<relay>/device`: where a person enters the CLI's user code. Never with the code in it (phishing). */
+export function deviceLoginPageUrl(base: string | URL): string {
+  return relayHttpUrl(base, RELAY_PATHS.device);
 }
 
 function relayWsUrl(base: string | URL, kind: RelayTunnelKind, workspaceId: string, role: RelayTunnelRole): string {

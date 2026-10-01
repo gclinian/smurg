@@ -47,3 +47,8 @@ export function statePaths(env: Readonly<Record<string, string | undefined>>): S
     daemonCwd: join(stateDir, 'cwd'),
   };
 }
+
+/** The daemon log of `smurg host` for one workspace: `<stateDir>/logs/<workspaceId>.log` (shown by `smurg status`). */
+export function hostLogPath(paths: StatePaths, workspaceId: string): string {
+  return join(paths.logsDir, `${workspaceId}.log`);
+}

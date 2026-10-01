@@ -3,22 +3,26 @@
 //  [--allow-main-workspace-guests | --no-main-workspace-guests]`
 // (SPEC R1, §6, §11; ARCHITECTURE §8): shares a folder from this machine. The two `--no-…` switches turn off the guests'
 // subscription login process (config.sessions.guestSubscriptionLogin, §11 D-12) and the Bash activity hook
-// (config.activity.attributeBashEdits, §11 D-13); the summary explains both when on and echoes them when off. The third
-// switch opens or closes the main workspace to guests' sandboxed sessions (config.sessions.guestMainWorkspace, §11
-// D-14; default: closed on a Linux host, open on macOS); the summary says which, and lists the Linux limits when open.
+// (config.activity.attributeBashEdits, §11 D-13); the third opens or closes the main workspace to guests' sandboxed
+// sessions (config.sessions.guestMainWorkspace, §11 D-14; default: closed on a Linux host, open on macOS).
+//
+// The terminal shows only what the host uses or must act on (owner decision 2026-10-01): the two links. What the
+// switches mean, the SPEC §11 warnings, the fingerprint and keep-awake are explained in docs/HOSTING.md
+// (https://smurg.ai/docs/hosting/, named in --help), and `smurg status` shows their state on this machine (stop.ts).
 //
 //  1. validates the folder (exists, a directory, not the home directory, not a parent of — or inside — the state dir)
 //     and refuses a folder that is already being shared;
-//  2. logs in to the relay when there is no working session (browser loopback login; the browser is opened only when
-//     CliIo.openUrl allows it, never with --no-browser / SMURG_NO_BROWSER, see cli/io.ts browserBlock);
+//  2. logs in to the relay when there is no working session (relay/login.ts ensureSession);
 //  3. claims the folder's workspace id at the relay (kept in workspaces.json, so members and the audit log survive);
 //  4. runs the daemon in the foreground with DEFAULT_FEATURE_MODULES and keeps the machine awake;
-//  5. prints the host's own link, a guest invite (role / expiry / uses), the daemon key fingerprint to compare out of
-//     band, the onboarding warnings of SPEC §11 and the keep-awake status — invite links go to the terminal only, never
-//     to the log file;
+//  5. prints the workspace's name, the host's own link and a guest invite (its expiry, and its role and use limit when
+//     the host chose them) — the links go to the terminal only, never to the log file; then, only when they happen,
+//     one-line notices the host must act on: keep-awake refused at the start, the guest sandbox unavailable (with the
+//     fix commands, CLI-02);
 //  6. tells the host when the relay link drops or recovers, when the relay refuses the host's login (and picks up a
-//     renewed login from credentials.json without a restart), when that login is about to expire and when a state
-//     file cannot be written (reviews REL-08, CLI-03, CLI-10, REL-14);
+//     renewed login from credentials.json without a restart), when that login is about to expire, when a state file
+//     cannot be written (reviews REL-08, CLI-03, CLI-10, REL-14), when keep-awake is lost (CLI-13) and when a host-only
+//     entry changed while guests ran (Linux, reviews RV-1, RV-2);
 //  7. stops gracefully on Ctrl-C / SIGTERM / SIGHUP or `smurg stop` (another Ctrl-C within 2 s is ignored, a later one
 //     leaves at once; CLI-06).
 import { createWriteStream } from 'node:fs';
@@ -58,9 +62,9 @@ import { EXIT } from '../cli/exit-codes.ts';
 import type { CliSignal } from '../cli/io.ts';
 import { ctlPathFor, daemonAt, runningDaemons } from '../channel/discover.ts';
 import { ensureSession } from '../relay/login.ts';
-import { builtInRelayNotice, pickRelay, relayApi, relayDefaultText, relayOriginOf, relayProblem, type RelaySource } from '../relay/relay.ts';
+import { pickRelay, relayApi, relayDefaultText, relayOriginOf, relayProblem } from '../relay/relay.ts';
 import { loadCredentials, type StoredSession } from '../state/credentials.ts';
-import { homeDirOf } from '../state/paths.ts';
+import { homeDirOf, hostLogPath } from '../state/paths.ts';
 import { stateProblem } from '../state/private-file.ts';
 import { loadWorkspaces, newWorkspaceId, rememberSharedFolder, sharedFolderFor, type WorkspaceBook } from '../state/workspaces.ts';
 import { NativeExtractionError, ensureSeaNative } from '../sea/native.ts';
@@ -71,31 +75,27 @@ import { say, type CommandContext } from './context.ts';
 export function hostUsage(): string {
   return `用法：smurg host <資料夾> [選項]
 
-  分享這台電腦上的一個專案資料夾，並印出邀請連結。smurg host 會一直在前景執行，按 Ctrl-C 或在另一個終端機
-  執行 smurg stop 停止分享。
+  分享這台電腦上的一個專案資料夾，印出兩個連結：你自己的，和給組員的。smurg host 會一直在前景執行，按 Ctrl-C
+  或在另一個終端機執行 smurg stop 停止分享。金鑰指紋、各項設定、客人沙盒與紀錄檔的位置：smurg status。
   --relay 網址        relay 的網址（${relayDefaultText()}）
-  --role 角色        邀請連結的角色：runner（可執行 agent）、editor（可編輯，預設）、viewer（旁觀）
-  --expires 期限      邀請連結的有效期限，例如 30m、12h、7d（預設 7d，最長 365d）
-  --max-uses 次數     邀請連結可以使用的次數（預設不限）
+  --role 角色        給組員的連結的角色：runner（可執行 agent）、editor（可編輯，預設）、viewer（旁觀）
+  --expires 期限      給組員的連結的有效期限，例如 30m、12h、7d（預設 7d，最長 365d）
+  --max-uses 次數     給組員的連結可以使用的次數（預設不限）
   --name 名稱         工作區顯示的名稱（預設：資料夾名稱）
-  --web-origin 網址   邀請連結指向的網頁（預設：relay 本身；本機開發可用 http://localhost:5173）
+  --web-origin 網址   連結指向的網頁（預設：relay 本身；本機開發可用 http://localhost:5173）
   --no-keep-awake     分享期間不防止電腦睡眠
   --no-browser        需要登入 relay 時不自動開啟瀏覽器，只顯示網址（SMURG_NO_BROWSER=1 也一樣）
   --no-guest-subscription-login
-                      不讓組員用 Claude 訂閱帳號登入（預設開放：smurg 在組員的沙盒裡另外執行 claude auth login，
-                      登入期間只有這個登入程序可以在這台電腦上開網路埠）；關閉後組員只能用自己的 API key
+                      不讓組員用 Claude 訂閱帳號登入，組員只能用自己的 API key（預設開放）
   --no-bash-attribution
-                      agent 執行 shell 指令時不通知 smurg（預設會通知指令的開始與結束，不含指令內容）；關閉後
-                      agent 用 shell 指令改的檔案，在活動動態裡顯示為「外部程式」
+                      agent 執行 shell 指令時不通知 smurg（預設通知）
   --allow-main-workspace-guests
-                      開放客人（runner）在共享主工作區開 agent 和終端機（macOS 預設開放；Linux 預設不開放：Linux 的
-                      沙盒擋不住客人在子資料夾裡新建 .claude/settings.json 這類只有主人能用的檔案，開放前請先看
-                      smurg host 列出的限制）
+                      開放客人（runner）在共享主工作區開 session（macOS 預設開放；Linux 預設不開放，開放前請先看說明）
   --no-main-workspace-guests
-                      不開放客人在共享主工作區開 session：客人只能在自己的 worktree 裡工作（分享的資料夾必須是
-                      git repository，否則客人無法開 session）
+                      不開放客人在共享主工作區開 session，客人只能在自己的 worktree 裡工作
 
-  說明（主人指南，分享前請先讀 §4）：https://smurg.ai/docs/hosting/
+  分享前必讀：https://smurg.ai/docs/hosting/#4-分享前必讀
+  最後四個選項的意思與風險：https://smurg.ai/docs/hosting/#5-組員的-claude-登入客人的主工作區agent-的-shell-指令
 `;
 }
 
@@ -103,6 +103,7 @@ export function hostUsage(): string {
 export const HOST_SWITCH_DEFAULTS = Object.freeze({ guestSubscriptionLogin: true, attributeBashEdits: true });
 
 const ROLE_NAMES: Readonly<Record<GuestRole, string>> = { runner: '可執行 agent', editor: '可編輯', viewer: '旁觀' };
+const DEFAULT_ROLE: GuestRole = 'editor';
 const DEFAULT_EXPIRES = '7d';
 /** daemon.stop() reasons this command uses itself (the daemon's own 'start-failed' included). */
 const INTERNAL_STOP_START_FAILED = 'start-failed';
@@ -239,7 +240,7 @@ async function openLog(ctx: CommandContext, workspaceId: string): Promise<{ logg
   } catch (err) {
     throw stateProblem(err, '紀錄檔目錄');
   }
-  const path = join(ctx.paths.logsDir, `${workspaceId}.log`);
+  const path = hostLogPath(ctx.paths, workspaceId);
   const stream = createWriteStream(path, { flags: 'a', mode: 0o600 });
   stream.on('error', () => undefined);
   const file = createLineLogger({ level: 'info', write: (line) => stream.write(`${line}\n`) });
@@ -303,8 +304,8 @@ function daemonProblem(err: unknown, logPath: string): CliError {
   return new CliError(`daemon 無法啟動（${err instanceof Error ? err.name : 'unknown'}）`, { hint: `詳細原因請看紀錄檔 ${logPath}`, cause: err });
 }
 
+/** 「7 天」, 「12 小時」, 「30 分鐘」 (in days rather than weeks: --expires is written in days). */
 function formatDuration(seconds: number): string {
-  if (seconds % 604_800 === 0) return `${seconds / 604_800} 週`;
   if (seconds % 86_400 === 0) return `${seconds / 86_400} 天`;
   if (seconds % 3600 === 0) return `${seconds / 3600} 小時`;
   if (seconds % 60 === 0) return `${seconds / 60} 分鐘`;
@@ -315,11 +316,6 @@ function formatTime(epochMs: number): string {
   const d = new Date(epochMs);
   const pad = (n: number): string => String(n).padStart(2, '0');
   return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function powerText(status: PowerStatus): string {
-  if (status.active) return `${powerState(status)}。注意：闔上筆電螢幕仍然會進入睡眠。`;
-  return `${powerState(status)}。電腦睡眠時組員會看到「主人已離線」。`;
 }
 
 function parseRole(text: string | undefined): GuestRole {
@@ -370,7 +366,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   const name = parseName(stringOption(args, 'name'));
   const keepAwake = booleanOption(args, 'keep-awake') !== false;
   // ARCHITECTURE §11 D-12 / D-13: both on unless the host switches them off (`--no-…`; `--x --no-x` is refused).
-  const switches: Pick<HostSwitches, 'guestSubscriptionLogin' | 'attributeBashEdits'> = {
+  const switches: { readonly guestSubscriptionLogin: boolean; readonly attributeBashEdits: boolean } = {
     guestSubscriptionLogin: booleanOption(args, 'guest-subscription-login') ?? HOST_SWITCH_DEFAULTS.guestSubscriptionLogin,
     attributeBashEdits: booleanOption(args, 'bash-attribution') ?? HOST_SWITCH_DEFAULTS.attributeBashEdits,
   };
@@ -382,8 +378,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     webOriginFlag === undefined ? undefined : relayOriginOf(webOriginFlag, '--web-origin', '網頁網址只能是 https 的網站根網址（本機開發可用 http://localhost:5173）。');
   const folder = await validateFolder(ctx, args.positionals[0] as string);
 
-  const relay = pickRelay(stringOption(args, 'relay'), io, await loadCredentials(ctx.paths));
-  const origin = relay.origin;
+  const origin = pickRelay(stringOption(args, 'relay'), io, await loadCredentials(ctx.paths)).origin;
   const existing = sharedFolderFor(await loadWorkspaces(ctx.paths), folder, origin);
   const workspaceId = existing?.workspaceId ?? newWorkspaceId();
   // Before any login: a folder that is already shared needs no browser.
@@ -391,7 +386,8 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     throw new CliError('這個資料夾已經在分享中', { hint: '用 smurg status 查看，或 smurg stop 停止。' });
   }
   await refuseOverlappingShare(ctx, folder);
-  if (relay.source === 'built-in') say(ctx, builtInRelayNotice(origin));
+  // No notice for the built-in relay here (owner decision 2026-10-01: the start shows only the links): a login names
+  // the relay it opens, and `smurg status` names the relay of a running share.
   const { session, user } = await ensureSession(ctx, origin, {
     interactive: true,
     noBrowser: booleanOption(args, 'browser') === false,
@@ -511,21 +507,18 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
 
   if (stopping === null) {
     try {
-      // What the daemon runs with (not merely what was asked for) is what the host is told.
-      const inForce: HostSwitches = {
-        guestSubscriptionLogin: daemon.config.sessions.guestSubscriptionLogin,
-        attributeBashEdits: daemon.config.activity.attributeBashEdits,
-        guestMainWorkspace: daemon.config.sessions.guestMainWorkspace,
-      };
-      const facts: HostFacts = { platform: daemon.ctx.workspace.info.platform, isGitRepo: daemon.ctx.workspace.info.isGitRepo, mainWorkspaceFlag };
-      printSummary(ctx, daemon, { origin, relaySource: relay.source, webOrigin: daemon.config.webOrigin, folder, role, expiresInSec, maxUses, userId: user.userId, logPath: log.path, switches: inForce, facts });
+      printSummary(ctx, daemon, { role, expiresInSec, maxUses, userId: user.userId });
     } catch (err) {
       await daemon.stop(INTERNAL_STOP_SUMMARY_FAILED).catch(() => {});
       await cleanup();
       throw err instanceof CliError ? err : new CliError('無法建立邀請連結', { cause: err });
     }
+    // Keep-awake the system refused at the start (polkit over SSH, no systemd-inhibit): one line, after the links.
+    // Switched off with --no-keep-awake (reason 'disabled') is the host's own choice: nothing to tell.
+    const startPower = daemon.status().power;
+    if (!startPower.active && startPower.reason !== 'disabled') say(ctx, `\n${keepAwakeNotice(startPower)}`);
     // Keep-awake that is lost later (the inhibitor exited, e.g. no logind session) is told here, not only in the log.
-    let keptAwake = daemon.status().power.active;
+    let keptAwake = startPower.active;
     powerWatch = setInterval(() => {
       const power = daemon.status().power;
       if (keptAwake && !power.active && stopping === null) say(ctx, `\n⚠ 防止睡眠已失效：${powerState(power)}。電腦睡眠時組員會看到「主人已離線」。`);
@@ -732,8 +725,10 @@ export function sandboxFix(reason: string, platform: NodeJS.Platform = process.p
 }
 
 /**
- * CLI-02 (SPEC R5): the host learns right after the start, not second-hand from a refused guest, whether runner
- * guests can open sessions here. The daemon's sandbox check is the same one a guest session goes through.
+ * CLI-02 (SPEC R5): the host learns right after the start, not second-hand from a refused guest, when runner guests
+ * cannot open sessions here: one line, then what to do (the Linux fix commands, else the daemon's own text). A
+ * sandbox that works is not news (`smurg status` shows it). The daemon's sandbox check is the same one a guest session
+ * goes through.
  */
 export async function reportGuestSandbox(ctx: CommandContext, daemon: Daemon, stopped: () => boolean): Promise<void> {
   const sandbox = daemon.ctx.services.sandbox;
@@ -744,171 +739,47 @@ export async function reportGuestSandbox(ctx: CommandContext, daemon: Daemon, st
   } catch {
     result = { ok: false, reason: 'preflight-error' };
   }
-  if (stopped()) return;
-  if (result.ok) {
-    say(ctx, '客人沙盒：可用（runner 角色的組員可以在這台電腦上開 session，並且只能存取分享的資料夾）。');
-    return;
-  }
-  say(
-    ctx,
-    [
-      `⚠ 客人沙盒：無法使用（${result.reason}）。${result.detail ?? ''}`,
-      ...sandboxFix(result.reason),
-      '  在修好之前，runner 角色的組員無法在這台電腦上開 session；其他功能（檔案、共同編輯、你自己的 session）不受影響。',
-    ].join('\n'),
-  );
+  if (stopped() || result.ok) return;
+  const fix = sandboxFix(result.reason);
+  const what = fix.length > 0 ? fix : result.detail !== undefined ? [`  ${result.detail}`] : [];
+  say(ctx, [`\n⚠ 客人沙盒：無法使用（${result.reason}），runner 角色的組員暫時不能在這台電腦上開 session。`, ...what].join('\n'));
+}
+
+/** Keep-awake that is not in force although the host did not switch it off (linux-binary F5): one line. */
+function keepAwakeNotice(status: PowerStatus): string {
+  return `⚠ 防止睡眠：${powerState(status)}。電腦睡眠時組員會看到「主人已離線」。`;
+}
+
+/** 「給組員的連結（用私訊傳給他們，7 天內有效）：」: the expiry always, the use limit and the role only when chosen. */
+export function inviteHeading(role: GuestRole, expiresInSec: number, maxUses: number | undefined): string {
+  const terms = ['用私訊傳給他們', `${formatDuration(expiresInSec)}內有效`];
+  if (maxUses !== undefined) terms.push(`可以使用 ${maxUses} 次`);
+  if (role !== DEFAULT_ROLE) terms.push(`角色：${ROLE_NAMES[role]}`);
+  return `給組員的連結（${terms.join('，')}）：`;
 }
 
 /**
- * The switches of `smurg host` as the daemon runs with them (config.sessions.guestSubscriptionLogin,
- * config.activity.attributeBashEdits, config.sessions.guestMainWorkspace).
+ * The start summary (owner decision 2026-10-01): the workspace's name, the two links, how to stop. Nothing else: the
+ * rest is in docs/HOSTING.md and `smurg status`. The links carry their one-time secrets: the terminal only, never the
+ * log.
  */
-export interface HostSwitches {
-  readonly guestSubscriptionLogin: boolean;
-  readonly attributeBashEdits: boolean;
-  readonly guestMainWorkspace: boolean;
-}
-
-/** What the summary's main-workspace line depends on besides the switch itself (§11 D-14). */
-export interface HostFacts {
-  /** The daemon's platform (WorkspaceInfo.platform): the default and the limits differ on Linux. */
-  readonly platform: NodeJS.Platform;
-  /** Whether the share is a git repository: without one guests have no worktree mode either. */
-  readonly isGitRepo: boolean;
-  /** `--allow-main-workspace-guests` (true), `--no-main-workspace-guests` (false), neither (undefined: the default). */
-  readonly mainWorkspaceFlag: boolean | undefined;
-}
-
-/**
- * The summary line of guests' sessions in the main workspace (ARCHITECTURE §11 D-14, §12 "Linux, in more detail"):
- * whether it is open and why (the platform's default or the host's flag); open on Linux, the residual limits of the
- * Linux sandbox there; closed, what guests get instead (their worktree, or nothing without a git repository).
- */
-export function mainWorkspaceLines(open: boolean, facts: HostFacts): string[] {
-  const linux = facts.platform === 'linux';
-  const why = facts.mainWorkspaceFlag === undefined ? (linux ? 'Linux 預設' : 'macOS 預設') : facts.mainWorkspaceFlag ? '--allow-main-workspace-guests' : '--no-main-workspace-guests';
-  if (!open) {
-    const lines = [`  · 客人的主工作區 session：未開放（${why}）。客人（runner）只能在自己的 worktree 裡開 agent 和終端機，看不到主工作區。`];
-    if (linux && facts.mainWorkspaceFlag === undefined) {
-      lines.push(
-        '    Linux 的沙盒（bubblewrap）擋不住客人在主工作區的子資料夾裡新建只有主人能用的檔案（例如 sub/.claude/settings.json），',
-        '    所以預設不開放。要開放的話，停止分享後加上 --allow-main-workspace-guests 重新執行（smurg host 會列出 Linux 上的限制）。',
-      );
-    }
-    if (!facts.isGitRepo) {
-      lines.push('    這個資料夾不是 git repository，沒有 worktree 可用，所以客人目前無法開 session（檔案、共同編輯等其他功能不受影響）。');
-    }
-    return lines;
-  }
-  if (!linux) {
-    return [
-      `  · 客人的主工作區 session：已開放（${why}）。客人（runner）開 session 時可以選擇共享主工作區或自己的 worktree。`,
-      '    不想開放的話，停止分享後加上 --no-main-workspace-guests 重新執行。',
-    ];
-  }
-  return [
-    `  · 客人的主工作區 session：已開放（${why}）。Linux 上的限制（macOS 沒有這些限制）：`,
-    '    - 客人可以在子資料夾裡新建只有主人能用的檔案（例如 sub/.claude/settings.json、sub/.mcp.json、sub/.git/config），',
-    '      你自己不在沙盒裡的工具（在那個子資料夾裡啟動的 Claude Code、git、VS Code）可能會執行它們。smurg 發現時（通常',
-    '      幾秒內；客人程序結束後也會再查一次）會結束客人的程序並在這裡列出路徑（新的 .git 和 node_modules 裡的除外）；',
-    '      使用那個子資料夾之前，請先檢查這些檔案。',
-    '    - 客人程序執行時，你取代、刪除或新建 .envrc、.mcp.json、.claude/、CLAUDE.local.md（編輯器存檔、Claude Code 的',
-    '      「don\'t ask again」、git switch、git clean），smurg 會結束客人的程序，但在那之前客人可能讀到或改寫新的內容',
-    '      （通常 0.1 秒內；在一次建好的多層子資料夾裡（mkdir -p、git checkout、解壓縮）要等下一次掃描，通常幾秒內；',
-    '      .git 最多 2 秒）。編輯這些檔案之前，請先請客人結束 session。',
-    '    - 客人程序執行時，專案最上層會有 smurg 的空白佔位（.claude/、.vscode/、.idea/、.mcp.json、.envrc），列在',
-    '      .git/info/exclude 裡，git add -A、git stash -u、git clean -fd 不會動到；git add -f、git clean -x、git stash -a',
-    '      仍會（客人的程序會因此結束）。',
-    '    - 路徑裡有 * ? [ ] 或不是 UTF-8 的這類檔案不受保護（紀錄檔會列出）；分享的資料夾裡的 Unix socket 客人也連得到。',
-    '    不想開放的話，停止分享後不加 --allow-main-workspace-guests 重新執行（Linux 預設不開放，客人只能用自己的 worktree）。',
-  ];
-}
-
-/**
- * What the switches mean for the host (ARCHITECTURE §11 D-12, D-13, D-14), in the start summary: a switch left at its
- * default is explained (what it lets happen on this machine, and how to turn it off); a switch turned off is echoed.
- */
-export function switchLines(switches: HostSwitches, facts: HostFacts): string[] {
-  const lines = ['■ 組員的 Claude 登入、客人的主工作區與 agent 的 shell 指令'];
-  if (switches.guestSubscriptionLogin) {
-    lines.push(
-      '  · 組員可以用自己的 Claude 訂閱帳號登入：smurg 會在那位組員的沙盒裡另外執行一個登入程序（claude auth login，',
-      '    最多 10 分鐘）。登入期間，這個登入程序可以在這台電腦上開一個網路埠，等待登入完成；除了它之外，組員的程式',
-      '    （agent、終端機）都不能開網路埠。登入程序讀不到分享的資料夾，也連不到這台電腦上的其他服務。',
-      '    不想開放的話，停止分享後加上 --no-guest-subscription-login 重新執行，組員就只能用自己的 API key 登入。',
-    );
-  } else {
-    lines.push('  · 組員的 Claude 訂閱登入：已關閉（--no-guest-subscription-login）。組員只能用自己的 API key 登入。');
-  }
-  lines.push(...mainWorkspaceLines(switches.guestMainWorkspace, facts));
-  if (switches.attributeBashEdits) {
-    lines.push(
-      '  · 每個 agent（包括你自己的）執行 shell 指令時，會通知這台電腦上的 smurg 指令何時開始、何時結束（不含指令內容',
-      '    和輸出），這樣 agent 用 shell 指令改的檔案，在活動動態裡會標示是哪個 agent 改的。',
-      '    不想要的話，停止分享後加上 --no-bash-attribution 重新執行。',
-    );
-  } else {
-    lines.push('  · agent 的 shell 指令通知：已關閉（--no-bash-attribution）。agent 用 shell 指令改的檔案，在活動動態裡顯示為「外部程式」。');
-  }
-  return lines;
-}
-
-function printSummary(
-  ctx: CommandContext,
-  daemon: Daemon,
-  s: {
-    origin: string;
-    relaySource: RelaySource;
-    webOrigin: string;
-    folder: string;
-    role: GuestRole;
-    expiresInSec: number;
-    maxUses: number | undefined;
-    userId: string;
-    logPath: string;
-    switches: HostSwitches;
-    facts: HostFacts;
-  },
-): void {
+function printSummary(ctx: CommandContext, daemon: Daemon, s: { role: GuestRole; expiresInSec: number; maxUses: number | undefined; userId: string }): void {
   const principal = daemon.ctx.members.principalOf(s.userId);
   if (!principal) throw new CliError('找不到主人的成員資料，無法建立邀請連結');
-  const { invite, url } = daemon.ctx.invites.create({ role: s.role, expiresInSec: s.expiresInSec, ...(s.maxUses !== undefined ? { maxUses: s.maxUses } : {}) }, principal);
-  const hostUrl = daemon.hostInviteUrl;
-  const info = daemon.ctx.workspace.info;
-  const expiresAt = invite.expiresAt ?? ctx.io.now() + s.expiresInSec * 1000;
-  // Everything below goes to the terminal only (never the log): the links carry their one-time secrets.
+  const { url } = daemon.ctx.invites.create({ role: s.role, expiresInSec: s.expiresInSec, ...(s.maxUses !== undefined ? { maxUses: s.maxUses } : {}) }, principal);
   say(
     ctx,
     [
       '',
-      `smurg：開始分享「${info.name}」`,
-      `  資料夾：${s.folder}`,
-      `  工作區：${daemon.workspaceId}（relay：${s.origin}${s.relaySource === 'built-in' ? '，smurg 內建的公用 relay' : ''}）`,
-      ...(s.webOrigin !== s.origin ? [`  網頁：${s.webOrigin}`] : []),
+      `smurg 正在分享「${daemon.ctx.workspace.info.name}」`,
       '',
-      '■ 你自己的連結（主人專用，只能使用一次，7 天內有效；不要分享給別人）',
-      `  ${hostUrl ?? '（無法建立）'}`,
+      '你的連結（只給你自己用）：',
+      `  ${daemon.hostInviteUrl ?? '（無法建立）'}`,
       '',
-      `■ 邀請組員的連結（角色：${ROLE_NAMES[s.role]}；有效期限：${formatDuration(s.expiresInSec)}，到 ${formatTime(expiresAt)}；可使用次數：${s.maxUses === undefined ? '不限' : `${s.maxUses} 次`}）`,
+      inviteHeading(s.role, s.expiresInSec, s.maxUses),
       `  ${url}`,
-      '  連結裡 # 之後的部分就是密鑰，請用私訊傳給組員，不要貼在公開的地方。',
       '',
-      `■ daemon 金鑰指紋：${daemon.fingerprint}`,
-      '  組員第一次加入時可以用其他管道（當面、電話）和你核對這組指紋，確認沒有人冒充你。',
-      '',
-      '⚠ 分享前請先了解：',
-      '  1. 你自己的 Claude Code session 不在沙盒裡，而且會讀到組員寫入或修改的檔案。檔案裡可能藏有要 agent 執行的指示',
-      '     （prompt injection）。請保留 Claude Code 的權限確認，不要自動核准，並留意最近被組員修改過的檔案。',
-      '  2. 組員在這台電腦上執行 agent 時，他們的 Claude 登入憑證會存放在這台電腦上（用訂閱帳號或 API key 登入都一樣），',
-      '     技術上你讀得到。請組員使用有花費上限的 API key；組員離開或被移出時，smurg 會登出並刪除他們的暫存目錄。',
-      '  3. 組員只能在 smurg host 執行、而且這台電腦連線時使用這個工作區。',
-      '',
-      ...switchLines(s.switches, s.facts),
-      '',
-      `防止睡眠：${powerText(daemon.status().power)}`,
-      `daemon 紀錄檔：${s.logPath}（不含邀請連結）`,
-      '按 Ctrl-C，或在另一個終端機執行 smurg stop，即可停止分享。',
-      '',
+      '按 Ctrl-C 停止分享。',
     ].join('\n'),
   );
 }

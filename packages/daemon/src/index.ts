@@ -44,6 +44,7 @@ export {
   type CtlFrameKind,
   type CtlRequest,
   type CtlResponse,
+  type CtlStatus,
 } from './local/protocol.ts';
 export type { DaemonContext, FeatureModule } from './core/context.ts';
 // The control-socket module: `smurg host` awaits whenClosed() so it exits only after `smurg stop` saw the socket go.

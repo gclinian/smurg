@@ -1,14 +1,18 @@
 // `smurg stop [--workspace W]` and `smurg status [--workspace W]`: through the daemon's control socket (ARCHITECTURE
 // §8). stop asks the daemon to stop (it closes every channel with `stopped`, ends the sessions and removes the guests'
-// temp dirs), then waits until its socket is gone.
+// temp dirs), then waits until its socket is gone. status shows what `smurg host` no longer prints at the start (owner
+// decision 2026-10-01): the relay, the daemon key fingerprint, keep-awake, the guest sandbox, the three switches of
+// ARCHITECTURE §11 D-12 / D-13 / D-14 as the daemon runs with them, and where the log is.
 import { readFile } from 'node:fs/promises';
-import { runPathsFor, type DaemonStatus } from '@smurg/daemon';
+import { runPathsFor, type CtlStatus } from '@smurg/daemon';
 import { parseArgs, stringOption } from '../cli/args.ts';
 import { CliError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
 import { powerState } from '../cli/power-text.ts';
 import { ctlRequest } from '../channel/local-channel.ts';
 import { daemonAt, findRunningDaemon, hintedWorkspace, runningDaemons, ctlPathFor, type RunningDaemon } from '../channel/discover.ts';
+import { DEFAULT_RELAY_URL } from '../relay/default-relay.ts';
+import { hostLogPath } from '../state/paths.ts';
 import { loadWorkspaces } from '../state/workspaces.ts';
 import { say, type CommandContext } from './context.ts';
 
@@ -20,7 +24,8 @@ export const STOP_USAGE = `用法：smurg stop [--workspace 工作區ID]
 
 export const STATUS_USAGE = `用法：smurg status [--workspace 工作區ID]
 
-  顯示正在分享的工作區狀態。
+  顯示正在分享的工作區狀態：資料夾、relay 與連線、daemon 金鑰指紋、防止睡眠、客人沙盒、smurg host 的三項設定、
+  紀錄檔的位置。各項的意思：https://smurg.ai/docs/hosting/#7-狀態與停止
 `;
 
 const STOP_WAIT_MS = 30_000;
@@ -74,18 +79,41 @@ async function pidOf(ctx: CommandContext, workspaceId: string): Promise<string |
   }
 }
 
+function sandboxState(sandbox: NonNullable<CtlStatus['sandbox']> | null): string {
+  if (sandbox === null) return '尚未檢查';
+  if (sandbox.ok) return '可用';
+  return `無法使用（${sandbox.reason ?? '原因不明'}），runner 角色的組員不能在這台電腦上開 session（處理方法：https://smurg.ai/docs/hosting/#8-疑難排解）`;
+}
+
+/** The switches of `smurg host` (ARCHITECTURE §11 D-12, D-13, D-14) as the daemon runs with them; docs/HOSTING.md §5 explains them. */
+function switchStates(switches: NonNullable<CtlStatus['switches']>, isGitRepo: boolean | undefined): string[] {
+  const noWorktree = !switches.guestMainWorkspace && isGitRepo === false ? '；這個資料夾不是 git repository，客人目前無法開 session' : '';
+  return [
+    `  組員的 Claude 訂閱登入：${switches.guestSubscriptionLogin ? '開放' : '已關閉（--no-guest-subscription-login）'}`,
+    `  客人的主工作區 session：${switches.guestMainWorkspace ? '已開放' : '未開放（客人只能用自己的 worktree）'}${noWorktree}`,
+    `  agent 的 shell 指令通知：${switches.attributeBashEdits ? '開啟' : '已關閉（--no-bash-attribution）'}`,
+  ];
+}
+
 async function describe(ctx: CommandContext, daemon: RunningDaemon): Promise<string> {
-  const status: DaemonStatus = daemon.status;
+  const status = daemon.status;
   const book = await loadWorkspaces(ctx.paths);
-  const folder = book.shared.find((entry) => entry.workspaceId === status.workspaceId)?.folder;
+  const entry = book.shared.find((shared) => shared.workspaceId === status.workspaceId);
+  // The daemon's own relay (null: none); a daemon of an older build does not say it (the remembered folder's relay then).
+  const relay = status.relayUrl !== undefined ? status.relayUrl : (entry?.relay ?? null);
+  const builtIn = relay !== null && relay === DEFAULT_RELAY_URL ? '（smurg 內建的公用 relay）' : '';
   const pid = await pidOf(ctx, status.workspaceId);
   const power = powerState(status.power);
   return [
     `工作區 ${status.workspaceId}${status.stopped ? '（正在停止）' : ''}`,
-    ...(folder ? [`  資料夾：${folder}`] : []),
-    `  relay：互動連線 ${relayState(status.relay.interactive)}，檔案傳輸 ${relayState(status.relay.transfer)}`,
+    ...(entry ? [`  資料夾：${entry.folder}`] : []),
+    `  relay：${relay === null ? '' : `${relay}${builtIn}，`}互動連線 ${relayState(status.relay.interactive)}，檔案傳輸 ${relayState(status.relay.transfer)}`,
     `  連線數：${status.connections}，線上成員：${status.onlineMembers}`,
+    ...(status.fingerprint !== undefined ? [`  daemon 金鑰指紋：${status.fingerprint}`] : []),
     `  防止睡眠：${power}`,
+    ...(status.sandbox !== undefined ? [`  客人沙盒：${sandboxState(status.sandbox)}`] : []),
+    ...(status.switches !== undefined ? switchStates(status.switches, status.isGitRepo) : []),
+    `  紀錄檔：${hostLogPath(ctx.paths, status.workspaceId)}`,
     ...(pid ? [`  daemon 行程：${pid}`] : []),
   ].join('\n');
 }

@@ -1,15 +1,19 @@
 // Logging in, in a real browser (the built app served by the real relay, a daemon with every module, system Chrome):
 //  - a logged-out visitor's page load is clean: ONE request says which login methods exist (GET /api/login-options),
 //    nothing probes the login routes, and /api/me (401 without a session) is not asked when no session can exist;
+//  - the CLI's device-code login (2026-10-01): the REAL `smurg login` prints /device and a code; in a phone-sized
+//    window the relay's dev login, the code and 「允許」; the CLI saves the session; nothing fails on the way;
 //  - ARCHITECTURE §11 D-12: a guest starts their Claude subscription login from the login guide; the daemon's login
 //    process shows the login URL and the code prompt in the guest's own terminal. The REAL `claude` (a verified version
 //    on PATH) against a closed mock API address; no code is ever pasted and no account is used (ARCHITECTURE §0 rule 2).
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTempDir, removeTempDir } from '../../../../packages/daemon/src/testing/index.ts';
+import { createTempDir, registerTestProcess, removeTempDir, waitFor } from '../../../../packages/daemon/src/testing/index.ts';
 import { CLAUDE_VERIFIED_VERSIONS, claudeVersionVerdict } from '../../../../packages/daemon/src/core/config.ts';
 import { ClaudeVersionProbe, resolveClaude } from '../../../../packages/daemon/src/sessions/claude.ts';
 import { runProcess } from '../../../../packages/daemon/src/sessions/process-run.ts';
@@ -109,6 +113,52 @@ describe.skipIf(chrome === null)('logging in, in a real browser (built app, real
     expect(afterLogin).toContain('GET /api/me');
     expect(env.problemsOf(landing).console).toEqual([]);
     expect(env.problemsOf(landing).httpErrors).toEqual([]);
+  }, 180_000);
+
+  it('smurg login by device code: the real CLI prints /device and a code; in Chrome the dev login, the code and 「允許」 sign it in, with zero console errors and zero failed requests', async () => {
+    const home = await createTempDir('web-smoke-device-login');
+    const smurgHome = join(home, '.smurg');
+    // The CLI of this repository in a process of its own: a temporary HOME, never the person's ~/.smurg, never a browser.
+    const cli = spawn(process.execPath, [CLI_MAIN, 'login', '--relay', env.relay.origin], {
+      cwd: home,
+      env: { PATH: '/usr/bin:/bin', HOME: home, SMURG_HOME: smurgHome, SMURG_NO_BROWSER: '1', TMPDIR: process.env['TMPDIR'] ?? '/tmp' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const pid = cli.pid as number;
+    if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) throw new Error('the CLI did not start');
+    registerTestProcess(pid, CLI_MAIN);
+    let out = '';
+    cli.stdout?.on('data', (chunk: Buffer) => (out += chunk.toString('utf8')));
+    cli.stderr?.on('data', (chunk: Buffer) => (out += chunk.toString('utf8')));
+    const exited = new Promise<number | null>((resolve) => cli.once('exit', (code) => resolve(code)));
+    try {
+      await waitFor(() => out.includes('等待你在瀏覽器裡按「允許」') || cli.exitCode !== null, { timeoutMs: STEP_MS, what: 'the CLI to print the page and the code' });
+      const printed = /\n {2}(\S+\/device)\n輸入代碼：([A-Z]{4}-[A-Z]{4}) /.exec(out);
+      expect(printed, out).not.toBeNull();
+      const [, pageUrl = '', code = ''] = printed as RegExpExecArray;
+      // A phone-sized window: the page is short and typed on a phone as often as not.
+      const page = await env.newPage({ width: 390, height: 844 });
+      await page.goto(pageUrl);
+      await page.getByLabel('開發用帳號（僅限本機）').fill('quinn');
+      await page.getByRole('button', { name: '以開發用帳號登入' }).click();
+      await page.getByLabel('終端機顯示的代碼').fill(code.toLowerCase());
+      await page.getByRole('button', { name: '下一步' }).click();
+      await page.getByRole('heading', { name: '允許 smurg CLI 登入嗎？' }).waitFor({ timeout: STEP_MS });
+      expect(await page.getByTestId('device-user-code').textContent()).toBe(code);
+      expect(await page.getByTestId('device-account').textContent()).toBe('quinn（dev:quinn）');
+      await page.getByRole('button', { name: '允許', exact: true }).click();
+      await page.getByRole('heading', { name: '已允許' }).waitFor({ timeout: STEP_MS });
+      // The CLI polls every 5 s.
+      await waitFor(() => cli.exitCode !== null, { timeoutMs: STEP_MS, what: 'the CLI to finish the login' });
+      expect(await exited, out).toBe(0);
+      expect(out).toContain(`已登入 ${env.relay.origin}：quinn（dev:quinn）`);
+      expect((await stat(join(smurgHome, 'credentials.json'))).mode & 0o777).toBe(0o600);
+      expect(env.problemsOf(page)).toEqual({ console: [], pageErrors: [], failedRequests: [], httpErrors: [] });
+    } finally {
+      if (cli.exitCode === null && cli.signalCode === null) cli.kill('SIGTERM'); // only the child this test started
+      await exited;
+      await removeTempDir(home);
+    }
   }, 180_000);
 
   it('D-12 a guest starts「用 Claude 訂閱登入」from the login guide and sees the login URL and the code prompt in the login process terminal (real claude, mock API, never completed)', async (ctx) => {

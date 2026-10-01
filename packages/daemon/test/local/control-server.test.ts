@@ -58,6 +58,11 @@ const fakeStatus = (workspaceId: string): DaemonStatus => ({
   onlineMembers: 0,
   power: { active: false, mechanism: 'none', pid: null, reason: 'disabled' },
   handshakes: { handshakes: 0, accepted: 0, failed: 0, refusedByRateLimit: 0, kickedForFailures: 0, kickedIdle: 0 },
+  fingerprint: '0000 1111',
+  relayUrl: null,
+  switches: { guestSubscriptionLogin: true, attributeBashEdits: true, guestMainWorkspace: true },
+  isGitRepo: false,
+  sandbox: null,
 });
 
 function fakeLifecycle(workspaceId = 'ws_fake_lifecycle01'): DaemonLifecycle & { stops: string[] } {

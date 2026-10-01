@@ -1,21 +1,42 @@
-// TEST ONLY: the relay's HTTP API as far as the CLI uses it (relay README "路由"), on 127.0.0.1: dev login, the CLI
-// loopback login (start → redirect to the CLI's /callback, token exchange bound to the PKCE challenge), /api/me and the
+// TEST ONLY: the relay's HTTP API as far as the CLI uses it (relay README "路由"), on 127.0.0.1: dev login, the
+// device-code login (start, the token endpoint, and /device standing in for the person in the browser), /api/me and the
 // workspace claim. Every request is recorded. Tokens are made up; nothing here is a real credential.
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
+type User = { userId: string; displayName: string; provider: 'github' | 'google' | 'dev' };
+
+export interface FakeDeviceLogin {
+  readonly deviceCode: string;
+  /** `XXXX-XXXX`, as the CLI prints it. */
+  readonly userCode: string;
+  status: 'pending' | 'approved' | 'denied';
+  user?: User;
+}
+
 export interface FakeRelay {
   readonly origin: string;
-  readonly requests: { method: string; path: string; authorization: string | null }[];
+  readonly requests: { method: string; path: string; authorization: string | null; at: number }[];
   /** userId → token of every session issued. */
-  readonly tokens: Map<string, { userId: string; displayName: string; provider: string }>;
+  readonly tokens: Map<string, User>;
   /** Workspaces claimed, by owner. */
   readonly workspaces: Map<string, string>;
-  /** The user the next CLI loopback login signs in as. */
-  loginAs: { userId: string; displayName: string; provider: 'github' | 'google' | 'dev' };
-  /** Answer the loopback login with ?error=… instead of a code. */
+  /** Device-code logins started, by normalised user code. */
+  readonly logins: Map<string, FakeDeviceLogin>;
+  /** The account a login is allowed as (by /device, the person). */
+  loginAs: User;
+  /** The person presses 「拒絕」 instead of 「允許」 on /device (any value). */
   loginError: string | null;
+  /** What POST /auth/device/start tells the CLI (seconds). */
+  device: { interval: number; expiresIn: number };
+  /** POST /auth/device/start answers this instead of a login. */
+  startError: { status: number; error: string } | null;
+  /**
+   * Answers the token endpoint gives before it looks at the login, one per poll: an error code (400), `http_503`, or
+   * `network` (the connection is dropped).
+   */
+  pollScript: string[];
   close(): Promise<void>;
 }
 
@@ -24,39 +45,63 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+function html(res: ServerResponse, status: number, text: string): void {
+  res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' });
+  res.end(`<!doctype html><title>fake relay</title><p>${text}</p>`);
+}
+
+async function text(req: IncomingMessage): Promise<string> {
+  let body = '';
+  for await (const chunk of req) body += String(chunk);
+  return body;
+}
+
 async function body(req: IncomingMessage): Promise<Record<string, unknown>> {
-  let text = '';
-  for await (const chunk of req) text += String(chunk);
   try {
-    return JSON.parse(text || '{}') as Record<string, unknown>;
+    return JSON.parse((await text(req)) || '{}') as Record<string, unknown>;
   } catch {
     return {};
   }
 }
 
 const b64url = (buf: Buffer): string => buf.toString('base64url');
+const ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ';
 
 export async function startFakeRelay(): Promise<FakeRelay> {
-  const codes = new Map<string, { challenge: string; user: FakeRelay['loginAs'] }>();
   const relay: FakeRelay = {
     origin: '',
     requests: [],
     tokens: new Map(),
     workspaces: new Map(),
+    logins: new Map(),
     loginAs: { userId: 'github:4242', displayName: 'Ian', provider: 'github' },
     loginError: null,
+    // 1 s (the relay says 5): keeps every test that logs in quick.
+    device: { interval: 1, expiresIn: 600 },
+    startError: null,
+    pollScript: [],
     close: async () => {},
   };
-  const issue = (user: FakeRelay['loginAs']): Record<string, unknown> => {
+  const issue = (user: User): Record<string, unknown> => {
     const token = `fake.${b64url(randomBytes(24))}`;
     relay.tokens.set(token, user);
     return { token, tokenType: 'Bearer', expiresIn: 7 * 24 * 3600, user };
+  };
+  /** What the person does on /device for one login: allow (as loginAs) or, with loginError, deny. */
+  const decide = (login: FakeDeviceLogin, decision?: 'allow' | 'deny'): void => {
+    if (login.status !== 'pending') return;
+    if ((decision ?? (relay.loginError === null ? 'allow' : 'deny')) === 'allow') {
+      login.status = 'approved';
+      login.user = relay.loginAs;
+    } else {
+      login.status = 'denied';
+    }
   };
   const server: Server = createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const auth = req.headers['authorization'] ?? null;
-      relay.requests.push({ method: req.method ?? 'GET', path: url.pathname, authorization: typeof auth === 'string' ? auth : null });
+      relay.requests.push({ method: req.method ?? 'GET', path: url.pathname, authorization: typeof auth === 'string' ? auth : null, at: Date.now() });
       const bearer = typeof auth === 'string' && auth.startsWith('Bearer ') ? relay.tokens.get(auth.slice(7)) : undefined;
       if (req.method === 'POST' && url.pathname === '/auth/dev/token') {
         const b = await body(req);
@@ -64,27 +109,41 @@ export async function startFakeRelay(): Promise<FakeRelay> {
         if (!/^[A-Za-z0-9._-]{1,64}$/.test(user)) return json(res, 400, { error: 'bad_request' });
         return json(res, 200, issue({ userId: `dev:${user}`, displayName: user, provider: 'dev' }));
       }
-      if (req.method === 'GET' && url.pathname === '/auth/cli/start') {
-        const port = url.searchParams.get('port');
-        const state = url.searchParams.get('state') ?? '';
-        const challenge = url.searchParams.get('code_challenge') ?? '';
-        const target = new URL(`http://127.0.0.1:${port}/callback`);
-        target.searchParams.set('state', state);
-        if (relay.loginError) target.searchParams.set('error', relay.loginError);
-        else {
-          const code = b64url(randomBytes(16));
-          codes.set(code, { challenge, user: relay.loginAs });
-          target.searchParams.set('code', code);
-        }
-        res.writeHead(302, { location: target.toString() });
-        return res.end();
+      if (req.method === 'POST' && url.pathname === '/auth/device/start') {
+        await text(req);
+        if (relay.startError) return json(res, relay.startError.status, { error: relay.startError.error });
+        let code = '';
+        for (let i = 0; i < 8; i++) code += ALPHABET[randomInt(ALPHABET.length)];
+        const login: FakeDeviceLogin = { deviceCode: `${code}.${b64url(randomBytes(32))}`, userCode: `${code.slice(0, 4)}-${code.slice(4)}`, status: 'pending' };
+        relay.logins.set(code, login);
+        return json(res, 200, { deviceCode: login.deviceCode, userCode: login.userCode, verificationUri: `${relay.origin}/device`, ...relay.device });
       }
-      if (req.method === 'POST' && url.pathname === '/auth/cli/token') {
-        const b = await body(req);
-        const entry = codes.get(String(b['code'] ?? ''));
-        const verifier = String(b['codeVerifier'] ?? '');
-        if (!entry || b64url(createHash('sha256').update(verifier).digest()) !== entry.challenge) return json(res, 400, { error: 'invalid_grant' });
-        return json(res, 200, issue(entry.user));
+      if (req.method === 'POST' && url.pathname === '/auth/device/token') {
+        const deviceCode = String((await body(req))['deviceCode'] ?? '');
+        const scripted = relay.pollScript.shift();
+        if (scripted === 'network') return req.socket.destroy();
+        if (scripted === 'http_503') return json(res, 503, { error: 'unavailable' });
+        if (scripted !== undefined) return json(res, 400, { error: scripted });
+        const code = deviceCode.split('.')[0] ?? '';
+        const login = relay.logins.get(code);
+        if (!login || login.deviceCode !== deviceCode) return json(res, 400, { error: 'expired_token' });
+        if (login.status === 'pending') return json(res, 400, { error: 'authorization_pending' });
+        relay.logins.delete(code);
+        if (login.status === 'denied' || !login.user) return json(res, 400, { error: 'access_denied' });
+        return json(res, 200, issue(login.user));
+      }
+      // The person's browser on /device: GET stands in for "log in, enter the code shown in the terminal, press 允許"
+      // for every pending login; POST (code, decision) for one login.
+      if (req.method === 'GET' && url.pathname === '/device') {
+        for (const login of relay.logins.values()) decide(login);
+        return html(res, 200, 'ok');
+      }
+      if (req.method === 'POST' && url.pathname === '/device') {
+        const form = new URLSearchParams(await text(req));
+        const login = relay.logins.get((form.get('code') ?? '').toUpperCase().replace(/[\s-]/g, ''));
+        if (!login || login.status !== 'pending') return html(res, 400, 'wrong code');
+        decide(login, form.get('decision') === 'deny' ? 'deny' : 'allow');
+        return html(res, 200, 'decided');
       }
       if (req.method === 'GET' && url.pathname === '/api/me') {
         if (!bearer) return json(res, 401, { error: 'unauthorized' });
@@ -120,12 +179,12 @@ export async function startFakeRelay(): Promise<FakeRelay> {
   return relay;
 }
 
-/** A stand-in for the person's browser: follows the relay's redirect to the CLI's loopback callback. */
+/**
+ * A stand-in for the person's browser opened at the relay's /device: logs in, enters the code from the terminal and
+ * presses 「允許」 (or 「拒絕」, with the fake relay's `loginError`).
+ */
 export async function browserOpening(url: string): Promise<boolean> {
-  const first = await fetch(url, { redirect: 'manual' });
-  const location = first.headers.get('location');
-  if (!location) return false;
-  const callback = await fetch(location);
-  await callback.text();
-  return true;
+  const res = await fetch(url);
+  await res.text();
+  return res.ok;
 }

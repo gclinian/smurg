@@ -463,6 +463,8 @@ export class SandboxServiceImpl implements SandboxService {
   private readonly warnedUnprotected = new Set<string>();
   /** Linux: warnUnprotected's memory is full and the log said so (review GR-9). */
   private warnedUnprotectedFull = false;
+  /** The outcome of the last preflight() (lastPreflight: `smurg status`). */
+  private lastCheck: SandboxPreflight | null = null;
 
   constructor(ctx: DaemonContext, options: SandboxServiceOptions = {}) {
     this.ctx = ctx;
@@ -494,18 +496,25 @@ export class SandboxServiceImpl implements SandboxService {
   // ------------------------------------------------------------------------------------------------------------------
 
   async preflight(): Promise<SandboxPreflight> {
+    let result: SandboxPreflight;
     try {
       const ready = await this.ensureReady();
       // The synthetic root below says nothing about where the daemon runs: a working directory inside the share would
       // refuse every guest session, so the host is told now (linux-binary F1).
       await this.checkDaemonCwd(ready, [this.ctx.roots.main.realPath]);
       await this.syntheticSelfTest(ready);
-      return { ok: true, platform: ready.platform };
+      result = { ok: true, platform: ready.platform };
     } catch (err) {
       const refusal = this.toRefusal(err);
       this.ctx.log.warn('guest sandbox preflight failed', { reason: refusal.reason, why: refusal.internal });
-      return { ok: false, reason: refusal.reason, detail: refusal.message };
+      result = { ok: false, reason: refusal.reason, detail: refusal.message };
     }
+    this.lastCheck = result;
+    return result;
+  }
+
+  lastPreflight(): SandboxPreflight | null {
+    return this.lastCheck;
   }
 
   async wrap(spec: SandboxSpec): Promise<WrappedCommand> {

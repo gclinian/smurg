@@ -4,8 +4,9 @@ Decisions left open after the review round of 2026-09-29 and the round that foll
 the current behaviour, the options and a recommendation. **Q1 was decided on 2026-09-30 and its source and download
 parts replaced on 2026-10-01** (private source, public binaries on Cloudflare R2, a proprietary license), **Q2 decided
 and run** (the release plan, `docs/RELEASING.md`; Q2's owner question about the Linux sandbox's residuals was decided on
-2026-10-01: main-workspace guest sessions are off by default on Linux, `docs/ARCHITECTURE.md` §11 D-14); Q3–Q11 and
-Q13 are not decided in code; **Q14** (the copyright holder and a legal review of the license) is new.
+2026-10-01: main-workspace guest sessions are off by default on Linux, `docs/ARCHITECTURE.md` §11 D-14), **Q7 decided
+on 2026-10-01** (the CLI logs in by device code, everywhere); Q3–Q6, Q8–Q11 and Q13 are not decided in code; **Q14** (the
+copyright holder and a legal review of the license) is new.
 
 The two departures from SPEC.md's wording that the review round left **pending approval** were implemented on
 2026-09-29 as the project lead recommended, each behind a switch that is on by default (`docs/ARCHITECTURE.md` §11):
@@ -160,7 +161,8 @@ Lima VM on the development Mac, 2026-10-01.)
 **Owner decision (2026-10-01) on the Linux sandbox's residuals: option 2.** On a Linux host, guests' (sandboxed) agent
 and terminal sessions in the MAIN workspace are **off by default**; guests get worktree mode only, which needs the share
 to be a git repository. The host opens the main workspace explicitly with `smurg host --allow-main-workspace-guests`,
-and the start summary then lists the Linux residual limits (below; ARCHITECTURE §12). macOS is unchanged (open by
+and `docs/HOSTING.md` §4 / §5 list the Linux residual limits (below; ARCHITECTURE §12; the start summary listed them
+until the start was cut down to the two links, also 2026-10-01). macOS is unchanged (open by
 default; `--no-main-workspace-guests` closes it on either platform). Reason: bubblewrap cannot deny by pattern, so in
 main mode a guest can create new nested `.claude/settings.json`, `.mcp.json` or `.git`, and the host's edits of
 protected files during a guest session are visible to it; in worktree mode the guest never sees the main workspace.
@@ -174,8 +176,8 @@ host) stays in place for a host who opens the main workspace. The guard-review r
 the file watcher never reports names in directories made in one burst with their parent (`mkdir -p`, a checkout, an
 unpack: @parcel/watcher's inotify backend does not watch them) and drops an inotify overflow silently, so the coverage
 described below was overstated; since then the guard also walks the root every few seconds and once more after the
-guest's last process ended (ARCHITECTURE §7.6, §12), and the start summary of `--allow-main-workspace-guests` says that
-such names are found within seconds rather than at once.
+guest's last process ended (ARCHITECTURE §7.6, §12), and `docs/HOSTING.md` §5 says that such names are found within
+seconds rather than at once.
 
 <details><summary>The question as it stood before the decision</summary>
 
@@ -259,8 +261,9 @@ problem, attributed like any other change.
 ## Q6. Revocable relay sessions (review SEC-E-03 residual)
 
 **Current behaviour.** Relay sessions (browser cookie and CLI bearer token) are stateless 7-day EdDSA tokens. The CLI
-login can no longer be started by a link (a confirmation page with a code, then a same-origin POST), but a token that
-leaks stays valid until it expires.
+login can no longer be completed by a link alone (since 2026-10-01 the person types the CLI's code on the relay's
+/device page and presses 「允許」, Q7; the deprecated loopback login kept for smurg 0.1.0 has its confirmation page),
+but a token that leaks stays valid until it expires.
 
 **Options.** 1. A per-account generation number in a Durable Object checked on every request, with a
 "log out everywhere" endpoint (one lookup per request). 2. Shorter CLI sessions (e.g. 1 day) with a refresh token.
@@ -268,7 +271,21 @@ leaks stays valid until it expires.
 
 **Recommendation.** Option 3 for the prototype, option 1 at launch.
 
-## Q7. Login on a headless host (review CLI-07, item 4)
+## Q7. Login on a headless host (review CLI-07, item 4) — **decided 2026-10-01: device code, everywhere**
+
+**Decision (project owner, 2026-10-01).** Option 1, for every CLI login, not only on headless hosts: `smurg login` (and
+the login of `smurg host` / `smurg attach`) asks the relay to start a login (`POST /auth/device/start`), prints
+`https://<relay>/device` and an 8-letter code (RFC 8628 §6.1's consonant alphabet, `XXXX-XXXX`, 10 minutes), opens that
+page on a machine with a local browser (never with the code in it: a prefilled link is what a phisher would send),
+and polls `POST /auth/device/token` (every 5 s, 5 s more after each `slow_down`; Ctrl-C ends it). On /device the
+person logs in to the relay in any browser (a phone will do), types the code, sees the account, the IP address and
+approximate location of the machine that asked and the time, and presses 「允許」 or 「拒絕」; the session the CLI gets
+is that browser session's account, issued once. Pending logins and the rate limits live in a new SQLite-backed Durable
+Object (`DeviceLoginDO`, wrangler migration `v2`). The loopback routes (`/auth/cli/start`, `/auth/cli/token`) stay for
+the released smurg 0.1.0, deprecated: they are removed once a CLI without them has been out for a while. As built:
+`docs/ARCHITECTURE.md` §6, `apps/relay/README.md`, `docs/HOSTING.md` §2.
+
+<details><summary>The question as it stood before the decision</summary>
 
 **Current behaviour.** `smurg login` / `host` on a machine without a browser print the URL; over SSH they print the
 `ssh -N -L <port>:127.0.0.1:<port>` command that makes the loopback callback work from the person's own computer.
@@ -277,6 +294,8 @@ leaks stays valid until it expires.
 any browser). 2. Keep the port-forward.
 
 **Recommendation.** Option 1 at launch; the port-forward is enough for the prototype.
+
+</details>
 
 ## Q8. Default guest invite printed by `smurg host` (review SEC-E-05)
 
@@ -323,8 +342,9 @@ time: needs a careful design). 2. Keep.
 
 ## Q12. The defaults of the two switches of D-12 and D-13 (ARCHITECTURE §11)
 
-**Current behaviour.** Both switches are on unless the host turns them off when starting `smurg host`; `smurg host`
-explains each one in its start summary, and echoes it there when it is off.
+**Current behaviour.** Both switches are on unless the host turns them off when starting `smurg host`;
+`docs/HOSTING.md` §5 explains each one and `smurg status` shows whether it is on (since 2026-10-01 the start of
+`smurg host` prints only the two links, owner decision).
 
 - **Guest subscription login** (`config.sessions.guestSubscriptionLogin`, off with `--no-guest-subscription-login`). A
   guest may start their own login process (session kind `login`): the daemon runs the fixed `claude auth login

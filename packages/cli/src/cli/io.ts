@@ -57,6 +57,8 @@ export interface CliIo {
   readonly WebSocket?: typeof globalThis.WebSocket;
   /** Milliseconds since the epoch (tests pin it). */
   now(): number;
+  /** Waits `ms` (the login's polling). Absent: a real timer; tests shorten the wait or move their clock instead. */
+  delay?(ms: number): Promise<void>;
 }
 
 function processTerminal(): AttachTerminal {

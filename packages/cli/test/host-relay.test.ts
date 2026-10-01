@@ -1,11 +1,13 @@
-// `smurg host` and a guest's `smurg attach` through the relay, in-process with injected io: the host logs in (browser
-// loopback against a fake relay HTTP API), claims the workspace, runs the daemon (echo sessions + the real control
-// socket; tunnelled traffic through the in-memory relay with real Noise channels) and prints its summary; a guest joins
-// with the printed invite using the CLI device key and pin files, is read-only on the host's session, sees what a
-// second viewer sees (R4.1), and later reconnects with the pinned key only. `smurg stop` and Ctrl-C end the host.
+// `smurg host` and a guest's `smurg attach` through the relay, in-process with injected io: the host logs in (against a
+// fake relay HTTP API), claims the workspace, runs the daemon (echo sessions + the real control socket; tunnelled
+// traffic through the in-memory relay with real Noise channels) and prints its short summary (the workspace's name and
+// the two links; everything else is in docs/HOSTING.md and `smurg status`); a guest joins with the printed invite using
+// the CLI device key and pin files, is read-only on the host's session, sees what a second viewer sees (R4.1), and
+// later reconnects with the pinned key only. `smurg stop` and Ctrl-C end the host.
 import { generateKeyPairSync } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_FEATURE_MODULES, systemClock, toDisposable, type Daemon, type FeatureModule, type PowerService, type PowerStatus, type SandboxPreflight } from '@smurg/daemon';
 import { MemoryRelay, TestIdentityIssuer, waitFor } from '@smurg/daemon/testing';
@@ -14,7 +16,7 @@ import xtermHeadless from '@xterm/headless';
 import { runCli } from '../src/cli/run.ts';
 import { runAttach } from '../src/commands/attach.ts';
 import { commandContext } from '../src/commands/context.ts';
-import { mainWorkspaceLines, runHost, sandboxFix, switchLines, type HostFacts } from '../src/commands/host.ts';
+import { hostUsage, inviteHeading, runHost, sandboxFix } from '../src/commands/host.ts';
 import { LocalWorkspaceChannel } from '../src/channel/local-channel.ts';
 import { statePaths } from '../src/state/paths.ts';
 import { loadCredentials, saveSession } from '../src/state/credentials.ts';
@@ -25,6 +27,7 @@ import { fakeTerminal, makeDirs, testIo, type Dirs, type TestIo } from './helper
 import { SecondViewer, drained, viewportOf } from './viewer.ts';
 
 const { Terminal } = xtermHeadless;
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   while (cleanups.length > 0) await Promise.resolve((cleanups.pop() as () => Promise<void> | void)()).catch(() => {});
@@ -48,7 +51,7 @@ async function startHost(
   extraArgs: readonly string[] = [],
   extraModules: readonly FeatureModule[] = [],
   power?: PowerService,
-  more: { readonly now?: () => number; readonly credentialsWatchMs?: number } = {},
+  more: { readonly now?: () => number; readonly credentialsWatchMs?: number; readonly loggedIn?: boolean } = {},
 ): Promise<HostRun> {
   const dirs = await makeDirs();
   cleanups.push(() => dirs.cleanup());
@@ -58,6 +61,12 @@ async function startHost(
   // The in-memory relay serves one workspace id: pre-seed the folder's id as an earlier `smurg host` would have.
   const workspaceId = `ws_host_${Math.random().toString(36).slice(2, 14)}`;
   await rememberSharedFolder(statePaths(env), { folder: await realpath(dirs.project), relay: relay.origin, workspaceId, createdAt: 1 });
+  if (more.loggedIn) {
+    // A login from an earlier `smurg login`: `smurg host` uses it and prints nothing about it.
+    const token = 'stored.host-token-for-test';
+    relay.tokens.set(token, relay.loginAs);
+    await saveSession(statePaths(env), relay.origin, { token, tokenType: 'Bearer', expiresIn: 7 * 24 * 3600, user: relay.loginAs }, Date.now());
+  }
   const memory = new MemoryRelay(workspaceId);
   const issuer = new TestIdentityIssuer(relay.origin, generateKeyPairSync('ed25519'), systemClock);
   const echo = echoSessions();
@@ -85,6 +94,18 @@ async function startHost(
   const urls = io.out().match(/https?:\/\/\S+\/join\/\S+/g) ?? [];
   expect(urls).toHaveLength(2);
   return { dirs, relay, memory, issuer, echo, io, env, workspaceId, daemon, done, links: { host: urls[0] as string, invite: urls[1] as string } };
+}
+
+/** The whole start summary (owner decision 2026-10-01): the workspace's name, the two links, how to stop. */
+function summaryOf(name: string, links: HostRun['links'], inviteLine: string): string {
+  return ['', `smurg 正在分享「${name}」`, '', '你的連結（只給你自己用）：', `  ${links.host}`, '', inviteLine, `  ${links.invite}`, '', '按 Ctrl-C 停止分享。', ''].join('\n');
+}
+
+/** `smurg status` in the host's state dir. */
+async function statusOf(h: HostRun): Promise<string> {
+  const io = testIo({ env: h.env });
+  expect(await runCli(['status'], io)).toBe(0);
+  return io.out();
 }
 
 describe('smurg host', () => {
@@ -122,25 +143,49 @@ describe('smurg host', () => {
     const h = await startHost(['--web-origin', 'http://localhost:5173']);
     expect(h.links.host.startsWith(`http://localhost:5173/join/${h.workspaceId}#k=`)).toBe(true);
     expect(h.links.invite.startsWith(`http://localhost:5173/join/${h.workspaceId}#k=`)).toBe(true);
-    expect(h.io.out()).toContain('網頁：http://localhost:5173');
+    // The links say where they point; no separate line for it.
+    expect(h.io.out()).not.toContain('網頁：');
   });
 
-  it('logs in when needed, shares, prints the summary (links, role / expiry / uses, fingerprint, SPEC §11 warnings, keep-awake); secrets only on the terminal; smurg stop ends it', async () => {
+  it('with a stored login the whole output is the workspace\'s name, the two links (each once) and how to stop (owner decision 2026-10-01)', async () => {
+    const h = await startHost([], [], undefined, { loggedIn: true });
+    expect(h.io.opened).toEqual([]);
+    expect(h.daemon.ctx.workspace.info.name).toBe(basename(await realpath(h.dirs.project)));
+    expect(h.io.out()).toBe(summaryOf(h.daemon.ctx.workspace.info.name, h.links, '給組員的連結（用私訊傳給他們，7 天內有效）：'));
+    expect(h.io.err()).toBe('');
+    // Nothing follows on its own (no sandbox module here, keep-awake switched off by the host): still the same.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(h.io.out()).toBe(summaryOf(h.daemon.ctx.workspace.info.name, h.links, '給組員的連結（用私訊傳給他們，7 天內有效）：'));
+    expect(h.links.host).toContain(`/join/${h.workspaceId}#k=`);
+    expect(h.links.host).not.toBe(h.links.invite);
+  });
+
+  it('the teammates\' line names the expiry, and the use limit and the role only when the host chose them', () => {
+    expect(inviteHeading('editor', 7 * 86_400, undefined)).toBe('給組員的連結（用私訊傳給他們，7 天內有效）：');
+    expect(inviteHeading('editor', 2 * 3600, 3)).toBe('給組員的連結（用私訊傳給他們，2 小時內有效，可以使用 3 次）：');
+    expect(inviteHeading('runner', 30 * 60, undefined)).toBe('給組員的連結（用私訊傳給他們，30 分鐘內有效，角色：可執行 agent）：');
+    expect(inviteHeading('viewer', 14 * 86_400, 1)).toBe('給組員的連結（用私訊傳給他們，14 天內有效，可以使用 1 次，角色：旁觀）：');
+    expect(inviteHeading('editor', 365 * 86_400, undefined)).toBe('給組員的連結（用私訊傳給他們，365 天內有效）：');
+  });
+
+  it('logs in when needed, shares, prints only the short summary with the invite\'s terms; the links only on the terminal, never in the log; smurg stop ends it', async () => {
     const h = await startHost(['--role', 'editor', '--max-uses', '3', '--expires', '2h', '--name', '課堂專案']);
     const out = h.io.out();
-    // Logged in through the browser loopback flow (there was no session), claimed the workspace at the relay.
-    expect(h.io.opened).toHaveLength(1);
+    // Logged in (there was no session), claimed the workspace at the relay.
     expect(h.relay.workspaces.get(h.workspaceId)).toBe('github:4242');
-    expect(out).toContain('開始分享「課堂專案」');
-    expect(out).toContain('角色：可編輯');
-    expect(out).toContain('有效期限：2 小時');
-    expect(out).toContain('可使用次數：3 次');
-    expect(out).toContain(`daemon 金鑰指紋：${h.daemon.fingerprint}`);
-    expect(out).toContain('不在沙盒裡');
-    expect(out).toContain('prompt injection');
-    expect(out).toContain('Claude 登入憑證會存放在這台電腦上');
-    expect(out).toContain('防止睡眠：未啟用（已用 --no-keep-awake 關閉）');
-    expect(h.links.host).toContain(`/join/${h.workspaceId}#k=`);
+    // After the login's own messages: exactly the summary (an explicit default role is not mentioned).
+    const start = out.indexOf('\nsmurg 正在分享');
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(out.slice(start)).toBe(summaryOf('課堂專案', h.links, '給組員的連結（用私訊傳給他們，2 小時內有效，可以使用 3 次）：'));
+    // Each link exactly once; the invite really has the terms the line names.
+    for (const url of [h.links.host, h.links.invite]) expect(out.split(url)).toHaveLength(2);
+    const invite = h.daemon.ctx.invites.list().find((i) => i.role === 'editor');
+    expect(invite?.maxUses).toBe(3);
+    expect((invite?.expiresAt ?? 0) - (invite?.createdAt ?? 0)).toBe(2 * 3600_000);
+    // None of what moved to docs/HOSTING.md and `smurg status` (owner decision 2026-10-01).
+    for (const moved of ['資料夾：', '工作區：', h.daemon.fingerprint, '金鑰指紋', '分享前請先了解', 'prompt injection', '不在沙盒裡', '訂閱', 'shell 指令', '主工作區', '防止睡眠', '紀錄檔', '客人沙盒', '內建的公用 relay']) {
+      expect(out, moved).not.toContain(moved);
+    }
     expect(h.io.err()).not.toContain('/join/');
 
     const stopper = testIo({ env: h.env });
@@ -159,6 +204,9 @@ describe('smurg host', () => {
     for (const url of [h.links.host, h.links.invite]) {
       expect(log).not.toContain(url);
       expect(log).not.toContain(new URL(url).hash.slice(1));
+      const secret = new URLSearchParams(new URL(url).hash.slice(1)).get('s');
+      expect(secret).toBeTruthy();
+      expect(log).not.toContain(secret as string);
     }
   });
 
@@ -295,30 +343,42 @@ describe('smurg host', () => {
     expect(inner.opened).toEqual([]);
   });
 
-  it('reports right after the start whether runner guests can open sessions (the guest sandbox check, CLI-02)', async () => {
-    const sandboxModule = (answer: SandboxPreflight): FeatureModule => ({
-      name: 'sandbox',
-      create: () => ({
-        sandbox: {
-          preflight: async () => answer,
-          wrap: async () => {
-            throw new Error('not in this test');
+  it('tells the host right after the start, in one line and what to do, when runner guests cannot open sessions; a sandbox that works is not news (CLI-02)', async () => {
+    const sandboxModule = (answer: SandboxPreflight): FeatureModule & { readonly asked: () => boolean } => {
+      let last: SandboxPreflight | null = null;
+      return {
+        name: 'sandbox',
+        asked: () => last !== null,
+        create: () => ({
+          sandbox: {
+            preflight: async () => (last = answer),
+            lastPreflight: () => last,
+            wrap: async () => {
+              throw new Error('not in this test');
+            },
+            setAllowedDomains: async () => {},
           },
-          setAllowedDomains: async () => {},
-        },
-      }),
-      register: () => toDisposable(() => {}),
-    });
-    const refused = await startHost([], [sandboxModule({ ok: false, reason: 'dependency-missing', detail: '主人電腦缺少沙盒需要的元件（bwrap）。' })]);
-    await waitFor(() => refused.io.out().includes('客人沙盒'), { what: 'the sandbox report' });
-    expect(refused.io.out()).toContain('⚠ 客人沙盒：無法使用（dependency-missing）。主人電腦缺少沙盒需要的元件（bwrap）。');
-    expect(refused.io.out()).toContain('runner 角色的組員無法在這台電腦上開 session');
-    // After the summary, so the links come first.
-    expect(refused.io.out().indexOf('客人沙盒')).toBeGreaterThan(refused.io.out().indexOf('/join/'));
+        }),
+        register: () => toDisposable(() => {}),
+      };
+    };
+    const refusedModule = sandboxModule({ ok: false, reason: 'dependency-missing', detail: '主人電腦缺少沙盒需要的元件（bwrap）。' });
+    const refused = await startHost([], [refusedModule], undefined, { loggedIn: true });
+    await waitFor(() => refused.io.out().includes('客人沙盒'), { what: 'the sandbox notice' });
+    const notice = refused.io.out().slice(refused.io.out().indexOf('按 Ctrl-C 停止分享。\n') + '按 Ctrl-C 停止分享。\n'.length);
+    // One line, then the fix commands (Linux) or the daemon's own text: after the summary, so the links come first.
+    const fix = sandboxFix('dependency-missing');
+    expect(notice).toBe(
+      ['', '⚠ 客人沙盒：無法使用（dependency-missing），runner 角色的組員暫時不能在這台電腦上開 session。', ...(fix.length > 0 ? fix : ['  主人電腦缺少沙盒需要的元件（bwrap）。']), ''].join('\n'),
+    );
+    expect(await statusOf(refused)).toContain('客人沙盒：無法使用（dependency-missing），runner 角色的組員不能在這台電腦上開 session');
 
-    const ready = await startHost([], [sandboxModule({ ok: true, platform: 'darwin' })]);
-    await waitFor(() => ready.io.out().includes('客人沙盒'), { what: 'the sandbox report' });
-    expect(ready.io.out()).toContain('客人沙盒：可用');
+    const readyModule = sandboxModule({ ok: true, platform: 'darwin' });
+    const ready = await startHost([], [readyModule], undefined, { loggedIn: true });
+    await waitFor(() => readyModule.asked(), { what: 'the sandbox check' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(ready.io.out()).toBe(summaryOf(ready.daemon.ctx.workspace.info.name, ready.links, '給組員的連結（用私訊傳給他們，7 天內有效）：'));
+    expect(await statusOf(ready)).toContain('  客人沙盒：可用\n');
   });
 
   it('the Linux fix for a missing sandbox dependency also names the bubblewrap version it needs', () => {
@@ -336,138 +396,150 @@ describe('smurg host', () => {
     let status: PowerStatus = { active: true, mechanism: 'systemd-inhibit', pid: 4242, reason: null };
     const power: PowerService = { start: async () => status, stop: async () => {}, status: () => status };
     const h = await startHost([], [], power);
-    expect(h.io.out()).toContain('防止睡眠：已啟用（systemd-inhibit）');
+    // Working keep-awake is not news at the start; `smurg status` shows it.
+    expect(h.io.out()).not.toContain('防止睡眠');
+    expect(await statusOf(h)).toContain('防止睡眠：已啟用（systemd-inhibit）');
     status = { active: false, mechanism: 'none', pid: null, reason: 'the inhibitor exited' };
     await waitFor(() => h.io.out().includes('防止睡眠已失效'), { timeoutMs: 10_000, what: 'the keep-awake warning' });
     expect(h.io.out()).toContain('⚠ 防止睡眠已失效：未啟用（防睡眠程式已經結束）');
   });
 
-  it('keep-awake the system refuses (Linux over SSH: polkit) is told in the summary with the reason and what to do (linux-binary F5)', async () => {
+  it('keep-awake the system refuses (Linux over SSH: polkit) is told in one line after the links, with the reason and what to do (linux-binary F5); switched off by the host, nothing is said', async () => {
     const status: PowerStatus = { active: false, mechanism: 'none', pid: null, reason: 'the inhibitor was refused' };
     const power: PowerService = { start: async () => status, stop: async () => {}, status: () => status };
-    const h = await startHost([], [], power);
-    expect(h.io.out()).toContain('防止睡眠：未啟用（系統（polkit）不允許防止睡眠（例如透過 SSH 登入時，Ubuntu 預設如此）；請在這台電腦的桌面登入後執行 smurg host，或請系統管理員允許）');
+    const h = await startHost([], [], power, { loggedIn: true });
+    expect(h.io.out()).toBe(
+      summaryOf(h.daemon.ctx.workspace.info.name, h.links, '給組員的連結（用私訊傳給他們，7 天內有效）：') +
+        '\n⚠ 防止睡眠：未啟用（系統（polkit）不允許防止睡眠（例如透過 SSH 登入時，Ubuntu 預設如此）；請在這台電腦的桌面登入後執行 smurg host，或請系統管理員允許）。電腦睡眠時組員會看到「主人已離線」。\n',
+    );
+    // --no-keep-awake (every other test here): the host's own choice, not a notice; `smurg status` still says it.
+    const off = await startHost([], [], undefined, { loggedIn: true });
+    expect(off.io.out()).not.toContain('防止睡眠');
+    expect(await statusOf(off)).toContain('防止睡眠：未啟用（已用 --no-keep-awake 關閉）');
   });
 
-  it('explains the guests\' subscription login and the shell-command notices by default, and passes both switches on to the daemon (§11 D-12, D-13)', async () => {
-    const h = await startHost();
+  it('passes the D-12 / D-13 switches on to the daemon (both on by default); the start says nothing about them, `smurg status` shows them (§11 D-12, D-13)', async () => {
+    const h = await startHost([], [], undefined, { loggedIn: true });
     expect(h.daemon.config.sessions.guestSubscriptionLogin).toBe(true);
     expect(h.daemon.config.activity.attributeBashEdits).toBe(true);
-    const out = h.io.out();
-    // What changed for the host, in plain zh-TW: the separate login step may listen on a port while it runs, nothing
-    // else of a guest may; agents' shell commands are reported to this machine's smurg (not their content).
-    expect(out).toContain('組員可以用自己的 Claude 訂閱帳號登入');
-    expect(out).toContain('這個登入程序可以在這台電腦上開一個網路埠');
-    expect(out).toContain('除了它之外，組員的程式');
-    expect(out).toContain('--no-guest-subscription-login');
-    expect(out).toContain('執行 shell 指令時，會通知這台電腦上的 smurg 指令何時開始、何時結束（不含指令內容');
-    expect(out).toContain('--no-bash-attribution');
-    // Defaults are explained, not echoed as switched off; the three SPEC §11 notes stay.
-    expect(out).not.toContain('已關閉');
-    expect(out).toContain('不在沙盒裡');
-    expect(out).toContain('Claude 登入憑證會存放在這台電腦上');
-    expect(out).toContain('組員只能在 smurg host 執行');
-    // After the SPEC §11 notes, before the keep-awake line.
-    expect(out.indexOf('■ 組員的 Claude 登入')).toBeGreaterThan(out.indexOf('分享前請先了解'));
-    expect(out.indexOf('■ 組員的 Claude 登入')).toBeLessThan(out.indexOf('防止睡眠：'));
+    expect(h.io.out()).toBe(summaryOf(h.daemon.ctx.workspace.info.name, h.links, '給組員的連結（用私訊傳給他們，7 天內有效）：'));
+    const status = await statusOf(h);
+    expect(status).toContain('  組員的 Claude 訂閱登入：開放\n');
+    expect(status).toContain('  agent 的 shell 指令通知：開啟\n');
   });
 
-  it('--no-guest-subscription-login / --no-bash-attribution switch the daemon off and are echoed in the summary', async () => {
-    const h = await startHost(['--no-guest-subscription-login', '--no-bash-attribution']);
+  it('--no-guest-subscription-login / --no-bash-attribution switch the daemon off; the start says nothing, `smurg status` shows which', async () => {
+    const h = await startHost(['--no-guest-subscription-login', '--no-bash-attribution'], [], undefined, { loggedIn: true });
     expect(h.daemon.config.sessions.guestSubscriptionLogin).toBe(false);
     expect(h.daemon.config.activity.attributeBashEdits).toBe(false);
-    const out = h.io.out();
-    expect(out).toContain('組員的 Claude 訂閱登入：已關閉（--no-guest-subscription-login）。組員只能用自己的 API key 登入。');
-    expect(out).toContain('agent 的 shell 指令通知：已關閉（--no-bash-attribution）');
-    expect(out).toContain('「外部程式」');
-    expect(out).not.toContain('這個登入程序可以在這台電腦上開一個網路埠');
-    expect(out).not.toContain('會通知這台電腦上的 smurg');
+    expect(h.io.out()).toBe(summaryOf(h.daemon.ctx.workspace.info.name, h.links, '給組員的連結（用私訊傳給他們，7 天內有效）：'));
+    const status = await statusOf(h);
+    expect(status).toContain('  組員的 Claude 訂閱登入：已關閉（--no-guest-subscription-login）\n');
+    expect(status).toContain('  agent 的 shell 指令通知：已關閉（--no-bash-attribution）\n');
     // Each switch on its own.
     const one = await startHost(['--no-bash-attribution']);
     expect(one.daemon.config.sessions.guestSubscriptionLogin).toBe(true);
     expect(one.daemon.config.activity.attributeBashEdits).toBe(false);
-    expect(one.io.out()).toContain('這個登入程序可以在這台電腦上開一個網路埠');
-    expect(one.io.out()).not.toContain('Claude 訂閱登入：已關閉');
+    const oneStatus = await statusOf(one);
+    expect(oneStatus).toContain('  組員的 Claude 訂閱登入：開放\n');
+    expect(oneStatus).toContain('  agent 的 shell 指令通知：已關閉（--no-bash-attribution）\n');
     const other = await startHost(['--no-guest-subscription-login']);
     expect(other.daemon.config.sessions.guestSubscriptionLogin).toBe(false);
     expect(other.daemon.config.activity.attributeBashEdits).toBe(true);
-    expect(other.io.out()).not.toContain('shell 指令通知：已關閉');
+    const otherStatus = await statusOf(other);
+    expect(otherStatus).toContain('  組員的 Claude 訂閱登入：已關閉（--no-guest-subscription-login）\n');
+    expect(otherStatus).toContain('  agent 的 shell 指令通知：開啟\n');
   });
 
   // ARCHITECTURE §11 D-14 (owner decision 2026-10-01): guests' sessions in the main workspace are off by default on a
-  // Linux host and on by default on macOS; the host opens or closes them with a flag, and the summary says which.
-  it('guests in the main workspace: the platform\'s default unless the host said otherwise, passed to the daemon and told in the summary (§11 D-14)', async () => {
+  // Linux host and on by default on macOS; the host opens or closes them with a flag, and `smurg status` says which.
+  it('guests in the main workspace: the platform\'s default unless the host said otherwise, passed to the daemon, shown by `smurg status` (§11 D-14)', async () => {
     const linux = process.platform === 'linux';
-    const h = await startHost();
+    const closedText = '  客人的主工作區 session：未開放（客人只能用自己的 worktree）；這個資料夾不是 git repository，客人目前無法開 session\n';
+    const h = await startHost([], [], undefined, { loggedIn: true });
     expect(h.daemon.config.sessions.guestMainWorkspace).toBe(!linux);
     expect(h.daemon.ctx.settings.public().guestMainWorkspace).toBe(!linux);
-    const out = h.io.out();
-    expect(out).toContain(linux ? '客人的主工作區 session：未開放（Linux 預設）' : '客人的主工作區 session：已開放（macOS 預設）');
-    expect(out).toContain(linux ? '--allow-main-workspace-guests' : '--no-main-workspace-guests');
-    // In the switches section, after the SPEC §11 notes and before the keep-awake line.
-    expect(out.indexOf('客人的主工作區 session')).toBeGreaterThan(out.indexOf('■ 組員的 Claude 登入'));
-    expect(out.indexOf('客人的主工作區 session')).toBeLessThan(out.indexOf('防止睡眠：'));
+    expect(h.io.out()).toBe(summaryOf(h.daemon.ctx.workspace.info.name, h.links, '給組員的連結（用私訊傳給他們，7 天內有效）：'));
+    // The test project is not a git repository: closed, guests have no worktree either, and `smurg status` says so.
+    expect(h.daemon.ctx.workspace.info.isGitRepo).toBe(false);
+    expect(await statusOf(h)).toContain(linux ? closedText : '  客人的主工作區 session：已開放\n');
 
     const opened = await startHost(['--allow-main-workspace-guests']);
     expect(opened.daemon.config.sessions.guestMainWorkspace).toBe(true);
-    expect(opened.io.out()).toContain('客人的主工作區 session：已開放（--allow-main-workspace-guests）');
-    // The Linux residuals are listed exactly when the main workspace is open to guests on Linux (§12).
-    expect(opened.io.out().includes('Linux 上的限制')).toBe(linux);
+    expect(await statusOf(opened)).toContain('  客人的主工作區 session：已開放\n');
 
     const closed = await startHost(['--no-main-workspace-guests']);
     expect(closed.daemon.config.sessions.guestMainWorkspace).toBe(false);
     expect(closed.daemon.ctx.settings.public().guestMainWorkspace).toBe(false);
-    const closedOut = closed.io.out();
-    expect(closedOut).toContain('客人的主工作區 session：未開放（--no-main-workspace-guests）');
-    // The test project is not a git repository: no worktree either, and the summary says so.
-    expect(closed.daemon.ctx.workspace.info.isGitRepo).toBe(false);
-    expect(closedOut).toContain('這個資料夾不是 git repository，沒有 worktree 可用，所以客人目前無法開 session');
-    expect(closedOut).not.toContain('Linux 上的限制');
+    expect(await statusOf(closed)).toContain(closedText);
     // The other switches are untouched by it.
     expect(closed.daemon.config.sessions.guestSubscriptionLogin).toBe(true);
     expect(closed.daemon.config.activity.attributeBashEdits).toBe(true);
   });
 
-  it('the main-workspace summary line for every platform, flag and share kind (§11 D-14, §12 "Linux, in more detail")', () => {
-    const facts = (platform: NodeJS.Platform, mainWorkspaceFlag: boolean | undefined, isGitRepo = true): HostFacts => ({ platform, isGitRepo, mainWorkspaceFlag });
-    const text = (open: boolean, f: HostFacts): string => mainWorkspaceLines(open, f).join('\n');
-    // Linux, the default: closed, why, and how to open it.
-    const linuxDefault = text(false, facts('linux', undefined));
-    expect(linuxDefault).toContain('客人的主工作區 session：未開放（Linux 預設）');
-    expect(linuxDefault).toContain('只能在自己的 worktree 裡開 agent 和終端機');
-    expect(linuxDefault).toContain('Linux 的沙盒（bubblewrap）擋不住');
-    expect(linuxDefault).toContain('--allow-main-workspace-guests');
-    expect(linuxDefault).not.toContain('不是 git repository');
-    // Linux, opened: the residual limits of §12, and how to close it again.
-    const linuxOpen = text(true, facts('linux', true));
-    expect(linuxOpen).toContain('客人的主工作區 session：已開放（--allow-main-workspace-guests）。Linux 上的限制');
-    for (const limit of ['sub/.claude/settings.json', 'sub/.mcp.json', 'sub/.git/config', '新的 .git 和 node_modules 裡的除外', '.envrc、.mcp.json、.claude/、CLAUDE.local.md', 'git switch', '.git 最多 2 秒', '請先請客人結束 session', '* ? [ ] 或不是 UTF-8', 'Unix socket']) {
-      expect(linuxOpen).toContain(limit);
+  it('`smurg status` shows what the start no longer prints: folder, relay, fingerprint, keep-awake, guest sandbox, the switches, the log file; never a link', async () => {
+    const h = await startHost(['--no-bash-attribution'], [], undefined, { loggedIn: true });
+    const status = await statusOf(h);
+    const lines = [
+      `工作區 ${h.workspaceId}\n`,
+      `  資料夾：${await realpath(h.dirs.project)}\n`,
+      `  relay：${h.relay.origin}，互動連線 已連線，檔案傳輸 `,
+      `  daemon 金鑰指紋：${h.daemon.fingerprint}\n`,
+      '  防止睡眠：未啟用（已用 --no-keep-awake 關閉）\n',
+      // No sandbox module in this harness: nothing was checked.
+      '  客人沙盒：尚未檢查\n',
+      '  組員的 Claude 訂閱登入：開放\n',
+      '  agent 的 shell 指令通知：已關閉（--no-bash-attribution）\n',
+      `  紀錄檔：${join(h.dirs.stateDir, 'logs', `${h.workspaceId}.log`)}\n`,
+    ];
+    for (const line of lines) expect(status, line).toContain(line);
+    // In this order.
+    const at = lines.map((line) => status.indexOf(line));
+    expect([...at].sort((x, y) => x - y)).toEqual(at);
+    // Not the relay's built-in mark (the test relay is not the built-in one), and never a link or its secret.
+    expect(status).not.toContain('內建的公用 relay');
+    expect(status).not.toContain('/join/');
+    for (const url of [h.links.host, h.links.invite]) expect(status).not.toContain(new URLSearchParams(new URL(url).hash.slice(1)).get('s') as string);
+  });
+
+  it('what the start no longer prints is in the host guide (docs/HOSTING.md), and --help points to it', async () => {
+    const help = testIo({ env: {} });
+    expect(await runCli(['host', '--help'], help)).toBe(0);
+    expect(help.out()).toBe(hostUsage());
+    // The anchors are the guide's headings as the docs site makes them (apps/site/test/inbound.test.ts checks the URLs).
+    expect(help.out()).toContain('https://smurg.ai/docs/hosting/#4-分享前必讀');
+    expect(help.out()).toContain('https://smurg.ai/docs/hosting/#5-組員的-claude-登入客人的主工作區agent-的-shell-指令');
+    expect(help.out()).toContain('smurg status');
+    const guide = await readFile(join(ROOT, 'docs', 'HOSTING.md'), 'utf8');
+    expect(guide).toContain('\n## 4. 分享前必讀\n');
+    expect(guide).toContain('\n## 5. 組員的 Claude 登入、客人的主工作區、agent 的 shell 指令\n');
+    const section = (n: number): string => guide.slice(guide.indexOf(`\n## ${n}. `), guide.indexOf(`\n## ${n + 1}. `));
+    // SPEC §11's warnings, before sharing.
+    for (const text of ['**你自己的 Claude Code session 不在沙盒裡**', 'prompt injection', '**他們的 Claude 登入憑證會存放在你的電腦上**', '組員只能在 `smurg host` 執行']) {
+      expect(section(4), text).toContain(text);
     }
-    // The guard-review round (GR-1, GR-4): names in directories made in one burst are found by the next walk, within
-    // seconds, and once more after the guest's process ended; the placeholders are kept out of the host's git.
-    for (const limit of ['通常幾秒內', '客人程序結束後也會再查一次', 'mkdir -p、git checkout、解壓縮', '.git/info/exclude', 'git add -f、git clean -x、git stash -a']) {
-      expect(linuxOpen).toContain(limit);
+    // The three switches: what each one lets happen on this machine, how to change it, and the Linux limits of an open
+    // main workspace (ARCHITECTURE §12 "Linux, in more detail").
+    for (const text of [
+      '--no-guest-subscription-login',
+      '**登入期間（最多 10 分鐘）它可以在你的電腦上開一個網路埠**',
+      '--no-bash-attribution',
+      '**不含指令內容和輸出**',
+      '--allow-main-workspace-guests',
+      '--no-main-workspace-guests',
+      '`sub/.claude/settings.json`、`sub/.mcp.json`、`sub/.git/config`',
+      '新的 `.git` 和 `node_modules` 裡的除外',
+      '`.git/info/exclude`',
+      '`git add -f`、`git clean -x` 或',
+      '`.git` 最多 2 秒',
+      '`*`、`?`、`[`、`]` 或不是 UTF-8',
+      'Unix socket',
+      '**不是 git repository**',
+    ]) {
+      expect(section(4) + section(5), text).toContain(text);
     }
-    expect(linuxOpen).toContain('Linux 預設不開放');
-    // macOS: open by default, no Linux limits; closed with the flag.
-    const macDefault = text(true, facts('darwin', undefined));
-    expect(macDefault).toContain('客人的主工作區 session：已開放（macOS 預設）');
-    expect(macDefault).toContain('--no-main-workspace-guests');
-    expect(macDefault).not.toContain('Linux');
-    expect(text(true, facts('darwin', true))).toContain('已開放（--allow-main-workspace-guests）');
-    expect(text(false, facts('darwin', false))).toContain('未開放（--no-main-workspace-guests）');
-    expect(text(false, facts('darwin', false))).not.toContain('bubblewrap');
-    expect(text(false, facts('linux', false))).toContain('未開放（--no-main-workspace-guests）');
-    // Closed on a share that is not git: guests have no session at all, and are told nothing else is affected.
-    for (const platform of ['linux', 'darwin'] as const) {
-      expect(text(false, facts(platform, undefined, false))).toContain('不是 git repository，沒有 worktree 可用，所以客人目前無法開 session');
-      expect(text(true, facts(platform, undefined, false))).not.toContain('不是 git repository');
-    }
-    // In switchLines, between the subscription login and the Bash notices.
-    const all = switchLines({ guestSubscriptionLogin: false, attributeBashEdits: false, guestMainWorkspace: false }, facts('linux', undefined)).join('\n');
-    expect(all.indexOf('Claude 訂閱登入：已關閉')).toBeLessThan(all.indexOf('客人的主工作區 session'));
-    expect(all.indexOf('客人的主工作區 session')).toBeLessThan(all.indexOf('shell 指令通知：已關閉'));
+    // The fingerprint, keep-awake, where the log is, and `smurg status`.
+    for (const text of ['金鑰指紋', '闔上筆電螢幕仍然會睡眠', '`~/.smurg/logs/<工作區代碼>.log`', '`smurg status`']) expect(guide, text).toContain(text);
   });
 
   it('validates the two switches before anything else happens (exit 2), and --help lists them', async () => {

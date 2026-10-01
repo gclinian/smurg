@@ -123,7 +123,8 @@ In the Google Cloud console (project "smurg"):
    (in "Testing" only listed test users can log in; confirm, §10). **Authorized domains**: `smurg.ai`.
 2. **Credentials → OAuth client ID**, type **Web application**; **Authorized JavaScript origins**:
    `https://app.smurg.ai`; **Authorized redirect URIs**: `https://app.smurg.ai/auth/google/callback`, exactly
-   (`scripts/deploy-relay.sh` prints both). The CLI's login goes through the same callback, so no loopback URI is
+   (`scripts/deploy-relay.sh` prints both). The CLI's login goes through the same callback (the device-code login's
+   /device page uses the relay's own Google login; smurg 0.1.0's loopback login did too), so no loopback URI is
    registered. The workers.dev origin and redirect URI of the first deploy can be removed (that hostname answers 404).
 3. The **client ID** is public (it goes into `apps/relay/wrangler.jsonc`); the **client secret** goes only into
    `wrangler secret put` below, never into the repository, CI, a chat or an issue.
@@ -552,8 +553,8 @@ sh /tmp/smurg-vX.Y.Z/install.sh --base-url http://127.0.0.1:8000 --prefix /tmp/s
 ```
 
 **After publishing**, time SPEC R1.1 on a fresh macOS and a fresh Ubuntu 24.04 (a new macOS user account is the
-cheapest fresh Mac; a new VM or cloud instance for Ubuntu, with a desktop for the browser login or over SSH with the
-port-forward line `smurg login` prints):
+cheapest fresh Mac; a new VM or cloud instance for Ubuntu, with a desktop or over SSH: `smurg login` prints a page and a
+code to enter in any browser, from 0.1.0's successor on; 0.1.0 itself prints an `ssh -L` port-forward line over SSH):
 
 1. Start a timer. `curl -fsSL https://smurg.ai/install.sh | sh` (on a second machine also try the version's own line,
    `curl -fsSL https://downloads.smurg.ai/vX.Y.Z/install.sh | sh`).
@@ -629,7 +630,9 @@ pnpm exec wrangler rollback <version-id> --message "why"
 ```
 
 A rollback restores the Worker's code and configuration, not the Durable Objects' stored data, and like a deploy it
-disconnects every socket. Its web app is rolled back too, and an older web app refuses the `channel.welcome` of a newer
+disconnects every socket. Cloudflare does not roll a Worker back across a Durable Object migration: once the deploy
+that applies `v2` (`DeviceLoginDO`, the CLI's device-code login) has run, versions before it are out of reach (fix
+forward instead; smurg 0.1.0's loopback login keeps working on the new version). Its web app is rolled back too, and an older web app refuses the `channel.welcome` of a newer
 daemon (§4 step 3): do not roll back past the version deployed for the latest release.
 
 **Stopping the relay in an emergency** (a leaked signing key, abuse): Workers & Pages → smurg-relay → Settings →

@@ -3,7 +3,7 @@
 // `<state>/run/<short>.ctl` (ARCHITECTURE §7.1). Nothing is ever signalled: a daemon is asked over its socket.
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { SocketPathError, runPathsFor, type DaemonStatus } from '@smurg/daemon';
+import { SocketPathError, runPathsFor, type CtlStatus } from '@smurg/daemon';
 import { isWorkspaceId } from '@smurg/protocol/relay';
 import { CliError, usageError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
@@ -13,7 +13,7 @@ import { ctlRequest } from './local-channel.ts';
 
 export interface RunningDaemon {
   readonly ctlPath: string;
-  readonly status: DaemonStatus;
+  readonly status: CtlStatus;
 }
 
 export function ctlPathFor(paths: StatePaths, workspaceId: string): string {
@@ -31,7 +31,7 @@ export async function daemonAt(ctlPath: string, timeoutMs = 3_000): Promise<Runn
   try {
     const response = await ctlRequest(ctlPath, { v: 1, op: 'status' }, timeoutMs);
     if (!response.ok || response.op !== 'status') return null;
-    return { ctlPath, status: response.status as DaemonStatus };
+    return { ctlPath, status: response.status };
   } catch {
     return null;
   }

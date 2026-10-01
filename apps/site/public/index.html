@@ -455,7 +455,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>Anything to know about Linux?</h3>
-        <p>On a Linux host, teammates’ sessions run only in their own git worktree by default, so the shared folder must be a git repository for them to start sessions. With the <code>--allow-main-workspace-guests</code> option, <code>smurg host</code> opens the main workspace to them too, and the start message lists the limits that come with it (<a href="/docs/hosting/">host guide</a>, §4 and §5).</p>
+        <p>On a Linux host, teammates’ sessions run only in their own git worktree by default, so the shared folder must be a git repository for them to start sessions. With the <code>--allow-main-workspace-guests</code> option, <code>smurg host</code> opens the main workspace to them too; read the limits that come with it first (<a href="/docs/hosting/">host guide</a>, §4 and §5).</p>
         <p>The guest sandbox needs bubblewrap 0.8 or later, socat and ripgrep: Ubuntu 24.04 and Debian 12 or later are fine, while Ubuntu 22.04’s bubblewrap is too old for teammates’ sessions. The installer checks for these and for Ubuntu’s AppArmor restriction, and installs what is missing with sudo only if you agree. The full test suite passes on Ubuntu 24.04, but nobody has hosted a real workspace on Linux yet.</p>
       </div>
       <div>

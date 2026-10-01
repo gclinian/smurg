@@ -159,9 +159,9 @@ prompt line in the web smoke test; `docs/research/sandbox.md` "Linux, verified 2
   R1.1's timing (`docs/OPEN-QUESTIONS.md` Q2).
 - **Linux-only residuals** (bubblewrap mounts concrete paths; ARCHITECTURE §12 "Linux, in more detail"). Since the
   owner's decision of 2026-10-01 (ARCHITECTURE §11 D-14) guests' sessions in the main workspace are OFF by default on a
-  Linux host (worktree mode only; `smurg host --allow-main-workspace-guests` opens them and lists these limits), so the
-  main-workspace items below arise only when the host opened it: in a guest
-  session in the MAIN workspace a guest can create a NEW host-only name below the top of the share
+  Linux host (worktree mode only; `smurg host --allow-main-workspace-guests` opens them; `docs/HOSTING.md` §4 / §5 list
+  these limits), so the main-workspace items below arise only when the host opened it: in a guest session in the MAIN
+  workspace a guest can create a NEW host-only name below the top of the share
   (`sub/.claude/settings.json`, `sub/.mcp.json`, `sub/.git/…`; except for `.git` and inside `node_modules` this now
   ends that root's guest processes and is named to the host, at once or, in a directory inotify never watched, within
   seconds through the guard's walk); a guest can remove or re-point a read-only shared link in its own worktree (the
@@ -238,12 +238,22 @@ Supporting: `daemon/authorization.test.ts` (every request type × every role), `
 `daemon/members.test.ts` (also: a kick while `state.json` cannot be written stays in force and survives a restart once
 the disk recovers, review REL-14), `packages/protocol/src/channel/handshake.test.ts`.
 
-Login (R2 「以 GitHub 或 Google 登入 relay」, not an acceptance criterion of its own): `apps/relay/test/cli-login.browser.test.ts`
-(system Chrome, headless, fresh profile: the CLI loopback login through the dev login and through GitHub / Google
-provider pages that submit a form, reaching the CLI's listener (review OWNER-01); **the real `smurg login --no-browser`**
-signed in from the relay's page, with the terminal's confirmation code equal to the page's; a link with a provider and a
-form on another site stop at the confirmation page (review SEC-E-03)); `apps/relay/test/auth.test.ts` › CLI login
-confirmation (SEC-E-03); `web/src/app/pages/JoinPage.test.tsx` › SEC-E-02 (an invite link joins nothing until 「加入」).
+Login (R2 「以 GitHub 或 Google 登入 relay」, not an acceptance criterion of its own). The CLI's device-code login
+(2026-10-01, ARCHITECTURE §6): `apps/relay/test/device.test.ts` (real workerd: start; /device needs the relay's login and
+comes back; wrong and right codes as people type them; the confirmation screen; allow / deny bound to the browser's
+account; the session issued once; expiry and the alarm that deletes it; the rate limits per account, per address and for
+starts; CSRF; framing headers; slow_down; a forged device code); `apps/relay/test/cli-login.browser.test.ts` (system
+Chrome, headless, fresh profile: **the real `smurg login --no-browser`** signed in through /device with the dev login,
+the code and 「允許」; a form on another site can neither enter a code nor allow); `tests/e2e/test/device-login.test.ts`
+(the real CLI against the real relay, the browser played over HTTP: allowed, 「拒絕」, Ctrl-C);
+`web/e2e/smoke/login.smoke.test.ts` › smurg login by device code … (the built app's relay, Chrome in a phone-sized
+window, zero console errors and failed requests); `cli/test/login.test.ts` (what the CLI prints, the page it opens and
+when, the polling, slow_down, Ctrl-C, expiry, 「拒絕」, `smurg host` logging in first, the token saved 0600) and
+`cli/test/browser-policy.test.ts` (no browser over SSH or in automated runs). The deprecated loopback login (smurg
+0.1.0): `cli-login.browser.test.ts` (the dev login and GitHub / Google provider pages that submit a form, reaching the
+CLI's listener, review OWNER-01; a link with a provider and a form on another site stop at the confirmation page, review
+SEC-E-03) and `apps/relay/test/auth.test.ts` › CLI loopback login, CLI login confirmation (SEC-E-03).
+`web/src/app/pages/JoinPage.test.tsx` › SEC-E-02 (an invite link joins nothing until 「加入」).
 Which login buttons a page shows comes from the relay's `GET /api/login-options` (`apps/relay/test/login-options.test.ts`,
 real workerd; `apps/relay/test/lib.test.ts`); a logged-out page load of `/` and `/join/<id>` has zero console errors and
 zero failed requests (`web/e2e/smoke/login.smoke.test.ts`). Real GitHub / Google accounts are not exercised (opt-in)
@@ -339,7 +349,7 @@ locked file under every spelling, then accepted and seen by the open editors), `
 
 | # | 驗收標準 | Automated test | Status |
 |---|---|---|---|
-| R9 (D-14) | 開 agent session 時可以選擇「共享主工作區」或「我的 worktree」 (the requirement's text, not a numbered criterion; narrowed on a Linux host by ARCHITECTURE §11 D-14, owner decision 2026-10-01) | `daemon/workspace.test.ts` › resolveConfig › guests in the main workspace: off by default on Linux, on by default on macOS …; `daemon/settings.test.ts` › PublicSettings.guestMainWorkspace …; `daemon/sessions/launch.test.ts` › guests in the main workspace (ARCHITECTURE §11 D-14) (refused with `forbidden` / `main-workspace-off` and audited, nothing prepared; the guest's worktree and the host's main workspace still work; the platform default enforced); `daemon/sessions/login.test.ts` › guests kept out of the main workspace … (the login process is unaffected); `tests/e2e/test/r9.main-workspace.test.ts` (real relay + daemon + sandbox); `cli/test/host-relay.test.ts` › guests in the main workspace … and › the main-workspace summary line …; `cli/test/args-state.test.ts` (`--allow-main-workspace-guests` / `--no-main-workspace-guests`); `web/src/features/agents/new-session.test.ts`, `NewSessionDialog.test.tsx` › new session dialog: a host that keeps guests out of the main workspace … (the main choice disabled with the reason, a new worktree preselected and sent, the setting changing while the dialog is open, a share that is not git), `web/e2e/smoke/main-workspace.smoke.test.ts` (real browsers on the built app: a runner's terminal opens in their own worktree; the daemon refuses a main-mode request whatever the client sends; the host's own session uses the main workspace) | `covered` (macOS and Linux): on macOS both choices by default; on Linux 「我的 worktree」 only unless the host opens the main workspace (`--allow-main-workspace-guests`), and on a share that is not git no guest session at all until then. The tests that run guests in the main workspace open it explicitly, so they run the same on both platforms. |
+| R9 (D-14) | 開 agent session 時可以選擇「共享主工作區」或「我的 worktree」 (the requirement's text, not a numbered criterion; narrowed on a Linux host by ARCHITECTURE §11 D-14, owner decision 2026-10-01) | `daemon/workspace.test.ts` › resolveConfig › guests in the main workspace: off by default on Linux, on by default on macOS …; `daemon/settings.test.ts` › PublicSettings.guestMainWorkspace …; `daemon/sessions/launch.test.ts` › guests in the main workspace (ARCHITECTURE §11 D-14) (refused with `forbidden` / `main-workspace-off` and audited, nothing prepared; the guest's worktree and the host's main workspace still work; the platform default enforced); `daemon/sessions/login.test.ts` › guests kept out of the main workspace … (the login process is unaffected); `tests/e2e/test/r9.main-workspace.test.ts` (real relay + daemon + sandbox); `cli/test/host-relay.test.ts` › guests in the main workspace … (the flags reach the daemon, `smurg status` shows the state) and › what the start no longer prints is in the host guide … (the Linux limits in `docs/HOSTING.md`); `cli/test/args-state.test.ts` (`--allow-main-workspace-guests` / `--no-main-workspace-guests`); `web/src/features/agents/new-session.test.ts`, `NewSessionDialog.test.tsx` › new session dialog: a host that keeps guests out of the main workspace … (the main choice disabled with the reason, a new worktree preselected and sent, the setting changing while the dialog is open, a share that is not git), `web/e2e/smoke/main-workspace.smoke.test.ts` (real browsers on the built app: a runner's terminal opens in their own worktree; the daemon refuses a main-mode request whatever the client sends; the host's own session uses the main workspace) | `covered` (macOS and Linux): on macOS both choices by default; on Linux 「我的 worktree」 only unless the host opens the main workspace (`--allow-main-workspace-guests`), and on a share that is not git no guest session at all until then. The tests that run guests in the main workspace open it explicitly, so they run the same on both platforms. |
 | R9.1 | worktree 裡的 agent 無法讀寫主工作區或其他 worktree | `daemon/worktree/r9.real-sandbox.test.ts` › R9.1 …; R9.2 … (the real worktree, sessions and sandbox modules, real srt); `daemon/integration/sessions-sandbox-worktree.test.ts` (through the real `session.create` handler, every module composed); `daemon/sandbox/r5.sandbox.test.ts` › R9.1 … | `covered` (macOS and Linux). |
 | R9.2 | worktree 裡的 agent 可以讀取共享資料夾，但無法寫入 | `daemon/worktree/r9.real-sandbox.test.ts`; `daemon/sandbox/r5.sandbox.test.ts` › R9.2 …; `daemon/worktree/worktrees.test.ts` › D12 … | `covered` (macOS and Linux). Linux: the shared folder itself stays read-only, but the guest can remove or re-point the link to it in its own worktree (bubblewrap cannot mount on a symlink); the daemon then refuses the tampered link (`shared-link-tampered`) and never follows it (ARCHITECTURE §12). |
 | R9.3 | 主人拒絕合併時，worktree 保持原狀 | `daemon/worktree/merge.test.ts` › R9.3 主人拒絕合併時，worktree 保持原狀 …; `web/src/features/worktree/merge-requests.test.tsx` (the reject flow in the UI); `web/e2e/smoke/acceptance.smoke.test.ts` › R9 合併 — … (real browsers on the built app: the host reviews the complete diff and merges, the file reaches everyone's tree; a rejected request leaves the worktree's files as they were) | `covered` |
@@ -367,13 +377,14 @@ locked file under every spelling, then accepted and seen by the open editors), `
   worktree's shared link, sockets in readable directories, the window before a protected entry the host changes while
   a guest runs ends that guest's processes) are listed in ARCHITECTURE §12; the owner decided on 2026-10-01 (§11 D-14,
   `docs/OPEN-QUESTIONS.md` Q2) that main-workspace guest sessions are off by default on Linux, so the main-workspace
-  ones apply only when the host opens them with `--allow-main-workspace-guests` (the start summary lists them).
+  ones apply only when the host opens them with `--allow-main-workspace-guests` (`docs/HOSTING.md` §4 / §5 list them;
+  since the owner's decision of 2026-10-01 the start of `smurg host` prints only the two links).
 - Browsers other than Chrome (Safari/WebKit's wrapped device keys, Firefox) were not run.
 - R7.2 at the full 10 GB is manual. R1.1: an installer exists, but no release is hosted, built for every platform or
   signed yet, so the fresh-machine timing cannot be done (`docs/RELEASING.md`).
 - R5 「Linux 安裝程式自動處理 Ubuntu 24.04 以上版本的 AppArmor 限制」: `scripts/install.sh` installs bubblewrap / socat /
-  ripgrep and an AppArmor profile for `/usr/bin/bwrap` with the host's consent, and `smurg host` reports at start
-  whether guest sessions can run (with the fix commands). The profile it writes is the one the VM and CI run with
+  ripgrep and an AppArmor profile for `/usr/bin/bwrap` with the host's consent, and `smurg host` tells the host at
+  start when guest sessions cannot run (one line and the fix commands; `smurg status` shows the last check). The profile it writes is the one the VM and CI run with
   (verified: with it the sandbox works under the stock restriction, without it `smurg host` reports `apparmor-userns`
   and the fix); srt's `apply-seccomp` never runs (no seccomp filter with `allowAllUnixSockets`), so it needs no
   profile. The installer's Linux branch itself (apt-get through sudo with consent) ran only against stand-ins; its

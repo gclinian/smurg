@@ -1,7 +1,8 @@
 # @smurg/relay
 
-smurg 的 relay：一個 Cloudflare Worker 加上兩個 SQLite 型 Durable Object（`WorkspaceDO`、`TransferDO`）。
-它負責 OAuth 登入、發放 relay session 與身分權杖（identity token），並依工作區轉送**已經端對端加密**的訊框。
+smurg 的 relay：一個 Cloudflare Worker 加上三個 SQLite 型 Durable Object（`WorkspaceDO`、`TransferDO`，以及 CLI 用代碼登入的
+`DeviceLoginDO`）。它負責 OAuth 登入（CLI 用代碼登入）、發放 relay session 與身分權杖（identity token），並依工作區轉送
+**已經端對端加密**的訊框。
 規格見 `SPEC.md` §7.1、R1–R3，架構約定見 `docs/ARCHITECTURE.md` §6，驗證過的技術細節見 `docs/research/relay.md`。
 
 relay 看得到的只有：工作區 ID、連線 ID、訊框大小與時間，以及（因為登入經過它）每條連線的帳號身分與 IP 位址
@@ -35,9 +36,13 @@ relay 看得到的只有：工作區 ID、連線 ID、訊框大小與時間，�
 | `GET /healthz` | Worker 存活檢查 |
 | `GET /auth/github/login`、`GET /auth/google/login` | 瀏覽器登入（可加 `?return_to=/路徑` 或允許清單內的完整網址） |
 | `GET /auth/github/callback`、`GET /auth/google/callback` | OAuth 回呼（要在 OAuth app 註冊的網址） |
-| `GET /auth/cli/start?port=P&state=S&code_challenge=C[&provider=github\|google\|dev][&user=名稱]` | CLI 迴路登入的**確認頁**（只顯示，不做任何事）：列出登入方式（有 `provider` 時只列那一種）與確認碼，說明只有自己剛執行 `smurg login`、且終端機顯示同一組確認碼時才繼續 |
-| `POST /auth/cli/start`（表單，欄位同上） | 只接受確認頁本身送出的表單：`Origin` 必須是 relay 自己（或 `ALLOWED_ORIGINS`），有 `Sec-Fetch-Site` 時必須是 `same-origin`，否則 403。之後走供應商登入或開發用登入；結果經由 relay 的「繼續」頁（meta refresh ＋ 連結，不是 302）送到 `http://127.0.0.1:P/callback?code=…&state=S`（失敗時是 `?error=…&state=S`） |
-| `POST /auth/cli/token` `{ code, codeVerifier }` | 換成 bearer session：`{ token, tokenType, expiresIn, user }` |
+| `POST /auth/device/start`（JSON，可以沒有 body） | CLI 用代碼登入的第一步，不需要登入：`{ deviceCode, userCode, verificationUri, expiresIn: 600, interval: 5 }`。`userCode` 是 `XXXX-XXXX`（RFC 8628 §6.1 的 20 個子音字母），`deviceCode` 是 `<去掉「-」的 userCode>.<32 位元組亂數的 base64url>`，`verificationUri` 是 `<relay>/device`（不帶代碼）。同一個 IP 位址 10 分鐘內最多 30 次，超過回 429 `too_many_requests` 與 `Retry-After` |
+| `POST /auth/device/token` `{ deviceCode }` | CLI 每 `interval` 秒問一次。允許之後回 bearer session `{ token, tokenType, expiresIn, user }`（和 `/auth/cli/token` 相同），**只給一次**；在那之前回 400：`authorization_pending`、`slow_down`（比間隔早 1 秒以上就問；之後間隔加 5 秒）、`access_denied`（按了「拒絕」）、`expired_token`（過期、已經領過、不存在或密鑰不符，無法分辨）、`invalid_request`（格式錯誤） |
+| `GET /device` | relay 自己的頁面（不是 SPA；沒有 script）：瀏覽器沒有登入時列出 relay 的登入方式（Google、有設定時 GitHub、本機開發時開發用登入），登入後回到 `/device`；登入之後是輸入代碼的表單。**網址裡的代碼一律不用**（預先填好代碼的連結正是釣魚會寄的東西） |
+| `POST /device`（表單） | 只接受 `/device` 自己送出的表單（和確認頁相同的同源檢查，否則 403）。`code`：代碼正確時顯示確認畫面（要登入的帳號、代碼、要求來自的 IP 位址與大概位置、時間，以及「只有你自己剛在終端機執行 smurg login 時才按「允許」；如果是別人給你這個代碼，請按「拒絕」。」）；`code`、`account`、`decision=allow\|deny`：允許或拒絕，綁定這個瀏覽器 session 的帳號（`account` 和目前的帳號不同時 409）。錯誤的代碼每個帳號 10 分鐘內 10 次、每個 IP 位址 30 次，超過顯示「輸入錯誤的次數太多」（429） |
+| `GET /auth/cli/start?port=P&state=S&code_challenge=C[&provider=github\|google\|dev][&user=名稱]` | **已淘汰**（smurg 0.1.0 的 CLI 迴路登入；新的 CLI 用代碼登入。在不用它的 CLI 發佈一段時間之後移除）。CLI 迴路登入的**確認頁**（只顯示，不做任何事）：列出登入方式（有 `provider` 時只列那一種）與確認碼，說明只有自己剛執行 `smurg login`、且終端機顯示同一組確認碼時才繼續 |
+| `POST /auth/cli/start`（表單，欄位同上） | **已淘汰**（同上）。只接受確認頁本身送出的表單：`Origin` 必須是 relay 自己（或 `ALLOWED_ORIGINS`），有 `Sec-Fetch-Site` 時必須是 `same-origin`，否則 403。之後走供應商登入或開發用登入；結果經由 relay 的「繼續」頁（meta refresh ＋ 連結，不是 302）送到 `http://127.0.0.1:P/callback?code=…&state=S`（失敗時是 `?error=…&state=S`） |
+| `POST /auth/cli/token` `{ code, codeVerifier }` | **已淘汰**（同上）。換成 bearer session：`{ token, tokenType, expiresIn, user }` |
 | `GET /auth/dev/start?user=名稱[&name=顯示名稱][&return_to=…]`、`POST /auth/dev/token` `{ user, displayName? }` | **僅限開發**：`DEV_LOGIN=1` **而且**主機名稱是本機（`localhost`、`127.0.0.1`、`[::1]`、`*.localhost`），否則 404 |
 | `POST /auth/logout` | 清除瀏覽器 cookie（204） |
 | `GET /api/me` | `{ user: { userId, displayName, provider, avatarUrl? } }` 或 401。未登入時刻意維持 401：client SDK 用它判斷「需要重新登入」（`engine.ts` 的 `probeLogin`），CLI 用它檢查存下來的 session，relay 的測試也斷言這個狀態碼 |
@@ -48,10 +53,36 @@ relay 看得到的只有：工作區 ID、連線 ID、訊框大小與時間，�
 | `GET /ws/<id>/host`、`GET /ws/<id>/client` | WebSocket → `WorkspaceDO` |
 | `GET /xfer/<id>/host`、`GET /xfer/<id>/client` | WebSocket → `TransferDO` |
 | `GET /api/debug/room?kind=ws\|xfer&workspaceId=…` | **僅限開發**（同 dev login 的條件）：測試用的房間狀態 |
+| `GET /api/debug/device-login?code=…`（或 `?limit=<種類>&key=…`）、`POST …?code=…&expire=1` | **僅限開發**（同上）：測試用，`DeviceLoginDO` 存了什麼（不含密鑰的雜湊）；`expire=1` 讓那次登入立刻過期（測試不能等 10 分鐘） |
 
 其他路徑都是網頁 SPA（`wrangler.jsonc` 的 `assets`；Worker 先處理的路徑見 `RELAY_WORKER_FIRST_PATTERNS`）。
 
-### CLI 迴路登入為什麼這樣設計
+### CLI 用代碼登入（device code，2026-10-01）
+
+`smurg login`（以及需要登入的 `smurg host`、`smurg attach`）印出 `<relay>/device` 和一組代碼，在有桌面的電腦上也打開那個
+網址（不帶代碼），然後每 5 秒問一次 `POST /auth/device/token`。人在任何裝置的瀏覽器登入 relay、輸入代碼、看過確認畫面後按
+「允許」：CLI 拿到的是那個瀏覽器 session 的帳號。瀏覽器不需要連回 CLI 所在的電腦，所以透過 SSH 也不需要轉接埠
+（`docs/OPEN-QUESTIONS.md` Q7）。
+
+- **狀態**：`DeviceLoginDO`（SQLite 型，`wrangler.jsonc` 的 migration `v2`）。Worker 用名稱取得兩種物件：
+  `code:<代碼>` 是一次登入（代碼就是名稱，所以 `/device` 從人輸入的代碼、token 端點從 device code 都找得到它），存著
+  device code 密鑰的 SHA-256（用常數時間比對）、建立時間、`CF-Connecting-IP` 與 Cloudflare 推測的國家和城市，決定之後再加上
+  結果與按「允許」的帳號；CLI 領走結果時刪除，10 分鐘到了由 alarm 刪除。`limit:<種類>:<SHA-256>` 是 10 分鐘的計數器（IP
+  位址和帳號只以雜湊出現在名稱裡），視窗結束時由 alarm 刪除。每個物件只在有資料時設一個 alarm，沒有週期性的 alarm。
+- **費用**（Free 方案）：開始一次登入約 2 次 Durable Object 請求、3 列寫入（記錄、計數、alarm）；CLI 每次輪詢是 1 次 Worker
+  請求加 1 次 Durable Object 請求，**不寫入**（上一次輪詢的時間只放在記憶體裡；物件被移出記憶體時就忘了，下一次輪詢不會被當成
+  太快）；10 分鐘最多約 120 次。輸入代碼和允許／拒絕各約 3–5 次 Durable Object 請求。
+- **為什麼不預先填好代碼**：`/device?code=…` 這種連結誰都能做，攻擊者會把帶著自己代碼的連結寄給別人。代碼一定要在頁面上輸入，
+  確認畫面也寫出要求來自哪裡和多久以前。
+- **同源表單**：和下面的確認頁一樣，`/device` 的每個狀態變更都是同源的表單 POST（`Origin` 是 relay 自己或 `ALLOWED_ORIGINS`、
+  有 `Sec-Fetch-Site` 時必須是 `same-origin`），頁面的 `Referrer-Policy` 是 `same-origin`，CSP 有 `frame-ancestors 'none'`
+  並加上 `X-Frame-Options: DENY`。
+- 測試：`test/device.test.ts`（workerd）、`test/cli-login.browser.test.ts`（Chrome 與真正的 CLI）、
+  `tests/e2e/test/device-login.test.ts`、`apps/web/e2e/smoke/login.smoke.test.ts`。
+
+### CLI 迴路登入為什麼這樣設計（已淘汰：smurg 0.1.0）
+
+smurg 0.1.0 的 CLI 用下面的迴路登入；relay 保留這些路由，直到不用它的 CLI 發佈一段時間之後。
 
 - **連結本身不會登入任何人**（安全審查 SEC-E-03）：任何網頁都能用自己選的 port、state 與 PKCE challenge 連到
   `/auth/cli/start`。以前帶著 `provider=github` 的 GET 會直接轉到 GitHub，而 GitHub 對已授權過的 app 不再問使用者，
@@ -158,6 +189,9 @@ relay 是一個 Cloudflare 帳號上的一個 Worker（Workers **Free** 方案�
 部署一律在 repo 根目錄用 `scripts/deploy-relay.sh`（它會 `source scripts/env.sh`），可以重複執行：
 
 - 它**不會**執行 `wrangler login` 或 `wrangler secret put`，也不會讀取、顯示、寫入或傳遞任何 secret：需要時它印出指令，由你執行。
+- Durable Object 的 migration 由 `wrangler deploy` 依序套用，每個 tag 只套用一次：`v1`（`WorkspaceDO`、`TransferDO`，
+  2026-10-01 部署）**不能再改**；`v2`（`DeviceLoginDO`，CLI 用代碼登入）在它之後的第一次部署時建立，不需要另外的指令。
+  新的 class 一律用新的 tag 和 `new_sqlite_classes`（Free 方案只能用 SQLite 型）；第 3 步的檢查只接受剛好 `v1`、`v2`。
 - wrangler 的登入資料留在 repo 的 `.xdg/`（`scripts/env.sh` 設定 `XDG_CONFIG_HOME`；`.xdg/` 在 `.gitignore` 裡），不會寫進家目錄。
 
 ### 共同的前兩步
@@ -282,7 +316,7 @@ Google 的主控台偶爾改名：下面同時寫出「APIs & Services」的名�
 |---|---|
 | 1 | `wrangler whoami --json`：沒有登入就印出登入指令並停止（結束代碼 3）；有多個帳號而沒有 `CLOUDFLARE_ACCOUNT_ID` 時列出帳號並停止 |
 | 2 | `wrangler secret list`：Worker 還不存在或沒有 `RELAY_SIGNING_KEY` 時，印出上面第 2 步的指令並停止（結束代碼 3） |
-| 3 | 檢查 `wrangler.jsonc` 最上層：兩種形式之一（自訂網域：`workers_dev: false`、剛好一個 `{ pattern, custom_domain: true }` 的 route、`RELAY_ISSUER` 是 `https://<網域>`；workers.dev：`workers_dev: true`、沒有 routes、`RELAY_ISSUER` 是空的或這個 Worker 的 workers.dev 網址；`--url` 必須符合那個形式）、`preview_urls: false`、`DEV_LOGIN` `"0"`、`RELAY_TAP_URL` 空的、沒有 `GITHUB_*`、Google 的正式端點、`ALLOWED_ORIGINS` 等於 `RELAY_ISSUER`、`secrets.required`、兩個 SQLite Durable Object 與 migration、SPA assets 與 `run_worker_first`（`test/config.test.ts` 對提交的檔案做同樣的檢查） |
+| 3 | 檢查 `wrangler.jsonc` 最上層：兩種形式之一（自訂網域：`workers_dev: false`、剛好一個 `{ pattern, custom_domain: true }` 的 route、`RELAY_ISSUER` 是 `https://<網域>`；workers.dev：`workers_dev: true`、沒有 routes、`RELAY_ISSUER` 是空的或這個 Worker 的 workers.dev 網址；`--url` 必須符合那個形式）、`preview_urls: false`、`DEV_LOGIN` `"0"`、`RELAY_TAP_URL` 空的、沒有 `GITHUB_*`、Google 的正式端點、`ALLOWED_ORIGINS` 等於 `RELAY_ISSUER`、`secrets.required`、三個 SQLite Durable Object 與剛好 `v1`、`v2` 兩個 migration、SPA assets 與 `run_worker_first`（`test/config.test.ts` 對提交的檔案做同樣的檢查） |
 | 4 | `pnpm --filter @smurg/web build`，再執行 `scripts/check-web-dist.ts`：必須是真正的建置結果，有含 `frame-ancestors 'none'` 的 CSP 與至少一年的 `Strict-Transport-Security` 的 `_headers`，不公開 `.vite/`。記下 `index.html` 載入的 `/assets/…` 檔案（檔名含內容的雜湊，第 10 步比對） |
 | 5 | 網址。自訂網域：`https://<routes 的網域>`，接著查那個網址現在由誰回應（DNS 查詢，有記錄時再看 `/healthz` 與 `/api/login-options`）：還沒有 DNS 記錄或已經是 smurg relay 才繼續，否則停下來（結束代碼 3），因為這個腳本執行的 wrangler 會不經詢問接手那個網址（`--take-over-hostname` 照樣部署；`--dry-run` 不查）。workers.dev：`--url`，否則 `wrangler.jsonc` 的 `RELAY_ISSUER`，否則先部署一次（issuer 空的，relay 關閉），從 wrangler 寫在 `WRANGLER_OUTPUT_FILE_PATH` 的部署結果（`{"type":"deploy","targets":[…]}`）得知。wrangler 沒有單獨印出帳號 workers.dev 子網域的指令：`wrangler whoami` 只列出帳號 |
 | 6 | 把 `RELAY_ISSUER`、`ALLOWED_ORIGINS`（workers.dev 的網址；自訂網域的已經寫好）與 `GOOGLE_CLIENT_ID`（`--google-client-id`）寫進 `wrangler.jsonc` 最上層的 `vars`：只改那幾行，註解、`workers_dev`、`routes` 與 `env.dev` 不動，寫入前重新解析比對 |
@@ -356,6 +390,8 @@ relay 的用量（推算）：
   大約每 4–6 秒一次：每個工作區每天約 **14,000–22,000 次 alarm（＝請求），以及同樣多列的 SQLite 寫入**。只算這一項，Free 方案
   大約撐 **4–7 個整天都有人連著的工作區**。`TransferDO` 在有檔案傳輸連線時約每 30 秒一次。沒有組員連著時不設 alarm。
 - 每條 WebSocket 連線建立時是 1 次 Worker 請求加 1 次 Durable Object 請求；登入、建立工作區、身分權杖等 API 各是 1 次 Worker 請求。
+- CLI 用代碼登入：見上面「CLI 用代碼登入」的費用（一次登入最多約 120 次輪詢，每次 1 次 Worker 請求和 1 次 Durable Object
+  請求，不寫入）。
 - 心跳（文字 `"ping"`）由 auto-response 回應，不計費。打字、終端機輸出、檔案傳輸的每一則訊息（送進 Durable Object 的方向，
   包括主人送給組員的）以 1/20 次請求計算：一個持續輸出的終端機一天就可能用掉數萬次。
 - 網頁的靜態檔案不經過 Worker（`run_worker_first` 只列 relay 的路徑）；它們是否計入每天 100,000 次，這裡沒有驗證。

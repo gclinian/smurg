@@ -19,8 +19,8 @@
 //      create a Worker whose required secret is missing, and `wrangler secret put` on a Worker that does not exist yet
 //      creates an empty placeholder Worker first. So the script prints the command and stops.
 //   3. Production config preflight (wrangler.jsonc top level: one of the two hostname shapes above with its
-//      RELAY_ISSUER, no preview URLs, DEV_LOGIN "0", no tap, no GitHub vars, SQLite Durable Objects, SPA assets with
-//      run_worker_first).
+//      RELAY_ISSUER, no preview URLs, DEV_LOGIN "0", no tap, no GitHub vars, the three SQLite Durable Object classes
+//      with exactly the migrations v1 and v2, SPA assets with run_worker_first).
 //   4. Web build: `pnpm --filter @smurg/web build`, then scripts/check-web-dist.ts (the _headers CSP and HSTS must be
 //      there);
 //      the `/assets/…` files its index.html loads are what step 10 expects the live relay to serve.
@@ -440,9 +440,15 @@ export function productionConfigProblems(config: ProductionConfigView): string[]
   }
   if (!config.secrets?.required?.includes(SIGNING_KEY_SECRET)) problems.push(`secrets.required 必須列出 ${SIGNING_KEY_SECRET}`);
   const bindings = (config.durable_objects?.bindings ?? []).map((b) => `${b.name}:${b.class_name}`).join(',');
-  if (bindings !== 'WORKSPACE:WorkspaceDO,TRANSFER:TransferDO') problems.push('durable_objects 必須是 WORKSPACE（WorkspaceDO）與 TRANSFER（TransferDO）');
-  const sqlite = new Set((config.migrations ?? []).flatMap((m) => m.new_sqlite_classes ?? []));
-  if (!sqlite.has('WorkspaceDO') || !sqlite.has('TransferDO')) problems.push('migrations 必須用 new_sqlite_classes 建立 WorkspaceDO 與 TransferDO（Free 方案只能用 SQLite）');
+  if (bindings !== 'WORKSPACE:WorkspaceDO,TRANSFER:TransferDO,DEVICE_LOGIN:DeviceLoginDO') {
+    problems.push('durable_objects 必須是 WORKSPACE（WorkspaceDO）、TRANSFER（TransferDO）與 DEVICE_LOGIN（DeviceLoginDO）');
+  }
+  // Exactly the migrations already applied in production, in order, plus new tags after them: v1 was deployed on
+  // 2026-10-01; a class added to v1 afterwards would never be created (Cloudflare applies each tag once).
+  const migrations = (config.migrations ?? []).map((m) => `${m.tag ?? ''}:${(m.new_sqlite_classes ?? []).join('+')}:${Object.keys(m).sort().join('+')}`).join(',');
+  if (migrations !== 'v1:WorkspaceDO+TransferDO:new_sqlite_classes+tag,v2:DeviceLoginDO:new_sqlite_classes+tag') {
+    problems.push('migrations 必須剛好是 v1（new_sqlite_classes：WorkspaceDO、TransferDO）與 v2（new_sqlite_classes：DeviceLoginDO）（Free 方案只能用 SQLite；已部署的 v1 不能改）');
+  }
   const assets = config.assets;
   if (!assets?.directory || !/(?:^|[/\\])web[/\\]dist$/.test(assets.directory)) problems.push('assets.directory 必須是 ../web/dist');
   if (assets?.not_found_handling !== 'single-page-application') problems.push('assets.not_found_handling 必須是 single-page-application');

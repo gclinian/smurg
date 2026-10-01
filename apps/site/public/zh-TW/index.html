@@ -454,7 +454,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>Linux 有什麼要注意的？</h3>
-        <p>主人的電腦是 Linux 時，組員的 session 預設只能在自己的 git worktree 裡執行，所以分享的資料夾必須是 git repository，組員才能開 session。<code>smurg host</code> 加上 <code>--allow-main-workspace-guests</code> 選項分享時，組員也能在共享主工作區開 session，開始訊息會列出隨之而來的限制（<a href="/docs/hosting/">主人指南</a> §4、§5）。</p>
+        <p>主人的電腦是 Linux 時，組員的 session 預設只能在自己的 git worktree 裡執行，所以分享的資料夾必須是 git repository，組員才能開 session。<code>smurg host</code> 加上 <code>--allow-main-workspace-guests</code> 選項分享時，組員也能在共享主工作區開 session；開放之前，請先看隨之而來的限制（<a href="/docs/hosting/">主人指南</a> §4、§5）。</p>
         <p>客人沙盒需要 bubblewrap 0.8 以上、socat 和 ripgrep：Ubuntu 24.04、Debian 12 以上都可以；Ubuntu 22.04 的 bubblewrap 太舊，組員的 session 無法啟動。安裝程式會檢查這些套件和 Ubuntu 的 AppArmor 限制，經你同意後才用 sudo 安裝缺少的部分。完整的測試在 Ubuntu 24.04 上通過，但還沒有人真的在 Linux 上當過主人。</p>
       </div>
       <div>

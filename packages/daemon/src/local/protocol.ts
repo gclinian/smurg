@@ -65,7 +65,17 @@ export const daemonStatusSchema = z.strictObject({
     kickedForFailures: count,
     kickedIdle: count,
   }),
+  // Added after 0.1.0 (`smurg status` shows what `smurg host` no longer prints at the start): optional, so a status
+  // command still reads a daemon of an older build that was started before an upgrade.
+  fingerprint: z.string().max(200).optional(),
+  relayUrl: z.string().max(2_048).nullable().optional(),
+  switches: z.strictObject({ guestSubscriptionLogin: z.boolean(), attributeBashEdits: z.boolean(), guestMainWorkspace: z.boolean() }).optional(),
+  isGitRepo: z.boolean().optional(),
+  sandbox: z.strictObject({ ok: z.boolean(), reason: z.string().max(200).nullable() }).nullable().optional(),
 });
+
+/** A status as the control socket carries it (the fields added after 0.1.0 may be missing: an older daemon). */
+export type CtlStatus = z.infer<typeof daemonStatusSchema>;
 
 export const ctlResponseSchema = z.union([
   z.strictObject({ ok: z.literal(true), op: z.literal('status'), status: daemonStatusSchema }),

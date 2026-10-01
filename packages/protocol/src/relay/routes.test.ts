@@ -6,6 +6,7 @@ import {
   RelayUrlError,
   authCallbackPath,
   authLoginPath,
+  deviceLoginPageUrl,
   isLocalHostname,
   isWorkspaceId,
   loginOptionsUrl,
@@ -103,6 +104,12 @@ describe('fixed paths', () => {
     expect(() => relayHttpUrl('https://smurg.app', '//evil.example/x')).toThrow(RelayUrlError);
   });
 
+  it('builds the device page URL on the relay origin, without anything after the path', () => {
+    expect(deviceLoginPageUrl('https://app.smurg.ai')).toBe('https://app.smurg.ai/device');
+    expect(deviceLoginPageUrl(new URL('http://localhost:8787/'))).toBe('http://localhost:8787/device');
+    expect(() => deviceLoginPageUrl('https://app.smurg.ai/x')).toThrow(RelayUrlError);
+  });
+
   it('builds the login-options URL on the relay origin only', () => {
     expect(RELAY_PATHS.loginOptions).toBe('/api/login-options');
     expect(loginOptionsUrl('https://smurg.app')).toBe('https://smurg.app/api/login-options');
@@ -121,7 +128,8 @@ describe('fixed paths', () => {
       tunnelPath('xfer', WS, 'client'),
     ];
     for (const path of paths) expect(workerFirst(path), path).toBe(true);
-    for (const spa of ['/', '/join/abc', '/w/abc', '/w/abc/console', '/assets/index.js', '/wsx']) {
+    expect(workerFirst(RELAY_PATHS.device)).toBe(true);
+    for (const spa of ['/', '/join/abc', '/w/abc', '/w/abc/console', '/assets/index.js', '/wsx', '/devices', '/device/x']) {
       expect(workerFirst(spa), spa).toBe(false);
     }
   });

@@ -138,7 +138,8 @@ describe.skipIf(BINARY === null)('the single executable (SMURG_SEA_BINARY)', () 
     });
     await waitFor(() => (hostOut.match(/\/join\//g) ?? []).length === 2 || !hostAlive, { timeoutMs: 60_000, what: 'the host summary' });
     if (!hostAlive) throw new Error(`smurg host ended: ${hostErr}${hostOut}`);
-    const workspaceId = (/工作區：(ws_[A-Za-z0-9_-]+)/.exec(hostOut) as RegExpExecArray)[1] as string;
+    // The start prints only the two links (owner decision 2026-10-01); the workspace id is in them.
+    const workspaceId = (/\/join\/(ws_[A-Za-z0-9_-]+)#/.exec(hostOut) as RegExpExecArray)[1] as string;
 
     // The native parts were extracted into the cache, verified, private.
     const nativeDirs = (await readdir(s.cache)).filter((name) => name.startsWith('native-'));

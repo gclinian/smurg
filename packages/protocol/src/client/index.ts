@@ -74,20 +74,6 @@ export {
   type WorkspaceClaim,
 } from './relay-api.ts';
 export {
-  CLI_LOGIN_CALLBACK_PATH,
-  CLI_LOGIN_PROVIDERS,
-  cliLoginConfirmCode,
-  createCliLoginRequest,
-  createPkceVerifier,
-  parseCliCallback,
-  pkceChallenge,
-  timingSafeEqualAscii,
-  type CliCallbackResult,
-  type CliLoginProvider,
-  type CliLoginRequest,
-  type CliLoginRequestOptions,
-} from './cli-login.ts';
-export {
   PinStoreError,
   createMemoryDeviceKeyProvider,
   createMemoryPinStore,

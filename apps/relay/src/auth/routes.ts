@@ -1,8 +1,8 @@
-// Login routes (ARCHITECTURE §6): GitHub / Google for browsers, the CLI loopback flow, the dev-only provider,
-// logout, /api/me and /api/login-options.
+// Login routes (ARCHITECTURE §6): GitHub / Google for browsers, the deprecated CLI loopback flow, the dev-only
+// provider, logout, /api/me and /api/login-options. The CLI's device-code login is in ./device.ts.
 //
 // The OAuth transaction (state, PKCE verifier, nonce, CLI parameters, return URL) lives in a signed 10-minute cookie,
-// so the relay keeps no server-side login state.
+// so these routes keep no server-side login state (the device-code login does: ./device-store.ts).
 import { authCallbackPath, type RelayAuthProvider } from '@smurg/protocol/relay';
 import type { JWTPayload } from 'jose';
 import type { RequestContext } from '../context.ts';
@@ -49,7 +49,7 @@ type LoginTarget = { cli?: CliParams | undefined; returnTo?: string | undefined 
 
 const PROVIDER_LABEL: Record<RelayAuthProvider, string> = { github: 'GitHub', google: 'Google' };
 
-function methodNotAllowed(): Response {
+export function methodNotAllowed(): Response {
   return errorResponse(405, 'method_not_allowed');
 }
 
@@ -237,7 +237,8 @@ async function finishLogin(
   ]);
 }
 
-async function sessionJson(ctx: RequestContext, identity: Identity): Promise<Response> {
+/** The bearer session the CLI saves: `{ token, tokenType, expiresIn, user }` (the dev, loopback and device logins). */
+export async function sessionJson(ctx: RequestContext, identity: Identity): Promise<Response> {
   const token = await signToken(await ctx.keys(), ctx.config.issuer, SESSION_TOKEN, identityClaims(identity));
   return jsonResponse({ token, tokenType: 'Bearer', expiresIn: SESSION_TOKEN.ttlSeconds, user: identityJson(identity) });
 }
@@ -281,7 +282,8 @@ export async function handleDevToken(ctx: RequestContext): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// CLI loopback login
+// CLI loopback login: DEPRECATED (2026-10-01). smurg 0.1.0 logs in this way; the CLI after it uses the device-code
+// login (./device.ts). These routes stay, unchanged, until a CLI without them has been out for a while.
 // ---------------------------------------------------------------------------------------------------------------
 
 const CLI_BAD_LINK = 'CLI 登入連結的參數缺少或格式錯誤，請重新執行 smurg login。';
@@ -332,11 +334,12 @@ export async function handleCliStart(ctx: RequestContext): Promise<Response> {
 }
 
 /**
- * Only the confirmation page may continue the login: a same-origin form POST. A page on another origin can submit
- * the same fields, but the browser labels that request with the other page's Origin and a Sec-Fetch-Site other than
- * `same-origin`. A request without an Origin is refused (fail closed; browsers send one with every POST).
+ * Only the relay's own pages (the CLI confirmation page, /device) may change a login: a same-origin form POST. A page
+ * on another origin can submit the same fields, but the browser labels that request with the other page's Origin and
+ * a Sec-Fetch-Site other than `same-origin`. A request without an Origin is refused (fail closed; browsers send one
+ * with every POST).
  */
-function isSameOriginFormPost(ctx: RequestContext): boolean {
+export function isSameOriginFormPost(ctx: RequestContext): boolean {
   const site = ctx.req.headers.get('sec-fetch-site');
   if (site !== null && site !== 'same-origin') return false;
   const origin = ctx.req.headers.get('origin');
@@ -370,7 +373,7 @@ async function handleCliConfirm(ctx: RequestContext): Promise<Response> {
   return badLink();
 }
 
-/** POST /auth/cli/token { code, codeVerifier } → bearer session token. */
+/** POST /auth/cli/token { code, codeVerifier } → bearer session token. DEPRECATED with the loopback login. */
 export async function handleCliToken(ctx: RequestContext): Promise<Response> {
   if (ctx.req.method !== 'POST') return methodNotAllowed();
   const body = await readJsonBody(ctx.req);

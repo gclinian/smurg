@@ -1,8 +1,9 @@
 // The built-in relay (src/relay/default-relay.ts, DEFAULT_RELAY_URL): null ships today and keeps CLI-12's refusal;
 // once the project's hosted relay is filled in, `smurg host` / `login` / `logout` / `attach` use it when nothing else
 // names a relay (--relay, SMURG_RELAY_URL, the relay of the last login, an invite link, a remembered join), say so
-// before they talk to it, show it in --help, and `smurg host`'s summary names it. Here the built-in value is swapped
-// for a fake relay on 127.0.0.1: no test reaches the real hosted relay.
+// before they talk to it (`smurg host`: its login names the relay; the start shows only the links), show it in --help,
+// and `smurg status` names it for a running share. Here the built-in value is swapped for a fake relay on 127.0.0.1: no
+// test reaches the real hosted relay.
 import { generateKeyPairSync } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -109,7 +110,7 @@ describe('relay choice', () => {
     expect(remembered.out()).toContain(`已登出 ${other.origin}`);
   });
 
-  it('smurg host without --relay shares through the built-in relay and names it in the start summary', async () => {
+  it('smurg host without --relay shares through the built-in relay; `smurg status` names it (the start shows only the links)', async () => {
     const s = await setup();
     builtIn.url = s.relay.origin;
     // The in-memory relay serves one workspace id: pre-seed the folder's id as an earlier `smurg host` would have.
@@ -137,9 +138,13 @@ describe('relay choice', () => {
     });
     await Promise.race([readyPromise, done.then((code) => Promise.reject(new Error(`host ended early (${code}): ${io.err()}`)))]);
     await waitFor(() => memory.hostOnline('ws'), { what: 'the daemon at the relay' });
-    expect(io.out()).toContain(`使用 smurg 內建的公用 relay：${s.relay.origin}`);
-    expect(io.out()).toContain(`工作區：${workspaceId}（relay：${s.relay.origin}，smurg 內建的公用 relay）`);
+    // Owner decision 2026-10-01: no relay notice of `smurg host` itself (its login, when one is needed, names the relay).
+    expect(io.out()).not.toContain('內建的公用 relay');
+    expect(io.out()).toContain(`${s.relay.origin}/join/${workspaceId}#k=`);
     expect(s.relay.workspaces.get(workspaceId)).toBe('github:4242');
+    const status = testIo({ env: s.env });
+    expect(await runCli(['status'], status)).toBe(0);
+    expect(status.out()).toContain(`  relay：${s.relay.origin}（smurg 內建的公用 relay），互動連線 `);
     io.signal('SIGTERM');
     expect(await done).toBe(0);
   });

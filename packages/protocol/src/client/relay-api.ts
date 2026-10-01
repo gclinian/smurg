@@ -7,6 +7,7 @@
 //
 // The relay is trusted to say who logged in, nothing else: nothing returned here is ever used as a key.
 import { z } from 'zod';
+import { DEVICE_CODE_PATTERN, relayDeviceStartSchema, type RelayDeviceStart } from '../relay/device-login.ts';
 import { RELAY_USER_ID_PATTERN, relayAvatarUrlSchema, relayDisplayNameSchema } from '../relay/frames.ts';
 import { RELAY_PATHS, isWorkspaceId, relayHttpUrl, relayOrigin, wsClientUrl, xferClientUrl } from '../relay/routes.ts';
 import { identityTokenSchema } from '../schema/primitives.ts';
@@ -77,7 +78,6 @@ const errorBodySchema = z.object({ error: z.string().max(64), message: z.string(
 /** base64url(SHA-256(...)) without padding, as identityCnf() produces. */
 const CNF_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const DEV_USER_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
-const PKCE_VERIFIER_PATTERN = /^[A-Za-z0-9._~-]{43,128}$/;
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /** What a Connection needs from the relay. RelayApi implements it; tests substitute a fake. */
@@ -116,7 +116,7 @@ export class RelayApi implements ConnectionRelay {
     this.timeoutMs = timeoutMs;
   }
 
-  /** The same relay with a bearer session (e.g. right after devLogin / exchangeCliCode). */
+  /** The same relay with a bearer session (e.g. right after devLogin / pollDeviceLogin). */
   withBearer(token: string): RelayApi {
     return new RelayApi({
       relayUrl: this.origin,
@@ -162,11 +162,22 @@ export class RelayApi implements ConnectionRelay {
     });
   }
 
-  /** POST /auth/cli/token: the last step of the CLI loopback login (see cli-login.ts). */
-  async exchangeCliCode(code: string, codeVerifier: string): Promise<RelaySession> {
-    if (typeof code !== 'string' || code.length === 0 || code.length > 4096) throw new TypeError('invalid code');
-    if (!PKCE_VERIFIER_PATTERN.test(codeVerifier)) throw new TypeError('invalid PKCE verifier');
-    return this.call('POST', RELAY_PATHS.cliToken, { code, codeVerifier }, sessionSchema, { anonymous: true });
+  /**
+   * POST /auth/device/start: the first step of the CLI's device-code login (@smurg/protocol/relay device-login.ts).
+   * Show the person `verificationUri` and `userCode`; keep `deviceCode` in memory only and poll with it.
+   */
+  async startDeviceLogin(): Promise<RelayDeviceStart> {
+    return this.call('POST', RELAY_PATHS.deviceStart, {}, relayDeviceStartSchema, { anonymous: true });
+  }
+
+  /**
+   * POST /auth/device/token: the session once the person allowed the login in their browser (issued once). Until then
+   * it rejects with RelayApiError status 400 and `code` one of DEVICE_TOKEN_ERRORS: `authorization_pending` (ask
+   * again after the interval), `slow_down` (and from now on 5 s more slowly), `access_denied`, `expired_token`.
+   */
+  async pollDeviceLogin(deviceCode: string): Promise<RelaySession> {
+    if (typeof deviceCode !== 'string' || !DEVICE_CODE_PATTERN.test(deviceCode)) throw new TypeError('invalid device code');
+    return this.call('POST', RELAY_PATHS.deviceToken, { deviceCode }, sessionSchema, { anonymous: true });
   }
 
   /** POST /auth/logout: clears the browser cookie. Bearer tokens are stateless; the CLI just forgets its token. */
