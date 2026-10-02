@@ -56,6 +56,8 @@
 
   /* ---- layering ---- */
   --z-drawer: 10;
+  /* A split pane's separator: above what the panes draw (a terminal's or an editor's scrollbars), below popovers. */
+  --z-separator: 15;
   --z-banner: 20;
   --z-popover: 100;
   --z-dialog: 200;

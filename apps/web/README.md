@@ -410,6 +410,15 @@ const { createViewerTerminal } = await loadXterm();
 - **session 面板**：分頁標示「{名稱}（{開啟的人} 開的）」（`plainSessionTitle` 會去掉 daemon 預設標題裡的「（Amy）」）；
   不能輸入的人看到「只能觀看」，詳細資訊裡告訴「可編輯」怎麼提建議。agent 沒有登入時（那是主人的 Claude 登入）主人看到
   「在終端機輸入 /login」，其他人看到請主人登入；可以輸入的人可以「重新檢查登入狀態」（`session.loginStatus`）。
+- **關閉已結束 session 的分頁**（`features/agents/SessionTabs.tsx`、`closed-sessions.ts`；ARCHITECTURE §9）：session 結束後
+  （`status: 'exited'`），每個人（旁觀者也是）都可以在**自己的**面板關掉它的分頁：分頁旁的關閉按鈕（無障礙名稱「關閉 …」，
+  選取的分頁按 Tab 就到）、在分頁上按 Delete、滑鼠中鍵，或 session 列上的「關閉分頁」。不送任何訊息給 daemon，其他人的面板
+  和控制台不受影響；關閉的 id 記在這個瀏覽器的 localStorage（`smurg.agents.closedSessions`，依工作區），daemon 還列著那個
+  session 時重新整理或重新連線都不會再出現，daemon 不再列出後就把 id 清掉。關閉後顯示右邊（沒有就左邊）的分頁並把鍵盤
+  焦點移過去，沒有分頁時焦點到「新增 session」。執行中的 session 沒有這些控制項（結束它仍然是「結束 session」／「強制終止」）。
+  面板用自己的分頁列（`SessionTabs`，和 `ui/Tabs` 相同的鍵盤操作與樣式），因為 `ui/Tabs` 的分頁不能帶第二個控制項。
+  daemon 只保留已結束的 session 15 分鐘（最多 32 個），而且忘掉時不會通知：一直開著的面板再切回那個分頁時 `session.attach`
+  會回 `not_found`，終端機顯示「這個 session 結束已久…你可以關閉這個分頁」（不是「無法連接」加重試）。
 - **建議**：可以輸入的人（主人、「可使用 agent」）看到焦點 session 的建議佇列；「可編輯」看到建議輸入框；通知不指名是誰
   採用或拒絕（`Suggestion` 沒有這個欄位）。編輯器的「送到 agent」：可以輸入的人直接貼進任何 agent session，「可編輯」提出建議。
 - **控制台**：角色清單是「可使用 agent／可編輯／旁觀」。選「可使用 agent」建立邀請或變更成員角色時，先顯示風險的確認對話框
@@ -438,6 +447,7 @@ project 的暫存目錄，不動 `dist/`），再由真的 relay（`startLocalRe
 |---|---|
 | `built-app.smoke.test.ts` | 邀請連結加入 → 開檔 → 輸入 → 磁碟、R7.1b 兩個瀏覽器同時編輯、R8.2b agent 鎖定的唯讀提示、「可使用 agent」開終端機（以主人的使用者執行）、CSP |
 | `terminal.smoke.test.ts` | LEAD-01：擁有者的 PTY 跟著面板（窄的 420 px 與寬的面板，`stty size` 等於面板放得下的大小，終端機沒有任何部分落在可見、可捲動的容器外）；觀看者以 PTY 大小顯示，80 欄的整行可以捲動看到，「縮放以符合寬度」 |
+| `close-session.smoke.test.ts` | 關閉已結束 session 的分頁（ARCHITECTURE §9）：每個人（旁觀者也是）在自己的面板用分頁上的關閉按鈕、Delete 或「關閉分頁」關掉已結束的 session，其他人的面板不受影響、daemon 仍列著它；重新整理後不會再出現；關閉後選到相鄰的分頁並取得鍵盤焦點；分頁列放不下時選取的分頁連同關閉按鈕會捲進可見範圍；執行中的 session 沒有這些控制項。第二組用 2 秒就忘掉已結束 session 的 daemon（正式是 15 分鐘）：一直開著的分頁說明內容已不再保留（沒有重試）、仍可關閉，重新整理後不再出現，記下的 id 也清掉 |
 | `login.smoke.test.ts` | 未登入載入 `/`、`/join/<id>`：零主控台錯誤、零失敗請求；CLI 的裝置代碼登入 |
 | `acceptance.smoke.test.ts` | R11.1c 控制台一鍵終止與踢人、R6 建議（修改後採用、拒絕、提出者看到結果）、R9 worktree 合併（完整 diff、合併、拒絕後 worktree 不變）、R8.4 真的衝突出現在衝突面板；「可使用 agent」的成員開自己的 session（以主人的使用者執行）並直接在主人的 session 裡輸入、採用「可編輯」的建議；控制台給出「可使用 agent」前的風險確認（邀請與變更角色） |
 | `transfer-resume.smoke.test.ts` | R7.3：透過 `drop-proxy.ts`（relay 前的 TCP proxy）在上傳一半時切斷傳輸 socket，上傳自己續傳完成、內容相同、只補送沒到的部分 |

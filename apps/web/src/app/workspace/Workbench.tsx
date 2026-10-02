@@ -62,6 +62,14 @@ const DRAWER_TABS: readonly DrawerTab[] = ['activity', 'conflicts', 'transfers',
 const DRAWER_HEADER_PX = 33;
 /** A collapsed suggestions pane keeps its panel header (title, count and the expand button). */
 const PANEL_HEADER_PX = 33;
+/**
+ * What a separator leaves the pane on its other side, however far it is dragged and however small the window is (the
+ * maximize button of the agents panel is the way to give a terminal the editor's room): the editor next to the agents
+ * column, the editor and agents next to the file tree or above the drawer, the terminal above the suggestions.
+ */
+const MIN_EDITOR_PX = 160;
+const MIN_MAIN_PX = 240;
+const MIN_TERMINAL_PX = 120;
 
 function readLayout(): LayoutState {
   const stored = readJson(browserLocalStorage(), LAYOUT_KEY);
@@ -190,6 +198,7 @@ export function Workbench() {
       defaultSize={200}
       minSize={96}
       maxSize={900}
+      minOtherSize={MIN_TERMINAL_PX}
       storageKey="suggestions"
       label={tWorkbench('region.suggestions')}
       collapsed={!layout.suggestions}
@@ -242,6 +251,7 @@ export function Workbench() {
           defaultSize={220}
           minSize={120}
           maxSize={800}
+          minOtherSize={MIN_MAIN_PX}
           storageKey="drawer"
           label={tWorkbench('region.drawer')}
           collapsed={!layout.drawer}
@@ -253,6 +263,7 @@ export function Workbench() {
               defaultSize={260}
               minSize={160}
               maxSize={640}
+              minOtherSize={MIN_MAIN_PX}
               storageKey="sidebar"
               label={tWorkbench('region.files')}
               collapsed={!layout.sidebar}
@@ -264,6 +275,7 @@ export function Workbench() {
                   defaultSize={420}
                   minSize={260}
                   maxSize={1100}
+                  minOtherSize={MIN_EDITOR_PX}
                   storageKey="right"
                   label={tWorkbench('region.agents')}
                   collapsed={!layout.right}

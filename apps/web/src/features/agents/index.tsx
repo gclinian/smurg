@@ -3,15 +3,22 @@
 // (xterm.js, loaded lazily); session creation and ending. Every session runs as the host (protocol v2): the host and
 // 可使用 agent open sessions and type into any of them. The focused session (sessions.focus) is shared with the
 // suggestions panel below, which shows the composer to editors and the queue of suggestions to those who may type.
+//
+// Closing an ended session's tab (ARCHITECTURE §9): everyone may close the tab of a session that ENDED, in their own
+// panel only (closed-sessions.ts: remembered in this browser while the daemon still lists the session; nothing is
+// sent, the other members keep the tab). A running session is never closed here: ending it stays the explicit
+// 「結束 session」 / 「強制終止」 of those who may.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
 import { useStore } from '../../lib/store.ts';
 import { selectUserId } from '../../lib/stores/workspace.ts';
 import { useCapabilities, useCommandHandler, useCommands, useStores } from '../../lib/workspace/context.tsx';
-import { Badge, Banner, Button, EmptyState, Panel, Spinner, Tabs } from '../../ui/index.ts';
+import { Badge, Banner, Button, EmptyState, Panel, Spinner } from '../../ui/index.ts';
 import { IconAgent, IconPlus, IconTerminal } from '../../ui/icons.tsx';
+import { createClosedSessions } from './closed-sessions.ts';
 import { EndSessionDialog } from './EndSessionDialog.tsx';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
+import { SessionTabs, type SessionTabsHandle } from './SessionTabs.tsx';
 import { SessionView } from './SessionView.tsx';
 import { statusLabel, tabLabel } from './session-info.ts';
 import { t } from './strings.ts';
@@ -27,6 +34,16 @@ export function orderSessions(sessions: Iterable<SessionInfo>): SessionInfo[] {
   return [...sessions].sort((a, b) => Number(a.status === 'exited') - Number(b.status === 'exited') || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
 }
 
+/**
+ * The tab shown after the tab of `closingId` is closed: the one already shown when that is another tab, else the
+ * neighbour to the right, else the one to the left; null when no tab is left.
+ */
+export function tabAfterClose(tabs: readonly { readonly id: string }[], closingId: string, selectedId: string | null): string | null {
+  const index = tabs.findIndex((tab) => tab.id === closingId);
+  if (index < 0 || closingId !== selectedId) return selectedId;
+  return (tabs[index + 1] ?? tabs[index - 1])?.id ?? null;
+}
+
 export function AgentsPanel(_props: AgentsPanelProps) {
   const stores = useStores();
   const commands = useCommands();
@@ -38,7 +55,7 @@ export function AgentsPanel(_props: AgentsPanelProps) {
   // While a full resync reloads the list, keep showing the last one: the terminals stay mounted and re-attach from
   // their offsets instead of being torn down and repainted from a snapshot.
   const lastList = useRef<SessionInfo[]>([]);
-  const list = useMemo(() => {
+  const known = useMemo(() => {
     if (sessionsState.status === 'ready' || sessionsState.sessions.size > 0 || sessionsState.status === 'error') {
       const merged = new Map(sessionsState.sessions);
       if (sessionsState.status !== 'ready') for (const session of lastList.current) if (!merged.has(session.id)) merged.set(session.id, session);
@@ -47,8 +64,30 @@ export function AgentsPanel(_props: AgentsPanelProps) {
     return lastList.current;
   }, [sessionsState]);
   useEffect(() => {
-    if (sessionsState.status === 'ready') lastList.current = list;
-  }, [sessionsState.status, list]);
+    if (sessionsState.status === 'ready') lastList.current = known;
+  }, [sessionsState.status, known]);
+
+  // The tabs: every session but the ENDED ones whose tab this person closed (a closed id never hides a session that
+  // runs). Once the daemon's own list no longer has a closed session as an ended one, its id is forgotten.
+  const workspaceId = useStore(stores.workspace, (state) => state.workspace?.id ?? null);
+  const closedSessions = useMemo(() => createClosedSessions(workspaceId), [workspaceId]);
+  const closed = useStore(closedSessions);
+  const list = useMemo(() => known.filter((session) => !(session.status === 'exited' && closed.has(session.id))), [known, closed]);
+  useEffect(() => {
+    if (sessionsState.status === 'ready') closedSessions.retain({ has: (id) => sessionsState.sessions.get(id)?.status === 'exited' });
+  }, [sessionsState.status, sessionsState.sessions, closedSessions]);
+  // A closed session that is given the focus afterwards (the focusSession command, another panel) is asked for by
+  // name: its tab is shown again. Done as the focus changes, before the next render, so that the render never sees a
+  // focused session without a tab (it would hand the focus to the first tab).
+  useEffect(() => {
+    let previous = stores.sessions.getState().focusedId;
+    return stores.sessions.subscribe(() => {
+      const focused = stores.sessions.getState().focusedId;
+      if (focused === previous) return;
+      previous = focused;
+      if (focused !== null && closedSessions.getState().has(focused)) closedSessions.reopen(focused);
+    });
+  }, [stores, closedSessions]);
 
   // Pending suggestions waiting for a decision this member may make (session.drive: any session), per session.
   const suggestionMap = useStore(stores.suggestions, (state) => state.suggestions);
@@ -90,9 +129,30 @@ export function AgentsPanel(_props: AgentsPanelProps) {
   const [newOpen, setNewOpen] = useState(false);
   const [ending, setEnding] = useState<{ session: SessionInfo; mode: 'end' | 'terminate' } | null>(null);
 
+  const tabsRef = useRef<SessionTabsHandle>(null);
+  const newButtonRef = useRef<HTMLButtonElement>(null);
+  /** The tab that was just closed: once it is gone, the keyboard focus goes to the tab shown now. */
+  const refocusAfter = useRef<string | null>(null);
+  const closeTab = (sessionId: string): void => {
+    // The session as the store has it NOW: only an ended session's tab is closed, whatever was rendered.
+    const session = stores.sessions.getState().sessions.get(sessionId) ?? list.find((candidate) => candidate.id === sessionId);
+    if (session?.status !== 'exited') return;
+    refocusAfter.current = sessionId;
+    // The neighbour first, then the tab goes: the closed session is never the focused one (see the reopening above).
+    if (sessionId === selectedId) stores.sessions.focus(tabAfterClose(list, sessionId, selectedId));
+    closedSessions.close(sessionId);
+  };
+  useEffect(() => {
+    const closedId = refocusAfter.current;
+    if (closedId === null || list.some((session) => session.id === closedId)) return;
+    refocusAfter.current = null;
+    // The control that was used is gone with the tab. Without any tab left: 「新增 session」.
+    if (selectedId === null || tabsRef.current?.focusTab(selectedId) !== true) newButtonRef.current?.focus();
+  });
+
   // Everyone sees the button; an editor or a viewer is told in the dialog why they cannot open a session.
   const actions = (
-    <Button size="sm" variant="ghost" icon={<IconPlus />} onClick={() => setNewOpen(true)}>
+    <Button ref={newButtonRef} size="sm" variant="ghost" icon={<IconPlus />} onClick={() => setNewOpen(true)}>
       {t('action.new')}
     </Button>
   );
@@ -131,17 +191,19 @@ export function AgentsPanel(_props: AgentsPanelProps) {
     }
   } else {
     body = (
-      <Tabs<string>
+      <SessionTabs
+        ref={tabsRef}
         label={t('tabs.label')}
-        size="sm"
-        className="agents-tabs"
-        keepMounted
+        closeHint={t('tab.closeHint')}
         value={selectedId ?? ''}
         onChange={(id) => stores.sessions.focus(id)}
+        onClose={closeTab}
         items={list.map((session) => {
           const pending = pendingBySession[session.id] ?? 0;
           return {
             id: session.id,
+            // Only an ended session's tab can be closed.
+            ...(session.status === 'exited' ? { closeLabel: t('tab.close', { title: tabLabel(session) }) } : {}),
             label: (
               <span className="agents-tab" data-status={session.status}>
                 <span className="agents-tab__dot" aria-hidden="true" />
@@ -164,6 +226,7 @@ export function AgentsPanel(_props: AgentsPanelProps) {
                 keepTerminal={recent.includes(session.id) || session.id === selectedId}
                 onEnd={(target) => setEnding({ session: target, mode: 'end' })}
                 onTerminate={(target) => setEnding({ session: target, mode: 'terminate' })}
+                onClose={(target) => closeTab(target.id)}
               />
             ),
           };

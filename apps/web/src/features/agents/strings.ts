@@ -6,6 +6,9 @@ export const t = defineStrings('agents', {
   'tabs.label': 'session 分頁',
   'tab.label': '{title}（{owner} 開的）',
   'tab.pending': '{count} 則建議等待你處理',
+  // An ended session's tab is closed in one's own panel only (ARCHITECTURE §9); a running session has no such control.
+  'tab.close': '關閉 {title}',
+  'tab.closeHint': '按 Delete 關閉這個已結束的分頁',
   'empty.title': '目前沒有 session',
   'empty.canCreate': '開一個 agent session 或終端機，所有組員都能即時看到它在做什麼。',
   'empty.cannotCreate': '主人或「可使用 agent」的成員開啟 session 後，你可以在這裡即時觀看。',
@@ -16,6 +19,8 @@ export const t = defineStrings('agents', {
   'action.new': '新增 session',
   'action.end': '結束 session',
   'action.terminate': '強制終止',
+  'action.closeTab': '關閉分頁',
+  'action.closeTabHint': '只會從你自己的面板移除這個已結束的 session，其他成員仍然看得到。',
   'action.scale': '縮放以符合寬度',
   'action.unscale': '以原始大小顯示',
   'action.retry': '重新連接終端機',
@@ -69,6 +74,8 @@ export const t = defineStrings('agents', {
   'terminal.readOnly': '這是 {owner} 開的 session，你只能觀看。想讓它做什麼，請在下方的「建議」提出，由主人或「可使用 agent」的成員決定是否採用。',
   'terminal.readOnlyViewer': '這是 {owner} 開的 session，你只能觀看。',
   'terminal.exited': '這個 session 已結束，終端機只能檢視。',
+  // The daemon keeps an ended session for a while only (ARCHITECTURE §7.6): a tab that stayed open longer says so.
+  'terminal.gone': '這個 session 結束已久，主人的電腦不再保留它的終端機內容。你可以關閉這個分頁。',
   'terminal.floorHint': '面板小於 {cols} × {rows}：終端機可捲動',
   'terminal.floorHintFull':
     'Claude Code 需要至少 {cols} 欄 × {rows} 列。這個面板比較小，所以終端機維持 {cols} × {rows}，可以左右、上下捲動查看；放大 agent 面板就能看到全部。',

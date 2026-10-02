@@ -18,9 +18,12 @@
 //    draws it smaller (never reflowed);
 //  - input is sent by whoever may type (the host and 可使用 agent, into any session: `session.drive`), resize by the
 //    session's owner only, both only while it runs;
-//  - file paths in the output become links when they exist in the session's root (path-links.ts).
+//  - file paths in the output become links when they exist in the session's root (path-links.ts);
+//  - the daemon forgets an ENDED session after a while (ARCHITECTURE §7.6 "After the end"), and a panel that stayed
+//    open is not told: showing such a tab again finds no session to attach to. That is said as what it is (the
+//    content is no longer kept; the tab can be closed), not as a failure to retry.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { EXEC_INPUT_MAX_BYTES, parentRelPath, type FileEntry, type FileRef, type SessionInfo } from '@smurg/protocol';
+import { EXEC_INPUT_MAX_BYTES, isSmurgError, parentRelPath, type FileEntry, type FileRef, type SessionInfo } from '@smurg/protocol';
 import { isClientRequestError } from '@smurg/protocol/client';
 import { NoCommandHandlerError } from '../../lib/commands.ts';
 import { describeError } from '../../lib/errors.ts';
@@ -98,6 +101,8 @@ export function SessionTerminal({ session, isOwner, canType, active, scaled }: S
   const [loadFailed, setLoadFailed] = useState(false);
   const [phase, setPhase] = useState<Phase>('waiting');
   const [errorText, setErrorText] = useState<string | null>(null);
+  /** The attach found no such session, and the session had ended: the daemon no longer keeps it. */
+  const [gone, setGone] = useState(false);
   const [retry, setRetry] = useState(0);
 
   const readOnly = !canType || session.status === 'exited';
@@ -189,6 +194,7 @@ export function SessionTerminal({ session, isOwner, canType, active, scaled }: S
             return;
           }
           setPhase('error');
+          setGone(isSmurgError(error) && error.code === 'not_found' && latest.current.session.status === 'exited');
           setErrorText(describeError(error));
         },
       },
@@ -402,17 +408,23 @@ export function SessionTerminal({ session, isOwner, canType, active, scaled }: S
         </Banner>
       ) : null}
       {phase === 'error' && errorText !== null ? (
-        <Banner
-          tone="danger"
-          live="alert"
-          actions={
-            <Button size="sm" onClick={() => setRetry((n) => n + 1)}>
-              {t('action.retry')}
-            </Button>
-          }
-        >
-          {t('terminal.attachFailed', { message: errorText })}
-        </Banner>
+        gone ? (
+          <Banner tone="info" live="status">
+            {t('terminal.gone')}
+          </Banner>
+        ) : (
+          <Banner
+            tone="danger"
+            live="alert"
+            actions={
+              <Button size="sm" onClick={() => setRetry((n) => n + 1)}>
+                {t('action.retry')}
+              </Button>
+            }
+          >
+            {t('terminal.attachFailed', { message: errorText })}
+          </Banner>
+        )
       ) : null}
       <div ref={frameRef} className="agents-term__frame">
         {hint ? (

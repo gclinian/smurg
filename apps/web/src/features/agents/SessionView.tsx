@@ -1,6 +1,8 @@
 // One tab of the agents panel: who opened the session, what it is, whether it runs, where (main workspace or which
 // worktree); the terminal. Every session runs as the host — the host's computer, the host's Claude account (protocol
 // v2) — so the host and members with 「可使用 agent」 type into any of them; editors suggest below; viewers watch.
+// A running session is ended by the member who opened it (or terminated by the host); an ENDED one offers 「關閉分頁」
+// to everyone instead, which only takes the tab out of that person's own panel (ARCHITECTURE §9).
 import { useState } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
 import { drivesSession } from '../../lib/capabilities.ts';
@@ -8,7 +10,7 @@ import { useStore } from '../../lib/store.ts';
 import { useCapabilities, useStores } from '../../lib/workspace/context.tsx';
 import { Badge, Banner, Button, IconButton, useToast } from '../../ui/index.ts';
 import { useWorkbenchLayout } from '../../lib/workspace/layout.tsx';
-import { IconEye, IconInfo, IconMaximize, IconMinimize, IconMinus, IconPlus, IconRefresh, IconTerminal, IconTrash } from '../../ui/icons.tsx';
+import { IconClose, IconEye, IconInfo, IconMaximize, IconMinimize, IconMinus, IconPlus, IconRefresh, IconTerminal, IconTrash } from '../../ui/icons.tsx';
 import { AttachDialog } from './AttachDialog.tsx';
 import { SessionTerminal } from './SessionTerminal.tsx';
 import { branchOf, effectiveLogin, kindLabel, openedByLabel, statusLabel, whereLabel, type LoginCheck } from './session-info.ts';
@@ -23,9 +25,11 @@ export interface SessionViewProps {
   readonly keepTerminal: boolean;
   onEnd(session: SessionInfo): void;
   onTerminate(session: SessionInfo): void;
+  /** 「關閉分頁」 of an ended session: out of this person's panel, nothing else (never offered while it runs). */
+  onClose(session: SessionInfo): void;
 }
 
-export function SessionView({ session, selfUserId, isHost, active, keepTerminal, onEnd, onTerminate }: SessionViewProps) {
+export function SessionView({ session, selfUserId, isHost, active, keepTerminal, onEnd, onTerminate, onClose }: SessionViewProps) {
   const stores = useStores();
   const caps = useCapabilities();
   const toast = useToast();
@@ -132,6 +136,12 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
           {!isOwner && isHost && !exited ? (
             <Button size="sm" variant="ghost" icon={<IconTrash />} onClick={() => onTerminate(session)}>
               {t('action.terminate')}
+            </Button>
+          ) : null}
+          {/* Everyone, once it ended (where 「結束 session」 was): the same as the close button on the tab. */}
+          {exited ? (
+            <Button size="sm" variant="ghost" icon={<IconClose />} title={t('action.closeTabHint')} onClick={() => onClose(session)}>
+              {t('action.closeTab')}
             </Button>
           ) : null}
         </div>

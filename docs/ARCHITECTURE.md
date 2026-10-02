@@ -1238,6 +1238,12 @@ session that member opened, each audited as `session.terminate` by the system wi
 `role-changed` (`SessionInfo.endReason` the same); R2's 3 s and R4's 5 s bound the whole teardown (`admin/handlers.ts`
 waits for it). `smurg stop` (SessionManager.stopAll) ends every session.
 
+**After the end.** An ended session (`status: 'exited'`, with `endReason` / `endedBy`) stays in `session.list`, with
+its mirror for late viewers (≈17 MiB each), for 15 minutes (`SessionLimits.exitedRetentionMs`) and at most 32 ended
+sessions at a time (the one that ended first goes first); then the daemon forgets it, without a message (a client
+learns it from its next `session.list`). Nothing removes an ended session earlier, for anyone: closing its tab is each
+member's own view (§9).
+
 **Login guide.** `claude auth status --json` run in the exact session environment decides `login` (the host's Claude
 login, whoever opened the session); TUI strings are version-specific hints only. The host logs in in their own
 terminal (or in any session's TUI, `/login`); there is no per-member login (§11 D-15).
@@ -1510,6 +1516,27 @@ As built after the review round (details in `apps/web/README.md`):
   at the PTY size with visible scrollbars and 「縮放以符合寬度」 (a CSS scale, nothing reflowed or sent; the daemon
   refuses another driver's resize). A maximize button; a session that ended without its owner says why (`endReason` /
   `endedBy`: 「已被主人（…）終止」; review WEB-12); 「在自己的終端機接上」 shows the `smurg attach` commands (SPEC-09).
+- Closing an ended session's tab (the owner's bug report of 2026-10-02: an ended session could not be closed;
+  `features/agents/SessionTabs.tsx`, `closed-sessions.ts`). The tab of a session whose status is `exited` (whatever
+  its `endReason`) has a close button (accessible name 「關閉 <tab label>」; a sibling of the tab, in the tab order right
+  after the selected tab), Delete on the tab and a middle click do the same, and the session's bar offers 「關閉分頁」
+  where 「結束 session」 was. Every member may close it, a viewer too, and only in their OWN panel: nothing is sent to the
+  daemon (no message, no capability, nothing audited), the other members keep the tab and the console keeps its row. A
+  RUNNING session has none of these controls (ending one stays the explicit `session.end` of the member who opened it
+  and the host's `admin.session.terminate`), and a stored id never hides a session that is not `exited`. The closed
+  ids are kept in this browser's localStorage (`smurg.agents.closedSessions`: workspace id → session ids, at most 16
+  workspaces × 128 ids), so the tab does not come back on a reload or a reconnect while the daemon still lists the
+  session; an id is dropped as soon as a loaded `session.list` no longer has that session as an ended one. After a
+  close the neighbour to the right (else the one to the left) is shown and has the keyboard focus (no tab left:
+  「新增 session」); the selected tab is scrolled into view together with its close button; a closed session that is
+  focused by name afterwards (`focusSession`) is shown again. **Deliberately not removed for everyone** when its
+  opener or the host closes it: an ended tab is a read-only record that others may still be reading (why it ended, the
+  last screen; the end dialog promises 「終端機的內容仍然可以檢視」), closing is a view action like closing an editor tab,
+  and the shared list cleans itself: the daemon keeps an ended session for 15 minutes, at most 32 of them, then forgets
+  it (§7.6; without a message, so a panel that stays connected keeps such a tab until its person closes it or reloads;
+  showing that tab again finds nothing to attach to, and the terminal then says that the host's computer no longer
+  keeps the content and that the tab can be closed, instead of a failure with a retry). Hence no `session.remove` and
+  no protocol change.
 - Roles and sessions (§11 D-15, 2026-10-01; `lib/capabilities.ts`: `canCreateSession`, `canDrive`, `drivesSession()`,
   `isRiskyRole()`): the host and `agent` members (「可使用 agent」) open sessions with the new-session dialog
   (「agent（Claude Code）」 / 「一般終端機」; 「共享主工作區」, 「我的新 worktree」, 「繼續我保留的 worktree：{branch}」), which
@@ -1551,7 +1578,7 @@ As built after the review round (details in `apps/web/README.md`):
 | Acceptance (E2E) | `tests/e2e` | real relay (local workerd) + daemon + headless clients; one file per requirement `r1.*.test.ts` … `r11.*.test.ts`, plus `r2.agent-role.test.ts` (the `agent` role: its session runs as the host, drivers type into each other's sessions, an editor may not, a kick ends it) |
 | Claude-in-the-loop | `tests/e2e/claude.*` | opt-in (`SMURG_TEST_CLAUDE=1`): real `claude` with hooks (PreToolUse deny blocks Edit) |
 | Browser | `apps/web/e2e` (playwright-core + system Chrome) | join flow, 「主人已離線」, key-mismatch warning (Vite dev server) |
-| Built app | `apps/web/e2e/smoke` (own vitest project; at most 2 files at once, in the full gate after every other project) | `vite build` once, served by the real relay's Worker assets (`startLocalRelay({ webDist })`), a daemon with every module, system Chrome: join → type → disk, two-browser co-editing, agent-lock banner, an `agent` member's terminal running as the host; the 「可使用 agent」 role (an `agent` member opens a session and types into the host's, an editor's suggestion accepted by the member; the console's risk confirmation); the console's one-click terminate / kick (R11.1c), suggestions (R6), worktree merge by an `agent` member (R9), a real conflict (R8.4), an upload resumed after a dropped transfer socket (R7.3, through a TCP proxy in front of the relay), a logged-out page load with a clean console, the terminal size (LEAD-01) |
+| Built app | `apps/web/e2e/smoke` (own vitest project; at most 2 files at once, in the full gate after every other project) | `vite build` once, served by the real relay's Worker assets (`startLocalRelay({ webDist })`), a daemon with every module, system Chrome: join → type → disk, two-browser co-editing, agent-lock banner, an `agent` member's terminal running as the host; the 「可使用 agent」 role (an `agent` member opens a session and types into the host's, an editor's suggestion accepted by the member; the console's risk confirmation); the console's one-click terminate / kick (R11.1c), suggestions (R6), worktree merge by an `agent` member (R9), a real conflict (R8.4), an upload resumed after a dropped transfer socket (R7.3, through a TCP proxy in front of the relay), a logged-out page load with a clean console, the terminal size (LEAD-01), closing an ended session's tab (per viewer, with the button, Delete and 「關閉分頁」; closed after a reload; never a running session; with a daemon that forgets ended sessions after 2 s: what the tab says then, and that a reload no longer has it) |
 
 R3's acceptance criteria are the hard gate: each criterion has a named automated test, listed in `docs/ACCEPTANCE.md`.
 (R5, the guest sandbox, was the other one until the owner withdrew it on 2026-10-01, §11 D-15.)

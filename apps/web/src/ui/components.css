@@ -583,14 +583,32 @@
 .ui-split__pane--fixed {
   flex: none;
 }
+/* The other pane keeps its minimum (--ui-split-min-other, set by SplitPane) in a window smaller than the size the
+   fixed pane remembers: the fixed pane gives way instead of pushing the other one to nothing. */
+.ui-split--horizontal > .ui-split__pane--fixed {
+  max-width: calc(100% - 1px - var(--ui-split-min-other, 0px));
+}
+.ui-split--vertical > .ui-split__pane--fixed {
+  max-height: calc(100% - 1px - var(--ui-split-min-other, 0px));
+}
 .ui-split__pane--flex {
   flex: 1;
+}
+/* While a separator is dragged its panes ignore the pointer: nothing under the drag hovers, selects text or (a
+   terminal) reports the mouse, whether or not the browser kept the pointer capture. */
+.ui-split[data-dragging] > .ui-split__pane {
+  pointer-events: none;
 }
 .ui-split__separator {
   flex: none;
   position: relative;
+  /* Above both panes: the grab area is the same on either side of the line. Without it the pane that follows in the
+     DOM painted over its half, and a press there went to the terminal or the editor. */
+  z-index: var(--z-separator);
   background: var(--color-border);
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .ui-split--horizontal > .ui-split__separator {
   width: 1px;
@@ -600,13 +618,27 @@
   height: 1px;
   cursor: row-resize;
 }
-/* A wider invisible grab area around the 1 px line. */
+/* A wider invisible grab area around the 1 px line: 3 px on either side of it (a finger gets more). */
 .ui-split__separator::after {
   content: '';
   position: absolute;
-  inset: -3px;
+}
+.ui-split--horizontal > .ui-split__separator::after {
+  inset: 0 -3px;
+}
+.ui-split--vertical > .ui-split__separator::after {
+  inset: -3px 0;
+}
+@media (pointer: coarse) {
+  .ui-split--horizontal > .ui-split__separator::after {
+    inset: 0 -10px;
+  }
+  .ui-split--vertical > .ui-split__separator::after {
+    inset: -10px 0;
+  }
 }
 .ui-split__separator:hover,
+.ui-split__separator[data-dragging],
 .ui-split__separator:focus-visible {
   background: var(--color-accent);
 }
@@ -614,6 +646,18 @@
   box-shadow: none;
   outline: 2px solid var(--color-focus);
   outline-offset: 0;
+}
+/* A separator being dragged (SplitPane sets the attribute on <html>): no text selection anywhere, and the resize
+   cursor wherever the pointer is. */
+:root[data-ui-resizing] body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+:root[data-ui-resizing='col'] body {
+  cursor: col-resize;
+}
+:root[data-ui-resizing='row'] body {
+  cursor: row-resize;
 }
 
 /* ---------------------------------------------------------------- menu */
