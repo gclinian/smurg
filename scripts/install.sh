@@ -38,8 +38,19 @@ set -eu
 
 SMURG_RELEASE_BASE_URL=''
 
+# The person's locale, saved for pick_lang; then the shell itself runs in the C locale. This must happen BEFORE any
+# line with a zh-TW text is read: a shell reads a script piece by piece in the locale in force, and bash under a
+# non-UTF-8 multibyte locale (zh_CN.GB2312, ja_JP.eucJP, ko_KR.eucKR, ...) takes the UTF-8 bytes of those texts for
+# characters of that encoding and ends in a syntax error. In the C locale every byte is a character of its own.
+# Nothing the installer runs needs the person's locale (the downloaded `smurg --version` is the same in every one).
+SMURG_USER_LC_ALL="${LC_ALL:-}"
+SMURG_USER_LC_MESSAGES="${LC_MESSAGES:-}"
+SMURG_USER_LANG="${LANG:-}"
+LC_ALL=C
+export LC_ALL
+
 # ---- language
-lower() { printf '%s' "$1" | LC_ALL=C tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ_' 'abcdefghijklmnopqrstuvwxyz-'; }
+lower() { printf '%s' "$1" | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ_' 'abcdefghijklmnopqrstuvwxyz-'; }
 
 # tag_locale TAG: prints zh-TW or en for a language tag or locale name (zh_TW.UTF-8, zh-Hant-HK, en_GB), nothing for
 # any other. Traditional Chinese: the first subtag is zh AND (hant is a subtag, OR hans is not and one of tw/hk/mo is).
@@ -68,7 +79,7 @@ pick_lang() {
     zh-tw) lang=zh-TW; return 0 ;;
   esac
   # The first NON-EMPTY of the three decides alone (POSIX precedence): LC_ALL=C with LANG=zh_TW.UTF-8 is English.
-  locale="${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}"
+  locale="${SMURG_USER_LC_ALL:-${SMURG_USER_LC_MESSAGES:-${SMURG_USER_LANG:-}}}"
   if [ -n "$locale" ]; then
     [ "$(tag_locale "$locale")" = zh-TW ] || return 0
     case "$locale" in
@@ -87,7 +98,7 @@ pick_lang() {
   # is English or Traditional Chinese. Any failure leaves English.
   [ "$(uname -s 2>/dev/null || true)" = Darwin ] || return 0
   command -v defaults >/dev/null 2>&1 || return 0
-  for tag in $(defaults read -g AppleLanguages 2>/dev/null | LC_ALL=C tr -d '(),"' || true); do
+  for tag in $(defaults read -g AppleLanguages 2>/dev/null | tr -d '(),"' || true); do
     case "$(tag_locale "$tag")" in
       en) return 0 ;;
       zh-TW) lang=zh-TW; return 0 ;;

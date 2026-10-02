@@ -831,6 +831,63 @@ describe('scripts/install.sh speaks English, or zh-TW by the rule of the smurg c
     });
   }
 
+  it('under every non-UTF-8 locale this machine has (Big5, GB2312, eucJP, SJIS, ISO8859-x, ...): English, never a syntax error', async () => {
+    // bash reads a script in the locale in force: under a non-UTF-8 multibyte locale the UTF-8 bytes of the zh-TW texts
+    // used to end in "syntax error near unexpected token `('". The installer now switches the shell to the C locale
+    // on its first lines, before any such text is read (and keeps the person's locale for pick_lang).
+    const listed = await new Promise<string>((resolve) => execFile('/usr/bin/locale', ['-a'], { env: { PATH: SYSTEM_PATH } }, (_err, stdout) => resolve(String(stdout))));
+    const installed = listed.split('\n').filter((name) => /^[A-Za-z0-9_@.-]+$/.test(name) && /\./.test(name) && !/\.utf-?8(@|$)/i.test(name));
+    // The multibyte ones that broke, whether this machine lists them or not (an unknown locale name must not matter).
+    const locales = [...new Set([...installed, 'zh_CN.GB2312', 'zh_CN.eucCN', 'zh_CN.GBK', 'zh_CN.GB18030', 'ja_JP.eucJP', 'ja_JP.SJIS', 'ko_KR.eucKR', 'zh_TW.Big5', 'zh_HK.Big5HKSCS'])];
+    const f = await faked(LINUX_X64);
+    const { SMURG_LANG: _pinned, ...bare } = f.env;
+    const shells = [...new Set([...SHELLS, '/bin/bash'].filter((shell) => existsSync(shell)))];
+    // Linux bash says, before it reads the script, that a locale is not installed on the machine: not the installer's.
+    const ownOutput = (out: string): string => out.replace(/^.*: warning: setlocale: .*\n/gm, '');
+    const runs: Promise<void>[] = [];
+    const failures: string[] = [];
+    for (const shell of shells) {
+      for (const locale of locales) {
+        for (const variable of ['LANG', 'LC_ALL', 'LC_MESSAGES']) {
+          runs.push(
+            runShell(shell, [INSTALL, '--frobnicate'], { ...bare, [variable]: locale }, undefined, { pinLang: false }).then((result) => {
+              if (result.code !== 2 || ownOutput(result.out) !== ENGLISH) failures.push(`${shell} ${variable}=${locale}: exit ${result.code}: ${result.out.trim()}`);
+            }),
+          );
+          if (runs.length >= 16) await Promise.all(runs.splice(0));
+        }
+      }
+    }
+    await Promise.all(runs);
+    expect(failures).toEqual([]);
+    // As `curl ... | sh` (the script on stdin, read piece by piece) and all the way through an installation.
+    const release = await serve(fullRelease());
+    const script = await readFile(INSTALL, 'utf8');
+    for (const shell of shells) {
+      for (const locale of ['zh_CN.GB2312', 'ja_JP.eucJP', 'ko_KR.eucKR', 'zh_TW.Big5']) {
+        const g = await faked(LINUX_X64, { SMURG_LANG: '', LC_ALL: locale, SMURG_INSTALL_BASE_URL: release.base });
+        const result = await runShell(shell, ['-s', '--', '--prefix', g.prefix], g.env, script, { pinLang: false });
+        expect(result.out, `${shell} ${locale}`).not.toMatch(/syntax error|unexpected/);
+        expect(result.out, `${shell} ${locale}`).toContain('\nsmurg is installed:\n');
+        expect(result.code, `${shell} ${locale}`).toBe(0);
+        // eslint-disable-next-line no-control-regex
+        expect(ownOutput(result.out), `${shell} ${locale}`).toMatch(/^[\x00-\x7f]*$/);
+      }
+    }
+  });
+
+  it('the shell is switched to the C locale before the first zh-TW text of the script', async () => {
+    const lines = (await readFile(INSTALL, 'utf8')).split('\n');
+    const firstChinese = lines.findIndex((line) => CJK.test(line));
+    const switched = lines.indexOf('LC_ALL=C');
+    expect(switched).toBeGreaterThan(0);
+    expect(lines[switched + 1]).toBe('export LC_ALL');
+    expect(switched).toBeLessThan(firstChinese);
+    // ... and before any function is defined (a function's body is read when it is defined).
+    expect(switched).toBeLessThan(lines.findIndex((line) => /^[a-z_]+\(\) \{/.test(line)));
+    for (const saved of ['SMURG_USER_LC_ALL="${LC_ALL:-}"', 'SMURG_USER_LC_MESSAGES="${LC_MESSAGES:-}"', 'SMURG_USER_LANG="${LANG:-}"']) expect(lines.indexOf(saved)).toBeLessThan(switched);
+  });
+
   it('every message has both texts side by side: zh-TW appears only as the second argument of msg / failf, and the English one is ASCII', async () => {
     const lines = (await readFile(INSTALL, 'utf8')).split('\n');
     const call = /(?:^|\s)(?:msg|failf) '((?:[^'\\]|\\.)*)' '((?:[^'\\]|\\.)*)'(?: |$)/;
