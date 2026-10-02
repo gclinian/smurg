@@ -1,5 +1,5 @@
 // session.* and exec.* handlers (ARCHITECTURE §5.5, §11 D-15; registry checks in brackets). The router has already
-// checked the capability of the caller's CURRENT role: `session.drive` (the host, 「可使用 agent」) types into any session,
+// checked the capability of the caller's CURRENT role: `session.drive` (the host, Agent access) types into any session,
 // so an editor's or viewer's keystrokes never reach a PTY (they use suggestions, R6). What only the session's owner
 // (the member who opened it) may do is checked here with req.requireOwner (audited authz.denied).
 import type { DaemonContext } from '../core/context.ts';

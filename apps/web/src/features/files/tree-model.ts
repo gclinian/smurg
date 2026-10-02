@@ -14,7 +14,7 @@ import {
   type LockInfo,
   type RootRef,
 } from '@smurg/protocol';
-import { formatRelativeTime } from '../../lib/format.ts';
+import { formatList, formatRelativeTime } from '../../lib/format.ts';
 import { selectDir, sortEntries, type FilesState } from '../../lib/stores/files.ts';
 import type { LocksState } from '../../lib/stores/locks.ts';
 import type { PresenceState } from '../../lib/stores/presence.ts';
@@ -49,14 +49,14 @@ export function isFolder(entry: FileEntry | null): boolean {
 
 /**
  * A worktree's shared folders (D12) are symlinks to the main workspace's folders, which the daemon lists and reads
- * through; shown as the read-only folders they are, not as a dead 「連結」 entry that opens an error tab (review SPEC-06).
+ * through; shown as the read-only folders they are, not as a dead "link" entry that opens an error tab.
  */
 export function asSharedDir(entry: FileEntry, sharedDirs: ReadonlySet<string>): FileEntry {
   return entry.kind === 'symlink' && sharedDirs.has(entry.path) ? { ...entry, kind: 'dir', readOnly: true } : entry;
 }
 
 /**
- * Rows in display order: folders first, zh-TW collation, children right below their expanded folder. `sharedDirs`:
+ * Rows in display order: folders first, the collation of the viewer's language, children right below their expanded folder. `sharedDirs`:
  * the shared folders of the worktree shown (asSharedDir).
  */
 export function flattenTree(files: FilesState, root: RootRef, expanded: ReadonlySet<string>, sharedDirs: ReadonlySet<string> = new Set()): TreeRow[] {
@@ -130,13 +130,13 @@ export type BadgeKind = 'agent-lock' | 'human-lock' | 'recent' | 'read-only' | '
 
 export interface EntryBadge {
   readonly kind: BadgeKind;
-  /** Short visible text (zh-TW); may be empty for icon-only badges. */
+  /** Short visible text; may be empty for icon-only badges. */
   readonly text: string;
   /** Full sentence for the tooltip / accessible name. */
   readonly label: string;
 }
 
-/** How long 「最近修改」 stays on an entry. */
+/** How long "recently changed" stays on an entry. */
 export const RECENT_CHANGE_MS = 15 * 60_000;
 
 export interface BadgeContext {
@@ -158,7 +158,7 @@ export function entryBadges(entry: FileEntry, ctx: BadgeContext): EntryBadge[] {
     badges.push({ kind: 'agent-lock', text: t('badge.agentLock', { agent: lock.agentName }), label: t('badge.agentLockLabel', { agent: lock.agentName }) });
   } else if (lock?.kind === 'human') {
     const names = lock.holders.map((holder) => (holder.userId === ctx.selfUserId ? t('badge.you') : holder.displayName));
-    const joined = names.join(t('list.separator'));
+    const joined = formatList(names);
     badges.push({ kind: 'human-lock', text: t('badge.humanLock', { names: joined }), label: t('badge.humanLockLabel', { names: joined }) });
   }
   const by = entry.lastModifiedBy;
@@ -170,7 +170,7 @@ export function entryBadges(entry: FileEntry, ctx: BadgeContext): EntryBadge[] {
     badges.push({ kind: 'recent', text: shown, label: t('badge.recentLabel', { name, time: formatRelativeTime(entry.mtime, ctx.now) }) });
   }
   // Host-only first: the daemon also reports those paths (.git, .claude, …) as readOnly to guests, and calling them a
-  // shared folder told students something false (review WEB-08).
+  // shared folder told students something false.
   if (!ctx.isHost && isHostOnlyPath(entry.path)) badges.push({ kind: 'host-only', text: '', label: t('badge.hostOnlyLabel') });
   else if (entry.readOnly) badges.push({ kind: 'read-only', text: '', label: t('badge.readOnlyLabel') });
   return badges;
@@ -216,7 +216,7 @@ export function checkNewName(name: string, parent: string, siblings: readonly st
 
 /**
  * The other people (and agents) who have `path` open or are editing it — for a folder, anything below it — so a delete
- * confirmation can name them (WEB-01). In daemon order, without duplicates, never the local member.
+ * confirmation can name them. In daemon order, without duplicates, never the local member.
  */
 export function peopleUsing(presence: PresenceState, locks: LocksState, root: RootRef, path: string, selfUserId: string | null): string[] {
   const names: string[] = [];

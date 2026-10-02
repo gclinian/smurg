@@ -9,9 +9,9 @@
 
 Scope: SPEC R5 (whole section), R4 guest-session bullets, R9 (worktree scope and read-only shared-folder symlinks), and the SPEC section 13 rows about srt with Seatbelt/node-pty and `CLAUDE_CONFIG_DIR`.
 Machine: macOS 26.5.1 (Darwin 25.5, arm64), Node v25.4.0 (also re-run on v22.22.1), Claude Code 2.1.220 (native binary).
-Spike: `/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/sandbox`. The final run had **134 automated checks, all passing** (8 suites, about 4 minutes).
+Spike: `<spike dir>/sandbox`. The final run had **134 automated checks, all passing** (8 suites, about 4 minutes).
 
-> **Spike incident (read this first).** An early version of `src/verify-teardown.ts` identified a session's processes with a check that was too broad: "sandboxed, and able to read the session marker file". It then sent SIGKILL to every match. About 33 unrelated processes of the host user matched, because many macOS agents run under their own Seatbelt profiles with wide read access. They were killed at about 23:01:37. launchd restarted the system agents at once, including NotificationCenter, cfprefsd, tccd, trustd, secd, sharingd, cloudd, usernoted, WallpaperAgent, rapportd, nsurlsessiond and homed. Some of the killed pids may have been helpers of open apps that do not restart on their own. **Check that your open apps are still working.**
+> **Spike incident (read this first).** An early version of `src/verify-teardown.ts` identified a session's processes with a check that was too broad: "sandboxed, and able to read the session marker file". It then sent SIGKILL to every match. Unrelated processes of the same user matched, because many macOS system agents run under their own Seatbelt profiles with wide read access, and they were killed.
 > The test now uses a marker+decoy check that only matches the target session (see Q4b). It also only ever signals command lines that the spike started itself. The same lesson applies to the daemon: never kill a pid based only on a sandbox check.
 
 ---
@@ -105,7 +105,7 @@ Source: `dist/sandbox/sandbox-config.js` and `dist/sandbox/sandbox-manager.d.ts`
 
 ### Q2 and Q3: guest policy on macOS Seatbelt (`src/verify-fs-net.ts`, 81/81)
 
-The fixture puts the project **inside** a simulated host home (`work/fakehome/proj`), because in practice the project usually lives under the home. The **real** `/Users/gcman` is also in `denyRead`, so the real `~/.ssh` and `~/.claude` are covered too. Secret probes report exit codes only.
+The fixture puts the project **inside** a simulated host home (`work/fakehome/proj`), because in practice the project usually lives under the home. The **real** `<home>` is also in `denyRead`, so the real `~/.ssh` and `~/.claude` are covered too. Secret probes report exit codes only.
 
 The read section of the generated profile (paths shortened; Seatbelt applies the last matching rule):
 
@@ -122,7 +122,7 @@ The read section of the generated profile (paths shortened; Seatbelt applies the
 |---|---|---|
 | a | `ls ~/.ssh`, `cat ~/.ssh/id_*`, `ls ~/.claude`, `cat ~/.claude/CLAUDE.md`, `cat ~/.claude.json` (real home) | exit 1 (control outside the sandbox: exit 0) |
 | a | fake-home `~/.ssh/id_ed25519` and `~/.claude/CLAUDE.md`, with the project inside that home | exit 1 |
-| a | host Claude Code tmp dir `/private/tmp/claude-501` | exit 1 |
+| a | host Claude Code tmp dir `/private/tmp/claude-<uid>` | exit 1 |
 | a | **keychain** `security dump-keychain` item count | **srt default profile: 71 items (same as outside)**; hardened profile: 0 |
 | b | read or list another guest's temp dir (bob) | exit 1 (control: exit 0); own temp dir readable |
 | c | write into the home, the real home, the spike dir, the other guest's dir, `/usr/local` | exit 1 |
@@ -177,7 +177,7 @@ Other suites:
 - The rule `sandboxed && marker readable && !decoy readable` found exactly Alice's shell, background job and detached process.
   - It did not match Bob's sandboxed process or unsandboxed host processes.
   - After the kill, nothing wrote to the project.
-- The naive rule `sandboxed && marker readable` matched **29** pids, most of them unrelated macOS agents. This is how the incident above happened.
+- The naive rule `sandboxed && marker readable` also matched unrelated macOS agents. This is how the incident above happened.
 
 ### Q5: the real `claude` binary under the sandbox (`src/verify-claude.ts` 8/8, `src/verify-write-tool.ts` 5/5)
 
@@ -655,7 +655,7 @@ p.kill('SIGHUP'); for (const pid of sessionPids(id)) process.kill(pid, 'SIGKILL'
 ## How to re-run the spike
 
 ```bash
-cd /private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/sandbox
+cd <spike dir>/sandbox
 npm install            # postinstall: chmod +x node-pty spawn-helper, build native/sbcheck (needs Xcode CLT)
 npm run verify:all     # ~4 min; setup, deps(12), fs-net(81), multi(7), pty(12), teardown(9), claude(8), write-tool(5)
 npm run probe:keychain # optional: shows 71 -> 0 keychain items with/without hardening (counts only)
@@ -680,12 +680,12 @@ Independent re-run and source audit by a second engineer on 2026-09-27, same mac
 ### Confirmed (re-run or audited in source)
 
 - **Full suite reproduces on a clean install:** 134/134 (`deps 12`, `fs-net 81`, `multi 7`, `pty 12`, `teardown 9`, `claude 8`, `write-tool 5`), ~4 min. No stray processes, no `/private/tmp/claude` leftover, no leak-check files.
-- **No vacuous deny-passes.** The controls run every "fail" probe *outside* the sandbox and get exit 0, and the secret targets actually exist on this machine (`~/.ssh/id_*` ×2, `~/.claude/CLAUDE.md`, `~/.claude.json` all present; `cat` outside the sandbox → 0). So the exit-1 results inside the sandbox are the sandbox's doing.
+- **No vacuous deny-passes.** The controls run every "fail" probe *outside* the sandbox and get exit 0, and the secret targets actually exist on the test machine (`cat` outside the sandbox → 0). So the exit-1 results inside the sandbox are the sandbox's doing.
 - **Keychain hole and the fix are real.** srt's base macOS profile hardcodes `(allow mach-lookup (global-name "com.apple.securityd.xpc"))` (in the base mach-lookup block) and `(allow mach-lookup (global-name "com.apple.SecurityServer"))` (`macos-sandbox-utils.js` lines ~706 and ~828); `allowMachLookup` only *adds* services, there is no removal switch. Measured: default profile enumerates **71** keychain items (== outside), hardened profile **0**. claude/curl/git/commit still work after stripping.
 - **API surface exists.** All 12 `SandboxManager` methods the report lists are present in the installed dist; `SandboxRuntimeConfigSchema` is exported and validates the full guest-shaped config (network `strictAllowlist`/`deniedResolvedAddresses`/`allowUnixSockets`/`allowLocalBinding`, filesystem, `credentials.envVars` mode `deny`, `allowPty`). Per-field `customConfig` merge (`?? config…`) confirmed in `wrapWithSandbox`.
 - **Fail-open footguns** (`wrapWithSandbox` before `initialize()` → `(allow network*)` + no read denies; a `customConfig` with no `network` → `(allow network*)`) reproduce; `initialize()` throws `Sandbox dependencies not available` on dep errors; a missing `sandbox-exec` makes the wrapped command exit 127 (fail-closed). The self-test refuses a missing `sandbox-exec` and a policy that fails to hide the home.
 - **PTY + `allowPty`** re-confirmed 12/12 on **both** Node v25.4.0 and v22.22.1; without `allowPty`, `stty: TIOCGETD: Operation not permitted`. Detached `setsid()` child survives `pty.kill()` and writes into the project 4 s later.
-- **Teardown attribution:** naive "sandboxed && marker-readable" over-matches (hundreds of unrelated pids on this box); `sandboxed && marker && !decoy` matches exactly the session's shell + bg job + detached child, and nothing of Bob's or the host's. One `sbcheck` scan over **418** live user pids costs **~19 ms** (incl. process spawn) — cheap enough for kick.
+- **Teardown attribution:** naive "sandboxed && marker-readable" over-matches (many unrelated pids); `sandboxed && marker && !decoy` matches exactly the session's shell + bg job + detached child, and nothing of Bob's or the host's. One `sbcheck` scan over **418** live user pids costs **~19 ms** (incl. process spawn) — cheap enough for kick.
 - **Real claude:** `--version` = `2.1.220 (Claude Code)`; TUI first-run screen renders in a PTY and survives resize; `-p` with a fake key reaches the API (401) through the proxy; `auth status` `loggedIn=false` in hardened / default / no-sandbox-with-guest-env. The violation log (28 distinct denials this run) shows **no** attempt on the host `~/.claude`. Edit/Write/Read tool EPERM re-confirmed 5/5 via the mock Messages API.
 - **`git update-ref refs/heads/main` genuinely fails** from a worktree guest (focused test, both loose and packed main): exit 128, main SHA unchanged. Overwriting `.git/refs/heads/main`, `.git/packed-refs`, or `.git/config` directly → `Operation not permitted`.
 - **Linux static facts** (from `linux-sandbox-utils.js` / `generate-seccomp-filter.js`, still runtime-unverified): `checkLinuxDependencies()` checks `bwrap` + `socat` (errors) and the seccomp helper (warning only) and a uid-0/`CAP_SETFCAP` error — and has **no AppArmor probe**; the seccomp filter blocks `socket(AF_UNIX)` on 64-bit (32-bit x86 unsupported), so `allowUnixSockets` is inert on Linux; bwrap is always launched with `--new-session --die-with-parent` + `--unshare-pid`.

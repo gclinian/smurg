@@ -34,7 +34,7 @@ afterAll(async () => {
   await relay?.stop();
 });
 
-describe('the JWKS response carries the relay clock (review REL-05)', () => {
+describe('the JWKS response carries the relay clock', () => {
   it('has a Date header close to now: the daemon checks token times against the relay clock estimated from it', async () => {
     const res = await fetch(relay.jwksUrl);
     expect(res.status).toBe(200);

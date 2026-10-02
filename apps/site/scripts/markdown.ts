@@ -6,7 +6,7 @@
 // - Headings get GitHub's ids (github-slugger's algorithm), so the docs' own `#…` links keep working.
 // - Every link goes through a resolver: kept (possibly rewritten) or turned into its plain text. Each one is reported.
 // - Bare URLs become links only up to the first non-ASCII character: GFM would otherwise run a URL on into the
-//   Chinese text that follows it (`https://app.smurg.ai（也是…`).
+//   Chinese text that follows it (a URL directly followed by a full-width parenthesis in the zh-TW guides).
 // - Images are refused (reported as problems): the CSP allows only this site's own files, and the docs have none.
 // - Table alignment is a class, not the obsolete `align` attribute.
 // - A soft line break between two CJK characters is dropped: the docs wrap Chinese sentences at 120 columns, and a
@@ -135,8 +135,8 @@ export interface RenderOptions {
   readonly resolveLink: (href: string) => LinkDecision;
   /** Ids the page template already uses: a heading may not take one. */
   readonly reservedIds?: Iterable<string>;
-  /** The accessible name of a table's scroll box, followed by the section it is in (e.g. "表格：8. 疑難排解"). */
-  readonly tableLabel: string;
+  /** The accessible name of a table's scroll box, from the section it is in (e.g. "Table: 8. Troubleshooting"). */
+  readonly tableLabel: (section: string | undefined) => string;
 }
 
 export function renderMarkdown(markdown: string, options: RenderOptions): Rendered {
@@ -210,8 +210,7 @@ export function renderMarkdown(markdown: string, options: RenderOptions): Render
         const head = `<tr>${token.header.map(cell).join('')}</tr>`;
         const body = token.rows.map((row) => `<tr>${row.map(cell).join('')}</tr>`).join('\n');
         // A wide table scrolls inside its own box: a named region, focusable so that it scrolls from the keyboard too.
-        const section = headings.at(-1)?.text;
-        const label = escapeHtml(section === undefined ? options.tableLabel : `${options.tableLabel}：${section}`);
+        const label = escapeHtml(options.tableLabel(headings.at(-1)?.text));
         return `<div class="table-wrap" tabindex="0" role="region" aria-label="${label}">\n<table>\n<thead>\n${head}\n</thead>\n${body === '' ? '' : `<tbody>\n${body}\n</tbody>\n`}</table>\n</div>\n`;
       },
     },

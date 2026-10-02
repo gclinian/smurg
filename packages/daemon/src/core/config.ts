@@ -36,7 +36,7 @@ export interface TimingConfig {
   readonly relayPingIntervalMs: number;
   /** No "pong" (nor anything else) for this long ⇒ terminate the host socket and reconnect. */
   readonly pongWatchdogMs: number;
-  /** Encrypted presence.heartbeat on every interactive channel (clients show 「主人已離線」 after 8 s without). */
+  /** Encrypted presence.heartbeat on every interactive channel (clients show "The host is offline" after 8 s without). */
   readonly presenceHeartbeatMs: number;
   /** A Noise handshake must finish within this. */
   readonly handshakeDeadlineMs: number;
@@ -283,7 +283,7 @@ export function resolveConfig(input: DaemonConfigInput): DaemonConfig {
   const stateDir = resolve(input.stateDir);
   const relayUrl = input.relayUrl ? origin('relayUrl', input.relayUrl) : null;
   // No relay and no web origin (tests, a daemon without a relay link): invite links point at a reserved name that can
-  // never resolve (RFC 2606 `.invalid`), never at a guessed public domain that would receive the invite secrets (CLI-12).
+  // never resolve (RFC 2606 `.invalid`), never at a guessed public domain that would receive the invite secrets.
   const webOrigin = input.webOrigin ? origin('webOrigin', input.webOrigin) : (relayUrl ?? 'https://smurg.invalid');
   const identityIssuer = input.identityIssuer ? origin('identityIssuer', input.identityIssuer) : (relayUrl ?? webOrigin);
   const timing: TimingConfig = { ...DEFAULT_TIMING, ...input.timing };

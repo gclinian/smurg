@@ -5,7 +5,7 @@ import { cx } from './cx.ts';
 import { IconChevronDown, IconChevronUp } from './icons.tsx';
 
 export interface DrawerProps {
-  /** Name of the region (zh-TW), also its landmark label. */
+  /** Name of the region (from the catalogue), also its landmark label. */
   title: string;
   open: boolean;
   onOpenChange(open: boolean): void;

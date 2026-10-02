@@ -1,11 +1,10 @@
 smurg: third-party notices of the smurg web app
 ===============================================
 
-smurg itself is proprietary software under its own license (https://smurg.ai/license/). The smurg web app contains the
-third-party software listed below, each provided under its own license. This file reproduces the license and notice
-files each package publishes, unchanged except for line endings and trailing spaces (and, for vite, only the license
-of Vite's own code: see its section). "build tool" marks a tool whose small runtime helper functions are part of the
-app's code.
+smurg itself is MIT-licensed (https://smurg.ai/license/). The smurg web app contains the third-party software
+listed below, each provided under its own license. This file reproduces the license and notice files each package
+publishes, unchanged except for line endings and trailing spaces (and, for vite, only the license of Vite's own code:
+see its section). "build tool" marks a tool whose small runtime helper functions are part of the app's code.
 
 Packages (23):
   @msgpack/msgpack@3.1.3  ISC

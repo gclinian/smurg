@@ -1,4 +1,4 @@
-// The production configuration builds (`wrangler deploy --dry-run`: no account, nothing deployed) as the lead's
+// The production configuration builds (`wrangler deploy --dry-run`: no account, nothing deployed) as a maintainer's
 // `wrangler deploy` would: wrangler runs the custom build (scripts/build.ts, which writes dist/), bundles the Worker
 // and reads dist/ as the static assets. Also: the package scripts, and the notices a deploy publishes by default.
 import { execFile, execFileSync } from 'node:child_process';
@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { INSTALL_SCRIPT } from '../src/routes.ts';
-import { NOTICES_PLACEHOLDER, PLACEHOLDER, generateSite } from '../scripts/site.ts';
+import { INSTALL_SCRIPT, REPOSITORY } from '../src/routes.ts';
+import { DOC_PAGES, LANGS, NOTICES_PLACEHOLDER, generateSite } from '../scripts/site.ts';
 import { DIST, REPO_ROOT, SITE_ROOT, publicFiles, testSite } from './html.ts';
 
 const run = promisify(execFile);
@@ -37,12 +37,13 @@ describe('production bundle', () => {
       const bundle = readFileSync(join(outdir, 'index.js'), 'utf8');
       expect(bundle).toContain('https://downloads.smurg.ai');
       expect(bundle).toContain(INSTALL_SCRIPT.slice('https://downloads.smurg.ai'.length));
-      expect(bundle).not.toMatch(/github\.com/);
+      // The Worker's other redirect: /github and /source go to the repository.
+      expect(bundle).toContain(REPOSITORY);
       expect(existsSync(join(outdir, 'index.js.map'))).toBe(true);
       // What wrangler uploads is dist/: the site the tests check, generated pages included.
       const files = publicFiles(DIST).sort();
       expect(files).toEqual([...testSite().files.keys()].sort());
-      for (const path of ['docs/index.html', 'docs/hosting/index.html', 'docs/joining/index.html', 'docs/changelog/index.html', 'license/index.html', 'third-party-notices.txt']) {
+      for (const path of ['docs/index.html', 'docs/hosting/index.html', 'zh-TW/docs/index.html', 'zh-TW/docs/joining/index.html', 'docs/changelog/index.html', 'license/index.html', 'zh-TW/license/index.html', 'sitemap.xml', 'third-party-notices.txt']) {
         expect(readFileSync(join(DIST, path)).equals(testSite().files.get(path) as Buffer), path).toBe(true);
       }
     } finally {
@@ -50,23 +51,23 @@ describe('production bundle', () => {
     }
   }, 120_000);
 
-  it('stops before bundling or uploading anything when the build refuses (here: LICENSE still names no holder)', async () => {
+  it('stops before bundling or uploading anything when the build refuses (here: a guide links a file that does not exist)', async () => {
     const sources = mkdtempSync(join(tmpdir(), 'smurg-site-refused-'));
     const outdir = join(sources, 'out');
     try {
-      for (const path of ['docs/HOSTING.md', 'docs/JOINING.md', 'CHANGELOG.md']) {
+      // A source tree with the docs and LICENSE but nothing else: the host guide's link to the relay's README (which
+      // the site sends to GitHub) points at a file that is not there.
+      for (const path of [...DOC_PAGES.flatMap((doc) => LANGS.map((lang) => doc[lang].source)), 'LICENSE']) {
         mkdirSync(join(sources, path, '..'), { recursive: true });
         writeFileSync(join(sources, path), readFileSync(join(REPO_ROOT, path)));
       }
-      writeFileSync(join(sources, 'LICENSE'), `smurg\n\nCopyright (c) 2026 ${PLACEHOLDER}. All rights reserved.\n`);
       const env: NodeJS.ProcessEnv = { ...process.env, WRANGLER_SEND_METRICS: 'false', WRANGLER_SEND_ERROR_REPORTS: 'false', SMURG_SITE_SOURCE_ROOT: sources };
-      delete env['SMURG_SITE_ALLOW_PLACEHOLDER'];
       const failure = await run(process.execPath, [WRANGLER, 'deploy', '--dry-run', '--outdir', outdir, '--config', 'wrangler.jsonc'], { cwd: SITE_ROOT, timeout: 120_000, env }).then(
         () => null,
         (error: { code: number; stdout: string; stderr: string }) => error,
       );
       expect(failure?.code).not.toBe(0);
-      expect(`${failure?.stdout}\n${failure?.stderr}`).toContain('LICENSE still names the copyright holder "<COPYRIGHT HOLDER>"');
+      expect(`${failure?.stdout}\n${failure?.stderr}`).toContain('points at apps/relay/README.md, which does not exist in the repository');
       expect(`${failure?.stdout}\n${failure?.stderr}`).not.toContain('--dry-run: exiting now.');
       expect(existsSync(join(outdir, 'index.js'))).toBe(false);
     } finally {
@@ -78,12 +79,13 @@ describe('production bundle', () => {
     const pkg = JSON.parse(readFileSync(join(SITE_ROOT, 'package.json'), 'utf8')) as { scripts: Record<string, string>; license: string; private: boolean };
     expect(pkg.scripts['build']).toMatch(/&& node scripts\/build\.ts$/);
     expect(pkg.scripts['dry-run']).toMatch(/wrangler deploy --dry-run --outdir \.wrangler\/dry-run$/);
-    // Local previews accept the LICENSE placeholder; a deploy never does (wrangler.jsonc's build runs without it).
+    // Local previews build without the release's notices; a deploy never does (wrangler.jsonc's build runs without it).
     expect(pkg.scripts['dev']).toContain('SMURG_SITE_ALLOW_PLACEHOLDER=1 wrangler dev --ip 127.0.0.1');
     for (const [name, script] of Object.entries(pkg.scripts)) {
       expect(script.replace('wrangler deploy --dry-run', ''), name).not.toMatch(/wrangler deploy|wrangler publish|versions upload/);
     }
-    expect(pkg.license).toBe('UNLICENSED');
+    // MIT like every package of the repository; never published to npm.
+    expect(pkg.license).toBe('MIT');
     expect(pkg.private).toBe(true);
   });
 });
@@ -102,6 +104,8 @@ describe('the notices a preview publishes when none is named (a deploy must name
     }
     // Nothing of the guest sandbox (there is none: ARCHITECTURE §11 D-15).
     expect(notices).not.toMatch(/sandbox-runtime|apply-seccomp/);
-    expect(notices).not.toMatch(/gclinian/i);
+    // The notices list the third-party components; about smurg itself they say that it is MIT-licensed.
+    expect(notices).toContain('smurg itself is MIT-licensed');
+    expect(notices).not.toMatch(/smurg is proprietary/i);
   });
 });

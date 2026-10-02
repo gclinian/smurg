@@ -48,7 +48,7 @@ async function setup(): Promise<Setup> {
   host.conn.on('doc.conflict', (p) => conflictsSeen.host.push(p.conflict));
   const amy = await DocClient.open(amyClient.conn, FILE);
   await waitFor(() => amy.synced, { what: 'sync' });
-  const agent = { kind: 'agent' as const, sessionId: 'sess_host1', ownerUserId: t.hostUserId, displayName: 'Claude（Host）' };
+  const agent = { kind: 'agent' as const, sessionId: 'sess_host1', ownerUserId: t.hostUserId, displayName: 'Claude (Host)' };
   return { t, locks, activity, host, amy, audit, conflictsSeen, agent };
 }
 
@@ -71,8 +71,8 @@ function typeLine(client: DocClient, line: number, content: string): void {
   });
 }
 
-describe('R8 一致性與檔案鎖', { timeout: 30_000 }, () => {
-  it('agent 透過 Bash 修改有人正在編輯的檔案時，人打的內容不會遺失；重疊部分出現在衝突面板', async () => {
+describe('R8 consistency and file locks', { timeout: 30_000 }, () => {
+  it('an agent changes, through Bash, a file someone is editing: what the person typed is not lost and the overlap appears in the conflict panel', async () => {
     const s = await setup();
     typeLine(s.amy, 3, 'const b = 20; // Amy');
     await waitFor(() => s.locks.get(FILE)?.kind === 'human', { what: 'human lock' });
@@ -101,7 +101,7 @@ describe('R8 一致性與檔案鎖', { timeout: 30_000 }, () => {
     expect(s.activity.records.filter((r) => r.kind === 'conflict')).toMatchObject([{ actor: s.agent, file: FILE }]);
   });
 
-  it('…人打的內容不會遺失 — text that was ALREADY AUTOSAVED survives a write built from a stale copy (V4)', async () => {
+  it('... what the person typed is not lost — text that was ALREADY AUTOSAVED survives a write built from a stale copy (V4)', async () => {
     const s = await setup();
     typeLine(s.amy, 2, 'const a = 1; // HUMAN LINE');
     await waitFor(() => s.amy.saved.length > 0, { what: 'autosave' });
@@ -142,11 +142,11 @@ describe('R8 一致性與檔案鎖', { timeout: 30_000 }, () => {
     expect(s.conflictsSeen.amy).toHaveLength(0);
     // Nothing to write back (the disk already has it) and no human lock was taken by the daemon's own change.
     expect(s.locks.get(FILE)).toBeNull();
-    // The agent shows up in the document's presence as 「Claude（Host）」.
-    await waitFor(() => [...s.amy.remoteStates().values()].some((st) => (st['user'] as { name?: string })?.name === 'Claude（Host）'), { what: 'agent presence' });
+    // The agent shows up in the document's presence as `Claude (Host)`.
+    await waitFor(() => [...s.amy.remoteStates().values()].some((st) => (st['user'] as { name?: string })?.name === 'Claude (Host)'), { what: 'agent presence' });
   });
 
-  it('agent 正在修改的檔案 — a human update that still arrives is applied, then reverted everywhere, and the sender gets doc.rejected', async () => {
+  it('a file an agent is changing — a human update that still arrives is applied, then reverted everywhere, and the sender gets doc.rejected', async () => {
     const s = await setup();
     const bobClient = await s.t.connect({ userId: 'dev:bob', displayName: 'Bob', role: 'editor' });
     const bob = await DocClient.open(bobClient.conn, FILE);
@@ -161,7 +161,7 @@ describe('R8 一致性與檔案鎖', { timeout: 30_000 }, () => {
     s.amy.text.delete(0, 6);
     await waitFor(() => s.amy.rejected.length === 2, { what: 'second doc.rejected' });
     await waitFor(() => s.amy.text.toString() === ORIGINAL && bob.text.toString() === ORIGINAL, { what: 'every replica converged back' });
-    expect(s.amy.rejected[0]).toMatchObject({ reason: 'agent-locked', lock: { kind: 'agent', agentName: 'Claude（Host）' } });
+    expect(s.amy.rejected[0]).toMatchObject({ reason: 'agent-locked', lock: { kind: 'agent', agentName: 'Claude (Host)' } });
     expect(bob.rejected).toHaveLength(0);
     expect(await disk(s)).toBe(ORIGINAL);
     // After the agent is done, editing works again.

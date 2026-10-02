@@ -1,15 +1,16 @@
 import { SmurgError } from '../errors.ts';
+import type { MessageRef } from '../i18n/index.ts';
 import { type DiskReport, diskReportSchema, type LockInfo, lockInfoSchema } from './entities.ts';
 
 // Typed `error.detail` conventions that the UI relies on (ARCHITECTURE §5.2 disk rule, §5.4 locks).
 
 /** `insufficient_disk` with the numbers, so the UI can show them and point the host to the setting (R7). */
-export function insufficientDiskError(disk: DiskReport, message?: string): SmurgError {
+export function insufficientDiskError(disk: DiskReport, message?: string | MessageRef): SmurgError {
   return new SmurgError('insufficient_disk', message, { disk });
 }
 
 /** `locked` with the lock that blocks the request, so the UI can name the holder. */
-export function lockedError(lock: LockInfo, message?: string): SmurgError {
+export function lockedError(lock: LockInfo, message?: string | MessageRef): SmurgError {
   return new SmurgError('locked', message, { lock });
 }
 

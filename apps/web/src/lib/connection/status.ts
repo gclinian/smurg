@@ -159,7 +159,7 @@ function blockingView(kind: ConnectionViewKind, label: string, title: string, bo
   return { kind, tone, label, detail: body, blocking: true, retryAt: null, title, body };
 }
 
-/** Whole seconds until `retryAt` (never negative), for 「3 秒後重試」. */
+/** Whole seconds until `retryAt` (never negative), for "Retrying in 3 seconds.". */
 export function secondsUntil(retryAt: number, now: number): number {
   return Math.max(0, Math.ceil((retryAt - now) / 1000));
 }

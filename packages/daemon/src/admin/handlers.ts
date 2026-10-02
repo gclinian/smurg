@@ -2,6 +2,7 @@
 // audit feed (admin.audit.entry to host connections only) and the per-user teardown that kick, leave and demotion
 // share (the sessions the member opened killed, uploads aborted: R2's 3 s / R4's 5 s).
 import { SmurgError, can, type Role } from '@smurg/protocol';
+import { msg, type AdminChange } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import type { Router, UserId } from '../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../core/lifecycle.ts';
@@ -39,7 +40,7 @@ export async function teardownUser(ctx: DaemonContext, userId: UserId, reason: '
   await Promise.all(steps);
 }
 
-/** Whether `role` may open sessions (the host, 「可使用 agent」): a member set below it loses the sessions they opened. */
+/** Whether `role` may open sessions (the host, Agent access): a member set below it loses the sessions they opened. */
 function mayOwnSessions(role: Role): boolean {
   return can(role, 'session.create');
 }
@@ -47,19 +48,15 @@ function mayOwnSessions(role: Role): boolean {
 /**
  * Writes the state after an admin change that is already in force in memory (kick, role, invite revoke: all fail
  * closed while the daemon runs). When the disk refuses the write, the change is NOT undone; the store keeps re-writing
- * it, and the host is told exactly that instead of a bare `internal` (review REL-14).
+ * it, and the host is told exactly that instead of a bare `internal`.
  */
-async function persistApplied(ctx: DaemonContext, what: string): Promise<SmurgError | null> {
+async function persistApplied(ctx: DaemonContext, change: AdminChange): Promise<SmurgError | null> {
   try {
     await ctx.state.flush();
     return null;
   } catch (err) {
-    ctx.log.error('admin change applied but not saved', { change: what, error: err instanceof Error ? err.name : 'unknown' });
-    return new SmurgError(
-      'internal',
-      `${what}已生效，但無法寫入狀態檔（磁碟已滿或沒有寫入權限？）。smurg 會持續重試；在寫入成功前停止 smurg，重新啟動後這個變更會消失。`,
-      { reason: 'state-not-saved', applied: true },
-    );
+    ctx.log.error('admin change applied but not saved', { change, error: err instanceof Error ? err.name : 'unknown' });
+    return new SmurgError('internal', msg('admin.appliedNotSaved', { change }), { reason: 'state-not-saved', applied: true });
   }
 }
 
@@ -98,7 +95,7 @@ export function registerAdminHandlers(router: Router, ctx: DaemonContext): Dispo
         // The link is never shown, so nobody holds its secret: retire it rather than list a live invite no one has.
         ctx.invites.revoke(created.invite.id, SYSTEM_PRINCIPAL);
         ctx.log.error('invite not saved; not handed out', { error: err instanceof Error ? err.name : 'unknown' });
-        throw new SmurgError('internal', '無法寫入狀態檔（磁碟已滿或沒有寫入權限？），邀請連結沒有建立。', { reason: 'state-not-saved', applied: false });
+        throw new SmurgError('internal', msg('admin.inviteNotSaved'), { reason: 'state-not-saved', applied: false });
       }
       return created;
     }),
@@ -107,7 +104,7 @@ export function registerAdminHandlers(router: Router, ctx: DaemonContext): Dispo
   stack.add(
     router.handle('admin.invite.revoke', async (payload, req) => {
       ctx.invites.revoke(payload.inviteId, req.principal);
-      const unsaved = await persistApplied(ctx, '撤銷邀請');
+      const unsaved = await persistApplied(ctx, 'invite-revoke');
       if (unsaved) throw unsaved;
       return {};
     }),
@@ -117,7 +114,7 @@ export function registerAdminHandlers(router: Router, ctx: DaemonContext): Dispo
   stack.add(
     router.handle('admin.member.setRole', async (payload, req) => {
       const member = ctx.members.setRole(payload.userId, payload.role, req.principal);
-      const unsaved = await persistApplied(ctx, '角色變更');
+      const unsaved = await persistApplied(ctx, 'role-change');
       await awaitTeardown(payload.userId);
       if (unsaved) throw unsaved;
       return { member };
@@ -126,7 +123,7 @@ export function registerAdminHandlers(router: Router, ctx: DaemonContext): Dispo
   stack.add(
     router.handle('admin.member.kick', async (payload, req) => {
       ctx.members.kick(payload.userId, req.principal);
-      const unsaved = await persistApplied(ctx, '踢出成員');
+      const unsaved = await persistApplied(ctx, 'kick');
       await awaitTeardown(payload.userId);
       if (unsaved) throw unsaved;
       return {};
@@ -146,7 +143,7 @@ export function registerAdminHandlers(router: Router, ctx: DaemonContext): Dispo
 
   stack.add(
     router.handle('channel.leave', async (_payload, req) => {
-      // The host stops sharing with `smurg stop`; leaving is for guests (R4 「客人離開」).
+      // The host stops sharing with `smurg stop`; leaving is for guests (SPEC R4).
       if (req.role === 'host') return {};
       ctx.audit.record({ actor: req.principal.actor, action: 'member.leave', outcome: 'ok', target: req.userId });
       ctx.bus.emit('member.left', { userId: req.userId, by: req.principal.actor });

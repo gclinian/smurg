@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ConnectionState } from '@smurg/protocol/client';
 import { makeWelcome } from '../../testing/fixtures.ts';
 import { describeConnection, secondsUntil } from './status.ts';
+import { applyLocale } from '../locale.ts';
 
 const ALL: readonly ConnectionState[] = [
   { kind: 'idle' },
@@ -41,28 +42,32 @@ const ALL: readonly ConnectionState[] = [
 
 const TERMINAL = new Set(['key-mismatch', 'rejected', 'closed']);
 
+const HAN = /[\u3400-\u9fff]/u;
+
 describe('connection state → UI', () => {
-  it('names every state in zh-TW, and only terminal states block the UI', () => {
-    for (const state of ALL) {
-      const view = describeConnection(state);
-      expect(view.label, JSON.stringify(state)).toMatch(/[一-鿿]/u);
-      expect(view.detail, JSON.stringify(state)).toMatch(/[一-鿿]/u);
-      expect(view.blocking, JSON.stringify(state)).toBe(TERMINAL.has(state.kind));
-      if (view.blocking) {
-        expect(view.title).toMatch(/[一-鿿]/u);
-        expect(view.body).toMatch(/[一-鿿]/u);
+  it('names every state in the viewer\'s language, and only terminal states block the UI', () => {
+    for (const locale of ['en', 'zh-TW'] as const) {
+      applyLocale(locale);
+      for (const state of ALL) {
+        const view = describeConnection(state);
+        const texts = [view.label, view.detail, ...(view.blocking ? [view.title ?? '', view.body ?? ''] : [])];
+        for (const text of texts) {
+          expect(text.trim(), JSON.stringify(state)).not.toBe('');
+          expect(HAN.test(text), `${locale} ${JSON.stringify(state)}: ${text}`).toBe(locale === 'zh-TW');
+        }
+        expect(view.blocking, JSON.stringify(state)).toBe(TERMINAL.has(state.kind));
       }
     }
   });
 
-  it('host offline shows 「主人已離線」, and relay unreachable says something DIFFERENT', () => {
+  it('host offline shows "Host offline", and relay unreachable says something DIFFERENT', () => {
     const offline = describeConnection({ kind: 'host-offline', reason: 'relay', since: 0 });
     const unreachable = describeConnection({ kind: 'relay-unreachable', attempt: 1, retryAt: 1, cause: 'watchdog' });
-    expect(offline.label).toBe('主人已離線');
+    expect(offline.label).toBe('Host offline');
     expect(offline.kind).toBe('host-offline');
     expect(unreachable.kind).toBe('relay-unreachable');
-    expect(unreachable.label).not.toBe(offline.label);
-    expect(unreachable.detail).toContain('不是主人離線');
+    expect(unreachable.label).toBe('Server unreachable');
+    expect(unreachable.detail).toContain('the host is not offline');
     expect(offline.blocking).toBe(false);
     expect(unreachable.blocking).toBe(false);
   });
@@ -80,7 +85,9 @@ describe('connection state → UI', () => {
   it('key mismatch is a blocking danger state explaining the refused connection', () => {
     const view = describeConnection({ kind: 'key-mismatch', mode: 'invite', detail: 'fingerprint' });
     expect(view).toMatchObject({ kind: 'key-mismatch', tone: 'danger', blocking: true });
-    expect(view.title).toContain('已拒絕連線');
+    expect(view.title).toBe('Security warning: connection refused');
+    applyLocale('zh-TW');
+    expect(describeConnection({ kind: 'key-mismatch', mode: 'invite', detail: 'fingerprint' }).title).toContain('已拒絕連線');
   });
 
   it('counts retry seconds up, never below zero', () => {

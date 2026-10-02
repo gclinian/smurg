@@ -1,7 +1,7 @@
 // The wrangler config is part of the contract: production values at the top level, localhost values only in
 // env.dev (relay.md gotcha 25), and the Worker-first routes equal to the protocol's route table. Production is the
 // shared relay on the Workers Free plan with Google login only, deployed with exactly this file's top level to the
-// Cloudflare Custom Domain app.smurg.ai with workers.dev off (README.md「部署到 Cloudflare」; it was the workers.dev URL
+// Cloudflare Custom Domain app.smurg.ai with workers.dev off (README.md "Deploying to Cloudflare"; it was the workers.dev URL
 // until 2026-10-01). scripts/deploy-relay.sh also deploys the other supported shape, workers.dev (a self-hosted
 // relay's default: origin empty until the first deploy names it), and refuses anything else.
 import { fileURLToPath } from 'node:url';
@@ -12,7 +12,7 @@ import { DEFAULT_RELAY_URL } from '../../../packages/cli/src/relay/default-relay
 import { GOOGLE_ENDPOINTS, customDomainHost, productionConfigProblems, relayHostingOf, type ProductionConfigView } from '../scripts/deploy.ts';
 import { RelayConfigError, loginOptionsFor, parseRelayConfig, type RelayVars } from '../src/lib/config.ts';
 
-/** The shared relay's public origin (README.md「部署到 Cloudflare」). */
+/** The shared relay's public origin (README.md "Deploying to Cloudflare"). */
 const SHARED_RELAY = 'https://app.smurg.ai';
 
 const CONFIG = fileURLToPath(new URL('../wrangler.jsonc', import.meta.url));

@@ -131,7 +131,7 @@ describe('PtySession', { timeout: 30_000 }, () => {
     expect([session.cols, session.rows]).toEqual([100, 30]); // no owner viewer: the size stays
   });
 
-  it('a viewer whose link is slow pauses the PTY (REL-06): output follows the link\'s speed and continues once it drains', async () => {
+  it('a viewer whose link is slow pauses the PTY: output follows the link\'s speed and continues once it drains', async () => {
     // `seq` writes ~10-25 MB/s into a PTY; the viewer's link drains 512 KiB/s. Without flow control the whole output
     // would be pushed into the (shared) send buffer at the PTY's speed.
     const session = start('exec seq 1 30000000');

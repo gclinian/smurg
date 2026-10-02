@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="zh-Hant-TW">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="referrer" content="no-referrer" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>smurg 上傳量測（R7.2）</title>
+    <title>smurg upload measurement (R7.2)</title>
     <style>
       body { font-family: system-ui, "PingFang TC", "Noto Sans TC", sans-serif; margin: 24px; max-width: 880px; line-height: 1.5; }
       fieldset { display: grid; grid-template-columns: max-content 1fr; gap: 8px 12px; align-items: center; }
@@ -14,37 +14,39 @@
     </style>
   </head>
   <body>
-    <h1>上傳量測（SPEC R7.2：上傳 10 GB 檔案時，瀏覽器記憶體用量保持穩定，其他人打字和終端機沒有明顯延遲）</h1>
+    <h1>Upload measurement (SPEC R7.2: while a 10 GB file uploads, browser memory stays stable and other people's typing and terminals show no noticeable delay)</h1>
     <p class="note">
-      以合成的檔案來源上傳（每個分段在讀取時才計算出來），本機磁碟上不會出現 10 GB 的檔案。上傳走真正的傳輸 Worker、
-      Noise 加密、relay 的 TransferDO 與 daemon。預設在最後以 file.upload.abort 取消，主人電腦上不會留下檔案。
-      請先在同一個瀏覽器以一般方式加入工作區（裝置金鑰與主人金鑰才會在 IndexedDB 中）。主人的磁碟保留空間規則仍然適用：
-      量測前請確認主人設定允許這個大小。
+      Uploads from a synthetic file source (each chunk is computed when it is read), so no 10 GB file appears on the
+      local disk. The upload goes through the real transfer Worker, Noise encryption, the relay's TransferDO and the
+      daemon. By default it ends with file.upload.abort, so no file stays on the host's computer. Join the workspace
+      in the same browser the normal way first (the device key and the host key are then in IndexedDB). The host's
+      reserved disk space rule still applies: check that the host's settings allow this size before measuring.
     </p>
     <form id="form">
       <fieldset>
-        <label for="ws">工作區 ID</label><input id="ws" name="ws" required />
-        <label for="gib">大小（GiB）</label><input id="gib" name="gib" type="number" min="0.01" step="0.01" value="10" />
-        <label for="path">主人電腦上的路徑</label><input id="path" name="path" value="smurg-measure.bin" />
-        <label for="finalize">結束時</label>
+        <label for="ws">Workspace ID</label><input id="ws" name="ws" required />
+        <label for="gib">Size (GiB)</label><input id="gib" name="gib" type="number" min="0.01" step="0.01" value="10" />
+        <label for="path">Path on the host's computer</label><input id="path" name="path" value="smurg-measure.bin" />
+        <label for="finalize">At the end</label>
         <select id="finalize" name="finalize">
-          <option value="abort">取消上傳（不留下檔案）</option>
-          <option value="commit">完成上傳（留下檔案）</option>
+          <option value="abort">Abort the upload (no file stays)</option>
+          <option value="commit">Commit the upload (the file stays)</option>
         </select>
-        <label for="probe">互動延遲探測</label>
+        <label for="probe">Interaction delay probe</label>
         <select id="probe" name="probe">
-          <option value="1">每 500 ms 在互動連線送出 file.stat</option>
-          <option value="0">不探測</option>
+          <option value="1">Send file.stat on the interactive connection every 500 ms</option>
+          <option value="0">No probe</option>
         </select>
       </fieldset>
-      <p><button id="start" type="submit">開始量測</button></p>
+      <p><button id="start" type="submit">Start measuring</button></p>
     </form>
-    <h2>結果</h2>
-    <pre id="out" aria-live="polite">尚未開始</pre>
+    <h2>Result</h2>
+    <pre id="out" aria-live="polite">Not started</pre>
     <p class="note">
-      自動化：以 <code>?ws=&lt;id&gt;&amp;gib=10&amp;autostart=1</code> 開啟，完成後 <code>document.body.dataset.measureState</code> 會是
-      <code>done</code>，結果在 <code>window.__smurgMeasure</code>。頁面只看得到自己主執行緒的 JS heap；整個瀏覽器的記憶體請從外部量測
-      （例如每秒以 <code>ps -o rss=</code> 取樣這個瀏覽器的所有程序）。
+      Automation: open with <code>?ws=&lt;id&gt;&amp;gib=10&amp;autostart=1</code>; when it has finished,
+      <code>document.body.dataset.measureState</code> is <code>done</code> and the result is in <code>window.__smurgMeasure</code>.
+      The page only sees the JS heap of its own main thread; measure the memory of the whole browser from outside (for
+      example sample every process of this browser with <code>ps -o rss=</code> once a second).
     </p>
     <script type="module" src="./measure.ts"></script>
   </body>

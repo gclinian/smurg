@@ -5,6 +5,7 @@ import { lstat, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, activityEventSchema, type ActivityEvent, type FileRef, type SessionInfo } from '@smurg/protocol';
+import { msg, render, type MessageRef } from '@smurg/protocol/i18n';
 import { TypedEventBus } from '../../src/core/bus.ts';
 import { ManualClock } from '../../src/core/lifecycle.ts';
 import { silentLogger } from '../../src/core/logger.ts';
@@ -16,6 +17,9 @@ import { agentSession, preToolUse, recorder, watcherSaw } from './agent-sim.ts';
 import { RecordingAudit } from './support.ts';
 
 const main = (path: string): FileRef => ({ root: MAIN_ROOT, path });
+/** Any sentence about `label` (these tests look at who gets an entry, not at its wording). */
+const about = (label: string): MessageRef => msg('activity.fileDelete', { path: label });
+const labelOf = (event: ActivityEvent): unknown => event.text.params?.['path'];
 
 let t: TestDaemon | null = null;
 const dirs: string[] = [];
@@ -41,7 +45,7 @@ function thrown(fn: () => unknown): unknown {
 }
 
 function event(at: number, path = 'a.txt'): ActivityEvent {
-  return activityEventSchema.parse({ id: `act_${at}`, at, actor: { kind: 'system' }, kind: 'external.change', file: main(path), summary: `外部程式修改了 ${path}` });
+  return activityEventSchema.parse({ id: `act_${at}`, at, actor: { kind: 'system' }, kind: 'external.change', file: main(path), text: { id: 'activity.externalChange', params: { path, change: 'change' } }, summary: `An outside program changed ${path}` });
 }
 
 describe('activity.jsonl', () => {
@@ -105,13 +109,13 @@ describe('activity.jsonl', () => {
       });
     const first = feed();
     await first.start();
-    const ats = [0, 1, 2].map(() => first.record({ actor: { kind: 'system' }, kind: 'external.change', file: main('x'), summary: 'x' }).at);
+    const ats = [0, 1, 2].map(() => first.record({ actor: { kind: 'system' }, kind: 'external.change', file: main('x'), text: about('x') }).at);
     expect(ats).toEqual([5_000, 5_001, 5_002]);
     await first.stop();
     clock.set(1_000);
     const second = feed();
     await second.start();
-    expect(second.record({ actor: { kind: 'system' }, kind: 'external.change', summary: 'y' }).at).toBe(5_003);
+    expect(second.record({ actor: { kind: 'system' }, kind: 'external.change', text: about('y') }).at).toBe(5_003);
     await second.stop();
     const lines = (await readFile(path, 'utf8')).trim().split('\n');
     expect(lines).toHaveLength(4);
@@ -140,7 +144,9 @@ describe('bus → activity + audit', () => {
       ['human.edit', 'Amy'],
       ['human.edit', 'Host'],
     ]);
-    expect(live[0]?.event.summary).toBe('Amy 編輯了 README.md');
+    // The sentence travels as a reference (each client renders it); `summary` is its English rendering.
+    expect(live[0]?.event).toMatchObject({ text: { id: 'activity.humanEdit', params: { name: 'Amy', path: 'README.md' } }, summary: 'Amy edited README.md' });
+    expect(render('zh-TW', live[0]?.event.text)).toBe('Amy 編輯了 README.md');
     const audit = await host.conn.request('admin.audit.query', { limit: 50 });
     expect(audit.entries.filter((e) => e.action === 'doc.edit').map((e) => e.actor)).toEqual([
       expect.objectContaining({ userId: 'dev:host' }),
@@ -160,7 +166,7 @@ describe('bus → activity + audit', () => {
     watcherSaw(d, main('log.txt')); // the same file again within the window
     const burst = Array.from({ length: EXTERNAL_BURST_MAX + 5 }, (_, i) => ({ path: `gen/f${i}.ts`, change: 'add' as const }));
     d.ctx.bus.emit('file.changed', { root: MAIN_ROOT, changes: burst });
-    const byAgent = { kind: 'agent', sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude（Ian）' } as const;
+    const byAgent = { kind: 'agent', sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude (Ian)' } as const;
     watcherSaw(d, main('agent.ts'), 'change', byAgent);
     watcherSaw(d, main('agent.ts'), 'change', byAgent);
     await waitFor(() => live.length >= 3, { what: 'three entries' });
@@ -170,7 +176,10 @@ describe('bus → activity + audit', () => {
       ['external.change', null],
       ['agent.edit', 'agent.ts'],
     ]);
-    expect(live[1]?.event.summary).toContain(`外部程式變更了 ${EXTERNAL_BURST_MAX + 5} 個檔案`);
+    expect(live[1]?.event.text).toEqual({ id: 'activity.externalBurst', params: { count: EXTERNAL_BURST_MAX + 5, sample: ['gen/f0.ts', 'gen/f1.ts', 'gen/f2.ts'] } });
+    expect(live[1]?.event.summary).toBe(`An outside program changed ${EXTERNAL_BURST_MAX + 5} files (e.g. gen/f0.ts, gen/f1.ts, gen/f2.ts)`);
+    expect(live[0]?.event.text).toEqual({ id: 'activity.externalChange', params: { path: 'log.txt', change: 'change' } });
+    expect(live[2]?.event.text).toEqual({ id: 'activity.agentChange', params: { agent: 'Claude (Ian)', path: 'agent.ts', change: 'change' } });
     const audit = await host.conn.request('admin.audit.query', { limit: 50 });
     expect(audit.entries.filter((e) => e.action === 'external.change').map((e) => e.detail?.['count'] ?? 1)).toEqual([EXTERNAL_BURST_MAX + 5, 1]);
   });
@@ -186,7 +195,11 @@ describe('bus → activity + audit', () => {
     await waitFor(() => live.length >= LOCK_DENIED_PER_SESSION_PER_MINUTE, { what: 'the bounded lock.denied entries' });
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(live).toHaveLength(LOCK_DENIED_PER_SESSION_PER_MINUTE);
-    expect(live[0]?.event.summary).toBe('Claude（Ian）想修改 README.md，但 Host 正在編輯，已被擋下');
+    expect(live[0]?.event).toMatchObject({
+      kind: 'lock.denied',
+      text: { id: 'activity.lockDeniedHeld', params: { agent: 'Claude (Ian)', path: 'README.md', holders: ['Host'], holderCount: 1, holderIsAgent: false } },
+      summary: 'Claude (Ian) wanted to change README.md, but Host is editing it: blocked',
+    });
   });
 
   it('an entry about a hidden path reaches the host only, live and in activity.list', async () => {
@@ -196,18 +209,18 @@ describe('bus → activity + audit', () => {
     const hostLive = recorder(host.conn, 'activity.event');
     const amyLive = recorder(amy.conn, 'activity.event');
     const system = { kind: 'system' } as const;
-    d.ctx.services.activity.record({ actor: system, kind: 'file.create', file: main('.smurg/worktrees/wt_1'), summary: 'hidden' });
-    d.ctx.services.activity.record({ actor: system, kind: 'file.create', file: main('visible.txt'), summary: 'visible' });
+    d.ctx.services.activity.record({ actor: system, kind: 'file.create', file: main('.smurg/worktrees/wt_1'), text: about('hidden') });
+    d.ctx.services.activity.record({ actor: system, kind: 'file.create', file: main('visible.txt'), text: about('visible') });
     await waitFor(() => hostLive.length === 2 && amyLive.length === 1, { what: 'fan-out' });
-    expect(amyLive[0]?.event.summary).toBe('visible');
-    expect((await amy.conn.request('activity.list', { limit: 1 })).events.map((e) => e.summary)).toEqual(['visible']);
-    expect((await host.conn.request('activity.list', {})).events.map((e) => e.summary)).toEqual(['visible', 'hidden']);
+    expect(amyLive[0] && labelOf(amyLive[0].event)).toBe('visible');
+    expect((await amy.conn.request('activity.list', { limit: 1 })).events.map(labelOf)).toEqual(['visible']);
+    expect((await host.conn.request('activity.list', {})).events.map(labelOf)).toEqual(['visible', 'hidden']);
   });
 
   it('activity.list pages with an exact `before` cursor', async () => {
     const d = await daemon();
     const amy = await d.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'viewer' });
-    const recorded = Array.from({ length: 7 }, (_, i) => d.ctx.services.activity.record({ actor: { kind: 'system' }, kind: 'external.change', file: main(`f${i}`), summary: `s${i}` }));
+    const recorded = Array.from({ length: 7 }, (_, i) => d.ctx.services.activity.record({ actor: { kind: 'system' }, kind: 'external.change', file: main(`f${i}`), text: about(`s${i}`) }));
     const page1 = await amy.conn.request('activity.list', { limit: 3 });
     const page2 = await amy.conn.request('activity.list', { limit: 3, before: page1.events.at(-1)?.at });
     const page3 = await amy.conn.request('activity.list', { limit: 3, before: page2.events.at(-1)?.at });
@@ -215,26 +228,35 @@ describe('bus → activity + audit', () => {
   });
 });
 
-describe('activity.notify (the coordination MCP tool 「通知某位組員」)', () => {
+describe('activity.notify (the coordination MCP tool notify_member)', () => {
   it('reaches only the notified member’s connections; unknown members and invalid text are refused', async () => {
     const d = await daemon();
     const host = await d.connectHost();
     const amy = await d.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
     const amyNotes = recorder(amy.conn, 'activity.notify');
     const hostNotes = recorder(host.conn, 'activity.notify');
-    const from = { kind: 'agent', sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude（Ian）' } as const;
+    const from = { kind: 'agent', sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude (Ian)' } as const;
     d.ctx.services.activity.notify('dev:amy', { from, text: '我改完 src/app.ts 了，請看一下', file: main('README.md') });
     d.ctx.services.activity.notify('dev:amy', { from, text: 'hidden', file: main('.smurg/x') });
     await waitFor(() => amyNotes.length === 2, { what: 'the notifications' });
     expect(amyNotes[0]?.notification).toMatchObject({ from, text: '我改完 src/app.ts 了，請看一下', file: main('README.md') });
     expect(amyNotes[1]?.notification.file).toBeUndefined(); // a guest never learns a hidden path
     expect(hostNotes).toHaveLength(0);
-    expect(thrown(() => d.ctx.services.activity.notify('dev:nobody', { from, text: 'x' }))).toMatchObject({ code: 'not_found' });
-    expect(thrown(() => d.ctx.services.activity.notify('dev:amy', { from, text: 'x'.repeat(2_001) }))).toMatchObject({ code: 'bad_request' });
+    expect(thrown(() => d.ctx.services.activity.notify('dev:nobody', { from, text: 'x' }))).toMatchObject({ code: 'not_found', detail: { reason: 'member' }, text: { id: 'member.notFound' } });
+    expect(thrown(() => d.ctx.services.activity.notify('dev:amy', { from, text: 'x'.repeat(2_001) }))).toMatchObject({ code: 'bad_request', detail: { reason: 'notification' }, text: { id: 'member.notificationInvalid' } });
+    // Exactly one of an agent's words (`text`) or a daemon-written message (`msg` + `fallback`).
+    const ref = msg('notify.claudeVersionTooOld', { version: '2.0.1', minVersion: '2.1.0' });
+    d.ctx.services.activity.notify('dev:amy', { from: { kind: 'system' }, msg: ref, fallback: 'Note: too old.' });
+    await waitFor(() => amyNotes.length === 3, { what: 'the daemon-written notification' });
+    expect(amyNotes[2]?.notification).toMatchObject({ from: { kind: 'system' }, msg: ref, fallback: 'Note: too old.' });
+    expect(amyNotes[2]?.notification.text).toBeUndefined();
+    expect(thrown(() => d.ctx.services.activity.notify('dev:amy', { from, text: 'x', msg: ref, fallback: 'x' }))).toMatchObject({ code: 'bad_request' });
+    expect(thrown(() => d.ctx.services.activity.notify('dev:amy', { from, msg: ref }))).toMatchObject({ code: 'bad_request' });
+    expect(thrown(() => d.ctx.services.activity.notify('dev:amy', { from }))).toMatchObject({ code: 'bad_request' });
   });
 });
 
-describe('who changed a file nobody announced (review SPEC-01: Bash edits, FileChanged)', () => {
+describe('who changed a file nobody announced (Bash edits, FileChanged)', () => {
   const WT = { kind: 'worktree', worktreeId: 'wt_bob1' } as const;
 
   function sessionInfo(id: string, kind: 'agent' | 'terminal', root: SessionInfo['root']): SessionInfo {
@@ -271,24 +293,24 @@ describe('who changed a file nobody announced (review SPEC-01: Bash edits, FileC
   it('in a worktree with one agent session running, a change nobody announced (its Bash `sed`) is that agent\'s edit', async () => {
     const { bus, events, audit } = await feed([sessionInfo('ses_bob_agent', 'agent', WT)]);
     bus.emit('file.changed', { root: WT, changes: [{ path: 'src/conflict.txt', change: 'change' }] });
-    expect(events.map((e) => [e.kind, e.actor, e.file?.path])).toEqual([['agent.edit', { kind: 'agent', sessionId: 'ses_bob_agent', ownerUserId: 'dev:bob', displayName: 'Claude（Bob）' }, 'src/conflict.txt']]);
+    expect(events.map((e) => [e.kind, e.actor, e.file?.path])).toEqual([['agent.edit', { kind: 'agent', sessionId: 'ses_bob_agent', ownerUserId: 'dev:bob', displayName: 'Claude (Bob)' }, 'src/conflict.txt']]);
     expect(audit.entries.map((e) => [e.action, e.actor.kind])).toEqual([['agent.edit', 'agent']]);
   });
 
-  it('in a worktree with a terminal (or several sessions), the change is attributed to the worktree\'s owner, not to 「外部程式」', async () => {
+  it('in a worktree with a terminal (or several sessions), the change is attributed to the worktree\'s owner, not to "an outside program"', async () => {
     const { bus, events } = await feed([sessionInfo('ses_bob_term', 'terminal', WT), sessionInfo('ses_main', 'agent', { kind: 'main' })]);
     bus.emit('file.changed', { root: WT, changes: [{ path: 'feature.txt', change: 'add' }] });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ kind: 'external.change', actor: { kind: 'user', userId: 'dev:bob', displayName: 'Bob' }, file: { root: WT, path: 'feature.txt' } });
-    expect(events[0]?.summary).toBe('Bob 的 worktree 中的程式新增了 feature.txt');
+    expect(events[0]).toMatchObject({ text: { id: 'activity.worktreeChange', params: { name: 'Bob', path: 'feature.txt', change: 'add' } }, summary: "A program in Bob's worktree created feature.txt" });
     // Many files at once: one entry, still the owner's.
     const burst = Array.from({ length: EXTERNAL_BURST_MAX + 1 }, (_, i) => ({ path: `gen/f${i}.ts`, change: 'add' as const }));
     bus.emit('file.changed', { root: WT, changes: burst });
     expect(events).toHaveLength(2);
-    expect(events[1]).toMatchObject({ kind: 'external.change', actor: { kind: 'user', userId: 'dev:bob' } });
+    expect(events[1]).toMatchObject({ kind: 'external.change', actor: { kind: 'user', userId: 'dev:bob' }, text: { id: 'activity.worktreeBurst', params: { name: 'Bob', count: EXTERNAL_BURST_MAX + 1 } } });
   });
 
-  it('in the main workspace, or a worktree where nothing of its owner runs, it stays 「外部程式」', async () => {
+  it('in the main workspace, or a worktree where nothing of its owner runs, it stays "an outside program"', async () => {
     const { bus, events } = await feed([sessionInfo('ses_bob_agent', 'agent', { kind: 'main' })]);
     bus.emit('file.changed', { root: MAIN_ROOT, changes: [{ path: 'a.txt', change: 'change' }] });
     bus.emit('file.changed', { root: WT, changes: [{ path: 'b.txt', change: 'change' }] });
@@ -351,13 +373,16 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
 
   const kinds = (events: ActivityEvent[]): [string, string, string | undefined][] => events.map((e) => [e.kind, e.actor.kind === 'agent' || e.actor.kind === 'user' ? e.actor.displayName : 'system', e.file?.path]);
 
-  it('one agent\'s Bash edit is attributed to it: agent.edit 「…透過 shell 指令修改了…」, audited via bash, announced for the badge and the conflict source', async () => {
+  it('one agent\'s Bash edit is attributed to it: agent.edit "... with a shell command", audited via bash, announced for the badge and the conflict source', async () => {
     const f = await feed([info('ses_amy', 'dev:amy', MAIN_ROOT)]);
     f.bashStart('ses_amy', 'dev:amy');
     f.changed(MAIN_ROOT, 'src/app.ts');
-    expect(kinds(f.events)).toEqual([['agent.edit', 'Claude（Amy）', 'src/app.ts']]);
-    expect(f.events[0]?.summary).toBe('Claude（Amy）透過 shell 指令修改了 src/app.ts');
-    // The structured mark clients use (never the summary's wording).
+    expect(kinds(f.events)).toEqual([['agent.edit', 'Claude (Amy)', 'src/app.ts']]);
+    expect(f.events[0]).toMatchObject({
+      text: { id: 'activity.agentBashChange', params: { agent: 'Claude (Amy)', path: 'src/app.ts', change: 'change' } },
+      summary: 'Claude (Amy) changed src/app.ts with a shell command',
+    });
+    // The structured mark clients use (never the wording).
     expect(f.events[0]?.via).toBe('bash');
     expect(f.audit.entries.map((e) => [e.action, e.actor.kind, e.detail?.['via']])).toEqual([['agent.edit', 'agent', 'bash']]);
     expect(f.announced).toContainEqual({ sessionId: 'ses_amy', file: 'src/app.ts', tool: 'Bash' });
@@ -366,7 +391,7 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
     expect(f.events).toHaveLength(1);
   });
 
-  it('two overlapping windows: 「外部程式」 (never guess); a change outside every window: 「外部程式」', async () => {
+  it('two overlapping windows: "an outside program" (never guess); a change outside every window: the same', async () => {
     const f = await feed([info('ses_amy', 'dev:amy', MAIN_ROOT), info('ses_bob', 'dev:bob', MAIN_ROOT)]);
     f.changed(MAIN_ROOT, 'before.txt');
     f.bashStart('ses_amy', 'dev:amy');
@@ -378,7 +403,7 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
     ]);
   });
 
-  it('the grace period: a change up to 3 s after the command ended is still its own (watcher latency); later it is 「外部程式」', async () => {
+  it('the grace period: a change up to 3 s after the command ended is still its own (watcher latency); later it is "an outside program"', async () => {
     const f = await feed([info('ses_amy', 'dev:amy', MAIN_ROOT)]);
     f.bashStart('ses_amy', 'dev:amy');
     f.bashEnd('ses_amy', 'dev:amy');
@@ -387,7 +412,7 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
     f.clock.advance(200);
     f.changed(MAIN_ROOT, 'after-grace.txt');
     expect(kinds(f.events)).toEqual([
-      ['agent.edit', 'Claude（Amy）', 'late-but-in-grace.txt'],
+      ['agent.edit', 'Claude (Amy)', 'late-but-in-grace.txt'],
       ['external.change', 'system', 'after-grace.txt'],
     ]);
     expect(f.events.map((e) => e.via)).toEqual(['bash', undefined]);
@@ -419,7 +444,7 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
     f.bashEnd('ses_host', 'dev:host');
     f.clock.advance(3_100);
     f.changed({ kind: 'worktree', worktreeId: 'wt_bob' }, 'later.txt');
-    expect(kinds(f.events).at(-1)).toEqual(['agent.edit', 'Claude（Bob）', 'later.txt']);
+    expect(kinds(f.events).at(-1)).toEqual(['agent.edit', 'Claude (Bob)', 'later.txt']);
     // A member's main-workspace session is no less able to write into bob's worktree than the host's: ambiguous again.
     f.bashStart('ses_amy', 'dev:amy');
     f.changed({ kind: 'worktree', worktreeId: 'wt_bob' }, 'amy-too.txt');
@@ -432,29 +457,29 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
     for (let i = 0; i < 5; i++) f.bashStart('ses_mallory', 'dev:bob');
     f.changed(MAIN_ROOT, 'm.txt');
     // …but never one of another root, never for someone else: amy's worktree change is not bob's. Its shell could have
-    // written there (every session runs unsandboxed), so not even the worktree rule names amy: 「外部程式」.
+    // written there (every session runs unsandboxed), so not even the worktree rule names amy: "an outside program".
     f.changed(WT, 'amy.txt');
     expect(kinds(f.events)).toEqual([
-      ['agent.edit', 'Claude（Bob）', 'm.txt'],
+      ['agent.edit', 'Claude (Bob)', 'm.txt'],
       ['external.change', 'system', 'amy.txt'],
     ]);
     // Once its windows are closed (and the grace is over), amy's worktree change is amy's again (her only session there).
     for (let i = 0; i < 5; i++) f.bashEnd('ses_mallory', 'dev:bob');
     f.clock.advance(3_100);
     f.changed(WT, 'amy-later.txt');
-    expect(kinds(f.events).at(-1)).toEqual(['agent.edit', 'Claude（Amy）', 'amy-later.txt']);
+    expect(kinds(f.events).at(-1)).toEqual(['agent.edit', 'Claude (Amy)', 'amy-later.txt']);
     // Only the shell-window attribution is marked via 'bash'; amy's is the worktree rule's (no mark).
     expect(f.events.map((e) => e.via)).toEqual(['bash', undefined, undefined]);
     expect(f.announced.filter((a) => a.file !== null).map((a) => a.sessionId)).toEqual(['ses_mallory']);
   });
 
   it('a change another source claimed keeps its author: an agent lock held by another session, a person\'s save', async () => {
-    const lockOf = (file: FileRef) => (file.path === 'locked.ts' ? { kind: 'agent', file, sessionId: 'ses_bob', ownerUserId: 'dev:bob', agentName: 'Claude（Bob）', acquiredAt: 1, expiresAt: 2 } : null);
+    const lockOf = (file: FileRef) => (file.path === 'locked.ts' ? { kind: 'agent', file, sessionId: 'ses_bob', ownerUserId: 'dev:bob', agentName: 'Claude (Bob)', acquiredAt: 1, expiresAt: 2 } : null);
     const f = await feed([info('ses_amy', 'dev:amy', MAIN_ROOT), info('ses_bob', 'dev:bob', MAIN_ROOT)], { lockOf });
     f.bashStart('ses_amy', 'dev:amy');
     f.changed(MAIN_ROOT, 'locked.ts');
     f.bus.emit('file.changed', { root: MAIN_ROOT, changes: [{ path: 'saved.ts', change: 'change', by: { kind: 'user', userId: 'dev:bob', displayName: 'Bob' } }] });
-    expect(kinds(f.events)).toEqual([['agent.edit', 'Claude（Bob）', 'locked.ts']]);
+    expect(kinds(f.events)).toEqual([['agent.edit', 'Claude (Bob)', 'locked.ts']]);
   });
 
   it('many files at once (a git checkout): one agent.edit entry; a deleted file is recorded but not announced as written', async () => {
@@ -463,11 +488,14 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
     f.changed(MAIN_ROOT, ...Array.from({ length: EXTERNAL_BURST_MAX + 5 }, (_, i) => `gen/f${i}.ts`));
     expect(f.events).toHaveLength(1);
     expect(f.events[0]).toMatchObject({ kind: 'agent.edit', actor: { kind: 'agent', sessionId: 'ses_amy' } });
-    expect(f.events[0]?.summary).toMatch(/^Claude（Amy）透過 shell 指令變更了 25 個檔案（例如 gen\/f0\.ts/);
+    expect(f.events[0]).toMatchObject({
+      text: { id: 'activity.agentBashBurst', params: { agent: 'Claude (Amy)', count: 25, sample: ['gen/f0.ts', 'gen/f1.ts', 'gen/f2.ts'] } },
+      summary: 'Claude (Amy) changed 25 files with a shell command (e.g. gen/f0.ts, gen/f1.ts, gen/f2.ts)',
+    });
     expect(f.events[0]?.via).toBe('bash');
     expect(f.audit.entries.at(-1)).toMatchObject({ action: 'agent.edit', detail: { via: 'bash', count: 25 } });
     f.bus.emit('file.changed', { root: MAIN_ROOT, changes: [{ path: 'gone.txt', change: 'unlink' }] });
-    expect(f.events.at(-1)?.summary).toBe('Claude（Amy）透過 shell 指令刪除了 gone.txt');
+    expect(f.events.at(-1)).toMatchObject({ text: { id: 'activity.agentBashChange', params: { agent: 'Claude (Amy)', path: 'gone.txt', change: 'unlink' } }, summary: 'Claude (Amy) deleted gone.txt with a shell command' });
     expect(f.announced.some((a) => a.file === 'gone.txt')).toBe(false);
   });
 
@@ -479,7 +507,7 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
     f.clock.advance(3_000);
     f.changed(MAIN_ROOT, 'stale.txt');
     expect(kinds(f.events)).toEqual([
-      ['agent.edit', 'Claude（Amy）', 'long.txt'],
+      ['agent.edit', 'Claude (Amy)', 'long.txt'],
       ['external.change', 'system', 'stale.txt'],
     ]);
   });

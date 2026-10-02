@@ -9,6 +9,7 @@ import { constants as fsConstants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SmurgError } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 
 /** Files of the clone's git dir the daemon pins by content. */
 export const PINNED_GIT_FILES = Object.freeze({ config: 'config', head: 'HEAD', alternates: join('objects', 'info', 'alternates') });
@@ -20,7 +21,7 @@ const MAX_PINNED_BYTES = 64 * 1024;
 
 export class WorktreeTamperedError extends SmurgError {
   constructor(problem: string) {
-    super('conflict', 'worktree 的 git 資料夾已被變更，為了安全已拒絕操作；請主人檢查或刪除這個 worktree', { reason: 'worktree-tampered', problem });
+    super('conflict', msg('worktree.tampered'), { reason: 'worktree-tampered', problem });
     this.name = 'WorktreeTamperedError';
   }
 }

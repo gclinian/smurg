@@ -17,7 +17,8 @@ import { constants as fsConstants, type Stats } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, open, readdir, readlink, realpath, rename, rm, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SmurgError } from '@smurg/protocol';
-import { firstLine, requireOk, type GitIdentity, type GitObjectStore, type GitRunner } from './git.ts';
+import { msg } from '@smurg/protocol/i18n';
+import { firstLine, listedPaths, requireOk, type GitIdentity, type GitObjectStore, type GitRunner } from './git.ts';
 import { parseRawDiff, type RawDiffEntry } from './git-parse.ts';
 import { WorktreeTamperedError } from './integrity.ts';
 
@@ -57,7 +58,7 @@ const OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 /** The worktree changed while it was being committed (an edit, or a lost race): the request can simply be repeated. */
 export class WorktreeChangedError extends SmurgError {
   constructor(path: string | null) {
-    super('conflict', 'worktree 在提交變更時又被修改了，請稍後再提出一次合併請求', { reason: 'worktree-changed', ...(path !== null ? { path } : {}) });
+    super('conflict', msg('worktree.changedDuringCommit'), { reason: 'worktree-changed', ...(path !== null ? { path } : {}) });
     this.name = 'WorktreeChangedError';
   }
 }
@@ -150,7 +151,7 @@ export async function verifyBlobLink(root: string, rel: string, oid: string): Pr
 }
 
 function hardLinkError(rel: string): SmurgError {
-  return new SmurgError('conflict', `worktree 中的檔案有多個硬連結，為了安全無法提交：${rel}`, { reason: 'hard-link', path: rel });
+  return new SmurgError('conflict', msg('worktree.hardLink', { path: listedPaths([rel])[0] as string }), { reason: 'hard-link', path: rel });
 }
 
 /** Checks every entry the staged commit adds or changes (deleted ones read nothing). */
@@ -175,7 +176,7 @@ export async function verifyStagedEntries(root: string, entries: readonly RawDif
     }
   }
   if (nested.length > 0) {
-    throw new SmurgError('conflict', `合併內容不可以包含巢狀的 git 儲存庫（submodule）：${nested.slice(0, 10).join('、')}`, {
+    throw new SmurgError('conflict', msg('merge.nestedRepos', { paths: listedPaths(nested) }), {
       reason: 'nested-repository',
       paths: nested.slice(0, 20),
       count: nested.length,
@@ -269,8 +270,8 @@ export async function stageCommit(input: StageCommitInput): Promise<StageCommitR
   const gitDir = join(workTree, '.git');
   const cloneObjects = join(gitDir, 'objects');
   const timeoutMs = limits.timeoutMs;
-  const head = firstLine(requireOk(await git.run({ gitDir, args: ['rev-parse', '--verify', `refs/heads/${input.branch}^{commit}`], readOnly: true, timeoutMs }), '讀取 commit'));
-  if (!OID.test(head)) throw new SmurgError('internal', '讀取 commit失敗', { reason: 'git-output-unparsable' });
+  const head = firstLine(requireOk(await git.run({ gitDir, args: ['rev-parse', '--verify', `refs/heads/${input.branch}^{commit}`], readOnly: true, timeoutMs }), 'readCommit'));
+  if (!OID.test(head)) throw new SmurgError('internal', msg('git.stepFailed', { step: 'readCommit' }), { reason: 'git-output-unparsable' });
 
   const stage = await mkdtemp(join(input.stagingRoot, 'c-'));
   try {
@@ -293,28 +294,28 @@ export async function stageCommit(input: StageCommitInput): Promise<StageCommitR
       await utimes(store.indexFile, seconds, seconds);
     }
 
-    requireOk(await git.run({ gitDir, workTree, store, args: ['add', '--all'], timeoutMs }), '暫存 worktree 的變更');
+    requireOk(await git.run({ gitDir, workTree, store, args: ['add', '--all'], timeoutMs }), 'stage');
     const staged = await git.run({ gitDir, workTree, store, args: ['diff', '--cached', '--quiet', '--no-ext-diff', head], timeoutMs });
     if (staged.code === 0) return { commit: head, created: false };
-    if (staged.code !== 1) requireOk(staged, '檢查 worktree 的變更');
-    const tree = firstLine(requireOk(await git.run({ gitDir, store, args: ['write-tree'], timeoutMs }), '提交 worktree 的變更'));
+    if (staged.code !== 1) requireOk(staged, 'checkChanges');
+    const tree = firstLine(requireOk(await git.run({ gitDir, store, args: ['write-tree'], timeoutMs }), 'commit'));
     const message = input.message.endsWith('\n') ? input.message : `${input.message}\n`;
     const commit = firstLine(
       requireOk(
         await git.run({ gitDir, store, identity: input.identity, input: message, args: ['commit-tree', '--no-gpg-sign', tree, '-p', head, '-F', '-'], timeoutMs }),
-        '提交 worktree 的變更',
+        'commit',
       ),
     );
-    if (!OID.test(tree) || !OID.test(commit)) throw new SmurgError('internal', '提交 worktree 的變更失敗', { reason: 'git-output-unparsable' });
+    if (!OID.test(tree) || !OID.test(commit)) throw new SmurgError('internal', msg('git.stepFailed', { step: 'commit' }), { reason: 'git-output-unparsable' });
 
     if (input.verify) {
       const changed = requireOk(
         await git.run({ gitDir, store, args: ['diff-tree', '-r', '-z', '--raw', '--no-renames', '--no-abbrev', head, commit], readOnly: true, maxStdoutBytes: 64 * 1024 * 1024, timeoutMs }),
-        '檢查提交的內容',
+        'checkCommit',
       );
       const entries = parseRawDiff(changed.stdout);
       if (entries.length > limits.maxEntries) {
-        throw new SmurgError('too_large', `一次提交的變更超過 ${limits.maxEntries} 個檔案，請分成幾次`, { reason: 'too-many-files', count: entries.length });
+        throw new SmurgError('too_large', msg('worktree.commitTooManyFiles', { max: limits.maxEntries }), { reason: 'too-many-files', count: entries.length });
       }
       await verifyStagedEntries(workTree, entries);
     }

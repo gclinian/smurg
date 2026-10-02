@@ -1,6 +1,6 @@
 // What the transfer engine (in the Worker) reports about each job, and how it describes failures. The engine never
 // formats text for people: it reports structured facts (a disk report, a daemon error code and reason, the local
-// cause) and the UI turns them into zh-TW (ui/describe.ts). Everything here is structured-cloneable.
+// cause) and the UI turns them into words (ui/describe.ts). Everything here is structured-cloneable.
 import type { DiskReport, ErrorPayload, RootRef } from '@smurg/protocol';
 import type { TransferStatus } from '../../../lib/stores/transfers.ts';
 
@@ -18,7 +18,7 @@ export type PauseCause =
 export type UploadConflictPolicy = 'fail' | 'overwrite' | 'rename';
 
 export type TransferFailure =
-  /** The host's disk check refused (R7 「磁碟空間不足時，上傳在開始前就被拒絕」): the numbers for the message. */
+  /** The host's disk check refused (R7: with too little disk space an upload is refused before it starts): the numbers for the message. */
   | { readonly kind: 'disk'; readonly disk: DiskReport | null; readonly midway: boolean }
   /** The daemon refused (permission, lock, path, name conflict, …). */
   | { readonly kind: 'daemon'; readonly error: ErrorPayload }
@@ -28,7 +28,7 @@ export type TransferFailure =
   | { readonly kind: 'source-unreadable'; readonly path: string }
   /** The transfer connection ended for good (kicked, revoked, key mismatch, login needed). */
   | { readonly kind: 'connection-ended'; readonly state: string }
-  /** The person answered 「取消」 to a name conflict. */
+  /** The person answered "Cancel upload" to a name conflict. */
   | { readonly kind: 'conflict-declined'; readonly paths: readonly string[] }
   /** Download: the browser storage cannot hold it (OPFS quota, a short write, or above the in-memory limit). */
   | { readonly kind: 'storage'; readonly reason: 'quota' | 'short-write' | 'size-mismatch' | 'too-large-for-memory' | 'write-failed'; readonly neededBytes: number | null; readonly availableBytes: number | null }

@@ -1,6 +1,6 @@
 // Activity feed (SPEC R8.5, R11): every agent edit, human edit, create/rename/delete/upload, external change,
 // conflict and denied lock, newest first. Also the member notifications agents send with the coordination MCP tool
-// 「通知某位組員」 (activity.notify, only to the notified member).
+// notify_member (activity.notify, only to the notified member), and the notices the host itself writes.
 import type { ActivityEvent, MemberNotification } from '@smurg/protocol';
 import { createStore, type ReadableStore } from '../store.ts';
 import { loadSnapshot, readyState, withGeneration, type AreaLifecycle, type Loadable, type StoreContext } from './base.ts';

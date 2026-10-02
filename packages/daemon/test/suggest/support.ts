@@ -24,7 +24,7 @@ export class RecordingSessions {
       kind: 'agent',
       ownerUserId,
       ownerName,
-      title: `Claude（${ownerName}）`,
+      title: `Claude (${ownerName})`,
       root: { kind: 'main' },
       status: 'running',
       cols: 80,
@@ -57,7 +57,7 @@ export class RecordingSessions {
   async killAllForUser(): Promise<void> {}
   async stopAll(): Promise<void> {}
 
-  /** Like the real one: a member who may drive sessions (session.drive: the host, 可使用 agent), a running session. */
+  /** Like the real one: a member who may drive sessions (session.drive: the host, Agent access), a running session. */
   pasteSuggestion(sessionId: string, text: string, acceptedBy: Principal): void {
     const info = this.sessions.get(sessionId);
     if (!info || info.status === 'exited') throw new Error('session gone');

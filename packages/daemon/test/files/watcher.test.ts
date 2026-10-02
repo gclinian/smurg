@@ -50,7 +50,7 @@ async function setup(): Promise<{ ft: FilesTest; amy: TestClient; vera: TestClie
 const settleWatcher = () => new Promise((resolve) => setTimeout(resolve, 600));
 
 /**
- * How long a root that came back may stay unwatched (REL-10). The dead subscription is released first, and only once
+ * How long a root that came back may stay unwatched. The dead subscription is released first, and only once
  * the native module reported the root deleted (+ a 500 ms grace) — or, when it never does, after ROOT_GONE_TIMEOUT_MS
  * (files/watcher.ts). It never does when the folder is back before FSEvents delivered the move: @parcel/watcher then
  * finds the root present and reports no deletion. That happens under load (a full gate run, 2026-09-29: FSEvents
@@ -96,7 +96,7 @@ describe('file watcher', { timeout: 60_000 }, () => {
     expect(rec.changes().find((c) => c.change === 'unlinkDir')?.by).toEqual(amyActor);
   });
 
-  it('a granted agent lock announces the agent: its write is attributed to 「Claude（owner）」', async () => {
+  it('a granted agent lock announces the agent: its write is attributed to `Claude (owner)`', async () => {
     const { ft: f, rec } = await setup();
     f.t.ctx.bus.emit('agent.tool.pre', { sessionId: 'sess_watch', ownerUserId: 'dev:amy', tool: 'Edit', file: { root: MAIN_ROOT, path: 'src/app.ts' }, outcome: 'granted' });
     // Claude Code writes a temp file and renames it over the target (yjs-monaco.md V9).
@@ -104,11 +104,11 @@ describe('file watcher', { timeout: 60_000 }, () => {
     const { rename } = await import('node:fs/promises');
     await rename(join(f.t.root, 'src/app.ts.tmp.9999.0123456789ab'), join(f.t.root, 'src/app.ts'));
     await waitFor(() => rec.changes().some((c) => c.path === 'src/app.ts'), { timeoutMs: 10_000, what: 'the agent edit' });
-    expect(rec.changes().find((c) => c.path === 'src/app.ts')?.by).toEqual({ kind: 'agent', sessionId: 'sess_watch', ownerUserId: 'dev:amy', displayName: 'Claude（Amy）' });
+    expect(rec.changes().find((c) => c.path === 'src/app.ts')?.by).toEqual({ kind: 'agent', sessionId: 'sess_watch', ownerUserId: 'dev:amy', displayName: 'Claude (Amy)' });
     // The temp file itself never shows up.
     expect(rec.changes().some((c) => c.path.includes('.tmp.'))).toBe(false);
     f.t.ctx.bus.emit('agent.tool.post', { sessionId: 'sess_watch', ownerUserId: 'dev:amy', tool: 'Edit', file: { root: MAIN_ROOT, path: 'src/app.ts' }, ok: true });
-    expect(f.t.ctx.services.files.lastModifiedBy({ root: MAIN_ROOT, path: 'src/app.ts' })).toMatchObject({ kind: 'agent', displayName: 'Claude（Amy）' });
+    expect(f.t.ctx.services.files.lastModifiedBy({ root: MAIN_ROOT, path: 'src/app.ts' })).toMatchObject({ kind: 'agent', displayName: 'Claude (Amy)' });
   });
 
   it('a burst is batched and de-duplicated: few messages, each path at most once per message', async () => {
@@ -173,7 +173,7 @@ describe('file watcher', { timeout: 60_000 }, () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it('REL-10: the shared folder moved away and back (Finder rename + undo) is watched again', async () => {
+  it('the shared folder moved away and back (Finder rename + undo) is watched again', async () => {
     const log = createMemoryLogger();
     ft = await startFilesDaemon({ project: { files: { 'README.md': '# hi\n' } }, files: { watcher: { rootCheckMs: 100 } }, log });
     const f = ft;
@@ -193,7 +193,7 @@ describe('file watcher', { timeout: 60_000 }, () => {
     await waitFor(() => paths().includes('new-after-return.md'), { timeoutMs: 10_000, what: 'file.changed after the root came back' });
   });
 
-  it('REL-10: another directory put at the shared folder\'s path is not watched (it is not the shared folder)', async () => {
+  it('another directory put at the shared folder\'s path is not watched (it is not the shared folder)', async () => {
     const log = createMemoryLogger();
     ft = await startFilesDaemon({ project: { files: { 'README.md': '# hi\n' } }, files: { watcher: { rootCheckMs: 100 } }, log });
     const f = ft;

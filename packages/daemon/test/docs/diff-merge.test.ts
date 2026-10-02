@@ -67,7 +67,7 @@ describe('smartDiff (smartDiffer3)', { timeout: 30_000 }, () => {
     }
   });
 
-  it('keeps a remote cursor on its character through a formatter-style rewrite (V1: 測試 250 does not jump to the file start)', () => {
+  it('keeps a remote cursor on its character through a formatter-style rewrite (V1: the cursor on line 250 does not jump to the file start)', () => {
     const lines = Array.from({ length: 2500 }, (_, i) => `  const value${i} = compute(${i}, "測試 ${i}");`);
     const a = `${lines.join('\n')}\n`;
     const b = `${lines.map((l) => `\t${l.trim().replace('const', 'let')}`).join('\n')}\n`;

@@ -1,15 +1,15 @@
 import { z } from 'zod';
 
-// Roles and capabilities (ARCHITECTURE §3, which encodes the table in SPEC §8 as changed by the owner on 2026-10-01,
-// §11 D-15: no guest sandbox; the role 「可使用 agent」 (`agent`) replaced 「可執行 agent」).
+// Roles and capabilities (ARCHITECTURE §3, which encodes the table in SPEC §8 as changed on 2026-10-01, §11 D-15: no
+// guest sandbox; the role "Agent access" (`agent`)). Labels: `roleLabel(locale, role)` in `@smurg/protocol/i18n`.
 //
 // This is the only place the matrix exists. The daemon enforces it (Router → can()); the web app uses it only to hide
 // UI. Roles are deliberately NOT ranked: never write "role >= editor" style comparisons, always ask can().
 
 /**
- * Workspace roles in the column order of SPEC §8: 主人, 可使用 agent, 可編輯, 旁觀.
+ * Workspace roles in the column order of SPEC §8: Host, Agent access, Editor, Viewer.
  * The order is for display only; never derive permissions from it.
- * `agent` (「可使用 agent」, ARCHITECTURE §11 D-15): opens agent and terminal sessions that run exactly like the host's
+ * `agent` ("Agent access", ARCHITECTURE §11 D-15): opens agent and terminal sessions that run exactly like the host's
  * own (the host's OS user, unsandboxed, the host's Claude Code login) and types into any session. It is NOT an Actor of
  * kind 'agent' (a Claude Code session); the two are different types.
  */
@@ -22,14 +22,6 @@ export type GuestRole = (typeof GUEST_ROLES)[number];
 
 export const roleSchema = z.enum(ROLES);
 export const guestRoleSchema = z.enum(GUEST_ROLES);
-
-/** SPEC §8 column headings, for UI labels (zh-TW). */
-export const ROLE_LABELS_ZH_TW: Readonly<Record<Role, string>> = Object.freeze({
-  host: '主人',
-  agent: '可使用 agent',
-  editor: '可編輯',
-  viewer: '旁觀',
-});
 
 export const CAPABILITIES = [
   'file.read', // browse tree, open docs, view sessions

@@ -2,6 +2,7 @@
 // signals, the browser opener and the network constructors. Commands get it injected, so every command runs in tests
 // with a fake home, a temp SMURG_HOME, captured output and a fake terminal. processIo() is the real process.
 import { execFile } from 'node:child_process';
+import { systemLanguages } from '../i18n/index.ts';
 
 export interface OutputStream {
   write(chunk: string | Uint8Array): unknown;
@@ -58,6 +59,11 @@ export interface CliIo {
   readonly WebSocket?: typeof globalThis.WebSocket;
   /** Milliseconds since the epoch (tests pin it). */
   now(): number;
+  /**
+   * The system's preferred languages, asked only when SMURG_LANG, LC_ALL, LC_MESSAGES and LANG are all unset (macOS:
+   * AppleLanguages; ../i18n/index.ts). Absent (every test io): the language comes from the environment alone.
+   */
+  readonly systemLanguages?: () => readonly string[] | null;
   /** Waits `ms` (the login's polling). Absent: a real timer; tests shorten the wait or move their clock instead. */
   delay?(ms: number): Promise<void>;
 }
@@ -252,5 +258,6 @@ export function processIo(): CliIo {
     readLine: readLineFromTerminal,
     exit: (code) => process.exit(code),
     now: () => Date.now(),
+    systemLanguages,
   };
 }

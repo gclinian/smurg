@@ -1,4 +1,4 @@
-// SPEC R2 roles / ARCHITECTURE §11 D-15 (owner decision 2026-10-01): the role 「可使用 agent」 ('agent'), through the real
+// SPEC R2 roles / ARCHITECTURE §11 D-15 (owner decision 2026-10-01): the role Agent access ('agent'), through the real
 // relay, the real daemon with every production module and SDK clients. There is no guest sandbox any more:
 //  - an agent member opens a terminal session: they own it, and it runs exactly like the host's own (the host's OS user,
 //    the host's HOME: here the stack's fake home);
@@ -53,11 +53,11 @@ function typeLine(conn: Connection, sessionId: string, line: string): void {
   expect(conn.notify('exec.input', { sessionId, data: new TextEncoder().encode(`${line}\r`) })).toBe(true);
 }
 
-describe('R2 角色「可使用 agent」 (§11 D-15)', () => {
+describe('R2 the role Agent access (§11 D-15)', () => {
   it('an agent member\'s session runs as the host; the host and the agent member drive each other\'s sessions; an editor may not; a kick ends it', async () => {
     const stack = await startStack({ relay });
     try {
-      // A composition without the real sessions module fails here instead of skipping (review SPEC-11).
+      // A composition without the real sessions module fails here instead of skipping.
       expect(isStubService(stack.daemon.ctx.services.sessions), 'the default composition provides SessionManager').toBe(false);
       const host = stack.hostClient.conn;
       const ada = await stack.join({ name: 'ada', role: 'agent' });
@@ -66,7 +66,9 @@ describe('R2 角色「可使用 agent」 (§11 D-15)', () => {
 
       // 1. Ada opens a terminal: she owns it, and nothing marks it as anything but the host's own kind of session.
       const { session } = await ada.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 200, rows: 30 });
-      expect(session).toMatchObject({ kind: 'terminal', ownerUserId: ada.userId, ownerName: 'Ada', title: '終端機（Ada）', root: { kind: 'main' }, status: 'running' });
+      expect(session).toMatchObject({ kind: 'terminal', ownerUserId: ada.userId, ownerName: 'Ada', root: { kind: 'main' }, status: 'running' });
+      // Nobody typed a title: none travels (each client builds the default from the kind and the opener, in its own language).
+      expect(session).not.toHaveProperty('title');
       expect(session).not.toHaveProperty('sandboxed');
       const atHost = await watchOutput(host, session.id);
       const atAda = await watchOutput(ada.conn, session.id);

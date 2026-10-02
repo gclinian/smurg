@@ -24,6 +24,7 @@ import {
   type PayloadOf,
   type ResultInputOf,
 } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as Y from 'yjs';
 import type { DaemonContext } from '../core/context.ts';
@@ -172,7 +173,7 @@ export class DocServiceImpl implements DocService {
     if (conn.purpose !== 'interactive') throw new SmurgError('bad_request', undefined, { reason: 'wrong-channel' });
     const paths = this.ctx.paths;
     const requested = await paths.resolve(file, { principal, mustExist: true });
-    if (requested.identity === null || requested.identity.kind !== 'file') throw new SmurgError('bad_request', '只能在編輯器中開啟一般檔案', { reason: 'not-a-file' });
+    if (requested.identity === null || requested.identity.kind !== 'file') throw new SmurgError('bad_request', msg('doc.notAFile'), { reason: 'not-a-file' });
     // The room's key: the native realpath (symlinks resolved, on-disk case), mapped back to its most specific root.
     const realPath = await realpath(requested.realPath).catch(() => null);
     if (realPath === null) throw new SmurgError('not_found');
@@ -413,7 +414,7 @@ export class DocServiceImpl implements DocService {
         detail: { type: 'doc.sync', reason: 'doc-content-needs-file.write', refusal, docId: room.id },
       });
       this.send(sub.channelId, 'doc.rejected', { docId: room.id, reason: refusal });
-      const error = new AuthorizationError('沒有編輯這個檔案的權限', { reason: 'doc-content-needs-file.write' });
+      const error = new AuthorizationError(msg('doc.needsWrite'), { reason: 'doc-content-needs-file.write' });
       error.audited = true;
       throw error;
     }
@@ -439,7 +440,7 @@ export class DocServiceImpl implements DocService {
 
   private subscriptionOf(conn: ClientConnection, docId: string): Subscription {
     const sub = this.subs.get(subscriptionKey(conn.channelId, docId));
-    if (!sub || sub.room.destroyed) throw new SmurgError('not_found', '這份文件沒有開啟', { reason: 'doc-not-open' });
+    if (!sub || sub.room.destroyed) throw new SmurgError('not_found', msg('doc.notOpen'), { reason: 'doc-not-open' });
     return sub;
   }
 
@@ -579,7 +580,7 @@ export class DocServiceImpl implements DocService {
     const classified = classifyText(bytes, this.maxDocBytes);
     if (!classified.ok) throw unsupported(classified.reason);
     await room.enqueue(async () => {
-      if (room.destroyed || room.paused) throw new SmurgError('conflict', '檔案目前無法寫入', { reason: 'doc-paused' });
+      if (room.destroyed || room.paused) throw new SmurgError('conflict', msg('doc.paused'), { reason: 'doc-paused' });
       const touch = this.access.touchHuman(room.ref, userId);
       if (touch !== null && !touch.ok) throw agentLocked();
       if (touch?.ok === true && touch.acquired) room.lockBase = room.diskText;
@@ -602,7 +603,7 @@ export class DocServiceImpl implements DocService {
         await this.disk.save(room);
         return;
       }
-      throw new SmurgError('conflict', '文件正在變動，請再試一次', { reason: 'busy' });
+      throw new SmurgError('conflict', msg('doc.busy'), { reason: 'busy' });
     });
   }
 
@@ -620,7 +621,7 @@ export class DocServiceImpl implements DocService {
 
   private pausedError(reason: PauseReason, principal: Principal, ref: FileRef): Error {
     if (reason === 'deleted') return new SmurgError('not_found');
-    if (reason === 'unsupported') return new SmurgError('bad_request', '檔案內容目前無法在編輯器中開啟', { reason: 'unsupported' });
+    if (reason === 'unsupported') return new SmurgError('bad_request', msg('doc.unsupported'), { reason: 'unsupported' });
     return this.deny(principal, ref, 'changed');
   }
 
@@ -639,5 +640,5 @@ function unsupported(reason: UnsupportedReason): SmurgError {
 }
 
 function agentLocked(): SmurgError {
-  return new SmurgError('locked', '此檔案正由 agent 修改中，請稍後再試', { reason: 'agent-locked' });
+  return new SmurgError('locked', msg('doc.agentLocked'), { reason: 'agent-locked' });
 }

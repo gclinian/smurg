@@ -1,8 +1,8 @@
-// The review of one merge request (SPEC R9 「主人看到完整 diff → 確認後合併；有衝突時列出衝突檔案」).
+// The review of one merge request (SPEC R9: the host sees the full diff and merges after confirming; on a conflict the files in conflict are listed).
 //
 // The host sees the COMPLETE change list with additions / deletions and each file's diff. When worktree.merge.diff was
-// cut (1 MiB) the files it could not show completely are marked 「需要個別開啟」 and fetched one by one with
-// worktree.merge.fileDiff; 「合併到主工作區」 stays disabled until every one of them was opened (diff-model.ts decides
+// cut (1 MiB) the files it could not show completely are marked "Open separately" and fetched one by one with
+// worktree.merge.fileDiff; "Merge into the main workspace" stays disabled until every one of them was opened (diff-model.ts decides
 // which, failing closed). The worktree owner may open the same view read-only (the daemon allows owner or host).
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { MergeRequest } from '@smurg/protocol';
@@ -20,7 +20,7 @@ import { reasonProblem } from './text-check.ts';
 
 type Load<T> = { readonly status: 'loading' } | { readonly status: 'ready'; readonly value: T } | { readonly status: 'error'; readonly message: string };
 
-/** Lines of one file's diff rendered at first; 「顯示更多」 adds this many again (a 1 MiB diff is ~30,000 lines). */
+/** Lines of one file's diff rendered at first; "Show more" adds this many again (a 1 MiB diff is ~30,000 lines). */
 export const DIFF_LINES_STEP = 2_000;
 
 export interface MergeReviewDialogProps {
@@ -175,7 +175,7 @@ function MergeReview({ requestId, onClose }: { requestId: string; onClose(): voi
     </Button>
   ) : mode === 'confirm-approve' && request ? (
     <div className="worktree-review__decision">
-      <p className="worktree-review__decision-text">{t('review.confirmApprove', { commit: shortCommit(request.commit), files: model?.files.length ?? 0 })}</p>
+      <p className="worktree-review__decision-text">{t('review.confirmApprove', { commit: shortCommit(request.commit), count: model?.files.length ?? 0 })}</p>
       <div className="worktree-review__decision-actions">
         <Button variant="ghost" onClick={() => setMode('idle')} disabled={busy}>
           {tApp('common.cancel')}
@@ -312,9 +312,9 @@ function ReviewHeader({ request, branch, files, additions, deletions }: { reques
     <div className="worktree-review__meta">
       <p className="worktree-review__summary">
         <span title={request.commit}>
-          {t('review.summary', { branch: branch ?? t('item.worktreeGone'), commit: shortCommit(request.commit), files: files ?? '…' })}
+          {t('review.summary', { branch: branch ?? t('item.worktreeGone'), commit: shortCommit(request.commit), files: files === null ? t('review.fileCountUnknown') : t('review.fileCount', { count: files }) })}
         </span>
-        {files !== null ? <span className="worktree-review__counts">{t('review.counts', { additions, deletions })}</span> : null}
+        {files !== null ? <span className="worktree-review__counts">{t('review.counts', { additions: t('review.linesAdded', { count: additions }), deletions: t('review.linesDeleted', { count: deletions }) })}</span> : null}
         <span className="worktree-review__time">{t('item.requestedAt', { time: formatRelativeTime(request.createdAt) })}</span>
       </p>
       {request.message ? (
@@ -343,7 +343,7 @@ function FileButton({ entry, selected, mustOpen, opened, onSelect }: { entry: Re
           <>
             <span className="worktree-review__adds" aria-hidden="true">{`+${file.additions}`}</span>
             <span className="worktree-review__dels" aria-hidden="true">{`−${file.deletions}`}</span>
-            <span className="ui-visually-hidden">{t('review.counts.file', { additions: file.additions, deletions: file.deletions })}</span>
+            <span className="ui-visually-hidden">{t('review.counts.file', { additions: t('review.linesAdded', { count: file.additions }), deletions: t('review.linesDeleted', { count: file.deletions }) })}</span>
           </>
         )}
         {mustOpen ? <Badge tone={opened ? 'success' : 'warning'}>{opened ? t('review.opened') : t('review.mustOpen')}</Badge> : null}

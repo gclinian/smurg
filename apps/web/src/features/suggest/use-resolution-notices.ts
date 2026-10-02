@@ -1,4 +1,4 @@
-// Tells the author when someone decided (SPEC R6 「處理結果通知提出者」; the host or any 可使用 agent member may, and the
+// Tells the author when someone decided (SPEC R6 "the author is told the outcome"; the host or any member with agent access may, and the
 // suggestion does not say who, so the notice does not name anyone). A notice is shown only for a
 // suggestion this client saw PENDING and now sees accepted / rejected: never for what the first load (or a reload after
 // a full resync) already found resolved long ago — but a suggestion decided while this client was disconnected is
@@ -8,6 +8,7 @@ import type { Suggestion } from '@smurg/protocol';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { useToast } from '../../ui/index.ts';
 import { t } from './strings.ts';
+import { resolutionReason } from './text.ts';
 
 const EXCERPT_CHARS = 80;
 
@@ -30,11 +31,12 @@ export function useResolutionNotices(userId: string | null): void {
         if (suggestion.status === 'pending' || suggestion.status === 'withdrawn') continue;
         const text = excerpt(suggestion.status === 'accepted-modified' && suggestion.finalText !== undefined ? suggestion.finalText : suggestion.text);
         if (suggestion.status === 'rejected') {
+          const reason = resolutionReason(suggestion);
           toast.show({
             tone: 'warning',
             title: t('notice.rejected'),
-            // The suggestion on its own line, then the reason (review WEB-13: they ran together).
-            description: suggestion.rejectReason ? `「${text}」\n${t('notice.reason', { reason: suggestion.rejectReason })}` : `「${text}」`,
+            // The suggestion on its own line, then the reason (they ran together).
+            description: reason !== null ? t('notice.quoteReason', { text, reason }) : t('notice.quote', { text }),
           });
         } else {
           toast.show({

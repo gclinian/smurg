@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DIFF_MAX_CELLS, sideBySide, splitLines } from './diff-view.ts';
 
+
 const pairs = (rows: ReturnType<typeof sideBySide>) => rows.map((row) => [row.human?.text ?? null, row.agent?.text ?? null, (row.human?.changed ?? row.agent?.changed) === true]);
 
 describe('side-by-side diff of a conflict hunk', () => {

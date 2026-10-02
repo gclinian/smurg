@@ -166,7 +166,7 @@ export function isHostOnlyPath(path: string): boolean {
 /**
  * The host's personal Claude Code files inside the share (any depth): `settings.local.json` can hold `env` secrets and
  * hook commands, `CLAUDE.local.md` is the host's private memory. The daemon's PathGuard refuses them to every non-host
- * member through smurg (file.*, doc.*, downloads, uploads: isHostPrivatePath; review SEC-D-03). Agent sessions run as
+ * member through smurg (file.*, doc.*, downloads, uploads: isHostPrivatePath). Agent sessions run as
  * the host (ARCHITECTURE §11 D-15) and can read them like any other file of the host's.
  */
 export const HOST_PERSONAL_FILES: readonly string[] = Object.freeze(['.claude/settings.local.json', 'CLAUDE.local.md']);
@@ -182,7 +182,7 @@ const HOST_PERSONAL_SUFFIXES: readonly (readonly string[])[] = HOST_PERSONAL_FIL
 /**
  * Whether `path` is the host's private data that no other member may read (or write) through `file.*`, `doc.*`,
  * downloads or uploads: inside any `.git`, any `.envrc`, and the HOST_PERSONAL_FILES at any depth, under every spelling
- * a case-insensitive file system folds onto them (foldPathName; review SEC-D-03). This binds what members do through
+ * a case-insensitive file system folds onto them (foldPathName). This binds what members do through
  * smurg; it is not a boundary for agent or terminal sessions, which run as the host (ARCHITECTURE §11 D-15). Lexical
  * only: the daemon also checks the resolved and on-disk spellings.
  */

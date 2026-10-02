@@ -1,4 +1,4 @@
-// How big the OWNER's terminal should be (review LEAD-01, pty-packaging.md §1 "Resize policy `owner`", F16–F18): the
+// How big the OWNER's terminal should be (pty-packaging.md §1 "Resize policy `owner`", F16–F18): the
 // PTY follows the owner's panel — columns AND rows fitted to the visible area — but never below a floor that the
 // program in it needs. Below the floor the terminal keeps the floor, the panel scrolls (both scrollbars visible) and a
 // hint says so: it is never clipped silently. Pure, so it is tested without a browser.

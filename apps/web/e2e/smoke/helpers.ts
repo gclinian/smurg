@@ -3,6 +3,10 @@
 // daemon composing every module (tests/e2e startStack) and system Chrome driven headless by playwright-core in fresh
 // contexts (no profile, no cookies imported; login is the relay's dev login). Nothing here waits for a fixed time:
 // every step waits for a condition.
+//
+// Language: every context sets its `locale` explicitly, English (`en-US`) unless a test asks for another one, so the
+// app's detection (navigator.languages) never depends on the machine that runs the tests. The helpers below click
+// through the app by its visible labels; WORDS holds those labels for the two languages a page can be in.
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
 import { beforeEach } from 'vitest';
@@ -32,7 +36,7 @@ export interface SmokeEnv {
   readonly origin: string;
   /** Every problem of every page of this env (the CSP check reads them all). */
   readonly allProblems: string[];
-  newPage(options?: { readonly width?: number; readonly height?: number }): Promise<Page>;
+  newPage(options?: { readonly width?: number; readonly height?: number; readonly locale?: SmokeLocale }): Promise<Page>;
   problemsOf(page: Page): PageProblems;
   /** A fresh invite of the host (through admin.invite.create), pointing at `origin`. */
   invite(role: 'agent' | 'editor' | 'viewer'): Promise<string>;
@@ -62,6 +66,55 @@ export function explainFailures(env: () => SmokeEnv | undefined): void {
     });
   });
 }
+
+/** The browser languages the smoke tests use: the app shows English for `en-US`, Traditional Chinese for `zh-TW`. */
+export type SmokeLocale = 'en-US' | 'zh-TW';
+export const DEFAULT_SMOKE_LOCALE: SmokeLocale = 'en-US';
+
+/** The labels the helpers click and wait for, in the language of the page (the app's catalogues are the source). */
+const WORDS = {
+  'en-US': {
+    join: 'Join',
+    accountName: 'Account name',
+    devLogin: 'Log in with a development account',
+    workspace: 'Workspace',
+    connected: 'Connected',
+    newSession: 'New session',
+    plainTerminal: 'Plain terminal',
+    newWorktree: 'A new worktree of my own',
+    sessionName: 'Name (optional)',
+    open: 'Open',
+    language: 'Language',
+  },
+  'zh-TW': {
+    join: '加入',
+    accountName: '帳號名稱',
+    devLogin: '以開發用帳號登入',
+    workspace: '工作區',
+    connected: '已連線',
+    newSession: '新增 session',
+    plainTerminal: '一般終端機',
+    newWorktree: '我的新 worktree',
+    sessionName: '名稱（選填）',
+    open: '開啟',
+    language: '語言',
+  },
+} as const satisfies Record<SmokeLocale, Record<string, string>>;
+
+const pageLocales = new WeakMap<Page, SmokeLocale>();
+
+/** The labels of `page` in the language it was opened in (see `useLanguage` after a switch inside the app). */
+export function wordsOf(page: Page): (typeof WORDS)[SmokeLocale] {
+  return WORDS[pageLocales.get(page) ?? DEFAULT_SMOKE_LOCALE];
+}
+
+/** Tells the helpers that `page` shows another language now (the test switched it with the language menu). */
+export function useLanguage(page: Page, locale: SmokeLocale): void {
+  pageLocales.set(page, locale);
+}
+
+/** Han characters, Bopomofo, CJK punctuation and full-width forms: what an English page never shows on its own. */
+export const CJK_PATTERN = '[\\u3000-\\u303f\\u3100-\\u312f\\u3400-\\u9fff\\uf900-\\ufaff\\uff00-\\uffef]';
 
 export interface SmokeOptions {
   readonly stack?: Omit<StackOptions, 'relay'>;
@@ -96,9 +149,11 @@ export async function startSmoke(options: SmokeOptions = {}): Promise<SmokeEnv> 
       origin,
       allProblems,
       async newPage(size = {}) {
-        const context = await browser.newContext({ locale: 'zh-TW', viewport: { width: size.width ?? 1440, height: size.height ?? 900 } });
+        const locale = size.locale ?? DEFAULT_SMOKE_LOCALE;
+        const context = await browser.newContext({ locale, viewport: { width: size.width ?? 1440, height: size.height ?? 900 } });
         contexts.push(context);
         const page = await context.newPage();
+        pageLocales.set(page, locale);
         const own: PageProblems = { console: [], pageErrors: [], failedRequests: [], httpErrors: [] };
         problems.set(page, own);
         page.on('pageerror', (error) => {
@@ -153,28 +208,30 @@ export async function startSmoke(options: SmokeOptions = {}): Promise<SmokeEnv> 
   }
 }
 
-/** The join page's explicit 「加入」 (SEC-E-02: an invite link never joins on page load). */
+/** The join page's explicit "Join" (an invite link never joins on page load). */
 export async function confirmJoin(page: Page): Promise<void> {
   await page.getByTestId('join-confirm').waitFor({ timeout: STEP_MS });
-  await page.getByRole('button', { name: '加入', exact: true }).click();
+  await page.getByRole('button', { name: wordsOf(page).join, exact: true }).click();
 }
 
 /** Opens `link` logged out, logs in with the relay's dev login as `name`, joins; resolves on the connected workbench. */
 export async function joinWith(page: Page, env: SmokeEnv, link: string, name: string): Promise<void> {
   await page.goto(link);
   await page.getByTestId('join-login').waitFor({ timeout: STEP_MS });
-  await page.getByLabel('帳號名稱').fill(name);
-  await page.getByRole('button', { name: '以開發用帳號登入' }).click();
+  await page.getByLabel(wordsOf(page).accountName).fill(name);
+  await page.getByRole('button', { name: wordsOf(page).devLogin }).click();
   await confirmJoin(page);
   await page.waitForURL(`${env.origin}/w/${env.stack.workspaceId}`, { timeout: STEP_MS });
   await workspaceOnline(page);
 }
 
 export async function workspaceOnline(page: Page): Promise<void> {
-  await page.getByRole('banner', { name: '工作區' }).getByText('已連線').waitFor({ timeout: STEP_MS });
+  // The pill by its state, then its label: "Connected" alone would also be found inside "Not connected".
+  const pill = page.getByRole('banner', { name: wordsOf(page).workspace }).locator('[data-connection-view="online"]');
+  await pill.filter({ hasText: wordsOf(page).connected }).waitFor({ timeout: STEP_MS });
 }
 
-/** A guest through a fresh invite of `role` (`agent`: 「可使用 agent」). */
+/** A guest through a fresh invite of `role` (`agent`: "Agent access"). */
 export async function joinAs(page: Page, env: SmokeEnv, name: string, role: 'agent' | 'editor' | 'viewer' = 'editor'): Promise<void> {
   await joinWith(page, env, await env.invite(role), name);
 }
@@ -184,15 +241,16 @@ export async function joinAsHost(page: Page, env: SmokeEnv): Promise<void> {
   await joinWith(page, env, env.hostLink(), 'host');
 }
 
-/** Opens a session of `kind` from the agents panel's 「新增 session」 dialog; resolves with its id once its terminal is live. */
+/** Opens a session of `kind` from the agents panel's "New session" dialog; resolves with its id once its terminal is live. */
 export async function openSession(page: Page, kind: 'terminal' | 'agent', title: string, options: { readonly worktree?: boolean } = {}): Promise<string> {
-  await page.getByRole('button', { name: '新增 session' }).first().click();
-  const dialog = page.getByRole('dialog', { name: '新增 session' });
+  const words = wordsOf(page);
+  await page.getByRole('button', { name: words.newSession }).first().click();
+  const dialog = page.getByRole('dialog', { name: words.newSession });
   await dialog.waitFor({ timeout: STEP_MS });
-  if (kind === 'terminal') await dialog.getByText('一般終端機').click();
-  if (options.worktree) await dialog.getByText('我的新 worktree').click();
-  await dialog.getByLabel('名稱（選填）').fill(title);
-  await dialog.getByRole('button', { name: '開啟' }).click();
+  if (kind === 'terminal') await dialog.getByText(words.plainTerminal).click();
+  if (options.worktree) await dialog.getByText(words.newWorktree).click();
+  await dialog.getByLabel(words.sessionName).fill(title);
+  await dialog.getByRole('button', { name: words.open }).click();
   await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
   // The new session's tab is selected: its panel is the visible one, with a live terminal.
   const session = page.getByRole('tabpanel').locator('.agents-session', { has: page.locator('.agents-term__viewport[data-phase="live"]') });
@@ -245,4 +303,41 @@ export async function typeInTerminal(page: Page, id: string, line: string): Prom
   await terminalOf(page, id).click();
   await page.keyboard.type(line);
   await page.keyboard.press('Enter');
+}
+
+/** Picks a language in the app's language menu (each language is listed under its own name) and waits for it. */
+export async function chooseLanguage(page: Page, locale: SmokeLocale): Promise<void> {
+  await page.getByTestId('language-menu').first().click();
+  await page.getByTestId('language-menu-menu').locator(`[data-menu-item="${locale === 'zh-TW' ? 'zh-TW' : 'en'}"]`).click();
+  await page.waitForFunction((lang) => document.documentElement.lang === lang, locale === 'zh-TW' ? 'zh-Hant-TW' : 'en', { timeout: STEP_MS });
+  useLanguage(page, locale);
+}
+
+/**
+ * Every piece of visible text of the page that holds a CJK character, with the element it is in: what an English
+ * page must not show. `allowed` lists texts that are legitimately Chinese there (the language's own name in the menu,
+ * names and file names the test itself made).
+ */
+export async function cjkTexts(page: Page, allowed: readonly string[] = []): Promise<string[]> {
+  return page.evaluate(
+    ({ pattern, allow }) => {
+      const cjk = new RegExp(pattern, 'u');
+      const found: string[] = [];
+      const visit = (text: string | null, where: Element | null, kind: string): void => {
+        if (text === null || !cjk.test(text)) return;
+        let rest = text;
+        for (const ok of allow) rest = rest.split(ok).join('');
+        if (!cjk.test(rest)) return;
+        found.push(`${kind} <${where?.tagName.toLowerCase() ?? '?'} class="${where?.getAttribute('class') ?? ''}">: ${text.trim().slice(0, 120)}`);
+      };
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) visit(node.textContent, node.parentElement, 'text');
+      for (const element of document.querySelectorAll('[aria-label], [title], [placeholder], [aria-description], [alt]')) {
+        for (const attribute of ['aria-label', 'title', 'placeholder', 'aria-description', 'alt']) visit(element.getAttribute(attribute), element, attribute);
+      }
+      visit(document.title, document.head, 'document.title');
+      return found;
+    },
+    { pattern: CJK_PATTERN, allow: [...allowed] },
+  );
 }

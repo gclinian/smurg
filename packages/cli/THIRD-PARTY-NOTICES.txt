@@ -1,10 +1,10 @@
 smurg: third-party notices of the smurg executable
 ==================================================
 
-smurg itself is proprietary software under its own license (`smurg licenses`, https://smurg.ai/license/). The smurg
-executable contains the third-party software listed below, each provided under its own license. This file reproduces
-the license and notice files each package publishes, unchanged except for line endings and trailing spaces. The
-executable also contains the Node.js runtime (the last section).
+smurg itself is MIT-licensed (`smurg licenses`, https://smurg.ai/license/). The smurg executable contains the
+third-party software listed below, each provided under its own license. This file reproduces the license and notice
+files each package publishes, unchanged except for line endings and trailing spaces. The executable also contains the
+Node.js runtime (the last section).
 
 The executable for each platform contains the packages below that are meant for it: packages listed as "same license
 files as" another are the platform-specific native parts of that package, published by its authors under the same

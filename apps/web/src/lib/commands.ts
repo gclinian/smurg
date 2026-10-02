@@ -41,8 +41,7 @@ export interface CommandMap {
     readonly text: string;
     readonly sessionId?: string;
     /**
-     * For someone else's session: 'send' creates the suggestion at once (SPEC R6 「一鍵…作為建議送進別人的 session」,
-     * review SPEC-08); 'draft' (the default) puts the quote into the composer to complete first.
+     * For someone else's session: 'send' creates the suggestion at once (SPEC R6: one click sends it into someone else's session as a suggestion); 'draft' (the default) puts the quote into the composer to complete first.
      */
     readonly mode?: 'send' | 'draft';
   };

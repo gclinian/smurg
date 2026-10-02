@@ -1,12 +1,12 @@
-// The activity feed (SPEC R8.5 「每一次 agent 的修改都出現在活動動態中，標示是哪個 agent、屬於誰」, R11): live, newest first,
-// who (a member, 「Claude（owner）」, or an outside process) did what to which file. Clicking a file opens it in the editor
+// The activity feed (SPEC R8.5 "every change by an agent appears in the activity feed, naming the agent and whose it is", R11): live, newest first,
+// who (a member, "Claude (owner)", or an outside process) did what to which file. Clicking a file opens it in the editor
 // (openFile command); a conflict entry leads to the conflict panel. Notifications an agent sent to this member with
-// the coordination tool 「通知某位組員」 are shown above the feed until dismissed.
+// the coordination tool "notify a member" are shown above the feed until dismissed.
 import type { ActivityEvent, FileRef, MemberNotification } from '@smurg/protocol';
 import { useState } from 'react';
 import { NoCommandHandlerError, type CommandMap, type CommandName } from '../../lib/commands.ts';
-import { describeError } from '../../lib/errors.ts';
-import { formatDateTime, formatRelativeTime } from '../../lib/format.ts';
+import { describeError, renderWireText } from '../../lib/errors.ts';
+import { formatActor, formatDateTime, formatRelativeTime } from '../../lib/format.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { selectActivityEvents, selectNotifications } from '../../lib/stores/activity.ts';
 import { selectWorktreeList } from '../../lib/stores/worktrees.ts';
@@ -146,7 +146,9 @@ function FeedItem({ event, now, fileLabel, onOpen, onShowConflicts }: FeedItemPr
             {formatRelativeTime(event.at, Math.max(now, event.at))}
           </time>
         </div>
-        <p className="activity-item__summary">{event.summary}</p>
+        {/* The host's sentence, in the viewer's language (the wire reference); its English `summary` when this build
+            does not know the message. */}
+        <p className="activity-item__summary">{renderWireText(event.text, event.summary)}</p>
         {file !== undefined || event.kind === 'conflict' ? (
           <div className="activity-item__links">
             {file !== undefined && canOpenFileOf(event) ? (
@@ -174,7 +176,8 @@ function Notification({ notification, onOpen, onDismiss }: { notification: Membe
   return (
     <Banner
       tone="info"
-      title={t('notify.title', { from: actorLabel(notification.from) })}
+      // A notice the host's smurg wrote itself comes from `system`: named "smurg", not "an outside program".
+      title={t('notify.title', { from: formatActor(notification.from) })}
       actions={
         <>
           {file !== undefined ? (
@@ -188,7 +191,8 @@ function Notification({ notification, onOpen, onDismiss }: { notification: Membe
         </>
       }
     >
-      {notification.text}
+      {/* An agent's own words are shown as written; a notice smurg wrote is a wire reference. */}
+      {notification.text ?? renderWireText(notification.msg, notification.fallback ?? '')}
     </Banner>
   );
 }

@@ -1,5 +1,5 @@
-// One open document: its header (path, who else is here, autosave state, 「送到 agent」), the notices the view-model
-// asks for (agent lock, human edit lock with 「讓 agent 先改」, a rejected change, mixed line endings) and the Monaco
+// One open document: its header (path, who else is here, autosave state, "Send to agent"), the notices the view-model
+// asks for (agent lock, human edit lock with "Let the agent go first", a rejected change, mixed line endings) and the Monaco
 // view — or, for a file the editor refuses, the reason and a download offer.
 import { baseNameOfRelPath, type FileRef, type LockInfo } from '@smurg/protocol';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -168,7 +168,7 @@ function Participants({ participants }: { participants: readonly Participant[] }
 
 function DocInfo({ doc, view, session }: { doc: OpenDoc; view: EditorView; session: DocSessionState | undefined }) {
   const now = useNow(1_000, session?.pendingSave === true);
-  // Nothing more will be saved to a file that is gone: the removed notice says so, not 「正在等待主人電腦回應」.
+  // Nothing more will be saved to a file that is gone: the removed notice says so, not "waiting for the host's computer".
   const indicator = doc.removed !== null ? ({ kind: 'idle' } as const) : saveIndicator(session, now);
   return (
     <div className="editor-doc__info" aria-label={t('doc.infoLabel')} role="group">
@@ -201,7 +201,7 @@ function DocInfo({ doc, view, session }: { doc: OpenDoc; view: EditorView; sessi
 /** The notices above the editor; each one-shot notice is dismissed per occurrence. */
 function DocNotices({ doc, view, lock, session, onRelease }: { doc: OpenDoc; view: EditorView; lock: LockInfo | null; session: DocSessionState | undefined; onRelease(): Promise<void> }) {
   const toast = useToast();
-  // The host may break any lock (SPEC R8, WEB-04), always through a confirmation that names the holder.
+  // The host may break any lock (SPEC R8), always through a confirmation that names the holder.
   const canForce = useCanForceRelease();
   const [forcing, setForcing] = useState<LockInfo | null>(null);
   const forceButton = (current: LockInfo | null): ReactNode =>
@@ -329,7 +329,7 @@ function DocNotices({ doc, view, lock, session, onRelease }: { doc: OpenDoc; vie
   ) : null;
 }
 
-/** The open file was deleted or moved away (WEB-01): read-only, with what can still be done with the text. */
+/** The open file was deleted or moved away: read-only, with what can still be done with the text. */
 function RemovedNotice({ doc, removed, session, userId }: { doc: OpenDoc; removed: DocRemoval; session: DocSession | undefined; userId: string | null }) {
   const stores = useStores();
   const commands = useCommands();
@@ -407,7 +407,7 @@ async function reopenSoon(open: () => Promise<unknown>, openExplained: () => Pro
 }
 
 /**
- * Local text a dropped replica held that could not be merged into the daemon's new text (REL-07): kept until the user
+ * Local text a dropped replica held that could not be merged into the daemon's new text: kept until the user
  * copies it, puts it back or discards it.
  */
 function RecoveryNotice({ session, recovery, canApply }: { session: DocSession; recovery: NonNullable<DocSessionState['recovery']>; canApply: boolean }) {

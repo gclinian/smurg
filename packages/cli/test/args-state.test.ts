@@ -27,7 +27,7 @@ describe('parseArgs', () => {
     expect(parseArgs(['--', '--weird-folder'], spec).positionals).toEqual(['--weird-folder']);
   });
 
-  it('refuses unknown options, missing values, repeats and surplus or missing positionals, in zh-TW with exit code 2', () => {
+  it('refuses unknown options, missing values, repeats and surplus or missing positionals, with exit code 2', () => {
     const fails = (argv: string[], text: string): void => {
       let error: unknown;
       try {
@@ -39,29 +39,30 @@ describe('parseArgs', () => {
       expect((error as CliError).exitCode).toBe(2);
       expect((error as CliError).message).toContain(text);
     };
-    fails(['--bogus', 'dir'], '不認得的選項 --bogus');
-    fails(['--relay'], '需要一個值');
-    fails(['--relay', 'a', '--relay', 'b', 'dir'], '只能指定一次');
-    fails(['a', 'b'], '多了不認得的參數「b」');
-    fails([], '缺少參數 <folder>');
-    fails(['--all=yes', 'dir'], '不接受值');
+    fails(['--bogus', 'dir'], 'Unknown option --bogus');
+    fails(['--relay'], 'needs a value');
+    fails(['--relay', 'a', '--relay', 'b', 'dir'], 'can be given only once');
+    fails(['a', 'b'], 'Unexpected argument "b"');
+    fails([], 'Missing argument <folder>');
+    fails(['--all=yes', 'dir'], 'does not take a value');
     // A flag and its negation together: the parser does not guess which one was meant.
-    fails(['--all', '--no-all', 'dir'], '選項 --all 和 --no-all 不能同時指定');
-    fails(['--no-all', '--all', 'dir'], '不能同時指定');
-    fails(['--no-relay', 'dir'], '不認得的選項 --no-relay');
+    fails(['--all', '--no-all', 'dir'], 'Options --all and --no-all cannot be used together');
+    fails(['--no-all', '--all', 'dir'], 'cannot be used together');
+    fails(['--no-relay', 'dir'], 'Unknown option --no-relay');
     // Repeating the same form is harmless.
     expect(parseArgs(['--no-all', '--no-all', 'dir'], spec).options).toEqual({ all: false });
   });
 
   it('parses durations and counts', () => {
-    expect(parseDuration('30m', 'x')).toBe(1800);
-    expect(parseDuration('12h', 'x')).toBe(43_200);
-    expect(parseDuration('7d', 'x')).toBe(604_800);
-    expect(parseDuration('2w', 'x')).toBe(1_209_600);
-    expect(() => parseDuration('7 days', '--expires')).toThrow(/看不懂/);
-    expect(parseCount('5', 'n', 1, 10)).toBe(5);
-    expect(() => parseCount('0', 'n', 1, 10)).toThrow(/之間/);
-    expect(() => parseCount('-1', 'n', 1, 10)).toThrow(/正整數/);
+    expect(parseDuration('30m')).toBe(1800);
+    expect(parseDuration('12h')).toBe(43_200);
+    expect(parseDuration('7d')).toBe(604_800);
+    expect(parseDuration('2w')).toBe(1_209_600);
+    expect(parseDuration('7 days')).toBeNull();
+    expect(parseCount('5')).toBe(5);
+    expect(parseCount('0')).toBe(0);
+    expect(parseCount('-1')).toBeNull();
+    expect(parseCount('1.5')).toBeNull();
   });
 });
 
@@ -75,7 +76,7 @@ describe('state paths', () => {
       logsDir: '/tmp/x/logs',
     });
     expect(statePaths({ HOME: '/home/amy' }).stateDir).toBe('/home/amy/.smurg');
-    expect(() => statePaths({ SMURG_HOME: 'relative/dir' })).toThrow(/絕對路徑/);
+    expect(() => statePaths({ SMURG_HOME: 'relative/dir' })).toThrow(/absolute path/);
   });
 });
 
@@ -102,7 +103,7 @@ describe('credentials.json', () => {
     const paths = statePaths({ SMURG_HOME: dirs.stateDir, HOME: dirs.home });
     await saveSession(paths, 'http://localhost:8787', session, 1_000);
     await chmod(paths.credentials, 0o644);
-    await expect(loadCredentials(paths)).rejects.toThrow(/權限不安全/);
+    await expect(loadCredentials(paths)).rejects.toThrow(/can be read by other users/);
     expect((await lstat(paths.credentials)).mode & 0o777).toBe(0o644);
   });
 
@@ -110,7 +111,7 @@ describe('credentials.json', () => {
     dirs = await makeDirs();
     const paths = statePaths({ SMURG_HOME: dirs.stateDir, HOME: dirs.home });
     await writeFile(paths.credentials, '{not json', { mode: 0o600 });
-    await expect(loadCredentials(paths)).rejects.toThrow(/格式不正確/);
+    await expect(loadCredentials(paths)).rejects.toThrow(/not in the expected format/);
     expect(await readFile(paths.credentials, 'utf8')).toBe('{not json');
   });
 });

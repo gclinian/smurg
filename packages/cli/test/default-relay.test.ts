@@ -61,27 +61,27 @@ describe('relay choice', () => {
     expect(pickRelay(undefined, testIo({ env: { SMURG_RELAY_URL: 'https://e.example.org' } }), none, hosted)).toEqual({ origin: 'https://e.example.org', source: 'env' });
     expect(pickRelay(undefined, io, { defaultRelay: 'https://b.example.org', relays: {} }, hosted)).toEqual({ origin: 'https://b.example.org', source: 'login' });
     expect(pickRelay(undefined, io, none, hosted)).toEqual({ origin: hosted, source: 'built-in' });
-    expect(() => pickRelay(undefined, io, none, null)).toThrow('沒有指定 relay');
+    expect(() => pickRelay(undefined, io, none, null)).toThrow('No relay was given');
   });
 
   it('while the built-in relay is null, login and host refuse exactly as before, and --help says there is none', async () => {
     const s = await setup();
     const login = testIo({ env: s.env, openUrl: browserOpening });
     expect(await runCli(['login'], login)).toBe(2);
-    expect(login.err()).toContain('沒有指定 relay');
-    expect(login.err()).toContain('這個 smurg 沒有內建的公用 relay（說明：https://smurg.ai/docs/hosting/');
+    expect(login.err()).toContain('smurg: No relay was given');
+    expect(login.err()).toContain('This smurg has no built-in public relay (docs: https://smurg.ai/docs/hosting/');
     const host = testIo({ env: s.env, openUrl: browserOpening });
     expect(await runCli(['host', s.dirs.project, '--no-keep-awake'], host)).toBe(2);
-    expect(host.err()).toContain('沒有指定 relay');
+    expect(host.err()).toContain('smurg: No relay was given');
     expect(s.relay.requests).toEqual([]);
     for (const command of ['host', 'login']) {
       const help = testIo({ env: s.env });
       expect(await runCli([command, '--help'], help)).toBe(0);
-      expect(help.out()).toContain('沒有內建的預設 relay');
+      expect(help.out()).toContain('there is no built-in relay');
     }
     const attachHelp = testIo({ env: s.env });
     expect(await runCli(['attach', '--help'], attachHelp)).toBe(0);
-    expect(attachHelp.out()).toContain('（預設：邀請連結的網址或上次使用的 relay）');
+    expect(attachHelp.out()).toContain("(default: the invite link's URL, or the relay you used last)");
   });
 
   it('with a built-in relay: login uses it (and says so), --help shows it, SMURG_RELAY_URL and --relay still win', async () => {
@@ -89,25 +89,25 @@ describe('relay choice', () => {
     builtIn.url = s.relay.origin;
     const login = testIo({ env: s.env });
     expect(await runCli(['login', '--dev-user', 'amy'], login)).toBe(0);
-    expect(login.out()).toContain(`使用 smurg 內建的公用 relay：${s.relay.origin}`);
-    expect(login.out()).toContain(`已登入 ${s.relay.origin}`);
+    expect(login.out()).toContain(`Using smurg's built-in public relay: ${s.relay.origin}`);
+    expect(login.out()).toContain(`Logged in to ${s.relay.origin}`);
     expect((await loadCredentials(statePaths(s.env))).relays[s.relay.origin]?.userId).toBe('dev:amy');
     for (const command of ['host', 'login', 'attach']) {
       const help = testIo({ env: s.env });
       expect(await runCli([command, '--help'], help)).toBe(0);
-      expect(help.out()).toContain(`內建的公用 relay ${s.relay.origin}`);
+      expect(help.out()).toContain(`the built-in public relay ${s.relay.origin}`);
     }
     // Another relay named in the environment: used, and no built-in notice.
     const other = await startFakeRelay();
     cleanups.push(() => other.close());
     const viaEnv = testIo({ env: { ...s.env, SMURG_RELAY_URL: other.origin } });
     expect(await runCli(['login', '--dev-user', 'amy'], viaEnv)).toBe(0);
-    expect(viaEnv.out()).toContain(`已登入 ${other.origin}`);
-    expect(viaEnv.out()).not.toContain('內建的公用 relay');
+    expect(viaEnv.out()).toContain(`Logged in to ${other.origin}`);
+    expect(viaEnv.out()).not.toContain('built-in public relay');
     // The last login is remembered from now on (credentials.json), before the built-in relay.
     const remembered = testIo({ env: s.env });
     expect(await runCli(['logout'], remembered)).toBe(0);
-    expect(remembered.out()).toContain(`已登出 ${other.origin}`);
+    expect(remembered.out()).toContain(`Logged out of ${other.origin}`);
   });
 
   it('smurg host without --relay shares through the built-in relay; `smurg status` names it (the start shows only the links)', async () => {
@@ -139,12 +139,12 @@ describe('relay choice', () => {
     await Promise.race([readyPromise, done.then((code) => Promise.reject(new Error(`host ended early (${code}): ${io.err()}`)))]);
     await waitFor(() => memory.hostOnline('ws'), { what: 'the daemon at the relay' });
     // Owner decision 2026-10-01: no relay notice of `smurg host` itself (its login, when one is needed, names the relay).
-    expect(io.out()).not.toContain('內建的公用 relay');
+    expect(io.out()).not.toContain('built-in public relay');
     expect(io.out()).toContain(`${s.relay.origin}/join/${workspaceId}#k=`);
     expect(s.relay.workspaces.get(workspaceId)).toBe('github:4242');
     const status = testIo({ env: s.env });
     expect(await runCli(['status'], status)).toBe(0);
-    expect(status.out()).toContain(`  relay：${s.relay.origin}（smurg 內建的公用 relay），互動連線 `);
+    expect(status.out()).toContain(`  Relay: ${s.relay.origin} (smurg's built-in public relay), interactive connection `);
     io.signal('SIGTERM');
     expect(await done).toBe(0);
   });

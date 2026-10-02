@@ -10,6 +10,7 @@ import {
   type ResultOf,
 } from '@smurg/protocol';
 import type { Connection } from '@smurg/protocol/client';
+import { renderEnglish } from '@smurg/protocol/i18n';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 import * as awarenessProtocol from 'y-protocols/awareness';
@@ -74,7 +75,7 @@ export class FakeLockManager implements LockManager {
 
   requestAgent(input: Parameters<LockManager['requestAgent']>[0]): AgentLockResult {
     const current = this.get(input.file);
-    if (current) return { granted: false, holder: current, reason: '此檔案正由其他人編輯中，請先處理其他檔案或稍後再試' };
+    if (current) return { granted: false, holder: current, reason: 'This file is being edited by someone else. Work on other files first, or try again later.' };
     const now = Date.now();
     const lock: AgentLock = { kind: 'agent', file: input.file, sessionId: input.sessionId, ownerUserId: input.ownerUserId, agentName: input.agentName, acquiredAt: now, expiresAt: now + 60_000 };
     this.set(input.file, lock, null, 'acquired');
@@ -120,7 +121,7 @@ export class FakeActivity implements ActivityFeed {
 
   record(input: Parameters<ActivityFeed['record']>[0]): ReturnType<ActivityFeed['record']> {
     this.records.push(input);
-    return { id: `act_${this.records.length}`, at: Date.now(), actor: input.actor, kind: input.kind, ...(input.file ? { file: input.file } : {}), summary: input.summary };
+    return { id: `act_${this.records.length}`, at: Date.now(), actor: input.actor, kind: input.kind, ...(input.file ? { file: input.file } : {}), text: input.text, summary: renderEnglish(input.text) };
   }
 
   async list(): Promise<{ events: [] }> {

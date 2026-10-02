@@ -1,4 +1,4 @@
-// 「在自己的終端機接上」 (SPEC §6 `smurg attach`, R4; review SPEC-09): the exact commands to take a session over in the
+// "Attach from your own terminal" (SPEC §6 `smurg attach`, R4): the exact commands to take a session over in the
 // member's own terminal. A guest's CLI is a new device of the same member, so its first join needs an invite link
 // of the same role from the host (the one the browser used is spent); the dialog says so instead of leaving guests to
 // guess. The host's own sessions attach through the local daemon without any of that.

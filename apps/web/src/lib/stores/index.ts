@@ -27,7 +27,7 @@ import { createWorktreesArea, type WorktreesStore } from './worktrees.ts';
 export interface StoreErrorEvent {
   readonly id: number;
   readonly area: AreaName;
-  /** zh-TW */
+  /** A sentence for the person, in the language of the moment it was made. */
   readonly message: string;
   readonly at: number;
 }

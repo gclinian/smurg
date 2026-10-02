@@ -14,7 +14,7 @@ export interface TableColumn<Row> {
 }
 
 export interface TableProps<Row> {
-  /** Accessible table name (zh-TW). Shown as a caption unless `hideCaption`. */
+  /** Accessible table name (from the catalogue). Shown as a caption unless `hideCaption`. */
   caption: string;
   hideCaption?: boolean;
   columns: readonly TableColumn<Row>[];

@@ -60,11 +60,11 @@ describe.skipIf(BINARY === null)('the single executable updates and uninstalls i
 
     server.routes['latest/VERSION'] = `${own}\n`;
     const newest = await smurgRun(smurg, ['update'], env);
-    expect(newest).toEqual({ code: 0, stdout: `smurg ${own} 已經是最新版本。\n`, stderr: '' });
+    expect(newest).toEqual({ code: 0, stdout: `smurg ${own} is the latest version.\n`, stderr: '' });
 
     Object.assign(server.routes, release('99.0.0'));
     const check = await smurgRun(smurg, ['update', '--check'], env);
-    expect(check).toEqual({ code: 0, stdout: `有新版本 99.0.0（目前 ${own}）。執行 smurg update 更新。\n變更紀錄：https://smurg.ai/docs/changelog/\n`, stderr: '' });
+    expect(check).toEqual({ code: 0, stdout: `Version 99.0.0 is available (this is ${own}). Run smurg update to update.\nChangelog: https://smurg.ai/docs/changelog/\n`, stderr: '' });
     expect((await lstat(smurg)).size).toBeGreaterThan(1_000_000);
 
     // A release whose file does not match its SHA256SUMS changes nothing.
@@ -72,7 +72,7 @@ describe.skipIf(BINARY === null)('the single executable updates and uninstalls i
     server.routes[`v99.0.0/${HOST_TARGET}`] = `${good}# tampered\n`;
     const tampered = await smurgRun(smurg, ['update'], env);
     expect(tampered.code).toBe(1);
-    expect(tampered.stderr).toContain('sha256 不符');
+    expect(tampered.stderr).toContain('does not match');
     expect((await lstat(smurg)).size).toBeGreaterThan(1_000_000);
     expect(await readdir(dirname(smurg))).toEqual(['smurg']);
 
@@ -81,7 +81,7 @@ describe.skipIf(BINARY === null)('the single executable updates and uninstalls i
     expect(updated.stderr).toBe('');
     expect(updated.code).toBe(0);
     expect(updated.stdout).toBe(
-      [`下載 smurg 99.0.0（${HOST_TARGET}，${server.base}/v99.0.0）…`, `已更新 smurg：${own} → 99.0.0（${smurg}）`, '變更紀錄：https://smurg.ai/docs/changelog/', ''].join('\n'),
+      [`Downloading smurg 99.0.0 (${HOST_TARGET}, ${server.base}/v99.0.0)...`, `Updated smurg: ${own} -> 99.0.0 (${smurg})`, 'Changelog: https://smurg.ai/docs/changelog/', ''].join('\n'),
     );
     expect(await readFile(smurg, 'utf8')).toBe(fakeExecutable('99.0.0'));
     expect((await lstat(smurg)).mode & 0o777).toBe(0o755);
@@ -105,17 +105,17 @@ describe.skipIf(BINARY === null)('the single executable updates and uninstalls i
 
     const refused = await smurgRun(smurg, ['uninstall'], env);
     expect(refused.code).toBe(2);
-    expect(refused.stdout).toContain('smurg uninstall 會移除：');
-    expect(refused.stdout).toContain(`  ${smurg}（`);
-    expect(refused.stderr).toContain('不在終端機裡執行，無法詢問，沒有移除任何東西');
+    expect(refused.stdout).toContain('smurg uninstall will remove:');
+    expect(refused.stdout).toContain(`  ${smurg} (`);
+    expect(refused.stderr).toContain('Not run in a terminal, so smurg cannot ask; nothing was removed');
     expect(await exists(smurg)).toBe(true);
     expect(await exists(join(dirs.stateDir, 'workspaces.json'))).toBe(true);
 
     const removed = await smurgRun(smurg, ['uninstall', '--yes'], env);
     expect(removed.stderr).toBe('');
     expect(removed.code).toBe(0);
-    expect(removed.stdout).toContain('smurg 已從這台電腦移除。');
-    expect(removed.stdout).toContain(`  ${join(project, '.smurg')}  專案資料夾裡的 smurg 資料`);
+    expect(removed.stdout).toContain('smurg was removed from this computer.');
+    expect(removed.stdout).toContain(`  ${join(project, '.smurg')}  smurg's data inside a project folder`);
     expect(await exists(smurg)).toBe(false);
     expect(await exists(dirs.stateDir)).toBe(false);
     expect(await exists(join(cache, 'native-0123456789abcdef'))).toBe(false);

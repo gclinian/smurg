@@ -105,7 +105,7 @@ describe('GET /api/login-options: every combination of configured providers', ()
       // an unconfigured one refuses with 503.
       for (const provider of RELAY_AUTH_PROVIDERS) {
         const expected = { github, google }[provider] ? 302 : 503;
-        const res = await fetch(new URL(authLoginPath(provider), relay.origin), { redirect: 'manual' });
+        const res = await fetch(new URL(authLoginPath(provider), relay.origin), { redirect: 'manual', headers: { 'accept-language': 'en-US,en;q=0.9' } });
         await res.body?.cancel();
         expect(res.status, provider).toBe(expected);
       }

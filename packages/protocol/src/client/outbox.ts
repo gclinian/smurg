@@ -111,7 +111,7 @@ export class ReliableState {
 
   /**
    * Removes an entry whether it was transmitted or not: a request whose caller was already told it failed (timeout,
-   * cancelled) must never be re-sent, not even on a resumed channel (review REL-03: a retry would otherwise happen
+   * cancelled) must never be re-sent, not even on a resumed channel (a retry would otherwise happen
    * twice). The daemon either has it already or never gets it; the seq gap is allowed (rule 3).
    */
   remove(entry: OutboxEntry): boolean {

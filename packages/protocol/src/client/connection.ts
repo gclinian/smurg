@@ -27,7 +27,7 @@ export interface ConnectionOptions extends CommonConnectionOptions {
   resumeStore?: ResumeStore;
   /** Budget for unacknowledged outgoing messages; above it requests fail with 'overflow'. Default 32 MiB. */
   maxOutboxBytes?: number;
-  /** 「主人已離線」 after this long without any message from the daemon. Default CLIENT_OFFLINE_THRESHOLD_MS (8 s). */
+  /** "The host is offline" after this long without any message from the daemon. Default CLIENT_OFFLINE_THRESHOLD_MS (8 s). */
   silenceThresholdMs?: number;
   /** Start over on a fresh socket after this long of daemon silence. Default 20 s. */
   silenceReconnectMs?: number;
@@ -95,7 +95,7 @@ export class Connection {
     return (state as Extract<ConnectionState, { kind: 'online' }>).welcome;
   }
 
-  /** 「離開」: the daemon ends this member's sessions and deletes their guest directory, then the connection closes. */
+  /** Leave: the daemon ends this member's sessions and deletes their guest directory, then the connection closes. */
   async leave(options?: RequestOptions): Promise<void> {
     try {
       await this.request('channel.leave', {}, options);

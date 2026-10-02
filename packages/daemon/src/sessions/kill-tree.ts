@@ -14,7 +14,7 @@
 // sweep (§11 D-3: two research spikes killed unrelated processes of the host user that way). A set larger than
 // `maxPids` is implausible for one session: the kill is aborted and logged loudly instead of signalling it.
 //
-// PID REUSE. macOS hands a freed pid out again within milliseconds (observed on this machine), and there is no pidfd:
+// PID REUSE. macOS hands a freed pid out again within milliseconds (observed), and there is no pidfd:
 // a target that exits between the scan and the signal could be replaced by a stranger. So a process is identified by
 // (pid, start time, full command line), not by its pid, and only SIGSTOP is sent on the strength of one scan: a second
 // scan must show the SAME identity (the process is frozen: it can no longer exit or exec) before the SIGKILL; a pid
@@ -109,7 +109,7 @@ const POLL_MS = 25;
 
 /**
  * Processes a killTree() has SIGSTOPped and not yet killed or continued, with the function that signals them
- * (review CLI-06). If the daemon's process exits in that window (a second Ctrl-C on `smurg host` calls
+ *. If the daemon's process exits in that window (a second Ctrl-C on `smurg host` calls
  * process.exit()), they would stay frozen forever as orphans: the 'exit' hook finishes the job synchronously. A frozen
  * process (confirmed by the second scan: stopped, so it can neither exit nor exec and its pid cannot be reused) is
  * killed; one stopped but not yet confirmed is only continued, as killTree itself would do.

@@ -1,5 +1,5 @@
-// The host console, /w/:workspaceId/console (SPEC R2, R9, R11 基本版, §9 「我想要在一個畫面看到所有人和所有 agent 在做什麼，
-// 並且能一鍵踢掉任何人」). ONE page with everything the host needs:
+// The host console, /w/:workspaceId/console (SPEC R2, R9, R11 basic version, §9 "I want to see on one screen what everyone and every agent
+// is doing, and remove anyone with one click"). ONE page with everything the host needs:
 //   security notes (SPEC §11) · members · every session · pending suggestions · merge requests · invites · audit log ·
 //   settings.
 // The shell renders this for the host only; the page checks again and explains itself to anyone else (hiding is

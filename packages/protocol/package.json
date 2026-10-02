@@ -1,8 +1,8 @@
 {
   "name": "@smurg/protocol",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "description": "smurg wire protocol: constants, zod schemas, roles, Noise channel, framing, invite links, client SDK, relay control frames.",
   "exports": {
@@ -11,6 +11,9 @@
     "./browser": "./src/browser/index.ts",
     "./node": "./src/node/index.ts",
     "./relay": "./src/relay/index.ts",
+    "./locale": "./src/locale/index.ts",
+    "./locale/test-table": "./src/locale/test-table.ts",
+    "./i18n": "./src/i18n/index.ts",
     "./package.json": "./package.json"
   },
   "scripts": {

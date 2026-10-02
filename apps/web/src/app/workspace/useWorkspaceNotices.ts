@@ -1,6 +1,9 @@
-// Turns workspace events into toasts: a role change (「你的角色已變更」), a full resync after a reconnect, background
-// store failures, and notifications agents send to this member (coordination MCP 「通知某位組員」).
+// Turns workspace events into toasts: a role change ("Your role is now ..."), a full resync after a reconnect,
+// background store failures, and notifications for this member: an agent's own words (the coordination MCP tool
+// notify_member, never translated) or a notice the host wrote (a message reference, shown in the viewer's language).
 import { useEffect, useRef } from 'react';
+import type { MemberNotification } from '@smurg/protocol';
+import { renderWireText } from '../../lib/errors.ts';
 import { formatActor, formatRole } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
@@ -45,7 +48,13 @@ export function useWorkspaceNotices(): void {
     for (const notification of notifications) {
       if (seenNotification.current.has(notification.id)) continue;
       seenNotification.current.add(notification.id);
-      toast.show({ tone: 'info', title: tWorkbench('notify.title', { name: formatActor(notification.from) }), description: notification.text, duration: 0 });
+      toast.show({ tone: 'info', title: tWorkbench('notify.title', { name: formatActor(notification.from) }), description: notificationText(notification), duration: 0 });
     }
   }, [notifications, toast]);
+}
+
+/** An agent's own words as they are; a notice the host wrote in the viewer's language (English as the fallback). */
+export function notificationText(notification: MemberNotification): string {
+  if (notification.text !== undefined) return notification.text;
+  return renderWireText(notification.msg, notification.fallback ?? '');
 }

@@ -19,7 +19,7 @@ export interface WorkspaceState {
   readonly generation: number;
   /** Whether the latest admission resumed the logical channel. */
   readonly resumed: boolean | null;
-  /** The latest role change, for the 「你的角色已變更」 notice. */
+  /** The latest role change, for the "Your role is now ..." notice. */
   readonly roleChange: RoleChange | null;
   /** `Welcome.serverTime − Date.now()` at the latest admission (display only). */
   readonly clockSkewMs: number;
@@ -27,7 +27,7 @@ export interface WorkspaceState {
 
 export interface WorkspaceStore extends ReadableStore<WorkspaceState> {
   /**
-   * 「離開」 (channel.leave): the daemon ends this member's sessions and deletes their guest directory, then the
+   * "Leave" (channel.leave): the daemon ends this member's sessions and deletes their guest directory, then the
    * connection closes for good. The host's own leave is a no-op on the daemon; the connection still closes.
    */
   leave(): Promise<void>;

@@ -3,7 +3,7 @@
 // the message flow of the real module (session.attach → snapshot + nextOffset, then exec.output by absolute offset,
 // exec.resize to viewers when the owner resizes, session.state on changes), so the CLI's attach runs unchanged over it
 // in-process, through the relay path with real Noise channels. The access rules are the real module's (ARCHITECTURE
-// §11 D-15): the router lets only `session.drive` (the host, 「可使用 agent」) send exec.input, into ANY session; only
+// §11 D-15): the router lets only `session.drive` (the host, agent access) send exec.input, into ANY session; only
 // the owner (who opened it) resizes it.
 import { randomBytes } from 'node:crypto';
 import { DisposableStack, type DaemonContext, type FeatureModule } from '@smurg/daemon';
@@ -62,7 +62,8 @@ export function echoSessions(): EchoSessions {
         kind: input.kind ?? 'terminal',
         ownerUserId: input.ownerUserId,
         ownerName: input.ownerName,
-        title: input.title ?? 'echo',
+        // Only a title the opener typed, as the daemon does: without one each client words the default itself.
+        ...(input.title !== undefined ? { title: input.title } : {}),
         root: { kind: 'main' },
         status: 'running',
         cols: input.cols ?? 80,
@@ -81,7 +82,7 @@ export function echoSessions(): EchoSessions {
   };
   const find = (id: string): EchoSession => {
     const s = sessions.get(id);
-    if (!s) throw new SmurgError('not_found', '找不到這個 session');
+    if (!s) throw new SmurgError('not_found', 'That session was not found.');
     return s;
   };
 
@@ -121,7 +122,7 @@ export function echoSessions(): EchoSessions {
         // The router already checked `session.drive` (protocol registry): any session, whoever opened it.
         router.on('exec.input', (payload) => {
           const s = find(payload.sessionId);
-          if (s.info.status === 'exited') throw new SmurgError('conflict', 'session 已結束');
+          if (s.info.status === 'exited') throw new SmurgError('conflict', 'The session has ended.');
           const text = Buffer.from(payload.data).toString('utf8');
           inputs.set(s.info.id, (inputs.get(s.info.id) ?? '') + text);
           emit(s, new TextEncoder().encode(text.replace(/\r/g, '\r\n')));

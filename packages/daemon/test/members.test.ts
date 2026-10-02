@@ -1,4 +1,4 @@
-// SPEC R2 「被踢的使用者 3 秒內失去所有存取權」, SPEC R3 「被撤銷的裝置金鑰無法再建立連線」, and role changes that apply
+// SPEC R2 (a kicked user loses all access within 3 s), SPEC R3 (a revoked device key can no longer connect), and role changes that apply
 // immediately (ARCHITECTURE §3, §4 "Kick / role change").
 import { chmod } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -140,7 +140,7 @@ describe('kick (R2) and revoked device keys (R3)', () => {
     expect(reinvited.welcome?.member).toMatchObject({ userId: 'dev:amy', role: 'viewer' });
   });
 
-  it('a kick while the state cannot be written is in force, reported as not saved, written once the disk recovers and still in force after a restart (REL-14)', async () => {
+  it('a kick while the state cannot be written is in force, reported as not saved, written once the disk recovers and still in force after a restart', async () => {
     const stateDir = await createTempRunDir();
     const projectBase = await createTempDir('kick-restart');
     try {

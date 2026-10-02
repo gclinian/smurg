@@ -56,7 +56,7 @@ export const docSavedPayloadSchema = z.strictObject({
 });
 
 /**
- * 'file-unavailable' (review REL-01): the open file was moved, deleted, or replaced by something the editor cannot
+ * 'file-unavailable': the open file was moved, deleted, or replaced by something the editor cannot
  * hold (binary, too large, a link out of the share) on disk. The daemon keeps the text not yet saved as a conflict
  * record (doc.conflict), so clients must not say it was discarded.
  */

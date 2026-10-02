@@ -35,7 +35,7 @@ export function registerAgent(
   const creds = hooks.registerSession({
     sessionId,
     ownerUserId: owner.userId,
-    agentName: `Claude（${owner.name}）`,
+    agentName: `Claude (${owner.name})`,
     root: options.root ?? MAIN_ROOT,
   });
   return { sessionId, token: creds.token, env: creds.env };

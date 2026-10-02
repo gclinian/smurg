@@ -8,6 +8,7 @@ import type { DaemonEvents } from '../../src/core/interfaces.ts';
 import { HookServerImpl } from '../../src/hooks/hook-server.ts';
 import { hooksModule } from '../../src/hooks/module.ts';
 import { HOOK_ENV, HOOK_REQUEST_MAX_BYTES } from '../../src/hooks/wire.ts';
+import { HOOK_DENY_REASONS, humanHeldReason, pathDeniedReason } from '../../src/hooks/deny-text.ts';
 import { createTestDaemon, TEST_HOST_USER, type TestDaemon } from '../../src/testing/index.ts';
 import { denyReasonOf, hookRequest, lifecycle, post, pre, rawExchange, registerAgent, startHookDaemon, type HookDaemon } from './helpers.ts';
 
@@ -39,7 +40,7 @@ function capture<K extends keyof DaemonEvents>(d: HookDaemon, name: K): DaemonEv
   return events;
 }
 
-/** A 「可使用 agent」 member: admitted through a real invite so the agent's owner is active. */
+/** A Agent access member: admitted through a real invite so the agent's owner is active. */
 async function withAgentMember(d: HookDaemon): Promise<void> {
   await d.t.connect({ userId: IAN.userId, displayName: IAN.name, role: 'agent' });
 }
@@ -85,11 +86,11 @@ describe('PreToolUse → agent lock', () => {
     expect(reply).toEqual({ id: expect.any(String), hookOutput: null });
     expect(JSON.stringify(reply)).not.toContain('allow');
     const lock = d.fakes.locks.get(main('free.txt'));
-    expect(lock).toMatchObject({ kind: 'agent', sessionId: s.sessionId, ownerUserId: HOST.userId, agentName: 'Claude（Host）' });
+    expect(lock).toMatchObject({ kind: 'agent', sessionId: s.sessionId, ownerUserId: HOST.userId, agentName: 'Claude (Host)' });
     expect(pres).toEqual([{ sessionId: s.sessionId, ownerUserId: HOST.userId, tool: 'Edit', file: main('free.txt'), outcome: 'granted' }]);
   });
 
-  it('R8: 有人正在打字的檔案，agent 的 Edit 被擋下，並收到持有者的名字 — the hook socket decision in isolation', async () => {
+  it('R8: an agent\'s Edit of a file someone is typing in is blocked and names the holder — the hook socket decision in isolation', async () => {
     const d = await setup();
     const pres = capture(d, 'agent.tool.pre');
     d.fakes.locks.holdHuman(main('locked.txt'), 'Amy');
@@ -97,14 +98,14 @@ describe('PreToolUse → agent lock', () => {
     for (const tool of ['Edit', 'Write', 'MultiEdit']) {
       const reply = await hookRequest(d.hooks.socketPath, s.token, pre(join(d.t.root, 'locked.txt'), tool));
       expect(reply['hookOutput']).toEqual({
-        hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: '此檔案正由 Amy 編輯中，請先處理其他檔案或稍後再試' },
+        hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: humanHeldReason(['Amy']) },
       });
     }
     expect(d.fakes.locks.get(main('locked.txt'))?.kind).toBe('human');
     expect(pres[0]).toMatchObject({ outcome: 'denied', file: main('locked.txt'), holder: { kind: 'human' } });
   });
 
-  it('R8: 兩個 agent 同時修改同一個檔案時，後到者被擋下 — the hook socket decision in isolation', async () => {
+  it('R8: when two agents change the same file at once the later one is blocked — the hook socket decision in isolation', async () => {
     const d = await setup();
     await withAgentMember(d);
     const first = registerAgent(d.hooks, HOST);
@@ -115,7 +116,7 @@ describe('PreToolUse → agent lock', () => {
     expect(denied).toHaveLength(1);
     const winner = d.fakes.locks.get(main('src/a.ts'));
     expect(winner?.kind).toBe('agent');
-    const loserName = winner?.kind === 'agent' && winner.sessionId === first.sessionId ? 'Claude（Host）' : 'Claude（Ian）';
+    const loserName = winner?.kind === 'agent' && winner.sessionId === first.sessionId ? 'Claude (Host)' : 'Claude (Ian)';
     expect(denyReasonOf(denied[0] as (typeof denied)[number])).toContain(loserName);
   });
 
@@ -210,7 +211,7 @@ describe('forged events (everything on the socket is a claim)', () => {
     const d = await setup();
     registerAgent(d.hooks, HOST);
     const reply = await hookRequest(d.hooks.socketPath, 'forged-token', pre(join(d.t.root, 'free.txt')));
-    expect(denyReasonOf(reply)).toMatch(/無法確認這個 session 的身分/);
+    expect(denyReasonOf(reply)).toBe(HOOK_DENY_REASONS.unknownSession);
     expect(d.fakes.locks.list()).toEqual([]);
     const other = await hookRequest(d.hooks.socketPath, 'forged-token', lifecycle('Stop'));
     expect(other['hookOutput']).toBeNull();
@@ -239,14 +240,14 @@ describe('forged events (everything on the socket is a claim)', () => {
     await symlink(outside, join(d.t.root, 'escape.txt'));
     const attempts = [pre(outside), pre('../outside.txt', 'Edit', { cwd: d.t.root }), pre(join(d.t.root, 'escape.txt')), pre('/etc/hosts', 'Write')];
     for (const attempt of attempts) {
-      expect(denyReasonOf(await hookRequest(d.hooks.socketPath, s.token, attempt))).toMatch(/只能修改這個 session 工作區內的檔案/);
+      expect(denyReasonOf(await hookRequest(d.hooks.socketPath, s.token, attempt))).toBe(HOOK_DENY_REASONS.outsideRoot);
     }
-    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, s.token, pre('relative.txt')))).toMatch(/無法判斷/);
+    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, s.token, pre('relative.txt')))).toBe(HOOK_DENY_REASONS.noTarget);
     expect(d.fakes.locks.list()).toEqual([]);
     const denials = (await d.t.ctx.audit.query({ limit: 50 })).filter((e) => e.action === 'path.denied');
     expect(denials.length).toBeGreaterThanOrEqual(4);
     for (const entry of denials) {
-      expect(entry.actor).toMatchObject({ kind: 'agent', sessionId: s.sessionId, displayName: 'Claude（Host）' });
+      expect(entry.actor).toMatchObject({ kind: 'agent', sessionId: s.sessionId, displayName: 'Claude (Host)' });
       // Never an absolute host path in the audit target.
       expect(entry.target ?? '').not.toContain(d.t.stateDir);
     }
@@ -260,8 +261,8 @@ describe('forged events (everything on the socket is a claim)', () => {
     await d.t.ctx.roots.registerWorktree({ worktreeId: 'wt_one', dir: wtDir, ownerUserId: HOST.userId, sharedLinks: [] });
     const inMain = registerAgent(d.hooks, HOST);
     const inWorktree = registerAgent(d.hooks, HOST, { root: { kind: 'worktree', worktreeId: 'wt_one' } });
-    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, inMain.token, pre(join(wtDir, 'a.txt'))))).toMatch(/另一個工作區/);
-    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, inWorktree.token, pre(join(d.t.root, 'free.txt'))))).toMatch(/另一個工作區/);
+    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, inMain.token, pre(join(wtDir, 'a.txt'))))).toBe(HOOK_DENY_REASONS.otherRoot);
+    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, inWorktree.token, pre(join(d.t.root, 'free.txt'))))).toBe(HOOK_DENY_REASONS.otherRoot);
     expect((await hookRequest(d.hooks.socketPath, inWorktree.token, pre(join(wtDir, 'a.txt'))))['hookOutput']).toBeNull();
     expect(d.fakes.locks.list().map((l) => l.file)).toEqual([{ root: { kind: 'worktree', worktreeId: 'wt_one' }, path: 'a.txt' }]);
   });
@@ -272,7 +273,7 @@ describe('forged events (everything on the socket is a claim)', () => {
     const ians = registerAgent(d.hooks, IAN);
     const host = registerAgent(d.hooks, HOST);
     const settings = join(d.t.root, '.claude', 'settings.json');
-    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, ians.token, pre(settings)))).toMatch(/只有主人可以修改這個路徑/);
+    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, ians.token, pre(settings)))).toBe(pathDeniedReason('host-only'));
     expect((await hookRequest(d.hooks.socketPath, host.token, pre(settings)))['hookOutput']).toBeNull();
     const audit = await d.t.ctx.audit.query({ limit: 20 });
     expect(audit.find((e) => e.action === 'path.denied')?.detail).toMatchObject({ reason: 'host-only' });
@@ -288,7 +289,7 @@ describe('forged events (everything on the socket is a claim)', () => {
       expect(d.fakes.locks.agentLocksOf(s.sessionId).length).toBeLessThanOrEqual(1);
     }
     const reasons = replies.map(denyReasonOf);
-    expect(reasons.filter((r) => r !== null && /太多請求/.test(r)).length).toBeGreaterThan(0);
+    expect(reasons.filter((r) => r === HOOK_DENY_REASONS.rateLimited).length).toBeGreaterThan(0);
     expect(d.fakes.locks.agentLocksOf(s.sessionId).length).toBeLessThanOrEqual(1);
   });
 
@@ -321,7 +322,7 @@ describe('forged events (everything on the socket is a claim)', () => {
     const hostPrincipal = d.t.ctx.members.principalOf(HOST.userId);
     if (!hostPrincipal) throw new Error('no host principal');
     d.t.ctx.members.kick(IAN.userId, hostPrincipal);
-    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, s.token, pre(join(d.t.root, 'free.txt'))))).toMatch(/擁有者已不在工作區/);
+    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, s.token, pre(join(d.t.root, 'free.txt'))))).toBe(HOOK_DENY_REASONS.ownerGone);
     expect(d.fakes.locks.list()).toEqual([]);
   });
 
@@ -330,7 +331,7 @@ describe('forged events (everything on the socket is a claim)', () => {
     const hooks = extra.ctx.services.hooks as HookServerImpl;
     const s = registerAgent(hooks, HOST);
     const reply = await hookRequest(hooks.socketPath, s.token, pre(join(extra.root, 'free.txt')));
-    expect(denyReasonOf(reply)).toMatch(/暫時無法確認檔案鎖/);
+    expect(denyReasonOf(reply)).toBe(HOOK_DENY_REASONS.locksUnavailable);
     // Release events still answer (nothing to decide).
     expect((await hookRequest(hooks.socketPath, s.token, lifecycle('Stop')))['hookOutput']).toBeNull();
   });
@@ -348,7 +349,7 @@ describe('forged events (everything on the socket is a claim)', () => {
       const pending = hookRequest(d.hooks.socketPath, s.token, pre(join(d.t.root, 'free.txt')));
       await new Promise((resolve) => setTimeout(resolve, 150));
       d.hooks.unregisterSession(s.sessionId);
-      expect(denyReasonOf(await pending)).toMatch(/無法確認這個 session 的身分/);
+      expect(denyReasonOf(await pending)).toBe(HOOK_DENY_REASONS.unknownSession);
       expect(d.fakes.locks.list()).toEqual([]);
     } finally {
       paths.toFileRef = original;
@@ -367,7 +368,7 @@ describe('forged events (everything on the socket is a claim)', () => {
     try {
       const started = Date.now();
       const reply = await hookRequest(d.hooks.socketPath, s.token, pre(join(d.t.root, 'free.txt')));
-      expect(denyReasonOf(reply)).toMatch(/未能及時確認檔案鎖/);
+      expect(denyReasonOf(reply)).toBe(HOOK_DENY_REASONS.timeout);
       expect(Date.now() - started).toBeLessThan(4_900);
       await new Promise((resolve) => setTimeout(resolve, 1_500));
       expect(d.fakes.locks.list()).toEqual([]);

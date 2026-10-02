@@ -24,6 +24,7 @@
   height: 100%;
 }
 .app-fullpage__card {
+  position: relative;
   width: 100%;
   max-width: 600px;
   display: flex;
@@ -33,6 +34,13 @@
   border-radius: var(--radius-lg);
   border: var(--border-width) solid var(--color-border);
   background: var(--color-surface-1);
+}
+/* The language menu of a full page: the card's top corner (last in the DOM, so the page's action is the first tab
+   stop). */
+.app-fullpage__language {
+  position: absolute;
+  top: var(--space-4);
+  inset-inline-end: var(--space-4);
 }
 /* The card of a blocking screen is focused by script (so screen readers start there); it is not a control, so no
    ring: the first real control shows the focus ring as soon as the person presses Tab. */
@@ -150,6 +158,11 @@
   max-width: 960px;
   margin: 0 auto;
   padding: var(--space-6) var(--space-6) 0;
+}
+.app-landing__menus {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 .app-landing__main {
   max-width: 960px;

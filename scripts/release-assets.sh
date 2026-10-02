@@ -29,25 +29,25 @@
 #                  `node@X.Y.Z (the Node.js runtime)` and the Node.js LICENSE
 #   --require-all  refuse unless all four executables are there (a release; without it any subset is taken)
 #   --check-arch   check with `file` that each executable is the Mach-O / ELF of its name's architecture
-#   --notes FILE   write the release notes (the private GitHub release, the internal record): the CHANGELOG section
-#                  of this version (refused when there is none), the install line and the checksums
+#   --notes FILE   write the release notes (of the GitHub release, which carries the notes, SHA256SUMS and the
+#                  notices; the executables are only on the downloads domain): the CHANGELOG section of this version
+#                  (refused when there is none), the install line and the checksums
 #   --changelog F  the changelog to read (default CHANGELOG.md)
 #   --check-changelog  only check that the changelog has a section for X.Y.Z (and that the version is valid), print
 #                  it and stop: the release workflow runs this before building anything
 #   --publish-checks  only check what a PUBLISHED release needs filled in (docs/RELEASING.md §3, §4), print every
 #                  problem and stop (exit 1 on any): the section's heading has a date (`## [X.Y.Z] - YYYY-MM-DD`, not
-#                  `Unreleased`); no placeholder (<RELAY_URL>, <account-subdomain>) is left in the section or in the
-#                  user docs; DEFAULT_RELAY_URL (packages/cli/src/relay/default-relay.ts) is an https origin, since
-#                  every binary keeps its built-in relay forever, and the user docs (README.md, docs/HOSTING.md,
-#                  docs/JOINING.md) name that same relay and show the install line
+#                  `Unreleased`), in the changelog and in docs/zh-TW/CHANGELOG.md; no placeholder (<RELAY_URL>,
+#                  <account-subdomain>) is left in the section or in the user docs; DEFAULT_RELAY_URL
+#                  (packages/cli/src/relay/default-relay.ts) is an https origin, since every binary keeps its built-in
+#                  relay forever, and the user docs (README.md, README.zh-TW.md, docs/HOSTING.md, docs/JOINING.md,
+#                  docs/zh-TW/HOSTING.md, docs/zh-TW/JOINING.md) name that same relay and show the install line
 #                  `curl -fsSL https://smurg.ai/install.sh | sh`; neither they nor the section name a concrete
 #                  *.workers.dev address other than the built-in relay (a stale address of the shared relay; a
-#                  self-hosted one is written with a <placeholder>); nothing users read links to the private GitHub
-#                  repository (github.com/gclinian/smurg in those docs, the section, apps/site/public, the web app's
-#                  index.html, src/ and public/); LICENSE names its copyright holder (no `<COPYRIGHT HOLDER>`) and is
-#                  not the Apache License any more; every package.json says version X.Y.Z (without a pre-release
-#                  part), "license": "UNLICENSED" and "private": true; scripts/install.sh (every release ships it, and a
-#                  published one is never replaced) neither offers a relay of one's own nor calls smurg open source.
+#                  self-hosted one is written with a <placeholder>); LICENSE is the MIT License and names its
+#                  copyright holder; LICENSE, NOTICE, the user docs and scripts/install.sh carry no wording of the
+#                  proprietary releases (0.1.0 to 0.3.0); every package.json says version X.Y.Z (without a
+#                  pre-release part), "license": "MIT" and "private": true (nothing is published to npm).
 #                  The release workflow runs it before building: it fails a tag, and only warns in a dry run.
 # Every executable must carry the build marker `smurg-build-version=X.Y.Z;` of this version (scripts/build-sea.sh writes
 # it) and the download URL of the Node.js release whose LICENSE the notices carry
@@ -88,7 +88,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 [[ "$version" =~ ^[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}(-[0-9A-Za-z.-]{1,40})?$ ]] || { echo 'release-assets: --version X.Y.Z is required (no leading v)' >&2; exit 2; }
-# Where the files are served: the version's own prefix on the downloads domain (docs/RELEASING.md "The plan").
+# Where the files are served: the version's own prefix on the downloads domain (docs/RELEASING.md §0).
 downloads='https://downloads.smurg.ai'
 install_line='curl -fsSL https://smurg.ai/install.sh | sh'
 base_url="${base_url:-$downloads/v$version}"
@@ -110,7 +110,7 @@ changelog_part() {
     }
     heading($0) { if (inside) exit; if (ours($0)) { if (want == "heading") { print; exit } inside = 1; next } }
     inside { print }
-  ' "$changelog"
+  ' "${2:-$changelog}"
 }
 
 section=''
@@ -121,71 +121,64 @@ if [ -n "$notes" ] || [ "$check_changelog" = 1 ] || [ "$publish_checks" = 1 ]; t
 fi
 if [ "$publish_checks" = 1 ]; then
   problems=()
-  user_docs=(README.md docs/HOSTING.md docs/JOINING.md)
+  user_docs=(README.md README.zh-TW.md docs/HOSTING.md docs/JOINING.md docs/zh-TW/HOSTING.md docs/zh-TW/JOINING.md)
+  dated=' - [0-9]{4}-[0-9]{2}-[0-9]{2}([[:space:]]|$)'
   heading="$(changelog_part heading)"
-  [[ "$heading" =~ \ -\ [0-9]{4}-[0-9]{2}-[0-9]{2}([[:space:]]|$) ]] || problems+=("$changelog: the heading '$heading' has no release date (## [$version] - YYYY-MM-DD)")
-  placeholders='<RELAY_URL>|<account-subdomain>|<這個網址>'
+  [[ "$heading" =~ $dated ]] || problems+=("$changelog: the heading '$heading' has no release date (## [$version] - YYYY-MM-DD)")
+  # The zh-TW changelog has the same dated heading (the site publishes both).
+  changelog_zh=docs/zh-TW/CHANGELOG.md
+  if [ ! -f "$changelog_zh" ]; then
+    problems+=("$changelog_zh is missing")
+  else
+    heading_zh="$(changelog_part heading "$changelog_zh")"
+    if [ -z "$heading_zh" ]; then
+      problems+=("$changelog_zh has no section for $version (a heading like '## [$version] - YYYY-MM-DD')")
+    elif [[ "$heading" =~ $dated ]] && [ "$heading_zh" != "$heading" ]; then
+      problems+=("$changelog_zh: the heading '$heading_zh' is not '$heading' ($changelog)")
+    fi
+  fi
+  placeholders='<RELAY_URL>|<account-subdomain>'
   if printf '%s\n' "$section" | grep -Eq "$placeholders"; then problems+=("$changelog: the $version section still has a placeholder ($placeholders)"); fi
-  for doc in "${user_docs[@]}"; do
-    if [ -f "$doc" ] && grep -Eq "$placeholders" "$doc"; then problems+=("$doc still has a placeholder ($placeholders): docs/RELEASING.md §3"); fi
-  done
   default_relay=packages/cli/src/relay/default-relay.ts
   grep -Eq "^export const DEFAULT_RELAY_URL: string \| null = 'https://[a-z0-9.-]+';" "$default_relay" ||
     problems+=("$default_relay: DEFAULT_RELAY_URL is not the deployed relay's https origin (docs/RELEASING.md §3): a binary keeps its built-in relay forever")
   relay_url="$(sed -n "s#^export const DEFAULT_RELAY_URL: string | null = '\(https://[a-z0-9.-]*\)';\$#\1#p" "$default_relay")"
-  if [ -n "$relay_url" ]; then
-    for doc in "${user_docs[@]}"; do
-      [ -f "$doc" ] && grep -qF "$relay_url" "$doc" ||
-        problems+=("$doc does not name the built-in relay $relay_url (DEFAULT_RELAY_URL): the docs must say what the binary uses")
-    done
-  fi
-  for doc in "${user_docs[@]}"; do
-    [ -f "$doc" ] && grep -qF "$install_line" "$doc" ||
-      problems+=("$doc does not show the install line  $install_line")
-  done
-  # The official relay is DEFAULT_RELAY_URL; any other concrete workers.dev address in what users read is a stale one
-  # (the shared relay left workers.dev on 2026-10-01). A self-hosted relay's address is written with a placeholder
-  # (https://smurg-relay.<你的子網域>.workers.dev), which this does not match.
+  # The official relay is DEFAULT_RELAY_URL; any other concrete workers.dev address in what users read is a stale one.
+  # A self-hosted relay's address is written with a placeholder (https://smurg-relay.<your-subdomain>.workers.dev),
+  # which this does not match.
   stale_workers_dev() { { grep -Eo 'https://[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.workers\.dev' | sort -u | grep -vxF "${relay_url:-none}" | tr '\n' ' '; } || true; }
+  # What the proprietary releases (0.1.0 to 0.3.0) said about themselves; the changelog may say so about them.
+  retired='proprietary|all rights reserved|UNLICENSED|private repository'
   for doc in "${user_docs[@]}"; do
-    [ -f "$doc" ] || continue
+    if [ ! -f "$doc" ]; then problems+=("$doc is missing (a user doc)"); continue; fi
+    if grep -Eq "$placeholders" "$doc"; then problems+=("$doc still has a placeholder ($placeholders): docs/RELEASING.md §3"); fi
+    if [ -n "$relay_url" ] && ! grep -qF "$relay_url" "$doc"; then
+      problems+=("$doc does not name the built-in relay $relay_url (DEFAULT_RELAY_URL): the docs must say what the binary uses")
+    fi
+    grep -qF "$install_line" "$doc" || problems+=("$doc does not show the install line  $install_line")
     stale="$(stale_workers_dev < "$doc")"
     [ -z "$stale" ] || problems+=("$doc names a workers.dev address that is not the built-in relay: ${stale% } (docs/RELEASING.md §3)")
   done
   stale="$(printf '%s\n' "$section" | stale_workers_dev)"
   [ -z "$stale" ] || problems+=("$changelog: the $version section names a workers.dev address that is not the built-in relay: ${stale% }")
-  # The source is private (decided 2026-10-01): a link to the repository is a 404 for everyone else. What users read:
-  # the user docs, this version's notes, the product page and the web app (its index.html, strings and static files).
-  repo_link='github\.com[/:]gclinian/smurg'
-  repo_problem='names the GitHub repository (github.com/gclinian/smurg), which is private: nobody else can open it (docs/RELEASING.md §4)'
-  for doc in "${user_docs[@]}"; do
-    if [ -f "$doc" ] && grep -Eiq "$repo_link" "$doc"; then problems+=("$doc $repo_problem"); fi
-  done
-  if printf '%s\n' "$section" | grep -Eiq "$repo_link"; then problems+=("$changelog: the $version section $repo_problem"); fi
-  for tree in apps/site/public apps/web/src apps/web/public apps/web/index.html; do
-    [ -e "$tree" ] || continue
-    while IFS= read -r file; do
-      [ -z "$file" ] || problems+=("$file $repo_problem")
-    done < <(grep -rEIil --exclude-dir=node_modules "$repo_link" "$tree" | sort || true)
-  done
-  # LICENSE: proprietary since 2026-10-01; the owner names the holder (docs/RELEASING.md "The plan", §6.1).
+  # LICENSE: the MIT License, naming its copyright holder.
+  holder='Guan-Chen, Lin'
   if [ ! -f LICENSE ]; then
     problems+=('LICENSE is missing')
   else
-    if grep -qF '<COPYRIGHT HOLDER>' LICENSE; then problems+=('LICENSE still has the placeholder <COPYRIGHT HOLDER>: the owner names the copyright holder first (docs/RELEASING.md §6.1, docs/OPEN-QUESTIONS.md Q14)'); fi
-    if [ "$(sed -n '/[^[:space:]]/{s/^[[:space:]]*//;s/[[:space:]]*$//;p;q;}' LICENSE)" = 'Apache License' ]; then problems+=('LICENSE is still the Apache License 2.0 (smurg is proprietary since 2026-10-01)'); fi
+    [ "$(sed -n '1p' LICENSE)" = 'MIT License' ] || problems+=("LICENSE: line 1 is '$(sed -n '1p' LICENSE)', not 'MIT License'")
+    grep -Eq "^Copyright \(c\) [0-9]{4}(-[0-9]{4})? $holder\$" LICENSE || problems+=("LICENSE does not name the copyright holder (a line 'Copyright (c) YYYY $holder')")
   fi
-  # The installer: every release ships it, and a published one is never replaced. With the source private nobody outside
-  # the project can run a relay of their own, and smurg is not open source (decided 2026-10-01).
-  retired='自己架設|自架|self-host|open[ -]?source|開源|開放原始碼|apache'
-  if [ -f scripts/install.sh ] && grep -Eiq "$retired" scripts/install.sh; then
-    problems+=("scripts/install.sh offers a relay of one's own or calls smurg open source (line $(grep -Ein "$retired" scripts/install.sh | cut -d: -f1 | head -3 | tr '\n' ' ' | sed 's/ $//')): the source is private (docs/RELEASING.md \"The plan\")")
-  fi
+  for file in LICENSE NOTICE "${user_docs[@]}" scripts/install.sh; do
+    [ -f "$file" ] || continue
+    lines="$(grep -Ein "$retired" "$file" | cut -d: -f1 | head -3 | tr '\n' ' ' | sed 's/ $//' || true)"
+    [ -z "$lines" ] || problems+=("$file still has wording of the proprietary releases (line $lines): smurg is MIT-licensed open source")
+  done
   for pkg in package.json apps/*/package.json packages/*/package.json tests/*/package.json; do
     [ -f "$pkg" ] || continue
     pkg_version="$(sed -n 's/^  "version": "\([^"]*\)",\{0,1\}$/\1/p' "$pkg" | head -1)"
     [ "$pkg_version" = "${version%%-*}" ] || problems+=("$pkg: version '$pkg_version', not ${version%%-*} (smurg --version prints the daemon's)")
-    grep -Eq '^  "license": "UNLICENSED",?$' "$pkg" || problems+=("$pkg: \"license\" is not \"UNLICENSED\" (npm's value for proprietary code)")
+    grep -Eq '^  "license": "MIT",?$' "$pkg" || problems+=("$pkg: \"license\" is not \"MIT\"")
     grep -Eq '^  "private": true,?$' "$pkg" || problems+=("$pkg: not \"private\": true (nothing is ever published to npm)")
   done
   if [ "${#problems[@]}" -gt 0 ]; then
@@ -193,7 +186,7 @@ if [ "$publish_checks" = 1 ]; then
     printf '  - %s\n' "${problems[@]}" >&2
     exit 1
   fi
-  echo "release-assets: $version is ready to publish (dated changelog section, no placeholders, built-in relay set and named in the docs, install line, no stale workers.dev address, no link to the private repository, LICENSE holder named, the installer's wording, package versions and license fields)"
+  echo "release-assets: $version is ready to publish (dated section in both changelogs, no placeholders, built-in relay set and named in the user docs, install line, no stale workers.dev address, the MIT LICENSE with its holder, no wording of the proprietary releases, package versions and license fields)"
   exit 0
 fi
 if [ "$check_changelog" = 1 ]; then
@@ -303,11 +296,11 @@ if [ -n "$notes" ]; then
   mkdir -p "$(dirname "$notes")"
   {
     printf '%s\n\n' "$section"
-    printf '## 安裝\n\n'
-    printf 'macOS（Apple silicon、Intel）與 Linux（x64、arm64，glibc）：\n\n'
+    printf '## Install\n\n'
+    printf 'macOS (Apple silicon, Intel) and Linux (x64, arm64; glibc):\n\n'
     printf '```sh\n%s\n```\n\n' "$install_line"
     # shellcheck disable=SC2016 # Markdown backticks, not a command substitution
-    printf '安裝程式只安裝 sha256 與下面的 `SHA256SUMS` 相符的執行檔。\n\n'
+    printf 'The executables are at %s/. The installer installs only an executable whose sha256 matches `SHA256SUMS` (attached, with `THIRD-PARTY-NOTICES.txt`):\n\n' "$base_url"
     printf '```\n'
     cat "$out/SHA256SUMS"
     printf '```\n'

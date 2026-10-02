@@ -25,7 +25,7 @@ export const clientHelloSchema = z
     /** `n` of the blinded commitment `cnf = SHA-256("smurg-cnf" ‖ n ‖ deviceStaticPublicKey)`. */
     cnfNonce: bytesSchema({ exact: CNF_NONCE_BYTES }),
     clientKind: clientKindSchema,
-    /** e.g. 「Chrome on macOS」, shown in the host's device list */
+    /** e.g. `Chrome (macOS)`, shown in the host's device list */
     deviceName: lineTextSchema(SHORT_TEXT_MAX_CHARS, 1),
     /** interactive channel only */
     resume: resumeRequestSchema.optional(),

@@ -15,15 +15,19 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEVICE_DEBUG_PATH, DEVICE_LIMITS, type DeviceLoginInspection } from '../src/lib/device.ts';
 import { startLocalRelay, type LocalRelay } from '../test-support/index.ts';
-import { CookieBrowser } from './browser.ts';
+import { ACCEPT_ENGLISH, CookieBrowser } from './browser.ts';
 import { sleep } from './helpers.ts';
 import { GOOGLE_USER, startMockIdp, type MockIdp } from './mock-idp.ts';
 
 const EVIL_ORIGIN = 'https://evil.example';
 const HTML_CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
-const WARNING = '只有你自己剛在終端機執行 smurg login 時才按「允許」；如果是別人給你這個代碼，請按「拒絕」。';
-const WRONG_CODE = '代碼不正確或已失效';
-const CSRF_REFUSED = '這個要求不是從 relay 的 /device 頁面送出的';
+const PAGE_VARY = 'Accept-Language, Cookie';
+// Every page is asked for in English here (an explicit Accept-Language on every request); test/pages.test.ts covers
+// zh-TW, the language choice and the switch.
+const WARNING = 'Press &quot;Allow&quot; only if you just ran smurg login in your terminal yourself. If someone else gave you this code, press &quot;Deny&quot;.';
+const WRONG_CODE = 'That code is not correct or is no longer valid.';
+const CSRF_REFUSED = 'This request was not sent from the relay&#39;s /device page';
+const state = (name: string) => `<body data-state="${name}">`;
 
 let idp: MockIdp;
 let relay: LocalRelay;
@@ -71,7 +75,8 @@ async function browserAs(user: string, ip = freshIp()): Promise<CookieBrowser> {
   const browser = new CookieBrowser({ 'cf-connecting-ip': ip });
   const { url: landed, body } = await browser.get(url(`${RELAY_PATHS.devStart}?user=${user}&return_to=%2Fdevice`));
   expect(landed).toBe(url(RELAY_PATHS.device));
-  expect(body).toContain(`（dev:${user}）`);
+  expect(body).toContain(state('code'));
+  expect(body).toContain(`<strong>${user}</strong> (dev:${user})`);
   return browser;
 }
 
@@ -86,6 +91,7 @@ function expectDevicePageHeaders(res: Response): void {
   expect(res.headers.get('x-frame-options')).toBe('DENY');
   expect(res.headers.get('referrer-policy')).toBe('same-origin');
   expect(res.headers.get('cache-control')).toBe('no-store');
+  expect(res.headers.get('vary')).toBe(PAGE_VARY);
 }
 
 describe('POST /auth/device/start', () => {
@@ -121,11 +127,13 @@ describe('POST /auth/device/start', () => {
 
 describe('GET /device', () => {
   it('without a session offers the relay login, which comes back to /device; then the code form names the account', async () => {
-    const res = await fetch(url(RELAY_PATHS.device));
+    const res = await fetch(url(RELAY_PATHS.device), { headers: ACCEPT_ENGLISH });
     expect(res.status).toBe(200);
     expectDevicePageHeaders(res);
     const html = await res.text();
-    expect(html).toContain('<h1>登入 smurg CLI</h1>');
+    expect(html).toContain('<html lang="en">');
+    expect(html).toContain(state('login'));
+    expect(html).toContain('<h1>Log in to the smurg CLI</h1>');
     expect(html).toContain('href="/auth/google/login?return_to=%2Fdevice"');
     expect(html).toContain('href="/auth/github/login?return_to=%2Fdevice"');
     expect(html).toContain('<form method="get" action="/auth/dev/start" data-provider="dev"><input type="hidden" name="return_to" value="/device">');
@@ -135,17 +143,17 @@ describe('GET /device', () => {
     const dev = new CookieBrowser();
     const { url: landed, body } = await dev.get(url(`${RELAY_PATHS.devStart}?return_to=%2Fdevice&user=erin`));
     expect(landed).toBe(url(RELAY_PATHS.device));
-    expect(body).toContain('<strong>erin</strong>（dev:erin）');
+    expect(body).toContain('<strong>erin</strong> (dev:erin)');
     expect(body).toContain('<form method="post" action="/device" data-testid="device-code-form">');
     const google = new CookieBrowser();
     const viaGoogle = await google.get(url('/auth/google/login?return_to=%2Fdevice'));
     expect(viaGoogle.url).toBe(url(RELAY_PATHS.device));
-    expect(viaGoogle.body).toContain(`<strong>${GOOGLE_USER.name}</strong>（google:${GOOGLE_USER.sub}）`);
+    expect(viaGoogle.body).toContain(`<strong>${GOOGLE_USER.name}</strong> (google:${GOOGLE_USER.sub})`);
     expectDevicePageHeaders(viaGoogle.res);
 
     // Not on a local hostname: no dev login offered.
-    const remote = await (await relay.fetch(`http://relay.example.com${RELAY_PATHS.device}`)).text();
-    expect(remote).toContain('使用 Google 登入');
+    const remote = await (await relay.fetch(`http://relay.example.com${RELAY_PATHS.device}`, { headers: ACCEPT_ENGLISH })).text();
+    expect(remote).toContain('>Log in with Google</a>');
     expect(remote).not.toContain('/auth/dev/start');
     expect((await fetch(url(RELAY_PATHS.device), { method: 'PUT' })).status).toBe(405);
   });
@@ -170,6 +178,7 @@ describe('entering the code', () => {
     const wrong = await submit(browser, { code: wrongCode });
     expect(wrong.res.status).toBe(400);
     expectDevicePageHeaders(wrong.res);
+    expect(wrong.body).toContain(state('wrong-code'));
     expect(wrong.body).toContain(WRONG_CODE);
     expect(wrong.body).toContain(`value="${wrongCode}"`);
     const garbage = await submit(browser, { code: '<script>x</script>' });
@@ -180,16 +189,17 @@ describe('entering the code', () => {
     const confirm = await submit(browser, { code: typed });
     expect(confirm.res.status).toBe(200);
     expectDevicePageHeaders(confirm.res);
-    expect(confirm.body).toContain('<h1>允許 smurg CLI 登入嗎？</h1>');
-    expect(confirm.body).toContain('<dd data-testid="device-account"><strong>frank</strong>（dev:frank）</dd>');
+    expect(confirm.body).toContain(state('confirm'));
+    expect(confirm.body).toContain('<h1>Allow the smurg CLI to log in?</h1>');
+    expect(confirm.body).toContain('<dd data-testid="device-account"><strong>frank</strong> (dev:frank)</dd>');
     expect(confirm.body).toContain(`<dd class="code" data-testid="device-user-code">${login.userCode}</dd>`);
-    expect(confirm.body).toMatch(new RegExp(`IP 位址 ${ip.replace(/\./g, '\\.')}，位置大約在 Austin，(美國|US)`));
-    expect(confirm.body).toMatch(/不到 1 分鐘前（\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC）/);
+    expect(confirm.body).toMatch(new RegExp(`IP address ${ip.replace(/\./g, '\\.')}, located around Austin, (United States|US)<`));
+    expect(confirm.body).toMatch(/less than 1 minute ago \(\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\)/);
     expect(confirm.body).toContain(WARNING);
     expect(confirm.body).toContain(`<input type="hidden" name="code" value="${login.userCodeNormalized}">`);
     expect(confirm.body).toContain('<input type="hidden" name="account" value="dev:frank">');
-    expect(confirm.body).toContain('<button type="submit" name="decision" value="allow">允許</button>');
-    expect(confirm.body).toContain('<button type="submit" name="decision" value="deny">拒絕</button>');
+    expect(confirm.body).toContain('<button type="submit" name="decision" value="allow">Allow</button>');
+    expect(confirm.body).toContain('<button type="submit" name="decision" value="deny">Deny</button>');
     // Seeing the screen decides nothing.
     expect((await poll(login.deviceCode)).body).toEqual({ error: 'authorization_pending' });
     // Full-width input from an input method works too.
@@ -204,7 +214,8 @@ describe('entering the code', () => {
     const allowed = await submit(gina, { code: login.userCodeNormalized, account: 'dev:gina', decision: 'allow' });
     expect(allowed.res.status).toBe(200);
     expectDevicePageHeaders(allowed.res);
-    expect(allowed.body).toContain('<h1>已允許</h1>');
+    expect(allowed.body).toContain(state('allowed'));
+    expect(allowed.body).toContain('<h1>Allowed</h1>');
     expect((await inspect(`code=${login.userCode}`)).login).toMatchObject({ status: 'approved', userId: 'dev:gina' });
 
     // Another account cannot take it over before the CLI collects it: a wrong code for them, decision or not.
@@ -235,7 +246,8 @@ describe('entering the code', () => {
     const hank = await browserAs('hank');
     const denied = await submit(hank, { code: login.userCodeNormalized, account: 'dev:hank', decision: 'deny' });
     expect(denied.res.status).toBe(200);
-    expect(denied.body).toContain('<h1>已拒絕</h1>');
+    expect(denied.body).toContain(state('denied'));
+    expect(denied.body).toContain('<h1>Denied</h1>');
     expect(await poll(login.deviceCode)).toEqual({ status: 400, body: { error: 'access_denied' } });
     expect(await poll(login.deviceCode)).toEqual({ status: 400, body: { error: 'expired_token' } });
     expect((await inspect(`code=${login.userCode}`)).login).toBeNull();
@@ -246,14 +258,18 @@ describe('entering the code', () => {
     const ivy = await browserAs('ivy');
     const switched = await submit(ivy, { code: login.userCodeNormalized, account: 'dev:someone-else', decision: 'allow' });
     expect(switched.res.status).toBe(409);
-    expect(switched.body).toContain('帳號在這段時間內換過了');
+    expect(switched.body).toContain(state('account-changed'));
+    expect(switched.body).toContain('The account logged in to this browser changed in the meantime.');
     const unknown = await submit(ivy, { code: login.userCodeNormalized, account: 'dev:ivy', decision: 'maybe' });
     expect(unknown.res.status).toBe(400);
+    expect(unknown.body).toContain(state('error'));
+    expect(unknown.body).toContain('That choice was not recognized.');
     // Logged out (no cookie): the login page again, nothing decided.
     const anonymous = new CookieBrowser();
     const loggedOut = await submit(anonymous, { code: login.userCodeNormalized, account: 'dev:ivy', decision: 'allow' });
     expect(loggedOut.res.status).toBe(200);
-    expect(loggedOut.body).toContain('<h1>登入 smurg CLI</h1>');
+    expect(loggedOut.body).toContain(state('login'));
+    expect(loggedOut.body).toContain('<h1>Log in to the smurg CLI</h1>');
     expect((await inspect(`code=${login.userCode}`)).login?.status).toBe('pending');
   });
 });
@@ -331,8 +347,9 @@ describe('rate limits', () => {
     for (let i = 0; i < DEVICE_LIMITS.wrongCodesPerAccount; i++) expect((await submit(leo, { code: wrongCode })).res.status, `attempt ${i + 1}`).toBe(400);
     const blocked = await submit(leo, { code: login.userCode });
     expect(blocked.res.status).toBe(429);
-    expect(blocked.body).toMatch(/輸入錯誤的次數太多，請在 (9|10) 分鐘後再試。/);
-    expect(blocked.body).not.toContain('允許 smurg CLI 登入嗎？');
+    expect(blocked.body).toContain(state('blocked'));
+    expect(blocked.body).toMatch(/Too many wrong codes\. Try again in (9|10) minutes\./);
+    expect(blocked.body).not.toContain(state('confirm'));
     // Refused without being counted (no write), and the window is the account's: another account gets in.
     expect((await inspect('limit=code-account&key=dev:leo')).window?.count).toBe(DEVICE_LIMITS.wrongCodesPerAccount);
     const mia = await browserAs('mia');
@@ -351,7 +368,8 @@ describe('rate limits', () => {
     const sameAddress = await browserAs('ned', ip);
     const blocked = await submit(sameAddress, { code: login.userCode });
     expect(blocked.res.status).toBe(429);
-    expect(blocked.body).toContain('輸入錯誤的次數太多');
+    expect(blocked.body).toContain(state('blocked'));
+    expect(blocked.body).toContain('Too many wrong codes.');
     const elsewhere = await browserAs('ned');
     expect((await submit(elsewhere, { code: login.userCode })).res.status).toBe(200);
   });
@@ -386,6 +404,7 @@ describe('CSRF and clickjacking', () => {
     for (const [label, how] of refused) {
       const { res, body } = await submit(olga, fields, how);
       expect(res.status, label).toBe(403);
+      expect(body, label).toContain(state('error'));
       expect(body, label).toContain(CSRF_REFUSED);
       expect(res.headers.get('x-frame-options'), label).toBe('DENY');
     }
@@ -397,14 +416,14 @@ describe('CSRF and clickjacking', () => {
     expect(json.status).toBe(415);
     expect((await inspect(`code=${login.userCode}`)).login?.status).toBe('pending');
     // Positive control: the same request from the page itself.
-    expect((await submit(olga, fields)).body).toContain('<h1>已允許</h1>');
+    expect((await submit(olga, fields)).body).toContain('<h1>Allowed</h1>');
   });
 
   it('no /device page may be framed: CSP frame-ancestors and X-Frame-Options on every one', async () => {
     const login = await start();
     const pat = await browserAs('pat');
     const pages = [
-      await fetch(url(RELAY_PATHS.device)),
+      await fetch(url(RELAY_PATHS.device), { headers: ACCEPT_ENGLISH }),
       (await pat.get(url(RELAY_PATHS.device))).res,
       (await submit(pat, { code: login.userCode })).res,
       (await submit(pat, { code: login.userCodeNormalized, account: 'dev:pat', decision: 'deny' })).res,

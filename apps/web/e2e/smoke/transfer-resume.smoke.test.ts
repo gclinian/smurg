@@ -38,7 +38,7 @@ describe.skipIf(chrome === null)('R7.3 an upload over the real relay survives a 
       // The pages' origin is the proxy's: the relay accepts its cookie sessions from there.
       relayVars: { ALLOWED_ORIGINS: proxy.origin },
       stack: {
-        projectFiles: { 'README.md': '# 班級專案\n' },
+        projectFiles: { 'README.md': '# Class project\n' },
         // This machine's disk may be nearly full: the default reserve would refuse the upload (R7.4 doing its job).
         settings: { diskReserveBytes: 0, diskReservePercent: 0 },
       },
@@ -53,11 +53,11 @@ describe.skipIf(chrome === null)('R7.3 an upload over the real relay survives a 
     await rm(source, { force: true });
   }, 60_000);
 
-  it('上傳中途斷線，重新連線後從中斷處繼續 — the transfer socket is dropped mid-upload; the upload resumes on a new socket and completes with identical content', async () => {
+  it('an upload cut off midway continues where it stopped after reconnecting — the transfer socket is dropped mid-upload; the upload resumes on a new socket and completes with identical content', async () => {
     const page = await env.newPage();
     await joinAs(page, env, 'uma', 'editor');
     proxy.dropTransferAfter(DROP_AFTER);
-    await page.getByRole('tab', { name: '傳輸' }).click();
+    await page.getByRole('tab', { name: 'Transfers' }).click();
     await page.locator('input[type=file][multiple][hidden]').first().setInputFiles(source);
     const row = page.getByTestId('transfer-item').filter({ hasText: 'r73-upload.bin' }).first();
     await row.and(page.locator('[data-status=done]')).waitFor({ timeout: 180_000 });

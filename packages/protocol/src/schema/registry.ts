@@ -57,7 +57,7 @@ export const HANDLER_CHECKS = [
   'recipients:host', // host connections only
   'recipients:doc-subscribers', // connections that opened the doc
   'recipients:attached-viewers', // connections attached to the session
-  'recipients:suggestion-parties', // the suggestion's author and every member holding session.drive (host, 可使用 agent)
+  'recipients:suggestion-parties', // the suggestion's author and every member holding session.drive (host, Agent access)
   'recipients:transfer-connection', // the transfer connection of that download
   'recipients:notified-member', // the connections of the member being notified
 ] as const;
@@ -153,7 +153,7 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'channel.closed': event(channel.channelClosedPayloadSchema, 'none', { channel: 'both', checks: ['recipients:self'] }),
   'channel.ack': both(channel.channelAckPayloadSchema, 'none'),
   'channel.leave': request(channel.channelLeavePayloadSchema, channel.channelLeaveResultSchema, 'none', {
-    addition: 'SPEC R4 「客人離開」: the sessions a member opened end when they leave; a disconnect must not do that',
+    addition: 'SPEC R4 (a guest leaves): the sessions a member opened end when they leave; a disconnect must not do that',
   }),
   error: event(errorPayloadSchema, 'none', { channel: 'both', checks: ['recipients:requester'] }),
 
@@ -281,7 +281,7 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'activity.list': request(presence.activityListPayloadSchema, presence.activityListResultSchema, 'file.read'),
   'activity.notify': event(presence.activityNotifyPayloadSchema, 'none', {
     checks: ['recipients:notified-member'],
-    addition: "SPEC R8: the coordination MCP tool 「通知某位組員」 needs a way to reach the member's clients",
+    addition: "SPEC R8: the coordination MCP tool that notifies a teammate needs a way to reach the member's clients",
   }),
 
   // ---- session.* and exec.* (§5.5) -----------------------------------------------------------------------------
@@ -352,7 +352,7 @@ export const MESSAGE_REGISTRY = Object.freeze({
     {
       resultSensitive: true,
       redact: ['diff'],
-      addition: 'R9 「主人看到完整 diff」: worktree.merge.diff is capped at 1 MiB, so every file must be reviewable on its own',
+      addition: 'R9 (the host sees the complete diff): worktree.merge.diff is capped at 1 MiB, so every file must be reviewable on its own',
     },
   ),
   'worktree.merge.approve': request(

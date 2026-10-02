@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { webDistProblem } from '../scripts/ensure-web-dist.ts';
+import { STAND_IN_TEXT, webDistProblem } from '../scripts/ensure-web-dist.ts';
 import { startLocalRelay, type LocalRelay } from '../test-support/index.ts';
 import {
   CHECK_NAMES,
@@ -48,7 +48,7 @@ const CUSTOM_URL = `https://${CUSTOM_HOST}`;
 const CUSTOM: RelayHosting = { kind: 'custom-domain', host: CUSTOM_HOST, origin: CUSTOM_URL };
 
 /**
- * The committed config turned into the workers.dev shape a self-hosted relay starts from (README「自己架設：workers.dev（預設）」):
+ * The committed config turned into the workers.dev shape a self-hosted relay starts from (README "Self-hosting on workers.dev"):
  * "workers_dev": true, the "routes" line deleted, origin and client id empty.
  */
 function asWorkersDevBeforeFirstDeploy(text: string): string {
@@ -255,7 +255,7 @@ describe('which web build a relay serves: the content-hashed /assets/ files of i
     ].join('\n');
     expect(webAssetsOf(index)).toEqual(['/assets/index-B6XB8O73.js', '/assets/index-N4h0_T9z.css', '/assets/rolldown-runtime-BpQH8Ho1.js']);
     expect(webAssetsOf(`${index}\n<script type="module" src="/assets/index-B6XB8O73.js"></script>`)).toHaveLength(3);
-    expect(webAssetsOf('<p>尚未建置網頁介面。</p>')).toEqual([]);
+    expect(webAssetsOf(`<p>${STAND_IN_TEXT}</p>`)).toEqual([]);
   });
 
   it('a local web build: only a real one counts (not the development stand-in, not a missing directory)', async () => {
@@ -265,7 +265,7 @@ describe('which web build a relay serves: the content-hashed /assets/ files of i
       const standIn = join(dir, 'stand-in');
       mkdirSync(standIn);
       writeFileSync(join(standIn, '.smurg-stand-in'), 'stand-in\n');
-      writeFileSync(join(standIn, 'index.html'), '<!doctype html><p>尚未建置網頁介面。</p>\n');
+      writeFileSync(join(standIn, 'index.html'), `<!doctype html><p>${STAND_IN_TEXT}</p>\n`);
       expect(await localWebAssets(standIn)).toBeNull();
       expect(await localWebAssets(join(dir, 'missing'))).toBeNull();
       // A build check-web-dist refuses for its headers (the repo's apps/web/dist of 2026-10-01 16:45, from before the
@@ -292,7 +292,7 @@ describe('checks from outside (a local relay configured like production)', () =>
     // The development stand-in page (scripts/ensure-web-dist.ts): no build, no _headers.
     const standIn = join(dirs, 'stand-in');
     mkdirSync(standIn);
-    writeFileSync(join(standIn, 'index.html'), '<!doctype html><p>尚未建置網頁介面。</p>\n');
+    writeFileSync(join(standIn, 'index.html'), `<!doctype html><p>${STAND_IN_TEXT}</p>\n`);
     production = await startLocalRelay({
       webDist: built,
       vars: { DEV_LOGIN: '0', GOOGLE_CLIENT_ID: CLIENT_ID, ...GOOGLE_ENDPOINTS },
@@ -317,9 +317,9 @@ describe('checks from outside (a local relay configured like production)', () =>
   it('a relay that is not production fails the checks that matter, each with a reason', async () => {
     const results = await checkRelay((development as LocalRelay).origin, { expectGoogle: true });
     const failed = Object.fromEntries(results.filter((r) => !r.ok).map((r) => [r.name, r.detail]));
-    expect(Object.keys(failed).sort()).toEqual(['GET /api/login-options', 'GET /auth/google/login', 'GET /join/…（SPA 深層連結與 CSP）', 'GET /（網頁與 CSP）'].sort());
-    expect(failed['GET /api/login-options']).toContain('開發用登入');
-    expect(failed['GET /（網頁與 CSP）']).toContain('替代頁面');
+    expect(Object.keys(failed).sort()).toEqual(['GET /api/login-options', 'GET /auth/google/login', 'GET /join/... (SPA deep link and CSP)', 'GET / (web app and CSP)'].sort());
+    expect(failed['GET /api/login-options']).toContain('the development login must be off in production');
+    expect(failed['GET / (web app and CSP)']).toContain('this is the development stand-in page, not a web build');
     // The production relay with a different expected client id, and Google expected off (the state before its secret).
     const wrongId = await checkRelay((production as LocalRelay).origin, { expectGoogle: true, googleClientId: 'other-123.apps.googleusercontent.com' });
     expect(wrongId.filter((r) => !r.ok).map((r) => r.name)).toEqual(['GET /auth/google/login']);
@@ -341,7 +341,7 @@ describe('checks from outside (a local relay configured like production)', () =>
     expect(failed[0]?.detail).toContain('scripts/deploy-relay.sh');
     // The stand-in page loads nothing from /assets/.
     const standIn = await checkRelay((development as LocalRelay).origin, { expectGoogle: true, webAssets: ['/assets/index-test.js'] });
-    expect(standIn.find((r) => r.name === CHECK_NAMES.webBuild)?.detail).toContain('沒有 /assets/ 檔案');
+    expect(standIn.find((r) => r.name === CHECK_NAMES.webBuild)?.detail).toContain('(no /assets/ files)');
   });
 
   it('a custom domain must answer http:// with a permanent redirect to the same https:// URL; workers.dev and local relays are not asked', async () => {
@@ -385,7 +385,7 @@ describe('checks from outside (a local relay configured like production)', () =>
         headers.delete('strict-transport-security');
         return new Response(await res.arrayBuffer(), { status: res.status, headers });
       }) as typeof fetch;
-    const spaChecks = ['GET /（網頁與 CSP）', 'GET /join/…（SPA 深層連結與 CSP）'];
+    const spaChecks: string[] = [CHECK_NAMES.spaRoot, CHECK_NAMES.spaDeepLink];
     const withHsts = await checkRelay(`https://${host}`, { expectGoogle: true, fetch: via(false) });
     expect(withHsts.filter((r) => spaChecks.includes(r.name))).toEqual(spaChecks.map((name) => ({ name, ok: true, detail: 'OK' })));
     // The live app.smurg.ai on 2026-10-01: a web build from before the HSTS line.
@@ -425,25 +425,25 @@ describe('checks from outside (a local relay configured like production)', () =>
     }
   });
 
-  it('scripts/deploy-relay.ts --check: exit 0 and 「全部通過」 for the production-like relay, exit 1 for the development one', async () => {
+  it('scripts/deploy-relay.ts --check: exit 0 and "All checks passed." for the production-like relay, exit 1 for the development one', async () => {
     const entry = join(REPO_ROOT, 'scripts', 'deploy-relay.ts');
     // --web-dist: compare with the build the local relay serves (the default, apps/web/dist, is whatever this checkout last built).
     const ok = await run(process.execPath, [entry, '--check', (production as LocalRelay).origin, '--web-dist', built, '--wait', '0'], { cwd: REPO_ROOT, timeout: 60_000 });
-    expect(ok.stdout).toContain(`比對線上的網頁與 ${built}（/assets/index-test.js）`);
+    expect(ok.stdout).toContain(`Comparing the live web app with ${built} (/assets/index-test.js)`);
     expect(ok.stdout).toContain(`✓ ${CHECK_NAMES.webBuild}`);
-    expect(ok.stdout).toContain('全部通過');
-    expect(ok.stdout).not.toContain('注意：');
+    expect(ok.stdout).toContain('All checks passed.');
+    expect(ok.stdout).not.toContain('Note:');
     // A local build from before the HSTS line is still compared, with a note (not skipped as "no web build").
     const older = join(dirs as string, 'older-than-hsts');
     rmSync(older, { recursive: true, force: true });
     cpSync(built, older, { recursive: true });
     writeFileSync(join(older, '_headers'), readFileSync(join(built, '_headers'), 'utf8').replace(/^.*Strict-Transport-Security.*\n/m, ''));
     const noted = await run(process.execPath, [entry, '--check', (production as LocalRelay).origin, '--web-dist', older, '--wait', '0'], { cwd: REPO_ROOT, timeout: 60_000 });
-    expect(noted.stdout).toContain(`比對線上的網頁與 ${older}（/assets/index-test.js）`);
-    expect(noted.stdout).toContain('注意：');
-    expect(noted.stdout).toContain('加入 HSTS 之前的建置');
+    expect(noted.stdout).toContain(`Comparing the live web app with ${older} (/assets/index-test.js)`);
+    expect(noted.stdout).toContain('Note:');
+    expect(noted.stdout).toContain('built before apps/web/public/_headers had HSTS');
     expect(noted.stdout).toContain(`✓ ${CHECK_NAMES.webBuild}`);
-    expect(noted.stdout).not.toContain('沒有網頁的建置結果');
+    expect(noted.stdout).not.toContain('holds no web build');
     const bad =await run(process.execPath, [entry, '--check', (development as LocalRelay).origin, '--wait', '0'], { cwd: REPO_ROOT, timeout: 60_000 }).then(
       () => ({ code: 0, stdout: '' }),
       (error: { code?: number; stdout?: string }) => ({ code: error.code ?? -1, stdout: error.stdout ?? '' }),
@@ -615,7 +615,7 @@ if (args[0] === 'whoami') {
     setState({ loggedIn: true, accounts: [{ id: 'acc1', name: 'One' }, { id: 'acc2', name: 'Two' }] });
     const several = await deployOnce([]);
     expect(several.code).toBe(3);
-    expect(several.err).toContain('CLOUDFLARE_ACCOUNT_ID=<帳號 ID>');
+    expect(several.err).toContain('CLOUDFLARE_ACCOUNT_ID=<account ID>');
     expect(several.err).toContain('acc2  Two');
     setState({ accounts: [{ id: 'acc1', name: 'One' }] });
     const noWorker = await deployOnce([]);
@@ -633,11 +633,11 @@ if (args[0] === 'whoami') {
     expect(first.code).toBe(0);
     expect(state().calls.map((c) => c.issuer)).toEqual(['', SUB_URL]);
     expect(prodVars()).toMatchObject({ RELAY_ISSUER: SUB_URL, ALLOWED_ORIGINS: SUB_URL, GOOGLE_CLIENT_ID: '' });
-    expect(first.out).toContain(`Authorized redirect URIs：     ${SUB_URL}/auth/google/callback`);
-    expect(first.out).toContain(`Authorized JavaScript origins：${SUB_URL}`);
+    expect(first.out).toContain(`Authorized redirect URIs:      ${SUB_URL}/auth/google/callback`);
+    expect(first.out).toContain(`Authorized JavaScript origins: ${SUB_URL}`);
     expect(first.out).toContain(OWNER_COMMANDS.googleSecret);
     expect(first.out).toContain(`export const DEFAULT_RELAY_URL: string | null = '${SUB_URL}';`);
-    expect(first.out).toContain('已部署，但 Google 登入還沒有開啟');
+    expect(first.out).toContain('Deployed, but Google login is not on yet.');
     expect(first.out).not.toContain('✗');
   });
 
@@ -649,13 +649,13 @@ if (args[0] === 'whoami') {
     expect(second.code).toBe(0);
     expect(state().calls.map((c) => [c.issuer, c.clientId])).toEqual([[SUB_URL, CLIENT_ID]]);
     expect(prodVars()).toMatchObject({ RELAY_ISSUER: SUB_URL, GOOGLE_CLIENT_ID: CLIENT_ID });
-    expect(second.out).toContain('完成');
+    expect(second.out).toContain(`Done: ${SUB_URL} is deployed and passes every check`);
     // Idempotent: again, nothing to write, same result.
     const before = readFileSync(configPath, 'utf8');
     const again = await deployOnce([]);
     expect(again.code).toBe(0);
     expect(readFileSync(configPath, 'utf8')).toBe(before);
-    expect(again.out).toContain('已經是正確的值');
+    expect(again.out).toContain('Already correct: nothing to change');
   });
 
   it('refuses when the deployed workers.dev URL is not the configured one (the account subdomain changed); --dry-run deploys nothing', async () => {
@@ -681,7 +681,7 @@ if (args[0] === 'whoami') {
     for (const url of [CUSTOM_URL, 'https://smurg.app']) {
       const refused = await deployOnce(['--url', url]);
       expect(refused.code, url).toBe(2);
-      expect(refused.err).toContain('"workers_dev" 改成 false');
+      expect(refused.err).toContain('set "workers_dev" to false');
     }
     expect(state().calls).toEqual([]);
     expect(readFileSync(configPath, 'utf8')).toBe(before);
@@ -698,12 +698,12 @@ if (args[0] === 'whoami') {
       // Exactly one real deploy, of the committed values: no first deploy to learn a URL, no edit of the file.
       expect(state().calls.map((c) => [c.args.includes('--dry-run'), c.issuer, c.clientId])).toEqual([[false, CUSTOM_URL, committedClientId]]);
       expect(readFileSync(customConfigPath, 'utf8')).toBe(committed);
-      expect(shared.out).toContain(`Cloudflare 自訂網域 ${CUSTOM_HOST}`);
-      expect(shared.out).toContain(`${CUSTOM_HOST} 已經是 smurg relay：重新部署`);
-      expect(shared.out).toContain('網頁：/assets/index-test.js');
-      expect(shared.out).toContain('已經是正確的值');
-      expect(shared.out).toContain(`Authorized JavaScript origins：${CUSTOM_URL}`);
-      expect(shared.out).toContain(`Authorized redirect URIs：     ${CUSTOM_URL}/auth/google/callback`);
+      expect(shared.out).toContain(`the Cloudflare Custom Domain ${CUSTOM_HOST}`);
+      expect(shared.out).toContain(`${CUSTOM_HOST} is already a smurg relay: deploying again`);
+      expect(shared.out).toContain('Web app: /assets/index-test.js');
+      expect(shared.out).toContain('Already correct: nothing to change');
+      expect(shared.out).toContain(`Authorized JavaScript origins: ${CUSTOM_URL}`);
+      expect(shared.out).toContain(`Authorized redirect URIs:      ${CUSTOM_URL}/auth/google/callback`);
       expect(shared.out).toContain('Authorized domains');
       // The CLI's built-in relay already is this one: no DEFAULT_RELAY_URL line to change.
       expect(shared.out).not.toContain('export const DEFAULT_RELAY_URL');
@@ -711,11 +711,11 @@ if (args[0] === 'whoami') {
       // The checks a custom domain adds: the live web app is this build, and http:// moves to https://.
       expect(shared.out).toContain(`✓ ${CHECK_NAMES.webBuild}`);
       expect(shared.out).toContain(`✓ ${CHECK_NAMES.httpsRedirect}`);
-      expect(shared.out).toContain(`完成：${CUSTOM_URL} 已部署並通過所有檢查`);
+      expect(shared.out).toContain(`Done: ${CUSTOM_URL} is deployed and passes every check`);
     }
   });
 
-  it('custom domain: the live web app must be the one just built, and http:// must move to https://; else exit 1, no 「完成」', async () => {
+  it('custom domain: the live web app must be the one just built, and http:// must move to https://; else exit 1, no "Done"', async () => {
     setState({ secrets: ['RELAY_SIGNING_KEY', 'GOOGLE_CLIENT_SECRET'], dropCustomDomain: false, calls: [] });
     current = sharedRelay;
     // Step 4 built another web app than the one the relay serves (a deploy that did not take).
@@ -723,7 +723,7 @@ if (args[0] === 'whoami') {
     const stale = await deployOnce([], customConfigPath, { webDist: newer });
     expect(stale.code).toBe(1);
     expect(stale.out).toContain(`✗ ${CHECK_NAMES.webBuild}`);
-    expect(stale.out).not.toContain('完成');
+    expect(stale.out).not.toContain('Done:');
     // The zone's "Always Use HTTPS" off: http://app.smurg.ai answers with the page itself.
     alwaysUseHttps = false;
     try {
@@ -731,7 +731,7 @@ if (args[0] === 'whoami') {
       expect(plain.code).toBe(1);
       expect(plain.out).toContain(`✗ ${CHECK_NAMES.httpsRedirect}`);
       expect(plain.out).toContain('Always Use HTTPS');
-      expect(plain.out).not.toContain('完成');
+      expect(plain.out).not.toContain('Done:');
     } finally {
       alwaysUseHttps = true;
     }
@@ -745,20 +745,20 @@ if (args[0] === 'whoami') {
       String(input).startsWith(`${CUSTOM_URL}/`) ? Promise.resolve(new Response('<!doctype html><title>shop</title>', { status: 200, headers: { 'content-type': 'text/html' } })) : toCurrent(input, init)) as typeof fetch;
     const refused = await deployOnce([], customConfigPath, { fetch: otherSite });
     expect(refused.code).toBe(3);
-    expect(refused.err).toContain(`${CUSTOM_HOST} 已經有東西在回應，而且不是 smurg relay`);
+    expect(refused.err).toContain(`Something already answers at ${CUSTOM_HOST}, and it is not a smurg relay`);
     expect(refused.err).toContain('--take-over-hostname');
     expect(state().calls).toEqual([]);
     // Told to take it over: no question asked, one deploy (the checks then reach the relay).
     const takenOver = await deployOnce(['--take-over-hostname'], customConfigPath);
     expect(takenOver.err).toBe('');
     expect(takenOver.code).toBe(0);
-    expect(takenOver.out).toContain('--take-over-hostname：');
+    expect(takenOver.out).toContain('--take-over-hostname:');
     expect(state().calls).toHaveLength(1);
     // A name that does not resolve yet (the first deploy of a new custom domain): nothing to take over, nothing asked.
     setState({ calls: [] });
     const fresh = await deployOnce([], customConfigPath, { lookupHost: async () => false });
     expect(fresh.code).toBe(0);
-    expect(fresh.out).toContain(`${CUSTOM_HOST} 還沒有 DNS 記錄`);
+    expect(fresh.out).toContain(`${CUSTOM_HOST} has no DNS record yet`);
     expect(state().calls).toHaveLength(1);
   });
 
@@ -780,10 +780,10 @@ if (args[0] === 'whoami') {
     setState({ calls: [], seen: [] });
     const other = await deployOnce(['--url', 'https://smurg.app'], customConfigPath);
     expect(other.code).toBe(2);
-    expect(other.err).toContain(`不是 wrangler.jsonc 的自訂網域 ${CUSTOM_URL}`);
+    expect(other.err).toContain(`is not the custom domain of wrangler.jsonc, ${CUSTOM_URL}`);
     const workersDev = await deployOnce(['--url', SUB_URL], customConfigPath);
     expect(workersDev.code).toBe(2);
-    expect(workersDev.err).toContain('"workers_dev" 改成 true');
+    expect(workersDev.err).toContain('set "workers_dev" to true');
     expect(state().calls).toEqual([]);
     expect(readFileSync(customConfigPath, 'utf8')).toBe(committed);
   });
@@ -792,8 +792,8 @@ if (args[0] === 'whoami') {
     setState({ dropCustomDomain: true, calls: [] });
     const dropped = await deployOnce([], customConfigPath);
     expect(dropped.code).toBe(1);
-    expect(dropped.err).toContain(`部署結果裡沒有自訂網域 ${CUSTOM_HOST} (custom domain)`);
-    expect(dropped.out).not.toContain('完成');
+    expect(dropped.err).toContain(`the deploy result does not list the custom domain ${CUSTOM_HOST} (custom domain)`);
+    expect(dropped.out).not.toContain('Done:');
     setState({ dropCustomDomain: false, calls: [] });
     // workers.dev on next to the custom domain, an extra route, a host that is not RELAY_ISSUER: refused at step 3.
     const variants = {
@@ -810,7 +810,7 @@ if (args[0] === 'whoami') {
       writeFileSync(variantPath, text);
       const refused = await deployOnce([], variantPath);
       expect(refused.code, what).toBe(1);
-      expect(refused.err, what).toContain('wrangler.jsonc 不適合正式環境');
+      expect(refused.err, what).toContain('wrangler.jsonc is not fit for production');
     }
     expect(state().calls).toEqual([]);
   });
@@ -822,7 +822,7 @@ if (args[0] === 'whoami') {
     expect(state().seen).toEqual(['deploy --dry-run']);
     // Nothing to change, so nothing is passed with --var: the dry run bundles exactly the committed file.
     expect(state().calls[0]?.args.filter((a) => a === '--var')).toEqual([]);
-    expect(dry.out).toContain(`${CUSTOM_URL}（wrangler.jsonc 的 routes）`);
+    expect(dry.out).toContain(`${CUSTOM_URL} (routes in wrangler.jsonc)`);
     expect(readFileSync(customConfigPath, 'utf8')).toBe(committed);
   });
 });

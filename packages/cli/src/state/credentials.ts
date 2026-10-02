@@ -5,7 +5,7 @@ import type { RelaySession } from '@smurg/protocol/client';
 import type { StatePaths } from './paths.ts';
 import { isRecord, numberField, readPrivateJson, removePrivateFile, stringField, writePrivateJson } from './private-file.ts';
 
-const WHAT = '登入資料檔（credentials.json）';
+const WHAT = 'credentials' as const;
 
 export interface StoredSession {
   readonly token: string;

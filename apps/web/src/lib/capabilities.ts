@@ -1,7 +1,7 @@
 // What the member's role allows, for HIDING UI only (ARCHITECTURE §3): the daemon enforces every request no matter
 // what the UI shows. Built on the one roles matrix of @smurg/protocol (`can`), never on role comparisons.
 //
-// Protocol v2 (owner decision 2026-10-01): there is no guest sandbox. The host and members with the role 「可使用 agent」
+// Protocol v2 (owner decision 2026-10-01): there is no guest sandbox. The host and members with the role "Agent access"
 // (`agent`) open sessions (`session.create`) that run as the host — the host's computer, the host's Claude account —
 // and may type into ANY session and decide its suggestions (`session.drive`). Editors suggest; viewers watch.
 import { can, capabilitiesOf, type Capability, type Role, type SessionInfo } from '@smurg/protocol';
@@ -16,9 +16,9 @@ export function canRole(role: Role | null | undefined, capability: Capability): 
 export interface Capabilities {
   readonly role: Role | null;
   can(capability: Capability): boolean;
-  /** Whether 「新增 session」 is offered (host and 可使用 agent). */
+  /** Whether "New session" is offered (the host and members with agent access). */
   readonly canCreateSession: boolean;
-  /** Whether the member may type into any session and accept / reject its suggestions (host and 可使用 agent). */
+  /** Whether the member may type into any session and accept / reject its suggestions (the host and members with agent access). */
   readonly canDrive: boolean;
   readonly isHost: boolean;
   /** Every capability the role has, in the protocol's order. */

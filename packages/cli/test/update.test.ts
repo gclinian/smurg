@@ -14,7 +14,8 @@ import { DEFAULT_FEATURE_MODULES, createDaemon, silentLogger, type Daemon } from
 import { waitFor } from '@smurg/daemon/testing';
 import { BUILD_MARKER_PREFIX, buildMarker } from '../../../scripts/release-markers.ts';
 import { runCli } from '../src/cli/run.ts';
-import { BuildMarkerScanner, UPDATE_USAGE, type UpdateDeps } from '../src/commands/update.ts';
+import { BuildMarkerScanner, type UpdateDeps } from '../src/commands/update.ts';
+import { m, renderText } from '../src/i18n/index.ts';
 import { DEFAULT_DOWNLOADS_URL, downloadsBase, sha256Of, targetName } from '../src/update/downloads.ts';
 import { UPDATE_NOTICE_TIMEOUT_MS, updateCheckBlock, updateNotice, type UpdateNoticeDeps } from '../src/update/notice.ts';
 import { compareVersions, parseVersion, type ReleaseVersion } from '../src/update/versions.ts';
@@ -27,7 +28,7 @@ afterEach(async () => {
 });
 
 const OLD = '#!/bin/sh\necho "smurg 0.2.0 (the installed one)"\n';
-const CHANGELOG = '變更紀錄：https://smurg.ai/docs/changelog/';
+const CHANGELOG = 'Changelog: https://smurg.ai/docs/changelog/';
 
 interface Setup {
   readonly dirs: Dirs;
@@ -94,13 +95,13 @@ async function hostDaemon(dirs: Dirs, workspaceId: string): Promise<Daemon> {
 }
 
 describe('smurg update', () => {
-  it('a newer version: downloads it next to the executable, verifies it and renames it over the old one (0755); says old → new and where the changelog is', async () => {
+  it('a newer version: downloads it next to the executable, verifies it and renames it over the old one (0755); says old -> new and where the changelog is', async () => {
     const s = await setup(release('0.3.0', TARGET));
     const { code, io } = await update(s);
     expect(io.err()).toBe('');
     expect(code).toBe(0);
     expect(io.out()).toBe(
-      [`下載 smurg 0.3.0（${TARGET}，${s.server.base}/v0.3.0）…`, `已更新 smurg：0.2.0 → 0.3.0（${s.executable}）`, CHANGELOG, ''].join('\n'),
+      [`Downloading smurg 0.3.0 (${TARGET}, ${s.server.base}/v0.3.0)...`, `Updated smurg: 0.2.0 -> 0.3.0 (${s.executable})`, CHANGELOG, ''].join('\n'),
     );
     expect(await readFile(s.executable, 'utf8')).toBe(fakeExecutable('0.3.0'));
     expect((await stat(s.executable)).mode & 0o777).toBe(0o755);
@@ -148,14 +149,14 @@ describe('smurg update', () => {
     const same = await setup(release('0.2.0', TARGET));
     const a = await update(same);
     expect(a.code).toBe(0);
-    expect(a.io.out()).toBe('smurg 0.2.0 已經是最新版本。\n');
+    expect(a.io.out()).toBe('smurg 0.2.0 is the latest version.\n');
     expect(same.server.requests).toEqual(['latest/VERSION']);
     await expectUnchanged(same);
 
     const older = await setup(release('0.1.9', TARGET));
     const b = await update(older);
     expect(b.code).toBe(0);
-    expect(b.io.out()).toBe('這個 smurg（0.2.0）比目前發佈的最新版本（0.1.9）還新，不會換成較舊的版本。\n');
+    expect(b.io.out()).toBe('This smurg (0.2.0) is newer than the latest published version (0.1.9); it is not replaced by an older one.\n');
     expect(older.server.requests).toEqual(['latest/VERSION']);
     await expectUnchanged(older);
 
@@ -163,10 +164,10 @@ describe('smurg update', () => {
     const dev = await setup(release('0.2.0', TARGET));
     const c = await update(dev, [], { deps: { version: '0.2.0-dev' } });
     expect(c.code).toBe(0);
-    expect(c.io.out()).toContain('已更新 smurg：0.2.0-dev → 0.2.0');
+    expect(c.io.out()).toContain('Updated smurg: 0.2.0-dev -> 0.2.0');
     const pre = await setup(release('0.3.0-rc.1', TARGET));
     const d = await update(pre, [], { deps: { version: '0.3.0' } });
-    expect(d.io.out()).toContain('不會換成較舊的版本');
+    expect(d.io.out()).toContain('it is not replaced by an older one');
     await expectUnchanged(pre);
   });
 
@@ -175,17 +176,17 @@ describe('smurg update', () => {
     await hostDaemon(s.dirs, 'ws_update_check_aaaa');
     const newer = await update(s, ['--check']);
     expect(newer.code).toBe(0);
-    expect(newer.io.out()).toBe(`有新版本 0.3.0（目前 0.2.0）。執行 smurg update 更新。\n${CHANGELOG}\n`);
+    expect(newer.io.out()).toBe(`Version 0.3.0 is available (this is 0.2.0). Run smurg update to update.\n${CHANGELOG}\n`);
     expect(s.server.requests).toEqual(['latest/VERSION']);
     await expectUnchanged(s);
     const same = await update(s, ['--check'], { deps: { version: '0.3.0' } });
     expect(same.code).toBe(0);
-    expect(same.io.out()).toBe('smurg 0.3.0 已經是最新版本。\n');
+    expect(same.io.out()).toBe('smurg 0.3.0 is the latest version.\n');
     // --check cannot be told from the network either: a failure is an error, not "no update".
     await s.server.close();
     const down = await update(s, ['--check']);
     expect(down.code).toBe(1);
-    expect(down.io.err()).toContain('無法連線到下載位置');
+    expect(down.io.err()).toContain('Cannot reach the download location');
   });
 
   it('a sha256 that does not match: nothing is replaced and the temp file is removed', async () => {
@@ -193,9 +194,9 @@ describe('smurg update', () => {
     const s = await setup({ ...release('0.3.0', TARGET), [`v0.3.0/${TARGET}`]: tampered });
     const { code, io } = await update(s);
     expect(code).toBe(1);
-    expect(io.err()).toContain(`${TARGET} 的 sha256 不符（預期 ${sha256(fakeExecutable('0.3.0'))}，實際 ${sha256(tampered)}）`);
-    expect(io.err()).toContain('smurg 沒有被更動');
-    expect(io.out()).not.toContain('已更新');
+    expect(io.err()).toContain(`The sha256 of ${TARGET} does not match (expected ${sha256(fakeExecutable('0.3.0'))}, got ${sha256(tampered)})`);
+    expect(io.err()).toContain('smurg was not changed.');
+    expect(io.out()).not.toContain('Updated smurg');
     await expectUnchanged(s);
   });
 
@@ -211,7 +212,7 @@ describe('smurg update', () => {
     });
     const a = await update(dropped);
     expect(a.code).toBe(1);
-    expect(a.io.err()).toContain('下載不完整');
+    expect(a.io.err()).toContain('The download is incomplete');
     await expectUnchanged(dropped);
 
     // No length announced and the body simply ends early: the sha256 catches it.
@@ -224,7 +225,7 @@ describe('smurg update', () => {
     });
     const b = await update(short);
     expect(b.code).toBe(1);
-    expect(b.io.err()).toContain('sha256 不符');
+    expect(b.io.err()).toContain('does not match');
     await expectUnchanged(short);
   });
 
@@ -239,13 +240,13 @@ describe('smurg update', () => {
     });
     const a = await update(stalled, [], { deps: { stallTimeoutMs: 300 } });
     expect(a.code).toBe(1);
-    expect(a.io.err()).toContain('下載位置太久沒有回應');
+    expect(a.io.err()).toContain('The download location took too long to answer');
     await expectUnchanged(stalled);
 
     const silent = await setup({ 'latest/VERSION': () => {} });
     const b = await update(silent, [], { deps: { metaTimeoutMs: 300 } });
     expect(b.code).toBe(1);
-    expect(b.io.err()).toContain(`下載位置太久沒有回應：${silent.server.base}/latest/VERSION`);
+    expect(b.io.err()).toContain(`The download location took too long to answer: ${silent.server.base}/latest/VERSION`);
     await expectUnchanged(silent);
   });
 
@@ -253,7 +254,7 @@ describe('smurg update', () => {
     const unlisted = await setup(release('0.3.0', 'smurg-linux-riscv64'));
     const a = await update(unlisted);
     expect(a.code).toBe(1);
-    expect(a.io.err()).toContain(`smurg 0.3.0 的 SHA256SUMS 裡沒有 ${TARGET}（這個版本沒有提供這個平台的執行檔）`);
+    expect(a.io.err()).toContain(`The SHA256SUMS of smurg 0.3.0 does not list ${TARGET} (this version has no executable for this platform)`);
     expect(unlisted.server.requests).toEqual(['latest/VERSION', 'v0.3.0/SHA256SUMS']);
     await expectUnchanged(unlisted);
 
@@ -262,20 +263,20 @@ describe('smurg update', () => {
     const missing = await setup(routes);
     const b = await update(missing);
     expect(b.code).toBe(1);
-    expect(b.io.err()).toContain(`下載位置沒有提供這個檔案（HTTP 404）：${missing.server.base}/v0.3.0/${TARGET}`);
+    expect(b.io.err()).toContain(`The download location does not have this file (HTTP 404): ${missing.server.base}/v0.3.0/${TARGET}`);
     await expectUnchanged(missing);
 
     // A platform no release is built for.
     const c = await update(missing, [], { deps: { platform: 'win32' } });
     expect(c.code).toBe(1);
-    expect(c.io.err()).toContain('smurg 沒有提供這個平台的執行檔（win32-');
+    expect(c.io.err()).toContain('smurg has no executable for this platform (win32-');
     // No SHA256SUMS at all, and a latest/VERSION that is not a version.
     const noSums = await setup({ 'latest/VERSION': '0.3.0\n' });
-    expect((await update(noSums)).io.err()).toContain(`（HTTP 404）：${noSums.server.base}/v0.3.0/SHA256SUMS`);
+    expect((await update(noSums)).io.err()).toContain(`(HTTP 404): ${noSums.server.base}/v0.3.0/SHA256SUMS`);
     const garbage = await setup({ 'latest/VERSION': '<html>hello</html>' });
     const d = await update(garbage);
     expect(d.code).toBe(1);
-    expect(d.io.err()).toContain('下載位置回應的內容不是預期的格式');
+    expect(d.io.err()).toContain('The download location answered with something that is not in the expected format');
   });
 
   it('an executable of another version behind the right sha256 (its build marker, or what it says when started) is refused', async () => {
@@ -284,20 +285,20 @@ describe('smurg update', () => {
     const a = await setup(release('0.3.0', TARGET, wrongMarker));
     const first = await update(a);
     expect(first.code).toBe(1);
-    expect(first.io.err()).toContain(`下載的 ${TARGET} 不是 smurg 0.3.0 的執行檔（版本標記是 0.2.9）`);
+    expect(first.io.err()).toContain(`The downloaded ${TARGET} is not the executable of smurg 0.3.0 (its version marker says 0.2.9)`);
     await expectUnchanged(a);
     // No marker at all: not an executable of scripts/build-sea.ts.
     const b = await setup(release('0.3.0', TARGET, '#!/bin/sh\necho "smurg 0.3.0 (x)"\n'));
-    expect((await update(b)).io.err()).toContain('裡面沒有版本標記');
+    expect((await update(b)).io.err()).toContain('it has no version marker');
     await expectUnchanged(b);
     // The marker is right but the file reports another version, or does not start at all.
     const c = await setup(release('0.3.0', TARGET, fakeExecutable('0.3.0', '0.2.9')));
-    expect((await update(c)).io.err()).toContain('下載的執行檔回報的版本不是 0.3.0');
+    expect((await update(c)).io.err()).toContain('The downloaded executable does not report version 0.3.0');
     await expectUnchanged(c);
     const d = await setup(release('0.3.0', TARGET, '#!/bin/sh\n# smurg-build-version=0.3.0;\necho "cannot execute binary file" >&2\nexit 126\n'));
     const broken = await update(d);
     expect(broken.code).toBe(1);
-    expect(broken.io.err()).toContain('下載的 smurg 0.3.0 無法在這台電腦上執行');
+    expect(broken.io.err()).toContain('The downloaded smurg 0.3.0 does not run on this computer');
     expect(broken.io.err()).toContain('cannot execute binary file');
     await expectUnchanged(d);
   });
@@ -308,7 +309,7 @@ describe('smurg update', () => {
     cleanups.push(() => chmod(s.bin, 0o755));
     const { code, io } = await update(s);
     expect(code).toBe(1);
-    expect(io.err()).toContain(`無法寫入 smurg 所在的資料夾：${s.bin}`);
+    expect(io.err()).toContain(`Cannot write to the folder smurg is in: ${s.bin}`);
     expect(io.err()).toContain('curl -fsSL https://smurg.ai/install.sh | sh');
     expect(s.server.requests).toEqual(['latest/VERSION']);
     await expectUnchanged(s);
@@ -319,8 +320,8 @@ describe('smurg update', () => {
     const daemon = await hostDaemon(s.dirs, 'ws_update_host_aaaaaa');
     const { code, io } = await update(s);
     expect(code).toBe(1);
-    expect(io.err()).toContain('smurg：這台電腦正在分享工作區（ws_update_host_aaaaaa），沒有更新');
-    expect(io.err()).toContain('有新版本 0.3.0（目前 0.2.0）。請先執行 smurg stop 停止分享，再執行 smurg update。');
+    expect(io.err()).toContain('smurg: This computer is sharing a workspace (ws_update_host_aaaaaa); nothing was updated');
+    expect(io.err()).toContain('Version 0.3.0 is available (this is 0.2.0). Run smurg stop first, then smurg update.');
     expect(daemon.status().stopped).toBe(false);
     expect(s.server.requests).toEqual(['latest/VERSION']);
     await expectUnchanged(s);
@@ -334,13 +335,13 @@ describe('smurg update', () => {
     const s = await setup(release('0.3.0', TARGET));
     const { code, io } = await update(s, [], { deps: { executable: null } });
     expect(code).toBe(2);
-    expect(io.err()).toContain('這個 smurg 是從原始碼執行的，不是安裝好的單一執行檔，smurg update 無法更新它');
-    expect(io.err()).toContain('請用 git 取得新版的原始碼，再執行 pnpm install');
+    expect(io.err()).toContain('This smurg runs from source, not as the installed single executable; smurg update cannot update it');
+    expect(io.err()).toContain('Get the new source with git, then run pnpm install');
     expect((await update(s, ['--check'], { deps: { executable: null } })).code).toBe(2);
     // The tests themselves run from source: without a seam the command says the same (and the test's Node stays as it is).
     const real = testIo({ env: s.env });
     expect(await runCli(['update'], real)).toBe(2);
-    expect(real.err()).toContain('從原始碼執行');
+    expect(real.err()).toContain('runs from source');
     expect(s.server.requests).toEqual([]);
     await expectUnchanged(s);
   });
@@ -350,11 +351,11 @@ describe('smurg update', () => {
     for (const bad of ['http://downloads.example.com', 'ftp://127.0.0.1/x', 'http://127.0.0.1.example.com', 'https://user:pw@downloads.example.com']) {
       const io = testIo({ env: { ...s.env, SMURG_INSTALL_BASE_URL: bad } });
       expect(await runCli(['update'], io, { update: s.deps }), bad).toBe(2);
-      expect(io.err(), bad).toContain('下載位置必須是 https 網址');
+      expect(io.err(), bad).toContain('The download location must be an https URL');
     }
     const odd = testIo({ env: { ...s.env, SMURG_INSTALL_BASE_URL: 'https://downloads.example.com/a b' } });
     expect(await runCli(['update'], odd, { update: s.deps })).toBe(2);
-    expect(odd.err()).toContain('下載位置含有不允許的字元');
+    expect(odd.err()).toContain('The download location has characters that are not allowed');
     expect(s.server.requests).toEqual([]);
     await expectUnchanged(s);
 
@@ -374,14 +375,14 @@ describe('smurg update', () => {
     followed.server.routes['latest/VERSION'] = (_req, res) => {
       res.writeHead(302, { location: '/moved/VERSION' }).end();
     };
-    expect((await update(followed, ['--check'])).io.out()).toContain('有新版本 0.3.0');
+    expect((await update(followed, ['--check'])).io.out()).toContain('Version 0.3.0 is available');
     expect(followed.server.requests).toEqual(['latest/VERSION', 'moved/VERSION']);
 
     for (const location of ['https://downloads.example.com/latest/VERSION', 'http://downloads.example.com/latest/VERSION']) {
       const s = await setup({ 'latest/VERSION': (_req, res) => void res.writeHead(302, { location }).end() });
       const { code, io } = await update(s, ['--check']);
       expect(code, location).toBe(1);
-      expect(io.err(), location).toContain('下載位置把請求轉到不允許的網址');
+      expect(io.err(), location).toContain('The download location redirected to a URL that is not allowed');
     }
   });
 
@@ -400,7 +401,7 @@ describe('smurg update', () => {
     await waitFor(async () => (await readdir(s.bin)).some((name) => /^\.smurg-update-[0-9a-f]{12}$/.test(name)), { what: 'the temp file' });
     io.signal('SIGINT');
     expect(await done).toBe(130);
-    expect(io.out()).toContain('已取消，smurg 沒有被更動。');
+    expect(io.out()).toContain('Cancelled; smurg was not changed.');
     await expectUnchanged(s);
     // A process that ends before the command can clean up (process.exit) still removes it: the exit handler is gone
     // once the command returned.
@@ -417,7 +418,7 @@ describe('smurg update', () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]).toMatch(new RegExp(`^-p com\\.apple\\.quarantine ${quarantined.bin}/\\.smurg-update-[0-9a-f]{12}$`));
     expect(calls[1]).toBe(calls[0]?.replace('-p', '-d'));
-    expect(a.io.out()).toContain('已移除下載檔案的 com.apple.quarantine 屬性（sha256 驗證相符之後）');
+    expect(a.io.out()).toContain('Removed the com.apple.quarantine attribute of the downloaded file (after its sha256 matched)');
     expect(await readFile(quarantined.executable, 'utf8')).toBe(fakeExecutable('0.3.0'));
 
     const clean = await setup(release('0.3.0', DARWIN));
@@ -442,7 +443,7 @@ describe('smurg update', () => {
     await utimes(stale, twoDaysAgo, twoDaysAgo);
     const tty = testIo({ env: s.env });
     expect(await runCli(['update'], tty, { update: s.deps })).toBe(0);
-    expect(tty.err()).toMatch(/100%（0\.0 \/ 0\.0 MB）/);
+    expect(tty.err()).toMatch(/100% \(0\.0 \/ 0\.0 MB\)/);
     expect(tty.err().endsWith('\r\u001b[K')).toBe(true);
     expect((await readdir(s.bin)).sort()).toEqual(['.smurg-update-ba9876543210', 'smurg']);
 
@@ -456,12 +457,13 @@ describe('smurg update', () => {
     const s = await setup();
     const help = await update(s, ['--help']);
     expect(help.code).toBe(0);
-    expect(help.io.out()).toBe(UPDATE_USAGE);
-    expect(UPDATE_USAGE).toContain('--check');
-    expect(UPDATE_USAGE).toContain('smurg stop');
+    expect(help.io.out()).toBe(renderText('en', m('usage.update', { downloads: 'https://downloads.smurg.ai' })));
+    expect(help.io.out()).toContain('Usage: smurg update [--check]');
+    expect(help.io.out()).toContain('  --check ');
+    expect(help.io.out()).toContain('smurg stop');
     const bad = await update(s, ['--force']);
     expect(bad.code).toBe(2);
-    expect(bad.io.err()).toContain('不認得的選項 --force');
+    expect(bad.io.err()).toContain('Unknown option --force');
     expect((await update(s, ['0.3.0'])).code).toBe(2);
     expect(s.server.requests).toEqual([]);
   });
@@ -470,6 +472,11 @@ describe('smurg update', () => {
 describe("the update notice of smurg host (update/notice.ts)", () => {
   const released = (version = '0.2.0'): UpdateNoticeDeps => ({ executable: '/nonexistent/bin/smurg', version });
   const never = new AbortController().signal;
+  /** The notice as an English terminal shows it (null: nothing is said). */
+  const notice = async (io: Parameters<typeof updateNotice>[0], deps: UpdateNoticeDeps): Promise<string | null> => {
+    const text = await updateNotice(io, never, deps);
+    return text === null ? null : renderText('en', text);
+  };
 
   async function site(routes: Record<string, Route>): Promise<DownloadsServer> {
     const server = await startDownloads(routes);
@@ -480,10 +487,10 @@ describe("the update notice of smurg host (update/notice.ts)", () => {
   it('is one line, only when the published version is newer than this executable', async () => {
     const server = await site({ 'latest/VERSION': '0.3.0\n' });
     const io = testIo({ env: { HOME: '/nonexistent', SMURG_INSTALL_BASE_URL: server.base } });
-    expect(await updateNotice(io, never, released())).toBe('有新版本 0.3.0（目前 0.2.0）：停止分享後執行 smurg update');
+    expect(await notice(io, released())).toBe('Version 0.3.0 is available (this is 0.2.0): stop sharing, then run smurg update');
     expect(await updateNotice(io, never, released('0.3.0'))).toBeNull();
     expect(await updateNotice(io, never, released('0.4.0'))).toBeNull();
-    expect(await updateNotice(io, never, released('0.3.0-dev'))).toBe('有新版本 0.3.0（目前 0.3.0-dev）：停止分享後執行 smurg update');
+    expect(await notice(io, released('0.3.0-dev'))).toBe('Version 0.3.0 is available (this is 0.3.0-dev): stop sharing, then run smurg update');
     expect(server.requests).toEqual(['latest/VERSION', 'latest/VERSION', 'latest/VERSION', 'latest/VERSION']);
     expect(io.out()).toBe('');
     expect(io.err()).toBe('');

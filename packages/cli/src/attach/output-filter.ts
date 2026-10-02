@@ -4,7 +4,7 @@
 // never receive OSC 52 (clipboard write / read), DCS (incl. tmux / screen passthrough), APC / PM / SOS, window
 // operations or anything else this filter does not know to be harmless.
 //
-// An ALLOW-LIST, not a deny-list (security review SEC-E-01, SEC-D-02). A VT parser state machine (the DEC/xterm
+// An ALLOW-LIST, not a deny-list (security review SEC-E-01). A VT parser state machine (the DEC/xterm
 // model: ESC, CSI, OSC, DCS, SOS/PM/APC strings, CAN/SUB aborts, ESC inside a string ends it) runs over the decoded
 // UTF-8 stream, with the C1 controls U+0080–U+009F treated as their 7-bit ESC forms (xterm.js interprets them), and:
 //   - text and the harmless C0 controls pass; invalid UTF-8 becomes U+FFFD (a raw 8-bit C1 byte never passes);

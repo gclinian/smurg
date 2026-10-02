@@ -58,7 +58,7 @@ describe('file.tree / file.stat', () => {
     expect(src.entries.map((e) => e.path)).toEqual(['src/lib', 'src/app.ts']);
   });
 
-  it('does not list the host\'s private data (.git, .envrc, personal Claude Code files) to non-hosts, at any depth (review SEC-D-03)', async () => {
+  it('does not list the host\'s private data (.git, .envrc, personal Claude Code files) to non-hosts, at any depth', async () => {
     const { ft: f, host, amy, vera } = await setup();
     const root = f.t.root;
     for (const rel of ['.git/config', 'sub/.git/HEAD', '.envrc', 'src/.envrc', 'CLAUDE.local.md', 'nested/CLAUDE.local.md', '.claude/settings.local.json']) {
@@ -120,7 +120,7 @@ describe('file.tree / file.stat', () => {
   });
 });
 
-describe('file.tree over a tree deeper than PATH_MAX (review REL-13)', () => {
+describe('file.tree over a tree deeper than PATH_MAX', () => {
   it('lists what it can: an entry or a sub-directory the OS cannot look at is left out, never the whole listing', async () => {
     const { ft: f, amy } = await setup();
     const seg = 'd'.repeat(100);
@@ -150,7 +150,7 @@ async function deepTreeChecks(f: FilesTest, amy: TestClient, seg: string): Promi
         expect(result, `level ${level}`).toBeNull();
         listed++;
       } else {
-        // The folder itself is out of reach: a clear refusal, not 主人端發生內部錯誤.
+        // The folder itself is out of reach: a clear refusal, not the `internal` default.
         expect(result?.code, `level ${level}`).not.toBe('internal');
         break;
       }
@@ -209,7 +209,7 @@ describe('file.read / file.write', () => {
     expect(human?.detail?.['lock']).toMatchObject({ kind: 'human', holders: [{ displayName: 'Bob' }] });
     const agent = await settleError(host.conn.request('file.write', { file: main('src/app.ts'), content: utf8('x') }));
     expect(agent?.code).toBe('locked');
-    expect(agent?.message).toContain('Claude（Ian）');
+    expect(agent?.message).toContain('Claude (Ian)');
     // A different spelling of the same file on a case-insensitive disk is the same locked file.
     const probe = await lstat(join(f.t.root, 'readme.md')).catch(() => null);
     if (probe !== null) expect((await settleError(amy.conn.request('file.write', { file: main('readme.md'), content: utf8('x') })))?.code).toBe('locked');
@@ -294,7 +294,7 @@ describe('file.create / file.rename / file.delete', () => {
       ['docs/guide.md', 'docs/manual.md'],
       ['src', 'source'],
     ]);
-    // WEB-16: an ordinary rename records no security refusal (the move's own second link is not a 'hard-link' denial).
+    // an ordinary rename records no security refusal (the move's own second link is not a 'hard-link' denial).
     expect(await auditEntries(f.t.ctx, (e) => e.action === 'path.denied')).toEqual([]);
   });
 

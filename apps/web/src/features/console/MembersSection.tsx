@@ -1,11 +1,11 @@
-// Members (SPEC R2, R11 「即時顯示線上成員」「一鍵…踢掉任何成員」): online state, role, devices and what everyone is doing;
+// Members (SPEC R2, R11 "online members shown live", "remove any member with one click"): online state, role, devices and what everyone is doing;
 // change a role with a select, kick with one click and a confirmation that says exactly what will happen. Choosing
-// 「可使用 agent」 first shows the risk (RoleRiskDialog) and applies only after the host confirms; losing it ends the
+// "Agent access" first shows the risk (RoleRiskDialog) and applies only after the host confirms; losing it ends the
 // sessions the member opened (the daemon does), which is confirmed too.
 import { useState } from 'react';
 import { GUEST_ROLES, can, type GuestRole, type MemberWithDevices, type PresenceMember, type SessionInfo } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
-import { formatRelativeTime, formatRole } from '../../lib/format.ts';
+import { compareText, formatRelativeTime, formatRole } from '../../lib/format.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { selectSessionList } from '../../lib/stores/sessions.ts';
 import { selectUserId } from '../../lib/stores/workspace.ts';
@@ -32,7 +32,7 @@ function sortRows(rows: MemberRow[]): MemberRow[] {
       Number(b.member.role === 'host') - Number(a.member.role === 'host') ||
       Number(online(b)) - Number(online(a)) ||
       ROLE_ORDER[a.member.role] - ROLE_ORDER[b.member.role] ||
-      a.member.displayName.localeCompare(b.member.displayName, 'zh-Hant'),
+      compareText(a.member.displayName, b.member.displayName),
   );
 }
 
@@ -51,7 +51,7 @@ export function MembersSection({ now }: { now: number }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [kicking, setKicking] = useState<MemberWithDevices | null>(null);
   const [demoting, setDemoting] = useState<{ member: MemberWithDevices; role: GuestRole; count: number } | null>(null);
-  /** A member about to get 「可使用 agent」: nothing is sent before the host confirms the risk. */
+  /** A member about to get agent access: nothing is sent before the host confirms the risk. */
   const [granting, setGranting] = useState<{ member: MemberWithDevices; role: GuestRole } | null>(null);
 
   const rows = sortRows(
@@ -139,8 +139,8 @@ export function MembersSection({ now }: { now: number }) {
       cell: ({ member, presence: live }) => {
         if (member.devices.length === 0) return <span className="console-muted">{t('members.devices.none')}</span>;
         // Which devices are connected is not reported per device: while the member is online, the most recently seen
-        // ones (as many as they have connections) are the connected ones — never 「最後連線：15 分鐘前」 for a device in
-        // use right now (review WEB-13).
+        // ones (as many as they have connections) are the connected ones — never "Last seen 15 minutes ago" for a device in
+        // use right now.
         const online = live?.online ?? member.online;
         const connected = new Set(
           online
@@ -245,7 +245,7 @@ export function MembersSection({ now }: { now: number }) {
   );
 }
 
-/** One click on 「踢出」 opens this; it names every consequence (SPEC R2) before the irreversible request. */
+/** One click on "Remove" opens this; it names every consequence (SPEC R2) before the irreversible request. */
 function KickDialog({ member, sessions, onClose }: { member: MemberWithDevices | null; sessions: number; onClose(): void }) {
   if (!member) return null;
   return <KickConfirm key={member.userId} member={member} sessions={sessions} onClose={onClose} />;

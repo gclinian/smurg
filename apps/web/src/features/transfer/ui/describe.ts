@@ -1,5 +1,6 @@
-// zh-TW text for what the engine reports (it reports facts, never sentences: engine/types.ts).
-import { formatBytes } from '../../../lib/format.ts';
+// Text for what the engine reports (it reports facts, never sentences: engine/types.ts).
+import { renderWireText } from '../../../lib/errors.ts';
+import { formatBytes, formatDuration } from '../../../lib/format.ts';
 import type { JobSnapshot, TransferFailure } from '../engine/types.ts';
 import { remainingMs } from '../engine/rate.ts';
 import { MEMORY_DOWNLOAD_LIMIT } from '../engine/writers.ts';
@@ -19,11 +20,9 @@ export function describeFailure(failure: TransferFailure): string {
         pending: formatBytes(disk.pendingBytes),
       });
     }
-    case 'daemon': {
-      // Daemon messages written for people are zh-TW; the code's default otherwise.
-      const message = failure.error.message;
-      return /[㐀-鿿]/u.test(message) ? message : t('fail.internal');
-    }
+    case 'daemon':
+      // The host's own words: its message reference in the viewer's language, else its English message.
+      return renderWireText(failure.error.text, failure.error.message);
     case 'source-changed':
       return t('fail.sourceChanged', { path: failure.path });
     case 'source-unreadable':
@@ -68,13 +67,9 @@ export function describeStatus(job: JobSnapshot): string {
   return t(`status.${job.status}`);
 }
 
-/** 「約 3 分鐘」 */
+/** "3 minutes" (the caller wraps it: "About 3 minutes left"). */
 export function describeDuration(ms: number): string {
-  const seconds = Math.max(1, Math.round(ms / 1000));
-  if (seconds < 60) return t('time.seconds', { n: seconds });
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return t('time.minutes', { n: minutes });
-  return t('time.hours', { h: Math.floor(minutes / 60), m: minutes % 60 });
+  return formatDuration(Math.max(1, ms / 1000));
 }
 
 export interface ProgressText {

@@ -1,6 +1,6 @@
 // The activity feed as pure data (tested without React): what each event kind is called, which filter shows it,
-// who did it, and whether its file can be opened. The daemon writes `summary` as a whole zh-TW sentence that already
-// names the actor (「Claude（Ian） 修改了 src/app.ts（Edit）」); the feed adds the structured parts around it.
+// who did it, and whether its file can be opened. The daemon's sentence (`text`, a wire reference; `summary` is its English rendering) already
+// names the actor ("Claude (Ian) edited src/app.ts (Edit)"); the feed adds the structured parts around it.
 import type { ActivityEvent, Actor } from '@smurg/protocol';
 import { t } from './strings.ts';
 
@@ -76,16 +76,21 @@ export function matchesFilter(event: ActivityEvent, filter: FeedFilter): boolean
   }
 }
 
-/** 「Claude（Ian）」 for agents (the daemon names them after their owner), the member's name, or 「外部程式」. */
+/** "Claude (Ian)" for agents (the daemon names them after their owner), the member's name, or "Outside program". */
 export function actorLabel(actor: Actor): string {
   return actor.kind === 'system' ? t('actor.system') : actor.displayName;
 }
 
+/** The same actor inside a sentence ("the version written by an outside program"): the conflict panel's wording. */
+export function actorInText(actor: Actor): string {
+  return actor.kind === 'system' ? t('actor.systemInText') : actor.displayName;
+}
+
 /**
  * An agent's change that came from a shell command (its Bash tool; ARCHITECTURE §11 D-13): the daemon attributes it to
- * that agent (`agent.edit`, the agent as actor) and marks it `via: 'bash'` (its summary reads 「Claude（Ian）透過 shell
- * 指令修改了 …」, but the wording is never what decides). The feed shows it as that agent's, with a small 「透過指令」
- * marker; the decision is the daemon's alone (an unclaimed change stays 「外部程式」, a `system` actor, no marker).
+ * that agent (`agent.edit`, the agent as actor) and marks it `via: 'bash'` (its summary reads "Claude (Ian) changed ...
+ * with a shell command", but the wording is never what decides). The feed shows it as that agent's, with a small "via a command"
+ * marker; the decision is the daemon's alone (an unclaimed change stays "Outside program", a `system` actor, no marker).
  */
 export function viaShellCommand(event: ActivityEvent): boolean {
   return event.kind === 'agent.edit' && event.actor.kind === 'agent' && event.via === 'bash';

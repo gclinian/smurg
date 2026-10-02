@@ -2,7 +2,7 @@
 // docs and sessions modules): a Bash window of an agent session (the events the hooks module emits for the Bash
 // activity hook) and a write made by another process. The activity feed names the agent, and the R8 fallback's
 // conflict record takes the same author ("the conflict record's source uses the same rule"); without a window both
-// stay 「外部程式」 / system. The hook → bus path itself: test/hooks/hook-server.test.ts; the real claude:
+// stay "an outside program" / system. The hook → bus path itself: test/hooks/hook-server.test.ts; the real claude:
 // test/hooks/claude-e2e.test.ts.
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -69,12 +69,12 @@ describe('D-13 Bash attribution with the real modules', { timeout: 60_000 }, () 
     const { conflicts, activity } = await amyTypesAndAnotherProcessWrites(d);
     const entry = activity.find((e) => e.file?.path === PATH && e.kind === 'agent.edit');
     expect(entry).toMatchObject({ kind: 'agent.edit', actor: { kind: 'agent', sessionId, ownerUserId: hostUserId } });
-    expect(entry?.summary).toMatch(/透過 shell 指令修改了 src\/main\.ts/);
+    expect(entry).toMatchObject({ text: { id: 'activity.agentBashChange', params: { path: 'src/main.ts', change: 'change' } } });
     expect(conflicts[0]?.source).toMatchObject({ kind: 'agent', sessionId, ownerUserId: hostUserId });
     expect((await d.ctx.audit.query({ limit: 100 })).find((e) => e.action === 'agent.edit' && e.target === 'main:src/main.ts')).toMatchObject({ actor: { kind: 'agent', sessionId }, detail: { via: 'bash' } });
   });
 
-  it('control: without a Bash window the same write stays 「外部程式」 and the conflict record\'s source is the system', async () => {
+  it('control: without a Bash window the same write stays "an outside program" and the conflict record\'s source is the system', async () => {
     const { t: d } = await setup();
     const { conflicts, activity } = await amyTypesAndAnotherProcessWrites(d);
     expect(activity.find((e) => e.file?.path === PATH && e.kind !== 'human.edit' && e.kind !== 'conflict')).toMatchObject({ kind: 'external.change', actor: { kind: 'system' } });

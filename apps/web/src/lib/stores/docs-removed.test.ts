@@ -1,11 +1,24 @@
-// Review WEB-01: open documents follow delete / rename of their file instead of silently accepting text nobody saves.
+// open documents follow delete / rename of their file instead of silently accepting text nobody saves.
 import { MAIN_ROOT, fileRefKey, type FileRef } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import { describe, expect, it } from 'vitest';
 import { FakeConnection } from '../../testing/fake-connection.ts';
 import { T0, makeActivity, makeWelcome } from '../../testing/fixtures.ts';
 import { createManualScheduler } from '../../testing/services.tsx';
 import { isDocEditable, renamedFrom } from './docs.ts';
 import { createWorkspaceStores } from './index.ts';
+
+/** A rename as the host reports it: the new path in `file`, the old one in `renamedFrom` (never parsed from text). */
+const renameEvent = (from: string, to: string, overrides: Parameters<typeof makeActivity>[0] = {}) =>
+  makeActivity({
+    kind: 'file.rename',
+    actor: MEI,
+    file: { root: MAIN_ROOT, path: to },
+    renamedFrom: from,
+    summary: `Renamed ${from} to ${to}`,
+    text: msg('activity.fileRename', { from, to }),
+    ...overrides,
+  });
 
 const OLD: FileRef = { root: MAIN_ROOT, path: 'src/todo 清單.md' };
 const NEW_PATH = 'src/待辦清單.md';
@@ -35,7 +48,7 @@ async function setup() {
 
 const docOf = (stores: Awaited<ReturnType<typeof setup>>['stores'], file: FileRef) => stores.docs.getState().docs.get(fileRefKey(file));
 
-describe('docs store: open documents whose file is deleted or renamed (WEB-01)', () => {
+describe('docs store: open documents whose file is deleted or renamed', () => {
   it('an unlink of the open file marks it removed (with who did it), stops it being editable and clears presence', async () => {
     const { conn, stores, dispose } = await setup();
     expect(stores.presence.getState().activeFile).toEqual(OLD);
@@ -65,26 +78,25 @@ describe('docs store: open documents whose file is deleted or renamed (WEB-01)',
 
   it("someone else's rename is recognised from the activity feed, whether it arrives before or after the unlink", async () => {
     const { conn, stores, dispose } = await setup();
-    const rename = makeActivity({ kind: 'file.rename', actor: MEI, file: { root: MAIN_ROOT, path: NEW_PATH }, summary: `重新命名 ${OLD.path} → ${NEW_PATH}` });
-    conn.emit('activity.event', { event: rename });
+    conn.emit('activity.event', { event: renameEvent(OLD.path, NEW_PATH) });
     conn.emit('file.changed', { root: MAIN_ROOT, changes: [{ path: OLD.path, change: 'unlink' }] });
     expect(docOf(stores, OLD)?.removed).toEqual({ at: T0, by: MEI, movedTo: NEW_PATH });
 
     const late = await setup();
     late.conn.emit('file.changed', { root: MAIN_ROOT, changes: [{ path: 'src', change: 'unlinkDir' }] });
     expect(docOf(late.stores, OLD)?.removed?.movedTo).toBeNull();
-    late.conn.emit('activity.event', { event: makeActivity({ kind: 'file.rename', actor: MEI, file: { root: MAIN_ROOT, path: 'lib' }, summary: '重新命名 src → lib' }) });
+    late.conn.emit('activity.event', { event: renameEvent('src', 'lib') });
     expect(docOf(late.stores, OLD)?.removed).toMatchObject({ by: MEI, movedTo: 'lib/todo 清單.md' });
     dispose();
     late.dispose();
   });
 
-  it('renamedFrom only trusts the exact summary of the daemon', () => {
+  it('renamedFrom reads the old path from the event itself, in any language, and never from its sentence', () => {
+    expect(renamedFrom(renameEvent('a.md', 'b.md'))).toBe('a.md');
+    // The sentence is for people: an event without `renamedFrom` is not guessed at, whatever its text says.
     const at = { root: MAIN_ROOT, path: 'b.md' };
-    expect(renamedFrom(makeActivity({ kind: 'file.rename', file: at, summary: '重新命名 a.md → b.md' }))).toBe('a.md');
-    expect(renamedFrom(makeActivity({ kind: 'file.rename', file: at, summary: '重新命名 a.md → c.md' }))).toBeNull();
-    expect(renamedFrom(makeActivity({ kind: 'file.rename', file: at, summary: '重新命名 a…' }))).toBeNull();
-    expect(renamedFrom(makeActivity({ kind: 'file.delete', file: at, summary: '重新命名 a.md → b.md' }))).toBeNull();
+    expect(renamedFrom(makeActivity({ kind: 'file.rename', file: at, summary: 'Renamed a.md to b.md' }))).toBeNull();
+    expect(renamedFrom(makeActivity({ kind: 'file.delete', file: at, renamedFrom: 'a.md' }))).toBeNull();
   });
 
   it('followRename (the local user renamed it) re-opens the new path in the same tab position and keeps it active', async () => {

@@ -2,7 +2,7 @@
 //
 // A disk change is applied as insert/delete operations in ONE transaction whose origin names the actor: characters
 // the diff leaves alone keep their Yjs item ids, so every remote cursor (a RelativePosition) stays on its character
-// (R8 「所有人的游標位置不變」, yjs-monaco.md Q4, F4).
+// (R8: nobody's cursor moves; yjs-monaco.md Q4, F4).
 import type * as Y from 'yjs';
 import type { CompactOp } from './diff.ts';
 

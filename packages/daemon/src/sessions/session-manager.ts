@@ -3,11 +3,11 @@
 // state, ending (killTree).
 //
 // Every session runs like the host's own (owner decision 2026-10-01, §11 D-15): the host's OS user, unsandboxed, the
-// host's environment, HOME and Claude Code login, whoever opened it (`session.create`: the host and 「可使用 agent」).
-// The member who opened it is its owner: the agent is 「Claude（owner）」, its locks and edits are attributed to them,
+// host's environment, HOME and Claude Code login, whoever opened it (`session.create`: the host and Agent access).
+// The member who opened it is its owner: the agent is `Claude (owner)`, its locks and edits are attributed to them,
 // only they end it with session.end (the host terminates any session), and its PTY follows their viewport. Every member
-// with `session.drive` (the host, 「可使用 agent」) may type into any session and accept its suggestions; editors and
-// viewers suggest (R6). When the owner is kicked, leaves or is set below 「可使用 agent」, the sessions they opened end.
+// with `session.drive` (the host, Agent access) may type into any session and accept its suggestions; editors and
+// viewers suggest (R6). When the owner is kicked, leaves or is set below Agent access, the sessions they opened end.
 import { createHash, randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { access, mkdir, readdir, realpath, stat } from 'node:fs/promises';
@@ -28,6 +28,7 @@ import {
   type SessionKind,
   type SessionStatus,
 } from '@smurg/protocol';
+import { msg, renderEnglish, type MessageRef } from '@smurg/protocol/i18n';
 import { claudeVersionVerdict, type SessionLaunchConfig } from '../core/config.ts';
 import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
@@ -91,7 +92,8 @@ interface Managed {
   readonly root: RootRef;
   readonly worktreeId: string | null;
   readonly createdAt: number;
-  readonly title: string;
+  /** Only a title the opener typed. Clients build the default from kind + ownerName, in the viewer's language. */
+  readonly title: string | undefined;
   readonly pty: PtySession;
   readonly hookRegistered: boolean;
   presence: boolean;
@@ -102,7 +104,7 @@ interface Managed {
   launch: LaunchContext | null;
   ending: Promise<void> | null;
   endReason: SessionEndReason | null;
-  /** Who ended it on purpose (the owner's 「結束」, the host's terminate): shown to the owner (review WEB-12). */
+  /** Who ended it on purpose (the owner's "End", the host's terminate): shown to the owner. */
   endedBy: { readonly userId: UserId; readonly displayName: string } | null;
   cleaned: boolean;
   loginCheck: Promise<LoginState> | null;
@@ -113,7 +115,7 @@ interface Managed {
    * Descendants of the PTY child seen by the periodic scan (pid → start time). A natural `exit` reparents background
    * jobs to init before node-pty reports it, and on macOS `ps -E` hides the environment of Apple platform binaries
    * (pty-packaging.md gotcha 9): without this, a member's `nohup … &` + `exit` would leave a job behind. Kept for every
-   * session (also persisted, REL-09), so a daemon that died hard can end them at its next start.
+   * session (also persisted), so a daemon that died hard can end them at its next start.
    */
   known: Map<number, KnownProcess>;
   /** Digest list of the processes last written to live.json (unchanged scans write nothing). */
@@ -127,7 +129,7 @@ const liveProcessSchema = z.strictObject({ pid: z.int().min(2).max(2 ** 31), id:
 const liveDocumentSchema = z.strictObject({
   live: z.array(z.string().regex(SESSION_ID)).max(4096),
   /**
-   * Review REL-09: the processes of each live session (the PTY child and its descendants), refreshed every 2 s. A
+   * The processes of each live session (the PTY child and its descendants), refreshed every 2 s. A
    * daemon that died hard (SIGKILL, OOM, crash) could not end its sessions: the next start ends what is still there,
    * identity-checked (pid + start time + command line) like every kill (§7.6), never by predicate.
    */
@@ -149,7 +151,7 @@ const DESCENDANT_SCAN_MS = 2_000;
 /** Exited sessions kept for late viewers (the retention timer drops them earlier). */
 const MAX_EXITED_RETAINED = 32;
 
-function sessionError(code: 'bad_request' | 'not_found' | 'conflict' | 'internal', message: string, reason: string): SmurgError {
+function sessionError(code: 'bad_request' | 'not_found' | 'conflict' | 'internal', message: MessageRef, reason: string): SmurgError {
   return new SmurgError(code, message, { reason });
 }
 
@@ -203,7 +205,7 @@ export class SessionManagerImpl implements SessionManager {
     this.sessionsDir = await realpath(join(stateDir, 'sessions'));
     this.versionProbe = new ClaudeVersionProbe({ scratchParent: this.sessionsDir, run: this.runner });
     this.liveDoc = await this.ctx.state.document(LIVE_DOCUMENT, liveDocumentSchema, () => ({ live: [] }));
-    // Sessions never survive the daemon: what a run that died hard left behind (its sessions' processes, REL-09;
+    // Sessions never survive the daemon: what a run that died hard left behind (its sessions' processes;
     // version-probe scratch dirs) goes now.
     await this.endLeftovers(this.liveDoc.get()).catch((err: unknown) => this.logError('ending the processes of a previous run failed', err));
     for (const name of await readdir(this.sessionsDir).catch(() => [] as string[])) {
@@ -296,7 +298,7 @@ export class SessionManagerImpl implements SessionManager {
       kind: m.kind,
       ownerUserId: m.ownerUserId,
       ownerName: m.ownerName,
-      title: m.title,
+      ...(m.title !== undefined ? { title: m.title } : {}),
       root: m.root,
       status: m.status,
       ...(m.exitCode !== undefined ? { exitCode: m.exitCode } : {}),
@@ -304,7 +306,7 @@ export class SessionManagerImpl implements SessionManager {
       rows: m.pty.rows,
       createdAt: m.createdAt,
       ...(m.endedAt !== undefined ? { endedAt: m.endedAt } : {}),
-      // Why it ended and who ended it (review WEB-12: a session the host terminated must not read like a normal exit).
+      // Why it ended and who ended it (a session the host terminated must not read like a normal exit).
       ...(m.status === 'exited' && m.endReason !== null ? { endReason: m.endReason } : {}),
       ...(m.status === 'exited' && m.endedBy !== null ? { endedBy: { userId: m.endedBy.userId, displayName: m.endedBy.displayName } } : {}),
       login: m.login,
@@ -327,13 +329,13 @@ export class SessionManagerImpl implements SessionManager {
     const userId = principal.userId;
     const member = userId !== null && principal.kind === 'user' ? this.ctx.members.active(userId) : null;
     if (!member || userId === null) throw new AuthorizationError(undefined, { reason: 'not-a-member' });
-    // The member's CURRENT role (the router checked it for this message as well): the host and 「可使用 agent」.
+    // The member's CURRENT role (the router checked it for this message as well): the host and Agent access.
     if (!can(member.role, 'session.create')) throw new AuthorizationError(undefined, { reason: 'capability' });
-    if (this.stopping || !this.started) throw sessionError('conflict', 'daemon 正在停止', 'stopping');
+    if (this.stopping || !this.started) throw sessionError('conflict', msg('daemon.stopping'), 'stopping');
     const running = [...this.sessions.values()].filter((m) => m.status !== 'exited');
-    if (running.length + this.inFlight() >= this.limits.maxSessions) throw sessionError('conflict', 'session 數量已達上限', 'session-limit');
+    if (running.length + this.inFlight() >= this.limits.maxSessions) throw sessionError('conflict', msg('session.limit'), 'session-limit');
     if (running.filter((m) => m.ownerUserId === userId).length + (this.creating.get(userId) ?? 0) >= this.limits.maxSessionsPerUser) {
-      throw sessionError('conflict', '你的 session 數量已達上限', 'session-limit');
+      throw sessionError('conflict', msg('session.limitOwner'), 'session-limit');
     }
     this.creating.set(userId, (this.creating.get(userId) ?? 0) + 1);
     try {
@@ -399,7 +401,7 @@ export class SessionManagerImpl implements SessionManager {
       let claude: ClaudeBinary | null = null;
       if (kind === 'agent') {
         claude = await resolveClaude(this.launchConfig.claudePath, hostEnv['PATH']);
-        if (!claude) throw sessionError('not_found', '找不到 claude 指令', 'claude-not-found');
+        if (!claude) throw sessionError('not_found', msg('session.claudeNotFound'), 'claude-not-found');
         const output = await this.requireProbe().output(claude);
         const verdict = claudeVersionVerdict(output, this.launchConfig);
         if (!verdict.ok) this.warnVersion(member, verdict.version, 'below-minimum');
@@ -412,13 +414,13 @@ export class SessionManagerImpl implements SessionManager {
       let claudeArgs: string[] = [];
       const self = this.launchConfig.selfCommand;
       if (kind === 'agent') {
-        if (self === null) throw sessionError('internal', 'smurg hook 未設定，無法啟動 agent session', 'hooks-unavailable');
+        if (self === null) throw sessionError('internal', msg('session.hooks.notConfigured'), 'hooks-unavailable');
         let credentials: HookSessionCredentials;
         try {
           credentials = ctx.services.hooks.registerSession({ sessionId: id, ownerUserId: userId, agentName: agentDisplayName(member.displayName), root });
         } catch (err) {
           this.logError('hook registration failed', err);
-          throw sessionError('internal', 'hook 服務無法使用，無法啟動 agent session', 'hooks-unavailable');
+          throw sessionError('internal', msg('session.hooks.unavailable'), 'hooks-unavailable');
         }
         hookRegistered = true;
         undo.push(() => ctx.services.hooks.unregisterSession(id));
@@ -430,7 +432,7 @@ export class SessionManagerImpl implements SessionManager {
           written = await ctx.services.hooks.writeSessionFiles(id);
         } catch (err) {
           this.logError('hook launch files could not be written', err);
-          throw sessionError('internal', 'hook 設定檔無法寫入，無法啟動 agent session', 'hooks-unavailable');
+          throw sessionError('internal', msg('session.hooks.settingsNotWritten'), 'hooks-unavailable');
         }
         claudeArgs = (await this.checkedLaunchFiles(written)).claudeArgs;
       }
@@ -468,13 +470,13 @@ export class SessionManagerImpl implements SessionManager {
         member,
         root,
         worktreeId,
-        title: input.title ?? (kind === 'agent' ? agentDisplayName(member.displayName) : `終端機（${member.displayName}）`),
+        ...(input.title !== undefined ? { title: input.title } : {}),
         pty,
         hookRegistered,
       });
       m.launch = { claude, env, cwd: rootPath };
       this.sessions.set(m.id, m);
-      // Every session is in live.json while it runs: its processes are found after a hard death (REL-09).
+      // Every session is in live.json while it runs: its processes are found after a hard death.
       this.liveDoc?.update((draft) => {
         draft.live.push(id);
       });
@@ -508,7 +510,7 @@ export class SessionManagerImpl implements SessionManager {
     readonly member: MemberRecord;
     readonly root: RootRef;
     readonly worktreeId: string | null;
-    readonly title: string;
+    readonly title?: string;
     readonly pty: PtySession;
     readonly hookRegistered: boolean;
   }): Managed {
@@ -558,12 +560,13 @@ export class SessionManagerImpl implements SessionManager {
     this.ctx.log.warn('Claude Code version is not verified for smurg', { version: version ?? 'unrecognized', warning, owner: member.userId });
     const activity = this.ctx.services.activity;
     if (isStubService(activity)) return;
-    const text =
+    const known = version === null ? {} : { version };
+    const ref =
       warning === 'below-minimum'
-        ? `注意：Claude Code ${version ?? '（版本不明）'} 低於 smurg 驗證過的最低版本 ${this.launchConfig.claudeMinVersion}，檔案鎖與 hooks 可能無法正常運作。`
-        : `注意：Claude Code ${version ?? ''} 尚未經過 smurg 驗證（已驗證：${this.launchConfig.claudeVerifiedVersions.join('、')}），如遇問題請回報。`;
+        ? msg('notify.claudeVersionTooOld', { ...known, minVersion: this.launchConfig.claudeMinVersion })
+        : msg('notify.claudeVersionUnverified', { ...known, verified: this.launchConfig.claudeVerifiedVersions.slice(0, 10) });
     try {
-      activity.notify(member.userId, { from: SYSTEM_ACTOR, text });
+      activity.notify(member.userId, { from: SYSTEM_ACTOR, msg: ref, fallback: renderEnglish(ref) });
     } catch (err) {
       this.logError('version warning notification failed', err);
     }
@@ -576,7 +579,7 @@ export class SessionManagerImpl implements SessionManager {
     const args = record['claudeArgs'];
     const bad = (why: string): SmurgError => {
       this.ctx.log.error('hook launch files refused', { why });
-      return sessionError('internal', 'hook 設定檔不正確，無法啟動 agent session', 'hooks-unavailable');
+      return sessionError('internal', msg('session.hooks.settingsInvalid'), 'hooks-unavailable');
     };
     if (typeof dir !== 'string' || !isAbsolute(dir) || !Array.isArray(args) || !args.every((arg) => typeof arg === 'string')) throw bad('shape');
     const list = args as string[];
@@ -598,7 +601,7 @@ export class SessionManagerImpl implements SessionManager {
       if (!candidate || !isAbsolute(candidate)) continue;
       if (await isExecutable(candidate)) return candidate;
     }
-    throw sessionError('internal', '找不到可用的 shell', 'no-shell');
+    throw sessionError('internal', msg('session.noShell'), 'no-shell');
   }
 
   // =================================================================================================================
@@ -621,7 +624,7 @@ export class SessionManagerImpl implements SessionManager {
         hub.send(channelId, 'exec.resize', { sessionId, cols, rows });
       },
       // What this channel's current socket still has queued (all relay members share the host's one socket to the
-      // relay): the PTY pauses while it is too much (REL-06).
+      // relay): the PTY pauses while it is too much.
       backlog: () => {
         for (const recipient of hub.recipients({ userId: conn.userId, purpose: 'interactive' })) {
           if (recipient.channelId === channelId) return recipient.conn?.isOpen === true ? recipient.conn.bufferedAmount : 0;
@@ -654,11 +657,11 @@ export class SessionManagerImpl implements SessionManager {
     for (const m of this.sessions.values()) if (m.pty.detach(channelId)) this.publish(m, 'updated');
   }
 
-  /** Keystrokes from any member who may drive sessions (`session.drive`: the host, 「可使用 agent」), into any session. */
+  /** Keystrokes from any member who may drive sessions (`session.drive`: the host, Agent access), into any session. */
   input(input: PayloadOf<'exec.input'>, conn: ClientConnection, principal: Principal): void {
     const m = this.requireSession(input.sessionId);
     this.requireDriver(principal);
-    if (!m.pty.input(conn.channelId, input.data)) throw sessionError('conflict', 'session 已結束', 'session-exited');
+    if (!m.pty.input(conn.channelId, input.data)) throw sessionError('conflict', msg('session.exited'), 'session-exited');
   }
 
   resize(input: PayloadOf<'exec.resize'>, conn: ClientConnection, principal: Principal): void {
@@ -679,12 +682,12 @@ export class SessionManagerImpl implements SessionManager {
     // eslint-disable-next-line no-control-regex
     const clean = text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '').replace(/\r?\n/g, '\r');
     // Bracketing and the Enter afterwards: PtySession.paste, once the mirror has parsed what the program printed.
-    if (!m.pty.paste(clean)) throw sessionError('conflict', 'session 已結束', 'session-exited');
+    if (!m.pty.paste(clean)) throw sessionError('conflict', msg('session.exited'), 'session-exited');
   }
 
   private requireSession(sessionId: string): Managed {
     const m = this.sessions.get(sessionId);
-    if (!m) throw sessionError('not_found', '找不到這個 session', 'unknown-session');
+    if (!m) throw sessionError('not_found', msg('session.notFound'), 'unknown-session');
     return m;
   }
 
@@ -694,7 +697,7 @@ export class SessionManagerImpl implements SessionManager {
     }
   }
 
-  /** `session.drive` (the host, 「可使用 agent」): may type into any session and decide its suggestions (§11 D-15). */
+  /** `session.drive` (the host, Agent access): may type into any session and decide its suggestions (§11 D-15). */
   private requireDriver(principal: Principal): void {
     if (principal.kind !== 'user' || principal.userId === null || !principalCan(principal, 'session.drive')) {
       throw new AuthorizationError(undefined, { reason: 'capability' });
@@ -776,7 +779,7 @@ export class SessionManagerImpl implements SessionManager {
   }
 
   /**
-   * The member who opened these sessions was kicked, left, or lost 「可使用 agent」 (§11 D-15): every session they
+   * The member who opened these sessions was kicked, left, or lost Agent access (§11 D-15): every session they
    * opened ends, each audited as `session.terminate` by the system with the reason. A creation in flight for them is
    * abandoned (userEpochs).
    */
@@ -849,7 +852,7 @@ export class SessionManagerImpl implements SessionManager {
     return out;
   }
 
-  /** Descendants, remembered every 2 s while a session runs (see Managed.known), and persisted (REL-09). */
+  /** Descendants, remembered every 2 s while a session runs (see Managed.known), and persisted. */
   private ensureDescendantTracking(): void {
     if (this.trackTimer !== undefined || this.stopping) return;
     this.trackTimer = setInterval(() => void this.trackDescendants(), DESCENDANT_SCAN_MS);
@@ -985,12 +988,12 @@ export class SessionManagerImpl implements SessionManager {
   }
 
   private requireSessionsDir(): string {
-    if (!this.sessionsDir) throw sessionError('internal', 'session 服務尚未啟動', 'not-started');
+    if (!this.sessionsDir) throw sessionError('internal', msg('session.notStarted'), 'not-started');
     return this.sessionsDir;
   }
 
   private requireProbe(): ClaudeVersionProbe {
-    if (!this.versionProbe) throw sessionError('internal', 'session 服務尚未啟動', 'not-started');
+    if (!this.versionProbe) throw sessionError('internal', msg('session.notStarted'), 'not-started');
     return this.versionProbe;
   }
 }

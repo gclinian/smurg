@@ -31,8 +31,17 @@ main(args).then(
     // hook / mcp end when their streams end; everything else should end now that the command returned.
     if (args[0] !== 'hook' && args[0] !== 'mcp') setTimeout(() => process.exit(code), EXIT_GRACE_MS).unref();
   },
-  (err: unknown) => {
-    process.stderr.write(`smurg：發生未預期的錯誤（${err instanceof Error ? err.name : 'unknown'}）。\n`);
+  async (err: unknown) => {
+    // The last resort (the dispatcher itself failed to load or threw): still in the terminal's language when possible.
+    const name = err instanceof Error ? err.name : 'unknown';
+    let line = `smurg: an unexpected error occurred (${name}).\n`;
+    try {
+      const { m, renderText, resolveLang, systemLanguages } = await import('./i18n/index.ts');
+      line = renderText(resolveLang(process.env, systemLanguages), m('failure.unexpectedEarly', { name }));
+    } catch {
+      // the English line above
+    }
+    process.stderr.write(line);
     process.exitCode = 1;
   },
 );

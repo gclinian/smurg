@@ -14,11 +14,11 @@ const GiB = 1024 * MiB;
 
 /**
  * Version of the encrypted application protocol, sent in `ClientHello.protocolVersion` (ARCHITECTURE §4.2). 2 since
- * the guest sandbox was removed and the role `agent` (「可使用 agent」) replaced `runner` (ARCHITECTURE §11 D-15): roles,
+ * the guest sandbox was removed and the role `agent` ("Agent access") replaced `runner` (ARCHITECTURE §11 D-15): roles,
  * SessionInfo, session.create and the settings changed shape. A daemon answers another version with the verdict
  * `version`.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /** Leading bytes of every Noise prologue: `"smurg-noise/1" ‖ 0x00 ‖ u8 len(workspaceId) ‖ workspaceId ‖ …`. */
 export const NOISE_PROLOGUE_TAG = 'smurg-noise/1';
@@ -140,7 +140,7 @@ export const RELAY_HOST_TIMEOUT_MS = 6_000;
 export const RELAY_CLIENT_SWEEP_MS = 30_000;
 /** The daemon sends an encrypted `presence.heartbeat` this often on every interactive channel. */
 export const PRESENCE_HEARTBEAT_INTERVAL_MS = 3_000;
-/** A client shows 「主人已離線」 after this long without any message from the daemon, even if the relay is silent. */
+/** A client shows "The host is offline" after this long without any message from the daemon, even if the relay is silent. */
 export const CLIENT_OFFLINE_THRESHOLD_MS = 8_000;
 /** R1 acceptance bound: every guest must show the host as offline within this time after the host disconnects. */
 export const HOST_OFFLINE_DEADLINE_MS = 10_000;

@@ -25,6 +25,7 @@ import {
   type ResultInputOf,
   type RootRef,
 } from '@smurg/protocol';
+import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import { isPathDeniedError } from '../core/errors.ts';
 import type { FileIdentity, FileService, Principal, ResolveOptions, ResolvedPath } from '../core/interfaces.ts';
@@ -44,13 +45,14 @@ import {
   moveResolved,
   type GuardContext,
 } from './fs-ops.ts';
-import { clampSummary, joinRel, looseKey, mapLimit, refLabel } from './util.ts';
+import { joinRel, looseKey, mapLimit, refLabel } from './util.ts';
+import { shownPath } from '../locks/text.ts';
 
 /** Default window in which a watcher event is attributed to whoever announced the change (FileService contract). */
 export const EXPECT_CHANGE_TTL_MS = 5_000;
 /** Concurrent lstat calls while listing one directory. */
 const LIST_CONCURRENCY = 32;
-/** Errors of one directory entry (or one sub-directory) that leave it out of a listing instead of failing it (REL-13). */
+/** Errors of one directory entry (or one sub-directory) that leave it out of a listing instead of failing it. */
 const UNLISTABLE: ReadonlySet<string> = new Set(['ENAMETOOLONG', 'ELOOP', 'EACCES', 'EPERM']);
 const HASH_READ_BYTES = 1024 * 1024;
 
@@ -94,7 +96,10 @@ function privileged(principal: Principal): boolean {
   return principal.kind === 'system' || isHostPrincipal(principal);
 }
 
-function badRequest(reason: string, message: string): SmurgError {
+/** Holder names a `locked` refusal lists (a message list parameter holds at most 10). */
+const LOCK_HOLDERS_LISTED = 10;
+
+function badRequest(reason: string, message: MessageRef): SmurgError {
   return new SmurgError('bad_request', message, { reason });
 }
 
@@ -127,15 +132,15 @@ export class FileServiceImpl implements FileService {
     try {
       base = await this.ctx.paths.resolve({ root: input.root, path: input.path }, { principal, mustExist: true, allowRoot: true });
     } catch (err) {
-      if (errnoCode(err) === 'ENAMETOOLONG') throw badRequest('path-too-long', '這個資料夾的完整路徑太長，系統無法開啟');
+      if (errnoCode(err) === 'ENAMETOOLONG') throw badRequest('path-too-long', msg('file.pathTooLong'));
       throw err;
     }
-    if (base.identity?.kind !== 'dir') throw badRequest('not-a-directory', '這不是資料夾');
+    if (base.identity?.kind !== 'dir') throw badRequest('not-a-directory', msg('file.notADirectory'));
     const entries: FileEntry[] = [];
     let truncated = false;
     // Linux: one listing per directory for the NFC → on-disk mapping of every sub-directory resolved below, and of its
-    // check after the listing (review RV-7: a folder of n Mac-made (NFD) sub-directories cost 2n listings of that
-    // folder, as RCR-2 measured for zips).
+    // check after the listing (a folder of n Mac-made (NFD) sub-directories cost 2n listings of that
+    // folder, as measured for zips).
     const spellings = new SpellingIndex();
     const queue: { readonly ref: FileRef; readonly level: number; readonly resolved: ResolvedPath | null }[] = [{ ref: base.ref, level: 1, resolved: base }];
     while (queue.length > 0 && !truncated) {
@@ -153,7 +158,7 @@ export class FileServiceImpl implements FileService {
       try {
         listed = await this.listDirectory(dir, principal, spellings);
       } catch (err) {
-        // A sub-directory the OS cannot list (REL-13: deeper than PATH_MAX): skipped; the listing itself still works.
+        // A sub-directory the OS cannot list (deeper than PATH_MAX): skipped; the listing itself still works.
         if (next.resolved === null && UNLISTABLE.has(errnoCode(err) ?? '')) continue;
         throw err;
       }
@@ -210,7 +215,7 @@ export class FileServiceImpl implements FileService {
       entry = entryFromIdentity(this.nameOf(ref), ref.path, identity, this.decorations(ref, principal, identity));
     }
     if (!entry) throw new SmurgError('not_found', undefined, { reason: 'vanished' });
-    this.recordMutation(principal, 'file.create', ref, { kind: input.kind }, `新增${input.kind === 'dir' ? '資料夾' : '檔案'} ${ref.path}`);
+    this.recordMutation(principal, 'file.create', ref, { kind: input.kind }, msg('activity.fileCreate', { path: shownPath(ref.path), isDir: input.kind === 'dir' }));
     if (input.kind === 'dir') this.knownDirs.add(ref.root, ref.path);
     return entry;
   }
@@ -218,7 +223,7 @@ export class FileServiceImpl implements FileService {
   async rename(input: PayloadOf<'file.rename'>, principal: Principal): Promise<FileEntry> {
     const fromRef: FileRef = { root: input.root, path: input.from };
     const toRef: FileRef = { root: input.root, path: input.to };
-    if (input.from === input.to) throw badRequest('same-path', '新名稱與原本相同');
+    if (input.from === input.to) throw badRequest('same-path', msg('file.sameName'));
     await this.refuseDaemonOwned(fromRef, principal);
     await this.refuseDaemonOwned(toRef, principal);
     const from = await this.ctx.paths.resolve(fromRef, { principal, forWrite: true, mustExist: true, finalSymlink: 'self' });
@@ -233,8 +238,8 @@ export class FileServiceImpl implements FileService {
     if (isDir) this.knownDirs.add(toRef.root, toRef.path);
     this.attribution.forget(fromRef.root, fromRef.path, isDir);
     // The web client parses this exact summary to move open editor tabs to the new path (apps/web lib/stores/docs.ts
-    // renamedFrom, review WEB-01) until the activity event carries the old path as a field: do not reword it alone.
-    this.recordMutation(principal, 'file.rename', toRef, { from: input.from, to: input.to }, `重新命名 ${input.from} → ${input.to}`);
+    // renamedFrom) until the activity event carries the old path as a field: do not reword it alone.
+    this.recordMutation(principal, 'file.rename', toRef, { from: input.from, to: input.to }, msg('activity.fileRename', { from: shownPath(input.from), to: shownPath(input.to) }), input.from);
     const entry = await this.entryAfterMutation(toRef, principal);
     if (!entry) throw new SmurgError('not_found', undefined, { reason: 'vanished' });
     return entry;
@@ -249,20 +254,20 @@ export class FileServiceImpl implements FileService {
     await deleteResolved(resolved, await this.trash(), this.guard(principal));
     this.attribution.forget(ref.root, ref.path, isDir);
     if (isDir) this.knownDirs.add(ref.root, ref.path); // the watcher's event for it must say unlinkDir
-    this.recordMutation(principal, 'file.delete', ref, { kind: resolved.identity?.kind ?? 'file' }, `刪除 ${ref.path}`);
+    this.recordMutation(principal, 'file.delete', ref, { kind: resolved.identity?.kind ?? 'file' }, msg('activity.fileDelete', { path: shownPath(ref.path) }));
   }
 
   async write(input: PayloadOf<'file.write'>, principal: Principal): Promise<ResultInputOf<'file.write'>> {
     const ref = input.file;
     await this.refuseDaemonOwned(ref, principal);
     const target = await this.ctx.paths.resolve(ref, { principal, forWrite: true, finalSymlink: 'deny' });
-    if (target.exists && target.identity?.kind !== 'file') throw badRequest('not-a-file', '不是一般檔案');
+    if (target.exists && target.identity?.kind !== 'file') throw badRequest('not-a-file', msg('file.notAFile'));
     await this.refuseIfLocked(target, false);
     let expect: FileIdentity | null | undefined;
     if (input.ifMatchHash !== undefined) {
-      if (!target.exists) throw new SmurgError('conflict', '檔案已不存在', { reason: 'changed-since-read' });
+      if (!target.exists) throw new SmurgError('conflict', msg('file.gone'), { reason: 'changed-since-read' });
       const current = await this.hashFile(target, principal);
-      if (current.hash !== input.ifMatchHash) throw new SmurgError('conflict', '檔案在讀取後已被變更', { reason: 'changed-since-read' });
+      if (current.hash !== input.ifMatchHash) throw new SmurgError('conflict', msg('file.changedSinceRead'), { reason: 'changed-since-read' });
       expect = current.identity;
     }
     this.announce(ref, principal, false);
@@ -270,7 +275,7 @@ export class FileServiceImpl implements FileService {
     const hash = createHash('sha256').update(input.content).digest('hex');
     this.attribution.recordModified(ref.root, ref.path, principal.actor);
     this.ctx.audit.record({ actor: principal.actor, action: 'file.write', outcome: 'ok', target: refLabel(ref), detail: { size: input.content.byteLength, created: !target.exists } });
-    this.activity(principal.actor, 'human.edit', ref, `修改 ${ref.path}`);
+    this.activity(principal.actor, 'human.edit', ref, msg('activity.fileWrite', { path: shownPath(ref.path) }));
     const entry = entryFromIdentity(this.nameOf(ref), ref.path, identity, this.decorations(ref, principal, identity));
     if (!entry) throw new SmurgError('internal');
     return { entry, hash };
@@ -329,7 +334,13 @@ export class FileServiceImpl implements FileService {
   async refuseIfLocked(resolved: ResolvedPath, subtree: boolean): Promise<void> {
     const canonical = await this.ctx.paths.toFileRef(resolved.realPath).catch(() => null);
     const lock = this.lockBlocking(resolved, subtree, canonical);
-    if (lock) throw lockedError(lock, lock.kind === 'agent' ? `${lock.agentName} 正在修改這個檔案` : `${lock.holders.map((h) => h.displayName).join('、')} 正在編輯這個檔案`);
+    if (!lock) return;
+    throw lockedError(
+      lock,
+      lock.kind === 'agent'
+        ? msg('file.lockedByAgent', { agent: lock.agentName })
+        : msg('file.lockedByPeople', { names: lock.holders.slice(0, LOCK_HOLDERS_LISTED).map((holder) => holder.displayName) }),
+    );
   }
 
   /** FileEntry of a resolved existing path, with decorations for `principal`. */
@@ -348,11 +359,12 @@ export class FileServiceImpl implements FileService {
     action: 'file.create' | 'file.rename' | 'file.delete' | 'file.upload',
     ref: FileRef,
     detail: Readonly<Record<string, unknown>>,
-    summary: string,
+    text: MessageRef,
+    renamedFrom?: string,
   ): void {
     this.ctx.audit.record({ actor: principal.actor, action, outcome: 'ok', target: refLabel(ref), detail });
     if (action !== 'file.delete') this.attribution.recordModified(ref.root, ref.path, principal.actor);
-    this.activity(principal.actor, action, ref, summary);
+    this.activity(principal.actor, action, ref, text, renamedFrom);
   }
 
   /** Announces a coming change to the watcher (attributed to the principal's actor) and remembers the modifier. */
@@ -384,11 +396,11 @@ export class FileServiceImpl implements FileService {
     return this.trashDir;
   }
 
-  activity(actor: Actor, kind: 'human.edit' | 'file.create' | 'file.delete' | 'file.rename' | 'file.upload', file: FileRef, summary: string): void {
+  activity(actor: Actor, kind: 'human.edit' | 'file.create' | 'file.delete' | 'file.rename' | 'file.upload', file: FileRef, text: MessageRef, renamedFrom?: string): void {
     const feed = this.ctx.services.activity;
     if (isStubService(feed)) return;
     try {
-      feed.record({ actor, kind, file, summary: clampSummary(summary) });
+      feed.record({ actor, kind, file, text, ...(renamedFrom !== undefined && renamedFrom !== '' ? { renamedFrom } : {}) });
     } catch (err) {
       this.ctx.log.warn('activity record failed', { kind, error: err instanceof Error ? err.name : 'unknown' });
     }
@@ -461,14 +473,14 @@ export class FileServiceImpl implements FileService {
       if (!checked.ok || checked.path.includes('/')) return null;
       const name = checked.path;
       if (inMainTop && !isPrivileged && isSmurgDirName(name)) return null;
-      // SEC-D-03: what PathGuard refuses non-hosts to read (.git, .envrc, the host's personal Claude Code files) is not
+      // what PathGuard refuses non-hosts to read (.git, .envrc, the host's personal Claude Code files) is not
       // listed for them either, like .smurg: a listing that shows them only leads to refused (audited) opens.
       if (!isPrivileged && isHostPrivatePath(joinRel(dir.ref.path, name))) return null;
       let st: Awaited<ReturnType<typeof lstatOrNull>>;
       try {
         st = await lstatOrNull(join(dir.realPath, rawName));
       } catch (err) {
-        // One entry the OS cannot look at (REL-13: its path exceeds PATH_MAX, a permission): left out, not the listing.
+        // One entry the OS cannot look at (its path exceeds PATH_MAX, a permission): left out, not the listing.
         if (UNLISTABLE.has(errnoCode(err) ?? '')) return null;
         throw err;
       }

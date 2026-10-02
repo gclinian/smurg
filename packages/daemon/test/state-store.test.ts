@@ -106,7 +106,7 @@ describe('FileStateStore', () => {
     await expect(FileStateStore.open(loose, silentLogger)).rejects.toThrow(/group\/other/);
   });
 
-  describe('a write the disk refuses (review REL-14: disk full, EIO, permissions)', () => {
+  describe('a write the disk refuses (disk full, EIO, permissions)', () => {
     const until = async (predicate: () => Promise<boolean>, timeoutMs = 5_000): Promise<void> => {
       const deadline = Date.now() + timeoutMs;
       while (!(await predicate())) {

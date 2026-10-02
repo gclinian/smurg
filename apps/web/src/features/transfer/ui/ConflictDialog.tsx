@@ -1,4 +1,4 @@
-// 「已經有同名的檔案」: the person decides for the whole upload (覆蓋 / 另存新檔 / 取消上傳). There is no silent
+// "These names already exist": the person decides for the whole upload (overwrite / keep both / cancel upload). There is no silent
 // default (SPEC goal 3: no silent overwrite), so the dialog cannot be dismissed without a choice.
 import { Button, Dialog } from '../../../ui/index.ts';
 import type { JobSnapshot, UploadConflictPolicy } from '../engine/types.ts';

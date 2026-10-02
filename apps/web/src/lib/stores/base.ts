@@ -19,7 +19,7 @@ export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 /** The loading part of a store's state. */
 export interface Loadable {
   readonly status: LoadStatus;
-  /** zh-TW, when status is 'error'. */
+  /** A sentence in the language of the moment it was made, when status is 'error'. */
   readonly error: string | null;
 }
 

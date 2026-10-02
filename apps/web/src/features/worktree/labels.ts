@@ -1,4 +1,4 @@
-// zh-TW labels and tones of merge-request and changed-file states.
+// Labels (in the viewer's language) and tones of merge-request and changed-file states.
 import type { MergeRequest } from '@smurg/protocol';
 import type { Tone } from '../../ui/index.ts';
 import type { MergeDiffFile } from './diff-model.ts';

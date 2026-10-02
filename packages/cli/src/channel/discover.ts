@@ -7,6 +7,7 @@ import { SocketPathError, runPathsFor, type CtlStatus } from '@smurg/daemon';
 import { isWorkspaceId } from '@smurg/protocol/relay';
 import { CliError, usageError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
+import { m } from '../i18n/index.ts';
 import type { StatePaths } from '../state/paths.ts';
 import { loadWorkspaces, sharedFolderContaining } from '../state/workspaces.ts';
 import { ctlRequest } from './local-channel.ts';
@@ -17,11 +18,11 @@ export interface RunningDaemon {
 }
 
 export function ctlPathFor(paths: StatePaths, workspaceId: string): string {
-  if (!isWorkspaceId(workspaceId)) throw usageError(`工作區 ID 不正確：${workspaceId}`);
+  if (!isWorkspaceId(workspaceId)) throw usageError(m('state.workspaceId', { id: workspaceId }));
   try {
     return runPathsFor(paths.runDir, workspaceId).ctl;
   } catch (err) {
-    if (err instanceof SocketPathError) throw new CliError(`smurg 的狀態目錄路徑太長，Unix socket 放不下：${paths.runDir}`, { hint: '請把 SMURG_HOME 設成較短的路徑。' });
+    if (err instanceof SocketPathError) throw new CliError(m('state.socketPathTooLong', { path: paths.runDir }), { hint: m('state.socketPathTooLong.hint') });
     throw err;
   }
 }
@@ -55,23 +56,23 @@ export async function runningDaemons(paths: StatePaths): Promise<RunningDaemon[]
  */
 export async function hintedWorkspace(paths: StatePaths, flag: string | undefined, cwd: string): Promise<string | null> {
   if (flag !== undefined) {
-    if (!isWorkspaceId(flag)) throw usageError(`工作區 ID 不正確：${flag}`);
+    if (!isWorkspaceId(flag)) throw usageError(m('state.workspaceId', { id: flag }));
     return flag;
   }
   const entry = sharedFolderContaining(await loadWorkspaces(paths), cwd);
   return entry?.workspaceId ?? null;
 }
 
-/** The one running daemon a host-side command addresses, or a zh-TW error. */
+/** The one running daemon a host-side command addresses, or an error for the person. */
 export async function findRunningDaemon(paths: StatePaths, flag: string | undefined, cwd: string): Promise<RunningDaemon> {
   const hinted = await hintedWorkspace(paths, flag, cwd);
   if (hinted !== null) {
     const daemon = await daemonAt(ctlPathFor(paths, hinted));
     if (daemon) return daemon;
-    if (flag !== undefined) throw new CliError(`工作區 ${hinted} 沒有正在執行的 smurg host`, { exitCode: EXIT.notRunning });
+    if (flag !== undefined) throw new CliError(m('discover.notRunningFor', { workspaceId: hinted }), { exitCode: EXIT.notRunning });
   }
   const running = await runningDaemons(paths);
   if (running.length === 1) return running[0] as RunningDaemon;
-  if (running.length === 0) throw new CliError('沒有正在執行的 smurg host', { exitCode: EXIT.notRunning });
-  throw usageError('有多個工作區正在分享，請用 --workspace 指定', `正在分享的工作區：${running.map((d) => d.status.workspaceId).join('、')}`);
+  if (running.length === 0) throw new CliError(m('discover.notRunning'), { exitCode: EXIT.notRunning });
+  throw usageError(m('discover.several'), m('discover.several.hint', { ids: running.map((d) => d.status.workspaceId) }));
 }

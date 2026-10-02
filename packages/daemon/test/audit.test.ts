@@ -55,7 +55,7 @@ describe('JsonlAuditLog', () => {
     await log.close();
   });
 
-  it('after a restart, the first entry is not glued onto a torn last line (REL-02)', async () => {
+  it('after a restart, the first entry is not glued onto a torn last line', async () => {
     base = await createTempDir('audit');
     const path = join(base, 'audit.jsonl');
     const clock = new ManualClock(1_760_000_000_000);
@@ -71,7 +71,7 @@ describe('JsonlAuditLog', () => {
     await reopened.close();
   });
 
-  it('keeps an entry whose append failed and writes it with the next one (REL-14)', async () => {
+  it('keeps an entry whose append failed and writes it with the next one', async () => {
     base = await createTempDir('audit');
     const path = join(base, 'audit.jsonl');
     const log = await JsonlAuditLog.open(path, { clock: new ManualClock(1_760_000_000_000), log: silentLogger, pageMax: 500 });
@@ -146,7 +146,7 @@ describe('JsonlAuditLog bounds (security review F5, contract review C12)', () =>
     await log.close();
   });
 
-  // Verification F-3 (2026-10-02): a local channel's actor is the host, and any session of a 「可使用 agent」 member
+  // Verification F-3 (2026-10-02): a local channel's actor is the host, and any session of a Agent access member
   // reaches the control socket. With one budget per actor, a refusal flood through the socket used up the host's
   // budget (the host's own web refusals in that minute were only counted) and the summary could not say where the
   // counted refusals came from.

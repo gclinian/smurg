@@ -1,4 +1,4 @@
-// The sessions module with the REAL hooks module (ARCHITECTURE §11 D-15): a session a 「可使用 agent」 member opens runs
+// The sessions module with the REAL hooks module (ARCHITECTURE §11 D-15): a session a Agent access member opens runs
 // exactly like the host's own — the host's OS user, unsandboxed, the host's environment and HOME — and ends with
 // everything it started when that member is removed. Everything lives in one temp dir with a FAKE host home
 // (config.sessions.hostHome, holding a canary file); the developer's real home is never involved. The daemon runs
@@ -172,12 +172,14 @@ function fixtureOrSkip(ctx: { skip: (note: string) => void }): Fixture {
   return f;
 }
 
-describe('sessions of a 「可使用 agent」 member with the real hooks module (§11 D-15)', { timeout: 90_000 }, () => {
+describe('sessions of a Agent access member with the real hooks module (§11 D-15)', { timeout: 90_000 }, () => {
   it('a terminal it opens runs as the host (the host user, HOME, no sandbox); removing the member ends it and everything it started within 3 s, audited', async (ctx) => {
     if (!supported) return ctx.skip('PTY sessions run on macOS and Linux only');
     const f = fixtureOrSkip(ctx);
     const session = await f.sessions.create({ kind: 'terminal', workspace: { mode: 'main' }, cols: 120, rows: 40 }, conn, carol());
-    expect(session).toMatchObject({ kind: 'terminal', ownerUserId: CAROL, ownerName: 'carol', title: '終端機（carol）', root: { kind: 'main' } });
+    expect(session).toMatchObject({ kind: 'terminal', ownerUserId: CAROL, ownerName: 'carol', root: { kind: 'main' } });
+    // No default title on the wire: each client builds it from kind + ownerName in the viewer's language.
+    expect(session.title).toBeUndefined();
     expect(Object.keys(session)).not.toContain('sandboxed');
     const token = `${randomBytes(3).readUIntBE(0, 3) + 70_000_000}`;
     const out = (name: string): string => join(f.evidence, name);
@@ -274,7 +276,7 @@ describe('sessions of a 「可使用 agent」 member with the real hooks module 
     if (!supported) return ctx.skip('PTY sessions run on macOS and Linux only');
     const f = fixtureOrSkip(ctx);
     const session = await f.sessions.create({ kind: 'agent', workspace: { mode: 'main' }, cols: 120, rows: 40 }, conn, carol());
-    expect(session).toMatchObject({ kind: 'agent', ownerUserId: CAROL, title: 'Claude（carol）' });
+    expect(session).toMatchObject({ kind: 'agent', ownerUserId: CAROL, ownerName: 'carol' });
     const argv = (await readWhenPresent(join(f.evidence, 'claude-argv'))).split('\n').filter(Boolean);
     // The host's flags: no --strict-mcp-config (the guest variant is gone), never a permission flag.
     expect(argv).toHaveLength(4);

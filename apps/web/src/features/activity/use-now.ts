@@ -1,4 +1,4 @@
-// The current time, refreshed every `intervalMs` (relative times in the feed: 「3 分鐘前」). A copy of the editor's
+// The current time, refreshed every `intervalMs` (relative times in the feed: "3 minutes ago"). A copy of the editor's
 // hook: features never import each other.
 import { useEffect, useState } from 'react';
 

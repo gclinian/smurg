@@ -1,4 +1,4 @@
-// SPEC R1 「對分享資料夾以外路徑的請求（包括 symlink、..）一律被拒絕並記錄」, ARCHITECTURE §7.4, yjs-monaco.md verification
+// SPEC R1 (requests for paths outside the shared folder, symlinks and .. included, are refused and recorded), ARCHITECTURE §7.4, yjs-monaco.md verification
 // item 1 (containment re-checked before every read and write). Every denial must land in the audit log as
 // path.denied. All "secrets" are fake files this test creates in its own temp directory.
 import { execFile } from 'node:child_process';
@@ -275,7 +275,7 @@ describe('host-only, hidden, special files', () => {
   // SEC-D-03 (supersedes "lets everyone read .git"): the host's personal Claude Code files and the git internals
   // (remote URLs with tokens) are refused to every non-host through file.* (there is no guest sandbox since §11 D-15;
   // what a member's session does as the host's OS account is not PathGuard's to stop).
-  describe('host-private files are refused to every non-host, for reads too (SEC-D-03)', () => {
+  describe('host-private files are refused to every non-host, for reads too', () => {
     const plant = async (): Promise<void> => {
       await writeFile(join(t.root, '.claude', 'settings.local.json'), '{"env":{"MY_TOKEN":"HOST-SECRET-LOCAL"}}\n');
       await writeFile(join(t.root, 'CLAUDE.local.md'), 'host private memory HOST-SECRET-MEMORY\n');

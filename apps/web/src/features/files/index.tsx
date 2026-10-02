@@ -1,4 +1,4 @@
-// The file tree (SPEC R7 檔案樹, R8 lock badges, R9 tree switching; ARCHITECTURE §5.2): one lazily loaded tree per root
+// The file tree (SPEC R7 file tree, R8 lock badges, R9 tree switching; ARCHITECTURE §5.2): one lazily loaded tree per root
 // — the root the WorktreeSwitcher selected (files store `activeRoot`) — kept fresh by file.changed (the files store
 // re-lists loaded folders). Create / rename / delete with confirmation, a context menu, full keyboard navigation
 // (WAI-ARIA tree), downloads and uploads through the command bus (the transfer feature does the transfer; a drop is
@@ -53,6 +53,7 @@ import {
 import { ContextMenu } from './ContextMenu.tsx';
 import { DeleteDialog, NameDialog, type NameDialogMode } from './dialogs.tsx';
 import { ForceReleaseDialog, useCanForceRelease } from './ForceReleaseDialog.tsx';
+import { formatList } from '../../lib/format.ts';
 import { t } from './strings.ts';
 import { ancestorsOf, entryBadges, flattenTree, isEntryWritable, peopleUsing, targetDirOf, type EntryBadge, type TreeRow } from './tree-model.ts';
 import { useNow } from './use-now.ts';
@@ -191,7 +192,7 @@ export function FilesPanel(_props: FilesPanelProps) {
   const describeFileError = (error: unknown): string => {
     const lock = isSmurgError(error) ? lockOfError(error) : null;
     if (lock?.kind === 'agent') return t('error.agentLocked', { agent: lock.agentName });
-    if (lock?.kind === 'human') return t('error.humanLocked', { names: lock.holders.map((h) => h.displayName).join(t('list.separator')) });
+    if (lock?.kind === 'human') return t('error.humanLocked', { names: formatList(lock.holders.map((h) => h.displayName)) });
     return describeError(error);
   };
 
@@ -215,7 +216,7 @@ export function FilesPanel(_props: FilesPanelProps) {
   const renameEntry = (entry: FileEntry, to: string): Promise<void> =>
     attempt(async () => {
       await files.rename(root, entry.path, to);
-      // Open tabs of the file (or of everything in the folder) follow it to the new name (WEB-01).
+      // Open tabs of the file (or of everything in the folder) follow it to the new name.
       stores.docs.followRename(root, entry.path, to);
       focusRow(to);
     });
@@ -287,7 +288,7 @@ export function FilesPanel(_props: FilesPanelProps) {
       onSelect: () => download(entry),
     });
     if (entry) items.push({ id: 'copy-path', label: t('action.copyPath'), icon: <IconCopy />, onSelect: () => copyPath(entry.path) });
-    // The host can break any lock (SPEC R8, WEB-04); the dialog names who holds it.
+    // The host can break any lock (SPEC R8); the dialog names who holds it.
     const lock = entry && entry.kind !== 'dir' ? (liveLockOf(entry.path) === undefined ? (entry.lock ?? null) : liveLockOf(entry.path)) : null;
     if (entry && lock && canForceRelease) {
       items.push({ id: 'force-release', label: t('action.forceRelease'), icon: <IconUnlock />, danger: true, onSelect: () => setDialog({ kind: 'force-release', file: { root, path: entry.path }, lock }) });
@@ -396,8 +397,11 @@ export function FilesPanel(_props: FilesPanelProps) {
 
   const rootLabel = root.kind === 'main' ? t('root.main') : worktreeRootLabel(root, worktrees, member?.userId ?? null, sessionsById);
   const canWriteRoot = dirWritable('');
+  // Where the header's "New file" / "New folder" / upload go: the folder of the row the person focused, and the root
+  // until they focused one. (Not `effectiveFocus`: with nothing chosen that is the first row, only the keyboard's
+  // starting point; for the host the first row is the folder `.smurg`, smurg's own.)
   const headerTarget = (): string => {
-    const row = rows.find((r) => r.kind === 'entry' && r.path === effectiveFocus) ?? null;
+    const row = focusedPath === null ? null : (rows.find((r) => r.kind === 'entry' && r.path === focusedPath) ?? null);
     const dir = targetDirOf(row);
     return dirWritable(dir) ? dir : '';
   };

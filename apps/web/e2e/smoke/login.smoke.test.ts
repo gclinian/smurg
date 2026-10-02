@@ -2,9 +2,10 @@
 //  - a logged-out visitor's page load is clean: ONE request says which login methods exist (GET /api/login-options),
 //    nothing probes the login routes, and /api/me (401 without a session) is not asked when no session can exist;
 //  - the CLI's device-code login (2026-10-01): the REAL `smurg login` prints /device and a code; in a phone-sized
-//    window the relay's dev login, the code and 「允許」; the CLI saves the session; nothing fails on the way.
+//    window the relay's dev login, the code and "Allow"; the CLI saves the session; nothing fails on the way.
+// Everything is in English here: the browser contexts say `en-US`, the CLI runs with SMURG_LANG=en.
 // (The guest's own Claude subscription login of §11 D-12 is gone with the guest sandbox: every session uses the host's
-// Claude login, protocol v2.)
+// Claude login.)
 import { spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -34,7 +35,7 @@ describe.skipIf(chrome === null)('logging in, in a real browser (built app, real
   let env: SmokeEnv;
 
   beforeAll(async () => {
-    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# 班級專案\n' } } });
+    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# Class project\n' } } });
   }, 180_000);
 
   afterAll(async () => {
@@ -65,28 +66,28 @@ describe.skipIf(chrome === null)('logging in, in a real browser (built app, real
     // "/join/<id>" without an invite: the page explains, and nothing fails either.
     const bare = await env.newPage();
     await bare.goto(`${env.origin}/join/${env.stack.workspaceId}`);
-    await bare.getByRole('heading', { name: '邀請連結不完整' }).waitFor({ timeout: STEP_MS });
+    await bare.getByRole('heading', { name: 'The invite link is incomplete' }).waitFor({ timeout: STEP_MS });
     expect(env.problemsOf(bare)).toEqual({ console: [], pageErrors: [], failedRequests: [], httpErrors: [] });
 
     // Positive control: once this browser logged in, "/" does ask who it is (200) — still without an error.
-    await landing.getByLabel('帳號名稱').fill('olga');
-    await landing.getByRole('button', { name: '以開發用帳號登入' }).click();
-    await landing.getByRole('button', { name: '登出' }).waitFor({ timeout: STEP_MS });
+    await landing.getByLabel('Account name').fill('olga');
+    await landing.getByRole('button', { name: 'Log in with a development account' }).click();
+    await landing.getByRole('button', { name: 'Log out' }).waitFor({ timeout: STEP_MS });
     const afterLogin = recordRequests(landing);
     await landing.reload();
-    await landing.getByRole('button', { name: '登出' }).waitFor({ timeout: STEP_MS });
+    await landing.getByRole('button', { name: 'Log out' }).waitFor({ timeout: STEP_MS });
     expect(afterLogin).toContain('GET /api/me');
     expect(env.problemsOf(landing).console).toEqual([]);
     expect(env.problemsOf(landing).httpErrors).toEqual([]);
   }, 180_000);
 
-  it('smurg login by device code: the real CLI prints /device and a code; in Chrome the dev login, the code and 「允許」 sign it in, with zero console errors and zero failed requests', async () => {
+  it('smurg login by device code: the real CLI prints /device and a code; in Chrome the dev login, the code and "Allow" sign it in, with zero console errors and zero failed requests', async () => {
     const home = await createTempDir('web-smoke-device-login');
     const smurgHome = join(home, '.smurg');
     // The CLI of this repository in a process of its own: a temporary HOME, never the person's ~/.smurg, never a browser.
     const cli = spawn(process.execPath, [CLI_MAIN, 'login', '--relay', env.relay.origin], {
       cwd: home,
-      env: { PATH: '/usr/bin:/bin', HOME: home, SMURG_HOME: smurgHome, SMURG_NO_BROWSER: '1', TMPDIR: process.env['TMPDIR'] ?? '/tmp' },
+      env: { PATH: '/usr/bin:/bin', HOME: home, SMURG_HOME: smurgHome, SMURG_NO_BROWSER: '1', SMURG_LANG: 'en', TMPDIR: process.env['TMPDIR'] ?? '/tmp' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const pid = cli.pid as number;
@@ -97,26 +98,29 @@ describe.skipIf(chrome === null)('logging in, in a real browser (built app, real
     cli.stderr?.on('data', (chunk: Buffer) => (out += chunk.toString('utf8')));
     const exited = new Promise<number | null>((resolve) => cli.once('exit', (code) => resolve(code)));
     try {
-      await waitFor(() => out.includes('等待你在瀏覽器裡按「允許」') || cli.exitCode !== null, { timeoutMs: STEP_MS, what: 'the CLI to print the page and the code' });
-      const printed = /\n {2}(\S+\/device)\n輸入代碼：([A-Z]{4}-[A-Z]{4}) /.exec(out);
+      await waitFor(() => out.includes('Waiting for you to approve the request in your browser') || cli.exitCode !== null, { timeoutMs: STEP_MS, what: 'the CLI to print the page and the code' });
+      const printed = /\n {2}(\S+\/device)\nEnter the code: ([A-Z]{4}-[A-Z]{4}) /.exec(out);
       expect(printed, out).not.toBeNull();
       const [, pageUrl = '', code = ''] = printed as RegExpExecArray;
       // A phone-sized window: the page is short and typed on a phone as often as not.
       const page = await env.newPage({ width: 390, height: 844 });
       await page.goto(pageUrl);
-      await page.getByLabel('開發用帳號（僅限本機）').fill('quinn');
-      await page.getByRole('button', { name: '以開發用帳號登入' }).click();
-      await page.getByLabel('終端機顯示的代碼').fill(code.toLowerCase());
-      await page.getByRole('button', { name: '下一步' }).click();
-      await page.getByRole('heading', { name: '允許 smurg CLI 登入嗎？' }).waitFor({ timeout: STEP_MS });
+      await page.getByLabel('Development account (this machine only)').fill('quinn');
+      await page.getByRole('button', { name: 'Log in with a development account' }).click();
+      await page.getByLabel('Code shown in your terminal').fill(code.toLowerCase());
+      await page.getByRole('button', { name: 'Next' }).click();
+      await page.getByRole('heading', { name: 'Allow the smurg CLI to log in?' }).waitFor({ timeout: STEP_MS });
+      expect(await page.locator('body').getAttribute('data-state')).toBe('confirm');
+      expect(await page.locator('html').getAttribute('lang')).toBe('en');
       expect(await page.getByTestId('device-user-code').textContent()).toBe(code);
-      expect(await page.getByTestId('device-account').textContent()).toBe('quinn（dev:quinn）');
-      await page.getByRole('button', { name: '允許', exact: true }).click();
-      await page.getByRole('heading', { name: '已允許' }).waitFor({ timeout: STEP_MS });
+      expect(await page.getByTestId('device-account').textContent()).toBe('quinn (dev:quinn)');
+      await page.getByRole('button', { name: 'Allow', exact: true }).click();
+      await page.getByRole('heading', { name: 'Allowed' }).waitFor({ timeout: STEP_MS });
+      expect(await page.locator('body').getAttribute('data-state')).toBe('allowed');
       // The CLI polls every 5 s.
       await waitFor(() => cli.exitCode !== null, { timeoutMs: STEP_MS, what: 'the CLI to finish the login' });
       expect(await exited, out).toBe(0);
-      expect(out).toContain(`已登入 ${env.relay.origin}：quinn（dev:quinn）`);
+      expect(out).toContain(`Logged in to ${env.relay.origin}: quinn (dev:quinn)`);
       expect((await stat(join(smurgHome, 'credentials.json'))).mode & 0o777).toBe(0o600);
       expect(env.problemsOf(page)).toEqual({ console: [], pageErrors: [], failedRequests: [], httpErrors: [] });
     } finally {

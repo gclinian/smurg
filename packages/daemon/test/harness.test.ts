@@ -46,14 +46,14 @@ describe('test harness', () => {
     expect(updates).toContain('Amy Chen');
   });
 
-  it('answers requests of unfinished features with internal "not implemented"', async () => {
+  it('answers requests of unfinished features with internal / not-implemented', async () => {
     // No feature module composed: every service slot keeps its stub (every area is implemented by now, so the default
     // composition has no unfinished feature left to probe).
     t = await createTestDaemon({ modules: [] });
     const amy = await t.connect({ userId: 'dev:amy', role: 'editor' });
     const error = await amy.conn.request('file.tree', { root: MAIN_ROOT, path: '' }).catch((e: unknown) => e);
     expect(isSmurgError(error) && error.code).toBe('internal');
-    expect((error as Error).message).toContain('not implemented');
+    expect(error).toMatchObject({ detail: { reason: 'not-implemented' }, text: { id: 'error.default.internal' } });
   });
 
   it('stops cleanly: clients see channel.closed{stopped} (host offline), relay links closed', async () => {

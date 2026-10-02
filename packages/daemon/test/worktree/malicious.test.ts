@@ -157,7 +157,7 @@ describe('a malicious worktree cannot make the daemon run code or write outside'
     expect(request.status).toBe('pending');
   });
 
-  it('SEC-D-04: a chain of in-repo links whose target climbs through another link is refused (it would resolve outside the share)', async () => {
+  it('a chain of in-repo links whose target climbs through another link is refused (it would resolve outside the share)', async () => {
     await writeFile(join(outside, 'marker.txt'), 'HOST-FILE-OUTSIDE-SHARE\n');
     stack = await startWorktreeStack();
     const s = stack;

@@ -2,12 +2,14 @@
 // what the relay records about the machine that started a login, and how the /device page words it. Web APIs only, so
 // the Node tests use it unchanged; the record types are shared with the Durable Object and the tests.
 import { DEVICE_USER_CODE_ALPHABET, DEVICE_USER_CODE_LENGTH } from '@smurg/protocol/relay';
+import { intlTag, type Locale } from '@smurg/protocol/locale';
 import type { Identity } from '../auth/identity.ts';
+import { STRINGS } from './strings.ts';
 
 export const DEVICE_LIMITS = {
   /** One fixed window for every counter below. */
   windowMs: 10 * 60_000,
-  /** Wrong user codes one browser account may enter per window (then 「輸入錯誤的次數太多」 until the window ends). */
+  /** Wrong user codes one browser account may enter per window (then the "too many wrong codes" page until the window ends). */
   wrongCodesPerAccount: 10,
   /**
    * Wrong user codes per IP address per window. Higher than per account: a whole class behind one school NAT shares an
@@ -42,7 +44,7 @@ export type DeviceLoginRecord = {
   country: string | null;
   city: string | null;
   status: 'pending' | 'approved' | 'denied';
-  /** The browser session that pressed 「允許」 (status approved only). */
+  /** The browser session that pressed "Allow" (status approved only). */
   identity?: Identity;
 };
 
@@ -95,30 +97,31 @@ export function requestPlace(req: Request): RequestPlace {
   return { ip: ip !== null && IP_RE.test(ip) ? ip : null, country, city: city === '' ? null : city };
 }
 
-/** `Taipei，台灣`, `台灣`, or 「不明」. Country names in zh-TW where the runtime knows them, else the code. */
-export function placeText(country: string | null, city: string | null): string {
-  const name = country === null || country === 'XX' ? null : regionName(country);
-  if (city !== null && name !== null) return `${city}，${name}`;
-  return city ?? name ?? '不明';
+/** `Taipei, Taiwan`, `Taiwan`, or "unknown": the country's name in the page's language where the runtime knows it, else the code. */
+export function placeText(locale: Locale, country: string | null, city: string | null): string {
+  const s = STRINGS[locale];
+  const name = country === null || country === 'XX' ? null : regionName(locale, country);
+  if (city !== null && name !== null) return s.placeCityCountry(city, name);
+  return city ?? name ?? s.placeUnknown;
 }
 
-function regionName(code: string): string {
-  if (code === 'T1') return 'Tor 網路';
+function regionName(locale: Locale, code: string): string {
+  if (code === 'T1') return STRINGS[locale].torNetwork;
   try {
-    return new Intl.DisplayNames(['zh-Hant-TW'], { type: 'region' }).of(code) ?? code;
+    return new Intl.DisplayNames([intlTag(locale)], { type: 'region' }).of(code) ?? code;
   } catch {
     return code;
   }
 }
 
-/** 「3 分鐘前（2026-10-01 08:15 UTC）」: the page runs no script, so it cannot know the browser's time zone. */
-export function ageText(createdAt: number, now: number): string {
+/** `3 minutes ago (2026-10-01 08:15 UTC)`: the page runs no script, so it cannot know the browser's time zone. */
+export function ageText(locale: Locale, createdAt: number, now: number): string {
   const minutes = Math.floor(Math.max(0, now - createdAt) / 60_000);
   const utc = `${new Date(createdAt).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-  return `${minutes === 0 ? '不到 1 分鐘前' : `${minutes} 分鐘前`}（${utc}）`;
+  return STRINGS[locale].age(minutes, utc);
 }
 
-/** 「5 分鐘」: how long until `until`, rounded up to a whole minute (at least 1). */
-export function minutesUntil(until: number, now: number): string {
-  return `${Math.max(1, Math.ceil((until - now) / 60_000))} 分鐘`;
+/** Whole minutes until `until`, rounded up (at least 1). */
+export function minutesUntil(until: number, now: number): number {
+  return Math.max(1, Math.ceil((until - now) / 60_000));
 }

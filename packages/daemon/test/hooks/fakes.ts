@@ -4,6 +4,7 @@
 // again, a per-session cap, TTL, lock.changed on the bus, waitForRelease) — it is not the product's lock manager.
 import { fileRefKey, rootRefEquals, type FileRef, type LockInfo, type MemberNotification, type SessionInfo } from '@smurg/protocol';
 import type { DaemonContext, FeatureModule } from '../../src/core/context.ts';
+import { LOCK_CAP_REASON, OUTSIDE_ROOT_REASON, agentHeldReason, humanHeldReason } from '../../src/hooks/deny-text.ts';
 import type { ActivityFeed, AgentLockResult, EventBus, HumanTouchResult, LockManager, Principal, SessionManager, UserId } from '../../src/core/interfaces.ts';
 import { toDisposable, type Clock } from '../../src/core/lifecycle.ts';
 
@@ -102,19 +103,19 @@ export class FakeLockManager implements LockManager {
   requestAgent(input: { readonly file: FileRef; readonly sessionId: string; readonly ownerUserId: UserId; readonly agentName: string; readonly sessionRoot: FileRef['root'] }): AgentLockResult {
     const key = fileRefKey(input.file);
     this.calls.push({ op: 'requestAgent', sessionId: input.sessionId, file: key });
-    if (!rootRefEquals(input.file.root, input.sessionRoot)) return { granted: false, holder: null, reason: '只能鎖定這個 session 工作區內的檔案' };
+    if (!rootRefEquals(input.file.root, input.sessionRoot)) return { granted: false, holder: null, reason: OUTSIDE_ROOT_REASON };
     const human = this.human.get(key);
     if (human) {
-      return { granted: false, holder: human, reason: `此檔案正由 ${human.holders.map((h) => h.displayName).join('、')} 編輯中，請先處理其他檔案或稍後再試` };
+      return { granted: false, holder: human, reason: humanHeldReason(human.holders.map((h) => h.displayName)) };
     }
     const other = this.live(key);
     if (other && other.sessionId !== input.sessionId) {
-      return { granted: false, holder: other, reason: `此檔案正由 ${other.agentName}修改中，請先處理其他檔案或稍後再試` };
+      return { granted: false, holder: other, reason: agentHeldReason(other.agentName) };
     }
     // A session's previous lock is released when it asks again (contract).
     for (const lock of this.agentLocksOf(input.sessionId)) if (fileRefKey(lock.file) !== key) this.drop(lock, 'released');
     if (this.agentLocksOf(input.sessionId).filter((lock) => fileRefKey(lock.file) !== key).length >= this.capPerSession) {
-      return { granted: false, holder: null, reason: '這個 session 持有的檔案鎖已達上限' };
+      return { granted: false, holder: null, reason: LOCK_CAP_REASON };
     }
     const now = this.clock.now();
     const lock: AgentLock = { kind: 'agent', file: input.file, sessionId: input.sessionId, ownerUserId: input.ownerUserId, agentName: input.agentName, acquiredAt: other?.acquiredAt ?? now, expiresAt: now + this.ttlMs };
@@ -246,7 +247,6 @@ export function sessionInfo(id: string, owner: { readonly userId: string; readon
     kind: 'agent',
     ownerUserId: owner.userId,
     ownerName: owner.name,
-    title: `Claude（${owner.name}）`,
     root: { kind: 'main' },
     status: 'running',
     cols: 120,

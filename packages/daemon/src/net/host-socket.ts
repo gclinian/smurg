@@ -43,7 +43,7 @@ export function wsHostSocketFactory(): HostSocketFactory {
     ws.on('close', (code, reason) => handlers.close(code, reason.toString('utf8')));
     ws.on('error', (err) => handlers.error(err));
     // Without this listener `ws` only reports "Unexpected server response: 401" as an error text; the link needs the
-    // status to tell an expired login (stop hammering, tell the host) from a network problem (review REL-08).
+    // status to tell an expired login (stop hammering, tell the host) from a network problem.
     ws.on('unexpected-response', (_req, res) => {
       const status = res.statusCode ?? 0;
       res.resume(); // drain the body

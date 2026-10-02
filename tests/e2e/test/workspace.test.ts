@@ -28,7 +28,7 @@ describe('workspace wiring', () => {
   });
 
   it('loads the source-first entry points', () => {
-    expect(PROTOCOL_VERSION).toBe(2);
+    expect(PROTOCOL_VERSION).toBe(3);
     expect(DAEMON_VERSION).toBe(VERSION);
     expect(RELAY_MAX_RELAY_FRAME).toBe(MAX_RELAY_FRAME);
     expect(wsClientUrl('http://127.0.0.1:8787', 'AbCdEfGh_-012345')).toBe('ws://127.0.0.1:8787/ws/AbCdEfGh_-012345/client');

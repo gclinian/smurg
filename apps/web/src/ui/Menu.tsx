@@ -13,6 +13,8 @@ export interface MenuItem {
   readonly disabled?: boolean;
   /** Radio-like items (theme picker): shown with aria-checked. */
   readonly checked?: boolean;
+  /** The language of the label when it is not the page's (the language menu names each language in itself). */
+  readonly lang?: string;
   onSelect(): void;
 }
 
@@ -27,13 +29,15 @@ export interface MenuProps {
   size?: 'sm' | 'md';
   align?: 'start' | 'end';
   className?: string;
+  /** `data-testid` of the trigger (the menu itself is `<testId>-menu`). */
+  testId?: string;
 }
 
 /**
  * A menu button (WAI-ARIA menu pattern): Enter / Space / ArrowDown open it on the first item, ArrowUp on the last;
  * arrows move, Home / End jump, Escape closes and returns focus to the trigger, Tab closes.
  */
-export function Menu({ label, items, icon, text, variant = 'ghost', size = 'md', align = 'end', className }: MenuProps) {
+export function Menu({ label, items, icon, text, variant = 'ghost', size = 'md', align = 'end', className, testId }: MenuProps) {
   const menuId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -115,6 +119,7 @@ export function Menu({ label, items, icon, text, variant = 'ghost', size = 'md',
     onClick: toggle,
     onKeyDown: onTriggerKey,
     className,
+    'data-testid': testId,
   };
 
   return (
@@ -136,6 +141,7 @@ export function Menu({ label, items, icon, text, variant = 'ghost', size = 'md',
               role="menu"
               aria-label={label}
               className="ui-menu"
+              data-testid={testId === undefined ? undefined : `${testId}-menu`}
               style={position ?? { top: -9999, left: -9999 }}
               onKeyDown={onMenuKey}
             >
@@ -143,6 +149,7 @@ export function Menu({ label, items, icon, text, variant = 'ghost', size = 'md',
                 <button
                   key={item.id}
                   type="button"
+                  data-menu-item={item.id}
                   role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
                   aria-checked={item.checked}
                   aria-disabled={item.disabled || undefined}
@@ -155,7 +162,9 @@ export function Menu({ label, items, icon, text, variant = 'ghost', size = 'md',
                   }}
                 >
                   <span className="ui-menu__icon">{item.icon}</span>
-                  <span className="ui-menu__label">{item.label}</span>
+                  <span className="ui-menu__label" lang={item.lang}>
+                    {item.label}
+                  </span>
                   {item.hint ? <span className="ui-menu__hint">{item.hint}</span> : null}
                 </button>
               ))}

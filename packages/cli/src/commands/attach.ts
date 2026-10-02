@@ -6,7 +6,7 @@
 // Without a session it lists the sessions; with one it takes over the terminal (attach/attach-session.ts).
 // An invite whose daemon key differs from the key this device pinned for the workspace (the host started over with new
 // workspace keys, HOSTING §5.1 / §8 — or someone poses as the host) is explained and used only after the person's
-// explicit yes at a terminal or --accept-new-key (verification M1; the web asks the same, 「主人的電腦金鑰和之前不同」).
+// explicit yes at a terminal or --accept-new-key (the web app asks the same question).
 import { hostname } from 'node:os';
 import { InviteLinkError, can, daemonKeyFingerprint, equalBytes, formatFingerprintForDisplay, parseInviteUrl, type SessionInfo } from '@smurg/protocol';
 import type { ConnectionRelay } from '@smurg/protocol/client';
@@ -23,31 +23,14 @@ import { DEFAULT_RELAY_URL } from '../relay/default-relay.ts';
 import { builtInRelayNotice, pickRelay, relayApi, relayOriginOf } from '../relay/relay.ts';
 import { loadCredentials, sessionFor } from '../state/credentials.ts';
 import { loadWorkspaces, rememberJoined } from '../state/workspaces.ts';
-import { attachSession, readOnlyNotice, signalExitCode, type AttachOutcome } from '../attach/attach-session.ts';
+import { attachSession, readOnlyNotice, sessionTitle, signalExitCode, type AttachOutcome } from '../attach/attach-session.ts';
 import { localeIsUtf8 } from '../attach/output-filter.ts';
-import { say, type CommandContext } from './context.ts';
+import { m, renderText, type Locale, type Text } from '../i18n/index.ts';
+import { say, tr, type CommandContext } from './context.ts';
 
 /** `smurg attach --help`; the --relay default depends on the built-in relay (../relay/default-relay.ts). */
-export function attachUsage(): string {
-  const relayDefault = DEFAULT_RELAY_URL === null ? '邀請連結的網址或上次使用的 relay' : `邀請連結的網址、上次使用的 relay，或內建的公用 relay ${DEFAULT_RELAY_URL}`;
-  return `用法：smurg attach [session] [--workspace 工作區ID] [--invite -|邀請連結] [--relay 網址] [--no-browser] [--accept-new-key]
-
-  把 agent session 接到這個終端機。不指定 session 時列出所有 session。
-  session 可以是列表中的編號、session ID 或 ID 的開頭。
-  這台電腦正在分享該工作區時（smurg host），直接以主人身分接上；否則透過 relay 以這台電腦的裝置金鑰加入。
-  --invite -          第一次加入別人的工作區：執行後貼上主人給的邀請連結（不會顯示在畫面上）。
-                      也可以把連結放在環境變數 SMURG_INVITE。只有第一次需要，之後用 --workspace 即可。
-                      直接把連結寫在命令列（--invite 連結）也可以，但連結裡的密鑰會留在 shell 的歷史紀錄，
-                      執行期間也會出現在程序列表（ps）裡。
-  --workspace ID      指定工作區（預設：目前資料夾所分享的工作區，或唯一一個）
-  --relay 網址        relay 的網址（預設：${relayDefault}）
-  --no-browser        需要登入 relay 時不自動開啟瀏覽器，只顯示網址（SMURG_NO_BROWSER=1 也一樣）
-  --accept-new-key    邀請連結的主人金鑰和這台電腦上次記錄的不同時（「主人的電腦金鑰和之前不同」），
-                      不再詢問就改用邀請連結的金鑰。只在你已經透過其他管道向主人確認過金鑰指紋時使用。
-
-  接上之後：按 Ctrl-] 離開（session 繼續執行）。主人和「可使用 agent」的組員可以在任何 session 裡輸入，其他角色唯讀。
-  說明（組員指南）：https://smurg.ai/docs/joining/#10-用終端機cli加入選用
-`;
+export function attachUsage(): Text {
+  return m('usage.attach', { relayDefault: DEFAULT_RELAY_URL === null ? m('attach.relayDefault.none') : m('attach.relayDefault.builtIn', { url: DEFAULT_RELAY_URL }) });
 }
 
 /** Tests inject the relay transport (an in-memory relay); production uses RelayApi with the stored session. */
@@ -55,25 +38,27 @@ export interface AttachDeps {
   readonly relayFor?: (origin: string) => Promise<ConnectionRelay>;
 }
 
-function deviceName(): string {
-  const host = hostname().replace(/\.local$/, '').slice(0, 64);
-  return `smurg CLI（${host || '這台電腦'}）`;
+/** The name this device has in the host's member list: one spelling for every language (docs/GLOSSARY.md). */
+export function deviceName(host: string = hostname()): string {
+  const name = host.replace(/\.local$/, '').slice(0, 64);
+  return name === '' ? 'smurg CLI' : `smurg CLI (${name})`;
 }
 
-function statusText(s: SessionInfo): string {
-  if (s.status === 'exited') return `已結束（${s.exitCode ?? 0}）`;
-  return s.status === 'starting' ? '啟動中' : '執行中';
+function statusText(s: SessionInfo): Text {
+  if (s.status === 'exited') return m('attach.status.exited', { exitCode: s.exitCode ?? 0 });
+  return m(s.status === 'starting' ? 'attach.status.starting' : 'attach.status.running');
 }
 
-export function formatSessionList(sessions: readonly SessionInfo[], me: string): string {
-  if (sessions.length === 0) return '這個工作區目前沒有 session。';
-  const lines = ['編號  session ID                        類型      擁有者        狀態        標題'];
+export function formatSessionList(sessions: readonly SessionInfo[], me: string, lang: Locale): string {
+  const tr = (text: Text): string => renderText(lang, text);
+  if (sessions.length === 0) return tr(m('attach.list.empty'));
+  const lines = [tr(m('attach.list.header'))];
   sessions.forEach((s, i) => {
-    const kind = s.kind === 'agent' ? 'agent' : '終端機';
-    const owner = s.ownerUserId === me ? `${s.ownerName}（你）` : s.ownerName;
-    lines.push(`${String(i + 1).padEnd(4)}  ${s.id.padEnd(32)}  ${kind.padEnd(8)}  ${owner.padEnd(12)}  ${statusText(s).padEnd(10)}  ${s.title}`);
+    const kind = tr(m(s.kind === 'agent' ? 'attach.kind.agent' : 'attach.kind.terminal'));
+    const owner = s.ownerUserId === me ? tr(m('attach.owner.you', { name: s.ownerName })) : s.ownerName;
+    lines.push(`${String(i + 1).padEnd(4)}  ${s.id.padEnd(32)}  ${kind.padEnd(8)}  ${owner.padEnd(12)}  ${tr(statusText(s)).padEnd(10)}  ${tr(sessionTitle(s))}`);
   });
-  lines.push('', '用 smurg attach <編號或 session ID> 接上。');
+  lines.push('', tr(m('attach.list.footer')));
   return lines.join('\n');
 }
 
@@ -88,8 +73,8 @@ export function pickSession(sessions: readonly SessionInfo[], wanted: string): S
   if (exact) return exact;
   const prefixed = sessions.filter((s) => s.id.startsWith(wanted));
   if (prefixed.length === 1) return prefixed[0] as SessionInfo;
-  if (prefixed.length > 1) throw usageError(`「${wanted}」符合多個 session，請輸入更長的 ID`);
-  throw usageError(`找不到 session「${wanted}」`, '不指定 session 執行 smurg attach 可以列出所有 session。');
+  if (prefixed.length > 1) throw usageError(m('attach.pick.ambiguous', { wanted }));
+  throw usageError(m('attach.pick.notFound', { wanted }), m('attach.pick.notFound.hint'));
 }
 
 interface Target {
@@ -107,12 +92,12 @@ async function resolveTarget(ctx: CommandContext, flags: { workspace?: string; i
     try {
       parsed = parseInviteUrl(flags.invite);
     } catch (err) {
-      if (err instanceof InviteLinkError) throw usageError('邀請連結不正確', '請完整複製主人給的連結（包含 # 之後的部分）。');
+      if (err instanceof InviteLinkError) throw usageError(m('attach.invite.bad'), m('attach.invite.bad.hint'));
       throw err;
     }
-    if (flags.workspace !== undefined && flags.workspace !== parsed.workspaceId) throw usageError('--workspace 和邀請連結的工作區不一致');
+    if (flags.workspace !== undefined && flags.workspace !== parsed.workspaceId) throw usageError(m('attach.invite.otherWorkspace'));
     // The invite's origin is the web origin, which is the relay in production (the relay serves the web app).
-    const relay = flags.relay !== undefined ? relayOriginOf(flags.relay) : relayOriginOf(parsed.origin, '邀請連結');
+    const relay = flags.relay !== undefined ? relayOriginOf(flags.relay) : relayOriginOf(parsed.origin, 'invite');
     return { kind: 'relay', workspaceId: parsed.workspaceId, relay, invite: { fingerprint: parsed.fingerprint, secret: parsed.secret } };
   }
   const hinted = await hintedWorkspace(ctx.paths, flags.workspace, ctx.io.cwd);
@@ -132,13 +117,13 @@ async function resolveTarget(ctx: CommandContext, flags: { workspace?: string; i
     const only = running[0] as (typeof running)[number];
     return { kind: 'local', workspaceId: only.status.workspaceId, ctlPath: only.ctlPath };
   }
-  if (running.length > 1) throw usageError('這台電腦有多個工作區正在分享，請用 --workspace 指定', `正在分享：${running.map((d) => d.status.workspaceId).join('、')}`);
+  if (running.length > 1) throw usageError(m('attach.several'), m('attach.several.hint', { ids: running.map((d) => d.status.workspaceId) }));
   const joined = (await loadWorkspaces(ctx.paths)).joined;
   if (joined.length === 1) {
     const only = joined[0] as (typeof joined)[number];
     return { kind: 'relay', workspaceId: only.workspaceId, relay: flags.relay !== undefined ? relayOriginOf(flags.relay) : only.relay };
   }
-  throw usageError('不知道要接上哪個工作區', '第一次加入請用 --invite -（執行後貼上邀請連結）；之後可以用 --workspace <工作區ID>。');
+  throw usageError(m('attach.noTarget'), m('attach.noTarget.hint'));
 }
 
 /**
@@ -152,30 +137,12 @@ async function explainLoginOrigin(ctx: CommandContext, origin: string): Promise<
   if (sessionFor(credentials, origin, now)) return;
   const others = Object.keys(credentials.relays).filter((o) => o !== origin && sessionFor(credentials, o, now) !== null);
   if (others.length === 0) return;
-  say(
-    ctx,
-    [
-      `注意：這台電腦登入過 ${others.join('、')}，但還沒有登入 ${origin}（登入是依網址分開記錄的）。`,
-      `  如果 ${origin} 只是同一個 relay 的網頁（例如本機開發時的網頁伺服器），可以按 Ctrl-C，加上 --relay ${others[0]} 再執行一次；`,
-      `  否則請先執行  smurg login --relay ${origin}  。`,
-    ].join('\n'),
-  );
+  say(ctx, m('attach.loginOrigin', { others, origin, first: others[0] as string }));
 }
 
-/** What `smurg attach` says when the invite's daemon key is not the one this device pinned (the web's keyChange text). */
-export function keyChangeNotice(pinned: string, invited: string): string {
-  return [
-    '',
-    '主人的電腦金鑰和之前不同',
-    '  你之前加入過這個工作區，當時主人電腦的金鑰和這個邀請連結記載的不一樣。',
-    '  這通常是因為主人重新設定了工作區（例如收回「可使用 agent」之後換了新的金鑰）或重新安裝了 smurg；',
-    '  但也可能是有人想冒充主人。',
-    `  上次記錄的金鑰指紋：${pinned}`,
-    `  邀請連結的金鑰指紋：${invited}`,
-    '  只有在你已經透過其他管道（當面、電話或你們平常使用的通訊軟體）向主人確認，這個新連結確實是主人剛剛給你的，',
-    '  而且主人用 smurg status 看到的「daemon 金鑰指紋」和上面「邀請連結的金鑰指紋」相同，才繼續。',
-    '',
-  ].join('\n');
+/** What `smurg attach` says when the invite's daemon key is not the one this device pinned. */
+export function keyChangeNotice(pinned: string, invited: string): Text {
+  return m('attach.keyChange', { pinned, invited });
 }
 
 /**
@@ -192,16 +159,14 @@ async function confirmNewHostKey(ctx: CommandContext, target: Target, accept: bo
   if (pinned === null) return false;
   const pinnedFingerprint = daemonKeyFingerprint(pinned);
   if (equalBytes(pinnedFingerprint, invite.fingerprint)) return false;
-  ctx.io.stderr.write(`${keyChangeNotice(formatFingerprintForDisplay(pinnedFingerprint), formatFingerprintForDisplay(invite.fingerprint))}\n`);
+  ctx.io.stderr.write(`${tr(ctx, keyChangeNotice(formatFingerprintForDisplay(pinnedFingerprint), formatFingerprintForDisplay(invite.fingerprint)))}\n`);
   if (accept) {
-    ctx.io.stderr.write('已指定 --accept-new-key：改用邀請連結的金鑰。\n');
+    ctx.io.stderr.write(tr(ctx, m('attach.keyChange.accepted')));
     return true;
   }
-  const answer = await ctx.io.readLine('確認過了嗎？輸入 y 用新的連結加入，其他輸入取消：');
+  const answer = await ctx.io.readLine(tr(ctx, m('attach.keyChange.question')));
   if (answer !== null && /^(?:y|yes)$/i.test(answer)) return true;
-  throw new CliError('已取消，沒有連線；這台電腦記錄的主人金鑰沒有改變。', {
-    hint: answer === null ? '不在終端機裡執行時無法詢問：向主人確認過金鑰指紋之後，加上 --accept-new-key 再執行一次。' : '向主人確認過金鑰指紋之後再執行一次。',
-  });
+  throw new CliError(m('attach.keyChange.cancelled'), { hint: m(answer === null ? 'attach.keyChange.cancelled.noTerminal' : 'attach.keyChange.cancelled.hint') });
 }
 
 async function openChannel(ctx: CommandContext, target: Target, deps: AttachDeps, noBrowser: boolean, acceptNewKey: boolean): Promise<WorkspaceChannel> {
@@ -230,15 +195,12 @@ async function openChannel(ctx: CommandContext, target: Target, deps: AttachDeps
  */
 export async function inviteLink(ctx: CommandContext, flag: string | undefined, workspace?: string): Promise<string | undefined> {
   if (flag === '-') {
-    const typed = await ctx.io.readSecret('請貼上主人給的邀請連結（不會顯示在畫面上），然後按 Enter：');
-    if (typed === null) throw usageError('沒有收到邀請連結', '請重新執行，貼上完整的連結（包含 # 之後的部分）後按 Enter。');
+    const typed = await ctx.io.readSecret(tr(ctx, m('attach.invite.prompt')));
+    if (typed === null) throw usageError(m('attach.invite.none'), m('attach.invite.none.hint'));
     return typed;
   }
   if (flag !== undefined) {
-    ctx.io.stderr.write(
-      '注意：寫在命令列上的邀請連結（含密鑰）會留在 shell 的歷史紀錄，執行期間也會出現在程序列表（ps）裡。' +
-        '下次請改用 --invite -（執行後貼上連結）或環境變數 SMURG_INVITE；加入過一次之後只需要 --workspace。\n',
-    );
+    ctx.io.stderr.write(tr(ctx, m('attach.invite.onCommandLine')));
     return flag;
   }
   const env = ctx.io.env['SMURG_INVITE']?.trim();
@@ -277,7 +239,7 @@ export async function runAttach(argv: readonly string[], ctx: CommandContext, de
       'accept-new-key': { kind: 'boolean' },
       help: { kind: 'boolean', short: 'h' },
     },
-    positionals: ['session'],
+    positionals: [m('arg.session')],
   });
   if (args.options['help']) {
     say(ctx, attachUsage());
@@ -285,7 +247,7 @@ export async function runAttach(argv: readonly string[], ctx: CommandContext, de
   }
   const wanted = args.positionals[0];
   const terminal = ctx.io.terminal;
-  if (wanted !== undefined && !terminal.isTTY) throw usageError('smurg attach 需要在終端機中執行（標準輸入和輸出都必須是終端機）');
+  if (wanted !== undefined && !terminal.isTTY) throw usageError(m('attach.needsTerminal'));
   const invite = await inviteLink(ctx, stringOption(args, 'invite'), stringOption(args, 'workspace'));
   const flags = {
     ...(stringOption(args, 'workspace') !== undefined ? { workspace: stringOption(args, 'workspace') as string } : {}),
@@ -298,16 +260,18 @@ export async function runAttach(argv: readonly string[], ctx: CommandContext, de
     const me = channel.welcome.member.userId;
     const { sessions } = await channel.request('session.list', {});
     if (wanted === undefined) {
-      say(ctx, `工作區「${channel.welcome.workspace.name}」（${target.workspaceId}，${target.kind === 'local' ? '本機' : `透過 relay ${target.relay as string}`}）`);
-      say(ctx, formatSessionList(sessions, me));
+      const name = channel.welcome.workspace.name;
+      say(ctx, target.kind === 'local' ? m('attach.list.workspace.local', { name, workspaceId: target.workspaceId }) : m('attach.list.workspace.relay', { name, workspaceId: target.workspaceId, relay: target.relay as string }));
+      say(ctx, formatSessionList(sessions, me, ctx.lang));
       return EXIT.ok;
     }
     const session = pickSession(sessions, wanted);
-    if (session.status === 'exited') throw new CliError(`session「${session.title}」已經結束（結束代碼 ${session.exitCode ?? 0}）`);
+    const title = sessionTitle(session);
+    if (session.status === 'exited') throw new CliError(m('attach.sessionExited', { title, exitCode: session.exitCode ?? 0 }));
     const isOwner = session.ownerUserId === me;
-    say(ctx, `接上 session「${session.title}」（${session.ownerName}${isOwner ? '，你的 session' : ' 開的'}）。按 Ctrl-] 離開。`);
+    say(ctx, m(isOwner ? 'attach.attaching.own' : 'attach.attaching.other', { title, owner: session.ownerName }));
     if (!can(channel.welcome.member.role, 'session.drive')) say(ctx, readOnlyNotice(session));
-    const outcome = await attachSession({ channel, session, terminal, io: ctx.io, utf8: localeIsUtf8(ctx.io.env) });
+    const outcome = await attachSession({ channel, session, terminal, io: ctx.io, lang: ctx.lang, utf8: localeIsUtf8(ctx.io.env) });
     return exitCodeOf(outcome);
   } finally {
     channel.close();

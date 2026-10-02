@@ -158,7 +158,7 @@ export async function googleIdentity(
     provider: 'google',
     subject: sub,
     displayName: typeof claims['name'] === 'string' && claims['name'] !== '' ? claims['name'] : email,
-    fallbackName: email ?? 'Google 使用者',
+    fallbackName: email ?? 'Google user',
     avatarUrl: typeof claims['picture'] === 'string' ? claims['picture'] : undefined,
   });
   if (!identity) throw new ProviderError('google id_token: unusable identity');

@@ -1,4 +1,4 @@
-// The side-by-side view of one conflict hunk (SPEC R8 衝突面板): the human text that was kept on the left, the agent's
+// The side-by-side view of one conflict hunk (SPEC R8, the conflict panel): the human text that was kept on the left, the agent's
 // (or another process's) text on the right, lines aligned by a line-level LCS so that unchanged lines sit next to
 // each other and changed ones are marked. Pure and bounded: hunk texts are at most 64 KiB each, and a hunk whose LCS
 // table would exceed DIFF_MAX_CELLS falls back to pairing lines by position (still exact text, only coarser marks).

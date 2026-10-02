@@ -6,6 +6,7 @@ import { createConnection } from 'node:net';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type FileRef } from '@smurg/protocol';
+import { agentHeldReason, humanHeldReason } from '../../src/hooks/deny-text.ts';
 import { hooksModule } from '../../src/hooks/module.ts';
 import { locksModule } from '../../src/locks/module.ts';
 import { createTestDaemon, waitFor, type TestDaemon } from '../../src/testing/index.ts';
@@ -63,7 +64,7 @@ async function setup(): Promise<{ readonly d: TestDaemon; readonly ian: Agent; r
   await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
   const hooks = d.ctx.services.hooks;
   const agent = (sessionId: string, ownerUserId: string, name: string): Agent => {
-    const { token } = hooks.registerSession({ sessionId, ownerUserId, agentName: `Claude（${name}）`, root: MAIN_ROOT });
+    const { token } = hooks.registerSession({ sessionId, ownerUserId, agentName: `Claude (${name})`, root: MAIN_ROOT });
     return {
       sessionId,
       hook: async (hookInput) => {
@@ -93,11 +94,11 @@ function denyReason(output: unknown): string | null {
 }
 
 describe('R8 through the hook socket (hooks module + locks module)', () => {
-  it('R8.1 有人正在打字的檔案，agent 的 Edit 被擋下，並收到持有者的名字 — the PreToolUse answer Claude Code gets', async () => {
+  it('R8.1 an agent\'s Edit of a file someone is typing in is blocked and names the holder — the PreToolUse answer Claude Code gets', async () => {
     const { d, ian } = await setup();
     humanTypes(d, { userId: 'dev:amy', displayName: 'Amy' }, APP);
     const output = await ian.hook(toolEvent(d, 'PreToolUse'));
-    expect(denyReason(output)).toBe('此檔案正由 Amy 編輯中，請先處理其他檔案或稍後再試');
+    expect(denyReason(output)).toBe(humanHeldReason(['Amy']));
     expect(d.ctx.services.locks.get(APP)?.kind).toBe('human');
   });
 
@@ -108,15 +109,15 @@ describe('R8 through the hook socket (hooks module + locks module)', () => {
     const activity = recorder(host.conn, 'activity.event');
 
     expect(await ian.hook(toolEvent(d, 'PreToolUse'))).toBeNull(); // granted: nothing printed, never "allow"
-    expect(d.ctx.services.locks.get(APP)).toMatchObject({ kind: 'agent', sessionId: 'ses_ian', agentName: 'Claude（Ian）' });
+    expect(d.ctx.services.locks.get(APP)).toMatchObject({ kind: 'agent', sessionId: 'ses_ian', agentName: 'Claude (Ian)' });
     expect(await ian.hook(toolEvent(d, 'PermissionRequest'))).toBeNull();
-    expect(denyReason(await hosts.hook(toolEvent(d, 'PreToolUse', 'Write')))).toContain('Claude（Ian）正在修改此檔案');
+    expect(denyReason(await hosts.hook(toolEvent(d, 'PreToolUse', 'Write')))).toBe(agentHeldReason('Claude (Ian)'));
 
     expect(await ian.hook(toolEvent(d, 'PostToolUse'))).toBeNull();
     expect(d.ctx.services.locks.get(APP)).toBeNull();
     await waitFor(() => states.some((s) => s.lock === null) && activity.some((a) => a.event.kind === 'agent.edit'), { what: 'release and the activity entry' });
-    expect(states[0]).toMatchObject({ file: APP, lock: { kind: 'agent', agentName: 'Claude（Ian）' } });
-    expect(activity.find((a) => a.event.kind === 'agent.edit')?.event.actor).toEqual({ kind: 'agent', sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude（Ian）' });
+    expect(states[0]).toMatchObject({ file: APP, lock: { kind: 'agent', agentName: 'Claude (Ian)' } });
+    expect(activity.find((a) => a.event.kind === 'agent.edit')?.event.actor).toEqual({ kind: 'agent', sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude (Ian)' });
     expect(activity.find((a) => a.event.kind === 'lock.denied')?.event.actor).toMatchObject({ kind: 'agent', sessionId: 'ses_host' });
   });
 

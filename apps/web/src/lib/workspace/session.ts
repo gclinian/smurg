@@ -9,7 +9,7 @@ export interface WorkspaceSession {
   readonly stores: WorkspaceStores;
   readonly commands: CommandBus;
   /**
-   * 「離開」: channel.leave (the daemon ends this member's sessions and deletes their guest directory, which logs
+   * "Leave": channel.leave (the daemon ends this member's sessions and deletes their guest directory, which logs
    * Claude out), then the connection closes for good. Resolves once the daemon answered or the request failed.
    */
   leave(): Promise<void>;

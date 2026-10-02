@@ -166,9 +166,6 @@
   white-space: nowrap;
   color: var(--color-text-subtle);
 }
-.agents-info dt::after {
-  content: '：';
-}
 .agents-info dd {
   margin: 0;
   min-width: 0;
@@ -405,4 +402,17 @@
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
+}
+
+/* Every tab was closed by this person while ended sessions still exist: one quiet line with the way back. */
+.agents-hidden {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-text-subtle);
 }

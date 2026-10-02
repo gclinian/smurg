@@ -12,7 +12,7 @@
 //  - doc.rejected 'read-only' / 'forbidden' / 'file-unavailable': the daemon DROPPED our update, so our replica holds text nobody else has
 //    and would re-send it with every step 2: drop the replica (a fresh Y.Doc re-syncs from the daemon). 'agent-locked'
 //    was applied-then-reverted by the daemon, so the revert reaches us like any update and nothing more is needed.
-//  - text typed while the host was unreachable is never thrown away with a dropped replica (review REL-07): a new epoch
+//  - text typed while the host was unreachable is never thrown away with a dropped replica: a new epoch
 //    (daemon restart, or a host outage long enough for the daemon to discard the channel and the room) or a divergence
 //    drops a replica that may hold edits the daemon never received. The session keeps that replica's text L and the
 //    text B from before the first of those edits. Once the new replica has synced to the daemon's text N:
@@ -69,7 +69,7 @@ export interface DocSessionState {
   /** Why the replica was last dropped while bound, when, and what became of local text it may have held. */
   readonly dropped: { readonly reason: ReplicaDropReason; readonly at: number; readonly outcome: DropOutcome } | null;
   /**
-   * Local text of a dropped replica that could not be merged into the daemon's new text automatically (REL-07): kept
+   * Local text of a dropped replica that could not be merged into the daemon's new text automatically: kept
    * until the user copies it, puts it back (applyRecovery) or discards it.
    */
   readonly recovery: { readonly text: string; readonly reason: Exclude<ReplicaDropReason, 'rejected'>; readonly at: number } | null;
@@ -302,7 +302,7 @@ class DocSessionImpl implements DocSession {
     // receives again: carry them over so they do not vanish until those people move.
     const remote = options.keepRemotePresence ? [...old.getStates().keys()].filter((id) => id !== old.clientID) : [];
     const carried = remote.length > 0 ? awarenessProtocol.encodeAwarenessUpdate(old, remote) : null;
-    // Local text the daemon may never have received (REL-07). A rejection is different: the daemon refused it on
+    // Local text the daemon may never have received. A rejection is different: the daemon refused it on
     // purpose and doc.rejected said so. A replica dropped again before it synced still waits for the earlier text.
     const base = this.unconfirmedBase;
     this.unconfirmedBase = null;

@@ -6,6 +6,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type FileRef } from '@smurg/protocol';
+import { humanHeldReason } from '../../src/hooks/deny-text.ts';
 import { createTestDaemon, waitFor, type TestDaemon } from '../../src/testing/index.ts';
 import { DocClient, destroyDocClients } from '../docs/helpers.ts';
 import { denyReason, hookInput, recorder, runHook, sleep } from './support.ts';
@@ -22,7 +23,7 @@ afterEach(async () => {
 });
 
 describe('docs + locks + hooks (real modules, real hook entry)', { timeout: 120_000 }, () => {
-  it('a person types → the agent\'s Edit is refused naming them; they go idle → the agent gets the lock, every editor is read-only; PostToolUse → editable again, and the agent\'s disk write reaches every editor and the activity feed as 「Claude（Ian）」', async () => {
+  it('a person types → the agent\'s Edit is refused naming them; they go idle → the agent gets the lock, every editor is read-only; PostToolUse → editable again, and the agent\'s disk write reaches every editor and the activity feed as `Claude (Ian)`', async () => {
     t = await createTestDaemon({ project: { files: { 'src/app.ts': ORIGINAL } }, settings: { humanLockIdleMs: 3_000 } });
     const d = t;
     const host = await d.connectHost();
@@ -38,8 +39,8 @@ describe('docs + locks + hooks (real modules, real hook entry)', { timeout: 120_
     const hostDoc = await DocClient.open(host.conn, APP);
     await waitFor(() => amyDoc.synced && hostDoc.synced && amyDoc.text.toString() === ORIGINAL, { what: 'both editors synced' });
 
-    // The agent session Ian (a 「可使用 agent」 member) opened: registered with the real hook server, as the sessions module does.
-    const agent = d.ctx.services.hooks.registerSession({ sessionId: 'ses_integration_ian', ownerUserId: 'dev:ian', agentName: 'Claude（Ian）', root: MAIN_ROOT });
+    // The agent session Ian (a Agent access member) opened: registered with the real hook server, as the sessions module does.
+    const agent = d.ctx.services.hooks.registerSession({ sessionId: 'ses_integration_ian', ownerUserId: 'dev:ian', agentName: 'Claude (Ian)', root: MAIN_ROOT });
 
     // 1. Amy types her first character: the human lock is hers.
     amyDoc.text.insert(0, '// amy\n');
@@ -47,7 +48,7 @@ describe('docs + locks + hooks (real modules, real hook entry)', { timeout: 120_
     // …the agent's Edit through the real hook entry is refused, and the reason names her.
     const refused = await runHook(agent.env, hookInput('PreToolUse', absApp, d.root), d.root);
     expect(refused.code).toBe(0);
-    expect(denyReason(refused)).toBe('此檔案正由 Amy 編輯中，請先處理其他檔案或稍後再試');
+    expect(denyReason(refused)).toBe(humanHeldReason(['Amy']));
     await waitFor(() => activity.some((a) => a.event.kind === 'lock.denied'), { what: 'the lock.denied activity entry' });
     // The typed text reaches the disk by autosave; the agent's refused edit changed nothing.
     await waitFor(async () => (await readFile(absApp, 'utf8')) === `// amy\n${ORIGINAL}`, { what: 'the autosave of Amy\'s text' });
@@ -60,16 +61,16 @@ describe('docs + locks + hooks (real modules, real hook entry)', { timeout: 120_
     const granted = await runHook(agent.env, hookInput('PreToolUse', absApp, d.root), d.root);
     expect(granted.code).toBe(0);
     expect(denyReason(granted)).toBeNull();
-    expect(d.ctx.services.locks.get(APP)).toMatchObject({ kind: 'agent', sessionId: 'ses_integration_ian', agentName: 'Claude（Ian）' });
+    expect(d.ctx.services.locks.get(APP)).toMatchObject({ kind: 'agent', sessionId: 'ses_integration_ian', agentName: 'Claude (Ian)' });
     // Every client (host, both editors, the viewer) is told the file is the agent's: their editors are read-only.
     await waitFor(
       () => lockStates.every((states) => states.at(-1)?.lock?.kind === 'agent'),
       { what: 'lock.state (agent) at every client' },
     );
-    for (const states of lockStates) expect(states.at(-1)).toMatchObject({ file: APP, lock: { kind: 'agent', agentName: 'Claude（Ian）', ownerUserId: 'dev:ian' } });
+    for (const states of lockStates) expect(states.at(-1)).toMatchObject({ file: APP, lock: { kind: 'agent', agentName: 'Claude (Ian)', ownerUserId: 'dev:ian' } });
     const caraDoc = await DocClient.open(cara.conn, APP);
     expect(caraDoc.opened.canEdit).toBe(false);
-    expect(caraDoc.opened.lock).toMatchObject({ kind: 'agent', agentName: 'Claude（Ian）' });
+    expect(caraDoc.opened.lock).toMatchObject({ kind: 'agent', agentName: 'Claude (Ian)' });
     // A person's update that still arrives is refused and reverted everywhere.
     amyDoc.text.insert(amyDoc.text.length, '// typed while locked\n');
     await waitFor(() => amyDoc.rejected.length > 0, { what: 'doc.rejected for Amy' });
@@ -93,9 +94,9 @@ describe('docs + locks + hooks (real modules, real hook entry)', { timeout: 120_
     // …and in the activity feed, attributed to the agent and its owner.
     await waitFor(() => activity.some((a) => a.event.kind === 'agent.edit'), { timeoutMs: 15_000, what: 'the agent.edit activity entry' });
     const edit = activity.find((a) => a.event.kind === 'agent.edit')?.event;
-    expect(edit).toMatchObject({ file: APP, actor: { kind: 'agent', sessionId: 'ses_integration_ian', ownerUserId: 'dev:ian', displayName: 'Claude（Ian）' } });
+    expect(edit).toMatchObject({ file: APP, actor: { kind: 'agent', sessionId: 'ses_integration_ian', ownerUserId: 'dev:ian', displayName: 'Claude (Ian)' } });
     const listed = await vera.conn.request('activity.list', { limit: 50 });
-    expect(listed.events.some((e) => e.kind === 'agent.edit' && e.actor.kind === 'agent' && e.actor.displayName === 'Claude（Ian）')).toBe(true);
+    expect(listed.events.some((e) => e.kind === 'agent.edit' && e.actor.kind === 'agent' && e.actor.displayName === 'Claude (Ian)')).toBe(true);
     const audit = await host.conn.request('admin.audit.query', { limit: 200 });
     expect(audit.entries.some((e) => e.action === 'lock.denied' && e.actor.kind === 'agent' && e.actor.ownerUserId === 'dev:ian')).toBe(true);
     expect(audit.entries.some((e) => e.action === 'agent.edit' && e.actor.kind === 'agent' && e.target === 'main:src/app.ts')).toBe(true);

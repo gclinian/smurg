@@ -1,5 +1,5 @@
 // Packages the `smurg` command (CLI + daemon) as ONE executable for the CURRENT platform and architecture: a Node
-// single executable application (SEA), so a host needs no Node.js of their own (SPEC §6 「發佈」). Ported from the
+// single executable application (SEA), so a host needs no Node.js of their own (SPEC §6, distribution). Ported from the
 // verified spike (docs/research/pty-packaging.md §6.5 / §6.6, verifier additions V10):
 //
 //   scripts/build-sea.sh [--node /path/to/node] [--out FILE] [--version X.Y.Z|vX.Y.Z] [--target PLATFORM-ARCH]
@@ -19,8 +19,7 @@
 //     compute worker next to it), and
 //     `node-pty` / `@parcel/watcher` are replaced by small modules that load their native parts from the extracted
 //     cache (packages/cli/src/sea/native.ts). The banner starts with the build marker `smurg-build-version=X.Y.Z;`
-//     (scripts/release-markers.ts), which the release checks read from each executable without running it; the
-//     bundle must not name the private repository (the executables are public).
+//     (scripts/release-markers.ts), which the release checks read from each executable without running it.
 //  2. The native parts become SEA assets with a sha256 manifest: node-pty (lib + this platform's prebuild, including
 //     macOS's spawn-helper), @parcel/watcher's binding and the docs module's compute worker (bundled separately).
 //     Licenses: packages/cli/THIRD-PARTY-NOTICES.txt must be up to date with pnpm-lock.yaml and list every package
@@ -302,13 +301,7 @@ async function main(): Promise<void> {
   });
   record(main);
   process.stdout.write(`bundle: ${(statSync(bundle).size / 1048576).toFixed(1)} MiB, compute worker: ${(statSync(computeWorker).size / 1024).toFixed(0)} KiB\n`);
-  // The program is public (every release executable contains it): it must not name the private repository (esbuild
-  // inlines a whole package.json that the code imports, for example), and it carries exactly one build marker.
-  for (const file of [bundle, computeWorker]) {
-    const text = readFileSync(file, 'utf8');
-    const named = /gclinian\/smurg/i.exec(text);
-    if (named !== null) throw new Error(`${relative(ROOT, file)} names the private repository (…${text.slice(Math.max(0, named.index - 60), named.index + 40)}…): remove it from the source it comes from`);
-  }
+  // The bundle carries exactly one build marker.
   const markerCount = readFileSync(bundle, 'utf8').split(buildMarker(options.version)).length - 1;
   if (markerCount !== 1) throw new Error(`the bundle has ${markerCount} build markers (${buildMarker(options.version)}), not one`);
 

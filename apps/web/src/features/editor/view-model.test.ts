@@ -54,11 +54,11 @@ function session(overrides: Partial<DocSessionState> = {}): DocSessionState {
 }
 
 describe('editor view-model: who may type, and why not', () => {
-  it('agent 正在修改的檔案，所有人的編輯器暫時唯讀並顯示提示；完成後自動恢復可編輯 — the view-model', () => {
+  it('a file an agent is changing: every editor is read-only for now and says so; editable again when it finishes — the view-model', () => {
     const agentLock = makeAgentLock(FILE.path);
     const locked = editorView({ doc: openDoc({ lock: agentLock }), session: session(), userId: 'dev:amy' });
-    expect(locked).toMatchObject({ readOnly: true, reason: 'agent-lock', agentName: 'Claude（Ian）' });
-    expect(locked.message).toBe('Claude（Ian）正在修改，暫時無法輸入');
+    expect(locked).toMatchObject({ readOnly: true, reason: 'agent-lock', agentName: 'Claude (Ian)' });
+    expect(locked.message).toBe('Claude (Ian) is editing; you cannot type for now');
     // Every member, including the host and the agent's owner, is read-only while the agent holds the file.
     expect(editorView({ doc: openDoc({ lock: agentLock }), session: session(), userId: 'dev:host' }).readOnly).toBe(true);
     // lock.state { lock: null } arrives: editable again, nothing to click.
@@ -84,7 +84,7 @@ describe('editor view-model: who may type, and why not', () => {
     expect(editorView({ doc: openDoc({ status: 'error' }), session: session(), userId: 'dev:amy' }).reason).toBe('error');
   });
 
-  it('the human edit lock: who shares it, and whether 「讓 agent 先改」 is offered (only to a holder)', () => {
+  it('the human edit lock: who shares it, and whether "Let the agent go first" is offered (only to a holder)', () => {
     const shared: LockInfo = {
       kind: 'human',
       file: FILE,
@@ -122,20 +122,20 @@ describe('autosave indicator (D13: no save button)', () => {
 
 describe('doc.rejected explanations', () => {
   it('names the agent for an agent lock and says the change was dropped otherwise', () => {
-    expect(rejectionMessage('agent-locked', 'Claude（Ian）')).toContain('Claude（Ian）');
-    expect(rejectionMessage('read-only', null)).toContain('唯讀');
-    // REL-01: a file moved or deleted on disk: the unsaved text is in the conflict panel, NOT discarded.
-    expect(rejectionMessage('file-unavailable', null)).toContain('衝突面板');
-    expect(rejectionMessage('file-unavailable', null)).not.toContain('捨棄');
-    expect(rejectionMessage('forbidden', null)).toContain('權限');
+    expect(rejectionMessage('agent-locked', 'Claude (Ian)')).toContain('Claude (Ian)');
+    expect(rejectionMessage('read-only', null)).toContain('read-only');
+    // A file moved or deleted on disk: the unsaved text is in the conflict panel, NOT discarded.
+    expect(rejectionMessage('file-unavailable', null)).toContain('conflicts panel');
+    expect(rejectionMessage('file-unavailable', null)).not.toContain('discarded');
+    expect(rejectionMessage('forbidden', null)).toContain('permission');
   });
 });
 
-describe('dropped replicas (REL-07)', () => {
+describe('dropped replicas', () => {
   it('claims no loss when nothing was lost, says so when the text was sent again, and leaves recoveries to their own notice', () => {
-    expect(droppedMessage({ reason: 'epoch', outcome: 'none' })).toBe('主人電腦重新載入了這個檔案，已同步最新內容。');
-    expect(droppedMessage({ reason: 'epoch', outcome: 'restored' })).toContain('重新送出');
-    expect(droppedMessage({ reason: 'diverged', outcome: 'restored' })).toContain('重新送出');
+    expect(droppedMessage({ reason: 'epoch', outcome: 'none' })).toBe("The host's computer reloaded this file; the latest content has been synced.");
+    expect(droppedMessage({ reason: 'epoch', outcome: 'restored' })).toContain('sent again');
+    expect(droppedMessage({ reason: 'diverged', outcome: 'restored' })).toContain('sent again');
     expect(droppedMessage({ reason: 'epoch', outcome: 'recovery' })).toBeNull();
     expect(droppedMessage({ reason: 'epoch', outcome: 'checking' })).toBeNull();
     expect(droppedMessage({ reason: 'rejected', outcome: 'none' })).toBeNull();

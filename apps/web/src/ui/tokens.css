@@ -132,7 +132,7 @@
     --color-accent-solid-hover: #1e40af;
     --color-accent-contrast: #ffffff;
     --color-accent-soft: rgb(29 78 216 / 0.1);
-    --color-success: #166534; /* 4.5:1+ on the soft success fill at 12 px (WEB-19) */
+    --color-success: #166534; /* 4.5:1+ on the soft success fill at 12 px */
     --color-success-soft: rgb(21 128 61 / 0.1);
     --color-warning: #b45309;
     --color-warning-soft: #fff7e0;
@@ -170,7 +170,7 @@
   --color-accent-solid-hover: #1e40af;
   --color-accent-contrast: #ffffff;
   --color-accent-soft: rgb(29 78 216 / 0.1);
-  --color-success: #166534; /* 4.5:1+ on the soft success fill at 12 px (WEB-19) */
+  --color-success: #166534; /* 4.5:1+ on the soft success fill at 12 px */
   --color-success-soft: rgb(21 128 61 / 0.1);
   --color-warning: #b45309;
   --color-warning-soft: #fff7e0;

@@ -1,4 +1,4 @@
-// SessionInfo says why a session ended (review WEB-12): a session the host terminated must not look like a normal
+// SessionInfo says why a session ended: a session the host terminated must not look like a normal
 // exit ("exit code 0") to its owner.
 import { describe, expect, it } from 'vitest';
 import { SESSION_END_REASONS, SESSION_KINDS, hostSettingsPatchSchema, hostSettingsSchema, publicSettingsSchema, sessionInfoSchema } from './entities.ts';

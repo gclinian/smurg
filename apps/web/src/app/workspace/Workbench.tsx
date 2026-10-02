@@ -33,6 +33,7 @@ import { TransfersPanel } from '../../features/transfer/index.tsx';
 import { MergeRequestsPanel, WorktreeSwitcher } from '../../features/worktree/index.tsx';
 import { ConnectionBanner } from '../connection/indicators.tsx';
 import { useAppServices } from '../services.tsx';
+import { MIN_AGENTS_PX, MIN_EDITOR_PX, MIN_MAIN_PX, MIN_TERMINAL_PX, minRightOfFiles } from './layout-limits.ts';
 import { SlotBoundary } from './SlotBoundary.tsx';
 import { TopBar, type LayoutToggles } from './TopBar.tsx';
 import { useWorkspaceNotices } from './useWorkspaceNotices.ts';
@@ -46,13 +47,13 @@ interface LayoutState {
   readonly drawerTab: DrawerTab;
   /** The suggestions pane under the terminal is expanded. */
   readonly suggestions: boolean;
-  /** The agents column takes the editor's place (a terminal needs width and height: WEB-02). */
+  /** The agents column takes the editor's place (a terminal needs width and height). */
   readonly agentsWide: boolean;
 }
 
 const LAYOUT_KEY = 'smurg.layout';
 /**
- * The terminal gets most of the right column by default (review WEB-02: at 1280×800 it had 6 rows): the bottom drawer
+ * The terminal gets most of the right column by default (at 1280×800 it once had 6 rows): the bottom drawer
  * starts collapsed (it opens itself for conflicts, transfers and merge requests through showPanel) and the
  * suggestions pane is smaller, collapsible to its header.
  */
@@ -62,15 +63,6 @@ const DRAWER_TABS: readonly DrawerTab[] = ['activity', 'conflicts', 'transfers',
 const DRAWER_HEADER_PX = 33;
 /** A collapsed suggestions pane keeps its panel header (title, count and the expand button). */
 const PANEL_HEADER_PX = 33;
-/**
- * What a separator leaves the pane on its other side, however far it is dragged and however small the window is (the
- * maximize button of the agents panel is the way to give a terminal the editor's room): the editor next to the agents
- * column, the editor and agents next to the file tree or above the drawer, the terminal above the suggestions.
- */
-const MIN_EDITOR_PX = 160;
-const MIN_MAIN_PX = 240;
-const MIN_TERMINAL_PX = 120;
-
 function readLayout(): LayoutState {
   const stored = readJson(browserLocalStorage(), LAYOUT_KEY);
   if (typeof stored !== 'object' || stored === null) return DEFAULT_LAYOUT;
@@ -263,7 +255,7 @@ export function Workbench() {
               defaultSize={260}
               minSize={160}
               maxSize={640}
-              minOtherSize={MIN_MAIN_PX}
+              minOtherSize={minRightOfFiles(layout)}
               storageKey="sidebar"
               label={tWorkbench('region.files')}
               collapsed={!layout.sidebar}
@@ -273,7 +265,7 @@ export function Workbench() {
                   orientation="horizontal"
                   fixed="end"
                   defaultSize={420}
-                  minSize={260}
+                  minSize={MIN_AGENTS_PX}
                   maxSize={1100}
                   minOtherSize={MIN_EDITOR_PX}
                   storageKey="right"

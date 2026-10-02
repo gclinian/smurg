@@ -3,7 +3,7 @@ import { cx } from './cx.ts';
 
 export interface SpinnerProps {
   size?: number;
-  /** Accessible label (default 「載入中」). */
+  /** Accessible label (default "Loading"). */
   label?: string;
   /** Inside a control that already says it is busy: hidden from assistive technology. */
   decorative?: boolean;

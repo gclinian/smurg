@@ -170,13 +170,13 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     expect(stores.worktrees.getState().worktrees.size).toBe(0);
   });
 
-  it('a failed load is kept as a zh-TW error and reported', async () => {
+  it('a failed load is kept as an error sentence and reported', async () => {
     const { conn, stores, admit } = setup();
     admit();
     conn.fail('session.list', new SmurgError('internal', 'not implemented: sessions'));
     await flush();
-    expect(stores.sessions.getState()).toMatchObject({ status: 'error', error: '主人端發生內部錯誤' });
-    expect(stores.errors.getState().at(-1)).toMatchObject({ area: 'sessions', message: '主人端發生內部錯誤' });
+    expect(stores.sessions.getState()).toMatchObject({ status: 'error', error: 'Something went wrong on the host.' });
+    expect(stores.errors.getState().at(-1)).toMatchObject({ area: 'sessions', message: 'Something went wrong on the host.' });
   });
 
   it('files: file.changed re-lists the loaded parent directories once per burst', async () => {
@@ -281,7 +281,7 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     });
     expect(host.stores.admin.getState().audit).toHaveLength(1);
 
-    // A single-use invite was used: the table follows without a reload (WEB-05); bursts are coalesced.
+    // A single-use invite was used: the table follows without a reload; bursts are coalesced.
     expect(host.conn.requestsOf('admin.invite.list')).toHaveLength(1);
     host.conn.handle('admin.invite.list', () => ({ invites: [{ id: 'inv_1', role: 'editor', createdAt: T0, maxUses: 1, uses: 1, revoked: false }] }));
     for (const id of ['au2', 'au3']) {
@@ -319,9 +319,9 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     await flush();
     const pending = selectPendingForOwner(stores.suggestions.getState(), stores.sessions.getState().sessions, 'dev:host');
     expect(pending.map((s) => s.id)).toEqual(['a']);
-    const accepting = stores.suggestions.accept('a', '改過的內容');
-    expect(conn.lastRequest('suggest.accept')?.payload).toEqual({ suggestionId: 'a', text: '改過的內容' });
-    conn.respond('suggest.accept', { suggestion: makeSuggestion({ id: 'a', sessionId: 'mine', status: 'accepted-modified', finalText: '改過的內容' }) });
+    const accepting = stores.suggestions.accept('a', 'an edited suggestion');
+    expect(conn.lastRequest('suggest.accept')?.payload).toEqual({ suggestionId: 'a', text: 'an edited suggestion' });
+    conn.respond('suggest.accept', { suggestion: makeSuggestion({ id: 'a', sessionId: 'mine', status: 'accepted-modified', finalText: 'an edited suggestion' }) });
     await accepting;
     expect(stores.suggestions.getState().suggestions.get('a')?.status).toBe('accepted-modified');
   });
@@ -375,7 +375,7 @@ describe('workspace stores: a daemon without a feature module', () => {
     conn.admit(makeWelcome());
     conn.fail('worktree.list', new SmurgError('internal', 'not implemented: worktree.list', { reason: 'not-implemented', service: 'worktree.list' }));
     await flush();
-    expect(stores.worktrees.getState()).toMatchObject({ status: 'error', error: '主人電腦上的 smurg 還不支援這項功能。' });
+    expect(stores.worktrees.getState()).toMatchObject({ status: 'error', error: "smurg on the host's computer does not support this yet." });
     expect(stores.errors.getState()).toEqual([]);
   });
 });

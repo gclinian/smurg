@@ -1,4 +1,5 @@
-// SPEC D13 (網頁編輯器自動存檔) and R8 「以 agent 的名義套用成 Yjs 更新，所有人的游標位置不變」, through the real daemon.
+// SPEC D13 (the web editor saves by itself) and R8 (an agent's change is applied as Yjs updates in the agent's name
+// and nobody's cursor moves), through the real daemon.
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -21,8 +22,8 @@ afterEach(async () => {
 
 const FILE = { root: MAIN_ROOT, path: 'doc.md' };
 
-describe('D13 網頁編輯器自動存檔', { timeout: 30_000 }, () => {
-  it('自動存檔：人的修改不需要按儲存就寫入磁碟（debounce 300 ms、最長 2 秒），並通知 doc.saved', async () => {
+describe('D13 the web editor saves by itself', { timeout: 30_000 }, () => {
+  it('autosave: a person\'s edit reaches the disk without pressing save (debounce 300 ms, at most 2 s) and is announced by doc.saved', async () => {
     t = await createTestDaemon({ project: { files: { 'doc.md': 'start\n' } }, modules: [fakeLocksModule(new FakeLockManager()), createDocsModule()] });
     const saves: { hash: string }[] = [];
     t.ctx.bus.on('doc.saved', (e) => saves.push(e));
@@ -59,7 +60,7 @@ describe('D13 網頁編輯器自動存檔', { timeout: 30_000 }, () => {
     await waitFor(async () => (await readFile(path, 'utf8')) === amy.text.toString(), { timeoutMs: 5_000, what: 'final autosave' });
   });
 
-  it('自動存檔保留檔案的權限、BOM 與換行（atomic write, never a torn file）', async () => {
+  it('autosave keeps the file\'s permissions, BOM and line endings (atomic write, never a torn file)', async () => {
     t = await createTestDaemon({ project: { files: { 'run.sh': '﻿#!/bin/sh\r\necho hi\r\n' } }, modules: [createDocsModule()] });
     const { chmod, stat } = await import('node:fs/promises');
     const path = join(t.root, 'run.sh');
@@ -74,7 +75,7 @@ describe('D13 網頁編輯器自動存檔', { timeout: 30_000 }, () => {
     expect((await stat(path)).mode & 0o777).toBe(0o755);
   });
 
-  it('agent 的修改套用成 Yjs 更新時，所有人的游標位置不變（relative positions）', async () => {
+  it('an agent\'s change applied as Yjs updates leaves everyone\'s cursor where it was (relative positions)', async () => {
     const lines = ['# 標題', '', '世界 hello', '第二段落', 'tail line', ''];
     const initial = lines.join('\n');
     const locks = new FakeLockManager();
@@ -106,7 +107,7 @@ describe('D13 網頁編輯器自動存檔', { timeout: 30_000 }, () => {
     expect(resolveBob()).toBe('界');
 
     // The agent (holding the lock) inserts lines above and edits the line after, then releases (PostToolUse).
-    const session = { file: FILE, sessionId: 'sess_amy', ownerUserId: 'dev:amy', agentName: 'Claude（Amy）', sessionRoot: MAIN_ROOT };
+    const session = { file: FILE, sessionId: 'sess_amy', ownerUserId: 'dev:amy', agentName: 'Claude (Amy)', sessionRoot: MAIN_ROOT };
     expect(locks.requestAgent(session).granted).toBe(true);
     const agentVersion = ['# 標題', 'import x from "y";', 'import z from "w";', '', '世界 hello', '第二段落 (edited by agent)', 'tail line', ''].join('\n');
     await writeFile(join(t.root, 'doc.md'), agentVersion);
@@ -121,9 +122,9 @@ describe('D13 網頁編輯器自動存檔', { timeout: 30_000 }, () => {
       bob.doc,
     );
     expect(bob.text.toString().charAt(bobLocal?.index ?? -1)).toBe('界');
-    // The agent appears in presence as 「Claude（Amy）」 with its caret at the end of its last change.
+    // The agent appears in presence as `Claude (Amy)` with its caret at the end of its last change.
     await waitFor(
-      () => [...bob.remoteStates().values()].some((st) => (st['user'] as { name?: string; kind?: string })?.name === 'Claude（Amy）'),
+      () => [...bob.remoteStates().values()].some((st) => (st['user'] as { name?: string; kind?: string })?.name === 'Claude (Amy)'),
       { what: 'agent presence' },
     );
     const agentState = [...bob.remoteStates().values()].find((st) => (st['user'] as { kind?: string })?.kind === 'agent') as Record<string, unknown>;

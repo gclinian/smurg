@@ -1,5 +1,5 @@
 // The worktree feature's workbench slots (SPEC R9, ARCHITECTURE §5.7): <WorktreeSwitcher /> at the top of the left
-// sidebar (main workspace or any worktree, with owner and branch) and <MergeRequestsPanel /> as the 「合併請求」 tab of
+// sidebar (main workspace or any worktree, with owner and branch) and <MergeRequestsPanel /> as the "Merge requests" tab of
 // the bottom drawer (request a merge, review the complete diff, approve or reject). The host console shows the same
 // MergeRequestsSection.
 import { useMember } from '../../lib/workspace/context.tsx';

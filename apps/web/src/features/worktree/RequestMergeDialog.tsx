@@ -1,4 +1,4 @@
-// The worktree owner asks the host to merge (SPEC R9 「worktree 擁有者提出合併請求」). The daemon commits the worktree's
+// The worktree owner asks the host to merge (SPEC R9: the worktree owner requests the merge). The daemon commits the worktree's
 // working tree as the owner and records exactly that commit: later edits need a new request (ARCHITECTURE §5.7).
 import { useState } from 'react';
 import type { WorktreeInfo } from '@smurg/protocol';

@@ -1,8 +1,8 @@
 {
   "name": "@smurg/site",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "description": "smurg.ai: the product page (hand-written static HTML/CSS) and the user docs rendered from the repository at build time, served by a Cloudflare Worker with static assets and one redirect.",
   "exports": {

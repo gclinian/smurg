@@ -1,4 +1,4 @@
-// A folder as a streamed zip (SPEC R7 「由 daemon 以串流方式把資料夾打包成 zip」; transfer.md §1.6 with the
+// A folder as a streamed zip (SPEC R7: the daemon streams the folder as a zip; transfer.md §1.6 with the
 // verifier's corrections): yazl 3.3.1 fed by our own walker, never by yazl's addFile (which follows symlinks and
 // crashes the process when a file changes size while it is read).
 //
@@ -104,7 +104,7 @@ export function createZipSource(options: ZipSourceOptions): ZipSource {
   let cancelled = false;
   let zip64 = false;
   // Linux: one listing per directory for the NFC → on-disk mapping of the whole archive, not one per NFD-named file
-  // (review RCR-2; each file is resolved twice: resolve, then openRead's revalidate).
+  // (each file is resolved twice: resolve, then openRead's revalidate).
   const spellings = new SpellingIndex();
 
   const skip = (path: string, reason: string): void => {
@@ -221,7 +221,7 @@ export function createZipSource(options: ZipSourceOptions): ZipSource {
           continue;
         }
         const refPath = joinRel(dir.refPath, checked.path);
-        // SEC-D-03: the host's private data (.git, .envrc, personal Claude Code files) is not packed for a non-host.
+        // the host's private data (.git, .envrc, personal Claude Code files) is not packed for a non-host.
         if (!options.privileged && isHostPrivatePath(refPath)) {
           skip(zipName, 'host-private');
           continue;

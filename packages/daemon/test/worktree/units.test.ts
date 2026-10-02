@@ -156,7 +156,7 @@ describe('symlink policy', () => {
     expect(symlinkEscapes('src/app.ts', 'sub/../../../README.md')).toBe(true);
   });
 
-  it('SEC-D-04: `..` after a name is refused (that name may be a link: a chain climbs above the root), and so is a target on a host-only path', () => {
+  it('`..` after a name is refused (that name may be a link: a chain climbs above the root), and so is a target on a host-only path', () => {
     // d1/d2/b -> ../.. names the root; d1/d2/a -> b/../x is "inside" lexically but really <parent of share>/x.
     expect(symlinkEscapes('d1/d2/b', '../..')).toBe(false);
     expect(symlinkEscapes('d1/d2/a', 'b/../x')).toBe(true);

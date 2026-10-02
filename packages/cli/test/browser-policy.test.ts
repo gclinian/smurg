@@ -3,7 +3,7 @@
 // broke: SMURG_NO_BROWSER, CI, SSH, a stdin / stdout that is not a terminal and a Linux without a display all mean
 // "print the URL, spawn nothing". `host` and `attach` take --no-browser like `login`. Spawned CLIs (isolatedEnv, pipes)
 // print the login page (/device) and its code, and the relay never sees the browser's request. A guest whose invite points at a different
-// origin than their login (the dev stack: web :5173, relay :8787) is told which origin and how to fix it (OWNER-03).
+// origin than their login (the dev stack: web :5173, relay :8787) is told which origin and how to fix it.
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -124,10 +124,10 @@ async function runUntil(dirs: Dirs, args: readonly string[], until: (out: string
 describe('commands that log in never open a browser in an automated run', () => {
   it('smurg host without a relay session: prints the login page and the code, opens no browser, the relay sees no browser', async () => {
     const s = await setup();
-    const out = await runUntil(s.dirs, ['host', s.dirs.project, '--relay', s.relay.origin, '--no-keep-awake'], (o) => o.includes('等待你在瀏覽器裡按'));
-    expect(out).toContain(`在任何裝置（電腦或手機）打開：\n  ${s.relay.origin}/device\n輸入代碼：`);
+    const out = await runUntil(s.dirs, ['host', s.dirs.project, '--relay', s.relay.origin, '--no-keep-awake'], (o) => o.includes('Waiting for you to approve the request in your browser'));
+    expect(out).toContain(`On any device (a computer or a phone), open:\n  ${s.relay.origin}/device\nEnter the code: `);
     await new Promise((r) => setTimeout(r, 300));
-    expect(out).not.toContain('已經用這台電腦的瀏覽器打開');
+    expect(out).not.toContain('was opened in this computer');
     expect(s.relay.requests.map((r) => r.path)).not.toContain('/device');
   });
 
@@ -142,21 +142,21 @@ describe('commands that log in never open a browser in an automated run', () => 
       // The person allows the login in some browser once the CLI waits (GET /device on the fake relay).
       const io: TestIo = testIo({ env, openUrl: (url) => openInBrowser(url, situation), delay: async () => void (await browserOpening(`${s.relay.origin}/device`)) });
       expect(await runCli(['login', '--relay', s.relay.origin], io)).toBe(0);
-      expect(io.out()).toContain(`  ${s.relay.origin}/device\n輸入代碼：`);
+      expect(io.out()).toContain(`  ${s.relay.origin}/device\nEnter the code: `);
       expect(opener.calls).toEqual(calls);
-      expect(io.out().includes('已經用這台電腦的瀏覽器打開')).toBe(calls.length > 0);
+      expect(io.out().includes('was opened in this computer')).toBe(calls.length > 0);
     }
   });
 
   it('smurg attach --invite with split origins (logged in to the relay, invite on the web origin): names both origins and the fix, no browser', async () => {
     const s = await setup();
-    const login = await runUntil(s.dirs, ['login', '--relay', s.relay.origin, '--dev-user', 'amy'], (o) => o.includes('已登入'));
-    expect(login).toContain('已登入');
-    const out = await runUntil(s.dirs, ['attach', '--invite', invite(s.web.origin)], (o) => o.includes('等待你在瀏覽器裡按'));
-    expect(out).toContain(`但還沒有登入 ${s.web.origin}`);
+    const login = await runUntil(s.dirs, ['login', '--relay', s.relay.origin, '--dev-user', 'amy'], (o) => o.includes('Logged in to'));
+    expect(login).toContain('Logged in to');
+    const out = await runUntil(s.dirs, ['attach', '--invite', invite(s.web.origin)], (o) => o.includes('Waiting for you to approve the request in your browser'));
+    expect(out).toContain(`but not to ${s.web.origin}`);
     expect(out).toContain(`--relay ${s.relay.origin}`);
     expect(out).toContain(`  ${s.web.origin}/device\n`);
-    expect(out).toContain('程序列表（ps）'); // the argv warning (CLI-08)
+    expect(out).toContain('the process list (ps)'); // the argv warning
     expect(s.web.requests.map((r) => r.path)).not.toContain('/device');
     expect(s.relay.requests.map((r) => r.path)).not.toContain('/device');
   });
@@ -168,23 +168,23 @@ describe('commands that log in never open a browser in an automated run', () => 
     // session, so the connection ends at once as closed(login-required).
     const io = testIo({ env, openUrl: async () => true, readSecret: async () => invite(s.web.origin) });
     const attach = runAttach(['--invite', '-', '--no-browser'], commandContext(io));
-    await waitFor(() => io.out().includes('等待你在瀏覽器裡按'), { what: 'the login page and code' });
+    await waitFor(() => io.out().includes('Waiting for you to approve the request in your browser'), { what: 'the login page and code' });
     expect(io.opened).toEqual([]);
-    expect(io.out()).not.toContain('已經用這台電腦的瀏覽器打開');
+    expect(io.out()).not.toContain('was opened in this computer');
     await browserOpening(/https?:\/\/\S+\/device$/m.exec(io.out())?.[0] as string);
     await waitFor(() => s.web.tokens.size > 0, { what: 'the CLI token' });
     s.web.tokens.clear();
-    await expect(attach).rejects.toThrow('relay 的登入已失效');
+    await expect(attach).rejects.toThrow('The relay login is no longer valid');
     expect(io.err()).toBe(''); // --invite - : no argv warning
     expect(io.opened).toEqual([]);
 
     // host: a folder that is already being shared is refused BEFORE any login; the login itself honours --no-browser.
     const hostIo = testIo({ env, openUrl: async () => true });
     const host = runCli(['host', s.dirs.project, '--relay', s.relay.origin, '--no-browser', '--no-keep-awake'], hostIo);
-    await waitFor(() => hostIo.out().includes('等待你在瀏覽器裡按'), { what: 'the host login prompt' });
+    await waitFor(() => hostIo.out().includes('Waiting for you to approve the request in your browser'), { what: 'the host login prompt' });
     expect(hostIo.opened).toEqual([]);
-    expect(hostIo.out()).not.toContain('已經用這台電腦的瀏覽器打開');
-    // Waiting for the code to expire is not possible from here: end the login with 「拒絕」 instead.
+    expect(hostIo.out()).not.toContain('was opened in this computer');
+    // Waiting for the code to expire is not possible from here: end the login by denying it instead.
     s.relay.loginError = 'access_denied';
     await browserOpening(/https?:\/\/\S+\/device$/m.exec(hostIo.out())?.[0] as string);
     expect(await host).toBe(4);
@@ -203,7 +203,7 @@ function argsOf(pid: number): Promise<string> {
   });
 }
 
-describe('the invite link stays off the command line (CLI-08, SEC-E-06)', () => {
+describe('the invite link stays off the command line', () => {
   it('the real CLI with --invite - reads the link from stdin: the secret is not in its process arguments (control: in argv it is)', async () => {
     const s = await setup();
     const link = invite(s.web.origin);
@@ -238,11 +238,11 @@ describe('the invite link stays off the command line (CLI-08, SEC-E-06)', () => 
     const prompts: string[] = [];
     const typed = testIo({ env: { HOME: dirs.home, SMURG_HOME: dirs.stateDir }, readSecret: async (p) => (prompts.push(p), link) });
     expect(await inviteLink(commandContext(typed), '-')).toBe(link);
-    expect(prompts[0]).toContain('不會顯示在畫面上');
+    expect(prompts[0]).toContain('it is not shown on screen');
     expect(typed.err()).toBe('');
 
     const cancelled = testIo({ env: { HOME: dirs.home, SMURG_HOME: dirs.stateDir }, readSecret: async () => null });
-    await expect(inviteLink(commandContext(cancelled), '-')).rejects.toThrow('沒有收到邀請連結');
+    await expect(inviteLink(commandContext(cancelled), '-')).rejects.toThrow('No invite link was received');
 
     const fromEnv = testIo({ env: { HOME: dirs.home, SMURG_HOME: dirs.stateDir, SMURG_INVITE: ` ${link}\n` } });
     expect(await inviteLink(commandContext(fromEnv), undefined)).toBe(link);
@@ -252,7 +252,7 @@ describe('the invite link stays off the command line (CLI-08, SEC-E-06)', () => 
 
     const argv = testIo({ env: { HOME: dirs.home, SMURG_HOME: dirs.stateDir } });
     expect(await inviteLink(commandContext(argv), link)).toBe(link);
-    expect(argv.err()).toContain('歷史紀錄');
+    expect(argv.err()).toContain('shell history');
     expect(argv.err()).toContain('--invite -');
     expect(argv.err()).not.toContain(link);
   });

@@ -1,4 +1,4 @@
-// DownloadService (SPEC R7 「下載：單一檔案，或由 daemon 以串流方式把資料夾打包成 zip」; ARCHITECTURE §5.2 transfer
+// DownloadService (SPEC R7: download one file, or a folder the daemon streams as a zip; ARCHITECTURE §5.2 transfer
 // channel; transfer.md §1.6). A single file streams from a guarded handle by offset (resumable with offset + ifMatch);
 // a folder streams as a zip built while it is sent. Both honour the end-to-end credit window (TRANSFER_WINDOW_CHUNKS
 // unacknowledged chunks per download) and the daemon's own socket buffer, so nothing is ever read further ahead than
@@ -12,6 +12,7 @@ import {
   pathSegmentSchema,
   type PayloadOf,
 } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import type { ClientConnection, DownloadService, DownloadStart, GuardedFile, Principal, ResolvedPath } from '../core/interfaces.ts';
 import { newId } from '../core/lifecycle.ts';
@@ -74,14 +75,14 @@ export class DownloadServiceImpl implements DownloadService {
 
   async begin(input: PayloadOf<'file.download.begin'>, conn: ClientConnection, principal: Principal): Promise<DownloadStart> {
     const zip = input.zip === true;
-    if (!zip && input.file.path === '') throw new SmurgError('bad_request', '請選擇要下載的檔案，或以 zip 下載資料夾', { reason: 'not-a-file' });
+    if (!zip && input.file.path === '') throw new SmurgError('bad_request', msg('download.pickFile'), { reason: 'not-a-file' });
     const resolved = await this.ctx.paths.resolve(input.file, { principal, mustExist: true, allowRoot: zip });
     const kind = resolved.identity?.kind;
     if (zip) {
-      if (kind !== 'dir') throw new SmurgError('bad_request', '只有資料夾可以打包成 zip 下載', { reason: 'not-a-directory' });
+      if (kind !== 'dir') throw new SmurgError('bad_request', msg('download.zipNeedsFolder'), { reason: 'not-a-directory' });
       return this.beginZip(resolved, conn, principal);
     }
-    if (kind !== 'file') throw new SmurgError('bad_request', '資料夾請以 zip 下載', { reason: 'not-a-file' });
+    if (kind !== 'file') throw new SmurgError('bad_request', msg('download.folderNeedsZip'), { reason: 'not-a-file' });
     return this.beginFile(resolved, input, conn, principal);
   }
 
@@ -128,11 +129,11 @@ export class DownloadServiceImpl implements DownloadService {
     const offset = input.offset ?? 0;
     if (input.ifMatch !== undefined && input.ifMatch !== etag) {
       await file.close();
-      throw new SmurgError('conflict', '檔案在上次下載後已被修改，請重新下載', { reason: 'changed', etag });
+      throw new SmurgError('conflict', msg('download.changedSinceLast'), { reason: 'changed', etag });
     }
     if (offset > size) {
       await file.close();
-      throw new SmurgError('bad_request', '續傳位置超出檔案大小', { reason: 'offset' });
+      throw new SmurgError('bad_request', msg('download.offsetBeyondEnd'), { reason: 'offset' });
     }
     const state = this.register(conn, () => void file.close().catch(() => {}));
     this.audit(principal, resolved, { zip: false, offset, size });
@@ -203,13 +204,13 @@ export class DownloadServiceImpl implements DownloadService {
         if (bytesRead === 0) break;
         filled += bytesRead;
       }
-      if (filled === 0) throw new SmurgError('conflict', '檔案在下載途中被縮短了', { reason: 'changed' });
+      if (filled === 0) throw new SmurgError('conflict', msg('download.shrunk'), { reason: 'changed' });
       if (!this.sendChunk(state, index, position, buffer.subarray(0, filled))) return;
       position += filled;
       index++;
     }
     const after = await file.handle.stat({ bigint: true });
-    if (etagOf(after) !== etag) throw new SmurgError('conflict', '檔案在下載途中被修改了，請重新下載', { reason: 'changed' });
+    if (etagOf(after) !== etag) throw new SmurgError('conflict', msg('download.changedDuring'), { reason: 'changed' });
     this.ctx.hub.send(state.conn, 'file.download.end', { downloadId: state.id, totalBytes: position - offset, skipped: [], zip64: false });
   }
 

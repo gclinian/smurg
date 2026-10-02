@@ -1,0 +1,57 @@
+name: Bug report
+description: Something in smurg does not work as the guides say
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A security problem? Do not file it here: report it privately (see SECURITY.md).
+        Remove invite links, tokens and anything private from what you paste.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead. Exact messages help.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. smurg host ./project
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: smurg version
+      description: The output of `smurg --version` on the host
+      placeholder: smurg 0.4.0 (protocol v3, daemon 0.4.0, node 22.x.y)
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Host (smurg host, the CLI)
+        - Web app (a member's browser)
+        - smurg attach (a member's terminal)
+        - Installer or update
+        - Relay (self-hosted)
+        - Documentation or smurg.ai
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Operating system and browser
+      placeholder: macOS 15.5 arm64, Chrome 153
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: The output of `smurg status`, a screenshot, the browser console's errors.

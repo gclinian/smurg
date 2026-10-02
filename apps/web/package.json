@@ -1,8 +1,8 @@
 {
   "name": "@smurg/web",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "description": "smurg web app: React + Vite SPA (Monaco, Yjs, xterm.js). Served by the relay Worker in production.",
   "exports": {

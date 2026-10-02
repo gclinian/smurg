@@ -48,7 +48,7 @@ export type { DaemonContext, FeatureModule } from './core/context.ts';
 // The control-socket module: `smurg host` awaits whenClosed() so it exits only after `smurg stop` saw the socket go.
 export { createLocalControlModule, localControlModule, type LocalControlModule, type LocalControlModuleOptions } from './local/module.ts';
 export type * from './core/interfaces.ts';
-export { FEATURE_SERVICE_LABELS, FEATURE_SERVICE_NAMES, LOCAL_DEVICE_ID } from './core/interfaces.ts';
+export { FEATURE_SERVICE_LABELS, FEATURE_SERVICE_NAMES, LOCAL_DEVICE_ID, POWER_REASONS } from './core/interfaces.ts';
 export { AuthorizationError, PATH_DENIED_REASONS, PathDeniedError, isAuthorizationError, isPathDeniedError, notImplemented, type PathDeniedReason } from './core/errors.ts';
 export { DisposableStack, ManualClock, ShiftableClock, monotonicNow, newId, systemClock, toDisposable, type Clock, type Disposable } from './core/lifecycle.ts';
 export { LOG_UNSAFE_CHARACTER, createLineLogger, createMemoryLogger, quoteForLog, silentLogger, type LogFields, type Logger, type LogLevel } from './core/logger.ts';
@@ -59,7 +59,7 @@ export { StateFileError } from './core/state-store.ts';
 export { wsHostSocketFactory, type HostSocket, type HostSocketFactory, type HostSocketHandlers } from './net/host-socket.ts';
 export { IDENTITY_TOKEN_TYPE, jwksKeySource, staticKeySource, type IdentityKeySource } from './net/identity.ts';
 export { KeepAwake } from './workspace/power.ts';
-export { HOMES_PARENTS, ShareError } from './workspace/share.ts';
+export { HOMES_PARENTS, SHARE_ERROR_REASONS, ShareError, type ShareErrorReason } from './workspace/share.ts';
 export { SHARE_LOCK_MARKER, ShareLockError } from './workspace/share-lock.ts';
 export type { RelayLinkState } from './net/relay-connection.ts';
 export type { UnsavedDocument } from './core/state-store.ts';

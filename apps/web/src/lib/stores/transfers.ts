@@ -34,7 +34,7 @@ export interface TransferJob {
   /** Number of files (folder uploads, zip downloads), if known. */
   readonly files: number | null;
   readonly status: TransferStatus;
-  /** zh-TW, when failed (e.g. the host's disk check refused an upload). */
+  /** A sentence for the person, when failed (e.g. the host's disk check refused an upload). */
   readonly error: string | null;
   readonly startedAt: number;
   readonly updatedAt: number;

@@ -6,16 +6,19 @@ import { formatRelativeTime } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { routePath } from '../../lib/router.ts';
 import { tApp } from '../../strings/app.ts';
-import { Banner, Button, EmptyState, IconButton, Spinner } from '../../ui/index.ts';
+import { Banner, Button, EmptyState, IconButton, LanguageMenu, Spinner } from '../../ui/index.ts';
 import { IconClose, IconLightbulb, IconMonitor, IconShield } from '../../ui/icons.tsx';
 import { LoginPanel } from '../auth/LoginPanel.tsx';
 import { Link } from '../navigation.tsx';
 import { useAppServices } from '../services.tsx';
 import { ThemeMenu } from '../ThemeMenu.tsx';
 
-/** The user guides and smurg's license on the product site; the web app's own third-party notices on this origin. */
-const DOCS_URL = 'https://smurg.ai/docs/';
-const LICENSE_URL = 'https://smurg.ai/license/';
+/**
+ * The user guides and smurg's license live on the product site, in the viewer's language (their addresses are
+ * catalogue entries: `landing.footer.docsUrl`, `landing.footer.licenseUrl`); the source code on GitHub; the web app's
+ * own third-party notices on this origin.
+ */
+const SOURCE_URL = 'https://github.com/gclinian/smurg';
 const NOTICES_PATH = '/third-party-notices.txt';
 
 type Me = { readonly kind: 'loading' } | { readonly kind: 'anonymous' } | { readonly kind: 'user'; readonly user: RelayUser } | { readonly kind: 'error'; readonly message: string };
@@ -46,7 +49,10 @@ export function LandingPage() {
     <div className="app-landing">
       <header className="app-landing__header">
         <span className="app-wordmark">{tApp('name')}</span>
-        <ThemeMenu />
+        <div className="app-landing__menus">
+          <LanguageMenu />
+          <ThemeMenu />
+        </div>
       </header>
       <main className="app-landing__main" id="main">
         <section className="app-landing__intro" aria-labelledby="landing-title">
@@ -130,8 +136,9 @@ export function LandingPage() {
         </section>
       </main>
       <footer className="app-landing__footer">
-        <a href={DOCS_URL}>{tApp('landing.footer.docs')}</a>
-        <a href={LICENSE_URL}>{tApp('landing.footer.license')}</a>
+        <a href={tApp('landing.footer.docsUrl')}>{tApp('landing.footer.docs')}</a>
+        <a href={SOURCE_URL}>{tApp('landing.footer.source')}</a>
+        <a href={tApp('landing.footer.licenseUrl')}>{tApp('landing.footer.license')}</a>
         {/* Served by this origin from the web build (public/third-party-notices.txt), not an in-app route. */}
         <a href={NOTICES_PATH}>{tApp('landing.footer.notices')}</a>
       </footer>

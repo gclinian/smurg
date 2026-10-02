@@ -59,7 +59,7 @@ describe('attachSession output', () => {
   it('an OSC 52 whose terminator comes after a pause never reaches the terminal', async () => {
     const terminal = fakeTerminal();
     const fake = fakeChannel(session);
-    const done = attachSession({ channel: fake.channel, session, terminal, io: { onExit: () => () => {}, onSignal: () => () => {} } });
+    const done = attachSession({ channel: fake.channel, session, terminal, io: { onExit: () => () => {}, onSignal: () => () => {} }, lang: 'en' });
     await pause(20);
     fake.output(`visible\x1b]52;c;${Buffer.from('MARKER').toString('base64')}`);
     await pause(200); // far longer than the old 50 ms idle flush
@@ -77,7 +77,7 @@ describe('attachSession output', () => {
   it('a new snapshot after a restart is painted even when the old stream ended inside a sequence', async () => {
     const terminal = fakeTerminal();
     const fake = fakeChannel(session);
-    const done = attachSession({ channel: fake.channel, session, terminal, io: { onExit: () => () => {}, onSignal: () => () => {} } });
+    const done = attachSession({ channel: fake.channel, session, terminal, io: { onExit: () => () => {}, onSignal: () => () => {} }, lang: 'en' });
     await pause(20);
     fake.output('old\x1b]0;an unfinished title');
     fake.restart();

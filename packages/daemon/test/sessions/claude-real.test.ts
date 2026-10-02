@@ -1,4 +1,4 @@
-// Where Claude Code itself is the subject: an agent session a 「可使用 agent」 member opens runs the REAL `claude` exactly
+// Where Claude Code itself is the subject: an agent session a Agent access member opens runs the REAL `claude` exactly
 // like the host's own (ARCHITECTURE §11 D-15: the host's environment, no sandbox).
 // Safety (ARCHITECTURE §0 rule 2): the binary comes from SMURG_TEST_CLAUDE_BIN (else `claude` on PATH) and must be a
 // verified version; the "host" environment the sessions module gets is the test's own: a fake HOME, an isolated
@@ -129,7 +129,7 @@ async function screen(sessionId: string, principal: Principal): Promise<string> 
   return lines.join('\n');
 }
 
-describe('a 可使用 agent member\'s agent session running the real claude like the host\'s own (mock-API isolation)', { timeout: 120_000 }, () => {
+describe('an Agent access member\'s agent session running the real claude like the host\'s own (mock-API isolation)', { timeout: 120_000 }, () => {
   it('starts with smurg\'s --settings accepted, in the host\'s environment; `claude auth status --json` (the host\'s login: here its key) decides the login state', async (ctx) => {
     if (skipReason !== null) {
       console.warn(`[sessions] SKIPPED real-claude test: ${skipReason}`);
@@ -138,7 +138,8 @@ describe('a 可使用 agent member\'s agent session running the real claude like
     const f = fixture as Fixture;
     const carol = f.daemon.ctx.members.principalOf('dev:carol') as Principal;
     const session = await f.sessions.create({ kind: 'agent', workspace: { mode: 'main' }, cols: 120, rows: 40 }, conn, carol);
-    expect(session).toMatchObject({ ownerUserId: 'dev:carol', title: 'Claude（carol）' });
+    expect(session).toMatchObject({ ownerUserId: 'dev:carol', ownerName: 'carol' });
+    expect(session.title).toBeUndefined();
     expect(await f.sessions.loginStatus(session.id, carol)).toBe('logged-in');
     // The TUI renders (something beyond an empty screen) and keeps running: the settings file did not stop it.
     let text = '';

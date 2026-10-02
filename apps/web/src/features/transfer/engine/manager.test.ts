@@ -158,7 +158,7 @@ describe('TransferManager', () => {
     await manager.dispose();
   });
 
-  it('「放棄」 an interrupted upload removes its partial upload from the host and the journal entry', async () => {
+  it('discarding an interrupted upload removes its partial upload from the host and the journal entry', async () => {
     const first = setup({ ackChunks: 'manual' });
     first.manager.upload({ id: 'u1', root: MAIN, targetDir: 'in', name: 'y.bin', items: [item('y.bin', 5 * MiB, 8)] });
     await (first.links[0] as FakeTransferLink).waitForHeld(4);

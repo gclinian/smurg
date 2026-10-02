@@ -1,5 +1,5 @@
-// Ending a session. The owner is asked whether to keep the session's worktree (SPEC R9.4 「session 結束時詢問是否保留
-// worktree」): session.end {keepWorktree} — `false` is the ONLY path that deletes the worktree with the session
+// Ending a session. The owner is asked whether to keep the session's worktree (SPEC R9.4 "when a session ends, ask whether to keep the
+// worktree"): session.end {keepWorktree} — `false` is the ONLY path that deletes the worktree with the session
 // (daemon contract C17), so the choice is always sent explicitly. The host may also terminate anyone's session
 // (admin.session.terminate), which keeps any worktree.
 import { useEffect, useId, useState } from 'react';
@@ -10,7 +10,7 @@ import { tApp } from '../../strings/app.ts';
 import { Banner, Button, Dialog, useToast } from '../../ui/index.ts';
 import { describeSessionError, whereLabel } from './session-info.ts';
 import { t } from './strings.ts';
-import { plainSessionTitle } from '../../lib/stores/sessions.ts';
+import { plainSessionTitle, sessionTitle } from '../../lib/stores/sessions.ts';
 
 export interface EndSessionDialogProps {
   readonly session: SessionInfo | null;
@@ -45,7 +45,7 @@ export function EndSessionDialog({ session, mode, onClose }: EndSessionDialogPro
     try {
       if (mode === 'terminate') await stores.sessions.terminate(session.id);
       else await stores.sessions.end(session.id, inWorktree ? { keepWorktree: keep } : {});
-      toast.show({ tone: 'success', title: t('end.done', { title: session.title }) });
+      toast.show({ tone: 'success', title: t('end.done', { title: sessionTitle(session) }) });
       onClose();
     } catch (failure) {
       const view = describeSessionError(failure);
@@ -61,7 +61,7 @@ export function EndSessionDialog({ session, mode, onClose }: EndSessionDialogPro
       onClose={onClose}
       role="alertdialog"
       title={mode === 'terminate' ? t('terminate.title') : t('end.title')}
-      description={mode === 'terminate' ? t('terminate.body', { owner: session.ownerName, title: plainSessionTitle(session) }) : t('end.body', { title: session.title })}
+      description={mode === 'terminate' ? t('terminate.body', { owner: session.ownerName, title: plainSessionTitle(session) }) : t('end.body', { title: sessionTitle(session) })}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

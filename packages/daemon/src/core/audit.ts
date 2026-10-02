@@ -339,7 +339,7 @@ export class JsonlAuditLog implements AuditLog {
     try {
       let { size } = await handle.stat();
       // A crash in the middle of an append leaves a torn last line without its newline: start on a fresh line, or the
-      // first entry written after the restart would be glued to the fragment and lost with it (review REL-02).
+      // first entry written after the restart would be glued to the fragment and lost with it.
       if (await terminateTornLine(handle, size)) {
         size += 1;
         options.log.warn('audit log ended in a torn line (crash during a write?); continuing on a new line', {});
@@ -451,7 +451,7 @@ export class JsonlAuditLog implements AuditLog {
    * The per-actor budget of `denied` entries: within budget → record; the first one over budget → record it and
    * say that the rest of the minute is only counted; later ones → counted (summary entry when the window ends).
    * One budget per actor AND origin (`detail.via`; verification F-3, 2026-10-02): a local channel's actor is the host,
-   * and a flood through the control socket (which any session of a 「可使用 agent」 member reaches) must not use up the
+   * and a flood through the control socket (which any session of a Agent access member reaches) must not use up the
    * budget of the host's own refusals on the web, nor leave a summary that cannot say where the counted ones came
    * from. Two budgets per actor at most: the relay channels and the control socket (deniedOriginOf).
    */
@@ -527,7 +527,7 @@ export class JsonlAuditLog implements AuditLog {
   }
 
   /**
-   * Appends `lines` after whatever earlier appends could not write (review REL-14: a failed append is kept and written
+   * Appends `lines` after whatever earlier appends could not write (a failed append is kept and written
    * with the next one instead of being lost; bounded by AUDIT_BACKLOG_MAX_BYTES, beyond which entries are counted).
    */
   private async writeLines(lines: readonly string[]): Promise<void> {

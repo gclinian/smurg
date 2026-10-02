@@ -128,7 +128,8 @@ describe('worktree creation (shared clone, ARCHITECTURE §5.7)', { timeout: 60_0
     await s.connect('dev:amy', 'agent');
     const error = await settleError(s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_nogit' }));
     expect(error).toMatchObject({ code: 'conflict', reason: 'not-a-git-repo' });
-    expect(error?.message).toContain('不是 git 儲存庫');
+    expect(error).toMatchObject({ text: { id: 'worktree.unavailable.notAGitRepo' } });
+    expect(error?.message).toBe('The shared folder is not a git repository, so worktrees are not available.');
     expect(await s.host.conn.request('worktree.list', {})).toEqual({ worktrees: [] });
   });
 

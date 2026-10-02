@@ -2,7 +2,7 @@
 // ARCHITECTURE §5.2, transfer.md §1.3.
 //
 //   plan (folder drops and multi-file selections; ≤ 10,000 entries per request): ONE disk check for the batch,
-//        every folder created (empty ones too). A name that exists ⇒ the person chooses 覆蓋 / 另存 / 取消.
+//        every folder created (empty ones too). A name that exists ⇒ the person chooses overwrite / keep both / cancel.
 //   files: each through FileUpload (begin → chunks → commit), at most `fileSlots` files at once across ALL jobs of
 //        the connection, inside the connection's byte budget.
 //   offline: every file waits for the transfer socket and resumes from the daemon's bitmap; the job shows 'paused'.
@@ -64,7 +64,7 @@ export interface UploadJobDeps {
   readonly journalDelayMs?: number;
 }
 
-/** The person answered 「取消」 to a name conflict. */
+/** The person answered "Cancel upload" to a name conflict. */
 export class ConflictDeclinedError extends Error {
   override readonly name = 'ConflictDeclinedError';
   readonly paths: readonly string[];
@@ -261,7 +261,7 @@ export class UploadJob {
     await this.forgetJournal();
   }
 
-  /** The person's answer to the name-conflict question (null = 取消). */
+  /** The person's answer to the name-conflict question (null = cancel). */
   answer(policy: UploadConflictPolicy | null): void {
     this.answerQuestion?.(policy);
   }
@@ -363,7 +363,7 @@ export class UploadJob {
     this.planned = true;
   }
 
-  /** Asks the person (one question at a time per job) and resolves with the chosen policy; throws on 取消. */
+  /** Asks the person (one question at a time per job) and resolves with the chosen policy; throws on cancel. */
   private ask(paths: readonly string[], signal: AbortSignal): Promise<UploadConflictPolicy> {
     const next = this.questionChain.then(async () => {
       if (this.policyChosen && this.policy !== 'fail') return this.policy;

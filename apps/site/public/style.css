@@ -67,7 +67,7 @@ body {
 }
 
 /* CJK reads better with more leading and without negative tracking. */
-html:lang(zh-TW) body {
+html:lang(zh-Hant) body {
   line-height: 1.8;
 }
 
@@ -300,8 +300,8 @@ svg {
   text-wrap: balance;
 }
 
-/* Break the Chinese headline only between phrases (the <wbr> in the markup), never inside a word like 即時. */
-html:lang(zh-TW) .hero h1 {
+/* Break the Chinese headline only between phrases (the <wbr> in the markup), never inside a word. */
+html:lang(zh-Hant) .hero h1 {
   font-size: clamp(2rem, 1.2rem + 3.4vw, 4rem);
   line-height: 1.25;
   letter-spacing: 0.01em;
@@ -317,7 +317,7 @@ html:lang(zh-TW) .hero h1 {
   color: var(--muted);
 }
 
-html:lang(zh-TW) .lede {
+html:lang(zh-Hant) .lede {
   line-height: 1.8;
 }
 
@@ -1105,7 +1105,7 @@ html:lang(zh-TW) .lede {
   text-wrap: balance;
 }
 
-html:lang(zh-TW) .section h2 {
+html:lang(zh-Hant) .section h2 {
   line-height: 1.35;
   letter-spacing: 0.01em;
 }
@@ -1514,7 +1514,7 @@ h3 {
   color: var(--muted);
 }
 
-html:lang(zh-TW) .lead-text {
+html:lang(zh-Hant) .lead-text {
   line-height: 1.85;
 }
 
@@ -1694,7 +1694,7 @@ html:lang(zh-TW) .lead-text {
   text-wrap: balance;
 }
 
-html:lang(zh-TW) .doc h1 {
+html:lang(zh-Hant) .doc h1 {
   line-height: 1.4;
   letter-spacing: 0.01em;
 }

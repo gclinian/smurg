@@ -13,7 +13,7 @@ export interface SessionTabItem {
   /** e.g. a count Badge. */
   readonly badge?: ReactNode;
   readonly panel: ReactNode;
-  /** Only for an ended session: the accessible name of its close button (「關閉 …」). Without it the tab cannot be closed. */
+  /** Only for an ended session: the accessible name of its close button ("Close ..."). Without it the tab cannot be closed. */
   readonly closeLabel?: string;
 }
 
@@ -30,7 +30,7 @@ export interface SessionTabsProps {
   onClose(id: string): void;
   /** Accessible name of the tab list. */
   readonly label: string;
-  /** What a closable tab says about itself (aria-description): 「按 Delete 關閉…」. */
+  /** What a closable tab says about itself (aria-description): "Press Delete to close ...". */
   readonly closeHint: string;
   readonly ref?: Ref<SessionTabsHandle>;
 }
@@ -40,7 +40,7 @@ export function SessionTabs({ items, value, onChange, onClose, label, closeHint,
   const refs = useRef(new Map<string, HTMLButtonElement>());
   const stripRef = useRef<HTMLDivElement>(null);
 
-  // The strip scrolls sideways when the tabs do not fit (review WEB-10): the selected tab is brought into view WITH
+  // The strip scrolls sideways when the tabs do not fit: the selected tab is brought into view WITH
   // its close button, also when that button appears (the session ended). Only the strip is scrolled, never an ancestor.
   const selectedClosable = items.some((item) => item.id === value && item.closeLabel !== undefined);
   useEffect(() => {

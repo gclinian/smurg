@@ -9,14 +9,15 @@
   "minify": true,
 
   // PRODUCTION (the shared relay, deployed on 2026-10-01 with exactly this top level; env.dev below, local only, adds
-  // "routes": []) is the Cloudflare Custom Domain app.smurg.ai on the owner's account (Workers Free plan; the zone
+  // "routes": []) is the Cloudflare Custom Domain app.smurg.ai on the maintainer's account (Workers Free plan; the zone
   // smurg.ai is on the same account): https://app.smurg.ai. wrangler creates the custom domain and its DNS record from
   // the route below. The workers.dev hostname is OFF (it was https://smurg-relay.<account subdomain>.workers.dev until
   // 2026-10-01; it answers 404 now), and there are no per-version preview URLs: either would be another public hostname
   // in front of the same Durable Objects.
-  // A self-hosted relay may instead run on its own account's workers.dev ("workers_dev": true, no "routes"; the
-  // documented default for a self-hosted relay: edit the lines listed in README.md「自己架設：workers.dev（預設）」), or
-  // on a custom domain of its own (README.md「自己架設：自己的網域」).
+  // SELF-HOSTING (smurg is open source, MIT): these two lines and GOOGLE_CLIENT_ID below belong to the shared relay
+  // and must be replaced. Your relay runs on your own account's workers.dev ("workers_dev": true, no "routes"; the
+  // default: README.md "Self-hosting on workers.dev") or on a custom domain of your own (README.md "Self-hosting on
+  // your own domain"). scripts/deploy-relay.sh refuses to deploy to a hostname that something else answers at.
   "workers_dev": false,
   "routes": [{ "pattern": "app.smurg.ai", "custom_domain": true }],
   "preview_urls": false,
@@ -76,6 +77,8 @@
     "MAX_SOCKETS_PER_ACCOUNT": "8",
     // Login: Google only in production (no GitHub vars here, so GitHub login is off). The OAuth client id is public;
     // `scripts/deploy-relay.sh --google-client-id <id>` writes it here. GOOGLE_CLIENT_SECRET is a secret.
+    // This id is the shared relay's client (it only accepts https://app.smurg.ai): a self-hosted relay sets "" here
+    // and then its own client id (README.md "Google OAuth client").
     "GOOGLE_CLIENT_ID": "819065690719-laemboljh72gb0qelt2hk7lqbadlb6du.apps.googleusercontent.com",
     "GOOGLE_AUTHORIZE_URL": "https://accounts.google.com/o/oauth2/v2/auth",
     "GOOGLE_TOKEN_URL": "https://oauth2.googleapis.com/token",

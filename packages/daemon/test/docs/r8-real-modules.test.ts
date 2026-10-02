@@ -23,8 +23,8 @@ const PATH = 'src/main.ts';
 const FILE = { root: MAIN_ROOT, path: PATH };
 const ORIGINAL = ['export function main() {', '  const greeting = "hello";', '  console.log(greeting);', '  return 0;', '}', ''].join('\n');
 
-describe('R8 一致性與檔案鎖 (real modules)', { timeout: 30_000 }, () => {
-  it('agent 透過 Bash 修改有人正在編輯的檔案時，人打的內容不會遺失；重疊部分出現在衝突面板 — real lock manager and file watcher', async () => {
+describe('R8 consistency and file locks (real modules)', { timeout: 30_000 }, () => {
+  it('an agent changes, through Bash, a file someone is editing: what the person typed is not lost and the overlap appears in the conflict panel — real lock manager and file watcher', async () => {
     t = await createTestDaemon({ project: { files: { [PATH]: ORIGINAL } } });
     const amyConn = await t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
     const conflicts: ConflictRecord[] = [];

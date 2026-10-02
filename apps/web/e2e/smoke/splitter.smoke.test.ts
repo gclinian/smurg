@@ -1,7 +1,8 @@
 // The dividers of the workbench under a REAL mouse (the built app, the real relay, a daemon with every module, system
 // Chrome at 1440 × 900; playwright's mouse goes through Chrome's own input pipeline: hit testing, pointer capture,
-// compatibility mouse events). The owner's bug: 「code 編輯區和 session 區中間的分隔線移動有 bug（滑鼠碰到線右邊線會自己
-// 動，很難控制）」. What it was (apps/web/src/ui/SplitPane.tsx before v0.4.0):
+// compatibility mouse events). The reported bug: "moving the divider between the code editor and the session area is
+// broken (when the mouse touches the line from the right, the line moves by itself; it is hard to control)". What it
+// was (apps/web/src/ui/SplitPane.tsx before v0.4.0):
 //  - the drag state ended only with a pointerup that reached the separator. Chrome drops the pointer capture without
 //    one when a second button goes down during the drag (and for a native context menu, or when the separator leaves
 //    the page under the pressed button); from then on EVERY hover over the line resized the pane to the pointer, and
@@ -38,8 +39,10 @@ const DIVIDERS = [FILES, AGENTS, SUGGESTIONS, DRAWER] as const;
 /** The agents column's width when nothing is remembered, and the least it gets (Workbench.tsx). */
 const AGENTS_DEFAULT_PX = 420;
 const AGENTS_MIN_PX = 260;
-/** What the separator of the agents column leaves the editor (Workbench.tsx MIN_EDITOR_PX). */
+/** What the separator of the agents column leaves the editor (layout-limits.ts MIN_EDITOR_PX). */
 const MIN_EDITOR_PX = 160;
+/** What the file tree's separator leaves the editor (layout-limits.ts MIN_MAIN_PX); with the agents column and its line: 501. */
+const MIN_MAIN_PX = 240;
 const WIDTH = 1440;
 const HEIGHT = 900;
 
@@ -49,7 +52,7 @@ describe.skipIf(chrome === null)('the workbench dividers under a real mouse (bui
   let sessionId: string;
 
   beforeAll(async () => {
-    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# 班級專案\n\nsome text to select\n', 'src/app.ts': 'export const x = 1;\n' } } });
+    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# Class project\n\nsome text to select\n', 'src/app.ts': 'export const x = 1;\n' } } });
     page = await env.newPage({ width: WIDTH, height: HEIGHT });
     await joinAsHost(page, env);
     // A live terminal right of the divider (xterm, a ResizeObserver that refits the PTY), Monaco left of it.
@@ -410,6 +413,86 @@ describe.skipIf(chrome === null)('the workbench dividers under a real mouse (bui
     await page.mouse.up();
     await expectStillUnderHover(AGENTS, 'in the small window');
     await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+    expect(env.problemsOf(page).pageErrors).toEqual([]);
+  }, 180_000);
+
+  it('a narrow window with a wide remembered file tree: the agents column keeps its minimum, its divider can be moved by the mouse and by the keys, and each separator reports the size that is shown', async () => {
+    // What a person can have left behind in a wide window: a 640 px file tree and an 1100 px agents column.
+    await page.evaluate(() => {
+      window.localStorage.setItem('smurg.pane.sidebar', '640');
+      window.localStorage.setItem('smurg.pane.right', '1100');
+    });
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.reload();
+    await workspaceOnline(page);
+    await page.locator(AGENTS.selector).waitFor({ timeout: STEP_MS });
+    await frames();
+
+    const widthOf = (selector: string): Promise<number> => page.locator(selector).first().evaluate((node) => node.getBoundingClientRect().width);
+    const values = async (divider: Divider): Promise<{ now: number; min: number; max: number }> => {
+      const separator = page.locator(divider.selector);
+      return { now: Number(await separator.getAttribute('aria-valuenow')), min: Number(await separator.getAttribute('aria-valuemin')), max: Number(await separator.getAttribute('aria-valuemax')) };
+    };
+    const agentsWidth = async (): Promise<number> => 1024 - (await lineOf(AGENTS)) - 1;
+    const editorWidth = async (): Promise<number> => (await lineOf(AGENTS)) - (await lineOf(FILES)) - 1;
+
+    // The file tree gives way: it leaves the editor's minimum next to it AND the agents column with its line.
+    const files = await lineOf(FILES);
+    expect(files, 'the file tree leaves room for the editor and the agents column').toBe(1024 - 1 - (MIN_MAIN_PX + 1 + AGENTS_MIN_PX));
+    expect(await values(FILES)).toEqual({ now: files, min: 160, max: files });
+    // The agents column: never below its minimum, and as wide as the editor's minimum allows.
+    expect(await agentsWidth()).toBeGreaterThanOrEqual(AGENTS_MIN_PX);
+    expect(await editorWidth()).toBe(MIN_EDITOR_PX);
+    expect(await widthOf('.agents-panel')).toBeGreaterThanOrEqual(AGENTS_MIN_PX);
+    expect(await page.locator('.agents-panel').first().evaluate((node) => node.getBoundingClientRect().right)).toBeLessThanOrEqual(1024);
+    // The separator says what is on screen, not what is remembered (1100) or what the props allow (1100).
+    const shown = await agentsWidth();
+    expect(await values(AGENTS)).toEqual({ now: shown, min: AGENTS_MIN_PX, max: shown });
+    expect(shown).toBe(AGENTS_MIN_PX + (MIN_MAIN_PX - MIN_EDITOR_PX));
+
+    // The mouse moves it: 30 px to the right makes the column 30 px narrower, then back to the limit and no further.
+    const line = await lineOf(AGENTS);
+    const cross = await crossOf(AGENTS);
+    await page.mouse.move(line + 1, cross);
+    await page.mouse.down();
+    await page.mouse.move(line + 1 + 30, cross, { steps: 5 });
+    await frames();
+    expect(await lineOf(AGENTS)).toBe(line + 30);
+    await page.mouse.move(line + 1 + 500, cross, { steps: 5 });
+    await frames();
+    expect(await agentsWidth(), 'the column stops at its minimum').toBe(AGENTS_MIN_PX);
+    await page.mouse.move(line + 1 + 30, cross, { steps: 5 });
+    await page.mouse.up();
+    await frames();
+    expect(await lineOf(AGENTS)).toBe(line + 30);
+    expect((await values(AGENTS)).now).toBe(shown - 30);
+    // The keys move it too, from the size on screen.
+    await page.locator(AGENTS.selector).focus();
+    await page.keyboard.press('ArrowLeft');
+    await frames();
+    expect(await agentsWidth()).toBe(shown - 30 + 16);
+    await page.keyboard.press('Home');
+    await frames();
+    expect(await agentsWidth()).toBe(AGENTS_MIN_PX);
+    await page.keyboard.press('End');
+    await frames();
+    expect(await agentsWidth()).toBe(shown);
+    await expectStillUnderHover(AGENTS, 'in the narrow window');
+
+    // The file tree's width was only shown smaller, not forgotten: a wide window gives the 640 px back.
+    expect(await page.evaluate(() => window.localStorage.getItem('smurg.pane.sidebar'))).toBe('640');
+    await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+    await frames();
+    expect(await lineOf(FILES)).toBe(640);
+    expect(await values(FILES)).toEqual({ now: 640, min: 160, max: 640 });
+    // Back to the defaults for whatever runs after this test.
+    await page.evaluate(() => {
+      window.localStorage.removeItem('smurg.pane.sidebar');
+      window.localStorage.removeItem('smurg.pane.right');
+    });
+    await page.reload();
+    await workspaceOnline(page);
+    await page.locator(AGENTS.selector).waitFor({ timeout: STEP_MS });
     expect(env.problemsOf(page).pageErrors).toEqual([]);
   }, 180_000);
 });

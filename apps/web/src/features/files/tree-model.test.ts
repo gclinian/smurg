@@ -15,7 +15,7 @@ function stateOf(...dirs: DirListing[]): FilesState {
 const badgeCtx = { lock: undefined, now: T0, selfUserId: 'dev:amy', isHost: false };
 
 describe('flattenTree: the visible rows of a lazily loaded tree', () => {
-  it('folders first, zh-TW collation with numbers compared numerically, children right under their expanded folder', () => {
+  it('folders first, the collation of the language with numbers compared numerically, children right under their expanded folder', () => {
     const state = stateOf(
       listing('', [makeEntry('b.txt'), makeEntry('src', 'dir'), makeEntry('檔案10.md'), makeEntry('檔案2.md'), makeEntry('docs', 'dir')]),
       listing('src', [makeEntry('src/main.ts'), makeEntry('src/lib', 'dir')]),
@@ -26,16 +26,17 @@ describe('flattenTree: the visible rows of a lazily loaded tree', () => {
       ['src', 1, 'entry'],
       ['src/lib', 2, 'entry'],
       ['src/main.ts', 2, 'entry'],
-      // zh-Hant-TW collation (the files store's sortEntries) puts Han before Latin.
+      // English collation (the files store's sortEntries) puts Latin before Han; zh-TW does the opposite
+      // (FilesPanel.zh-TW.test.tsx).
+      ['b.txt', 1, 'entry'],
       ['檔案2.md', 1, 'entry'],
       ['檔案10.md', 1, 'entry'],
-      ['b.txt', 1, 'entry'],
     ]);
     expect(rows.find((r) => r.path === 'src')).toMatchObject({ expanded: true, posInSet: 2, setSize: 5 });
     expect(rows.find((r) => r.path === 'docs')).toMatchObject({ expanded: false });
   });
 
-  it("a worktree's shared folders (symlinks, D12) are read-only folders that expand; other links stay links (SPEC-06)", () => {
+  it("a worktree's shared folders (symlinks, D12) are read-only folders that expand; other links stay links", () => {
     const state = stateOf(
       listing('', [makeEntry('data', 'symlink'), makeEntry('other-link', 'symlink'), makeEntry('src', 'dir')]),
       listing('data', [makeEntry('data/train.csv', 'file', { readOnly: true })]),
@@ -54,7 +55,7 @@ describe('flattenTree: the visible rows of a lazily loaded tree', () => {
   it('an expanded folder shows loading, error, empty and truncated states as rows of its own level', () => {
     const state = stateOf(
       listing('', [makeEntry('a', 'dir'), makeEntry('b', 'dir'), makeEntry('c', 'dir'), makeEntry('d', 'dir')]),
-      listing('b', [], { status: 'error', error: '找不到' }),
+      listing('b', [], { status: 'error', error: 'Not found' }),
       listing('c', []),
       listing('d', [makeEntry('d/x')], { truncated: true }),
     );
@@ -99,14 +100,14 @@ describe('what the member may do (UI hiding only; the daemon enforces)', () => {
 });
 
 describe('badges: locked by a person / being changed by an agent / recently changed by whom', () => {
-  it('an agent lock names the agent 「Claude（Ian）」', () => {
+  it('an agent lock names the agent', () => {
     const badges = entryBadges(makeEntry('src/app.ts'), { ...badgeCtx, lock: makeAgentLock('src/app.ts') });
     expect(badges).toEqual([
-      { kind: 'agent-lock', text: 'Claude（Ian）修改中', label: 'Claude（Ian）正在修改這個檔案，暫時無法編輯' },
+      { kind: 'agent-lock', text: 'Claude (Ian) editing', label: 'Claude (Ian) is editing this file; it cannot be edited for now' },
     ]);
   });
 
-  it('a shared human lock names every holder, the local member as 「你」', () => {
+  it('a shared human lock names every holder, the local member as "you"', () => {
     const lock: LockInfo = {
       kind: 'human',
       file: { root: MAIN_ROOT, path: 'a.ts' },
@@ -117,8 +118,8 @@ describe('badges: locked by a person / being changed by an agent / recently chan
       acquiredAt: T0,
     };
     const [badge] = entryBadges(makeEntry('a.ts'), { ...badgeCtx, lock });
-    expect(badge).toMatchObject({ kind: 'human-lock', text: '你、Bob 編輯中' });
-    expect(badge?.label).toContain('agent 暫時不能修改它');
+    expect(badge).toMatchObject({ kind: 'human-lock', text: 'Editing: you, Bob' });
+    expect(badge?.label).toContain('agents cannot change it for now');
   });
 
   it('the live lock wins over the (older) lock the listing carried; null means "no lock any more"', () => {
@@ -128,23 +129,23 @@ describe('badges: locked by a person / being changed by an agent / recently chan
   });
 
   it('recently changed: by whom and when, for RECENT_CHANGE_MS; not while an agent holds the file', () => {
-    const agent = { kind: 'agent' as const, sessionId: 'sess_1', ownerUserId: HOST_USER, displayName: 'Claude（Ian）' };
+    const agent = { kind: 'agent' as const, sessionId: 'sess_1', ownerUserId: HOST_USER, displayName: 'Claude (Ian)' };
     const entry = makeEntry('a.ts', 'file', { mtime: T0 - 3 * 60_000, lastModifiedBy: agent });
     const [recent] = entryBadges(entry, badgeCtx);
-    expect(recent).toEqual({ kind: 'recent', text: 'Claude（Ian）', label: '最近由 Claude（Ian） 修改（3 分鐘前）' });
+    expect(recent).toEqual({ kind: 'recent', text: 'Claude (Ian)', label: 'Recently changed by Claude (Ian) (3 minutes ago)' });
     expect(entryBadges(makeEntry('a.ts', 'file', { mtime: T0 - RECENT_CHANGE_MS, lastModifiedBy: agent }), badgeCtx)).toEqual([]);
     expect(entryBadges(entry, { ...badgeCtx, lock: makeAgentLock('a.ts') }).map((b) => b.kind)).toEqual(['agent-lock']);
     const mine = makeEntry('b.ts', 'file', { mtime: T0, lastModifiedBy: { kind: 'user', userId: 'dev:amy', displayName: 'Amy' } });
-    expect(entryBadges(mine, badgeCtx)[0]?.text).toBe('你');
+    expect(entryBadges(mine, badgeCtx)[0]?.text).toBe('you');
     const external = makeEntry('c.ts', 'file', { mtime: T0, lastModifiedBy: { kind: 'system' } });
-    expect(entryBadges(external, badgeCtx)[0]?.label).toContain('外部程式');
+    expect(entryBadges(external, badgeCtx)[0]?.label).toContain('an outside program');
   });
 
   it('read-only entries and (for guests) host-only paths are marked', () => {
     expect(entryBadges(makeEntry('data', 'dir', { readOnly: true }), badgeCtx).map((b) => b.kind)).toEqual(['read-only']);
     expect(entryBadges(makeEntry('.mcp.json'), badgeCtx).map((b) => b.kind)).toEqual(['host-only']);
-    // The daemon sends host-only paths as readOnly to guests: still 「只有主人可以修改」, never 「共享資料夾」 (WEB-08).
-    expect(entryBadges(makeEntry('.git', 'dir', { readOnly: true }), badgeCtx).map((b) => [b.kind, b.label])).toEqual([['host-only', '只有主人可以修改這個檔案']]);
+    // The daemon sends host-only paths as readOnly to guests: still "Only the host can change this file", never "shared folder".
+    expect(entryBadges(makeEntry('.git', 'dir', { readOnly: true }), badgeCtx).map((b) => [b.kind, b.label])).toEqual([['host-only', 'Only the host can change this file']]);
     expect(entryBadges(makeEntry('.mcp.json'), { ...badgeCtx, isHost: true })).toEqual([]);
   });
 });
@@ -158,25 +159,25 @@ describe('checkNewName: validation as you type (the daemon validates again)', ()
 
   it('refuses empty names, slashes, dot names, control and bidi characters, backslashes', () => {
     for (const [name, message] of [
-      ['  ', '請輸入名稱'],
-      ['a/b', '名稱不能包含「/」'],
-      ['..', '名稱不能是「.」或「..」'],
-      ['a\u0007b', '名稱不能包含控制字元或看不見的方向字元'],
-      ['evil‮txt.exe', '名稱不能包含控制字元或看不見的方向字元'],
-      ['a\\b', '名稱不能包含「\\」'],
+      ['  ', 'Enter a name'],
+      ['a/b', 'A name cannot contain "/"'],
+      ['..', 'A name cannot be "." or ".."'],
+      ['a\u0007b', 'A name cannot contain control characters or invisible direction characters'],
+      ['evil‮txt.exe', 'A name cannot contain control characters or invisible direction characters'],
+      ['a\\b', 'A name cannot contain "\\"'],
     ] as const) {
       expect(checkNewName(name, '', [], guest)).toEqual({ ok: false, message });
     }
   });
 
   it('refuses a name that exists in any case (the host disk may be case-insensitive), except the entry being renamed', () => {
-    expect(checkNewName('readme.MD', '', ['README.md'], guest)).toMatchObject({ ok: false, message: expect.stringContaining('同名') });
+    expect(checkNewName('readme.MD', '', ['README.md'], guest)).toMatchObject({ ok: false, message: expect.stringContaining('already has an item with this name') });
     expect(checkNewName('Readme.md', '', ['README.md'], { isHost: false, current: 'README.md' })).toEqual({ ok: true, path: 'Readme.md' });
-    expect(checkNewName('README.md', '', ['README.md'], { isHost: false, current: 'README.md' })).toMatchObject({ ok: false, message: '名稱沒有改變' });
+    expect(checkNewName('README.md', '', ['README.md'], { isHost: false, current: 'README.md' })).toMatchObject({ ok: false, message: 'The name has not changed' });
   });
 
   it('refuses host-only names for guests (at any depth), allows them for the host', () => {
-    expect(checkNewName('.claude', 'src', [], guest)).toMatchObject({ ok: false, message: '只有主人可以建立或修改這個名稱的檔案' });
+    expect(checkNewName('.claude', 'src', [], guest)).toMatchObject({ ok: false, message: 'Only the host can create or change a file with this name' });
     expect(checkNewName('.mcp.json', '', [], guest)).toMatchObject({ ok: false });
     expect(checkNewName('.mcp.json', '', [], { isHost: true })).toEqual({ ok: true, path: '.mcp.json' });
   });

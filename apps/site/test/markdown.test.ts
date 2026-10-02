@@ -6,12 +6,18 @@ import { parsePage } from './html.ts';
 
 const keepAll = (href: string): LinkDecision => ({ href });
 const render = (markdown: string, resolveLink: (href: string) => LinkDecision = keepAll) =>
-  renderMarkdown(markdown, { resolveLink, tableLabel: '表格', reservedIds: ['main'] });
+  renderMarkdown(markdown, { resolveLink, tableLabel: (section) => (section === undefined ? 'Table' : `Table: ${section}`), reservedIds: ['main'] });
 
 describe('heading ids', () => {
   it('are GitHub’s: lower case, punctuation dropped (full-width too), spaces to hyphens', () => {
-    // The headings of docs/JOINING.md and the anchors its own table of contents uses.
+    // Headings of the guides in both languages, and the anchors their tables of contents and the CLI's links use.
     for (const [heading, id] of [
+      ['4. Before you share', '4-before-you-share'],
+      ['5. Agent access and agents\' shell commands', '5-agent-access-and-agents-shell-commands'],
+      ['9. Updating and removing', '9-updating-and-removing'],
+      ['2.2 Other relays (`--relay`)', '22-other-relays---relay'],
+      ['8. What "Host offline" means', '8-what-host-offline-means'],
+      ['10. Joining from a terminal (CLI, optional)', '10-joining-from-a-terminal-cli-optional'],
       ['1. 用邀請連結加入', '1-用邀請連結加入'],
       ['2. 角色：可以做什麼', '2-角色可以做什麼'],
       ['5. 看 agent 工作、提出建議', '5-看-agent-工作提出建議'],
@@ -112,8 +118,10 @@ describe('links', () => {
 
 describe('tables and text', () => {
   it('a table is a named, focusable scroll box, and its alignment a class', () => {
-    const r = render('## 8. 疑難排解\n\n| a | b |\n|:-:|--:|\n| 1 | `2` |\n');
-    expect(r.html).toContain('<div class="table-wrap" tabindex="0" role="region" aria-label="表格：8. 疑難排解">');
+    // The name comes from the caller (the page's language): the section the table is in, or just "Table".
+    expect(render('| a |\n|---|\n| 1 |\n').html).toContain('<div class="table-wrap" tabindex="0" role="region" aria-label="Table">');
+    const r = render('## 8. Troubleshooting\n\n| a | b |\n|:-:|--:|\n| 1 | `2` |\n');
+    expect(r.html).toContain('<div class="table-wrap" tabindex="0" role="region" aria-label="Table: 8. Troubleshooting">');
     expect(r.html).toContain('<th class="ta-center">a</th><th class="ta-right">b</th>');
     expect(r.html).toContain('<td class="ta-center">1</td><td class="ta-right"><code>2</code></td>');
     expect(r.html).not.toContain('align=');

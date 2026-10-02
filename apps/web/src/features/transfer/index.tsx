@@ -204,7 +204,7 @@ const FINISHED: ReadonlySet<JobSnapshot['status']> = new Set(['done', 'failed', 
 
 /**
  * Running, waiting and interrupted transfers first, then the finished ones; newest first within each group (review
- * WEB-15: the active upload sat below the finished rows, out of view in the 220 px panel).
+ * The active upload sat below the finished rows, out of view in the 220 px panel).
  */
 export function orderTransfers(rows: readonly JobSnapshot[], interrupted: (job: JobSnapshot) => boolean): JobSnapshot[] {
   const rank = (job: JobSnapshot): number => (interrupted(job) || !FINISHED.has(job.status) ? 0 : 1);

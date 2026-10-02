@@ -3,11 +3,13 @@
 //
 //   /install.sh          302  https://downloads.smurg.ai/latest/install.sh (the newest release's installer, whose
 //                             base URL is pinned to that release's downloads.smurg.ai/v<X.Y.Z>/; it checks SHA256SUMS)
+//   /github, /source     302  https://github.com/gclinian/smurg (the source repository; for short mentions such as
+//                             the installer's and the CLI's output: the pages link to GitHub directly)
 //   www.smurg.ai/<path>  301  https://smurg.ai/<path>  (query kept; defence in depth, see below)
 //
 // Everything else is a static file of dist/ (scripts/build.ts: public/ plus the docs pages generated from the
-// repository): /, /zh-TW/, /docs/…, /license/, /third-party-notices.txt and the 404 pages. The source repository is
-// private, so nothing here points at GitHub any more (/github and the /docs redirects to GitHub are gone).
+// repository): /, /zh-TW/, /docs/…, /zh-TW/docs/…, /license/, /zh-TW/license/, /third-party-notices.txt and the 404
+// pages.
 //
 // The Worker runs only for the paths in WORKER_PATHS (wrangler.jsonc `assets.run_worker_first`, kept equal by
 // test/config.test.ts). Everything else, the pages, the stylesheet, the script, the icon and the 404 page for unknown
@@ -22,11 +24,18 @@ export const DOWNLOADS = 'https://downloads.smurg.ai';
 /** The newest release's installer: `curl -fsSL https://smurg.ai/install.sh | sh` runs it. */
 export const INSTALL_SCRIPT = `${DOWNLOADS}/latest/install.sh`;
 
+/** The source repository (MIT). */
+export const REPOSITORY = 'https://github.com/gclinian/smurg';
+
 /** Exact paths that redirect; 302 so the targets can change without stale browser caches. */
-export const REDIRECTS: ReadonlyMap<string, string> = new Map([['/install.sh', INSTALL_SCRIPT]]);
+export const REDIRECTS: ReadonlyMap<string, string> = new Map([
+  ['/install.sh', INSTALL_SCRIPT],
+  ['/github', REPOSITORY],
+  ['/source', REPOSITORY],
+]);
 
 /** The `run_worker_first` patterns (wrangler.jsonc): every redirect path above, nothing else. */
-export const WORKER_PATHS: readonly string[] = ['/install.sh'];
+export const WORKER_PATHS: readonly string[] = ['/install.sh', '/github', '/source'];
 
 /** The static-assets binding (wrangler.jsonc `assets.binding`). */
 export interface Env {

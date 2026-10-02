@@ -1,12 +1,13 @@
 // The one line `smurg host` adds under its two links when a newer version is published (owner decision 2026-10-02):
 //
-//   有新版本 0.3.0（目前 0.2.0）：停止分享後執行 smurg update
+//   Version 0.4.1 is available (this is 0.4.0): stop sharing, then run smurg update
 //
 // It is looked up in the background after the links are printed and never delays or breaks the start: one request for
 // <downloads>/latest/VERSION with a short timeout, and NOTHING is said when it fails, when this is the newest version,
 // or when the check does not run at all: SMURG_NO_UPDATE_CHECK is set, an automated run (CI, or no terminal: the rule
 // of cli/io.ts browserBlock), or smurg runs from source (there `smurg update` could not do what the line says).
 import { flagOn, type CliIo } from '../cli/io.ts';
+import { m, type Text } from '../i18n/index.ts';
 import { seaExecutable } from '../sea/native.ts';
 import { CLI_VERSION } from '../version.ts';
 import { downloadsBase, latestVersion, withTimeout, type FetchLike } from './downloads.ts';
@@ -34,15 +35,15 @@ export function updateCheckBlock(io: CliIo, deps: UpdateNoticeDeps = {}): 'disab
   return null;
 }
 
-export function updateNoticeText(latest: string, current: string): string {
-  return `有新版本 ${latest}（目前 ${current}）：停止分享後執行 smurg update`;
+export function updateNoticeText(latest: string, current: string): Text {
+  return m('host.update.notice', { latest, current });
 }
 
 /**
  * The notice line, or null (nothing to say, for any reason). Never rejects; ends within the timeout, or as soon as
  * `signal` aborts (the host is stopping).
  */
-export async function updateNotice(io: CliIo, signal: AbortSignal, deps: UpdateNoticeDeps = {}): Promise<string | null> {
+export async function updateNotice(io: CliIo, signal: AbortSignal, deps: UpdateNoticeDeps = {}): Promise<Text | null> {
   try {
     if (updateCheckBlock(io, deps) !== null) return null;
     const current = deps.version ?? CLI_VERSION;

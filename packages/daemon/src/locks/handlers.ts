@@ -30,7 +30,7 @@ export function registerLockHandlers(router: Router, ctx: DaemonContext, parts: 
 
   stack.add(router.handle('lock.list', (_payload, req) => ({ locks: visibleLocks(locks.list(), req.role) })));
 
-  // 「讓 agent 先改」: the caller leaves the human lock (the others keep editing and keep it).
+  // "Let the agent go first": the caller leaves the human lock (the others keep editing and keep it).
   stack.add(
     router.handle('lock.release', async (payload, req) => {
       const resolved = await ctx.paths.resolve(payload.file, { principal: req.principal });

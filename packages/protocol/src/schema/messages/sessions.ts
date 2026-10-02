@@ -20,7 +20,7 @@ export const sessionWorkspaceSchema = z.discriminatedUnion('mode', [
 ]);
 
 /**
- * Needs `session.create` (host, 「可使用 agent」). The session runs like the host's own whoever opens it (ARCHITECTURE §11
+ * Needs `session.create` (host, Agent access). The session runs like the host's own whoever opens it (ARCHITECTURE §11
  * D-15): the host's OS user, unsandboxed, the host's environment and Claude Code login; the caller becomes its owner
  * (attribution). (Protocol 1's `apiKey` and kind `login` are gone.)
  */

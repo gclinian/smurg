@@ -5,6 +5,7 @@ import type { Role, SessionInfo, WorkspaceInfo } from '@smurg/protocol';
 import { makeSession, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
 import { buildCreatePayload, effectiveWhere, newSessionOptions } from './new-session.ts';
 
+
 const workspace = (isGitRepo: boolean): WorkspaceInfo => ({ ...makeWelcome().workspace, isGitRepo });
 const options = (
   role: Role | null,
@@ -19,7 +20,7 @@ const options = (
   });
 
 describe('new session: what each role may open (the daemon decides again)', () => {
-  it('the host and 「可使用 agent」 open sessions (they run as the host either way)', () => {
+  it('the host and members with agent access open sessions (they run as the host either way)', () => {
     expect(options('host')).toMatchObject({ canCreate: true, blockedBy: null });
     expect(options('agent')).toMatchObject({ canCreate: true, blockedBy: null });
   });
@@ -62,7 +63,7 @@ describe('new session: where it runs (R9)', () => {
     expect(effectiveWhere(options('agent', { git: false }), 'worktree:new')).toBe('main');
   });
 
-  it('builds session.create: main, a new worktree, or a kept one — the same for the host and 可使用 agent', () => {
+  it('builds session.create: main, a new worktree, or a kept one — the same for the host and members with agent access', () => {
     const size = { cols: 100, rows: 30 };
     const base = { kind: 'agent' as const, title: '' };
     for (const role of ['host', 'agent'] as const) {
@@ -77,12 +78,12 @@ describe('new session: where it runs (R9)', () => {
 
   it('sends a title only when given (trimmed), and never an API key', () => {
     const size = { cols: 80, rows: 24 };
-    expect(buildCreatePayload(options('agent'), { kind: 'agent', where: 'main', title: '  修登入頁 ' }, size)).toEqual({
+    expect(buildCreatePayload(options('agent'), { kind: 'agent', where: 'main', title: '  fix the login page ' }, size)).toEqual({
       kind: 'agent',
       workspace: { mode: 'main' },
       cols: 80,
       rows: 24,
-      title: '修登入頁',
+      title: 'fix the login page',
     });
     const blank = buildCreatePayload(options('agent'), { kind: 'terminal', where: 'main', title: '   ' }, size);
     expect(blank).not.toHaveProperty('title');

@@ -68,7 +68,7 @@ describe('worktree.merge.request', { timeout: 60_000 }, () => {
     expect(second.request.commit).toBe(request.commit);
   });
 
-  it('anyone with worktree.merge.request (the host, 可使用 agent) may request a merge of any worktree (§11 D-15); an editor may not (audited)', async () => {
+  it('anyone with worktree.merge.request (the host, Agent access) may request a merge of any worktree (§11 D-15); an editor may not (audited)', async () => {
     stack = await startWorktreeStack();
     const s = stack;
     const { worktreeId, dir } = await amyWorktree(s);
@@ -169,7 +169,7 @@ describe('R9 merge review', { timeout: 60_000 }, () => {
       if (file.path === 'new-name.txt') expect(one.diff).toContain('rename from old-name.txt');
     }
     expect(hugeTruncated).toBe(true);
-    // Whoever may request a merge may review it (§11 D-15): the requester, any 可使用 agent member; an editor may not.
+    // Whoever may request a merge may review it (§11 D-15): the requester, any Agent access member; an editor may not.
     await amy.conn.request('worktree.merge.diff', { requestId: request.id });
     const carl = await s.connect('dev:carl', 'agent');
     await expect(carl.conn.request('worktree.merge.fileDiff', { requestId: request.id, path: 'src/app.ts' })).resolves.toMatchObject({ path: 'src/app.ts' });
@@ -223,7 +223,7 @@ describe('R9 merge decisions', { timeout: 60_000 }, () => {
     expect(await readFile(join(s.t.root, 'README.md'), 'utf8')).toBe('# demo (host edit)\n');
     const parents = (await s.git(['rev-list', '--parents', '-n', '1', 'HEAD'])).trim().split(' ');
     expect(parents.slice(1)).toEqual([before, request.commit]);
-    expect((await s.git(['log', '-1', '--format=%an|%s'])).trim()).toBe(`Host|合併 ${s.manager.get(worktreeId)?.branch}（amy）`);
+    expect((await s.git(['log', '-1', '--format=%an|%s'])).trim()).toBe(`Host|Merge ${s.manager.get(worktreeId)?.branch} (amy)`);
     expect((await s.git(['status', '--porcelain'])).trim()).toBe('');
     expect((await s.git(['for-each-ref', 'refs/smurg/'])).trim()).toBe('');
     await waitFor(() => updates.some((update) => update.status === 'merged'), { what: 'merge.updated to the requester' });
@@ -268,7 +268,7 @@ describe('R9 merge decisions', { timeout: 60_000 }, () => {
     expect(await readFile(join(s.t.root, 'notes.txt'), 'utf8')).toBe('one\ntwo (worktree)\n');
   });
 
-  it('R9.3 主人拒絕合併時，worktree 保持原狀 (when the host rejects the merge the worktree stays as it was)', async () => {
+  it('R9.3 when the host rejects the merge the worktree stays as it was', async () => {
     stack = await startWorktreeStack();
     const s = stack;
     const { amy, worktreeId, dir } = await amyWorktree(s);
@@ -329,12 +329,12 @@ describe('R9 merge decisions', { timeout: 60_000 }, () => {
     expect(merged.status).toBe('merged');
   });
 
-  it('a merge request and the host\'s decision appear in everyone\'s activity feed (review WEB-11)', async () => {
+  it('a merge request and the host\'s decision appear in everyone\'s activity feed', async () => {
     stack = await startWorktreeStack({ extraModules: [locksModule] });
     const s = stack;
     const { amy, worktreeId, dir } = await amyWorktree(s);
     const vera = await s.connect('dev:vera', 'viewer');
-    const live: { kind: string; summary: string; actor: { kind: string; userId?: string } }[] = [];
+    const live: { kind: string; summary: string; text: unknown; actor: { kind: string; userId?: string } }[] = [];
     vera.conn.on('activity.event', ({ event }) => live.push(event));
     await writeFile(join(dir, 'src', 'app.ts'), 'export const answer = 43;\n');
     const { request } = await amy.conn.request('worktree.merge.request', { worktreeId });
@@ -344,11 +344,11 @@ describe('R9 merge decisions', { timeout: 60_000 }, () => {
     await s.host.conn.request('worktree.merge.reject', { requestId: second.id, reason: '先不要' });
     await waitFor(() => live.filter((e) => e.kind === 'merge').length === 4, { what: 'four merge entries at a viewer' });
     const merges = live.filter((e) => e.kind === 'merge');
-    expect(merges.map((e) => [e.actor.kind === 'user' ? e.actor.userId : e.actor.kind, e.summary])).toEqual([
-      ['dev:amy', '請求把自己的 worktree 合併到主工作區'],
-      [s.principal('dev:host').userId, '把amy的 worktree 合併到主工作區'],
-      ['dev:amy', '請求把自己的 worktree 合併到主工作區'],
-      [s.principal('dev:host').userId, '拒絕合併amy的 worktree'],
+    expect(merges.map((e) => [e.actor.kind === 'user' ? e.actor.userId : e.actor.kind, e.text, e.summary])).toEqual([
+      ['dev:amy', { id: 'activity.mergeRequested' }, 'Asked to merge their worktree into the main workspace'],
+      [s.principal('dev:host').userId, { id: 'activity.mergeMerged', params: { requester: 'amy' } }, "Merged amy's worktree into the main workspace"],
+      ['dev:amy', { id: 'activity.mergeRequested' }, 'Asked to merge their worktree into the main workspace'],
+      [s.principal('dev:host').userId, { id: 'activity.mergeRejected', params: { requester: 'amy' } }, "Rejected the merge of amy's worktree"],
     ]);
     const listed = (await vera.conn.request('activity.list', {})).events.filter((e) => e.kind === 'merge');
     expect(listed).toHaveLength(4);

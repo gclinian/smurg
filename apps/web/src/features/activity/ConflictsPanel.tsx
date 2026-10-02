@@ -1,4 +1,4 @@
-// The conflict panel (SPEC R8: 「重疊部分出現在衝突面板」). When a process outside the edit tools (Bash `sed`, a formatter,
+// The conflict panel (SPEC R8: "the overlapping part appears in the conflict panel"). When a process outside the edit tools (Bash `sed`, a formatter,
 // `git checkout`) changed a file someone was typing in, the daemon kept the human text and recorded the other side's
 // text here. For each conflict: the file, who was involved, and each overlapping hunk side by side (human text kept on
 // the left, the other version on the right, diff-view.ts). Members who can write may keep the human text (dismiss) or
@@ -8,14 +8,14 @@ import { isHostOnlyPath, isSmurgError, lockOfError, type ConflictHunk, type Conf
 import { useEffect, useId, useRef, useState } from 'react';
 import { NoCommandHandlerError } from '../../lib/commands.ts';
 import { describeError } from '../../lib/errors.ts';
-import { formatBytes, formatDateTime } from '../../lib/format.ts';
+import { formatBytes, formatDateTime, formatList, formatNumber } from '../../lib/format.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { selectConflictList } from '../../lib/stores/conflicts.ts';
 import { useCapabilities, useCommands, useStores } from '../../lib/workspace/context.tsx';
 import { Badge, Banner, Button, Dialog, EmptyState, Spinner, cx, useToast } from '../../ui/index.ts';
 import { IconAlertTriangle, IconCheck, IconEye, IconFileText } from '../../ui/icons.tsx';
 import { sideBySide } from './diff-view.ts';
-import { actorLabel } from './feed-model.ts';
+import { actorInText } from './feed-model.ts';
 import { t } from './strings.ts';
 
 /** What the full-version dialog shows at most (the version itself can be 5 MiB). */
@@ -83,8 +83,8 @@ function ConflictCard({ conflict }: { conflict: ConflictRecord }) {
   const [busy, setBusy] = useState<null | 'dismiss' | 'apply'>(null);
   const [confirmApply, setConfirmApply] = useState(false);
   const [showFull, setShowFull] = useState(false);
-  const source = actorLabel(conflict.source);
-  const humans = conflict.humans.map((human) => human.displayName).join(t('list.separator'));
+  const source = actorInText(conflict.source);
+  const humans = formatList(conflict.humans.map((human) => human.displayName));
   // Writing is needed to resolve (both actions); host-only files are the host's alone (ARCHITECTURE §5.2).
   const hostOnly = !caps.isHost && isHostOnlyPath(conflict.file.path);
   const mayResolve = conflict.status === 'open' && caps.can('file.write') && !hostOnly;
@@ -281,7 +281,7 @@ function FullVersionDialog({ conflict, source, onClose }: { conflict: ConflictRe
         </Banner>
       ) : (
         <>
-          {state.cut ? <p className="conflict__note">{t('conflict.fullTruncated', { shown: FULL_VERSION_MAX_CHARS.toLocaleString('zh-Hant-TW') })}</p> : null}
+          {state.cut ? <p className="conflict__note">{t('conflict.fullTruncated', { shown: formatNumber(FULL_VERSION_MAX_CHARS) })}</p> : null}
           <pre className="conflict__full">{state.text}</pre>
         </>
       )}

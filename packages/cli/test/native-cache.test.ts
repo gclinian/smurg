@@ -1,4 +1,4 @@
-// CLI-01: an upgrade of the single executable leaves the old build's extracted native dir behind; a start of the new
+// An upgrade of the single executable leaves the old build's extracted native dir behind; a start of the new
 // build removes other builds' dirs that were unused for NATIVE_KEEP_DAYS, and stale extraction temp dirs, and nothing
 // else (not the current build, not a recently used one, not a file, not a symlink, not an unrelated name).
 import { mkdir, readdir, symlink, utimes, writeFile } from 'node:fs/promises';

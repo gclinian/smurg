@@ -1,9 +1,10 @@
-// What the host reviews before a merge (R9 「主人看到完整 diff」, ARCHITECTURE §5.7): the complete file list, the
+// What the host reviews before a merge (R9: the host sees the complete diff; ARCHITECTURE §5.7): the complete file list, the
 // unified diff (cut at a file boundary when it exceeds the message limit), one file's diff on demand, and the policy
 // every merge request not made by the host must pass. All of it runs on the MAIN repository, on fixed object ids; nothing here
 // reads the worktree's files, so a symlink in a worktree is only ever a git object here, never followed.
 import { MERGE_DIFF_MAX_BYTES, MERGE_FILES_MAX, SmurgError, isHostOnlyPath, isSmurgDirName, relPathSegments, truncateToUtf8Bytes, type ResultInputOf } from '@smurg/protocol';
-import { firstLine, requireOk, type GitRunner } from './git.ts';
+import { msg, type GitStep } from '@smurg/protocol/i18n';
+import { firstLine, listedPaths, requireOk, type GitRunner } from './git.ts';
 import { cutAtFileBoundary, diffText, parseNumstat, parseRawDiff, type GitPath, type RawDiffEntry } from './git-parse.ts';
 
 type MergeDiffFile = ResultInputOf<'worktree.merge.diff'>['files'][number];
@@ -38,8 +39,8 @@ export interface MainRepo {
 
 const OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
-function oidOrThrow(value: string, what: string): string {
-  if (!OID.test(value)) throw new SmurgError('internal', `${what}：無法讀取 git 物件`, { reason: 'git-output-unparsable' });
+function oidOrThrow(value: string, step: GitStep): string {
+  if (!OID.test(value)) throw new SmurgError('internal', msg('git.objectUnreadable', { step }), { reason: 'git-output-unparsable', step });
   return value;
 }
 
@@ -47,7 +48,7 @@ function oidOrThrow(value: string, what: string): string {
 export async function mainHead(repo: MainRepo): Promise<string | null> {
   const result = await repo.git.run({ gitDir: repo.gitDir, args: ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], readOnly: true, maxStdoutBytes: 1024 });
   if (result.code !== 0) return null;
-  return oidOrThrow(firstLine(result), 'HEAD');
+  return oidOrThrow(firstLine(result), 'readCommit');
 }
 
 export async function commitExists(repo: MainRepo, commit: string): Promise<boolean> {
@@ -59,27 +60,27 @@ export async function commitExists(repo: MainRepo, commit: string): Promise<bool
 /** Where the request's changes start: merge-base(main, commit). Unrelated histories cannot be merged: refused. */
 export async function reviewBase(repo: MainRepo, mainCommit: string, commit: string): Promise<string> {
   const result = await repo.git.run({ gitDir: repo.gitDir, args: ['merge-base', mainCommit, commit], readOnly: true, maxStdoutBytes: 1024 });
-  if (result.code === 1) throw new SmurgError('conflict', '這個 worktree 與主工作區沒有共同的歷史，無法合併', { reason: 'unrelated-histories' });
-  requireOk(result, '找出共同祖先');
-  return oidOrThrow(firstLine(result), 'merge-base');
+  if (result.code === 1) throw new SmurgError('conflict', msg('merge.unrelatedHistories'), { reason: 'unrelated-histories' });
+  requireOk(result, 'mergeBase');
+  return oidOrThrow(firstLine(result), 'mergeBase');
 }
 
 /** The complete file list of `base..commit` (renames detected), at most MERGE_FILES_MAX files. */
 export async function reviewFiles(repo: MainRepo, base: string, commit: string, limits: ReviewLimits = DEFAULT_REVIEW_LIMITS): Promise<ReviewFile[]> {
   const common = { gitDir: repo.gitDir, readOnly: true, maxStdoutBytes: limits.listOutputBytes, timeoutMs: limits.timeoutMs } as const;
-  const raw = requireOk(await repo.git.run({ ...common, args: ['diff', '--raw', '-z', '--no-abbrev', '-M', '--no-ext-diff', base, commit] }), '列出變更的檔案');
+  const raw = requireOk(await repo.git.run({ ...common, args: ['diff', '--raw', '-z', '--no-abbrev', '-M', '--no-ext-diff', base, commit] }), 'listChanges');
   const entries = parseRawDiff(raw.stdout);
   if (entries.length > MERGE_FILES_MAX) {
-    throw new SmurgError('too_large', `變更的檔案超過 ${MERGE_FILES_MAX} 個，無法完整審核，請分成幾次合併`, { reason: 'too-many-files', count: entries.length });
+    throw new SmurgError('too_large', msg('merge.tooManyFiles', { max: MERGE_FILES_MAX }), { reason: 'too-many-files', count: entries.length });
   }
-  const numstat = requireOk(await repo.git.run({ ...common, args: ['diff', '--numstat', '-z', '-M', '--no-ext-diff', '--no-textconv', base, commit] }), '計算變更行數');
+  const numstat = requireOk(await repo.git.run({ ...common, args: ['diff', '--numstat', '-z', '-M', '--no-ext-diff', '--no-textconv', base, commit] }), 'countLines');
   const counts = new Map<string, { additions: number | null; deletions: number | null }>();
   for (const entry of parseNumstat(numstat.stdout)) counts.set(`${entry.oldPath?.raw ?? ''}\u0000${entry.path.raw}`, entry);
   let pathBytes = 0;
   const files: ReviewFile[] = [];
   for (const entry of entries) {
     pathBytes += Buffer.byteLength(entry.path.raw) + Buffer.byteLength(entry.oldPath?.raw ?? '');
-    if (pathBytes > limits.listPathBytes) throw new SmurgError('too_large', '變更的檔名總長度過大，無法完整審核', { reason: 'file-list-too-large' });
+    if (pathBytes > limits.listPathBytes) throw new SmurgError('too_large', msg('merge.fileListTooLarge'), { reason: 'file-list-too-large' });
     const count = counts.get(`${entry.oldPath?.raw ?? ''}\u0000${entry.path.raw}`) ?? counts.get(`\u0000${entry.path.raw}`);
     const binary = count !== undefined && count.additions === null;
     const file: MergeDiffFile = {
@@ -100,7 +101,7 @@ const DIFF_ARGS = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '-M']
 /** The unified diff of `base..commit`, cut at a file boundary to fit MERGE_DIFF_MAX_BYTES (`truncated`). */
 export async function unifiedDiff(repo: MainRepo, base: string, commit: string, timeoutMs: number): Promise<{ diff: string; truncated: boolean }> {
   const result = await repo.git.run({ gitDir: repo.gitDir, args: [...DIFF_ARGS, base, commit], readOnly: true, maxStdoutBytes: MERGE_DIFF_MAX_BYTES + 1, timeoutMs });
-  if (!result.truncated) requireOk(result, '產生 diff');
+  if (!result.truncated) requireOk(result, 'diff');
   return fitDiff(result.stdout, result.truncated);
 }
 
@@ -109,7 +110,7 @@ export async function singleFileDiff(repo: MainRepo, base: string, commit: strin
   const paths = file.oldPath ? [file.oldPath.raw, file.path.raw] : [file.path.raw];
   // GIT_LITERAL_PATHSPECS (git.ts) makes these plain names, and `--` ends the options: a name can be neither.
   const result = await repo.git.run({ gitDir: repo.gitDir, args: [...DIFF_ARGS, base, commit, '--', ...paths], readOnly: true, maxStdoutBytes: MERGE_DIFF_MAX_BYTES + 1, timeoutMs });
-  if (!result.truncated) requireOk(result, '產生 diff');
+  if (!result.truncated) requireOk(result, 'diff');
   const bytes = result.stdout;
   const truncated = result.truncated || bytes.length > MERGE_DIFF_MAX_BYTES;
   return finishText(bytes.subarray(0, Math.min(bytes.length, MERGE_DIFF_MAX_BYTES)), truncated);
@@ -137,7 +138,7 @@ function finishText(bytes: Uint8Array, truncated: boolean): { diff: string; trun
  * follow links) a name for a file the guest chose.
  *
  * Decided on the text alone, conservatively, because a name in the target can be (or later become) a symlink itself
- * (review SEC-D-04): `b -> ../..` names the root, and `a -> b/../x` then climbs ABOVE it, although "b/.." cancels out
+ *: `b -> ../..` names the root, and `a -> b/../x` then climbs ABOVE it, although "b/.." cancels out
  * lexically. So the target may climb with `..` only at its start (through the link's own parent directories, which
  * are directories of the same tree), never after a name; it may not climb above the root; and it may not end on a
  * host-only path (`.git`, `.claude`, …, ARCHITECTURE §5.2) or in `.smurg`.
@@ -170,11 +171,11 @@ async function symlinkTargets(repo: MainRepo, files: readonly ReviewFile[], time
   const links = files.filter((entry) => entry.raw.dstMode === SYMLINK_MODE && entry.file.status !== 'deleted');
   const targets = new Map<string, string | null>();
   if (links.length === 0) return targets;
-  if (links.length > MAX_SYMLINKS_CHECKED) throw new SmurgError('too_large', '變更中的符號連結過多，無法審核', { reason: 'too-many-symlinks' });
+  if (links.length > MAX_SYMLINKS_CHECKED) throw new SmurgError('too_large', msg('merge.tooManySymlinks'), { reason: 'too-many-symlinks' });
   const input = `${links.map((entry) => entry.raw.dstOid).join('\n')}\n`;
   const result = requireOk(
     await repo.git.run({ gitDir: repo.gitDir, args: ['cat-file', '--batch'], input, readOnly: true, maxStdoutBytes: links.length * 8_192 + 65_536, timeoutMs }),
-    '讀取符號連結',
+    'readSymlinks',
   );
   const out = result.stdout;
   let at = 0;
@@ -228,13 +229,13 @@ export async function checkMergePolicy(repo: MainRepo, files: readonly ReviewFil
 
 export function policyError(violation: PolicyViolation): SmurgError {
   const sample = violation.paths.slice(0, 20);
-  const list = sample.join('、');
+  const paths = listedPaths(violation.paths);
   switch (violation.reason) {
     case 'daemon-dir':
-      return new SmurgError('host_only', `合併內容不可以包含 .smurg 資料夾：${list}`, { reason: 'daemon-dir', paths: sample, count: violation.paths.length });
+      return new SmurgError('host_only', msg('merge.containsSmurgDir', { paths }), { reason: 'daemon-dir', paths: sample, count: violation.paths.length });
     case 'host-only-paths':
-      return new SmurgError('host_only', `合併內容包含只有主人可以修改的檔案，請先移除：${list}`, { reason: 'host-only-paths', paths: sample, count: violation.paths.length });
+      return new SmurgError('host_only', msg('merge.containsHostOnly', { paths }), { reason: 'host-only-paths', paths: sample, count: violation.paths.length });
     case 'unsafe-symlink':
-      return new SmurgError('conflict', `合併內容包含指向專案外的符號連結，請先移除：${list}`, { reason: 'unsafe-symlink', paths: sample, count: violation.paths.length });
+      return new SmurgError('conflict', msg('merge.unsafeSymlinks', { paths }), { reason: 'unsafe-symlink', paths: sample, count: violation.paths.length });
   }
 }

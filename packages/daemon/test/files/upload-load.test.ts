@@ -1,4 +1,5 @@
-// SPEC R7 acceptance 「上傳 10 GB 檔案時，瀏覽器記憶體用量保持穩定，其他人打字和終端機沒有明顯延遲」 — the DAEMON side:
+// SPEC R7 acceptance (while a 10 GB file uploads, the browser's memory stays flat and nobody's typing or terminal
+// lags) — the DAEMON side:
 // a 200 MiB upload in 4 MiB chunks (ack window of 4) must not block the interactive channel, and the daemon's memory
 // must not grow with the upload (chunks are written through, never collected). The browser half (10 GB, browser
 // memory) needs a real browser and is verified separately (docs/ACCEPTANCE.md R7.2); no multi-gigabyte file here.
@@ -44,8 +45,8 @@ function percentile(values: readonly number[], p: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))] ?? 0;
 }
 
-describe('R7.2 上傳 10 GB 檔案時，瀏覽器記憶體用量保持穩定，其他人打字和終端機沒有明顯延遲 (daemon side)', () => {
-  it('上傳 10 GB 檔案時…其他人打字和終端機沒有明顯延遲 — a 200 MiB upload does not block the interactive channel, and the daemon memory stays flat', { timeout: 180_000 }, async () => {
+describe('R7.2 a 10 GB upload keeps memory flat and delays nobody\'s typing or terminal (daemon side)', () => {
+  it('a large upload delays nobody\'s typing or terminal — a 200 MiB upload does not block the interactive channel, and the daemon memory stays flat', { timeout: 180_000 }, async () => {
     ft = await startFilesDaemon({ project: { files: { 'notes.md': '# notes\n' } }, files: { watch: false }, settings: { uploadChunkSize: 4 * MiB } });
     const amy = await ft.t.connect({ userId: 'dev:amy', role: 'editor' });
     const bob = await ft.t.connect({ userId: 'dev:bob', role: 'editor' });

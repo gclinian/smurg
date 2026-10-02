@@ -27,6 +27,14 @@ import { ROOM_DEBUG_PATH, type RoomInspection } from '../src/rooms/inspection.ts
 import { startTapCollector, type RelayTap } from './tap-collector.ts';
 
 export { findPlaintext, MIN_MARKER_BYTES, type PlaintextEncoding } from './plaintext.ts';
+/**
+ * The text of the relay's own HTML pages (/device, the login error pages) in both languages, and the stand-in page's
+ * sentence: tests of other packages that read those pages compare with these instead of copying sentences. A test
+ * says which language it reads (an `Accept-Language` header, a browser context's `locale`, or the `smurg_lang`
+ * cookie); `<body data-state>` names the page in either language.
+ */
+export { LANGUAGE_NAMES as RELAY_PAGE_LANGUAGE_NAMES, STRINGS as RELAY_PAGE_STRINGS, type PageStrings as RelayPageStrings } from '../src/lib/strings.ts';
+export { STAND_IN_TEXT } from '../scripts/ensure-web-dist.ts';
 export {
   RelaySocket,
   RelayUpgradeError,

@@ -72,8 +72,8 @@ function token(label: string): string {
   return value;
 }
 
-describe('R2 踢人', { timeout: 60_000 }, () => {
-  it('被踢的使用者 3 秒內失去所有存取權，他的 session 程序被終止 — a background job, a nohup job, a job ignoring SIGHUP/SIGTERM and a detached daemon', async () => {
+describe('R2 kicking a member', { timeout: 60_000 }, () => {
+  it('a kicked user loses all access within 3 s and their session processes are ended — a background job, a nohup job, a job ignoring SIGHUP/SIGTERM and a detached daemon', async () => {
     const s = await stack();
     const host = await s.t.connectHost();
     const carol = await s.t.connect({ userId: 'dev:carol', role: 'agent' });
@@ -157,8 +157,8 @@ describe('R2 踢人', { timeout: 60_000 }, () => {
   });
 });
 
-describe('R11 主人控制台', { timeout: 60_000 }, () => {
-  it('主人能從控制台一鍵終止任何 session — a 「可使用 agent」 member\'s session and the host\'s own, processes included', async () => {
+describe('R11 the host console', { timeout: 60_000 }, () => {
+  it('the host can end any session from the console with one click — an Agent access member\'s session and the host\'s own, processes included', async () => {
     const s = await stack();
     const host = await s.t.connectHost();
     const carol = await s.t.connect({ userId: 'dev:carol', role: 'agent' });
@@ -183,7 +183,7 @@ describe('R11 主人控制台', { timeout: 60_000 }, () => {
     expect(await pidsOf(`sleep ${a}`)).toEqual([]);
     expect(await pidsOf(`sleep ${b}`)).toEqual([]);
     await waitFor(() => states.includes(`${guestSession.id}:exited`) && states.includes(`${hostSession.id}:exited`), 'session.state to every member');
-    // The owner learns it was the host, not a normal exit (review WEB-12).
+    // The owner learns it was the host, not a normal exit.
     await waitFor(() => seenByOwner.length > 0, 'the exited state at the owner');
     expect(seenByOwner.at(-1)).toMatchObject({ endReason: 'terminated', endedBy: { userId: TEST_HOST_USER } });
     const listed = (await carol.conn.request('session.list', {})).sessions.find((x) => x.id === guestSession.id);
@@ -197,7 +197,7 @@ describe('R11 主人控制台', { timeout: 60_000 }, () => {
   });
 });
 
-describe('a daemon that died hard (review REL-09)', { timeout: 120_000 }, () => {
+describe('a daemon that died hard', { timeout: 120_000 }, () => {
   it('the processes its sessions started do not outlive the NEXT start: live.json names them, identity-checked', async () => {
     const base = await createTempRunDir(); // short: the child's sockets live in <base>/s/run
     const stateDir = join(base, 's');

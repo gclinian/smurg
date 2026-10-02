@@ -1,4 +1,4 @@
-// A smoothed transfer rate for 「速度」 and 「剩餘時間」: exponentially weighted over samples at least `minIntervalMs`
+// A smoothed transfer rate for the speed and the time left: exponentially weighted over samples at least `minIntervalMs`
 // apart, so a burst of four acknowledgements in one millisecond does not read as gigabytes per second.
 
 export class RateMeter {

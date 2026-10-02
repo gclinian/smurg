@@ -1,41 +1,47 @@
-// How a session is described: an ended one (review WEB-12: a session the host terminated must not read like a normal
+// How a session is described: an ended one (a session the host terminated must not read like a normal
 // exit), who opened it (every session runs as the host, protocol v2), and a refused request.
 import { describe, expect, it } from 'vitest';
 import { SmurgError } from '@smurg/protocol';
-import { describeSessionError, effectiveLogin, kindLabel, openedByLabel, statusLabel, tabLabel } from './session-info.ts';
+import { msg } from '@smurg/protocol/i18n';
+import { describeSessionError, effectiveLogin, kindLabel, openedByLabel, openerName, statusLabel, tabLabel } from './session-info.ts';
 
-describe('statusLabel of an ended session (review WEB-12)', () => {
+
+describe('statusLabel of an ended session', () => {
   it('names the host who terminated it, and the other reasons a session ends without the person who opened it', () => {
-    expect(statusLabel({ status: 'exited', exitCode: 0, endReason: 'terminated', endedBy: { userId: 'github:1', displayName: 'Ian 老師' } })).toBe('已被主人（Ian 老師）終止');
-    expect(statusLabel({ status: 'exited', exitCode: 0, endReason: 'terminated' })).toBe('已被主人終止');
-    expect(statusLabel({ status: 'exited', endReason: 'kicked' })).toBe('已結束（開啟它的人已被移出工作區）');
-    expect(statusLabel({ status: 'exited', endReason: 'left' })).toBe('已結束（開啟它的人已離開工作區）');
-    expect(statusLabel({ status: 'exited', endReason: 'role-changed' })).toBe('已結束（開啟它的人已不能使用 agent）');
-    expect(statusLabel({ status: 'exited', endReason: 'stopped' })).toBe('已結束（主人已停止分享）');
+    expect(statusLabel({ status: 'exited', exitCode: 0, endReason: 'terminated', endedBy: { userId: 'github:1', displayName: 'Ian Lin' } })).toBe('Terminated by the host (Ian Lin)');
+    expect(statusLabel({ status: 'exited', exitCode: 0, endReason: 'terminated' })).toBe('Terminated by the host');
+    expect(statusLabel({ status: 'exited', endReason: 'kicked' })).toBe('Ended (the member who opened it was removed from the workspace)');
+    expect(statusLabel({ status: 'exited', endReason: 'left' })).toBe('Ended (the member who opened it left the workspace)');
+    expect(statusLabel({ status: 'exited', endReason: 'role-changed' })).toBe('Ended (the member who opened it no longer has agent access)');
+    expect(statusLabel({ status: 'exited', endReason: 'stopped' })).toBe('Ended (the host stopped sharing)');
   });
 
   it('a normal exit (or an older daemon that sends no reason) keeps the exit code', () => {
-    expect(statusLabel({ status: 'exited', exitCode: 3, endReason: 'exit' })).toBe('已結束（結束代碼 3）');
-    expect(statusLabel({ status: 'exited', exitCode: 0, endReason: 'ended', endedBy: { userId: 'dev:amy', displayName: 'Amy' } })).toBe('已結束（結束代碼 0）');
-    expect(statusLabel({ status: 'exited', exitCode: 3 })).toBe('已結束（結束代碼 3）');
-    expect(statusLabel({ status: 'running' })).toBe('執行中');
+    expect(statusLabel({ status: 'exited', exitCode: 3, endReason: 'exit' })).toBe('Ended (exit code 3)');
+    expect(statusLabel({ status: 'exited', exitCode: 0, endReason: 'ended', endedBy: { userId: 'dev:amy', displayName: 'Amy' } })).toBe('Ended (exit code 0)');
+    expect(statusLabel({ status: 'exited', exitCode: 3 })).toBe('Ended (exit code 3)');
+    expect(statusLabel({ status: 'running' })).toBe('Running');
   });
 });
 
 describe('who opened a session', () => {
-  it('the tab reads 「Claude（Amy 開的）」, whether the daemon titled it 「Claude」, 「Claude（Amy）」 or 「Claude（Amy 開的）」', () => {
-    for (const title of ['Claude', 'Claude（Amy）', 'Claude（Amy 開的）']) expect(tabLabel({ title, ownerName: 'Amy' }), title).toBe('Claude（Amy 開的）');
-    expect(tabLabel({ title: '修登入頁', ownerName: 'Ian' })).toBe('修登入頁（Ian 開的）');
+  it('the tab names the session, then who opened it: the typed title, or the kind of an untitled session', () => {
+    // The host sends no default title (protocol 3): an untitled session is named after its kind.
+    expect(tabLabel({ kind: 'agent', ownerName: 'Amy' })).toBe('Claude (Amy)');
+    expect(tabLabel({ kind: 'terminal', ownerName: 'Amy' })).toBe('Terminal (Amy)');
+    expect(tabLabel({ kind: 'agent', title: 'Fix the login page', ownerName: 'Ian' })).toBe('Fix the login page (Ian)');
   });
 
-  it('the summary says 「Amy 開的」, or 「你開的」 for one\'s own', () => {
-    expect(openedByLabel({ ownerName: 'Amy', ownerUserId: 'dev:amy' }, 'dev:ian')).toBe('Amy 開的');
-    expect(openedByLabel({ ownerName: 'Amy', ownerUserId: 'dev:amy' }, 'dev:amy')).toBe('你開的');
+  it('the summary says "By Amy", or "By you" for one\'s own; the details row names the person, or "You"', () => {
+    expect(openedByLabel({ ownerName: 'Amy', ownerUserId: 'dev:amy' }, 'dev:ian')).toBe('By Amy');
+    expect(openedByLabel({ ownerName: 'Amy', ownerUserId: 'dev:amy' }, 'dev:amy')).toBe('By you');
+    expect(openerName({ ownerName: 'Amy', ownerUserId: 'dev:amy' }, 'dev:ian')).toBe('Amy');
+    expect(openerName({ ownerName: 'Amy', ownerUserId: 'dev:amy' }, 'dev:amy')).toBe('You');
   });
 
   it('there are two kinds: an agent and a terminal (no login process)', () => {
-    expect(kindLabel({ kind: 'agent' })).toBe('agent（Claude Code）');
-    expect(kindLabel({ kind: 'terminal' })).toBe('終端機');
+    expect(kindLabel({ kind: 'agent' })).toBe('Agent (Claude Code)');
+    expect(kindLabel({ kind: 'terminal' })).toBe('Terminal');
   });
 
   it('a re-check of the login counts only until the daemon reports something newer', () => {
@@ -45,10 +51,12 @@ describe('who opened a session', () => {
   });
 });
 
-describe('a refused session request in zh-TW', () => {
+describe('a refused session request in plain words', () => {
   it('a refusal by role says so; a known reason gets a hint; anything else keeps the daemon\'s message', () => {
-    expect(describeSessionError(new SmurgError('forbidden', 'no'))).toMatchObject({ title: '無法開啟 session', message: '你的角色不能執行這個動作。' });
-    expect(describeSessionError(new SmurgError('conflict', '太多 session 了', { reason: 'session-limit' })).hint).toBe('請先結束不再使用的 session，再試一次。');
-    expect(describeSessionError(new SmurgError('internal', '出錯了')).hint).toBeUndefined();
+    expect(describeSessionError(new SmurgError('forbidden', 'no'))).toMatchObject({ title: 'Could not open the session', message: 'Your role does not allow this.' });
+    expect(describeSessionError(new SmurgError('conflict', msg('session.limit'), { reason: 'session-limit' })).hint).toBe('End a session you no longer use, then try again.');
+    expect(describeSessionError(new SmurgError('conflict', msg('session.limit'), { reason: 'session-limit' })).message).toBe('The workspace has reached its session limit.');
+    expect(describeSessionError(new SmurgError('internal'))).toMatchObject({ message: 'Something went wrong on the host.' });
+    expect(describeSessionError(new SmurgError('internal')).hint).toBeUndefined();
   });
 });

@@ -29,6 +29,7 @@ import {
   type ResultInputOf,
   type RootRef,
 } from '@smurg/protocol';
+import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import { PathDeniedError } from '../core/errors.ts';
 import type { ClientConnection, FileIdentity, Principal, ResolvedPath, RootInfo, UploadService, UserId } from '../core/interfaces.ts';
@@ -40,6 +41,7 @@ import type { FileServiceImpl } from './file-service.ts';
 import { existsError, makeDirectory, numberedName, placeNoClobber } from './fs-ops.ts';
 import { UploadStore, matchesIdentity, type StagedUpload, type StagingArea, type UploadManifest } from './upload-store.ts';
 import { looseKey, mapLimit, refLabel } from './util.ts';
+import { shownPath } from '../locks/text.ts';
 
 export const UPLOAD_TTL_MS = 48 * 60 * 60 * 1000;
 export const UPLOAD_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -98,7 +100,7 @@ function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-function badRequest(reason: string, message: string, extra: Record<string, unknown> = {}): SmurgError {
+function badRequest(reason: string, message: MessageRef, extra: Record<string, unknown> = {}): SmurgError {
   return new SmurgError('bad_request', message, { reason, ...extra });
 }
 
@@ -163,7 +165,7 @@ export class UploadServiceImpl implements UploadService {
     const keyOf = (path: string): string => (insensitive ? relPathSegments(path).map(foldPathName).join('/') : path);
     const problems: { path: string; reason: string }[] = [];
     const fail = (reason: string): never => {
-      throw new SmurgError('conflict', '這批上傳有名稱衝突，沒有建立任何檔案', { reason, paths: problems.slice(0, PLAN_PROBLEMS_LISTED) });
+      throw new SmurgError('conflict', msg('upload.nameConflicts'), { reason, paths: problems.slice(0, PLAN_PROBLEMS_LISTED) });
     };
 
     // 1. Inside the batch: two entries for one name, a file that is also the parent of another entry.
@@ -189,7 +191,7 @@ export class UploadServiceImpl implements UploadService {
     // 2. Every path through PathGuard for writing (host-only, read-only, symlinks, containment) before anything happens.
     const entries = [...seen.values()];
     for (const entry of entries) await this.files.refuseDaemonOwned({ root: input.root, path: entry.path }, principal);
-    // Linux: one listing per directory for the NFC → on-disk mapping of the whole plan (review RCR-2).
+    // Linux: one listing per directory for the NFC → on-disk mapping of the whole plan.
     const spellings = new SpellingIndex();
     const resolved = await mapLimit(entries, PLAN_RESOLVE_CONCURRENCY, (entry) =>
       this.ctx.paths.resolve({ root: input.root, path: entry.path }, { principal, forWrite: true, finalSymlink: 'deny', spellings }),
@@ -276,10 +278,10 @@ export class UploadServiceImpl implements UploadService {
     await this.files.refuseDaemonOwned({ root: input.root, path: input.path }, principal);
     const rootInfo = this.rootOf(input.root);
     const target = await this.ctx.paths.resolve({ root: input.root, path: input.path }, { principal, forWrite: true, finalSymlink: 'deny' });
-    // A resume may change the policy (the person chose 「覆蓋」 after the first attempt found the name taken).
+    // A resume may change the policy (the person chose to overwrite after the first attempt found the name taken).
     const onConflict = input.onConflict ?? upload?.onConflict ?? 'fail';
     if (target.exists) {
-      if (target.identity?.kind !== 'file') throw new SmurgError('conflict', '目標位置已經有同名的資料夾', { reason: 'not-a-file' });
+      if (target.identity?.kind !== 'file') throw new SmurgError('conflict', msg('upload.folderInTheWay'), { reason: 'not-a-file' });
       if (onConflict === 'fail') throw existsError();
     }
     if (onConflict !== 'rename') await this.files.refuseIfLocked(target, false);
@@ -301,7 +303,7 @@ export class UploadServiceImpl implements UploadService {
     const area = await this.areaFor(volume.dev);
     const partials = this.store.list().filter((u) => !u.removed && u.manifest.userId === conn.userId).length;
     if (partials >= MAX_PARTIAL_UPLOADS_PER_USER) {
-      throw new SmurgError('conflict', '未完成的上傳太多，請先完成或取消一些上傳', { reason: 'too-many-uploads', limit: MAX_PARTIAL_UPLOADS_PER_USER });
+      throw new SmurgError('conflict', msg('upload.tooManyPartial'), { reason: 'too-many-uploads', limit: MAX_PARTIAL_UPLOADS_PER_USER });
     }
     const manifest: UploadManifest = {
       v: 1,
@@ -332,26 +334,26 @@ export class UploadServiceImpl implements UploadService {
 
   async chunk(input: PayloadOf<'file.upload.chunk'>, conn: ClientConnection): Promise<ResultInputOf<'file.upload.chunk'>> {
     const upload = this.requireBound(input.uploadId, conn);
-    if (upload.committing) throw new SmurgError('conflict', '這個上傳正在完成中', { reason: 'committing' });
+    if (upload.committing) throw new SmurgError('conflict', msg('upload.committing'), { reason: 'committing' });
     const { index, hash, data } = input;
-    if (index >= upload.manifest.chunkCount) throw badRequest('index', '分段編號超出範圍');
+    if (index >= upload.manifest.chunkCount) throw badRequest('index', msg('upload.chunkIndex'));
     const expected = upload.chunkLength(index);
-    if (data.byteLength !== expected) throw badRequest('chunk-length', '分段長度不正確', { expected, actual: data.byteLength });
+    if (data.byteLength !== expected) throw badRequest('chunk-length', msg('upload.chunkLength'), { expected, actual: data.byteLength });
     const digest = createHash('sha256').update(data).digest();
-    if (!equalBytes(digest, hash)) throw badRequest('hash-mismatch', '分段的雜湊值不符，請重新傳送', { index });
+    if (!equalBytes(digest, hash)) throw badRequest('hash-mismatch', msg('upload.chunkHashMismatch'), { index });
     if (upload.hasChunk(index)) {
       // A retransmission after a reconnect is harmless; a different content for a stored chunk is not.
-      if (!equalBytes(upload.hashOf(index), digest)) throw new SmurgError('conflict', '這個分段先前已收到不同的內容', { reason: 'chunk-differs', index });
+      if (!equalBytes(upload.hashOf(index), digest)) throw new SmurgError('conflict', msg('upload.chunkDiffers'), { reason: 'chunk-differs', index });
       return { index };
     }
     try {
       await this.store.writeChunk(upload, index, digest, data);
     } catch (err) {
-      if (upload.removed) throw new SmurgError('not_found', '這個上傳已被取消', { reason: 'unknown-upload' });
+      if (upload.removed) throw new SmurgError('not_found', msg('upload.cancelled'), { reason: 'unknown-upload' });
       if (errnoCode(err) === 'ENOSPC') {
         const rootInfo = this.rootOf(upload.manifest.root);
         const disk = await this.report({ path: rootInfo.realPath, dev: upload.manifest.targetDev }, upload.remainingBytes, { uploadId: upload.id }).catch(() => null);
-        throw new SmurgError('insufficient_disk', '主人的磁碟已滿，上傳已暫停', disk ? { disk, reason: 'disk-full' } : { reason: 'disk-full' });
+        throw new SmurgError('insufficient_disk', msg('upload.diskFull'), disk ? { disk, reason: 'disk-full' } : { reason: 'disk-full' });
       }
       throw err;
     }
@@ -360,7 +362,7 @@ export class UploadServiceImpl implements UploadService {
 
   async commit(input: PayloadOf<'file.upload.commit'>, conn: ClientConnection, principal: Principal): Promise<ResultInputOf<'file.upload.commit'>> {
     const upload = this.requireBound(input.uploadId, conn);
-    if (upload.committing) throw new SmurgError('conflict', '這個上傳正在完成中', { reason: 'committing' });
+    if (upload.committing) throw new SmurgError('conflict', msg('upload.committing'), { reason: 'committing' });
     upload.committing = true;
     let placedOrLost = false;
     try {
@@ -369,10 +371,10 @@ export class UploadServiceImpl implements UploadService {
       if (!upload.complete) {
         let first = 0;
         while (first < manifest.chunkCount && upload.hasChunk(first)) first++;
-        throw badRequest('incomplete', '還有分段沒有收到', { missing: manifest.chunkCount - upload.receivedChunks, first });
+        throw badRequest('incomplete', msg('upload.incomplete'), { missing: manifest.chunkCount - upload.receivedChunks, first });
       }
       const root = hashListRoot(manifest.size, manifest.chunkSize, upload.hashes);
-      if (!equalBytes(root, input.rootHash)) throw badRequest('hash-mismatch', '整個檔案的雜湊值不符');
+      if (!equalBytes(root, input.rootHash)) throw badRequest('hash-mismatch', msg('upload.fileHashMismatch'));
       const handles = await this.store.handlesOf(upload);
       const st = await handles.part.stat();
       if (st.size !== manifest.size) throw new SmurgError('internal', undefined, { reason: 'part-size' });
@@ -391,7 +393,7 @@ export class UploadServiceImpl implements UploadService {
       this.bindings.delete(upload.id);
       this.rememberCommitted(upload.id, conn.userId, placed.ref);
       await this.store.remove(upload);
-      this.files.recordMutation(principal, 'file.upload', placed.ref, { size: manifest.size, chunks: manifest.chunkCount, overwrite: placed.overwritten }, `上傳 ${placed.ref.path}`);
+      this.files.recordMutation(principal, 'file.upload', placed.ref, { size: manifest.size, chunks: manifest.chunkCount, overwrite: placed.overwritten }, msg('activity.fileUpload', { path: shownPath(placed.ref.path) }));
       const entry = await this.files.entryFor(placed.ref);
       if (!entry) throw new SmurgError('not_found', undefined, { reason: 'vanished' });
       return { entry };
@@ -426,7 +428,7 @@ export class UploadServiceImpl implements UploadService {
     const done = this.committed.get(uploadId);
     if (!done || done.userId !== userId) return;
     const entry = await this.files.entryFor(done.ref);
-    throw new SmurgError('conflict', '這個上傳已經完成', { reason: 'committed', path: done.ref.path, ...(entry ? { entry } : {}) });
+    throw new SmurgError('conflict', msg('upload.alreadyDone'), { reason: 'committed', path: done.ref.path, ...(entry ? { entry } : {}) });
   }
 
   async abort(input: PayloadOf<'file.upload.abort'>, conn: ClientConnection): Promise<void> {
@@ -436,9 +438,9 @@ export class UploadServiceImpl implements UploadService {
     const boundTo = this.bindings.get(upload.id);
     // The owner may cancel from the connection that uploads, or when no live connection holds the upload.
     if (boundTo !== undefined && boundTo !== conn.id && this.ctx.hub.connection(boundTo)?.isOpen) {
-      throw new SmurgError('conflict', '這個上傳正由另一個連線進行中', { reason: 'not-bound' });
+      throw new SmurgError('conflict', msg('upload.boundElsewhere'), { reason: 'not-bound' });
     }
-    if (upload.committing) throw new SmurgError('conflict', '這個上傳正在完成中', { reason: 'committing' });
+    if (upload.committing) throw new SmurgError('conflict', msg('upload.committing'), { reason: 'committing' });
     this.bindings.delete(upload.id);
     await this.store.remove(upload);
   }
@@ -506,7 +508,7 @@ export class UploadServiceImpl implements UploadService {
 
   /** Requests still in flight while the daemon stops must not reopen staging files. */
   private refuseIfStopped(): void {
-    if (this.stopped) throw new SmurgError('internal', '主人正在停止分享', { reason: 'stopping' });
+    if (this.stopped) throw new SmurgError('internal', msg('upload.hostStopping'), { reason: 'stopping' });
   }
 
   /** The member is still active and their current role may write files (fail closed). */
@@ -525,10 +527,10 @@ export class UploadServiceImpl implements UploadService {
   private requireBound(uploadId: string, conn: ClientConnection): StagedUpload {
     this.refuseIfStopped();
     const upload = this.store.get(uploadId);
-    if (!upload || upload.removed) throw new SmurgError('not_found', '找不到這個上傳', { reason: 'unknown-upload' });
+    if (!upload || upload.removed) throw new SmurgError('not_found', msg('upload.notFound'), { reason: 'unknown-upload' });
     if (upload.manifest.userId !== conn.userId) throw new SmurgError('forbidden', undefined, { reason: 'not-owner' });
     if (this.bindings.get(uploadId) !== conn.id) {
-      throw new SmurgError('conflict', '請先重新開始這個上傳（file.upload.begin）', { reason: 'not-bound' });
+      throw new SmurgError('conflict', msg('upload.beginFirst'), { reason: 'not-bound' });
     }
     return upload;
   }
@@ -586,7 +588,7 @@ export class UploadServiceImpl implements UploadService {
     if (this.stateArea && this.stateArea.dev === dev) return this.stateArea;
     const share = await this.ensureShareArea();
     if (share.dev === dev) return share;
-    throw new SmurgError('bad_request', '無法上傳到這個位置：它位於另一個磁碟區', { reason: 'cross-device' });
+    throw new SmurgError('bad_request', msg('upload.crossDevice'), { reason: 'cross-device' });
   }
 
   /** `<share>/.smurg/uploads` (0700): staging when the state dir is on another volume (transfer.md §1.4). */
@@ -638,7 +640,7 @@ export class UploadServiceImpl implements UploadService {
 
   /**
    * `name (1).ext` … that is neither on disk nor taken by another entry of the batch. Numbered from the REQUEST's
-   * spelling, as place() numbers it (review RCR-3): `target.name` is the file system's spelling of the entry in the
+   * spelling, as place() numbers it: `target.name` is the file system's spelling of the entry in the
    * way (`README.md` for a request `readme.md` on APFS, an NFD `café.txt` on Linux), which made the plan promise
    * `README (1).md` and, on Linux, an NFD name that missed the batch's own NFC `café (1).txt`. A candidate counts as on
    * disk under either spelling: PathGuard maps an NFC name onto its one NFD twin (Linux, `spellings`).
@@ -693,7 +695,7 @@ export class UploadServiceImpl implements UploadService {
       if (target.exists && policy === 'rename') continue;
       await this.files.refuseIfLocked(target, false);
       if (target.exists) {
-        if (target.identity?.kind !== 'file') throw new SmurgError('conflict', '目標位置已經有同名的資料夾', { reason: 'not-a-file' });
+        if (target.identity?.kind !== 'file') throw new SmurgError('conflict', msg('upload.folderInTheWay'), { reason: 'not-a-file' });
         if (policy === 'fail') throw existsError();
         // Overwrite: the new content keeps the replaced file's permissions (like an autosave does).
         await part.chmod((target.identity?.mode ?? 0o644) & 0o7777);

@@ -41,25 +41,3 @@ export async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (it
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
   return results;
 }
-
-const UNITS = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'] as const;
-
-/** Bytes for people: `5.00 GiB`. Negative values keep their sign (free space after an upload can be negative). */
-export function formatBytes(bytes: number): string {
-  let value = Math.abs(bytes);
-  let unit = 0;
-  while (value >= 1024 && unit < UNITS.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return `${bytes < 0 ? '-' : ''}${unit === 0 ? value.toFixed(0) : value.toFixed(2)} ${UNITS[unit]}`;
-}
-
-/** Clamps an activity-feed summary to its schema limit without splitting a surrogate pair. */
-export function clampSummary(text: string, max = 500): string {
-  if (text.length <= max) return text;
-  let end = max - 1;
-  const code = text.charCodeAt(end - 1);
-  if (code >= 0xd800 && code <= 0xdbff) end -= 1;
-  return `${text.slice(0, end)}…`;
-}

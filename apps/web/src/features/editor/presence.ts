@@ -1,7 +1,8 @@
-// Who is in a document, from its awareness states (SPEC R7 在場感知): people AND agents appear as participants with a
-// name, a colour and a cursor; an agent is named 「Claude（Ian）」 by the daemon. Every `user` field is written by the
+// Who is in a document, from its awareness states (SPEC R7, presence): people AND agents appear as participants with a
+// name, a colour and a cursor; an agent is named "Claude (Ian)" by the daemon. Every `user` field is written by the
 // daemon (a peer cannot choose its name), but names still end up in generated CSS and in the DOM, so they are treated
 // as untrusted text: escaped in CSS (lib/presence-css.ts), rendered as React text (never HTML).
+import { compareText } from '../../lib/format.ts';
 import { presenceCss, safeColor } from '../../lib/presence-css.ts';
 
 export interface Participant {
@@ -52,12 +53,12 @@ export function participantsOf(states: AwarenessStates, selfClientId: number, se
     const existing = byPerson.get(key);
     if (!existing || (!existing.hasCursor && participant.hasCursor)) byPerson.set(key, participant);
   }
-  return [...byPerson.values()].sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, 'zh-Hant-TW') : a.kind === 'agent' ? 1 : -1));
+  return [...byPerson.values()].sort((a, b) => (a.kind === b.kind ? compareText(a.name, b.name) : a.kind === 'agent' ? 1 : -1));
 }
 
 /**
  * The stylesheet for y-monaco's remote selections of one document: colours and name labels (lib/presence-css.ts), and
- * agents' carets drawn dashed so 「Claude（Ian）」 is recognisable without reading the label.
+ * agents' carets drawn dashed so "Claude (Ian)" is recognisable without reading the label.
  */
 export function editorPresenceCss(states: AwarenessStates, selfClientId: number, changes?: ReadonlyMap<number, number>): string {
   let css = presenceCss(states as ReadonlyMap<number, { readonly user?: RawUser } | null | undefined>, selfClientId, changes);

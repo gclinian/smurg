@@ -97,7 +97,7 @@ export async function startWebStack(options: { tmpDir: string; extraOrigins?: re
     // The browser's pages are on the Vite origin(s): the relay must accept their Origin for cookie sessions.
     const relay = await startLocalRelay({ tap: false, vars: { ALLOWED_ORIGINS: [webOrigin, ...(options.extraOrigins ?? [])].join(',') } });
     started.push(() => relay.stop());
-    const stack = await startStack({ relay, tap: false, projectFiles: { 'README.md': '# 班級專案\n', 'src/app.ts': 'export const x = 1;\n' } });
+    const stack = await startStack({ relay, tap: false, projectFiles: { 'README.md': '# Class project\n', 'src/app.ts': 'export const x = 1;\n' } });
     started.push(() => stack.stop());
     // A dependency-optimizer cache of its own: two test files start their stacks in parallel forks, and two Vite
     // servers optimizing into ONE cache dir race on its final rename (ENOTEMPTY), leaving both pages unloaded.

@@ -14,9 +14,9 @@ const FINISH = 0x03;
 async function devLogin(page: Page, origin: string, user: string): Promise<void> {
   await page.goto(`${origin}/`);
   await page.getByTestId('dev-login-form').waitFor({ timeout: 30_000 });
-  await page.getByLabel('帳號名稱').fill(user);
-  await page.getByRole('button', { name: '以開發用帳號登入' }).click();
-  await page.getByRole('button', { name: '登出' }).waitFor({ timeout: 30_000 });
+  await page.getByLabel('Account name').fill(user);
+  await page.getByRole('button', { name: 'Log in with a development account' }).click();
+  await page.getByRole('button', { name: 'Log out' }).waitFor({ timeout: 30_000 });
 }
 
 async function pinOf(page: Page, workspaceId: string): Promise<'none' | 'pinned'> {
@@ -41,12 +41,12 @@ async function expectKeyMismatchWarning(page: Page): Promise<void> {
   expect(await warning.getAttribute('role')).toBe('alertdialog');
   expect(await page.evaluate(() => document.activeElement?.getAttribute('data-testid'))).toBe('key-mismatch-screen');
   const text = (await warning.textContent()) ?? '';
-  expect(text).toContain('安全警告：已拒絕連線');
-  expect(text).toContain('這次連線已被拒絕');
-  expect(text).toContain('請主人產生一個新的邀請連結');
+  expect(text).toContain('Security warning: connection refused');
+  expect(text).toContain('this connection was refused');
+  expect(text).toContain('Ask the host to make a new invite link');
   // Nothing of the workspace is rendered behind it, and nothing offers to connect anyway.
-  expect(await page.getByRole('banner', { name: '工作區' }).count()).toBe(0);
-  expect(await page.getByRole('button', { name: /重試|重新連線/ }).count()).toBe(0);
+  expect(await page.getByRole('banner', { name: 'Workspace' }).count()).toBe(0);
+  expect(await page.getByRole('button', { name: /Retry|Reconnect/ }).count()).toBe(0);
 }
 
 function noFinishSent(mitm: MaliciousRelay): void {
@@ -55,10 +55,10 @@ function noFinishSent(mitm: MaliciousRelay): void {
 }
 
 
-/** The join page's explicit 「加入」 (SEC-E-02: an invite link never joins on page load). */
+/** The join page's explicit "Join" (an invite link never joins on page load). */
 async function confirmJoin(page: Page): Promise<void> {
   await page.getByTestId('join-confirm').waitFor({ timeout: 60_000 });
-  await page.getByRole('button', { name: '加入', exact: true }).click();
+  await page.getByRole('button', { name: 'Join', exact: true }).click();
 }
 
 describe.skipIf(systemChrome() === null)('web UI in a real browser (relay + daemon + Vite + system Chrome)', () => {
@@ -81,12 +81,13 @@ describe.skipIf(systemChrome() === null)('web UI in a real browser (relay + daem
   }, 60_000);
 
   async function newContext(): Promise<BrowserContext> {
-    const context = await env.browser.newContext({ locale: 'zh-TW' });
+    // English, explicitly: the app's language never depends on the machine that runs the test.
+    const context = await env.browser.newContext({ locale: 'en-US' });
     cleanups.push(() => context.close());
     return context;
   }
 
-  it('主人斷線後 10 秒內，所有客人的介面顯示離線 — the web UI shows 「主人已離線」 (real browser, after joining through a real invite)', async () => {
+  it('within 10 seconds of the host disconnecting, the interface of every guest shows offline — the web UI shows "Host offline" (real browser, after joining through a real invite)', async () => {
     const page = await (await newContext()).newPage();
     const invite = await env.invite();
     const fragment = invite.split('#')[1] ?? '';
@@ -102,12 +103,12 @@ describe.skipIf(systemChrome() === null)('web UI in a real browser (relay + daem
     // Log in through the relay (a full navigation away and back); no request ever carries the secret.
     const urls: string[] = [];
     page.on('request', (request) => urls.push(request.url()));
-    await page.getByLabel('帳號名稱').fill('amy');
-    await page.getByRole('button', { name: '以開發用帳號登入' }).click();
-    // Back from the login: nothing joins without the explicit 「加入」 (SEC-E-02).
+    await page.getByLabel('Account name').fill('amy');
+    await page.getByRole('button', { name: 'Log in with a development account' }).click();
+    // Back from the login: nothing joins without the explicit "Join".
     await confirmJoin(page);
     await page.waitForURL(`${env.webOrigin}/w/${env.stack.workspaceId}`, { timeout: 60_000 });
-    await page.getByRole('banner', { name: '工作區' }).getByText('已連線').waitFor({ timeout: 60_000 });
+    await page.getByRole('banner', { name: 'Workspace' }).locator('[data-connection-view="online"]').filter({ hasText: 'Connected' }).waitFor({ timeout: 60_000 });
     expect(urls.some((url) => url.includes(secretValue) || url.includes('#'))).toBe(false);
     expect(await page.evaluate((key) => sessionStorage.getItem(key), `${PENDING_PREFIX}${env.stack.workspaceId}`)).toBeNull();
     expect(await pinOf(page, env.stack.workspaceId)).toBe('pinned');
@@ -118,12 +119,12 @@ describe.skipIf(systemChrome() === null)('web UI in a real browser (relay + daem
     try {
       await page.getByTestId('host-offline-banner').waitFor({ timeout: 15_000 });
       const shownAfter = Date.now() - pausedAt;
-      console.info(`[R1.3b] web UI showed 「主人已離線」 ${shownAfter} ms after the host paused`);
+      console.info(`[R1.3b] web UI showed "Host offline" ${shownAfter} ms after the host paused`);
       expect(shownAfter).toBeLessThan(10_000);
-      expect(await page.getByRole('banner', { name: '工作區' }).textContent()).toContain('主人已離線');
+      expect(await page.getByRole('banner', { name: 'Workspace' }).textContent()).toContain('Host offline');
       // Not frozen: the workbench still responds.
-      await page.getByRole('tab', { name: '衝突' }).click();
-      expect(await page.getByRole('tab', { name: '衝突' }).getAttribute('aria-selected')).toBe('true');
+      await page.getByRole('tab', { name: 'Conflicts' }).click();
+      expect(await page.getByRole('tab', { name: 'Conflicts' }).getAttribute('aria-selected')).toBe('true');
     } finally {
       env.stack.resumeHost();
     }
@@ -131,10 +132,10 @@ describe.skipIf(systemChrome() === null)('web UI in a real browser (relay + daem
 
     // A reload reconnects in device mode from IndexedDB (no invite needed any more).
     await page.reload();
-    await page.getByRole('banner', { name: '工作區' }).getByText('已連線').waitFor({ timeout: 60_000 });
+    await page.getByRole('banner', { name: 'Workspace' }).locator('[data-connection-view="online"]').filter({ hasText: 'Connected' }).waitFor({ timeout: 60_000 });
   }, 180_000);
 
-  it('relay 把 daemon 公鑰替換成自己的公鑰時，客戶端拒絕連線並顯示警告 — the web warning screen (real browser, first contact)', async () => {
+  it('when the relay replaces the daemon public key with its own, the client refuses the connection and shows a warning — the web warning screen (real browser, first contact)', async () => {
     const mitm = await startMaliciousRelay({ upstream: env.relay.origin, workspaceId: env.stack.workspaceId, substitution: { kind: 'blind' } });
     cleanups.push(() => mitm.close());
     const origin = `http://localhost:${mitmPort.first}`;
@@ -158,7 +159,7 @@ describe.skipIf(systemChrome() === null)('web UI in a real browser (relay + daem
     expect(fresh[0]?.uses).toBe(0);
   }, 180_000);
 
-  it('relay 把 daemon 公鑰替換成自己的公鑰時，客戶端拒絕連線並顯示警告 — the web warning screen (real browser, reconnect of a browser that pinned the real key)', async () => {
+  it('when the relay replaces the daemon public key with its own, the client refuses the connection and shows a warning — the web warning screen (real browser, reconnect of a browser that pinned the real key)', async () => {
     const origin = `http://localhost:${mitmPort.device}`;
     // First through an honest front end on this origin: join, pin the real daemon key.
     let front: ViteDevServer = await startWeb({ port: mitmPort.device, upstream: env.relay.origin, cacheDir: `${process.env['TMPDIR'] ?? '/tmp'}/vite-cache-device` });
@@ -166,7 +167,7 @@ describe.skipIf(systemChrome() === null)('web UI in a real browser (relay + daem
     await devLogin(page, origin, 'dora');
     await page.goto(await env.invite(origin));
     await confirmJoin(page);
-    await page.getByRole('banner', { name: '工作區' }).getByText('已連線').waitFor({ timeout: 60_000 });
+    await page.getByRole('banner', { name: 'Workspace' }).locator('[data-connection-view="online"]').filter({ hasText: 'Connected' }).waitFor({ timeout: 60_000 });
     expect(await pinOf(page, env.stack.workspaceId)).toBe('pinned');
     await front.close();
 

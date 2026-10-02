@@ -75,10 +75,10 @@ afterEach(() => {
 describe('TransfersPanel', () => {
   it('shows an empty state until something is transferred', () => {
     setup();
-    expect(screen.getByText('目前沒有傳輸')).toBeTruthy();
+    expect(screen.getByText('No transfers right now')).toBeTruthy();
   });
 
-  it('拖曳檔案或資料夾到檔案樹，保留資料夾結構 — a folder picked through the files panel uploads with its structure and shows its progress', async () => {
+  it('files or folders dragged onto the file tree keep their folder structure — a folder picked through the files panel uploads with its structure and shows its progress', async () => {
     const s = setup();
     const a = syntheticBytes(1, 0, 2000);
     const b = syntheticBytes(2, 0, 1500);
@@ -88,8 +88,8 @@ describe('TransfersPanel', () => {
     await s.settle(() => items()[0]?.dataset['status'] === 'done', 'the upload to finish');
     const row = items()[0] as HTMLElement;
     expect(within(row).getByText('proj')).toBeTruthy();
-    expect(within(row).getByText('上傳到 in')).toBeTruthy();
-    expect(within(row).getByText('2／2 個檔案')).toBeTruthy();
+    expect(within(row).getByText('Upload to in')).toBeTruthy();
+    expect(within(row).getByText('2 of 2 files')).toBeTruthy();
     expect(within(row).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('100');
     expect(s.worker.daemon.get(MAIN_ROOT, 'in/proj/sub/b.txt')).toEqual(b);
     // The app-wide store (tree badges, the drawer count) follows the Worker's reports.
@@ -97,7 +97,7 @@ describe('TransfersPanel', () => {
     expect(job).toMatchObject({ kind: 'upload', status: 'done', doneBytes: 3500, totalBytes: 3500, files: 2 });
   });
 
-  it('asks before replacing a name that exists, and uploads after 「覆蓋」', async () => {
+  it('asks before replacing a name that exists, and uploads after "Overwrite"', async () => {
     const s = setup();
     s.worker.daemon.put(MAIN_ROOT, 'in/a.txt', new Uint8Array([1]));
     const content = syntheticBytes(3, 0, 100);
@@ -105,12 +105,12 @@ describe('TransfersPanel', () => {
     await s.settle(() => screen.queryByRole('alertdialog') !== null, 'the conflict dialog');
     const dialog = screen.getByRole('alertdialog');
     expect(within(dialog).getByText('in/a.txt')).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole('button', { name: '覆蓋' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Overwrite' }));
     await s.settle(() => items()[0]?.dataset['status'] === 'done', 'the upload to finish');
     expect(s.worker.daemon.get(MAIN_ROOT, 'in/a.txt')).toEqual(content);
   });
 
-  it('磁碟空間不足時，上傳在開始前就被拒絕，而不是傳到一半失敗 — the refusal is shown with the numbers', async () => {
+  it('with too little disk space an upload is refused before it starts, not halfway — the refusal is shown with the numbers', async () => {
     const s = setup();
     const refuse = (requestedBytes: number): DiskReport => ({
       totalBytes: 460 * 1024 ** 3,
@@ -125,9 +125,9 @@ describe('TransfersPanel', () => {
     await act(() => s.session.commands.dispatch('startUpload', { root: MAIN_ROOT, targetDir: 'in', source: { kind: 'files', files: [fileOf('big.bin', syntheticBytes(4, 0, 5000))] } }));
     await s.settle(() => items()[0]?.dataset['status'] === 'failed', 'the refusal');
     const alert = within(items()[0] as HTMLElement).getByRole('alert');
-    expect(alert.textContent).toContain('主人的磁碟空間不足，上傳尚未開始');
-    expect(alert.textContent).toContain('保留空間 23 GB');
-    expect(alert.textContent).toContain('目前可用 20 GB');
+    expect(alert.textContent).toContain("The host's disk does not have enough space, so the upload did not start");
+    expect(alert.textContent).toContain('the reserved 23 GB');
+    expect(alert.textContent).toContain('20 GB available now');
     expect(s.worker.links[0]?.requestsOf('file.upload.chunk')).toHaveLength(0);
   });
 
@@ -141,7 +141,7 @@ describe('TransfersPanel', () => {
     const blob = s.blobs.get(s.saved[0]?.url as string);
     expectSameBytes(new Uint8Array(await (blob as Blob).arrayBuffer()), content);
     const row = items()[0] as HTMLElement;
-    fireEvent.click(within(row).getByRole('button', { name: '儲存檔案：r.bin' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Save file: r.bin' }));
     expect(s.saved).toHaveLength(2);
   });
 
@@ -167,8 +167,8 @@ describe('TransfersPanel', () => {
     await act(() => s.session.commands.dispatch('download', { file: { root: MAIN_ROOT, path: 'in/proj' }, zip: true }));
     await s.settle(() => items()[0]?.dataset['status'] === 'done', 'the zip download');
     const row = items()[0] as HTMLElement;
-    expect(within(row).getByText('1 個項目沒有放進 zip，或以空檔案放入')).toBeTruthy();
-    expect(within(row).getByText(/已放入 zip，但內容是空的/)).toBeTruthy();
+    expect(within(row).getByText('1 item was left out of the zip or added as an empty file')).toBeTruthy();
+    expect(within(row).getByText(/Added to the zip, but empty/)).toBeTruthy();
     expect(within(row).getByText(/ZIP64/)).toBeTruthy();
   });
 
@@ -178,10 +178,10 @@ describe('TransfersPanel', () => {
       s.session.commands.dispatch('startUpload', { root: MAIN_ROOT, targetDir: 'in', source: { kind: 'files', files: [fileOf('big.bin', syntheticBytes(8, 0, 6 * 1024 * 1024))] } }),
     );
     await s.settle(() => (s.worker.links[0]?.heldChunks.length ?? 0) === 4, 'four chunks in flight');
-    fireEvent.click(screen.getByRole('button', { name: '暫停：big.bin' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pause: big.bin' }));
     s.worker.links[0]?.setAckMode('auto');
-    await s.settle(() => screen.queryByRole('button', { name: '繼續：big.bin' }) !== null, 'the resume button');
-    fireEvent.click(screen.getByRole('button', { name: '繼續：big.bin' }));
+    await s.settle(() => screen.queryByRole('button', { name: 'Resume: big.bin' }) !== null, 'the resume button');
+    fireEvent.click(screen.getByRole('button', { name: 'Resume: big.bin' }));
     await s.settle(() => items()[0]?.dataset['status'] === 'done', 'the upload to finish');
   });
 
@@ -199,9 +199,9 @@ describe('TransfersPanel', () => {
     const s = setup({ journal, daemon: first.worker.daemon });
     await s.settle(() => items().length === 1, 'the interrupted upload');
     const row = items()[0] as HTMLElement;
-    expect(within(row).getByText('頁面重新整理後中斷，請重新選擇相同的檔案以繼續')).toBeTruthy();
+    expect(within(row).getByText('Interrupted by a page reload; choose the same files again to continue')).toBeTruthy();
     const input = s.container.querySelector('input[type=file][multiple]') as HTMLInputElement;
-    fireEvent.click(within(row).getByRole('button', { name: '選擇檔案以繼續：big.bin' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Choose the files to continue: big.bin' }));
     Object.defineProperty(input, 'files', { value: [fileOf('big.bin', content)], configurable: true });
     fireEvent.change(input);
     await s.settle(() => items()[0]?.dataset['status'] === 'done', 'the resumed upload');
@@ -229,7 +229,7 @@ describe('TransfersPanel', () => {
 
   it('explains when this browser window cannot run transfers (no IndexedDB for the device key)', async () => {
     const s = setup({ fatal: 'no-indexeddb' });
-    await s.settle(() => screen.queryByText(/無法使用 IndexedDB/) !== null, 'the explanation');
+    await s.settle(() => screen.queryByText(/cannot use IndexedDB/) !== null, 'the explanation');
     await act(() => s.session.commands.dispatch('startUpload', { root: MAIN_ROOT, targetDir: 'in', source: { kind: 'files', files: [fileOf('a.txt', new Uint8Array(1))] } }));
     expect(s.worker.received.some((m) => m.t === 'upload')).toBe(false);
   });

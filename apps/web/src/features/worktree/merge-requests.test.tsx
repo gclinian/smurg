@@ -1,4 +1,5 @@
 import { SmurgError, type MergeRequest, type Role, type WorktreeInfo } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { FakeConnection } from '../../testing/fake-connection.ts';
@@ -56,7 +57,7 @@ const flush = () => act(async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
 });
 
-async function openReview(conn: FakeConnection, diff: MergeDiff, button = '審核') {
+async function openReview(conn: FakeConnection, diff: MergeDiff, button = 'Review') {
   fireEvent.click(await screen.findByRole('button', { name: button }));
   const dialog = await screen.findByRole('dialog');
   expect(conn.lastRequest('worktree.merge.diff')?.payload).toEqual({ requestId: 'mr_1' });
@@ -69,45 +70,45 @@ async function openReview(conn: FakeConnection, diff: MergeDiff, button = '審�
 describe('MergeRequestsPanel: the host reviews the complete diff (SPEC R9)', () => {
   it('shows the complete file list with additions / deletions and each file’s diff, then merges after a confirmation', async () => {
     const { conn } = setup({ role: 'host' });
-    expect(await screen.findByText('Amy 的合併請求')).toBeTruthy();
+    expect(await screen.findByText('Merge request from Amy')).toBeTruthy();
     const dialog = await openReview(conn, COMPLETE);
 
-    const files = within(dialog).getByRole('navigation', { name: '變更的檔案' });
+    const files = within(dialog).getByRole('navigation', { name: 'Changed files' });
     expect(within(files).getAllByRole('button').map((b) => b.textContent)).toEqual([
       expect.stringContaining('src/app.ts'),
       expect.stringContaining('README.md'),
     ]);
     expect(within(files).getAllByText('+1')).toHaveLength(2);
-    expect(within(dialog).getByText('共新增 2 行、刪除 2 行')).toBeTruthy();
+    expect(within(dialog).getByText('2 lines added, 2 lines deleted in total')).toBeTruthy();
     // The first file is shown right away, from the whole diff (no extra request).
-    expect(within(dialog).getByRole('region', { name: 'src/app.ts 的差異' }).textContent).toContain('+new');
+    expect(within(dialog).getByRole('region', { name: 'Diff of src/app.ts' }).textContent).toContain('+new');
     fireEvent.click(within(files).getByRole('button', { name: /README\.md/ }));
-    expect(within(dialog).getByRole('region', { name: 'README.md 的差異' })).toBeTruthy();
+    expect(within(dialog).getByRole('region', { name: 'Diff of README.md' })).toBeTruthy();
     expect(conn.requestsOf('worktree.merge.fileDiff')).toHaveLength(0);
 
-    const approve = within(dialog).getByRole('button', { name: '合併到主工作區' }) as HTMLButtonElement;
+    const approve = within(dialog).getByRole('button', { name: 'Merge into the main workspace' }) as HTMLButtonElement;
     expect(approve.disabled).toBe(false);
     fireEvent.click(approve);
-    expect(within(dialog).getByText(/確定要合併嗎/)).toBeTruthy();
+    expect(within(dialog).getByText(/Commit .* \(2 files\) will be merged into the main workspace.* Merge it\?/)).toBeTruthy();
     expect(conn.requestsOf('worktree.merge.approve')).toHaveLength(0);
-    fireEvent.click(within(dialog).getByRole('button', { name: '確認合併' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm merge' }));
     expect(conn.lastRequest('worktree.merge.approve')?.payload).toEqual({ requestId: 'mr_1' });
     await act(async () => {
       conn.respond('worktree.merge.approve', { request: makeMergeRequest({ status: 'merged', decidedAt: T0 + 1 }) });
     });
-    expect(await screen.findByText('已把 Amy 的修改合併到主工作區。')).toBeTruthy();
+    expect(await screen.findByText('The changes from Amy were merged into the main workspace.')).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(screen.getByText('已合併')).toBeTruthy();
+    expect(screen.getByText('Merged')).toBeTruthy();
   });
 
   it('approve disabled until truncated files were opened (worktree.merge.fileDiff, one by one)', async () => {
     const { conn } = setup({ role: 'host' });
     const dialog = await openReview(conn, TRUNCATED);
-    const approve = () => within(dialog).getByRole('button', { name: '合併到主工作區' }) as HTMLButtonElement;
+    const approve = () => within(dialog).getByRole('button', { name: 'Merge into the main workspace' }) as HTMLButtonElement;
 
-    expect(within(dialog).getByText(/完整差異超過 1 MiB/)).toBeTruthy();
-    expect(within(dialog).getByText('還有 3 個檔案需要個別開啟檢視，之後才能合併。')).toBeTruthy();
-    expect(within(dialog).getAllByText('需要個別開啟')).toHaveLength(3);
+    expect(within(dialog).getByText(/The full diff is larger than 1 MiB/)).toBeTruthy();
+    expect(within(dialog).getByText('3 files still have to be opened before you can merge.')).toBeTruthy();
+    expect(within(dialog).getAllByText('Open separately')).toHaveLength(3);
     expect(approve().disabled).toBe(true);
     expect(approve().getAttribute('aria-describedby')).toBeTruthy();
 
@@ -117,32 +118,32 @@ describe('MergeRequestsPanel: the host reviews the complete diff (SPEC R9)', () 
     await act(async () => {
       conn.respond('worktree.merge.fileDiff', { path: 'b.txt', diff: section('b.txt', '@@ -1 +1 @@\n-x\n+the whole file\n'), truncated: false, binary: false });
     });
-    expect(within(dialog).getByRole('region', { name: 'b.txt 的差異' }).textContent).toContain('+the whole file');
-    expect(within(dialog).getByText('還有 2 個檔案需要個別開啟檢視，之後才能合併。')).toBeTruthy();
+    expect(within(dialog).getByRole('region', { name: 'Diff of b.txt' }).textContent).toContain('+the whole file');
+    expect(within(dialog).getByText('2 files still have to be opened before you can merge.')).toBeTruthy();
     expect(approve().disabled).toBe(true);
 
     // A failed fetch does not count as opened.
-    fireEvent.click(within(dialog).getByRole('button', { name: '開啟下一個未檢視的檔案' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Open the next unviewed file' }));
     expect(conn.lastRequest('worktree.merge.fileDiff')?.payload).toEqual({ requestId: 'mr_1', path: 'c.txt' });
     await act(async () => {
-      conn.fail('worktree.merge.fileDiff', new SmurgError('internal', '產生 diff 失敗'));
+      conn.fail('worktree.merge.fileDiff', new SmurgError('not_found', msg('merge.pathNotInDiff')));
     });
-    expect(within(dialog).getByText('無法載入 c.txt 的差異：產生 diff 失敗')).toBeTruthy();
+    expect(within(dialog).getByText("Could not load the diff of c.txt: This file is not among the merge request's changes.")).toBeTruthy();
     expect(approve().disabled).toBe(true);
-    fireEvent.click(within(dialog).getByRole('button', { name: '重試' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
     await act(async () => {
       conn.respond('worktree.merge.fileDiff', { path: 'c.txt', diff: section('c.txt', '@@ -0,0 +1 @@\n+new file\n'), truncated: false, binary: false });
     });
     expect(approve().disabled).toBe(true);
 
-    fireEvent.click(within(dialog).getByRole('button', { name: '開啟下一個未檢視的檔案' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Open the next unviewed file' }));
     expect(conn.lastRequest('worktree.merge.fileDiff')?.payload).toEqual({ requestId: 'mr_1', path: 'd.png' });
     await act(async () => {
       conn.respond('worktree.merge.fileDiff', { path: 'd.png', diff: 'diff --git a/d.png b/d.png\nBinary files /dev/null and b/d.png differ\n', truncated: false, binary: true });
     });
-    expect(within(dialog).getByText('二進位檔案，無法顯示文字差異。')).toBeTruthy();
-    expect(within(dialog).getByText('所有需要個別開啟的檔案都已檢視。')).toBeTruthy();
-    expect(within(dialog).getAllByText('已檢視')).toHaveLength(3);
+    expect(within(dialog).getByText('Binary file; there is no text diff to show.')).toBeTruthy();
+    expect(within(dialog).getByText('Every file that had to be opened separately has been viewed.')).toBeTruthy();
+    expect(within(dialog).getAllByText('Viewed')).toHaveLength(3);
     expect(approve().disabled).toBe(false);
     expect(conn.requestsOf('worktree.merge.fileDiff')).toHaveLength(4);
   });
@@ -155,8 +156,8 @@ describe('MergeRequestsPanel: the host reviews the complete diff (SPEC R9)', () 
     await act(async () => {
       conn.respond('worktree.merge.fileDiff', { path: 'huge.sql', diff: section('huge.sql', '@@ -0,0 +1,3 @@\n+a\n+b\n+c\n'), truncated: true, binary: false });
     });
-    expect(within(dialog).getByText('這個檔案的差異超過 1 MiB，只顯示前面的部分。')).toBeTruthy();
-    expect((within(dialog).getByRole('button', { name: '合併到主工作區' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(within(dialog).getByText('The diff of this file is larger than 1 MiB; only the first part is shown.')).toBeTruthy();
+    expect((within(dialog).getByRole('button', { name: 'Merge into the main workspace' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('makes invisible characters visible in the diff (bidi controls cannot hide code from the review)', async () => {
@@ -166,65 +167,65 @@ describe('MergeRequestsPanel: the host reviews the complete diff (SPEC R9)', () 
       truncated: false,
       files: [{ path: 'auth.ts', status: 'modified', additions: 1, deletions: 1 }],
     });
-    expect(within(dialog).getByText(/含有看不見的字元/)).toBeTruthy();
-    const diff = within(dialog).getByRole('region', { name: 'auth.ts 的差異' });
-    expect(within(diff).getByTitle('看不見的字元 U+202E').textContent).toBe('⟨U+202E⟩');
-    expect(within(diff).getByTitle('看不見的字元 U+2066')).toBeTruthy();
+    expect(within(dialog).getByText(/contains invisible characters/)).toBeTruthy();
+    const diff = within(dialog).getByRole('region', { name: 'Diff of auth.ts' });
+    expect(within(diff).getByTitle('Invisible character U+202E').textContent).toBe('⟨U+202E⟩');
+    expect(within(diff).getByTitle('Invisible character U+2066')).toBeTruthy();
     expect(diff.textContent).not.toContain('‮');
   });
 
   it('on conflict lists the conflicting files and what the host can do next; the dialog stays open', async () => {
     const { conn } = setup({ role: 'host' });
     const dialog = await openReview(conn, COMPLETE);
-    fireEvent.click(within(dialog).getByRole('button', { name: '合併到主工作區' }));
-    fireEvent.click(within(dialog).getByRole('button', { name: '確認合併' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Merge into the main workspace' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm merge' }));
     await act(async () => {
       conn.respond('worktree.merge.approve', { request: makeMergeRequest({ status: 'conflict', conflictFiles: ['src/app.ts', 'docs/設計.md'], decidedAt: T0 + 1 }) });
     });
-    expect(await screen.findByText('合併時發生衝突，已中止合併，主工作區沒有改變。')).toBeTruthy();
+    expect(await screen.findByText('The merge ran into conflicts and was aborted. The main workspace is unchanged.')).toBeTruthy();
     expect(screen.getByRole('dialog')).toBe(dialog);
     expect(within(dialog).getByText('docs/設計.md')).toBeTruthy();
-    // SPEC-03: never the impossible advice to merge main into the worktree (guests cannot write any .git).
-    expect(within(dialog).getByText(/接下來你可以：在自己的終端機裡手動合併並解決衝突/)).toBeTruthy();
-    expect(dialog.textContent).not.toContain('整合主工作區');
+    // Never the impossible advice to merge main into the worktree (guests cannot write any .git).
+    expect(within(dialog).getByText(/What you can do next: merge by hand in your own terminal and resolve the conflicts/)).toBeTruthy();
+    expect(dialog.textContent).not.toMatch(/into the worktree|into your worktree/);
     // The host may try again after adjusting the main workspace, or reject.
-    expect(within(dialog).getByRole('button', { name: '重新嘗試合併' })).toBeTruthy();
-    expect(within(dialog).getByRole('button', { name: '拒絕' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Try the merge again' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Reject' })).toBeTruthy();
   });
 
   it('rejects with a reason (validated, one line) and shows a refused decision as an error', async () => {
     const { conn } = setup({ role: 'host' });
     const dialog = await openReview(conn, COMPLETE);
-    fireEvent.click(within(dialog).getByRole('button', { name: '拒絕' }));
-    const reason = within(dialog).getByLabelText('拒絕原因（選填，會告訴 Amy）');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reject' }));
+    const reason = within(dialog).getByLabelText('Reason for rejecting (optional; Amy will see it)');
     fireEvent.change(reason, { target: { value: '請先補測試\u0007' } });
-    expect(within(dialog).getByText(/原因只能有一行/)).toBeTruthy();
-    expect((within(dialog).getByRole('button', { name: '確認拒絕' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(dialog).getByText(/The reason must be one line/)).toBeTruthy();
+    expect((within(dialog).getByRole('button', { name: 'Confirm rejection' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(reason, { target: { value: '  請先補上測試  ' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: '確認拒絕' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm rejection' }));
     expect(conn.lastRequest('worktree.merge.reject')?.payload).toEqual({ requestId: 'mr_1', reason: '請先補上測試' });
     await act(async () => {
-      conn.fail('worktree.merge.reject', new SmurgError('conflict', '這個請求已經被處理'));
+      conn.fail('worktree.merge.reject', new SmurgError('conflict', msg('merge.notPending')));
     });
-    expect(within(dialog).getByText('無法完成：這個請求已經被處理')).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole('button', { name: '確認拒絕' }));
+    expect(within(dialog).getByText('Could not finish: This merge request was already handled.')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm rejection' }));
     await act(async () => {
       conn.respond('worktree.merge.reject', { request: makeMergeRequest({ status: 'rejected', rejectReason: '請先補上測試', decidedAt: T0 + 1 }) });
     });
-    expect(await screen.findByText('已拒絕 Amy 的合併請求，worktree 保持原狀。')).toBeTruthy();
+    expect(await screen.findByText('The merge request from Amy was rejected. The worktree is unchanged.')).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
   it('shows the diff load error with a retry', async () => {
     const { conn } = setup({ role: 'host' });
-    fireEvent.click(await screen.findByRole('button', { name: '審核' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Review' }));
     await act(async () => {
-      conn.fail('worktree.merge.diff', new SmurgError('conflict', '這個 worktree 與主工作區沒有共同的歷史，無法合併'));
+      conn.fail('worktree.merge.diff', new SmurgError('conflict', msg('merge.unrelatedHistories')));
     });
     const dialog = screen.getByRole('dialog');
-    expect(within(dialog).getByText('無法載入差異：這個 worktree 與主工作區沒有共同的歷史，無法合併')).toBeTruthy();
-    expect((within(dialog).getByRole('button', { name: '合併到主工作區' }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(within(dialog).getByRole('button', { name: '重新載入' }));
+    expect(within(dialog).getByText('Could not load the diff: This worktree shares no history with the main workspace, so it cannot be merged.')).toBeTruthy();
+    expect((within(dialog).getByRole('button', { name: 'Merge into the main workspace' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reload' }));
     expect(conn.requestsOf('worktree.merge.diff')).toHaveLength(2);
   });
 });
@@ -232,90 +233,90 @@ describe('MergeRequestsPanel: the host reviews the complete diff (SPEC R9)', () 
 describe('MergeRequestsPanel: the requester', () => {
   it('status visible to requester: pending, then the host’s rejection with its reason, live', async () => {
     const { conn } = setup({ role: 'agent' });
-    expect(await screen.findByText('等待主人審核')).toBeTruthy();
-    expect(screen.getByText(/主人審核中/)).toBeTruthy();
+    expect(await screen.findByText('Waiting for the host')).toBeTruthy();
+    expect(screen.getByText(/The host is reviewing it/)).toBeTruthy();
     act(() => conn.emit('worktree.merge.updated', { request: makeMergeRequest({ status: 'rejected', rejectReason: '請先補上測試', decidedAt: T0 + 5 }) }));
-    expect(screen.getByText('已拒絕')).toBeTruthy();
-    expect(screen.getByText('主人拒絕了這個請求，worktree 保持原狀。原因：請先補上測試')).toBeTruthy();
+    expect(screen.getByText('Rejected')).toBeTruthy();
+    expect(screen.getByText('The host rejected this request; the worktree is unchanged. Reason: 請先補上測試')).toBeTruthy();
     act(() => conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_1', status: 'conflict', conflictFiles: ['a.txt'] }) }));
-    expect(screen.getByText(/主人會決定怎麼處理/)).toBeTruthy();
+    expect(screen.getByText(/The host decides what happens next/)).toBeTruthy();
   });
 
-  it('the requester is told when the host decides, wherever they are; others are not (WEB-11)', async () => {
+  it('the requester is told when the host decides, wherever they are; others are not', async () => {
     const { conn } = setup({ role: 'agent' });
-    expect(await screen.findByText('等待主人審核')).toBeTruthy();
+    expect(await screen.findByText('Waiting for the host')).toBeTruthy();
     act(() => conn.emit('worktree.merge.updated', { request: makeMergeRequest({ status: 'merged', decidedAt: T0 + 5 }) }));
-    expect(await screen.findByText('主人已把你的合併請求合併到主工作區。')).toBeTruthy();
+    expect(await screen.findByText('The host merged your merge request into the main workspace.')).toBeTruthy();
   });
 
-  it('a rejection reaches the requester with its reason, as a notice (WEB-11)', async () => {
+  it('a rejection reaches the requester with its reason, as a notice', async () => {
     const { conn } = setup({ role: 'agent' });
-    expect(await screen.findByText('等待主人審核')).toBeTruthy();
+    expect(await screen.findByText('Waiting for the host')).toBeTruthy();
     act(() => conn.emit('worktree.merge.updated', { request: makeMergeRequest({ status: 'rejected', rejectReason: '請先補上測試', decidedAt: T0 + 5 }) }));
-    expect(await screen.findByText('主人拒絕了你的合併請求。')).toBeTruthy();
-    expect(screen.getByText('原因：請先補上測試')).toBeTruthy();
+    expect(await screen.findByText('The host rejected your merge request.')).toBeTruthy();
+    expect(screen.getByText('Reason: 請先補上測試')).toBeTruthy();
   });
 
-  it('another member hears nothing about a merge that is not theirs (WEB-11)', async () => {
+  it('another member hears nothing about a merge that is not theirs', async () => {
     const { conn } = setup({ role: 'editor', userId: 'dev:bob', displayName: 'Bob' });
-    expect(await screen.findByText('Amy 的合併請求')).toBeTruthy();
+    expect(await screen.findByText('Merge request from Amy')).toBeTruthy();
     act(() => conn.emit('worktree.merge.updated', { request: makeMergeRequest({ status: 'merged', decidedAt: T0 + 5 }) }));
     await flush();
-    expect(screen.queryByText('主人已把你的合併請求合併到主工作區。')).toBeNull();
+    expect(screen.queryByText('The host merged your merge request into the main workspace.')).toBeNull();
   });
 
   it('can open the diff read-only (no approve / reject)', async () => {
     const { conn } = setup({ role: 'agent' });
-    const dialog = await openReview(conn, COMPLETE, '查看差異');
-    expect(within(dialog).queryByRole('button', { name: '合併到主工作區' })).toBeNull();
-    expect(within(dialog).queryByRole('button', { name: '拒絕' })).toBeNull();
-    expect(within(dialog).getByRole('region', { name: 'src/app.ts 的差異' })).toBeTruthy();
+    const dialog = await openReview(conn, COMPLETE, 'View diff');
+    expect(within(dialog).queryByRole('button', { name: 'Merge into the main workspace' })).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: 'Reject' })).toBeNull();
+    expect(within(dialog).getByRole('region', { name: 'Diff of src/app.ts' })).toBeTruthy();
   });
 
-  it('another 可使用 agent member may read the diff too (read-only); an editor may not open it', async () => {
+  it('another member with agent access may read the diff too (read-only); an editor may not open it', async () => {
     const other = setup({ role: 'agent', userId: 'dev:bob', displayName: 'Bob' });
-    const dialog = await openReview(other.conn, COMPLETE, '查看差異');
-    expect(within(dialog).queryByRole('button', { name: '合併到主工作區' })).toBeNull();
+    const dialog = await openReview(other.conn, COMPLETE, 'View diff');
+    expect(within(dialog).queryByRole('button', { name: 'Merge into the main workspace' })).toBeNull();
     other.unmount();
     setup({ role: 'editor', userId: 'dev:cat', displayName: 'Cat' });
-    expect(await screen.findByText('Amy 的合併請求')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '查看差異' })).toBeNull();
+    expect(await screen.findByText('Merge request from Amy')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'View diff' })).toBeNull();
   });
 
   it('requests a merge of their worktree with a message', async () => {
     const { conn } = setup({ role: 'agent', requests: [] });
-    fireEvent.click(await screen.findByRole('button', { name: '請求合併' }));
-    const dialog = screen.getByRole('dialog', { name: '請主人合併 smurg/amy/wt_1' });
-    fireEvent.change(within(dialog).getByLabelText('說明（選填）'), { target: { value: '新增登入頁\n並補上測試' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: '送出合併請求' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Request merge' }));
+    const dialog = screen.getByRole('dialog', { name: 'Ask the host to merge smurg/amy/wt_1' });
+    fireEvent.change(within(dialog).getByLabelText('Message (optional)'), { target: { value: '新增登入頁\n並補上測試' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Send merge request' }));
     expect(conn.lastRequest('worktree.merge.request')?.payload).toEqual({ worktreeId: 'wt_1', message: '新增登入頁\n並補上測試' });
     await act(async () => {
       conn.respond('worktree.merge.request', { request: makeMergeRequest({ message: '新增登入頁\n並補上測試' }) });
     });
-    expect(await screen.findByText('已送出合併請求，等待主人審核。')).toBeTruthy();
+    expect(await screen.findByText('Merge request sent. Waiting for the host to review it.')).toBeTruthy();
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(screen.getByText('等待主人審核')).toBeTruthy();
-    expect(screen.getByText('已有等待審核的請求')).toBeTruthy();
+    expect(screen.getByText('Waiting for the host')).toBeTruthy();
+    expect(screen.getByText('A request is waiting for review')).toBeTruthy();
   });
 
   it('shows the daemon’s refusal of a merge request', async () => {
     const { conn } = setup({ role: 'agent', requests: [] });
-    fireEvent.click(await screen.findByRole('button', { name: '請求合併' }));
-    fireEvent.click(screen.getByRole('button', { name: '送出合併請求' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Request merge' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send merge request' }));
     expect(conn.lastRequest('worktree.merge.request')?.payload).toEqual({ worktreeId: 'wt_1' });
     await act(async () => {
-      conn.fail('worktree.merge.request', new SmurgError('host_only', '合併內容包含只有主人可以修改的檔案，請先移除：.claude/settings.json'));
+      conn.fail('worktree.merge.request', new SmurgError('host_only', msg('merge.containsHostOnly', { paths: ['.claude/settings.json'] })));
     });
-    expect(screen.getByText('無法送出合併請求：合併內容包含只有主人可以修改的檔案，請先移除：.claude/settings.json')).toBeTruthy();
+    expect(screen.getByText('Could not send the merge request: The merge contains files only the host can change. Remove them first: .claude/settings.json')).toBeTruthy();
     expect(screen.getByRole('dialog')).toBeTruthy();
   });
 
   it('another member sees the list but cannot open the diff or request a merge', async () => {
     setup({ role: 'editor', userId: 'dev:bob', displayName: 'Bob' });
-    expect(await screen.findByText('Amy 的合併請求')).toBeTruthy();
+    expect(await screen.findByText('Merge request from Amy')).toBeTruthy();
     await flush();
-    expect(screen.queryByRole('button', { name: '查看差異' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '審核' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '請求合併' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'View diff' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Review' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Request merge' })).toBeNull();
   });
 });

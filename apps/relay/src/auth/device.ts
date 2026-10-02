@@ -33,13 +33,13 @@ import {
   requestPlace,
   type DeviceLoginRecord,
 } from '../lib/device.ts';
-import { deviceCodePage, deviceConfirmPage, deviceLoginPage, deviceResultPage, errorPage } from '../lib/html.ts';
+import { deviceCodePage, deviceConfirmPage, deviceLoginPage, deviceResultPage, errorPage, type PageView } from '../lib/html.ts';
 import { errorResponse, htmlResponse, isRecord, jsonResponse, readFormBody, readJsonBody } from '../lib/http.ts';
+import { getPageView, languageSwitchRedirect, plainPageView } from '../lib/locale.ts';
+import { STRINGS } from '../lib/strings.ts';
 import type { Identity } from './identity.ts';
 import { isSameOriginFormPost, methodNotAllowed, sessionJson } from './routes.ts';
 import { authenticate } from './session.ts';
-
-const WRONG_CODE = '代碼不正確或已失效。請確認終端機上的代碼（8 個英文字母，10 分鐘內有效）。';
 
 function loginObject(ctx: RequestContext, userCode: string) {
   return ctx.env.DEVICE_LOGIN.getByName(`code:${userCode}`);
@@ -139,28 +139,35 @@ async function browserAccount(ctx: RequestContext): Promise<Identity | null> {
   return outcome.status === 'ok' && outcome.auth.via === 'cookie' ? outcome.auth.identity : null;
 }
 
-function loginPage(ctx: RequestContext): Response {
+function loginPage(ctx: RequestContext, view: PageView): Response {
   const choice = { github: ctx.config.github !== null, google: ctx.config.google !== null, dev: devLoginEnabled(ctx.config, ctx.url) };
-  return devicePage(deviceLoginPage(choice, { relayOrigin: ctx.config.issuer }));
+  return devicePage(deviceLoginPage(view, choice, { relayOrigin: ctx.config.issuer }));
 }
 
-/** GET /device: the relay's login, or the code form. POST /device: a code, or a decision. */
+/** GET /device: the relay's login, or the code form (`?lang=`: the language switch). POST /device: a code, or a decision. */
 export async function handleDevicePage(ctx: RequestContext): Promise<Response> {
   if (ctx.req.method === 'POST') return handleDeviceForm(ctx);
   if (ctx.req.method !== 'GET') return methodNotAllowed();
+  const switched = languageSwitchRedirect(ctx);
+  if (switched !== null) return switched;
+  // The page takes nothing from its URL, so its language links carry nothing from it either (never a code).
+  const view = getPageView(ctx, { keepQuery: false });
   const account = await browserAccount(ctx);
-  return account === null ? loginPage(ctx) : devicePage(deviceCodePage(account));
+  return account === null ? loginPage(ctx, view) : devicePage(deviceCodePage(view, account));
 }
 
 async function handleDeviceForm(ctx: RequestContext): Promise<Response> {
+  // The answer to a POST: the viewer's language, no language switch (its link would be a GET of another page).
+  const view = plainPageView(ctx);
+  const s = STRINGS[view.locale];
   if (!isSameOriginFormPost(ctx)) {
-    return htmlResponse(errorPage('無法繼續', '這個要求不是從 relay 的 /device 頁面送出的，已經拒絕。請直接在瀏覽器打開終端機顯示的網址。'), 403);
+    return htmlResponse(errorPage(view, s.cannotContinueTitle, s.notFromDevicePage), 403);
   }
   const form = await readFormBody(ctx.req);
   if (!form.ok) return form.response;
   const account = await browserAccount(ctx);
   // Logged out in the meantime (another tab, an expired session): log in again first.
-  if (account === null) return loginPage(ctx);
+  if (account === null) return loginPage(ctx, view);
 
   const now = Date.now();
   const ip = requestPlace(ctx.req).ip ?? 'unknown';
@@ -171,8 +178,8 @@ async function handleDeviceForm(ctx: RequestContext): Promise<Response> {
   // Checked before the code is looked up, so a blocked account or address learns nothing about any code.
   const blocked = (await Promise.all(limits.map(({ object, max }) => object.blockedUntil(max, now)))).filter((end) => end !== null);
   if (blocked.length > 0) {
-    const error = `輸入錯誤的次數太多，請在 ${minutesUntil(Math.max(...blocked), now)}後再試。`;
-    return devicePage(deviceCodePage(account, { error }), 429);
+    const text = s.tooManyWrongCodes(minutesUntil(Math.max(...blocked), now));
+    return devicePage(deviceCodePage(view, account, { error: { state: 'blocked', text } }), 429);
   }
 
   const typed = form.value.get('code') ?? '';
@@ -182,41 +189,35 @@ async function handleDeviceForm(ctx: RequestContext): Promise<Response> {
     // Unknown, malformed, expired, already decided (also by another account): all count as a wrong code, the
     // decision form too, so it cannot be used to guess codes either.
     await Promise.all(limits.map(({ object, max }) => object.take(max, DEVICE_LIMITS.windowMs, now)));
-    return devicePage(deviceCodePage(account, { error: WRONG_CODE, value: typed }), 400);
+    return devicePage(deviceCodePage(view, account, { error: { state: 'wrong-code', text: s.wrongCode }, value: typed }), 400);
   }
 
   const decision = form.value.get('decision');
   if (decision === null) {
     return devicePage(
       deviceConfirmPage(
+        view,
         account,
         {
           userCode: formatDeviceUserCode(userCode),
           codeField: userCode,
           ip: login.ip,
-          place: placeText(login.country, login.city),
-          age: ageText(login.createdAt, now),
+          place: placeText(view.locale, login.country, login.city),
+          age: ageText(view.locale, login.createdAt, now),
         },
         { relayOrigin: ctx.config.issuer },
       ),
     );
   }
-  if (decision !== 'allow' && decision !== 'deny') return devicePage(errorPage('無法繼續', '不認得的選擇，請重新輸入代碼。'), 400);
+  if (decision !== 'allow' && decision !== 'deny') return devicePage(errorPage(view, s.cannotContinueTitle, s.unknownDecision), 400);
   // The screen named an account; the decision must come from that same account (another tab may have switched it).
   if (form.value.get('account') !== account.userId) {
-    return devicePage(deviceCodePage(account, { error: '這個瀏覽器登入的帳號在這段時間內換過了。請確認目前的帳號，再輸入一次代碼。' }), 409);
+    return devicePage(deviceCodePage(view, account, { error: { state: 'account-changed', text: s.accountChanged } }), 409);
   }
   if ((await loginObject(ctx, userCode).decide(decision, account, now)) === 'gone') {
-    return devicePage(deviceResultPage('代碼已失效', ['這個代碼已經用過、被拒絕或已過期。請回到終端機重新執行 smurg login。'], { href: RELAY_PATHS.device, label: '輸入另一組代碼' }), 410);
+    return devicePage(deviceResultPage(view, 'gone'), 410);
   }
-  return devicePage(
-    decision === 'allow'
-      ? deviceResultPage('已允許', ['終端機裡的 smurg 會在幾秒內完成登入，之後就可以關閉這個頁面。'])
-      : deviceResultPage('已拒絕', [
-          '這次登入不會完成，終端機裡的 smurg 會顯示登入被拒絕。',
-          '如果那不是你自己執行的 smurg login，有人可能想用你的帳號登入：不要把代碼告訴別人。',
-        ]),
-  );
+  return devicePage(deviceResultPage(view, decision === 'allow' ? 'allowed' : 'denied'));
 }
 
 // ---------------------------------------------------------------------------------------------------------------

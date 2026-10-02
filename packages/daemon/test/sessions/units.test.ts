@@ -89,7 +89,7 @@ describe('TermMirror', () => {
     mirror.dispose();
   });
 
-  it('REL-12: a snapshot over the limit costs a bounded number of serializations, and an unchanged mirror is not serialized again', async () => {
+  it('a snapshot over the limit costs a bounded number of serializations, and an unchanged mirror is not serialized again', async () => {
     const mirror = new TermMirror(300, 30, 5000, () => {});
     // A wide, colourful terminal: one SGR per cell (test runners, `ls --color`, TUIs).
     const colours = Array.from({ length: 300 }, (_, i) => `\x1b[3${i % 8};4${(i + 3) % 8}m${String.fromCharCode(97 + (i % 26))}`).join('');
@@ -287,7 +287,7 @@ describe('kill-tree selection guards (ARCHITECTURE §0 rule 1)', () => {
     expect(signalled).toEqual([]);
   });
 
-  it('CLI-06: a process exit in the middle of a kill never leaves processes stopped: frozen ones are killed, unverified ones continued', async () => {
+  it('a process exit in the middle of a kill never leaves processes stopped: frozen ones are killed, unverified ones continued', async () => {
     const rows = [...base, row(2000, 1000, 2000), row(2001, 2000, 2001)];
     const signals: string[] = [];
     let scans = 0;
@@ -319,7 +319,7 @@ describe('kill-tree selection guards (ARCHITECTURE §0 rule 1)', () => {
     await running;
   });
 
-  it('CLI-06: a process confirmed frozen by the second scan is killed by the exit hook', async () => {
+  it('a process confirmed frozen by the second scan is killed by the exit hook', async () => {
     let rows = [...base, row(2000, 1000, 2000)];
     const signals: string[] = [];
     let scans = 0;

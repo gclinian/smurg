@@ -154,7 +154,7 @@ describe('smurg attach in a real terminal (control socket, host)', () => {
     await waitFor(() => local.text.includes('after:'), { what: 'after' });
     expect(cooked(afterFlags(local))).toBe(true);
     expect(cooked(await sttyOf(device))).toBe(true);
-    expect(local.text).toContain('結束代碼 7');
+    expect(local.text).toContain('exit code 7');
   });
 
   it('a daemon crash ends the attach with an error exit, and the terminal is restored', async () => {
@@ -171,10 +171,10 @@ describe('smurg attach in a real terminal (control socket, host)', () => {
     await drained(local.term);
     expect(local.term.buffer.active.type).toBe('normal');
     expect(local.cursorHidden).toBe(false);
-    expect(local.text).toContain('與 smurg host 的連線中斷了');
+    expect(local.text).toContain('The connection to smurg host was lost');
   });
 
-  it('R4.1 同一個 session 同時被網頁和 CLI 接上時，畫面保持一致 — the CLI renders what a second (web-like) viewer renders', async () => {
+  it('R4.1 (a session attached from the web app and the CLI at once shows the same screen): the CLI renders what a second (web-like) viewer renders', async () => {
     const s = await stack();
     const local = openLocal(s, 100, 30);
     await attached(local);

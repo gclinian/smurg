@@ -11,7 +11,7 @@
 // the local clients. The socket is NOT closed there: it stays open while the rest of the daemon stops (sessions end,
 // guests' temp dirs are removed, documents are flushed) and closes when the handler registrations are disposed, which
 // the composition root does after every module's stop(). Otherwise `smurg stop`, which waits for the socket to go,
-// would report 「已停止分享」 while the sessions are still being ended. Meanwhile the socket keeps answering from the
+// would report "sharing stopped" while the sessions are still being ended. Meanwhile the socket keeps answering from the
 // daemon's own state: `status` with `stopped: true`, `stop` with ok (nothing left to do), `attach` with an error (the
 // daemon refuses local attaches once it stops). whenClosed() tells a host process when the socket and pid file are gone.
 import type { DaemonContext, FeatureModule } from '../core/context.ts';

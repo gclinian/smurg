@@ -29,7 +29,6 @@ import type { CliIo, CliSignal } from '../cli/io.ts';
 import { runningDaemons } from '../channel/discover.ts';
 import { seaExecutable } from '../sea/native.ts';
 import {
-  CHANGELOG_URL,
   DEFAULT_DOWNLOADS_URL,
   DownloadError,
   INSTALL_COMMAND,
@@ -46,18 +45,8 @@ import {
 } from '../update/downloads.ts';
 import { compareVersions, parseVersion } from '../update/versions.ts';
 import { CLI_VERSION } from '../version.ts';
+import { m, renderText, type Locale } from '../i18n/index.ts';
 import { say, type CommandContext } from './context.ts';
-
-export const UPDATE_USAGE = `用法：smurg update [--check]
-
-  把 smurg 更新到最新版本：從 ${DEFAULT_DOWNLOADS_URL} 下載這台電腦的執行檔，sha256 與那個版本的
-  SHA256SUMS 相符才換掉目前的執行檔。已經是最新版本時什麼都不做，也不會換成較舊的版本。
-  正在分享時不能更新：請先執行 smurg stop。
-  --check             只檢查有沒有新版本，不下載也不更新
-
-  變更紀錄：${CHANGELOG_URL}
-  說明：https://smurg.ai/docs/hosting/#9-更新與移除
-`;
 
 /** Test seams (the real ones: this executable, its version and platform, the runtime's fetch, /usr/bin/xattr). */
 export interface UpdateDeps {
@@ -87,7 +76,6 @@ const STALE_TEMP_MS = 24 * 3600_000;
 const TEMP_NAME = /^\.smurg-update-[0-9a-f]{12}$/;
 const QUARANTINE = 'com.apple.quarantine';
 const SIGNALS: readonly CliSignal[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
-const UNCHANGED = 'smurg 沒有被更動。';
 
 // The start of the build marker scripts/build-sea.ts writes into every executable (scripts/release-markers.ts
 // BUILD_MARKER_PREFIX; test/update.test.ts keeps the two equal). This source must never contain a complete marker (the
@@ -125,27 +113,27 @@ function updateProblem(err: unknown): CliError {
   if (err instanceof DownloadError) {
     switch (err.kind) {
       case 'timeout':
-        return new CliError(`下載位置太久沒有回應：${err.url}`, { hint: `${UNCHANGED}請確認網路連線後再執行一次。`, cause: err });
+        return new CliError(m('update.timeout', { url: err.url }), { hint: m('update.unchanged.checkNetwork'), cause: err });
       case 'http':
-        return new CliError(`下載位置沒有提供這個檔案（HTTP ${err.status ?? '?'}）：${err.url}`, { hint: UNCHANGED, cause: err });
+        return new CliError(m('update.http', { status: String(err.status ?? '?'), url: err.url }), { hint: m('update.unchanged'), cause: err });
       case 'redirect':
-        return new CliError(`下載位置把請求轉到不允許的網址：${err.url}`, { hint: `${UNCHANGED}只接受 https（以及測試用的本機 http）。`, cause: err });
+        return new CliError(m('update.redirect', { url: err.url }), { hint: m('update.redirect.hint'), cause: err });
       case 'incomplete':
-        return new CliError(`下載不完整（連線中斷，或大小與伺服器說的不同）：${err.url}`, { hint: `${UNCHANGED}請再執行一次。`, cause: err });
+        return new CliError(m('update.incomplete', { url: err.url }), { hint: m('update.unchanged.again'), cause: err });
       case 'too-large':
       case 'not-a-version':
-        return new CliError(`下載位置回應的內容不是預期的格式：${err.url}`, { hint: UNCHANGED, cause: err });
+        return new CliError(m('update.unexpectedContent', { url: err.url }), { hint: m('update.unchanged'), cause: err });
       default:
-        return new CliError(`無法連線到下載位置：${err.url}`, { hint: `${UNCHANGED}請確認網路連線後再執行一次。`, cause: err });
+        return new CliError(m('update.unreachable', { url: err.url }), { hint: m('update.unchanged.checkNetwork'), cause: err });
     }
   }
-  return new CliError(`更新失敗（${codeOf(err)}）`, { hint: UNCHANGED, cause: err });
+  return new CliError(m('update.failed', { code: codeOf(err) }), { hint: m('update.unchanged'), cause: err });
 }
 
 const megabytes = (bytes: number): string => (bytes / 1_000_000).toFixed(1);
 
 /** One line that redraws itself on a terminal (stderr); nothing at all without one. */
-function progressLine(io: CliIo): { update(received: number, total: number | null): void; clear(): void } {
+function progressLine(io: CliIo, lang: Locale): { update(received: number, total: number | null): void; clear(): void } {
   if (!io.terminal.isTTY) return { update: () => {}, clear: () => {} };
   let last = 0;
   let shown = false;
@@ -155,7 +143,10 @@ function progressLine(io: CliIo): { update(received: number, total: number | nul
       if (now - last < PROGRESS_EVERY_MS && received !== total) return;
       last = now;
       shown = true;
-      const text = total === null ? `${megabytes(received)} MB` : `${Math.floor((received / total) * 100)}%（${megabytes(received)} / ${megabytes(total)} MB）`;
+      const text = renderText(
+        lang,
+        total === null ? m('update.progress.unknown', { received: megabytes(received) }) : m('update.progress', { percent: Math.floor((received / total) * 100), received: megabytes(received), total: megabytes(total) }),
+      );
       io.stderr.write(`\r\u001b[K  ${text}`);
     },
     clear: () => {
@@ -205,7 +196,7 @@ async function downloadExecutable(
     try {
       handle = await open(temp, 'wx', 0o700);
     } catch (err) {
-      throw new CliError(`無法在 ${dirname(temp)} 建立暫存檔（${codeOf(err)}）`, { hint: UNCHANGED, cause: err });
+      throw new CliError(m('update.tempCreate', { dir: dirname(temp), code: codeOf(err) }), { hint: m('update.unchanged'), cause: err });
     }
     let received = 0;
     try {
@@ -218,7 +209,7 @@ async function downloadExecutable(
         try {
           await handle.write(chunk);
         } catch (err) {
-          throw new CliError(`無法寫入暫存檔 ${temp}（${codeOf(err)}）`, { hint: `${UNCHANGED}磁碟空間夠嗎？`, cause: err });
+          throw new CliError(m('update.tempWrite', { temp, code: codeOf(err) }), { hint: m('update.tempWrite.hint'), cause: err });
         }
         options.progress.update(received, total);
       }
@@ -239,11 +230,11 @@ async function downloadExecutable(
   }
   const actual = hash.digest('hex');
   if (actual !== expected.sha256) {
-    throw new CliError(`${name} 的 sha256 不符（預期 ${expected.sha256}，實際 ${actual}）：檔案可能被竄改或下載不完整`, { hint: UNCHANGED });
+    throw new CliError(m('update.sha256', { name, expected: expected.sha256, actual }), { hint: m('update.unchanged') });
   }
   const built = [...markers.versions].sort();
   if (built.length !== 1 || built[0] !== expected.version) {
-    throw new CliError(`下載的 ${name} 不是 smurg ${expected.version} 的執行檔（${built.length === 0 ? '裡面沒有版本標記' : `版本標記是 ${built.join('、')}`}）`, { hint: UNCHANGED });
+    throw new CliError(built.length === 0 ? m('update.wrongBuild.none', { name, version: expected.version }) : m('update.wrongBuild', { name, version: expected.version, markers: built }), { hint: m('update.unchanged') });
   }
 }
 
@@ -258,7 +249,7 @@ async function clearQuarantine(xattr: string, file: string): Promise<boolean> {
   try {
     await run(xattr, ['-d', QUARANTINE, file], { timeout: 10_000 });
   } catch (err) {
-    throw new CliError(`無法移除 ${file} 的 ${QUARANTINE} 屬性`, { hint: UNCHANGED, cause: err });
+    throw new CliError(m('update.quarantine', { file, attribute: QUARANTINE }), { hint: m('update.unchanged'), cause: err });
   }
   return true;
 }
@@ -271,10 +262,10 @@ async function probe(file: string, version: string, env: Readonly<Record<string,
   } catch (err) {
     if (signal.aborted) throw err;
     const detail = typeof (err as { stderr?: unknown }).stderr === 'string' ? ((err as { stderr: string }).stderr.split('\n').find((line) => line.trim() !== '') ?? '') : '';
-    throw new CliError(`下載的 smurg ${version} 無法在這台電腦上執行`, { hint: `${UNCHANGED}${detail === '' ? '' : `它的訊息：${detail.trim().slice(0, 300)}`}`, cause: err });
+    throw new CliError(m('update.cannotRun', { version }), { hint: detail === '' ? m('update.unchanged') : m('update.cannotRun.hint', { detail: detail.trim().slice(0, 300) }), cause: err });
   }
   if (!stdout.startsWith(`smurg ${version} (`)) {
-    throw new CliError(`下載的執行檔回報的版本不是 ${version}（${stdout.split('\n')[0]?.slice(0, 80) ?? ''}）`, { hint: UNCHANGED });
+    throw new CliError(m('update.wrongVersion', { version, reported: stdout.split('\n')[0]?.slice(0, 80) ?? '' }), { hint: m('update.unchanged') });
   }
 }
 
@@ -300,25 +291,22 @@ async function removeStaleTemps(dir: string, now: number): Promise<void> {
 export async function runUpdate(argv: readonly string[], ctx: CommandContext, deps: UpdateDeps = {}): Promise<number> {
   const args = parseArgs(argv, { options: { check: { kind: 'boolean' }, help: { kind: 'boolean', short: 'h' } } });
   if (args.options['help']) {
-    say(ctx, UPDATE_USAGE);
+    say(ctx, m('usage.update', { downloads: DEFAULT_DOWNLOADS_URL }));
     return EXIT.ok;
   }
   const { io } = ctx;
   const checkOnly = args.options['check'] === true;
   const executable = deps.executable === undefined ? seaExecutable() : deps.executable;
   if (executable === null) {
-    throw new CliError('這個 smurg 是從原始碼執行的，不是安裝好的單一執行檔，smurg update 無法更新它', {
-      exitCode: EXIT.usage,
-      hint: `請用 git 取得新版的原始碼，再執行 pnpm install。安裝單一執行檔：${INSTALL_COMMAND}`,
-    });
+    throw new CliError(m('update.fromSource'), { exitCode: EXIT.usage, hint: m('update.fromSource.hint', { install: INSTALL_COMMAND }) });
   }
   const current = deps.version ?? CLI_VERSION;
   const have = parseVersion(current);
-  if (have === null) throw new CliError(`這個 smurg 的版本（${current}）不是發佈版本的格式，無法和最新版本比較`, { hint: `請重新安裝：${INSTALL_COMMAND}` });
+  if (have === null) throw new CliError(m('update.versionFormat', { current }), { hint: m('update.reinstall.hint', { install: INSTALL_COMMAND }) });
   const base = downloadsBase(io.env);
   const platform = deps.platform ?? process.platform;
   const name = targetName(platform, deps.arch ?? process.arch);
-  if (name === null) throw new CliError(`smurg 沒有提供這個平台的執行檔（${platform}-${deps.arch ?? process.arch}）`);
+  if (name === null) throw new CliError(m('update.noTarget', { platform: `${platform}-${deps.arch ?? process.arch}` }));
   const fetchImpl = deps.fetch;
   const metaMs = deps.metaTimeoutMs ?? META_TIMEOUT_MS;
 
@@ -335,50 +323,44 @@ export async function runUpdate(argv: readonly string[], ctx: CommandContext, de
   const offExit = io.onExit(() => {
     if (temp !== null) rmSync(temp, { force: true });
   });
-  const progress = progressLine(io);
+  const progress = progressLine(io, ctx.lang);
   try {
     const latest = await latestVersion(base, { signal: withTimeout(stop.signal, metaMs), ...(fetchImpl ? { fetch: fetchImpl } : {}) });
     const order = compareVersions(parseVersion(latest) as NonNullable<ReturnType<typeof parseVersion>>, have);
     if (order === 0) {
-      say(ctx, `smurg ${current} 已經是最新版本。`);
+      say(ctx, m('update.latest', { current }));
       return EXIT.ok;
     }
     if (order < 0) {
-      say(ctx, `這個 smurg（${current}）比目前發佈的最新版本（${latest}）還新，不會換成較舊的版本。`);
+      say(ctx, m('update.newer', { current, latest }));
       return EXIT.ok;
     }
     if (checkOnly) {
-      say(ctx, `有新版本 ${latest}（目前 ${current}）。執行 smurg update 更新。\n變更紀錄：${CHANGELOG_URL}`);
+      say(ctx, m('update.available', { latest, current }));
       return EXIT.ok;
     }
 
     const running = await runningDaemons(ctx.paths);
     if (running.length > 0) {
-      throw new CliError(`這台電腦正在分享工作區（${running.map((d) => d.status.workspaceId).join('、')}），沒有更新`, {
-        hint:
-          `有新版本 ${latest}（目前 ${current}）。請先執行 smurg stop 停止分享${running.length > 1 ? '（每個工作區各一次：smurg stop --workspace <工作區代碼>）' : ''}，再執行 smurg update。\n  ` +
-          '分享中更新的話，還在執行的舊版 daemon 會和新版的 smurg 指令混在一起。',
-      });
+      throw new CliError(m('update.sharing', { ids: running.map((d) => d.status.workspaceId) }), { hint: m('update.sharing.hint', { latest, current, several: running.length > 1 }) });
     }
 
     const dir = dirname(executable);
     const st = await lstat(executable).catch(() => null);
-    if (st === null || !st.isFile()) throw new CliError(`找不到目前的執行檔：${executable}`, { hint: `請重新安裝：${INSTALL_COMMAND}` });
+    if (st === null || !st.isFile()) throw new CliError(m('update.noExecutable', { executable }), { hint: m('update.reinstall.hint', { install: INSTALL_COMMAND }) });
     try {
       await access(dir, fsConstants.W_OK | fsConstants.X_OK);
     } catch {
-      throw new CliError(`無法寫入 smurg 所在的資料夾：${dir}`, {
-        hint: `smurg update 要在同一個資料夾裡換掉 ${executable}。請用當初安裝它的方式更新，或重新執行安裝程式（安裝到 ~/.local/bin）：${INSTALL_COMMAND}`,
-      });
+      throw new CliError(m('update.notWritable', { dir }), { hint: m('update.notWritable.hint', { executable, install: INSTALL_COMMAND }) });
     }
     await removeStaleTemps(dir, io.now());
 
     const release = `v${latest}`;
     const sums = await downloadText(base, `${release}/SHA256SUMS`, SUMS_MAX_BYTES, { signal: withTimeout(stop.signal, metaMs), ...(fetchImpl ? { fetch: fetchImpl } : {}) });
     const sha256 = sha256Of(sums, name);
-    if (sha256 === null) throw new CliError(`smurg ${latest} 的 SHA256SUMS 裡沒有 ${name}（這個版本沒有提供這個平台的執行檔）`, { hint: UNCHANGED });
+    if (sha256 === null) throw new CliError(m('update.notInSums', { latest, name }), { hint: m('update.unchanged') });
 
-    say(ctx, `下載 smurg ${latest}（${name}，${base.url}/${release}）…`);
+    say(ctx, m('update.downloading', { latest, name, from: `${base.url}/${release}` }));
     temp = join(dir, `.smurg-update-${randomBytes(6).toString('hex')}`);
     await downloadExecutable(base, `${release}/${name}`, temp, { sha256, version: latest }, { signal: stop.signal, fetch: fetchImpl, stallMs: deps.stallTimeoutMs ?? STALL_TIMEOUT_MS, progress });
     const quarantineRemoved = platform === 'darwin' ? await clearQuarantine(deps.xattr ?? '/usr/bin/xattr', temp) : false;
@@ -386,21 +368,21 @@ export async function runUpdate(argv: readonly string[], ctx: CommandContext, de
     if (interrupted) throw new Error('interrupted');
     // A share that started while the download ran is not updated under either.
     const started = await runningDaemons(ctx.paths);
-    if (started.length > 0) throw new CliError(`下載期間有工作區開始分享（${started.map((d) => d.status.workspaceId).join('、')}），沒有更新`, { hint: '請先執行 smurg stop 停止分享，再執行一次 smurg update。' });
+    if (started.length > 0) throw new CliError(m('update.startedSharing', { ids: started.map((d) => d.status.workspaceId) }), { hint: m('update.startedSharing.hint') });
     try {
       await rename(temp, executable);
     } catch (err) {
-      throw new CliError(`無法換掉 ${executable}（${codeOf(err)}）`, { hint: UNCHANGED, cause: err });
+      throw new CliError(m('update.replaceFailed', { executable, code: codeOf(err) }), { hint: m('update.unchanged'), cause: err });
     }
     temp = null;
-    say(ctx, `已更新 smurg：${current} → ${latest}（${executable}）`);
-    if (quarantineRemoved) say(ctx, `已移除下載檔案的 ${QUARANTINE} 屬性（sha256 驗證相符之後）`);
-    say(ctx, `變更紀錄：${CHANGELOG_URL}`);
+    say(ctx, m('update.done', { current, latest, executable }));
+    if (quarantineRemoved) say(ctx, m('update.quarantineRemoved', { attribute: QUARANTINE }));
+    say(ctx, m('update.changelog'));
     return EXIT.ok;
   } catch (err) {
     progress.clear();
     if (interrupted) {
-      say(ctx, checkOnly ? '\n已取消。' : `\n已取消，${UNCHANGED}`);
+      say(ctx, m(checkOnly ? 'update.cancelled.check' : 'update.cancelled'));
       return EXIT.interrupted;
     }
     throw updateProblem(err);

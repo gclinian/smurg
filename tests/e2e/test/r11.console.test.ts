@@ -1,7 +1,7 @@
 // SPEC R11 acceptance (host console and audit log), prototype scope, through the same encrypted admin requests the
-// web console sends. The console UI itself (「一鍵」) is covered by the browser tests in apps/web/e2e (planned).
-//  - 「主人能從控制台一鍵終止任何 session 或踢掉任何成員」
-//  - 「所有 R4–R9 定義的事件都出現在操作紀錄裡」: one scenario through the real relay touches every R4–R9 action of the
+// web console sends. The console UI itself ("one click") is covered by the browser tests in apps/web/e2e (planned).
+//  - the host can terminate any session or remove any member from the console with one click
+//  - every event R4–R9 define appears in the audit log: one scenario through the real relay touches every R4–R9 action of the
 //    protocol's audit vocabulary (AUDIT_ACTIONS)
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -30,8 +30,8 @@ afterAll(async () => {
   await relay?.stop();
 });
 
-describe('R11 主人控制台', () => {
-  it('主人能從控制台一鍵終止任何 session 或踢掉任何成員 — any member, one request each, visible in the audit log', async () => {
+describe('R11 host console', () => {
+  it('the host can terminate any session or remove any member from the console with one click — any member, one request each, visible in the audit log', async () => {
     const stack = await startStack({ relay });
     try {
       const guests = await Promise.all([
@@ -65,12 +65,12 @@ describe('R11 主人控制台', () => {
     }
   });
 
-  it('主人能從控制台一鍵終止任何 session', async () => {
+  it('the host can terminate any session from the console with one click', async () => {
     const stack = await startStack({ relay });
     try {
-      // A composition without the real sessions module fails here instead of skipping (review SPEC-11).
+      // A composition without the real sessions module fails here instead of skipping.
       expect(isStubService(stack.daemon.ctx.services.sessions), 'the default composition provides SessionManager').toBe(false);
-      // An 「可使用 agent」 member's terminal (it runs as the host, §11 D-15): one request from the console ends it.
+      // An agent-access member's terminal (it runs as the host, §11 D-15): one request from the console ends it.
       const carol = await stack.join({ name: 'carol', role: 'agent' });
       const { session } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
       await stack.hostClient.conn.request('admin.session.terminate', { sessionId: session.id });
@@ -86,8 +86,8 @@ describe('R11 主人控制台', () => {
     }
   });
 
-  // R11 「操作紀錄涵蓋…登入登出」: every connection has an auth.connect and, when it ends, an auth.disconnect.
-  it('操作紀錄涵蓋登入登出 — auth.connect and auth.disconnect of a guest, readable from the console', async () => {
+  // R11 (the audit log covers logins and logouts): every connection has an auth.connect and, when it ends, an auth.disconnect.
+  it('the audit log covers logins and logouts — auth.connect and auth.disconnect of a guest, readable from the console', async () => {
     const stack = await startStack({ relay });
     try {
       const amy = await stack.join({ name: 'amy', role: 'editor' });
@@ -108,7 +108,7 @@ describe('R11 主人控制台', () => {
     }
   });
 
-  it('所有 R4–R9 定義的事件都出現在操作紀錄裡', async () => {
+  it('every event R4–R9 define appears in the audit log', async () => {
     const savedShell = process.env['SHELL'];
     // Every session starts the host's $SHELL (§11 D-15): a plain POSIX shell whatever the developer uses.
     process.env['SHELL'] = '/bin/sh';
@@ -123,7 +123,7 @@ describe('R11 主人控制台', () => {
     try {
       const host = stack.hostClient.conn;
       const amy = await stack.join({ name: 'amy', role: 'editor' });
-      // 「可使用 agent」 members (§11 D-15): they open sessions; Dave later leaves.
+      // Agent-access members (§11 D-15): they open sessions; Dave later leaves.
       const carol = await stack.join({ name: 'carol', role: 'agent' });
       const dave = await stack.join({ name: 'dave', role: 'agent' });
       const main = (path: string) => ({ root: MAIN_ROOT, path });
@@ -151,7 +151,7 @@ describe('R11 主人控制台', () => {
       appDoc.text.insert(0, '// amy\n');
       await waitUntil(() => stack.daemon.ctx.services.locks.get(main('src/app.ts'))?.kind === 'human', 15_000, 'Amy\'s lock');
       await waitUntil(async () => (await readFile(join(stack.root, 'src', 'app.ts'), 'utf8')).startsWith('// amy'), 15_000, 'the autosave');
-      const agent = stack.daemon.ctx.services.hooks.registerSession({ sessionId: 'ses_r11_agent', ownerUserId: carol.userId, agentName: 'Claude（Carol）', root: MAIN_ROOT });
+      const agent = stack.daemon.ctx.services.hooks.registerSession({ sessionId: 'ses_r11_agent', ownerUserId: carol.userId, agentName: 'Claude (Carol)', root: MAIN_ROOT });
       const appPath = join(stack.root, 'src', 'app.ts');
       expect((await runHook(agent.env, 'PreToolUse', appPath, stack.root)).stdout).toContain('Amy');
       await amy.conn.request('lock.release', { file: main('src/app.ts') });
@@ -175,7 +175,7 @@ describe('R11 主人控制台', () => {
       await waitUntil(() => stack.daemon.ctx.services.locks.get(main('conflict.txt'))?.kind === 'human', 15_000, 'Amy\'s lock again');
       await host.request('lock.forceRelease', { file: main('conflict.txt') });
 
-      // R4 / R9 sessions and worktrees of an 「可使用 agent」 member.
+      // R4 / R9 sessions and worktrees of an agent-access member.
       const { session: inWorktree } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'worktree' }, cols: 80, rows: 24 });
       const worktreeId = (inWorktree.root as { worktreeId: string }).worktreeId;
       const wt = { kind: 'worktree' as const, worktreeId };
@@ -190,7 +190,7 @@ describe('R11 主人控制台', () => {
       const { session: toTerminate } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
       await host.request('admin.session.terminate', { sessionId: toTerminate.id });
       await waitUntil(async () => (await host.request('session.list', {})).sessions.every((s) => s.ownerUserId !== carol.userId || s.status === 'exited'), 10_000, 'Carol\'s sessions to end');
-      // R4 a member leaves (「離開」): the session they opened ends with them (§11 D-15).
+      // R4 a member leaves ("Leave"): the session they opened ends with them (§11 D-15).
       const { session: davesTerminal } = await dave.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
       await dave.conn.leave();
       await waitUntil(async () => (await host.request('session.list', {})).sessions.some((s) => s.id === davesTerminal.id && s.status === 'exited'), 5_000, 'Dave\'s session to end');
@@ -242,7 +242,7 @@ describe('R11 主人控制台', () => {
         throw new Error(`${(error as Error).message}; missing: ${expected.filter((action) => !actions.has(action)).join(', ')}`);
       });
 
-      // …each with the right actor and target, and R6.3's author, content, decision and time (review SPEC-10: action
+      // …each with the right actor and target, and R6.3's author, content, decision and time (action
       // names alone would pass a mis-attributed agent.edit or a suggestion without its text).
       const all: AuditEntry[] = [];
       let cursor: number | undefined;
@@ -268,7 +268,7 @@ describe('R11 主人控制台', () => {
       // event flagged as a create ('add', macOS-15 runner, CI run 36831446139); inotify reports the write as a change.
       const [agentEdit, ...moreAgentEdits] = all.filter((e) => e.action === 'agent.edit' && e.target === 'main:src/app.ts');
       expect(moreAgentEdits).toEqual([]);
-      expect(agentEdit).toMatchObject({ actor: { kind: 'agent', sessionId: 'ses_r11_agent', ownerUserId: carol.userId, displayName: 'Claude（Carol）' }, detail: { sessionId: 'ses_r11_agent', ownerUserId: carol.userId } });
+      expect(agentEdit).toMatchObject({ actor: { kind: 'agent', sessionId: 'ses_r11_agent', ownerUserId: carol.userId, displayName: 'Claude (Carol)' }, detail: { sessionId: 'ses_r11_agent', ownerUserId: carol.userId } });
       expect(agentEdit?.detail).toMatchObject(agentEdit?.detail?.['via'] === 'hook' ? { via: 'hook', tool: 'Edit' } : { via: 'watcher', change: expect.stringMatching(/^(change|add)$/) });
       expect(one('lock.denied', 'main:src/app.ts')).toMatchObject({ outcome: 'denied', actor: { kind: 'agent', sessionId: 'ses_r11_agent' }, detail: { holders: ['Amy'] } });
       expect(one('lock.acquire', 'main:src/app.ts', 'user')).toMatchObject({ actor: user(amy.userId), detail: { kind: 'human' } });
@@ -320,7 +320,7 @@ describe('R11 主人控制台', () => {
 function runHook(env: Readonly<Record<string, string>>, event: 'PreToolUse' | 'PostToolUse', filePath: string, cwd: string): Promise<{ stdout: string }> {
   const input = JSON.stringify({ session_id: 'r11', cwd, hook_event_name: event, tool_name: 'Edit', tool_input: { file_path: filePath }, tool_use_id: 'toolu_r11' });
   return new Promise((resolve, reject) => {
-    const child = execFile(process.execPath, [CLI_MAIN, 'hook'], { env: { PATH: '/usr/bin:/bin', SMURG_NO_BROWSER: '1', ...env }, cwd, timeout: 20_000 }, (error, stdout) => (error ? reject(error) : resolve({ stdout })));
+    const child = execFile(process.execPath, [CLI_MAIN, 'hook'], { env: { PATH: '/usr/bin:/bin', SMURG_NO_BROWSER: '1', SMURG_LANG: 'en', ...env }, cwd, timeout: 20_000 }, (error, stdout) => (error ? reject(error) : resolve({ stdout })));
     child.stdin?.end(input);
   });
 }

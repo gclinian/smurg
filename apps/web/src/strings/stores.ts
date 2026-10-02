@@ -1,24 +1,31 @@
 import { defineStrings } from './catalog.ts';
+import { zhTW } from './stores.zh-TW.ts';
 
-// Messages produced by the shared stores (src/lib/stores) rather than by a feature.
-export const tStores = defineStrings('stores', {
-  'docs.bufferOverflow': '這個檔案累積了太多尚未處理的同步資料，請關閉後重新開啟。',
-  'load.failed': '無法載入{area}：{reason}',
-  'area.files': '檔案',
-  'area.locks': '檔案鎖',
-  'area.docs': '開啟中的檔案',
-  'area.sessions': 'agent session',
-  'area.suggestions': '建議',
-  'area.activity': '活動動態',
-  'area.conflicts': '衝突',
-  'area.worktrees': 'worktree',
-  'area.admin': '主人控制台資料',
-  'area.presence': '在線成員',
-  'area.workspace': '工作區',
-  'area.transfers': '傳輸',
-  'notify.from': '{name} 通知你',
-  'worktree.mine': '我的 worktree',
-  'worktree.of': '{owner}的 worktree',
-  'worktree.named': '{who}（{name}）',
-  'worktree.since': '{who}（{time} 建立）',
-});
+// Text produced by the shared stores (src/lib/stores) rather than by a feature.
+export const tStores = defineStrings(
+  'stores',
+  {
+    'docs.bufferOverflow': 'Too much sync data piled up for this file. Close it and open it again.',
+    'area.files': 'Files',
+    'area.locks': 'File locks',
+    'area.docs': 'Open files',
+    'area.sessions': 'Agent sessions',
+    'area.suggestions': 'Suggestions',
+    'area.activity': 'Activity',
+    'area.conflicts': 'Conflicts',
+    'area.worktrees': 'Worktrees',
+    'area.admin': 'Host console data',
+    'area.presence': 'Online members',
+    'area.workspace': 'Workspace',
+    'area.transfers': 'Transfers',
+    // A session nobody gave a title, where the sentence already names who opened it. (The full default title,
+    // "Terminal (Ian)", is the wire catalogue's `session.title.*`: one wording for the web app and the CLI.)
+    'session.kind.agent': 'Claude',
+    'session.kind.terminal': 'Terminal',
+    'worktree.mine': 'My worktree',
+    'worktree.of': "{owner}'s worktree",
+    'worktree.named': '{who} ({name})',
+    'worktree.since': '{who} (created {time})',
+  },
+  zhTW,
+);

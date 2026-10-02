@@ -13,7 +13,7 @@
 //
 // Linux, @parcel/watcher 2.6.0's inotify backend: a directory made in one burst with its parent (`mkdir -p`, a
 // checkout, an unpack) or moved in with its subdirectories gets no watch below its top, so changes there are never
-// reported (live updates miss them, review GR-1), and an inotify queue overflow is dropped without an error
+// reported (live updates miss them), and an inotify queue overflow is dropped without an error
 // (ARCHITECTURE §12).
 //
 // Native calls (2026-09-29: a test worker died with SIGTRAP, "memory corruption of free block" inside
@@ -114,9 +114,9 @@ export const WATCHER_IGNORE: readonly string[] = Object.freeze([
 ]);
 
 /**
- * Temp files of in-place editing tools that isHiddenTempName does not know (review SPEC-01): BSD / macOS `sed -i`
+ * Temp files of in-place editing tools that isHiddenTempName does not know: BSD / macOS `sed -i`
  * writes `.!<pid>!<name>` next to the file, GNU `sed -i` writes `sedXXXXXX`. They exist for milliseconds; reported,
- * they show up as a separate 「外部程式刪除了 .!30367!conflict.txt」 entry.
+ * they show up as a separate "An outside program deleted .!30367!conflict.txt" entry.
  */
 export function isToolTempName(name: string): boolean {
   return /^\.![0-9]{1,10}!./.test(name) || /^sed[A-Za-z0-9]{6}$/.test(name);
@@ -130,7 +130,7 @@ export interface WatcherOptions {
   readonly debounceMs?: number;
   /** A busy root is still flushed at least this often. */
   readonly maxWaitMs?: number;
-  /** How often each root's identity is checked (REL-10: a root that went away and came back is watched again). */
+  /** How often each root's identity is checked (a root that went away and came back is watched again). */
   readonly rootCheckMs?: number;
   /** The native module (default: @parcel/watcher, loaded by start()). Tests pass a stand-in. */
   readonly native?: NativeWatcherModule;
@@ -385,10 +385,10 @@ export class FileWatcher {
   }
 
   /**
-   * REL-10: the shared folder was moved or deleted and restored (Finder rename and undo, an external drive remounted).
+   * the shared folder was moved or deleted and restored (Finder rename and undo, an external drive remounted).
    * FSEvents keeps the old stream, which never reports again. While the root is gone, or is another directory, the
    * dead subscription is dropped; once the SAME directory (dev/ino) is back it is subscribed again. A different
-   * directory at the path stays unwatched (PathGuard refuses it too: 工作區資料夾已被移動或替換).
+   * directory at the path stays unwatched (PathGuard refuses it too: `root-changed`).
    */
   private async checkRoot(watch: RootWatch): Promise<void> {
     if (watch.checking || watch.closed || this.stopped) return;
@@ -486,7 +486,7 @@ export class FileWatcher {
 
   /** Looks at every path of a batch again and turns it into at most one FileChange each. */
   private async recheck(root: RootInfo, batch: readonly (readonly [string, ParcelEventType])[]): Promise<FileChange[]> {
-    // Linux: one listing per directory for the NFC → on-disk mapping of the whole batch (review RCR-2: a batch of n
+    // Linux: one listing per directory for the NFC → on-disk mapping of the whole batch (a batch of n
     // Mac-made (NFD) or deleted non-ASCII names listed their directory n times). Every path of the batch existed or
     // was gone before the batch started, so a listing taken during it is no staler than the events themselves.
     const spellings = new SpellingIndex();

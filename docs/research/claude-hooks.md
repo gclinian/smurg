@@ -10,7 +10,7 @@ Research spike for smurg [Prototype] (spec R4, R5, R8, §11, §13).
 Target: originally **Claude Code 2.1.220** (the CLI installed on the host dev machine), macOS arm64, 2026-09-27.
 **Verified and re-run on 2.1.283** (the version smurg must pin, because the team develops on Opus 5.5; see §1.7).
 Where the two versions differ, the text below says so. The verifier's evidence is in [## Verification](#verification).
-Spike code: `/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/claude-hooks`
+Spike code: `<spike dir>/claude-hooks`
 Verifier re-run (both versions + extra experiments): `…/scratchpad/spikes/claude-hooks-verify` (`./run-verify.sh`)
 
 Method: almost every claim below was checked by running the real `claude` binary against a local
@@ -265,7 +265,7 @@ What changed between 2.1.220 and 2.1.283 that matters here (all verified, detail
 * `PermissionRequest` fires for a `-p` auto-deny.
 * The trust dialog defaults to "No, exit", and the API-key dialog to "No (recommended)".
 
-The host machine's own CLI is 2.1.220 (`~/.local/bin/claude`). The daemon must check
+The CLI on the test machine was 2.1.220. The daemon must check
 `claude --version` at startup and refuse or warn below 2.1.283. It can also launch a pinned binary
 of its own instead of whatever `claude` is on PATH.
 
@@ -658,11 +658,9 @@ Caveat, now resolved for the sandboxed case (verifier):
 16a. The agent can read its own `SMURG_SESSION_TOKEN` (it is in its Bash env). Treat hook events as
     claims and bound them (§1.2).
 16b. The npm `stable` dist-tag (2.1.274 on 2026-09-27) is too old for Opus 5.5. Pin an exact version.
-17. Side effects of this spike on this machine:
-    * Two throwaway URL-handler apps were registered with LaunchServices by early TUI runs. They were
-      unregistered (`lsregister -u`, verified 0 left), and the runner now disables registration.
-    * The single `security add-generic-password` probe with a temp HOME may have shown a macOS
-      keychain dialog on the desktop. It wrote nothing (verified) and can be dismissed with Cancel.
+17. Side effects of a spike like this one: early TUI runs registered throwaway URL-handler apps with
+    LaunchServices (unregistered afterwards with `lsregister -u`; the runner now disables registration), and a
+    `security add-generic-password` probe with a temporary HOME can show a macOS keychain dialog (it writes nothing).
 
 ---
 
@@ -724,14 +722,14 @@ catch (e) { if (e.status === 1 && JSON.parse(e.stdout).loggedIn === false) showL
 ## 10. How to re-run the spike
 
 ```bash
-cd /private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/claude-hooks
+cd <spike dir>/claude-hooks
 ./run-all.sh              # all mock-model experiments (free, a few minutes, needs node + python3 + claude)
 REAL=1 ./run-all.sh       # + one real-model run with the host's own login (~$0.2)
 REAL=1 ./exp-creds.sh     # + the CLAUDE_SECURESTORAGE_CONFIG_DIR check (reads the host login, prints booleans only)
 CLAUDE_BIN=/path/to/other/claude ./run-all.sh   # e.g. to re-check on >= 2.1.280
 
 # verifier: both versions (2.1.220 + local npm 2.1.283) + the extra experiments, ~15 min, mock only
-/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/claude-hooks-verify/run-verify.sh
+<spike dir>/claude-hooks-verify/run-verify.sh
 REAL=1 …/claude-hooks-verify/run-verify.sh      # + one Opus 5.5 run on 2.1.283 (~$0.12)
 ```
 Each experiment writes `run/<name>/` (`result.json`, `requests.jsonl` = what the model saw,

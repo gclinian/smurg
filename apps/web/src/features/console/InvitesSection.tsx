@@ -1,5 +1,5 @@
-// Invites (SPEC R2 「主人產生邀請連結，可設定角色、有效期限、使用次數」): create one, see the ones on file with their
-// remaining uses, revoke. An invite with 「可使用 agent」 is created only after the host confirmed the risk
+// Invites (SPEC R2 "the host creates invite links with a role, an expiry and a number of uses"): create one, see the ones on file with their
+// remaining uses, revoke. An invite with agent access is created only after the host confirmed the risk
 // (RoleRiskDialog): whoever uses it runs anything on the host's computer, with the host's Claude account.
 //
 // The link carries the one-time secret (ARCHITECTURE §4.1). It is shown ONCE, in the dialog right after creation, and
@@ -56,7 +56,7 @@ export function InvitesSection({ now }: { now: number }) {
   const [createError, setCreateError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatedLink | null>(null);
   const [revoking, setRevoking] = useState<ReadonlySet<string>>(new Set());
-  /** The risk of 「可使用 agent」 is on screen: the invite is created only on 「我了解」. */
+  /** The risk of agent access is on screen: the invite is created only on "I understand". */
   const [confirmingRisk, setConfirmingRisk] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
 

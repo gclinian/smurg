@@ -63,23 +63,23 @@ const MCP_INITIALIZE = `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initi
 
 describe('smurg CLI', () => {
   it('builds a version banner from all workspace packages', () => {
-    expect(versionBanner()).toBe(`smurg ${VERSION} (protocol v2, daemon ${VERSION}, node ${process.versions.node})`);
+    expect(versionBanner()).toBe(`smurg ${VERSION} (protocol v3, daemon ${VERSION}, node ${process.versions.node})`);
   });
 
   it('runs from source with plain node', async () => {
     const { stdout, stderr } = await run(process.execPath, [MAIN, '--version'], { timeout: 20_000 });
-    expect(stdout.trim()).toBe(`smurg ${VERSION} (protocol v2, daemon ${VERSION}, node ${process.versions.node})`);
+    expect(stdout.trim()).toBe(`smurg ${VERSION} (protocol v3, daemon ${VERSION}, node ${process.versions.node})`);
     expect(stderr).toBe('');
   });
 
-  it('an unknown command is a usage error: exit 2 with a zh-TW message', async () => {
+  it('an unknown command is a usage error: exit 2 with a message', async () => {
     await expect(run(process.execPath, [MAIN, 'no-such-command'], { timeout: 20_000 })).rejects.toMatchObject({
       code: 2,
-      stderr: expect.stringContaining('不認得的指令「no-such-command」'),
+      stderr: expect.stringContaining('smurg: Unknown command "no-such-command"'),
     });
   });
 
-  it('--help lists every command in zh-TW', async () => {
+  it('--help lists every command', async () => {
     const { stdout } = await run(process.execPath, [MAIN, '--help'], { timeout: 20_000 });
     for (const command of ['host', 'attach', 'stop', 'status', 'login', 'logout', 'update', 'uninstall', 'licenses']) expect(stdout).toContain(`  ${command}`);
     expect(stdout).toContain('SMURG_HOME');
@@ -92,10 +92,10 @@ describe('smurg CLI', () => {
     const env = isolatedEnv(dirs, { SMURG_INSTALL_BASE_URL: 'http://127.0.0.1:9' });
     for (const command of ['update', 'uninstall']) {
       const help = await run(process.execPath, [MAIN, command, '--help'], { env, timeout: 20_000 });
-      expect(help.stdout).toContain(`用法：smurg ${command}`);
+      expect(help.stdout).toContain(`Usage: smurg ${command}`);
       await expect(run(process.execPath, command === 'uninstall' ? [MAIN, command, '--yes'] : [MAIN, command], { env, timeout: 20_000 })).rejects.toMatchObject({
         code: 2,
-        stderr: expect.stringContaining('從原始碼執行'),
+        stderr: expect.stringContaining('runs from source'),
       });
     }
   });

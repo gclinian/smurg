@@ -38,12 +38,12 @@ describe('IdentityVerifier', () => {
     ['a relay user id that is not one', { sub: 'root' }, 'subject'],
   ] as const)('refuses %s', async (_label, overrides, reason) => {
     const token = await issuer.issue({ ...base, ...overrides } as Parameters<TestIdentityIssuer['issue']>[0]);
-    // Time failures also say how far the token's issue time is from the time it was checked against (REL-05).
+    // Time failures also say how far the token's issue time is from the time it was checked against.
     const time = reason === 'expired' || reason === 'not-yet-valid' || reason === 'too-old';
     expect(verifier.verify(token)).toEqual({ ok: false, reason, ...(time ? { iatDeltaMs: expect.any(Number) } : {}) });
   });
 
-  describe("the host's clock is off; token times are checked against the relay's time (REL-05)", () => {
+  describe("the host's clock is off; token times are checked against the relay's time", () => {
     const withOffset = (offsetMs: number | null): IdentityVerifier =>
       new IdentityVerifier({
         keys: { ...staticKeySource(new Map([['kid-1', keys.publicKey]])), clockOffsetMs: () => offsetMs },

@@ -6,7 +6,7 @@ import { isWorkspaceId } from '@smurg/protocol/relay';
 import type { StatePaths } from './paths.ts';
 import { isRecord, numberField, readPrivateJson, stringField, writePrivateJson } from './private-file.ts';
 
-const WHAT = '工作區紀錄檔（workspaces.json）';
+const WHAT = 'workspaces' as const;
 
 export interface SharedFolder {
   /** realpath of the shared folder. */

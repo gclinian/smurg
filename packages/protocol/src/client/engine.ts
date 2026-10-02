@@ -71,7 +71,7 @@ export interface CommonConnectionOptions {
    */
   preferInvite?: boolean;
   clientKind: ClientKind;
-  /** Shown in the host's device list, e.g. 「Chrome on macOS」. */
+  /** Shown in the host's device list, e.g. `Chrome (macOS)`. */
   deviceName: string;
   /** Noise suite: nobleSuite by default (browser); the CLI passes nodeCryptoSuite from @smurg/protocol/node. */
   suite?: NoiseSuite;
@@ -947,7 +947,7 @@ export class ChannelEngine {
 
   /**
    * Rejects the pending request `id`, if any, and takes it out of the outbox even when it was already transmitted:
-   * a request its caller saw fail is never replayed on a resumed channel (review REL-03), so retrying it cannot make
+   * a request its caller saw fail is never replayed on a resumed channel, so retrying it cannot make
    * the action happen twice.
    */
   private failRequest(id: string, error: unknown): boolean {

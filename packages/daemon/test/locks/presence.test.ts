@@ -1,5 +1,5 @@
-// Presence (SPEC R7 在場感知「人和 agent 都以使用者的形式出現，有名字、顏色」, R11 線上成員): members online, their
-// connections and active file, one entry per running agent session 「Claude（owner）」 with a stable readable colour,
+// Presence (SPEC R7: people and agents both appear as users with a name and a colour; R11 members online): members online, their
+// connections and active file, one entry per running agent session `Claude (owner)` with a stable readable colour,
 // presence.state coalesced.
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type FileRef, type PayloadOf } from '@smurg/protocol';
@@ -92,7 +92,7 @@ describe('presence of members', () => {
     presence.update(conn, main('b.txt')); // no change: nothing to announce
     timers.advance(1_000);
     expect(broadcasts).toHaveLength(1);
-    presence.setAgent({ sessionId: 'ses_1', ownerUserId: 'dev:ian', displayName: 'Claude（Ian）', color: '#000000', status: 'running' });
+    presence.setAgent({ sessionId: 'ses_1', ownerUserId: 'dev:ian', displayName: 'Claude (Ian)', color: '#000000', status: 'running' });
     timers.advance(150);
     expect(broadcasts).toHaveLength(2);
     expect(presence.snapshot().agents[0]?.color).not.toBe('#000000'); // unreadable colours are replaced
@@ -120,7 +120,7 @@ describe('presence of members', () => {
 });
 
 describe('presence of agents', () => {
-  it('presence of agents: one entry per running agent session, 「Claude（owner）」, a stable readable colour, its current file', async () => {
+  it('presence of agents: one entry per running agent session, `Claude (owner)`, a stable readable colour, its current file', async () => {
     const d = await daemon();
     const host = await d.connectHost();
     await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
@@ -132,7 +132,7 @@ describe('presence of agents', () => {
     d.ctx.bus.emit('session.created', { session: sessionInfo(agentSession('ses_term', 'dev:ian', 'Ian'), 'running', 'terminal') });
     await waitFor(() => states.length > 0 && last(states).agents.length === 1, { what: 'Ian’s agent' });
     const first = last(states).agents[0];
-    expect(first).toMatchObject({ sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude（Ian）', status: 'starting' });
+    expect(first).toMatchObject({ sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude (Ian)', status: 'starting' });
     expect(isReadableOnBothThemes(first?.color ?? '')).toBe(true);
 
     d.ctx.bus.emit('session.updated', { session: sessionInfo(ian, 'running') });
@@ -141,7 +141,7 @@ describe('presence of agents', () => {
     await waitFor(() => last(states).agents.length === 2 && last(states).agents[0]?.activeFile?.path === 'src/app.ts', { what: 'two agents' });
     const [ianAgent, hostAgent] = last(states).agents;
     expect(ianAgent).toMatchObject({ status: 'running', color: first?.color }); // stable
-    expect(hostAgent).toMatchObject({ displayName: 'Claude（Host）' });
+    expect(hostAgent).toMatchObject({ displayName: 'Claude (Host)' });
     expect(hostAgent?.color).not.toBe(ianAgent?.color);
     const memberColors = last(states).members.map((m) => m.color.toLowerCase());
     expect(memberColors).not.toContain(ianAgent?.color.toLowerCase());

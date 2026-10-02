@@ -1,8 +1,8 @@
-// The owner's bug (2026-10-02): 「我在右邊的 session 面板沒有辦法關掉已經結束的 session」. In a real browser (the built
+// The reported bug: "in the session panel on the right I cannot close a session that has ended". In a real browser (the built
 // app, the real relay, a daemon with every module, system Chrome): an ended session's tab is closed by whoever looks at
 // it, in their OWN panel (ARCHITECTURE §9 "Closing an ended session's tab"):
 //  - the tab of an ended session (one that exited by itself, one its owner ended) has a close button with an accessible
-//    name, Delete on the tab closes it too, and so does 「關閉分頁」 in the session's bar; a RUNNING session has none of
+//    name, Delete on the tab closes it too, and so does "Close tab" in the session's bar; a RUNNING session has none of
 //    them and Delete does nothing to it;
 //  - closing is per viewer: the others keep the tab, and the daemon still lists the session;
 //  - the closed tab does not come back on a reload while the daemon still lists the ended session;
@@ -28,14 +28,14 @@ const FIRST = 'first-exits-by-itself';
 const SECOND = 'second-ended-by-its-owner';
 const THIRD = 'third-ended-by-its-owner';
 const KEEPER = 'keeper-that-keeps-running';
-const label = (title: string): string => `${title}（host 開的）`;
+const label = (title: string): string => `${title} (host)`;
 
-const tabOf = (page: Page, title: string) => page.getByRole('tab', { name: new RegExp(`^${title}（`) });
-const closeButtonOf = (page: Page, title: string) => page.getByRole('button', { name: new RegExp(`^關閉 ${title}（`) });
+const tabOf = (page: Page, title: string) => page.getByRole('tab', { name: new RegExp(`^${title} \\(`) });
+const closeButtonOf = (page: Page, title: string) => page.getByRole('button', { name: new RegExp(`^Close ${title} \\(`) });
 
 /** The titles of the session tabs, in the order of the strip. */
 async function tabTitles(page: Page): Promise<string[]> {
-  return page.getByRole('tablist', { name: 'session 分頁' }).locator('.agents-tab__title').allTextContents();
+  return page.getByRole('tablist', { name: 'Session tabs' }).locator('.agents-tab__title').allTextContents();
 }
 
 /** Waits until the tab of `title` says the session ended. */
@@ -47,7 +47,7 @@ async function waitEnded(page: Page, title: string): Promise<void> {
 function closeButtonInViewIn(title: string): boolean {
   const strip = document.querySelector('.agents-tabs [role="tablist"]')?.getBoundingClientRect();
   const button = [...document.querySelectorAll('.agents-tabs [role="tablist"] button:not([role="tab"])')]
-    .find((candidate) => candidate.getAttribute('aria-label')?.startsWith(`關閉 ${title}（`))
+    .find((candidate) => candidate.getAttribute('aria-label')?.startsWith(`Close ${title} (`))
     ?.getBoundingClientRect();
   return strip !== undefined && button !== undefined && button.left >= strip.left - 0.5 && button.right <= strip.right + 0.5;
 }
@@ -71,7 +71,7 @@ describe.skipIf(chrome === null)("closing an ended session's tab (built app, rea
   let env: SmokeEnv;
 
   beforeAll(async () => {
-    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# 班級專案\n' } } });
+    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# Class project\n' } } });
   }, 180_000);
 
   afterAll(async () => {
@@ -82,7 +82,7 @@ describe.skipIf(chrome === null)("closing an ended session's tab (built app, rea
 
   const statusOf = (id: string): string | undefined => env.stack.daemon.ctx.services.sessions.list().find((session) => session.id === id)?.status;
 
-  it("every viewer closes an ended session's tab in their own panel (button, Delete, 「關閉分頁」); it stays closed after a reload; a running session is never closed", async () => {
+  it("every viewer closes an ended session's tab in their own panel (button, Delete, 'Close tab'); it stays closed after a reload; a running session is never closed", async () => {
     const host = await env.newPage();
     await joinAsHost(host, env);
     const first = await openSession(host, 'terminal', FIRST);
@@ -99,8 +99,8 @@ describe.skipIf(chrome === null)("closing an ended session's tab (built app, rea
     await typeInTerminal(host, first, 'exit');
     for (const title of [SECOND, THIRD]) {
       await tabOf(host, title).click();
-      await host.getByRole('tabpanel').getByRole('button', { name: '結束 session' }).click();
-      await host.getByRole('alertdialog', { name: '結束 session' }).getByRole('button', { name: '結束 session' }).click();
+      await host.getByRole('tabpanel').getByRole('button', { name: 'End session' }).click();
+      await host.getByRole('alertdialog', { name: 'End session' }).getByRole('button', { name: 'End session' }).click();
       await waitEnded(host, title);
     }
     for (const page of [host, wendy]) for (const title of [FIRST, SECOND, THIRD]) await waitEnded(page, title);
@@ -118,13 +118,13 @@ describe.skipIf(chrome === null)("closing an ended session's tab (built app, rea
 
     // Four tabs do not fit the panel: the strip scrolls, and the selected tab is in view WITH its close button. By
     // keyboard (End selects the last tab): a click would make the test driver scroll the tab into view by itself.
-    expect(await wendy.getByRole('tablist', { name: 'session 分頁' }).evaluate((strip) => strip.scrollWidth > strip.clientWidth)).toBe(true);
+    expect(await wendy.getByRole('tablist', { name: 'Session tabs' }).evaluate((strip) => strip.scrollWidth > strip.clientWidth)).toBe(true);
     expect(await closeButtonInView(wendy, THIRD)).toBe(false);
     await tabOf(wendy, KEEPER).focus();
     await wendy.keyboard.press('End');
     expect(await selectedAndFocused(wendy, THIRD)).toBe(true);
     await waitCloseButtonInView(wendy, THIRD);
-    expect(await wendy.getByRole('tablist', { name: 'session 分頁' }).evaluate((strip) => strip.scrollLeft)).toBeGreaterThan(0);
+    expect(await wendy.getByRole('tablist', { name: 'Session tabs' }).evaluate((strip) => strip.scrollLeft)).toBeGreaterThan(0);
     await wendy.keyboard.press('Home');
     expect(await selectedAndFocused(wendy, KEEPER)).toBe(true);
 
@@ -164,16 +164,16 @@ describe.skipIf(chrome === null)("closing an ended session's tab (built app, rea
     expect(await tabOf(wendy, KEEPER).getAttribute('aria-keyshortcuts')).toBeNull();
     await wendy.keyboard.press('Delete');
     expect(await tabTitles(wendy)).toEqual([label(KEEPER)]);
-    expect(await wendy.getByRole('tabpanel').getByRole('button', { name: '關閉分頁' }).count()).toBe(0);
+    expect(await wendy.getByRole('tabpanel').getByRole('button', { name: 'Close tab' }).count()).toBe(0);
     expect(statusOf(keeper)).toBe('running');
 
-    // The owner closes one from the session's own bar (「關閉分頁」), where 「結束 session」 was while it ran.
+    // The owner closes one from the session's own bar ("Close tab"), where "End session" was while it ran.
     await tabOf(host, SECOND).click();
-    await host.getByRole('tabpanel').getByRole('button', { name: '關閉分頁' }).click();
+    await host.getByRole('tabpanel').getByRole('button', { name: 'Close tab' }).click();
     await tabOf(host, SECOND).waitFor({ state: 'detached', timeout: STEP_MS });
     expect(await tabTitles(host)).toEqual([label(KEEPER), label(FIRST), label(THIRD)]);
     expect(await selectedAndFocused(host, THIRD)).toBe(true);
-    expect(await host.getByRole('tabpanel').getByRole('button', { name: '關閉分頁' }).count()).toBe(1);
+    expect(await host.getByRole('tabpanel').getByRole('button', { name: 'Close tab' }).count()).toBe(1);
     // Nothing was ended or removed on the host's computer by closing tabs.
     expect([first, second, third, keeper].map(statusOf)).toEqual(['exited', 'exited', 'exited', 'running']);
 
@@ -189,7 +189,7 @@ describe.skipIf(chrome === null)('an ended session the daemon no longer keeps (b
   beforeAll(async () => {
     // Production's modules, the sessions module with a short retention of ended sessions (ARCHITECTURE §7.6).
     const modules = DEFAULT_FEATURE_MODULES.map((module) => (module.name === 'sessions' ? createSessionsModule({ limits: { exitedRetentionMs: 2_000 } }) : module));
-    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# 班級專案\n' }, modules } });
+    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# Class project\n' }, modules } });
   }, 180_000);
 
   afterAll(async () => {
@@ -216,12 +216,12 @@ describe.skipIf(chrome === null)('an ended session the daemon no longer keeps (b
     expect(listed(stays)).toBe(true);
 
     // Nobody is told: both panels still have the tab. Showing it again finds nothing to attach to.
-    expect(await tabTitles(host)).toEqual(['stays（host 開的）', 'gone（host 開的）']);
+    expect(await tabTitles(host)).toEqual(['stays (host)', 'gone (host)']);
     await tabOf(wendy, 'gone').click();
     const panel = wendy.getByRole('tabpanel');
-    await panel.getByText('這個 session 結束已久，主人的電腦不再保留它的終端機內容。你可以關閉這個分頁。').waitFor({ timeout: STEP_MS });
-    expect(await panel.getByText(/無法連接終端機/).count()).toBe(0);
-    expect(await panel.getByRole('button', { name: '重新連接終端機' }).count()).toBe(0);
+    await panel.getByText("This session ended a while ago, and the host's computer no longer keeps its terminal output. You can close this tab.").waitFor({ timeout: STEP_MS });
+    expect(await panel.getByText(/Could not connect to the terminal/).count()).toBe(0);
+    expect(await panel.getByRole('button', { name: 'Reconnect the terminal' }).count()).toBe(0);
 
     // It can be closed like any ended session; while this page stays open its id is remembered.
     await closeButtonOf(wendy, 'gone').click();
@@ -234,12 +234,12 @@ describe.skipIf(chrome === null)('an ended session the daemon no longer keeps (b
     await workspaceOnline(wendy);
     await tabOf(wendy, 'stays').waitFor({ timeout: STEP_MS });
     await wendy.waitForFunction((key) => window.localStorage.getItem(key) === null, CLOSED_KEY, { timeout: STEP_MS });
-    expect(await tabTitles(wendy)).toEqual(['stays（host 開的）']);
+    expect(await tabTitles(wendy)).toEqual(['stays (host)']);
     // The host, who closed nothing: the tab is gone after a reload as well.
     await host.reload();
     await workspaceOnline(host);
     await tabOf(host, 'stays').waitFor({ timeout: STEP_MS });
-    expect(await tabTitles(host)).toEqual(['stays（host 開的）']);
+    expect(await tabTitles(host)).toEqual(['stays (host)']);
 
     // The 4xx-free console of both pages: a refused attach is an answer on the channel, not an error of the page.
     expect(env.problemsOf(wendy).pageErrors).toEqual([]);

@@ -1,4 +1,4 @@
-// One daemon per shared folder (review CLI-05). The daemon locked only its workspace (ctl / hook sockets), so the same
+// One daemon per shared folder. The daemon locked only its workspace (ctl / hook sockets), so the same
 // folder could be hosted twice (another relay origin, another SMURG_HOME), or a folder and its sub-folder at once: two
 // watchers, two lock managers (R8's locks no longer hold against the other workspace's agents), and each daemon
 // emptying `.smurg/trash` under the other.

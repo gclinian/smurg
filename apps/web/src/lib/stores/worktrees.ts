@@ -17,11 +17,11 @@ export interface WorktreesStore extends ReadableStore<WorktreesState> {
   reload(): Promise<void>;
   /** Owner or host. */
   remove(worktreeId: string): Promise<void>;
-  /** Host or 可使用 agent (worktree.merge.request): commits the worktree and asks the host to merge exactly that commit. */
+  /** The host or a member with agent access (worktree.merge.request): commits the worktree and asks the host to merge exactly that commit. */
   requestMerge(worktreeId: string, message?: string): Promise<MergeRequest>;
   /** Owner of the worktree or host: the full diff under review (capped at 1 MiB: see fileDiff). */
   diff(requestId: string): Promise<ResultOf<'worktree.merge.diff'>>;
-  /** One file of the request's diff, for files the capped diff truncated (R9 「主人看到完整 diff」). */
+  /** One file of the request's diff, for files the capped diff truncated (R9: the host sees the whole diff). */
   fileDiff(requestId: string, path: string): Promise<ResultOf<'worktree.merge.fileDiff'>>;
   /** Host. Status becomes `merged`, or `conflict` with `conflictFiles`. */
   approve(requestId: string): Promise<MergeRequest>;
@@ -114,8 +114,8 @@ export function createWorktreesArea(): { store: WorktreesStore; lifecycle: AreaL
 }
 
 /**
- * How a person names a worktree (review WEB-18): whose it is and what it is for — 「王小明的 worktree（加測試）」 — instead
- * of its branch 「smurg/dev-ming/wt_aa17…」, which stays available as a detail. `name` is the session working in it
+ * How a person names a worktree: whose it is and what it is for ("Ming's worktree (add tests)") instead
+ * of its branch "smurg/dev-ming/wt_aa17…", which stays available as a detail. `name` is the session working in it
  * (default: the one recorded on the worktree, when `sessions` knows it); without one, when it was created.
  */
 export function worktreeLabel(

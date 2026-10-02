@@ -1,8 +1,8 @@
 {
   "name": "@smurg/relay",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "description": "smurg relay: Cloudflare Worker + Durable Objects (WorkspaceDO, TransferDO). Forwards ciphertext only.",
   "exports": {

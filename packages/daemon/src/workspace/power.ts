@@ -1,14 +1,14 @@
-// Keeps the host awake while sharing (SPEC R1 「主持期間防止電腦進入睡眠」; pty-packaging.md §6.7):
+// Keeps the host awake while sharing (SPEC R1: no sleep while hosting; pty-packaging.md §6.7):
 //   macOS: `caffeinate -i -w <daemon pid>` — exits on its own when the daemon dies, even on SIGKILL.
 //   Linux: `systemd-inhibit --what=sleep:idle … cat` with cat's stdin a pipe from the daemon — daemon death closes the
-//          pipe, cat exits, the inhibitor is released. Refused (reason 'the inhibitor was refused') for a host started
+//          pipe, cat exits, the inhibitor is released. Refused (reason 'refused') for a host started
 //          over SSH: polkit's inhibit-block-sleep is allow_any=no (verified on Ubuntu 24.04); unverified with a local
 //          desktop session (ARCHITECTURE §12).
 // stop() signals ONLY the child this service spawned and recorded (ARCHITECTURE §0 rule 1).
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import { access } from 'node:fs/promises';
-import type { PowerService, PowerStatus } from '../core/interfaces.ts';
+import type { PowerReason, PowerService, PowerStatus } from '../core/interfaces.ts';
 import type { Logger } from '../core/logger.ts';
 
 export type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
@@ -40,8 +40,8 @@ async function defaultFindSystemdInhibit(): Promise<string | null> {
 
 /**
  * How long start() waits for an inhibitor that ends right away before it reports keep-awake as active (linux-binary
- * F5: over SSH, polkit refuses systemd-inhibit's sleep block within ~20 ms, and the start summary said 「已啟用」 in
- * most runs, then 「已失效」 two seconds later).
+ * F5: over SSH, polkit refuses systemd-inhibit's sleep block within ~20 ms, and the start summary said "on" in most
+ * runs, then "lost" two seconds later).
  */
 const SETTLE_MS = 250;
 /** stderr of an inhibitor the system refused (systemd-inhibit through logind / polkit). */
@@ -64,7 +64,7 @@ export class KeepAwake implements PowerService {
   private readonly options: KeepAwakeOptions;
   private readonly spawnFn: SpawnFn;
   private child: ChildProcess | null = null;
-  private current: PowerStatus = { active: false, mechanism: 'none', pid: null, reason: 'not started' };
+  private current: PowerStatus = { active: false, mechanism: 'none', pid: null, reason: 'not-started' };
   private exited: Promise<void> | null = null;
 
   constructor(options: KeepAwakeOptions) {
@@ -85,7 +85,7 @@ export class KeepAwake implements PowerService {
     const plan = await this.plan();
     if ('reason' in plan) {
       this.current = { active: false, mechanism: 'none', pid: null, reason: plan.reason };
-      this.options.log.warn('keep-awake unavailable', { reason: plan.reason });
+      this.options.log.warn('keep-awake unavailable', { reason: plan.reason, ...(plan.platform === undefined ? {} : { platform: plan.platform }) });
       return this.current;
     }
     let child: ChildProcess;
@@ -93,7 +93,8 @@ export class KeepAwake implements PowerService {
       // stderr is read (its first line only) so a refusal can say why: over SSH, polkit refuses the sleep block.
       child = this.spawnFn(plan.file, plan.args, { stdio: [plan.pipeStdin ? 'pipe' : 'ignore', 'ignore', 'pipe'], detached: false });
     } catch (err) {
-      this.current = { active: false, mechanism: 'none', pid: null, reason: `spawn failed: ${err instanceof Error ? err.name : 'error'}` };
+      this.current = { active: false, mechanism: 'none', pid: null, reason: 'spawn-failed' };
+      this.options.log.warn('keep-awake failed to spawn', { mechanism: plan.mechanism, error: err instanceof Error ? err.name : 'error' });
       return this.current;
     }
     const started = await new Promise<boolean>((resolve) => {
@@ -101,7 +102,7 @@ export class KeepAwake implements PowerService {
       child.once('error', () => resolve(false));
     });
     if (!started || !assertOwnChildPid(child.pid)) {
-      this.current = { active: false, mechanism: 'none', pid: null, reason: 'the inhibitor could not be started' };
+      this.current = { active: false, mechanism: 'none', pid: null, reason: 'start-failed' };
       this.options.log.warn('keep-awake failed to start', { mechanism: plan.mechanism });
       return this.current;
     }
@@ -124,14 +125,14 @@ export class KeepAwake implements PowerService {
       child.once('exit', (code, signal) => {
         if (this.child !== child) return resolve();
         this.child = null;
-        this.current = { active: false, mechanism: 'none', pid: null, reason: 'the inhibitor exited' };
+        this.current = { active: false, mechanism: 'none', pid: null, reason: 'exited' };
         const tail = new Promise<void>((done) => setTimeout(done, 500));
         void Promise.race([stderrDone, tail]).then(() => {
           const line = firstLine(stderr);
           // e.g. "Failed to inhibit: Access denied" (systemd-inhibit from an SSH session: logind's polkit action
           // org.freedesktop.login1.inhibit-block-sleep is allow_any=no on Ubuntu)
-          if (REFUSED.test(line) && this.child === null && this.current.reason === 'the inhibitor exited') {
-            this.current = { active: false, mechanism: 'none', pid: null, reason: 'the inhibitor was refused' };
+          if (REFUSED.test(line) && this.child === null && this.current.reason === 'exited') {
+            this.current = { active: false, mechanism: 'none', pid: null, reason: 'refused' };
           }
           this.options.log.warn('keep-awake inhibitor exited', { code: code ?? null, signal: signal ?? null, ...(line === '' ? {} : { stderr: line }) });
           resolve();
@@ -171,7 +172,7 @@ export class KeepAwake implements PowerService {
 
   private async plan(): Promise<
     | { readonly file: string; readonly args: readonly string[]; readonly mechanism: PowerStatus['mechanism']; readonly pipeStdin: boolean }
-    | { readonly reason: string }
+    | { readonly reason: PowerReason; readonly platform?: string }
   > {
     if (this.options.command) return { ...this.options.command, pipeStdin: true };
     const platform = this.options.platform ?? process.platform;
@@ -179,7 +180,7 @@ export class KeepAwake implements PowerService {
     if (platform === 'darwin') return { file: '/usr/bin/caffeinate', args: ['-i', '-w', String(pid)], mechanism: 'caffeinate', pipeStdin: false };
     if (platform === 'linux') {
       const inhibit = await (this.options.findSystemdInhibit ?? defaultFindSystemdInhibit)();
-      if (!inhibit) return { reason: 'systemd-inhibit not found' };
+      if (!inhibit) return { reason: 'systemd-inhibit-not-found' };
       return {
         file: inhibit,
         args: ['--what=sleep:idle', '--who=smurg', '--why=smurg is sharing a folder', '--mode=block', 'cat'],
@@ -187,6 +188,6 @@ export class KeepAwake implements PowerService {
         pipeStdin: true,
       };
     }
-    return { reason: `unsupported platform ${platform}` };
+    return { reason: 'unsupported-platform', platform };
   }
 }

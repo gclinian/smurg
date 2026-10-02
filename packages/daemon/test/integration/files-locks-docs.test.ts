@@ -86,12 +86,12 @@ describe('files + locks + docs (real modules)', { timeout: 120_000 }, () => {
     expect(await readFile(absApp, 'utf8')).toBe('// amy\nexport const a = 1;\n');
 
     // 2. An agent's lock on another file (the real hook entry against the real hook socket).
-    const agent = d.ctx.services.hooks.registerSession({ sessionId: 'ses_integration_files', ownerUserId: 'dev:ian', agentName: 'Claude（Ian）', root: MAIN_ROOT });
+    const agent = d.ctx.services.hooks.registerSession({ sessionId: 'ses_integration_files', ownerUserId: 'dev:ian', agentName: 'Claude (Ian)', root: MAIN_ROOT });
     const absOther = join(d.root, 'src', 'other.ts');
     expect(denyReason(await runHook(agent.env, hookInput('PreToolUse', absOther, d.root), d.root))).toBeNull();
     const agentRefusal = await write('src/other.ts', 'Bob was here\n').catch((e: unknown) => e);
     expect(isSmurgError(agentRefusal) && agentRefusal.code).toBe('locked');
-    expect((agentRefusal as Error).message).toContain('Claude（Ian）');
+    expect((agentRefusal as Error).message).toContain('Claude (Ian)');
     expect(await codeOf(write('alias/other.ts', 'Bob was here\n'))).toBe('locked');
     await runHook(agent.env, hookInput('PostToolUse', absOther, d.root), d.root);
     await waitFor(() => d.ctx.services.locks.get(OTHER) === null, { what: 'the agent lock released' });

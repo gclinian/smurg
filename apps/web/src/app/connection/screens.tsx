@@ -1,12 +1,16 @@
-// Full-page connection screens. The key-mismatch warning is SPEC R3.2's 「顯示警告」 (a hard gate): a blocking,
+// Full-page connection screens. The key-mismatch warning is SPEC R3.2's "show a warning" (a hard gate): a blocking,
 // plain-language explanation that the connection was refused and what to do. Nothing behind it is rendered, and
 // nothing on it retries the connection.
+//
+// Every full page (join, login, connecting, key mismatch, rejected, closed, not found) carries the language menu in
+// the corner of its card: these screens have no top bar, and a person who cannot read the page must be able to
+// switch. It is the LAST element of the card, so the screen's own action stays the first tab stop.
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 import type { ConnectionState } from '@smurg/protocol/client';
 import type { ConnectionView } from '../../lib/connection/status.ts';
 import { tConn } from '../../strings/connection.ts';
 import { tApp } from '../../strings/app.ts';
-import { Button, Spinner, cx } from '../../ui/index.ts';
+import { Button, LanguageMenu, Spinner, cx } from '../../ui/index.ts';
 import { IconAlertCircle, IconCloudOff, IconShieldAlert } from '../../ui/icons.tsx';
 import { LoginPanel } from '../auth/LoginPanel.tsx';
 import { useAppServices } from '../services.tsx';
@@ -37,6 +41,9 @@ export function FullPage({ children, tone = 'neutral', labelledBy, describedBy, 
         data-testid={testId}
       >
         {children}
+        <div className="app-fullpage__language">
+          <LanguageMenu size="sm" />
+        </div>
       </div>
     </div>
   );
@@ -129,7 +136,7 @@ export function LoginRequiredScreen({ returnPath, view }: { returnPath: string; 
   );
 }
 
-/** Before the first admission: what is happening, and a clear 「主人已離線」 if the host is away. */
+/** Before the first admission: what is happening, and a clear "Host offline" if the host is away. */
 export function ConnectingScreen({ view, title }: { view: ConnectionView; title: string }) {
   const titleId = useId();
   const offline = view.kind === 'host-offline' || view.kind === 'relay-unreachable';

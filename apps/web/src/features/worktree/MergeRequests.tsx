@@ -1,9 +1,9 @@
-// Merge requests (SPEC R9 「合併：worktree 擁有者提出合併請求 → 主人看到完整 diff → 確認後合併」). Shown as the
-// workbench's 「合併請求」 drawer tab and inside the host console:
-//  - worktree owners (可使用 agent, host) see their worktrees with 「請求合併」;
+// Merge requests (SPEC R9: the worktree owner asks for a merge, the host sees the full diff and merges after confirming). Shown as the
+// workbench's "Merge requests" drawer tab and inside the host console:
+//  - worktree owners (agent access, host) see their worktrees with "Request merge";
 //  - everyone sees the requests and their status; the requester reads the outcome (merged, rejected with the reason,
 //    conflict with the files);
-//  - the host opens 「審核」 (MergeReview.tsx); 可使用 agent members may open the same diff read-only (any request).
+//  - the host opens "Review" (MergeReview.tsx); members with agent access may open the same diff read-only (any request).
 import { useState } from 'react';
 import type { WorktreeInfo } from '@smurg/protocol';
 import { useStore } from '../../lib/store.ts';

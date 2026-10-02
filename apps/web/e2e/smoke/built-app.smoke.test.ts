@@ -8,7 +8,8 @@ import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { startLocalRelay, type LocalRelay } from '../../../relay/test-support/index.ts';
+import { agentDisplayName } from '@smurg/protocol';
+import { STAND_IN_TEXT, startLocalRelay, type LocalRelay } from '../../../relay/test-support/index.ts';
 import { startStack, waitUntil, type Stack } from '../../../../tests/e2e/src/harness.ts';
 import { chromeLaunchOptions, systemChrome } from '../chrome.ts';
 
@@ -33,7 +34,7 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     relay = await startLocalRelay({ tap: false, webDist });
     stack = await startStack({
       relay,
-      projectFiles: { 'README.md': '# 班級專案\n', 'src/app.ts': ORIGINAL, 'src/join.ts': JOIN_ORIGINAL },
+      projectFiles: { 'README.md': '# Class project\n', 'src/app.ts': ORIGINAL, 'src/join.ts': JOIN_ORIGINAL },
     });
     browser = await chromium.launch(chromeLaunchOptions(chrome as string));
   }, 180_000);
@@ -42,12 +43,13 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     await browser?.close().catch(() => {});
     await stack?.stop().catch(() => {});
     await relay?.stop().catch(() => {});
-    // SEC-E-04, independent of the order of the tests: no page of this file hit the Content-Security-Policy.
+    // Independent of the order of the tests: no page of this file hit the Content-Security-Policy.
     expect(errors.filter((line) => /Content Security Policy|Refused to/.test(line))).toEqual([]);
   }, 60_000);
 
   async function freshPage(): Promise<Page> {
-    const context = await browser.newContext({ locale: 'zh-TW' });
+    // English, explicitly: the app's language never depends on the machine that runs the test.
+    const context = await browser.newContext({ locale: 'en-US' });
     const page = await context.newPage();
     const own: string[] = [];
     pageErrors.set(page, own);
@@ -65,27 +67,28 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
   it('serves the production build (not the stand-in page) from the relay origin', async () => {
     const index = await (await fetch(`${relay.origin}/`)).text();
     expect(index).toMatch(/<script type="module" crossorigin src="\/assets\/index-[\w-]+\.js"><\/script>/);
-    expect(index).not.toContain('尚未建置網頁介面');
+    expect(index).not.toContain(STAND_IN_TEXT);
+    expect(index).toContain('<html lang="en">');
     // An app route is the SPA too (not_found_handling: single-page-application); relay routes stay the Worker's.
     expect(await (await fetch(`${relay.origin}/w/${stack.workspaceId}`)).text()).toBe(index);
     expect((await fetch(`${relay.origin}/healthz`)).ok).toBe(true);
   });
 
-  /** The join page's explicit 「加入」 (SEC-E-02: an invite link never joins on page load). */
+  /** The join page's explicit "Join" (an invite link never joins on page load). */
   async function confirmJoin(page: Page): Promise<void> {
     await page.getByTestId('join-confirm').waitFor({ timeout: 60_000 });
-    await page.getByRole('button', { name: '加入', exact: true }).click();
+    await page.getByRole('button', { name: 'Join', exact: true }).click();
   }
 
   /** Joins through a fresh invite with the relay's dev login; resolves on the connected workspace. */
   async function joinWorkspace(page: Page, name: string, role: 'editor' | 'agent' = 'editor'): Promise<void> {
     await page.goto(await stack.createInvite(role));
     await page.getByTestId('join-login').waitFor({ timeout: 60_000 });
-    await page.getByLabel('帳號名稱').fill(name);
-    await page.getByRole('button', { name: '以開發用帳號登入' }).click();
+    await page.getByLabel('Account name').fill(name);
+    await page.getByRole('button', { name: 'Log in with a development account' }).click();
     await confirmJoin(page);
     await page.waitForURL(`${relay.origin}/w/${stack.workspaceId}`, { timeout: 60_000 });
-    await page.getByRole('banner', { name: '工作區' }).getByText('已連線').waitFor({ timeout: 60_000 });
+    await page.getByRole('banner', { name: 'Workspace' }).locator('[data-connection-view="online"]').filter({ hasText: 'Connected' }).waitFor({ timeout: 60_000 });
   }
 
   /** Clicks through the file tree (folders, then the file) and waits for the bound editor. */
@@ -108,12 +111,12 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     await page.goto(invite);
     await page.getByTestId('join-login').waitFor({ timeout: 60_000 });
     expect(page.url()).not.toContain('#');
-    await page.getByLabel('帳號名稱').fill('amy');
-    await page.getByRole('button', { name: '以開發用帳號登入' }).click();
+    await page.getByLabel('Account name').fill('amy');
+    await page.getByRole('button', { name: 'Log in with a development account' }).click();
     await confirmJoin(page);
     await page.waitForURL(`${relay.origin}/w/${stack.workspaceId}`, { timeout: 60_000 });
-    const banner = page.getByRole('banner', { name: '工作區' });
-    await banner.getByText('已連線').waitFor({ timeout: 60_000 });
+    const banner = page.getByRole('banner', { name: 'Workspace' });
+    await banner.locator('[data-connection-view="online"]').filter({ hasText: 'Connected' }).waitFor({ timeout: 60_000 });
     // The daemon admitted Amy as an editor through the invite.
     expect(stack.daemon.ctx.members.active('dev:amy')?.role).toBe('editor');
 
@@ -136,7 +139,7 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     expect((pageErrors.get(page) ?? []).filter((line) => !/Failed to load resource/.test(line))).toEqual([]);
   });
 
-  it('兩個人同時編輯同一個檔案，雙方 1 秒內看到對方的修改，不遺失任何字元 — two browsers on the built app', async () => {
+  it("two people edit the same file at once: each sees the other's changes within 1 s and no character is lost — two browsers on the built app", async () => {
     const [cleo, dave] = [await freshPage(), await freshPage()];
     await joinWorkspace(cleo, 'cleo');
     await joinWorkspace(dave, 'dave');
@@ -169,7 +172,7 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     }, 30_000, 'both edits on disk');
   });
 
-  it('agent 正在修改的檔案，所有人的編輯器暫時唯讀並顯示提示；完成後自動恢復可編輯 — the banner in two browsers on the built app', async () => {
+  it('a file an agent is changing: every editor is read-only for now and says so; editable again when it finishes — the banner in two browsers on the built app', async () => {
     const [erin, finn] = [await freshPage(), await freshPage()];
     await joinWorkspace(erin, 'erin');
     await joinWorkspace(finn, 'finn');
@@ -181,12 +184,12 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     const locks = stack.daemon.ctx.services.locks;
     expect(locks.get(file)).toBeNull();
     // The agent asks through the lock manager, as the hook socket does for PreToolUse.
-    const granted = locks.requestAgent({ file, sessionId: 'ses_smoke_agent', ownerUserId: stack.host.userId, agentName: 'Claude（Host）', sessionRoot: { kind: 'main' } });
+    const granted = locks.requestAgent({ file, sessionId: 'ses_smoke_agent', ownerUserId: stack.host.userId, agentName: agentDisplayName('Host'), sessionRoot: { kind: 'main' } });
     expect(granted.granted).toBe(true);
     for (const page of [erin, finn]) {
       const banner = page.locator('.editor-doc__lock');
       await banner.waitFor({ timeout: 15_000 });
-      expect(await banner.textContent()).toContain('Claude（Host）');
+      expect(await banner.textContent()).toContain('Claude (Host)');
     }
     // Typing is ignored while the agent holds the file.
     const before = await shown(erin);
@@ -204,14 +207,14 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     await waitUntil(async () => (await readFile(onDisk, 'utf8')).includes('<!-- again -->'), 30_000, 'the edit after the release on disk');
   });
 
-  it('a 可使用 agent member opens a terminal from the agents panel and runs a command in it — on the host\'s computer, as the host\'s user, no sandbox (the built app, real PTY)', async () => {
+  it('a member with agent access opens a terminal from the agents panel and runs a command in it — on the host\'s computer, as the host\'s user, no sandbox (the built app, real PTY)', async () => {
     const page = await freshPage();
     await joinWorkspace(page, 'gina', 'agent');
-    await page.getByRole('button', { name: '新增 session' }).first().click();
-    const dialog = page.getByRole('dialog', { name: '新增 session' });
+    await page.getByRole('button', { name: 'New session' }).first().click();
+    const dialog = page.getByRole('dialog', { name: 'New session' });
     await dialog.waitFor({ timeout: 15_000 });
-    await dialog.getByText('一般終端機').click();
-    await dialog.getByRole('button', { name: '開啟' }).click();
+    await dialog.getByText('Plain terminal').click();
+    await dialog.getByRole('button', { name: 'Open' }).click();
     const viewport = page.locator('.agents-term__viewport[data-phase="live"]');
     await viewport.waitFor({ timeout: 60_000 });
     const sessions = stack.daemon.ctx.services.sessions.list();
@@ -223,7 +226,7 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     await page.waitForFunction((text) => (document.querySelector('.agents-term__viewport')?.textContent ?? '').includes(text), expected, { timeout: 30_000 });
   });
 
-  it('the app is served with a Content-Security-Policy, frame and sniffing protections; the build manifest is not served (SEC-E-04)', async () => {
+  it('the app is served with a Content-Security-Policy, frame and sniffing protections; the build manifest is not served', async () => {
     for (const path of ['/', `/join/${stack.workspaceId}`, `/w/${stack.workspaceId}/console`]) {
       const res = await fetch(`${relay.origin}${path}`);
       const csp = res.headers.get('content-security-policy') ?? '';

@@ -32,6 +32,7 @@ export interface Page {
   fill(selector: string, value: string): Promise<void>;
   click(selector: string): Promise<void>;
   textContent(selector: string): Promise<string | null>;
+  getAttribute(selector: string, name: string): Promise<string | null>;
   waitForURL(url: (url: URL) => boolean, options?: { timeout?: number }): Promise<void>;
   waitForSelector(selector: string, options?: { timeout?: number }): Promise<unknown>;
   on(event: 'console', listener: (message: ConsoleMessage) => void): void;
@@ -39,11 +40,13 @@ export interface Page {
 
 export interface BrowserContext {
   newPage(): Promise<Page>;
+  cookies(): Promise<{ name: string; value: string }[]>;
   close(): Promise<void>;
 }
 
 export interface Browser {
-  newContext(): Promise<BrowserContext>;
+  /** The browser's language is always given (`en-US`, `zh-TW`): it decides Accept-Language, so the page's language. */
+  newContext(options: { locale: string }): Promise<BrowserContext>;
   close(): Promise<void>;
 }
 

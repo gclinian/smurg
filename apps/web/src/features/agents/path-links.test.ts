@@ -7,6 +7,7 @@ import { MAIN_ROOT, SmurgError, worktreeRoot, type FileEntry, type FileRef } fro
 import { makeEntry } from '../../testing/fixtures.ts';
 import { createPathExistence, createPathLinkProvider, findPathCandidates, normalizeSessionPath, resolveCandidate } from './path-links.ts';
 
+
 const paths = (line: string) => findPathCandidates(line).map((c) => (c.line === undefined ? c.path : `${c.path}@${c.line}${c.column === undefined ? '' : `:${c.column}`}`));
 
 describe('path candidates in terminal output', () => {

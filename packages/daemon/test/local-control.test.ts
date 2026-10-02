@@ -121,7 +121,7 @@ describe('attachLocal', () => {
   });
 });
 
-describe('refusals decided by the hub are audited (SPEC R1 「拒絕並記錄」)', () => {
+describe('refusals decided by the hub are audited (SPEC R1: refuse and record)', () => {
   it('a forged `..` path is refused (bad_request) and audited as path.denied', async () => {
     t = await createTestDaemon();
     const local = attachHost(t);
@@ -146,7 +146,7 @@ describe('refusals decided by the hub are audited (SPEC R1 「拒絕並記錄」
 });
 
 // Review F1 (2026-10-02): the control socket admits the host's OS ACCOUNT, and every session runs as that account
-// (ARCHITECTURE §11 D-15), so a 「可使用 agent」 member can reach it from any session she types into. A local channel may
+// (ARCHITECTURE §11 D-15), so a Agent access member can reach it from any session she types into. A local channel may
 // send only what `smurg attach` sends (src/local/local-channel.ts LOCAL_CHANNEL_TYPES); the host's own relay channels
 // are not affected. Every audit entry a local channel causes says `via: 'control-socket'`.
 describe('the local channel sends only what smurg attach sends (review F1)', () => {
@@ -235,7 +235,7 @@ describe('the local channel sends only what smurg attach sends (review F1)', () 
     expect(problems).toEqual([]);
   }, 60_000);
 
-  it('the host decisions a 「可使用 agent」 member could reach through the socket are refused there and change nothing; the audit says via control-socket', async () => {
+  it('the host decisions a Agent access member could reach through the socket are refused there and change nothing; the audit says via control-socket', async () => {
     t = await createTestDaemon({ modules: [] });
     const carol = await t.connect({ userId: 'dev:carol', displayName: 'Carol', role: 'agent' });
     const invitesBefore = t.ctx.invites.list().length;
@@ -282,11 +282,11 @@ describe('the local channel sends only what smurg attach sends (review F1)', () 
 // Verification F-1 (2026-10-02): what a local channel RECEIVES unasked is limited as well, in the hub (one place, not
 // per module): only what `smurg attach` consumes (src/local/local-channel.ts LOCAL_CHANNEL_RECEIVES). Before, the
 // socket got every host fan-out, e.g. the live audit log (`admin.audit.entry`: every member's joins, refusals, role
-// changes), which ARCHITECTURE §8 refuses there and the 「可使用 agent」 role never receives.
+// changes), which ARCHITECTURE §8 refuses there and the Agent access role never receives.
 describe('what the local channel receives (verification F-1)', () => {
   const DAEMON_TYPES = MESSAGE_TYPES.filter((type) => MESSAGE_REGISTRY[type].dir !== 'c2d');
   const NOTICE = {
-    notification: { id: 'ntf_f1', at: Date.now(), from: { kind: 'agent', sessionId: 'sess_f1', ownerUserId: 'dev:carol', displayName: 'Claude（Carol）' }, text: 'src/app.ts 我改好了' },
+    notification: { id: 'ntf_f1', at: Date.now(), from: { kind: 'agent', sessionId: 'sess_f1', ownerUserId: 'dev:carol', displayName: 'Claude (Carol)' }, text: 'src/app.ts 我改好了' },
   } as const;
   const unasked = (client: LocalClient): string[] => client.received.filter((e) => e.type !== 'error' && !e.type.endsWith('.ok')).map((e) => e.type);
 
@@ -362,7 +362,7 @@ describe('what the local channel receives (verification F-1)', () => {
   });
 
   // Verification F-3: the refusal budget of the audit log (§11 D-10) is per actor AND origin, so a flood through the
-  // socket (the host's actor, any session of a 「可使用 agent」 member) does not hide the host's own refusals on the web.
+  // socket (the host's actor, any session of a Agent access member) does not hide the host's own refusals on the web.
   it('a refusal flood through the socket leaves the host\'s own refusals on the web their audit budget; its summary says via control-socket (verification F-3)', async () => {
     const probe = createProbe();
     probe.overrides.set('session.end', () => {
@@ -405,7 +405,7 @@ describe('what the local channel receives (verification F-1)', () => {
   });
 });
 
-describe('auth.disconnect (R11 登入登出)', () => {
+describe('auth.disconnect (R11 logins and logouts)', () => {
   it('is recorded when a relay client goes away', async () => {
     t = await createTestDaemon();
     const amy = await t.connect({ userId: 'dev:amy' });

@@ -4,7 +4,7 @@
 // relay, the daemon key fingerprint, keep-awake, the switch of ARCHITECTURE §11 D-13 as the daemon runs with it, and
 // where the log is.
 import { readFile } from 'node:fs/promises';
-import { runPathsFor, type CtlStatus } from '@smurg/daemon';
+import { runPathsFor } from '@smurg/daemon';
 import { parseArgs, stringOption } from '../cli/args.ts';
 import { CliError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
@@ -14,33 +14,22 @@ import { daemonAt, findRunningDaemon, hintedWorkspace, runningDaemons, ctlPathFo
 import { DEFAULT_RELAY_URL } from '../relay/default-relay.ts';
 import { hostLogPath } from '../state/paths.ts';
 import { loadWorkspaces } from '../state/workspaces.ts';
+import { m, wireError, type MessageId, type Text } from '../i18n/index.ts';
 import { say, type CommandContext } from './context.ts';
-
-export const STOP_USAGE = `用法：smurg stop [--workspace 工作區ID]
-
-  停止分享：中斷所有連線、結束所有 session。
-  不指定工作區時，停止目前資料夾所分享的工作區，或唯一一個正在分享的工作區。
-`;
-
-export const STATUS_USAGE = `用法：smurg status [--workspace 工作區ID]
-
-  顯示正在分享的工作區狀態：資料夾、relay 與連線、daemon 金鑰指紋、防止睡眠、smurg host 的設定、紀錄檔的位置。
-  各項的意思：https://smurg.ai/docs/hosting/#7-狀態與停止
-`;
 
 export const STOP_WAIT_MS = 30_000;
 
-/** Asks a running daemon to stop (the control socket's `stop`); a refusal is a zh-TW error. */
+/** Asks a running daemon to stop (the control socket's `stop`); a refusal is shown in this terminal's language. */
 export async function requestStop(daemon: RunningDaemon): Promise<void> {
   const response = await ctlRequest(daemon.ctlPath, { v: 1, op: 'stop' });
-  if (!response.ok) throw new CliError(`smurg host 拒絕停止：${response.error.message}`);
+  if (!response.ok) throw new CliError(m('stop.refused', { reason: wireError(response.error) }));
 }
 
 /** Returns when the daemon's control socket is gone (it closes last: the daemon is fully stopped), or fails after `waitMs`. */
 export async function waitUntilStopped(ctx: CommandContext, daemon: RunningDaemon, waitMs = STOP_WAIT_MS): Promise<void> {
   const deadline = ctx.io.now() + waitMs;
   while ((await daemonAt(daemon.ctlPath, 1_000)) !== null) {
-    if (ctx.io.now() > deadline) throw new CliError(`smurg host 在 ${Math.round(waitMs / 1000)} 秒內沒有停止`, { hint: '請查看執行 smurg host 的終端機。' });
+    if (ctx.io.now() > deadline) throw new CliError(m('stop.timeout', { seconds: Math.round(waitMs / 1000) }), { hint: m('stop.timeout.hint') });
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
@@ -48,36 +37,30 @@ export async function waitUntilStopped(ctx: CommandContext, daemon: RunningDaemo
 export async function runStop(argv: readonly string[], ctx: CommandContext): Promise<number> {
   const args = parseArgs(argv, { options: { workspace: { kind: 'string' }, help: { kind: 'boolean', short: 'h' } } });
   if (args.options['help']) {
-    say(ctx, STOP_USAGE);
+    say(ctx, m('usage.stop'));
     return EXIT.ok;
   }
   const daemon = await findRunningDaemon(ctx.paths, stringOption(args, 'workspace'), ctx.io.cwd);
   await requestStop(daemon);
-  say(ctx, `正在停止分享工作區 ${daemon.status.workspaceId}…`);
+  say(ctx, m('stop.stopping', { workspaceId: daemon.status.workspaceId }));
   await waitUntilStopped(ctx, daemon);
-  say(ctx, '已停止分享。');
+  say(ctx, m('host.stopped'));
   return EXIT.ok;
 }
 
-function relayState(state: string): string {
-  switch (state) {
-    case 'online':
-      return '已連線';
-    case 'connecting':
-      return '連線中';
-    case 'waiting':
-      return '等待重新連線';
-    case 'auth-rejected':
-      return 'relay 拒絕了主人的登入（請執行 smurg login 重新登入）';
-    case 'replaced':
-      return '被另一個主人連線取代';
-    case 'stopped':
-      return '已停止';
-    case 'none':
-      return '未使用';
-    default:
-      return state;
-  }
+const RELAY_STATES: Readonly<Record<string, MessageId>> = {
+  online: 'status.relay.online',
+  connecting: 'status.relay.connecting',
+  waiting: 'status.relay.waiting',
+  'auth-rejected': 'status.relay.authRejected',
+  replaced: 'status.relay.replaced',
+  stopped: 'status.relay.stopped',
+  none: 'status.relay.none',
+};
+
+/** A relay link's state in words; a state this build does not know is shown as it is. */
+function relayState(state: string): Text {
+  return Object.hasOwn(RELAY_STATES, state) ? { id: RELAY_STATES[state] as MessageId } : state;
 }
 
 async function pidOf(ctx: CommandContext, workspaceId: string): Promise<string | null> {
@@ -89,37 +72,36 @@ async function pidOf(ctx: CommandContext, workspaceId: string): Promise<string |
   }
 }
 
-/** The switch of `smurg host` (ARCHITECTURE §11 D-13) as the daemon runs with it; docs/HOSTING.md explains it. */
-function switchStates(switches: NonNullable<CtlStatus['switches']>): string[] {
-  return [`  agent 的 shell 指令通知：${switches.attributeBashEdits ? '開啟' : '已關閉（--no-bash-attribution）'}`];
-}
-
-async function describe(ctx: CommandContext, daemon: RunningDaemon): Promise<string> {
+async function describe(ctx: CommandContext, daemon: RunningDaemon): Promise<Text> {
   const status = daemon.status;
   const book = await loadWorkspaces(ctx.paths);
   const entry = book.shared.find((shared) => shared.workspaceId === status.workspaceId);
-  // The daemon's own relay (null: none); a daemon of an older build does not say it (the remembered folder's relay then).
+  // The daemon's own relay (null: none); a daemon that does not say it: the remembered folder's relay.
   const relay = status.relayUrl !== undefined ? status.relayUrl : (entry?.relay ?? null);
-  const builtIn = relay !== null && relay === DEFAULT_RELAY_URL ? '（smurg 內建的公用 relay）' : '';
   const pid = await pidOf(ctx, status.workspaceId);
-  const power = powerState(status.power);
-  return [
-    `工作區 ${status.workspaceId}${status.stopped ? '（正在停止）' : ''}`,
-    ...(entry ? [`  資料夾：${entry.folder}`] : []),
-    `  relay：${relay === null ? '' : `${relay}${builtIn}，`}互動連線 ${relayState(status.relay.interactive)}，檔案傳輸 ${relayState(status.relay.transfer)}`,
-    `  連線數：${status.connections}，線上成員：${status.onlineMembers}`,
-    ...(status.fingerprint !== undefined ? [`  daemon 金鑰指紋：${status.fingerprint}`] : []),
-    `  防止睡眠：${power}`,
-    ...(status.switches !== undefined ? switchStates(status.switches) : []),
-    `  紀錄檔：${hostLogPath(ctx.paths, status.workspaceId)}`,
-    ...(pid ? [`  daemon 行程：${pid}`] : []),
-  ].join('\n');
+  return m('status.workspace', {
+    workspaceId: status.workspaceId,
+    stopping: status.stopped,
+    ...(entry ? { folder: entry.folder } : {}),
+    ...(relay === null ? {} : { relay }),
+    builtIn: relay !== null && relay === DEFAULT_RELAY_URL,
+    interactive: relayState(status.relay.interactive),
+    transfer: relayState(status.relay.transfer),
+    connections: status.connections,
+    onlineMembers: status.onlineMembers,
+    ...(status.fingerprint !== undefined ? { fingerprint: status.fingerprint } : {}),
+    power: powerState(status.power),
+    // The switch of `smurg host` (ARCHITECTURE §11 D-13) as the daemon runs with it; docs/HOSTING.md explains it.
+    ...(status.switches !== undefined ? { bashAttribution: status.switches.attributeBashEdits } : {}),
+    logPath: hostLogPath(ctx.paths, status.workspaceId),
+    ...(pid ? { pid } : {}),
+  });
 }
 
 export async function runStatus(argv: readonly string[], ctx: CommandContext): Promise<number> {
   const args = parseArgs(argv, { options: { workspace: { kind: 'string' }, help: { kind: 'boolean', short: 'h' } } });
   if (args.options['help']) {
-    say(ctx, STATUS_USAGE);
+    say(ctx, m('usage.status'));
     return EXIT.ok;
   }
   const flag = stringOption(args, 'workspace');
@@ -132,7 +114,7 @@ export async function runStatus(argv: readonly string[], ctx: CommandContext): P
     daemons = await runningDaemons(ctx.paths);
   }
   if (daemons.length === 0) {
-    say(ctx, flag !== undefined ? `工作區 ${flag} 沒有正在執行的 smurg host。` : '目前沒有正在分享的工作區。');
+    say(ctx, flag !== undefined ? m('status.noneFor', { workspaceId: flag }) : m('status.none'));
     return EXIT.notRunning;
   }
   for (const daemon of daemons) say(ctx, await describe(ctx, daemon));

@@ -431,7 +431,7 @@
   border-bottom: var(--border-width) solid var(--color-border);
   padding: 0 var(--space-3);
   flex: none;
-  /* Many session tabs scroll inside the strip; they never widen the page (review WEB-10). */
+  /* Many session tabs scroll inside the strip; they never widen the page. */
   min-width: 0;
   max-width: 100%;
 }
@@ -573,7 +573,7 @@
   position: relative;
   min-width: 0;
   min-height: 0;
-  /* clip, not hidden: focusing Monaco or a terminal must not scroll a pane (and shift the workbench) — WEB-10. */
+  /* clip, not hidden: focusing Monaco or a terminal must not scroll a pane (and shift the workbench). */
   overflow: hidden;
   overflow: clip;
   display: flex;
@@ -584,12 +584,14 @@
   flex: none;
 }
 /* The other pane keeps its minimum (--ui-split-min-other, set by SplitPane) in a window smaller than the size the
-   fixed pane remembers: the fixed pane gives way instead of pushing the other one to nothing. */
+   fixed pane remembers: the fixed pane gives way instead of pushing the other one to nothing, but never below its
+   own minimum (--ui-split-min): the same rule as splitLimits() in split-resize.ts, which sets the inline size. This
+   is the guard for the frame before the container has been measured. */
 .ui-split--horizontal > .ui-split__pane--fixed {
-  max-width: calc(100% - 1px - var(--ui-split-min-other, 0px));
+  max-width: max(var(--ui-split-min, 0px), calc(100% - 1px - var(--ui-split-min-other, 0px)));
 }
 .ui-split--vertical > .ui-split__pane--fixed {
-  max-height: calc(100% - 1px - var(--ui-split-min-other, 0px));
+  max-height: max(var(--ui-split-min, 0px), calc(100% - 1px - var(--ui-split-min-other, 0px)));
 }
 .ui-split__pane--flex {
   flex: 1;

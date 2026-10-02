@@ -1,6 +1,7 @@
-// Turns what a drop or a file picker handed over into the list of files and folders to upload (SPEC R7 「拖曳檔案或
-// 資料夾到檔案樹，保留資料夾結構」, transfer.md §1.9). Runs on the MAIN thread: FileSystemEntry objects cannot be posted
-// to a Worker, File objects can (structured clone, transfer.md F20), so the Worker only ever receives Files.
+// Turns what a drop or a file picker handed over into the list of files and folders to upload (SPEC R7: drag files
+// or folders onto the file tree, the folder structure is kept; transfer.md §1.9). Runs on the MAIN thread:
+// FileSystemEntry objects cannot be posted to a Worker, File objects can (structured clone, transfer.md F20), so the
+// Worker only ever receives Files.
 //
 // Rules (all from the research, verified in Chrome / WebKit / Firefox):
 // - entries are walked with createReader().readEntries() CALLED AGAIN UNTIL IT RETURNS AN EMPTY BATCH (Chromium

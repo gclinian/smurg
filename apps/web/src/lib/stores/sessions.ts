@@ -7,7 +7,10 @@
 // exec.output and exec.resize are delivered in stream order (resize applies between the right bytes; render at the
 // PTY size, pty-packaging.md gotcha 4). After a full resync (workspace `generation` changes) the daemon forgot the
 // attachment: attach again, passing the last offset you rendered as `haveOffset`.
-import type { PayloadInputOf, PayloadOf, ResultOf, SessionInfo } from '@smurg/protocol';
+import { defaultSessionTitle, type MessageRef, type PayloadInputOf, type PayloadOf, type ResultOf, type SessionInfo } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
+import { tStores } from '../../strings/stores.ts';
+import { renderWireText } from '../errors.ts';
 import { createStore, type ReadableStore } from '../store.ts';
 import { loadSnapshot, mapFrom, mapWith, readyState, type AreaLifecycle, type Loadable, type StoreContext } from './base.ts';
 
@@ -27,9 +30,9 @@ export interface TerminalStreamListener {
 
 export interface SessionsStore extends ReadableStore<SessionsState> {
   reload(): Promise<void>;
-  /** Host and 可使用 agent (session.create); every session runs as the host (protocol v2). */
+  /** Host and members with agent access (session.create); every session runs as the host. */
   create(input: PayloadInputOf<'session.create'>): Promise<SessionInfo>;
-  /** The member who opened it. `keepWorktree` answers the R9 question 「保留 worktree？」. */
+  /** The member who opened it. `keepWorktree` answers the R9 question "Keep the worktree?". */
   end(sessionId: string, options?: { keepWorktree?: boolean }): Promise<void>;
   /** Host only: end anyone's session (admin.session.terminate). */
   terminate(sessionId: string): Promise<void>;
@@ -37,7 +40,7 @@ export interface SessionsStore extends ReadableStore<SessionsState> {
   loginStatus(sessionId: string): Promise<ResultOf<'session.loginStatus'>['login']>;
   attach(input: PayloadInputOf<'session.attach'>): Promise<ResultOf<'session.attach'>>;
   detach(sessionId: string): void;
-  /** session.drive (host and 可使用 agent, any session): keystrokes / paste. */
+  /** session.drive (host and members with agent access, any session): keystrokes / paste. */
   input(sessionId: string, data: Uint8Array): void;
   /** session.drive; the web sends it from the panel of the member who opened the session only (terminal-fit.ts). */
   resize(sessionId: string, cols: number, rows: number): void;
@@ -166,13 +169,36 @@ export function createSessionsArea(): { store: SessionsStore; lifecycle: AreaLif
   return { store, lifecycle };
 }
 
+/** What the title helpers read of a session (`title` is present only when the member who opened it typed one). */
+export interface TitledSession {
+  readonly kind: SessionInfo['kind'];
+  readonly ownerName: string;
+  readonly title?: string | undefined;
+}
+
+/** The default title as a message of the wire catalogue: one wording for the web app and the CLI. */
+function defaultTitleRef(session: TitledSession): MessageRef {
+  return session.kind === 'agent' ? msg('session.title.agent', { owner: session.ownerName }) : msg('session.title.terminal', { owner: session.ownerName });
+}
+
+function typedTitle(session: TitledSession): string | undefined {
+  const title = session.title?.trim();
+  return title === undefined || title === '' ? undefined : title;
+}
+
 /**
- * A session's name without a trailing 「（owner）」 or 「（owner 開的）」, for wording that names the person who opened it
- * itself: the daemon's default titles already carry it (「終端機（王小明）」), and 「王小明 的 終端機（王小明）」 /
- * 「終端機（王小明）（王小明 開的）」 read as machine-made (reviews WEB-06, WEB-13).
+ * The name of a session wherever it stands alone (tabs, lists, menus): the title its opener typed, else a default
+ * built here from the kind and the opener's name, in the viewer's language ("Terminal (Ian)"). The host never sends
+ * a default title: one stored spelling could only be in one language.
  */
-export function plainSessionTitle(session: { readonly title: string; readonly ownerName: string }): string {
-  const suffix = [`（${session.ownerName}）`, `（${session.ownerName} 開的）`].find((candidate) => session.title.endsWith(candidate));
-  const title = suffix === undefined ? session.title : session.title.slice(0, -suffix.length);
-  return title.trim() === '' ? session.title : title;
+export function sessionTitle(session: TitledSession): string {
+  return typedTitle(session) ?? renderWireText(defaultTitleRef(session), defaultSessionTitle(session.kind, session.ownerName));
+}
+
+/**
+ * The name of a session for wording that already names the person who opened it ("Ian's worktree (Terminal)"): the
+ * typed title, else the bare kind ("Claude", "Terminal").
+ */
+export function plainSessionTitle(session: TitledSession): string {
+  return typedTitle(session) ?? tStores(`session.kind.${session.kind}`);
 }

@@ -178,7 +178,7 @@ export class ActivityLogFile {
       this.handle = handle;
       this.size = (await handle.stat()).size;
       // A crash during a write can leave a last line without its newline: the next event would be glued onto it and
-      // lost to every reader (review REL-02). Terminate it first.
+      // lost to every reader. Terminate it first.
       if (await terminateTornLine(handle, this.size)) {
         this.size += 1;
         this.log.warn('activity log ended in a torn line (crash during a write?); continuing on a new line', {});

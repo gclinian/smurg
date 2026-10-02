@@ -3,7 +3,7 @@
 Scope: SPEC 7.1 (relay duties, separate transfer DO), R1 (host offline within 10 s), R2 (GitHub/Google login),
 R3 (relay sees only workspace id, connection id, sizes, timing; E2E byte-recording test), R7 (32 MiB message limit, 4-8 MiB chunks).
 
-Spike: `/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/relay`
+Spike: `<spike dir>/relay`
 (everything below ran on this machine: macOS arm64, Node 25.4.0 and 22.22.1, no Cloudflare account).
 Evidence log of the final run: `results.log` in the spike dir (`node test/run-all.mjs`, all 10 checks pass, about 90 s).
 **Independently verified**: see the **Verification** section at the end.
@@ -543,7 +543,7 @@ ws.on("message", (d, bin) => { if (bin) { acked++; pump(); } });
 ## 7. How to re-run the spike
 
 ```sh
-cd /private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/relay
+cd <spike dir>/relay
 npm ci                                   # wrangler 4.142.0, jose 6.2.12, ws 8.22.0, vitest 5.0.2, typescript 7.0.2
 node test/run-all.mjs                    # all checks (about 90 s): smoke, pairing, wrangler-dev, hibernation,
                                          # heartbeat (SIGSTOP), tap, auth (mock IdP), gating, limits, isolation
@@ -560,7 +560,7 @@ node scripts/gen-key.mjs > key.json      # new Ed25519 signing JWK (prod: wrangl
 
 - Each test starts its own workerd on a random port and closes it. SIGSTOP/SIGCONT children are always killed in `finally`. After every run, `pgrep workerd` showed nothing left.
 - The spike's `.dev.vars` holds a throwaway locally generated key, not a real credential.
-- Side effect on this machine: the first two wrangler invocations (`wrangler --version` at 22:35 and `wrangler types` at 22:43, before `XDG_CONFIG_HOME` was set) created `~/Library/Preferences/.wrangler/`, containing `metrics.json`, `logs/` and `cloudflare-skills-repo-cache.json`. Later runs used `<spike>/.xdg`. The directory can be deleted if unwanted.
+- Side effect: a wrangler invocation made before `XDG_CONFIG_HOME` is set creates `~/Library/Preferences/.wrangler/` (`metrics.json`, `logs/`, a skills cache). Later runs used `<spike>/.xdg`.
 
 ---
 
@@ -569,7 +569,7 @@ node scripts/gen-key.mjs > key.json      # new Ed25519 signing JWK (prod: wrangl
 Independent verification, 2026-09-27.
 
 The spike was re-run from a fresh `npm ci --prefer-offline` of the same lockfile in a sibling directory, with a newly generated throwaway `.dev.vars`:
-`/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/relay-verify`
+`<spike dir>/relay-verify`
 
 The original spike directory was left untouched. Verifier-only changes in `relay-verify` are all test instrumentation, not proposed product code:
 - `SPIKE_SKIP_CLOSE_REPLY` toggle in `src/room.ts`;
@@ -660,7 +660,7 @@ Real browser (headless Chromium 145 via gstack browse, against `createTestHarnes
 ### How to re-run the verification
 
 ```sh
-cd /private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/relay-verify
+cd <spike dir>/relay-verify
 export XDG_CONFIG_HOME=$PWD/.xdg WRANGLER_SEND_METRICS=false
 node test/run-all.mjs                         # full original suite
 node test/verify-extra.mjs                    # strict V6, ping not delivered, hostname-gate control (PRE_EVICT_SLEEP=0 reproduces the evict failure)

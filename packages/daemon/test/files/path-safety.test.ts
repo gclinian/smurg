@@ -1,4 +1,5 @@
-// SPEC R1 acceptance 「對分享資料夾以外路徑的請求（包括 symlink、`..`）一律被拒絕並記錄」, through the real file.*,
+// SPEC R1 acceptance (every request for a path outside the shared folder, symlinks and `..` included, is refused and
+// recorded), through the real file.*,
 // file.upload.* and file.download.* handlers (ARCHITECTURE §7.4), plus the path safety table of transfer.md §1.8.
 // The "secret" outside the share is a fake file this test creates in its own temp directory.
 import { lstat, mkdir, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
@@ -52,8 +53,8 @@ async function outsideUnchanged(): Promise<void> {
 const denialsOf = (entries: AuditEntry[], userId: string): AuditEntry[] =>
   entries.filter((e) => e.action === 'path.denied' && e.outcome === 'denied' && e.actor.kind === 'user' && e.actor.userId === userId);
 
-describe('R1.2 對分享資料夾以外路徑的請求（包括 symlink、`..`）一律被拒絕並記錄', () => {
-  it('對分享資料夾以外路徑的請求（包括 symlink、`..`）一律被拒絕並記錄 — symlinks out of the share, through every file.* handler, for a guest and for the host', async () => {
+describe('R1.2 every request for a path outside the shared folder (symlinks and `..` included) is refused and recorded', () => {
+  it('paths outside the shared folder are refused and recorded — symlinks out of the share, through every file.* handler, for a guest and for the host', async () => {
     for (const client of [amy, host]) {
       const before = denialsOf(await auditEntries(ft.t.ctx), client.userId).length;
       const attempts: [string, () => Promise<unknown>][] = [
@@ -87,7 +88,7 @@ describe('R1.2 對分享資料夾以外路徑的請求（包括 symlink、`..`�
     await expect(lstat(join(ft.t.root, 'stolen.txt'))).rejects.toThrow();
   });
 
-  it('對分享資料夾以外路徑的請求（包括 symlink、`..`）一律被拒絕並記錄 — uploads and downloads (transfer channel)', async () => {
+  it('paths outside the shared folder are refused and recorded — uploads and downloads (transfer channel)', async () => {
     const before = denialsOf(await auditEntries(ft.t.ctx), amy.userId).length;
     const attempts: [string, () => Promise<unknown>][] = [
       ['upload into link', () => amyXfer.request('file.upload.begin', { root: MAIN_ROOT, path: 'link-out/planted.bin', size: 10, chunkSize: MiB, lastModified: 1 })],
@@ -103,7 +104,7 @@ describe('R1.2 對分享資料夾以外路徑的請求（包括 symlink、`..`�
     await outsideUnchanged();
   });
 
-  it('對分享資料夾以外路徑的請求（包括 symlink、`..`）一律被拒絕並記錄 — forged `..`, absolute and backslash paths that get past the decoder reach the handlers and are refused there too', async () => {
+  it('paths outside the shared folder are refused and recorded — forged `..`, absolute and backslash paths that get past the decoder reach the handlers and are refused there too', async () => {
     const forged: [string, unknown, TransferConnection?][] = [
       ['file.read', { file: { root: MAIN_ROOT, path: '../outside/secret.txt' } }],
       ['file.read', { file: { root: MAIN_ROOT, path: 'src/../../outside/secret.txt' } }],

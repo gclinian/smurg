@@ -1,4 +1,4 @@
-// Daemon side of the coordination MCP tools (SPEC R8 「協調用 MCP server」; ARCHITECTURE §7.7 op 'mcp'). The stdio
+// Daemon side of the coordination MCP tools (SPEC R8, the coordination MCP server; ARCHITECTURE §7.7 op 'mcp'). The stdio
 // server Claude Code runs (../mcp/coord-server.ts) only forwards calls here with the session's token; the daemon
 // answers from the LockManager, the SessionManager and the member directory, and delivers notify_member as
 // `activity.notify` to that member only.
@@ -8,7 +8,7 @@
 // hidden .smurg stays hidden). Everything a session asks is bounded: waits end at the session's end, the daemon's
 // stop or the caller's disconnect; notifications are rate-limited per session.
 import { isAbsolute, resolve as resolvePath } from 'node:path';
-import { SmurgError, rootRefKey, rootRefEquals, type FileRef, type LockInfo } from '@smurg/protocol';
+import { SmurgError, defaultSessionTitle, rootRefKey, rootRefEquals, type FileRef, type LockInfo } from '@smurg/protocol';
 import { z } from 'zod';
 import type { DaemonContext } from '../core/context.ts';
 import { isPathDeniedError } from '../core/errors.ts';
@@ -233,7 +233,8 @@ function listSessions(tc: McpToolContext, args: unknown): JsonObject {
       kind: session.kind,
       owner: session.ownerName,
       ownerUserId: session.ownerUserId,
-      title: session.title,
+      // A session nobody named gets the English default: what an agent reads is fixed English.
+      title: session.title ?? defaultSessionTitle(session.kind, session.ownerName),
       status: session.status,
       root: session.root.kind === 'main' ? 'main' : `worktree:${session.root.worktreeId}`,
       isYou: session.id === sessionId,

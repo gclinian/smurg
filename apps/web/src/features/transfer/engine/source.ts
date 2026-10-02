@@ -1,7 +1,7 @@
 // What an upload reads from: a File (from a drop, a picker or a stored handle) or anything with the same slicing
 // contract (the synthetic 10 GB source of the measurement page, instrumented fakes in tests).
 //
-// The one rule (SPEC R7 「不能把整個檔案載入記憶體」, transfer.md gotcha 4): a source is only ever read with
+// The one rule (SPEC R7: never load a whole file into memory; transfer.md gotcha 4): a source is only ever read with
 // `slice(a, b).arrayBuffer()`, one chunk at a time. Never `arrayBuffer()` / `text()` / `stream()` on the whole file.
 
 export interface BlobSlice {

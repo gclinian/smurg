@@ -1,5 +1,5 @@
 #!/bin/sh
-# smurg installer (SPEC R1 「一行指令安裝」, §6 發佈). One line for a host:
+# smurg installer (SPEC R1: one command installs it; SPEC §6). One line for a host:
 #
 #   curl -fsSL https://smurg.ai/install.sh | sh
 #
@@ -26,22 +26,98 @@
 # nothing outside <prefix>/bin and a temporary directory is written. The version's THIRD-PARTY-NOTICES.txt (the
 # licenses of the third-party software in the executable) stays at the release URL; the summary says where.
 #
+# Language: English, or Traditional Chinese (zh-TW) by the rule the smurg command uses (pick_lang below): SMURG_LANG
+# (en / zh-TW), else the first non-empty of LC_ALL, LC_MESSAGES, LANG (zh-TW only for a Traditional Chinese locale whose
+# codeset is UTF-8 or absent), else, on macOS with none of the three set, the system's preferred languages. Every
+# message has both texts side by side: `msg 'English %s' 'zh-TW %s' args...` (printf formats, %s only). The English
+# output is ASCII only.
+#
 # Written for POSIX sh (dash, bash and zsh in sh mode, macOS /bin/sh): no bashisms. Everything runs from `main` on the
-# last line, so a download cut short by the network (`curl … | sh`) runs nothing.
+# last line, so a download cut short by the network (`curl ... | sh`) runs nothing.
 set -eu
 
 SMURG_RELEASE_BASE_URL=''
 
-say() { printf '%s\n' "$*"; }
-fail() {
-  printf 'smurg 安裝：%s\n' "$1" >&2
-  exit "${2:-1}"
+# ---- language
+lower() { printf '%s' "$1" | LC_ALL=C tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ_' 'abcdefghijklmnopqrstuvwxyz-'; }
+
+# tag_locale TAG: prints zh-TW or en for a language tag or locale name (zh_TW.UTF-8, zh-Hant-HK, en_GB), nothing for
+# any other. Traditional Chinese: the first subtag is zh AND (hant is a subtag, OR hans is not and one of tw/hk/mo is).
+tag_locale() {
+  tag="$(lower "$1")"
+  tag="${tag%%@*}"
+  tag="${tag%%.*}"
+  case "$tag" in
+    en | en-*) printf 'en' ;;
+    zh-*)
+      case "-$tag-" in
+        *-hant-*) printf 'zh-TW' ;;
+        *-hans-*) ;;
+        *-tw-* | *-hk-* | *-mo-*) printf 'zh-TW' ;;
+      esac
+      ;;
+  esac
+}
+
+# Sets $lang (en or zh-TW). The same rule as the smurg command (packages/protocol/src/locale; its test table is run
+# against this function too).
+pick_lang() {
+  lang=en
+  case "$(lower "${SMURG_LANG:-}")" in
+    en) return 0 ;;
+    zh-tw) lang=zh-TW; return 0 ;;
+  esac
+  # The first NON-EMPTY of the three decides alone (POSIX precedence): LC_ALL=C with LANG=zh_TW.UTF-8 is English.
+  locale="${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}"
+  if [ -n "$locale" ]; then
+    [ "$(tag_locale "$locale")" = zh-TW ] || return 0
+    case "$locale" in
+      *.*)
+        # The zh-TW text is UTF-8: a Big5 terminal would show garbage, so it gets English.
+        codeset="${locale#*.}"
+        case "$(lower "${codeset%%@*}")" in
+          utf-8 | utf8) lang=zh-TW ;;
+        esac
+        ;;
+      *) lang=zh-TW ;;
+    esac
+    return 0
+  fi
+  # No locale at all (a macOS terminal started without LANG): the system's preferred languages, the first one that
+  # is English or Traditional Chinese. Any failure leaves English.
+  [ "$(uname -s 2>/dev/null || true)" = Darwin ] || return 0
+  command -v defaults >/dev/null 2>&1 || return 0
+  for tag in $(defaults read -g AppleLanguages 2>/dev/null | LC_ALL=C tr -d '(),"' || true); do
+    case "$(tag_locale "$tag")" in
+      en) return 0 ;;
+      zh-TW) lang=zh-TW; return 0 ;;
+    esac
+  done
+  return 0
+}
+
+# msg EN ZH [ARGS...]: one line in the installer's language. Both texts are printf formats (%s only).
+msg() {
+  if [ "$lang" = zh-TW ]; then fmt="$2"; else fmt="$1"; fi
+  shift 2
+  # shellcheck disable=SC2059 # the format is one of this script's own texts
+  printf "$fmt\n" "$@"
+}
+
+# failf EN ZH [ARGS...]: the message on stderr, then exit 1 (or $FAIL_CODE: `FAIL_CODE=2 failf ...` for wrong usage).
+failf() {
+  if [ "$lang" = zh-TW ]; then fmt="$2"; else fmt="$1"; fi
+  shift 2
+  # shellcheck disable=SC2059 # the format is one of this script's own texts
+  msg 'smurg install: %s' 'smurg 安裝：%s' "$(printf "$fmt" "$@")" >&2
+  exit "${FAIL_CODE:-1}"
 }
 
 usage() {
-  say '用法：sh install.sh [--base-url 網址] [--prefix 資料夾]'
-  say '  --base-url  發佈檔案所在的網址（含 SHA256SUMS）；也可用環境變數 SMURG_INSTALL_BASE_URL'
-  say '  --prefix    安裝到 <資料夾>/bin/smurg（預設 ~/.local）'
+  msg 'Usage: sh install.sh [--base-url URL] [--prefix DIR]' '用法：sh install.sh [--base-url 網址] [--prefix 資料夾]'
+  msg '  --base-url  where the release files are (with SHA256SUMS); or set SMURG_INSTALL_BASE_URL' '  --base-url  發佈檔案所在的網址（含 SHA256SUMS）；也可用環境變數 SMURG_INSTALL_BASE_URL'
+  msg '  --prefix    install to <DIR>/bin/smurg (default ~/.local)' '  --prefix    安裝到 <資料夾>/bin/smurg（預設 ~/.local）'
+  msg '  Language: English or Traditional Chinese, from your locale; SMURG_LANG=en or SMURG_LANG=zh-TW chooses.' '  語言：依照你的系統語言顯示英文或繁體中文；可用 SMURG_LANG=en 或 SMURG_LANG=zh-TW 指定。'
 }
 
 parse_args() {
@@ -49,26 +125,36 @@ parse_args() {
   prefix="${HOME:-}/.local"
   while [ $# -gt 0 ]; do
     case "$1" in
-      --base-url) [ $# -ge 2 ] || fail '--base-url 需要一個網址' 2; base_url="$2"; shift 2 ;;
+      --base-url)
+        [ $# -ge 2 ] || FAIL_CODE=2 failf '--base-url needs a URL' '--base-url 需要一個網址'
+        base_url="$2"
+        shift 2
+        ;;
       --base-url=*) base_url="${1#--base-url=}"; shift ;;
-      --prefix) [ $# -ge 2 ] || fail '--prefix 需要一個資料夾' 2; prefix="$2"; shift 2 ;;
+      --prefix)
+        [ $# -ge 2 ] || FAIL_CODE=2 failf '--prefix needs a folder' '--prefix 需要一個資料夾'
+        prefix="$2"
+        shift 2
+        ;;
       --prefix=*) prefix="${1#--prefix=}"; shift ;;
       -h | --help) usage; exit 0 ;;
-      *) fail "不認得的參數 $1（--help 查看用法）" 2 ;;
+      *) FAIL_CODE=2 failf 'unknown argument %s (--help shows the usage)' '不認得的參數 %s（--help 查看用法）' "$1" ;;
     esac
   done
 
-  [ -n "$base_url" ] || fail '沒有指定下載位置（這份 install.sh 還沒有填入發佈網址）。請改用 curl -fsSL https://smurg.ai/install.sh | sh，或用 --base-url <網址>（或 SMURG_INSTALL_BASE_URL）指定發佈檔案所在的網址。' 2
+  if [ -z "$base_url" ]; then
+    FAIL_CODE=2 failf 'no download location (this install.sh has no release URL filled in). Use curl -fsSL https://smurg.ai/install.sh | sh, or give the URL of the release files with --base-url <URL> (or SMURG_INSTALL_BASE_URL).' '沒有指定下載位置（這份 install.sh 還沒有填入發佈網址）。請改用 curl -fsSL https://smurg.ai/install.sh | sh，或用 --base-url <網址>（或 SMURG_INSTALL_BASE_URL）指定發佈檔案所在的網址。'
+  fi
   base_url="${base_url%/}"
   case "$base_url" in
     https://*) scheme=https ;;
     http://127.0.0.1:* | http://127.0.0.1/* | http://localhost:* | http://localhost/*) scheme=http ;;
-    *) fail "下載位置必須是 https 網址：$base_url" 2 ;;
+    *) FAIL_CODE=2 failf 'the download location must be an https URL: %s' '下載位置必須是 https 網址：%s' "$base_url" ;;
   esac
   case "$base_url" in
-    *[!A-Za-z0-9:/._~%-]*) fail "下載位置含有不允許的字元：$base_url" 2 ;;
+    *[!A-Za-z0-9:/._~%-]*) FAIL_CODE=2 failf 'the download location has characters that are not allowed: %s' '下載位置含有不允許的字元：%s' "$base_url" ;;
   esac
-  [ -n "$prefix" ] || fail '找不到家目錄，請用 --prefix 指定安裝位置' 2
+  [ -n "$prefix" ] || FAIL_CODE=2 failf 'the home folder was not found; give the install location with --prefix' '找不到家目錄，請用 --prefix 指定安裝位置'
 }
 
 # ---- which executable
@@ -78,19 +164,19 @@ detect_target() {
   case "$os" in
     Darwin) os=darwin ;;
     Linux) os=linux ;;
-    *) fail "不支援這個作業系統：$os（smurg 支援 macOS 和 Linux）" ;;
+    *) failf 'this operating system is not supported: %s (smurg supports macOS and Linux)' '不支援這個作業系統：%s（smurg 支援 macOS 和 Linux）' "$os" ;;
   esac
   case "$arch" in
     arm64 | aarch64) arch=arm64 ;;
     x86_64 | amd64) arch=x64 ;;
-    *) fail "不支援這個處理器架構：$arch（smurg 提供 arm64 與 x64 版本）" ;;
+    *) failf 'this processor architecture is not supported: %s (smurg has arm64 and x64 builds)' '不支援這個處理器架構：%s（smurg 提供 arm64 與 x64 版本）' "$arch" ;;
   esac
   # An x86_64 shell under Rosetta 2 on Apple silicon: the native build is the right one.
   if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || true)" = 1 ]; then
     arch=arm64
   fi
   if [ "$os" = linux ] && { ldd --version 2>&1 | grep -qi musl; }; then
-    fail '這台電腦使用 musl（例如 Alpine）；smurg 目前只提供 glibc 版本。'
+    failf 'this computer uses musl (Alpine, for example); smurg has only glibc builds for now.' '這台電腦使用 musl（例如 Alpine）；smurg 目前只提供 glibc 版本。'
   fi
   name="smurg-$os-$arch"
 }
@@ -102,14 +188,14 @@ pick_tools() {
   elif command -v wget >/dev/null 2>&1; then
     downloader=wget
   else
-    fail '需要 curl 或 wget 才能下載'
+    failf 'curl or wget is needed to download' '需要 curl 或 wget 才能下載'
   fi
   if command -v sha256sum >/dev/null 2>&1; then
     sha_tool=sha256sum
   elif command -v shasum >/dev/null 2>&1; then
     sha_tool=shasum
   else
-    fail '找不到 sha256sum 或 shasum，無法驗證下載的檔案，因此不安裝'
+    failf 'sha256sum or shasum was not found, so the download cannot be verified; nothing was installed' '找不到 sha256sum 或 shasum，無法驗證下載的檔案，因此不安裝'
   fi
 }
 
@@ -131,13 +217,13 @@ sha256_of() {
 }
 
 download_and_verify() {
-  say "smurg 安裝：下載 $name（$base_url）…"
-  fetch "$base_url/SHA256SUMS" "$tmp/SHA256SUMS" || fail "無法下載 $base_url/SHA256SUMS（發佈網址不對，或這個版本沒有 SHA256SUMS）"
+  msg 'smurg install: downloading %s (%s)...' 'smurg 安裝：下載 %s（%s）…' "$name" "$base_url"
+  fetch "$base_url/SHA256SUMS" "$tmp/SHA256SUMS" || failf 'cannot download %s/SHA256SUMS (the release URL is wrong, or this version has no SHA256SUMS)' '無法下載 %s/SHA256SUMS（發佈網址不對，或這個版本沒有 SHA256SUMS）' "$base_url"
   expected="$(awk -v n="$name" '($2 == n || $2 == "*" n) && $1 ~ /^[0-9a-f]+$/ && length($1) == 64 { print $1; exit }' "$tmp/SHA256SUMS")"
-  [ -n "$expected" ] || fail "SHA256SUMS 裡沒有 $name（這個版本沒有提供這個平台的執行檔），不安裝"
-  fetch "$base_url/$name" "$tmp/$name" progress || fail "無法下載 $base_url/$name（這個平台的執行檔不在發佈裡，或網路中斷），不安裝"
+  [ -n "$expected" ] || failf 'SHA256SUMS does not list %s (this version has no executable for this platform); nothing was installed' 'SHA256SUMS 裡沒有 %s（這個版本沒有提供這個平台的執行檔），不安裝' "$name"
+  fetch "$base_url/$name" "$tmp/$name" progress || failf 'cannot download %s/%s (the release has no executable for this platform, or the network dropped); nothing was installed' '無法下載 %s/%s（這個平台的執行檔不在發佈裡，或網路中斷），不安裝' "$base_url" "$name"
   actual="$(sha256_of "$tmp/$name")"
-  [ "$actual" = "$expected" ] || fail "$name 的 sha256 不符（預期 $expected，實際 $actual）：檔案可能被竄改或下載不完整，不安裝"
+  [ "$actual" = "$expected" ] || failf 'the sha256 of %s does not match (expected %s, got %s): the file may have been tampered with, or the download is incomplete; nothing was installed' '%s 的 sha256 不符（預期 %s，實際 %s）：檔案可能被竄改或下載不完整，不安裝' "$name" "$expected" "$actual"
 }
 
 # macOS, after the checksum matched: an ad-hoc signed executable that carries com.apple.quarantine would be stopped by
@@ -146,7 +232,7 @@ clear_quarantine() {
   [ "$os" = darwin ] || return 0
   command -v xattr >/dev/null 2>&1 || return 0
   if xattr -p com.apple.quarantine "$1" >/dev/null 2>&1; then
-    xattr -d com.apple.quarantine "$1" || fail "無法移除 $1 的 com.apple.quarantine 屬性，不安裝"
+    xattr -d com.apple.quarantine "$1" || failf 'cannot remove the com.apple.quarantine attribute of %s; nothing was installed' '無法移除 %s 的 com.apple.quarantine 屬性，不安裝' "$1"
     quarantine_removed=1
   fi
 }
@@ -155,15 +241,15 @@ install_binary() {
   chmod 755 "$tmp/$name"
   version="$("$tmp/$name" --version 2>"$tmp/version.err")" || {
     sed -n '1,5s/^/  /p' "$tmp/version.err" >&2
-    fail "下載的 $name 無法在這台電腦上執行（見上面的訊息），不安裝"
+    failf 'the downloaded %s does not run on this computer (see the message above); nothing was installed' '下載的 %s 無法在這台電腦上執行（見上面的訊息），不安裝' "$name"
   }
   bindir="$prefix/bin"
-  [ ! -d "$bindir/smurg" ] || fail "$bindir/smurg 是一個資料夾，不安裝"
-  mkdir -p "$bindir" || fail "無法建立 $bindir"
-  cp "$tmp/$name" "$bindir/.smurg.new.$$" || fail "無法寫入 $bindir"
+  [ ! -d "$bindir/smurg" ] || failf '%s/smurg is a folder; nothing was installed' '%s/smurg 是一個資料夾，不安裝' "$bindir"
+  mkdir -p "$bindir" || failf 'cannot create %s' '無法建立 %s' "$bindir"
+  cp "$tmp/$name" "$bindir/.smurg.new.$$" || failf 'cannot write to %s' '無法寫入 %s' "$bindir"
   chmod 755 "$bindir/.smurg.new.$$"
-  mv -f "$bindir/.smurg.new.$$" "$bindir/smurg" || fail "無法寫入 $bindir/smurg"
-  say "smurg 安裝：已安裝 $bindir/smurg（$version）"
+  mv -f "$bindir/.smurg.new.$$" "$bindir/smurg" || failf 'cannot write %s/smurg' '無法寫入 %s/smurg' "$bindir"
+  msg 'smurg install: installed %s/smurg (%s)' 'smurg 安裝：已安裝 %s/smurg（%s）' "$bindir" "$version"
 }
 
 # ---- what happened, and how to run it
@@ -177,26 +263,27 @@ path_hint() {
     */bash) if [ "$os" = darwin ]; then profile_file='~/.bash_profile'; else profile_file='~/.bashrc'; fi ;;
     *) profile_file='~/.profile' ;;
   esac
-  say "  $bindir 不在 PATH 裡。請把這一行加到 $profile_file，再重新開啟終端機："
-  say "    export PATH=\"$bindir:\$PATH\""
+  msg '  %s is not on your PATH. Add this line to %s, then open a new terminal:' '  %s 不在 PATH 裡。請把這一行加到 %s，再重新開啟終端機：' "$bindir" "$profile_file"
+  printf '    export PATH="%s:$PATH"\n' "$bindir"
 }
 
 summary() {
-  say ''
-  say 'smurg 安裝完成：'
-  say "  執行檔：$bindir/smurg（$version）"
-  [ "$quarantine_removed" = 0 ] || say '  已移除下載檔案的 com.apple.quarantine 屬性（sha256 驗證相符之後）'
-  say '  smurg 的授權條款：https://smurg.ai/license/'
-  say "  第三方元件的授權條款：$base_url/THIRD-PARTY-NOTICES.txt"
+  printf '\n'
+  msg 'smurg is installed:' 'smurg 安裝完成：'
+  msg '  Executable: %s/smurg (%s)' '  執行檔：%s/smurg（%s）' "$bindir" "$version"
+  [ "$quarantine_removed" = 0 ] || msg '  Removed the com.apple.quarantine attribute of the downloaded file (after its sha256 matched)' '  已移除下載檔案的 com.apple.quarantine 屬性（sha256 驗證相符之後）'
+  msg '  License of smurg (MIT, open source): https://smurg.ai/license/' '  smurg 的授權條款（MIT，開放原始碼）：https://smurg.ai/zh-TW/license/'
+  msg '  Licenses of the third-party components: %s/THIRD-PARTY-NOTICES.txt' '  第三方元件的授權條款：%s/THIRD-PARTY-NOTICES.txt' "$base_url"
   path_hint
-  say ''
-  say '下一步：'
-  say '  smurg login                   # 用瀏覽器以 Google 帳號登入 smurg 內建的公用 relay（維護者提供的其他 relay：加上 --relay <網址>）'
-  say '  smurg host <專案資料夾>       # 分享資料夾並印出兩個連結：你自己的、給組員的'
-  say '之後要更新：smurg update；要移除：smurg uninstall'
+  printf '\n'
+  msg 'Next steps:' '下一步：'
+  msg '  smurg login                   # log in with your Google account, in a browser, to the built-in public relay (another relay: add --relay <URL>)' '  smurg login                   # 用瀏覽器以 Google 帳號登入 smurg 內建的公用 relay（其他 relay：加上 --relay <網址>）'
+  msg '  smurg host <project folder>   # share the folder and print two links: yours, and one for your teammates' '  smurg host <專案資料夾>       # 分享資料夾並印出兩個連結：你自己的、給組員的'
+  msg 'To update later: smurg update. To remove it: smurg uninstall. Guide: https://smurg.ai/docs/hosting/' '之後要更新：smurg update；要移除：smurg uninstall。說明：https://smurg.ai/zh-TW/docs/hosting/'
 }
 
 main() {
+  pick_lang
   parse_args "$@"
   detect_target
   pick_tools

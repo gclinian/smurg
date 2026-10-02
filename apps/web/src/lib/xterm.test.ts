@@ -66,7 +66,7 @@ describe('xterm viewer: links from terminal output', () => {
 });
 
 describe('xterm viewer: theme', () => {
-  it("paints xterm's scroll viewport with the theme too, not xterm's black (WEB-07), and follows a theme switch", () => {
+  it("paints xterm's scroll viewport with the theme too, not xterm's black, and follows a theme switch", () => {
     const host = document.createElement('div');
     document.body.appendChild(host);
     // jsdom has no matchMedia; xterm asks it for the device pixel ratio.

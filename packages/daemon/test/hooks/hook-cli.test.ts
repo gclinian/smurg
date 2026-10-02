@@ -10,6 +10,7 @@ import { MAIN_ROOT } from '@smurg/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runHookCli, type HookCliIo } from '../../src/hooks/hook-cli.ts';
 import { HOOK_ENV } from '../../src/hooks/wire.ts';
+import { humanHeldReason } from '../../src/hooks/deny-text.ts';
 import { createTempDir, createTempRunDir, removeTempDir, removeTempRunDir, TEST_HOST_USER } from '../../src/testing/index.ts';
 import { registerAgent, startHookDaemon, type HookDaemon } from './helpers.ts';
 
@@ -122,7 +123,7 @@ describe('runHookCli with the real hook server', () => {
     const s = registerAgent(d.hooks, { userId: TEST_HOST_USER, name: 'Host' });
     const denied = io(claudePreToolUse(join(d.t.root, 'locked.txt')), { ...s.env });
     expect(await runHookCli(denied.io)).toBe(0);
-    expect(parsedDeny(denied.stdout())).toBe('此檔案正由 Amy 編輯中，請先處理其他檔案或稍後再試');
+    expect(parsedDeny(denied.stdout())).toBe(humanHeldReason(['Amy']));
     const granted = io(claudePreToolUse(join(d.t.root, 'free.txt')), { ...s.env });
     expect(await runHookCli(granted.io)).toBe(0);
     expect(granted.stdout()).toBe('');
@@ -162,7 +163,7 @@ describe('runHookCli fails closed', () => {
     for (const env of [{ [HOOK_ENV.socket]: join(runDir, 'missing.sock'), [HOOK_ENV.token]: 't' }, { [HOOK_ENV.token]: 't' }, { [HOOK_ENV.socket]: notSocket, [HOOK_ENV.token]: 't' }]) {
       const c = io(claudePreToolUse('/tmp/proj/a.txt'), env);
       expect(await runHookCli(c.io)).toBe(0);
-      expect(parsedDeny(c.stdout())).toMatch(/smurg 工作區的 daemon 無法連線（smurg daemon unreachable: .+），為避免覆蓋組員的修改，已擋下這次修改/);
+      expect(parsedDeny(c.stdout())).toMatch(/^smurg daemon unreachable \(.+\)\. The edit was blocked so that it cannot overwrite a teammate's changes\. Try again later\.$/);
     }
   });
 
@@ -193,14 +194,14 @@ describe('runHookCli fails closed', () => {
     const quick = io(claudePreToolUse('/tmp/proj/a.txt'), { [HOOK_ENV.socket]: socket, [HOOK_ENV.token]: 't', SMURG_HOOK_DEADLINE_MS: '300' });
     let started = Date.now();
     expect(await runHookCli(quick.io)).toBe(0);
-    expect(parsedDeny(quick.stdout())).toMatch(/daemon unreachable: timeout/);
+    expect(parsedDeny(quick.stdout())).toMatch(/daemon unreachable \(timeout/);
     expect(Date.now() - started).toBeLessThan(3_000);
     // A larger value is ignored: the default 5 s deadline applies.
     const slow = io(claudePreToolUse('/tmp/proj/a.txt'), { [HOOK_ENV.socket]: socket, [HOOK_ENV.token]: 't', SMURG_HOOK_DEADLINE_MS: '60000' });
     started = Date.now();
     expect(await runHookCli(slow.io)).toBe(0);
     const elapsed = Date.now() - started;
-    expect(parsedDeny(slow.stdout())).toMatch(/daemon unreachable: timeout/);
+    expect(parsedDeny(slow.stdout())).toMatch(/daemon unreachable \(timeout/);
     expect(elapsed).toBeGreaterThanOrEqual(4_500);
     expect(elapsed).toBeLessThan(9_000);
   }, 20_000);
@@ -252,7 +253,7 @@ describe('startup time', () => {
     const run = (): Promise<{ ms: number; code: number | null; stdout: string }> =>
       new Promise((resolve, reject) => {
         const started = process.hrtime.bigint();
-        const child = spawn(process.execPath, [entry], { env: { PATH: '/usr/bin:/bin', ...s.env }, stdio: ['pipe', 'pipe', 'pipe'] });
+        const child = spawn(process.execPath, [entry], { env: { PATH: '/usr/bin:/bin', SMURG_LANG: 'en', ...s.env }, stdio: ['pipe', 'pipe', 'pipe'] });
         let stdout = '';
         child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')));
         const timer = setTimeout(() => {
@@ -387,7 +388,7 @@ describe('two hooks, two behaviours (D-13): the lock hook fails closed, the Bash
     const run = (args: string[], input: string, env: Record<string, string>): Promise<{ ms: number; code: number | null; stdout: string; stderr: string }> =>
       new Promise((resolve, reject) => {
         const started = process.hrtime.bigint();
-        const child = spawn(process.execPath, [cliMain, ...args], { env: { PATH: '/usr/bin:/bin', SMURG_NO_BROWSER: '1', ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+        const child = spawn(process.execPath, [cliMain, ...args], { env: { PATH: '/usr/bin:/bin', SMURG_NO_BROWSER: '1', SMURG_LANG: 'en', ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
         let stdout = '';
         let stderr = '';
         child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')));

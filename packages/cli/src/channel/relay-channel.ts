@@ -20,13 +20,14 @@ import {
 import { loadOrCreateCliDeviceKey, nodeCryptoSuite, pinDaemonKey, readPinnedDaemonKey } from '@smurg/protocol/node';
 import { CliError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
+import { m, type MessageId, type Text } from '../i18n/index.ts';
 import { stateProblem } from '../state/private-file.ts';
 import { closedMessage, type ChannelEnd, type ChannelStatus, type WorkspaceChannel } from './channel.ts';
 
 const ONLINE_TIMEOUT_MS = 30_000;
 /**
  * The relay says at once when the host is not connected: joining gives up after this long in host-offline instead of
- * the whole online timeout (CLI-14). A host that is just reconnecting is back well within it.
+ * the whole online timeout. A host that is just reconnecting is back well within it.
  */
 export const HOST_OFFLINE_GIVE_UP_MS = 5_000;
 
@@ -38,49 +39,44 @@ export function filePinStore(stateDir: string): PinStore {
   };
 }
 
-/** The zh-TW explanation of a terminal connection state. */
+const REJECTED: Readonly<Record<string, MessageId>> = {
+  'invite-invalid': 'channel.rejected.inviteInvalid',
+  'device-revoked': 'channel.rejected.deviceRevoked',
+  'device-other-account': 'channel.rejected.deviceOtherAccount',
+  'identity-invalid': 'channel.rejected.identityInvalid',
+  kicked: 'channel.closed.kicked',
+  version: 'channel.rejected.version',
+  aborted: 'channel.rejected.aborted',
+  unknown: 'channel.rejected.unknown',
+};
+
+const CLOSED: Readonly<Record<string, MessageId>> = {
+  local: 'channel.closed.local',
+  kicked: 'channel.closed.kicked',
+  revoked: 'channel.closed.revoked',
+  'login-required': 'channel.closed.loginRequired',
+  'relay-refused': 'channel.closed.relayRefused',
+  'no-trust': 'channel.closed.noTrust',
+  'storage-error': 'channel.closed.storageError',
+};
+
+const lookup = (table: Readonly<Record<string, MessageId>>, key: string, otherwise: MessageId): Text => ({ id: Object.hasOwn(table, key) ? (table[key] as MessageId) : otherwise });
+
+/** What a terminal connection state means for the person. */
 export function describeTerminalState(state: ConnectionState): ChannelEnd {
   switch (state.kind) {
     case 'key-mismatch':
-      return {
-        reason: 'key-mismatch',
-        message:
-          state.mode === 'device'
-            ? // The pinned key (no new invite): the host may have started over with new workspace keys (HOSTING §5.1).
-              '警告：主人電腦的金鑰和這台電腦上次記錄的不同，可能有人（例如 relay）冒充主人。已中止連線，沒有送出任何資料。' +
-              '如果主人說他重新設定了工作區（換了新的金鑰），請向主人索取新的邀請連結，用 smurg attach --invite - 加入，並用其他管道向主人確認 daemon 金鑰指紋。'
-            : '警告：對方的金鑰和邀請連結（或上次記錄）不符，可能有人（例如 relay）冒充主人。已中止連線，沒有送出任何資料。請用其他管道向主人確認 daemon 金鑰指紋。',
-      };
-    case 'rejected': {
-      const text: Record<string, string> = {
-        'invite-invalid': '邀請連結無效、已過期或已用完，請向主人索取新的連結。',
-        'device-revoked': '這台裝置的金鑰已被撤銷（可能被移出工作區），請向主人索取新的邀請連結。',
-        'device-other-account':
-          '這台裝置先前用另一個帳號加入過這個工作區，不能改用現在登入的帳號連線。請用原本的帳號重新登入（smurg login），或改用另一個 SMURG_HOME。',
-        'identity-invalid': 'relay 的身分權杖驗證失敗，請重新登入後再試。',
-        kicked: '你已被主人移出這個工作區。',
-        version: 'smurg 版本和主人的不相容，請更新。',
-        aborted: '主人不認得這個邀請連結，請確認連結是否完整。',
-        unknown: '主人拒絕了連線。',
-      };
-      return { reason: 'rejected', message: text[state.reason] ?? '主人拒絕了連線。' };
-    }
+      // 'device': the pinned key (no new invite); the host may have started over with new workspace keys (HOSTING §5.1).
+      return { reason: 'key-mismatch', message: m(state.mode === 'device' ? 'channel.keyMismatch.device' : 'channel.keyMismatch.invite') };
+    case 'rejected':
+      return { reason: 'rejected', message: lookup(REJECTED, state.reason, 'channel.rejected.unknown') };
     case 'closed': {
-      const text: Record<string, string> = {
-        local: '連線已關閉。',
-        kicked: '你已被主人移出這個工作區。',
-        revoked: '這台裝置的金鑰已被撤銷。',
-        'login-required': 'relay 的登入已失效，請執行 smurg login 重新登入。',
-        'relay-refused': 'relay 拒絕了連線。',
-        'no-trust': '沒有這個工作區的邀請連結，也沒有記錄過主人的金鑰：請用 --invite 提供邀請連結。',
-        'storage-error': '無法讀寫這台裝置的金鑰或記錄的主人金鑰（~/.smurg 的權限？）。',
-      };
       const daemonReason = state.daemonReason;
       if (daemonReason !== undefined) return { reason: daemonReason === 'kicked' ? 'kicked' : 'closed', message: closedMessage(daemonReason) };
-      return { reason: state.reason === 'kicked' ? 'kicked' : state.reason === 'revoked' ? 'revoked' : 'closed', message: text[state.reason] ?? '連線已關閉。' };
+      return { reason: state.reason === 'kicked' ? 'kicked' : state.reason === 'revoked' ? 'revoked' : 'closed', message: lookup(CLOSED, state.reason, 'channel.closed.local') };
     }
     default:
-      return { reason: 'closed', message: '連線已關閉。' };
+      return { reason: 'closed', message: m('channel.closed.local') };
   }
 }
 
@@ -149,7 +145,7 @@ export class RelayWorkspaceChannel implements WorkspaceChannel {
     try {
       keyPair = (await loadOrCreateCliDeviceKey(options.stateDir)).keyPair;
     } catch (err) {
-      throw stateProblem(err, '這台裝置的金鑰（device.key）');
+      throw stateProblem(err, 'device-key');
     }
     const conn = new Connection({
       relay: options.relay,
@@ -176,9 +172,9 @@ export class RelayWorkspaceChannel implements WorkspaceChannel {
         const end = describeTerminalState(state);
         throw new CliError(end.message, { exitCode: state.kind === 'closed' && state.reason === 'login-required' ? EXIT.auth : EXIT.failure, cause: err });
       }
-      if (state.kind === 'host-offline') throw new CliError('主人目前離線（smurg host 沒有在執行，或主人的電腦在睡眠）。', { cause: err });
-      if (state.kind === 'relay-unreachable') throw new CliError('無法連線到 relay。', { hint: '請確認網路連線與 relay 網址。', cause: err });
-      throw new CliError('連線逾時，無法加入工作區。', { cause: err });
+      if (state.kind === 'host-offline') throw new CliError(m('channel.hostOffline'), { cause: err });
+      if (state.kind === 'relay-unreachable') throw new CliError(m('channel.relayUnreachable'), { hint: m('relay.unreachable.hint'), cause: err });
+      throw new CliError(m('channel.timeout'), { cause: err });
     }
   }
 

@@ -6,6 +6,7 @@ export * from './constants.ts';
 export * from './bytes.ts';
 export * from './errors.ts';
 export * from './roles.ts';
+export * from './names.ts';
 export * from './codec.ts';
 export * from './invite.ts';
 export * from './schema/index.ts';

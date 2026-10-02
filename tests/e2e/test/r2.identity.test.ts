@@ -1,9 +1,9 @@
 // SPEC R2 acceptance (identity, invites, roles), against the real relay, the real daemon and SDK clients. Every
 // invite here is made by the host over the encrypted channel (admin.invite.create), every kick goes through
 // admin.member.kick: the same path the host console uses.
-//  - 「過期或用完次數的邀請連結無法使用」
-//  - 「被踢的使用者 3 秒內失去所有存取權，他的 session 程序被終止」 (sessions: once the session module exists)
-//  - 「偽造的客戶端請求（例如旁觀者送出 `file.write`）被 daemon 拒絕」
+//  - an expired or used-up invite link cannot be used
+//  - a removed member loses all access within 3 seconds and their session processes are terminated (sessions: once the session module exists)
+//  - forged client requests (for example a viewer sending `file.write`) are refused by the daemon
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -47,8 +47,8 @@ async function rejectionsFor(stack: Stack, userId: string): Promise<AuditEntry[]
   return (await stack.audit()).filter((e) => e.action === 'auth.rejected' && e.target === userId);
 }
 
-describe('R2 邀請連結', () => {
-  it('過期或用完次數的邀請連結無法使用 — an expired invite', async () => {
+describe('R2 invite links', () => {
+  it('an expired or used-up invite link cannot be used — an expired invite', async () => {
     const stack = await startStack({ relay });
     try {
       const expiring = await stack.createInvite('editor', { maxUses: 5, expiresInSec: 1 });
@@ -67,7 +67,7 @@ describe('R2 邀請連結', () => {
     }
   });
 
-  it('過期或用完次數的邀請連結無法使用 — a used-up invite, also under concurrent joins', async () => {
+  it('an expired or used-up invite link cannot be used — a used-up invite, also under concurrent joins', async () => {
     const stack = await startStack({ relay });
     try {
       const single = await stack.createInvite('editor', { maxUses: 1 });
@@ -92,8 +92,8 @@ describe('R2 邀請連結', () => {
   });
 });
 
-describe('R2 踢人', () => {
-  it('被踢的使用者 3 秒內失去所有存取權 — measured on both sockets, at the relay and in the daemon', async () => {
+describe('R2 removing a member', () => {
+  it('a removed member loses all access within 3 seconds — measured on both sockets, at the relay and in the daemon', async () => {
     const stack = await startStack({ relay });
     try {
       const amy = await stack.join({ name: 'amy', role: 'editor' });
@@ -148,7 +148,7 @@ describe('R2 踢人', () => {
     }
   });
 
-  it('被踢的使用者 3 秒內失去所有存取權 — and cannot come back with the old device or an old link', async () => {
+  it('a removed member loses all access within 3 seconds — and cannot come back with the old device or an old link', async () => {
     const stack = await startStack({ relay });
     try {
       // A multi-use link that existed before the kick (e.g. still in the class chat).
@@ -180,13 +180,13 @@ describe('R2 踢人', () => {
     }
   });
 
-  it('被踢的使用者…他的 session 程序被終止', async () => {
+  it('a removed member: their session processes are terminated', async () => {
     const stack = await startStack({ relay });
     try {
-      // An 「可使用 agent」 member starts a terminal session (it runs as the host's OS user, §11 D-15) with a background
+      // An agent-access member starts a terminal session (it runs as the host's OS user, §11 D-15) with a background
       // process, the host kicks them, and within 3 s both the session and the PROCESS are gone (not only the daemon's
       // belief in session.list: ARCHITECTURE §11 D-3).
-      // A composition without the real sessions module fails here instead of skipping (review SPEC-11).
+      // A composition without the real sessions module fails here instead of skipping.
       expect(isStubService(stack.daemon.ctx.services.sessions), 'the default composition provides SessionManager').toBe(false);
       const carol = await stack.join({ name: 'carol', role: 'agent' });
       const { session } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
@@ -210,8 +210,8 @@ describe('R2 踢人', () => {
   });
 });
 
-describe('R2 偽造的客戶端請求', () => {
-  it('偽造的客戶端請求（例如旁觀者送出 `file.write`）被 daemon 拒絕', async () => {
+describe('R2 forged client requests', () => {
+  it('forged client requests (for example a viewer sending `file.write`) are refused by the daemon', async () => {
     const stack = await startStack({ relay, projectFiles: { 'README.md': README } });
     try {
       const bob = await stack.join({ name: 'bob', role: 'viewer' });

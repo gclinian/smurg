@@ -1,4 +1,4 @@
-// Clickable file paths in terminal output (SPEC R7 「agent 輸出裡的檔案路徑可以點擊開啟」).
+// Clickable file paths in terminal output (SPEC R7 "file paths in agent output can be clicked to open").
 //
 // A path is only ever a link when (1) it is relative — absolute paths, `~/…` and anything that climbs out of the
 // session's root with `..` are refused, because the viewer must never be steered outside the shared tree (and the
@@ -50,7 +50,7 @@ export function findPathCandidates(line: string): PathCandidate[] {
     const start = match.index;
     let end = start + match[0].length;
     if (lineNo === undefined) {
-      // Sentence punctuation after a path (「見 src/app.ts。」 is handled by the character class; "src/app.ts." here).
+      // Sentence punctuation after a path (a path followed by a CJK full stop is handled by the character class; "src/app.ts." here).
       const trimmed = path.replace(/\.+$/, '');
       end -= path.length - trimmed.length;
       path = trimmed;

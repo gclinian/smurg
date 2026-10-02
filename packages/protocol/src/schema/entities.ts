@@ -18,6 +18,7 @@ import {
   TERMINAL_COLS_MAX,
   TERMINAL_ROWS_MAX,
 } from './limits.ts';
+import { messageRefSchema } from './message-ref.ts';
 import { entryPathSchema, entryRefSchema, fileRefSchema, pathSegmentSchema, relPathSchema, rootRefSchema } from './paths.ts';
 import {
   avatarUrlSchema,
@@ -48,7 +49,7 @@ import {
 export const userRefSchema = z.strictObject({ userId: userIdSchema, displayName: displayNameSchema });
 export type UserRef = z.infer<typeof userRefSchema>;
 
-/** Who did something (ARCHITECTURE §3). An agent's displayName is 「Claude（<owner>）」. */
+/** Who did something (ARCHITECTURE §3). An agent's displayName is `Claude (<owner>)` (agentDisplayName). */
 export const actorSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('user'), userId: userIdSchema, displayName: displayNameSchema }),
   z.strictObject({
@@ -158,7 +159,7 @@ export const lockInfoSchema = z.discriminatedUnion('kind', [
     file: fileRefSchema,
     sessionId: opaqueIdSchema,
     ownerUserId: userIdSchema,
-    /** 「Claude（<owner>）」 */
+    /** `Claude (<owner>)` */
     agentName: displayNameSchema,
     acquiredAt: epochMsSchema,
     expiresAt: epochMsSchema,
@@ -181,7 +182,7 @@ export const fileEntrySchema = z.strictObject({
   /** e.g. inside a shared read-only dir of a worktree */
   readOnly: z.boolean().optional(),
   lock: lockInfoSchema.optional(),
-  /** drives the tree badge ("recently changed by Claude（Ian）") */
+  /** drives the tree badge ("recently changed by Claude (Ian)") */
   lastModifiedBy: actorSchema.optional(),
 });
 export type FileEntry = z.infer<typeof fileEntrySchema>;
@@ -246,9 +247,9 @@ export const loginStateSchema = z.enum(LOGIN_STATES);
 export type LoginState = z.infer<typeof loginStateSchema>;
 
 /**
- * Why an exited session ended (review WEB-12: a session the host terminated must not look like a normal exit to its
+ * Why an exited session ended (a session the host terminated must not look like a normal exit to its
  * owner): its process exited by itself (`exit`), its owner ended it, the host terminated it, its owner (the member who
- * opened it) was kicked / left / lost the role 「可使用 agent」, or the daemon stopped. Same words as the daemon's
+ * opened it) was kicked / left / lost the role `agent` ("Agent access"), or the daemon stopped. Same words as the daemon's
  * `session.exited`.
  */
 export const SESSION_END_REASONS = ['exit', 'ended', 'terminated', 'kicked', 'left', 'role-changed', 'stopped'] as const;
@@ -261,7 +262,7 @@ export const terminalRowsSchema = z.int().min(1).max(TERMINAL_ROWS_MAX);
 /**
  * A PTY session. Every session runs like the host's own (ARCHITECTURE §11 D-15): the host's OS user, unsandboxed, the
  * host's Claude Code login. `ownerUserId` / `ownerName`: the member who OPENED it (attribution: the agent is
- * 「Claude（ownerName）」, its locks and edits carry ownerUserId). `login` is the host's Claude login as that session
+ * `Claude (ownerName)`, its locks and edits carry ownerUserId). `login` is the host's Claude login as that session
  * sees it. (Protocol 1's `sandboxed` is gone.)
  */
 export const sessionInfoSchema = z.strictObject({
@@ -269,7 +270,11 @@ export const sessionInfoSchema = z.strictObject({
   kind: sessionKindSchema,
   ownerUserId: userIdSchema,
   ownerName: displayNameSchema,
-  title: shortTextSchema,
+  /**
+   * Present only when the opener typed a title. Without it a client shows the default built from `kind` + `ownerName`
+   * in the viewer's language (`session.title.agent` / `session.title.terminal` of `@smurg/protocol/i18n`).
+   */
+  title: shortTextSchema.optional(),
   root: rootRefSchema,
   status: sessionStatusSchema,
   exitCode: z.int().optional(),
@@ -277,7 +282,7 @@ export const sessionInfoSchema = z.strictObject({
   rows: terminalRowsSchema,
   createdAt: epochMsSchema,
   endedAt: epochMsSchema.optional(),
-  /** Set with status 'exited' (addition, WEB-12). */
+  /** Set with status 'exited'. */
   endReason: sessionEndReasonSchema.optional(),
   /** The person who ended it (the owner for 'ended', the host for 'terminated'), when a person did. */
   endedBy: z.strictObject({ userId: userIdSchema, displayName: displayNameSchema }).optional(),
@@ -306,6 +311,10 @@ export const SUGGESTION_STATUSES = ['pending', 'accepted', 'accepted-modified', 
 
 export const reasonTextSchema = lineTextSchema(REASON_MAX_CHARS);
 
+/** Why a suggestion was closed without a person deciding on it. */
+export const SUGGESTION_CLOSED_REASONS = ['session-ended', 'author-kicked', 'author-demoted'] as const;
+export type SuggestionClosedReason = (typeof SUGGESTION_CLOSED_REASONS)[number];
+
 export const suggestionSchema = z.strictObject({
   id: opaqueIdSchema,
   sessionId: opaqueIdSchema,
@@ -317,7 +326,13 @@ export const suggestionSchema = z.strictObject({
   resolvedAt: epochMsSchema.optional(),
   /** the text actually sent to the agent (differs from `text` for accepted-modified) */
   finalText: suggestionTextSchema.optional(),
+  /** A person's words (the member who rejected it). Never written by the daemon. */
   rejectReason: reasonTextSchema.optional(),
+  /**
+   * Why the daemon itself closed the suggestion (its session ended: `rejected`; its author was kicked or lost the
+   * right to suggest: `withdrawn`). Nobody decided it; clients word the reason themselves.
+   */
+  closedReason: z.enum(SUGGESTION_CLOSED_REASONS).optional(),
 });
 export type Suggestion = z.infer<typeof suggestionSchema>;
 
@@ -381,7 +396,7 @@ export type PresenceMember = z.infer<typeof presenceMemberSchema>;
 export const presenceAgentSchema = z.strictObject({
   sessionId: opaqueIdSchema,
   ownerUserId: userIdSchema,
-  /** 「Claude（<owner>）」 */
+  /** `Claude (<owner>)` */
   displayName: displayNameSchema,
   color: colorSchema,
   activeFile: fileRefSchema.optional(),
@@ -399,7 +414,7 @@ export const ACTIVITY_KINDS = [
   'external.change',
   'conflict',
   'lock.denied',
-  /** A worktree merge request, its approval, rejection or conflict (review WEB-11): everyone sees merges in the feed. */
+  /** A worktree merge request, its approval, rejection or conflict: everyone sees merges in the feed. */
   'merge',
 ] as const;
 
@@ -409,13 +424,22 @@ export const activityEventSchema = z.strictObject({
   actor: actorSchema,
   kind: z.enum(ACTIVITY_KINDS),
   file: fileRefSchema.optional(),
+  /**
+   * The sentence as a message reference (`activity.*` of `@smurg/protocol/i18n`): a client renders it in the viewer's
+   * language (`render(locale, event.text) ?? event.summary`). Parameters are clipped by the daemon (a path to 200
+   * characters, at most 3 sample paths, at most 5 holder names).
+   */
+  text: messageRefSchema,
+  /** The English rendering of `text`, at most ACTIVITY_SUMMARY_MAX_CHARS: the fallback, and what logs show. */
   summary: lineTextSchema(ACTIVITY_SUMMARY_MAX_CHARS),
   /**
    * (addition, ARCHITECTURE §11 D-13) How an `agent.edit` was attributed when it is not the agent's own edit tool:
    * `bash` = a change inside the agent's shell-command window. Clients mark such entries from this field, never from the
-   * summary's wording. Absent everywhere else.
+   * wording. Absent everywhere else.
    */
   via: z.literal('bash').optional(),
+  /** On a `file.rename` event: the path the entry had before, relative to `file.root` (`file.path` is the new one). */
+  renamedFrom: entryPathSchema.optional(),
 });
 export type ActivityEvent = z.infer<typeof activityEventSchema>;
 

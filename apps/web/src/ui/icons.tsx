@@ -278,6 +278,12 @@ export const IconMonitor: IconComponent = (p) => (
     <path d="M5.5 13.75h5M8 10.75v3" />
   </Svg>
 );
+export const IconGlobe: IconComponent = (p) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="6.25" />
+    <path d="M1.75 8h12.5M8 1.75c1.9 1.7 2.85 3.8 2.85 6.25S9.9 12.55 8 14.25C6.1 12.55 5.15 10.45 5.15 8S6.1 3.45 8 1.75z" />
+  </Svg>
+);
 export const IconCopy: IconComponent = (p) => (
   <Svg {...p}>
     <rect x="5.25" y="5.25" width="8.5" height="8.5" rx="1" />

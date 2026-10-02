@@ -28,7 +28,7 @@ describe('production bundle', () => {
       expect(stdout).toContain('--dry-run: exiting now.');
       expect(stdout).toContain('env.DEV_LOGIN ("0")');
       expect(stdout).toContain('env.RELAY_TAP_URL ("")');
-      // The shared relay's custom domain (README「部署到 Cloudflare」); short enough that wrangler prints it unabridged.
+      // The shared relay's custom domain (README "Deploying to Cloudflare"); short enough that wrangler prints it unabridged.
       expect(stdout).toContain('env.RELAY_ISSUER ("https://app.smurg.ai")');
       expect(stdout).toContain('env.ALLOWED_ORIGINS ("https://app.smurg.ai")');
       const bundle = join(outdir, 'index.js');
@@ -53,7 +53,7 @@ describe('the SPA the bundle would ship (build-quality review F3)', () => {
       mkdirSync(join(dir, 'real'));
       expect(webDistProblem(join(dir, 'real'))).toBe('no-index');
       writeFileSync(join(dir, 'real', 'index.html'), '<!doctype html>');
-      // SEC-E-04: no security headers for the SPA, or a served build manifest, is not deployable either.
+      // No security headers for the SPA, or a served build manifest, is not deployable either.
       expect(webDistProblem(join(dir, 'real'))).toBe('no-headers');
       writeFileSync(join(dir, 'real', '_headers'), "/*\n  X-Frame-Options: DENY\n");
       expect(webDistProblem(join(dir, 'real'))).toBe('no-headers');

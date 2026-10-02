@@ -9,15 +9,14 @@
 //   SMURG_SITE_THIRD_PARTY_NOTICES=<file>   publish this file as /third-party-notices.txt: for a deploy, REQUIRED, the
 //                                           release's own THIRD-PARTY-NOTICES.txt (docs/RELEASING.md §4.1); it must
 //                                           have its Node.js section filled in
-//   SMURG_SITE_ALLOW_PLACEHOLDER=1          build even though LICENSE still says "<COPYRIGHT HOLDER>", the notices'
-//                                           Node.js section is still the committed placeholder, or no notices file is
-//                                           named (then the build runs `node scripts/third-party-notices.ts
-//                                           --executable`: the running Node.js's LICENSE). Previews and tests only:
-//                                           never for a deploy
+//   SMURG_SITE_ALLOW_PLACEHOLDER=1          build even though the notices' Node.js section is still the committed
+//                                           placeholder, or no notices file is named (then the build runs `node
+//                                           scripts/third-party-notices.ts --executable`: the running Node.js's
+//                                           LICENSE). Previews and tests only: never for a deploy
 //   SMURG_SITE_SOURCE_ROOT=<dir>            read docs/, CHANGELOG.md and LICENSE from <dir> instead (tests only)
 //
-// It prints every docs link it rewrote or turned into plain text, and exits 1, listing the problems, when the site
-// cannot be built as it should be (scripts/site.ts generateSite).
+// It prints every docs link it rewrote (to a page of the site, or to the file on GitHub) or turned into plain text,
+// and exits 1, listing the problems, when the site cannot be built as it should be (scripts/site.ts generateSite).
 import { realpathSync } from 'node:fs';
 import { relative } from 'node:path';
 import { DIST_DIR, REPO_ROOT, SiteError, generateSite, optionsFromEnv, writeSite } from './site.ts';
@@ -31,7 +30,7 @@ function main(): number {
     return 1;
   }
   const options = optionsFromEnv();
-  if (options.repoRoot !== undefined) console.log(`smurg.ai build: docs, CHANGELOG.md and LICENSE from ${options.repoRoot} (not this repository)`);
+  if (options.repoRoot !== undefined) console.log(`smurg.ai build: docs/, CHANGELOG.md and LICENSE from ${options.repoRoot} (not this repository)`);
   let site;
   try {
     site = generateSite(options);
@@ -46,7 +45,7 @@ function main(): number {
   const section = (title: string, lines: readonly string[]): void => {
     if (lines.length > 0) console.log(`${title}:\n${lines.map((line) => `  ${line}`).join('\n')}`);
   };
-  section('docs links rewritten to the site', site.rewritten);
+  section('docs links rewritten (to the site, or to the file on GitHub)', site.rewritten);
   section('docs links turned into plain text', site.plain);
   section('raw HTML in the docs, shown as text', site.rawHtml);
   console.log(`smurg.ai: ${site.files.size} files in ${relative(REPO_ROOT, DIST_DIR)} (${written} written, ${removed} removed)`);

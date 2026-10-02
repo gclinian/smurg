@@ -26,7 +26,7 @@ export interface IdentityKeySource {
   /**
    * The relay's clock minus the host's (ms), measured on the last key fetch, or null when unknown. Identity-token
    * times are relay times: a host clock that drifted (NTP blocked, a VM after resume) must not lock every member out
-   * (review REL-05).
+   *.
    */
   clockOffsetMs?(): number | null;
 }
@@ -113,7 +113,7 @@ export class IdentityVerifier {
     if (payload.iss !== this.options.issuer) return { ok: false, reason: 'issuer' };
     const aud = payload.aud;
     if (!(aud === this.audience || (Array.isArray(aud) && aud.length === 1 && aud[0] === this.audience))) return { ok: false, reason: 'audience' };
-    // Token times are the relay's: compare them with the relay's time as last measured (review REL-05).
+    // Token times are the relay's: compare them with the relay's time as last measured.
     const offset = this.options.keys.clockOffsetMs?.() ?? null;
     const now = this.options.clock.now() + (offset !== null && Math.abs(offset) <= MAX_RELAY_CLOCK_OFFSET_MS ? offset : 0);
     const skew = this.options.skewMs;

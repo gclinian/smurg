@@ -76,13 +76,13 @@ async function chromeRssBytes(): Promise<number> {
 async function joinWorkspace(page: Page, env: WebStackLike, user: string): Promise<void> {
   await page.goto(await env.invite());
   await page.getByTestId('join-login').waitFor({ timeout: 60_000 });
-  await page.getByLabel('帳號名稱').fill(user);
-  await page.getByRole('button', { name: '以開發用帳號登入' }).click();
-  // The join page's explicit 「加入」 (SEC-E-02: an invite link never joins on page load).
+  await page.getByLabel('Account name').fill(user);
+  await page.getByRole('button', { name: 'Log in with a development account' }).click();
+  // The join page's explicit "Join" (an invite link never joins on page load).
   await page.getByTestId('join-confirm').waitFor({ timeout: 60_000 });
-  await page.getByRole('button', { name: '加入', exact: true }).click();
+  await page.getByRole('button', { name: 'Join', exact: true }).click();
   await page.waitForURL(`${env.webOrigin}/w/${env.stack.workspaceId}`, { timeout: 60_000 });
-  await page.getByRole('banner', { name: '工作區' }).getByText('已連線').waitFor({ timeout: 60_000 });
+  await page.getByRole('banner', { name: 'Workspace' }).getByText('Connected').waitFor({ timeout: 60_000 });
 }
 
 describe.skipIf(CHROME === null)('transfers in a real browser (Worker + IndexedDB device key + Noise + TransferDO + daemon)', () => {
@@ -95,7 +95,7 @@ describe.skipIf(CHROME === null)('transfers in a real browser (Worker + IndexedD
     env = await startWebStack({ tmpDir: process.env['TMPDIR'] ?? '/tmp' });
     // This machine's disk is nearly full: the default 5 % reserve would refuse every upload (R7.4 does its job).
     await env.stack.hostClient.conn.request('admin.settings.set', { diskReserveBytes: 0, diskReservePercent: 0 });
-    context = await env.browser.newContext({ locale: 'zh-TW', acceptDownloads: true });
+    context = await env.browser.newContext({ locale: 'en-US', acceptDownloads: true });
     page = await context.newPage();
     await joinWorkspace(page, env, 'amy');
   }, 240_000);
@@ -196,7 +196,7 @@ describe.skipIf(CHROME === null)('transfers in a real browser (Worker + IndexedD
     expect(result.linkStates).toEqual(expect.arrayContaining(['handshaking', 'online']));
   }, 240_000);
 
-  it('上傳 10 GB 檔案時，瀏覽器記憶體用量保持穩定，其他人打字和終端機沒有明顯延遲 — scaled down (512 MiB by default) from a synthetic source in real Chrome', async () => {
+  it('while a 10 GB file uploads, browser memory stays stable and other people’s typing and terminals show no noticeable delay — scaled down (512 MiB by default) from a synthetic source in real Chrome', async () => {
     // Scaled so the shared test run stays short and the host's staging area small; SMURG_R72_MIB=10240 runs the full
     // size (the host needs that much free disk above its reserve). The dev page dev/measure.html does the same by hand.
     const size = R72_MIB * MiB;
@@ -333,7 +333,7 @@ describe.skipIf(CHROME === null)('transfers in a real browser (Worker + IndexedD
 
   it('the app: a file picked in the files panel is uploaded through the Worker, shown in the transfers panel, and a second upload of the same name asks first', async () => {
     const content = Buffer.from(pattern(5 * MiB + 7));
-    await page.getByRole('tab', { name: '傳輸' }).click();
+    await page.getByRole('tab', { name: 'Transfers' }).click();
     const input = page.locator('input[type=file][multiple][hidden]').first();
     await input.setInputFiles({ name: 'report.bin', mimeType: 'application/octet-stream', buffer: content });
     const row = page.getByTestId('transfer-item').filter({ hasText: 'report.bin' }).first();
@@ -344,7 +344,7 @@ describe.skipIf(CHROME === null)('transfers in a real browser (Worker + IndexedD
     const dialog = page.getByRole('alertdialog');
     await dialog.waitFor({ timeout: 60_000 });
     expect(await dialog.textContent()).toContain('report.bin');
-    await dialog.getByRole('button', { name: '另存新檔（自動改名）' }).click();
+    await dialog.getByRole('button', { name: 'Keep both (rename automatically)' }).click();
     await page.locator('[data-testid=transfer-item][data-status=done]').nth(1).waitFor({ timeout: 120_000 });
     expect(await readFile(join(env.stack.root, 'report (1).bin'), 'utf8')).toBe('second version');
     expect(sha(await readFile(join(env.stack.root, 'report.bin')))).toBe(sha(content));

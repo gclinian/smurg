@@ -6,6 +6,7 @@ import { HANDSHAKE_MODE_BYTES } from '../invite.ts';
 import { PEER_KICK_REASON_IDLE } from '../relay/close-codes.ts';
 import { MAIN_ROOT } from '../schema/paths.ts';
 import { SmurgError } from '../errors.ts';
+import { msg, render } from '../i18n/index.ts';
 import { ClientRequestError, RelayApiError } from './errors.ts';
 import type { ConnectionState } from './state.ts';
 import { createMemoryResumeStore } from './storage.ts';
@@ -391,12 +392,12 @@ describe('requests and events', () => {
   it('rejects with the daemon SmurgError (code, message, detail)', async () => {
     const world = createWorld();
     world.daemon.handlers['file.write'] = () => {
-      throw new SmurgError('forbidden', '旁觀者不能寫入', { reason: 'role' });
+      throw new SmurgError('forbidden', msg('doc.needsWrite'), { reason: 'role' });
     };
     const { conn } = await online(world);
     const error = await conn.request('file.write', { file: { root: MAIN_ROOT, path: 'x' }, content: new Uint8Array([1]) }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(SmurgError);
-    expect(error).toMatchObject({ code: 'forbidden', message: '旁觀者不能寫入', detail: { reason: 'role' } });
+    expect(error).toMatchObject({ code: 'forbidden', message: 'You do not have permission to edit this file.', detail: { reason: 'role' }, text: { id: 'doc.needsWrite' } });
     expect(error).not.toBeInstanceOf(ClientRequestError);
   });
 
@@ -554,7 +555,7 @@ describe('resume after a reconnect (ARCHITECTURE §4)', () => {
     expect(second?.cnfNonce).not.toEqual(first?.cnfNonce);
   });
 
-  it('a request that already failed (timeout) is not replayed on the resumed channel: a retry never makes it happen twice (REL-03)', async () => {
+  it('a request that already failed (timeout) is not replayed on the resumed channel: a retry never makes it happen twice', async () => {
     const world = createWorld();
     world.daemon.handlers['lock.list'] = () => LOCK_LIST_OK;
     const { conn } = await online(world, { requestTimeoutMs: 1_500 });
@@ -563,7 +564,10 @@ describe('resume after a reconnect (ARCHITECTURE §4)', () => {
     const first = conn.request('lock.list', {}).catch((e: unknown) => e);
     await advance(1_500);
     // Sent, so the outcome is unknown (the daemon may have it): the caller is told so.
-    expect(await first).toMatchObject({ failure: 'timeout', detail: { reason: 'timeout', sent: true } });
+    const failed = (await first) as ClientRequestError;
+    expect(failed).toMatchObject({ failure: 'timeout', detail: { reason: 'timeout', sent: true }, text: { id: 'client.timeoutOutcomeUnknown' } });
+    expect(failed.message).toBe(render('en', failed.text));
+    expect(render('zh-TW', failed.text)).toMatch(/[\u3400-\u9fff]/u);
     world.relay.blackhole = false;
     world.relay.drop(world.relay.lastSocket());
     await advance(1_000);

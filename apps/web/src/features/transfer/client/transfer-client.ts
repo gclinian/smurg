@@ -264,7 +264,7 @@ export class TransferClient {
   // Housekeeping
   // ---------------------------------------------------------------------------------------------------------------
 
-  /** Removes a finished job (and frees its downloaded Blob). An interrupted upload is 「放棄」ed instead. */
+  /** Removes a finished job (and frees its downloaded Blob). An interrupted upload is discarded instead. */
   dismiss(id: string): void {
     if (this.state.getState().interrupted.has(id)) {
       this.post({ t: 'cancel', id });

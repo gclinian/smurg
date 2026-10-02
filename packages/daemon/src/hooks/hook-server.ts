@@ -15,13 +15,14 @@ import { createHash, randomBytes } from 'node:crypto';
 import { chmod, lstat, unlink } from 'node:fs/promises';
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
 import { SmurgError, fileRefKey, opaqueIdSchema, rootRefSchema, type FileRef, type RootRef } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import type { HookServer, HookSessionCredentials, HookSessionRegistration, Principal } from '../core/interfaces.ts';
 import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { assertSocketPath } from '../core/sockets.ts';
 import { TokenBucket } from '../net/rate-limit.ts';
+import { HOOK_DENY_REASONS } from './deny-text.ts';
 import {
-  HOOK_DENY_REASONS,
   closeBashWindows,
   handleBashEvent,
   handleOtherEvent,
@@ -69,7 +70,7 @@ export interface HookServerLimits {
   readonly unknownTokenAuditsPerMinute: number;
   /**
    * Bash activity events (§11 D-13) per session per minute, and burst: each shell command sends two. Beyond that they
-   * are ignored (no window: the changes stay 「外部程式」), so a session flooding forged ones cannot keep a window open.
+   * are ignored (no window: the changes stay "an outside program"), so a session flooding forged ones cannot keep a window open.
    */
   readonly bashEventsPerMinute: number;
   readonly bashEventsBurst: number;
@@ -142,7 +143,7 @@ export class HookServerImpl implements HookServer {
   // -------------------------------------------------------------------------------------------------------------------
 
   registerSession(session: HookSessionRegistration): HookSessionCredentials {
-    if (this.stopped) throw new SmurgError('internal', 'smurg 正在停止，無法啟動 session', { reason: 'stopping' });
+    if (this.stopped) throw new SmurgError('internal', msg('session.startWhileStopping'), { reason: 'stopping' });
     // The registration comes from the session manager, but it names paths and people: validate it anyway.
     if (!opaqueIdSchema.safeParse(session.sessionId).success || !rootRefSchema.safeParse(session.root).success) {
       throw new SmurgError('internal', undefined, { reason: 'invalid-hook-registration' });
@@ -206,7 +207,7 @@ export class HookServerImpl implements HookServer {
     const entry = this.byId.get(sessionId);
     if (!entry) throw new SmurgError('internal', undefined, { reason: 'hook-session-not-registered' });
     const command = this.ctx.config.sessions.selfCommand;
-    if (command === null) throw new SmurgError('internal', 'smurg 沒有設定 hook 指令，無法啟動 agent session', { reason: 'no-self-command' });
+    if (command === null) throw new SmurgError('internal', msg('session.hooks.noCommand'), { reason: 'no-self-command' });
     const reg = entry.registration;
     const root = await this.ctx.paths.resolve({ root: reg.root, path: '' }, { principal: SYSTEM_PRINCIPAL, allowRoot: true, mustExist: true });
     const fileChangedNames = await watchableTopLevelNames(root.realPath);

@@ -9,6 +9,7 @@
 // Decoding uses TextDecoder with `fatal: true`: Buffer.toString would silently insert U+FFFD and corrupt the file on
 // the next save.
 import { MAX_DOC_BYTES } from '@smurg/protocol';
+import { msg, type MessageRef } from '@smurg/protocol/i18n';
 
 export type DocEol = 'LF' | 'CRLF' | 'CR';
 
@@ -86,16 +87,16 @@ export function encodeText(text: string, meta: Pick<DocMeta, 'eol' | 'bom'>): Ui
   return out;
 }
 
-/** zh-TW message and wire error for a refused file (doc.open answers too_large / bad_request). */
-export function unsupportedMessage(reason: UnsupportedReason): { readonly code: 'too_large' | 'bad_request'; readonly message: string } {
+/** The wire error for a refused file (doc.open answers too_large / bad_request): its code and its message. */
+export function unsupportedMessage(reason: UnsupportedReason, maxBytes: number = MAX_DOC_BYTES): { readonly code: 'too_large' | 'bad_request'; readonly message: MessageRef } {
   switch (reason) {
     case 'too-large':
-      return { code: 'too_large', message: '檔案超過 5 MiB，無法在編輯器中開啟' };
+      return { code: 'too_large', message: msg('doc.tooLarge', { maxBytes }) };
     case 'utf16-or-utf32-bom':
-      return { code: 'bad_request', message: '不支援 UTF-16 或 UTF-32 編碼的檔案' };
+      return { code: 'bad_request', message: msg('doc.utf16') };
     case 'binary':
-      return { code: 'bad_request', message: '這是二進位檔案，無法在編輯器中開啟' };
+      return { code: 'bad_request', message: msg('doc.binary') };
     case 'invalid-utf8':
-      return { code: 'bad_request', message: '檔案不是有效的 UTF-8 文字，無法在編輯器中開啟' };
+      return { code: 'bad_request', message: msg('doc.invalidUtf8') };
   }
 }

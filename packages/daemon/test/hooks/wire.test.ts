@@ -8,11 +8,11 @@ import {
   HOOK_COMMAND_TIMEOUT_SECONDS,
   HOOK_SERVER_DECISION_MS,
   NOTIFY_MESSAGE_MAX_CHARS,
-  daemonUnreachableReason,
   preToolUseDeny,
   projectHookInput,
   sniffHookEventName,
 } from '../../src/hooks/wire.ts';
+import { daemonUnreachableReason } from '../../src/hooks/deny-text.ts';
 
 describe('hook wire helpers', () => {
   it('deadlines nest: the daemon decides before the hook gives up, the hook gives up before Claude Code times it out', () => {
@@ -23,7 +23,7 @@ describe('hook wire helpers', () => {
   it('the only decision is a deny; the unreachable reason names the daemon and reads on its own', () => {
     expect(preToolUseDeny('x')).toEqual({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'x' } });
     const reason = daemonUnreachableReason('connect: ENOENT\u0007\n');
-    expect(reason).toContain('smurg daemon unreachable: connect: ENOENT');
+    expect(reason).toContain('smurg daemon unreachable (connect: ENOENT');
     expect(reason).not.toMatch(/[\u0000-\u001f]/);
   });
 

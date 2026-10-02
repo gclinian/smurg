@@ -61,7 +61,7 @@ describe('per-member teardown', () => {
     expect(calls).toEqual(['kill:dev:rita:kicked']);
   });
 
-  it('leaving ends the sessions; a demotion ends them only when the new role cannot open sessions (below 「可使用 agent」)', async () => {
+  it('leaving ends the sessions; a demotion ends them only when the new role cannot open sessions (below Agent access)', async () => {
     const calls: string[] = [];
     t = await createTestDaemon({ modules: [fakeSessions(calls)] });
     const host = await t.connectHost();
@@ -129,7 +129,7 @@ describe('DEFAULT_FEATURE_MODULES', () => {
     expect(Object.isFrozen(DEFAULT_FEATURE_MODULES)).toBe(true);
   });
 
-  // Review SPEC-11: acceptance tests that skip when a service is a stub would stay green if a module dropped out of
+  // Acceptance tests that skip when a service is a stub would stay green if a module dropped out of
   // the composition. This fails instead.
   it('the default composition provides a real (non-stub) implementation of every feature service', async () => {
     const t = await createTestDaemon();

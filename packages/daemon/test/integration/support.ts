@@ -49,7 +49,7 @@ export interface HookRun {
 export function runHook(env: Readonly<Record<string, string>>, input: string, cwd: string): Promise<HookRun> {
   return new Promise((resolve, reject) => {
     const started = Date.now();
-    const child = spawn(process.execPath, [CLI_MAIN, 'hook'], { cwd, env: { PATH: '/usr/bin:/bin', SMURG_NO_BROWSER: '1', ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [CLI_MAIN, 'hook'], { cwd, env: { PATH: '/usr/bin:/bin', SMURG_NO_BROWSER: '1', SMURG_LANG: 'en', ...env }, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')));

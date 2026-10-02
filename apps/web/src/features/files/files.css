@@ -90,7 +90,7 @@
   color: var(--color-text-muted);
 }
 /* The name is what a row must show: badges give up their text first (down to their icon, the full sentence stays in
-   the title and aria-description), and only then is the name cut (review WEB-09). */
+   the title and aria-description), and only then is the name cut. */
 .files-row__name {
   flex: 1 1 auto;
   min-width: 0;

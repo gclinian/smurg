@@ -1,4 +1,4 @@
-// activity.jsonl after a crash (review REL-02): a torn last line must not swallow the next event appended.
+// activity.jsonl after a crash : a torn last line must not swallow the next event appended.
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -12,9 +12,9 @@ afterEach(async () => {
   for (const dir of dirs.splice(0)) await removeTempDir(dir);
 });
 
-const event = (id: string, at: number): ActivityEvent => ({ id, at, actor: { kind: 'system' }, kind: 'external.change', summary: `event ${id}` });
+const event = (id: string, at: number): ActivityEvent => ({ id, at, actor: { kind: 'system' }, kind: 'external.change', text: { id: 'activity.externalChange', params: { path: id, change: 'change' } }, summary: `event ${id}` });
 
-describe('activity.jsonl with a torn last line (review REL-02)', () => {
+describe('activity.jsonl with a torn last line ', () => {
   it('the first event after a restart is not glued onto the torn line: it is stored and read back', async () => {
     const dir = await createTempDir('activity-torn');
     dirs.push(dir);

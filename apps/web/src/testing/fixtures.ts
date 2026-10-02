@@ -1,6 +1,7 @@
 // Valid protocol objects for tests (they pass the registry schemas the FakeConnection validates against).
 import {
   MAIN_ROOT,
+  agentDisplayName,
   buildInviteFragment,
   generateInviteSecret,
   x25519KeyPair,
@@ -88,21 +89,24 @@ export function makeHumanLock(path: string, holder = { userId: 'dev:amy', displa
 }
 
 export function makeAgentLock(path: string, sessionId = 'sess_1'): LockInfo {
-  return { kind: 'agent', file: fileRef(path), sessionId, ownerUserId: HOST_USER, agentName: 'Claude（Ian）', acquiredAt: T0, expiresAt: T0 + 60_000 };
+  return { kind: 'agent', file: fileRef(path), sessionId, ownerUserId: HOST_USER, agentName: agentDisplayName('Ian'), acquiredAt: T0, expiresAt: T0 + 60_000 };
 }
 
 export function makeSuggestion(overrides: Partial<Suggestion> = {}): Suggestion {
-  return { id: 'sug_1', sessionId: 'sess_1', author: { userId: 'dev:amy', displayName: 'Amy' }, text: '請先補上測試', status: 'pending', createdAt: T0, ...overrides };
+  return { id: 'sug_1', sessionId: 'sess_1', author: { userId: 'dev:amy', displayName: 'Amy' }, text: 'Add the tests first', status: 'pending', createdAt: T0, ...overrides };
 }
 
 export function makeActivity(overrides: Partial<ActivityEvent> = {}): ActivityEvent {
   return {
     id: 'act_1',
     at: T0,
-    actor: { kind: 'agent', sessionId: 'sess_1', ownerUserId: HOST_USER, displayName: 'Claude（Ian）' },
+    actor: { kind: 'agent', sessionId: 'sess_1', ownerUserId: HOST_USER, displayName: agentDisplayName('Ian') },
     kind: 'agent.edit',
     file: fileRef('src/app.ts'),
-    summary: '修改了 src/app.ts',
+    summary: 'Claude (Ian) edited src/app.ts',
+    // A reference this build cannot render, so the feed shows `summary` (the fallback rule). A test of the rendering
+    // itself passes a real one: `text: msg('activity.agentEdit', { agent, path })` from @smurg/protocol/i18n.
+    text: { id: 'test.summaryOnly' },
     ...overrides,
   };
 }
@@ -112,7 +116,7 @@ export function makeConflict(overrides: Partial<ConflictRecord> = {}): ConflictR
     id: 'conf_1',
     file: fileRef('src/app.ts'),
     createdAt: T0,
-    source: { kind: 'agent', sessionId: 'sess_1', ownerUserId: HOST_USER, displayName: 'Claude（Ian）' },
+    source: { kind: 'agent', sessionId: 'sess_1', ownerUserId: HOST_USER, displayName: agentDisplayName('Ian') },
     humans: [{ userId: 'dev:amy', displayName: 'Amy' }],
     hunks: [{ humanText: 'a', agentText: 'b', baseText: 'c', startLine: 1 }],
     agentVersionBytes: 1,

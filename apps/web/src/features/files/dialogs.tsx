@@ -4,6 +4,7 @@ import { baseNameOfRelPath, type FileEntry } from '@smurg/protocol';
 import { useRef, useState, type FormEvent } from 'react';
 import { Button, Dialog, Input } from '../../ui/index.ts';
 import { checkNewName } from './tree-model.ts';
+import { formatList } from '../../lib/format.ts';
 import { t } from './strings.ts';
 
 export type NameDialogMode = { readonly kind: 'create'; readonly entryKind: 'file' | 'dir'; readonly parent: string } | { readonly kind: 'rename'; readonly entry: FileEntry };
@@ -121,7 +122,7 @@ export function DeleteDialog({ entry, people = [], onConfirm, onClose }: DeleteD
     >
       {people.length > 0 ? (
         <p className="files-dialog__warning" role="note">
-          {t(entry.kind === 'dir' ? 'dialog.deleteFolderInUse' : 'dialog.deleteFileInUse', { names: people.join(t('list.separator')) })}
+          {t(entry.kind === 'dir' ? 'dialog.deleteFolderInUse' : 'dialog.deleteFileInUse', { names: formatList(people) })}
         </p>
       ) : null}
     </Dialog>

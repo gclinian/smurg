@@ -1,11 +1,12 @@
 // Members and devices (SPEC R2, R3; ARCHITECTURE §3, §4). The in-memory copy of state.json is authoritative, so
 // admit() can decide and record synchronously; persistence follows asynchronously (serialized atomic writes).
 //
-// Kick (R2): every device key of the member is revoked (SPEC R3 「被撤銷的裝置金鑰無法再建立連線」), their channels get
+// Kick (R2): every device key of the member is revoked (SPEC R3: a revoked device key can no longer connect), their channels get
 // channel.closed{kicked} and a relay peer.kick, and member.kicked is emitted. A kicked member can only come back
 // through an invite created AFTER the kick, with a NEW device key: an old multi-use link cannot undo a kick.
 import { createHash } from 'node:crypto';
 import { SmurgError, isGuestRole, toHex, type DeviceInfo, type GuestRole, type Member, type MemberWithDevices } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import type { AuditLog, ClientKind, DeviceRecord, EventBus, Hub, MemberDirectory, MemberRecord, PersistentDocument, Principal, UserId } from '../core/interfaces.ts';
 import { toDisposable, type Clock, type Disposable } from '../core/lifecycle.ts';
 import type { Logger } from '../core/logger.ts';
@@ -150,8 +151,8 @@ export class MemberDirectoryImpl implements MemberDirectory {
   setRole(userId: UserId, role: GuestRole, by: Principal): Member {
     if (by.kind !== 'system' && by.role !== 'host') throw new SmurgError('forbidden');
     const target = this.active(userId);
-    if (!target) throw new SmurgError('not_found', '找不到這位成員');
-    if (userId === this.deps.hostUserId || target.role === 'host') throw new SmurgError('bad_request', '不能變更主人的角色', { reason: 'host' });
+    if (!target) throw new SmurgError('not_found', msg('member.notFound'), { reason: 'unknown-member' });
+    if (userId === this.deps.hostUserId || target.role === 'host') throw new SmurgError('bad_request', msg('member.hostRoleFixed'), { reason: 'host' });
     if (!isGuestRole(role)) throw new SmurgError('bad_request', undefined, { reason: 'role' });
     const from = target.role;
     if (from === role) return this.toMember(target);
@@ -170,8 +171,8 @@ export class MemberDirectoryImpl implements MemberDirectory {
   kick(userId: UserId, by: Principal): void {
     if (by.kind !== 'system' && by.role !== 'host') throw new SmurgError('forbidden');
     const target = this.active(userId);
-    if (!target) throw new SmurgError('not_found', '找不到這位成員');
-    if (userId === this.deps.hostUserId || target.role === 'host') throw new SmurgError('bad_request', '不能踢掉主人', { reason: 'host' });
+    if (!target) throw new SmurgError('not_found', msg('member.notFound'), { reason: 'unknown-member' });
+    if (userId === this.deps.hostUserId || target.role === 'host') throw new SmurgError('bad_request', msg('member.hostNotRemovable'), { reason: 'host' });
     const now = this.deps.clock.now();
     const revoked = this.devicesOf(userId).filter((d) => !d.revoked);
     this.deps.state.update((draft) => {

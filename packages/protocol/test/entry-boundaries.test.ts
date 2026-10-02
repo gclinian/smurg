@@ -2,6 +2,9 @@
 // build or the relay bundle breaks:
 //  - `@smurg/protocol`, `/client`, `/browser` and `/relay` run in browsers or workerd: no Node built-ins reachable.
 //  - `@smurg/protocol/relay` is imported by the Worker: no crypto code, only zod and ../constants.ts.
+//  - `@smurg/protocol/locale` is imported by the Worker too (the relay may import `/relay` and `/locale`, nothing
+//    else of this package), by the web app and by the CLI: it imports nothing at all.
+//  - `@smurg/protocol/i18n` (the wire catalog) is loaded by every client: only its own files and ../locale, no package.
 // Type-only imports are ignored (they are erased before anything runs).
 import { existsSync, readFileSync } from 'node:fs';
 import { builtinModules } from 'node:module';
@@ -46,7 +49,7 @@ function importGraph(entry: string): Graph {
 }
 
 describe('browser-safe entry points', () => {
-  it.each(['index.ts', 'client/index.ts', 'browser/index.ts', 'relay/index.ts'])(
+  it.each(['index.ts', 'client/index.ts', 'browser/index.ts', 'relay/index.ts', 'locale/index.ts', 'i18n/index.ts'])(
     'src/%s reaches no Node built-in',
     (entry) => {
       const graph = importGraph(entry);
@@ -70,5 +73,36 @@ describe('relay entry point', () => {
 
   it('keeps constants.ts free of imports (the Worker and every browser entry load it)', () => {
     expect(specifiersOf(resolve(SRC_DIR, 'constants.ts'))).toEqual([]);
+  });
+});
+
+describe('locale entry point', () => {
+  it('imports nothing at all (no package, no other file)', () => {
+    const graph = importGraph('locale/index.ts');
+    expect(graph.broken).toEqual([]);
+    expect([...graph.bare.keys()]).toEqual([]);
+    expect([...graph.files].map((file) => relative(SRC_DIR, file))).toEqual(['locale/index.ts']);
+  });
+
+  it('the shared test table is plain data', () => {
+    expect(specifiersOf(resolve(SRC_DIR, 'locale/test-table.ts'))).toEqual([]);
+  });
+});
+
+describe('i18n entry point', () => {
+  it('depends on no package and on nothing outside i18n/ and locale/', () => {
+    const graph = importGraph('i18n/index.ts');
+    expect(graph.broken).toEqual([]);
+    expect([...graph.bare.keys()]).toEqual([]);
+    const outside = [...graph.files]
+      .map((file) => relative(SRC_DIR, file))
+      .filter((file) => !file.startsWith('i18n/') && file !== 'locale/index.ts');
+    expect(outside).toEqual([]);
+  });
+
+  it('the barrel reaches the catalog (SmurgError renders its English message from a reference) and nothing else new', () => {
+    const files = [...importGraph('index.ts').files].map((file) => relative(SRC_DIR, file)).filter((file) => file.startsWith('i18n/'));
+    expect(files).toContain('i18n/index.ts');
+    expect(files.filter((file) => !/^i18n\/(define|format|index|messages\/[a-z]+)\.ts$/.test(file))).toEqual([]);
   });
 });

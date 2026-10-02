@@ -68,14 +68,14 @@ describe.skipIf(!ENABLED)('scripts/dev-stack.sh (SMURG_TEST_DEV_STACK=1)', () =>
     });
     cleanups.push(async () => {
       // The state dir falls back to /tmp when the dir is too long for a socket path: remove whichever was used.
-      const state = /SMURG_HOME=(\S+?)）/.exec(out)?.[1];
+      const state = /SMURG_HOME=(\S+?)\)/.exec(out)?.[1];
       if (state && state.startsWith('/tmp/smurg-dev-')) await rm(state, { recursive: true, force: true });
     });
     await waitFor(() => out.includes('process groups') || !alive, { timeoutMs: 180_000, what: 'the dev stack' });
     if (!alive) throw new Error(`dev-stack ended early:\n${out}`);
-    const groups = /process groups：relay (\d+)、網頁 (\d+)、smurg host (\d+)/.exec(out) as RegExpExecArray;
+    const groups = /process groups: relay (\d+), web (\d+), smurg host (\d+)/.exec(out) as RegExpExecArray;
     const pgids = [Number(groups[1]), Number(groups[2]), Number(groups[3])];
-    const invite = /邀請組員的連結（角色 editor）：(\S+)/.exec(out)?.[1] as string;
+    const invite = /invite link \(role editor\): (\S+)/.exec(out)?.[1] as string;
     expect(invite.startsWith(`http://localhost:${webPort}/join/`)).toBe(true);
 
     // The web dev server serves the app; a CLI guest joins through the real relay with the printed invite.
@@ -85,11 +85,11 @@ describe.skipIf(!ENABLED)('scripts/dev-stack.sh (SMURG_TEST_DEV_STACK=1)', () =>
     const relay = `http://localhost:${relayPort}`;
     await run(process.execPath, [CLI_MAIN, 'login', '--relay', relay, '--dev-user', 'amy'], { env, timeout: 60_000 });
     const joined = await run(process.execPath, [CLI_MAIN, 'attach', '--invite', invite, '--relay', relay], { env, timeout: 60_000 });
-    expect(joined.stdout).toContain('透過 relay');
+    expect(joined.stdout).toContain('through the relay');
 
     process.kill(pid as number, 'SIGINT');
     expect(await exited).toBe(0);
-    expect(out).toContain('全部已停止');
+    expect(out).toContain('everything has stopped');
     for (const pgid of pgids) expect(await groupMembers(pgid)).toEqual([]);
   });
 });

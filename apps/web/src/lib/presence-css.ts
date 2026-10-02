@@ -1,6 +1,6 @@
 // Remote cursors for y-monaco (yjs-monaco.md Q1 "Presence rendering", ported from the spike's presenceCss.ts).
 // y-monaco only adds the classes `yRemoteSelection-<clientID>` / `yRemoteSelectionHead-<clientID>`; colours and the
-// name label (「Claude（Ian）」 for agents) are ours. Names come from the daemon (it overwrites `user` in awareness), but
+// name label ("Claude (Ian)" for agents) are ours. Names come from the daemon (it overwrites `user` in awareness), but
 // they still end up inside a CSS string, so they are escaped and cut.
 //
 //   awareness.on('change', () => { styleElement.textContent = presenceCss(awareness.getStates(), doc.clientID); });
@@ -31,7 +31,7 @@ interface PresenceUser {
 }
 
 /**
- * The name label shows for a moment after its owner moved or typed, then fades to the bare caret (review WEB-03: it
+ * The name label shows for a moment after its owner moved or typed, then fades to the bare caret (it
  * covered the line above for as long as the caret stayed). `changes` counts each client's awareness changes: the label
  * alternates between two identical keyframes (`smurg-cursor-label-a` / `-b`, in the editor's stylesheet), so a change
  * restarts the animation while an idle client's label stays faded when someone else's changes regenerate the sheet.

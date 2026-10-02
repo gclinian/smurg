@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, describe, expect, it } from 'vitest';
-import { NOTICES_PLACEHOLDER, PLACEHOLDER, SiteError, generateSite, writeSite, type SiteOptions } from '../scripts/site.ts';
+import { NOTICES_PLACEHOLDER, SiteError, generateSite, writeSite, type SiteOptions } from '../scripts/site.ts';
 import { FIXTURE_NOTICES, PUBLIC, REPO_ROOT, SITE_ROOT, parsePage, publicFiles } from './html.ts';
 
 const run = promisify(execFile);
@@ -24,13 +24,20 @@ function tempDir(prefix: string): string {
 }
 
 const DOCS = {
-  'docs/HOSTING.md': '# 主人指南\n\n組員請看 [`JOINING.md`](JOINING.md#2-角色)，授權見 [LICENSE](../LICENSE)。\n\n## 1. 安裝\n\n內部文件：[ARCHITECTURE](ARCHITECTURE.md)。\n\n## 2. 分享\n\n回到 [安裝](#1-安裝)。\n',
-  'docs/JOINING.md': '# 組員指南\n\n主人請看 [HOSTING.md](./HOSTING.md)。\n\n## 1. 加入\n\n文字。\n\n## 2. 角色\n\n文字。\n',
-  'CHANGELOG.md': '# 變更紀錄\n\n格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)。\n\n## [0.1.0] - 2026-10-01\n\n見 [`docs/HOSTING.md`](docs/HOSTING.md#2-分享) 與 [spec](SPEC.md)。\n',
-  LICENSE: 'smurg\n\nCopyright (c) 2026 Example Holder. All rights reserved.\n',
+  'docs/HOSTING.md': '# Host guide\n\nTeammates read [`JOINING.md`](JOINING.md#2-roles); the license is [LICENSE](../LICENSE); in [Chinese](zh-TW/HOSTING.md).\n\n## 1. Install\n\nFor developers: [ARCHITECTURE](ARCHITECTURE.md#rules) and the [relay](../apps/relay).\n\n## 2. Share\n\nBack to [install](#1-install).\n',
+  'docs/JOINING.md': '# Guide for teammates\n\nHosts read [HOSTING.md](./HOSTING.md).\n\n## 1. Join\n\nText.\n\n## 2. Roles\n\nText.\n',
+  'CHANGELOG.md': '# Changelog\n\nThe format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).\n\n## [0.1.0] - 2026-10-01\n\nSee [`docs/HOSTING.md`](docs/HOSTING.md#2-share) and the [spec](SPEC.md).\n',
+  'docs/zh-TW/HOSTING.md': '# 主人指南\n\n組員請看 [`JOINING.md`](JOINING.md#2-角色)，授權見 [LICENSE](../../LICENSE)。\n\n## 1. 安裝\n\n開發者：[ARCHITECTURE](../ARCHITECTURE.md)。\n\n## 2. 分享\n\n回到 [安裝](#1-安裝)。\n',
+  'docs/zh-TW/JOINING.md': '# 組員指南\n\n主人請看 [HOSTING.md](./HOSTING.md)。\n\n## 1. 加入\n\n文字。\n\n## 2. 角色\n\n文字。\n',
+  'docs/zh-TW/CHANGELOG.md': '# 變更紀錄\n\n格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)。\n\n## [0.1.0] - 2026-10-01\n\n見 [`HOSTING.md`](HOSTING.md#2-分享) 與 [English](../../CHANGELOG.md)。\n',
+  LICENSE: 'MIT License\n\nCopyright (c) 2026 Example Holder\n',
+  // Files of the repository that are not pages of the site: a link to one goes to GitHub.
+  'docs/ARCHITECTURE.md': '# Architecture\n',
+  'SPEC.md': '# SPEC\n',
+  'apps/relay/README.md': '# relay\n',
 } as const;
 
-/** A repository with the three docs and LICENSE, some of them replaced. */
+/** A repository with the docs of both languages and LICENSE, some of them replaced. */
 function fixtureRepo(overrides: Partial<Record<keyof typeof DOCS, string>> = {}): string {
   const root = tempDir('site-fixture-');
   for (const [path, text] of Object.entries({ ...DOCS, ...overrides })) {
@@ -51,39 +58,64 @@ function problemsOf(options: SiteOptions): readonly string[] {
 }
 
 describe('generateSite', () => {
-  it('renders the docs at their URLs, rewrites links between them and turns the internal ones into text', () => {
+  it('renders the docs of both languages at their URLs, keeps links between them inside the language, and sends other repository files to GitHub', () => {
     const site = generateSite({ repoRoot: fixtureRepo(), notices: FIXTURE_NOTICES });
-    const hosting = site.files.get('docs/hosting/index.html')?.toString('utf8') ?? '';
-    expect(hosting).toContain('<a href="/docs/joining/#2-角色"><code>JOINING.md</code></a>');
+    const text = (path: string): string => site.files.get(path)?.toString('utf8') ?? '';
+    const hosting = text('docs/hosting/index.html');
+    expect(hosting).toContain('<html lang="en">');
+    expect(hosting).toContain('<a href="/docs/joining/#2-roles"><code>JOINING.md</code></a>');
     expect(hosting).toContain('<a href="/license/">LICENSE</a>');
-    expect(hosting).toContain('內部文件：ARCHITECTURE。');
-    expect(hosting).toContain('<a href="#1-安裝">安裝</a>');
-    const changelog = site.files.get('docs/changelog/index.html')?.toString('utf8') ?? '';
-    expect(changelog).toContain('<a href="https://keepachangelog.com/zh-TW/1.1.0/">Keep a Changelog</a>');
-    expect(changelog).toContain('<a href="/docs/hosting/#2-分享"><code>docs/HOSTING.md</code></a>');
+    expect(hosting).toContain('<a href="/zh-TW/docs/hosting/">Chinese</a>');
+    expect(hosting).toContain('<a href="https://github.com/gclinian/smurg/blob/main/docs/ARCHITECTURE.md#rules">ARCHITECTURE</a>');
+    expect(hosting).toContain('<a href="https://github.com/gclinian/smurg/tree/main/apps/relay">relay</a>');
+    expect(hosting).toContain('<a href="#1-install">install</a>');
+    const changelog = text('docs/changelog/index.html');
+    expect(changelog).toContain('<a href="https://keepachangelog.com/en/1.1.0/">Keep a Changelog</a>');
+    expect(changelog).toContain('<a href="/docs/hosting/#2-share"><code>docs/HOSTING.md</code></a>');
+    const zhHosting = text('zh-TW/docs/hosting/index.html');
+    expect(zhHosting).toContain('<html lang="zh-Hant-TW">');
+    expect(zhHosting).toContain('<a href="/zh-TW/docs/joining/#2-角色"><code>JOINING.md</code></a>');
+    expect(zhHosting).toContain('<a href="/zh-TW/license/">LICENSE</a>');
+    expect(zhHosting).toContain('<a href="#1-安裝">安裝</a>');
+    expect(text('zh-TW/docs/changelog/index.html')).toContain('<a href="/docs/changelog/">English</a>');
     expect(site.rewritten).toEqual([
-      'docs/HOSTING.md:3 [JOINING.md](JOINING.md#2-角色) -> /docs/joining/#2-角色',
+      'docs/HOSTING.md:3 [JOINING.md](JOINING.md#2-roles) -> /docs/joining/#2-roles',
       'docs/HOSTING.md:3 [LICENSE](../LICENSE) -> /license/',
+      'docs/HOSTING.md:3 [Chinese](zh-TW/HOSTING.md) -> /zh-TW/docs/hosting/',
+      'docs/HOSTING.md:7 [ARCHITECTURE](ARCHITECTURE.md#rules) -> https://github.com/gclinian/smurg/blob/main/docs/ARCHITECTURE.md#rules',
+      'docs/HOSTING.md:7 [relay](../apps/relay) -> https://github.com/gclinian/smurg/tree/main/apps/relay',
       'docs/JOINING.md:3 [HOSTING.md](./HOSTING.md) -> /docs/hosting/',
-      'CHANGELOG.md:7 [docs/HOSTING.md](docs/HOSTING.md#2-分享) -> /docs/hosting/#2-分享',
+      'CHANGELOG.md:7 [docs/HOSTING.md](docs/HOSTING.md#2-share) -> /docs/hosting/#2-share',
+      'CHANGELOG.md:7 [spec](SPEC.md) -> https://github.com/gclinian/smurg/blob/main/SPEC.md',
+      'docs/zh-TW/HOSTING.md:3 [JOINING.md](JOINING.md#2-角色) -> /zh-TW/docs/joining/#2-角色',
+      'docs/zh-TW/HOSTING.md:3 [LICENSE](../../LICENSE) -> /zh-TW/license/',
+      'docs/zh-TW/HOSTING.md:7 [ARCHITECTURE](../ARCHITECTURE.md) -> https://github.com/gclinian/smurg/blob/main/docs/ARCHITECTURE.md',
+      'docs/zh-TW/JOINING.md:3 [HOSTING.md](./HOSTING.md) -> /zh-TW/docs/hosting/',
+      'docs/zh-TW/CHANGELOG.md:7 [HOSTING.md](HOSTING.md#2-分享) -> /zh-TW/docs/hosting/#2-分享',
+      'docs/zh-TW/CHANGELOG.md:7 [English](../../CHANGELOG.md) -> /docs/changelog/',
     ]);
-    expect(site.plain).toEqual([
-      'docs/HOSTING.md:7 [ARCHITECTURE](ARCHITECTURE.md) -> plain text (docs/ARCHITECTURE.md is not published)',
-      'CHANGELOG.md:7 [spec](SPEC.md) -> plain text (SPEC.md is not published)',
-    ]);
-    for (const path of ['docs/index.html', 'docs/hosting/index.html', 'docs/joining/index.html', 'docs/changelog/index.html', 'license/index.html']) {
-      expect(parsePage(site.files.get(path)?.toString('utf8') ?? '').errors, path).toEqual([]);
+    expect(site.plain).toEqual([]);
+    const pages = ['docs/index.html', 'docs/hosting/index.html', 'docs/joining/index.html', 'docs/changelog/index.html', 'license/index.html'];
+    for (const path of [...pages, ...pages.map((page) => `zh-TW/${page}`)]) {
+      expect(parsePage(text(path)).errors, path).toEqual([]);
+      // Each page names its counterpart: the alternates and the language link.
+      const en = `/${path.replace(/^zh-TW\//, '').replace(/index\.html$/, '')}`;
+      expect(text(path), path).toContain(`<link rel="alternate" hreflang="en" href="https://smurg.ai${en}">\n<link rel="alternate" hreflang="zh-Hant-TW" href="https://smurg.ai/zh-TW${en}">\n<link rel="alternate" hreflang="x-default" href="https://smurg.ai${en}">`);
+      expect(text(path), path).toContain(path.startsWith('zh-TW/') ? `<li class="lang"><a href="${en}" hreflang="en" lang="en">English</a></li>` : `<li class="lang"><a href="/zh-TW${en}" hreflang="zh-Hant-TW" lang="zh-Hant-TW">繁體中文</a></li>`);
     }
-    expect(site.files.get('license/index.html')?.toString('utf8')).toContain('Copyright (c) 2026 Example Holder. All rights reserved.');
+    for (const path of ['license/index.html', 'zh-TW/license/index.html']) expect(text(path)).toContain('Copyright (c) 2026 Example Holder');
+    // No 404 page is generated under /docs/ any more.
+    expect(site.files.has('docs/404.html')).toBe(false);
+    expect(text('sitemap.xml')).toContain('<loc>https://smurg.ai/zh-TW/docs/joining/</loc>');
   });
 
-  it('turns every link that is not https into text (GitHub links never get this far: see the next test)', () => {
+  it('turns every link that is not https into text, and keeps https links to any host, GitHub included', () => {
     const repo = fixtureRepo({
-      'docs/JOINING.md': '# 組員指南\n\n[a](http://example.com/) [b](//example.com/x) [c](mailto:a@example.com) [d](javascript:alert(1)) [e](https://example.com/ok)\n\n## 2. 角色\n',
+      'docs/JOINING.md': '# Guide for teammates\n\n[a](http://example.com/) [b](//example.com/x) [c](mailto:a@example.com) [d](javascript:alert(1)) [e](https://example.com/ok) [f](https://github.com/x/y)\n\n## 2. Roles\n',
     });
     const site = generateSite({ repoRoot: repo, notices: FIXTURE_NOTICES });
     const joining = site.files.get('docs/joining/index.html')?.toString('utf8') ?? '';
-    expect(joining).toContain('<p>a b c d <a href="https://example.com/ok">e</a></p>');
+    expect(joining).toContain('<p>a b c d <a href="https://example.com/ok">e</a> <a href="https://github.com/x/y">f</a></p>');
     expect(site.plain.filter((line) => line.startsWith('docs/JOINING.md'))).toEqual([
       'docs/JOINING.md:3 [a](http://example.com/) -> plain text (a http: link (only https links are kept))',
       'docs/JOINING.md:3 [b](//example.com/x) -> plain text (a protocol-relative link)',
@@ -92,41 +124,43 @@ describe('generateSite', () => {
     ]);
   });
 
-  it('refuses docs that mention github.com, naming the line (the source is private)', () => {
-    const repo = fixtureRepo({ 'docs/HOSTING.md': '# 主人指南\n\n```sh\ncurl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh | sh\n```\n\n[repo](https://github.com/x/y)\n' });
-    // (The fixture's other docs link to headings this HOSTING.md does not have: those problems are left out here.)
-    const problems = problemsOf({ repoRoot: repo, notices: FIXTURE_NOTICES }).filter((p) => p.startsWith('docs/HOSTING.md'));
-    expect(problems).toEqual([
-      'docs/HOSTING.md:4 mentions github.com (the source is private): curl -fsSL https://github.com/gclinian/smurg/releases/latest/download/install.sh | sh',
-      'docs/HOSTING.md:7 mentions github.com (the source is private): [repo](https://github.com/x/y)',
+  it('refuses a link to a repository file that does not exist, or to a path outside the repository', () => {
+    const repo = fixtureRepo({ 'docs/JOINING.md': '# Guide for teammates\n\n[a](NOPE.md) [b](../apps/nope/README.md#x) [c](../../outside.md)\n\n## 2. Roles\n' });
+    expect(problemsOf({ repoRoot: repo, notices: FIXTURE_NOTICES })).toEqual([
+      'docs/JOINING.md: the link (NOPE.md) points at docs/NOPE.md, which does not exist in the repository',
+      'docs/JOINING.md: the link (../apps/nope/README.md#x) points at apps/nope/README.md, which does not exist in the repository',
     ]);
+    // (A path outside the repository is not a link the site can make: it becomes its text, and the build says so.)
+    const outside = fixtureRepo({ 'docs/JOINING.md': '# Guide for teammates\n\n[c](../../outside.md)\n\n## 2. Roles\n' });
+    expect(generateSite({ repoRoot: outside, notices: FIXTURE_NOTICES }).plain).toEqual(['docs/JOINING.md:3 [c](../../outside.md) -> plain text (a path outside the repository)']);
   });
 
   it('refuses a #link to a heading that does not exist, in the page or in another doc', () => {
-    const repo = fixtureRepo({ 'docs/JOINING.md': '# 組員指南\n\n[a](#nope) [b](HOSTING.md#nope) [c](HOSTING.md#2-分享)\n\n## 2. 角色\n' });
+    const repo = fixtureRepo({ 'docs/JOINING.md': '# Guide for teammates\n\n[a](#nope) [b](HOSTING.md#nope) [c](HOSTING.md#2-share) [d](zh-TW/HOSTING.md#2-share)\n\n## 2. Roles\n' });
     expect(problemsOf({ repoRoot: repo, notices: FIXTURE_NOTICES })).toEqual([
       'docs/joining/index.html: <a href="#nope">: no element has this id',
       'docs/joining/index.html: <a href="/docs/hosting/#nope">: docs/hosting/index.html has no element with this id',
+      // The other language's page has its own headings.
+      'docs/joining/index.html: <a href="/zh-TW/docs/hosting/#2-share">: zh-TW/docs/hosting/index.html has no element with this id',
     ]);
   });
 
   it('refuses a doc without exactly one h1 first, or with a skipped heading level, or with an image', () => {
-    const repo = fixtureRepo({ 'docs/JOINING.md': '## 先\n\n# 一\n\n# 二\n\n#### 跳\n\n![x](x.png)\n\n## 2. 角色\n' });
+    const repo = fixtureRepo({ 'docs/zh-TW/JOINING.md': '## 先\n\n# 一\n\n# 二\n\n#### 跳\n\n![x](x.png)\n\n## 2. 角色\n' });
     expect(problemsOf({ repoRoot: repo, notices: FIXTURE_NOTICES })).toEqual([
-      'docs/JOINING.md: line 9: an image (x.png); the site has no images from the docs',
-      'docs/JOINING.md: needs exactly one level-1 heading (#), before any other heading',
-      'docs/JOINING.md: "跳" skips a heading level',
+      'docs/zh-TW/JOINING.md: line 9: an image (x.png); the site has no images from the docs',
+      'docs/zh-TW/JOINING.md: needs exactly one level-1 heading (#), before any other heading',
+      'docs/zh-TW/JOINING.md: "跳" skips a heading level',
     ]);
   });
 
-  it('refuses the LICENSE placeholder and unfilled notices unless told to build anyway (previews and tests)', () => {
-    const repo = fixtureRepo({ LICENSE: `smurg\n\nCopyright (c) 2026 ${PLACEHOLDER}. All rights reserved.\n` });
+  it('refuses unfilled notices unless told to build anyway (previews and tests)', () => {
+    const repo = fixtureRepo();
     const notices = join(tempDir('site-notices-'), 'notices.txt');
     writeFileSync(notices, `x@1.0.0\n\nNode.js runtime\n\n${NOTICES_PLACEHOLDER} into the executable …\n`);
     const problems = problemsOf({ repoRoot: repo, notices });
-    expect(problems).toHaveLength(2);
-    expect(problems[0]).toMatch(/^LICENSE still names the copyright holder "<COPYRIGHT HOLDER>"/);
-    expect(problems[1]).toMatch(/the Node\.js section is still the committed placeholder/);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/the Node\.js section is still the committed placeholder/);
     expect(problemsOf({ repoRoot: repo, notices, allowPlaceholder: true })).toEqual([]);
   });
 
@@ -166,10 +200,10 @@ describe('generateSite', () => {
     mkdirSync(join(publicDir, 'license'));
     writeFileSync(join(publicDir, 'license', 'index.html'), '<!doctype html>');
     const repo = fixtureRepo();
-    rmSync(join(repo, 'CHANGELOG.md'));
+    rmSync(join(repo, 'docs', 'zh-TW', 'CHANGELOG.md'));
     const problems = problemsOf({ repoRoot: repo, publicDir, notices: FIXTURE_NOTICES });
     expect(problems.filter((p) => !p.includes('/docs/changelog/'))).toEqual([
-      `CHANGELOG.md: ${join(repo, 'CHANGELOG.md')} does not exist`,
+      `docs/zh-TW/CHANGELOG.md: ${join(repo, 'docs', 'zh-TW', 'CHANGELOG.md')} does not exist`,
       'license/index.html is both in public/ and generated by the build',
     ]);
   });
@@ -219,7 +253,7 @@ describe('scripts/build.ts', () => {
   };
 
   it('exits 1 and lists the problems, writing nothing, when the site cannot be built', async () => {
-    const repo = fixtureRepo({ LICENSE: `Copyright (c) 2026 ${PLACEHOLDER}.\n`, 'docs/JOINING.md': '# 組員\n\n[x](#nope)\n\n## 2. 角色\n' });
+    const repo = fixtureRepo({ 'docs/JOINING.md': '# Guide\n\n[x](#nope) [y](NOPE.md)\n\n## 2. Roles\n' });
     const error = await run(process.execPath, [BUILD], {
       cwd: SITE_ROOT,
       env: env({ SMURG_SITE_SOURCE_ROOT: repo, SMURG_SITE_THIRD_PARTY_NOTICES: FIXTURE_NOTICES }),
@@ -229,7 +263,7 @@ describe('scripts/build.ts', () => {
     );
     expect(error?.code).toBe(1);
     expect(error?.stderr).toContain('the smurg.ai build failed:');
-    expect(error?.stderr).toContain('LICENSE still names the copyright holder "<COPYRIGHT HOLDER>"');
+    expect(error?.stderr).toContain('docs/JOINING.md: the link (NOPE.md) points at docs/NOPE.md, which does not exist in the repository');
     expect(error?.stderr).toContain('docs/joining/index.html: <a href="#nope">: no element has this id');
   });
 

@@ -301,7 +301,7 @@ describe('ops', () => {
     expect(d.daemon.status().stopped).toBe(false);
   });
 
-  // Verification F-2 (2026-10-02): whoever reaches the socket (any session of a 「可使用 agent」 member) used to choose
+  // Verification F-2 (2026-10-02): whoever reaches the socket (any session of a Agent access member) used to choose
   // the daemon's stop reason, and `smurg host` took 'start-failed' / 'summary-failed' for its own stops: the daemon
   // stopped while the host's terminal was never told. The request names no reason now; the reason is always the same.
   it('a stop request names no reason: one that does is refused and stops nothing; the reason is always CTL_STOP_REASON (verification F-2)', async () => {

@@ -86,7 +86,7 @@ export function humanLock(file: FileRef, displayName = 'Amy'): LockInfo {
 
 export function agentLock(file: FileRef, owner = 'Ian'): LockInfo {
   const at = Date.now();
-  return { kind: 'agent', file, sessionId: 'sess_test_agent', ownerUserId: `dev:${owner.toLowerCase()}`, agentName: `Claude（${owner}）`, acquiredAt: at, expiresAt: at + 60_000 };
+  return { kind: 'agent', file, sessionId: 'sess_test_agent', ownerUserId: `dev:${owner.toLowerCase()}`, agentName: `Claude (${owner})`, acquiredAt: at, expiresAt: at + 60_000 };
 }
 
 export interface FilesTestOptions extends Omit<TestDaemonOptions, 'modules'> {

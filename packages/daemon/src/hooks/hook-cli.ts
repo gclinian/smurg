@@ -22,6 +22,7 @@
 // src/index.ts, `@smurg/daemon`), zod or anything heavy; node:net and JSON are all it needs. The CLI loads it through
 // the package export `@smurg/daemon/hook-cli` (test/composition.test.ts checks the import graph).
 import { randomBytes } from 'node:crypto';
+import { daemonUnreachableReason } from './deny-text.ts';
 import { HookSocketError, requestDaemon } from './socket-client.ts';
 import {
   BASH_HOOK_DEADLINE_MS,
@@ -32,7 +33,6 @@ import {
   HOOK_ENV,
   HOOK_REQUEST_MAX_BYTES,
   HOOK_STDIN_MAX_BYTES,
-  daemonUnreachableReason,
   isJsonObject,
   preToolUseDeny,
   projectHookInput,

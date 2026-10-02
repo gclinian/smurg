@@ -1,16 +1,16 @@
-// The owner's PTY size (review LEAD-01): columns AND rows fitted to the panel, a floor for Claude Code, scrollbars
+// The owner's PTY size: columns AND rows fitted to the panel, a floor for Claude Code, scrollbars
 // accounted for, the daemon's clamp; and what is sent when (debounced, never the rendered size, never twice while
 // the daemon's answer is on its way).
 import { describe, expect, it } from 'vitest';
 import { OWNER_SIZE_FLOOR, OwnerResizer, PTY_SIZE_MIN, RESIZE_DEBOUNCE_MS, RESIZE_ECHO_WAIT_MS, planOwnerSize, type TerminalGeometry, type TerminalSize } from './terminal-fit.ts';
 
-/** The lead's browser (LEAD-01): 13 px font, 7.825 × 18 px cells, 4 px padding, xterm's 14 px scrollbar reserve. */
+/** A common setup: 13 px font, 7.825 × 18 px cells, 4 px padding, xterm's 14 px scrollbar reserve. */
 function panel(width: number, height: number, cell = { width: 7.825, height: 18 }): TerminalGeometry {
   return { width, height, cellWidth: cell.width, cellHeight: cell.height, paddingX: 8, paddingY: 8, reserveX: 14, scrollbar: 12 };
 }
 
 describe('planOwnerSize: the PTY follows the owner panel, columns and rows', () => {
-  it('LEAD-01: a 420 px panel gets the columns it can show (a shell), not 80 columns clipped at the panel edge', () => {
+  it('a 420 px panel gets the columns it can show (a shell), not 80 columns clipped at the panel edge', () => {
     const plan = planOwnerSize(panel(420, 520), OWNER_SIZE_FLOOR.terminal);
     // (420 − 8 − 14) / 7.825 = 50.9 → 50 columns; (520 − 8) / 18 = 28.4 → 28 rows.
     expect(plan).toEqual({ cols: 50, rows: 28, fitCols: 50, fitRows: 28, narrow: false, short: false });

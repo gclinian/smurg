@@ -7,6 +7,9 @@ const BASE_HEADERS: Record<string, string> = {
   'referrer-policy': 'no-referrer',
 };
 
+/** The relay's HTML pages depend on the language cookie and on Accept-Language (lib/locale.ts). */
+export const PAGE_VARY = 'Accept-Language, Cookie';
+
 const HTML_CSP = "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 
 function headersWith(extra: Record<string, string>, cookies: readonly string[] = []): Headers {
@@ -41,14 +44,19 @@ export type HtmlOptions = {
 };
 
 export function htmlResponse(html: string, status = 200, cookies: readonly string[] = [], options: HtmlOptions = {}): Response {
-  // X-Frame-Options next to frame-ancestors for browsers that predate CSP 2 (clickjacking of /device's 「允許」).
-  const extra: Record<string, string> = { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': HTML_CSP, 'x-frame-options': 'DENY' };
+  // X-Frame-Options next to frame-ancestors for browsers that predate CSP 2 (clickjacking of /device's "Allow").
+  const extra: Record<string, string> = {
+    'content-type': 'text/html; charset=utf-8',
+    'content-security-policy': HTML_CSP,
+    'x-frame-options': 'DENY',
+    vary: PAGE_VARY,
+  };
   if (options.referrerPolicy !== undefined) extra['referrer-policy'] = options.referrerPolicy;
   return new Response(html, { status, headers: headersWith(extra, cookies) });
 }
 
-export function redirectResponse(location: string, cookies: readonly string[] = []): Response {
-  return new Response(null, { status: 302, headers: headersWith({ location }, cookies) });
+export function redirectResponse(location: string, cookies: readonly string[] = [], status: 302 | 303 = 302): Response {
+  return new Response(null, { status, headers: headersWith({ location }, cookies) });
 }
 
 export function emptyResponse(status = 204, cookies: readonly string[] = []): Response {

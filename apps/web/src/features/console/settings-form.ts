@@ -75,7 +75,7 @@ const NUMBER = /^\d+(?:\.\d+)?$/;
 function parseNumber(text: string, min: number, max: number): { value: number } | { error: string } {
   const trimmed = text.trim();
   if (trimmed === '') return { error: t('settings.error.required') };
-  // 「-5」 is a number too: say what IS accepted (review WEB-13), not 「請輸入數字」.
+  // "-5" is a number too: say what IS accepted, not "Enter a number".
   if (/^-\s*\d/.test(trimmed)) return { error: t('settings.error.min', { min }) };
   if (!NUMBER.test(trimmed)) return { error: t('settings.error.number') };
   const value = Number(trimmed);

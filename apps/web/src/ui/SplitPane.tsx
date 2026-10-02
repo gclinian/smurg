@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { browserLocalStorage, readJson, writeJson } from '../lib/preferences.ts';
 import { tUi } from '../strings/ui.ts';
@@ -18,7 +18,7 @@ export interface SplitPaneProps {
   minOtherSize?: number;
   /** Remember the size in this browser under this key. */
   storageKey?: string;
-  /** Name of the fixed pane, for the separator's accessible label (「檔案」). */
+  /** Name of the fixed pane, for the separator's accessible label ("Files"). */
   label: string;
   /**
    * Collapse the fixed pane (its size is kept for when it comes back). Its content stays mounted: with a
@@ -48,6 +48,12 @@ interface ActiveDrag {
 /**
  * Two panes with a draggable separator. The separator is a focusable WAI-ARIA window splitter: arrow keys resize (Shift
  * for bigger steps), Home / End jump to the limits, a double click comes back to the default size.
+ *
+ * The size the person chose is a wish: what is SHOWN is that size inside the limits of the container as it is now
+ * (observed, so a smaller window or a wider neighbour narrows the pane at once and a bigger one gives the wish back).
+ * The limits leave the other pane `minOtherSize`; when the container is too small for both minimums the fixed pane
+ * keeps `minSize` and the other pane gets what is left. The separator reports what is shown: aria-valuenow is the
+ * size on screen, aria-valuemin / aria-valuemax the limits that hold right now.
  *
  * Dragging (split-resize.ts has the arithmetic): the separator stays under the pointer exactly where it was grabbed,
  * measured against the container's own box, inside limits that leave the other pane its minimum. The pane moves ONLY
@@ -81,6 +87,8 @@ export function SplitPane({
 
   const [size, setSize] = useState<number>(() => clampSize(storedSize(storeKey ? readJson(browserLocalStorage(), storeKey) : undefined) ?? defaultSize, limitsIn(null)));
   const [dragging, setDragging] = useState(false);
+  /** The container's size along the axis as last observed; null while it is not laid out. */
+  const [room, setRoom] = useState<number | null>(null);
   const container = useRef<HTMLDivElement>(null);
   const separator = useRef<HTMLDivElement>(null);
   const drag = useRef<ActiveDrag | null>(null);
@@ -96,6 +104,29 @@ export function SplitPane({
       ? { geometry: { containerStart: box.left, containerSize: box.width, separatorSize: line.width }, separatorStart: line.left }
       : { geometry: { containerStart: box.top, containerSize: box.height, separatorSize: line.height }, separatorStart: line.top };
   };
+
+  // The container's box follows the window and the panes around it, never its own separator: observing it cannot
+  // feed back into its own size. Without ResizeObserver (old engines, jsdom) the window's resize is the signal.
+  useLayoutEffect(() => {
+    const node = container.current;
+    if (!node) return;
+    const observed = (value: number): void => setRoom(value > 0 ? value : null);
+    const read = (): void => {
+      const box = node.getBoundingClientRect();
+      observed(horizontal ? box.width : box.height);
+    };
+    read();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', read);
+      return () => window.removeEventListener('resize', read);
+    }
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[entries.length - 1]?.contentRect;
+      if (box) observed(horizontal ? box.width : box.height);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [horizontal]);
 
   const persist = (value: number): void => {
     if (storeKey) writeJson(browserLocalStorage(), storeKey, value);
@@ -145,9 +176,13 @@ export function SplitPane({
       geometry = measure()?.geometry ?? geometry;
     };
 
+    // What this drag last put on screen. It starts as the size shown at the press, which is less than the remembered
+    // size in a window too small for it: a press and release without a move changes (and forgets) nothing.
+    let current = clampSize(sizeFromSeparator(pressed.separatorStart, geometry, fixed), limitsIn(geometry));
     const apply = (pointer: number): void => {
       const next = clampSize(sizeFromPointer(pointer, grab, geometry, fixed), limitsIn(geometry));
-      if (next === applied.current) return;
+      if (next === current) return;
+      current = next;
       applied.current = next;
       // In this frame, not in a later task: the line is under the pointer when the frame is painted.
       flushSync(() => setSize(next));
@@ -258,7 +293,10 @@ export function SplitPane({
   // Refs and the storage key are the same in every render: the first render's endDrag ends any later drag.
   useEffect(() => () => endDrag('unmount'), []);
 
-  const shown = collapsed ? collapsedSize : size;
+  const limits = limitsIn(room === null ? null : { containerStart: 0, containerSize: room, separatorSize: SEPARATOR_PX });
+  /** The size on screen: the remembered one, inside what the container allows right now. */
+  const sizeShown = clampSize(size, limits);
+  const shown = collapsed ? collapsedSize : sizeShown;
   const fixedStyle = wide ? undefined : horizontal ? { width: shown } : { height: shown };
   const fixedPane = (
     <div className={cx('ui-split__pane', wide ? 'ui-split__pane--flex' : 'ui-split__pane--fixed')} style={fixedStyle} hidden={collapsed && collapsedSize <= 0}>
@@ -277,9 +315,9 @@ export function SplitPane({
       tabIndex={0}
       aria-orientation={horizontal ? 'vertical' : 'horizontal'}
       aria-label={tUi('split.resize', { name: label })}
-      aria-valuenow={size}
-      aria-valuemin={minSize}
-      aria-valuemax={maxSize}
+      aria-valuenow={sizeShown}
+      aria-valuemin={limits.min}
+      aria-valuemax={limits.max}
       className="ui-split__separator"
       data-dragging={dragging ? '' : undefined}
       onKeyDown={onKeyDown}
@@ -293,7 +331,7 @@ export function SplitPane({
       ref={container}
       className={cx('ui-split', `ui-split--${orientation}`, className)}
       data-dragging={dragging ? '' : undefined}
-      style={{ '--ui-split-min-other': `${minOtherSize}px` } as CSSProperties}
+      style={{ '--ui-split-min': `${minSize}px`, '--ui-split-min-other': `${minOtherSize}px` } as CSSProperties}
     >
       {fixed === 'start' ? (
         <>

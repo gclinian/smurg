@@ -1,9 +1,9 @@
-// Third-party notices (scripts/third-party-notices.ts; LICENSE: smurg is proprietary, the packages it bundles keep their
+// Third-party notices (scripts/third-party-notices.ts; LICENSE: smurg is MIT-licensed, the packages it bundles keep their
 // own licenses). The committed files must be exactly what pnpm-lock.yaml and node_modules give now; generation is
 // deterministic and does not depend on which platform's native packages are installed; a bundled package without a
 // license file fails loudly; every license and NOTICE file of every bundled package is reproduced (an Apache-2.0 text
 // in full included); every package esbuild puts into the executable is listed; the Node.js section is filled in from the
-// Node distribution's LICENSE; nothing of the guest sandbox is left (owner decision 2026-10-01, ARCHITECTURE §11 D-15:
+// Node distribution's LICENSE; nothing of the guest sandbox is left (ARCHITECTURE §11 D-15:
 // no @anthropic-ai/sandbox-runtime, no note on its glibc-linked apply-seccomp). Fixtures are fake pnpm installs in a
 // temp dir (no network).
 import { mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -204,6 +204,24 @@ describe('scripts/third-party-notices.ts with a fake install', () => {
 describe('the committed notices of this repository', () => {
   it('are exactly what pnpm-lock.yaml and node_modules give now (else: node scripts/third-party-notices.ts)', () => {
     expect(staleNotices(), 'run  node scripts/third-party-notices.ts  and commit both files').toEqual([]);
+  });
+
+  it('say that smurg itself is MIT-licensed, and name the vendored test vectors in NOTICE', () => {
+    for (const kind of ['executable', 'web'] as const) {
+      const text = readFileSync(join(ROOT, NOTICES_FILES[kind]), 'utf8');
+      expect(text, kind).toContain('\n\nsmurg itself is MIT-licensed (');
+      // (the packages' own license texts may say "All rights reserved": only the introduction is smurg's)
+      expect(text.slice(0, text.indexOf('\nPackages (')), kind).not.toMatch(/proprietary|all rights reserved/i);
+    }
+    const notice = readFileSync(join(ROOT, 'NOTICE'), 'utf8');
+    expect(notice).toContain('smurg is MIT-licensed (see LICENSE).');
+    expect(notice).not.toMatch(/all rights reserved/i);
+    for (const file of Object.values(NOTICES_FILES)) expect(notice).toContain(file);
+    const vectors = readFileSync(join(ROOT, 'packages', 'protocol', 'test-vectors', 'README.md'), 'utf8');
+    for (const name of readdirSync(join(ROOT, 'packages', 'protocol', 'test-vectors')).filter((entry) => entry.endsWith('.txt'))) {
+      expect(notice, name).toContain(`packages/protocol/test-vectors/${name}`);
+      expect(vectors, name).toContain(`| \`${name}\` |`);
+    }
   });
 
   it('reproduce every license and NOTICE file of every package of the executable and the web app', () => {

@@ -5,6 +5,7 @@ export * from './entities.ts';
 export * from './error-details.ts';
 export * from './handshake.ts';
 export * from './limits.ts';
+export * from './message-ref.ts';
 export * from './paths.ts';
 export * from './primitives.ts';
 export * from './redact.ts';

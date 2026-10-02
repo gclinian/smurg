@@ -59,7 +59,7 @@ export class TermMirror {
   private readonly waiting = new Set<() => void>();
   /**
    * The last snapshot and what it was taken of: nothing but output (a new offset) and resizes change the mirror, so
-   * repeated or concurrent attaches of an idle terminal reuse it instead of serializing again (review REL-12).
+   * repeated or concurrent attaches of an idle terminal reuse it instead of serializing again.
    */
   private cached: { readonly offset: number; readonly cols: number; readonly rows: number; readonly asked: number; readonly maxBytes: number; readonly snapshot: MirrorSnapshot } | null = null;
 
@@ -154,7 +154,7 @@ export class TermMirror {
    * Serializes the state exactly at the current offset: xterm runs write callbacks synchronously right after that
    * chunk is parsed, so inside the callback the parser state corresponds to `offset`. When the full history would not
    * fit `maxBytes`, fewer scrollback lines are serialized rather than failing the attach. Serializing runs on the
-   * daemon's event loop, so the work is bounded (review REL-12): the line count that fits is estimated from two small
+   * daemon's event loop, so the work is bounded: the line count that fits is estimated from two small
    * probes instead of serializing the whole history and halving it again and again, and a snapshot of an unchanged
    * mirror is reused.
    */

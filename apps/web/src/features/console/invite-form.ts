@@ -1,4 +1,4 @@
-// Invites (SPEC R2 「主人產生邀請連結，可設定角色、有效期限、使用次數」) as pure functions: the expiry choices, the
+// Invites (SPEC R2 "the host creates invite links with a role, an expiry and a number of uses") as pure functions: the expiry choices, the
 // uses field, and an invite's state for the list.
 import { INVITE_MAX_USES_MAX, type InviteInfo } from '@smurg/protocol';
 import { t } from './strings.ts';

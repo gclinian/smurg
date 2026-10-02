@@ -1,249 +1,321 @@
-# 組員指南：加入別人分享的工作區
+# Guide for teammates: join a shared workspace
 
-這份文件寫給**組員**：有同學用 smurg 把專案資料夾分享出來，傳了一個邀請連結給你。你不需要用過 smurg，也不需要用過
-Claude Code。主人（分享資料夾的人）請看[主人指南](HOSTING.md)。
+This guide is for **teammates**: someone shared a project folder with smurg and sent you an invite link. You do not
+need to have used smurg or Claude Code before. The host (the person who shares the folder) should read the
+[host guide](HOSTING.md). This guide in [繁體中文](zh-TW/JOINING.md).
 
-先知道三件事：
+Three things to know first:
 
-- **所有檔案都在主人的電腦上**。你在瀏覽器裡看到、改到的，就是主人電腦上的那份檔案；存檔是自動的。
-- **Claude Code** 是在終端機裡工作的 AI 程式助手（以下叫 **agent**）：你用一般的句子告訴它要做什麼，它會讀檔案、改程式、
-  執行指令。在 smurg 裡，每個 agent 都在主人的電腦上、以主人的身分執行，工作區裡的每個人都能即時看到它在做什麼。
-- 你和主人電腦之間的連線是**端對端加密**的：中間轉送資料的伺服器（relay）看不到檔案內容、終端機畫面或指令（它知道
-  你用哪個帳號登入、從哪個 IP 連線）。
+- **Every file is on the host's computer.** What you see and change in the browser is the file on the host's
+  computer; saving is automatic.
+- **Claude Code** is an AI coding assistant that works in a terminal (called an **agent** below): you tell it what to
+  do in plain sentences, and it reads files, changes code and runs commands. In smurg every agent runs on the host's
+  computer, as the host, and everyone in the workspace sees what it is doing, live.
+- The connection between you and the host's computer is **end-to-end encrypted**: the server in between (the relay)
+  cannot see file contents, terminal output or commands (it knows which account you logged in with and the IP address
+  you connect from).
 
-目錄：[1. 加入](#1-用邀請連結加入) · [2. 角色](#2-角色可以做什麼) · [3. 一起編輯](#3-一起編輯檔案) ·
-[4. 檔案鎖的提示](#4-檔案鎖的提示是什麼意思) · [5. 看 agent 與提建議](#5-看-agent-工作提出建議) ·
-[6. 開 agent session（可使用 agent）](#6-開-agent-session可使用-agent) · [7. worktree 與合併請求](#7-worktree-與合併請求) ·
-[8. 主人已離線](#8主人已離線是什麼意思) · [9. 離開](#9-離開工作區會結束什麼) · [10. 用終端機（CLI）](#10-用終端機cli加入選用)
+Contents: [1. Join](#1-join-with-an-invite-link) · [2. Roles](#2-roles-what-you-can-do) ·
+[3. Edit together](#3-edit-files-together) · [4. Lock notices](#4-what-the-lock-notices-mean) ·
+[5. Watch agents and send suggestions](#5-watch-agents-and-send-suggestions) ·
+[6. Open agent sessions (Agent access)](#6-open-agent-sessions-agent-access) ·
+[7. Worktrees and merge requests](#7-worktrees-and-merge-requests) · [8. Host offline](#8-what-host-offline-means) ·
+[9. Leaving](#9-leaving-a-workspace-what-ends) · [10. From a terminal (CLI)](#10-joining-from-a-terminal-cli-optional)
 
-## 1. 用邀請連結加入
+## 1. Join with an invite link
 
-邀請連結長這樣：`https://<網站>/join/<工作區代碼>#k=…&s=…`。主人用 smurg 的公用 relay 時，`<網站>` 就是
-app.smurg.ai（連結是 `https://app.smurg.ai/join/…`；https://smurg.ai 是 smurg 的介紹頁和使用說明，不能打開工作區）；主人
-用 `--relay` 指定了其他 relay 時，是那個 relay 的網址。`#` 後面那一段是**密鑰**，有了它就能加入
-工作區：不要轉貼到群組或公開的地方，也不要只複製 `#` 前面的部分。
+An invite link looks like this: `https://<site>/join/<workspace code>#k=…&s=…`. When the host uses smurg's shared
+relay, `<site>` is app.smurg.ai (the link is `https://app.smurg.ai/join/…`; https://smurg.ai is smurg's product page
+and documentation and cannot open a workspace); when the host named another relay with `--relay` (their own, for
+example), it is that relay's address. The part after `#` is the **secret** that lets you join the workspace: do not
+repost the link in a group or in public, and do not copy only the part before the `#`.
 
-1. 用瀏覽器打開連結（電腦上的 Chrome 最穩；Safari、Firefox 還沒測試過）。
-2. 登入：按「**使用 Google 登入**」，用你的 Google 帳號登入（其他 relay 可能也有「使用 GitHub 登入」，出現哪些
-   按鈕由架設 relay 的人決定）。smurg 只用登入確認你是誰，不會取得你的程式碼；你**不需要** Claude 帳號或 API key。
-   relay 知道你用哪個帳號、從哪個 IP 連線（[主人指南](HOSTING.md) §2.1）。
-3. 畫面會問「要加入這個工作區嗎？」，列出工作區代碼和你登入的身分。確定是主人給你的連結，就按「**加入**」。
-   加入後，主人會看到你的名稱、帳號和裝置名稱。
-4. 進入工作區：左邊是檔案，中間是編輯器，右邊是 agent 和建議，下方是「活動」「衝突」「傳輸」「合併請求」。
-   最上面一排顯示主人是誰、連線狀態（「已連線」）和你的角色。
+1. Open the link in a browser (Chrome on a computer is the safest choice; Safari and Firefox have not been tested
+   yet).
+2. Log in: choose "**Log in with Google**" and use your Google account (another relay may also offer "Log in with
+   GitHub"; whoever runs the relay decides which buttons appear). smurg uses the login only to know who you are and
+   gets no access to your code; you do **not** need a Claude account or an API key. The relay knows which account
+   you use and the IP address you connect from ([host guide](HOSTING.md) §2.1).
+3. The page asks "Join this workspace?" and lists the workspace ID and your identity. If this is the link the host
+   gave you, choose "**Join**". After you join, the host sees your name, your account
+   and your device's name.
+4. You are in the workspace: files on the left, the editor in the middle, agents and suggestions on the right, and
+   "Activity", "Conflicts", "Transfers" and "Merge requests" at the bottom. The top bar shows who the host is, the
+   connection state ("Connected") and your role.
 
-之後直接打開工作區就好（首頁的「最近開啟的工作區」），不需要再用邀請連結：這個瀏覽器已經記住了主人電腦的金鑰。
-私密瀏覽視窗記不住，關掉之後要新的邀請連結才能再加入。
+The interface comes in English and Traditional Chinese: it starts in your browser's language, and the language menu
+on the page switches it (the login and join pages have it too). Everyone sees the language they chose; this guide
+quotes the English interface. Agent names (such as `Claude (Amy)`) and text that other people typed are never
+translated.
 
-**要不要核對「金鑰指紋」？** 主人分享時，在自己的電腦上執行 `smurg status` 可以看到一組 daemon 金鑰指紋。第一次加入時，
-你可以用其他管道（當面、電話）請主人唸給你聽。如果看到「**安全警告：已拒絕連線**」或「主人的電腦金鑰和之前不同」，
-**先不要繼續**：可能有人在冒充主人。也可能是主人換了工作區的金鑰（例如收回某位組員的「可使用 agent」之後重新分享，
-或重新安裝了 smurg）。請用其他管道（當面、電話）問主人：
+Afterwards you open the workspace directly ("Recent workspaces" on the home page) and no longer need the invite
+link: this browser remembers the key of the host's computer. A private window does not; once you close it, you need
+a new invite link to join again.
 
-- 主人說他**沒有**換過：不要繼續，按「取消」，告訴主人。
-- 主人說他換過：請他給你新的邀請連結，並唸出他用 `smurg status` 看到的新 daemon 金鑰指紋。用新連結時會看到「主人的
-  電腦金鑰和之前不同」：確認是主人剛給你的連結之後，按「我已向主人確認，使用新的連結」。用終端機加入的話，`smurg attach`
-  會印出「邀請連結的金鑰指紋」：和主人唸的一樣才輸入 `y`（見 §10）。
+**Should you check the key fingerprint?** While sharing, the host can run `smurg status` on their computer to see
+the daemon key fingerprint. The first time you join, you can ask the host to read it to you over another channel (in
+person, on the phone). If you see "**Security warning: connection refused**" or "The host computer's key has
+changed", **do not go on yet**: someone may be posing as the host. It may also be that the host replaced the
+workspace's keys (for example, shared again after taking Agent access back from a teammate, or reinstalled smurg).
+Ask the host over another channel (in person, on the phone):
 
-其他你可能看到的畫面：
+- The host says they did **not** replace anything: do not continue, choose "Cancel", and tell the host.
+- The host says they did: ask for a new invite link, and ask them to read out the new daemon key fingerprint that
+  `smurg status` shows. With the new link you see "The host computer's key has changed": once you are sure the link
+  is the one the host just gave you, choose "I confirmed with the host: use the new link". If you join from a
+  terminal, `smurg attach` prints the fingerprint of the invite link's key: type `y` only if it is the one the host
+  read out (see §10).
 
-| 看到 | 意思 |
+Other things you may see:
+
+| You see | What it means |
 |---|---|
-| 「邀請連結無法使用」 | 連結過期、次數用完或被主人撤銷。請主人給你新的連結。 |
-| 「這個瀏覽器已經用另一個帳號加入過」 | 一個瀏覽器設定檔在一個工作區裡只能是一個人：第一次加入時，這個瀏覽器就綁定了當時登入的帳號。請登出後改用原本的帳號登入；要用別的帳號，請換一個瀏覽器設定檔或無痕視窗再開邀請連結。 |
-| 「你已被移出工作區」 | 主人把你移出了工作區。要再加入需要主人給你新的連結。 |
-| 「角色已變更」 | 主人改了你的角色，畫面會自動重新連線並套用新的權限。 |
-| 「無法連上伺服器」 | 你自己的網路（或 relay）有問題，不是主人離線。用 smurg 的公用 relay 時，也可能是今天所有人共用的免費用量用完了，台灣時間早上 8 點後恢復（[主人指南](HOSTING.md) §2.1）。 |
-| 「主人已離線」 | 見 [§8](#8主人已離線是什麼意思)。 |
+| "This invite link cannot be used" | The link expired, has no uses left or was revoked by the host. Ask the host for a new one. |
+| "This browser already joined with another account" | A browser profile can be only one person in a workspace: the first time it joined, this browser was bound to the account logged in then. Log out and log in with that account again; to use another account, open the invite link in another browser profile or in a private window. |
+| "You were removed from the workspace" | The host removed you from the workspace. To join again you need a new link from the host. |
+| "Role changed" | The host changed your role; the page reconnects by itself with the new permissions. |
+| "Server unreachable" | Your own network (or the relay) has a problem; the host is not offline. On smurg's shared relay, the free quota everyone shares may also be used up for today; it comes back after 00:00 UTC, 08:00 in Taiwan ([host guide](HOSTING.md) §2.1). |
+| "Host offline" | See [§8](#8-what-host-offline-means). |
 
-## 2. 角色：可以做什麼
+## 2. Roles: what you can do
 
-主人在邀請連結上決定你的角色，之後也可以在主人控制台改。
+The host chooses your role with the invite link and can change it later in the host console.
 
-| | 旁觀 | 可編輯 | 可使用 agent |
+| | Viewer | Editor | Agent access |
 |---|:-:|:-:|:-:|
-| 看檔案、下載檔案或資料夾、看所有 agent 和終端機的畫面、看活動動態 | ✅ | ✅ | ✅ |
-| 編輯、新增、重新命名、刪除、上傳檔案 | ❌ | ✅ | ✅ |
-| 對 session 提出建議 | ❌ | ✅ | ✅ |
-| 在主人的電腦上開 agent 或終端機（**以主人的身分執行**） | ❌ | ❌ | ✅ |
-| 在**任何** session 裡直接輸入、採用或拒絕任何 session 收到的建議 | ❌ | ❌ | ✅ |
-| 在 worktree 裡工作，請主人合併 | ❌ | ❌ | ✅ |
+| See files, download files or folders, watch every agent and terminal, read the activity feed | ✅ | ✅ | ✅ |
+| Edit, create, rename, delete and upload files | ❌ | ✅ | ✅ |
+| Send suggestions to a session | ❌ | ✅ | ✅ |
+| Open agents or terminals on the host's computer (**they run as the host**) | ❌ | ❌ | ✅ |
+| Type into **any** session; accept or reject the suggestions any session receives | ❌ | ❌ | ✅ |
+| Work in a worktree and ask the host to merge it | ❌ | ❌ | ✅ |
 
-只有主人能做的事：邀請成員、改角色、踢人、看操作紀錄、強制釋放檔案鎖、合併 worktree。
+Only the host can: invite members, change roles, remove members, read the audit log, force a file lock open and merge
+a worktree.
 
-**「可使用 agent」是什麼意思**：你開的 session 在主人的電腦上**以主人的身分**執行，沒有沙盒：agent 用的是主人的
-Claude Code 登入（用量和費用算在主人身上），可以執行任何指令、讀得到主人電腦上的檔案。所以主人只會把這個角色給
-完全信任的人。你不需要、也不能用自己的 Claude 帳號或 API key。
+**What Agent access means**: the sessions you open run on the host's computer **as the host**, with no sandbox: the
+agent uses the host's Claude Code login (the usage and the cost are the host's), can run any command and can read the
+files on the host's computer. That is why a host gives this role only to people they fully trust. You do not need
+your own Claude account or API key, and you cannot use one.
 
-有幾類檔案組員**看不到**：所有 `.git` 資料夾、`.envrc`、smurg 自己的 `.smurg/`，以及主人個人的 Claude Code 設定
-（`.claude/settings.local.json`、`CLAUDE.local.md`）。有幾類檔案組員**看得到但不能改**（檔案樹上會標示「只有主人可以修改
-這個檔案」）：`.claude/` 和 `.mcp.json`（主人的 Claude Code 會讀它們）、`.vscode/`、`.idea/`。除此之外，資料夾裡的
-每個檔案，每個成員都看得到（包括 `.env` 之類的設定檔）。這些限制只適用於人在網頁和 CLI 裡的操作：以主人身分執行的
-agent 和終端機不受它們限制。
+Some files teammates **cannot see**: every `.git` folder, `.envrc`, smurg's own `.smurg/`, and the host's personal
+Claude Code settings (`.claude/settings.local.json`, `CLAUDE.local.md`). Some files teammates **can see but not
+change** (the file tree marks them "Only the host can change this file"): `.claude/` and `.mcp.json` (the host's
+Claude Code reads them), `.vscode/`, `.idea/`. Apart from these, every member sees every file in the folder
+(including configuration files such as `.env`). These limits apply to what people do in the web app and the CLI:
+agents and terminals, which run as the host, are not bound by them.
 
-## 3. 一起編輯檔案
+## 3. Edit files together
 
-- 在左邊的檔案樹**點一下檔案**就會在編輯器打開；在檔案或資料夾上**按右鍵**可以新增、重新命名、刪除、下載（資料夾會打包成
-  zip）。檔案樹上方的按鈕可以新增檔案、資料夾或上傳。
-- **大家可以同時打字**，每個人的游標會用不同顏色和名字顯示；agent 改檔案時會顯示成「Claude（開這個 agent 的人）」。
-- **不用按儲存**：停下來一下就會自動存到主人的電腦（編輯器會顯示「已自動儲存」）。一直顯示「尚未儲存：正在等待主人電腦
-  回應」的話，通常是連線有問題。
-- **上傳**：把檔案或整個資料夾拖到左邊的檔案樹。大檔案也可以，斷線後會從中斷的地方繼續；主人的磁碟空間不夠時，上傳在
-  開始前就會被拒絕並說明原因。進度在下方的「傳輸」。
-- 太大（超過 5 MB）、二進位或不是 UTF-8 的檔案不能在編輯器裡打開，可以下載後用自己的程式開啟。
-- 在編輯器裡**選取一段程式碼**，按「送到 agent」，可以把它作為建議送給別人的 agent，或貼到你自己的 agent（見 §5）。
-- 「活動」會即時列出誰（或哪個 agent）新增、修改、刪除、上傳了哪個檔案；點一下就能打開那個檔案。檔案樹上也會標示
-  「最近由 … 修改」。顯示為「**外部程式**」的，是 smurg 無法確定是誰的修改（例如主人用別的程式改的）。
+- **Click a file** in the file tree on the left to open it in the editor; **right-click** a file or folder to create,
+  rename, delete or download (a folder is packed into a zip). The buttons above the file tree create a file or a
+  folder, or upload.
+- **Everyone can type at the same time**; each person's cursor has its own color and name. An agent that changes a
+  file shows up as `Claude (the person who opened it)`, for example `Claude (Amy)`.
+- **There is no save button**: a moment after you stop typing, the file is saved to the host's computer (the editor
+  says "Saved automatically"). If it keeps saying "Not saved yet: waiting for the host's computer", the connection
+  usually has a problem.
+- **Upload**: drag files or a whole folder onto the file tree on the left. Large files work too, and after a dropped
+  connection the upload continues where it stopped; when the host's disk is too full, the upload is refused before
+  it starts, with the reason. Progress is under "Transfers" at the bottom.
+- Files that are too large (over 5 MB), binary or not UTF-8 cannot be opened in the editor; download them and open
+  them with your own program.
+- **Select some code** in the editor and choose "Send to agent" to send it to someone else's agent as a suggestion,
+  or to paste it into your own agent (see §5).
+- "Activity" lists, live, who (or which agent) created, changed, deleted or uploaded which file; click an entry to
+  open the file. The file tree also marks files "Recently changed by …". Changes shown as "**Outside program**" are
+  ones smurg cannot attribute to anyone (the host changed the file with another program, for example).
 
-## 4. 檔案鎖的提示是什麼意思
+## 4. What the lock notices mean
 
-smurg 用檔案鎖避免人和 agent 互相覆蓋。你會在編輯器上方或檔案樹上看到這些提示：
+smurg uses file locks so that people and agents do not overwrite each other. You see these notices above the editor
+or in the file tree:
 
-| 提示 | 意思 | 你可以做什麼 |
+| Notice | What it means | What you can do |
 |---|---|---|
-| 「你正在編輯這個檔案，agent 暫時不能修改它。」 | 你一開始打字就拿到了這個檔案的**編輯鎖**：所有 agent 都不能改它（agent 會收到「此檔案正由 <你的名字> 編輯中，請先處理其他檔案或稍後再試」）。其他人仍然可以和你一起打字。 | 照常編輯。停下來 30 秒（主人可以調整）沒打字、或關掉這個檔案，鎖就會放掉。想讓 agent 馬上改，按「**讓 agent 先改**」（你再打字時會重新拿到鎖）。 |
-| 「你和 Amy 正在編輯這個檔案（共用編輯鎖）…」 / 「Amy 正在編輯這個檔案…」 | 幾個人共用同一把編輯鎖，agent 暫時不能改。 | 同上。 |
-| 「Claude（Amy）正在修改，暫時無法輸入」 | 這個 agent 正在改這個檔案：編輯器暫時**唯讀**，其他 agent 也不能改。 | 等一下：改完（預設最多 60 秒）就會自動恢復可以輸入。這段時間打的字不會被接受。 |
-| 檔案樹上的「… 修改中」「… 編輯中」 | 同上兩種鎖。 | |
-| 「這個檔案對你是唯讀的」 | 你的角色不能編輯，或是 worktree 裡的共享資料夾（唯讀）。 | |
-| 「這個檔案已被 … 刪除」 / 「已被移到 …」 | 有人刪除或移動了你正開著的檔案，這個分頁不能再存檔。 | 「用這些內容重新建立」或「開啟新位置」。 |
+| "You are editing this file, so agents cannot change it for now." | As soon as you started typing you got this file's **edit lock**: no agent can change it (the agent is told, always in English, "This file is being edited by <your name>. Work on other files first, or try again later."). Other people can still type with you. | Keep editing. The lock is released when you stop typing for 30 seconds (the host can change this) or close the file. To let an agent change it now, choose "**Let the agent go first**" (you get the lock back when you type again). |
+| "You and Amy are editing this file (a shared edit lock), …" / "This file is being edited by Amy, …" | Several people share one edit lock; agents cannot change the file for now. | As above. |
+| "Claude (Amy) is editing; you cannot type for now" | This agent is changing the file: the editor is **read-only** for the moment, and other agents cannot change it either. | Wait: when it is done (60 seconds at most by default), you can type again. What you type in the meantime is not accepted. |
+| "Claude (Amy) editing" and "Editing: Amy" in the file tree | The two locks above. | |
+| "This file is read-only for you" | Your role cannot edit, or it is a shared folder inside a worktree (read-only). | |
+| "This file was deleted by …" / "This file was moved to …" | Someone deleted or moved the file you have open; this tab can no longer save. | "Create again from this content" or "Open the new location". |
 
-**衝突**：agent 也可能不經過檔案鎖、用終端機指令直接改檔案（例如 `sed`、格式化工具、`git checkout`）。如果它改到了
-有人正在編輯的地方，smurg 會**保留人正在打的內容**，把 agent 的版本放到下方的「**衝突**」面板，並通知雙方。在衝突面板
-可以左右對照兩邊的內容，選「保留編輯中的內容」，或「套用這個版本…」用另一方的完整版本取代整個檔案。
+**Conflicts**: an agent can also change a file without the file lock, with a terminal command (for example `sed`, a
+formatter, `git checkout`). If it changes a place someone is editing, smurg **keeps what the person is typing**, puts
+the agent's version in the "**Conflicts**" panel at the bottom and tells both sides. In the conflicts panel you
+compare the two versions side by side and choose "Keep the text being edited", or "Apply this version…" to replace
+the whole file with the other side's complete version.
 
-## 5. 看 agent 工作、提出建議
+## 5. Watch agents and send suggestions
 
-- 右邊的 **agent** 區有每個 session 的分頁（例如「Claude（Amy 開的）」是 Amy 開的 agent，「終端機（Ian 開的）」是主人 Ian
-  開的終端機）。點分頁就能即時看它的畫面，包括你打開之前的內容。
-- 「旁觀」和「可編輯」的成員在 session 裡**只能看、不能打字**（會標示「只能觀看」）。想讓 agent 做什麼，要用**建議**：
-  在 session 下方的「建議」輸入框寫下你的想法（例如「先幫這個函式補上測試」），按「送出建議」（或 Ctrl + Enter）。
-  「可使用 agent」的成員可以直接在任何 session 裡輸入（§6）。
-- 建議會先進入等待清單：主人和每個「可使用 agent」的成員會在 session 下方看到「等待你決定的建議」，可以「採用」、
-  「修改後採用」或「拒絕」（可以附上原因）；只有按下採用之後，內容才會送進 session。smurg 沒有自動採用。
-- 你會收到結果通知（「你的建議已被採用」「你的建議被拒絕了」等，有附原因時也會顯示）。在「我提出的建議」可以看到每一則的狀態；還沒處理的可以「編輯」或「撤回」。
-- 在編輯器選取程式碼 →「送到 agent」→「作為建議送給 Amy 的『…』」：選取的程式碼會連同檔名和行號附在建議裡。
-- 「旁觀」角色可以看，但不能提出建議。
-- agent 也可以透過 smurg 通知你（例如「Claude（Amy） 通知你」），會出現在「活動」裡。
+- The **agent** area on the right has a tab for every session (for example, "Claude (Amy)" is an agent Amy opened, and
+  "Terminal (Ian)" is a terminal the host Ian opened). Click a tab to watch it live, including
+  what happened before you opened it.
+- Members with the Viewer or Editor role can **only watch a session, not type** (it is marked "Watch only"). To get an
+  agent to do something, send a **suggestion**: write your idea in the "Suggestions" box under the session (for
+  example, "add tests for this function first") and choose "Send suggestion" (or press Ctrl + Enter). Members with
+  agent access can type into any session directly (§6).
+- A suggestion first waits in a list: the host and every member with agent access see "Suggestions waiting for your
+  decision" under the session and can "Accept", "Edit and accept" or "Reject" it (with a reason, if they like); the
+  text goes into the session only when someone accepts it. smurg never accepts by itself.
+- You are told the result ("Your suggestion was accepted", "Your suggestion was rejected" and so on, with the reason
+  if one was given). "My suggestions" shows the state of each one; a suggestion nobody has handled yet can be edited
+  or withdrawn ("Edit", "Withdraw").
+- Select code in the editor → "Send to agent" → send it as a suggestion to a session: the selected code is attached
+  to the suggestion with the file name and the line numbers.
+- The Viewer role can watch but cannot send suggestions.
+- An agent can also notify you through smurg (for example, "Claude (Amy) notified you"); it appears under
+  "Activity".
 
-## 6. 開 agent session（可使用 agent）
+## 6. Open agent sessions (Agent access)
 
-只有「**可使用 agent**」的角色能在主人電腦上開 session，並在任何 session 裡直接輸入。你開的 session 以**主人的身分**
-在主人的電腦上執行：用主人的作業系統帳號和主人的 Claude Code 登入，沒有沙盒。所以你**不需要登入 Claude**，也不需要
-API key。
+Only the **Agent access** role can open sessions on the host's computer and type into any session. The sessions you
+open run on the host's computer **as the host**: with the host's operating-system account and the host's Claude Code
+login, and no sandbox. So you **do not need to log in to Claude**, and you need no API key.
 
-**開一個 session**：agent 區右上角「新增 session」→ 選類型：
+**Open a session**: "New session" at the top right of the agent area → choose a kind:
 
-- 「agent（Claude Code）」：在終端機裡執行 Claude Code。
-- 「一般終端機」：一個 shell，用來執行測試、建置等指令。
+- "Agent (Claude Code)": runs Claude Code in a terminal.
+- "Plain terminal": a shell, for running tests, builds and other commands.
 
-再選工作位置：「共享主工作區」（直接改大家看到的檔案，有檔案鎖保護）、「我的新 worktree」或「繼續我保留的 worktree」
-（見 §7），按「開啟」。對話框上方會提醒：「這個 session 會在主人的電腦上執行，agent 使用主人的 Claude 帳號。」
-主人的電腦上找不到 Claude Code 時，agent session 開不起來，畫面會說明原因：請轉告主人。
+Then choose where it works: "Shared main workspace" (changes the files everyone sees, protected by file locks), "A
+new worktree of my own" or "Continue in the worktree I kept" (see §7), and choose "Open". The dialog reminds you:
+"This session runs on the host's computer, and the agent uses the host's Claude account."  When Claude Code cannot be found
+on the host's computer, an agent session cannot start and the page says why: tell the host.
 
-**用 Claude Code**：點一下終端機，用一般的句子輸入你要它做的事，按 Enter。它工作時畫面會一直更新；按 Esc 可以打斷它，
-輸入 `/exit` 結束。它可能會在改檔案或執行指令前問你是否允許：用方向鍵選擇後按 Enter。session 的畫面，工作區裡的
-**每個人都看得到**：不要在 session 裡貼上密碼或 API key。
+**Using Claude Code**: click the terminal, type what you want it to do in plain sentences and press Enter. The screen
+keeps updating while it works; Esc interrupts it and `/exit` ends it. Before it changes a file or runs a command it
+may ask for permission: choose with the arrow keys and press Enter. **Everyone in the workspace sees** the session's
+screen: never paste a password or an API key into a session.
 
-**在別人的 session 裡輸入**：你也可以直接在主人或其他組員開的 session 裡打字，大家的輸入會進到同一個終端機。有人正在
-打字時請先等一下，或用建議。
+**Typing into someone else's session**: you can also type directly into a session the host or another teammate
+opened; everyone's input goes to the same terminal. When someone is typing, wait a moment, or send a suggestion.
 
-**請記得**：你在 session 裡做的每件事，都是用主人的電腦和主人的帳號做的。agent 用掉的是主人的 Claude 額度，指令以主人
-的權限執行，讀得到主人電腦上的檔案。只做主人同意的事，不要去讀和專案無關的檔案。agent 顯示還沒登入 Claude（例如
-「Not logged in」）時，請告訴主人登入；**不要**在 session 裡用你自己的帳號 `/login`：那會把你的登入資料存到主人的
-電腦上，之後所有 agent 都會用它。畫面上看到「主人的 Claude Code 還沒有登入，這個 agent 暫時無法工作。」就是這種情況。
+**Remember**: everything you do in a session is done with the host's computer and the host's account. Agents spend the
+host's Claude quota, commands run with the host's permissions and can read the files on the host's computer. Do only
+what the host agreed to, and do not read files that have nothing to do with the project. When an agent shows that
+Claude is not logged in (for example "Not logged in"), tell the host to log in; do **not** `/login` with your own
+account in the session: that would store your credentials on the host's computer, and every agent would use them
+from then on. The message "The host's Claude Code is not logged in, so this agent cannot work for now." means exactly
+this.
 
-**在自己的終端機接上**：session 的「在自己的終端機接上」會列出 `smurg attach` 指令（§10）。
+**Attach from your own terminal**: a session's "Attach from your own terminal" lists the `smurg attach` commands
+(§10).
 
-## 7. worktree 與合併請求
+## 7. Worktrees and merge requests
 
-主人分享的資料夾是 git repository 時，開 session 可以選「**我的新 worktree**」：smurg 在主人電腦上為你建立一份獨立的
-工作副本（自己的分支），agent 在裡面改檔案，就不會弄亂大家的主工作區。worktree 只是工作的位置，不是限制：裡面的
-agent 一樣以主人的身分執行。
+When the folder the host shares is a git repository, you can open a session in "**A new worktree of my own**": smurg creates a
+separate working copy for you on the host's computer (on its own branch), and the agent changes files there without
+disturbing everyone's main workspace. A worktree is only a place to work, not a restriction: an agent in it runs as
+the host all the same.
 
-- 檔案樹上方的「檢視的工作區」可以切換看主工作區或任何一個 worktree。大家也可以直接在 worktree 裡編輯（一樣有檔案鎖）。
-- 主人指定的**共享資料夾**（例如不在 git 裡的 `data/`）會以連結的方式放進 worktree：在網頁裡它是唯讀的；agent 在 worktree
-  裡寫進這個資料夾的話，改的就是主工作區裡的那一份。
-- 結束 session 時會問「要保留這個 session 的 worktree 嗎？」：「保留 worktree」之後可以用「繼續我保留的 worktree」再開
-  session；「刪除 worktree」會連同還沒合併的修改一起刪除，無法復原。
-- **做完了，請主人合併**：在檔案樹切到那個 worktree，按「請主人合併」（或在「合併請求」按「請求合併」），可以寫一段說明。
-  「可使用 agent」的成員可以為任何一個 worktree 提出請求。smurg 會把 worktree 目前所有的修改建立成一個提交（commit）；
-  之後再改的內容，需要重新提出請求。
-- 主人會看到完整的差異（diff），然後「合併到主工作區」或「拒絕」（拒絕時 worktree 保持原狀，原因會告訴你）。和主工作區
-  有衝突時，合併會中止、主工作區不變，主人會決定怎麼處理。結果會通知你，也會出現在大家的「活動」。
-- 目前沒有辦法把主工作區之後的修改帶進你的 worktree。
+- "Viewing" above the file tree switches between the main workspace and any worktree. Everyone can edit directly in
+  a worktree too (with file locks, as usual).
+- The **shared folders** the host named (for example a `data/` that is not in git) are linked into the worktree: in
+  the web app they are read-only there; when an agent in the worktree writes into such a folder, it changes the one
+  copy in the main workspace.
+- When you end a session it asks "Keep the worktree of this session?": after "Keep the worktree" you can open a
+  session in it again with "Continue in the worktree I kept"; "Delete the worktree" deletes it together with the
+  changes not merged yet, and that cannot be undone.
+- **When you are done, ask the host to merge**: switch the file tree to that worktree and choose "Ask the host to
+  merge" (or "Request merge" under "Merge requests"); you can add a message. Members with agent access can make the
+  request for any worktree. smurg turns all the current changes in the worktree into one commit; what you change
+  afterwards needs a new request.
+- The host sees the full diff and then chooses "Merge into the main workspace" or "Reject" (a rejected worktree stays as
+  it is, and you are told the reason). When it conflicts with the main workspace, the merge stops, the main
+  workspace is unchanged and the host decides what to do. You are told the result, and it also appears in everyone's
+  "Activity".
+- There is no way yet to bring later changes of the main workspace into your worktree.
 
-## 8.「主人已離線」是什麼意思
+## 8. What "Host offline" means
 
-主人的 `smurg host` 沒有在執行、主人的電腦進入睡眠（例如闔上筆電螢幕），或主人的網路斷了。主人一離線，所有人在 10 秒內
-就會看到「主人已離線」。
+The host's `smurg host` is not running, the host's computer went to sleep (the laptop's lid was closed, for example),
+or the host's network is down. Once the host goes offline, everyone sees "Host offline" within 10 seconds.
 
-- 所有檔案和 session 都在主人的電腦上，所以在主人回來之前，**檔案修改不會被儲存，也無法操作 agent**。
-- 主人回來後會**自動重新連線**，不用重新整理。離線期間你在編輯器打的字不會丟掉，會在重新連上後送出。只有一種情況要你
-  決定：主人的電腦重新載入了這個檔案（例如主人的 smurg 重新啟動過），而且內容和你的版本不同，無法自動合併。這時畫面會
-  顯示「你有修改還沒存到主人電腦」，讓你選「用我的版本取代」「複製我的版本」或「捨棄我的版本」。
-- 主人的電腦沒有睡眠、只是你自己斷線時，session 會在主人電腦上繼續執行；重新連上後看得到完整的畫面。
-- 「主人已停止分享這個工作區」表示主人執行了 `smurg stop`：所有 session 都已結束。主人重新開始分享後會自動重新連線。
-- 「無法連上伺服器」是另一回事：那是你和 relay 之間的網路問題。
+- Every file and session is on the host's computer, so until the host is back **changes to files are not saved and
+  agents cannot be used**.
+- When the host is back, the page **reconnects by itself**; you do not have to reload. What you typed in the editor
+  while offline is not lost and is sent after the reconnect. You have to decide in one case only: the host's computer
+  loaded the file again (the host's smurg restarted, for example) and its content differs from your version in a way
+  that cannot be merged automatically. The page then says "You have changes that were not saved to the host's
+  computer" and lets you choose "Replace with my version", "Copy my version" or "Discard my version".
+- When the host's computer is awake and only you lost the connection, the sessions keep running on the host's
+  computer; after you reconnect you see everything that happened.
+- "The host stopped sharing this workspace" means the host ran `smurg stop`: every session has ended. When the host
+  shares again, the page reconnects by itself.
+- "Server unreachable" is something else: a network problem between you and the relay.
 
-## 9. 離開工作區：會結束什麼
+## 9. Leaving a workspace: what ends
 
-右上角的「**離開**」→ 確認「離開」。
+"**Leave**" at the top right → confirm with "Leave".
 
-**會結束**（幾秒內）：你開的所有 session（agent 和終端機）。
+**What ends** (within seconds): every session you opened (agents and terminals).
 
-**不會被刪除**：
+**What is not deleted**:
 
-- 你的**成員資格**：主人的成員清單裡仍然有你，你之後可以用同一個瀏覽器重新打開工作區。要完全移除你，得由主人踢出。
-- 你在分享資料夾裡改過、新增的檔案：它們是主人專案的一部分。
-- 你的 worktree（包括還沒合併的修改）：主人可以移除它。
-- 你提出的建議、活動動態和主人電腦上的操作紀錄。
+- Your **membership**: you are still in the host's member list and can open the workspace again later with the same
+  browser. Only the host can remove you completely.
+- The files you changed or created in the shared folder: they are part of the host's project.
+- Your worktrees (including changes not merged yet): the host can remove them.
+- Your suggestions, the activity feed and the audit log on the host's computer.
 
-**只是關掉分頁或斷線**不算離開：你開的 session 會繼續在主人的電腦上執行。主人把你移出工作區、或把你的角色改成
-「可編輯」或「旁觀」時，你開的 session 也會結束。
+**Closing the tab or losing the connection** is not leaving: the sessions you opened keep running on the host's
+computer. When the host removes you from the workspace, or changes your role to Editor or Viewer, the sessions you
+opened end too.
 
-## 10. 用終端機（CLI）加入（選用）
+## 10. Joining from a terminal (CLI, optional)
 
-不想用瀏覽器看 session，可以用 `smurg` 指令把 session 接到自己電腦的終端機（macOS 或 Linux）。先用一行指令安裝
-（和主人用的是同一個程式；詳見[主人指南](HOSTING.md) §1）：
+If you would rather not watch sessions in a browser, the `smurg` command attaches a session to a terminal on your own
+computer (macOS or Linux). Install it first with one line (it is the same program the host uses; see the
+[host guide](HOSTING.md) §1):
 
 ```sh
 curl -fsSL https://smurg.ai/install.sh | sh
 ```
 
-然後加入：
+Then join:
 
 ```sh
-smurg attach --invite -       # 執行後貼上邀請連結，按 Enter（不會顯示在畫面上）
+smurg attach --invite -       # then paste the invite link and press Enter (it is not shown on screen)
 ```
 
-smurg 會連到邀請連結上的網站（relay），不需要 `--relay`。這台電腦還沒登入那個 relay 時，它會先請你登入：終端機印出
-一個網址（`https://app.smurg.ai/device`）和一組代碼。在任何裝置（電腦或手機）的瀏覽器打開網址、用 Google 帳號登入、
-輸入代碼，確認頁上的帳號是你的之後按「允許」。**只有你自己剛在終端機執行 smurg 時才按「允許」；如果是別人給你的代碼，
-請按「拒絕」。**
+smurg connects to the site in the invite link (the relay); you need no `--relay`. When this computer is not logged
+in to that relay yet, it asks you to log in first: the terminal prints an address
+(`https://app.smurg.ai/device`) and a code. Open the address in a browser on any device (a computer or a phone), log
+in with your Google account, enter the code, and press "Allow" once the page shows your own account. **Press "Allow"
+only if you yourself just ran smurg in a terminal; if someone else gave you the code, press "Deny".**
 
-- **請用 `--invite -`**（或環境變數 `SMURG_INVITE`）。直接寫 `smurg attach --invite https://…#k=…&s=…` 也可以，但連結裡的
-  密鑰會留在 shell 的歷史紀錄，執行期間也會出現在其他使用者看得到的程序列表（`ps`）裡。
-- 終端機是一個新的裝置，**第一次**需要邀請連結。瀏覽器用過的連結如果已經用完或過期，請主人給你一個**和你目前角色相同**的
-  新連結（不同角色的連結不能用）。之後用 `smurg attach --workspace <工作區代碼>`（只加入過一個工作區時不用指定）。
-- 少數環境的網頁和 relay 網址不同（例如開發環境）。如果 smurg 說你登入過另一個網址、還沒有登入邀請連結的
-  網址，照它的提示加上 `--relay <relay 網址>`（主人會告訴你）。
-- 需要登入時，有桌面的電腦上 smurg 也會自動打開那個網址；在 SSH、腳本或沒有終端機的情況下不會（也可以用
-  `--no-browser`），用你面前的電腦或手機打開就好，透過 SSH 也不需要其他設定。
-- 主人換了工作區的金鑰之後（§1「要不要核對金鑰指紋」），`smurg attach --workspace …` 會停下來，說主人電腦的金鑰和上次記錄
-  的不同。向主人確認過之後，用主人給的新連結執行 `smurg attach --invite -`：smurg 會印出「主人的電腦金鑰和之前不同」、
-  上次記錄的和邀請連結的金鑰指紋，問你要不要繼續。邀請連結的指紋和主人用 `smurg status` 看到的一樣，才輸入 `y`；其他輸入
-  會取消，什麼都不會送出。不在終端機裡執行（例如腳本）時不會問，確認過之後加上 `--accept-new-key`。
+- **Use `--invite -`** (or the environment variable `SMURG_INVITE`). `smurg attach --invite https://…#k=…&s=…` works
+  too, but then the secret in the link stays in your shell history and, while the command runs, shows in the process
+  list (`ps`) that other users of the computer can read.
+- A terminal is a new device, so it needs an invite link **the first time**. If the link your browser used has no
+  uses left or expired, ask the host for a new link **with the same role you have now** (a link with another role
+  does not work). Afterwards use `smurg attach --workspace <workspace code>` (not needed when you joined only one
+  workspace).
+- In a few setups the web app and the relay have different addresses (a development setup, for example). If smurg
+  says you logged in to another address and not to the invite link's, add `--relay <relay address>` as it tells you
+  (the host knows the address).
+- When a login is needed, smurg also opens the address by itself on a computer with a desktop; over SSH, in a
+  script or without a terminal it does not (`--no-browser` turns it off too). Open it on the computer or phone in
+  front of you; SSH needs no other setup.
+- After the host replaced the workspace's keys (§1, "Should you check the key fingerprint?"),
+  `smurg attach --workspace …` stops and says that the key of the host's computer differs from the one it recorded.
+  After checking with the host, run `smurg attach --invite -` with the new link the host gave you: smurg prints
+  "The host computer's key has changed", the fingerprint it recorded and the fingerprint of the invite link's key,
+  and asks whether to go on. Type `y` only if the invite link's fingerprint is the one the host sees with
+  `smurg status`; any other input cancels, and nothing is sent. Outside a terminal (in a script, for example) it
+  does not ask: add `--accept-new-key` once you have checked.
 
-加入之後：
+After joining:
 
 ```sh
-smurg attach                  # 列出工作區裡的 session（編號、類型、擁有者、狀態）
-smurg attach 2                # 把 2 號 session 接到這個終端機；按 Ctrl-] 離開（session 繼續執行）
+smurg attach                  # lists the sessions in the workspace (number, kind, owner, state)
+smurg attach 2                # attaches session 2 to this terminal; Ctrl-] detaches (the session keeps running)
 ```
 
-「可使用 agent」的成員可以在任何 session 裡輸入；其他角色只能看（會先顯示「唯讀模式」）。主人離線時，`smurg attach` 幾秒內就會
-告訴你。為了保護你的終端機，session 的輸出在顯示前會過濾：終端機查詢、剪貼簿存取（OSC 52）和其他不認得的控制序列都不會
-送到你的終端機（別人的 agent 可能被誘導輸出這些序列）。
+Members with agent access can type into any session; other roles can only watch (smurg says "Read-only: …" first). When
+the host goes offline, `smurg attach` tells you within seconds. To protect your terminal, a session's output is
+filtered before it is shown: terminal queries, clipboard access (OSC 52) and other control sequences smurg does not
+know are never sent to your terminal (someone else's agent could be tricked into printing them).
 
-CLI 不能開 session、不能提出建議，也沒有「離開」：這些請用網頁。
+The CLI cannot open sessions or send suggestions, and it has no "Leave": use the web app for those.

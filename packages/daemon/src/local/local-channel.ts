@@ -6,6 +6,7 @@
 // What such a channel may SEND is the allow-list below (review F1, 2026-10-02), enforced by the router; what it may
 // RECEIVE unasked is the second allow-list (review F-1 of the verification, 2026-10-02), enforced by the hub.
 import { SmurgError, type ChannelCloseEvent, type ClientMessageType, type DaemonMessageType } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import type { HubChannel } from '../core/hub.ts';
 
 /** `detail.via` of every audit entry a local (control-socket) channel causes (core/audit.ts withAuditVia, hub, daemon). */
@@ -20,7 +21,7 @@ export const LOCAL_CHANNEL_VIA = 'control-socket';
  * `forbidden` {reason: 'control-socket'} and audited (router, before the capability check).
  *
  * Why: the socket's 0600 mode authenticates the host's OS ACCOUNT, not the host. Every session runs as that account
- * (ARCHITECTURE §11 D-15), so a 「可使用 agent」 member reaches `~/.smurg/run/<short>.ctl` from any session she drives
+ * (ARCHITECTURE §11 D-15), so a Agent access member reaches `~/.smurg/run/<short>.ctl` from any session she drives
  * and would be admitted as the host. Restricted to the attach (and to receiving what the attach consumes,
  * LOCAL_CHANNEL_RECEIVES), she gains nothing through smurg that her own role does not already give her (watch and type
  * into any session), except the PTY size of the host's own sessions (the owner's resize, which that OS account can set
@@ -72,7 +73,7 @@ export function localChannelReceives(type: string): boolean {
 
 /** The refusal of anything else, as the client sees it. */
 export function localChannelRefusal(): SmurgError {
-  return new SmurgError('forbidden', '透過這台電腦的控制 socket（smurg attach）只能列出、接上 session 和在 session 裡輸入；其他操作請在網頁上進行。', { reason: 'control-socket' });
+  return new SmurgError('forbidden', msg('control.onlySessions'), { reason: 'control-socket' });
 }
 
 export interface LocalChannelSink {

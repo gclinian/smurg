@@ -1,5 +1,6 @@
 // Non-blocking connection indicators: the status pill in the top bar and the banner that stays on screen while the
-// host is offline or the relay is unreachable. Neither ever blocks the UI (SPEC §9: 「主人已離線」, not a frozen screen).
+// host is offline or the relay is unreachable. Neither ever blocks the UI (SPEC §9: "Host offline", not a frozen
+// screen).
 import { useEffect, useState } from 'react';
 import type { ConnectionState } from '@smurg/protocol/client';
 import { describeConnection, secondsUntil, type ConnectionView } from '../../lib/connection/status.ts';
@@ -33,9 +34,10 @@ export function ConnectionStatusPill({ state }: { state: ConnectionState }) {
   );
 }
 
-function retryText(view: ConnectionView, now: number): string | null {
-  if (view.retryAt === null) return null;
-  return tConn('retryIn', { seconds: secondsUntil(view.retryAt, now) });
+/** The explanation, followed by the countdown to the next automatic retry when one is scheduled. */
+function detailWithRetry(view: ConnectionView, now: number): string {
+  if (view.retryAt === null) return view.detail;
+  return tConn('sentences', { first: view.detail, second: tConn('retryIn', { count: secondsUntil(view.retryAt, now) }) });
 }
 
 /**
@@ -50,8 +52,7 @@ export function ConnectionBanner({ state }: { state: ConnectionState }) {
     return (
       <Banner tone="warning" title={tConn('pill.hostOffline')} icon={<IconPlugOff />} className="app-connection-banner" live="alert">
         <span data-testid="host-offline-banner" data-connection-view={view.kind}>
-          {view.detail}
-          {tConn('detail.hostOffline.consequence')}
+          {tConn('sentences', { first: view.detail, second: tConn('detail.hostOffline.consequence') })}
         </span>
       </Banner>
     );
@@ -60,8 +61,7 @@ export function ConnectionBanner({ state }: { state: ConnectionState }) {
     return (
       <Banner tone="danger" title={view.label} icon={<IconCloudOff />} className="app-connection-banner">
         <span data-testid="relay-unreachable-banner" data-connection-view={view.kind}>
-          {view.detail}
-          {retryText(view, now)}
+          {detailWithRetry(view, now)}
         </span>
       </Banner>
     );
@@ -69,8 +69,7 @@ export function ConnectionBanner({ state }: { state: ConnectionState }) {
   return (
     <Banner tone="info" title={view.label} className="app-connection-banner">
       <span data-connection-view={view.kind}>
-        {view.detail}
-        {retryText(view, now)}
+        {detailWithRetry(view, now)}
       </span>
     </Banner>
   );

@@ -98,7 +98,7 @@ describe('RouterImpl', () => {
     await s.cleanup();
   });
 
-  it('maps handler errors: path denials and forbidden are audited once, unknown errors become internal, missing handlers say not implemented', async () => {
+  it('maps handler errors: path denials and forbidden are audited once, unknown errors become internal, missing handlers answer internal / not-implemented', async () => {
     const s = await setup(amy('host'));
     s.router.handle('file.stat', () => {
       throw new PathDeniedError('outside-root', 'x');
@@ -113,10 +113,12 @@ describe('RouterImpl', () => {
     await s.router.dispatch(s.conn, env('file.read', { file: { root: { kind: 'main' }, path: 'x' } }));
     await s.router.dispatch(s.conn, env('lock.list', {}));
     await s.router.dispatch(s.conn, env('file.tree', { root: { kind: 'main' }, path: '' }));
-    const codes = s.replies.map((r) => (r.payload as { code: string; message: string }));
+    const codes = s.replies.map((r) => (r.payload as { code: string; message: string; detail?: Record<string, unknown>; text?: { id: string } }));
     expect(codes.map((c) => c.code)).toEqual(['path_denied', 'forbidden', 'internal', 'internal']);
     expect(codes[2]?.message).not.toContain('/Users');
-    expect(codes[3]?.message).toContain('not implemented: file.tree');
+    expect(codes[3]).toMatchObject({ detail: { reason: 'not-implemented', service: 'file.tree' }, text: { id: 'error.default.internal' } });
+    // Every error the router answers carries a message reference; the fallback text is English.
+    expect(codes.map((c) => c.text?.id)).toEqual(['path.outsideRoot', 'error.default.forbidden', 'error.default.internal', 'error.default.internal']);
     expect((await s.audit.query()).map((e) => e.action).sort()).toEqual(['authz.denied', 'path.denied']);
     expect(s.denials()).toBe(2); // the path denial and the forbidden; internal errors are not refusals
     expect(() => s.router.handle('file.stat', () => ({}) as never)).toThrow(/already registered/);
@@ -138,10 +140,16 @@ describe('RouterImpl', () => {
 });
 
 describe('stubs, bus, rate limits', () => {
-  it('stubs throw internal "not implemented: <Service>" and are not thenables', async () => {
+  it('stubs throw internal / not-implemented naming the service and are not thenables', async () => {
     const files = createStubService('files');
     expect(isStubService(files)).toBe(true);
-    expect(() => files.lastModifiedBy({ root: { kind: 'main' }, path: 'a' })).toThrow(/not implemented: FileService/);
+    let stubError: unknown = null;
+    try {
+      files.lastModifiedBy({ root: { kind: 'main' }, path: 'a' });
+    } catch (err) {
+      stubError = err;
+    }
+    expect(stubError).toMatchObject({ code: 'internal', detail: { reason: 'not-implemented', service: 'FileService' } });
     await expect((async () => files.tree({ root: { kind: 'main' }, path: '' }, null as never))()).rejects.toMatchObject({ code: 'internal' });
     await expect(Promise.resolve(files)).resolves.toBe(files);
   });
@@ -192,7 +200,7 @@ describe('stubs, bus, rate limits', () => {
     expect(quoteForLog('/p/ü/.git')).toBe('"/p/ü/.git"');
   });
 
-  it('invisible formatting characters in a logged name are escaped too, so a guest-made name cannot look like another (review GR-14)', () => {
+  it('invisible formatting characters in a logged name are escaped too, so a guest-made name cannot look like another', () => {
     const invisible = ['\u00ad', '\u061c', '\u180e', '\u200b', '\u200c', '\u200d', '\u200e', '\u200f', '\u2060', '\u2061', '\u2062', '\u2063', '\u2064', '\ufeff'];
     for (const c of invisible) {
       const name = `/p/se${c}cret/.envrc`;

@@ -3,7 +3,7 @@
 Scope: SPEC R7 (upload/download bullets and acceptance criteria), D15, 7.1 (separate transfer Durable Object),
 7.2 (Envelope), and ARCHITECTURE §4.3 ("binary encoding decided in transfer.md") and §5.2 (`file.upload.*`, `file.download.*`).
 
-Spike (runnable): `/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/transfer`
+Spike (runnable): `<spike dir>/transfer`
 (`SPIKE` below). Date: 2026-09-27. Machine: macOS 26.5.1 arm64 (APFS, case-insensitive), Node v25.4.0 and v22.22.1,
 headless Chromium 145.0.7632.6 driven through gstack `browse`, Apple `unzip` 6.00 (ZIP64_SUPPORT, SYMLINKS).
 
@@ -620,7 +620,7 @@ if (RESERVED_TOP.has(segs[0])) throw new UploadPathError('path_denied', …);   
 ## 7. How to re-run the spike
 
 ```sh
-cd /private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/transfer
+cd <spike dir>/transfer
 npm ci                          # exact versions in package-lock.json
 sh run-all.sh                   # everything, in order (about 5 minutes; needs ~2 GB free disk)
 ```
@@ -649,7 +649,7 @@ All children (daemon-sim, client-sim, browse/Chromium) are killed or stopped by 
 ## Verification
 
 Independent verifier, 2026-09-28. The spike was copied without `node_modules`/`work` to
-`/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/transfer-verify`
+`<spike dir>/transfer-verify`
 and reinstalled with `npm ci`, which resolved to the exact versions in §2. The verifier's own checks are in
 `transfer-verify/verify/`; `sh verify/run-verify.sh` re-runs everything. Machine: macOS 26.5.1 arm64, Node 25.4.0,
 about 22–25 GiB free. Browsers: system Chrome 153.0.8010.53 through Playwright 1.63 (`channel: 'chrome'`), plus

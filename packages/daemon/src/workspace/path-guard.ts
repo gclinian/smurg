@@ -16,6 +16,7 @@ import { link, lstat, open, rename, rmdir, unlink, type FileHandle } from 'node:
 import { randomBytes } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { MAIN_ROOT, SmurgError, checkRelPath, isHostOnlyPath, isHostPrivatePath, isSmurgDirName, relPathSegments, rootRefKey, type FileRef, type RootRef } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import { PathDeniedError, isPathDeniedError, type PathDeniedReason } from '../core/errors.ts';
 import type { AuditLog, FileIdentity, GuardedFile, PathGuard, ResolveOptions, ResolvedPath, RootInfo, RootRegistry, SharedLink } from '../core/interfaces.ts';
 import { isHostPrincipal } from '../core/permissions.ts';
@@ -121,7 +122,7 @@ export class PathGuardImpl implements PathGuard {
 
   async openRead(resolved: ResolvedPath, options: ResolveOptions): Promise<GuardedFile> {
     const fresh = await this.revalidate(resolved, { ...options, mustExist: true });
-    if (fresh.identity === null || fresh.identity.kind !== 'file') throw new SmurgError('bad_request', '不是一般檔案', { reason: 'not-a-file' });
+    if (fresh.identity === null || fresh.identity.kind !== 'file') throw new SmurgError('bad_request', msg('file.notAFile'), { reason: 'not-a-file' });
     let handle: FileHandle;
     try {
       handle = await open(fresh.realPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
@@ -177,16 +178,16 @@ export class PathGuardImpl implements PathGuard {
     options: ResolveOptions & { readonly noClobber?: boolean; readonly expect?: FileIdentity | null; readonly mode?: number },
   ): Promise<FileIdentity> {
     const target = await this.resolve(ref, { ...options, forWrite: true, finalSymlink: 'deny' });
-    if (target.name === '') throw new SmurgError('bad_request', '不能寫入根目錄', { reason: 'root' });
+    if (target.name === '') throw new SmurgError('bad_request', msg('file.cannotWriteRoot'), { reason: 'root' });
     if (options.expect !== undefined) {
       const matches = options.expect === null ? !target.exists : target.identity !== null && sameObject(target.identity, options.expect);
-      if (!matches) throw new SmurgError('conflict', '檔案在讀取後已被變更', { reason: 'changed-since-read' });
+      if (!matches) throw new SmurgError('conflict', msg('file.changedSinceRead'), { reason: 'changed-since-read' });
     }
-    if (options.noClobber && target.exists) throw new SmurgError('conflict', '檔案已存在', { reason: 'exists' });
-    if (target.exists && target.identity?.kind !== 'file') throw new SmurgError('bad_request', '不是一般檔案', { reason: 'not-a-file' });
+    if (options.noClobber && target.exists) throw new SmurgError('conflict', msg('file.exists'), { reason: 'exists' });
+    if (target.exists && target.identity?.kind !== 'file') throw new SmurgError('bad_request', msg('file.notAFile'), { reason: 'not-a-file' });
     const parentStat = await lstatOrNull(target.parentRealPath);
     if (parentStat === null || parentStat === 'not-directory' || !parentStat.isDirectory()) {
-      throw new SmurgError('not_found', '上層資料夾不存在', { reason: 'parent-missing' });
+      throw new SmurgError('not_found', msg('file.parentMissing'), { reason: 'parent-missing' });
     }
     const parentIdentity = identityOf(parentStat);
     const tmp = join(target.parentRealPath, tmpNameFor(target.name));
@@ -359,7 +360,7 @@ export class PathGuardImpl implements PathGuard {
       if (readOnly) throw new PathDeniedError('read-only', target);
       if (hostOnly && !isPrivileged) throw new PathDeniedError('host-only', target);
     }
-    // Reads too (review SEC-D-03): the host-private files (.git, .envrc, the host's personal Claude Code files) are not
+    // Reads too: the host-private files (.git, .envrc, the host's personal Claude Code files) are not
     // handed to anyone but the host through file.read / download / doc.open. Decided on the request's, the resolved and
     // the on-disk spelling, like host-only.
     if (!isPrivileged && (isHostPrivatePath(path) || isHostPrivatePath(resolvedRel) || isHostPrivatePath(diskRel))) {
@@ -407,12 +408,12 @@ export class PathGuardImpl implements PathGuard {
       return;
     } catch (err) {
       const code = errnoCode(err);
-      if (code === 'EEXIST') throw new SmurgError('conflict', '檔案已存在', { reason: 'exists' });
+      if (code === 'EEXIST') throw new SmurgError('conflict', msg('file.exists'), { reason: 'exists' });
       if (code !== 'ENOTSUP' && code !== 'EPERM' && code !== 'EOPNOTSUPP') throw err;
     }
     // No hard links on this filesystem (ExFAT, transfer.md §1.4): a placeholder still refuses an existing file.
     const placeholder = await open(finalPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o666).catch((cause: unknown) => {
-      if (errnoCode(cause) === 'EEXIST') throw new SmurgError('conflict', '檔案已存在', { reason: 'exists' });
+      if (errnoCode(cause) === 'EEXIST') throw new SmurgError('conflict', msg('file.exists'), { reason: 'exists' });
       throw cause;
     });
     await placeholder.close();

@@ -24,7 +24,7 @@ export interface RowExtras {
   readonly interrupted: boolean;
   /** The interrupted upload came from a folder (choose a folder, not files). */
   readonly folder: boolean;
-  /** Chromium kept handles: 「允許讀取並繼續」 without a picker. */
+  /** Chromium kept handles: "Allow reading and continue" without a picker. */
   readonly handles: boolean;
 }
 
@@ -104,7 +104,7 @@ export function TransferRow({ job, extras, actions }: { job: JobSnapshot; extras
       </span>
       <div className="transfer-item__head">
         <span className="transfer-item__name" title={job.name}>
-          <span className="ui-visually-hidden">{t(`kind.${job.kind}`)}：</span>
+          <span className="ui-visually-hidden">{t('kind.prefix', { kind: t(`kind.${job.kind}`) })}</span>
           {job.name}
         </span>
         <Badge tone={STATUS_TONE[job.status]}>{describeStatus(job)}</Badge>
@@ -142,7 +142,8 @@ export function TransferRow({ job, extras, actions }: { job: JobSnapshot; extras
             <ul>
               {job.fileFailures.map((f) => (
                 <li key={f.path}>
-                  <code>{f.path}</code>：{describeFailure(f.failure)}
+                  <code>{f.path}</code>
+                  {t('item.detail', { detail: describeFailure(f.failure) })}
                 </li>
               ))}
             </ul>
@@ -154,7 +155,8 @@ export function TransferRow({ job, extras, actions }: { job: JobSnapshot; extras
             <ul>
               {job.rejected.map((r) => (
                 <li key={r.path}>
-                  <code>{r.path}</code>：{describeRejected(r.problem)}
+                  <code>{r.path}</code>
+                  {t('item.detail', { detail: describeRejected(r.problem) })}
                 </li>
               ))}
             </ul>
@@ -170,7 +172,8 @@ export function TransferRow({ job, extras, actions }: { job: JobSnapshot; extras
                 <ul>
                   {outcome.skipped.map((s) => (
                     <li key={s.path}>
-                      <code>{s.path}</code>：{describeSkip(s.reason)}
+                      <code>{s.path}</code>
+                      {t('item.detail', { detail: describeSkip(s.reason) })}
                     </li>
                   ))}
                 </ul>

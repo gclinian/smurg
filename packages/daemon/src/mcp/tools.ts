@@ -1,4 +1,4 @@
-// The coordination MCP server's tools (SPEC R8 「協調用 MCP server」): what the agent sees in `tools/list`. The daemon
+// The coordination MCP server's tools (SPEC R8, the coordination MCP server): what the agent sees in `tools/list`. The daemon
 // decides every answer (src/hooks/mcp-tools.ts); these definitions only describe the calls. Descriptions are English
 // and written for the agent: when to use the tool, what the answer means, what to do next.
 //

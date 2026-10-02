@@ -1,6 +1,7 @@
-// Pending suggestions across every session (SPEC R11 「待處理的建議」): a read-only overview. Accepting or rejecting is
-// done at the session, by the host or a 可使用 agent member (protocol v2 `session.drive`, R6: never automatically).
+// Pending suggestions across every session (SPEC R11 "pending suggestions"): a read-only overview. Accepting or rejecting is
+// done at the session, by the host or a member with agent access (protocol v2 `session.drive`, R6: never automatically).
 import { shallowEqual, useStore } from '../../lib/store.ts';
+import { sessionTitle } from '../../lib/stores/sessions.ts';
 import { selectSuggestionList } from '../../lib/stores/suggestions.ts';
 import { formatRelativeTime } from '../../lib/format.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
@@ -36,14 +37,16 @@ export function SuggestionsSection({ now }: { now: number }) {
               <li key={suggestion.id} className="console-suggestion">
                 <p className="console-suggestion__target">
                   {session
-                    ? t('suggestions.target', { author: suggestion.author.displayName, owner: session.ownerName, title: session.title })
+                    ? t('suggestions.target', { author: suggestion.author.displayName, owner: session.ownerName, title: sessionTitle(session) })
                     : t('suggestions.unknownSession', { author: suggestion.author.displayName })}
                   <span className="console-muted">{formatRelativeTime(suggestion.createdAt, now)}</span>
                 </p>
                 <p className="console-suggestion__text">{text}</p>
                 {suggestion.source ? (
                   <p className="console-muted">
-                    {t('suggestions.source', { path: suggestion.source.file.path, start: suggestion.source.startLine, end: suggestion.source.endLine })}
+                    {suggestion.source.startLine === suggestion.source.endLine
+                      ? t('suggestions.sourceLine', { path: suggestion.source.file.path, start: suggestion.source.startLine })
+                      : t('suggestions.source', { path: suggestion.source.file.path, start: suggestion.source.startLine, end: suggestion.source.endLine })}
                   </p>
                 ) : null}
               </li>

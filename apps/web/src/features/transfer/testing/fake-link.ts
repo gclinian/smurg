@@ -20,6 +20,7 @@ import {
   type ResultOf,
   type RootRef,
 } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import {
   ClientRequestError,
   isTerminalState,
@@ -518,7 +519,7 @@ export class FakeTransferLink implements TransferLink {
       if (seen.has(key) && entry.kind === 'file') problems.push({ path: entry.path, reason: 'duplicate' });
       seen.add(key);
     }
-    if (problems.length > 0) throw new SmurgError('conflict', '這批上傳有名稱衝突', { reason: 'batch-collision', paths: problems });
+    if (problems.length > 0) throw new SmurgError('conflict', msg('upload.nameConflicts'), { reason: 'batch-collision', paths: problems });
     const renamed: { from: string; to: string }[] = [];
     for (const entry of input.entries) {
       const existing = d.get(input.root, entry.path);
@@ -536,14 +537,14 @@ export class FakeTransferLink implements TransferLink {
       }
     }
     if (problems.length > 0) {
-      throw new SmurgError('conflict', '這批上傳有名稱衝突，沒有建立任何檔案', {
+      throw new SmurgError('conflict', msg('upload.nameConflicts'), {
         reason: problems.every((p) => p.reason === 'exists') ? 'exists' : 'conflict',
         paths: problems.slice(0, 100),
       });
     }
     const total = input.entries.reduce((sum, e) => sum + (e.size ?? 0), 0);
     const disk = d.disk(total);
-    if (!disk.ok) throw new SmurgError('insufficient_disk', '主人的磁碟空間不足，上傳尚未開始', { disk });
+    if (!disk.ok) throw new SmurgError('insufficient_disk', undefined, { disk });
     for (const entry of input.entries) d.mkdirs(input.root, entry.kind === 'dir' ? entry.path : (parentRelPath(entry.path) ?? ''));
     this.events.push(`plan ${input.entries.length}`);
     return { disk, renamed };
@@ -558,18 +559,18 @@ export class FakeTransferLink implements TransferLink {
   private begin(input: PayloadOf<'file.upload.begin'>): ResultInputOf<'file.upload.begin'> {
     const d = this.daemon;
     const done = input.uploadId !== undefined ? d.committed.get(input.uploadId) : undefined;
-    if (done) throw new SmurgError('conflict', '這個上傳已經完成', { reason: 'committed', path: done.path, entry: d.entryOf(done.root, done.path) });
+    if (done) throw new SmurgError('conflict', msg('upload.alreadyDone'), { reason: 'committed', path: done.path, entry: d.entryOf(done.root, done.path) });
     const matches = (u: FakeUpload): boolean =>
       rootRefKey(u.root) === rootRefKey(input.root) && u.path === input.path && u.size === input.size && u.chunkSize === input.chunkSize && u.lastModified === input.lastModified;
     let upload = input.uploadId !== undefined ? d.uploads.get(input.uploadId) : [...d.uploads.values()].find(matches);
     if (upload && !matches(upload)) upload = undefined;
     const onConflict = input.onConflict ?? upload?.onConflict ?? 'fail';
     const existing = d.get(input.root, input.path);
-    if (existing === 'dir') throw new SmurgError('conflict', '目標位置已經有同名的資料夾', { reason: 'not-a-file' });
-    if (existing !== undefined && onConflict === 'fail') throw new SmurgError('conflict', '已經有同名的檔案或資料夾', { reason: 'exists' });
+    if (existing === 'dir') throw new SmurgError('conflict', msg('upload.folderInTheWay'), { reason: 'not-a-file' });
+    if (existing !== undefined && onConflict === 'fail') throw new SmurgError('conflict', msg('file.nameTaken'), { reason: 'exists' });
     const remaining = upload ? upload.size - [...upload.data.values()].reduce((s, b) => s + b.byteLength, 0) : input.size;
     const disk = d.disk(remaining);
-    if (!disk.ok) throw new SmurgError('insufficient_disk', '主人的磁碟空間不足，上傳尚未開始', { disk });
+    if (!disk.ok) throw new SmurgError('insufficient_disk', undefined, { disk });
     if (upload) {
       upload.onConflict = onConflict;
       upload.bound = true;
@@ -598,8 +599,8 @@ export class FakeTransferLink implements TransferLink {
 
   private bound(uploadId: string): FakeUpload {
     const upload = this.daemon.uploads.get(uploadId);
-    if (!upload) throw new SmurgError('not_found', '找不到這個上傳', { reason: 'unknown-upload' });
-    if (!upload.bound) throw new SmurgError('conflict', '請先重新開始這個上傳（file.upload.begin）', { reason: 'not-bound' });
+    if (!upload) throw new SmurgError('not_found', msg('upload.notFound'), { reason: 'unknown-upload' });
+    if (!upload.bound) throw new SmurgError('conflict', msg('upload.beginFirst'), { reason: 'not-bound' });
     return upload;
   }
 
@@ -612,14 +613,14 @@ export class FakeTransferLink implements TransferLink {
 
   private chunk(input: PayloadOf<'file.upload.chunk'>): ResultInputOf<'file.upload.chunk'> {
     const upload = this.bound(input.uploadId);
-    if (input.index >= upload.chunkCount) throw new SmurgError('bad_request', '分段編號超出範圍', { reason: 'index' });
+    if (input.index >= upload.chunkCount) throw new SmurgError('bad_request', msg('upload.chunkIndex'), { reason: 'index' });
     const expected = input.index === upload.chunkCount - 1 ? upload.size - input.index * upload.chunkSize : upload.chunkSize;
-    if (input.data.byteLength !== expected) throw new SmurgError('bad_request', '分段長度不正確', { reason: 'chunk-length' });
+    if (input.data.byteLength !== expected) throw new SmurgError('bad_request', msg('upload.chunkLength'), { reason: 'chunk-length' });
     const digest = sha256(input.data);
-    if (Buffer.compare(Buffer.from(digest), Buffer.from(input.hash)) !== 0) throw new SmurgError('bad_request', '分段的雜湊值不符', { reason: 'hash-mismatch', index: input.index });
+    if (Buffer.compare(Buffer.from(digest), Buffer.from(input.hash)) !== 0) throw new SmurgError('bad_request', msg('upload.chunkHashMismatch'), { reason: 'hash-mismatch', index: input.index });
     if (bitSet(upload.have, input.index)) {
       const stored = upload.hashes.subarray(input.index * 32, input.index * 32 + 32);
-      if (Buffer.compare(Buffer.from(stored), Buffer.from(digest)) !== 0) throw new SmurgError('conflict', '這個分段先前已收到不同的內容', { reason: 'chunk-differs', index: input.index });
+      if (Buffer.compare(Buffer.from(stored), Buffer.from(digest)) !== 0) throw new SmurgError('conflict', msg('upload.chunkDiffers'), { reason: 'chunk-differs', index: input.index });
       return { index: input.index };
     }
     upload.data.set(input.index, input.data.slice());
@@ -631,13 +632,13 @@ export class FakeTransferLink implements TransferLink {
   private commit(input: PayloadOf<'file.upload.commit'>): ResultInputOf<'file.upload.commit'> {
     const d = this.daemon;
     const upload = this.bound(input.uploadId);
-    if (upload.data.size !== upload.chunkCount) throw new SmurgError('bad_request', '還有分段沒有收到', { reason: 'incomplete' });
+    if (upload.data.size !== upload.chunkCount) throw new SmurgError('bad_request', msg('upload.incomplete'), { reason: 'incomplete' });
     const root = daemonRootHash(upload.size, upload.chunkSize, upload.hashes);
-    if (Buffer.compare(Buffer.from(root), Buffer.from(input.rootHash)) !== 0) throw new SmurgError('bad_request', '整個檔案的雜湊值不符', { reason: 'hash-mismatch' });
+    if (Buffer.compare(Buffer.from(root), Buffer.from(input.rootHash)) !== 0) throw new SmurgError('bad_request', msg('upload.fileHashMismatch'), { reason: 'hash-mismatch' });
     let path = upload.path;
     const existing = d.get(upload.root, path);
     if (existing !== undefined) {
-      if (upload.onConflict === 'fail') throw new SmurgError('conflict', '已經有同名的檔案或資料夾', { reason: 'exists' });
+      if (upload.onConflict === 'fail') throw new SmurgError('conflict', msg('file.nameTaken'), { reason: 'exists' });
       if (upload.onConflict === 'rename') {
         let n = 1;
         while (d.get(upload.root, this.sibling(path, n)) !== undefined) n++;
@@ -659,14 +660,14 @@ export class FakeTransferLink implements TransferLink {
     const key = d.key(input.file.root, input.file.path);
     const name = input.file.path === '' ? 'workspace' : (relPathSegments(input.file.path).at(-1) as string);
     if (input.zip === true) {
-      if (!d.zips.has(key)) throw new SmurgError('bad_request', '只有資料夾可以打包成 zip 下載', { reason: 'not-a-directory' });
+      if (!d.zips.has(key)) throw new SmurgError('bad_request', msg('download.zipNeedsFolder'), { reason: 'not-a-directory' });
       return { downloadId: d.id('dl'), name: `${name}.zip`, zip: true };
     }
     const content = d.get(input.file.root, input.file.path);
-    if (content === undefined) throw new SmurgError('not_found', '找不到指定的項目');
-    if (content === 'dir') throw new SmurgError('bad_request', '資料夾請以 zip 下載', { reason: 'not-a-file' });
+    if (content === undefined) throw new SmurgError('not_found');
+    if (content === 'dir') throw new SmurgError('bad_request', msg('download.folderNeedsZip'), { reason: 'not-a-file' });
     const etag = d.etags.get(key) as string;
-    if (input.ifMatch !== undefined && input.ifMatch !== etag) throw new SmurgError('conflict', '檔案在上次下載後已被修改，請重新下載', { reason: 'changed', etag });
+    if (input.ifMatch !== undefined && input.ifMatch !== etag) throw new SmurgError('conflict', msg('download.changedSinceLast'), { reason: 'changed', etag });
     return { downloadId: d.id('dl'), name, size: content.byteLength, etag, zip: false };
   }
 
@@ -695,7 +696,7 @@ export class FakeTransferLink implements TransferLink {
         channelId: `ch_${this.seq++}`,
         resumed: false,
         member: { userId: 'dev:amy', displayName: 'Amy', role: 'editor', color: '#3366ff', online: true, joinedAt: 1_780_000_000_000 },
-        workspace: { id: 'ws_test_transfer_000001', name: '測試專案', hostUserId: 'dev:host', hostName: 'Host', platform: 'darwin', isGitRepo: false },
+        workspace: { id: 'ws_test_transfer_000001', name: 'Test project', hostUserId: 'dev:host', hostName: 'Host', platform: 'darwin', isGitRepo: false },
         settings: { ...WELCOME_SETTINGS, uploadChunkSize: this.chunkSize },
         serverTime: 1_780_000_000_000,
       },

@@ -1,5 +1,5 @@
 // Client-side checks of the texts this feature sends, with the protocol's own schemas (the daemon validates again):
-// a merge request's message (multi-line) and a rejection reason (one line). Returns a zh-TW problem or null.
+// a merge request's message (multi-line) and a rejection reason (one line). Returns the problem in words, or null.
 import { MERGE_MESSAGE_MAX_CHARS, REASON_MAX_CHARS, mergeMessageSchema, reasonTextSchema } from '@smurg/protocol';
 import { t } from './strings.ts';
 

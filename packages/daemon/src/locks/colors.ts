@@ -1,4 +1,4 @@
-// Presence colours (SPEC R7 在場感知). A cursor label and a lock banner are drawn in the person's or agent's colour on
+// Presence colours (SPEC R7, presence). A cursor label and a lock banner are drawn in the person's or agent's colour on
 // both editor themes, so every colour must stay readable on the light (#ffffff) and the dark (#1e1e1e, Monaco's
 // vs-dark) background: a WCAG contrast of at least 3:1 (large text / UI components) against each. Colours must also
 // be told apart at a glance, so each palette spreads its hues around the colour wheel.
@@ -8,7 +8,7 @@ export const LIGHT_BACKGROUND = '#ffffff';
 export const DARK_BACKGROUND = '#1e1e1e';
 export const MIN_CONTRAST = 3;
 
-/** Agents 「Claude（…）」: eight hues, none of them a member colour, each readable on both backgrounds. */
+/** Agents `Claude (...)`: eight hues, none of them a member colour, each readable on both backgrounds. */
 export const AGENT_COLORS: readonly string[] = Object.freeze(['#d97706', '#65a30d', '#059669', '#0891b2', '#2563eb', '#9333ea', '#c026d3', '#db2777']);
 
 /**

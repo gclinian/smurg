@@ -1,5 +1,7 @@
 # smurg SPEC
 
+> English note: this is the original requirements document, kept in Traditional Chinese as it was written. Where smurg deliberately differs from it, `docs/ARCHITECTURE.md` §11 says how.
+
 > 多人 × 多 agent 即時協作工作區。一個人把自己電腦上的專案資料夾分享出來，組員用瀏覽器連進來，一起編輯檔案、一起看和指揮 Claude Code。
 
 ---

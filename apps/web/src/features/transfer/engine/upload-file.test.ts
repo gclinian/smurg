@@ -3,6 +3,7 @@
 // payload through the protocol registry). SPEC R7 upload bullets, ARCHITECTURE §5.2, transfer.md §1.3 / §1.9.
 import { createHash } from 'node:crypto';
 import { SmurgError } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import { ClientRequestError, uploadRootHash } from '@smurg/protocol/client';
 import { describe, expect, it } from 'vitest';
 import { FakeTransferLink } from '../testing/fake-link.ts';
@@ -42,7 +43,7 @@ function chunkIndexes(link: FakeTransferLink, fromLog = 0): number[] {
 }
 
 describe('FileUpload — chunking and hashing', () => {
-  it('reads the file one chunk at a time with slice().arrayBuffer() and never holds more than the window (SPEC R7 「不能把整個檔案載入記憶體」)', async () => {
+  it('reads the file one chunk at a time with slice().arrayBuffer() and never holds more than the window (SPEC R7: never load a whole file into memory)', async () => {
     const link = new FakeTransferLink();
     let maxHeld = 0;
     const size = 9 * CHUNK + 777;
@@ -138,8 +139,8 @@ describe('FileUpload — flow control (ack window of 4 chunks + bufferedAmount g
   });
 });
 
-describe('FileUpload — resume (R7.3 上傳中途斷線，重新連線後從中斷處繼續)', () => {
-  it('上傳中途斷線，重新連線後從中斷處繼續 — resumes from the daemon bitmap with the hashes kept in memory', async () => {
+describe('FileUpload — resume (R7.3: an upload cut off midway continues where it stopped after reconnecting)', () => {
+  it('an upload cut off midway continues where it stopped after reconnecting — resumes from the daemon bitmap with the hashes kept in memory', async () => {
     const link = new FakeTransferLink({ ackChunks: 'manual' });
     const size = 8 * CHUNK + 5;
     const src = source(size, 11);
@@ -172,7 +173,7 @@ describe('FileUpload — resume (R7.3 上傳中途斷線，重新連線後從中
     expect(sha(stored(link))).toBe(sha(syntheticBytes(11, 0, size)));
   });
 
-  it('上傳中途斷線，重新連線後從中斷處繼續 — after a page reload: re-hashes what the daemon already has, locally, and sends only the rest', async () => {
+  it('an upload cut off midway continues where it stopped after reconnecting — after a page reload: re-hashes what the daemon already has, locally, and sends only the rest', async () => {
     const link = new FakeTransferLink({ ackChunks: 'manual' });
     const size = 7 * CHUNK + 99;
     const before = upload(source(size, 21));
@@ -239,7 +240,7 @@ describe('FileUpload — resume (R7.3 上傳中途斷線，重新連線後從中
     expect(sha(stored(link))).toBe(sha(syntheticBytes(99, 0, size)));
   });
 
-  it('上傳中途斷線，重新連線後從中斷處繼續 — the commit\'s answer was lost: the next begin learns the file is there (committed), no conflict with its own file', async () => {
+  it('an upload cut off midway continues where it stopped after reconnecting — the commit\'s answer was lost: the next begin learns the file is there (committed), no conflict with its own file', async () => {
     const link = new FakeTransferLink();
     const job = upload(source(2 * CHUNK + 3, 9));
     link.loseNextCommitAnswer = true;
@@ -259,7 +260,7 @@ describe('FileUpload — resume (R7.3 上傳中途斷線，重新連線後從中
   it('a new transfer socket that the upload is not bound to (conflict, reason not-bound) is answered by a begin with the uploadId', async () => {
     const link = new FakeTransferLink();
     const job = upload(source(3 * CHUNK, 4));
-    link.failNext('file.upload.chunk', new SmurgError('conflict', '請先重新開始這個上傳（file.upload.begin）', { reason: 'not-bound' }), { when: (p) => p.index === 1 });
+    link.failNext('file.upload.chunk', new SmurgError('conflict', msg('upload.beginFirst'), { reason: 'not-bound' }), { when: (p) => p.index === 1 });
     await job.run(deps(link));
     const begins = link.requestsOf('file.upload.begin');
     expect(begins).toHaveLength(2);
@@ -289,7 +290,7 @@ describe('FileUpload — resume (R7.3 上傳中途斷線，重新連線後從中
 describe('FileUpload — errors', () => {
   it('retries a chunk that the daemon refused as corrupted in transit (hash-mismatch) or that timed out', async () => {
     const link = new FakeTransferLink();
-    link.failNext('file.upload.chunk', new SmurgError('bad_request', '分段的雜湊值不符，請重新傳送', { reason: 'hash-mismatch', index: 2 }), { when: (p) => p.index === 2 });
+    link.failNext('file.upload.chunk', new SmurgError('bad_request', msg('upload.chunkHashMismatch'), { reason: 'hash-mismatch', index: 2 }), { when: (p) => p.index === 2 });
     link.failNext('file.upload.chunk', new ClientRequestError('timeout'), { when: (p) => p.index === 4 });
     await upload(source(6 * CHUNK, 12)).run(deps(link));
     const indexes = chunkIndexes(link);
@@ -310,7 +311,7 @@ describe('FileUpload — errors', () => {
 
   it('does not retry a refusal a resend cannot fix (forbidden) and reports it', async () => {
     const link = new FakeTransferLink();
-    link.failNext('file.upload.chunk', new SmurgError('forbidden', '沒有權限'), { when: (p) => p.index === 0 });
+    link.failNext('file.upload.chunk', new SmurgError('forbidden'), { when: (p) => p.index === 0 });
     await expect(upload(source(2 * CHUNK)).run(deps(link))).rejects.toMatchObject({ code: 'forbidden' });
     expect(chunkIndexes(link).filter((i) => i === 0)).toHaveLength(1);
   });

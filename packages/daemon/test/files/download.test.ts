@@ -182,8 +182,8 @@ async function buildThousandFileFolder(root: string, outside: string): Promise<{
   return { files, emptyDirs, excluded: ['links/escape', 'links/absolute', 'a-fifo'] };
 }
 
-describe('R7.5 下載 1,000 個檔案的資料夾，zip 內容與原始資料夾完全一致', () => {
-  it('下載 1,000 個檔案的資料夾，zip 內容與原始資料夾完全一致', { timeout: 120_000 }, async () => {
+describe('R7.5 a folder of 1,000 files downloads as a zip whose content equals the folder', () => {
+  it('a folder of 1,000 files downloads as a zip whose content equals the folder', { timeout: 120_000 }, async () => {
     const { ft: f, xfer } = await setup({});
     const outside = join(dirname(f.t.root), 'outside');
     await mkdir(outside, { recursive: true });
@@ -247,7 +247,7 @@ describe('R7.5 下載 1,000 個檔案的資料夾，zip 內容與原始資料夾
   });
 });
 
-describe('the host\'s private data in a zip (review SEC-D-03)', { timeout: 60_000 }, () => {
+describe('the host\'s private data in a zip', { timeout: 60_000 }, () => {
   it('a guest\'s zip leaves .git, .envrc and the host\'s personal Claude Code files out (reported as skipped); the host\'s keeps them', async () => {
     const { host, xfer } = await setup({
       'app/main.ts': 'x\n',

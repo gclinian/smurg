@@ -1,13 +1,13 @@
-// The agents panel (SPEC R4, R7 「agent 面板」, goal 2 「所有組員都能即時看到每個 agent 在改什麼」): a tab for EVERY
+// The agents panel (SPEC R4, R7 "agent panel", goal 2 "every teammate sees live what each agent is changing"): a tab for EVERY
 // session of the workspace — everyone may watch — with who opened it, kind, status and where it runs; the terminal
 // (xterm.js, loaded lazily); session creation and ending. Every session runs as the host (protocol v2): the host and
-// 可使用 agent open sessions and type into any of them. The focused session (sessions.focus) is shared with the
+// members with agent access open sessions and type into any of them. The focused session (sessions.focus) is shared with the
 // suggestions panel below, which shows the composer to editors and the queue of suggestions to those who may type.
 //
 // Closing an ended session's tab (ARCHITECTURE §9): everyone may close the tab of a session that ENDED, in their own
 // panel only (closed-sessions.ts: remembered in this browser while the daemon still lists the session; nothing is
 // sent, the other members keep the tab). A running session is never closed here: ending it stays the explicit
-// 「結束 session」 / 「強制終止」 of those who may.
+// "End session" / "Terminate" of those who may.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
 import { useStore } from '../../lib/store.ts';
@@ -73,6 +73,12 @@ export function AgentsPanel(_props: AgentsPanelProps) {
   const closedSessions = useMemo(() => createClosedSessions(workspaceId), [workspaceId]);
   const closed = useStore(closedSessions);
   const list = useMemo(() => known.filter((session) => !(session.status === 'exited' && closed.has(session.id))), [known, closed]);
+  // The ended sessions this person closed the tab of, while the host's computer still lists them: with no tab left,
+  // the empty panel says so and offers them back (it must not read as "there are no sessions").
+  const hidden = useMemo(() => known.filter((session) => session.status === 'exited' && closed.has(session.id)), [known, closed]);
+  const showHidden = (): void => {
+    for (const session of hidden) closedSessions.reopen(session.id);
+  };
   useEffect(() => {
     if (sessionsState.status === 'ready') closedSessions.retain({ has: (id) => sessionsState.sessions.get(id)?.status === 'exited' });
   }, [sessionsState.status, sessionsState.sessions, closedSessions]);
@@ -146,7 +152,7 @@ export function AgentsPanel(_props: AgentsPanelProps) {
     const closedId = refocusAfter.current;
     if (closedId === null || list.some((session) => session.id === closedId)) return;
     refocusAfter.current = null;
-    // The control that was used is gone with the tab. Without any tab left: 「新增 session」.
+    // The control that was used is gone with the tab. Without any tab left: "New session".
     if (selectedId === null || tabsRef.current?.focusTab(selectedId) !== true) newButtonRef.current?.focus();
   });
 
@@ -188,6 +194,19 @@ export function AgentsPanel(_props: AgentsPanelProps) {
           }
         />
       );
+      if (hidden.length > 0) {
+        body = (
+          <>
+            {body}
+            <p className="agents-hidden" role="status" data-testid="agents-hidden-ended">
+              <span>{t('empty.hidden', { count: hidden.length })}</span>
+              <Button size="sm" variant="ghost" onClick={showHidden}>
+                {t('empty.showHidden')}
+              </Button>
+            </p>
+          </>
+        );
+      }
     }
   } else {
     body = (

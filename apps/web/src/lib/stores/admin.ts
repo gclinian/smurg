@@ -139,7 +139,7 @@ export function createAdminArea(): { store: AdminStore; lifecycle: AreaLifecycle
     }, MEMBER_REFRESH_DELAY_MS);
   };
 
-  /** An invite was used, created or revoked (the audit stream says so): re-list them, coalesced (review WEB-05). */
+  /** An invite was used, created or revoked (the audit stream says so): re-list them, coalesced. */
   const scheduleInviteRefresh = (): void => {
     if (!ctx || !isAdmin(ctx.role()) || inviteTimer !== null) return;
     inviteTimer = ctx.scheduler.setTimeout(() => {
@@ -210,7 +210,7 @@ export function createAdminArea(): { store: AdminStore; lifecycle: AreaLifecycle
       const offAudit = c.conn.on('admin.audit.entry', ({ entry }) => {
         if (!state.getState().enabled) return;
         state.setState((previous) => ({ ...previous, audit: mergeAudit([entry], previous.audit) }));
-        // The invites table must not keep showing a used single-use link as 「剩 1 次 / 有效」 until a reload.
+        // The invites table must not keep showing a used single-use link as "1 use left / active" until a reload.
         if (entry.action === 'auth.join' || entry.action.startsWith('invite.')) scheduleInviteRefresh();
       });
       // Joins, leaves, kicks and role changes all show up in presence: refresh the member list after them.

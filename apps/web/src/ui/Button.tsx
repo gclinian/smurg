@@ -33,7 +33,7 @@ export function Button({ variant = 'secondary', size = 'md', icon, loading = fal
 }
 
 export interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'aria-label'> {
-  /** The accessible name (zh-TW), also shown as the tooltip. Required: an icon alone is not a label. */
+  /** The accessible name (from the catalogue), also shown as the tooltip. Required: an icon alone is not a label. */
   label: string;
   icon: ReactNode;
   variant?: Exclude<ButtonVariant, 'primary'>;

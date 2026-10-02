@@ -59,7 +59,7 @@ export const worktreeMergeDiffResultSchema = z.strictObject({
 
 /**
  * (Addition) One file of the request's commit, for a whole-diff review when `worktree.merge.diff` was truncated
- * (R9 「主人看到完整 diff」): the UI refuses to approve until every file marked truncated was opened here. The diff
+ * (R9: the host sees the complete diff): the UI refuses to approve until every file marked truncated was opened here. The diff
  * itself is cut at MERGE_DIFF_MAX_BYTES too (`truncated`); `binary` when git shows no text diff. The daemon answers
  * only paths listed in the request's diff `files` (never a git pathspec) and runs git with `--` before the path.
  */

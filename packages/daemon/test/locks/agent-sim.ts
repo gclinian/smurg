@@ -44,7 +44,7 @@ export function preToolUse(t: TestDaemon, session: SimSession, file: FileRef, to
     file,
     sessionId: session.id,
     ownerUserId: session.ownerUserId,
-    agentName: `Claude（${session.ownerName}）`,
+    agentName: `Claude (${session.ownerName})`,
     sessionRoot: session.root,
   });
   t.ctx.bus.emit('agent.tool.pre', {

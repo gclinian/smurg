@@ -54,11 +54,11 @@ describe('KeepAwake', () => {
     const log = createMemoryLogger();
     const refused = new KeepAwake({ enabled: true, log, command: { file: '/bin/sh', args: ['-c', 'echo "Failed to inhibit: Access denied" >&2; exit 1'], mechanism: 'systemd-inhibit' } });
     services.push(refused);
-    expect(await refused.start()).toMatchObject({ active: false, pid: null, reason: 'the inhibitor was refused' });
+    expect(await refused.start()).toMatchObject({ active: false, pid: null, reason: 'refused' });
     expect(log.lines.find((line) => line.message === 'keep-awake inhibitor exited')?.fields).toMatchObject({ code: 1, stderr: 'Failed to inhibit: Access denied' });
     const other = new KeepAwake({ enabled: true, log: silentLogger, command: { file: '/bin/sh', args: ['-c', 'exit 3'], mechanism: 'systemd-inhibit' } });
     services.push(other);
-    expect(await other.start()).toMatchObject({ active: false, reason: 'the inhibitor exited' });
+    expect(await other.start()).toMatchObject({ active: false, reason: 'exited' });
   });
 
   it('an inhibitor that keeps running is active once start() returns, and a later loss is still seen', async () => {
@@ -68,16 +68,16 @@ describe('KeepAwake', () => {
     expect(await service.start()).toMatchObject({ active: true, mechanism: 'systemd-inhibit' });
     expect(Date.now() - started).toBeLessThan(2_000);
     await waitFor(() => !service.status().active, { what: 'the inhibitor to end' });
-    expect(service.status()).toMatchObject({ active: false, reason: 'the inhibitor exited' });
+    expect(service.status()).toMatchObject({ active: false, reason: 'exited' });
   });
 
   it('reports why it is inactive instead of failing', async () => {
     const disabled = new KeepAwake({ enabled: false, log: silentLogger });
     expect(await disabled.start()).toMatchObject({ active: false, reason: 'disabled' });
     const unsupported = new KeepAwake({ enabled: true, log: silentLogger, platform: 'win32' });
-    expect(await unsupported.start()).toMatchObject({ active: false, reason: 'unsupported platform win32' });
+    expect(await unsupported.start()).toMatchObject({ active: false, reason: 'unsupported-platform' });
     const noInhibit = new KeepAwake({ enabled: true, log: silentLogger, platform: 'linux', findSystemdInhibit: async () => null });
-    expect(await noInhibit.start()).toMatchObject({ active: false, reason: 'systemd-inhibit not found' });
+    expect(await noInhibit.start()).toMatchObject({ active: false, reason: 'systemd-inhibit-not-found' });
     const broken = new KeepAwake({ enabled: true, log: silentLogger, command: { file: '/nonexistent/inhibitor', args: [], mechanism: 'caffeinate' } });
     expect(await broken.start()).toMatchObject({ active: false });
     await broken.stop();

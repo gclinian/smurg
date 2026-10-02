@@ -1,7 +1,7 @@
 // File locks (SPEC R8, D14; ARCHITECTURE §5.4, §7.5). One lock per FILE (not per spelling, see keys.ts):
 //  - human lock: taken by DocService.touchHuman on a person's first edit, SHARED by every person editing the file,
 //    refreshed by each edit; a holder drops out after humanLockIdleMs without an edit (a live setting), when they
-//    close the file or leave, or with 「讓 agent 先改」; the lock ends with its last holder. While it exists every agent
+//    close the file or leave, or with "Let the agent go first"; the lock ends with its last holder. While it exists every agent
 //    is refused with the holders' names.
 //  - agent lock: requested by the PreToolUse hook, exclusive, TTL agentLockTimeoutMs. Refused while a human lock or
 //    another session's agent lock is held. Released by PostToolUse / PostToolUseFailure, and because a permission
@@ -19,14 +19,8 @@ import { monotonicNow, type Clock } from '../core/lifecycle.ts';
 import type { Logger } from '../core/logger.ts';
 import { SYSTEM_ACTOR, principalCan } from '../core/permissions.ts';
 import { lockKeyOf } from './keys.ts';
-import {
-  INVALID_TARGET_REASON,
-  LOCK_CAP_REASON,
-  OUTSIDE_ROOT_REASON,
-  agentHeldReason,
-  humanHeldReason,
-  safeDisplayName,
-} from './text.ts';
+import { INVALID_TARGET_REASON, LOCK_CAP_REASON, OUTSIDE_ROOT_REASON, agentHeldReason, humanHeldReason } from '../hooks/deny-text.ts';
+import { safeDisplayName } from './text.ts';
 import { realTimers, type Timers } from './timers.ts';
 
 type HumanLockInfo = Extract<LockInfo, { kind: 'human' }>;
@@ -177,7 +171,7 @@ export class LockManagerImpl implements LockManager {
   }
 
   /**
-   * Lock time (review REL-04): the wall time at construction plus the MONOTONIC time since. Idle timeouts and TTLs are
+   * Lock time: the wall time at construction plus the MONOTONIC time since. Idle timeouts and TTLs are
    * durations; a wall clock that NTP or the person steps back an hour must not keep a lock alive for that hour (nor
    * a step forward expire every lock at once). Reported timestamps stay epoch milliseconds, off by at most the steps.
    * A clock without monotonic() (tests) reads as its own wall time.
@@ -502,7 +496,7 @@ export class LockManagerImpl implements LockManager {
     entry.holders.delete(userId);
     const ended = entry.holders.size === 0;
     if (ended) this.entries.delete(entry.key);
-    // An explicit 「讓 agent 先改」 is always on record; otherwise only the end of the lock.
+    // An explicit "Let the agent go first" is always on record; otherwise only the end of the lock.
     if (reason === 'yield' || ended) {
       this.recordAudit(userActor(holder), 'lock.release', entry.file, { kind: 'human', reason, remaining: entry.holders.size });
     }

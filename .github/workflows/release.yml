@@ -1,28 +1,30 @@
 # A release: push a tag vX.Y.Z (CHANGELOG.md must have a `## [X.Y.Z] - YYYY-MM-DD` section) and this workflow
 #   1. checks the tag, the changelog and that nothing is left to fill in (scripts/release-assets.sh --publish-checks:
-#      the section's date, no <RELAY_URL> placeholder, DEFAULT_RELAY_URL set and named in the user docs, the install
-#      line in README.md, docs/HOSTING.md and docs/JOINING.md, no link to this private repository in what users read,
-#      LICENSE's copyright holder named, every package.json at X.Y.Z, UNLICENSED and private), before any runner time
-#      is spent on builds;
+#      the dated section in both changelogs, no placeholder, DEFAULT_RELAY_URL set and named in the user docs with
+#      the install line, the MIT LICENSE, every package.json at X.Y.Z, MIT and private), before any runner time is
+#      spent on builds;
 #   2. builds the single executable on each target's own runner with scripts/build-sea.sh --version X.Y.Z --target …,
 #      which also checks that it runs there, smoke-tests it (packages/cli/test/sea.test.ts) and writes next to it the
 #      THIRD-PARTY-NOTICES.txt it embeds;
 #   3. assembles the release with scripts/release-assets.sh: the four executables, SHA256SUMS, install.sh with this
 #      version's download location baked in (https://downloads.smurg.ai/vX.Y.Z), THIRD-PARTY-NOTICES.txt (the four
 #      builds' must be identical), plus the notes (the CHANGELOG section, the install line, the checksums);
-#   4. keeps those seven files as a GitHub release of THIS PRIVATE REPOSITORY, the internal record (created as a draft,
-#      its asset list checked, then published; latest unless the version has a pre-release part such as 0.2.0-rc.1).
-#      Nobody outside the repository can download it.
-# It makes nothing public. A person (the owner or the lead) then runs, from a checkout with the repository's own
-# wrangler login (docs/RELEASING.md §1.2), the command the job summary prints:
+#   4. keeps those seven files as the workflow artifact release-X.Y.Z (30 days), and creates the GitHub release
+#      vX.Y.Z with the notes, SHA256SUMS and THIRD-PARTY-NOTICES.txt (created as a draft, its asset list checked, then
+#      published; latest unless the version has a pre-release part such as 0.5.0-rc.1). The GitHub release carries no
+#      executable and no installer: the one download place is https://downloads.smurg.ai.
+# It uploads nothing to the downloads domain. A maintainer then runs, from a checkout with wrangler logged in to the
+# Cloudflare account (docs/RELEASING.md §1.2), the command the job summary prints:
 #     scripts/publish-downloads.sh --version X.Y.Z --from-release
-# which takes this release's assets (their gh login), checks them again, uploads them to the Cloudflare R2 bucket
-# smurg-downloads (https://downloads.smurg.ai/vX.Y.Z/, never overwritten), reads every file back, and only then points
-# latest/ at the version, where the one-line install
+# which takes the artifact of this run (their gh login), checks the files again and against the GitHub release's
+# SHA256SUMS, uploads them to the Cloudflare R2 bucket smurg-downloads (https://downloads.smurg.ai/vX.Y.Z/, never
+# overwritten), reads every file back, and only then points latest/ at the version, where the one-line install
 #     curl -fsSL https://smurg.ai/install.sh | sh
 # lands (smurg.ai, apps/site, answers it with a 302 to https://downloads.smurg.ai/latest/install.sh). No Cloudflare
 # credential is stored in GitHub, and this workflow deploys nothing: the shared relay and smurg.ai are redeployed by
 # hand from the tagged commit (docs/RELEASING.md §4 step 3).
+#
+# Only a tag push (write access) or a manual run starts it; it never runs for a pull request.
 #
 # Runners (https://github.com/actions/runner-images README, read 2026-09-30; docs.github.com "GitHub-hosted runners
 # reference"):
@@ -30,21 +32,17 @@
 #   darwin-x64    macos-15-intel   (not macos-13: removed 2025-12-04, #13046; macos-15-intel is the x86_64 image
 #                                   GitHub keeps until August 2027, #13045)
 #   linux-x64     ubuntu-24.04
-#   linux-arm64   ubuntu-24.04-arm (runs for this private repository: dry run 36846007788 on 2026-10-01 got the image
-#                                   ubuntu-24.04-arm 20260920.129.1 at once. Should it ever wait for a runner instead,
-#                                   docs/RELEASING.md §4.3 builds that one target on an arm64 Ubuntu 24.04 machine.)
-# Minutes on a private repository are billed against the plan's allowance, macOS at 10x: a release is about 35
-# billed minutes (docs/RELEASING.md §8.1).
+#   linux-arm64   ubuntu-24.04-arm (should it ever wait for a runner, docs/RELEASING.md §4.3 builds that one target
+#                                   on an arm64 Ubuntu 24.04 machine)
 # The executable is a copy of the official Node the job installs (.nvmrc's major, the newest release of it on every
-# runner: check-latest; the runners' caches differed in dry run 36846007788, 22.23.3 on linux-x64 and 22.23.2 on the
-# other three), so the runner's macOS version does not limit where it runs, and the four embed the same Node.js
-# LICENSE. macOS builds are signed ad hoc only (no Apple account); install.sh removes the quarantine attribute after
-# verifying the sha256.
+# runner: check-latest, because the runners' caches can hold different patch releases), so the runner's macOS version
+# does not limit where it runs, and the four embed the same Node.js LICENSE. macOS builds are signed ad hoc only (no
+# Apple account); install.sh removes the quarantine attribute after verifying the sha256.
 #
 # Manual run (Actions → Release → Run workflow): a DRY RUN of the same pipeline for the version given, from the chosen
 # branch. Everything is built, checked and assembled; no GitHub release is made (the notes, SHA256SUMS, install.sh and
 # THIRD-PARTY-NOTICES.txt are kept as the artifact release-dry-run-<version>). In a dry run the --publish-checks step
-# only warns, so it also works before every placeholder is filled in.
+# only warns, so it also works before everything is filled in.
 name: Release
 
 on:
@@ -56,7 +54,6 @@ on:
         description: Dry run (nothing is published) of this version, X.Y.Z; CHANGELOG.md needs its section
         type: string
         required: true
-        default: 0.1.0
 
 permissions:
   contents: read
@@ -176,7 +173,7 @@ jobs:
           retention-days: 7
 
   release:
-    name: GitHub release (private record)
+    name: GitHub release (notes, checksums, notices)
     needs: [prepare, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -238,7 +235,23 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: The private GitHub release (the internal record)
+      # The seven files a maintainer publishes on downloads.smurg.ai (scripts/publish-downloads.sh --from-release).
+      - if: github.event_name == 'push'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ needs.prepare.outputs.version }}
+          path: |
+            release/smurg-darwin-arm64
+            release/smurg-darwin-x64
+            release/smurg-linux-x64
+            release/smurg-linux-arm64
+            release/SHA256SUMS
+            release/install.sh
+            release/THIRD-PARTY-NOTICES.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: "The GitHub release: notes, SHA256SUMS and the notices (no executables)"
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -255,14 +268,13 @@ jobs:
           if [[ "$VERSION" == *-* ]]; then prerelease=(--prerelease); make_latest=false; fi
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "smurg $VERSION" \
             --notes-file "$RUNNER_TEMP/release-notes.md" "${prerelease[@]}" \
-            release/smurg-darwin-arm64 release/smurg-darwin-x64 release/smurg-linux-x64 release/smurg-linux-arm64 \
-            release/SHA256SUMS release/install.sh release/THIRD-PARTY-NOTICES.txt
+            release/SHA256SUMS release/THIRD-PARTY-NOTICES.txt
           id="$(releases ".[] | select(.tag_name == \"$TAG\" and .draft) | .id")"
           [ "$(printf '%s\n' "$id" | grep -c .)" = 1 ] || { echo "::error::expected one draft release for $TAG, found: $id"; exit 1; }
           assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq '[.assets[] | select(.state == "uploaded") | .name] | sort | join(" ")')"
-          expected='SHA256SUMS THIRD-PARTY-NOTICES.txt install.sh smurg-darwin-arm64 smurg-darwin-x64 smurg-linux-arm64 smurg-linux-x64'
+          expected='SHA256SUMS THIRD-PARTY-NOTICES.txt'
           [ "$assets" = "$expected" ] || { echo "::error::the draft of $TAG has [$assets], not [$expected]; it stays a draft"; exit 1; }
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false -f make_latest="$make_latest" --jq '"recorded " + .html_url + " (private)"'
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false -f make_latest="$make_latest" --jq '"released " + .html_url'
 
       - name: "Next: publish (job summary)"
         env:
@@ -273,8 +285,8 @@ jobs:
             echo "## smurg $VERSION"
             echo
             if [ "$EVENT" = push ]; then
-              echo "The seven files are the private GitHub release $TAG (the internal record). **Nothing is public yet.**"
-              echo "To publish them on https://downloads.smurg.ai (a person with the repository's wrangler login; docs/RELEASING.md §4):"
+              echo "The GitHub release $TAG has the notes, SHA256SUMS and the notices; the seven files to publish are this run's artifact release-$VERSION (kept 30 days). **The executables are not on https://downloads.smurg.ai yet.**"
+              echo "To publish them (a maintainer with wrangler logged in to the Cloudflare account; docs/RELEASING.md §4):"
               echo
               echo '```sh'
               echo 'cd <repo> && source scripts/env.sh'
@@ -283,7 +295,7 @@ jobs:
               echo "scripts/publish-downloads.sh --check --version $VERSION"
               echo '```'
             else
-              echo "Dry run: nothing was recorded or published (the files are the artifact release-dry-run-$VERSION)."
+              echo "Dry run: no GitHub release was made and nothing was published (the files are the artifact release-dry-run-$VERSION)."
               echo "A real release: push the tag $TAG; this summary then gives the command that publishes it:"
               echo
               echo '```sh'

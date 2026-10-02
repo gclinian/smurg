@@ -1,4 +1,4 @@
-// 「強制釋放」 of a file lock (SPEC R8 「主人可以強制釋放任何鎖」, review WEB-04): host only, always confirmed, naming who
+// "Force release" of a file lock (SPEC R8: the host can force release any lock): host only, always confirmed, naming who
 // holds the lock. Used by the editor's lock banner and the file tree's context menu. The daemon checks the capability
 // (`lock.force-release`) and audits the release; this is the UI for it.
 import { baseNameOfRelPath, type FileRef, type LockInfo } from '@smurg/protocol';
@@ -6,6 +6,7 @@ import { useRef, useState } from 'react';
 import { describeError } from '../../lib/errors.ts';
 import { useCan, useStores } from '../../lib/workspace/context.tsx';
 import { Button, Dialog, useToast } from '../../ui/index.ts';
+import { formatList } from '../../lib/format.ts';
 import { t } from './strings.ts';
 
 /** Whether the local member may force-release locks (the host). */
@@ -13,9 +14,9 @@ export function useCanForceRelease(): boolean {
   return useCan('lock.force-release');
 }
 
-/** Who holds `lock`, for the dialog and the menu: 「Claude（Ian）」 or 「Amy、Bob」. */
+/** Who holds `lock`, for the dialog and the menu: "Claude (Ian)" or "Amy, Bob". */
 export function lockHolderNames(lock: LockInfo): string {
-  return lock.kind === 'agent' ? lock.agentName : lock.holders.map((holder) => holder.displayName).join(t('list.separator'));
+  return lock.kind === 'agent' ? lock.agentName : formatList(lock.holders.map((holder) => holder.displayName));
 }
 
 export interface ForceReleaseDialogProps {

@@ -1,5 +1,5 @@
-// SuggestionService (SPEC R6, D2; ARCHITECTURE §5.6, §11 D-15). Anyone who may suggest (editor, 可使用 agent, host)
-// proposes text for SOMEONE ELSE's session; a member who may drive sessions (`session.drive`: the host, 「可使用 agent」)
+// SuggestionService (SPEC R6, D2; ARCHITECTURE §5.6, §11 D-15). Anyone who may suggest (editor, Agent access, host)
+// proposes text for SOMEONE ELSE's session; a member who may drive sessions (`session.drive`: the host, Agent access)
 // accepts it (optionally edited: accepted-modified) or rejects it, on any session.
 //
 // THE INVARIANT (R6.1): before such a member accepts, not one byte of a suggestion reaches the session. The text lives
@@ -19,6 +19,7 @@ import {
   type SessionInfo,
   type Suggestion,
 } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
 import type { MemberRecord, PersistentDocument, Principal, SuggestionService, UserId } from '../core/interfaces.ts';
@@ -66,16 +67,15 @@ export interface SuggestionModuleOptions {
 }
 
 /**
- * SEC-D-01: suggest.accept names the suggestion, not the text the owner reviewed, and the author may edit a pending
+ * suggest.accept names the suggestion, not the text the owner reviewed, and the author may edit a pending
  * suggestion at any time. An accept that carries `text` pastes exactly that text (what the owner saw or typed); an
  * accept WITHOUT text within this long after an edit is refused (`conflict` / `suggestion-changed`): it may have been
  * clicked on the previous version, and the new one would be typed into the owner's session unseen.
  */
 export const ACCEPT_AFTER_EDIT_MS = 10_000;
 
-const NOT_FOUND = (): SmurgError => new SmurgError('not_found', '找不到這則建議', { reason: 'unknown-suggestion' });
-const NOT_PENDING = (status: string): SmurgError => new SmurgError('conflict', '這則建議已經處理過了', { reason: 'not-pending', status });
-const SESSION_ENDED_REASON = '這個 session 已結束';
+const NOT_FOUND = (): SmurgError => new SmurgError('not_found', msg('suggest.notFound'), { reason: 'unknown-suggestion' });
+const NOT_PENDING = (status: string): SmurgError => new SmurgError('conflict', msg('suggest.notPending'), { reason: 'not-pending', status });
 
 function textChars(stored: StoredSuggestion): number {
   return stored.text.length + (stored.finalText?.length ?? 0);
@@ -84,7 +84,7 @@ function textChars(stored: StoredSuggestion): number {
 /** Validates suggestion text again inside the service (fail closed even for a caller that skipped the router). */
 function validText(text: unknown): string {
   const parsed = suggestionTextSchema.safeParse(text);
-  if (!parsed.success) throw new SmurgError('bad_request', '建議內容不正確（不能是空白，也不能包含控制字元）', { reason: 'invalid-text' });
+  if (!parsed.success) throw new SmurgError('bad_request', msg('suggest.invalidText'), { reason: 'invalid-text' });
   return parsed.data;
 }
 
@@ -161,7 +161,7 @@ export class SuggestionServiceImpl implements SuggestionService {
     const session = this.requireRunningSession(input.sessionId);
     // target-session-not-own: your own session takes your own keystrokes; suggestions are for someone else's agent.
     if (session.ownerUserId === author.userId) {
-      throw new AuthorizationError('不能對自己的 session 提建議，請直接在自己的 session 輸入', { reason: 'target-session-not-own' });
+      throw new AuthorizationError(msg('suggest.ownSession'), { reason: 'target-session-not-own' });
     }
     this.checkPendingBudget({ authorUserId: author.userId, sessionId: session.id, addChars: text.length, removeChars: 0 });
     const stored: StoredSuggestion = {
@@ -255,7 +255,7 @@ export class SuggestionServiceImpl implements SuggestionService {
         target: stored.id,
         detail: { suggestionId: stored.id, sessionId: stored.sessionId, reason: 'suggestion-changed', editedAt: stored.editedAt },
       });
-      throw new SmurgError('conflict', '提出者剛修改了這則建議，請確認新的內容後再採用', { reason: 'suggestion-changed', suggestionId: stored.id, editedAt: stored.editedAt });
+      throw new SmurgError('conflict', msg('suggest.changed'), { reason: 'suggestion-changed', suggestionId: stored.id, editedAt: stored.editedAt });
     }
     const finalText = sanitizeSuggestionForPaste(validText(input.text ?? stored.text));
     // From here to the state update nothing awaits: a second accept of the same suggestion cannot interleave.
@@ -337,7 +337,8 @@ export class SuggestionServiceImpl implements SuggestionService {
     const updated = this.update(id, (draft) => {
       draft.status = status;
       draft.resolvedAt = this.ctx.clock.now();
-      if (status === 'rejected') draft.rejectReason = SESSION_ENDED_REASON;
+      // Nobody decided it: the reason is a code each client words itself (`rejectReason` is only a person's words).
+      draft.closedReason = reason;
     });
     void this.persist();
     this.auditOutcome(SYSTEM_ACTOR, status === 'rejected' ? 'suggest.reject' : 'suggest.withdraw', updated, { reason });
@@ -369,7 +370,7 @@ export class SuggestionServiceImpl implements SuggestionService {
   }
 
   /**
-   * suggest.updated to the author and to every member who may decide it (session.drive: the host, 「可使用 agent」;
+   * suggest.updated to the author and to every member who may decide it (session.drive: the host, Agent access;
    * recipients:suggestion-parties).
    */
   private publish(item: StoredSuggestion, previous: StoredSuggestion | null): void {
@@ -391,7 +392,7 @@ export class SuggestionServiceImpl implements SuggestionService {
   }
 
   private queueFull(which: 'queue' | 'author' | 'session' | 'size'): SmurgError {
-    return new SmurgError('too_large', '待處理的建議太多了，請等擁有者處理後再提出', { reason: 'suggestion-queue-full', limit: which });
+    return new SmurgError('too_large', msg('suggest.queueFull'), { reason: 'suggestion-queue-full', limit: which });
   }
 
   /** Keeps every pending suggestion; decided ones beyond the limits go, oldest decision first. */
@@ -420,23 +421,23 @@ export class SuggestionServiceImpl implements SuggestionService {
     return updated;
   }
 
-  /** session.drive (the host, 「可使用 agent」): may decide suggestions on any session (§11 D-15). */
+  /** session.drive (the host, Agent access): may decide suggestions on any session (§11 D-15). */
   private requireDriver(principal: Principal): void {
     if (principal.userId === null || !principalCan(principal, 'session.drive')) {
-      throw new AuthorizationError('只有主人和「可使用 agent」的成員可以處理建議', { reason: 'capability' });
+      throw new AuthorizationError(msg('suggest.decideNeedsDrive'), { reason: 'capability' });
     }
   }
 
   private requireAuthor(stored: StoredSuggestion, principal: Principal): void {
     if (principal.userId === null || principal.userId !== stored.author.userId) {
-      throw new AuthorizationError('只有提出者可以修改或撤回這則建議', { reason: 'not-author:suggestion' });
+      throw new AuthorizationError(msg('suggest.authorOnly'), { reason: 'not-author:suggestion' });
     }
   }
 
   private requireRunningSession(sessionId: string): SessionInfo {
     const session = this.ctx.services.sessions.get(sessionId);
-    if (!session) throw new SmurgError('not_found', '找不到這個 session', { reason: 'unknown-session' });
-    if (session.status === 'exited') throw new SmurgError('conflict', SESSION_ENDED_REASON, { reason: 'session-ended' });
+    if (!session) throw new SmurgError('not_found', msg('session.notFound'), { reason: 'unknown-session' });
+    if (session.status === 'exited') throw new SmurgError('conflict', msg('suggest.sessionEnded'), { reason: 'session-ended' });
     return session;
   }
 
@@ -475,7 +476,7 @@ export class SuggestionServiceImpl implements SuggestionService {
   }
 
   private requireDoc(): PersistentDocument<SuggestionsDocument> {
-    if (!this.doc) throw new SmurgError('internal', '建議功能尚未就緒', { reason: 'not-started' });
+    if (!this.doc) throw new SmurgError('internal', msg('suggest.notStarted'), { reason: 'not-started' });
     return this.doc;
   }
 }

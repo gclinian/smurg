@@ -4,7 +4,7 @@
 // suggestion text rule) — above all no ESC, which could end a bracketed paste early and turn the rest into keystrokes.
 // The daemon cleans an accepted suggestion the same way before its paste (+ Enter); the direct paste of a selection
 // into one's OWN session happens here, in the browser: bracketed paste and NO Enter (the owner reviews and submits).
-import { SUGGESTION_TEXT_MAX_CHARS, suggestionTextSchema, type FileRef } from '@smurg/protocol';
+import { SUGGESTION_TEXT_MAX_CHARS, suggestionTextSchema, type FileRef, type Suggestion } from '@smurg/protocol';
 import { t } from './strings.ts';
 
 // eslint-disable-next-line no-control-regex
@@ -35,6 +35,21 @@ export function textProblemMessage(problem: TextProblem): string {
   }
 }
 
+const CLOSED_REASON_KEY = {
+  'session-ended': 'closed.session-ended',
+  'author-kicked': 'closed.author-kicked',
+  'author-demoted': 'closed.author-demoted',
+} as const satisfies Record<NonNullable<Suggestion['closedReason']>, Parameters<typeof t>[0]>;
+
+/**
+ * Why a suggestion ended without being accepted, for its author: the words of the person who rejected it (never
+ * translated), or why smurg itself closed it (`closedReason`, in the viewer's language). Null when nothing was said.
+ */
+export function resolutionReason(suggestion: Pick<Suggestion, 'rejectReason' | 'closedReason'>): string | null {
+  if (suggestion.closedReason !== undefined) return t(CLOSED_REASON_KEY[suggestion.closedReason]);
+  return suggestion.rejectReason ? suggestion.rejectReason : null;
+}
+
 const encoder = new TextEncoder();
 
 /**
@@ -57,12 +72,18 @@ export function lineRange(startLine: number, endLine: number): string {
   return startLine === endLine ? String(startLine) : `${startLine}–${endLine}`;
 }
 
+/** "Attached code: src/app.ts, lines 3–5" (one line: "line 3"). */
+export function sourceLabel(path: string, startLine: number, endLine: number): string {
+  return startLine === endLine ? t('source.labelLine', { path, line: startLine }) : t('source.label', { path, range: lineRange(startLine, endLine) });
+}
+
 /** The start of a suggestion made from an editor selection: where it is from, then the code in a fence. */
 export function quoteSelection(selection: SelectionPayload): string {
   const code = cleanSuggestionText(selection.text).replace(/\n+$/u, '');
   let fence = '```';
   while (code.includes(fence)) fence += '`';
-  const header = t('quote.header', { path: selection.file.path, range: lineRange(selection.startLine, selection.endLine) });
+  // Fixed in every language (`path:12-20`, one line: `path:12`): an agent reads it in the terminal, and it is stored.
+  const header = selection.startLine === selection.endLine ? `${selection.file.path}:${selection.startLine}` : `${selection.file.path}:${selection.startLine}-${selection.endLine}`;
   return `${header}\n${fence}\n${code}\n${fence}\n\n`;
 }
 

@@ -1,5 +1,5 @@
 // The suggestions panel under the agents panel (SPEC R6). It follows the session the agents panel shows
-// (sessions.focusedId). Protocol v2: the host and 可使用 agent members type into ANY session and decide on its
+// (sessions.focusedId). Protocol v2: the host and members with agent access type into ANY session and decide on its
 // suggestions (`session.drive`); editors suggest; viewers watch.
 //  - a member who may type → the queue of pending suggestions of that session, to accept / edit then accept / reject;
 //  - an editor → the composer (the terminal above is read-only for them);
@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EXEC_INPUT_MAX_BYTES, type SessionInfo } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
+import { sessionTitle } from '../../lib/stores/sessions.ts';
 import { selectUserId } from '../../lib/stores/workspace.ts';
 import { useCan, useCapabilities, useCommandHandler, useCommands, useStores } from '../../lib/workspace/context.tsx';
 import { useWorkbenchLayout } from '../../lib/workspace/layout.tsx';
@@ -69,7 +70,7 @@ export function SuggestionsPanel(_props: SuggestionsPanelProps) {
     });
   }, []);
 
-  // Pending suggestions this member decides on (any session, for the host and 可使用 agent): the focused session's are
+  // Pending suggestions this member decides on (any session, for the host and members with agent access): the focused session's are
   // the queue, the others are pointed to.
   const pendingMine = useMemo(() => {
     const counts = new Map<string, number>();
@@ -108,7 +109,7 @@ export function SuggestionsPanel(_props: SuggestionsPanelProps) {
       return;
     }
     if (canDrive) {
-      // A session this member may type into (any, for the host and 可使用 agent): typed in as a paste, like a terminal
+      // A session this member may type into (any, for the host and members with agent access): typed in as a paste, like a terminal
       // would; they review it and press Enter.
       const bytes = bracketedPaste(selection.text);
       if (bytes.byteLength > EXEC_INPUT_MAX_BYTES) {
@@ -123,7 +124,7 @@ export function SuggestionsPanel(_props: SuggestionsPanelProps) {
       }
       stores.sessions.focus(session.id);
       showPanel('agents');
-      toast.show({ tone: 'info', title: t('send.pasted', { title: session.title }) });
+      toast.show({ tone: 'info', title: t('send.pasted', { title: sessionTitle(session) }) });
       return;
     }
     if (!canSuggest) {
@@ -141,7 +142,7 @@ export function SuggestionsPanel(_props: SuggestionsPanelProps) {
       stores.sessions.focus(session.id);
       return;
     }
-    // A session this member may not type into: a draft to complete and send (the host or 可使用 agent decides).
+    // A session this member may not type into: a draft to complete and send (the host or a member with agent access decides).
     const previous = drafts.get(session.id) ?? EMPTY_DRAFT;
     setDraft(session.id, {
       text: previous.text.trim() === '' ? quote : `${previous.text.replace(/\s*$/u, '')}\n\n${quote}`,

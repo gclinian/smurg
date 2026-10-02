@@ -290,7 +290,7 @@
   }
 }
 
-/* An audit entry's detail (SPEC-07): folded, text only. */
+/* An audit entry's detail: folded, text only. */
 .console-audit__detail summary {
   cursor: pointer;
   color: var(--color-accent);

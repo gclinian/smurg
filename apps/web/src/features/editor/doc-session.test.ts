@@ -131,7 +131,7 @@ describe('DocSession: one replica + provider per open document', () => {
     expect(session?.getState().dropped).toMatchObject({ reason: 'epoch', outcome: 'restored' });
   });
 
-  describe('text typed while the host was unreachable survives a new epoch (review REL-07)', () => {
+  describe('text typed while the host was unreachable survives a new epoch', () => {
     /** Host outage: what the client sends from now on never reaches the daemon. Then the daemon comes back with `diskText`. */
     async function outageThenRestart(ctx: ReturnType<typeof setup>, room: TestRoom, typeOffline: () => void, diskText: string): Promise<void> {
       ctx.clock.advance(5_000);
@@ -374,7 +374,7 @@ describe('DocSession: one replica + provider per open document', () => {
   it('keeps the structured error of a refused doc.open (the tab explains it and offers the download)', async () => {
     const ctx = setup();
     ctx.conn.handle('doc.open', () => {
-      throw new SmurgError('bad_request', '這是二進位檔案，無法在編輯器中開啟', { reason: 'binary' });
+      throw new SmurgError('bad_request', 'This is a binary file and cannot be opened in the editor.', { reason: 'binary' });
     });
     const registry = ctx.registry();
     await ctx.stores.docs.open(FILE).catch((error: unknown) => registry?.get(KEY)?.setOpenFailure(error));

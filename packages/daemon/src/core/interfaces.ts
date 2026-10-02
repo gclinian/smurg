@@ -55,6 +55,7 @@ import type {
   WorkspaceInfo,
   WorktreeInfo,
 } from '@smurg/protocol';
+import type { MessageRef } from '@smurg/protocol/i18n';
 import type { FileHandle } from 'node:fs/promises';
 import type { z } from 'zod';
 import type { Disposable } from './lifecycle.ts';
@@ -72,7 +73,7 @@ export type ChannelClosedReason = (typeof CHANNEL_CLOSED_REASONS)[number];
 /**
  * Who is acting, as the daemon sees it. Built by the daemon, never from a payload:
  *  - a member's request: kind 'user', role = their CURRENT role;
- *  - an agent (hook / MCP socket): kind 'agent', userId/role of the session OWNER, actor 「Claude（owner）」;
+ *  - an agent (hook / MCP socket): kind 'agent', userId/role of the session OWNER, actor `Claude (owner)`;
  *  - the daemon itself (watcher, timers, stop): kind 'system', userId/role null.
  */
 export interface Principal {
@@ -182,7 +183,7 @@ export interface DaemonEvents {
   'member.kicked': { readonly userId: UserId; readonly by: Actor; readonly revokedDevices: readonly string[] };
   /**
    * Role changed without a kick. The member's channels were closed with `role-changed` (they reconnect with the new
-   * role). When the new role may not open sessions any more (below 「可使用 agent」), the core runs
+   * role). When the new role may not open sessions any more (below Agent access), the core runs
    * killAllForUser('role-changed') for it: the sessions that member opened end.
    */
   'member.role-changed': { readonly userId: UserId; readonly from: Role; readonly to: Role; readonly by: Actor };
@@ -225,7 +226,7 @@ export interface DaemonEvents {
   'session.created': { readonly session: SessionInfo };
   /** Any change of SessionInfo other than creation and exit (attach count, login state, size). */
   'session.updated': { readonly session: SessionInfo };
-  /** `reason` is also what SessionInfo.endReason carries to clients (WEB-12). */
+  /** `reason` is also what SessionInfo.endReason carries to clients. */
   'session.exited': { readonly session: SessionInfo; readonly reason: SessionEndReason };
   'suggestion.changed': { readonly suggestion: Suggestion; readonly previous: Suggestion | null };
   /** `worktree` null ⇒ removed. */
@@ -235,11 +236,11 @@ export interface DaemonEvents {
   'daemon.stopping': { readonly reason: string };
   /**
    * A state document could not be written (ok: false; the store keeps retrying) or was written again after failing
-   * (ok: true). Changes made meanwhile are in force but would be lost by a restart: tell the host (review REL-14).
+   * (ok: true). Changes made meanwhile are in force but would be lost by a restart: tell the host.
    */
   'state.write': { readonly document: string; readonly ok: boolean };
   /**
-   * The relay link of one socket purpose changed state (reviews CLI-10, REL-08): 'online', 'waiting' (dropped or
+   * The relay link of one socket purpose changed state: 'online', 'waiting' (dropped or
    * unreachable, reconnecting), 'auth-rejected' (the relay refused the host's session token: the host must log in
    * again; members cannot connect meanwhile), 'replaced', 'stopped'. `reason` / `status` say why it left `online`.
    */
@@ -634,7 +635,7 @@ export interface ResolveOptions {
   /**
    * Linux (normalisation-sensitive file systems): the directory listings of ONE operation for the NFC → on-disk
    * mapping (workspace/fs-util.ts SpellingIndex). A zip download, a watcher batch and an upload plan each pass one, so a
-   * directory is listed once per operation instead of once per missed name (review RCR-2). Never kept across
+   * directory is listed once per operation instead of once per missed name. Never kept across
    * operations: a listing is a snapshot.
    */
   readonly spellings?: SpellingLookup;
@@ -735,7 +736,7 @@ export interface MemberDirectory {
   toMemberWithDevices(record: MemberRecord): MemberWithDevices;
   /** Principal of an active member (role as of now), or null. */
   principalOf(userId: UserId): Principal | null;
-  /** Principal of an agent session owned by `ownerUserId` (actor 「Claude（owner）」). */
+  /** Principal of an agent session owned by `ownerUserId` (actor `Claude (owner)`). */
   agentPrincipal(sessionId: string, ownerUserId: UserId): Principal | null;
   device(deviceId: string): DeviceRecord | null;
   deviceByKey(publicKey: Uint8Array): DeviceRecord | null;
@@ -779,12 +780,26 @@ export interface SettingsService {
   update(patch: HostSettingsPatch, by: Principal): Promise<HostSettings>;
 }
 
+/** Why keep-awake is not active (PowerStatus.reason). Codes: the CLI words them in the host's language. */
+export const POWER_REASONS = [
+  'disabled', // switched off (--no-keep-awake)
+  'not-started', // the daemon has not started it yet
+  'stopped', // the daemon stopped it
+  'unsupported-platform', // neither macOS nor Linux
+  'systemd-inhibit-not-found', // Linux without systemd-inhibit
+  'spawn-failed', // the inhibitor could not be spawned at all
+  'start-failed', // it was spawned but did not start
+  'exited', // it ended by itself later
+  'refused', // the system refused the sleep block (polkit, e.g. over SSH)
+] as const;
+export type PowerReason = (typeof POWER_REASONS)[number];
+
 export interface PowerStatus {
   readonly active: boolean;
   readonly mechanism: 'caffeinate' | 'systemd-inhibit' | 'none';
   readonly pid: number | null;
-  /** Why it is not active (unsupported platform, spawn failure). */
-  readonly reason: string | null;
+  /** Why it is not active; null while it is. */
+  readonly reason: PowerReason | null;
 }
 
 /** Keeps the machine awake while hosting (R1), tied to the daemon's lifetime; releases on stop() or daemon death. */
@@ -916,7 +931,7 @@ export interface LockManager {
   list(): LockInfo[];
   /** A human edited (first update takes the lock, later ones refresh it). Refused when an agent holds the file. */
   touchHuman(file: FileRef, holder: { readonly userId: UserId; readonly displayName: string }): HumanTouchResult;
-  /** A holder leaves: closed the file, 「讓 agent 先改」 (lock.release, checks the caller is a holder), disconnect. */
+  /** A holder leaves: closed the file, "Let the agent go first" (lock.release, checks the caller is a holder), disconnect. */
   leaveHuman(file: FileRef, userId: UserId, reason: 'closed' | 'yield' | 'disconnected'): void;
   /** Kick / leave: drop the user from every human lock. */
   leaveAllHuman(userId: UserId): void;
@@ -971,9 +986,20 @@ export interface PresenceService {
  */
 export interface ActivityFeed {
   /** `via: 'bash'`: an agent.edit attributed through the agent's shell-command window (§11 D-13). */
-  record(input: { readonly actor: Actor; readonly kind: PayloadInputOf<'activity.event'>['event']['kind']; readonly file?: FileRef; readonly summary: string; readonly via?: 'bash' }): PayloadOf<'activity.event'>['event'];
+  /**
+   * `text`: the sentence as a message reference (`activity.*` of `@smurg/protocol/i18n`, parameters already clipped);
+   * the feed stores it with its English rendering as `summary`. `renamedFrom`: on a rename, the previous path.
+   */
+  record(input: {
+    readonly actor: Actor;
+    readonly kind: PayloadInputOf<'activity.event'>['event']['kind'];
+    readonly file?: FileRef;
+    readonly text: MessageRef;
+    readonly via?: 'bash';
+    readonly renamedFrom?: string;
+  }): PayloadOf<'activity.event'>['event'];
   list(input: Req<'activity.list'>, principal: Principal): Promise<Res<'activity.list'>>;
-  /** MCP `notify_member`: activity.notify to that member's connections only. */
+  /** activity.notify to that member's connections only: MCP `notify_member` (`text`), or a daemon notice (`msg` + `fallback`). */
   notify(userId: UserId, notification: Omit<MemberNotification, 'id' | 'at'>): void;
 }
 
@@ -986,7 +1012,7 @@ export interface SessionAttachStart {
 /**
  * PTY sessions (R4; ARCHITECTURE §7.6, §11 D-15). Module: src/sessions/. Every session runs like the host's own (the
  * host's OS user, unsandboxed, the host's environment and Claude Code login), whoever opened it; its owner is the
- * member who opened it. The core calls killAllForUser itself on kick, leave and a demotion below 「可使用 agent」 (and
+ * member who opened it. The core calls killAllForUser itself on kick, leave and a demotion below Agent access (and
  * awaits it), so the session manager does not need to act on those events; it listens to channel.discarded (detach
  * viewers keyed by channelId) and daemon.stopping.
  *
@@ -996,12 +1022,12 @@ export interface SessionAttachStart {
  * End of life (contract review C17):
  *  - session.end {keepWorktree: false} is the ONLY path that removes the session's worktree with it;
  *  - a natural exit (/exit, crash), session.end without keepWorktree, admin.session.terminate, a kick and stopAll()
- *    all KEEP the worktree (WorktreeInfo.kept = true); the UI offers 「刪除 worktree」 through worktree.remove (R9.4);
+ *    all KEEP the worktree (WorktreeInfo.kept = true); the UI offers "Delete worktree" through worktree.remove (R9.4);
  *  - stopAll() (`smurg stop`, ARCHITECTURE §8) ends every session;
  *  - a disconnect keeps sessions (R4); an explicit channel.leave ends the sessions the member opened.
  */
 export interface SessionManager {
-  /** `session.create` (host, 「可使用 agent」): the caller becomes the session's owner. */
+  /** `session.create` (host, Agent access): the caller becomes the session's owner. */
   create(input: Req<'session.create'>, conn: ClientConnection, principal: Principal): Promise<SessionInfo>;
   /** Every session, oldest first. */
   list(): SessionInfo[];
@@ -1009,7 +1035,7 @@ export interface SessionManager {
   attach(input: Req<'session.attach'>, conn: ClientConnection, principal: Principal): Promise<SessionAttachStart>;
   /** Viewers are keyed by the logical channel (conn.channelId), not the socket: an attach survives a resume. */
   detach(sessionId: string, channelId: string): void;
-  /** `session.drive` (host, 「可使用 agent」), any session (throws AuthorizationError otherwise). */
+  /** `session.drive` (host, Agent access), any session (throws AuthorizationError otherwise). */
   input(input: PayloadOf<'exec.input'>, conn: ClientConnection, principal: Principal): void;
   /** Owner only (resize policy `owner`). */
   resize(input: PayloadOf<'exec.resize'>, conn: ClientConnection, principal: Principal): void;
@@ -1026,7 +1052,7 @@ export interface SessionManager {
    * SuggestionService.accept after its checks (`session.drive`, pending); there is no auto-accept path.
    */
   pasteSuggestion(sessionId: string, text: string, acceptedBy: Principal): void;
-  /** Actor of the session's agent (「Claude（owner）」), or null for terminals / unknown sessions. */
+  /** Actor of the session's agent (`Claude (owner)`), or null for terminals / unknown sessions. */
   agentActor(sessionId: string): Actor | null;
   /** stop(): end every session (daemon shutdown, `smurg stop`). */
   stopAll(): Promise<void>;
@@ -1035,7 +1061,7 @@ export interface SessionManager {
 export interface HookSessionRegistration {
   readonly sessionId: string;
   readonly ownerUserId: UserId;
-  /** 「Claude（owner）」 */
+  /** `Claude (owner)` */
   readonly agentName: string;
   readonly root: RootRef;
 }
@@ -1108,7 +1134,7 @@ export interface WorktreeManager {
   /** worktree-owner-or-host. */
   remove(worktreeId: string, principal: Principal): Promise<void>;
   /**
-   * Any member with `worktree.merge.request` (host, 「可使用 agent」), any worktree (§11 D-15). Commits the worktree's
+   * Any member with `worktree.merge.request` (host, Agent access), any worktree (§11 D-15). Commits the worktree's
    * working tree (with `message`; nothing to commit is fine) onto
    * smurg/<owner>/<id>, fetches that commit into the main repository as refs/smurg/merge/<requestId>, and records its
    * id in MergeRequest.commit. diff / fileDiff / approve work on exactly that commit (contract review C6).

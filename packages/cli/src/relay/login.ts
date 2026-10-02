@@ -3,7 +3,7 @@
 //    the short user code, open that page in this machine's browser when CliIo.openUrl allows it (never over SSH, never
 //    with --no-browser; the code is never put into the URL: a link carrying a code is what a phisher would send), and
 //    poll POST /auth/device/token every `interval` seconds (5 s more after each `slow_down`) until the person, logged in
-//    to the relay in any browser, entered the code and pressed 「允許」. Nothing comes back to this machine from the
+//    to the relay in any browser, entered the code and approved the request. Nothing comes back to this machine from the
 //    browser, so the same works over SSH without a port-forward. Ctrl-C ends the wait.
 //  - dev: `--dev-user NAME` uses the relay's DEV-ONLY login, and only for a relay on a local hostname (the relay also
 //    refuses it elsewhere; refusing here too means the CLI never even asks a remote relay for it).
@@ -13,6 +13,7 @@ import { DEVICE_LOGIN_SLOW_DOWN_SECONDS, deviceLoginPageUrl, isLocalHostname, ty
 import { CliError, usageError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
 import type { CliIo, CliSignal } from '../cli/io.ts';
+import { m, renderText, type Locale } from '../i18n/index.ts';
 import { loadCredentials, saveSession, sessionFor, type StoredSession } from '../state/credentials.ts';
 import type { StatePaths } from '../state/paths.ts';
 import { relayApi, relayProblem } from './relay.ts';
@@ -20,6 +21,7 @@ import { relayApi, relayProblem } from './relay.ts';
 export interface LoginContext {
   readonly io: CliIo;
   readonly paths: StatePaths;
+  readonly lang: Locale;
 }
 
 export interface LoginOptions {
@@ -45,35 +47,36 @@ export async function deviceLogin(ctx: LoginContext, origin: string, options: Lo
   // Built here, not taken from the answer: the page the person opens is the relay this command talks to.
   const page = deviceLoginPageUrl(origin);
   const minutes = Math.max(1, Math.floor(start.expiresIn / 60));
-  io.stdout.write(`在任何裝置（電腦或手機）打開：\n  ${page}\n輸入代碼：${start.userCode}   （${minutes} 分鐘內有效）\n`);
+  io.stdout.write(renderText(ctx.lang, m('login.open', { page, code: start.userCode, minutes })));
   // The polling starts at once; the opener (it may take a moment) only decides which lines come next.
   const opened = options.noBrowser ? Promise.resolve(false) : io.openUrl(page).catch(() => false);
   void opened.then((yes) => {
-    io.stdout.write(`${yes ? '（已經用這台電腦的瀏覽器打開上面的網址）\n' : ''}等待你在瀏覽器裡按「允許」…（按 Ctrl-C 取消）\n`);
+    io.stdout.write(`${yes ? renderText(ctx.lang, m('login.opened')) : ''}${renderText(ctx.lang, m('login.waiting'))}`);
   });
-  return waitForApproval(io, api, start, origin);
+  return waitForApproval(ctx, api, start, origin);
 }
 
 function startProblem(err: unknown, origin: string): CliError {
   if (isRelayApiError(err) && err.status === 429) {
-    return new CliError('這個網路在 10 分鐘內開始了太多次登入', { exitCode: EXIT.auth, hint: '請過幾分鐘再執行一次。', cause: err });
+    return new CliError(m('login.tooMany'), { exitCode: EXIT.auth, hint: m('login.tooMany.hint'), cause: err });
   }
   if (isRelayApiError(err) && (err.status === 404 || err.status === 405)) {
-    return new CliError(`這個 relay 還不支援用代碼登入（${origin}）`, { exitCode: EXIT.auth, hint: '請提供 relay 的人更新 relay，或改用與它同時發佈的 smurg 版本。', cause: err });
+    return new CliError(m('login.unsupported', { origin }), { exitCode: EXIT.auth, hint: m('login.unsupported.hint'), cause: err });
   }
-  return relayProblem(err, origin, '登入');
+  return relayProblem(err, origin, 'login');
 }
 
 /** Polls until the login is allowed, denied or expired, or until Ctrl-C (SIGINT, SIGTERM and SIGHUP all end it). */
-async function waitForApproval(io: CliIo, api: RelayApi, start: RelayDeviceStart, origin: string): Promise<RelaySession> {
+async function waitForApproval(ctx: LoginContext, api: RelayApi, start: RelayDeviceStart, origin: string): Promise<RelaySession> {
+  const { io } = ctx;
   const abort = new AbortController();
   const offs = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((signal) =>
-    io.onSignal(signal, () => abort.abort(new CliError('已取消登入', { exitCode: SIGNAL_EXIT[signal] }))),
+    io.onSignal(signal, () => abort.abort(new CliError(m('login.cancelled'), { exitCode: SIGNAL_EXIT[signal] }))),
   );
   const cancelled = new Promise<never>((_, reject) => abort.signal.addEventListener('abort', () => reject(abort.signal.reason), { once: true }));
   cancelled.catch(() => undefined);
   const expired = (cause?: unknown) =>
-    new CliError('代碼已過期，登入沒有完成', { exitCode: EXIT.auth, hint: '請重新執行，並在 10 分鐘內到瀏覽器輸入代碼、按「允許」。', cause });
+    new CliError(m('login.expired'), { exitCode: EXIT.auth, hint: m('login.expired.hint'), cause });
   try {
     const deadline = io.now() + start.expiresIn * 1000;
     let interval = start.interval;
@@ -84,7 +87,7 @@ async function waitForApproval(io: CliIo, api: RelayApi, start: RelayDeviceStart
       try {
         return await Promise.race([api.pollDeviceLogin(start.deviceCode), cancelled]);
       } catch (err) {
-        if (!isRelayApiError(err)) throw err instanceof CliError ? err : relayProblem(err, origin, '登入');
+        if (!isRelayApiError(err)) throw err instanceof CliError ? err : relayProblem(err, origin, 'login');
         if (err.status === 400 && err.code === 'authorization_pending') {
           unreachable = false;
           continue;
@@ -94,20 +97,16 @@ async function waitForApproval(io: CliIo, api: RelayApi, start: RelayDeviceStart
           continue;
         }
         if (err.status === 400 && err.code === 'access_denied') {
-          throw new CliError('登入被拒絕：瀏覽器裡按了「拒絕」', {
-            exitCode: EXIT.auth,
-            hint: '如果不是你自己按的，可能有別人拿到了這組代碼；請重新執行，並且只在你自己的瀏覽器輸入代碼。',
-            cause: err,
-          });
+          throw new CliError(m('login.denied'), { exitCode: EXIT.auth, hint: m('login.denied.hint'), cause: err });
         }
         if (err.status === 400 && err.code === 'expired_token') throw expired(err);
         // The network or the relay is briefly away: keep asking until the code expires.
         if (err.status === 0 || err.status >= 500) {
-          if (!unreachable) io.stdout.write(`（暫時無法連線到 relay（${origin}），會繼續重試）\n`);
+          if (!unreachable) io.stdout.write(renderText(ctx.lang, m('login.retrying', { origin })));
           unreachable = true;
           continue;
         }
-        throw relayProblem(err, origin, '登入');
+        throw relayProblem(err, origin, 'login');
       }
     }
   } finally {
@@ -134,16 +133,16 @@ function pause(io: CliIo, ms: number, signal: AbortSignal): Promise<void> {
 /** The relay's DEV-ONLY login; refused for any relay that is not on a local hostname. */
 export async function devLogin(ctx: LoginContext, origin: string, user: string): Promise<RelaySession> {
   if (!isLocalHostname(new URL(origin).hostname)) {
-    throw usageError('--dev-user 只能用在本機的 relay（localhost、127.0.0.1、[::1] 或 *.localhost）', `目前的 relay 是 ${origin}；請改用 smurg login，在瀏覽器裡用這個 relay 提供的方式登入（公用 relay：Google）。`);
+    throw usageError(m('login.devUserLocalOnly'), m('login.devUserLocalOnly.hint', { origin }));
   }
-  if (!DEV_USER.test(user)) throw usageError('--dev-user 的名稱只能包含英數字、「.」「_」「-」，最多 64 個字元');
+  if (!DEV_USER.test(user)) throw usageError(m('login.devUserName'));
   try {
     return await relayApi(ctx.io, origin, { kind: 'cookie' }).devLogin(user);
   } catch (err) {
     if (isRelayApiError(err) && err.status === 404) {
-      throw new CliError(`這個 relay 沒有開啟開發用登入（${origin}）`, { exitCode: EXIT.auth, hint: '開發用登入需要 relay 以 DEV_LOGIN=1 執行（pnpm dev:relay）。' });
+      throw new CliError(m('login.devDisabled', { origin }), { exitCode: EXIT.auth, hint: m('login.devDisabled.hint') });
     }
-    throw relayProblem(err, origin, '開發用登入');
+    throw relayProblem(err, origin, 'dev-login');
   }
 }
 
@@ -163,7 +162,7 @@ export async function ensureSession(
     readonly interactive: boolean;
     /**
      * A stored session that expires sooner than this counts as missing (`smurg host`: the daemon uses the token for as
-     * long as it shares, and a token that expires midway locks every member out; reviews REL-08 / CLI-03).
+     * long as it shares, and a token that expires midway locks every member out).
      */
     readonly minValidityMs?: number;
   },
@@ -177,19 +176,13 @@ export async function ensureSession(
       const user = await relayApi(io, origin, { kind: 'bearer', token: stored.token }).me();
       return { session: stored, user };
     } catch (err) {
-      if (!(isRelayApiError(err) && err.status === 401)) throw relayProblem(err, origin, '確認登入狀態');
+      if (!(isRelayApiError(err) && err.status === 401)) throw relayProblem(err, origin, 'verify');
     }
   }
   if (!options.interactive) {
-    throw new CliError(`尚未登入 relay（${origin}）`, { exitCode: EXIT.auth, hint: `請先執行 smurg login --relay ${origin}` });
+    throw new CliError(m('login.required', { origin }), { exitCode: EXIT.auth, hint: m('login.required.hint', { origin }) });
   }
-  io.stdout.write(
-    expiringSoon
-      ? `relay 的登入快要到期，先重新登入（分享期間登入到期的話，組員會無法連線）。\n`
-      : stored
-        ? `relay 的登入已過期，請重新登入。\n`
-        : `尚未登入 relay，先進行登入。\n`,
-  );
+  io.stdout.write(renderText(ctx.lang, m(expiringSoon ? 'login.expiringSoon' : stored ? 'login.hasExpired' : 'login.first')));
   const session = await deviceLogin(ctx, origin, options.noBrowser === undefined ? {} : { noBrowser: options.noBrowser });
   const saved = await saveSession(paths, origin, session, io.now());
   return { session: saved, user: session.user };

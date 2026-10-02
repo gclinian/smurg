@@ -1,7 +1,7 @@
 // One tab of the agents panel: who opened the session, what it is, whether it runs, where (main workspace or which
 // worktree); the terminal. Every session runs as the host — the host's computer, the host's Claude account (protocol
-// v2) — so the host and members with 「可使用 agent」 type into any of them; editors suggest below; viewers watch.
-// A running session is ended by the member who opened it (or terminated by the host); an ENDED one offers 「關閉分頁」
+// v2) — so the host and members with agent access type into any of them; editors suggest below; viewers watch.
+// A running session is ended by the member who opened it (or terminated by the host); an ENDED one offers "Close tab"
 // to everyone instead, which only takes the tab out of that person's own panel (ARCHITECTURE §9).
 import { useState } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
@@ -9,11 +9,12 @@ import { drivesSession } from '../../lib/capabilities.ts';
 import { useStore } from '../../lib/store.ts';
 import { useCapabilities, useStores } from '../../lib/workspace/context.tsx';
 import { Badge, Banner, Button, IconButton, useToast } from '../../ui/index.ts';
+import { sessionTitle } from '../../lib/stores/sessions.ts';
 import { useWorkbenchLayout } from '../../lib/workspace/layout.tsx';
 import { IconClose, IconEye, IconInfo, IconMaximize, IconMinimize, IconMinus, IconPlus, IconRefresh, IconTerminal, IconTrash } from '../../ui/icons.tsx';
 import { AttachDialog } from './AttachDialog.tsx';
 import { SessionTerminal } from './SessionTerminal.tsx';
-import { branchOf, effectiveLogin, kindLabel, openedByLabel, statusLabel, whereLabel, type LoginCheck } from './session-info.ts';
+import { branchOf, effectiveLogin, kindLabel, openedByLabel, openerName, statusLabel, whereLabel, type LoginCheck } from './session-info.ts';
 import { t } from './strings.ts';
 
 export interface SessionViewProps {
@@ -25,7 +26,7 @@ export interface SessionViewProps {
   readonly keepTerminal: boolean;
   onEnd(session: SessionInfo): void;
   onTerminate(session: SessionInfo): void;
-  /** 「關閉分頁」 of an ended session: out of this person's panel, nothing else (never offered while it runs). */
+  /** "Close tab" of an ended session: out of this person's panel, nothing else (never offered while it runs). */
   onClose(session: SessionInfo): void;
 }
 
@@ -47,7 +48,7 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
   const exited = session.status === 'exited';
   const loggedOut = session.kind === 'agent' && !exited && login === 'logged-out';
 
-  // session.loginStatus needs session.drive: the host and 可使用 agent re-check (the host's Claude login).
+  // session.loginStatus needs session.drive: the host and members with agent access re-check (the host's Claude login).
   const checkLogin = async (): Promise<void> => {
     setChecking(true);
     const against = session.login;
@@ -67,7 +68,7 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
 
   const opener = openedByLabel(session, selfUserId);
   const infoRows: readonly (readonly [string, string])[] = [
-    [t('info.owner'), opener],
+    [t('info.owner'), openerName(session, selfUserId)],
     [t('info.kind'), kindLabel(session)],
     [t('info.status'), statusLabel(session)],
     [t('info.where'), whereLabel(session, worktrees, selfUserId) + (branchOf(session, worktrees) ? ` · ${branchOf(session, worktrees)}` : '')],
@@ -80,8 +81,8 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
   return (
     <div className="agents-session" data-session-id={session.id}>
       <div className="agents-session__bar">
-        {/* One line (review WEB-02: the header took ~100 px of a 6-row terminal); the rest behind 「詳細資訊」. */}
-        <div className="agents-summary" aria-label={t('info.label', { title: session.title })} role="group">
+        {/* One line (the full header took ~100 px of a 6-row terminal); the rest behind "Details". */}
+        <div className="agents-summary" aria-label={t('info.label', { title: sessionTitle(session) })} role="group">
           {statusBadge}
           <span className="agents-summary__item" title={opener}>
             {opener}
@@ -120,7 +121,7 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
             </Button>
           ) : null}
           {/* Everyone (the owner's second window too, while the other one drives the size): draws the PTY-sized
-              terminal smaller, never reflowed (LEAD-01). */}
+              terminal smaller, never reflowed. */}
           <IconButton
             size="sm"
             label={scaled ? t('action.unscale') : t('action.scale')}
@@ -129,8 +130,8 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
             onClick={() => setScaled((value) => !value)}
           />
           {isOwner && !exited ? (
-            <Button size="sm" variant="ghost" icon={<IconTrash />} onClick={() => onEnd(session)}>
-              {t('action.end')}
+            <Button size="sm" variant="ghost" icon={<IconTrash />} aria-label={t('action.end')} title={t('action.end')} onClick={() => onEnd(session)}>
+              {t('action.endShort')}
             </Button>
           ) : null}
           {!isOwner && isHost && !exited ? (
@@ -138,7 +139,7 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
               {t('action.terminate')}
             </Button>
           ) : null}
-          {/* Everyone, once it ended (where 「結束 session」 was): the same as the close button on the tab. */}
+          {/* Everyone, once it ended (where "End session" was): the same as the close button on the tab. */}
           {exited ? (
             <Button size="sm" variant="ghost" icon={<IconClose />} title={t('action.closeTabHint')} onClick={() => onClose(session)}>
               {t('action.closeTab')}
@@ -152,10 +153,10 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
       ) : null}
       {details ? (
         <div className="agents-session__details">
-          <dl className="agents-info" aria-label={t('info.detailsLabel', { title: session.title })}>
+          <dl className="agents-info" aria-label={t('info.detailsLabel', { title: sessionTitle(session) })}>
             {infoRows.map(([term, value]) => (
               <div key={term} className="agents-info__item">
-                <dt>{term}</dt>
+                <dt>{t('info.term', { label: term })}</dt>
                 <dd>{term === t('info.status') ? statusBadge : value}</dd>
               </div>
             ))}

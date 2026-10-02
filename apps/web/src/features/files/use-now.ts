@@ -1,4 +1,4 @@
-// The current time, refreshed every `intervalMs` while `enabled`: the 「最近修改」 badge fades after RECENT_CHANGE_MS
+// The current time, refreshed every `intervalMs` while `enabled`: the "recently changed" badge fades after RECENT_CHANGE_MS
 // without anything else re-rendering the tree. (A copy of the editor's hook: features never import each other.)
 import { useEffect, useState } from 'react';
 

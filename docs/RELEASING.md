@@ -1,109 +1,65 @@
 # Releasing smurg
 
-The runbook for the project owner and the project lead: one-time setup, deploying the shared relay, cutting a
-release (built by GitHub Actions in the private repository, published by a person to Cloudflare R2), deploying the
-product page, checking it, rolling back, what Cloudflare's free plan allows and what GitHub Actions costs. Nothing in
-the repository uploads, deploys or signs anything by itself; every step that touches a GitHub or Cloudflare account is
-run by a person.
+The maintainers' runbook: one-time setup, deploying the shared relay, cutting a release (built by GitHub Actions,
+published by a person to Cloudflare R2), deploying the product page, checking it and rolling back. Nothing in the
+repository uploads, deploys or signs anything by itself: every step that touches a GitHub or Cloudflare account is run
+by a person, and **no workflow holds a Cloudflare or Google credential**.
 
-Steps marked **[owner]** need the owner's own accounts or secrets (nobody else ever sees the Google client secret or
-the relay's signing key). Steps marked **[lead]** need the repository and, where it says so, the repository's wrangler
-login (§1.2). **[owner or lead]** means either.
-
-Where this stands (2026-10-01, after the decision below): the repository is on GitHub, **private**; the shared relay
-is live on `https://app.smurg.ai` (§2); the product page `https://smurg.ai` is live, but **it is still the build of
-`cb99aa0`, which tells everyone, in English and in Traditional Chinese, that "smurg is open source under the Apache
-License 2.0"** (the eyebrow "Open source · macOS and Linux", an "Open source" section, the meta description), links
-the private GitHub repository, and redirects `/install.sh`, `/github` and `/docs` there (404s for everyone else). That
-is false since the decision, so **redeploying the site is urgent and does not wait for the release** (§4.1 "Now";
-§10 item 10). The release workflow ran once on GitHub, as a dry run of the earlier layout (run 36846007788 on
-`e66f46c`: all six jobs green, **the arm64 Linux runner included**, on the private repository). The R2 bucket does not
-exist yet (§1.5), so nothing has been published. What was checked for the new layout, without any account:
-`scripts/publish-downloads.sh` against a stub `wrangler` and a local stand-in of `downloads.smurg.ai`
-(`packages/cli/test/publish-downloads.test.ts`: dry run, refusing to overwrite, `--resume`, upload order, a read-back
-failure stopping before `latest/` and the way out of it, a `--resume` that must not undo a rollback, `--check`,
-`--set-latest`, the build markers and the complete notices, a rehearsal through the real command); on macOS arm64 a
-real `scripts/build-sea.sh --version 0.1.0` build plus stand-ins for the other three targets, assembled by
-`scripts/release-assets.sh --require-all --check-arch`, "published" to that local stand-in (dry run, upload, read
-back, `latest/`, `--check`, and the refusal to publish the same version again), and installed from it by the real
-`install.sh` (sha256 verified, `--version` right). The workflow YAML was parsed and its shell steps checked with
-`bash -n`; **actionlint and shellcheck were not available for this change**: run them before the next tag (§4
-step 1).
-
-## The plan (decided 2026-10-01, replacing the public-repository plan of 2026-09-30; `docs/OPEN-QUESTIONS.md` Q1)
-
-| What | Decision |
-|---|---|
-| Source | GitHub `gclinian/smurg`, **private, for good**. It is never made public, and nothing is pushed to a public place. |
-| License | **Proprietary** (`LICENSE`): "Copyright (c) 2026 <COPYRIGHT HOLDER>. All rights reserved." plus short terms for the free executables and web app. The placeholder stays until the owner names the holder; `scripts/release-assets.sh --publish-checks` refuses a tag while it is there (§4 step 2). Every `package.json` says `"license": "UNLICENSED"` and `"private": true`. **The terms are not legal advice: have them reviewed (§6.1).** |
-| Third-party notices | Required whatever the license: `THIRD-PARTY-NOTICES.txt`, generated from the installed packages (`scripts/third-party-notices.ts`), embedded in each executable (`smurg licenses`), written by `scripts/build-sea.sh` next to the executable and published with every release; the web app serves its own (`/third-party-notices.txt` on app.smurg.ai), smurg.ai serves the executable's. |
-| Downloads | **Public, on Cloudflare R2**: bucket `smurg-downloads` behind the custom domain **`https://downloads.smurg.ai`**. `v<X.Y.Z>/` holds `smurg-darwin-arm64`, `smurg-darwin-x64`, `smurg-linux-x64`, `smurg-linux-arm64`, `SHA256SUMS`, `install.sh` (its download location pinned to `https://downloads.smurg.ai/v<X.Y.Z>`) and `THIRD-PARTY-NOTICES.txt`, `Cache-Control: public, max-age=31536000, immutable`, **never overwritten, never deleted** (one exception, decided by the owner: v0.1.0 was deleted on 2026-10-02 because nobody had installed it and it carried an LGPL-linked program). `latest/install.sh` (a copy of the newest version's `install.sh`) and `latest/VERSION` (`X.Y.Z`), `Cache-Control: public, max-age=300`. |
-| Install line | Unchanged: `curl -fsSL https://smurg.ai/install.sh \| sh`. smurg.ai answers `/install.sh` with a **302 to `https://downloads.smurg.ai/latest/install.sh`**. There is **no GitHub fallback** any more (release downloads of a private repository need a login). One version: `curl -fsSL https://downloads.smurg.ai/v<X.Y.Z>/install.sh \| sh`. |
-| Who uploads | **A person** (owner or lead) with `scripts/publish-downloads.sh` and the repository's wrangler login (`<repo>/.xdg`, §1.2). **Not CI: no Cloudflare credential is stored in GitHub.** |
-| Builds | GitHub Actions on a tag `v*` (`.github/workflows/release.yml`), each target on its own runner: macOS Apple Silicon (`macos-15`), macOS Intel (`macos-15-intel`), Linux x64 (`ubuntu-24.04`), Linux arm64 (`ubuntu-24.04-arm`; available to this private repository: run 36846007788). The result is a GitHub release **in the private repository, the internal record**; the job summary prints the publish command. `macos-13` is retired (2025-12-04), `macos-14` is removed on 2026-11-02; `macos-15-intel` is GitHub's last x86_64 image, until August 2027 (actions/runner-images #13046, #13518, #13045). |
-| Shared relay | One Worker (`smurg-relay`) on Cloudflare Workers, **free plan**, serving the relay and the web app at the Custom Domain **`https://app.smurg.ai`** (the zone `smurg.ai` is on the same account). Its workers.dev hostname is off. Invite links are `https://app.smurg.ai/join/<id>#…`. |
-| Product page and user docs | `https://smurg.ai` (`apps/site`, a second Worker on the same account; apex only, `www.smurg.ai` redirected by a zone Redirect Rule). It also publishes the user docs at **`https://smurg.ai/docs/`** (docs/HOSTING.md, docs/JOINING.md and CHANGELOG.md rendered at build time, in Traditional Chinese), `/license/` and `/third-party-notices.txt`. The internal docs (ARCHITECTURE, this file, ACCEPTANCE, OPEN-QUESTIONS, research) are **not** published. |
-| Login | Google only, with an OAuth client the owner creates. GitHub login stays in the code but is not configured on the shared relay. |
-| Signing | None from Apple: ad-hoc signature only. The installer verifies the sha256, then removes the quarantine attribute. |
-| First version | v0.1.0 |
-
-### What a private repository changes (say it as it is)
-
-- **Nobody else can run a relay of their own.** `apps/relay` is in the private repository, so the advice of
-  ARCHITECTURE §11 D-5, "hosts who cannot accept what the shared relay sees deploy their own relay", has no path for
-  anyone outside the project. `--relay` (and `SMURG_RELAY_URL`) stay, for relays the owner runs. The user docs and the
-  product page say so (`docs/HOSTING.md` §2, the site's FAQ, ARCHITECTURE §12).
-- **The code is not secret.** Each executable contains the whole JavaScript program (a Node SEA embeds it), and the
-  web app's code is delivered to every browser. Keeping the repository private keeps the history, the tests and the
-  relay's source to the project; what protects the code is the license.
-- **GitHub Actions minutes are billed** on a private repository (§8.1).
-- **GitHub release downloads need a login**: the GitHub release is the internal record only; people install from
-  `downloads.smurg.ai`.
+This describes the official deployment (`app.smurg.ai`, `smurg.ai`, `downloads.smurg.ai`). To run a relay of your own
+you need none of it: see `apps/relay/README.md` ("Self-hosting on workers.dev", "Self-hosting on your own domain").
 
 ## 0. What is where
 
-| Piece | Where | Verified so far |
+| What | Where |
+|---|---|
+| Source | <https://github.com/gclinian/smurg>, MIT (`LICENSE`). Every `package.json` says `"license": "MIT"` and `"private": true` (nothing is published to npm). |
+| Third-party notices | `THIRD-PARTY-NOTICES.txt`, generated from the installed packages (`scripts/third-party-notices.ts`), embedded in each executable (`smurg licenses`), written by `scripts/build-sea.sh` next to the executable and published with every release; the web app serves its own (`/third-party-notices.txt` on app.smurg.ai), smurg.ai serves the executable's. **After any dependency change** run `node scripts/third-party-notices.ts` and commit both files: `pnpm check`, `scripts/build-sea.sh` and the web build refuse stale ones. |
+| Downloads | Cloudflare R2 bucket `smurg-downloads` behind **`https://downloads.smurg.ai`**. `v<X.Y.Z>/` holds `smurg-darwin-arm64`, `smurg-darwin-x64`, `smurg-linux-x64`, `smurg-linux-arm64`, `SHA256SUMS`, `install.sh` (its download location pinned to `https://downloads.smurg.ai/v<X.Y.Z>`) and `THIRD-PARTY-NOTICES.txt`, `Cache-Control: public, max-age=31536000, immutable`, **never overwritten**. `latest/install.sh` (a copy of the newest version's `install.sh`) and `latest/VERSION` (`X.Y.Z`), `Cache-Control: public, max-age=300`. Old versions may be removed (§7); the proprietary builds 0.1.0 to 0.3.0 were. |
+| Install line | `curl -fsSL https://smurg.ai/install.sh \| sh`. smurg.ai answers `/install.sh` with a **302 to `https://downloads.smurg.ai/latest/install.sh`**. One version: `curl -fsSL https://downloads.smurg.ai/v<X.Y.Z>/install.sh \| sh`. |
+| GitHub release | Made by the release workflow for every tag: the notes (the changelog section, the install line, the checksums), `SHA256SUMS` and `THIRD-PARTY-NOTICES.txt`. **No executable and no installer**: the one download place is `downloads.smurg.ai`. |
+| Who uploads | **A person** (a maintainer) with `scripts/publish-downloads.sh` and wrangler logged in to the Cloudflare account (§1.2). Not CI. |
+| Builds | GitHub Actions on a tag `v*` (`.github/workflows/release.yml`), each target on its own runner: macOS Apple silicon (`macos-15`), macOS Intel (`macos-15-intel`), Linux x64 (`ubuntu-24.04`), Linux arm64 (`ubuntu-24.04-arm`). `macos-15-intel` is GitHub's last x86_64 image, until August 2027 (actions/runner-images #13045). |
+| Shared relay | One Worker (`smurg-relay`) on Cloudflare Workers, serving the relay and the web app at the Custom Domain **`https://app.smurg.ai`**. Its workers.dev hostname is off. Invite links are `https://app.smurg.ai/join/<id>#…`. Login: Google only. |
+| Product page and user docs | `https://smurg.ai` (`apps/site`, a second Worker; apex only, `www.smurg.ai` redirected by a zone Redirect Rule). It publishes the user docs at `/docs/` and `/zh-TW/docs/` (the guides and the changelog, rendered at build time), `/license/` and `/third-party-notices.txt`. |
+| Signing | None from Apple: ad-hoc signature only. The installer verifies the sha256, then removes the quarantine attribute. `SHA256SUMS` is not signed (§9). |
+
+The tools:
+
+| Piece | Command | Tests |
 |---|---|---|
-| Single executable (Node SEA: CLI + daemon + native parts) for the platform it is built on | `scripts/build-sea.sh [--node <node>] --version X.Y.Z [--target <platform>-<arch>]` → `packages/cli/dist/smurg-<platform>-<arch>` and, next to it, `THIRD-PARTY-NOTICES.txt` (exactly the notices it embeds); checks that it runs (`--version`), that the program names no private repository, that the executable carries its build marker `smurg-build-version=X.Y.Z;` and the download URL of its Node.js release (`scripts/release-markers.ts`), prints its sha256, runs the smoke tests `packages/cli/test/sea.test.ts` and `packages/cli/test/sea-update.test.ts` (a copy of the executable in a scratch HOME updates itself from a local stand-in for the downloads site and uninstalls itself). `--target` refuses a runner or a Node of another platform/arch; the tag form `--version v0.1.0` is accepted | macOS arm64 locally (2026-10-01, with the notices and the markers); all four targets on GitHub in dry run 36846007788 (before the notices existed) |
-| Third-party notices | `scripts/third-party-notices.ts` (from `pnpm-lock.yaml` and the installed packages' own LICENSE / NOTICE files) → `packages/cli/THIRD-PARTY-NOTICES.txt` (the executable's; its Node.js section is a placeholder that `scripts/build-sea.sh` fills with the LICENSE of the Node.js the executable is a copy of, the complete text going into the executable and next to it) and `apps/web/public/third-party-notices.txt` (the web app's, served at `https://app.smurg.ai/third-party-notices.txt`). **After any dependency change** run `node scripts/third-party-notices.ts` and commit both files: `pnpm check`, `scripts/build-sea.sh` and the web build refuse stale ones | `packages/cli/test/third-party-notices.test.ts`, `apps/web/test/third-party-notices.test.ts` |
-| Release files | `scripts/release-assets.sh --version X.Y.Z [--dist DIR] [--out DIR] [--notices FILE] [--require-all] [--check-arch] [--notes FILE] [--changelog FILE] [--base-url URL]` → `<out>/{smurg-*, SHA256SUMS, install.sh, THIRD-PARTY-NOTICES.txt}` (default `packages/cli/dist/release/X.Y.Z`): copies the executables with mode 0755, checks with `file` that each is the Mach-O / ELF its name says, that **each** carries the build marker of X.Y.Z and the same Node.js release as the notices' `node@A.B.C (the Node.js runtime)` section (so an executable of another version or Node.js cannot be mixed in, §4.3), runs this machine's and requires exactly `smurg X.Y.Z (… node A.B.C)`, bakes `https://downloads.smurg.ai/vX.Y.Z` (or `--base-url`) into `install.sh`, refuses to assemble without the notices (default `<dist>/THIRD-PARTY-NOTICES.txt`), with notices that do not name node-pty, @parcel/watcher and Node.js, or with incomplete ones (the committed file with its placeholder, no filled-in Node.js section), writes the notes (the CHANGELOG section, the install line, the checksums). Check-only modes: `--check-changelog`, `--publish-checks` (§4) | `packages/cli/test/install-script.test.ts`; the real macOS arm64 build with stand-ins (2026-10-01) |
-| Publishing | `scripts/publish-downloads.sh --version X.Y.Z (--from-release \| --dist DIR) [--dry-run] [--resume] [--no-latest]`, `--check [--version X.Y.Z]`, `--set-latest X.Y.Z` (§4 step 7, §7); a rehearsal against stand-ins on this machine with `SMURG_PUBLISH_TEST_ORIGIN` + `SMURG_PUBLISH_TEST_WRANGLER` (§4.4). Implementation and every rule: `scripts/publish-downloads.ts` | `packages/cli/test/publish-downloads.test.ts` (stub wrangler, local stand-in of the domain, stub gh, the real command in a rehearsal); the real arm64 build through a local stand-in (2026-10-01). **Never run against R2** |
-| Installer | `scripts/install.sh`: picks darwin/linux × arm64/x64 (glibc; Rosetta shells get arm64), downloads `SHA256SUMS` and then the executable from its baked download location (`SMURG_INSTALL_BASE_URL` / `--base-url` override it), installs `~/.local/bin/smurg` only when the sha256 matches (https only; http only for 127.0.0.1 / localhost); macOS: removes `com.apple.quarantine` after the sha256 matched and before the first run. The same on every platform otherwise: no sudo, no system package (there is no guest sandbox to set up since the owner's decision of 2026-10-01, ARCHITECTURE §11 D-15); the summary names the license (`https://smurg.ai/license/`) and the version's `THIRD-PARTY-NOTICES.txt` | `packages/cli/test/install-script.test.ts` (every OS/arch through a faked `uname`, under sh and dash, with stand-ins that record any `sudo`, `apt-get`, `apparmor_parser`, `tee`, `runuser` or `bwrap` call: none; the R2 layout `v<X.Y.Z>/` + `latest/` behind a stand-in curl and from a local server) |
-| Release workflow | `.github/workflows/release.yml`, on a tag `v*`: `prepare` (tag format, `--check-changelog`, `--publish-checks`), four builds (`build-sea.sh --version X.Y.Z --target …`; setup-node `check-latest`, so all four use the same Node), then: the four builds' notices must be identical, `release-assets.sh --require-all --check-arch --notes`, a **draft** GitHub release in the private repository with the seven files, a check of the uploaded asset list, then published as the record, and a job summary with the publish command. Only the release job has `permissions: contents: write`; actions are pinned to commit SHAs. A manual run (Actions → Release → Run workflow) is a dry run that records nothing | the earlier layout: dry run 36846007788 green (2026-10-01). This layout: YAML parsed, shell steps `bash -n`, the notices and summary steps run locally; not run on GitHub; actionlint / shellcheck not run |
-| CI | `.github/workflows/ci.yml`: `pnpm check` on `macos-15` and `ubuntu-24.04` for pushes to `main`, pull requests and manual runs. No system package is installed (since D-15 the Linux job no longer installs bubblewrap / socat / ripgrep or the AppArmor profile, and the manual run has no `linux-userns` input) | green on GitHub (e.g. 36843981108 on `e66f46c`, before D-15); the D-15 layout not yet run on GitHub |
-| Relay deploy | `scripts/deploy-relay.sh` (§2): production build of web + relay, then `wrangler deploy` of the top level of `apps/relay/wrangler.jsonc` (`https://app.smurg.ai` as a Cloudflare Custom Domain, workers.dev off, Google only, dev login off); `--dry-run`, `--check <url>` | `apps/relay/test/deploy-relay.test.ts`; against the account: the workers.dev shape (2026-10-01); the custom-domain path runs for the first time at the next deploy (§10) |
-| CLI default relay | `DEFAULT_RELAY_URL` in `packages/cli/src/relay/default-relay.ts`: `'https://app.smurg.ai'` (§3) | unit tests; `apps/relay/test/config.test.ts` checks it equals `RELAY_ISSUER` |
-| Product page and user docs | `apps/site` (`apps/site/README.md`): smurg.ai, its `/docs/`, `/license/`, `/third-party-notices.txt` (a deploy must name the release's notices file: `SMURG_SITE_THIRD_PARTY_NOTICES`, §4.1); `/install.sh` → 302 `https://downloads.smurg.ai/latest/install.sh` (§4.1) | `pnpm check`; the live site is still `cb99aa0`'s, which claims "open source under the Apache License 2.0": redeploy now (§4.1) |
-| Release notes | `CHANGELOG.md`: one `## [X.Y.Z] - YYYY-MM-DD` section per version; it is published on `https://smurg.ai/docs/changelog/`, and the release workflow puts it into the private GitHub release's notes | locally |
+| Single executable (Node SEA: CLI + daemon + native parts) for the platform it is built on | `scripts/build-sea.sh [--node <node>] --version X.Y.Z [--target <platform>-<arch>]` → `packages/cli/dist/smurg-<platform>-<arch>` and, next to it, `THIRD-PARTY-NOTICES.txt` (exactly the notices it embeds). It checks that the executable runs (`--version`), that it carries its build marker `smurg-build-version=X.Y.Z;` and the download URL of its Node.js release (`scripts/release-markers.ts`), prints its sha256 and runs the smoke tests. `--target` refuses a runner or a Node of another platform or architecture. | `packages/cli/test/sea.test.ts`, `packages/cli/test/sea-update.test.ts` (opt-in, run by the build) |
+| Third-party notices | `node scripts/third-party-notices.ts` (`--check`, `--executable`) | `packages/cli/test/third-party-notices.test.ts`, `apps/web/test/third-party-notices.test.ts` |
+| Release files | `scripts/release-assets.sh --version X.Y.Z [--dist DIR] [--out DIR] [--notices FILE] [--require-all] [--check-arch] [--notes FILE] [--changelog FILE] [--base-url URL]` → `<out>/{smurg-*, SHA256SUMS, install.sh, THIRD-PARTY-NOTICES.txt}`. It refuses an executable that is not the file type its name says, is not this version's build or is built on another Node.js than the notices' (§4.3), and incomplete notices. Check-only modes: `--check-changelog`, `--publish-checks` (§4 step 2). | `packages/cli/test/install-script.test.ts`, `packages/cli/test/release-checks.test.ts` |
+| Publishing | `scripts/publish-downloads.sh --version X.Y.Z (--from-release \| --dist DIR) [--dry-run] [--resume] [--no-latest]`, `--check [--version X.Y.Z]`, `--set-latest X.Y.Z` (§4 step 7, §7). Every rule: `scripts/publish-downloads.ts`. | `packages/cli/test/publish-downloads.test.ts` (stand-ins for wrangler, the domain and gh; §4.4) |
+| Installer | `scripts/install.sh`: picks darwin/linux × arm64/x64 (glibc), downloads `SHA256SUMS` and then the executable from its baked download location, installs `~/.local/bin/smurg` only when the sha256 matches (https only); on macOS it removes `com.apple.quarantine` after the sha256 matched. No sudo, no system package. | `packages/cli/test/install-script.test.ts` |
+| Release workflow | `.github/workflows/release.yml` (§4 step 5). Only the release job has `permissions: contents: write`; actions are pinned to commit SHAs. A manual run is a dry run that releases nothing. | |
+| CI | `.github/workflows/ci.yml`: `pnpm check` on `macos-15` and `ubuntu-24.04` for pushes to `main`, pull requests and manual runs. Pull requests from forks get a read-only token and no secret. | |
+| Relay deploy | `scripts/deploy-relay.sh` (§2): production build of web + relay, then `wrangler deploy` of the top level of `apps/relay/wrangler.jsonc`; `--dry-run`, `--check <url>`. | `apps/relay/test/deploy-relay.test.ts` |
+| CLI default relay | `DEFAULT_RELAY_URL` in `packages/cli/src/relay/default-relay.ts` (§3) | `packages/cli/test/default-relay.test.ts`, `apps/relay/test/config.test.ts` |
+| Release notes | `CHANGELOG.md` and `docs/zh-TW/CHANGELOG.md`: one `## [X.Y.Z] - YYYY-MM-DD` section per version, the same heading in both. Published on smurg.ai; the English section becomes the GitHub release's notes. | `apps/site/test/docs-parity.test.ts` |
 
 ---
 
 ## 1. One-time setup
 
-### 1.1 GitHub repository [lead, then owner] — done 2026-10-01
+### 1.1 GitHub repository
 
-1. **[lead]** `source scripts/env.sh && pnpm check` green; first commit reviewed (no `.dev.vars`, `.xdg/`,
-   `node_modules`). Done (commit 0b99dc8).
-2. **[owner]** `gh repo create gclinian/smurg --private --source=. --remote=origin --push`. Done. **It stays
-   private** (§6).
-3. **[owner]** Settings → Actions → General: Actions allowed; default workflow permissions read-only (the release job
-   declares `contents: write` itself); no repository secret is needed (none must ever be added for Cloudflare).
-   Two-factor authentication on the account: whoever controls it controls what the private record and CI build.
-4. **[owner]** Settings → Billing and licensing: Actions minutes on a private repository count against the plan's
-   allowance (§8.1). Keep the Actions budget at $0 (usage stops when the included minutes run out instead of being
-   billed) unless you decide otherwise; check the usage page after the first releases.
-5. **[lead]** First CI run green, Linux included. Done (run 36779794102).
+- Actions: default workflow permissions read-only (the release job declares `contents: write` itself); **require
+  approval for workflow runs of first-time contributors**; no repository secret is needed, and none must ever be
+  added for Cloudflare or Google.
+- Branch protection on `main`; private vulnerability reporting on (`SECURITY.md`); two-factor authentication on every
+  account with write access: whoever can push a tag decides what the release workflow builds.
 
-`gh` and `scripts/env.sh`: env.sh sets `XDG_CONFIG_HOME=<repo>/.xdg` (for wrangler), and gh looks for its login in
-`$XDG_CONFIG_HOME/gh`, so in a shell that sourced env.sh plain `gh` says it is not logged in. Run gh in another shell,
-or with `GH_CONFIG_DIR=~/.config/gh gh …` (verified 2026-10-01). `scripts/publish-downloads.sh` does this by itself.
+`gh` and `scripts/env.sh`: env.sh sets `XDG_CONFIG_HOME` to a directory inside the checkout (for wrangler), and gh
+looks for its login in `$XDG_CONFIG_HOME/gh`, so in a shell that sourced env.sh plain `gh` says it is not logged in.
+Run gh in another shell, or with `GH_CONFIG_DIR=~/.config/gh gh …`. `scripts/publish-downloads.sh` does this by itself.
 
-### 1.2 Cloudflare account and wrangler [owner] — done 2026-10-01
+### 1.2 Cloudflare account and wrangler
 
-1. A Cloudflare account (free plan) with the zone **smurg.ai** (Cloudflare's nameservers, status Active). The shared
-   relay is the Custom Domain `app.smurg.ai`, the product page `smurg.ai`, the downloads `downloads.smurg.ai` (§1.5).
-2. wrangler's login lives in the repository (`scripts/env.sh` sets `XDG_CONFIG_HOME=<repo>/.xdg`, gitignored; relay.md
-   gotcha 16). The relay, the site and the downloads use the same login:
+1. A Cloudflare account with the zone of the domain (Cloudflare's nameservers, status Active). The shared relay is the
+   Custom Domain `app.smurg.ai`, the product page `smurg.ai`, the downloads `downloads.smurg.ai` (§1.5).
+2. wrangler's login is kept inside the checkout (`scripts/env.sh`; gitignored). The relay, the site and the downloads
+   use the same login:
 
    ```sh
    cd <repo> && source scripts/env.sh
@@ -111,46 +67,33 @@ or with `GH_CONFIG_DIR=~/.config/gh gh …` (verified 2026-10-01). `scripts/publ
    pnpm --filter @smurg/relay exec wrangler whoami             # shows the account
    ```
 
-   `wrangler logout` (same prefix) removes the login. Never copy `.xdg/` anywhere. Whoever publishes releases (owner
-   or lead) needs this login on their own checkout.
+   `wrangler logout` (same prefix) removes the login. Never copy it anywhere. Whoever publishes releases needs this
+   login on their own checkout.
 
-### 1.3 Google OAuth client [owner only] — done 2026-10-01
+### 1.3 Google OAuth client
 
-In the Google Cloud console (project "smurg"):
+1. **OAuth consent screen**: user type External; scopes `openid`, `email`, `profile`; publishing status **In
+   production** (in "Testing" only listed test users can log in); authorized domain: the relay's domain.
+2. **OAuth client ID**, type Web application; authorized JavaScript origin `https://app.smurg.ai`; authorized redirect
+   URI `https://app.smurg.ai/auth/google/callback`, exactly (`scripts/deploy-relay.sh` prints both). The CLI's login
+   goes through the same callback (the device-code login's /device page uses the relay's own Google login), so no
+   loopback URI is registered.
+3. The **client ID** is public (it is in `apps/relay/wrangler.jsonc`); the **client secret** goes only into
+   `wrangler secret put` (§1.4), never into the repository, CI, a chat or an issue.
 
-1. **OAuth consent screen** (**Google Auth Platform → Branding / Audience**): user type **External**; app name "smurg";
-   support and developer contact e-mail; scopes `openid`, `email`, `profile`. **Publishing status: In production**
-   (in "Testing" only listed test users can log in; confirm, §10). **Authorized domains**: `smurg.ai`.
-2. **Credentials → OAuth client ID**, type **Web application**; **Authorized JavaScript origins**:
-   `https://app.smurg.ai`; **Authorized redirect URIs**: `https://app.smurg.ai/auth/google/callback`, exactly
-   (`scripts/deploy-relay.sh` prints both). The CLI's login goes through the same callback (the device-code login's
-   /device page uses the relay's own Google login), so no loopback URI is registered. The workers.dev origin and
-   redirect URI of the first deploy can be removed (that hostname answers 404).
-3. The **client ID** is public (it goes into `apps/relay/wrangler.jsonc`); the **client secret** goes only into
-   `wrangler secret put` below, never into the repository, CI, a chat or an issue.
+### 1.4 Relay secrets
 
-### 1.4 Relay secrets [owner only] — done 2026-10-01
+The relay needs two secrets, `RELAY_SIGNING_KEY` and `GOOGLE_CLIENT_SECRET`, set with `wrangler secret put`;
+`scripts/deploy-relay.sh` prints the exact commands and stops while one is missing, and `apps/relay/README.md` explains
+them (generating the signing key; rotating both: "Afterwards"). `RELAY_SIGNING_KEY` must exist before a
+Worker's first deploy; it needs no backup: if it is lost, put a new one and everyone logs in again.
 
-```sh
-cd <repo> && source scripts/env.sh     # the same commands scripts/deploy-relay.sh prints
-node apps/relay/scripts/signing-key.ts | pnpm --filter @smurg/relay exec wrangler secret put RELAY_SIGNING_KEY --env=""   # generated and piped: nobody sees it
-CI=false pnpm --filter @smurg/relay exec wrangler secret put GOOGLE_CLIENT_SECRET --env=""                               # paste the client secret at the prompt
-```
+### 1.5 The downloads bucket and its domain
 
-- `RELAY_SIGNING_KEY` must exist before a Worker's first deploy (wrangler refuses otherwise); it needs no backup: if
-  it is lost, put a new one and everyone logs in again. To rotate without logging everyone out, put
-  `{"keys":[<new private JWK>, <old public JWK>]}` (`apps/relay/README.md`, 設定).
-- `CI=false` for the pasted secret: `scripts/env.sh` sets `CI=true`, under which wrangler cannot prompt.
-- `GITHUB_CLIENT_SECRET` is not set: GitHub login is off (`/api/login-options` says `github: false`).
+`scripts/publish-downloads.sh` stops with exit 3 and points here while the bucket does not exist.
 
-### 1.5 The downloads bucket and its domain [owner enables R2, then owner or lead] — to do
-
-`scripts/publish-downloads.sh` stops with exit 3 and points here while the bucket does not exist. Commands from wrangler
-4.142's own help and source; **none of this has run against the account yet**.
-
-1. **[owner]** Cloudflare dashboard → **R2 Object Storage**: enable R2 for the account (the dashboard may ask to accept
-   R2's terms and for a payment method even for the free allowance; R2 has no egress fees, §8).
-2. **[owner or lead]** Create the bucket (the location is chosen automatically near whoever creates it):
+1. Enable R2 for the account (dashboard → R2 Object Storage).
+2. Create the bucket:
 
    ```sh
    cd <repo> && source scripts/env.sh
@@ -158,59 +101,47 @@ CI=false pnpm --filter @smurg/relay exec wrangler secret put GOOGLE_CLIENT_SECRE
    pnpm --filter @smurg/relay exec wrangler r2 bucket list                          # name: smurg-downloads
    ```
 
-3. **[owner or lead]** Connect the custom domain (Cloudflare creates the DNS record and the certificate in the
-   `smurg.ai` zone; the zone ID is on the zone's Overview page in the dashboard; the dashboard's R2 → smurg-downloads →
-   Settings → Custom Domains → Connect Domain does the same):
+3. Connect the custom domain (Cloudflare creates the DNS record and the certificate in the zone; the dashboard's
+   R2 → smurg-downloads → Settings → Custom Domains → Connect Domain does the same):
 
    ```sh
-   pnpm --filter @smurg/relay exec wrangler r2 bucket domain add smurg-downloads --domain downloads.smurg.ai --zone-id <zone id of smurg.ai> --min-tls 1.2
+   pnpm --filter @smurg/relay exec wrangler r2 bucket domain add smurg-downloads --domain downloads.smurg.ai --zone-id <zone id> --min-tls 1.2
    pnpm --filter @smurg/relay exec wrangler r2 bucket domain list smurg-downloads   # downloads.smurg.ai, enabled
    pnpm --filter @smurg/relay exec wrangler r2 bucket dev-url get smurg-downloads   # the r2.dev URL stays disabled: the custom domain only
    ```
 
-   Under `CI=true` wrangler answers its own "Are you sure … publicly available" question with yes; the bucket's
-   contents are meant to be public.
-4. **Zone settings** that matter for `downloads.smurg.ai` (zone-wide, §2): **Always Use HTTPS** is on (the installer
-   refuses plain http anyway); keep **Bot Fight Mode off** and no challenge for this hostname (`curl` cannot pass one);
-   **Caching → Browser Cache TTL: Respect Existing Headers**, so the objects' own Cache-Control is what clients see.
-   No Cache Rule is needed. If one is ever added to cache the executables at the edge, it must respect the origin's
-   Cache-Control: `latest/` must not be held longer than its `max-age=300`. (`publish-downloads.sh` reads files back
-   past any edge cache and warns when the plain URL still serves an older `latest/`.)
-5. Optional, **not tried**: enforce "never overwritten" in R2 itself with a bucket lock on the version prefixes
-   (`wrangler r2 bucket lock add smurg-downloads --name versions --prefix v --retention-indefinite`; `latest/` must not
-   be locked). Read Cloudflare's "Bucket locks" page first: a lock also stops the owner from deleting an object (§7).
-6. Check: `curl -sI https://downloads.smurg.ai/latest/VERSION` answers 404 from R2 (the bucket is empty; a DNS or TLS
-   error means the domain is not connected yet), and
-   `scripts/publish-downloads.sh --version 0.1.0 --from-release --dry-run` (after §4 step 5) lists every file as
-   "not there yet".
+4. **Zone settings** that matter for `downloads.smurg.ai` (zone-wide, §2): Always Use HTTPS on; **Bot Fight Mode off**
+   and no challenge for this hostname (`curl` cannot pass one); Caching → Browser Cache TTL: Respect Existing Headers,
+   so the objects' own Cache-Control is what clients see. If a Cache Rule is ever added, it must respect the origin's
+   Cache-Control: `latest/` must not be held longer than its `max-age=300`.
+5. Check: `curl -sI https://downloads.smurg.ai/latest/VERSION` answers 404 from R2 while the bucket is empty (a DNS or
+   TLS error means the domain is not connected yet).
 
 ---
 
-## 2. Deploying the relay [owner]
+## 2. Deploying the relay
 
 The shared relay is the Cloudflare Custom Domain **app.smurg.ai** of the Worker `smurg-relay`. The top level of
 `apps/relay/wrangler.jsonc` says so, and it is exactly what runs in production:
 
 ```jsonc
-"workers_dev": false,                                            // no smurg-relay.<subdomain>.workers.dev
+"workers_dev": false,                                            // no workers.dev hostname
 "routes": [{ "pattern": "app.smurg.ai", "custom_domain": true }],
 "preview_urls": false,
 "vars": { "RELAY_ISSUER": "https://app.smurg.ai", "ALLOWED_ORIGINS": "https://app.smurg.ai", … }
 ```
 
-On deploy, wrangler attaches the custom domain to the Worker (DNS record and certificate in the `smurg.ai` zone).
-wrangler, as the script runs it (`CI=true`), does not ask before it takes a hostname over, so before deploying the
-script checks who answers at the hostname and stops unless nothing does yet or it is already a smurg relay;
-`--take-over-hostname` deploys anyway. `env.dev` sets `"routes": []`.
+On deploy, wrangler attaches the custom domain to the Worker (DNS record and certificate in the zone). wrangler, as
+the script runs it (`CI=true`), does not ask before it takes a hostname over, so before deploying the script checks
+who answers at the hostname and stops unless nothing does yet or it is already a smurg relay; `--take-over-hostname`
+deploys anyway. `env.dev` sets `"routes": []`.
 
-**Zone settings** (dashboard, zone `smurg.ai`, once; they apply to every hostname of the zone: the relay, the site
-and the downloads):
+**Zone settings** (dashboard, once; they apply to every hostname of the zone: the relay, the site and the downloads):
 
-- **SSL/TLS → Edge Certificates → Always Use HTTPS: on** (since 2026-10-01; checked live: `http://smurg.ai/`,
-  `http://www.smurg.ai/zh-TW/x?q=1` and `http://app.smurg.ai/healthz` answer 301 to the same https URL). The static
-  pages of both Workers also send `Strict-Transport-Security: max-age=31536000` (`apps/site/public/_headers`,
-  `apps/web/public/_headers`); `--check` requires `http://app.smurg.ai/healthz` to redirect to https.
-- **Rules → Redirect Rules: `www.smurg.ai` → `https://smurg.ai/<path>`**, 301, query kept (done 2026-10-01, §4.1).
+- **SSL/TLS → Edge Certificates → Always Use HTTPS: on.** The static pages of both Workers also send
+  `Strict-Transport-Security: max-age=31536000` (`apps/site/public/_headers`, `apps/web/public/_headers`); `--check`
+  requires `http://app.smurg.ai/healthz` to redirect to https.
+- **Rules → Redirect Rules: `www.smurg.ai` → `https://smurg.ai/<path>`**, 301, query kept (§4.1).
 - **Keep Bot Fight Mode off, Security Level below "I'm Under Attack", and add no WAF rule that challenges
   `app.smurg.ai` or `downloads.smurg.ai`.** The CLI, the daemon and `curl … | sh` are not browsers and cannot solve a
   challenge. `--check` fails with the reason when Cloudflare answers instead of the relay (a `cf-mitigated` header).
@@ -218,24 +149,17 @@ and the downloads):
 ```sh
 cd <repo> && source scripts/env.sh
 scripts/deploy-relay.sh --dry-run                       # web build, config checks, wrangler deploy --dry-run; no account contact
-scripts/deploy-relay.sh                                 # deploy (after §1.2 and RELAY_SIGNING_KEY from §1.4); ends with 「完成」
-scripts/deploy-relay.sh --check https://app.smurg.ai    # any time later: the outside checks only
+scripts/deploy-relay.sh                                 # deploy (after §1.2 and RELAY_SIGNING_KEY from §1.4); ends with "Done: …"
+scripts/deploy-relay.sh --check https://app.smurg.ai    # any time later: the outside checks only; "All checks passed."
 ```
 
 Deploy from a clean checkout of the commit you mean (`git status` clean): the web app is built from the working tree,
 and the live one must be the build of a known commit (§4 step 3). The script builds the web app and the relay, checks
 the production configuration, checks who answers at `app.smurg.ai`, runs `wrangler deploy --env ""`, and refuses to
 call it done unless wrangler's deploy output names exactly `app.smurg.ai (custom domain)` and no workers.dev hostname
-and every outside check passes. `--google-client-id <id>` writes `GOOGLE_CLIENT_ID` into `apps/relay/wrangler.jsonc`
-(commit it). It never logs in and never puts or reads a secret: it prints the command and stops with exit 3 when the
-owner has to act. Details: `apps/relay/README.md`, 「部署到 Cloudflare」 (maintainers only: the relay's source is
-private, so no one else deploys one).
-
-History: the shared relay started on 2026-10-01 at `https://smurg-relay.gclin-ian.workers.dev` (the script's first
-run against the account) and moved the same day to `https://app.smurg.ai` with one plain `wrangler deploy` from a
-copy whose top level equals the committed `apps/relay/wrangler.jsonc`; the old hostname answers 404. No release had
-been published, so no `smurg` binary carries the old address. A CLI that logged in to the old origin keeps choosing
-it: run `smurg login --relay https://app.smurg.ai` once.
+and every outside check passes. It never logs in and never puts or reads a secret: it prints the command and stops
+with exit 3 when a person has to act. Details: `apps/relay/README.md` ("The shared relay (app.smurg.ai,
+maintainers)", "What scripts/deploy-relay.sh does").
 
 What the production configuration must say:
 
@@ -258,94 +182,83 @@ relay's callback and client ID and a `__Host-` cookie, the live web app is this 
 curl -fsS https://app.smurg.ai/healthz                  # ok
 curl -fsS https://app.smurg.ai/api/login-options        # {"providers":{"github":false,"google":true},"dev":false}
 curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' http://app.smurg.ai/healthz          # 301 https://app.smurg.ai/healthz
-curl -sS -o /dev/null -w '%{http_code}\n' https://smurg-relay.gclin-ian.workers.dev/healthz   # 404: workers.dev stays off
 ```
 
-The first time on a new address: open `https://app.smurg.ai` (only 「使用 Google 登入」); `smurg login --relay
-https://app.smurg.ai`; `smurg host` a throw-away folder; join with a second Google account in another browser profile
-(§10 items 9 and 11: the web app live on 2026-10-01 is the build of 7a690c9, which refuses the `channel.welcome` of a daemon
-from cb99aa0 or later, so redeploy first, §4 step 3).
+Good to know: **every deploy disconnects every WebSocket** (clients reconnect within seconds; deploy outside working
+hours); `wrangler.jsonc`'s `migrations` are only ever appended to; relay logs:
+`pnpm --filter @smurg/relay exec wrangler tail` (never content).
 
-Good to know: **every deploy disconnects every WebSocket** (relay.md gotcha 9; clients reconnect within seconds, a
-class notices: deploy outside working hours); `wrangler.jsonc`'s `migrations` are only ever appended to; relay logs:
-`pnpm --filter @smurg/relay exec wrangler tail` (never content); usage: Workers & Pages → smurg-relay → Metrics.
+## 3. The shared relay's address in the repository
 
-## 3. The shared relay's address in the repository [lead]
-
-Done 2026-10-01 for `https://app.smurg.ai`. The address appears in these places, and they must agree:
+The address appears in these places, and they must agree:
 
 - `DEFAULT_RELAY_URL` in `packages/cli/src/relay/default-relay.ts`, on one line of exactly the shape
   `export const DEFAULT_RELAY_URL: string | null = 'https://<host>';` (`packages/cli/test/default-relay.test.ts`;
   `apps/relay/test/config.test.ts` checks that it equals `RELAY_ISSUER`);
 - `apps/relay/wrangler.jsonc` (`routes`, `RELAY_ISSUER`, `ALLOWED_ORIGINS`, §2);
-- the user docs: README.md, docs/HOSTING.md, docs/JOINING.md, and `CHANGELOG.md`;
+- the user docs, in both languages: `README.md`, `README.zh-TW.md`, `docs/HOSTING.md`, `docs/JOINING.md`,
+  `docs/zh-TW/HOSTING.md`, `docs/zh-TW/JOINING.md`, and the changelogs;
 - the product page, both languages (`apps/site/public`).
 
-The placeholder `<RELAY_URL>` must never come back into the user docs. The release workflow refuses a tag while
-`DEFAULT_RELAY_URL` is not an https origin, while a user doc does not name it, while a placeholder is left, or while a
-user doc or the version's CHANGELOG section names a concrete `*.workers.dev` address other than `DEFAULT_RELAY_URL`
-(§4). **Tag a release only with the final address**: a release keeps its default relay forever. Changing it later is
-expensive (every released `smurg`, every stored login and invite link, the Google client). Do not change it again.
+The release workflow refuses a tag while `DEFAULT_RELAY_URL` is not an https origin, while a user doc does not name
+it, while a placeholder (`<RELAY_URL>`) is left, or while a user doc or the version's changelog section names a
+concrete `*.workers.dev` address other than `DEFAULT_RELAY_URL` (§4). **A release keeps its default relay forever.**
+Changing it is expensive (every released `smurg`, every stored login and invite link, the Google client).
 
 ## 4. Cutting a release
 
-Who: the lead prepares and tags; the owner redeploys the relay (and later the site); the owner or the lead publishes
-(they need the repository's wrangler login, §1.2, and a gh login with access to the private repository).
+Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1.2) and a gh login.
 
-1. **[lead]** `main` is green in CI, `source scripts/env.sh && pnpm check` is green locally, and
-   `actionlint .github/workflows/*.yml` (with shellcheck on PATH) is clean: not run for the 2026-10-01 changes.
-2. **[lead]** `CHANGELOG.md`: the section `## [X.Y.Z] - YYYY-MM-DD` (for 0.1.0: replace `Unreleased` with the date),
-   written for hosts and members. It is published at `https://smurg.ai/docs/changelog/` and becomes the private
-   release's notes. For a later version also set `"version": "X.Y.Z"` in all eight `package.json` files. Commit, then
-   check what the workflow's first job will check:
+1. `main` is green in CI, `source scripts/env.sh && pnpm check` is green locally, `shellcheck -S warning scripts/*.sh`
+   and `actionlint .github/workflows/*.yml` are clean.
+2. The changelogs: the section `## [X.Y.Z] - YYYY-MM-DD` in `CHANGELOG.md` and, with the same heading, in
+   `docs/zh-TW/CHANGELOG.md`, written for hosts and members. Set `"version": "X.Y.Z"` in all eight `package.json`
+   files. Commit, then check what the workflow's first job will check:
 
    ```sh
    scripts/release-assets.sh --version X.Y.Z --publish-checks
    ```
 
-   It refuses (and a tag push fails before any build) while: the section is missing or not dated; `<RELAY_URL>` or
-   `<account-subdomain>` is left in the section or in README.md / docs/HOSTING.md / docs/JOINING.md;
-   `DEFAULT_RELAY_URL` is not an https origin or one of those three docs does not name it; one of them does not show
-   `curl -fsSL https://smurg.ai/install.sh | sh`; one of them or the section names a concrete `*.workers.dev` address
-   other than `DEFAULT_RELAY_URL`; **anything users read links to the private repository** (`github.com/gclinian/smurg`
-   or `github.com:gclinian/smurg`, any case, in those three docs, the section, `apps/site/public/`, or the web app's
-   `index.html`, `src/` and `public/`); **`LICENSE` still says `<COPYRIGHT HOLDER>`** (the owner names the holder:
-   `docs/OPEN-QUESTIONS.md` Q14) or is still the Apache License; a `package.json` says another version, or not
-   `"license": "UNLICENSED"`, or not `"private": true`. Optional: Actions → Release → Run workflow (version X.Y.Z) is a
-   dry run of the whole pipeline (about 35 billed minutes, §8.1) that records nothing and keeps the notes,
+   It refuses (and a tag push fails before any build) while: the section is missing or not dated in either changelog,
+   or the two headings differ; `<RELAY_URL>` or `<account-subdomain>` is left in the section or in a user doc (§3);
+   `DEFAULT_RELAY_URL` is not an https origin, or one of the six user docs is missing, does not name it or does not
+   show `curl -fsSL https://smurg.ai/install.sh | sh`; one of them or the section names a concrete `*.workers.dev`
+   address other than `DEFAULT_RELAY_URL`; `LICENSE` is not the MIT License naming its copyright holder; `LICENSE`,
+   `NOTICE`, a user doc or `scripts/install.sh` still carries wording of the proprietary releases; a `package.json`
+   says another version, or not `"license": "MIT"`, or not `"private": true`. Optional: Actions → Release → Run
+   workflow (version X.Y.Z) is a dry run of the whole pipeline that releases nothing and keeps the notes,
    `SHA256SUMS`, `install.sh` and the notices as an artifact (there the `--publish-checks` step only warns).
-3. **[owner]** Redeploy the shared relay from the commit you are about to tag (a clean checkout of it), §2:
+3. Redeploy the shared relay from the commit you are about to tag (a clean checkout of it), §2:
 
    ```sh
-   scripts/deploy-relay.sh                                 # ends with 「完成」: every outside check passed
-   scripts/deploy-relay.sh --check https://app.smurg.ai    # later, from the same checkout: 「全部通過」
+   scripts/deploy-relay.sh                                 # ends with "Done: …": every outside check passed
+   scripts/deploy-relay.sh --check https://app.smurg.ai    # later, from the same checkout: "All checks passed."
    ```
 
-   Why: `app.smurg.ai` serves the one web app that every host's guests and console use, whatever version the host
+   Why: `app.smurg.ai` serves the one web app that every host's members and console use, whatever version the host
    runs. It decodes each daemon's `channel.welcome` and settings with strict schemas (ARCHITECTURE §5), so a web app
    older than the daemon refuses it, while a newer one accepts older daemons of the same protocol version (a daemon
    of another protocol version is refused at the handshake). The web app must therefore be at least as new as the
    release before anyone can install the release. If the workflow fails and you tag a fixed commit instead, redeploy
    from that one.
-4. **[lead]** Tag and push the tag:
+4. Tag and push the tag:
 
    ```sh
    git tag -a vX.Y.Z -m "smurg X.Y.Z"
    git push origin vX.Y.Z
    ```
 
-5. **[lead]** Watch the release workflow (`gh run list --limit 5`, then `gh run watch <run id>`, in a shell without
+5. Watch the release workflow (`gh run list --limit 5`, then `gh run watch <run id>`, in a shell without
    `scripts/env.sh`, §1.1). Each build runs `scripts/build-sea.sh --version X.Y.Z --target <platform>-<arch>`
    (including the smoke test on that platform); the last job requires the four builds' notices to be identical, runs
-   `scripts/release-assets.sh`, creates a draft release in the private repository with the seven files, checks the
-   uploaded list and only then publishes it as the record. If that job fails after creating the draft, delete the draft
-   on the Releases page and "Re-run failed jobs" (it refuses to continue while any release for the tag exists). If the
-   notices differ (another Node.js release came out during the run), re-run all jobs. The job summary prints the
-   commands of step 7.
-6. `gh release view vX.Y.Z --repo gclinian/smurg`: seven files (`smurg-darwin-arm64`, `smurg-darwin-x64`,
-   `smurg-linux-x64`, `smurg-linux-arm64`, `SHA256SUMS`, `install.sh`, `THIRD-PARTY-NOTICES.txt`). Nothing is public yet.
-7. **[owner or lead] Publish.** From a checkout with the repository's wrangler login (§1.2), and once the bucket exists
-   (§1.5):
+   `scripts/release-assets.sh`, keeps the seven files as the artifact `release-X.Y.Z` (30 days), and creates the
+   GitHub release with the notes, `SHA256SUMS` and `THIRD-PARTY-NOTICES.txt` (a draft, its asset list checked, then
+   published). If that job fails after creating the draft, delete the draft on the Releases page and "Re-run failed
+   jobs" (it refuses to continue while any release for the tag exists). If the notices differ (another Node.js
+   release came out during the run), re-run all jobs. The job summary prints the commands of step 7.
+6. `gh release view vX.Y.Z --repo gclinian/smurg`: the notes and two files. The executables are not on
+   `downloads.smurg.ai` yet; do step 7 right away.
+7. **Publish.** From a checkout with the wrangler login (§1.2):
 
    ```sh
    cd <repo> && source scripts/env.sh
@@ -355,8 +268,10 @@ Who: the lead prepares and tags; the owner redeploys the relay (and later the si
    ```
 
    What it does (every rule in `scripts/publish-downloads.ts`):
-   1. takes the private release's seven files with your gh login (`gh release view` must say it is not a draft, then
-      `gh release download`; or `--dist DIR`, a directory `scripts/release-assets.sh --out` wrote, §4.3);
+   1. takes the workflow's files with your gh login: the GitHub release must exist and not be a draft; the seven
+      files are the artifact `release-X.Y.Z` of the workflow's successful run for the tag; their `SHA256SUMS` and
+      notices must be byte-identical to the GitHub release's (or `--dist DIR`, a directory
+      `scripts/release-assets.sh --out` wrote, §4.3);
    2. checks them before contacting Cloudflare: `SHA256SUMS` lists exactly the four executables and each sha256
       matches; `file` says each is the Mach-O / ELF of its name; each carries the build marker of X.Y.Z and the
       download URL of one Node.js release, the same for all four and the same as the notices' Node.js section
@@ -369,17 +284,16 @@ Who: the lead prepares and tags; the owner redeploys the relay (and later the si
       ones in the bucket itself with `wrangler r2 object get`); anything there stops the run;
    5. decides `latest/`: a pre-release (`X.Y.Z-rc.1`) never becomes latest, nor does a version with `--no-latest`; a
       version older than the current `latest/VERSION` stops the run (rolling back is §7);
-   6. uploads `vX.Y.Z/` with `wrangler r2 object put smurg-downloads/<key> --file … --remote --content-type …
-      --cache-control "public, max-age=31536000, immutable"`: the executables (`application/octet-stream`), then
-      `THIRD-PARTY-NOTICES.txt`, `install.sh` and `SHA256SUMS` last (`text/plain; charset=utf-8`; the installer reads
-      `SHA256SUMS` first, so a version cut short refuses to install instead of half-working);
+   6. uploads `vX.Y.Z/`: the executables (`application/octet-stream`), then `THIRD-PARTY-NOTICES.txt`, `install.sh`
+      and `SHA256SUMS` last (`text/plain; charset=utf-8`; the installer reads `SHA256SUMS` first, so a version cut
+      short refuses to install instead of half-working);
    7. reads every file back through `https://downloads.smurg.ai` (past any edge cache) and compares its sha256; a
       wrong Content-Type or Cache-Control is a warning. **Any failure stops here, and `latest/` is not touched**;
-   8. only then uploads `latest/install.sh` (the version's own `install.sh`) and `latest/VERSION`
-      (`Cache-Control: public, max-age=300`), reads them back, says whether the plain URLs already serve them (the
-      edge may hold the previous ones for up to five minutes), and checks that `https://smurg.ai/install.sh` answers
-      302 to `https://downloads.smurg.ai/latest/install.sh` and that `https://smurg.ai/third-party-notices.txt` is
-      this version's file (warnings until the site is redeployed with them, step 8).
+   8. only then uploads `latest/install.sh` (the version's own `install.sh`) and `latest/VERSION`, reads them back,
+      says whether the plain URLs already serve them (the edge may hold the previous ones for up to five minutes),
+      and checks that `https://smurg.ai/install.sh` answers 302 to `https://downloads.smurg.ai/latest/install.sh` and
+      that `https://smurg.ai/third-party-notices.txt` is this version's file (warnings until the site is redeployed
+      with them, step 8).
 
    Exit codes: 0 done, 1 failed or refused, 2 usage, 3 you must act first (log in, choose an account, create the
    bucket, log gh in). **Once a version is published, never reuse its number**: people's installs and the published
@@ -397,84 +311,57 @@ Who: the lead prepares and tags; the owner redeploys the relay (and later the si
    - **The read-back got other bytes than were uploaded** (a sha256 mismatch): those objects are public under
      `vX.Y.Z/`, but the version never became `latest/`, and `--resume` refuses them (a published file is never
      overwritten automatically). Find out why first (download the file and compare it with the local one). Then
-     either **[owner]** deletes only the mismatching objects, which the error message lists,
-     `pnpm --filter @smurg/relay exec wrangler r2 object delete smurg-downloads/vX.Y.Z/<file> --remote` (a bucket
-     lock, §1.5, must be lifted first), and runs the same command again with `--resume`; or the number is used up:
-     cut X.Y.(Z+1). (Until `latest/` names the version, only someone who knows its pinned
-     `https://downloads.smurg.ai/vX.Y.Z/install.sh` can install from it.)
-8. **[owner]** Redeploy the product page from the tagged commit **with the release's notices** (§4.1 "At every
-   release"): its docs and changelog are the release's, and its `/third-party-notices.txt` must be the release's file
-   byte for byte. `scripts/publish-downloads.sh --check` then reports no warning about smurg.ai.
+     either delete only the mismatching objects, which the error message lists
+     (`pnpm --filter @smurg/relay exec wrangler r2 object delete smurg-downloads/vX.Y.Z/<file> --remote`), and run
+     the same command again with `--resume`; or the number is used up: cut X.Y.(Z+1).
+8. Redeploy the product page from the tagged commit **with the release's notices** (§4.1): its docs and changelog are
+   the release's, and its `/third-party-notices.txt` must be the release's file byte for byte.
+   `scripts/publish-downloads.sh --check` then reports no warning about smurg.ai.
 9. Verify the install on clean machines (§5) before announcing.
 
-If the workflow fails before anything is published, fix the cause, delete the tag
-(`git push --delete origin vX.Y.Z && git tag -d vX.Y.Z`), delete the private draft or record if one was made, and tag
-the fixed commit again. After step 7, never: cut X.Y.(Z+1).
+If the workflow fails before the GitHub release is made, fix the cause, delete the tag
+(`git push --delete origin vX.Y.Z && git tag -d vX.Y.Z`) and tag the fixed commit again. If the GitHub release exists
+but nothing was uploaded to `downloads.smurg.ai` (step 7 never ran), delete the release and the tag, and do the same.
+After step 7, never: cut X.Y.(Z+1).
 
-### 4.1 Deploying the product page smurg.ai [owner]
+### 4.1 Deploying the product page smurg.ai
 
 `apps/site` (details and the full list of checks: `apps/site/README.md`) is the Worker `smurg-site` with the one custom
-domain `smurg.ai`, on the same account and zone as the relay. Its build renders `docs/HOSTING.md`, `docs/JOINING.md`
-and `CHANGELOG.md` to `/docs/`, `LICENSE` to `/license/` and the executables' notices to `/third-party-notices.txt`. A
-deploy build refuses a `LICENSE` that still says `<COPYRIGHT HOLDER>`, and refuses to run unless
-`SMURG_SITE_THIRD_PARTY_NOTICES` names the notices file to publish, with its Node.js section filled in: the executables
-embed the LICENSE of the Node.js the release workflow used (setup-node `check-latest`: 22.23.x in the dry run), not of
-the Node.js on the deploying machine (22.22.1 on the lead's Mac), so a default would publish other notices than
-`https://downloads.smurg.ai/vX.Y.Z/THIRD-PARTY-NOTICES.txt`. Its Worker answers only `/install.sh`: 302 to
-`https://downloads.smurg.ai/latest/install.sh`. It never serves the script itself. **Never deploy with
-`SMURG_SITE_ALLOW_PLACEHOLDER=1`** unless the owner decided on the interim deploy below.
+domain `smurg.ai`, on the same account and zone as the relay. Its build renders the guides and changelogs of both
+languages to `/docs/` and `/zh-TW/docs/`, `LICENSE` to `/license/` and the executables' notices to
+`/third-party-notices.txt`. A deploy build refuses to run unless `SMURG_SITE_THIRD_PARTY_NOTICES` names the notices
+file to publish, with its Node.js section filled in: the executables embed the LICENSE of the Node.js the release
+workflow used, not of the Node.js on the deploying machine, so a default would publish other notices than
+`https://downloads.smurg.ai/vX.Y.Z/THIRD-PARTY-NOTICES.txt`. Its Worker answers only a few redirects: `/install.sh`
+(302 to `https://downloads.smurg.ai/latest/install.sh`; it never serves the script itself) and `/github`.
 
-**Now, before the release (urgent).** The live site (deployed 2026-10-01 from `cb99aa0`, before this decision) says
-smurg is "open source under the Apache License 2.0" (English and Traditional Chinese, eyebrow, section, meta
-description), links the private repository, and redirects `/install.sh`, `/github` and `/docs` to GitHub. That claim
-must not stay up until the release: redeploy as soon as the owner has named the copyright holder in `LICENSE` and
-`NOTICE` (Q14; a commit by the lead), from that commit, **right after the relay redeploy of §10 item 9** (the site's
-pages link `https://app.smurg.ai/third-party-notices.txt`, which only a relay deployed from this tree serves). There
-is no release's notices file yet, so publish this machine's (named explicitly; it is replaced at the release):
-
-```sh
-cd <repo> && source scripts/env.sh                            # a clean checkout of the commit that names the holder
-pnpm --filter @smurg/site exec wrangler whoami                # the account holding smurg.ai (CLOUDFLARE_ACCOUNT_ID=<id> with several)
-node scripts/third-party-notices.ts --executable --out /tmp/smurg-notices.txt     # this machine's Node.js LICENSE filled in
-SMURG_SITE_THIRD_PARTY_NOTICES=/tmp/smurg-notices.txt pnpm --filter @smurg/site run dry-run      # the build + wrangler deploy --dry-run
-SMURG_SITE_THIRD_PARTY_NOTICES=/tmp/smurg-notices.txt WRANGLER_SEND_METRICS=false pnpm --filter @smurg/site exec wrangler deploy
-```
-
-Until a release is published, `/install.sh` then redirects to `https://downloads.smurg.ai/latest/install.sh`, which
-fails (the name does not resolve before §1.5, then 404): no worse than today's redirect to the private repository.
-If naming the holder takes long, the owner may decide on an **interim deploy** with the placeholder, adding
-`SMURG_SITE_ALLOW_PLACEHOLDER=1` to both commands above: `/license/` then shows "Copyright (c) 2026 <COPYRIGHT
-HOLDER>", which is still better than a false open-source claim; redeploy again once the holder is named.
-
-**At every release** (§4 step 8), from the tagged commit, after the release's files are on downloads.smurg.ai, with
-the release's own notices:
+From the tagged commit, after the release's files are on downloads.smurg.ai, with the release's own notices:
 
 ```sh
 cd <repo> && source scripts/env.sh                            # a clean checkout of the tag vX.Y.Z
-curl -fsSLo /tmp/smurg-vX.Y.Z-notices.txt https://downloads.smurg.ai/vX.Y.Z/THIRD-PARTY-NOTICES.txt
-#   (before publishing, from the private record, in a shell WITHOUT scripts/env.sh, §1.1:
-#    gh release download vX.Y.Z --repo gclinian/smurg --pattern THIRD-PARTY-NOTICES.txt --dir /tmp/smurg-vX.Y.Z)
-SMURG_SITE_THIRD_PARTY_NOTICES=/tmp/smurg-vX.Y.Z-notices.txt pnpm --filter @smurg/site run dry-run
-SMURG_SITE_THIRD_PARTY_NOTICES=/tmp/smurg-vX.Y.Z-notices.txt WRANGLER_SEND_METRICS=false pnpm --filter @smurg/site exec wrangler deploy
+N="$(mktemp -d)/THIRD-PARTY-NOTICES.txt"
+curl -fsSLo "$N" https://downloads.smurg.ai/vX.Y.Z/THIRD-PARTY-NOTICES.txt
+pnpm --filter @smurg/site exec wrangler whoami                # the account holding the zone
+SMURG_SITE_THIRD_PARTY_NOTICES="$N" pnpm --filter @smurg/site run dry-run      # the build + wrangler deploy --dry-run
+SMURG_SITE_THIRD_PARTY_NOTICES="$N" WRANGLER_SEND_METRICS=false pnpm --filter @smurg/site exec wrangler deploy
 scripts/publish-downloads.sh --check --version X.Y.Z          # no warning about smurg.ai's install.sh or third-party-notices.txt
 ```
 
 **Never add `www.smurg.ai` as a custom domain** (`apps/site/test/config.test.ts` asserts the apex-only route list):
-`www.smurg.ai` is the owner's own proxied DNS record, which the zone's Redirect Rule needs, and wrangler run after
+`www.smurg.ai` is a proxied DNS record of its own, which the zone's Redirect Rule needs, and wrangler run after
 `source scripts/env.sh` replaces an existing record without asking (§2). After every deploy:
 
 ```sh
-curl -s https://smurg.ai/ https://smurg.ai/zh-TW/ | grep -Eci 'open source|apache|開源|開放原始碼'   # 0
-curl -s https://smurg.ai/ https://smurg.ai/zh-TW/ | grep -ci 'gclinian'                           # 0
-curl -sI https://smurg.ai/github               # 404 (no link to the repository any more)
 curl -sI https://smurg.ai/install.sh           # 302 to https://downloads.smurg.ai/latest/install.sh
-curl -fsSIL https://smurg.ai/install.sh        # follows it: the LAST status line is 200 once a release is published
+curl -fsSIL https://smurg.ai/install.sh        # follows it: the LAST status line is 200
+curl -sI https://smurg.ai/github               # 302 to https://github.com/gclinian/smurg
 curl -sI https://smurg.ai/docs/hosting/        # 200
-curl -sI https://smurg.ai/license/             # 200, the named holder
-cmp <(curl -fsS https://smurg.ai/third-party-notices.txt) /tmp/smurg-vX.Y.Z-notices.txt   # at a release: identical
+curl -sI https://smurg.ai/zh-TW/docs/hosting/  # 200
+curl -sI https://smurg.ai/license/             # 200, the MIT License
+cmp <(curl -fsS https://smurg.ai/third-party-notices.txt) "$N"   # identical
 ```
 
-### 4.2 Checking a published release later [owner or lead]
+### 4.2 Checking a published release later
 
 `scripts/publish-downloads.sh --check` (no account needed) checks the version `latest/VERSION` names, or `--version
 X.Y.Z` any published one, through the plain public URLs: `SHA256SUMS`, every executable's sha256 and `file` type, this
@@ -482,16 +369,14 @@ machine's `--version`, `install.sh`'s download location, the notices, the header
 that version: `latest/install.sh` identical to the version's), and the smurg.ai redirect. It downloads the four
 executables (about 480 MB).
 
-### 4.3 linux-arm64 without GitHub's arm64 runner (contingency) [lead]
+### 4.3 Assembling a release by hand (a target built elsewhere, or an expired artifact)
 
-Dry run 36846007788 (2026-10-01) showed that `ubuntu-24.04-arm` runs for this private repository (image
-`ubuntu-24.04-arm 20260920.129.1`, picked up at once, the job took 28 s). Should a release's `smurg-linux-arm64` job
-ever sit queued instead (GitHub can change which runners private repositories get; a queued job waits up to 24 hours
-and its `timeout-minutes` does not start), build that one target on an arm64 Ubuntu 24.04 machine (the lead's Lima VM
-`smurg-linux` is one) and publish from a local directory:
+Should a release's `smurg-linux-arm64` job sit queued (a queued job waits up to 24 hours and its `timeout-minutes`
+does not start), build that one target on an arm64 Ubuntu 24.04 machine and publish from a local directory. `D` below
+is a scratch directory of yours.
 
 1. Cancel the run (`gh run cancel <run id>`) once the other three builds are green, and download what they built:
-   `gh run download <run id> --repo gclinian/smurg --dir /tmp/smurg-vX.Y.Z --pattern 'smurg-*' --pattern 'notices-*'`.
+   `gh run download <run id> --repo gclinian/smurg --dir "$D" --pattern 'smurg-*' --pattern 'notices-*'`.
    Note the Node version the builds used (the build log's `built … Node 22.x.y` line, or the `node@22.x.y (the
    Node.js runtime)` line of their notices).
 2. On the arm64 machine, in a clean checkout of the tag, build with **that** Node: the official linux-arm64 build of
@@ -506,26 +391,27 @@ and its `timeout-minutes` does not start), build that one target on an arm64 Ubu
    scripts/build-sea.sh --node <that node>/bin/node --version X.Y.Z --target linux-arm64   # packages/cli/dist/smurg-linux-arm64 + THIRD-PARTY-NOTICES.txt
    ```
 
-3. On the Mac: put the four executables in one directory with the notices, check the notices are identical
-   (`cmp`), assemble (`release-assets.sh` also refuses an executable that is not this version's build or not on the
-   notices' Node.js) and record:
+3. Put the four executables in one directory with the notices, check the notices are identical (`cmp`), assemble
+   (`release-assets.sh` also refuses an executable that is not this version's build or not on the notices' Node.js),
+   make the GitHub release and publish:
 
    ```sh
-   D=/tmp/smurg-vX.Y.Z; mkdir -p $D/dist
-   cp $D/smurg-*/smurg-* <the arm64 build> $D/dist/ && cp $D/notices-linux-x64/THIRD-PARTY-NOTICES.txt $D/dist/
-   cmp $D/dist/THIRD-PARTY-NOTICES.txt <the arm64 build's THIRD-PARTY-NOTICES.txt>
-   scripts/release-assets.sh --version X.Y.Z --dist $D/dist --out $D/release --require-all --check-arch --notes $D/notes.md
-   gh release create vX.Y.Z --repo gclinian/smurg --verify-tag --title "smurg X.Y.Z" --notes-file $D/notes.md $D/release/*   # the private record (no env.sh in this shell, §1.1)
-   scripts/publish-downloads.sh --version X.Y.Z --dist $D/release
+   mkdir -p "$D/dist"
+   cp "$D"/smurg-*/smurg-* <the arm64 build> "$D/dist/" && cp "$D/notices-linux-x64/THIRD-PARTY-NOTICES.txt" "$D/dist/"
+   cmp "$D/dist/THIRD-PARTY-NOTICES.txt" <the arm64 build's THIRD-PARTY-NOTICES.txt>
+   scripts/release-assets.sh --version X.Y.Z --dist "$D/dist" --out "$D/release" --require-all --check-arch --notes "$D/notes.md"
+   gh release create vX.Y.Z --repo gclinian/smurg --verify-tag --title "smurg X.Y.Z" --notes-file "$D/notes.md" \
+     "$D/release/SHA256SUMS" "$D/release/THIRD-PARTY-NOTICES.txt"         # no env.sh in this shell, §1.1
+   scripts/publish-downloads.sh --version X.Y.Z --dist "$D/release"
    ```
 
-The workflow itself has no switch for this (none was needed: the runner was there at once in 36846007788); if it is
-ever needed twice, compute the build matrix in the `prepare` job and skip the target with a repository variable (the
-release job and `--from-release` then need the externally built file, so this path, `--dist`, stays the one to use).
+The same path serves when the artifact `release-X.Y.Z` has expired before step 7 of §4 ran: the builds are not
+byte-reproducible, so delete the GitHub release (its `SHA256SUMS` would no longer match), build all four targets
+again (a manual run of the workflow keeps each as an artifact), and assemble as above.
 
-### 4.4 Rehearsing a publish without Cloudflare [owner or lead]
+### 4.4 Rehearsing a publish without Cloudflare
 
-To try the runbook (or a release's files) before the bucket exists, run the real command against stand-ins on this
+To try the runbook (or a release's files) without touching the bucket, run the real command against stand-ins on your
 machine: a stand-in `wrangler` that keeps the "bucket" in a local directory, and a local HTTP server that serves that
 directory the way `downloads.smurg.ai` does (`packages/cli/test/publish-downloads.test.ts` has both, `stubWrangler`
 and `serveDownloads`):
@@ -541,16 +427,16 @@ Only `127.0.0.1`, `[::1]` and `localhost` are accepted, and any `SMURG_PUBLISH_T
 and the stand-in wrangler is refused (exit 2): a rehearsal never runs the real wrangler. The first and the last line of
 the output say `REHEARSAL`. `SMURG_PUBLISH_TEST_GH` replaces gh the same way.
 
-## 5. Checking the one-line install on a clean machine [owner or lead]
+## 5. Checking the one-line install on a clean machine
 
-**Before publishing** (or to try a private release without publishing it), install from a local copy of the
-release's files:
+**Before publishing**, install from a local copy of the release's files (the artifact `release-X.Y.Z`, or the
+directory `release-assets.sh` wrote; `T` is a scratch directory of yours):
 
 ```sh
-gh release download vX.Y.Z --repo gclinian/smurg --dir /tmp/smurg-vX.Y.Z            # a shell without scripts/env.sh
-python3 -m http.server 8000 --bind 127.0.0.1 --directory /tmp/smurg-vX.Y.Z &          # stop it afterwards
-sh /tmp/smurg-vX.Y.Z/install.sh --base-url http://127.0.0.1:8000 --prefix /tmp/smurg-try
-/tmp/smurg-try/bin/smurg --version                                                   # smurg X.Y.Z (…)
+gh run download <run id> --repo gclinian/smurg --name release-X.Y.Z --dir "$T/files"   # a shell without scripts/env.sh
+python3 -m http.server 8000 --bind 127.0.0.1 --directory "$T/files" &                  # stop it afterwards
+sh "$T/files/install.sh" --base-url http://127.0.0.1:8000 --prefix "$T/try"
+"$T/try/bin/smurg" --version                                                           # smurg X.Y.Z (…)
 ```
 
 **After publishing**, time SPEC R1.1 on a fresh macOS and a fresh Ubuntu 24.04 (a new macOS user account is the
@@ -562,47 +448,30 @@ code to enter in any browser):
 2. Add `~/.local/bin` to `PATH` as the installer says; open a new terminal.
 3. `smurg login` (Google), then `smurg host <a folder>`. Stop the timer when the invite link is printed (R1.1: under 3
    minutes).
-4. Check: `smurg --version` is the tag; `smurg licenses` prints the license and the notices; macOS:
+4. Check: `smurg --version` is the tag; `smurg licenses` prints the MIT license and the notices; macOS:
    `xattr -l ~/.local/bin/smurg` shows no `com.apple.quarantine`; Ubuntu: the installer asked for nothing (no sudo,
-   no package) and `smurg host` printed only the two links.
-5. Join from another machine's browser with another Google account: as 「可編輯」 a suggestion to the host's agent;
-   then, as 「可使用 agent」 (`smurg host --role agent`, or the console), an agent session in a new worktree and typing
-   into the host's session. The member's agent runs as the host (`whoami` in a terminal session it opens says the
-   host's user).
+   no package) and `smurg host` printed only the two links. Do it once with the system language set to English and
+   once to Traditional Chinese: the installer and the CLI answer in that language.
+5. Join from another machine's browser with another Google account: as an Editor, send a suggestion to the host's
+   agent; then, with Agent access (`smurg host --role agent`, or the console), open an agent session in a new worktree
+   and type into the host's session. The member's agent runs as the host (`whoami` in a terminal session it opens
+   says the host's user).
 6. Record the times, machines and anything that went wrong in `docs/ACCEPTANCE.md` (R1.1, and R9 for Ubuntu).
 
-## 6. Private source, public binaries [owner]
+## 6. What is public
 
-The repository stays private (decided 2026-10-01). Never change its visibility, never push it (or a fork, a mirror, a
-gist of its files) anywhere public, and never attach source to the public downloads: `downloads.smurg.ai` carries
-exactly the seven files of each version and `latest/`. What is public by design: the executables (they contain the
-program), the web app's files on `app.smurg.ai`, the product page and the user docs on `smurg.ai`, `LICENSE` and the
-third-party notices.
+Everything in the repository, its history, issues and pull requests; the workflow logs and artifacts of every run
+(artifacts can be downloaded by anyone logged in to GitHub until they expire: the builds for 7 days, `release-X.Y.Z`
+for 30); the GitHub releases; the files on `downloads.smurg.ai`, `app.smurg.ai` and `smurg.ai`.
 
-### 6.1 The license terms: not legal advice
-
-`LICENSE` (proprietary: all rights reserved, free use of the executables and the web app during the prototype, no
-redistribution, modification, decompiling or reverse engineering except where the law allows, "as is" without
-warranty, third-party components under their own licenses) and the third-party notices were written by the project,
-**not by a lawyer: this is not legal advice. Have `LICENSE` reviewed** by someone qualified for the owner's
-jurisdiction before the first public release, in particular:
-
-- the copyright holder: the placeholder `<COPYRIGHT HOLDER>` must be replaced (`LICENSE` and `NOTICE`);
-  `scripts/release-assets.sh --publish-checks` and the site's deploy build refuse it;
-- the "free of charge while smurg is a prototype" grant (what happens after the prototype; how long a version's grant
-  lasts);
-- the reverse-engineering clause (EU and Taiwanese law allow some reverse engineering, for example for
-  interoperability) and the warranty disclaimer (consumer law may limit it);
-- the third-party notices: every bundled package's LICENSE and NOTICE files are reproduced (generated,
-  `scripts/third-party-notices.ts`). Since the guest sandbox was removed (2026-10-01, ARCHITECTURE §11 D-15) the
-  executables contain no statically linked program any more, and v0.1.0, the only release that carried srt's
-  `apply-seccomp` (GNU C Library, LGPL-2.1+, linked in), was deleted from `downloads.smurg.ai` on 2026-10-02 (owner's
-  decision; nobody had installed it). `docs/OPEN-QUESTIONS.md` Q14 holds the holder's name and the review.
+So nothing private goes into a commit, an issue, a workflow log or a release file: no secret, no token, no account or
+zone identifier, no personal path. Operational notes that are not for the public (who holds which account, usage and
+cost figures) are kept outside the repository.
 
 ## 7. Rolling back
 
 **A bad release** (people should stop installing it): point `latest/` back at the previous good version. Nothing is
-deleted or overwritten:
+overwritten:
 
 ```sh
 cd <repo> && source scripts/env.sh
@@ -616,15 +485,15 @@ minutes (`latest/`'s `max-age=300` at most) `https://smurg.ai/install.sh` instal
 who installed the bad one to run the one-line command again (it replaces `~/.local/bin/smurg`): `smurg update` does
 not help them, it never installs a version older than the one that runs (it says so), and `smurg host`'s update notice
 stays silent. Publishing `latest/` is also what makes every installed copy offer the new version (`smurg update`, and
-one line under the links of `smurg host`, both read `latest/VERSION`). For the record, mark
-the private GitHub release: `gh release edit vBAD --repo gclinian/smurg --prerelease`. **Never delete a published
-version, and never reuse its number**: the next fix is X.Y.(Z+1), published normally (it becomes latest again because
-it is newer).
+one line under the links of `smurg host`, both read `latest/VERSION`). Mark the GitHub release:
+`gh release edit vBAD --repo gclinian/smurg --prerelease`, and say so in its notes. **Never reuse a published
+version's number**: the next fix is X.Y.(Z+1), published normally (it becomes latest again because it is newer).
 
-The one case for removing files is a different emergency, the owner's decision: something that must not be public at
-all ended up in a release file (a secret). Then `--set-latest` away from it first, delete only the affected objects
-(`pnpm --filter @smurg/relay exec wrangler r2 object delete smurg-downloads/vX.Y.Z/<file> --remote`; a bucket lock,
-§1.5, must be lifted first), rotate the secret, and keep the version number burned.
+**Removing a version.** A version's files are never overwritten, and they stay as long as the version may be the
+rollback target (at least the one before `latest/`). Older versions may be removed by a maintainer's decision
+(`pnpm --filter @smurg/relay exec wrangler r2 object delete smurg-downloads/vX.Y.Z/<file> --remote`, each file); the
+changelog keeps describing them. Something that must not be public at all in a release file (a secret) is removed at
+once: `--set-latest` away from it first, delete the affected objects, rotate the secret, and keep the number burned.
 
 **A bad relay deploy**:
 
@@ -635,115 +504,45 @@ pnpm exec wrangler rollback <version-id> --message "why"
 ```
 
 A rollback restores the Worker's code and configuration, not the Durable Objects' stored data, and like a deploy it
-disconnects every socket. Cloudflare does not roll a Worker back across a Durable Object migration: once the deploy
-that applies `v2` (`DeviceLoginDO`, the CLI's device-code login) has run, versions before it are out of reach (fix
-forward instead). Its web app is rolled back too, and an older web app refuses the `channel.welcome` of a newer
-daemon (§4 step 3): do not roll back past the version deployed for the latest release.
+disconnects every socket. Cloudflare does not roll a Worker back across a Durable Object migration (fix forward
+instead). Its web app is rolled back too, and an older web app refuses the `channel.welcome` of a newer daemon (§4
+step 3): do not roll back past the version deployed for the latest release.
 
-**Stopping the relay in an emergency** (a leaked signing key, abuse): Workers & Pages → smurg-relay → Settings →
-Domains & Routes, remove the custom domain `app.smurg.ai`; put a new `RELAY_SIGNING_KEY`; then deploy again
-(`scripts/deploy-relay.sh`), which attaches the custom domain again. `wrangler delete` also removes every Durable
-Object's data; avoid it.
+**Stopping the relay in an emergency** (a leaked signing key, abuse): remove the custom domain from the Worker
+(dashboard → Workers & Pages → smurg-relay → Settings → Domains & Routes); put a new `RELAY_SIGNING_KEY`; then deploy
+again (`scripts/deploy-relay.sh`), which attaches the custom domain again. `wrangler delete` also removes every
+Durable Object's data; avoid it.
 
-## 8. What the free plans allow
+## 8. Limits of the hosting plans
 
-From Cloudflare's docs as fetched on 2026-09-27 (`docs/research/relay.md`; check the current pricing pages before
-relying on the numbers). Daily limits reset at 00:00 UTC (08:00 in Taiwan). When one is used up, **operations of that
-kind fail for everyone until the reset**: new connections and messages are refused (Error 1027), hosts see the relay
-link drop, members see 「無法連上伺服器」.
+The relay runs within Cloudflare's daily limits for Workers and Durable Objects (requests, Durable Object requests and
+rows written, CPU time per request), and the downloads within R2's. When a daily limit is used up, **operations of
+that kind fail for everyone until the reset at 00:00 UTC**: new connections and messages are refused, hosts see the
+relay link drop, members see that the server cannot be reached. What uses them in smurg: every login step, `/api/*`
+call and WebSocket upgrade (a Worker request); each WebSocket connection, each alarm run and incoming WebSocket
+messages (Durable Object requests; the `ping` heartbeats are answered by Cloudflare itself and cost nothing); each
+alarm scheduled (a row written). The web app's files and the product page are static assets served without running a
+Worker; `downloads.smurg.ai` is R2, not a Worker. Terminal output is the largest consumer.
 
-| Limit (Workers Free) | Per day / total | What uses it in smurg |
-|---|---|---|
-| Worker requests | 100,000 / day | every login step, `/api/*` call, WebSocket upgrade. The web app's own files are static assets served without running the Worker. smurg.ai (§4.1) is on the same account: only its `/install.sh` redirect runs its Worker. `downloads.smurg.ai` is R2, not a Worker: it uses none. |
-| Durable Object requests | 100,000 / day | each WebSocket connection, each **alarm run**, and incoming WebSocket messages counted **20 : 1**. The `ping` heartbeats are answered by Cloudflare itself and cost nothing. |
-| Durable Object rows written | 100,000 / day | each **alarm scheduled** (`setAlarm` is one row), plus a few rows when a host connects or disconnects and one per member connection |
-| Durable Object duration | 13,000 GB-s / day | nearly nothing: the relay only uses the Hibernation API |
-| Durable Object storage | 5 GB total | a few keys per workspace |
-| CPU time per request | 10 ms | the Worker's login routes sign and verify tokens. **Not measured on Cloudflare.** If logins fail with Error 1102, this is why, and the Paid plan is the fix. |
-
-**R2** (the downloads; its own free allowance per month, separate from Workers; check the R2 pricing page): storage
-(each version is about 480 MB: four executables of 113–126 MiB), Class A operations (writes: a release is nine
-uploads) and Class B operations (reads: each install is two GETs, `SHA256SUMS` and one executable, plus `install.sh`
-from `latest/`), and **no egress fees**. Every version is kept forever, so storage grows by about 0.5 GB per release.
-
-**What the relay limits mean in practice** (an estimate from the code; nothing was measured on Cloudflare): while at
-least one browser or CLI is connected to a workspace, its WorkspaceDO alarm runs about every 5 s, **about 720 requests
-and 720 rows written per workspace-hour**; the daemon's presence heartbeat is about **60 requests per member-hour**;
-terminal output is the big one (a busy agent at 30 updates a second watched by 3 people is about 16,000 requests an
-hour). So the alarm alone allows roughly 130 workspace-hours a day across all users; a class of 30 working at the same
-time will likely hit the limit. Watch the usage daily in the first week; the **Workers Paid plan** removes the daily
-caps (no code or configuration change).
-
-### 8.1 GitHub Actions minutes (the repository is private)
-
-On a private repository every job's minutes count against the plan's allowance (the account is on GitHub **Pro**:
-3,000 minutes a month and 2 GB of Actions storage, as of this writing; check Settings → Billing and the GitHub
-pricing page). Each job is rounded up to whole minutes, and **macOS minutes count 10×** (Linux 1×; confirm on the
-billing page how the arm64 Linux runner is counted). Measured on GitHub, 2026-10-01:
-
-| Run | Jobs (wall time) | Billed minutes, about |
-|---|---|---|
-| CI (`ci.yml`), each push to `main` or pull request | ubuntu-24.04 11–16 min; macos-15 4 min | 11–16 + 40–50 = **51–66** |
-| Release or its dry run (`release.yml`; 36846007788) | prepare 5 s; linux-x64 33 s; linux-arm64 28 s; darwin-x64 67 s; darwin-arm64 24 s; release 13 s | 1 + 1 + 1 + 20 + 10 + 1 = **34**, plus a few seconds for the new notices steps |
-
-So 3,000 minutes are roughly 45–55 CI runs a month, fewer with releases (about 35 each, a dry run costs the same).
-CI cancels a superseded run on the same branch (`concurrency`); batching small commits saves the most. The build
-artifacts (four executables, about 0.5 GB per release run, kept 7 days) count against the Actions storage. With the
-budget at $0 (§1.1), Actions stop when the allowance is used up, until the next month.
+The current numbers are on Cloudflare's pricing pages; `docs/research/relay.md` has what was measured about the
+relay's own behaviour. Watch the usage in the dashboard (Workers & Pages → smurg-relay → Metrics) after a release; a
+paid Workers plan removes the daily caps without a code or configuration change.
 
 ## 9. Security notes
 
 - **macOS**: the executables are signed ad hoc, not with a Developer ID, and not notarized. `curl` sets no quarantine
   attribute, and the installer removes one after the sha256 check, so Gatekeeper does not stop it. A binary downloaded
   with a browser and started by hand is blocked by Gatekeeper; the installer is the supported path.
-- **Checksums** come from the same place as the executables (`downloads.smurg.ai`): they catch a corrupted or
-  truncated download, not a compromised Cloudflare account, a compromised publishing machine or a compromised GitHub
-  account (CI builds what is published). Protect both accounts (2FA), publish only from your own machine, keep the
-  workflows' actions pinned to commit SHAs (only `actions/*`), and do not give other people write access casually.
-  `publish-downloads.sh` re-checks the GitHub release's files before uploading and never overwrites a published file;
-  a bucket lock (§1.5) would make that hold in R2 itself. A signature on `SHA256SUMS` with a key pinned in
-  `install.sh` would close the remaining gap (still open, `docs/OPEN-QUESTIONS.md` Q1).
-- **Secrets** live only in Cloudflare's secret store (`RELAY_SIGNING_KEY`, `GOOGLE_CLIENT_SECRET`), the owner's
-  Google console, and the wrangler login in `<repo>/.xdg` of whoever publishes. **No workflow has a Cloudflare or
-  Google secret**: the relay, the site and the downloads are deployed by hand.
+- **Checksums** are published in two places, `downloads.smurg.ai` and the GitHub release, and
+  `publish-downloads.sh --from-release` refuses files whose `SHA256SUMS` is not the GitHub release's. They catch a
+  corrupted or truncated download and a bucket whose files were replaced; they do not protect against a compromised
+  GitHub account or workflow (CI builds what is published). `SHA256SUMS` is not signed: a signature with a key pinned
+  in `install.sh` would close that gap. Protect the accounts (2FA), publish only from your own machine, keep the
+  workflows' actions pinned to commit SHAs (only `actions/*`), and give write access sparingly.
+- **Pull requests** run CI with a read-only token and no secret; the release workflow runs only for a pushed tag or a
+  manual run, both of which need write access.
+- **No workflow has a Cloudflare or Google secret**: the relay, the site and the downloads are deployed by hand, and
+  the relay's secrets exist only in Cloudflare's secret store.
 - **What the relay operator can see**: account identities and IP addresses of connections, workspace ids, frame sizes
-  and timing (ARCHITECTURE §11 D-5); `docs/HOSTING.md` §2 tells hosts the same in plain words, and that they cannot
-  run a relay of their own (the source is private).
-
-## 10. First-time checklist (this week)
-
-In this order; the v0.1.0 release under the decision of 2026-10-01.
-
-1. [x] **[lead]** `pnpm check` green; first commit reviewed (2026-10-01, commit 0b99dc8).
-2. [x] **[owner]** Private repository `gclinian/smurg` (2026-10-01). Two-factor authentication: confirm (§1.1).
-   Actions budget at $0: confirm (§1.1 step 4, §8.1).
-3. [x] **[lead]** First CI run green, Linux included (2026-10-01, run 36779794102).
-4. [x] **[owner]** Cloudflare account, `wrangler login` (§1.2); the zone `smurg.ai` (2026-10-01).
-5. [x] **[owner]** `RELAY_SIGNING_KEY` and the first relay deploy (2026-10-01; on `https://app.smurg.ai` the same day).
-6. [ ] **[owner]** Google OAuth client (done 2026-10-01); consent screen **In production** (confirm);
-   `GOOGLE_CLIENT_SECRET` (§1.4).
-7. [x] **[owner]** Zone settings (§2): Always Use HTTPS on (2026-10-01); Bot Fight Mode off (confirm); the www → apex
-   Redirect Rule (2026-10-01).
-8. [x] **[owner]** Copyright holder named: Guan-Chen, Lin (2026-10-01, commit afc11bb). The legal review of the terms
-   (§6.1) should follow before v0.1.0 is announced.
-9. [x] **[lead]** `scripts/deploy-relay.sh` from the clean commit ac3335e (2026-10-01): its first custom-domain run,
-   ended with 「完成」, `--check` 8 of 8 (web build, HSTS, `http://` → `https://`, `/third-party-notices.txt`).
-10. [x] **[lead]** smurg.ai redeployed from afc11bb (2026-10-01): no "open source" / Apache / GitHub mention on the
-    landing pages, `/github` 404, `/docs/…`, `/license/` and `/third-party-notices.txt` 200.
-11. [ ] **[owner]** Real Google login from `smurg login` with the released executable; a second account joins a
-    throw-away workspace.
-12. [x] **[owner, lead]** R2 enabled by the owner; bucket `smurg-downloads` and custom domain `downloads.smurg.ai`
-    (min TLS 1.2, r2.dev URL disabled) created by the lead (2026-10-01); a missing key answers 404, `http://` 301s.
-13. [~] **[lead]** shellcheck 0.9.0 (Ubuntu package, in the Lima VM) on `scripts/*.sh`: no warning. actionlint not run
-    (not packaged; nothing downloaded).
-14. [x] **[lead]** `CHANGELOG.md` 0.1.0 dated 2026-10-01; `--publish-checks` passed; CI green on afc11bb (run
-    36865310230); tag `v0.1.0` on afc11bb; release workflow 36867177426 green on all four runners; seven files on the
-    private record.
-15. [x] **[lead]** `scripts/publish-downloads.sh --version 0.1.0 --from-release`: dry run, then the upload; every file
-    read back by sha256; `latest/` → 0.1.0; `--check` all passed (2026-10-01).
-16. [x] **[lead]** `apps/site` redeployed from afc11bb with the release's notices (node 22.23.3); `--check` shows
-    `https://smurg.ai/third-party-notices.txt = v0.1.0/THIRD-PARTY-NOTICES.txt`.
-17. [ ] **[owner]** Timed one-line install on a clean Mac and a clean Ubuntu 24.04 (§5); **[lead]**
-    `docs/ACCEPTANCE.md` R1.1 (and R9 if tested on Ubuntu) updated with the results.
-18. [ ] **[owner]** Cloudflare usage (Workers, Durable Objects, R2) and GitHub Actions minutes checked daily for the
-    first week (§8, §8.1).
+  and timing, never content (ARCHITECTURE §11 D-5); `docs/HOSTING.md` §2 tells hosts the same in plain words, and
+  that they can run a relay of their own (`apps/relay/README.md`).

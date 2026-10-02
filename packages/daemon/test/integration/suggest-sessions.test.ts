@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 describe('suggest + sessions (real modules, real PTY)', { timeout: 120_000 }, () => {
-  it('擁有者確認之前，建議內容完全不會進入 agent session — then the accepted text, or the owner\'s edited version, runs in the owner\'s PTY', async () => {
+  it('before a member who drives the session confirms, no suggestion text enters the agent session — then the accepted text, or the owner\'s edited version, runs in the owner\'s PTY', async () => {
     t = await createTestDaemon();
     const d = t;
     const host = await d.connectHost();

@@ -11,7 +11,7 @@ export interface ToastInput {
   description?: string;
   /** ms before it disappears; 0 keeps it until dismissed. Default 6 s (10 s for danger). */
   duration?: number;
-  /** One optional action (e.g. 「重試」). */
+  /** One optional action (e.g. "Retry"). */
   action?: { label: string; onClick(): void };
 }
 

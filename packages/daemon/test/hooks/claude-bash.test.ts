@@ -49,11 +49,11 @@ describe.skipIf(claude === null)(`D-13: an agent's Bash edit in the main workspa
     await t?.cleanup();
   }, 60_000);
 
-  it('a scripted Bash `sed` / `printf >` shows up in the activity feed as 「Claude（Ian）」, via bash; the Bash hook reported the window', async () => {
+  it('a scripted Bash `sed` / `printf >` shows up in the activity feed as `Claude (Ian)`, via bash; the Bash hook reported the window', async () => {
     const hooks = t.ctx.services.hooks as HookServerImpl;
     const sessionId = 'ses_claude_bash_1';
-    const creds = hooks.registerSession({ sessionId, ownerUserId: 'dev:ian', agentName: 'Claude（Ian）', root: MAIN_ROOT });
-    sessions.push({ id: sessionId, kind: 'agent', ownerUserId: 'dev:ian', ownerName: 'Ian', title: 'Claude（Ian）', root: MAIN_ROOT, status: 'running', cols: 80, rows: 24, createdAt: Date.now(), login: 'logged-in', attached: 0 });
+    const creds = hooks.registerSession({ sessionId, ownerUserId: 'dev:ian', agentName: 'Claude (Ian)', root: MAIN_ROOT });
+    sessions.push({ id: sessionId, kind: 'agent', ownerUserId: 'dev:ian', ownerName: 'Ian', title: 'Claude (Ian)', root: MAIN_ROOT, status: 'running', cols: 80, rows: 24, createdAt: Date.now(), login: 'logged-in', attached: 0 });
     const files = await hooks.writeSessionFiles(sessionId);
     const settings = JSON.parse(await readFile(files.settingsPath, 'utf8')) as { hooks: Record<string, { matcher?: string }[]> };
     expect(settings.hooks['PreToolUse']?.map((group) => group.matcher)).toEqual(['Edit|Write|MultiEdit|NotebookEdit', 'Bash']);
@@ -88,8 +88,8 @@ describe.skipIf(claude === null)(`D-13: an agent's Bash edit in the main workspa
     }, { timeoutMs: 15_000, what: 'the activity entries of both files' });
     for (const path of ['free.txt', 'notes/todo.md']) {
       const entry = events.find((e) => e.file?.path === path);
-      expect(entry, path).toMatchObject({ kind: 'agent.edit', actor: { kind: 'agent', sessionId, ownerUserId: 'dev:ian', displayName: 'Claude（Ian）' } });
-      expect(entry?.summary).toMatch(/^Claude（Ian）透過 shell 指令/);
+      expect(entry, path).toMatchObject({ kind: 'agent.edit', actor: { kind: 'agent', sessionId, ownerUserId: 'dev:ian', displayName: 'Claude (Ian)' } });
+      expect(entry?.text).toMatchObject({ id: 'activity.agentBashChange', params: { agent: 'Claude (Ian)' } });
       expect(entry?.via).toBe('bash');
     }
     expect(events.some((e) => e.kind === 'external.change')).toBe(false);

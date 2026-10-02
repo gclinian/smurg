@@ -25,7 +25,7 @@ export interface WorkspaceManager {
   acquire(workspaceId: string, options?: OpenOptions): WorkspaceHandle;
   /** The current session without acquiring it. */
   peek(workspaceId: string): WorkspaceSession | null;
-  /** 「離開」 through the manager: leave, then forget the session. */
+  /** "Leave" through the manager: leave, then forget the session. */
   leave(workspaceId: string): Promise<void>;
   /** Closes every session now (page unload). */
   closeAll(): void;

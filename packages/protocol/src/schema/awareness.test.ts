@@ -98,7 +98,7 @@ describe('awareness selection', () => {
 
   it('the re-encoded state carries the daemon-assigned user', () => {
     const state = {
-      user: { name: 'Claude（Ian）', color: '#f59e0b', kind: 'agent', userId: 'github:12345' },
+      user: { name: 'Claude (Ian)', color: '#f59e0b', kind: 'agent', userId: 'github:12345' },
       selection: { anchor: VALID[0], head: VALID[0] },
     };
     expect(awarenessStateSchema.safeParse(state).success).toBe(true);

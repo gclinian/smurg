@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import xtermHeadless from '@xterm/headless';
+import type { MemberNotification } from '@smurg/protocol';
 import type { Connection } from '@smurg/protocol/client';
 import type { FeatureModule } from '../../src/core/context.ts';
 import type {
@@ -93,10 +94,11 @@ export class FakePresence {
 }
 
 export class FakeActivity {
-  readonly notifications: { userId: string; text: string }[] = [];
+  readonly notifications: ({ userId: string } & Pick<MemberNotification, 'text' | 'msg' | 'fallback'>)[] = [];
 
-  notify(userId: string, notification: { text: string }): void {
-    this.notifications.push({ userId, text: notification.text });
+  notify(userId: string, notification: Pick<MemberNotification, 'text' | 'msg' | 'fallback'>): void {
+    const { text, msg, fallback } = notification;
+    this.notifications.push({ userId, ...(text !== undefined ? { text } : {}), ...(msg !== undefined ? { msg } : {}), ...(fallback !== undefined ? { fallback } : {}) });
   }
 }
 

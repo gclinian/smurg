@@ -1,15 +1,15 @@
 // Publishes one smurg release on https://downloads.smurg.ai (the Cloudflare R2 bucket `smurg-downloads` behind its
-// custom domain) and then switches latest/. Run by a PERSON (the owner or the lead) through
-// scripts/publish-downloads.sh, never by CI: no Cloudflare credential is stored in GitHub. docs/RELEASING.md §4, §7.
+// custom domain) and then switches latest/. Run by a PERSON (a maintainer) through scripts/publish-downloads.sh, never
+// by CI: no Cloudflare credential is stored in GitHub. docs/RELEASING.md §4, §7.
 //
 //   scripts/publish-downloads.sh --version X.Y.Z (--from-release | --dist DIR) [--dry-run] [--resume] [--no-latest] [--wait S]
 //   scripts/publish-downloads.sh --check [--version X.Y.Z]
 //   scripts/publish-downloads.sh --set-latest X.Y.Z [--dry-run] [--wait S]
 //
-// The layout (decided 2026-10-01; docs/RELEASING.md "The plan"):
+// The layout (docs/RELEASING.md §0):
 //   v<X.Y.Z>/{smurg-darwin-arm64, smurg-darwin-x64, smurg-linux-x64, smurg-linux-arm64, SHA256SUMS, install.sh,
 //             THIRD-PARTY-NOTICES.txt}   immutable: Cache-Control "public, max-age=31536000, immutable"; never
-//                                        overwritten, never deleted
+//                                        overwritten
 //   latest/install.sh   a copy of the newest version's install.sh (its download location is pinned to that version's
 //                       prefix), Cache-Control "public, max-age=300"; https://smurg.ai/install.sh redirects here
 //   latest/VERSION      "X.Y.Z\n", the same Cache-Control
@@ -17,10 +17,13 @@
 // shows install.sh instead of downloading it).
 //
 // Publishing (default mode):
-//   1. The files: --from-release takes the assets of the GitHub release vX.Y.Z of the PRIVATE repository gclinian/smurg
-//      (`gh release view` / `gh release download`, with the person's own gh login; the release workflow made it and it
-//      must not be a draft), --dist DIR a local directory (what scripts/release-assets.sh --out wrote, e.g. a release
-//      assembled by hand with a linux-arm64 built elsewhere).
+//   1. The files: --from-release takes what the release workflow built for the tag vX.Y.Z in gclinian/smurg, with the
+//      person's own gh login: the GitHub release must exist, not be a draft, and carry SHA256SUMS and the notices
+//      (`gh release view`; it carries no executable); the seven files are the artifact release-X.Y.Z of the workflow's
+//      successful run for the tag (`gh run list`, `gh run download`; kept 30 days), and their SHA256SUMS and notices
+//      must be byte-identical to the GitHub release's (`gh release download`). --dist DIR takes a local directory
+//      (what scripts/release-assets.sh --out wrote, e.g. a release assembled by hand with a linux-arm64 built
+//      elsewhere).
 //   2. They are checked before anything is contacted: all seven present; SHA256SUMS lists exactly the four executables
 //      and each sha256 matches; `file` says each executable is the Mach-O / ELF of its name; each carries the build
 //      marker of X.Y.Z and the download URL of one Node.js release, the same for all four (scripts/release-markers.ts);
@@ -84,6 +87,9 @@ export const BUCKET = 'smurg-downloads';
 export const DOWNLOADS_ORIGIN = 'https://downloads.smurg.ai';
 export const SITE_INSTALL_URL = 'https://smurg.ai/install.sh';
 export const GITHUB_REPO = 'gclinian/smurg';
+/** The release workflow's file, and the two files its GitHub release carries (.github/workflows/release.yml). */
+export const RELEASE_WORKFLOW = 'release.yml';
+export const RELEASE_RECORD: readonly string[] = ['SHA256SUMS', 'THIRD-PARTY-NOTICES.txt'];
 export const EXECUTABLES = ['smurg-darwin-arm64', 'smurg-darwin-x64', 'smurg-linux-x64', 'smurg-linux-arm64'] as const;
 export const NOTICES = 'THIRD-PARTY-NOTICES.txt';
 /** Every file of a version, in upload order: SHA256SUMS last (see the header, step 6). */
@@ -115,7 +121,8 @@ export const USAGE = `scripts/publish-downloads.sh: publish a smurg release on $
   scripts/publish-downloads.sh --check [--version X.Y.Z]
   scripts/publish-downloads.sh --set-latest X.Y.Z [--dry-run] [--wait S]
 
-  --from-release  the assets of the GitHub release vX.Y.Z of the private repository ${GITHUB_REPO} (your gh login)
+  --from-release  what the release workflow built for the tag vX.Y.Z in ${GITHUB_REPO}: its artifact release-X.Y.Z,
+                  checked against the GitHub release's SHA256SUMS (your gh login)
   --dist DIR      a local directory with the seven files (scripts/release-assets.sh --out)
   --dry-run       check the files and what is published, print the plan; upload nothing, never run wrangler
   --resume        an earlier run stopped halfway: skip the files already there when byte-identical (never overwrite)
@@ -672,6 +679,10 @@ class Tools {
     return new PublishError(`${what} failed (exit ${ran.code}):\n${lastLines(all)}`);
   }
 
+  /**
+   * The seven files the release workflow built for v<version>, into `dir`: the artifact release-<version> of its
+   * successful run for the tag, which must agree with the GitHub release (SHA256SUMS and the notices, byte for byte).
+   */
   async releaseAssets(version: string, dir: string): Promise<void> {
     const tag = `v${version}`;
     const viewed = await this.gh(['release', 'view', tag, '--repo', GITHUB_REPO, '--json', 'tagName,isDraft,assets']);
@@ -685,11 +696,40 @@ class Tools {
     if (release.tagName !== tag) throw new PublishError(`gh release view ${tag}: got the release ${String(release.tagName)}`);
     if (release.isDraft !== false) throw new PublishError(`the GitHub release ${tag} is still a draft: the release workflow did not finish its checks (docs/RELEASING.md §4)`);
     const names = Array.isArray(release.assets) ? release.assets.map((a) => (a as { name?: unknown })?.name).filter((n): n is string => typeof n === 'string') : [];
-    const missing = UPLOAD_ORDER.filter((name) => !names.includes(name));
+    const missing = RELEASE_RECORD.filter((name) => !names.includes(name));
     if (missing.length > 0) throw new PublishError(`the GitHub release ${tag} has no ${missing.join(', ')}`);
-    this.out(`  GitHub release ${tag} (${GITHUB_REPO}): published, with all seven files; downloading…`);
-    const downloaded = await this.gh(['release', 'download', tag, '--repo', GITHUB_REPO, '--dir', dir, ...UPLOAD_ORDER.flatMap((name) => ['--pattern', name])]);
-    if (downloaded.code !== 0) throw this.ghFailure(`gh release download ${tag}`, downloaded);
+
+    const listed = await this.gh(['run', 'list', '--repo', GITHUB_REPO, '--workflow', RELEASE_WORKFLOW, '--event', 'push', '--branch', tag, '--status', 'success', '--limit', '1', '--json', 'databaseId']);
+    if (listed.code !== 0) throw this.ghFailure(`gh run list --workflow ${RELEASE_WORKFLOW} --branch ${tag}`, listed);
+    let runs: unknown;
+    try {
+      runs = JSON.parse(listed.stdout.toString('utf8'));
+    } catch {
+      throw new PublishError(`gh run list --workflow ${RELEASE_WORKFLOW} --branch ${tag}: the output is not JSON`);
+    }
+    const runId = Array.isArray(runs) ? (runs[0] as { databaseId?: unknown } | undefined)?.databaseId : undefined;
+    if (typeof runId !== 'number' || !Number.isSafeInteger(runId) || runId <= 0) {
+      throw new PublishError(`no successful run of ${RELEASE_WORKFLOW} for the tag ${tag} in ${GITHUB_REPO}: the release workflow builds the files (docs/RELEASING.md §4)`);
+    }
+    const artifact = `release-${version}`;
+    this.out(`  GitHub release ${tag} (${GITHUB_REPO}): published; downloading the artifact ${artifact} of run ${runId}…`);
+    const downloaded = await this.gh(['run', 'download', String(runId), '--repo', GITHUB_REPO, '--name', artifact, '--dir', dir]);
+    if (downloaded.code !== 0) {
+      const failure = this.ghFailure(`gh run download ${runId} --name ${artifact}`, downloaded);
+      if (failure.exitCode === 3) throw failure;
+      throw new PublishError(`${failure.message}\n(the artifact is kept 30 days; after that, assemble the release by hand and use --dist: docs/RELEASING.md §4.3)`);
+    }
+    const record = join(dir, '..', 'github-release');
+    await mkdir(record, { recursive: true });
+    const recorded = await this.gh(['release', 'download', tag, '--repo', GITHUB_REPO, '--dir', record, '--clobber', ...RELEASE_RECORD.flatMap((name) => ['--pattern', name])]);
+    if (recorded.code !== 0) throw this.ghFailure(`gh release download ${tag}`, recorded);
+    for (const name of RELEASE_RECORD) {
+      const [built, published] = await Promise.all([readFile(join(dir, name)).catch(() => null), readFile(join(record, name)).catch(() => null)]);
+      if (built === null) throw new PublishError(`the artifact ${artifact} of run ${runId} has no ${name}`);
+      if (published === null || !built.equals(published)) {
+        throw new PublishError(`${name} of the artifact ${artifact} (run ${runId}) is not the ${name} of the GitHub release ${tag}: these are not the files that release announced`);
+      }
+    }
   }
 
   // ── file
@@ -1042,7 +1082,7 @@ async function runPublish(t: Tools, options: Extract<PublishOptions, { mode: 'pu
   let n = 0;
   t.out(`publish smurg ${version} on ${t.origin}${dryRun ? ' (dry run: nothing is uploaded)' : ''}`);
 
-  t.step(++n, total, options.source.kind === 'release' ? `The files: the GitHub release v${version} of ${GITHUB_REPO}` : `The files: ${options.source.dir}`);
+  t.step(++n, total, options.source.kind === 'release' ? `The files: the release workflow's build of v${version} in ${GITHUB_REPO}` : `The files: ${options.source.dir}`);
   let dir: string;
   if (options.source.kind === 'release') {
     dir = join(scratch, 'release');
@@ -1103,7 +1143,7 @@ async function runPublish(t: Tools, options: Extract<PublishOptions, { mode: 'pu
       [
         `--resume: ${differing.map((name) => versionKey(version, name)).join(', ')} already exist with other contents than these files; a published file is never overwritten.`,
         '  Are these the files of the first run? If they are, and the bucket holds other bytes than were uploaded, see',
-        `  docs/RELEASING.md §4 step 7 ("other bytes"): the owner deletes only those objects, or ${version} is used up.`,
+        `  docs/RELEASING.md §4 step 7 ("other bytes"): a maintainer deletes only those objects, or ${version} is used up.`,
       ].join('\n'),
     );
   }
@@ -1195,7 +1235,7 @@ async function runPublish(t: Tools, options: Extract<PublishOptions, { mode: 'pu
         : [
             `${mismatched.join(', ')} ${mismatched.length === 1 ? 'is' : 'are'} public now with other bytes than were uploaded, but ${version} never became`,
             'latest. Nothing is overwritten automatically, and --resume refuses such a file. Find out why first (download it and',
-            'compare). Then either the owner deletes only those objects:',
+            'compare). Then either a maintainer deletes only those objects:',
             ...mismatched.map((key) => `  pnpm --filter @smurg/relay exec wrangler r2 object delete ${BUCKET}/${key} --remote`),
             `and runs the same command again with --resume, or ${version} is used up: cut X.Y.(Z+1) (docs/RELEASING.md §4 step 7).`,
           ];

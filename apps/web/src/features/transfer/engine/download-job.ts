@@ -1,4 +1,4 @@
-// One download (SPEC R7 「下載：單一檔案，或由 daemon 以串流方式把資料夾打包成 zip」, ARCHITECTURE §5.2,
+// One download (SPEC R7: a single file, or a folder the daemon streams as a zip; ARCHITECTURE §5.2,
 // transfer.md §1.6–§1.7).
 //
 // The SDK's TransferConnection.download() delivers chunks in order and acknowledges each one (one chunk of credit back

@@ -7,10 +7,40 @@ import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { isInside, lstatOrNull } from './fs-util.ts';
 
+/** Why a folder cannot be shared (ShareError.reason). Codes: the CLI words them in the host's language. */
+export const SHARE_ERROR_REASONS = [
+  'not-found',
+  'not-a-directory',
+  'filesystem-root',
+  'home-directory',
+  'contains-home',
+  'contains-homes',
+  'state-dir-inside-share',
+  'share-inside-state-dir',
+  'smurg-not-a-directory',
+] as const;
+export type ShareErrorReason = (typeof SHARE_ERROR_REASONS)[number];
+
+/** English, for the daemon's log; whoever shows it to a person switches on `reason`. */
+const SHARE_ERROR_MESSAGES: Readonly<Record<ShareErrorReason, string>> = {
+  'not-found': 'the shared folder does not exist',
+  'not-a-directory': 'the shared folder is not a directory',
+  'filesystem-root': 'the file system root cannot be shared',
+  'home-directory': 'the whole home directory cannot be shared',
+  'contains-home': 'a folder that contains the home directory cannot be shared',
+  'contains-homes': 'a folder that contains the home directories cannot be shared',
+  'state-dir-inside-share': 'the daemon state directory must not be inside the shared folder',
+  'share-inside-state-dir': 'the shared folder must not be inside the daemon state directory',
+  'smurg-not-a-directory': '.smurg in the shared folder is not a directory',
+};
+
 export class ShareError extends Error {
-  constructor(message: string) {
-    super(message);
+  readonly reason: ShareErrorReason;
+
+  constructor(reason: ShareErrorReason) {
+    super(SHARE_ERROR_MESSAGES[reason]);
     this.name = 'ShareError';
+    this.reason = reason;
   }
 }
 
@@ -33,28 +63,28 @@ export async function prepareShare(
   options: { readonly homeDir?: string; /** TEST ONLY: default HOMES_PARENTS. */ readonly homesParents?: readonly string[] } = {},
 ): Promise<PreparedShare> {
   const share = await realpath(shareDir).catch(() => {
-    throw new ShareError('the shared folder does not exist');
+    throw new ShareError('not-found');
   });
-  if (!(await lstat(share)).isDirectory()) throw new ShareError('the shared folder is not a directory');
-  if (share === '/') throw new ShareError('the file system root cannot be shared');
+  if (!(await lstat(share)).isDirectory()) throw new ShareError('not-a-directory');
+  if (share === '/') throw new ShareError('filesystem-root');
   const home = await realpath(options.homeDir ?? homedir()).catch(() => null);
-  if (home !== null && share === home) throw new ShareError('the whole home directory cannot be shared');
-  // A folder that CONTAINS the home (review CLI-04: /Users, the parent of a fake home) would hand every guest ~/.ssh,
+  if (home !== null && share === home) throw new ShareError('home-directory');
+  // A folder that CONTAINS the home (/Users, the parent of a fake home) would hand every guest ~/.ssh,
   // ~/.aws, ~/.claude …; PathGuard allows everything inside the share. Refused whatever SMURG_HOME is.
-  if (home !== null && isInside(home, share)) throw new ShareError('a folder that contains the home directory cannot be shared');
+  if (home !== null && isInside(home, share)) throw new ShareError('contains-home');
   // Nor the parent of everybody's homes (other accounts on this machine), even when the host's own home is elsewhere.
   for (const homes of options.homesParents ?? HOMES_PARENTS) {
     const real = await realpath(homes).catch(() => null);
-    if (real !== null && isInside(real, share)) throw new ShareError('a folder that contains the home directories cannot be shared');
+    if (real !== null && isInside(real, share)) throw new ShareError('contains-homes');
   }
   const state = await realpath(stateDir).catch(() => stateDir);
-  if (isInside(state, share)) throw new ShareError('the daemon state directory must not be inside the shared folder');
-  if (isInside(share, state)) throw new ShareError('the shared folder must not be inside the daemon state directory');
+  if (isInside(state, share)) throw new ShareError('state-dir-inside-share');
+  if (isInside(share, state)) throw new ShareError('share-inside-state-dir');
 
   const smurgDir = join(share, '.smurg');
   const existing = await lstatOrNull(smurgDir);
   if (existing === null) await mkdir(smurgDir, { mode: 0o700 });
-  else if (existing === 'not-directory' || !existing.isDirectory()) throw new ShareError('.smurg in the shared folder is not a directory');
+  else if (existing === 'not-directory' || !existing.isDirectory()) throw new ShareError('smurg-not-a-directory');
 
   const git = await gitKind(join(share, '.git'));
   if (git === 'dir') await excludeSmurgDir(join(share, '.git'));
@@ -63,7 +93,7 @@ export async function prepareShare(
 
 /**
  * What `<share>/.git` is: a git directory (it has a HEAD file, or a HEAD symlink into refs/), a gitfile (`gitdir: …`, a linked worktree or a
- * submodule) or neither. Merely existing is not enough (git's own rule, review RCR-4): an empty `.git` directory or
+ * submodule) or neither. Merely existing is not enough (git's own rule): an empty `.git` directory or
  * file is no repository, and taking it for one would offer worktree mode on a folder git does not know.
  */
 async function gitKind(gitPath: string): Promise<'dir' | 'file' | 'none'> {
@@ -71,7 +101,7 @@ async function gitKind(gitPath: string): Promise<'dir' | 'file' | 'none'> {
   if (st === null || st === 'not-directory') return 'none';
   if (st.isDirectory()) {
     // git's own rule (validate_headref): HEAD is a regular file, or a symlink into refs/ (core.preferSymlinkRefs, older
-    // repositories; it dangles while the branch is unborn or after `git gc` packed the ref). Review RCR-4.
+    // repositories; it dangles while the branch is unborn or after `git gc` packed the ref).
     const headPath = join(gitPath, 'HEAD');
     const head = await lstatOrNull(headPath);
     if (head === null || head === 'not-directory') return 'none';

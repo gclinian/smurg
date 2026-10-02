@@ -9,6 +9,7 @@ export { Drawer, type DrawerProps } from './Drawer.tsx';
 export { Badge, Banner, EmptyState, Kbd, type BannerProps, type EmptyStateProps, type Tone } from './Feedback.tsx';
 export { focusableWithin, holdAppInert, trapTab } from './focus.ts';
 export * from './icons.tsx';
+export { LanguageMenu, type LanguageMenuProps } from './LanguageMenu.tsx';
 export { Input, Select, TextArea, type InputProps, type SelectOption, type SelectProps, type TextAreaProps } from './Input.tsx';
 export { Menu, type MenuItem, type MenuProps } from './Menu.tsx';
 export { CopyButton, Panel, type PanelProps } from './Panel.tsx';

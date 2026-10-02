@@ -1,4 +1,4 @@
-// An open document whose file stops being writable (review findings REL-01, REL-11): moved away or deleted on disk by
+// An open document whose file stops being writable (review findings REL-01): moved away or deleted on disk by
 // an agent's Bash (`mv`, `git mv`, `rm`: the human lock cannot stop Bash, R8's fallback), or unreadable for a while
 // (chmod). Nothing a human typed may disappear silently: text that is not on disk is kept as a recoverable version in
 // the conflict panel, the editors are told (doc.rejected) and later keystrokes are refused, never swallowed; a file
@@ -28,7 +28,7 @@ afterEach(async () => {
 const NOTES = { root: MAIN_ROOT, path: 'notes.md' };
 
 describe('a document whose file cannot be saved any more', { timeout: 30_000 }, () => {
-  it('moved away by Bash within the autosave debounce: the unsaved text is kept in the conflict panel, the editor is told, later typing is refused (REL-01)', async () => {
+  it('moved away by Bash within the autosave debounce: the unsaved text is kept in the conflict panel, the editor is told, later typing is refused', async () => {
     t = await createTestDaemon({ project: { files: { 'notes.md': 'line one\nline two\n' } }, modules: [createDocsModule({ pauseConfirmMs: 300 })] });
     const amyClient = await t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
     const conflicts: ConflictRecord[] = [];
@@ -69,7 +69,7 @@ describe('a document whose file cannot be saved any more', { timeout: 30_000 }, 
     expect(await readFile(join(t.root, 'notes.md'), 'utf8')).toBe('line one\nline two\nsaved by amy\nUNSAVED-BEFORE-MV\n');
   });
 
-  it('deleted while nobody has it open any more: the unsaved text is kept before the room is dropped (REL-01)', async () => {
+  it('deleted while nobody has it open any more: the unsaved text is kept before the room is dropped', async () => {
     t = await createTestDaemon({ project: { files: { 'notes.md': 'alpha\n' } }, modules: [createDocsModule({ pauseConfirmMs: 60_000, graceMs: 200, debounceMs: 5_000, maxWaitMs: 10_000 })] });
     const amyClient = await t.connect({ userId: 'dev:amy', role: 'editor' });
     const doc = await DocClient.open(amyClient.conn, NOTES);
@@ -108,7 +108,7 @@ describe('a document whose file cannot be saved any more', { timeout: 30_000 }, 
     expect(conflicts).toEqual([]);
   });
 
-  it('unreadable for a while (chmod 000): the text typed meanwhile is written once it can be, without another keystroke (REL-11)', async () => {
+  it('unreadable for a while (chmod 000): the text typed meanwhile is written once it can be, without another keystroke', async () => {
     if (process.getuid?.() === 0) return; // root ignores file modes
     // All modules (the file watcher reports the chmod too, and every report re-checks the file).
     t = await createTestDaemon({ project: { files: { 'notes.md': 'alpha\n' } } });

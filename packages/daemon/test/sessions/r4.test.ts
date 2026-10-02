@@ -40,7 +40,7 @@ async function exists(path: string): Promise<boolean> {
 }
 
 describe('R4 agent session', { timeout: 60_000 }, () => {
-  it('同一個 session 同時被網頁和 CLI 接上時，畫面保持一致 — two clients\' rendered buffers after output that repaints, scrolls and resizes', async () => {
+  it('one session attached from the web and the CLI at once shows the same screen — two clients\' rendered buffers after output that repaints, scrolls and resizes', async () => {
     const s = await stack();
     const phaseOne = [
       'FILL=0123456789012345678901234567890123456789',
@@ -115,7 +115,7 @@ describe('R4 agent session', { timeout: 60_000 }, () => {
     expect(lateView.viewport()).toEqual(webView.viewport());
   });
 
-  it('客戶端斷線時 session 繼續在主人端執行；重新接上後看得到完整的捲動紀錄', async () => {
+  it('a session keeps running on the host when its client disconnects; re-attaching shows the whole scrollback', async () => {
     const s = await stack();
     const host = await s.t.connectHost();
     const { session } = await host.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 100, rows: 30 });
@@ -144,7 +144,7 @@ describe('R4 agent session', { timeout: 60_000 }, () => {
     expect(second.gaps).toEqual([]);
   });
 
-  it('every session gets the host\'s own environment (its login included), never what a parent Claude Code session injected (its hook kill switches) — the real environment of processes in a session a 可使用 agent member opened', async () => {
+  it('every session gets the host\'s own environment (its login included), never what a parent Claude Code session injected (its hook kill switches) — the real environment of processes in a session an Agent access member opened', async () => {
     // The host's own provider / login settings: every session runs with them (§11 D-15).
     const kept: Record<string, string> = {
       ANTHROPIC_API_KEY: 'sk-ant-api03-SMURG-HOST-OWN-KEY',

@@ -1,10 +1,10 @@
-// LEAD-01 in a real browser (the built app, the real relay, a daemon with every module, system Chrome at 1440 × 900 with
-// real scrollbars): the lead saw, as the owner of a terminal session, an 80-column terminal (626 px) in a 420 px panel,
-// cut off at the panel's edge. Now:
+// The terminal's size in a real browser (the built app, the real relay, a daemon with every module, system Chrome at
+// 1440 × 900 with real scrollbars). What it once was: the owner of a terminal session saw an 80-column terminal
+// (626 px) in a 420 px panel, cut off at the panel's edge. Now:
 //  - the OWNER's PTY follows the panel: `stty size` typed into the session equals what the panel fits, in a narrow and
 //    in a wide panel, and no part of the terminal lies outside its visible, scrollable container;
 //  - a WATCHER renders the PTY's size: in a narrower panel the whole 80-column line is reached by scrolling (visible
-//    scrollbars), never reflowed, and 「縮放以符合寬度」 draws all of it inside the panel.
+//    scrollbars), never reflowed, and "Scale to fit the width" draws all of it inside the panel.
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { STEP_MS, joinAs, joinAsHost, openSession, startSmoke, systemChrome, terminalOf, typeInTerminal, type SmokeEnv } from './helpers.ts';
@@ -144,26 +144,26 @@ async function waitDriving(page: Page, id: string): Promise<void> {
   );
 }
 
-describe.skipIf(chrome === null)('LEAD-01 the terminal in its panel (built app, real relay, system Chrome)', () => {
+describe.skipIf(chrome === null)('the terminal in its panel (built app, real relay, system Chrome)', () => {
   let env: SmokeEnv;
   let host: Page;
   let sessionId: string;
 
   beforeAll(async () => {
-    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# 班級專案\n' } } });
+    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# Class project\n' } } });
   }, 180_000);
 
   afterAll(async () => {
     await env?.stop();
   }, 60_000);
 
-  it('LEAD-01 the owner: the PTY follows the panel — `stty size` equals what a narrow and a wide panel fit, and no part of the terminal lies outside its visible, scrollable container', async () => {
+  it('the owner: the PTY follows the panel — `stty size` equals what a narrow and a wide panel fit, and no part of the terminal lies outside its visible, scrollable container', async () => {
     host = await env.newPage();
     await joinAsHost(host, env);
     sessionId = await openSession(host, 'terminal', 'shell');
     await waitDriving(host, sessionId);
 
-    // Narrow: the default 420 px agents panel of a 1440 × 900 window (the lead's setup).
+    // Narrow: the default 420 px agents panel of a 1440 × 900 window (a common setup).
     const narrow = await layoutOf(host, sessionId);
     expect(narrow.viewport.right - narrow.viewport.left).toBeLessThanOrEqual(430);
     const narrowSize = await sttySize(host, sessionId, 'NARROW');
@@ -183,7 +183,7 @@ describe.skipIf(chrome === null)('LEAD-01 the terminal in its panel (built app, 
     expect(await host.getByTestId('terminal-size-hint').count()).toBe(0);
 
     // Wide: the separator of the agents panel dragged to its far end (keyboard: End).
-    await host.getByRole('separator', { name: /agent/ }).first().focus();
+    await host.getByRole('separator', { name: /Agents/ }).first().focus();
     await host.keyboard.press('End');
     await host.waitForFunction(
       ({ id, before }) => Number(document.querySelector<HTMLElement>(`.agents-session[data-session-id="${id}"] .agents-term__viewport`)?.dataset['fitCols']) > before,
@@ -196,10 +196,10 @@ describe.skipIf(chrome === null)('LEAD-01 the terminal in its panel (built app, 
     expect(wideSize).toEqual({ cols: fittedCols(wide), rows: fittedRows(wide) });
     expect(wideSize.cols).toBeGreaterThan(100);
     expectNothingHidden(await layoutOf(host, sessionId), 'wide owner');
-    console.info(`[LEAD-01] owner PTY ${narrowSize.cols}×${narrowSize.rows} in the 420 px panel, ${wideSize.cols}×${wideSize.rows} in the wide panel`);
+    console.info(`[terminal fit] owner PTY ${narrowSize.cols}×${narrowSize.rows} in the 420 px panel, ${wideSize.cols}×${wideSize.rows} in the wide panel`);
   }, 240_000);
 
-  it('LEAD-01 a watcher: the PTY-sized terminal is never reflowed; in a narrower panel the whole 80-column line is reached by scrolling (visible scrollbars), and 「縮放以符合寬度」 fits it', async () => {
+  it('a watcher: the PTY-sized terminal is never reflowed; in a narrower panel the whole 80-column line is reached by scrolling (visible scrollbars), and "Scale to fit the width" fits it', async () => {
     // The owner's PTY is wide (the previous test). An 80-column line: L, 78 zeros, R.
     await typeInTerminal(host, sessionId, `printf 'L%078dR\\n' 0`);
     const line = `L${'0'.repeat(78)}R`;
@@ -220,7 +220,7 @@ describe.skipIf(chrome === null)('LEAD-01 the terminal in its panel (built app, 
     expect(watched.scrollWidth).toBeGreaterThan(watched.clientWidth);
     expect(watched.scrollbarX).toBeGreaterThan(0);
     expectNothingHidden(watched, 'watcher');
-    expect(await watcher.getByTestId('terminal-size-hint').textContent()).toContain(`實際大小 ${ownerCols} ×`);
+    expect(await watcher.getByTestId('terminal-size-hint').textContent()).toContain(`Actual size ${ownerCols} ×`);
 
     // Where the line's first and last characters are, with the terminal scrolled to the left and to the right.
     const edges = async (scrollLeft: number) =>
@@ -261,8 +261,8 @@ describe.skipIf(chrome === null)('LEAD-01 the terminal in its panel (built app, 
     // The line was not wrapped onto two rows: first and last character on the same row.
     expect(Math.abs((right.last?.top ?? 0) - (left.first?.top ?? 0))).toBeLessThan(1);
 
-    // 「縮放以符合寬度」: the same PTY-sized terminal, drawn smaller: all of it inside the panel, nothing reflowed.
-    await watcher.getByRole('button', { name: '縮放以符合寬度' }).click();
+    // "Scale to fit the width": the same PTY-sized terminal, drawn smaller: all of it inside the panel, nothing reflowed.
+    await watcher.getByRole('button', { name: 'Scale to fit the width' }).click();
     await watcher.waitForFunction(
       (id) => {
         const node = document.querySelector<HTMLElement>(`.agents-session[data-session-id="${id}"] .agents-term__viewport`);

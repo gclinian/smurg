@@ -9,7 +9,7 @@ Scope: SPEC R4 (PTY sessions, multi-attach, full scrollback on re-attach, `smurg
 
 Host used: macOS 26.5.1 (Darwin 25.5) arm64, Node v25.4.0 and v22.22.1 (nvm), plus official Node v24.21.0 and v26.10.0 tarballs downloaded (checksums verified) into the spike dir only. bun 1.3.11, Xcode CLT, pnpm 10.34.5 via `npx`.
 
-Spike dir (re-runnable): `/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/pty-packaging`
+Spike dir (re-runnable): `<spike dir>/pty-packaging`
 
 ---
 
@@ -402,7 +402,7 @@ child?.on('error', () => {}); child?.unref();
 ## 7. How to re-run the spike
 
 ```sh
-cd /private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/pty-packaging
+cd <spike dir>/pty-packaging
 ./run-all.sh                    # deps, tsc, Q2 tests, Q3 compare/flood/memory, Q4 tests, Q5 SEA build+run, Q6 verify (~30 s)
 NODE=~/.nvm/versions/node/v22.22.1/bin/node ./run-all.sh    # same on Node 22
 # individual pieces
@@ -417,7 +417,7 @@ node q5/build-sea.mjs --node q5/nodes/node-v26.10.0-darwin-arm64/bin/node --out 
 node q3/capture-claude.mjs      # optional: real Claude Code TUI bytes, isolated HOME, no credentials
 ```
 
-Verifier spike (a fresh install, independent of the directory above, ~50 s): `/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/pty-packaging-verify`. Run `./run-all.sh` (the original pipeline, still green with the verifier's build-script changes), then `./vq/run-verify.sh` (every V-check below). Run `q5/fetch-node.sh v24.21.0 v26.10.0 v22.18.0 v22.17.1` first to get the extra Node binaries.
+Verifier spike (a fresh install, independent of the directory above, ~50 s): `<spike dir>/pty-packaging-verify`. Run `./run-all.sh` (the original pipeline, still green with the verifier's build-script changes), then `./vq/run-verify.sh` (every V-check below). Run `q5/fetch-node.sh v24.21.0 v26.10.0 v22.18.0 v22.17.1` first to get the extra Node binaries.
 
 Layout: `src/` (pty-session, term-mirror, raw-tail, kill-tree), `test/` (viewer stand-in + Q2 tests), `q1-*` (per-package install experiments), `q3/` (TUI fixture, Claude capture, comparisons), `q4/` (attach CLI + daemon stub + tests), `q5/` (native loader, build script, Node tarballs, SEA docs copy), `q6/` (keep-awake). All background processes started by the spike were killed at the end. `dist/` and the extraction cache are recreated by `run-all.sh`.
 

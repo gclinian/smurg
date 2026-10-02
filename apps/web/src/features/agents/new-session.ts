@@ -1,7 +1,7 @@
-// What the 「新增 session」 dialog offers, per role (ARCHITECTURE §3, §5.5) — pure, so it is tested without React.
+// What the "New session" dialog offers, per role (ARCHITECTURE §3, §5.5) — pure, so it is tested without React.
 // Protocol v2 (owner decision 2026-10-01): every session runs as the HOST — the host's computer, the host's Claude
 // account, no sandbox — whoever opens it:
-//   host, 可使用 agent → may open one (session.create), in the main workspace or a worktree;
+//   host, agent access → may open one (session.create), in the main workspace or a worktree;
 //   editor / viewer → no session; the dialog says why.
 // Worktrees (R9) need a git repository; a kept worktree of one's own can be continued (R9.4). The daemon enforces all
 // of this again.
@@ -51,7 +51,7 @@ export function newSessionOptions(input: {
   };
 }
 
-/** 'main' | 'worktree:new' | 'worktree:<id>' — the value of the 「工作位置」 choice. */
+/** 'main' | 'worktree:new' | 'worktree:<id>' — the value of the "Where to work" choice. */
 export type WhereChoice = 'main' | 'worktree:new' | `worktree:${string}`;
 
 /** `where` if the options still offer it (the worktree list may change while the dialog is open), else the main workspace. */

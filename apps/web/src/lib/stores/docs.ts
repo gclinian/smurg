@@ -10,7 +10,7 @@
 //    it must also drop its Y.Doc and start from a fresh one (two separately loaded Y.Docs duplicate the text, gotcha 4).
 //  - The active document is reported as presence (presence.update) automatically.
 //  - An open document whose file is deleted or moved away (file.changed 'unlink' of it, 'unlinkDir' of a folder above
-//    it) is marked `removed` (review WEB-01): the editor turns read-only and says so instead of letting people type
+//    it) is marked `removed`: the editor turns read-only and says so instead of letting people type
 //    into a document nobody can save. A rename the local user made re-points the tab (followRename); someone else's
 //    rename is recognised from its activity event and offered as `removed.movedTo`. The file coming back ('add')
 //    clears the mark.
@@ -125,21 +125,14 @@ export function isDocEditable(doc: OpenDoc | undefined): boolean {
 /** How long a rename's activity event is remembered to pair it with the watcher's 'unlink' of the old path. */
 export const RENAME_MEMORY_MS = 30_000;
 
-const RENAME_PREFIX = '重新命名 ';
-const RENAME_ARROW = ' → ';
-
 /**
- * The old path of a file.rename activity event. The protocol carries only the new path (`file`); the daemon's summary
- * is exactly 「重新命名 {from} → {to}」 (packages/daemon/src/files/file-service.ts). Anything else (a cut summary, another
- * wording) yields null and the document is shown as deleted rather than guessed at.
+ * The old path of a file.rename activity event (`file` is the new one). An event without it (an older host) yields
+ * null, and the document is shown as deleted rather than guessed at.
  */
 export function renamedFrom(event: ActivityEvent): string | null {
   if (event.kind !== 'file.rename' || event.file === undefined) return null;
-  const suffix = `${RENAME_ARROW}${event.file.path}`;
-  const { summary } = event;
-  if (!summary.startsWith(RENAME_PREFIX) || !summary.endsWith(suffix)) return null;
-  const from = summary.slice(RENAME_PREFIX.length, summary.length - suffix.length);
-  return from.length > 0 && !from.includes(RENAME_ARROW) ? from : null;
+  const from = event.renamedFrom;
+  return typeof from === 'string' && from.length > 0 ? from : null;
 }
 
 /** Where `path` ends up when `from` is renamed to `to` (itself, or something below a renamed folder). */

@@ -14,9 +14,9 @@
 //    daemon's exec.resize echo is applied in stream order (F18). Below the program's floor (Claude Code: 80 × 24) the
 //    terminal keeps the floor and a hint says the panel scrolls — nothing is clipped silently;
 //  - everyone else (and the owner's second window, while the other one drives) sees the PTY's size: when it is bigger
-//    than the panel, the terminal area scrolls both ways with visible scrollbars, a hint says so, and 「縮放以符合寬度」
+//    than the panel, the terminal area scrolls both ways with visible scrollbars, a hint says so, and "Scale to fit the width"
 //    draws it smaller (never reflowed);
-//  - input is sent by whoever may type (the host and 可使用 agent, into any session: `session.drive`), resize by the
+//  - input is sent by whoever may type (the host and members with agent access, into any session: `session.drive`), resize by the
 //    session's owner only, both only while it runs;
 //  - file paths in the output become links when they exist in the session's root (path-links.ts);
 //  - the daemon forgets an ENDED session after a while (ARCHITECTURE §7.6 "After the end"), and a panel that stayed
@@ -72,7 +72,7 @@ export interface SessionTerminalProps {
   readonly session: SessionInfo;
   /** The member who opened it: their panel drives the PTY size. */
   readonly isOwner: boolean;
-  /** Keystrokes go to the session (host and 可使用 agent, any running session). */
+  /** Keystrokes go to the session (host and members with agent access, any running session). */
   readonly canType: boolean;
   /** The session's tab is the selected one. */
   readonly active: boolean;

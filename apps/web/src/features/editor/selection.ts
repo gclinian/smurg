@@ -1,12 +1,11 @@
-// 「送到 agent」 (SPEC R6): an editor selection becomes text for an agent session — a direct paste for those who may type
-// into sessions (the host and 可使用 agent, any session: protocol v2 `session.drive`), a suggestion for editors. The command carries the file and the line range with the code (the
+// "Send to agent" (SPEC R6): an editor selection becomes text for an agent session — a direct paste for those who may type
+// into sessions (the host and agent access, any session: `session.drive`), a suggestion for editors. The command carries the file and the line range with the code (the
 // suggest feature puts them in front of it: the agent only sees text), and the code is cleaned for the terminal: it
 // ends up in a PTY as a bracketed paste, where ESC or a C1 control could end the paste early and turn the rest into
 // keystrokes (the protocol refuses them anyway), and bidi overrides could make it read differently than it runs.
 import { SUGGESTION_TEXT_MAX_CHARS, type FileRef, type SessionInfo } from '@smurg/protocol';
 import type { Capabilities } from '../../lib/capabilities.ts';
 import type { CommandMap } from '../../lib/commands.ts';
-import { t } from './strings.ts';
 
 /** A Monaco selection in 1-based lines and columns (what the view reports). */
 export interface EditorSelection {
@@ -50,13 +49,20 @@ function fenceFor(code: string): string {
   return '`'.repeat(Math.max(3, longest + 1));
 }
 
+/**
+ * The line above the quoted code: `path:12-20` (one line: `path:12`), with ` (worktree <id>)` for a file of a
+ * worktree. Fixed, in no language: an agent reads it in the terminal and the host's audit log stores it.
+ */
+export function selectionHeader(input: { file: FileRef; startLine: number; endLine: number }): string {
+  const range = input.startLine === input.endLine ? `${input.startLine}` : `${input.startLine}-${input.endLine}`;
+  const worktree = input.file.root.kind === 'worktree' ? ` (worktree ${input.file.root.worktreeId})` : '';
+  return sanitizeForAgent(`${input.file.path}:${range}${worktree}`);
+}
+
 export function formatSelectionForAgent(input: { file: FileRef; startLine: number; endLine: number; code: string }): string {
   const code = sanitizeForAgent(input.code).replace(/\n+$/, '');
-  const range =
-    input.startLine === input.endLine ? t('send.oneLine', { line: input.startLine }) : t('send.lines', { start: input.startLine, end: input.endLine });
-  const where = input.file.root.kind === 'worktree' ? t('send.whereWorktree', { path: input.file.path, worktree: input.file.root.worktreeId }) : input.file.path;
   const fence = fenceFor(code);
-  return `${t('send.header', { where: sanitizeForAgent(where), range })}\n${fence}\n${code}\n${fence}`;
+  return `${selectionHeader(input)}\n${fence}\n${code}\n${fence}`;
 }
 
 export type SelectionPayload =
@@ -67,7 +73,7 @@ export type SelectionPayload =
  * The command payload for a selection; `sessionId` undefined lets the suggest feature ask which session.
  *
  * The file and the line range travel as their own fields and `text` is the selected code itself (cleaned for a
- * terminal): the suggest feature, which handles the command, quotes it under 「<path> 第 <range> 行：」 in a fence for a
+ * terminal): the suggest feature, which handles the command, quotes it under `<path>:<range>` in a fence for a
  * suggestion and pastes it into one's own session. Pre-quoting here would quote it twice. The size bound is taken on
  * the quoted form (formatSelectionForAgent), which is what a suggestion ends up carrying.
  */
@@ -80,7 +86,7 @@ export function buildSelectionPayload(file: FileRef, selection: EditorSelection 
 }
 
 export interface SessionTargets {
-  /** Running agent sessions the member types into (the host and 可使用 agent: every one): the selection goes straight in. */
+  /** Running agent sessions the member types into (the host and agent access: every one): the selection goes straight in. */
   readonly own: readonly SessionInfo[];
   /** Running agent sessions the member may only suggest to (an editor: other people's): someone who may type decides. */
   readonly others: readonly SessionInfo[];
@@ -97,7 +103,7 @@ export function sessionTargets(sessions: readonly SessionInfo[], userId: string 
   return { own: [], others: caps.can('suggest.create') ? running.filter((session) => session.ownerUserId !== userId) : [] };
 }
 
-/** Whether the 「送到 agent」 action is offered at all for this role. */
+/** Whether the "Send to agent" action is offered at all for this role. */
 export function canSendToAgent(caps: Pick<Capabilities, 'can' | 'canDrive'>): boolean {
   return caps.can('suggest.create') || caps.canDrive;
 }

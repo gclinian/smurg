@@ -1,4 +1,4 @@
-// SPEC R3 「斷線重連時重新握手；應用層用 seq 補送遺漏的訊息」 with the resume contract of ARCHITECTURE §4 (and
+// SPEC R3 (a reconnect handshakes again; the application layer re-sends missed messages by seq) with the resume contract of ARCHITECTURE §4 (and
 // @smurg/protocol/client outbox.ts): after a reconnect the daemon replays exactly what the client has not
 // processed, the client re-sends what the daemon has not acknowledged, and duplicates are dropped by seq on both
 // sides. When the gap is gone the Welcome says resumed = false and the client resyncs.
@@ -24,7 +24,7 @@ function notify(t: TestDaemon, userId: string, text: string): void {
 function collect(client: TestClient): { texts: string[]; welcomes: boolean[] } {
   const texts: string[] = [];
   const welcomes: boolean[] = [];
-  client.conn.on('activity.notify', (payload) => texts.push(payload.notification.text));
+  client.conn.on('activity.notify', (payload) => texts.push(payload.notification.text ?? ''));
   client.conn.onWelcome((_welcome, info) => welcomes.push(info.resumed));
   return { texts, welcomes };
 }

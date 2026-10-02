@@ -1,5 +1,6 @@
-// `smurg mcp` (runMcpServer): the coordination MCP server Claude Code starts in every session (SPEC R8 「協調用 MCP
-// server 提供給 agent 的工具：查詢誰正在編輯某檔案、查詢和等待鎖、列出所有 session、通知某位組員」). Driven here over its
+// `smurg mcp` (runMcpServer): the coordination MCP server Claude Code starts in every session (SPEC R8: the
+// coordination MCP server gives agents tools to ask who is editing a file, to query and wait for locks, to list all
+// sessions and to notify a teammate). Driven here over its
 // stdio JSON-RPC with the real hook socket behind it; claude-e2e.test.ts calls a tool through the real Claude Code.
 import { join } from 'node:path';
 import { MAIN_ROOT, type MemberNotification } from '@smurg/protocol';
@@ -177,7 +178,7 @@ describe('MCP protocol', () => {
   });
 });
 
-describe('R8: 協調用 MCP server 提供給 agent 的工具：查詢誰正在編輯某檔案、查詢和等待鎖、列出所有 session、通知某位組員', () => {
+describe('R8: the coordination MCP server\'s tools: who is editing a file, query and wait for locks, list all sessions, notify a teammate', () => {
   it('who_is_editing names the person typing in the file, the agent modifying it, or nobody', async () => {
     const { d: daemon, mcp } = await setup();
     daemon.fakes.locks.holdHuman(main('locked.txt'), 'Amy');
@@ -186,9 +187,9 @@ describe('R8: 協調用 MCP server 提供給 agent 的工具：查詢誰正在�
     expect(human.json).toMatchObject({ file: 'locked.txt', editing: true, humans: [{ name: 'Amy', userId: 'dev:amy' }], agent: null });
     expect(String(human.json?.['summary'])).toContain('Amy');
     const other = registerAgent(daemon.hooks, { userId: TEST_HOST_USER, name: 'Host' });
-    daemon.fakes.locks.requestAgent({ file: main('src/a.ts'), sessionId: other.sessionId, ownerUserId: TEST_HOST_USER, agentName: 'Claude（Host）', sessionRoot: MAIN_ROOT });
+    daemon.fakes.locks.requestAgent({ file: main('src/a.ts'), sessionId: other.sessionId, ownerUserId: TEST_HOST_USER, agentName: 'Claude (Host)', sessionRoot: MAIN_ROOT });
     const agent = await mcp.call('who_is_editing', { file_path: 'src/a.ts' });
-    expect(agent.json).toMatchObject({ editing: true, humans: [], agent: { kind: 'agent', agent: 'Claude（Host）', sessionId: other.sessionId, isYou: false } });
+    expect(agent.json).toMatchObject({ editing: true, humans: [], agent: { kind: 'agent', agent: 'Claude (Host)', sessionId: other.sessionId, isYou: false } });
     const free = await mcp.call('who_is_editing', { file_path: 'free.txt' });
     expect(free.json).toMatchObject({ editing: false, humans: [], agent: null, summary: 'free.txt is free: nobody is editing it.' });
   });
@@ -222,22 +223,26 @@ describe('R8: 協調用 MCP server 提供給 agent 的工具：查詢誰正在�
     expect(Date.now() - started).toBeGreaterThanOrEqual(900);
     expect(timedOut.json).toMatchObject({ released: false, lock: { kind: 'human', holders: [{ name: 'Amy' }] } });
     expect((await mcp.call('wait_for_lock', { file_path: 'free.txt' })).json).toMatchObject({ released: true, waitedSeconds: 0 });
-    daemon.fakes.locks.requestAgent({ file: main('src/a.ts'), sessionId, ownerUserId: TEST_HOST_USER, agentName: 'Claude（Host）', sessionRoot: MAIN_ROOT });
+    daemon.fakes.locks.requestAgent({ file: main('src/a.ts'), sessionId, ownerUserId: TEST_HOST_USER, agentName: 'Claude (Host)', sessionRoot: MAIN_ROOT });
     expect((await mcp.call('wait_for_lock', { file_path: 'src/a.ts', timeout_seconds: 60 })).json).toMatchObject({ released: false, heldByYou: true });
   });
 
   it('list_sessions: every session with its owner, root and the files each agent is modifying', async () => {
     const { d: daemon, mcp, sessionId } = await setup();
     daemon.fakes.sessions.push(sessionInfo(sessionId, HOST), sessionInfo('ses_amy', { userId: 'dev:amy', name: 'Amy' }, { root: { kind: 'worktree', worktreeId: 'wt_amy' }, kind: 'agent' }));
-    daemon.fakes.locks.requestAgent({ file: main('free.txt'), sessionId, ownerUserId: TEST_HOST_USER, agentName: 'Claude（Host）', sessionRoot: MAIN_ROOT });
+    daemon.fakes.locks.requestAgent({ file: main('free.txt'), sessionId, ownerUserId: TEST_HOST_USER, agentName: 'Claude (Host)', sessionRoot: MAIN_ROOT });
     const listed = (await mcp.call('list_sessions')).json;
     expect(listed?.['sessions']).toEqual([
       expect.objectContaining({ id: sessionId, owner: 'Host', root: 'main', isYou: true, editing: ['main:free.txt'] }),
       expect.objectContaining({ id: 'ses_amy', owner: 'Amy', ownerUserId: 'dev:amy', root: 'worktree:wt_amy', isYou: false, editing: [] }),
     ]);
+    // Sessions nobody named get the English default title (what an agent reads is fixed English); a typed one is kept.
+    daemon.fakes.sessions.push(sessionInfo('ses_term', { userId: 'dev:amy', name: 'Amy' }, { kind: 'terminal' }), sessionInfo('ses_named', HOST, { title: 'release notes' }));
+    const titles = ((await mcp.call('list_sessions')).json?.['sessions'] as { title: string }[]).map((session) => session.title);
+    expect(titles).toEqual(['Claude (Host)', 'Claude (Amy)', 'Terminal (Amy)', 'release notes']);
   });
 
-  it("notify_member delivers activity.notify to that member's clients only (from 「Claude（owner）」)", async () => {
+  it("notify_member delivers activity.notify to that member's clients only (from `Claude (owner)`)", async () => {
     const { d: daemon, mcp, sessionId } = await setup();
     const amy = await daemon.t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
     const bob = await daemon.t.connect({ userId: 'dev:bob', displayName: 'Bob', role: 'editor' });
@@ -250,7 +255,7 @@ describe('R8: 協調用 MCP server 提供給 agent 的工具：查詢誰正在�
     expect(result.json).toMatchObject({ delivered: true, member: { userId: 'dev:amy', name: 'Amy' }, online: true });
     await expect.poll(() => amyGot.length).toBe(1);
     expect(amyGot[0]).toMatchObject({
-      from: { kind: 'agent', sessionId, ownerUserId: TEST_HOST_USER, displayName: 'Claude（Host）' },
+      from: { kind: 'agent', sessionId, ownerUserId: TEST_HOST_USER, displayName: 'Claude (Host)' },
       text: 'Could you release locked.txt when you are done?',
       file: main('locked.txt'),
     });

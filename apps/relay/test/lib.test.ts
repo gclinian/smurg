@@ -219,8 +219,8 @@ describe('identities', () => {
     });
     expect(makeIdentity({ provider: 'github', subject: 'abc', displayName: 'x', fallbackName: 'x' })).toBeNull();
     expect(makeIdentity({ provider: 'dev', subject: 'a b', displayName: 'x', fallbackName: 'x' })).toBeNull();
-    const withAvatar = makeIdentity({ provider: 'google', subject: '1', displayName: '', fallbackName: 'Google 使用者', avatarUrl: 'http://insecure.example/a.png' });
-    expect(withAvatar).toEqual({ userId: 'google:1', displayName: 'Google 使用者', provider: 'google' });
+    const withAvatar = makeIdentity({ provider: 'google', subject: '1', displayName: '', fallbackName: 'Google user', avatarUrl: 'http://insecure.example/a.png' });
+    expect(withAvatar).toEqual({ userId: 'google:1', displayName: 'Google user', provider: 'google' });
   });
 
   it('round-trips through claims and rejects inconsistent claims', () => {
@@ -298,15 +298,23 @@ describe('device-code login helpers (src/lib/device.ts)', () => {
   });
 
   it('words the place and the age for the confirmation screen', () => {
-    expect(placeText('TW', 'Taipei')).toBe('Taipei，台灣');
-    expect(placeText('US', null)).toBe('美國');
-    expect(placeText('T1', null)).toBe('Tor 網路');
-    expect(placeText('XX', 'Somewhere')).toBe('Somewhere');
-    expect(placeText(null, null)).toBe('不明');
+    expect(placeText('en', 'TW', 'Taipei')).toBe('Taipei, Taiwan');
+    expect(placeText('en', 'US', null)).toBe('United States');
+    expect(placeText('en', 'T1', null)).toBe('Tor network');
+    expect(placeText('en', 'XX', 'Somewhere')).toBe('Somewhere');
+    expect(placeText('en', null, null)).toBe('unknown');
+    expect(placeText('zh-TW', 'TW', 'Taipei')).toBe('Taipei，台灣');
+    expect(placeText('zh-TW', 'US', null)).toBe('美國');
+    expect(placeText('zh-TW', 'T1', null)).toBe('Tor 網路');
+    expect(placeText('zh-TW', 'XX', 'Somewhere')).toBe('Somewhere');
+    expect(placeText('zh-TW', null, null)).toBe('不明');
     const created = Date.parse('2026-10-01T08:15:30Z');
-    expect(ageText(created, created + 59_000)).toBe('不到 1 分鐘前（2026-10-01 08:15 UTC）');
-    expect(ageText(created, created + 3 * 60_000 + 1)).toBe('3 分鐘前（2026-10-01 08:15 UTC）');
-    expect(minutesUntil(created + 9 * 60_000 + 1, created)).toBe('10 分鐘');
-    expect(minutesUntil(created, created)).toBe('1 分鐘');
+    expect(ageText('en', created, created + 59_000)).toBe('less than 1 minute ago (2026-10-01 08:15 UTC)');
+    expect(ageText('en', created, created + 60_000)).toBe('1 minute ago (2026-10-01 08:15 UTC)');
+    expect(ageText('en', created, created + 3 * 60_000 + 1)).toBe('3 minutes ago (2026-10-01 08:15 UTC)');
+    expect(ageText('zh-TW', created, created + 59_000)).toBe('不到 1 分鐘前（2026-10-01 08:15 UTC）');
+    expect(ageText('zh-TW', created, created + 3 * 60_000 + 1)).toBe('3 分鐘前（2026-10-01 08:15 UTC）');
+    expect(minutesUntil(created + 9 * 60_000 + 1, created)).toBe(10);
+    expect(minutesUntil(created, created)).toBe(1);
   });
 });

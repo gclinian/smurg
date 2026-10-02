@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { TestHarness } from 'wrangler';
 import { registerOwnChildren } from '../../../packages/daemon/src/testing/run-registry.ts';
-import { INSTALL_SCRIPT } from '../src/routes.ts';
+import { INSTALL_SCRIPT, REPOSITORY } from '../src/routes.ts';
 import { SITE_ROOT, readPublic, testSite } from './html.ts';
 
 let harness: TestHarness | undefined;
@@ -52,7 +52,7 @@ function expectSecurityHeaders(response: Response, what: string): void {
 }
 
 describe('smurg.ai in workerd', () => {
-  it('serves the home pages, the docs and the license page as built, with the security headers', async () => {
+  it('serves the home pages, the docs and the license pages of both languages as built, with the security headers', async () => {
     for (const [path, page] of [
       ['/', 'index.html'],
       ['/zh-TW/', 'zh-TW/index.html'],
@@ -61,6 +61,11 @@ describe('smurg.ai in workerd', () => {
       ['/docs/joining/', 'docs/joining/index.html'],
       ['/docs/changelog/', 'docs/changelog/index.html'],
       ['/license/', 'license/index.html'],
+      ['/zh-TW/docs/', 'zh-TW/docs/index.html'],
+      ['/zh-TW/docs/hosting/', 'zh-TW/docs/hosting/index.html'],
+      ['/zh-TW/docs/joining/', 'zh-TW/docs/joining/index.html'],
+      ['/zh-TW/docs/changelog/', 'zh-TW/docs/changelog/index.html'],
+      ['/zh-TW/license/', 'zh-TW/license/index.html'],
     ] as const) {
       const response = await get(`https://smurg.ai${path}`);
       expect(response.status, path).toBe(200);
@@ -97,6 +102,9 @@ describe('smurg.ai in workerd', () => {
       ['/docs/hosting', '/docs/hosting/'],
       ['/docs/hosting/index.html', '/docs/hosting/'],
       ['/license', '/license/'],
+      ['/zh-TW/docs', '/zh-TW/docs/'],
+      ['/zh-TW/docs/hosting', '/zh-TW/docs/hosting/'],
+      ['/zh-TW/license', '/zh-TW/license/'],
     ] as const) {
       const response = await get(`https://smurg.ai${path}`);
       expect(response.status, path).toBeGreaterThanOrEqual(301);
@@ -112,17 +120,28 @@ describe('smurg.ai in workerd', () => {
     expect(INSTALL_SCRIPT).toBe('https://downloads.smurg.ai/latest/install.sh');
   });
 
-  it('answers unknown paths, /github and the old /docs/<file> paths with the 404 page of their language, status 404', async () => {
+  it('runs the Worker for /github and /source: 302 to the source repository', async () => {
+    for (const path of ['/github', '/source']) {
+      const response = await get(`https://smurg.ai${path}`);
+      expect(response.status, path).toBe(302);
+      expect(response.headers.get('location'), path).toBe(REPOSITORY);
+    }
+    expect(REPOSITORY).toBe('https://github.com/gclinian/smurg');
+  });
+
+  it('answers unknown paths with the 404 page of their language (English under /docs/, Chinese under /zh-TW/), status 404', async () => {
     for (const [path, page] of [
       ['/no-such-page', '404.html'],
       ['/install', '404.html'],
-      ['/github', '404.html'],
       ['/github/', '404.html'],
+      ['/github/x', '404.html'],
       ['/_headers', '404.html'],
-      ['/docs/HOSTING.md', 'docs/404.html'],
-      ['/docs/.env', 'docs/404.html'],
-      ['/docs/research/relay.md', 'docs/404.html'],
+      ['/docs/HOSTING.md', '404.html'],
+      ['/docs/.env', '404.html'],
+      ['/docs/research/relay.md', '404.html'],
       ['/zh-TW/no-such-page', 'zh-TW/404.html'],
+      ['/zh-TW/docs/HOSTING.md', 'zh-TW/404.html'],
+      ['/zh-TW/docs/no-such-page/', 'zh-TW/404.html'],
     ] as const) {
       const response = await get(`https://smurg.ai${path}`);
       expect(response.status, path).toBe(404);

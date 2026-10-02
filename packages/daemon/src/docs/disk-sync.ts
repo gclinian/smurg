@@ -1,4 +1,4 @@
-// Keeps each room and its file in step (SPEC R8 「唯一的真實來源是主人磁碟上的檔案」, D13; ARCHITECTURE §7.5):
+// Keeps each room and its file in step (SPEC R8: the only source of truth is the file on the host's disk; D13; ARCHITECTURE §7.5):
 //
 //  * human edit → debounce (300 ms, at most 2 s after the first unsaved edit) → the room's serialised queue: read +
 //    SHA-256 the file (never trust size/mtime/ino, V3), merge an unseen external change FIRST, then an atomic write
@@ -38,7 +38,7 @@ const RETRY_MAX_DELAY_MS = 2_000;
 /** A pause still in place after this long is settled (see the header). */
 export const PAUSE_CONFIRM_MS = 1_500;
 /**
- * What paused-room subscribers are told (review REL-01): the file is gone or unusable on disk; clients stop editing and
+ * What paused-room subscribers are told: the file is gone or unusable on disk; clients stop editing and
  * re-sync, and say that the text not yet saved is in the conflict panel (the recovery record), not discarded.
  */
 export const PAUSED_REJECT_REASON = 'file-unavailable';

@@ -1,4 +1,4 @@
-// Third-party notices for what smurg distributes. smurg itself is proprietary (LICENSE); the packages bundled into the
+// Third-party notices for what smurg distributes. smurg itself is MIT-licensed (LICENSE); the packages bundled into the
 // executable and into the web app keep their own licenses, which require their license and notice texts to travel
 // with every copy. This generates those texts from the real dependency graph (pnpm-lock.yaml) and the installed
 // packages' own files (node_modules), never by hand:
@@ -82,10 +82,10 @@ export interface NoticesSpec {
 const SPECS: Readonly<Record<NoticesKind, NoticesSpec>> = {
   executable: {
     title: 'smurg: third-party notices of the smurg executable',
-    intro: `smurg itself is proprietary software under its own license (\`smurg licenses\`, https://smurg.ai/license/). The smurg
-executable contains the third-party software listed below, each provided under its own license. This file reproduces
-the license and notice files each package publishes, unchanged except for line endings and trailing spaces. The
-executable also contains the Node.js runtime (the last section).
+    intro: `smurg itself is MIT-licensed (\`smurg licenses\`, https://smurg.ai/license/). The smurg executable contains the
+third-party software listed below, each provided under its own license. This file reproduces the license and notice
+files each package publishes, unchanged except for line endings and trailing spaces. The executable also contains the
+Node.js runtime (the last section).
 
 The executable for each platform contains the packages below that are meant for it: packages listed as "same license
 files as" another are the platform-specific native parts of that package, published by its authors under the same
@@ -97,11 +97,10 @@ license files. "build tool" marks a tool whose small runtime helper functions ar
   },
   web: {
     title: 'smurg: third-party notices of the smurg web app',
-    intro: `smurg itself is proprietary software under its own license (https://smurg.ai/license/). The smurg web app contains the
-third-party software listed below, each provided under its own license. This file reproduces the license and notice
-files each package publishes, unchanged except for line endings and trailing spaces (and, for vite, only the license
-of Vite's own code: see its section). "build tool" marks a tool whose small runtime helper functions are part of the
-app's code.`,
+    intro: `smurg itself is MIT-licensed (https://smurg.ai/license/). The smurg web app contains the third-party software
+listed below, each provided under its own license. This file reproduces the license and notice files each package
+publishes, unchanged except for line endings and trailing spaces (and, for vite, only the license of Vite's own code:
+see its section). "build tool" marks a tool whose small runtime helper functions are part of the app's code.`,
     importer: 'apps/web',
     targets: null,
     buildTools: [

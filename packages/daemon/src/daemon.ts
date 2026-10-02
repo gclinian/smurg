@@ -133,7 +133,7 @@ export interface Daemon {
   status(): DaemonStatus;
   /**
    * A fresh relay session token for the host sockets (the host ran `smurg login` again): used from the next upgrade,
-   * at once when the relay refused the old one (link state 'auth-rejected', bus event 'relay.link'; review REL-08).
+   * at once when the relay refused the old one (link state 'auth-rejected', bus event 'relay.link').
    */
   updateRelayToken(token: string): void;
   /** For the testing harness and the local control socket. */
@@ -144,7 +144,7 @@ export interface Daemon {
     readonly invites: InviteServiceImpl;
     readonly links: ReadonlyMap<ChannelPurpose, RelayLink>;
     readonly identityKeys: IdentityKeySource;
-    /** `store.unsaved()`: state documents the disk currently refuses (review REL-14). */
+    /** `store.unsaved()`: state documents the disk currently refuses. */
     readonly store: FileStateStore;
   };
 }
@@ -175,7 +175,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
   // The sockets (control, hook) live here; a group/other-accessible run dir is refused like the state dir.
   await ensurePrivateDirectory(config.runDir);
   const share = await prepareShare(config.shareDir, config.stateDir, options.homeDir === undefined ? {} : { homeDir: options.homeDir });
-  // One daemon per folder, whatever state dir or relay the other one uses (review CLI-05). Held until stop().
+  // One daemon per folder, whatever state dir or relay the other one uses. Held until stop().
   const shareLock = await acquireShareLock({ shareRealPath: share.realPath, runDir: config.runDir, workspaceId: config.workspaceId });
   let store: FileStateStore;
   let identity: Awaited<ReturnType<typeof loadOrCreateDaemonIdentity>>;
@@ -226,7 +226,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     });
     members.setHub(hub);
     // "Last seen" is the last moment a member was CONNECTED: the end of a connection counts, not only its start
-    // (admission), so the console's 「最後上線」 of a member who stayed connected for days is not their first connect.
+    // (admission), so the console's "last seen" of a member who stayed connected for days is not their first connect.
     const lastSeen = bus.on('conn.closed', ({ conn }) => members.touch(conn.userId, conn.deviceId, clock.now()));
     const router = new RouterImpl({ sink: hub, members, audit, log: log.child({ module: 'router' }) });
     hub.setRouter(router);
@@ -416,7 +416,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       hub.stopTimers();
       await power.stop();
       // Every unsaved document gets one more attempt; what still cannot be written is lost at the next start (a kick,
-      // a demotion, a revoked invite would be undone), so say so loudly (review REL-14).
+      // a demotion, a revoked invite would be undone), so say so loudly.
       await store.flush().catch((err: unknown) => {
         const unsaved = store.unsaved();
         log.error('STATE NOT SAVED: changes since the last successful write (kicks, role changes, revoked invites or devices) will be lost at the next start', {

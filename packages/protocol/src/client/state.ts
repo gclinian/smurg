@@ -67,7 +67,7 @@ export type ConnectionState =
   | { readonly kind: 'handshaking'; readonly mode: HandshakeMode; readonly attempt: number }
   /** Admitted. `resumed = false`: the application must resync (reload tree, re-open docs, re-attach sessions). */
   | { readonly kind: 'online'; readonly welcome: Welcome; readonly resumed: boolean }
-  /** 「主人已離線」. The connection comes back by itself when the host does. */
+  /** The host is offline. The connection comes back by itself when the host does. */
   | { readonly kind: 'host-offline'; readonly reason: HostOfflineReason; readonly since: number }
   /** The relay cannot be reached; a retry is scheduled at `retryAt`. */
   | { readonly kind: 'relay-unreachable'; readonly attempt: number; readonly retryAt: number; readonly cause: RelayUnreachableCause }

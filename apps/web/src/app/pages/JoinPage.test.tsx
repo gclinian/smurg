@@ -16,9 +16,9 @@ function servicesWithInvite(options: Parameters<typeof createTestServices>[0] = 
   return { services, invite };
 }
 
-/** Step 4: the explicit 「加入」 (SEC-E-02). */
+/** Step 4: the explicit "Join". */
 async function confirmJoin(): Promise<void> {
-  await userEvent.click(await screen.findByRole('button', { name: '加入' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Join' }));
 }
 
 async function flush(): Promise<void> {
@@ -43,7 +43,7 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     render(<App services={withTab} />);
 
     // Not logged in: the login step. Choosing GitHub leaves the SPA …
-    await userEvent.click(await screen.findByRole('button', { name: '使用 GitHub 登入' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Log in with GitHub' }));
     expect(services.router.assigned).toHaveLength(1);
     const redirect = services.router.assigned[0]!;
     // … with a return URL that carries no fragment and no secret, while the address bar has none either.
@@ -70,7 +70,7 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     expect([...(options.invite?.secret ?? [])]).toEqual([...invite.secret]);
     expect(options.preferInvite).toBe(false);
     expect(conn.started).toBe(true);
-    expect(await screen.findByRole('heading', { name: '正在加入工作區' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Joining the workspace' })).toBeTruthy();
 
     // Still pending while the handshake runs (the SDK pins the daemon key before it proves the invite).
     act(() => conn.setState({ kind: 'handshaking', mode: 'invite', attempt: 1 }));
@@ -88,7 +88,7 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     expect(await screen.findByText('class-project', {}, { timeout: 15_000 })).toBeTruthy();
   });
 
-  it('a logged-in visitor sent to an invite link by another page joins nothing until they click 「加入」 (SEC-E-02)', async () => {
+  it('a logged-in visitor sent to an invite link by another page joins nothing until they click "Join"', async () => {
     const { services, invite } = servicesWithInvite();
     let meCalls = 0;
     const me = services.auth.me;
@@ -105,11 +105,11 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     const confirm = await screen.findByTestId('join-confirm');
     // It says what joining shares, and with which identity.
     expect(confirm.textContent).toContain(WORKSPACE_ID);
-    expect(confirm.textContent).toContain('主人會看到你的名稱、帳號和裝置名稱');
+    expect(confirm.textContent).toContain('the host of this workspace sees your name, your account and your device name');
     expect(services.sessionStorage.getItem(PENDING_INVITE_KEY_PREFIX + WORKSPACE_ID)).toBe(invite.fragment);
 
-    // 「不要加入」 forgets the link and goes home, still without connecting.
-    await userEvent.click(screen.getByRole('button', { name: '不要加入' }));
+    // "Do not join" forgets the link and goes home, still without connecting.
+    await userEvent.click(screen.getByRole('button', { name: 'Do not join' }));
     expect(services.router.getState().pathname).toBe('/');
     expect(services.sessionStorage.getItem(PENDING_INVITE_KEY_PREFIX + WORKSPACE_ID)).toBeNull();
     expect(services.connections).toHaveLength(0);
@@ -119,7 +119,7 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     const services = createTestServices({ path: JOIN_PATH });
     services.sessionStorage.setItem(PENDING_INVITE_KEY_PREFIX + WORKSPACE_ID, 'k=abc&s=def');
     render(<App services={services} />);
-    expect(await screen.findByRole('heading', { name: '邀請連結格式不正確' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'The invite link is malformed' })).toBeTruthy();
     expect(services.connections).toHaveLength(0);
     expect(services.sessionStorage.getItem(PENDING_INVITE_KEY_PREFIX + WORKSPACE_ID)).toBeNull();
   });
@@ -132,7 +132,7 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
 
     const fresh = createTestServices({ path: JOIN_PATH });
     render(<App services={fresh} />);
-    expect(await screen.findByRole('heading', { name: '邀請連結不完整' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'The invite link is incomplete' })).toBeTruthy();
     expect(fresh.connections).toHaveLength(0);
   });
 
@@ -143,7 +143,7 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     const dialog = await screen.findByTestId('key-change-confirm');
     expect(dialog.getAttribute('role')).toBe('alertdialog');
     expect(services.connections).toHaveLength(0);
-    await userEvent.click(screen.getByRole('button', { name: '我已向主人確認，使用新的連結' }));
+    await userEvent.click(screen.getByRole('button', { name: 'I confirmed with the host: use the new link' }));
     await waitFor(() => expect(services.connections).toHaveLength(1));
     expect(services.connections[0]!.options.preferInvite).toBe(true);
   });
@@ -152,13 +152,13 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     const { services } = servicesWithInvite();
     await services.pins.pin(WORKSPACE_ID, x25519KeyPair().publicKey);
     render(<App services={services} />);
-    await userEvent.click(await screen.findByRole('button', { name: '取消' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
     expect(services.router.getState().pathname).toBe('/');
     expect(services.sessionStorage.getItem(PENDING_INVITE_KEY_PREFIX + WORKSPACE_ID)).toBeNull();
     expect(services.connections).toHaveLength(0);
   });
 
-  it('a pinned key equal to the invite asks nothing about the key (only the usual 「加入」)', async () => {
+  it('a pinned key equal to the invite asks nothing about the key (only the usual "Join")', async () => {
     const { services, invite } = servicesWithInvite();
     await services.pins.pin(WORKSPACE_ID, invite.daemonKey);
     render(<App services={services} />);
@@ -167,7 +167,7 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     expect(services.connections[0]!.options.preferInvite).toBe(false);
   });
 
-  it('relay 把 daemon 公鑰替換成自己的公鑰時，客戶端拒絕連線並顯示警告 — during the join (web)', async () => {
+  it('when the relay replaces the daemon public key with its own, the client refuses the connection and shows a warning — during the join (web)', async () => {
     const { services } = servicesWithInvite();
     render(<App services={services} />);
     await confirmJoin();
@@ -175,8 +175,8 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     act(() => services.connections[0]!.conn.keyMismatch('fingerprint', 'invite'));
     const warning = await screen.findByTestId('key-mismatch-screen');
     expect(warning.getAttribute('role')).toBe('alertdialog');
-    expect(warning.textContent).toContain('已拒絕連線');
-    expect(warning.textContent).toContain('請主人產生一個新的邀請連結');
+    expect(warning.textContent).toContain('connection refused');
+    expect(warning.textContent).toContain('Ask the host to make a new invite link');
     // The invite cannot be used through this relay; it is not kept around.
     expect(services.sessionStorage.getItem(PENDING_INVITE_KEY_PREFIX + WORKSPACE_ID)).toBeNull();
     expect(services.router.getState().pathname).toBe(JOIN_PATH);
@@ -188,7 +188,7 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     await confirmJoin();
     await waitFor(() => expect(services.connections).toHaveLength(1));
     act(() => services.connections[0]!.conn.setState({ kind: 'rejected', reason: 'invite-invalid' }));
-    expect(await screen.findByRole('heading', { name: '邀請連結無法使用' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'This invite link cannot be used' })).toBeTruthy();
     expect(services.sessionStorage.getItem(PENDING_INVITE_KEY_PREFIX + WORKSPACE_ID)).toBeNull();
   });
 
@@ -208,13 +208,13 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     await confirmJoin();
     await waitFor(() => expect(services.connections).toHaveLength(1));
     act(() => services.connections[0]!.conn.hostOffline('relay'));
-    expect(await screen.findByText(/主人的電腦目前離線。主人上線後會自動繼續加入/)).toBeTruthy();
+    expect(await screen.findByText(/The host's computer is offline\. The join continues automatically when the host is back/)).toBeTruthy();
   });
 
   it('shows the dev-login form only when the relay reports dev login', async () => {
     const without = servicesWithInvite({ user: null, dev: false }).services;
     const { unmount } = render(<App services={without} />);
-    expect(await screen.findByRole('button', { name: '使用 GitHub 登入' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Log in with GitHub' })).toBeTruthy();
     await flush();
     expect(screen.queryByTestId('dev-login-form')).toBeNull();
     unmount();
@@ -222,8 +222,8 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     const withDev = servicesWithInvite({ user: null, dev: true }).services;
     render(<App services={withDev} />);
     const form = await screen.findByTestId('dev-login-form');
-    await userEvent.type(screen.getByLabelText('帳號名稱'), 'bob');
-    await userEvent.click(screen.getByRole('button', { name: '以開發用帳號登入' }));
+    await userEvent.type(screen.getByLabelText('Account name'), 'bob');
+    await userEvent.click(screen.getByRole('button', { name: 'Log in with a development account' }));
     expect(withDev.router.assigned[0]).toContain('/auth/dev/start?user=bob');
     expect(withDev.router.assigned[0]).not.toContain('#');
     expect(form).toBeTruthy();

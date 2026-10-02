@@ -6,6 +6,7 @@ import { symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type FileRef } from '@smurg/protocol';
+import { OUTSIDE_ROOT_REASON, agentHeldReason, humanHeldReason } from '../../src/hooks/deny-text.ts';
 import { locksModule } from '../../src/locks/module.ts';
 import { createTestDaemon, waitFor, type TestDaemon } from '../../src/testing/index.ts';
 import { agentSession, humanTypes, permissionRequest, postToolUse, preToolUse, recorder, userPromptSubmit, watcherSaw } from './agent-sim.ts';
@@ -34,8 +35,8 @@ const BOB = { userId: 'dev:bob', displayName: 'Bob' } as const;
 const IAN = agentSession('ses_ian', 'dev:ian', 'Ian');
 const HOSTS_AGENT = agentSession('ses_host', 'dev:host', 'Host');
 
-describe('R8 檔案鎖 (acceptance)', () => {
-  it('R8.1 有人正在打字的檔案，agent 的 Edit 被擋下，並收到持有者的名字', async () => {
+describe('R8 file locks (acceptance)', () => {
+  it('R8.1 an agent\'s Edit of a file someone is typing in is blocked and names the holder', async () => {
     const d = await daemon();
     const host = await d.connectHost();
     const amy = await d.connect({ userId: AMY.userId, displayName: AMY.displayName, role: 'editor' });
@@ -47,12 +48,12 @@ describe('R8 檔案鎖 (acceptance)', () => {
     const edit = preToolUse(d, IAN, APP, 'Edit');
     expect(edit.granted).toBe(false);
     expect(edit.hookOutput?.hookSpecificOutput.permissionDecision).toBe('deny');
-    expect(edit.hookOutput?.hookSpecificOutput.permissionDecisionReason).toBe('此檔案正由 Amy 編輯中，請先處理其他檔案或稍後再試');
+    expect(edit.hookOutput?.hookSpecificOutput.permissionDecisionReason).toBe(humanHeldReason(['Amy']));
 
     await waitFor(() => states.length >= 1 && activity.some((a) => a.event.kind === 'lock.denied'), { what: 'lock.state and the lock.denied entry' });
     expect(states[0]).toMatchObject({ file: APP, lock: { kind: 'human', holders: [{ userId: 'dev:amy', displayName: 'Amy' }] } });
     const denied = activity.find((a) => a.event.kind === 'lock.denied')?.event;
-    expect(denied).toMatchObject({ actor: { kind: 'agent', sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude（Ian）' }, file: APP });
+    expect(denied).toMatchObject({ actor: { kind: 'agent', sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude (Ian)' }, file: APP });
     expect(denied?.summary).toContain('Amy');
     const audit = await host.conn.request('admin.audit.query', { limit: 50 });
     expect(audit.entries.find((e) => e.action === 'lock.denied')).toMatchObject({
@@ -65,7 +66,7 @@ describe('R8 檔案鎖 (acceptance)', () => {
     expect(d.ctx.services.locks.get(APP)?.kind).toBe('human');
   });
 
-  it('R8.2 agent 正在修改的檔案，所有人的編輯器暫時唯讀並顯示提示；完成後自動恢復可編輯', async () => {
+  it('R8.2 while an agent changes a file every editor is read-only and says so; it becomes editable again by itself', async () => {
     const d = await daemon();
     const host = await d.connectHost();
     const amy = await d.connect({ userId: AMY.userId, displayName: AMY.displayName, role: 'editor' });
@@ -76,13 +77,13 @@ describe('R8 檔案鎖 (acceptance)', () => {
     expect(preToolUse(d, IAN, APP).granted).toBe(true);
     await waitFor(() => seen.every((list) => list.length >= 1), { what: 'lock.state (agent) at every client' });
     for (const list of seen) {
-      // The notice every editor shows: 「Claude（Ian）正在修改」, read-only until expiresAt at the latest.
-      expect(list[0]).toMatchObject({ file: APP, lock: { kind: 'agent', agentName: 'Claude（Ian）', ownerUserId: 'dev:ian', sessionId: 'ses_ian' } });
+      // The notice every editor shows: "Claude (Ian) is changing this file", read-only until expiresAt at the latest.
+      expect(list[0]).toMatchObject({ file: APP, lock: { kind: 'agent', agentName: 'Claude (Ian)', ownerUserId: 'dev:ian', sessionId: 'ses_ian' } });
     }
     // While it is held, a person's edit is refused (DocService reverts it and sends doc.rejected).
-    expect(humanTypes(d, AMY, APP)).toMatchObject({ ok: false, lock: { kind: 'agent', agentName: 'Claude（Ian）' } });
+    expect(humanTypes(d, AMY, APP)).toMatchObject({ ok: false, lock: { kind: 'agent', agentName: 'Claude (Ian)' } });
     const listed = await amy.conn.request('lock.list', {});
-    expect(listed.locks).toEqual([expect.objectContaining({ kind: 'agent', agentName: 'Claude（Ian）' })]);
+    expect(listed.locks).toEqual([expect.objectContaining({ kind: 'agent', agentName: 'Claude (Ian)' })]);
 
     postToolUse(d, IAN, APP); // the agent finished
     await waitFor(() => seen.every((list) => list.length >= 2), { what: 'lock.state (free) at every client' });
@@ -90,7 +91,7 @@ describe('R8 檔案鎖 (acceptance)', () => {
     expect(humanTypes(d, AMY, APP)).toMatchObject({ ok: true, acquired: true }); // editable again
   });
 
-  it('R8.2 … 完成後自動恢復可編輯 — also when the owner rejects the permission prompt (no Post event): the next UserPromptSubmit, the next PreToolUse, or the TTL', async () => {
+  it('R8.2 ... editable again by itself — also when the owner rejects the permission prompt (no Post event): the next UserPromptSubmit, the next PreToolUse, or the TTL', async () => {
     const d = await daemon({ agentLockTimeoutMs: 1_000 });
     const amy = await d.connect({ userId: AMY.userId, displayName: AMY.displayName, role: 'editor' });
     const seen = recorder(amy.conn, 'lock.state');
@@ -119,7 +120,7 @@ describe('R8 檔案鎖 (acceptance)', () => {
     expect(humanTypes(d, AMY, APP)).toMatchObject({ ok: true });
   });
 
-  it('R8.3 兩個 agent 同時修改同一個檔案時，後到者被擋下', async () => {
+  it('R8.3 when two agents change the same file at once the later one is blocked', async () => {
     const d = await daemon();
     const host = await d.connectHost();
     await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
@@ -128,16 +129,16 @@ describe('R8 檔案鎖 (acceptance)', () => {
     expect(preToolUse(d, IAN, APP).granted).toBe(true);
     const later = preToolUse(d, HOSTS_AGENT, APP, 'Write');
     expect(later.granted).toBe(false);
-    expect(later.hookOutput?.hookSpecificOutput.permissionDecisionReason).toContain('Claude（Ian）正在修改此檔案');
+    expect(later.hookOutput?.hookSpecificOutput.permissionDecisionReason).toBe(agentHeldReason('Claude (Ian)'));
     await waitFor(() => activity.some((a) => a.event.kind === 'lock.denied'), { what: 'lock.denied' });
-    expect(activity.find((a) => a.event.kind === 'lock.denied')?.event).toMatchObject({ actor: { kind: 'agent', sessionId: 'ses_host', displayName: 'Claude（Host）' } });
+    expect(activity.find((a) => a.event.kind === 'lock.denied')?.event).toMatchObject({ actor: { kind: 'agent', sessionId: 'ses_host', displayName: 'Claude (Host)' } });
     expect(d.ctx.services.locks.get(APP)).toMatchObject({ kind: 'agent', sessionId: 'ses_ian' });
     // Once the first agent is done, the second one gets the file.
     postToolUse(d, IAN, APP);
     expect(preToolUse(d, HOSTS_AGENT, APP, 'Write').granted).toBe(true);
   });
 
-  it('R8.5 每一次 agent 的修改都出現在活動動態中，標示是哪個 agent、屬於誰', async () => {
+  it('R8.5 every agent edit appears in the activity feed, saying which agent and whose it is', async () => {
     const d = await daemon();
     const host = await d.connectHost();
     const amy = await d.connect({ userId: AMY.userId, displayName: AMY.displayName, role: 'editor' });
@@ -174,11 +175,11 @@ describe('R8 檔案鎖 (acceptance)', () => {
       ['agent.edit', 'notes.txt'],
       ['external.change', 'build.log'],
     ]);
-    expect(events[0]?.actor).toEqual({ kind: 'agent', sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude（Ian）' });
-    expect(events[2]?.actor).toEqual({ kind: 'agent', sessionId: 'ses_host', ownerUserId: 'dev:host', displayName: 'Claude（Host）' });
+    expect(events[0]?.actor).toEqual({ kind: 'agent', sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude (Ian)' });
+    expect(events[2]?.actor).toEqual({ kind: 'agent', sessionId: 'ses_host', ownerUserId: 'dev:host', displayName: 'Claude (Host)' });
     expect(events[3]?.actor).toMatchObject({ kind: 'agent', ownerUserId: 'dev:ian' });
     expect(events[4]?.actor).toEqual({ kind: 'system' });
-    expect(events[0]?.summary).toContain('Claude（Ian）');
+    expect(events[0]?.summary).toContain('Claude (Ian)');
 
     // The same entries are in the persisted feed (newest first) and in the audit log.
     const listed = await amy.conn.request('activity.list', { limit: 10 });
@@ -193,7 +194,7 @@ describe('R8 檔案鎖 (acceptance)', () => {
 });
 
 describe('R8 human lock over the wire', () => {
-  it('shared human lock with two humans: 「讓 agent 先改」 releases only the caller; a non-holder cannot', async () => {
+  it('shared human lock with two humans: "Let the agent go first" releases only the caller; a non-holder cannot', async () => {
     const d = await daemon();
     const host = await d.connectHost();
     const amy = await d.connect({ userId: AMY.userId, displayName: AMY.displayName, role: 'editor' });
@@ -259,7 +260,7 @@ describe('R8 human lock over the wire', () => {
       outcome: 'ok',
       actor: { kind: 'user', userId: 'dev:host' },
       target: 'main:src/app.ts',
-      detail: { kind: 'agent', holder: 'Claude（Ian）', sessionId: 'ses_ian' },
+      detail: { kind: 'agent', holder: 'Claude (Ian)', sessionId: 'ses_ian' },
     });
     expect(audit.entries.find((e) => e.action === 'authz.denied' && e.detail?.['type'] === 'lock.forceRelease')).toMatchObject({ actor: { userId: 'dev:amy' } });
   });
@@ -307,7 +308,7 @@ describe('R8 human lock over the wire', () => {
     const worktreeSession = agentSession('ses_wt', 'dev:ian', 'Ian', { kind: 'worktree', worktreeId: 'wt_ian' });
     const refused = preToolUse(d, worktreeSession, APP);
     expect(refused.granted).toBe(false);
-    expect(refused.hookOutput?.hookSpecificOutput.permissionDecisionReason).toContain('不在這個 session 的工作區內');
+    expect(refused.hookOutput?.hookSpecificOutput.permissionDecisionReason).toBe(OUTSIDE_ROOT_REASON);
     expect(d.ctx.services.locks.list()).toEqual([]);
   });
 });

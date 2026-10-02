@@ -4,28 +4,16 @@
 //  * a file path counts only after realpath (PathGuard.toFileRef) and only inside the session's root, and a lock is
 //    requested only after PathGuard.resolve(forWrite) with the agent's principal accepted it;
 //  * PreToolUse never returns "allow" (that would skip the owner's permission prompt): a granted lock returns no
-//    output at all, a refusal a JSON deny whose reason names the holder;
+//    output at all, a refusal a JSON deny whose reason (fixed English, deny-text.ts) names the holder;
 //  * every failure while deciding a PreToolUse is a deny (fail closed).
 import { isAbsolute, resolve as resolvePath, basename } from 'node:path';
 import { SmurgError, fileRefKey, rootRefEquals, rootRefKey, type FileRef } from '@smurg/protocol';
 import type { DaemonContext } from '../core/context.ts';
 import { isPathDeniedError } from '../core/errors.ts';
 import type { AgentLockResult, HookSessionRegistration, Principal } from '../core/interfaces.ts';
+import { HOOK_DENY_REASONS, pathCheckFailedReason, pathDeniedReason } from './deny-text.ts';
 import type { HookInput } from './schemas.ts';
 import { BASH_TOOL_NAME, EDIT_TOOL_NAMES, preToolUseDeny, type JsonObject } from './wire.ts';
-
-/** Deny reasons (zh-TW). Claude Code shows them after `PreToolUse:<Tool> hook error: `; each reads on its own. */
-export const HOOK_DENY_REASONS = Object.freeze({
-  unknownSession: 'smurg 無法確認這個 session 的身分（session 已結束或未向工作區註冊），為避免覆蓋組員的修改，已擋下這次修改。',
-  ownerGone: '這個 session 的擁有者已不在工作區中，已擋下這次修改。',
-  noTarget: '無法判斷這次修改的目標檔案，已擋下這次修改。',
-  outsideRoot: '只能修改這個 session 工作區內的檔案；目標不在工作區內，已擋下這次修改。',
-  otherRoot: '只能修改這個 session 所在工作區（或 worktree）內的檔案；目標屬於另一個工作區，已擋下這次修改。',
-  locksUnavailable: 'smurg 暫時無法確認檔案鎖，為避免覆蓋組員的修改，已擋下這次修改，請稍後再試。',
-  timeout: 'smurg 未能及時確認檔案鎖，為避免覆蓋組員的修改，已擋下這次修改，請稍後再試。',
-  rateLimited: 'smurg 在短時間內收到這個 session 太多請求，已暫時擋下這次修改，請稍候幾秒再試。',
-  badRequest: 'smurg 無法讀取這次修改的請求，已擋下這次修改。',
-});
 
 /** Per-session state the event handlers keep (owned by the HookServer's session entry). */
 export interface HookSessionState {
@@ -172,8 +160,8 @@ export async function handlePreToolUse(ctx: DaemonContext, state: HookSessionSta
     file = (await ctx.paths.resolve(located.ref, { principal, forWrite: true })).ref;
   } catch (err) {
     releaseHeld(ctx, state, null);
-    if (isPathDeniedError(err)) return deny(`${err.message}，已擋下這次修改。`);
-    if (err instanceof SmurgError) return deny(`${err.message}，已擋下這次修改。`);
+    if (isPathDeniedError(err)) return deny(pathDeniedReason(err.reason));
+    if (err instanceof SmurgError) return deny(pathCheckFailedReason(err.code));
     ctx.log.warn('hook path check failed', { session: session.sessionId, error: err instanceof Error ? err.name : 'unknown' });
     return deny(HOOK_DENY_REASONS.locksUnavailable);
   }

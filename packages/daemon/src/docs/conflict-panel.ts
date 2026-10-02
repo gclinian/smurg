@@ -1,4 +1,4 @@
-// The conflict panel (SPEC R8 「重疊部分出現在衝突面板並通知雙方」; ARCHITECTURE §5.3): turning the overlapping hunks of
+// The conflict panel (SPEC R8: overlapping parts appear in the conflict panel and both sides are told; ARCHITECTURE §5.3): turning the overlapping hunks of
 // a merge into a ConflictRecord, telling everyone (the humans and the agent's owner are among them), auditing
 // `doc.conflict` (DocService's own action) and recording the activity entry; listing, reading and closing records.
 import {
@@ -16,6 +16,7 @@ import {
   type FileRef,
   type ResultInputOf,
 } from '@smurg/protocol';
+import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import { newId } from '../core/lifecycle.ts';
 import type { Logger } from '../core/logger.ts';
@@ -24,8 +25,7 @@ import type { ComputeResult } from './compute-job.ts';
 import { ConflictStore } from './conflicts.ts';
 
 /**
- * `<share>/.smurg` (main root) and the host's private data (.git, .envrc, the host's personal Claude Code files; review
- * SEC-D-03) are not readable for non-hosts (ARCHITECTURE §5.2, §7.4): nor are their conflicts, which carry file text.
+ * `<share>/.smurg` (main root) and the host's private data (.git, .envrc, the host's personal Claude Code files) are not readable for non-hosts (ARCHITECTURE §5.2, §7.4): nor are their conflicts, which carry file text.
  */
 export function hiddenForGuests(ref: FileRef): boolean {
   if (isHostPrivatePath(ref.path)) return true;
@@ -44,15 +44,18 @@ function hunkText(text: string): { readonly text: string; readonly cut: boolean 
   return { text: cut, cut: cut.length !== clean.length };
 }
 
-function summary(ref: FileRef, count: number): string {
-  const path = ref.path.length > 200 ? `…${ref.path.slice(-199)}` : ref.path;
-  return `「${path}」有 ${count} 處修改與正在編輯的內容重疊，已保留編輯中的內容，另一個版本在衝突面板`;
+/** The end of a long path (the file name matters most), at most 200 characters. */
+function shownPath(ref: FileRef): string {
+  return ref.path.length > 200 ? `\u2026${ref.path.slice(-199)}` : ref.path;
 }
 
-function recoverySummary(ref: FileRef, reason: string): string {
-  const path = ref.path.length > 200 ? `…${ref.path.slice(-199)}` : ref.path;
-  const what = reason === 'deleted' ? '在編輯中被刪除或移走' : reason === 'unsupported' ? '變成無法在編輯器中開啟的內容' : '已無法安全寫入';
-  return `「${path}」${what}，尚未儲存的內容已保留在衝突面板`;
+function conflictText(ref: FileRef, count: number): MessageRef {
+  return msg('activity.conflict', { path: shownPath(ref), count });
+}
+
+/** `reason`: the pause reason (`deleted`, `unsupported`, anything else = cannot be written safely any more). */
+function recoveryText(ref: FileRef, reason: string): MessageRef {
+  return msg('activity.conflictRecovered', { path: shownPath(ref), reason: reason === 'deleted' || reason === 'unsupported' ? reason : 'unwritable' });
 }
 
 export class ConflictPanel {
@@ -111,7 +114,7 @@ export class ConflictPanel {
       detail: { conflictId: record.id, hunks: count, truncated, docId: input.docId },
     });
     try {
-      this.ctx.services.activity.record({ actor: input.source, kind: 'conflict', file: input.file, summary: summary(input.file, count) });
+      this.ctx.services.activity.record({ actor: input.source, kind: 'conflict', file: input.file, text: conflictText(input.file, count) });
     } catch {
       // No activity feed (yet): the audit entry and doc.conflict still record it.
     }
@@ -162,7 +165,7 @@ export class ConflictPanel {
       detail: { conflictId: record.id, kind: 'unsaved-text', reason: input.reason, bytes: input.bytes.byteLength, docId: input.docId },
     });
     try {
-      this.ctx.services.activity.record({ actor: input.source, kind: 'conflict', file: input.file, summary: recoverySummary(input.file, input.reason) });
+      this.ctx.services.activity.record({ actor: input.source, kind: 'conflict', file: input.file, text: recoveryText(input.file, input.reason) });
     } catch {
       // No activity feed (yet): the audit entry and doc.conflict still record it.
     }

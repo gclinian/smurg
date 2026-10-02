@@ -8,7 +8,10 @@
 import { EXEC_INPUT_MAX_BYTES, can, type SessionInfo } from '@smurg/protocol';
 import type { WorkspaceChannel } from '../channel/channel.ts';
 import type { ChannelEnd } from '../channel/channel.ts';
+import { errorText } from '../cli/errors.ts';
 import type { AttachTerminal, CliIo, CliSignal } from '../cli/io.ts';
+import { msg, renderEnglish } from '@smurg/protocol/i18n';
+import { m, renderText, wireText, type Locale, type Text } from '../i18n/index.ts';
 import { OutputFilter } from './output-filter.ts';
 
 /** Ctrl-] (the telnet convention) and its CSI-u form (an app that enabled the kitty keyboard protocol). */
@@ -53,6 +56,8 @@ export interface AttachSessionOptions {
   readonly session: SessionInfo;
   readonly terminal: AttachTerminal;
   readonly io: Pick<CliIo, 'onExit' | 'onSignal'>;
+  /** The language of the notices and of the window title. */
+  readonly lang: Locale;
   /** The local terminal takes UTF-8 (default true; false: only ASCII text is passed, see output-filter.ts). */
   readonly utf8?: boolean;
 }
@@ -94,13 +99,16 @@ export function signalExitCode(signal: CliSignal): number {
 
 /** Runs the attach until detach / exit / end; the terminal is restored before this resolves. */
 export function attachSession(options: AttachSessionOptions): Promise<AttachOutcome> {
-  const { channel, terminal, io } = options;
+  const { channel, terminal, io, lang } = options;
+  const tr = (text: Text): string => renderText(lang, text);
+  /** A notice line of ours among the session's output. */
+  const note = (message: Text): string => tr(m('attach.note', { message }));
   const me = channel.welcome.member.userId;
   let session = options.session;
   const sessionId = session.id;
   /** The owner (who opened it) drives the PTY size (resize policy `owner`). */
   const isOwner = session.ownerUserId === me;
-  /** The host and 「可使用 agent」 type into any session (`session.drive`, ARCHITECTURE §11 D-15); others only watch. */
+  /** The host and members with agent access type into any session (`session.drive`, ARCHITECTURE §11 D-15); others only watch. */
   const canType = can(channel.welcome.member.role, 'session.drive');
   const newFilter = (): OutputFilter => new OutputFilter({ utf8: options.utf8 ?? true });
   let filter = newFilter();
@@ -181,15 +189,15 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
 
   const updateTitle = (status: 'online' | 'host-offline' | 'reconnecting' = 'online'): void => {
     const local = terminal.size();
-    const parts = [`smurg：${session.title}`];
-    if (!canType) parts.push('唯讀');
-    if (status === 'host-offline') parts.push('主人已離線，等待重新連線…');
-    if (status === 'reconnecting') parts.push('重新連線中…');
-    if (!isOwner && local && (local.cols < ptySize.cols || local.rows < ptySize.rows)) parts.push(`session 視窗是 ${ptySize.cols}×${ptySize.rows}，請放大終端機`);
-    write(title(parts.join(' — ')));
+    const parts = [tr(m('attach.title', { title: sessionTitle(session) }))];
+    if (!canType) parts.push(tr(m('attach.title.readOnly')));
+    if (status === 'host-offline') parts.push(tr(m('attach.title.hostOffline')));
+    if (status === 'reconnecting') parts.push(tr(m('attach.title.reconnecting')));
+    if (!isOwner && local && (local.cols < ptySize.cols || local.rows < ptySize.rows)) parts.push(tr(m('attach.title.enlarge', { cols: ptySize.cols, rows: ptySize.rows })));
+    write(title(parts.join(' - ')));
   };
 
-  const exitedMessage = (s: SessionInfo): string => `[smurg] session 已結束（結束代碼 ${s.exitCode ?? 0}）。`;
+  const exitedMessage = (s: SessionInfo): string => note(m('attach.exited', { exitCode: s.exitCode ?? 0 }));
 
   const requestAttach = async (): Promise<void> => {
     pending = [];
@@ -199,8 +207,9 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
     try {
       result = await channel.request('session.attach', { sessionId, ...(viewport ? { cols: viewport.cols, rows: viewport.rows } : {}) });
     } catch (err) {
-      const message = err instanceof Error && err.message ? err.message : '無法接上 session';
-      finish({ kind: 'ended', end: { reason: 'closed', message } }, `[smurg] ${message}`);
+      // A daemon refusal carries a reference into the wire catalog: shown in this terminal's language.
+      const message = errorText(err, m('attach.failed'));
+      finish({ kind: 'ended', end: { reason: 'closed', message } }, note(message));
       return;
     }
     if (finished) return;
@@ -242,7 +251,7 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
       // While the attach answer is pending, its queued output is painted first (requestAttach finishes then).
       if (exitedState && pending === null) finish({ kind: 'exited', exitCode: exitedState.exitCode ?? 0 }, exitedMessage(exitedState));
     }),
-    channel.onEnd((end) => finish({ kind: 'ended', end }, `[smurg] ${end.message}`)),
+    channel.onEnd((end) => finish({ kind: 'ended', end }, note(end.message))),
     channel.onRestart(() => {
       // The daemon started a fresh channel (our viewer is gone): attach again; the snapshot repaints everything.
       if (!finished) void requestAttach();
@@ -251,7 +260,7 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
     io.onExit(() => finish({ kind: 'detached' }, '')),
   );
   for (const signal of ['SIGTERM', 'SIGHUP', 'SIGINT'] as const) {
-    disposers.push(io.onSignal(signal, () => finish({ kind: 'signal', signal }, `[smurg] 收到 ${signal}，已離開 session（session 仍在執行）。`)));
+    disposers.push(io.onSignal(signal, () => finish({ kind: 'signal', signal }, note(m('attach.signal', { signal })))));
   }
 
   const sendInput = (data: Uint8Array): void => {
@@ -266,7 +275,7 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
     terminal.setRawMode(true);
     rawMode = true;
   } catch {
-    finish({ kind: 'ended', end: { reason: 'closed', message: '無法把終端機切換到原始模式' } }, '[smurg] 無法把終端機切換到原始模式。');
+    finish({ kind: 'ended', end: { reason: 'closed', message: m('attach.rawModeFailed') } }, note(m('attach.rawModeFailed')));
     return done;
   }
   disposers.push(
@@ -287,7 +296,7 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
       }
       if (cut >= 0) {
         channel.notify('session.detach', { sessionId });
-        finish({ kind: 'detached' }, '[smurg] 已離開 session（session 仍在執行，可以再用 smurg attach 接上）。');
+        finish({ kind: 'detached' }, note(m('attach.detached')));
       }
     }),
     terminal.onResize(() => {
@@ -304,7 +313,17 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
   return done;
 }
 
-/** The zh-TW line printed BEFORE the terminal is taken over, for someone whose role may not type into sessions. */
-export function readOnlyNotice(session: SessionInfo): string {
-  return `唯讀模式：這個 session 是 ${session.ownerName} 開的，你的角色不能在 session 裡輸入（想參與可以在網頁上提出建議）。按 Ctrl-] 離開。`;
+/** The line printed BEFORE the terminal is taken over, for someone whose role may not type into sessions. */
+export function readOnlyNotice(session: SessionInfo): Text {
+  return m('attach.readOnly', { owner: session.ownerName });
+}
+
+/**
+ * A session's title: the one its opener typed, else the default for its kind and owner (the wire carries no default
+ * title: each client words it in its own language, from the wire catalog, so the web app and the CLI say the same).
+ */
+export function sessionTitle(session: Pick<SessionInfo, 'kind' | 'ownerName'> & { readonly title?: string | undefined }): Text {
+  if (session.title !== undefined && session.title !== '') return session.title;
+  const ref = msg(session.kind === 'agent' ? 'session.title.agent' : 'session.title.terminal', { owner: session.ownerName });
+  return wireText(ref, renderEnglish(ref));
 }

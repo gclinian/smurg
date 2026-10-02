@@ -1,8 +1,8 @@
-// The queue of suggestions beside a terminal (SPEC R6 「看到建議佇列，可以採用、修改後採用、拒絕」), for everyone who may
-// type into the session — the host and 可使用 agent members, on ANY session (protocol v2, `session.drive`): proposer,
+// The queue of suggestions beside a terminal (SPEC R6 "sees the suggestion queue and can accept, edit and accept, or reject"), for everyone who may
+// type into the session — the host and members with agent access, on ANY session (protocol v2, `session.drive`): proposer,
 // time, the text; accept, edit then accept, or reject with a reason. Accepting is the ONLY way a suggestion's text
 // reaches the PTY (the daemon pastes it after its check). There is deliberately no "accept automatically" option
-// anywhere (SPEC 「沒有自動採用選項」).
+// anywhere (SPEC "there is no auto-accept option").
 import { useState } from 'react';
 import type { SessionInfo, Suggestion } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -50,7 +50,7 @@ function QueueItem({ suggestion, session, now }: { suggestion: Suggestion; sessi
       setError(textProblemMessage(problem));
       return;
     }
-    // Always the text the owner confirmed (review SEC-D-01): the daemon pastes exactly it, and records it as accepted when
+    // Always the text the owner confirmed: the daemon pastes exactly it, and records it as accepted when
     // it equals the suggestion's current text, accepted-modified otherwise (both texts are logged, R6.3).
     void act(() => stores.suggestions.accept(suggestion.id, clean), t('queue.accepted', { name: author }));
   };
@@ -98,7 +98,7 @@ function QueueItem({ suggestion, session, now }: { suggestion: Suggestion; sessi
               icon={<IconCheck />}
               loading={busy}
               disabled={exited}
-              // The text on screen when the owner clicked, not whatever the author may have changed it to since (SEC-D-01).
+              // The text on screen when the owner clicked, not whatever the author may have changed it to since.
               onClick={() => void act(() => stores.suggestions.accept(suggestion.id, suggestion.text), t('queue.accepted', { name: author }))}
             >
               {t('queue.accept')}

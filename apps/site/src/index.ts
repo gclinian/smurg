@@ -1,6 +1,6 @@
 // smurg.ai, the product page: a Worker next to the static files in dist/ (public/ plus the generated docs pages,
 // scripts/build.ts). The static assets answer every request themselves (the pages, the security headers of _headers,
-// the nearest 404.html for unknown paths); this Worker runs only for /install.sh (wrangler.jsonc
+// the nearest 404.html for unknown paths); this Worker runs only for /install.sh, /github and /source (wrangler.jsonc
 // `assets.run_worker_first`), answers the redirects of src/routes.ts and hands anything else that reaches it to the
 // assets.
 // Only the default export here: workerd treats every named export of the entry module as an entrypoint.

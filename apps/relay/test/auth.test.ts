@@ -6,7 +6,7 @@ import { RELAY_PATHS, authCallbackPath, authLoginPath, relayHttpUrl } from '@smu
 import { SignJWT, importJWK } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { RelayUpgradeError, startLocalRelay, type DevSession, type LocalRelay, type RelaySocket } from '../test-support/index.ts';
-import { CookieBrowser } from './browser.ts';
+import { ACCEPT_ENGLISH, CookieBrowser } from './browser.ts';
 import { closeAll, open, openClient, randomWorkspaceId, tunnelUrl } from './helpers.ts';
 import { GITHUB_USER, GOOGLE_USER, startMockIdp, type MockIdp } from './mock-idp.ts';
 
@@ -84,19 +84,25 @@ describe('GitHub OAuth App flow (browser)', () => {
     wrongState.searchParams.set('state', 'attacker-chosen-state');
     const { res: mismatch, body: mismatchBody } = await browser.get(wrongState.href, { follow: false });
     expect(mismatch.status).toBe(400);
-    expect(mismatchBody).toContain('state');
+    expect(mismatchBody).toContain('<body data-state="error">');
+    expect(mismatchBody).toContain('<h1>Cannot log in</h1>');
+    expect(mismatchBody).toContain('The login request does not match (wrong state). Log in again.');
+    // The callback URL is one-time: its error pages carry no language switch.
+    expect(mismatchBody).not.toContain('?lang=');
     expect(browser.jar.has('smurg_session')).toBe(false);
 
-    const noTx = await fetch(wrongState, { redirect: 'manual' });
+    const noTx = await fetch(wrongState, { redirect: 'manual', headers: ACCEPT_ENGLISH });
     expect(noTx.status).toBe(400);
+    expect(await noTx.text()).toContain('The login timed out or was already completed in another tab. Log in again.');
 
     const other = new CookieBrowser();
     await other.get(url(authLoginPath('google')), { follow: false });
     const crossed = await fetch(url(`${authCallbackPath('github')}?code=x&state=y`), {
       redirect: 'manual',
-      headers: { cookie: other.cookieHeader() },
+      headers: { ...ACCEPT_ENGLISH, cookie: other.cookieHeader() },
     });
     expect(crossed.status).toBe(400);
+    expect(await crossed.text()).toContain('The login timed out. Log in again.');
   });
 
   it('shows an error when the provider reports one (e.g. the user cancelled)', async () => {
@@ -106,8 +112,9 @@ describe('GitHub OAuth App flow (browser)', () => {
     const denied = new URL(url(authCallbackPath('github')));
     denied.searchParams.set('error', 'access_denied');
     denied.searchParams.set('state', state);
-    const { res: result } = await browser.get(denied.href, { follow: false });
+    const { res: result, body } = await browser.get(denied.href, { follow: false });
     expect(result.status).toBe(400);
+    expect(body).toContain('You cancelled the login, or the login service refused the request.');
     expect(result.headers.get('content-security-policy')).toContain("default-src 'none'");
     expect(browser.jar.has('smurg_session')).toBe(false);
   });
@@ -116,12 +123,13 @@ describe('GitHub OAuth App flow (browser)', () => {
     for (const bad of ['//evil.example/x', 'https://evil.example/', 'javascript:alert(1)', '/\\evil.example']) {
       const target = new URL(url(authLoginPath('github')));
       target.searchParams.set('return_to', bad);
-      const res = await fetch(target, { redirect: 'manual' });
+      const res = await fetch(target, { redirect: 'manual', headers: ACCEPT_ENGLISH });
       expect(res.status, bad).toBe(400);
+      expect(await res.text(), bad).toContain('The login link is invalid or has expired.');
     }
     const ok = new URL(url(authLoginPath('github')));
     ok.searchParams.set('return_to', `${relay.origin}/join/x`);
-    expect((await fetch(ok, { redirect: 'manual' })).status).toBe(302);
+    expect((await fetch(ok, { redirect: 'manual', headers: ACCEPT_ENGLISH })).status).toBe(302);
   });
 });
 
@@ -346,7 +354,7 @@ describe('dev-only login gate', () => {
       expect((await fetch(at(RELAY_PATHS.jwks))).status).toBe(200);
       expect((await fetch(at(RELAY_PATHS.devToken), post)).status).toBe(404);
       expect((await fetch(at(`${RELAY_PATHS.devStart}?user=mallory`), { redirect: 'manual' })).status).toBe(404);
-      const chooser = await (await fetch(at(RELAY_PATHS.device))).text();
+      const chooser = await (await fetch(at(RELAY_PATHS.device), { headers: ACCEPT_ENGLISH })).text();
       expect(chooser).toContain('data-provider="github"');
       expect(chooser).not.toContain('data-provider="dev"');
       await expect(prodLike.devLogin('mallory')).rejects.toThrow(/HTTP 404/);
@@ -367,7 +375,9 @@ describe('dev-only login gate', () => {
     const bare = await startLocalRelay();
     try {
       for (const provider of ['github', 'google'] as const) {
-        expect((await fetch(relayHttpUrl(bare.origin, authLoginPath(provider)), { redirect: 'manual' })).status).toBe(503);
+        const res = await fetch(relayHttpUrl(bare.origin, authLoginPath(provider)), { redirect: 'manual', headers: ACCEPT_ENGLISH });
+        expect(res.status).toBe(503);
+        expect(await res.text()).toContain(`This relay has no ${provider === 'github' ? 'GitHub' : 'Google'} login set up.`);
       }
     } finally {
       await bare.stop();

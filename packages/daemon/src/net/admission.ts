@@ -90,7 +90,7 @@ export function admitConnection(ctx: AdmitContext, purpose: ChannelPurpose, peer
       return reject('busy', 'identity-key-unknown', null);
     }
     if (isTimeFailure(verified.reason)) {
-      // Almost always the host's clock, not the token (review REL-05): say so where the host looks, and re-measure the
+      // Almost always the host's clock, not the token: say so where the host looks, and re-measure the
       // relay's time (the key fetch reads its Date) so the next attempt is checked against it.
       deps.log.warn("an identity token failed its time check: this computer's clock is probably wrong", {
         why: verified.reason,

@@ -1,6 +1,6 @@
-// The suggestion composer under a session an editor may not type into (SPEC R6 「可編輯以上的角色可以對別人的 session
-// 提建議」): text for the agent, optionally with the code selection it was made from. It only ever creates a suggestion;
-// the host or a 可使用 agent member decides. There is no way to send text into the session from here.
+// The suggestion composer under a session an editor may not type into (SPEC R6 "editors and above can make suggestions to
+// someone else's session"): text for the agent, optionally with the code selection it was made from. It only ever creates a suggestion;
+// the host or a member with agent access decides. There is no way to send text into the session from here.
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import type { SessionInfo, Suggestion } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -8,7 +8,7 @@ import { useCommand, useStores } from '../../lib/workspace/context.tsx';
 import { Banner, Button, IconButton, TextArea, useToast } from '../../ui/index.ts';
 import { IconClose, IconFileText, IconSend } from '../../ui/icons.tsx';
 import { t } from './strings.ts';
-import { cleanSuggestionText, lineRange, suggestionTextProblem, textProblemMessage } from './text.ts';
+import { cleanSuggestionText, sourceLabel, suggestionTextProblem, textProblemMessage } from './text.ts';
 import { plainSessionTitle } from '../../lib/stores/sessions.ts';
 
 export type SuggestionSource = NonNullable<Suggestion['source']>;
@@ -119,7 +119,7 @@ export function Composer({ session, draft, onChange, focusToken, onFocused }: Co
             aria-label={t('source.open', { path: source.file.path, line: source.startLine })}
           >
             <IconFileText />
-            <span>{t('source.label', { path: source.file.path, range: lineRange(source.startLine, source.endLine) })}</span>
+            <span>{sourceLabel(source.file.path, source.startLine, source.endLine)}</span>
           </button>
           <IconButton size="sm" label={t('source.remove')} icon={<IconClose />} onClick={() => onChange({ ...draft, source: null })} />
         </div>

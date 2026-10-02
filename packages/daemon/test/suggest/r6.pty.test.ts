@@ -79,7 +79,7 @@ async function catTerminal(): Promise<Terminal> {
 const count = (text: string, part: string): number => text.split(part).length - 1;
 
 describe('R6 with a real PTY', { timeout: 60_000 }, () => {
-  it('R6.1 擁有者確認之前，建議內容完全不會進入 agent session', async () => {
+  it('R6.1 before a member who drives the session confirms, no suggestion text enters the agent session', async () => {
     const term = await catTerminal();
     const marker = `SUGG${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
     const { suggestion } = await term.bob.conn.request('suggest.create', { sessionId: term.sessionId, text: `please fix ${marker}` });
@@ -108,7 +108,7 @@ describe('R6 with a real PTY', { timeout: 60_000 }, () => {
     await waitUntil(() => term.watcher.output.includes(marker), 'viewers see it too');
   }, 60_000);
 
-  it('R6.2 擁有者可以在採用前修改內容', async () => {
+  it('R6.2 the text can be changed before it is accepted', async () => {
     const term = await catTerminal();
     const original = `ORIG${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
     const edited = `EDIT${Math.random().toString(36).slice(2, 10).toUpperCase()}`;

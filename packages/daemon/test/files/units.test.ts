@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT } from '@smurg/protocol';
+import { formatBytes, render } from '@smurg/protocol/i18n';
 import { uploadRootHash } from '@smurg/protocol/client';
 import { ManualClock } from '../../src/core/lifecycle.ts';
 import { silentLogger } from '../../src/core/logger.ts';
@@ -15,7 +16,6 @@ import { rechunk } from '../../src/files/download.ts';
 import { isDaemonOwnedPath, numberedName } from '../../src/files/fs-ops.ts';
 import { hashListRoot } from '../../src/files/upload.ts';
 import { UploadStore, type StagingArea, type UploadManifest } from '../../src/files/upload-store.ts';
-import { formatBytes } from '../../src/files/util.ts';
 import { createTempDir, removeTempDir } from '../../src/testing/index.ts';
 
 const KiB = 1024;
@@ -48,18 +48,30 @@ describe('disk rule: reserve = max(bytes, percent × total); accept ⇔ availabl
     expect(diskReport(small, settings, 0, 20 * GiB)).toMatchObject({ ok: false, freeAfterBytes: -12 * GiB });
   });
 
-  it('the refusal explains the numbers in zh-TW and points to the setting', () => {
+  it('the refusal carries the numbers as parameters; each language explains them and points to the setting', () => {
     const report = diskReport(laptop, settings, 0, 10 * GiB);
-    const message = insufficientDiskMessage(report);
-    expect(message).toContain('10.00 GiB');
-    expect(message).toContain(formatBytes(reserve));
-    expect(message).toContain('設定');
+    const ref = insufficientDiskMessage(report);
+    expect(ref).toEqual({
+      id: 'upload.insufficientDisk',
+      params: {
+        requestedBytes: report.requestedBytes,
+        freeAfterBytes: report.freeAfterBytes,
+        reserveBytes: report.reserveBytes,
+        availableBytes: report.availableBytes,
+        pendingBytes: report.pendingBytes,
+      },
+    });
+    const english = render('en', ref) ?? '';
+    expect(english).toContain('10.00 GiB');
+    expect(english).toContain(formatBytes(reserve));
+    expect(english).toContain('settings');
+    expect(render('zh-TW', ref)).toContain(formatBytes(reserve));
   });
 });
 
 describe('ChangeAttribution', () => {
   const amy = { kind: 'user' as const, userId: 'dev:amy', displayName: 'Amy' };
-  const agent = { kind: 'agent' as const, sessionId: 'sess_1', ownerUserId: 'dev:ian', displayName: 'Claude（Ian）' };
+  const agent = { kind: 'agent' as const, sessionId: 'sess_1', ownerUserId: 'dev:ian', displayName: 'Claude (Ian)' };
 
   it('attributes a change inside the window, to the path or (subtree) to everything below it, under any case spelling', () => {
     const clock = new ManualClock();

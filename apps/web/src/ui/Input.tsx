@@ -2,7 +2,7 @@ import { useId, type InputHTMLAttributes, type ReactNode, type Ref, type SelectH
 import { cx } from './cx.ts';
 
 interface FieldProps {
-  /** Visible label (zh-TW). Every control has one; use `hideLabel` to keep it for screen readers only. */
+  /** Visible label (from the catalogue). Every control has one; use `hideLabel` to keep it for screen readers only. */
   label: string;
   hideLabel?: boolean;
   /** Help text under the control. */

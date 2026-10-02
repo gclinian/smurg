@@ -76,7 +76,7 @@ export class DocAccess {
     }
   }
 
-  /** 「Claude（owner）」 of a session, from the session manager when it knows it. */
+  /** `Claude (owner)` of a session, from the session manager when it knows it. */
   agentActor(sessionId: string, ownerUserId: UserId): Extract<Actor, { kind: 'agent' }> {
     try {
       const sessions = this.ctx.services.sessions;

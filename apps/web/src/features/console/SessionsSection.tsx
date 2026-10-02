@@ -1,5 +1,5 @@
-// Every session of the workspace (SPEC R11 「所有 session（狀態、擁有者、所在 worktree）」「一鍵終止任何 session」): status,
-// who opened it, where it runs (main workspace or which worktree), viewers; 「終止」 sends admin.session.terminate at
+// Every session of the workspace (SPEC R11 "every session (status, owner, its worktree)", "terminate any session with one click"): status,
+// who opened it, where it runs (main workspace or which worktree), viewers; "Terminate" sends admin.session.terminate at
 // once (one click, as SPEC R11 asks; the session's worktree is kept). Every session runs on the host's computer with
 // the host's Claude account (protocol v2), so there is no sandbox column.
 import { useState } from 'react';
@@ -11,7 +11,7 @@ import { selectSessionList } from '../../lib/stores/sessions.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { Badge, Banner, Button, Table, useToast, type TableColumn, type Tone } from '../../ui/index.ts';
 import { t } from './strings.ts';
-import { plainSessionTitle } from '../../lib/stores/sessions.ts';
+import { plainSessionTitle, sessionTitle } from '../../lib/stores/sessions.ts';
 import { worktreeLabel } from '../../lib/stores/worktrees.ts';
 
 function statusView(session: SessionInfo): { label: string; tone: Tone } {
@@ -31,7 +31,7 @@ function statusView(session: SessionInfo): { label: string; tone: Tone } {
 export function whereLabel(session: SessionInfo, worktrees: ReadonlyMap<string, WorktreeInfo>, selfUserId: string | null = null): string {
   if (session.root.kind === 'main') return t('sessions.where.main');
   const worktree = worktrees.get(session.root.worktreeId);
-  // Whose worktree and for what (review WEB-18), not its branch id.
+  // Whose worktree and for what, not its branch id.
   return worktree ? worktreeLabel(worktree, { selfUserId, name: plainSessionTitle(session) }) : t('sessions.where.worktreeGone');
 }
 
@@ -56,7 +56,7 @@ export function SessionsSection({ now }: { now: number }) {
       await stores.admin.terminateSession(session.id);
       toast.show({ tone: 'success', title: t('sessions.terminated', { owner: session.ownerName, title: plainSessionTitle(session) }) });
     } catch (failure) {
-      toast.show({ tone: 'danger', title: t('sessions.terminateFailed', { title: session.title, message: describeError(failure) }) });
+      toast.show({ tone: 'danger', title: t('sessions.terminateFailed', { title: sessionTitle(session), message: describeError(failure) }) });
     } finally {
       setTerminating((previous) => {
         const next = new Set(previous);
@@ -76,7 +76,7 @@ export function SessionsSection({ now }: { now: number }) {
         return (
           <span className="console-session">
             <Badge>{session.kind === 'agent' ? t('sessions.kind.agent') : t('sessions.kind.terminal')}</Badge>
-            <span className="console-session__title">{session.title}</span>
+            <span className="console-session__title">{sessionTitle(session)}</span>
             <span className="console-muted">{formatRelativeTime(session.createdAt, now)}</span>
             {file ? <span className="console-session__file">{t('sessions.agentFile', { path: file.path })}</span> : null}
           </span>

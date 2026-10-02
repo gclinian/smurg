@@ -15,7 +15,7 @@ export interface TabsProps<V extends string> {
   items: readonly TabItem<V>[];
   value: V;
   onChange(value: V): void;
-  /** Accessible name of the tab list (zh-TW). */
+  /** Accessible name of the tab list (from the catalogue). */
   label: string;
   /** Keep inactive panels mounted (hidden): terminals and editors keep their state. */
   keepMounted?: boolean;

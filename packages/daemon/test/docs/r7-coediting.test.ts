@@ -44,8 +44,8 @@ function isSubsequence(needle: string, haystack: string): boolean {
   return i === n.length;
 }
 
-describe('R7 編輯器與檔案', { timeout: 30_000 }, () => {
-  it('兩個人同時編輯同一個檔案，雙方 1 秒內看到對方的修改，不遺失任何字元', async () => {
+describe('R7 editor and files', { timeout: 30_000 }, () => {
+  it('two people edit the same file at once: each sees the other\'s changes within 1 s and no character is lost', async () => {
     const initial = '第一行 first line\n第二行 😀 second line\n第三行 third\n';
     t = await createTestDaemon({ project: { files: { 'notes/shared.md': initial } }, modules: [fakeLocksModule(new FakeLockManager()), createDocsModule()] });
     const amyConn = await t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });

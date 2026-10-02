@@ -1,9 +1,9 @@
 // SPEC R3 acceptance: end-to-end encryption. HARD GATE (SPEC §0): every criterion is an automated test here, against
 // the real relay (local workerd with the byte tap), the real daemon and SDK clients.
-//  (a) 「在 relay 端記錄所有經過的位元組，找不到任何明文的檔案內容、終端機輸出或指令」
-//  (b) 「relay 把 daemon 公鑰替換成自己的公鑰時，客戶端拒絕連線並顯示警告」
-//  (c) 「沒有有效邀請片段的客戶端無法完成第一次握手」
-//  (d) 「被撤銷的裝置金鑰無法再建立連線」
+//  (a) recording every byte that passes the relay finds no plaintext file content, terminal output or command
+//  (b) when the relay replaces the daemon public key with its own, the client refuses the connection and shows a warning
+//  (c) a client without a valid invite fragment cannot complete the first handshake
+//  (d) a revoked device key can no longer connect
 import { createHash, randomBytes as nodeRandomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -80,7 +80,7 @@ function connIdsOf(stack: Stack, label: string): number[] {
 }
 
 describe('R3 (a) relay byte tap', () => {
-  it('在 relay 端記錄所有經過的位元組，找不到任何明文的檔案內容、終端機輸出或指令', async () => {
+  it('recording every byte that passes the relay finds no plaintext file content, terminal output or command', async () => {
     const stack = await startStack({ relay, projectFiles: { 'README.md': '# r3\n' } });
     try {
       const M = {
@@ -97,7 +97,7 @@ describe('R3 (a) relay byte tap', () => {
         ptyOutput: marker('PTY-OUTPUT'),
         docEdit: marker('DOC-EDIT'),
       };
-      // 「可使用 agent」: Amy opens a real terminal session below (it runs as the host, §11 D-15).
+      // Agent access: Amy opens a real terminal session below (it runs as the host, §11 D-15).
       const amy = await stack.join({ name: 'amy', role: 'agent' });
       const bob = await stack.join({ name: 'bob', role: 'viewer' });
       const amyTransfer = await amy.transfer();
@@ -318,10 +318,10 @@ describe('R3 (b) key substitution by the relay', () => {
     }
   }
 
-  it('relay 把 daemon 公鑰替換成自己的公鑰時，客戶端拒絕連線並顯示警告 — a relay that knows only what relays know (first contact)', () =>
+  it('when the relay replaces the daemon public key with its own, the client refuses the connection and shows a warning — a relay that knows only what relays know (first contact)', () =>
     firstContactThroughAttacker(() => ({ kind: 'blind' }), 'unauthenticated'));
 
-  it('relay 把 daemon 公鑰替換成自己的公鑰時，客戶端拒絕連線並顯示警告 — worst case: the relay also holds the invite secret (first contact)', () =>
+  it('when the relay replaces the daemon public key with its own, the client refuses the connection and shows a warning — worst case: the relay also holds the invite secret (first contact)', () =>
     firstContactThroughAttacker((secret) => ({ kind: 'leaked-invite', secret }), 'fingerprint'));
 
   it('control: the attacker is real — a client told to trust its key completes the handshake up to msg3', async () => {
@@ -347,7 +347,7 @@ describe('R3 (b) key substitution by the relay', () => {
     }
   });
 
-  it('relay 把 daemon 公鑰替換成自己的公鑰時，客戶端拒絕連線並顯示警告 — reconnect of a device that pinned the real key', async () => {
+  it('when the relay replaces the daemon public key with its own, the client refuses the connection and shows a warning — reconnect of a device that pinned the real key', async () => {
     const stack = await startStack({ relay });
     let mitm: MaliciousRelay | null = null;
     try {
@@ -371,7 +371,7 @@ describe('R3 (b) key substitution by the relay', () => {
 });
 
 describe('R3 (c) no valid invite fragment', () => {
-  it('沒有有效邀請片段的客戶端無法完成第一次握手', async () => {
+  it('a client without a valid invite fragment cannot complete the first handshake', async () => {
     const stack = await startStack({ relay });
     try {
       const real = parseInviteUrl(await stack.createInvite('editor', { maxUses: 10 }));
@@ -431,7 +431,7 @@ describe('R3 (c) no valid invite fragment', () => {
 });
 
 describe('R3 (d) revoked device keys', () => {
-  it('被撤銷的裝置金鑰無法再建立連線', async () => {
+  it('a revoked device key can no longer connect', async () => {
     const stack = await startStack({ relay });
     try {
       const amy = await stack.join({ name: 'amy', role: 'editor' });

@@ -1,6 +1,7 @@
-// zh-TW names of the audit vocabulary (ARCHITECTURE §5.8). The map is typed against the protocol's AUDIT_ACTIONS, so
+// Names of the audit vocabulary, in the viewer's language (ARCHITECTURE §5.8). The map is typed against the protocol's AUDIT_ACTIONS, so
 // a new action is a compile error here until it has a label.
 import type { AuditAction, AuditEntry } from '@smurg/protocol';
+import { formatExactTime, formatList } from '../../lib/format.ts';
 import type { Tone } from '../../ui/index.ts';
 import { t } from './strings.ts';
 
@@ -68,19 +69,9 @@ export function auditOutcomeTone(outcome: AuditEntry['outcome']): Tone {
   return OUTCOME[outcome].tone;
 }
 
-const EXACT_TIME = new Intl.DateTimeFormat('zh-Hant-TW', {
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
-
-/** Audit times to the second (the log is evidence; 「3 分鐘前」 is not enough). */
+/** Audit times to the second (the log is evidence; "3 minutes ago" is not enough), in the viewer's language. */
 export function formatAuditTime(at: number): string {
-  return EXACT_TIME.format(at);
+  return formatExactTime(at);
 }
 
 /** The reason code of a refusal, when the daemon recorded one (e.g. `outside-root`), for the outcome cell. */
@@ -125,7 +116,7 @@ export interface AuditDetailRow {
 }
 
 /**
- * The sanitised `detail` of an entry as rows a person can read (review SPEC-07: the console dropped every detail, so a
+ * The sanitised `detail` of an entry as rows a person can read (the console dropped every detail, so a
  * suggestion's proposer and text, R6.3, could only be read in audit.jsonl). Values are text: React escapes them.
  */
 export function auditDetailRows(entry: AuditEntry): AuditDetailRow[] {
@@ -137,7 +128,7 @@ export function auditDetailRows(entry: AuditEntry): AuditDetailRow[] {
     if (HIDDEN_DETAIL_KEYS.has(key) || raw === undefined || raw === null) continue;
     // A refusal's reason is already in the outcome cell.
     if (key === 'reason' && raw === shownReason) continue;
-    const text = typeof raw === 'string' ? raw : Array.isArray(raw) && raw.every((item) => typeof item === 'string') ? raw.join('、') : JSON.stringify(raw);
+    const text = typeof raw === 'string' ? raw : Array.isArray(raw) && raw.every((item) => typeof item === 'string') ? formatList(raw) : JSON.stringify(raw);
     const value = key === 'outcome' && typeof raw === 'string' && raw in SUGGESTION_OUTCOME_KEYS ? t(SUGGESTION_OUTCOME_KEYS[raw] as Parameters<typeof t>[0]) : text;
     const labelKey = DETAIL_LABEL_KEYS[key];
     rows.push({ key, label: labelKey ? t(labelKey as Parameters<typeof t>[0]) : key, value, block: value.length > 80 || value.includes('\n') });

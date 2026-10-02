@@ -109,11 +109,11 @@ export const BOB = { userId: 'dev:bob', displayName: 'Bob' } as const;
 
 /** What the hooks module passes for a PreToolUse of Ian's (or Cleo's) agent session in the main workspace. */
 export function ianAgent(file: FileRef, sessionId = 'ses_ian', sessionRoot: RootRef = MAIN_ROOT) {
-  return { file, sessionId, ownerUserId: 'dev:ian', agentName: 'Claude（Ian）', sessionRoot } as const;
+  return { file, sessionId, ownerUserId: 'dev:ian', agentName: 'Claude (Ian)', sessionRoot } as const;
 }
 
 export function cleoAgent(file: FileRef, sessionId = 'ses_cleo', sessionRoot: RootRef = MAIN_ROOT) {
-  return { file, sessionId, ownerUserId: 'dev:cleo', agentName: 'Claude（Cleo）', sessionRoot } as const;
+  return { file, sessionId, ownerUserId: 'dev:cleo', agentName: 'Claude (Cleo)', sessionRoot } as const;
 }
 
 /** Lets pending promise callbacks run. */

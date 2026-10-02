@@ -70,7 +70,7 @@ export interface Clock {
   /**
    * Milliseconds from an arbitrary origin that never step backwards (performance.now): for durations and deadlines
    * (watchdogs, TTLs, idle timeouts). A wall clock that NTP or the user steps back an hour must not freeze them
-   * (review REL-04). Optional so a test clock can stay a plain `{ now }`; read it with monotonicNow(clock).
+   *. Optional so a test clock can stay a plain `{ now }`; read it with monotonicNow(clock).
    */
   monotonic?(): number;
 }

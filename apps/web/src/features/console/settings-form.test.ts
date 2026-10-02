@@ -2,6 +2,7 @@ import type { HostSettings } from '@smurg/protocol';
 import { describe, expect, it } from 'vitest';
 import { GIB, draftFromSettings, errorCount, hasChanges, parseSettingsDraft, type SettingsDraft } from './settings-form.ts';
 
+
 const SETTINGS: HostSettings = {
   humanLockIdleMs: 30_000,
   agentLockTimeoutMs: 60_000,
@@ -43,11 +44,11 @@ describe('settings validation', () => {
   it('refuses paths outside the share, dot segments and duplicates', () => {
     for (const bad of ['/etc', '../secret', 'a/../b', './data', 'a\\b']) {
       const parsed = parseSettingsDraft(draft({ sharedDirs: bad }), SETTINGS);
-      expect(parsed.errors.sharedDirs, bad).toContain(`「${bad}」不是有效的資料夾路徑`);
+      expect(parsed.errors.sharedDirs, bad).toContain(`"${bad}" is not a valid folder path`);
       expect(parsed.patch.sharedDirs).toBeUndefined();
     }
-    expect(parseSettingsDraft(draft({ sharedDirs: 'data\ndata/' }), SETTINGS).errors.sharedDirs).toBe('「data/」重複了。');
-    expect(parseSettingsDraft(draft({ sharedDirs: Array.from({ length: 65 }, (_, i) => `d${i}`).join('\n') }), SETTINGS).errors.sharedDirs).toBe('最多 64 個。');
+    expect(parseSettingsDraft(draft({ sharedDirs: 'data\ndata/' }), SETTINGS).errors.sharedDirs).toBe('"data/" is listed twice.');
+    expect(parseSettingsDraft(draft({ sharedDirs: Array.from({ length: 65 }, (_, i) => `d${i}`).join('\n') }), SETTINGS).errors.sharedDirs).toBe('At most 64.');
   });
 
   it('has no setting of a guest sandbox (protocol v2: there is none)', () => {
@@ -60,15 +61,15 @@ describe('settings validation', () => {
       SETTINGS,
     ).errors;
     expect(errors).toEqual({
-      humanLockIdleSec: '請輸入 1 到 3600 之間的數字。',
-      agentLockTimeoutSec: '請輸入 1 到 600 之間的數字。',
-      // 「-1」 is a number: the message says what is accepted (WEB-13).
-      diskReserveGb: '請輸入 0 以上的數字。',
-      diskReservePercent: '請輸入 0 到 100 之間的數字。',
+      humanLockIdleSec: 'Enter a number from 1 to 3600.',
+      agentLockTimeoutSec: 'Enter a number from 1 to 600.',
+      // "-1" is a number: the message says what is accepted.
+      diskReserveGb: 'Enter a number of 0 or more.',
+      diskReservePercent: 'Enter a number from 0 to 100.',
     });
     const parsed = parseSettingsDraft(draft({ humanLockIdleSec: '', agentLockTimeoutSec: '1e3' }), SETTINGS);
-    expect(parsed.errors.humanLockIdleSec).toBe('請輸入數值。');
-    expect(parsed.errors.agentLockTimeoutSec).toBe('請輸入數字。');
+    expect(parsed.errors.humanLockIdleSec).toBe('Enter a value.');
+    expect(parsed.errors.agentLockTimeoutSec).toBe('Enter a number.');
     expect(errorCount(parsed)).toBe(2);
   });
 

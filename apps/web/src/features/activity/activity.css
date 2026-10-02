@@ -81,7 +81,7 @@
   color: var(--color-text);
   font-weight: var(--weight-medium);
 }
-/* 「透過指令」: an agent's change made by a shell command (D-13), small and quiet next to the kind badge. */
+/* "via a command": an agent's change made by a shell command (D-13), small and quiet next to the kind badge. */
 .activity-item__via {
   display: inline-flex;
   align-items: center;

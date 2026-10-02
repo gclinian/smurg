@@ -6,7 +6,7 @@
 // fragment into sessionStorage — per tab, gone when the tab closes, surviving the same-tab login redirect — and removes
 // it from the address bar with history.replaceState.
 //
-// What this does NOT undo (review SEC-E-05): the browser commits the full URL, fragment included, to its GLOBAL history
+// What this does NOT undo: the browser commits the full URL, fragment included, to its GLOBAL history
 // (the profile's History database, and synced history when sync is on) before any script runs; replaceState only
 // rewrites the tab's session entry. No page code can remove that copy. So an invite link stays a working credential
 // wherever the browser profile or its sync can be read, until it is used up, expires or is revoked: single-use links

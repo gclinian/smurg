@@ -172,7 +172,7 @@ describe('DownloadJob — folders as zip', () => {
     const { daemon, link, job } = setup();
     daemon.put(MAIN, 'proj', 'dir');
     daemon.zips.set(daemon.key(MAIN, 'proj'), { bytes: syntheticBytes(11, 0, 900 * KiB), skipped: [], zip64: false });
-    link.downloadErrorAfterChunks = { after: 1, error: new SmurgError('internal', '讀取失敗') };
+    link.downloadErrorAfterChunks = { after: 1, error: new SmurgError('internal') };
     const download = job({ file: { root: MAIN, path: 'proj' }, zip: true });
     download.start();
     await download.whenSettled();

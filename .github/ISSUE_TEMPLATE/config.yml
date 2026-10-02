@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/gclinian/smurg/security/advisories/new
+    about: Report it privately (SECURITY.md). Do not open a public issue.
+  - name: Guides for hosts and teammates
+    url: https://smurg.ai/docs/
+    about: Installing, hosting a workspace, joining one, troubleshooting.

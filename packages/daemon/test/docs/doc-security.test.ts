@@ -190,7 +190,7 @@ describe('doc.* refusals', { timeout: 30_000 }, () => {
   });
 });
 
-describe('conflict records of files non-hosts may not read (review SEC-D-03)', () => {
+describe('conflict records of files non-hosts may not read', () => {
   it('are hidden from non-hosts like .smurg: .git, .envrc and the host\'s personal Claude Code files, at any depth and spelling', () => {
     const worktree = { kind: 'worktree' as const, worktreeId: 'wt_1' };
     for (const path of ['.git/config', 'sub/.git/HEAD', '.envrc', 'app/.ENVRC', 'CLAUDE.local.md', 'x/.claude/settings.local.json', '.smurg/notes.md']) {

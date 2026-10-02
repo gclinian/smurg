@@ -25,7 +25,7 @@ async function setup(): Promise<{ t: TestDaemon; hooks: HookServerImpl }> {
 }
 
 describe('hook server × the real lock manager', () => {
-  it('R8: 有人正在打字的檔案，agent 的 Edit 被擋下，並收到持有者的名字 — with the real LockManager; granted, released by PostToolUse and by the next prompt', async () => {
+  it('R8: an agent\'s Edit of a file someone is typing in is blocked and names the holder — with the real LockManager; granted, released by PostToolUse and by the next prompt', async () => {
     const { t: d, hooks } = await setup();
     const amy = await d.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
     expect(d.ctx.services.locks.touchHuman(file('locked.txt'), { userId: amy.userId, displayName: 'Amy' }).ok).toBe(true);
@@ -35,7 +35,7 @@ describe('hook server × the real lock manager', () => {
     expect(d.ctx.services.locks.get(file('locked.txt'))?.kind).toBe('human');
 
     expect((await hookRequest(hooks.socketPath, s.token, pre(join(d.root, 'free.txt'))))['hookOutput']).toBeNull();
-    expect(d.ctx.services.locks.get(file('free.txt'))).toMatchObject({ kind: 'agent', sessionId: s.sessionId, agentName: 'Claude（Host）' });
+    expect(d.ctx.services.locks.get(file('free.txt'))).toMatchObject({ kind: 'agent', sessionId: s.sessionId, agentName: 'Claude (Host)' });
     await hookRequest(hooks.socketPath, s.token, post(join(d.root, 'free.txt')));
     expect(d.ctx.services.locks.get(file('free.txt'))).toBeNull();
 

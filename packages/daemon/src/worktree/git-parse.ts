@@ -2,6 +2,7 @@
 // the bytes git printed, decoded strictly as UTF-8: a name that is not valid UTF-8 cannot be shown to the host, and a
 // merge the host cannot review completely is refused (fail closed), never shown with a replacement character.
 import { MERGE_FILE_STATUSES, SmurgError, checkRelPath } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 
 export type MergeFileStatus = (typeof MERGE_FILE_STATUSES)[number];
 
@@ -26,7 +27,7 @@ export function splitNul(output: Uint8Array): Buffer[] {
 
 export class UnsupportedPathError extends SmurgError {
   constructor(problem: string) {
-    super('conflict', '變更中有無法顯示的檔名，無法審核這個合併請求', { reason: 'unsupported-path', problem });
+    super('conflict', msg('merge.unsupportedPath'), { reason: 'unsupported-path', problem });
     this.name = 'UnsupportedPathError';
   }
 }
@@ -94,12 +95,12 @@ export function parseRawDiff(output: Uint8Array): RawDiffEntry[] {
   const entries: RawDiffEntry[] = [];
   for (let i = 0; i < fields.length; ) {
     const header = RAW_HEADER.exec((fields[i] as Buffer).toString('latin1'));
-    if (!header) throw new SmurgError('internal', '無法解析 git 的輸出', { reason: 'git-output-unparsable' });
+    if (!header) throw new SmurgError('internal', msg('git.outputUnparsable'), { reason: 'git-output-unparsable' });
     const letter = header[5] as string;
     const twoPaths = letter === 'R' || letter === 'C';
     const first = fields[i + 1];
     const second = twoPaths ? fields[i + 2] : undefined;
-    if (first === undefined || (twoPaths && second === undefined)) throw new SmurgError('internal', '無法解析 git 的輸出', { reason: 'git-output-unparsable' });
+    if (first === undefined || (twoPaths && second === undefined)) throw new SmurgError('internal', msg('git.outputUnparsable'), { reason: 'git-output-unparsable' });
     const base = {
       srcMode: header[1] as string,
       dstMode: header[2] as string,
@@ -131,10 +132,10 @@ export function parseNumstat(output: Uint8Array): NumstatEntry[] {
     const field = fields[i] as Buffer;
     const firstTab = field.indexOf(9);
     const secondTab = firstTab === -1 ? -1 : field.indexOf(9, firstTab + 1);
-    if (secondTab === -1) throw new SmurgError('internal', '無法解析 git 的輸出', { reason: 'git-output-unparsable' });
+    if (secondTab === -1) throw new SmurgError('internal', msg('git.outputUnparsable'), { reason: 'git-output-unparsable' });
     const additions = count(field.subarray(0, firstTab).toString('latin1'));
     const deletions = count(field.subarray(firstTab + 1, secondTab).toString('latin1'));
-    if (Number.isNaN(additions) || Number.isNaN(deletions)) throw new SmurgError('internal', '無法解析 git 的輸出', { reason: 'git-output-unparsable' });
+    if (Number.isNaN(additions) || Number.isNaN(deletions)) throw new SmurgError('internal', msg('git.outputUnparsable'), { reason: 'git-output-unparsable' });
     const rest = field.subarray(secondTab + 1);
     if (rest.length > 0) {
       entries.push({ additions, deletions, path: decodeGitPath(rest) });
@@ -142,7 +143,7 @@ export function parseNumstat(output: Uint8Array): NumstatEntry[] {
     } else {
       const old = fields[i + 1];
       const next = fields[i + 2];
-      if (old === undefined || next === undefined) throw new SmurgError('internal', '無法解析 git 的輸出', { reason: 'git-output-unparsable' });
+      if (old === undefined || next === undefined) throw new SmurgError('internal', msg('git.outputUnparsable'), { reason: 'git-output-unparsable' });
       entries.push({ additions, deletions, oldPath: decodeGitPath(old), path: decodeGitPath(next) });
       i += 3;
     }
@@ -154,7 +155,7 @@ export function parseNumstat(output: Uint8Array): NumstatEntry[] {
 export function parseMergeTree(output: Uint8Array): { readonly tree: string; readonly conflicted: GitPath[] } {
   const fields = splitNul(output);
   const tree = fields[0]?.toString('latin1') ?? '';
-  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(tree)) throw new SmurgError('internal', '無法解析 git 的輸出', { reason: 'git-output-unparsable' });
+  if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(tree)) throw new SmurgError('internal', msg('git.outputUnparsable'), { reason: 'git-output-unparsable' });
   const seen = new Set<string>();
   const conflicted: GitPath[] = [];
   for (const field of fields.slice(1)) {
@@ -181,12 +182,12 @@ export function parseNameStatus(output: Uint8Array): NameStatusEntry[] {
   const entries: NameStatusEntry[] = [];
   for (let i = 0; i < fields.length; ) {
     const status = /^([A-Z])(\d{0,3})$/.exec((fields[i] as Buffer).toString('latin1'));
-    if (!status) throw new SmurgError('internal', '無法解析 git 的輸出', { reason: 'git-output-unparsable' });
+    if (!status) throw new SmurgError('internal', msg('git.outputUnparsable'), { reason: 'git-output-unparsable' });
     const letter = status[1] as string;
     const twoPaths = letter === 'R' || letter === 'C';
     const first = fields[i + 1];
     const second = twoPaths ? fields[i + 2] : undefined;
-    if (first === undefined || (twoPaths && second === undefined)) throw new SmurgError('internal', '無法解析 git 的輸出', { reason: 'git-output-unparsable' });
+    if (first === undefined || (twoPaths && second === undefined)) throw new SmurgError('internal', msg('git.outputUnparsable'), { reason: 'git-output-unparsable' });
     entries.push(twoPaths ? { letter, oldPath: decodeGitPath(first), path: decodeGitPath(second as Buffer) } : { letter, path: decodeGitPath(first) });
     i += twoPaths ? 3 : 2;
   }
@@ -217,7 +218,7 @@ export function parseStatusPaths(output: Uint8Array): string[] {
   };
   for (let i = 0; i < fields.length; ) {
     const field = fields[i] as Buffer;
-    if (field.length < 4 || field[2] !== 0x20) throw new SmurgError('internal', '無法解析 git 的輸出', { reason: 'git-output-unparsable' });
+    if (field.length < 4 || field[2] !== 0x20) throw new SmurgError('internal', msg('git.outputUnparsable'), { reason: 'git-output-unparsable' });
     const x = String.fromCharCode(field[0] as number);
     paths.push(decode(field.subarray(3)));
     if (x === 'R' || x === 'C') {

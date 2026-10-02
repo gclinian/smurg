@@ -1,7 +1,14 @@
 import { z } from 'zod';
+import { defaultErrorRef, renderEnglish, type MessageRef } from './i18n/index.ts';
+import { messageRefSchema } from './schema/message-ref.ts';
 
 // Error codes and the error Envelope payload (ARCHITECTURE §4.3): request X is answered by `X.ok` or by `error` with
-// the same id and payload `{ code, message, detail? }`.
+// the same id and payload `{ code, message, detail?, text? }`.
+//
+// `message` is ENGLISH (logs, the audit log, agents, clients that do not know the id). `text` is a message reference
+// (`@smurg/protocol/i18n`): the client renders it in the viewer's language and falls back to `message`. Every error the
+// daemon makes carries `text` (the default of its code when nothing more specific was said); the field is optional in
+// the schema because an error rebuilt from a payload without it, or made from a plain string, has none.
 //
 // `detail` is a small record for machines (the UI never has to parse `message`). Conventions used across the protocol:
 //   detail.reason  — a kebab-case sub-reason, e.g. 'hash-mismatch' / 'incomplete' (uploads), 'unknown-type' (codec)
@@ -51,27 +58,9 @@ export const errorPayloadSchema = z.strictObject({
   code: errorCodeSchema,
   message: z.string().max(ERROR_MESSAGE_MAX_CHARS),
   detail: errorDetailSchema.optional(),
+  text: messageRefSchema.optional(),
 });
 export type ErrorPayload = z.infer<typeof errorPayloadSchema>;
-
-const DEFAULT_MESSAGES_ZH_TW: Readonly<Record<ErrorCode, string>> = Object.freeze({
-  bad_request: '請求格式不正確',
-  unauthorized: '尚未通過身分驗證',
-  forbidden: '你沒有權限執行這個動作',
-  not_found: '找不到指定的項目',
-  conflict: '與目前的狀態衝突，請重新整理後再試',
-  locked: '這個檔案目前被鎖定',
-  path_denied: '不允許存取這個路徑',
-  insufficient_disk: '主人的磁碟空間不足',
-  too_large: '內容太大',
-  host_only: '只有主人可以執行這個動作',
-  internal: '主人端發生內部錯誤',
-});
-
-/** A generic, user-facing (zh-TW) message for `code`, used when no specific message is given. */
-export function defaultErrorMessage(code: ErrorCode): string {
-  return isErrorCode(code) ? DEFAULT_MESSAGES_ZH_TW[code] : DEFAULT_MESSAGES_ZH_TW.internal;
-}
 
 function clampMessage(message: string): string {
   if (message.length <= ERROR_MESSAGE_MAX_CHARS) return message;
@@ -86,27 +75,38 @@ function clampMessage(message: string): string {
  * The one error type that crosses the wire. `toPayload()` / `SmurgError.fromPayload()` round-trip through the
  * `error` Envelope; anything else thrown inside the daemon is converted with `SmurgError.wrap()` so internal details
  * (absolute host paths in fs errors, stack traces) never reach a client.
+ *
+ * The second argument says what happened:
+ *  - a message reference (`msg('worktree.inUse', {...})`): `.text` is the reference, `.message` its English rendering;
+ *  - nothing: the default reference of the code (`error.default.<code>`);
+ *  - a plain string: `.message` is that string and there is no `.text` (tests, and text that is not ours to translate).
  */
 export class SmurgError extends Error {
   readonly code: ErrorCode;
   readonly detail: ErrorDetail | undefined;
+  /** The message as a reference a client renders in its own language (see above). */
+  readonly text: MessageRef | undefined;
 
-  constructor(code: ErrorCode, message?: string, detail?: ErrorDetail, options?: { cause?: unknown }) {
-    super(message ?? defaultErrorMessage(code), options);
+  constructor(code: ErrorCode, message?: string | MessageRef, detail?: ErrorDetail, options?: { cause?: unknown; text?: MessageRef }) {
+    const known = isErrorCode(code) ? code : 'internal';
+    const text = typeof message === 'string' ? options?.text : (message ?? defaultErrorRef(known));
+    super(typeof message === 'string' ? message : renderEnglish(text as MessageRef), options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'SmurgError';
-    this.code = isErrorCode(code) ? code : 'internal';
+    this.code = known;
     this.detail = detail;
+    this.text = text;
   }
 
   /** The `error` Envelope payload. The message is clamped to ERROR_MESSAGE_MAX_CHARS. */
   toPayload(): ErrorPayload {
     const payload: ErrorPayload = { code: this.code, message: clampMessage(this.message) };
     if (this.detail !== undefined) payload.detail = this.detail;
+    if (this.text !== undefined) payload.text = this.text;
     return payload;
   }
 
   static fromPayload(payload: ErrorPayload): SmurgError {
-    return new SmurgError(payload.code, payload.message, payload.detail);
+    return new SmurgError(payload.code, payload.message, payload.detail, payload.text === undefined ? undefined : { text: payload.text });
   }
 
   /**

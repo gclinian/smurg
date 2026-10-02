@@ -1,4 +1,4 @@
-// SPEC R2 「過期或用完次數的邀請連結無法使用」 and the invite rules of ARCHITECTURE §4 / noise.md V1, V8: expired, used-up
+// SPEC R2 (an expired or used-up invite link does not work) and the invite rules of ARCHITECTURE §4 / noise.md V1, V8: expired, used-up
 // and revoked links are refused with an authenticated `invite-invalid`; concurrent joins cannot overrun maxUses
 // (check-and-consume is one synchronous step after msg3); the host's own link works only for the host.
 import { afterEach, describe, expect, it } from 'vitest';

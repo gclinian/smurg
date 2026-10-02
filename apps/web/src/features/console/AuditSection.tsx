@@ -1,6 +1,6 @@
-// The audit log (SPEC R11 Prototype 基本版: 「操作紀錄涵蓋檔案修改、agent 修改、建議、權限變更、登入登出，只存在主人電腦上」):
+// The audit log (SPEC R11, prototype basic version: "the audit log covers file changes, agent changes, suggestions, permission changes, logins and logouts, and is stored only on the host's computer"):
 // newest first, paged backwards with admin.audit.query {before}, new entries appear live (admin.audit.entry, merged by
-// the admin store). Filters are the launch version ([上線]).
+// the admin store). Filters are the launch version (marked "launch" in SPEC).
 import { useState } from 'react';
 import type { AuditEntry } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -12,7 +12,8 @@ import { Badge, Banner, Button, Table, type TableColumn } from '../../ui/index.t
 import { auditActionLabel, auditDetailRows, auditOutcomeLabel, auditOutcomeTone, auditReason, formatAuditTime } from './audit-labels.ts';
 import { t } from './strings.ts';
 
-const columns: TableColumn<AuditEntry>[] = [
+// Built per render, never at module level: the headers follow the language in force (a switch re-mounts the page).
+const auditColumns = (): TableColumn<AuditEntry>[] => [
   {
     id: 'time',
     header: t('audit.col.time'),
@@ -59,7 +60,7 @@ const columns: TableColumn<AuditEntry>[] = [
   },
 ];
 
-/** Who proposed what, conflict files, role changes, …: the entry's detail, folded (review SPEC-07). */
+/** Who proposed what, conflict files, role changes, …: the entry's detail, folded. */
 function AuditDetail({ entry }: { entry: AuditEntry }) {
   const rows = auditDetailRows(entry);
   if (rows.length === 0) return null;
@@ -86,6 +87,7 @@ export function AuditSection() {
     shallowEqual,
   );
   const [error, setError] = useState<string | null>(null);
+  const columns = auditColumns();
 
   const loadOlder = async (): Promise<void> => {
     setError(null);

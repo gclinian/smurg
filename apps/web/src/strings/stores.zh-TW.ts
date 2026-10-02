@@ -1,0 +1,22 @@
+// zh-TW table of the `stores` namespace: exactly the keys of ./stores.ts (the English table defines them).
+export const zhTW = {
+  'docs.bufferOverflow': '這個檔案累積了太多尚未處理的同步資料，請關閉後重新開啟。',
+  'area.files': '檔案',
+  'area.locks': '檔案鎖',
+  'area.docs': '開啟中的檔案',
+  'area.sessions': 'agent session',
+  'area.suggestions': '建議',
+  'area.activity': '活動動態',
+  'area.conflicts': '衝突',
+  'area.worktrees': 'worktree',
+  'area.admin': '主人控制台資料',
+  'area.presence': '在線成員',
+  'area.workspace': '工作區',
+  'area.transfers': '傳輸',
+  'session.kind.agent': 'Claude',
+  'session.kind.terminal': '終端機',
+  'worktree.mine': '我的 worktree',
+  'worktree.of': '{owner}的 worktree',
+  'worktree.named': '{who}（{name}）',
+  'worktree.since': '{who}（{time} 建立）',
+} as const;

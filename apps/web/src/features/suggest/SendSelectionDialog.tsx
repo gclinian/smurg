@@ -1,5 +1,6 @@
-// 「在編輯器選取程式碼後，可以一鍵把它作為建議送進別人的 session（或直接送進自己的 session）」 (SPEC R6), when the
-// editor did not say which session: pick one. A member who may type into sessions (the host, 可使用 agent) gets the
+// "After selecting code in the editor, one click sends it as a suggestion into someone else's session (or straight
+// into one's own)" (SPEC R6), when the
+// editor did not say which session: pick one. A member who may type into sessions (the host, members with agent access) gets the
 // code pasted (no Enter); an editor gets a suggestion draft to complete and send.
 import { useEffect, useId, useState } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
@@ -7,7 +8,7 @@ import { tApp } from '../../strings/app.ts';
 import { Button, Dialog } from '../../ui/index.ts';
 import { t } from './strings.ts';
 import { lineRange, type SelectionPayload } from './text.ts';
-import { plainSessionTitle } from '../../lib/stores/sessions.ts';
+import { plainSessionTitle, sessionTitle } from '../../lib/stores/sessions.ts';
 
 export interface SendSelectionDialogProps {
   readonly selection: SelectionPayload | null;
@@ -39,7 +40,11 @@ export function SendSelectionDialog({ selection, sessions, canDrive, canSuggest,
       open={open}
       onClose={onClose}
       title={t('send.title')}
-      description={t('send.lead', { path: selection.file.path, range: lineRange(selection.startLine, selection.endLine) })}
+      description={
+        selection.startLine === selection.endLine
+          ? t('send.leadLine', { path: selection.file.path, line: selection.startLine })
+          : t('send.lead', { path: selection.file.path, range: lineRange(selection.startLine, selection.endLine) })
+      }
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -61,7 +66,7 @@ export function SendSelectionDialog({ selection, sessions, canDrive, canSuggest,
               <input type="radio" name={name} checked={current === session.id} onChange={() => setChosen(session.id)} />
               <span>
                 {canDrive
-                  ? t('send.own', { title: session.title })
+                  ? t('send.own', { title: sessionTitle(session) })
                   : t('send.other', { owner: session.ownerName, title: plainSessionTitle(session) })}
               </span>
             </label>

@@ -1,6 +1,6 @@
-// The root switcher above the file tree (SPEC R9 「檔案樹可以切換檢視主工作區或任一 worktree」): the main workspace or any
+// The root switcher above the file tree (SPEC R9: the file tree can show the main workspace or any worktree): the main workspace or any
 // worktree, each labelled with its owner and branch. Under it, for a worktree: owner, branch, whether a session uses
-// it, its read-only shared folders (D12), and — for its owner — 「請主人合併」; the owner or the host may remove it.
+// it, its read-only shared folders (D12), and — for its owner — "Ask the host to merge"; the owner or the host may remove it.
 import { useState } from 'react';
 import { MAIN_ROOT, rootRefKey, worktreeRoot, type WorktreeInfo } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -13,6 +13,7 @@ import { tApp } from '../../strings/app.ts';
 import { Banner, Button, Dialog, Select, useToast, type SelectOption } from '../../ui/index.ts';
 import { IconGitMerge, IconTrash } from '../../ui/icons.tsx';
 import { RequestMergeDialog } from './RequestMergeDialog.tsx';
+import { formatList } from '../../lib/format.ts';
 import { t } from './strings.ts';
 
 export function WorktreeSwitcherView() {
@@ -34,7 +35,7 @@ export function WorktreeSwitcherView() {
     { value: rootRefKey(MAIN_ROOT), label: t('main') },
     ...worktrees.map((worktree) => ({
       value: rootRefKey(worktreeRoot(worktree.id)),
-      // Whose and for what (review WEB-18); the branch is in the details below.
+      // Whose and for what; the branch is in the details below.
       label: worktreeLabel(worktree, { selfUserId: userId, sessions }),
     })),
   ];
@@ -60,7 +61,7 @@ export function WorktreeSwitcherView() {
             {t('active.branch', { branch: current.branch })}
           </p>
           {current.sessionId !== undefined ? <p>{t('active.session')}</p> : current.kept ? <p>{t('active.kept')}</p> : null}
-          {current.sharedDirs.length > 0 ? <p>{t('active.shared', { dirs: current.sharedDirs.join(t('list.separator')) })}</p> : null}
+          {current.sharedDirs.length > 0 ? <p>{t('active.shared', { dirs: formatList(current.sharedDirs) })}</p> : null}
           {owns || isHost ? (
             <div className="worktree-switcher__actions">
               {owns && canRequest ? (

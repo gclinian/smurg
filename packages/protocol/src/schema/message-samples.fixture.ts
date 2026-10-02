@@ -39,13 +39,13 @@ export const humanLock = {
   holders: [{ userId: AMY, displayName: 'Amy', lastActivityAt: T }],
   acquiredAt: T,
 };
-export const agentActor = { kind: 'agent', sessionId: 'sess_1', ownerUserId: HOST, displayName: 'Claude（Ian）' };
+export const agentActor = { kind: 'agent', sessionId: 'sess_1', ownerUserId: HOST, displayName: 'Claude (Ian)' };
 export const agentLock = {
   kind: 'agent',
   file: FILE,
   sessionId: 'sess_1',
   ownerUserId: HOST,
-  agentName: 'Claude（Ian）',
+  agentName: 'Claude (Ian)',
   acquiredAt: T,
   expiresAt: T + 60_000,
 };
@@ -101,7 +101,15 @@ export const mergeRequest = {
   status: 'pending',
   createdAt: T,
 };
-export const activity = { id: 'ev_1', at: T, actor: agentActor, kind: 'agent.edit', file: FILE, summary: '修改了 src/app.ts' };
+export const activity = {
+  id: 'ev_1',
+  at: T,
+  actor: agentActor,
+  kind: 'agent.edit',
+  file: FILE,
+  text: { id: 'activity.agentEdit', params: { agent: 'Claude (Ian)', path: 'src/app.ts', tool: 'Edit' } },
+  summary: 'Claude (Ian) edited src/app.ts (Edit)',
+};
 export const invite = { id: 'inv_1', role: 'editor', createdAt: T, expiresAt: T + 3_600_000, maxUses: 3, uses: 0, revoked: false };
 export const device = { deviceId: 'dev_1', name: 'Chrome on macOS', kind: 'web', addedAt: T, lastSeenAt: T, revoked: false };
 export const audit = {
@@ -147,8 +155,8 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   },
   'channel.closed': {
     payload: {
-      valid: [{ reason: 'kicked' }, { reason: 'role-changed', message: '你的角色已變更' }],
-      invalid: [{ reason: 'bored' }, { reason: 'kicked', message: 'a\u001b[31mred' }],
+      valid: [{ reason: 'kicked' }, { reason: 'role-changed' }],
+      invalid: [{ reason: 'bored' }, { reason: 'kicked', message: 'Your role changed.' }],
     },
   },
   'channel.ack': { payload: { valid: [{ upTo: 0 }, { upTo: 42 }], invalid: [{ upTo: -1 }, { upTo: 1.5 }, { upTo: 2 ** 53 }] } },
@@ -156,10 +164,21 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   error: {
     payload: {
       valid: [
-        { code: 'forbidden', message: '你沒有權限執行這個動作' },
+        { code: 'forbidden', message: 'a message without a reference' },
         { code: 'insufficient_disk', message: 'no space', detail: { disk } },
+        { code: 'forbidden', message: 'You do not have permission to do this.', text: { id: 'error.default.forbidden' } },
+        { code: 'conflict', message: 'x', detail: { reason: 'worktree-in-use' }, text: { id: 'worktree.inUse' } },
+        { code: 'locked', message: 'x', text: { id: 'file.lockedByPeople', params: { names: ['Amy', 'Bob'] } } },
+        { code: 'too_large', message: 'x', text: { id: 'future.message', params: { name: 'amy', count: 2, forced: false, holders: ['Amy', 'Bob'] } } },
       ],
       invalid: [
+        { code: 'forbidden', message: 'x', text: 'error.default.forbidden' },
+        { code: 'forbidden', message: 'x', text: { id: 'Error.default' } },
+        { code: 'forbidden', message: 'x', text: { id: 'error default' } },
+        { code: 'forbidden', message: 'x', text: { id: 'a.b', params: { name: null } } },
+        { code: 'forbidden', message: 'x', text: { id: 'a.b', params: { list: Array.from({ length: 11 }, () => 'x') } } },
+        { code: 'forbidden', message: 'x', text: { id: 'a.b', params: { n: Number.POSITIVE_INFINITY } } },
+        { code: 'forbidden', message: 'x', text: { id: 'a.b', extra: 1 } },
         { code: 'teapot', message: 'x' },
         { code: 'internal', message: 'x'.repeat(2_001) },
         { code: 'internal', message: 'x', detail: { constructor: 1 } },
@@ -387,7 +406,7 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
       valid: [
         {
           members: [{ ...member, connections: 2, activeFile: FILE }],
-          agents: [{ sessionId: 'sess_1', ownerUserId: HOST, displayName: 'Claude（Ian）', color: '#f59e0b', status: 'running' }],
+          agents: [{ sessionId: 'sess_1', ownerUserId: HOST, displayName: 'Claude (Ian)', color: '#f59e0b', status: 'running' }],
         },
       ],
       invalid: [{ members: [member], agents: [] }],
@@ -398,8 +417,17 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   },
   'activity.event': {
     payload: {
-      valid: [{ event: activity }, { event: { ...activity, via: 'bash' } }],
-      invalid: [{ event: { ...activity, kind: 'agent.dance' } }, { event: { ...activity, via: 'zsh' } }, { event: { ...activity, via: '' } }],
+      valid: [
+        { event: activity },
+        { event: { ...activity, via: 'bash' } },
+        { event: { ...activity, text: { id: 'activity.agentEdit', params: { agent: 'Claude (Ian)', path: 'src/app.ts' } } } },
+        { event: { ...activity, kind: 'file.rename', text: { id: 'activity.fileRename', params: { from: 'src/old.ts', to: 'src/app.ts' } }, renamedFrom: 'src/old.ts' } },
+      ],
+      invalid: [
+        { event: { ...activity, text: undefined } },
+        { event: { ...activity, text: 'activity.agentEdit' } },
+        { event: { ...activity, renamedFrom: '' } },
+        { event: { ...activity, renamedFrom: '../outside.ts' } },{ event: { ...activity, kind: 'agent.dance' } }, { event: { ...activity, via: 'zsh' } }, { event: { ...activity, via: '' } }],
     },
   },
   'activity.list': {
@@ -408,8 +436,28 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   },
   'activity.notify': {
     payload: {
-      valid: [{ notification: { id: 'n_1', at: T, from: agentActor, text: 'Amy，src/app.ts 我改好了', file: FILE } }],
-      invalid: [{ notification: { id: 'n_1', at: T, from: agentActor, text: '' } }],
+      valid: [
+        { notification: { id: 'n_1', at: T, from: agentActor, text: 'Amy，src/app.ts 我改好了', file: FILE } },
+        {
+          notification: {
+            id: 'n_2',
+            at: T,
+            from: { kind: 'system' },
+            msg: { id: 'notify.claudeVersionTooOld', params: { version: '2.0.1', minVersion: '2.1.0' } },
+            fallback: 'Note: Claude Code 2.0.1 is older than 2.1.0.',
+          },
+        },
+      ],
+      invalid: [
+        { notification: { id: 'n_1', at: T, from: agentActor, text: '' } },
+        { notification: { id: 'n_1', at: T, from: agentActor } },
+        { notification: { id: 'n_1', at: T, from: agentActor, text: 'x', msg: { id: 'notify.x' }, fallback: 'x' } },
+        { notification: { id: 'n_1', at: T, from: agentActor, text: 'x', fallback: 'x' } },
+        { notification: { id: 'n_1', at: T, from: agentActor, msg: { id: 'notify.x' } } },
+        { notification: { id: 'n_1', at: T, from: agentActor, fallback: 'x' } },
+        { notification: { id: 'n_1', at: T, from: agentActor, msg: { id: '' }, fallback: 'x' } },
+        { notification: { id: 'n_1', at: T, from: agentActor, msg: { id: 'notify.x' }, fallback: '' } },
+      ],
     },
   },
 
@@ -431,7 +479,10 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
         { kind: 'agent', workspace: { mode: 'main' }, cols: 0, rows: 40 },
       ],
     },
-    result: { valid: [{ session }], invalid: [{ session: { ...session, status: 'paused' } }, { session: { ...session, sandboxed: false } }] },
+    result: {
+      valid: [{ session }, { session: { ...session, title: undefined } }],
+      invalid: [{ session: { ...session, status: 'paused' } }, { session: { ...session, sandboxed: false } }, { session: { ...session, title: 7 } }],
+    },
   },
   'session.list': {
     payload: emptyOnly,
@@ -506,7 +557,12 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
     payload: { valid: [{}, { sessionId: 'sess_1' }], invalid: [{ sessionId: null }] },
     result: { valid: [{ suggestions: [suggestion] }], invalid: [{ suggestions: [{ ...suggestion, id: '' }] }] },
   },
-  'suggest.updated': { payload: { valid: [{ suggestion }], invalid: [{ suggestion: { ...suggestion, text: 42 } }] } },
+  'suggest.updated': {
+    payload: {
+      valid: [{ suggestion }, { suggestion: { ...suggestion, status: 'rejected', resolvedAt: T, closedReason: 'session-ended' } }],
+      invalid: [{ suggestion: { ...suggestion, text: 42 } }, { suggestion: { ...suggestion, closedReason: 'timeout' } }],
+    },
+  },
 
   // ---- worktree.* -----------------------------------------------------------------------------------------------
   'worktree.list': {

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type FileRef } from '@smurg/protocol';
 import { silentLogger } from '../../src/core/logger.ts';
 import { TypedEventBus } from '../../src/core/bus.ts';
+import { LOCK_CAP_REASON, OUTSIDE_ROOT_REASON, agentHeldReason, humanHeldReason } from '../../src/hooks/deny-text.ts';
 import { LockManagerImpl } from '../../src/locks/lock-manager.ts';
 import { AMY, BOB, RecordingAudit, cleoAgent, editorPrincipal, flushMicrotasks, hostPrincipal, ianAgent, lockHarness, main, worktree } from './support.ts';
 
@@ -20,7 +21,8 @@ describe('human edit lock', () => {
     expect(changes.map((c) => c.reason)).toEqual(['acquired', 'holder-joined']);
     const refused = locks.requestAgent(ianAgent(FILE));
     expect(refused.granted).toBe(false);
-    expect(!refused.granted && refused.reason).toBe('此檔案正由 Amy、Bob 編輯中，請先處理其他檔案或稍後再試');
+    expect(!refused.granted && refused.reason).toBe(humanHeldReason(['Amy', 'Bob']));
+    expect(humanHeldReason(['Amy', 'Bob'])).toBe('This file is being edited by Amy, Bob. Work on other files first, or try again later.');
     expect(!refused.granted && refused.holder).toMatchObject({ kind: 'human' });
   });
 
@@ -79,7 +81,7 @@ describe('human edit lock', () => {
     expect(raised.locks.get(FILE)).toBeNull();
   });
 
-  it('「讓 agent 先改」: a holder who yields leaves; when the last one does, the lock is gone and agents may edit', () => {
+  it('"Let the agent go first": a holder who yields leaves; when the last one does, the lock is gone and agents may edit', () => {
     const { locks, audit, changes } = lockHarness();
     locks.touchHuman(FILE, AMY);
     locks.touchHuman(FILE, BOB);
@@ -110,7 +112,7 @@ describe('human edit lock', () => {
   it('a human edit is refused while an agent holds the file', () => {
     const { locks } = lockHarness();
     locks.requestAgent(ianAgent(FILE));
-    expect(locks.touchHuman(FILE, AMY)).toMatchObject({ ok: false, lock: { kind: 'agent', agentName: 'Claude（Ian）' } });
+    expect(locks.touchHuman(FILE, AMY)).toMatchObject({ ok: false, lock: { kind: 'agent', agentName: 'Claude (Ian)' } });
   });
 
   it('leaveAllHuman / releaseAllForUser drop a kicked member everywhere', () => {
@@ -126,12 +128,12 @@ describe('human edit lock', () => {
 });
 
 describe('agent lock', () => {
-  it('R8.3 兩個 agent 同時修改同一個檔案時，後到者被擋下 — with the holder named', () => {
+  it('R8.3 when two agents change the same file at once the later one is blocked — with the holder named', () => {
     const { locks } = lockHarness();
     expect(locks.requestAgent(ianAgent(FILE)).granted).toBe(true);
     const later = locks.requestAgent(cleoAgent(FILE));
     expect(later.granted).toBe(false);
-    expect(!later.granted && later.reason).toBe('Claude（Ian）正在修改此檔案，請先處理其他檔案或稍後再試');
+    expect(!later.granted && later.reason).toBe(agentHeldReason('Claude (Ian)'));
     expect(!later.granted && later.holder).toMatchObject({ kind: 'agent', sessionId: 'ses_ian', ownerUserId: 'dev:ian' });
   });
 
@@ -195,7 +197,7 @@ describe('agent lock', () => {
     const wtFile: FileRef = { root: worktree('wt_other'), path: 'src/app.ts' };
     const outside = locks.requestAgent(ianAgent(wtFile));
     expect(outside).toMatchObject({ granted: false, holder: null });
-    expect(!outside.granted && outside.reason).toContain('不在這個 session 的工作區內');
+    expect(!outside.granted && outside.reason).toBe(OUTSIDE_ROOT_REASON);
     const fromWorktree = locks.requestAgent(ianAgent(FILE, 'ses_wt', worktree('wt_mine')));
     expect(fromWorktree.granted).toBe(false);
     expect(locks.requestAgent(ianAgent(main(''))).granted).toBe(false);
@@ -212,7 +214,7 @@ describe('agent lock', () => {
     }
     const capped = locks.requestAgent(ianAgent(main('f60.ts')));
     expect(capped).toMatchObject({ granted: false, holder: null });
-    expect(!capped.granted && capped.reason).toContain('太多檔案鎖');
+    expect(!capped.granted && capped.reason).toBe(LOCK_CAP_REASON);
     expect(locks.list()).toHaveLength(0);
     // Another session is not affected; the capped one gets grants again a minute later.
     expect(locks.requestAgent(cleoAgent(main('f60.ts'))).granted).toBe(true);
@@ -251,7 +253,7 @@ describe('force release (host)', () => {
       outcome: 'ok',
       actor: { kind: 'user', userId: 'dev:host' },
       target: 'main:src/app.ts',
-      detail: { kind: 'agent', sessionId: 'ses_ian', holder: 'Claude（Ian）' },
+      detail: { kind: 'agent', sessionId: 'ses_ian', holder: 'Claude (Ian)' },
     });
     locks.touchHuman(FILE, AMY);
     expect(locks.forceRelease(FILE, hostPrincipal())).toMatchObject({ kind: 'human' });
@@ -327,7 +329,7 @@ describe('queries for the coordination MCP tools', () => {
     expect(locks.whoIsEditing(FILE).humans.map((h) => h.displayName)).toEqual(['Amy']);
     locks.leaveHuman(FILE, 'dev:amy', 'closed');
     locks.requestAgent(ianAgent(FILE));
-    expect(locks.whoIsEditing(FILE)).toMatchObject({ humans: [], agent: { agentName: 'Claude（Ian）' } });
+    expect(locks.whoIsEditing(FILE)).toMatchObject({ humans: [], agent: { agentName: 'Claude (Ian)' } });
   });
 
   it('wait-for-lock: resolves null once the file is free, with the lock at a bounded timeout, or when aborted', async () => {
@@ -376,7 +378,7 @@ describe('queries for the coordination MCP tools', () => {
   });
 });
 
-describe('a wall clock that steps (review REL-04)', () => {
+describe('a wall clock that steps', () => {
   it('stepped back an hour, the agent-lock TTL and the human idle timeout still run out on time (they are durations)', () => {
     let wall = 1_760_000_000_000;
     let mono = 5_000;

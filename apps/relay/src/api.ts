@@ -69,7 +69,7 @@ export async function handleJwks(ctx: RequestContext): Promise<Response> {
       // Daemons cache it; a rotated key is published next to the old one before it signs anything.
       'cache-control': 'public, max-age=300',
       'x-content-type-options': 'nosniff',
-      // The daemon checks identity-token times against the relay's clock, estimated from this header (review REL-05):
+      // The daemon checks identity-token times against the relay's clock, estimated from this header:
       // set it explicitly rather than relying on the platform to add one.
       date: new Date().toUTCString(),
     },

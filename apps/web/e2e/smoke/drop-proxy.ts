@@ -1,5 +1,5 @@
 // A TCP proxy in front of the local relay, for the smoke tests that must lose a connection the way a network does
-// (R7.3: 「上傳中途斷線」). The browser loads the app from the proxy's origin; every connection is passed through byte
+// (R7.3: an upload cut off midway). The browser loads the app from the proxy's origin; every connection is passed through byte
 // for byte, and the proxy knows which ones carry the transfer socket (the HTTP request line of the WebSocket upgrade:
 // `GET /xfer/…`). `dropTransferAfter(n)` destroys the first transfer connection once n bytes went up through it —
 // both sides at once, mid-stream, like a network drop — and counts what every later transfer connection sends, so a

@@ -1,9 +1,9 @@
-// The host's review of a merge request (SPEC R9 「主人看到完整 diff」, ARCHITECTURE §5.7), as pure functions.
+// The host's review of a merge request (SPEC R9: the host sees the full diff; ARCHITECTURE §5.7), as pure functions.
 //
 // worktree.merge.diff returns the COMPLETE file list but a unified diff capped at 1 MiB (`truncated`; the daemon cuts
 // at a file boundary, except when one file alone is bigger). The review therefore splits the diff into one section per
 // file, keeps a section only when it is known to be complete, and lists every other file as one the host must open on
-// its own (worktree.merge.fileDiff). 「合併」 is offered only when that list is exhausted.
+// its own (worktree.merge.fileDiff). The merge is offered only when that list is exhausted.
 //
 // Everything that cannot be matched with certainty is treated as incomplete (fail closed): a file whose header git
 // had to quote, a prefix configuration we do not recognise, the last section of a cut diff. That costs the host one
@@ -101,7 +101,7 @@ export function buildReviewModel(diff: MergeDiff): ReviewModel {
   };
 }
 
-/** The paths still blocking 「合併」: those of `mustOpen` that were not opened (successfully) yet. */
+/** The paths still blocking the merge: those of `mustOpen` that were not opened (successfully) yet. */
 export function unopenedPaths(model: ReviewModel, opened: ReadonlySet<string>): string[] {
   return model.mustOpen.filter((path) => !opened.has(path));
 }

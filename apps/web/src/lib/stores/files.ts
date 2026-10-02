@@ -15,6 +15,7 @@ import {
 } from '@smurg/protocol';
 import { createStore, type ReadableStore } from '../store.ts';
 import { describeError } from '../errors.ts';
+import { compareText } from '../format.ts';
 import type { AreaLifecycle, LoadStatus, StoreContext } from './base.ts';
 
 export interface DirListing {
@@ -81,11 +82,10 @@ export function selectEntry(state: FilesState, file: FileRef): FileEntry | undef
 
 export const selectActiveRoot = (state: FilesState): RootRef => state.activeRoot;
 
-/** Directories first, then names in zh-TW collation (numbers compared numerically). */
+/** Directories first, then names in the collation of the viewer's language (numbers compared numerically). */
 export function sortEntries(entries: readonly FileEntry[]): FileEntry[] {
-  const collator = new Intl.Collator('zh-Hant-TW', { numeric: true, sensitivity: 'base' });
   const rank = (entry: FileEntry): number => (entry.kind === 'dir' ? 0 : 1);
-  return [...entries].sort((a, b) => rank(a) - rank(b) || collator.compare(a.name, b.name));
+  return [...entries].sort((a, b) => rank(a) - rank(b) || compareText(a.name, b.name));
 }
 
 export function createFilesArea(): { store: FilesStore; lifecycle: AreaLifecycle } {

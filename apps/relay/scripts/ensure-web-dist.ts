@@ -12,11 +12,14 @@ export const WEB_DIST = fileURLToPath(new URL('../../web/dist', import.meta.url)
 /** Present only in the stand-in; `vite build` empties the directory. */
 export const STAND_IN_MARKER = '.smurg-stand-in';
 
+/** The sentence of the stand-in page; `deploy.ts --check` and the web smoke tests recognise the stand-in by it. */
+export const STAND_IN_TEXT = 'The web app has not been built yet.';
+
 const STAND_IN = `<!doctype html>
-<html lang="zh-Hant-TW">
+<html lang="en">
   <head><meta charset="UTF-8" /><title>smurg</title></head>
   <body>
-    <p>尚未建置網頁介面。請執行 <code>pnpm --filter @smurg/web build</code>，或使用 <code>pnpm dev:web</code>（http://localhost:5173）。</p>
+    <p>${STAND_IN_TEXT} Run <code>pnpm --filter @smurg/web build</code>, or use <code>pnpm dev:web</code> (http://localhost:5173).</p>
   </body>
 </html>
 `;
@@ -65,7 +68,7 @@ export function rootHeaderLines(headers: string): string[] {
 
 /**
  * Why `dir` cannot be deployed as the SPA, or null when it looks like a real `vite build`. Fail closed on the security
- * headers too (review SEC-E-04): the SPA's Content-Security-Policy / frame protection come from `_headers` (from
+ * headers too: the SPA's Content-Security-Policy / frame protection come from `_headers` (from
  * apps/web/public), so does its Strict-Transport-Security (at least a year: the relay is a custom domain of a zone
  * that is not HSTS-preloaded, docs/RELEASING.md §2), and the build manifest must not be served (`.assetsignore` lists
  * `.vite`).

@@ -4,7 +4,7 @@
 // The page acquires THE session of the workspace from the manager (the one the join page opened, or a new one in
 // device mode) and gates on the connection:
 //   - terminal states replace the page with an explanation (key mismatch, kicked, rejected, closed, login);
-//   - before the first admission: a connecting screen (with 「主人已離線」 if the host is away);
+//   - before the first admission: a connecting screen (with "Host offline" if the host is away);
 //   - afterwards the workbench stays usable whatever happens, with a banner while the host is offline or the relay
 //     unreachable (SPEC §9: never a frozen screen).
 import { useEffect, useState, type ReactNode } from 'react';

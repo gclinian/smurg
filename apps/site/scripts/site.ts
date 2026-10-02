@@ -1,25 +1,26 @@
 // The smurg.ai site as files: public/ (the hand-written pages) plus the pages generated from the repository at build
 // time. scripts/build.ts writes them into dist/, the static-assets directory of wrangler.jsonc.
 //
-//   /docs/                     the docs index (zh-TW, with an English note)
-//   /docs/hosting/             docs/HOSTING.md
-//   /docs/joining/             docs/JOINING.md
-//   /docs/changelog/           CHANGELOG.md
-//   /docs/404.html             the Traditional Chinese 404 page, for unknown paths under /docs/
-//   /license/                  LICENSE
-//   /third-party-notices.txt   the executable's complete third-party notices (see readNotices)
+//   English                    Traditional Chinese             source
+//   /docs/                     /zh-TW/docs/                    the docs index (CHROME below)
+//   /docs/hosting/             /zh-TW/docs/hosting/            docs/HOSTING.md      docs/zh-TW/HOSTING.md
+//   /docs/joining/             /zh-TW/docs/joining/            docs/JOINING.md      docs/zh-TW/JOINING.md
+//   /docs/changelog/           /zh-TW/docs/changelog/          CHANGELOG.md         docs/zh-TW/CHANGELOG.md
+//   /license/                  /zh-TW/license/                 LICENSE (the zh-TW page introduces the English text)
+//   /third-party-notices.txt                                   the executable's complete notices (see readNotices)
+//   /sitemap.xml                                               every page above and the two home pages, with alternates
 //
-// Internal documents (ARCHITECTURE, RELEASING, ACCEPTANCE, OPEN-QUESTIONS, research, SPEC, READMEs) are not
-// published: a link to one becomes its plain text, and so does a link that is not https. The source is private, so a
-// page that mentions github.com at all is refused (the notices may: they name third-party projects' sources).
-// generateSite() fails, listing every problem, rather than produce a site with a broken link, a heading id the docs
-// cannot reach, a mention of github.com in a page, a placeholder copyright holder or no third-party notices.
+// Every page names its counterpart in the other language (`<link rel="alternate" hreflang>` and the language link).
+// A link between two published files stays inside the site; a link to any other file of the repository (ARCHITECTURE,
+// the relay's README, SPEC, …) goes to that file on GitHub; a link that is not https becomes its plain text.
+// generateSite() fails, listing every problem, rather than produce a site with a broken link, a link to a repository
+// file that does not exist, a heading id the docs cannot reach or no third-party notices.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse, type DefaultTreeAdapterTypes } from 'parse5';
-import { REDIRECTS } from '../src/routes.ts';
+import { REDIRECTS, REPOSITORY } from '../src/routes.ts';
 import { escapeHtml, renderMarkdown, unescapeHtml, type Heading, type LinkDecision, type LinkRecord } from './markdown.ts';
 
 export const SITE_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -28,6 +29,9 @@ export const PUBLIC_DIR = join(SITE_ROOT, 'public');
 /** wrangler.jsonc `assets.directory`. */
 export const DIST_DIR = join(SITE_ROOT, 'dist');
 export const ORIGIN = 'https://smurg.ai';
+/** Where a link to a repository file that is not published on the site goes. */
+export const REPOSITORY_FILES = `${REPOSITORY}/blob/main/`;
+export const REPOSITORY_DIRS = `${REPOSITORY}/tree/main/`;
 
 /** The executable's committed third-party notices, relative to the repository; its Node.js section is a placeholder. */
 export const COMMITTED_NOTICES = 'packages/cli/THIRD-PARTY-NOTICES.txt';
@@ -41,18 +45,31 @@ export const NODE_LICENSE_START = 'Node.js is licensed for use as follows:';
 export const NOTICES_ENV = 'SMURG_SITE_THIRD_PARTY_NOTICES';
 /** Environment: read docs/, CHANGELOG.md and LICENSE from this directory instead of the repository (tests only). */
 export const SOURCE_ROOT_ENV = 'SMURG_SITE_SOURCE_ROOT';
-/** Environment: `1` accepts the placeholders below (tests, local previews; never a deploy). */
+/** Environment: `1` accepts notices that are not the release's (tests, local previews; never a deploy). */
 export const PLACEHOLDER_ENV = 'SMURG_SITE_ALLOW_PLACEHOLDER';
-/** LICENSE's copyright holder until the owner names one. */
-export const PLACEHOLDER = '<COPYRIGHT HOLDER>';
 
-export const DOCS_INDEX = '/docs/';
-export const LICENSE_PAGE = '/license/';
 export const NOTICES_FILE = '/third-party-notices.txt';
-/** The web app's own notices (the license task: apps/web/public/third-party-notices.txt, served by the relay). */
+export const SITEMAP_FILE = '/sitemap.xml';
+/** The web app's own notices (apps/web/public/third-party-notices.txt, served by the relay). */
 export const WEB_APP_NOTICES = 'https://app.smurg.ai/third-party-notices.txt';
 
-export interface DocPage {
+// ---- languages ----
+
+export type Lang = 'en' | 'zh-TW';
+/** English first: it is the default (`x-default`) of every pair of pages. */
+export const LANGS: readonly Lang[] = ['en', 'zh-TW'];
+/** The `lang` of a page and the `hreflang` of a link to it. */
+export const HTML_LANG: Readonly<Record<Lang, string>> = { en: 'en', 'zh-TW': 'zh-Hant-TW' };
+/** The path prefix of a language's pages. */
+export const LANG_PREFIX: Readonly<Record<Lang, string>> = { en: '', 'zh-TW': '/zh-TW' };
+
+export const otherLang = (lang: Lang): Lang => (lang === 'en' ? 'zh-TW' : 'en');
+export const homePage = (lang: Lang): string => `${LANG_PREFIX[lang]}/`;
+export const docsIndex = (lang: Lang): string => `${LANG_PREFIX[lang]}/docs/`;
+export const licensePage = (lang: Lang): string => `${LANG_PREFIX[lang]}/license/`;
+const changelogPage = (lang: Lang): string => `${LANG_PREFIX[lang]}/docs/changelog/`;
+
+export interface DocSource {
   /** The Markdown file, relative to the repository. */
   readonly source: string;
   /** Where it is served. */
@@ -62,32 +79,59 @@ export interface DocPage {
   readonly summary: string;
 }
 
+/** A document of the docs, in both languages. */
+export type DocPage = Readonly<Record<Lang, DocSource>>;
+
 export const DOC_PAGES: readonly DocPage[] = [
   {
-    source: 'docs/HOSTING.md',
-    path: '/docs/hosting/',
-    label: '主人指南',
-    summary: '在自己的電腦上用 smurg host 分享資料夾：安裝、登入、分享前必讀、組員的權限設定、防止睡眠與疑難排解。',
+    en: {
+      source: 'docs/HOSTING.md',
+      path: '/docs/hosting/',
+      label: 'Host guide',
+      summary: 'Share a folder from your own computer with smurg host: installing, logging in, what to read before you share, the Agent access role, keeping the computer awake and troubleshooting.',
+    },
+    'zh-TW': {
+      source: 'docs/zh-TW/HOSTING.md',
+      path: '/zh-TW/docs/hosting/',
+      label: '主人指南',
+      summary: '在自己的電腦上用 smurg host 分享資料夾：安裝、登入、分享前必讀、「可使用 agent」角色、防止睡眠與疑難排解。',
+    },
   },
   {
-    source: 'docs/JOINING.md',
-    path: '/docs/joining/',
-    label: '組員指南',
-    summary: '用邀請連結加入別人分享的工作區：角色、一起編輯、看 agent 與提出建議、自己的 agent、worktree 與離開。',
+    en: {
+      source: 'docs/JOINING.md',
+      path: '/docs/joining/',
+      label: 'Guide for teammates',
+      summary: 'Join a workspace someone shared with an invite link: roles, editing together, watching agents and sending suggestions, agent sessions, worktrees and leaving.',
+    },
+    'zh-TW': {
+      source: 'docs/zh-TW/JOINING.md',
+      path: '/zh-TW/docs/joining/',
+      label: '組員指南',
+      summary: '用邀請連結加入別人分享的工作區：角色、一起編輯、看 agent 與提出建議、agent session、worktree 與離開。',
+    },
   },
   {
-    source: 'CHANGELOG.md',
-    path: '/docs/changelog/',
-    label: '變更紀錄',
-    summary: '每個版本的變更與已知限制。',
+    en: {
+      source: 'CHANGELOG.md',
+      path: '/docs/changelog/',
+      label: 'Changelog',
+      summary: 'What changed in each version, and the known limits.',
+    },
+    'zh-TW': {
+      source: 'docs/zh-TW/CHANGELOG.md',
+      path: '/zh-TW/docs/changelog/',
+      label: '變更紀錄',
+      summary: '每個版本的變更與已知限制。',
+    },
   },
 ];
 
-/** Files outside docs/ that a link may point at, and their URLs. */
-const OTHER_TARGETS: ReadonlyMap<string, string> = new Map([
-  ['LICENSE', LICENSE_PAGE],
-  [COMMITTED_NOTICES, NOTICES_FILE],
-]);
+/** The pages of the site that exist in both languages: the path of each, per language (the home pages first). */
+export function pagePairs(): Readonly<Record<Lang, string>>[] {
+  const pair = (path: (lang: Lang) => string): Record<Lang, string> => ({ en: path('en'), 'zh-TW': path('zh-TW') });
+  return [pair(homePage), pair(docsIndex), ...DOC_PAGES.map((doc) => pair((lang) => doc[lang].path)), pair(licensePage)];
+}
 
 /** Ids the page template uses; a heading in the docs may not take one. */
 const TEMPLATE_IDS = ['main'];
@@ -99,7 +143,7 @@ export interface SiteOptions {
   readonly publicDir?: string;
   /** A notices file (default: the output of NOTICES_COMMAND in this repository, see readNotices). */
   readonly notices?: string;
-  /** Accept a LICENSE that still contains PLACEHOLDER and notices that still contain NOTICES_PLACEHOLDER. */
+  /** Accept no named notices file, or notices that still contain NOTICES_PLACEHOLDER (previews and tests). */
   readonly allowPlaceholder?: boolean;
 }
 
@@ -138,27 +182,12 @@ export class SiteError extends Error {
 const MARK =
   '<svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect class="mark-bg" width="32" height="32" rx="8"/><path class="mark-ln" d="M11 16 22 9.5M11 16l11 6.5"/><rect class="mark-fg" x="6.5" y="11.5" width="9" height="9" rx="2.25"/><circle class="mark-fg" cx="22.5" cy="9.5" r="3.25"/><circle class="mark-fg" cx="22.5" cy="22.5" r="3.25"/></svg>';
 
-type Lang = 'en' | 'zh-TW';
-
-/** The words of the page chrome. public/index.html and public/zh-TW/index.html have the same footer, by hand. */
+/**
+ * Every word the build itself writes, per language (the site's catalog; the guides are Markdown files). The two home
+ * pages in public/ have the same header links and footer, by hand: a test compares them.
+ */
 export const CHROME = {
-  'zh-TW': {
-    home: '/zh-TW/',
-    homeLabel: 'smurg 首頁',
-    skip: '跳到主要內容',
-    mainNav: '主要',
-    footerNav: '頁尾',
-    docs: '文件',
-    changelog: '變更紀錄',
-    license: '授權條款',
-    notices: '第三方授權聲明',
-    webApp: '網頁版',
-    footer: 'smurg 的執行檔在原型階段可以免費下載和使用。',
-    other: { href: '/', lang: 'en', label: 'English' },
-    locale: 'zh_TW',
-  },
   en: {
-    home: '/',
     homeLabel: 'smurg, home',
     skip: 'Skip to content',
     mainNav: 'Main',
@@ -168,25 +197,78 @@ export const CHROME = {
     license: 'License',
     notices: 'Third-party notices',
     webApp: 'Web app',
-    footer: 'The smurg executables are free to download and use during the prototype.',
-    other: { href: '/zh-TW/', lang: 'zh-TW', label: '繁體中文' },
+    github: 'GitHub',
+    footer: 'smurg is open source under the MIT License.',
+    /** The name of this language in the language link of the OTHER language's pages (always in its own language). */
+    name: 'English',
     locale: 'en_US',
+    docsNav: 'Docs',
+    docsOverview: 'Overview',
+    toc: 'On this page',
+    tableLabel: (section: string | undefined): string => (section === undefined ? 'Table' : `Table: ${section}`),
+    indexTitle: 'smurg docs: install, share a folder, join a workspace',
+    indexDescription: 'How to use smurg: the host guide, the guide for teammates, the changelog and the license.',
+    indexHeading: 'smurg docs',
+    indexLede: 'Install smurg, share a folder, join a workspace someone shared, and see what changed in each version.',
+    licenseHeading: 'License and source code',
+    licenseSection: (lang: Lang): string =>
+      `smurg is open source under the <a href="${licensePage(lang)}">MIT License</a>; the source code is on <a href="${REPOSITORY}">GitHub</a>. The components in the executables that come from other projects keep their own licenses, listed in the <a href="${NOTICES_FILE}">third-party notices</a>; those of the web app are in the <a href="${WEB_APP_NOTICES}">web app’s third-party notices</a>.`,
+    licenseTitle: 'License · smurg',
+    licenseDescription: 'smurg is open source under the MIT License: the full license text.',
+    licensePageHeading: 'License',
+    licenseLede: (): string =>
+      `smurg is open source under the MIT License: the text below covers the executables, the web app and the <a href="${REPOSITORY}">source code</a>. The components in them that come from other projects keep their own licenses: see the <a href="${NOTICES_FILE}">third-party notices</a> of the executables and those of the <a href="${WEB_APP_NOTICES}">web app</a>.`,
+    licenseNote: '',
+  },
+  'zh-TW': {
+    homeLabel: 'smurg 首頁',
+    skip: '跳到主要內容',
+    mainNav: '主要',
+    footerNav: '頁尾',
+    docs: '文件',
+    changelog: '變更紀錄',
+    license: '授權條款',
+    notices: '第三方授權聲明',
+    webApp: '網頁版',
+    github: 'GitHub',
+    footer: 'smurg 是開放原始碼軟體，以 MIT 授權條款釋出。',
+    name: '繁體中文',
+    locale: 'zh_TW',
+    docsNav: '文件',
+    docsOverview: '文件總覽',
+    toc: '本頁目錄',
+    tableLabel: (section: string | undefined): string => (section === undefined ? '表格' : `表格：${section}`),
+    indexTitle: 'smurg 文件：安裝、分享資料夾、加入工作區',
+    indexDescription: 'smurg 的使用說明：主人指南、組員指南、變更紀錄、授權條款。',
+    indexHeading: 'smurg 文件',
+    indexLede: '安裝 smurg、分享資料夾、加入別人分享的工作區，以及每個版本的變更。',
+    licenseHeading: '授權與原始碼',
+    licenseSection: (lang: Lang): string =>
+      `smurg 是開放原始碼軟體，以 <a href="${licensePage(lang)}">MIT 授權條款</a>釋出；原始碼在 <a href="${REPOSITORY}">GitHub</a>。執行檔裡來自其他專案的元件，依它們各自的授權條款提供，列在<a href="${NOTICES_FILE}">第三方授權聲明</a>；網頁版用到的元件列在<a href="${WEB_APP_NOTICES}">網頁版的第三方授權聲明</a>。`,
+    licenseTitle: '授權條款 · smurg',
+    licenseDescription: 'smurg 是開放原始碼軟體，以 MIT 授權條款釋出：授權條款全文。',
+    licensePageHeading: '授權條款',
+    licenseLede: (): string =>
+      `smurg 是開放原始碼軟體，以 MIT 授權條款釋出：下面的條款適用於執行檔、網頁版和<a href="${REPOSITORY}">原始碼</a>。其中來自其他專案的元件，依它們各自的授權條款提供：見執行檔的<a href="${NOTICES_FILE}">第三方授權聲明</a>與<a href="${WEB_APP_NOTICES}">網頁版的第三方授權聲明</a>。`,
+    licenseNote: '授權條款以英文原文為準，下面是原文。',
   },
 } as const;
 
-function footer(lang: Lang): string {
+function footer(lang: Lang, alternate: string): string {
   const t = CHROME[lang];
+  const other = otherLang(lang);
   return `<footer class="site-footer">
   <div class="wrap footer-row">
     <p>${t.footer}</p>
     <nav aria-label="${t.footerNav}">
       <ul>
-        <li><a href="${DOCS_INDEX}">${t.docs}</a></li>
-        <li><a href="/docs/changelog/">${t.changelog}</a></li>
-        <li><a href="${LICENSE_PAGE}">${t.license}</a></li>
+        <li><a href="${docsIndex(lang)}">${t.docs}</a></li>
+        <li><a href="${changelogPage(lang)}">${t.changelog}</a></li>
+        <li><a href="${licensePage(lang)}">${t.license}</a></li>
         <li><a href="${NOTICES_FILE}">${t.notices}</a></li>
+        <li><a href="${REPOSITORY}">${t.github}</a></li>
         <li><a href="https://app.smurg.ai/">${t.webApp}</a></li>
-        <li><a href="${t.other.href}" hreflang="${t.other.lang}" lang="${t.other.lang}">${t.other.label}</a></li>
+        <li><a href="${alternate}" hreflang="${HTML_LANG[other]}" lang="${HTML_LANG[other]}">${CHROME[other].name}</a></li>
       </ul>
     </nav>
   </div>
@@ -195,23 +277,35 @@ function footer(lang: Lang): string {
 
 interface PageInput {
   readonly lang: Lang;
-  readonly path: string;
+  /** The path of this page in each language. */
+  readonly paths: Readonly<Record<Lang, string>>;
   readonly title: string;
   readonly description: string;
   readonly main: string;
 }
 
-function page({ lang, path, title, description, main }: PageInput): string {
+/** `<link rel="alternate">` for both languages and the default (English), as every page of a pair carries them. */
+export function alternateLinks(paths: Readonly<Record<Lang, string>>): string {
+  return [
+    ...LANGS.map((lang) => `<link rel="alternate" hreflang="${HTML_LANG[lang]}" href="${ORIGIN}${paths[lang]}">`),
+    `<link rel="alternate" hreflang="x-default" href="${ORIGIN}${paths.en}">`,
+  ].join('\n');
+}
+
+function page({ lang, paths, title, description, main }: PageInput): string {
   const t = CHROME[lang];
+  const other = otherLang(lang);
+  const path = paths[lang];
   const current = (href: string): string => (href === path ? ' aria-current="page"' : '');
   return `<!doctype html>
-<html lang="${lang}">
+<html lang="${HTML_LANG[lang]}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
 <link rel="canonical" href="${ORIGIN}${path}">
+${alternateLinks(paths)}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
 <meta name="color-scheme" content="light dark">
@@ -223,6 +317,7 @@ function page({ lang, path, title, description, main }: PageInput): string {
 <meta property="og:description" content="${escapeHtml(description)}">
 <meta property="og:url" content="${ORIGIN}${path}">
 <meta property="og:locale" content="${t.locale}">
+<meta property="og:locale:alternate" content="${CHROME[other].locale}">
 <meta name="twitter:card" content="summary">
 </head>
 <body>
@@ -230,15 +325,16 @@ function page({ lang, path, title, description, main }: PageInput): string {
 
 <header class="site-header">
   <div class="wrap header-row">
-    <a class="brand" href="${t.home}" aria-label="${t.homeLabel}">
+    <a class="brand" href="${homePage(lang)}" aria-label="${t.homeLabel}">
       ${MARK}
       <span>smurg</span>
     </a>
     <nav class="site-nav" aria-label="${t.mainNav}">
       <ul>
-        <li><a href="${DOCS_INDEX}"${current(DOCS_INDEX)}>${t.docs}</a></li>
+        <li><a href="${docsIndex(lang)}"${current(docsIndex(lang))}>${t.docs}</a></li>
+        <li><a href="${REPOSITORY}">${t.github}</a></li>
         <li><a href="https://app.smurg.ai/">${t.webApp}</a></li>
-        <li class="lang"><a href="${t.other.href}" hreflang="${t.other.lang}" lang="${t.other.lang}">${t.other.label}</a></li>
+        <li class="lang"><a href="${paths[other]}" hreflang="${HTML_LANG[other]}" lang="${HTML_LANG[other]}">${CHROME[other].name}</a></li>
       </ul>
     </nav>
   </div>
@@ -246,36 +342,37 @@ function page({ lang, path, title, description, main }: PageInput): string {
 
 ${main}
 
-${footer(lang)}
+${footer(lang, paths[other])}
 </body>
 </html>
 `;
 }
 
-/** The docs navigation (zh-TW), with the current page marked. */
-function docNav(path: string): string {
+/** The docs navigation, with the current page marked. */
+function docNav(lang: Lang, path: string): string {
+  const t = CHROME[lang];
   const items: [string, string][] = [
-    [DOCS_INDEX, '文件總覽'],
-    ...DOC_PAGES.map((doc): [string, string] => [doc.path, doc.label]),
-    [LICENSE_PAGE, '授權條款'],
-    [NOTICES_FILE, '第三方授權聲明'],
+    [docsIndex(lang), t.docsOverview],
+    ...DOC_PAGES.map((doc): [string, string] => [doc[lang].path, doc[lang].label]),
+    [licensePage(lang), t.license],
+    [NOTICES_FILE, t.notices],
   ];
   const li = items.map(([href, label]) => `<li><a href="${href}"${href === path ? ' aria-current="page"' : ''}>${label}</a></li>`);
-  return `<nav class="doc-nav" aria-label="文件">\n<ul>\n${li.join('\n')}\n</ul>\n</nav>`;
+  return `<nav class="doc-nav" aria-label="${t.docsNav}">\n<ul>\n${li.join('\n')}\n</ul>\n</nav>`;
 }
 
 /** The page's own table of contents: its second-level headings (on wide screens, beside the text). */
-function toc(headings: readonly Heading[]): string {
+function toc(lang: Lang, headings: readonly Heading[]): string {
   const sections = headings.filter((h) => h.depth === 2);
   if (sections.length < 2) return '';
   const li = sections.map((h) => `<li><a href="#${escapeHtml(h.id)}">${escapeHtml(h.text)}</a></li>`);
-  return `\n<nav class="doc-toc" aria-label="本頁目錄">\n<ul>\n${li.join('\n')}\n</ul>\n</nav>`;
+  return `\n<nav class="doc-toc" aria-label="${CHROME[lang].toc}">\n<ul>\n${li.join('\n')}\n</ul>\n</nav>`;
 }
 
-function docLayout(path: string, headings: readonly Heading[], body: string): string {
+function docLayout(lang: Lang, path: string, headings: readonly Heading[], body: string): string {
   return `<div class="wrap doc-layout">
 <aside class="doc-side">
-${docNav(path)}${toc(headings)}
+${docNav(lang, path)}${toc(lang, headings)}
 </aside>
 <main id="main" class="doc">
 ${body}</main>
@@ -290,48 +387,65 @@ function firstParagraph(html: string): string {
   return chars.length <= 150 ? text : `${chars.slice(0, 149).join('')}…`;
 }
 
-function docsIndex(): string {
+function docsIndexPage(lang: Lang): string {
+  const t = CHROME[lang];
   const cards = DOC_PAGES.map(
-    (doc) => `<li>\n<h2><a href="${doc.path}">${escapeHtml(doc.label)}</a></h2>\n<p>${escapeHtml(doc.summary)}</p>\n</li>`,
+    (doc) => `<li>\n<h2><a href="${doc[lang].path}">${escapeHtml(doc[lang].label)}</a></h2>\n<p>${escapeHtml(doc[lang].summary)}</p>\n</li>`,
   ).join('\n');
-  const body = `<h1>smurg 文件</h1>
-<p class="doc-lede">安裝 smurg、分享資料夾、加入別人分享的工作區，以及每個版本的變更。</p>
-<p class="doc-note" lang="en">The guides are in Traditional Chinese for now. The <a href="/" hreflang="en" lang="en">English home page</a> covers what smurg does, how to install it and what its security model protects.</p>
+  const body = `<h1>${t.indexHeading}</h1>
+<p class="doc-lede">${t.indexLede}</p>
 <ul class="doc-cards">
 ${cards}
 </ul>
-<h2 id="license">授權</h2>
-<p>smurg 的執行檔在原型階段可以免費下載和使用，條款見<a href="${LICENSE_PAGE}">授權條款</a>（英文）。執行檔裡來自其他專案的元件，依它們各自的授權條款提供，列在<a href="${NOTICES_FILE}">第三方授權聲明</a>；網頁版用到的元件列在<a href="${WEB_APP_NOTICES}">網頁版的第三方授權聲明</a>。</p>
+<h2 id="license">${t.licenseHeading}</h2>
+<p>${t.licenseSection(lang)}</p>
 `;
   return page({
-    lang: 'zh-TW',
-    path: DOCS_INDEX,
-    title: 'smurg 文件：安裝、分享資料夾、加入工作區',
-    description: 'smurg 的使用說明（繁體中文）：主人指南、組員指南、變更紀錄、授權條款。',
-    main: docLayout(DOCS_INDEX, [], body),
+    lang,
+    paths: { en: docsIndex('en'), 'zh-TW': docsIndex('zh-TW') },
+    title: t.indexTitle,
+    description: t.indexDescription,
+    main: docLayout(lang, docsIndex(lang), [], body),
   });
 }
 
-function licensePage(text: string): string {
+function licensePageHtml(lang: Lang, text: string): string {
+  const t = CHROME[lang];
+  const note = t.licenseNote === '' ? '' : `\n<p class="doc-note">${t.licenseNote}</p>`;
+  // The license text is English on both pages.
+  const textLang = lang === 'en' ? '' : ` lang="${HTML_LANG.en}"`;
   const main = `<div class="wrap">
 <main id="main" class="doc doc-single">
-<h1>License</h1>
-<p class="doc-lede">The terms under which you may download and use the smurg executables and use the web app. The components in them that come from other projects keep their own licenses: see the <a href="${NOTICES_FILE}">third-party notices</a> of the executables and those of the <a href="${WEB_APP_NOTICES}">web app</a>.</p>
-<p class="doc-note" lang="zh-TW">授權條款目前只有英文版。</p>
-<pre class="license-text">${escapeHtml(text.replace(/\s+$/, ''))}</pre>
+<h1>${t.licensePageHeading}</h1>
+<p class="doc-lede">${t.licenseLede()}</p>${note}
+<pre class="license-text"${textLang}>${escapeHtml(text.replace(/\s+$/, ''))}</pre>
 </main>
 </div>`;
-  return page({ lang: 'en', path: LICENSE_PAGE, title: 'License · smurg', description: 'The license terms of the smurg executables and the smurg web app.', main });
+  return page({ lang, paths: { en: licensePage('en'), 'zh-TW': licensePage('zh-TW') }, title: t.licenseTitle, description: t.licenseDescription, main });
+}
+
+/** sitemap.xml: every page that exists in both languages, each with its alternates. */
+function sitemap(): string {
+  const urls = pagePairs().flatMap((paths) =>
+    LANGS.map(
+      (lang) =>
+        `  <url>\n    <loc>${ORIGIN}${paths[lang]}</loc>\n${[
+          ...LANGS.map((l) => `    <xhtml:link rel="alternate" hreflang="${HTML_LANG[l]}" href="${ORIGIN}${paths[l]}"/>`),
+          `    <xhtml:link rel="alternate" hreflang="x-default" href="${ORIGIN}${paths.en}"/>`,
+        ].join('\n')}\n  </url>`,
+    ),
+  );
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${urls.join('\n')}\n</urlset>\n`;
 }
 
 // ---- links ----
 
-function isGitHub(host: string): boolean {
-  return host === 'github.com' || host.endsWith('.github.com') || host === 'githubusercontent.com' || host.endsWith('.githubusercontent.com');
-}
-
-/** The link decisions for one Markdown file of the repository (see the header of this file). */
-function linkResolver(source: string, targets: ReadonlyMap<string, string>): (href: string) => LinkDecision {
+/**
+ * The link decisions for one Markdown file of the repository (see the header of this file). `targets` maps every
+ * published Markdown file, of both languages, to its URL: a guide links its own language's files, so its links stay
+ * in its language. LICENSE goes to the license page of the linking file's language.
+ */
+function linkResolver(source: string, lang: Lang, targets: ReadonlyMap<string, string>, repoRoot: string, problems: string[]): (href: string) => LinkDecision {
   return (href) => {
     if (href.startsWith('#')) return { href };
     if (href.startsWith('//')) return { plain: 'a protocol-relative link' };
@@ -343,7 +457,6 @@ function linkResolver(source: string, targets: ReadonlyMap<string, string>): (hr
         return { plain: 'not a valid URL' };
       }
       if (url.protocol !== 'https:') return { plain: `a ${url.protocol} link (only https links are kept)` };
-      if (isGitHub(url.hostname)) return { plain: 'GitHub (the source is private)' };
       return { href };
     }
     // A path relative to the Markdown file, in the repository.
@@ -359,9 +472,17 @@ function linkResolver(source: string, targets: ReadonlyMap<string, string>): (hr
     }
     const target = posix.normalize(posix.join(posix.dirname(source), decoded)).replace(/\/$/, '');
     if (target.startsWith('../') || target === '..') return { plain: 'a path outside the repository' };
+    if (target === 'LICENSE') return { href: `${licensePage(lang)}${fragment}` };
     const url = targets.get(target);
     if (url !== undefined) return { href: `${url}${fragment}` };
-    return { plain: `${target} is not published` };
+    // Not a page of the site: the file itself, in the source repository.
+    const file = join(repoRoot, ...target.split('/'));
+    if (!existsSync(file)) {
+      problems.push(`${source}: the link (${href}) points at ${target}, which does not exist in the repository`);
+      return { plain: `${target} does not exist` };
+    }
+    const base = statSync(file).isDirectory() ? REPOSITORY_DIRS : REPOSITORY_FILES;
+    return { href: `${base}${encodeURI(target)}${fragment}` };
   };
 }
 
@@ -412,21 +533,10 @@ export function servedFile(files: ReadonlyMap<string, unknown>, path: string): s
   return files.has(file) ? file : undefined;
 }
 
-function checkSite(files: ReadonlyMap<string, Buffer>, reported: ReadonlySet<string>): string[] {
+function checkSite(files: ReadonlyMap<string, Buffer>): string[] {
   const problems: string[] = [];
   const facts = new Map<string, PageFacts>();
   for (const [file, data] of files) if (file.endsWith('.html')) facts.set(file, pageFacts(data.toString('utf8')));
-
-  for (const [file, data] of files) {
-    if (reported.has(file)) continue;
-    const text = data.toString('utf8');
-    // The repository is private: nothing on the site may point at it.
-    if (/github\.com\/gclinian|gclinian\/smurg/i.test(text)) problems.push(`${file} mentions the private repository`);
-    if (file.endsWith('.html')) {
-      const line = text.split('\n').findIndex((l) => /github\.com/i.test(l));
-      if (line >= 0) problems.push(`${file}:${line + 1} mentions github.com: ${text.split('\n')[line]?.trim().slice(0, 120)}`);
-    }
-  }
 
   for (const [file, page] of facts) {
     for (const { tag, attr, value, rel } of page.links) {
@@ -562,8 +672,6 @@ export function generateSite(options: SiteOptions = {}): Site {
   const rewritten: string[] = [];
   const plain: string[] = [];
   const rawHtml: string[] = [];
-  /** Generated pages whose github.com mentions were already reported at their Markdown line. */
-  const reported = new Set<string>();
   /** A source that could not be read. */
   let missing = false;
   const files = new Map<string, Buffer>();
@@ -574,65 +682,63 @@ export function generateSite(options: SiteOptions = {}): Site {
 
   for (const path of listFiles(publicDir)) add(path, readFileSync(join(publicDir, path)));
 
-  const targets = new Map<string, string>([...DOC_PAGES.map((doc): [string, string] => [doc.source, doc.path]), ...OTHER_TARGETS]);
+  // Every published Markdown file, of both languages, and the notices.
+  const targets = new Map<string, string>([
+    ...DOC_PAGES.flatMap((doc) => LANGS.map((lang): [string, string] => [doc[lang].source, doc[lang].path])),
+    [COMMITTED_NOTICES, NOTICES_FILE],
+  ]);
 
-  for (const doc of DOC_PAGES) {
-    const markdown = readUtf8(join(repoRoot, doc.source), doc.source, problems);
-    if (markdown === undefined) {
-      missing = true;
-      continue;
+  for (const lang of LANGS) {
+    for (const pair of DOC_PAGES) {
+      const doc = pair[lang];
+      const markdown = readUtf8(join(repoRoot, doc.source), doc.source, problems);
+      if (markdown === undefined) {
+        missing = true;
+        continue;
+      }
+      const rendered = renderMarkdown(markdown, {
+        resolveLink: linkResolver(doc.source, lang, targets, repoRoot, problems),
+        reservedIds: TEMPLATE_IDS,
+        tableLabel: CHROME[lang].tableLabel,
+      });
+      problems.push(...rendered.problems.map((p) => `${doc.source}: ${p}`));
+      rawHtml.push(...rendered.rawHtml.map((r) => `${doc.source}:${r}`));
+      for (const link of rendered.links) {
+        if ('plain' in link.decision) plain.push(describeLink(doc.source, link));
+        else if (link.decision.href !== link.href) rewritten.push(describeLink(doc.source, link));
+      }
+      // One h1, first; no heading skips a level (a screen reader's outline of the page).
+      const levels = rendered.headings.map((h) => h.depth);
+      if (levels.filter((l) => l === 1).length !== 1 || levels[0] !== 1) problems.push(`${doc.source}: needs exactly one level-1 heading (#), before any other heading`);
+      levels.forEach((level, i) => {
+        if (i > 0 && level - (levels[i - 1] as number) > 1) problems.push(`${doc.source}: "${rendered.headings[i]?.text}" skips a heading level`);
+      });
+      const title = `${rendered.headings.find((h) => h.depth === 1)?.text ?? doc.label} · smurg`;
+      const html = page({
+        lang,
+        paths: { en: pair.en.path, 'zh-TW': pair['zh-TW'].path },
+        title,
+        description: firstParagraph(rendered.html) || doc.summary,
+        main: docLayout(lang, doc.path, rendered.headings, rendered.html),
+      });
+      add(`${doc.path.slice(1)}index.html`, html);
     }
-    // Said here with the line in the Markdown (checkSite would only name the generated page).
-    markdown.split('\n').forEach((line, i) => {
-      if (!/github\.com/i.test(line)) return;
-      problems.push(`${doc.source}:${i + 1} mentions github.com (the source is private): ${line.trim().slice(0, 120)}`);
-      reported.add(`${doc.path.slice(1)}index.html`);
-    });
-    const rendered = renderMarkdown(markdown, { resolveLink: linkResolver(doc.source, targets), reservedIds: TEMPLATE_IDS, tableLabel: '表格' });
-    problems.push(...rendered.problems.map((p) => `${doc.source}: ${p}`));
-    rawHtml.push(...rendered.rawHtml.map((r) => `${doc.source}:${r}`));
-    for (const link of rendered.links) {
-      if ('plain' in link.decision) plain.push(describeLink(doc.source, link));
-      else if (link.decision.href !== link.href) rewritten.push(describeLink(doc.source, link));
-    }
-    // One h1, first; no heading skips a level (a screen reader's outline of the page).
-    const levels = rendered.headings.map((h) => h.depth);
-    if (levels.filter((l) => l === 1).length !== 1 || levels[0] !== 1) problems.push(`${doc.source}: needs exactly one level-1 heading (#), before any other heading`);
-    levels.forEach((level, i) => {
-      if (i > 0 && level - (levels[i - 1] as number) > 1) problems.push(`${doc.source}: "${rendered.headings[i]?.text}" skips a heading level`);
-    });
-    const title = `${rendered.headings.find((h) => h.depth === 1)?.text ?? doc.label} · smurg`;
-    const html = page({
-      lang: 'zh-TW',
-      path: doc.path,
-      title,
-      description: firstParagraph(rendered.html) || doc.summary,
-      main: docLayout(doc.path, rendered.headings, rendered.html),
-    });
-    add(`${doc.path.slice(1)}index.html`, html);
+    add(`${docsIndex(lang).slice(1)}index.html`, docsIndexPage(lang));
   }
-  add(`${DOCS_INDEX.slice(1)}index.html`, docsIndex());
-  // Unknown paths under /docs/ get the Traditional Chinese 404 page (not_found_handling: the nearest 404.html).
-  if (files.has('zh-TW/404.html')) add(`${DOCS_INDEX.slice(1)}404.html`, files.get('zh-TW/404.html') as Buffer);
 
   const license = readUtf8(join(repoRoot, 'LICENSE'), 'LICENSE', problems);
   if (license === undefined) missing = true;
-  if (license !== undefined) {
-    if (license.includes(PLACEHOLDER) && options.allowPlaceholder !== true) {
-      problems.push(
-        `LICENSE still names the copyright holder "${PLACEHOLDER}": the owner names the holder before the site is deployed (${PLACEHOLDER_ENV}=1 builds anyway, for local previews and tests only)`,
-      );
-    }
-    add(`${LICENSE_PAGE.slice(1)}index.html`, licensePage(license));
-  }
+  else for (const lang of LANGS) add(`${licensePage(lang).slice(1)}index.html`, licensePageHtml(lang, license));
 
   const notices = readNotices(options, problems);
   if (notices === undefined) missing = true;
   if (notices !== undefined) add(NOTICES_FILE.slice(1), notices);
 
+  add(SITEMAP_FILE.slice(1), sitemap());
+
   const sorted = new Map([...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
   // With a source missing, every link to its page would be reported too: those come after the sources are there.
-  if (!missing) problems.push(...checkSite(sorted, reported));
+  if (!missing) problems.push(...checkSite(sorted));
   if (problems.length > 0) throw new SiteError(problems);
   return { files: sorted, rewritten, plain, rawHtml };
 }

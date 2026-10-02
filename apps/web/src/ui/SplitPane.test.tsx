@@ -1,6 +1,6 @@
 // The separator of SplitPane under pointer events (jsdom has no layout: the boxes are given here; the real mouse in a
-// real browser is apps/web/e2e/smoke/splitter.smoke.test.ts). The owner's bug: 「滑鼠碰到線右邊線會自己動」 — a drag that
-// never saw its release kept resizing on every later hover. Nothing may move without the primary button down.
+// real browser is apps/web/e2e/smoke/splitter.smoke.test.ts). The reported bug: "when the mouse touches the line from
+// the right, the line moves by itself" — a drag that never saw its release kept resizing on every later hover. Nothing may move without the primary button down.
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SplitPane, type SplitPaneProps } from './SplitPane.tsx';
@@ -376,5 +376,113 @@ describe('SplitPane: the separator under a pointer', () => {
     expect(document.documentElement.hasAttribute('data-ui-resizing')).toBe(false);
     expect(frames.size).toBe(0);
     expect(remove.mock.calls.map(([type]) => type)).toEqual(expect.arrayContaining(['pointermove', 'pointerup', 'pointercancel', 'blur', 'keydown', 'contextmenu']));
+  });
+});
+
+describe('SplitPane: a container smaller than the remembered size', () => {
+  /** Gives the container `total` px along the axis and lets the split observe it (jsdom: the window's resize). */
+  function resizeTo(container: HTMLElement, total: number, horizontal = true): void {
+    container.getBoundingClientRect = () => rect(horizontal, START, total);
+    const fixedPane = container.querySelector(':scope > .ui-split__pane--fixed') as HTMLElement;
+    const separator = container.querySelector(':scope > .ui-split__separator') as HTMLElement;
+    const fixedFirst = container.firstElementChild === fixedPane;
+    separator.getBoundingClientRect = () => {
+      const size = parseFloat(horizontal ? fixedPane.style.width : fixedPane.style.height);
+      return rect(horizontal, fixedFirst ? START + size : START + total - size - 1, 1);
+    };
+    act(() => {
+      fireEvent(window, new Event('resize'));
+    });
+  }
+  const values = (): { now: number; min: number; max: number } => {
+    const separator = screen.getByRole('separator');
+    return { now: Number(separator.getAttribute('aria-valuenow')), min: Number(separator.getAttribute('aria-valuemin')), max: Number(separator.getAttribute('aria-valuemax')) };
+  };
+
+  it('shows the remembered size inside what the container allows, and the separator reports what is shown', () => {
+    window.localStorage.setItem('smurg.pane.right', '1100');
+    const { container, fixedPane } = mount({ storageKey: 'right', minOtherSize: 160 });
+    // Not laid out yet: the limits of the props.
+    expect(values()).toEqual({ now: 1100, min: 260, max: 1100 });
+    // 501 px for the editor and the agents column: 501 - 1 (the line) - 160 (the editor) = 340 for the agents.
+    resizeTo(container, 501);
+    expect(fixedPane.style.width).toBe('340px');
+    expect(values()).toEqual({ now: 340, min: 260, max: 340 });
+    // The wish is kept: a bigger window gives it back, and nothing was written over it.
+    resizeTo(container, 2000);
+    expect(fixedPane.style.width).toBe('1100px');
+    expect(values()).toEqual({ now: 1100, min: 260, max: 1100 });
+    expect(window.localStorage.getItem('smurg.pane.right')).toBe('1100');
+  });
+
+  it('too small for both minimums: the fixed pane keeps its own minimum, never less', () => {
+    window.localStorage.setItem('smurg.pane.right', '1100');
+    const { container, fixedPane } = mount({ storageKey: 'right', minOtherSize: 160 });
+    // 383 px (a 1024 px window with a 640 px file tree): 383 - 1 - 160 = 222 would be below the column's 260.
+    resizeTo(container, 383);
+    expect(fixedPane.style.width).toBe('260px');
+    expect(values()).toEqual({ now: 260, min: 260, max: 260 });
+    expect(container.style.getPropertyValue('--ui-split-min')).toBe('260px');
+  });
+
+  it('the separator can be moved inside the room there is: by the pointer and by the keys, from the size on screen', () => {
+    window.localStorage.setItem('smurg.pane.right', '1100');
+    const { container, separator, fixedPane } = mount({ storageKey: 'right', minOtherSize: 160 });
+    resizeTo(container, 501);
+    const line = START + 501 - 340 - 1;
+    press(separator, line);
+    fireEvent.pointerMove(window, mouse(line + 30, 1));
+    frame();
+    expect(fixedPane.style.width).toBe('310px');
+    fireEvent.pointerMove(window, mouse(line - 500, 1));
+    frame();
+    expect(fixedPane.style.width).toBe('340px');
+    fireEvent.pointerUp(window, mouse(line + 50, 0));
+    expect(values()).toEqual({ now: 290, min: 260, max: 340 });
+    expect(window.localStorage.getItem('smurg.pane.right')).toBe('290');
+    fireEvent.keyDown(separator, { key: 'ArrowLeft' });
+    expect(values().now).toBe(306);
+    fireEvent.keyDown(separator, { key: 'End' });
+    expect(values().now).toBe(340);
+    fireEvent.keyDown(separator, { key: 'Home' });
+    expect(values().now).toBe(260);
+  });
+
+  it('a press and a release without a move change nothing and do not forget the remembered size', () => {
+    window.localStorage.setItem('smurg.pane.right', '1100');
+    const { container, separator, fixedPane } = mount({ storageKey: 'right', minOtherSize: 160 });
+    resizeTo(container, 501);
+    const line = START + 501 - 340 - 1;
+    press(separator, line + 2);
+    fireEvent.pointerUp(window, mouse(line + 2, 0));
+    expect(fixedPane.style.width).toBe('340px');
+    expect(window.localStorage.getItem('smurg.pane.right')).toBe('1100');
+    resizeTo(container, 2000);
+    expect(fixedPane.style.width).toBe('1100px');
+  });
+
+  it('a stacked split and a pane fixed at the start follow the same rule', () => {
+    window.localStorage.setItem('smurg.pane.drawer', '800');
+    const stacked = mount({ orientation: 'vertical', fixed: 'end', defaultSize: 220, minSize: 120, maxSize: 800, minOtherSize: 240, storageKey: 'drawer' });
+    resizeTo(stacked.container, 600, false);
+    expect(stacked.fixedPane.style.height).toBe('359px');
+    expect(values()).toEqual({ now: 359, min: 120, max: 359 });
+    stacked.unmount();
+
+    window.localStorage.setItem('smurg.pane.sidebar', '640');
+    const first = mount({ fixed: 'start', defaultSize: 260, minSize: 160, maxSize: 640, minOtherSize: 501, storageKey: 'sidebar' });
+    resizeTo(first.container, 1024);
+    expect(first.fixedPane.style.width).toBe('522px');
+    expect(values()).toEqual({ now: 522, min: 160, max: 522 });
+  });
+
+  it('a collapsed pane keeps its collapsed size whatever the container', () => {
+    const { container, fixedPane, rerender } = mount({ orientation: 'vertical', fixed: 'end', defaultSize: 200, minSize: 96, maxSize: 900, minOtherSize: 120 });
+    rerender({ orientation: 'vertical', fixed: 'end', defaultSize: 200, minSize: 96, maxSize: 900, minOtherSize: 120, collapsed: true, collapsedSize: 33 });
+    container.getBoundingClientRect = () => rect(false, START, 150);
+    act(() => {
+      fireEvent(window, new Event('resize'));
+    });
+    expect(fixedPane.style.height).toBe('33px');
   });
 });

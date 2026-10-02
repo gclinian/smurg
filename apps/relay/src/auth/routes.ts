@@ -9,8 +9,10 @@ import type { RequestContext } from '../context.ts';
 import { randomToken, sha256Base64url, timingSafeEqualString } from '../lib/base64url.ts';
 import { devLoginEnabled, isAllowedOrigin, loginOptionsFor } from '../lib/config.ts';
 import { clearCookie, cookieNames, readCookie, serializeCookie } from '../lib/cookies.ts';
-import { errorPage } from '../lib/html.ts';
+import { errorPage, type PageView } from '../lib/html.ts';
 import { emptyResponse, errorResponse, htmlResponse, isRecord, jsonResponse, readJsonBody, redirectResponse } from '../lib/http.ts';
+import { getPageView, languageSwitchRedirect, plainPageView } from '../lib/locale.ts';
+import { STRINGS } from '../lib/strings.ts';
 import { DEV_USER_PATTERN, PKCE_VERIFIER_PATTERN, resolveReturnTo } from '../lib/validate.ts';
 import { identityClaims, identityJson, makeIdentity, type Identity } from './identity.ts';
 import { githubAuthorizeUrl, githubIdentity, googleAuthorizeUrl, googleIdentity, ProviderError } from './providers.ts';
@@ -35,8 +37,14 @@ function notFound(): Response {
   return errorResponse(404, 'not_found');
 }
 
-function badLink(message = '登入連結無效或已過期，請回到原本的頁面重新登入。'): Response {
-  return htmlResponse(errorPage('無法登入', message), 400);
+/** The "Cannot log in" page in the viewer's language. */
+function cannotLogIn(view: PageView, message: string, status: number, cookies: readonly string[] = []): Response {
+  return htmlResponse(errorPage(view, STRINGS[view.locale].cannotLogInTitle, message), status, cookies);
+}
+
+/** The view of a login route's own error page: a GET whose query (`return_to`, `user`) the language links keep. */
+function loginRouteView(ctx: RequestContext): PageView {
+  return getPageView(ctx, { keepQuery: true });
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -46,12 +54,14 @@ function badLink(message = '登入連結無效或已過期，請回到原本的�
 /** GET /auth/:provider/login[?return_to=<path or allow-listed URL>] */
 export async function handleLogin(ctx: RequestContext, provider: RelayAuthProvider): Promise<Response> {
   if (ctx.req.method !== 'GET') return methodNotAllowed();
-  if (!providerConfigured(ctx, provider)) {
-    return htmlResponse(errorPage('無法登入', `這個 relay 尚未設定 ${PROVIDER_LABEL[provider]} 登入。`), 503);
-  }
+  const switched = languageSwitchRedirect(ctx);
+  if (switched !== null) return switched;
+  const view = loginRouteView(ctx);
+  const s = STRINGS[view.locale];
+  if (!providerConfigured(ctx, provider)) return cannotLogIn(view, s.providerNotConfigured(PROVIDER_LABEL[provider]), 503);
   const returnTo = resolveReturnTo(ctx.url.searchParams.get('return_to'), ctx.config.issuer, ctx.config.allowedOrigins);
-  if (returnTo === null) return badLink();
-  return startOAuth(ctx, provider, returnTo);
+  if (returnTo === null) return cannotLogIn(view, s.badLoginLink, 400);
+  return startOAuth(ctx, provider, returnTo, view);
 }
 
 function providerConfigured(ctx: RequestContext, provider: RelayAuthProvider): boolean {
@@ -69,7 +79,7 @@ export function handleLoginOptions(ctx: RequestContext): Response {
   return jsonResponse(loginOptionsFor(ctx.config, ctx.url));
 }
 
-async function startOAuth(ctx: RequestContext, provider: RelayAuthProvider, returnTo: string): Promise<Response> {
+async function startOAuth(ctx: RequestContext, provider: RelayAuthProvider, returnTo: string, view: PageView): Promise<Response> {
   const tx: Tx = { provider, state: randomToken(), verifier: randomToken(48), returnTo };
   const redirectUri = `${ctx.config.issuer}${authCallbackPath(provider)}`;
   const codeChallenge = await sha256Base64url(tx.verifier);
@@ -80,7 +90,7 @@ async function startOAuth(ctx: RequestContext, provider: RelayAuthProvider, retu
     tx.nonce = randomToken();
     location = googleAuthorizeUrl(ctx.config.google, { redirectUri, state: tx.state, codeChallenge, nonce: tx.nonce });
   } else {
-    return htmlResponse(errorPage('無法登入', `這個 relay 尚未設定 ${PROVIDER_LABEL[provider]} 登入。`), 503);
+    return cannotLogIn(view, STRINGS[view.locale].providerNotConfigured(PROVIDER_LABEL[provider]), 503);
   }
   const keys = await ctx.keys();
   const txToken = await signToken(keys, ctx.config.issuer, OAUTH_TX_TOKEN, { ...tx } as JWTPayload);
@@ -94,8 +104,13 @@ export async function handleCallback(ctx: RequestContext, provider: RelayAuthPro
   if (ctx.req.method !== 'GET') return methodNotAllowed();
   const names = cookieNames(ctx.config.secureCookies);
   const clearTx = clearCookie(names.tx, ctx.config.secureCookies);
+  // No language switch on these pages: the callback URL carries a one-time code and its transaction cookie is cleared
+  // with the answer, so requesting the same URL again would only show a different error.
+  const view = plainPageView(ctx);
+  const s = STRINGS[view.locale];
+  const failed = (message: string, status: number): Response => cannotLogIn(view, message, status, [clearTx]);
   const txToken = readCookie(ctx.req.headers.get('cookie'), names.tx);
-  if (txToken === null) return htmlResponse(errorPage('無法登入', '登入逾時或已在其他分頁完成，請重新登入。'), 400, [clearTx]);
+  if (txToken === null) return failed(s.loginTimedOutOrDone, 400);
 
   let tx: Tx | null;
   try {
@@ -104,15 +119,13 @@ export async function handleCallback(ctx: RequestContext, provider: RelayAuthPro
     if (!(error instanceof TokenError)) throw error;
     tx = null;
   }
-  if (tx === null || tx.provider !== provider) return htmlResponse(errorPage('無法登入', '登入逾時，請重新登入。'), 400, [clearTx]);
+  if (tx === null || tx.provider !== provider) return failed(s.loginTimedOut, 400);
 
   // The state check comes first: until it passes, nothing proves this request belongs to our transaction.
-  if (!timingSafeEqualString(ctx.url.searchParams.get('state') ?? '', tx.state)) {
-    return htmlResponse(errorPage('無法登入', '登入請求不相符（state 錯誤），請重新登入。'), 400, [clearTx]);
-  }
-  if (ctx.url.searchParams.get('error') !== null) return loginFailed('你取消了登入，或登入服務拒絕了這次請求。', 400, clearTx);
+  if (!timingSafeEqualString(ctx.url.searchParams.get('state') ?? '', tx.state)) return failed(s.stateMismatch, 400);
+  if (ctx.url.searchParams.get('error') !== null) return failed(s.loginCancelled, 400);
   const code = ctx.url.searchParams.get('code');
-  if (!code || code.length > 2048) return loginFailed('登入服務沒有回傳授權碼。', 400, clearTx);
+  if (!code || code.length > 2048) return failed(s.noAuthorizationCode, 400);
 
   const redirectUri = `${ctx.config.issuer}${authCallbackPath(provider)}`;
   let identity: Identity;
@@ -122,18 +135,14 @@ export async function handleCallback(ctx: RequestContext, provider: RelayAuthPro
     } else if (provider === 'google' && ctx.config.google && tx.nonce) {
       identity = await googleIdentity(ctx.config.google, { code, verifier: tx.verifier, redirectUri, nonce: tx.nonce });
     } else {
-      return loginFailed(`這個 relay 尚未設定 ${PROVIDER_LABEL[provider]} 登入。`, 503, clearTx);
+      return failed(s.providerNotConfigured(PROVIDER_LABEL[provider]), 503);
     }
   } catch (error) {
     // Log the reason (never a token or code) for the operator; the person only sees a generic message.
     console.warn(`login via ${provider} failed: ${error instanceof ProviderError ? error.message : 'unexpected error'}`);
-    return loginFailed(`無法向 ${PROVIDER_LABEL[provider]} 確認你的身分，請稍後再試。`, 502, clearTx);
+    return failed(s.cannotConfirmIdentity(PROVIDER_LABEL[provider]), 502);
   }
   return finishLogin(ctx, identity, tx.returnTo, [clearTx]);
-}
-
-function loginFailed(message: string, status: number, clearTx: string): Response {
-  return htmlResponse(errorPage('無法登入', message), status, [clearTx]);
 }
 
 function parseTx(payload: JWTPayload): Tx | null {
@@ -172,8 +181,6 @@ export async function sessionJson(ctx: RequestContext, identity: Identity): Prom
 // Dev-only provider: DEV_LOGIN=1 AND a local hostname, otherwise 404 (indistinguishable from a missing route).
 // ---------------------------------------------------------------------------------------------------------------
 
-const DEV_NAME_RULE = '開發用帳號名稱只能包含英數字、「.」、「_」、「-」，最多 64 個字元。';
-
 function devIdentity(user: string | null, displayName: unknown): Identity | null {
   if (user === null || !DEV_USER_PATTERN.test(user)) return null;
   return makeIdentity({
@@ -188,10 +195,14 @@ function devIdentity(user: string | null, displayName: unknown): Identity | null
 export async function handleDevStart(ctx: RequestContext): Promise<Response> {
   if (!devLoginEnabled(ctx.config, ctx.url)) return notFound();
   if (ctx.req.method !== 'GET') return methodNotAllowed();
+  const switched = languageSwitchRedirect(ctx);
+  if (switched !== null) return switched;
+  const view = loginRouteView(ctx);
+  const s = STRINGS[view.locale];
   const identity = devIdentity(ctx.url.searchParams.get('user'), ctx.url.searchParams.get('name') ?? undefined);
-  if (!identity) return badLink(DEV_NAME_RULE);
+  if (!identity) return cannotLogIn(view, s.devNameRule, 400);
   const returnTo = resolveReturnTo(ctx.url.searchParams.get('return_to'), ctx.config.issuer, ctx.config.allowedOrigins);
-  if (returnTo === null) return badLink();
+  if (returnTo === null) return cannotLogIn(view, s.badLoginLink, 400);
   return finishLogin(ctx, identity, returnTo);
 }
 

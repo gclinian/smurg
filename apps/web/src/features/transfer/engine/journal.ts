@@ -1,4 +1,4 @@
-// The upload journal: what a reload needs to resume an upload (SPEC R7 「可續傳」). Kept in the Worker's own IndexedDB
+// The upload journal: what a reload needs to resume an upload (SPEC R7: resumable). Kept in the Worker's own IndexedDB
 // database (not the key database: its object stores are fixed by the protocol package).
 //
 // The daemon resumes a partial upload by uploadId OR by identity (user, root, path, size, lastModified, chunkSize),

@@ -9,8 +9,8 @@
 import { stat, statfs } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { DiskReport } from '@smurg/protocol';
+import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import { errnoCode } from '../workspace/fs-util.ts';
-import { formatBytes } from './util.ts';
 
 export interface StatfsResult {
   /** Unit of `blocks` and `bavail`. */
@@ -74,12 +74,13 @@ export function diskReport(snapshot: StatfsResult, settings: DiskSettings, pendi
   };
 }
 
-/** The zh-TW explanation shown with `insufficient_disk` (the numbers are also in `detail.disk`). */
-export function insufficientDiskMessage(report: DiskReport): string {
-  return (
-    `主人的磁碟空間不足，上傳尚未開始：需要 ${formatBytes(report.requestedBytes)}，` +
-    `上傳後只剩 ${formatBytes(report.freeAfterBytes)}，低於保留空間 ${formatBytes(report.reserveBytes)}` +
-    `（目前可用 ${formatBytes(report.availableBytes)}，其他進行中的上傳預留 ${formatBytes(report.pendingBytes)}）。` +
-    '主人可以在設定中調整保留空間。'
-  );
+/** The explanation shown with `insufficient_disk` (the numbers are also in `detail.disk`; each client formats them). */
+export function insufficientDiskMessage(report: DiskReport): MessageRef {
+  return msg('upload.insufficientDisk', {
+    requestedBytes: report.requestedBytes,
+    freeAfterBytes: report.freeAfterBytes,
+    reserveBytes: report.reserveBytes,
+    availableBytes: report.availableBytes,
+    pendingBytes: report.pendingBytes,
+  });
 }

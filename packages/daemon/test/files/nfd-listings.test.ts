@@ -76,7 +76,7 @@ describe('SpellingIndex (one listing per directory per operation)', () => {
   });
 });
 
-describe.runIf(process.platform === 'linux')('Linux: NFD names cost one listing per directory per operation (review RCR-2)', () => {
+describe.runIf(process.platform === 'linux')('Linux: NFD names cost one listing per directory per operation', () => {
   it(`a zip of a folder of ${N} Mac-made (NFD) names lists that folder a constant number of times, and packs every file`, async () => {
     ft = await startFilesDaemon({ project: { files: { 'README.md': 'x\n' } }, files: { watch: false } });
     const amy = await ft.t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
@@ -139,7 +139,7 @@ describe.runIf(process.platform === 'linux')('Linux: NFD names cost one listing 
     expect(listings, `${listings} listings for ${batches} batches`).toBeLessThanOrEqual(batches);
   }, 180_000);
 
-  it(`file.tree of depth 2 over a folder of ${N} Mac-made (NFD) sub-directories lists that folder a constant number of times, and lists every one (review RV-7)`, async () => {
+  it(`file.tree of depth 2 over a folder of ${N} Mac-made (NFD) sub-directories lists that folder a constant number of times, and lists every one`, async () => {
     ft = await startFilesDaemon({ project: { files: { 'README.md': 'x\n' } }, files: { watch: false } });
     const amy = await ft.t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
     const dir = join(ft.t.root, 'kr');

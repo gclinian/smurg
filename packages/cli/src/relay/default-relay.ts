@@ -1,7 +1,7 @@
 // The relay that `smurg host`, `smurg login`, `smurg logout` and `smurg attach` use when nothing else names one (no
 // --relay, no SMURG_RELAY_URL, no relay remembered from an earlier login, no invite link): the project's shared relay,
-// which also serves the web app, on Cloudflare Workers at the custom domain https://app.smurg.ai (apps/relay/README.md
-// 「部署到 Cloudflare」; it was https://smurg-relay.<account subdomain>.workers.dev until 2026-10-01, which answers 404 now).
+// which also serves the web app, on Cloudflare Workers at the custom domain https://app.smurg.ai (apps/relay/README.md,
+// "Deploying to Cloudflare"; it was https://smurg-relay.<account subdomain>.workers.dev until 2026-10-01, which answers 404 now).
 //
 // null = there is no built-in relay, and a command without a relay refuses with a hint (the behaviour of CLI-12: a
 // guessed domain would receive the host's login and every invite link printed for it). Set it ONLY to the deployed

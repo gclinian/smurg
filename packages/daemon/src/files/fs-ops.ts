@@ -14,6 +14,7 @@ import { constants as fsConstants } from 'node:fs';
 import { link, lstat, mkdir, open, readdir, rename, rm, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { SmurgError, baseNameOfRelPath, foldPathName, isSmurgDirName, relPathSegments, type FileRef, type RootRef } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import { PathDeniedError } from '../core/errors.ts';
 import type { FileIdentity, PathGuard, Principal, ResolvedPath } from '../core/interfaces.ts';
 import { newId } from '../core/lifecycle.ts';
@@ -40,15 +41,15 @@ export function isDaemonOwnedPath(root: RootRef, path: string): boolean {
 }
 
 export function daemonOwnedError(): SmurgError {
-  return new SmurgError('forbidden', '這個資料夾由 smurg 管理，不能直接修改', { reason: 'daemon-owned' });
+  return new SmurgError('forbidden', msg('file.daemonOwned'), { reason: 'daemon-owned' });
 }
 
 export function notFoundError(reason: string): SmurgError {
-  return new SmurgError('not_found', reason === 'parent-missing' ? '上層資料夾不存在' : '找不到指定的項目', { reason });
+  return new SmurgError('not_found', reason === 'parent-missing' ? msg('file.parentMissing') : undefined, { reason });
 }
 
 export function existsError(): SmurgError {
-  return new SmurgError('conflict', '已經有同名的檔案或資料夾', { reason: 'exists' });
+  return new SmurgError('conflict', msg('file.nameTaken'), { reason: 'exists' });
 }
 
 /** `<share>/.smurg/trash`, created 0700 when missing. Refuses anything that is not the real directory. */
@@ -96,7 +97,7 @@ export async function deleteResolved(resolved: ResolvedPath, trashDir: string, g
     const code = errnoCode(err);
     if (code === 'ENOENT') throw notFoundError('vanished');
     if (code !== 'EXDEV') throw err;
-    if (expected.kind === 'dir') throw new SmurgError('bad_request', '無法刪除位於其他磁碟區的資料夾', { reason: 'cross-device' });
+    if (expected.kind === 'dir') throw new SmurgError('bad_request', msg('file.deleteCrossDevice'), { reason: 'cross-device' });
     // A single file or link on another volume: one unlink right after the re-validation.
     await guard.paths.revalidate(fresh, options);
     await unlink(fresh.realPath);
@@ -148,9 +149,9 @@ export async function moveResolved(from: ResolvedPath, to: ResolvedPath, guard: 
     } catch (err) {
       const code = errnoCode(err);
       if (code === 'ENOENT') throw notFoundError('vanished');
-      if (code === 'EINVAL') throw new SmurgError('bad_request', '不能把資料夾移到它自己裡面', { reason: 'into-itself' });
+      if (code === 'EINVAL') throw new SmurgError('bad_request', msg('file.moveIntoItself'), { reason: 'into-itself' });
       if (code === 'ENOTEMPTY' || code === 'EEXIST') throw existsError();
-      if (code === 'EXDEV') throw new SmurgError('bad_request', '無法在不同磁碟區之間移動', { reason: 'cross-device' });
+      if (code === 'EXDEV') throw new SmurgError('bad_request', msg('file.moveCrossDevice'), { reason: 'cross-device' });
       throw err;
     }
   }
@@ -166,7 +167,7 @@ export async function moveResolved(from: ResolvedPath, to: ResolvedPath, guard: 
   if (linked) {
     // The source name still links the same inode; remove exactly that name. Checked here rather than with
     // PathGuard.revalidate: the file now has TWO links (ours), which PathGuard's hard-link rule refuses, and audits, as
-    // a security denial (review WEB-16: a red 「不允許存取有多個硬連結的檔案」 for every rename). The same checks: the
+    // a security denial (a red "Files with more than one hard link are not allowed." for every rename). The same checks: the
     // name is still the moved object, and its directory is still the one resolved, inside the root.
     const at = await lstatOrNull(source.realPath);
     const sourceParent = await realpathOrNull(source.parentRealPath);
@@ -192,7 +193,7 @@ export async function makeDirectory(ref: FileRef, guard: GuardContext): Promise<
     const resolved = await guard.paths.resolve(ref, options);
     if (resolved.exists) {
       if (resolved.identity?.kind === 'dir') return { created: false, resolved };
-      throw new SmurgError('conflict', '已經有同名的檔案', { reason: 'not-a-directory' });
+      throw new SmurgError('conflict', msg('file.nameTakenByFile'), { reason: 'not-a-directory' });
     }
     try {
       await mkdir(resolved.realPath, { mode: 0o777 });

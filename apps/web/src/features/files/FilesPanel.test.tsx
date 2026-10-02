@@ -90,7 +90,7 @@ describe('FilesPanel: a lazily loaded tree per root, kept live by file.changed',
       view.conn.emit('file.changed', {
         root: MAIN_ROOT,
         changes: [
-          { path: 'src/new.ts', change: 'add', by: { kind: 'agent', sessionId: 'sess_1', ownerUserId: HOST_USER, displayName: 'Claude（Ian）' } },
+          { path: 'src/new.ts', change: 'add', by: { kind: 'agent', sessionId: 'sess_1', ownerUserId: HOST_USER, displayName: 'Claude (Ian)' } },
           { path: 'src/app.ts', change: 'change' },
         ],
       });
@@ -114,7 +114,7 @@ describe('FilesPanel: a lazily loaded tree per root, kept live by file.changed',
 
   it('badges: locked by a person, being changed by which agent, recently changed by whom; read-only entries marked', async () => {
     const now = Date.now();
-    const agent = { kind: 'agent' as const, sessionId: 'sess_1', ownerUserId: HOST_USER, displayName: 'Claude（Ian）' };
+    const agent = { kind: 'agent' as const, sessionId: 'sess_1', ownerUserId: HOST_USER, displayName: 'Claude (Ian)' };
     const fs: Fs = new Map([
       [
         '',
@@ -132,11 +132,11 @@ describe('FilesPanel: a lazily loaded tree per root, kept live by file.changed',
       view.conn.emit('lock.state', { file: { root: MAIN_ROOT, path: 'agent.ts' }, lock: makeAgentLock('agent.ts') });
       view.conn.emit('lock.state', { file: { root: MAIN_ROOT, path: 'human.ts' }, lock: makeHumanLock('human.ts', { userId: 'dev:bob', displayName: 'Bob' }) });
     });
-    expect(view.row('agent.ts').getAttribute('aria-description')).toBe('Claude（Ian）正在修改這個檔案，暫時無法編輯');
-    expect(within(view.row('agent.ts')).getByText('Claude（Ian）修改中')).toBeTruthy();
-    expect(view.row('human.ts').getAttribute('aria-description')).toBe('Bob 正在編輯這個檔案，agent 暫時不能修改它');
-    expect(view.row('recent.ts').getAttribute('aria-description')).toBe('最近由 Claude（Ian） 修改（2 分鐘前）');
-    expect(view.row('shared').getAttribute('aria-description')).toBe('唯讀（共享資料夾）');
+    expect(view.row('agent.ts').getAttribute('aria-description')).toBe('Claude (Ian) is editing this file; it cannot be edited for now');
+    expect(within(view.row('agent.ts')).getByText('Claude (Ian) editing')).toBeTruthy();
+    expect(view.row('human.ts').getAttribute('aria-description')).toBe('Being edited by Bob; agents cannot change it for now');
+    expect(view.row('recent.ts').getAttribute('aria-description')).toBe('Recently changed by Claude (Ian) (2 minutes ago)');
+    expect(view.row('shared').getAttribute('aria-description')).toBe('Read-only (shared folder)');
 
     // The agent finished: its badge goes away with the lock.
     act(() => view.conn.emit('lock.state', { file: { root: MAIN_ROOT, path: 'agent.ts' }, lock: null }));
@@ -149,17 +149,32 @@ describe('FilesPanel: create / rename / delete (with confirmation) and the conte
     const view = renderFiles();
     view.conn.handle('file.create', ({ file, kind }) => ({ entry: makeEntry(file.path, kind) }));
     await view.settle();
-    fireEvent.click(screen.getByRole('button', { name: '新增檔案' }));
-    const dialog = screen.getByRole('dialog', { name: '新增檔案' });
-    const input = within(dialog).getByLabelText('檔案名稱');
+    fireEvent.click(screen.getByRole('button', { name: 'New file' }));
+    const dialog = screen.getByRole('dialog', { name: 'New file' });
+    const input = within(dialog).getByLabelText('File name');
     fireEvent.change(input, { target: { value: 'readme.md' } });
-    expect(within(dialog).getByText('這個資料夾裡已經有同名的項目（不分大小寫）')).toBeTruthy();
+    expect(within(dialog).getByText('This folder already has an item with this name (upper and lower case count as the same)')).toBeTruthy();
     fireEvent.change(input, { target: { value: '筆記.md' } });
-    fireEvent.click(within(dialog).getByRole('button', { name: '建立' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
     await view.settle();
     expect(view.conn.requestsOf('file.create').map((r) => r.payload)).toEqual([{ file: { root: MAIN_ROOT, path: '筆記.md' }, kind: 'file' }]);
     expect(view.dispatched.openFile).toEqual([{ file: { root: MAIN_ROOT, path: '筆記.md' } }]);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('the header creates in the root until a row is focused, then in that row\'s folder (never in the first row by default)', async () => {
+    const view = renderFiles();
+    await view.settle();
+    // Nothing focused: the root, although the first row of the tree is the folder `src`.
+    fireEvent.click(screen.getByRole('button', { name: 'New file' }));
+    expect(within(screen.getByRole('dialog', { name: 'New file' })).getByText('Location: root folder')).toBeTruthy();
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'New file' })).getByRole('button', { name: 'Cancel' }));
+    // The person focuses a file inside an expanded folder: that folder.
+    fireEvent.click(view.row('src'));
+    await view.settle();
+    fireEvent.focus(view.row('app.ts'));
+    fireEvent.click(screen.getByRole('button', { name: 'New file' }));
+    expect(within(screen.getByRole('dialog', { name: 'New file' })).getByText('Location: src')).toBeTruthy();
   });
 
   it('renames with F2 and deletes with Delete only after confirming; a locked file names its holder', async () => {
@@ -169,16 +184,16 @@ describe('FilesPanel: create / rename / delete (with confirmation) and the conte
     const readme = view.row('README.md');
     readme.focus();
     fireEvent.keyDown(readme, { key: 'F2' });
-    const rename = screen.getByRole('dialog', { name: '重新命名「README.md」' });
-    fireEvent.change(within(rename).getByLabelText('新名稱'), { target: { value: '讀我.md' } });
-    fireEvent.click(within(rename).getByRole('button', { name: '重新命名' }));
+    const rename = screen.getByRole('dialog', { name: 'Rename "README.md"' });
+    fireEvent.change(within(rename).getByLabelText('New name'), { target: { value: '讀我.md' } });
+    fireEvent.click(within(rename).getByRole('button', { name: 'Rename' }));
     await view.settle();
     expect(view.conn.requestsOf('file.rename').map((r) => r.payload)).toEqual([{ root: MAIN_ROOT, from: 'README.md', to: '讀我.md' }]);
 
     // Delete: cancelling sends nothing.
     fireEvent.keyDown(view.row('README.md'), { key: 'Delete' });
-    const confirm = screen.getByRole('alertdialog', { name: '要刪除「README.md」嗎？' });
-    fireEvent.click(within(confirm).getByRole('button', { name: '取消' }));
+    const confirm = screen.getByRole('alertdialog', { name: 'Delete "README.md"?' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }));
     expect(view.conn.requestsOf('file.delete')).toHaveLength(0);
 
     // Confirmed, but an agent holds the file: the daemon refuses and the toast names the agent.
@@ -186,19 +201,19 @@ describe('FilesPanel: create / rename / delete (with confirmation) and the conte
       throw lockedError(makeAgentLock('README.md'), 'locked');
     });
     fireEvent.keyDown(view.row('README.md'), { key: 'Delete' });
-    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '刪除' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
     await view.settle();
     expect(view.conn.requestsOf('file.delete').map((r) => r.payload)).toEqual([{ file: { root: MAIN_ROOT, path: 'README.md' } }]);
-    expect(await screen.findByText('Claude（Ian）正在修改這個檔案，請稍後再試。')).toBeTruthy();
+    expect(await screen.findByText('Claude (Ian) is editing this file. Try again in a moment.')).toBeTruthy();
     // The dialog stays open (nothing was deleted); confirming again after the agent finished works.
     view.conn.handle('file.delete', () => ({}));
-    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '刪除' }));
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
     await view.settle();
     expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(view.conn.requestsOf('file.delete')).toHaveLength(2);
   });
 
-  it('a rename re-points the open tab to the new name; the delete confirmation names who has the file open (WEB-01)', async () => {
+  it('a rename re-points the open tab to the new name; the delete confirmation names who has the file open', async () => {
     const view = renderFiles();
     view.conn.handle('file.rename', ({ to }) => ({ entry: makeEntry(to) }));
     view.conn.handle('doc.open', () => ({ docId: 'doc_1', epoch: 'epoch_1', canEdit: true, meta: { eol: 'LF', bom: false, mixedEol: false } }));
@@ -209,9 +224,9 @@ describe('FilesPanel: create / rename / delete (with confirmation) and the conte
     const readme = view.row('README.md');
     readme.focus();
     fireEvent.keyDown(readme, { key: 'F2' });
-    const rename = screen.getByRole('dialog', { name: '重新命名「README.md」' });
-    fireEvent.change(within(rename).getByLabelText('新名稱'), { target: { value: '讀我.md' } });
-    fireEvent.click(within(rename).getByRole('button', { name: '重新命名' }));
+    const rename = screen.getByRole('dialog', { name: 'Rename "README.md"' });
+    fireEvent.change(within(rename).getByLabelText('New name'), { target: { value: '讀我.md' } });
+    fireEvent.click(within(rename).getByRole('button', { name: 'Rename' }));
     await view.settle();
         expect([...view.stores.docs.getState().docs.values()].map((doc) => doc.file.path)).toEqual(['讀我.md']);
 
@@ -223,14 +238,14 @@ describe('FilesPanel: create / rename / delete (with confirmation) and the conte
       }),
     );
     fireEvent.keyDown(view.row('README.md'), { key: 'Delete' });
-    expect(within(screen.getByRole('alertdialog')).getByRole('note').textContent).toContain('王小明正開著或正在編輯這個檔案');
-    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '取消' }));
+    expect(within(screen.getByRole('alertdialog')).getByRole('note').textContent).toContain('This file is open or being edited by 王小明.');
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Cancel' }));
     act(() => view.conn.emit('lock.state', { file: { root: MAIN_ROOT, path: 'src/app.ts' }, lock: makeHumanLock('src/app.ts', { userId: 'dev:mei', displayName: '陳美玲' }) }));
     fireEvent.keyDown(view.row('src'), { key: 'Delete' });
-    expect(within(screen.getByRole('alertdialog')).getByRole('note').textContent).toContain('陳美玲正開著或正在編輯這個資料夾裡的檔案');
+    expect(within(screen.getByRole('alertdialog')).getByRole('note').textContent).toContain('Files in this folder are open or being edited by 陳美玲.');
   });
 
-  it("the host's context menu force-releases a lock after naming its holder; a guest's has no such item (WEB-04)", async () => {
+  it("the host's context menu force-releases a lock after naming its holder; a guest's has no such item", async () => {
     const view = renderFiles({ role: 'host' });
     view.conn.handle('lock.list', () => ({ locks: [makeHumanLock('README.md', { userId: 'dev:ming', displayName: '王小明' })] }));
     view.conn.handle('lock.forceRelease', () => ({}));
@@ -239,10 +254,10 @@ describe('FilesPanel: create / rename / delete (with confirmation) and the conte
     });
     await view.settle();
     fireEvent.contextMenu(view.row('README.md'));
-    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: /強制釋放鎖/ }));
-    const dialog = screen.getByRole('alertdialog', { name: '要強制釋放「README.md」的鎖嗎？' });
-    expect(dialog.textContent).toContain('王小明正在編輯這個檔案');
-    fireEvent.click(within(dialog).getByRole('button', { name: '強制釋放' }));
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: /Force release the lock/ }));
+    const dialog = screen.getByRole('alertdialog', { name: 'Force release the lock on "README.md"?' });
+    expect(dialog.textContent).toContain('This file is being edited by 王小明.');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Force release' }));
     await waitFor(() => expect(view.conn.requestsOf('lock.forceRelease').map((r) => r.payload)).toEqual([{ file: { root: MAIN_ROOT, path: 'README.md' } }]));
   });
 
@@ -250,12 +265,12 @@ describe('FilesPanel: create / rename / delete (with confirmation) and the conte
     const view = renderFiles();
     await view.settle();
     fireEvent.contextMenu(view.row('README.md'), { clientX: 10, clientY: 10 });
-    let menu = screen.getByRole('menu', { name: '「README.md」的動作' });
-    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['開啟', '重新命名…F2', '刪除…Delete', '下載', '複製路徑']);
-    fireEvent.click(within(menu).getByRole('menuitem', { name: '下載' }));
+    let menu = screen.getByRole('menu', { name: 'Actions for "README.md"' });
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Open', 'Rename…F2', 'Delete…Delete', 'Download', 'Copy path']);
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Download' }));
     fireEvent.contextMenu(view.row('src'), { clientX: 10, clientY: 10 });
-    menu = screen.getByRole('menu', { name: '「src」的動作' });
-    fireEvent.click(within(menu).getByRole('menuitem', { name: '下載（zip 壓縮檔）' }));
+    menu = screen.getByRole('menu', { name: 'Actions for "src"' });
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Download (zip)' }));
     await view.settle();
     expect(view.dispatched.download).toEqual([{ file: { root: MAIN_ROOT, path: 'README.md' } }, { file: { root: MAIN_ROOT, path: 'src' }, zip: true }]);
   });
@@ -265,7 +280,7 @@ describe('FilesPanel: create / rename / delete (with confirmation) and the conte
     await view.settle();
     fireEvent.contextMenu(view.row('data'), { clientX: 1, clientY: 1 });
     const menu = screen.getByRole('menu');
-    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['下載（zip 壓縮檔）', '複製路徑']);
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Download (zip)', 'Copy path']);
     fireEvent.keyDown(view.row('data'), { key: 'Delete' });
     expect(screen.queryByRole('alertdialog')).toBeNull();
   });
@@ -295,7 +310,7 @@ describe('FilesPanel: uploads by drag and drop go to the transfer feature (start
     const drop = fakeDrop([entry, folder]);
     fireEvent.dragOver(view.row('src'), { dataTransfer: drop.dataTransfer });
     expect(view.row('src').getAttribute('data-drop-target')).toBe('true');
-    expect(screen.getByText('放開以上傳到「src」')).toBeTruthy();
+    expect(screen.getByText('Drop to upload into "src"')).toBeTruthy();
     fireEvent.drop(view.row('src'), { dataTransfer: drop.dataTransfer });
     drop.expire(); // the browser empties the DataTransfer right after the handler
     await view.settle();
@@ -325,16 +340,16 @@ describe('FilesPanel: roles (UI hiding only; the daemon enforces)', () => {
   it('a viewer sees no write actions: no new file / folder / upload, no rename / delete, drops are ignored', async () => {
     const view = renderFiles({ role: 'viewer' });
     await view.settle();
-    expect(screen.queryByRole('button', { name: '新增檔案' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '新增資料夾' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '上傳' })).toBeNull();
-    expect(screen.getByRole('button', { name: '重新整理' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'New file' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'New folder' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Upload' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeTruthy();
 
     fireEvent.contextMenu(view.row('README.md'), { clientX: 1, clientY: 1 });
-    expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['開啟', '下載', '複製路徑']);
+    expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Open', 'Download', 'Copy path']);
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
     fireEvent.contextMenu(view.row('src'), { clientX: 1, clientY: 1 });
-    expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['下載（zip 壓縮檔）', '複製路徑']);
+    expect(within(screen.getByRole('menu')).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Download (zip)', 'Copy path']);
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
 
     fireEvent.keyDown(view.row('README.md'), { key: 'F2' });
@@ -351,7 +366,7 @@ describe('FilesPanel: roles (UI hiding only; the daemon enforces)', () => {
 
     // Downloading is for everyone.
     fireEvent.contextMenu(view.row('README.md'), { clientX: 1, clientY: 1 });
-    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: '下載' }));
+    fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: 'Download' }));
     await view.settle();
     expect(view.dispatched.download).toEqual([{ file: { root: MAIN_ROOT, path: 'README.md' } }]);
   });
@@ -407,7 +422,7 @@ describe('FilesPanel: keyboard (WAI-ARIA tree) and commands', () => {
     await view.settle();
     expect(view.treePaths()).toEqual(['only-in-worktree.ts']);
     expect(view.conn.lastRequest('file.tree')?.payload.root).toEqual(worktree);
-    expect(screen.getByRole('tree', { name: 'worktree：wt_1 的檔案樹' })).toBeTruthy();
+    expect(screen.getByRole('tree', { name: 'File tree of Worktree: wt_1' })).toBeTruthy();
     fireEvent.keyDown(view.row('only-in-worktree.ts'), { key: 'Enter' });
     await view.settle();
     expect(view.dispatched.openFile).toEqual([{ file: { root: worktree, path: 'only-in-worktree.ts' } }]);

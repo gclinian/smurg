@@ -10,14 +10,14 @@
 // above it, so a trailing `/v<X.Y.Z>` or `/latest` is dropped and the same value works for both.
 //
 // Redirects are followed by hand, never away from the scheme of <base> (install.sh's `--proto-redir`). Nothing here
-// sends anything about this machine but the request itself, and nothing here throws a zh-TW message: the commands turn
+// sends anything about this machine but the request itself, and nothing here words a download failure: the commands turn
 // a DownloadError into what the person reads.
 import { usageError } from '../cli/errors.ts';
+import { m } from '../i18n/index.ts';
 import { parseVersion } from './versions.ts';
 
 export const DEFAULT_DOWNLOADS_URL = 'https://downloads.smurg.ai';
 export const DOWNLOADS_ENV = 'SMURG_INSTALL_BASE_URL';
-export const CHANGELOG_URL = 'https://smurg.ai/docs/changelog/';
 export const INSTALL_COMMAND = 'curl -fsSL https://smurg.ai/install.sh | sh';
 
 export type FetchLike = typeof globalThis.fetch;
@@ -38,7 +38,7 @@ function allowedUrl(url: URL, scheme: 'https' | 'http' | null): 'https' | 'http'
   return null;
 }
 
-/** The downloads site of this run, or a usage error (zh-TW) for a value install.sh would refuse too. */
+/** The downloads site of this run, or a usage error for a value install.sh would refuse too. */
 export function downloadsBase(env: Readonly<Record<string, string | undefined>>): DownloadsBase {
   const override = env[DOWNLOADS_ENV];
   const text = (override !== undefined && override !== '' ? override : DEFAULT_DOWNLOADS_URL).replace(/\/+$/, '');
@@ -46,11 +46,11 @@ export function downloadsBase(env: Readonly<Record<string, string | undefined>>)
   try {
     url = new URL(text);
   } catch {
-    throw usageError(`下載位置不是網址：${text}`, `${DOWNLOADS_ENV} 必須是 https 網址（預設 ${DEFAULT_DOWNLOADS_URL}）。`);
+    throw usageError(m('downloads.notUrl', { text }), m('downloads.notUrl.hint', { env: DOWNLOADS_ENV, default: DEFAULT_DOWNLOADS_URL }));
   }
   const scheme = allowedUrl(url, null);
-  if (scheme === null) throw usageError(`下載位置必須是 https 網址：${text}`, `${DOWNLOADS_ENV} 只接受 https（測試用的 http 只限 127.0.0.1 與 localhost）。`);
-  if (/[^A-Za-z0-9:/._~%-]/.test(text) || url.search !== '' || url.hash !== '') throw usageError(`下載位置含有不允許的字元：${text}`);
+  if (scheme === null) throw usageError(m('downloads.notHttps', { text }), m('downloads.notHttps.hint', { env: DOWNLOADS_ENV }));
+  if (/[^A-Za-z0-9:/._~%-]/.test(text) || url.search !== '' || url.hash !== '') throw usageError(m('downloads.badCharacters', { text }));
   return { url: text.replace(/\/(?:latest|v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,6}(?:-[0-9A-Za-z.-]{1,40})?)$/, ''), scheme };
 }
 

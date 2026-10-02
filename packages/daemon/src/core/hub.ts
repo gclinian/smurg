@@ -584,7 +584,7 @@ export class HubImpl implements Hub {
   }
 
   /**
-   * SPEC R1 「拒絕並記錄」, ARCHITECTURE §2 rule 4: the decoder refuses some requests before any handler could audit
+   * SPEC R1 (refuse and record), ARCHITECTURE §2 rule 4: the decoder refuses some requests before any handler could audit
    * them. An invalid path (`..`, absolute, backslash, …) is a path denial; a type the client may not send at all
    * (d→c, the other socket's, unknown) is an authorization denial. Plainly malformed bytes are only counted as
    * protocol errors. Both kinds also count against the connection's denial budget.
@@ -655,7 +655,7 @@ export class HubImpl implements Hub {
   private detach(conn: HubConnection, reason: ConnectionCloseReason, options: { readonly closeChannel: boolean }): void {
     if (!conn.finish(reason, this.log)) return;
     this.conns.delete(conn.id);
-    // R11 「登入登出」: the counterpart of admit()'s auth.connect, for every way a connection ends.
+    // R11 (logins and logouts): the counterpart of admit()'s auth.connect, for every way a connection ends.
     this.audit.record({
       actor: this.actorOf(conn.userId),
       action: 'auth.disconnect',

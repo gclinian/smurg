@@ -25,7 +25,7 @@ describe('capability helper (UI hiding only; the daemon enforces)', () => {
     expect(canRole('host', 'root' as never)).toBe(false);
   });
 
-  it('the host and 「可使用 agent」 open sessions and type into any session; editors and viewers do neither', () => {
+  it('the host and members with agent access open sessions and type into any session; editors and viewers do neither', () => {
     for (const role of ['host', 'agent'] as const) {
       expect(capabilitiesForRole(role).canCreateSession, role).toBe(true);
       expect(capabilitiesForRole(role).canDrive, role).toBe(true);
@@ -45,7 +45,7 @@ describe('capability helper (UI hiding only; the daemon enforces)', () => {
     expect(drivesSession(capabilitiesForRole('viewer'), { status: 'running' })).toBe(false);
   });
 
-  it('only 「可使用 agent」 is a role whose hand-out asks the host to confirm the risk', () => {
+  it('only "Agent access" is a role whose hand-out asks the host to confirm the risk', () => {
     expect(isRiskyRole('agent')).toBe(true);
     expect(isRiskyRole('editor')).toBe(false);
     expect(isRiskyRole('viewer')).toBe(false);

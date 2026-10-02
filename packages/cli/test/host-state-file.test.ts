@@ -74,15 +74,15 @@ describe('smurg host with a workspace state file the daemon refuses (review F3)'
       (code) => new Error(`host started (exit ${code})`),
       (err: unknown) => err,
     );
-    const shown = formatFailure(failure);
+    const shown = formatFailure(failure, 'en');
     const logPath = hostLogPath(paths, workspaceId);
     expect(shown.exitCode).toBe(1);
-    expect(shown.text).toContain('smurg：這個工作區的狀態檔是別的 smurg 版本寫的，或不是預期的格式，daemon 拒絕啟動');
-    expect(shown.text).toContain(`哪個檔案、什麼原因記在紀錄檔 ${logPath}`);
+    expect(shown.text).toContain("smurg: This workspace's state files were written by another smurg version, or are not in the expected format; the daemon refused to start");
+    expect(shown.text).toContain(`The log says which file and why: ${logPath}`);
     expect(shown.text).toContain(`mv "${wsDir}" "${wsDir}.old"`);
-    expect(shown.text).toContain('組員要用新的邀請連結重新加入');
-    expect(shown.text).toContain('加入過的組員會看到「主人的電腦金鑰和之前不同」：請把 smurg status 顯示的新金鑰指紋用其他管道');
-    expect(shown.text).not.toContain('損毀');
+    expect(shown.text).toContain('your teammates join again with a new invite link');
+    expect(shown.text).toContain('teammates who joined before will see "The host computer\'s key has changed": tell them the new key fingerprint that smurg status shows through another channel');
+    expect(shown.text).not.toContain('damaged');
 
     // 2. The log it names has the file and the reason (schema paths and messages), never the values.
     const log = await readFile(logPath, 'utf8');
@@ -123,12 +123,12 @@ describe('smurg host with a workspace state file the daemon refuses (review F3)'
   }, 60_000);
 });
 
-// Verification M1 (2026-10-02): the remedy above (and HOSTING §5.1 「收回之後」 step 1) keeps the workspace id and makes
+// Verification M1 (2026-10-02): the remedy above (and HOSTING §5.1, the steps after taking agent access back, step 1) keeps the workspace id and makes
 // a new daemon key. A member who joined with the CLI has the old key pinned: `smurg attach --invite <new link>` used to
 // abort with the impersonation warning, with no way to accept the new key. Now it explains the change as the web does
-// (「主人的電腦金鑰和之前不同」, both fingerprints) and continues only with an explicit yes or --accept-new-key.
+// (the key-change notice, both fingerprints) and continues only with an explicit yes or --accept-new-key.
 describe('a CLI member after the host started over with new workspace keys (verification M1)', () => {
-  it('is told 「主人的電腦金鑰和之前不同」 with both fingerprints; nothing is sent and the pin stays without a yes; y or --accept-new-key joins and re-pins', async () => {
+  it('is told that the host computer\'s key has changed, with both fingerprints; nothing is sent and the pin stays without a yes; y or --accept-new-key joins and re-pins', async () => {
     const dirs = await makeDirs();
     cleanups.push(() => dirs.cleanup());
     const relay = await startFakeRelay();
@@ -204,21 +204,21 @@ describe('a CLI member after the host started over with new workspace keys (veri
 
     // 3a. With the pinned key only: the warning says what to do if the host started over.
     const pinnedOnly = testIo({ env: amy.env });
-    const pinnedFailure = formatFailure(await runAttach(['--workspace', workspaceId], commandContext(pinnedOnly), { relayFor: amy.relayFor }).then((code) => new Error(`exit ${code}`), (err: unknown) => err));
-    expect(pinnedFailure.text).toContain('主人電腦的金鑰和這台電腦上次記錄的不同');
-    expect(pinnedFailure.text).toContain('請向主人索取新的邀請連結，用 smurg attach --invite - 加入');
+    const pinnedFailure = formatFailure(await runAttach(['--workspace', workspaceId], commandContext(pinnedOnly), { relayFor: amy.relayFor }).then((code) => new Error(`exit ${code}`), (err: unknown) => err), 'en');
+    expect(pinnedFailure.text).toContain("the key of the host's computer differs from the one this computer recorded last time");
+    expect(pinnedFailure.text).toContain('ask them for a new invite link, join with smurg attach --invite -');
 
     // 3b. The new link, nobody answers (no terminal) or the answer is not yes: explained, cancelled, nothing changed.
     for (const answer of [null, 'n', 'nein']) {
       const io = testIo({ env: amy.env, readLine: async () => answer });
-      const failure = formatFailure(await runAttach(['--invite', second.invite], commandContext(io), { relayFor: amy.relayFor }).then((code) => new Error(`exit ${code}`), (err: unknown) => err));
-      expect(io.err()).toContain('主人的電腦金鑰和之前不同');
-      expect(io.err()).toContain(`上次記錄的金鑰指紋：${oldPrint}`);
-      expect(io.err()).toContain(`邀請連結的金鑰指紋：${second.daemon.fingerprint}`);
-      expect(io.err()).toContain('主人用 smurg status 看到的「daemon 金鑰指紋」');
+      const failure = formatFailure(await runAttach(['--invite', second.invite], commandContext(io), { relayFor: amy.relayFor }).then((code) => new Error(`exit ${code}`), (err: unknown) => err), 'en');
+      expect(io.err()).toContain("The host computer's key has changed");
+      expect(io.err()).toContain(`Key fingerprint recorded last time: ${oldPrint}`);
+      expect(io.err()).toContain(`Key fingerprint in the invite link: ${second.daemon.fingerprint}`);
+      expect(io.err()).toContain('"daemon key fingerprint" the host');
       expect(failure).toMatchObject({ exitCode: 1 });
-      expect(failure.text).toContain('已取消，沒有連線；這台電腦記錄的主人金鑰沒有改變。');
-      expect(failure.text).toContain(answer === null ? '加上 --accept-new-key 再執行一次' : '向主人確認過金鑰指紋之後再執行一次');
+      expect(failure.text).toContain('Cancelled; nothing was connected, and the host key this computer recorded is unchanged.');
+      expect(failure.text).toContain(answer === null ? 'run the command again with --accept-new-key' : 'Run the command again after you confirmed the key fingerprint with the host');
       expect(equalBytes((await readPinnedDaemonKey(amy.stateDir, workspaceId)) as Uint8Array, oldKey)).toBe(true);
       expect(membersOf()).toEqual(['Ian']);
     }
@@ -227,19 +227,19 @@ describe('a CLI member after the host started over with new workspace keys (veri
     const prompts: string[] = [];
     const yes = testIo({ env: amy.env, readLine: async (prompt) => (prompts.push(prompt), 'y') });
     expect(await runAttach(['--invite', second.invite], commandContext(yes), { relayFor: amy.relayFor })).toBe(0);
-    expect(prompts).toEqual(['確認過了嗎？輸入 y 用新的連結加入，其他輸入取消：']);
-    expect(yes.out()).toContain('這個工作區目前沒有 session');
+    expect(prompts).toEqual(['Did you confirm it? Type y to join with the new link, anything else to cancel: ']);
+    expect(yes.out()).toContain('This workspace has no sessions.');
     expect(equalBytes((await readPinnedDaemonKey(amy.stateDir, workspaceId)) as Uint8Array, second.daemon.daemonPublicKey)).toBe(true);
     // Later the pinned (new) key alone is enough, with no question.
     const later = testIo({ env: amy.env, readLine: async () => 'unexpected question' });
     expect(await runAttach(['--workspace', workspaceId], commandContext(later), { relayFor: amy.relayFor })).toBe(0);
-    expect(later.err()).not.toContain('主人的電腦金鑰和之前不同');
+    expect(later.err()).not.toContain("The host computer's key has changed");
 
     // 3d. Bob, without a terminal, after checking the fingerprint with the host: --accept-new-key.
     const flagged = testIo({ env: bob.env });
     expect(await runAttach(['--invite', second.invite, '--accept-new-key'], commandContext(flagged), { relayFor: bob.relayFor })).toBe(0);
-    expect(flagged.err()).toContain('主人的電腦金鑰和之前不同');
-    expect(flagged.err()).toContain('已指定 --accept-new-key：改用邀請連結的金鑰。');
+    expect(flagged.err()).toContain("The host computer's key has changed");
+    expect(flagged.err()).toContain("--accept-new-key was given: using the invite link's key.");
     expect(equalBytes((await readPinnedDaemonKey(bob.stateDir, workspaceId)) as Uint8Array, second.daemon.daemonPublicKey)).toBe(true);
     expect(membersOf()).toEqual(['Amy', 'Bob', 'Ian']);
     expect(await second.stop()).toBe(0);

@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="zh-TW">
+<html lang="zh-Hant-TW">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>smurg：讓組員和 Claude Code 一起即時工作的工作區</title>
-<meta name="description" content="從自己的電腦分享專案資料夾。組員用瀏覽器和你即時編輯檔案，一起看和指揮在你電腦上執行的 Claude Code session。端對端加密，支援 macOS 與 Linux，原型期間免費。">
+<meta name="description" content="從自己的電腦分享專案資料夾。組員用瀏覽器和你即時編輯檔案，一起看和指揮在你電腦上執行的 Claude Code session。端對端加密，開放原始碼（MIT），支援 macOS 與 Linux。">
 <link rel="canonical" href="https://smurg.ai/zh-TW/">
 <link rel="alternate" hreflang="en" href="https://smurg.ai/">
-<link rel="alternate" hreflang="zh-TW" href="https://smurg.ai/zh-TW/">
+<link rel="alternate" hreflang="zh-Hant-TW" href="https://smurg.ai/zh-TW/">
 <link rel="alternate" hreflang="x-default" href="https://smurg.ai/">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
@@ -41,7 +41,8 @@
         <li class="jump"><a href="#features">功能</a></li>
         <li class="jump"><a href="#security">安全</a></li>
         <li class="jump"><a href="#faq">常見問題</a></li>
-        <li><a href="/docs/">文件</a></li>
+        <li><a href="/zh-TW/docs/">文件</a></li>
+        <li><a href="https://github.com/gclinian/smurg">GitHub</a></li>
         <li class="lang"><a href="/" hreflang="en" lang="en">English</a></li>
       </ul>
     </nav>
@@ -51,7 +52,7 @@
 <main id="main">
 
 <section class="hero wrap" aria-labelledby="hero-title">
-  <p class="eyebrow"><span class="chip">v0.1.0 原型</span> <span>原型期間免費 · macOS 與 Linux</span></p>
+  <p class="eyebrow"><span class="chip">開放原始碼 · MIT</span> <span>macOS 與 Linux</span></p>
   <h1 id="hero-title">架在你自己電腦上的<wbr>即時工作區，<wbr>讓組員和 Claude&nbsp;Code <wbr>一起工作。</h1>
   <p class="lede">用 <code>smurg host</code> 分享一個專案資料夾：組員用瀏覽器加入，和你即時編輯檔案，一起看和指揮在你電腦上執行的 Claude Code session；中間的 relay 只轉送端對端加密後的資料。</p>
 
@@ -75,7 +76,7 @@
         <symbol id="i-folder-c" viewBox="0 0 16 16"><path d="M1.75 4.25a1 1 0 0 1 1-1h3.4l1.5 1.5h5.6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/></symbol>
         <symbol id="i-lock" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.25"/><path d="M5.25 7V5a2.75 2.75 0 0 1 5.5 0v2"/></symbol>
       </svg>
-      <div class="m-app" lang="zh-TW">
+      <div class="m-app">
         <div class="m-chrome"><span class="m-dots"><i></i><i></i><i></i></span><span class="m-url">app.smurg.ai/w/Q7mX2cK9vT4pL8nR3wZ5aB</span></div>
         <div class="m-top">
           <span class="m-word">smurg</span><span class="m-divider"></span><span class="m-ws">my-app</span><span class="m-host">主人：Ian</span><span class="m-pill">已連線</span>
@@ -93,7 +94,7 @@
               <li class="d1 on"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>login.ts<span class="m-tag m-tag-human">Amy、Ben 編輯中</span></li>
               <li class="d1"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>session.ts</li>
               <li><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg>tests</li>
-              <li class="d1"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>login.test.ts<span class="m-tag m-tag-agent">Claude（Amy）修改中</span></li>
+              <li class="d1"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>login.test.ts<span class="m-tag m-tag-agent">Claude (Amy) 修改中</span></li>
               <li><svg class="ic" aria-hidden="true"><use href="#i-folder-c"/></svg>data</li>
               <li><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>package.json</li>
               <li><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>README.md</li>
@@ -120,9 +121,9 @@
         <div class="m-drawer">
           <div class="m-tabs"><span class="on">活動</span><span>衝突</span><span>傳輸</span><span>合併請求 <i class="m-count">1</i></span></div>
           <ul class="m-feed">
-            <li><i class="av av-agent"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i><span class="m-what">Claude（Amy）修改了 tests/login.test.ts（Edit）</span><span class="m-ago">剛剛</span></li>
+            <li><i class="av av-agent"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i><span class="m-what">Claude (Amy) 修改了 tests/login.test.ts（Edit）</span><span class="m-ago">剛剛</span></li>
             <li><i class="av av-ben">BE</i><span class="m-what"><strong>Ben</strong> 上傳 data/fixtures.json</span><span class="m-ago">1 分鐘前</span></li>
-            <li><i class="av av-claude-ian"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i><span class="m-what">Claude（Ian）透過 shell 指令修改了 package.json</span><span class="m-via">透過指令</span><span class="m-ago">3 分鐘前</span></li>
+            <li><i class="av av-claude-ian"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i><span class="m-what">Claude (Ian) 透過 shell 指令修改了 package.json</span><span class="m-via">透過指令</span><span class="m-ago">3 分鐘前</span></li>
           </ul>
         </div>
       </div>
@@ -199,7 +200,7 @@ smurg host ~/projects/my-app</code></pre>
             <path class="cur" d="M71 105v14"/>
             <rect class="sf" x="75" y="105" width="22" height="14" rx="2"/>
             <text class="tb" x="80" y="116">你</text>
-            <text x="158" y="42">Claude（Amy）</text>
+            <text x="158" y="42">Claude (Amy)</text>
             <path class="bar thin" d="M158 56h82M158 68h100M158 80h64"/>
             <rect class="ac-dash" x="154" y="96" width="114" height="40" rx="5"/>
             <text class="ta tx" x="161" y="113">建議</text>
@@ -223,7 +224,7 @@ smurg host ~/projects/my-app</code></pre>
     <ul class="features">
       <li>
         <h3>一起編輯</h3>
-        <p>瀏覽器裡的檔案樹和編輯器。好幾個人可以同時在同一份檔案裡打字，每個人的游標都標著名字，修改會自動存到主人的磁碟。agent 也一樣，會顯示成「Claude（擁有者）」。</p>
+        <p>瀏覽器裡的檔案樹和編輯器。好幾個人可以同時在同一份檔案裡打字，每個人的游標都標著名字，修改會自動存到主人的磁碟。agent 也一樣，例如 Amy 開的 agent 會顯示成「Claude (Amy)」。</p>
       </li>
       <li>
         <h3>上傳與下載</h3>
@@ -361,7 +362,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>relay 看得到什麼</h3>
-        <p>每條連線是哪個 Google 帳號（帳號 ID、名稱、大頭貼；登入時 Google 也會給 relay 帳號的 email，只有帳號沒有名稱時拿來當顯示名稱）、從哪個 IP 位址連線、連到哪個工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。看不到檔案內容、檔名、終端機畫面、指令、邀請連結的密鑰或任何金鑰。它只保存每個工作區的代碼和主人是哪個帳號。架設 relay 的 smurg 維護者和 Cloudflare 也看得到同樣的內容。</p>
+        <p>每條連線是哪個 Google 帳號（帳號 ID、名稱、大頭貼；登入時 Google 也會給 relay 帳號的 email，只有帳號沒有名稱時拿來當顯示名稱）、從哪個 IP 位址連線、連到哪個工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。看不到檔案內容、檔名、終端機畫面、指令、邀請連結的密鑰或任何金鑰。它只保存每個工作區的代碼和主人是哪個帳號。使用公用 relay 時，架設它的 smurg 維護者和 Cloudflare 也看得到同樣的內容。</p>
       </div>
     </div>
 
@@ -373,7 +374,7 @@ smurg host ~/projects/my-app</code></pre>
         <li>「可使用 agent」的組員在你的電腦上能做你能做的任何事：執行任何指令、讀你的家目錄、用掉你的 Claude 額度。smurg 無法限制這些事。</li>
         <li>網頁版由 relay 提供。和所有在瀏覽器裡做的端對端加密一樣，被竄改的網頁可能洩漏金鑰；CLI 沒有這個問題。</li>
       </ul>
-      <p class="more"><a href="/docs/hosting/">分享之前，請先讀主人指南</a></p>
+      <p class="more"><a href="/zh-TW/docs/hosting/">分享之前，請先讀主人指南</a></p>
     </div>
   </div>
 </section>
@@ -403,11 +404,15 @@ smurg host ~/projects/my-app</code></pre>
           <dd>Google 帳號，主人和組員都一樣。</dd>
         </div>
         <div>
+          <dt>語言</dt>
+          <dd>英文與繁體中文：網頁版、<code>smurg</code> 指令和使用說明都有。每個人看到的是自己的語言，在同一個工作區裡也一樣。</dd>
+        </div>
+        <div>
           <dt>relay</dt>
-          <dd>公用 relay 使用 Cloudflare 的免費方案，請合理使用：所有人共用每天的用量上限，用完時到台灣時間早上 8 點（UTC 0 點）之前，所有人都無法連線。目前只有這一個 relay：relay 的原始碼沒有公開，所以無法自己架設。</dd>
+          <dd>公用 relay 使用 Cloudflare 的免費方案，請合理使用：所有人共用每天的用量上限，用完時到台灣時間早上 8 點（UTC 0 點）之前，所有人都無法連線。relay 也是開放原始碼：你可以用自己的 Cloudflare 帳號<a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">自己架設 relay</a>。</dd>
         </div>
       </dl>
-      <p class="status">v0.1.0 是第一個公開版本，目前是原型。開發和測試都在 Apple silicon 的 macOS 上進行；Intel Mac 與 Linux 的執行檔由 GitHub Actions 建置並跑冒煙測試。已知限制列在<a href="/docs/changelog/">變更紀錄</a>裡。</p>
+      <p class="status">smurg 目前是原型。開發和測試都在 Apple silicon 的 macOS 上進行；Intel Mac 與 Linux 的執行檔由 GitHub Actions 建置並跑冒煙測試，還沒有人真的在 Linux 上當過主人。每個版本的變更列在<a href="/zh-TW/docs/changelog/">變更紀錄</a>裡。</p>
     </div>
   </div>
 </section>
@@ -421,11 +426,29 @@ smurg host ~/projects/my-app</code></pre>
     <div>
       <p class="lead-text">主人指南說明怎麼安裝、分享資料夾、分享前要確認什麼，以及出問題時怎麼處理；組員指南說明怎麼加入、各種角色、一起編輯，以及和 agent 一起工作。</p>
       <ul class="links-list">
-        <li><a href="/docs/hosting/">主人指南</a></li>
-        <li><a href="/docs/joining/">組員指南</a></li>
-        <li><a href="/docs/changelog/">變更紀錄</a></li>
-        <li><a href="/license/">授權條款</a></li>
+        <li><a href="/zh-TW/docs/hosting/">主人指南</a></li>
+        <li><a href="/zh-TW/docs/joining/">組員指南</a></li>
+        <li><a href="/zh-TW/docs/changelog/">變更紀錄</a></li>
+        <li><a href="/zh-TW/license/">授權條款</a></li>
         <li><a href="/third-party-notices.txt">第三方授權聲明</a></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="open-source" aria-labelledby="open-source-title">
+  <div class="wrap section-grid">
+    <div>
+      <p class="kicker">06</p>
+      <h2 id="open-source-title">開放原始碼（MIT）</h2>
+    </div>
+    <div>
+      <p class="lead-text">smurg 是開放原始碼軟體，以 MIT 授權條款釋出：<code>smurg</code> 指令、網頁版、relay 和這個網站都是。你可以讀程式碼、自己建置、架設自己的 relay，或送出修正。</p>
+      <ul class="links-list">
+        <li><a href="https://github.com/gclinian/smurg">GitHub 上的原始碼</a></li>
+        <li><a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">自己架設 relay（英文）</a></li>
+        <li><a href="https://github.com/gclinian/smurg/blob/main/CONTRIBUTING.md">參與貢獻（英文）</a></li>
+        <li><a href="https://github.com/gclinian/smurg/blob/main/SECURITY.md">回報安全性問題（英文）</a></li>
       </ul>
     </div>
   </div>
@@ -434,7 +457,7 @@ smurg host ~/projects/my-app</code></pre>
 <section class="section" id="faq" aria-labelledby="faq-title">
   <div class="wrap section-grid">
     <div>
-      <p class="kicker">06</p>
+      <p class="kicker">07</p>
       <h2 id="faq-title">常見問題</h2>
     </div>
     <div class="faq">
@@ -445,11 +468,11 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>怎麼更新或移除？</h3>
-        <p><code>smurg update</code> 會把執行檔換成最新版本，一樣先驗證 sha256（請先停止分享）。<code>smurg uninstall</code> 先列出要移除的東西，再移除執行檔、快取和 <code>~/.smurg</code>；專案資料夾裡的 <code>.smurg/</code> 不會動，留給你自己決定。0.2.0 還沒有這兩個指令：要更新時，再執行一次安裝指令。</p>
+        <p><code>smurg update</code> 會把執行檔換成最新版本，一樣先驗證 sha256（請先停止分享）。<code>smurg uninstall</code> 先列出要移除的東西，再移除執行檔、快取和 <code>~/.smurg</code>；專案資料夾裡的 <code>.smurg/</code> 不會動，留給你自己決定。</p>
       </div>
       <div>
         <h3>relay 看得到什麼？</h3>
-        <p>每條連線的 Google 帳號（帳號 ID、名稱、大頭貼；登入時還有 email）和 IP 位址、工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。檔案、檔名、終端機畫面、指令和金鑰，都在主人的電腦和每位組員之間端對端加密。目前沒有其他 relay 可以選：relay 的原始碼沒有公開，主人無法自己架設。如果一個專案連這些都不能讓別人知道，就不要用 smurg 分享它。</p>
+        <p>每條連線的 Google 帳號（帳號 ID、名稱、大頭貼；登入時還有 email）和 IP 位址、工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。檔案、檔名、終端機畫面、指令和金鑰，都在主人的電腦和每位組員之間端對端加密。如果一個專案連這些都不能讓公用 relay 知道，就自己架設 relay：這時看得到這些的只有你和你的 Cloudflare 帳號。</p>
       </div>
       <div>
         <h3>組員需要自己的 Claude 帳號嗎？</h3>
@@ -457,7 +480,11 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>看得到原始碼嗎？</h3>
-        <p>看不到，原始碼沒有公開。執行檔在原型階段可以免費下載和使用，條款見<a href="/license/">授權條款</a>。smurg 用到的其他專案的元件，依它們各自的授權條款提供，列在執行檔的<a href="/third-party-notices.txt">第三方授權聲明</a>和<a href="https://app.smurg.ai/third-party-notices.txt">網頁版的第三方授權聲明</a>。</p>
+        <p>看得到。smurg 是開放原始碼軟體，以 <a href="/zh-TW/license/">MIT 授權條款</a>釋出，原始碼在 <a href="https://github.com/gclinian/smurg">GitHub</a>。smurg 用到的其他專案的元件，依它們各自的授權條款提供，列在執行檔的<a href="/third-party-notices.txt">第三方授權聲明</a>和<a href="https://app.smurg.ai/third-party-notices.txt">網頁版的第三方授權聲明</a>。</p>
+      </div>
+      <div>
+        <h3>可以自己架設 relay 嗎？</h3>
+        <p>可以。relay 是一個 Cloudflare Worker：照著 <a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">relay 的說明文件</a>（英文），用自己的 Cloudflare 帳號（免費方案即可）和自己的 Google OAuth client 部署，再用 <code>smurg login --relay</code> 加上你的 relay 的網址登入。之後你印出的邀請連結會指向你的 relay，它也有自己的每日用量。</p>
       </div>
       <div>
         <h3>支援哪些瀏覽器？</h3>
@@ -475,13 +502,14 @@ smurg host ~/projects/my-app</code></pre>
 
 <footer class="site-footer">
   <div class="wrap footer-row">
-    <p>smurg 的執行檔在原型階段可以免費下載和使用。</p>
+    <p>smurg 是開放原始碼軟體，以 MIT 授權條款釋出。</p>
     <nav aria-label="頁尾">
       <ul>
-        <li><a href="/docs/">文件</a></li>
-        <li><a href="/docs/changelog/">變更紀錄</a></li>
-        <li><a href="/license/">授權條款</a></li>
+        <li><a href="/zh-TW/docs/">文件</a></li>
+        <li><a href="/zh-TW/docs/changelog/">變更紀錄</a></li>
+        <li><a href="/zh-TW/license/">授權條款</a></li>
         <li><a href="/third-party-notices.txt">第三方授權聲明</a></li>
+        <li><a href="https://github.com/gclinian/smurg">GitHub</a></li>
         <li><a href="https://app.smurg.ai/">網頁版</a></li>
         <li><a href="/" hreflang="en" lang="en">English</a></li>
       </ul>

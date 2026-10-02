@@ -17,7 +17,7 @@ afterEach(async () => {
 }, 60_000);
 
 describe('R9.4 keep a worktree and continue in it', { timeout: 60_000 }, () => {
-  it('R9.4 session 結束時詢問是否保留 worktree；保留的 worktree 之後可以重新開 session 繼續', async () => {
+  it('R9.4 ending a session asks whether to keep the worktree; a kept worktree can be continued in a new session', async () => {
     sessions = await testSessionsModule();
     stack = await startWorktreeStack({ laterModules: [sessions.module] });
     const s = stack;
@@ -39,7 +39,7 @@ describe('R9.4 keep a worktree and continue in it', { timeout: 60_000 }, () => {
     expect(await lstat(join(s.t.root, 'progress.md')).catch(() => null)).toBeNull();
     first.dispose();
 
-    // 「保留」: the owner ends the session and keeps the worktree.
+    // Keep: the owner ends the session and keeps the worktree.
     await host.conn.request('session.end', { sessionId: session.id, keepWorktree: true });
     await waitUntil(() => s.manager.get(worktreeId)?.kept === true, 'the worktree to be kept');
     expect(s.manager.get(worktreeId)?.sessionId).toBeUndefined();
@@ -61,14 +61,14 @@ describe('R9.4 keep a worktree and continue in it', { timeout: 60_000 }, () => {
     });
     expect(await settleError(host.conn.request('worktree.remove', { worktreeId }))).toMatchObject({ code: 'conflict', reason: 'worktree-in-use' });
 
-    // 「不保留」: ending with keepWorktree: false removes it.
+    // Do not keep: ending with keepWorktree: false removes it.
     await host.conn.request('session.end', { sessionId: later.id, keepWorktree: false });
     await waitUntil(() => s.manager.get(worktreeId) === null, 'the worktree to be removed');
     expect(await lstat(dir).catch(() => null)).toBeNull();
     expect(await readFile(join(s.t.root, 'README.md'), 'utf8')).toBe('# demo\n');
   }, 60_000);
 
-  it('a 可使用 agent member continues only in their own kept worktree (R9, unchanged by §11 D-15)', async () => {
+  it('an Agent access member continues only in their own kept worktree (R9, unchanged by §11 D-15)', async () => {
     sessions = await testSessionsModule();
     stack = await startWorktreeStack({ laterModules: [sessions.module] });
     const s = stack;

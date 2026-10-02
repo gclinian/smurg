@@ -18,6 +18,7 @@ import { randomBytes } from 'node:crypto';
 import { lstat, readFile, rename, rm, unlink, writeFile, chmod } from 'node:fs/promises';
 import { createConnection, createServer, type Server, type Socket } from 'node:net';
 import { SmurgError, type ErrorPayload } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import type { DaemonLifecycle, LocalAttachment } from '../core/interfaces.ts';
 import type { Logger } from '../core/logger.ts';
 import {
@@ -173,7 +174,7 @@ class ControlConnection {
           request = parseCtlRequest(frame.body);
         } catch (err) {
           this.server.log.debug('invalid control request', { error: err instanceof Error ? err.message : 'unknown' });
-          this.respondAndEnd({ ok: false, error: { code: 'bad_request', message: '控制請求格式不正確' } });
+          this.respondAndEnd({ ok: false, error: new SmurgError('bad_request', msg('control.badRequest'), { reason: 'control-request' }).toPayload() });
           return;
         }
         this.onRequest(request);
@@ -268,7 +269,7 @@ class ControlConnection {
       frame = encodeCtlControl(response);
     } catch (err) {
       this.server.log.error('control response could not be encoded', { error: err instanceof Error ? err.message : 'unknown' });
-      frame = encodeCtlControl({ ok: false, error: { code: 'internal', message: '主人端發生內部錯誤' } });
+      frame = encodeCtlControl({ ok: false, error: new SmurgError('internal').toPayload() });
     }
     this.state = 'closing';
     let ran = false;

@@ -1,302 +1,338 @@
 # @smurg/web
 
-smurg 的網頁前端：React 19 + Vite 8 的單頁應用程式，正式環境由 relay Worker 以同一個 origin 提供。
-規格見 `SPEC.md`（R1–R3、R7、R11、§9），約定見 `docs/ARCHITECTURE.md` §4、§9。
+The web front end of smurg: a single-page application built with React 19 and Vite 8. In production the relay Worker
+serves it from the same origin. The specification is `SPEC.md` (R1–R3, R7, R11, §9); the conventions are in
+`docs/ARCHITECTURE.md` §4 and §9.
 
-這份文件寫給**在這個外殼裡開發功能的工程師**：外殼、路由、連線層、stores、指令匯流排、字串、設計系統都已經就緒，
-功能工程師只需要改 `src/features/<自己的功能>/**`，**不需要**動外殼、路由、stores、字串索引或 `package.json`。
+This document is for **engineers who build features inside this shell**. The shell, the routes, the connection layer,
+the stores, the command bus, the strings and the design system are in place. To build a feature you only change
+`src/features/<your feature>/**`. You do **not** need to touch the shell, the routes, the stores, the string index or
+`package.json`.
 
-- [本機執行整個系統](#本機執行整個系統)
-- [目錄結構與擁有權](#目錄結構與擁有權)
-- [路由與加入流程](#路由與加入流程)
-- [連線層與連線狀態](#連線層與連線狀態)
-- [Stores（每個領域一個）](#stores每個領域一個)
-- [權限判斷（只用來隱藏 UI）](#權限判斷只用來隱藏-ui)
-- [跨功能指令匯流排](#跨功能指令匯流排)
-- [功能插槽（placeholder）](#功能插槽placeholder)
-- [字串（zh-TW）](#字串zh-tw)
-- [設計系統](#設計系統)
-- [Monaco 與 xterm（延遲載入）](#monaco-與-xterm延遲載入)
-- [測試](#測試)
-- [建置與 chunk 大小](#建置與-chunk-大小)
+- [Run the whole system locally](#run-the-whole-system-locally)
+- [Directory layout and ownership](#directory-layout-and-ownership)
+- [Routes and the join flow](#routes-and-the-join-flow)
+- [Connection layer and connection states](#connection-layer-and-connection-states)
+- [Stores (one per domain)](#stores-one-per-domain)
+- [Capability checks (only to hide UI)](#capability-checks-only-to-hide-ui)
+- [Cross-feature command bus](#cross-feature-command-bus)
+- [Feature slots](#feature-slots)
+- [Strings and languages](#strings-and-languages)
+- [Design system](#design-system)
+- [Monaco and xterm (lazy loaded)](#monaco-and-xterm-lazy-loaded)
+- [Tests](#tests)
+- [Build and chunk sizes](#build-and-chunk-sizes)
 
 ---
 
-## 本機執行整個系統
+## Run the whole system locally
 
 ```sh
-source scripts/env.sh                 # 每個新 shell 都要（Node 22、repo 內的 pnpm）
-pnpm dev:relay                        # relay：http://127.0.0.1:8787（wrangler dev --env dev，DEV_LOGIN=1）
-pnpm dev:web                          # 前端：http://localhost:5173，/auth /api /ws /xfer /.well-known /healthz 轉給 relay
+source scripts/env.sh                 # in every new shell (Node 22, the pnpm inside the repo)
+pnpm dev:relay                        # relay: http://127.0.0.1:8787 (wrangler dev --env dev, DEV_LOGIN=1)
+pnpm dev:web                          # front end: http://localhost:5173; /auth /api /ws /xfer /.well-known /healthz are proxied to the relay
 ```
 
-1. 打開 **http://localhost:5173/**（一定要用 `localhost`，不要用 `127.0.0.1`：relay 的 cookie 是以主機名稱區分，而且
-   `ALLOWED_ORIGINS` 只允許 `http://localhost:5173`）。
-2. 首頁的登入區塊會出現「開發用登入」表單——**只有**在 relay 回報開發用登入可用時才會出現（`DEV_LOGIN=1` 而且主機名稱是本機；
-   正式環境的網址永遠不會顯示，也不會去探測）。輸入帳號名稱（例如 `amy`）登入。
-3. **主人分享資料夾**：最簡單的是 `scripts/dev-stack.sh`（在 repo 根目錄執行）：它一次啟動 relay、Vite 與
-   `smurg host`（範例 git 專案，假的 HOME），並印出主人連結與邀請連結（http://localhost:5173/join/…），Ctrl-C 全部停止。
-   手動的做法：`smurg login --relay http://localhost:8787 --dev-user host`，再執行
-   `smurg host <資料夾> --relay http://localhost:8787 --web-origin http://localhost:5173`；終端機印出主人自己的連結與
-   邀請連結 `http://localhost:5173/join/<workspaceId>#k=…&s=…`，組員用瀏覽器開啟邀請連結。
-   組員改用 CLI 時：邀請連結指向網頁（:5173），CLI 則直接連 relay，而且登入是依網址分開記錄的，所以要先
-   `smurg login --no-browser --dev-user amy --relay http://localhost:8787`，再
-   `smurg attach --invite - --relay http://localhost:8787`（執行後貼上邀請連結）。`scripts/dev-stack.sh` 會印出這兩行。
-4. 也可以直接用 CLI 的開發登入：`curl -X POST -H 'content-type: application/json' -d '{"user":"amy"}' http://localhost:8787/auth/dev/token`。
+1. Open **http://localhost:5173/**. Always use `localhost`, not `127.0.0.1`: the relay's cookies are scoped by host
+   name, and `ALLOWED_ORIGINS` only allows `http://localhost:5173`.
+2. The login block of the landing page shows the "Development login" form. It appears **only** when the relay
+   reports that the development login is available (`DEV_LOGIN=1` and a local host name). A production address never
+   shows it and never probes for it. Type an account name (for example `amy`) to log in.
+3. **The host shares a folder.** The simplest way is `scripts/dev-stack.sh` (run it in the repo root). It starts the
+   relay, Vite and `smurg host` (a sample git project, a fake HOME) in one go, prints the host's link and the invite
+   link (http://localhost:5173/join/…), and Ctrl-C stops everything.
+   By hand: `smurg login --relay http://localhost:8787 --dev-user host`, then
+   `smurg host <folder> --relay http://localhost:8787 --web-origin http://localhost:5173`. The terminal prints the
+   host's own link and the invite link `http://localhost:5173/join/<workspaceId>#k=…&s=…`. Teammates open the invite
+   link in a browser.
+   When a teammate uses the CLI instead: the invite link points at the web app (:5173), the CLI connects to the relay
+   directly, and logins are recorded per address. So first run
+   `smurg login --no-browser --dev-user amy --relay http://localhost:8787`, then
+   `smurg attach --invite - --relay http://localhost:8787` (paste the invite link after it starts).
+   `scripts/dev-stack.sh` prints these two lines.
+4. You can also use the CLI's development login directly:
+   `curl -X POST -H 'content-type: application/json' -d '{"user":"amy"}' http://localhost:8787/auth/dev/token`.
 
-`SMURG_RELAY_DEV_ORIGIN` 可以把 Vite 的轉送目標改到其他埠（平行的 checkout）。
+`SMURG_RELAY_DEV_ORIGIN` points Vite's proxy at another port (a parallel checkout).
 
-要顯示哪些登入方式，只問 relay 一次：`GET /api/login-options`（200，只有布林值：GitHub、Google 是否已設定，以及開發用登入
-對這個主機名稱是否開啟；正式網址永遠是 false）。不再探測 `/auth/<p>/login` 或 `/auth/dev/start`。
-未登入的瀏覽器載入 `/` 或 `/join/<id>` 時主控台沒有任何錯誤、沒有失敗的請求（`e2e/smoke/login.smoke.test.ts`）：relay 對
-沒有 session 的 `/api/me` 仍回 401（SDK、CLI 和 relay 的測試依賴它），而瀏覽器一定會把 4xx 印成主控台錯誤，所以 app 只在
-「可能有 session」時才問（`lib/relay/session-hint.ts`：這個瀏覽器開始過登入、看過已登入的回答，或連上過工作區；401 或登出就清掉。
-記在一個只寫著 1 的 cookie `smurg_hint`，和 relay 的 session cookie 一樣以主機為範圍，所以同一主機的其他埠也看得到）。
-這不是安全判斷：猜錯的代價最多是多按一次登入（例如只在 relay 自己的 CLI 登入頁登入過），或一次 401（session 過期）。
+The app asks the relay only once which login methods to show: `GET /api/login-options` (200, booleans only: whether
+GitHub and Google are configured, and whether the development login is on for this host name; always false on a
+production address). It no longer probes `/auth/<p>/login` or `/auth/dev/start`.
+A browser that is not logged in loads `/` or `/join/<id>` with no console error and no failed request
+(`e2e/smoke/login.smoke.test.ts`). The relay still answers 401 to `/api/me` without a session (the SDK, the CLI and the
+relay's tests depend on it), and a browser always prints a 4xx as a console error, so the app only asks when a session
+is likely (`lib/relay/session-hint.ts`: this browser started a login, saw a logged-in answer, or connected to a
+workspace; a 401 or a logout clears it. The hint is a cookie `smurg_hint` that holds only `1`, scoped by host like
+the relay's session cookie, so other ports of the same host see it too).
+This is not a security decision. A wrong guess costs at most one more click on login (for example when you only
+logged in on the relay's own CLI login page) or one 401 (an expired session).
 
-## 目錄結構與擁有權
+## Directory layout and ownership
 
 ```
 src/
-├── main.tsx                 進入點。第一個 import 是 boot/capture-invite.ts（不要在它上面加任何東西）
-├── boot/capture-invite.ts   在任何程式執行前，把邀請片段存進 sessionStorage 並從網址列移除
-├── app/                     外殼（web-foundation 擁有）：App、路由、頁面、workbench 版面、連線畫面
-├── lib/                     共用邏輯（web-foundation 擁有）
-│   ├── connection/          WorkspaceConnection 介面、狀態 → UI 對應、瀏覽器端相依（IndexedDB 金鑰）
-│   ├── stores/              每個領域一個 store（見下）
-│   ├── workspace/           WorkspaceSession（連線 + stores + 指令）、manager（每個工作區一條連線）、React hooks
-│   ├── invite/              邀請片段的嚴格解析
-│   ├── relay/               relay 登入（OAuth、開發用登入）
-│   ├── commands.ts          跨功能指令匯流排
-│   ├── capabilities.ts      權限判斷（只用來隱藏 UI）
+├── main.tsx                 Entry point. The first import is boot/capture-invite.ts (put nothing above it);
+│                            the second is boot/locale.ts
+├── boot/capture-invite.ts   Before any other code runs: stores the invite fragment in sessionStorage and removes it from the address bar
+├── boot/locale.ts           Resolves the language of this browser and sets <html lang>, before the strings and any component
+├── app/                     The shell (owned by web-foundation): App, routes, pages, workbench layout, connection screens
+├── lib/                     Shared logic (owned by web-foundation)
+│   ├── connection/          The WorkspaceConnection interface, state -> UI mapping, browser dependencies (IndexedDB keys)
+│   ├── stores/              One store per domain (see below)
+│   ├── workspace/           WorkspaceSession (connection + stores + commands), manager (one connection per workspace), React hooks
+│   ├── invite/              Strict parsing of the invite fragment
+│   ├── relay/               Relay login (OAuth, development login)
+│   ├── commands.ts          Cross-feature command bus
+│   ├── capabilities.ts      Capability checks (only to hide UI)
+│   ├── locale.ts            The language controller (getLocale, setLocale, subscribe)
 │   ├── lazy.ts              loadMonaco() / loadXterm()
-│   ├── monaco.ts xterm.ts   重量級模組（只能透過 lazy.ts 載入）
-│   ├── presence-css.ts      y-monaco 遠端游標的 CSS
-│   ├── drop.ts              拖放 → UploadSource（在 drop 事件裡同步呼叫）
+│   ├── monaco.ts xterm.ts   Heavy modules (load them only through lazy.ts)
+│   ├── presence-css.ts      CSS for y-monaco's remote cursors
+│   ├── drop.ts              Drag and drop -> UploadSource (call it synchronously inside the drop event)
 │   └── format.ts errors.ts preferences.ts color.ts store.ts router.ts
-├── features/<feature>/      ★ 功能工程師的範圍：index.tsx（插槽元件）+ strings.ts（字串 namespace）+ 其他檔案
-├── strings/                 字串目錄（catalog.ts 的 defineStrings / t）
-├── ui/                      設計系統：tokens.css、base.css、components.css、元件、圖示
-└── testing/                 FakeConnection、fixtures、render helpers、vitest setup
+├── features/<feature>/      The feature engineer's area: index.tsx (slot components) + strings.ts and
+│                            strings.zh-TW.ts (the string namespace) + other files
+├── strings/                 The string catalog (defineStrings / t in catalog.ts) and the app-wide namespaces
+├── ui/                      Design system: tokens.css, base.css, components.css, components, icons
+└── testing/                 FakeConnection, fixtures, render helpers, vitest setup, the test language pin
 ```
 
-**規則**：功能之間不互相 import（`features/a` 不 import `features/b`）；跨功能的動作一律走指令匯流排。
-功能只透過 hooks 讀 stores，不自己建立連線或 store。需要外殼或 stores 的新 API 時，請在交接時提出。
+**Rules.** Features do not import each other (`features/a` does not import `features/b`). Every cross-feature action
+goes through the command bus. A feature reads the stores only through hooks and never creates a connection or a store
+itself. If you need a new API from the shell or the stores, ask for it at handover.
 
-## 路由與加入流程
+## Routes and the join flow
 
-| 路由 | 頁面 |
+| Route | Page |
 |---|---|
-| `/` | 首頁：產品說明、登入（依 `GET /api/login-options` 只顯示 relay 已設定的 GitHub / Google；開發用登入只在 relay 回報可用時顯示）、最近開啟的工作區 |
-| `/join/:workspaceId` | 接受邀請（見下） |
-| `/w/:workspaceId` | workbench（延遲載入的 chunk） |
-| `/w/:workspaceId/console` | 主人控制台（同一個 chunk；非主人會看到說明） |
+| `/` | Landing page: what the product is, login (per `GET /api/login-options`, only the GitHub / Google methods the relay has configured; the development login only when the relay reports it), recently opened workspaces |
+| `/join/:workspaceId` | Accept an invite (see below) |
+| `/w/:workspaceId` | The workbench (a lazy-loaded chunk) |
+| `/w/:workspaceId/console` | The host console (same chunk; anyone who is not the host sees an explanation) |
 
-路由器是 `lib/router.ts`（History API，封閉的 `Route` union）。站內連結用 `app/navigation.tsx` 的 `<Link to>`、
-`useNavigate()`、`useRoute()`。
+The router is `lib/router.ts` (History API, a closed `Route` union). For links inside the app use `<Link to>`,
+`useNavigate()` and `useRoute()` from `app/navigation.tsx`.
 
-**加入流程（ARCHITECTURE §4.1）**，實作在 `boot/capture-invite.ts` 與 `app/pages/JoinPage.tsx`：
+**The join flow (ARCHITECTURE §4.1)** is implemented in `boot/capture-invite.ts` and `app/pages/JoinPage.tsx`:
 
-1. `main.tsx` 的第一個 import 在任何其他模組執行之前，把 `#k=…&s=…` 複製到 sessionStorage（每個分頁各自一份，
-   關閉分頁就消失，同分頁的登入轉址後仍在），並用 `history.replaceState` 從網址列移除——早於 OAuth 轉址。
-   其他路徑上的片段也一律移除。
-2. 用 `@smurg/protocol` 的 `parseInviteFragment` **嚴格**解析（剛好 `k`、`s` 各一次，43 字元標準 base64url）；
-   格式不對就拒絕，不「修正」。
-3. 需要時登入（`return_to` 是不含片段的絕對網址）。
-4. **等使用者按「加入」**（review SEC-E-02）：頁面顯示工作區代碼、以哪個身分加入、加入後主人會看到什麼；按下之前
-   不建立任何連線。任何網頁都能把已登入的訪客導到一個邀請連結，所以絕不在載入頁面時自動加入。
-   （邀請連結整段網址在開啟時就已寫進瀏覽器的全域歷史紀錄，`replaceState` 無法移除，見 `boot/capture-invite.ts`。）
-5. 用 invite 模式連線。SDK 在 msg2 用 `k` 驗證 daemon 金鑰，並在送出 msg3 **之前**把金鑰 pin 進 IndexedDB。
-   若這個瀏覽器已經 pin 了**不同的**金鑰，頁面會先要求使用者確認「已透過其他管道向主人確認新連結」，確認後才以
-   `preferInvite` 連線（新的金鑰取代舊的 pin）；絕不默默接受新金鑰。
-6. 連線成功後刪除 sessionStorage 裡的邀請，進入 `/w/:workspaceId`——**沿用同一條連線**（manager 保證每個工作區只有一條）。
+1. The first import of `main.tsx` runs before any other module. It copies `#k=…&s=…` into sessionStorage (one copy per
+   tab, gone when the tab closes, still there after the login redirect in the same tab) and removes it from the
+   address bar with `history.replaceState`, before the OAuth redirect. A fragment on any other path is removed too.
+2. `parseInviteFragment` from `@smurg/protocol` parses it **strictly** (exactly one `k` and one `s`, each 43 characters
+   of standard base64url). A malformed fragment is refused, never "repaired".
+3. Login when needed (`return_to` is an absolute address without the fragment).
+4. **The page waits until you click "Join".** It shows the workspace code, the identity you join with and what the host
+   sees after you join. No connection is made before the click. Any web page can send a logged-in visitor to an invite
+   link, so the app never joins on page load.
+   (The whole invite address is written to the browser's global history when it is opened; `replaceState` cannot remove
+   that. See `boot/capture-invite.ts`.)
+5. The app connects in invite mode. In msg2 the SDK verifies the daemon's key with `k`, and it pins the key in
+   IndexedDB **before** it sends msg3. If this browser has already pinned a **different** key, the page first asks you
+   to confirm that you checked the new link with the host through another channel. Only then does it connect with
+   `preferInvite` (the new key replaces the old pin). It never accepts a new key silently.
+6. After the connection succeeds, the invite is deleted from sessionStorage and the app goes to `/w/:workspaceId`,
+   **reusing the same connection** (the manager guarantees one connection per workspace).
 
-## 連線層與連線狀態
+## Connection layer and connection states
 
-`lib/connection/types.ts` 的 `WorkspaceConnection` 是 app 使用的 SDK `Connection` 子集；正式環境是
-`@smurg/protocol/client` 的 `Connection`，測試用 `src/testing/fake-connection.ts` 的 `FakeConnection`。
+`WorkspaceConnection` in `lib/connection/types.ts` is the subset of the SDK's `Connection` that the app uses. In
+production it is the `Connection` of `@smurg/protocol/client`; tests use the `FakeConnection` of
+`src/testing/fake-connection.ts`.
 
-`lib/workspace/manager.ts` 保證**每個工作區一條連線**：加入頁、workspace 頁、控制台都 `acquire()` 同一個
-`WorkspaceSession`（連線 + stores + 指令匯流排）；最後一個頁面離開 15 秒後才關閉。「離開」走 `manager.leave()`
-（`channel.leave`，然後關閉）。
+`lib/workspace/manager.ts` guarantees **one connection per workspace**: the join page, the workspace page and the
+console all `acquire()` the same `WorkspaceSession` (connection + stores + command bus). It closes 15 seconds after the
+last page lets go. "Leave" goes through `manager.leave()` (`channel.leave`, then close).
 
-裝置金鑰與 pin 存在 IndexedDB（`@smurg/protocol/browser` 的 device-key-v2：可以時用不可匯出的 X25519 CryptoKeyPair，
-WebKit 用 AES 包裝）。**「不可匯出」只代表網頁程式無法匯出金鑰，不是磁碟加密**，不要在 UI 或文件裡這樣描述。
-IndexedDB 不能用時（部分私密視窗）改存記憶體並在 workbench 顯示橫幅。
+The device key and the pin live in IndexedDB (device-key-v2 of `@smurg/protocol/browser`: a non-extractable X25519
+CryptoKeyPair where possible, AES wrapping on WebKit). **"Non-extractable" only means that page code cannot export the
+key. It is not disk encryption**; do not describe it that way in the UI or the docs. When IndexedDB is not available
+(some private windows) the key is kept in memory and the workbench shows a banner.
 
-狀態 → UI 的對應在 `lib/connection/status.ts`（`describeConnection`），全部有測試：
+The state -> UI mapping is in `lib/connection/status.ts` (`describeConnection`), and all of it is tested:
 
-| SDK 狀態 | UI | 阻擋整個畫面？ |
+| SDK state | UI | Blocks the whole screen? |
 |---|---|---|
-| `idle` / `connecting` | 「連線中…」 | 否（第一次連線前顯示連線畫面） |
-| `connecting` + `retryAt` | 「重新連線中…」＋原因＋倒數 | 否 |
-| `connecting{cause:'role-changed'}` | 「角色已變更」，重新連線後出現 toast | 否 |
-| `handshaking` | 「建立加密連線中…」 | 否 |
-| `online` | 「已連線」 | 否 |
-| `host-offline` | **「主人已離線」**常駐橫幅（relay 回報 / 8 秒無回應 / 停止分享），UI 照常可操作 | 否 |
-| `relay-unreachable` | 「無法連上伺服器」，**和主人離線不同的訊息**，含倒數 | 否 |
-| `key-mismatch` | **全畫面安全警告**（SPEC R3.2）：relay 給的主人金鑰不同、連線已拒絕、請透過其他管道向主人索取新連結；沒有「仍要重試」 | 是 |
-| `rejected(…)`、`closed(kicked/revoked/no-trust/…)` | 各自的說明畫面 | 是 |
-| `closed(login-required)` | 登入畫面，登入後回到原頁 | 是 |
+| `idle` / `connecting` | "Connecting…" | No (the connecting screen is shown before the first connection) |
+| `connecting` + `retryAt` | "Reconnecting…" + the reason + a countdown | No |
+| `connecting{cause:'role-changed'}` | "Role changed"; a toast appears after the reconnect | No |
+| `handshaking` | "Securing…" | No |
+| `online` | "Connected" | No |
+| `host-offline` | **"Host offline"**, a permanent banner (the relay reports it / no answer for 8 seconds / sharing stopped); the UI stays usable | No |
+| `relay-unreachable` | "Server unreachable", **a different message from host offline**, with a countdown | No |
+| `key-mismatch` | **Full-screen security warning** (SPEC R3.2): the relay handed over a different host key, the connection was refused, ask the host for a new link through another channel; there is no "retry anyway" | Yes |
+| `rejected(…)`, `closed(kicked/revoked/no-trust/…)` | A screen that explains each case | Yes |
+| `closed(login-required)` | The login screen; after login you come back to the same page | Yes |
 
-穩定的測試掛鉤（給 Playwright / e2e）：`data-testid="key-mismatch-screen"`（`role="alertdialog"`）、
-`data-testid="host-offline-banner"`、`data-testid="relay-unreachable-banner"`、`data-testid="connection-ended-screen"`、
-`data-testid="login-required-screen"`、`data-testid="connecting-screen"`，以及 workbench 根元素的
-`data-connection-state="<SDK 狀態>"`。
+Stable test hooks (for Playwright / e2e): `data-testid="key-mismatch-screen"` (`role="alertdialog"`),
+`data-testid="host-offline-banner"`, `data-testid="relay-unreachable-banner"`, `data-testid="connection-ended-screen"`,
+`data-testid="login-required-screen"`, `data-testid="connecting-screen"`, and `data-connection-state="<SDK state>"` on
+the workbench's root element.
 
-## Stores（每個領域一個）
+## Stores (one per domain)
 
-所有 store 由 `createWorkspaceStores(conn)` 一起建立並由同一條連線餵資料（`lib/stores/index.ts`）：
+`createWorkspaceStores(conn)` creates all stores together and feeds them from the same connection
+(`lib/stores/index.ts`):
 
-- 第一次、以及每次 **非 resume** 的 Welcome：每個 store 先 `reset()` 再載入新的快照；
-- resume 的 Welcome：什麼都不重新載入（daemon 會補送漏掉的事件）；
-- 角色變更（Welcome 或 `channel.memberUpdated`）會通知依角色而定的 store（admin、docs）；
-- 來自舊邏輯通道的回應一律丟棄（generation 檢查）；載入失敗會留在 store 的 `error`（zh-TW）並以 toast 顯示。
+- on the first Welcome and on every Welcome that is **not a resume**: each store runs `reset()` and then loads a fresh
+  snapshot;
+- on a resume Welcome: nothing is reloaded (the daemon sends the events you missed);
+- a role change (a Welcome or `channel.memberUpdated`) notifies the stores that depend on the role (admin, docs);
+- answers from an old logical channel are dropped (a generation check). A failed load stays in the store's `error` (a
+  sentence in the language of that moment) and is shown as a toast.
 
-在元件裡：
+In a component:
 
 ```tsx
 import { useStore } from '../../lib/store.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
 
 const { sessions } = useStores();
-const list = useStore(sessions, selectSessionList, shallowEqual);   // selector；回傳新陣列時傳 shallowEqual
+const list = useStore(sessions, selectSessionList, shallowEqual);   // a selector; pass shallowEqual when it returns a new array
 ```
 
-每個 store 都是 `ReadableStore<State>`（`getState()`、`subscribe()`）加上動作（會呼叫 `connection.request(…)`）。
-以下每個 store 一個範例（完整型別與註解在各檔案）。
+Every store is a `ReadableStore<State>` (`getState()`, `subscribe()`) plus actions (which call
+`connection.request(…)`). Below is one example per store. The full types and comments are in each file.
 
-**connection** — `ReadableStore<ConnectionState>`
+**connection**: `ReadableStore<ConnectionState>`
 
 ```tsx
-const state = useConnectionState();            // 等同 useStore(useStores().connection)
+const state = useConnectionState();            // same as useStore(useStores().connection)
 if (state.kind === 'host-offline') …
 ```
 
-**workspace**（`workspace.ts`）— 工作區資訊、自己的成員資料、公開設定；即時更新 `channel.memberUpdated` / `channel.settingsUpdated`
+**workspace** (`workspace.ts`): workspace info, your own member record, public settings; live updates from
+`channel.memberUpdated` / `channel.settingsUpdated`
 
 ```tsx
 const info = useWorkspaceInfo();               // { id, name, hostName, platform, isGitRepo }
 const settings = useStore(useStores().workspace, selectSettings);   // humanLockIdleMs, uploadChunkSize, sharedDirs…
-const generation = useStore(useStores().workspace, (s) => s.generation);   // 每次完整重新同步 +1
+const generation = useStore(useStores().workspace, (s) => s.generation);   // +1 on every full resync
 ```
 
-**presence**（`presence.ts`）— 線上成員與 agent（`presence.state`），回報自己正在看的檔案
+**presence** (`presence.ts`): online members and agents (`presence.state`); reports the file you are looking at
 
 ```tsx
 const { presence } = useStores();
 const viewers = useStore(presence, (s) => selectViewersOf(s, file), shallowEqual);
-presence.setActiveFile(file);                  // docs store 在切換分頁時會自動呼叫
+presence.setActiveFile(file);                  // the docs store calls this for you when the tab changes
 ```
 
-**files**（`files.ts`）— 每個根目錄（主工作區或 worktree）一棵樹，逐層 `file.tree`；`file.changed` 會合併後重新列出受影響的目錄
+**files** (`files.ts`): one tree per root (the main workspace or a worktree), loaded level by level with `file.tree`;
+`file.changed` events are merged and the affected directories are listed again
 
 ```tsx
 const { files } = useStores();
 const root = useStore(files, selectActiveRoot);
 const listing = useStore(files, (s) => selectDir(s, root, 'src'));   // { status, entries, truncated, error }
-await files.loadDir(root, 'src');              // 展開資料夾；收合時 files.forgetDir(root, 'src')
+await files.loadDir(root, 'src');              // expand a folder; on collapse files.forgetDir(root, 'src')
 files.setActiveRoot({ kind: 'worktree', worktreeId });
-await files.create({ root, path: 'src/new.ts' }, 'file');   // 也有 rename / delete / stat / read / write
+await files.create({ root, path: 'src/new.ts' }, 'file');   // also rename / delete / stat / read / write
 ```
 
-**locks**（`locks.ts`）— 檔案鎖（人的編輯鎖、agent 鎖），`lock.state` 即時更新
+**locks** (`locks.ts`): file locks (a person's edit lock, an agent's lock), live from `lock.state`
 
 ```tsx
 const lock = useStore(useStores().locks, (s) => selectLock(s, file));
-if (lock?.kind === 'agent') …                  // 「Claude（Ian）正在修改」
-await locks.release(file);                     // 「讓 agent 先改」；主人：locks.forceRelease(file)
+if (lock?.kind === 'agent') …                  // "Claude (Ian) is editing"
+await locks.release(file);                     // let the agent go first; the host: locks.forceRelease(file)
 ```
 
-**docs**（`docs.ts`）— 開啟中文件的登錄表（分頁順序、目前分頁），處理 `doc.*` 控制訊息並轉送 Yjs 流量
+**docs** (`docs.ts`): the registry of open documents (tab order, current tab); handles the `doc.*` control messages and
+forwards the Yjs traffic
 
 ```tsx
-const doc = await docs.open(file);             // doc.open；已開啟就切換過去
-const off = docs.onDocMessages(doc.docId!, { sync: (data) => …, awareness: (data) => … });  // 之前收到的會先補送
-docs.sendSync(docId, update);                  // y-protocols 同步訊息
-const editable = isDocEditable(useStore(docs, selectActiveDoc));   // agent 鎖時為 false
-// 重要：OpenDoc.generation 改變（重新同步後重新開啟，或 doc.reset）時要重新綁定；epoch 改變時要丟掉 Y.Doc 重來。
+const doc = await docs.open(file);             // doc.open; switches to it when it is already open
+const off = docs.onDocMessages(doc.docId!, { sync: (data) => …, awareness: (data) => … });  // what arrived earlier is replayed first
+docs.sendSync(docId, update);                  // a y-protocols sync message
+const editable = isDocEditable(useStore(docs, selectActiveDoc));   // false under an agent's lock
+// Important: bind again when OpenDoc.generation changes (reopened after a resync, or doc.reset); when the epoch changes, throw the Y.Doc away and start over.
 ```
 
-**sessions**（`sessions.ts`）— agent session 與終端機清單（`session.list` + `session.state`），以及終端機串流
+**sessions** (`sessions.ts`): the list of agent sessions and terminals (`session.list` + `session.state`), and the
+terminal streams
 
 ```tsx
 const mine = useStore(sessions, (s) => selectSessionsOf(s, userId), shallowEqual);
 const off = sessions.stream(id, { output: (chunk) => viewer.write(chunk.data), resize: ({ cols, rows }) => viewer.resize(cols, rows) });
-const attached = await sessions.attach({ sessionId: id, haveOffset, cols, rows });   // 先 stream 再 attach
-sessions.input(id, bytes);                     // 主人與「可使用 agent」（session.drive，任何 session）；resize 只從開啟的人的面板送；end / loginStatus / create
+const attached = await sessions.attach({ sessionId: id, haveOffset, cols, rows });   // stream first, then attach
+sessions.input(id, bytes);                     // the host and members with agent access (session.drive, any session); resize is sent only from the opener's panel; end / loginStatus / create
+sessionTitle(session);                         // the title the opener typed, else "Claude (Ian)" / "Terminal (Ian)"; plainSessionTitle(session): else "Claude" / "Terminal"
 ```
 
-**suggestions**（`suggestions.ts`）— 建議（R6）；沒有自動採用
+**suggestions** (`suggestions.ts`): suggestions (R6); nothing is accepted automatically
 
 ```tsx
 const waiting = useStore(suggestions, (s) => selectPendingForOwner(s, sessionMap, userId), shallowEqual);
 await suggestions.create({ sessionId, text, source: { file, startLine, endLine } });
-await suggestions.accept(id, editedText);      // 有 text 就是「修改後採用」；reject / edit / withdraw
+await suggestions.accept(id, editedText);      // with a text it is "accept after editing"; reject / edit / withdraw
 ```
 
-**activity**（`activity.ts`）— 活動動態（新的在前）與 agent 發給自己的通知（`activity.notify`）
+**activity** (`activity.ts`): the activity feed (newest first) and the notifications agents send to you
+(`activity.notify`)
 
 ```tsx
 const events = useStore(activity, selectActivityEvents);
-await activity.loadOlder();                    // 往前翻頁
-const notes = useStore(activity, selectNotifications);   // workbench 也會把新通知顯示成 toast
+await activity.loadOlder();                    // page backwards
+const notes = useStore(activity, selectNotifications);   // the workbench also shows a new notification as a toast
 ```
 
-**conflicts**（`conflicts.ts`）— 衝突面板（`doc.conflict`）
+**conflicts** (`conflicts.ts`): the conflicts panel (`doc.conflict`)
 
 ```tsx
 const open = useStore(conflicts, selectOpenConflicts, shallowEqual);
-const { agentVersion } = await conflicts.get(id);   // agent 的完整版本（bytes）
-await conflicts.resolve(id, 'dismiss');        // 或 'apply-agent-version'
+const { agentVersion } = await conflicts.get(id);   // the agent's full version (bytes)
+await conflicts.resolve(id, 'dismiss');        // or 'apply-agent-version'
 ```
 
-**worktrees**（`worktrees.ts`）— worktree 與合併請求（R9）
+**worktrees** (`worktrees.ts`): worktrees and merge requests (R9)
 
 ```tsx
 const list = useStore(worktrees, selectWorktreeList, shallowEqual);
-const request = await worktrees.requestMerge(worktreeId, '完成登入頁');
-const { diff, truncated, files } = await worktrees.diff(request.id);   // truncated 的檔案用 fileDiff 看完整內容
-await worktrees.approve(request.id);           // 主人；reject(id, reason)
+const request = await worktrees.requestMerge(worktreeId, 'Finish the login page');
+const { diff, truncated, files } = await worktrees.diff(request.id);   // for a truncated file, read the whole thing with fileDiff
+await worktrees.approve(request.id);           // the host; reject(id, reason)
 ```
 
-**admin**（`admin.ts`）— 主人控制台資料；只有主人（`admin`）才會載入
+**admin** (`admin.ts`): the data of the host console; loaded only for the host (`admin`)
 
 ```tsx
 const { members, invites, audit, settings, enabled } = useStore(useStores().admin);
-const { url } = await admin.createInvite({ role: 'editor', expiresInSec: 86_400, maxUses: 5 });   // url 只顯示一次，不要記錄
+const { url } = await admin.createInvite({ role: 'editor', expiresInSec: 86_400, maxUses: 5 });   // the url is shown once; do not log it
 await admin.kick(userId);                      // setRole / revokeInvite / terminateSession / loadOlderAudit / setSettings
 ```
 
-**transfers**（`transfers.ts`）— 上傳與下載的進度。**不是**由互動連線餵的：傳輸功能在自己的 TransferConnection（Web Worker）
-上執行，把進度回報到這裡，讓檔案樹與面板顯示
+**transfers** (`transfers.ts`): the progress of uploads and downloads. The interactive connection does **not** feed
+it: the transfer feature runs on its own TransferConnection (a Web Worker) and reports progress here, so the file tree
+and the panel can show it
 
 ```ts
 const job = transfers.add({ id, kind: 'upload', name: 'data.zip', root, path: 'data/data.zip', totalBytes, files: 1 }, () => worker.abort(id));
-transfers.update(id, { status: 'running', doneBytes });   // 'done' / 'failed'（附 error）/ 'cancelled'
-transfers.cancel(id);                          // 呼叫註冊的取消函式
+transfers.update(id, { status: 'running', doneBytes });   // 'done' / 'failed' (with error) / 'cancelled'
+transfers.cancel(id);                          // calls the registered cancel function
 ```
 
-**errors** — 背景失敗（載入失敗等）的清單，workbench 會顯示成 toast；功能通常不需要讀它。
+**errors**: the list of background failures (a failed load and so on). The workbench shows them as toasts; a feature
+usually does not need to read it.
 
-## 權限判斷（只用來隱藏 UI）
+## Capability checks (only to hide UI)
 
-建立在 `@smurg/protocol` 唯一的角色矩陣上（`can()`），**從不比較角色大小**（SPEC §8 不是單調的）。
-隱藏按鈕只是外觀；daemon 會檢查每一個請求。
+Built on the one role matrix of `@smurg/protocol` (`can()`). The code **never compares roles by rank** (SPEC §8 is not
+monotonic). Hiding a button is cosmetic; the daemon checks every request.
 
 ```tsx
 const canWrite = useCan('file.write');
 const caps = useCapabilities();                // caps.can('admin'), caps.canCreateSession, caps.canDrive, caps.isHost, caps.role
-drivesSession(caps, session);                  // 可以在這個 session 裡輸入、處理它的建議（主人與「可使用 agent」，任何執行中的 session）
-isRiskyRole(role);                             // 給出這個角色前，控制台要主人確認風險（「可使用 agent」）
+drivesSession(caps, session);                  // may type in this session and handle its suggestions (the host and members with agent access, any running session)
+isRiskyRole(role);                             // the console asks the host to confirm the risk before it gives this role (Agent access)
 <Can capability="suggest.create" fallback={null}><SuggestButton /></Can>
 ```
 
-## 跨功能指令匯流排
+## Cross-feature command bus
 
-`lib/commands.ts`。每個指令只有一個處理者（擁有該行為的功能），可以有多個觀察者。
+`lib/commands.ts`. Each command has exactly one handler (the feature that owns the behavior) and may have several
+observers.
 
-| 指令 | payload | 處理者 |
+| Command | Payload | Handler |
 |---|---|---|
 | `openFile` | `{ file, line?, column? }` | editor |
 | `sendSelectionAsSuggestion` | `{ file, startLine, endLine, text, sessionId? }` | suggest |
@@ -304,166 +340,311 @@ isRiskyRole(role);                             // 給出這個角色前，控制
 | `startUpload` | `{ root, targetDir, source: UploadSource }` | transfer |
 | `download` | `{ file, zip? }` | transfer |
 | `revealFile` | `{ file }` | files |
-| `showPanel` | `{ panel }` | workbench 外殼（已實作） |
+| `showPanel` | `{ panel }` | the workbench shell (implemented) |
 
 ```tsx
-// editor 功能：
-useCommandHandler('openFile', async ({ file, line }) => { await docs.open(file); /* 捲到 line */ });
-// 其他任何地方：
+// the editor feature:
+useCommandHandler('openFile', async ({ file, line }) => { await docs.open(file); /* scroll to line */ });
+// anywhere else:
 const openFile = useCommand('openFile');
-await openFile({ file, line: 42 });            // 沒有處理者時會 reject NoCommandHandlerError
+await openFile({ file, line: 42 });            // rejects with NoCommandHandlerError when there is no handler
 ```
 
-拖放上傳：在 `drop` 事件裡**同步**呼叫 `collectDrop(event.dataTransfer)`（`lib/drop.ts`），再 dispatch `startUpload`。
+Drag-and-drop upload: call `collectDrop(event.dataTransfer)` (`lib/drop.ts`) **synchronously** inside the `drop` event,
+then dispatch `startUpload`.
 
-## 功能插槽（placeholder）
+## Feature slots
 
-workbench（`app/workspace/Workbench.tsx`）把下列元件放在固定位置，每個都包在自己的 error boundary 裡。
-功能工程師**只替換元件內容**，保留匯出名稱與 props（目前都沒有 props，資料一律從 hooks 取得）。
+The workbench (`app/workspace/Workbench.tsx`) puts the components below in fixed places, each inside its own error
+boundary. As a feature engineer you **only replace the content of the component**. Keep the export names and the props
+(none of them has props today; all data comes from hooks).
 
-| 檔案 | 匯出 | 位置 |
+| File | Exports | Place |
 |---|---|---|
-| `features/files/index.tsx` | `FilesPanel` | 左側欄（WorktreeSwitcher 下方） |
-| `features/worktree/index.tsx` | `WorktreeSwitcher`、`MergeRequestsPanel` | 左側欄頂端；下方抽屜「合併請求」分頁 |
-| `features/editor/index.tsx` | `EditorArea` | 中央（分頁由 editor 自己畫） |
-| `features/agents/index.tsx` | `AgentsPanel` | 右側上方 |
-| `features/suggest/index.tsx` | `SuggestionsPanel` | 右側下方 |
-| `features/activity/index.tsx` | `ActivityPanel`、`ConflictsPanel` | 下方抽屜「活動」「衝突」分頁 |
-| `features/transfer/index.tsx` | `TransfersPanel` | 下方抽屜「傳輸」分頁 |
-| `features/console/index.tsx` | `HostConsolePage` | `/w/:id/console`（只有主人會看到） |
+| `features/files/index.tsx` | `FilesPanel` | Left sidebar (below the WorktreeSwitcher) |
+| `features/worktree/index.tsx` | `WorktreeSwitcher`, `MergeRequestsPanel` | Top of the left sidebar; the "Merge requests" tab of the bottom drawer |
+| `features/editor/index.tsx` | `EditorArea` | Center (the editor draws its own tabs) |
+| `features/agents/index.tsx` | `AgentsPanel` | Right side, top |
+| `features/suggest/index.tsx` | `SuggestionsPanel` | Right side, bottom |
+| `features/activity/index.tsx` | `ActivityPanel`, `ConflictsPanel` | The "Activity" and "Conflicts" tabs of the bottom drawer |
+| `features/transfer/index.tsx` | `TransfersPanel` | The "Transfers" tab of the bottom drawer |
+| `features/console/index.tsx` | `HostConsolePage` | `/w/:id/console` (only the host sees it) |
 
-版面（側欄、右側、抽屜的顯示與大小）由外殼負責並記在瀏覽器裡；要把某個面板帶到前面，dispatch `showPanel`。
+The shell owns the layout (whether the sidebar, the right side and the drawer are shown, and their sizes) and
+remembers it in the browser. To bring a panel to the front, dispatch `showPanel`.
 
-## 字串（zh-TW）
+## Strings and languages
 
-所有使用者看得到的字都在字串目錄裡。每個功能在**自己的** `features/<feature>/strings.ts` 定義 namespace
-（已經建立好），`src/strings/index.ts` 用 `import.meta.glob` 依慣例自動載入，**不需要改任何索引**：
+The app has two locales: `en` (the default, and the one that defines the keys) and `zh-TW`. Every text a person can
+read is in the string catalog. Each feature defines its namespace in **its own** `features/<feature>/strings.ts`
+(English) with the sibling `strings.zh-TW.ts` (the same keys in Traditional Chinese). `src/strings/index.ts` loads
+every `features/*/strings.ts` by convention with `import.meta.glob`, so you **never edit an index**. App-wide
+namespaces live in `src/strings/<namespace>.ts` + `src/strings/<namespace>.zh-TW.ts`.
 
 ```ts
-// src/features/files/strings.ts（只能 import catalog.ts）
+// src/features/files/strings.ts (English: defines the keys; imports only catalog.ts and its sibling)
 import { defineStrings } from '../../strings/catalog.ts';
-export const t = defineStrings('files', {
-  empty: '這個資料夾是空的',
-  uploading: '正在上傳 {name}（{percent}%）',
-});
+import { zhTW } from './strings.zh-TW.ts';
+export const t = defineStrings(
+  'files',
+  {
+    empty: 'This folder is empty',
+    uploading: 'Uploading {name} ({percent}%)',
+    'selected.count': { one: '{count} file selected', other: '{count} files selected' },
+  },
+  zhTW,
+);
 
-// 元件裡
+// src/features/files/strings.zh-TW.ts (the same keys; a missing key is a compile error)
+export const zhTW = { empty: '...', uploading: '...', 'selected.count': '...' } as const;
+
+// in a component
 import { t } from './strings.ts';
-t('uploading', { name, percent });             // key 有型別檢查
+t('uploading', { name, percent });             // the key is type-checked
+t('selected.count', { count: 2 });             // "2 files selected"
 ```
 
-aria-label 也要用 zh-TW。測試會檢查每個字串都是繁體中文（允許 `agent`、`worktree`、`session` 這類 SPEC 本身使用的外來語）。
+- `defineStrings(namespace, en, zhTW)` returns the typed translator. `t(key, vars)` reads the language at call time,
+  so call sites never name a language.
+- A value is a template or a plural pair `{ one, other }`. The form is chosen with `Intl.PluralRules` on the variable
+  named `{count}` (only that name). A key that counts two things is split into two keys. zh-TW has no plural forms and
+  keeps plain strings.
+- Do not build a sentence from fragments. Quote marks, colons and brackets belong to each language's template; names,
+  paths and counts are parameters.
+- aria-labels come from the catalog too.
 
-## 設計系統
+**Detection.** The first hit wins: `localStorage['smurg.lang']`, then the cookie `smurg_lang`, then the first entry of
+`navigator.languages` that is supported (English or Traditional Chinese), then English. `src/boot/locale.ts` is the
+second import of `main.tsx` (right after `capture-invite`, before the strings and every component), so the first
+render is already in the right language. `index.html` starts with `lang="en"`.
 
-`src/ui/`：`tokens.css`（CSS 自訂屬性）、`base.css`、`components.css`、元件與圖示。從 `src/ui/index.ts` 匯入。
+**The controller** is `src/lib/locale.ts`:
 
-- **主題**：預設深色；作業系統偏好淺色時自動切換；使用者可在選單選擇（`<html data-theme>`）。
-- **色彩**：`--color-bg`、`--color-surface-1..3`、`--color-border(-strong)`、`--color-text(-muted/-subtle)`、
-  `--color-accent(-solid)`、`--color-success|warning|danger|info(-soft)`。兩個主題的文字對比都 ≥ 4.5:1（有測試）。
-- **字型**：`--font-sans`（系統 UI 字型 + PingFang TC / Noto Sans TC / Microsoft JhengHei）、`--font-mono`（程式碼與終端機）。
-- **間距**：`--space-1`（2px）…`--space-10`（48px），4px 格線；圓角 `--radius-sm|md|lg`；層級 `--z-*`。
-- **元件**：`Button`、`IconButton`（必填 zh-TW `label`）、`Input`、`TextArea`、`Select`、`Dialog`（焦點陷阱、Esc、焦點歸還）、
-  `Drawer`、`Tabs`（方向鍵、Home/End）、`Tooltip`、`Badge`、`Avatar`（名字 + 顏色，自動選可讀的字色）、`Banner`、
-  `ToastProvider`/`useToast`、`Spinner`、`EmptyState`、`Table`、`SplitPane`（鍵盤可調整大小）、`Menu`、`Panel`、
-  `CopyButton`、`Kbd`，以及 `icons.tsx` 的內嵌 SVG 圖示（不要用 emoji 當圖示）。
-- 風格：冷靜、資訊密集的工作台（像程式編輯器，不是行銷頁）。不要裝飾性漸層；焦點框永遠可見；一切都要能用鍵盤操作。
+| Export | What it does |
+|---|---|
+| `getLocale()` | The current language (`'en'` or `'zh-TW'`) |
+| `setLocale(locale)` | A person chose a language: writes `localStorage['smurg.lang']`, mirrors it into the cookie `smurg_lang` (so the relay's pages such as `/device` follow), then applies it. A browser that refuses storage or cookies still switches for this page |
+| `applyLocale(locale)` | Makes it the language of the catalog, the formatters and `<html lang>` without recording a choice (boot, tests) |
+| `subscribe(listener)` | Called after every change; returns the unsubscribe function |
+| `localeStore` | The language as a store, for `useStore(localeStore)` |
+| `initLocale()` | Boot: detects the language and applies it |
 
-## Monaco 與 xterm（延遲載入）
+`<html lang>` is `en` or `zh-Hant-TW`.
 
-Monaco（約 3.8 MB）與 xterm 只能透過 `src/lib/lazy.ts` 載入：
+**The language menu.** `LanguageMenu` (`src/ui/LanguageMenu.tsx`, `data-testid="language-menu"`) is a globe button
+with a menu of two entries, `English` and `繁體中文`. The two names are never translated, and each carries its own
+`lang` attribute, so a person who cannot read the current language still finds theirs. It is placed in the top bar
+(next to the theme menu), on the landing page, and in the card corner of every full page: join, login, connecting, key
+mismatch, rejected, closed, not found.
+
+**The switch does not reload the page.** `app/App.tsx` re-mounts the route tree with the locale as React key
+(`<Routes key={locale} />`). Stores, services and the connection live outside React and are kept. Component state (an
+open dialog, an unsent draft, a scroll position) is lost, and terminals attach again as on any remount. A toast
+already on screen and error sentences already kept in a store keep the old language; this is accepted. So do not
+cache translated text in module scope or in a store.
+
+**Formatting** goes through `src/lib/format.ts`: `formatRelativeTime`, `formatDateTime`, `formatExactTime`,
+`formatTime`, `formatNumber`, `formatDuration`, `formatBytes`, `formatList`, `compareText`, `formatRole`,
+`formatActor`, and `formatters()` when you need an `Intl` object. Everything uses `Intl` with the tag of the current
+locale, and the formatters are built lazily, once per locale. Keep nothing language-dependent at module level: a
+`const COLUMNS = [{ header: t('…') }]` or a `new Intl.DateTimeFormat(…)` at the top of a file keeps the language of
+page load. Make it a function. For your own `Intl.*` call `currentIntlTag()` from `src/lib/locale.ts` inside the
+function.
+
+**Text the host originates** does not come from the web catalog. Role labels (`Host`, `Agent access`, `Editor`,
+`Viewer`) and every text the host writes come from `@smurg/protocol/i18n`, so the web app and the CLI share one
+wording. In `src/lib/errors.ts`:
+
+- `renderWireText(ref, fallback)` renders a message reference in the viewer's language, or returns the English
+  `fallback` when this build cannot render the reference (a newer host). Use it for activity sentences and for
+  notifications the host wrote.
+- `describeError(error)` gives one sentence for any error the UI may show: the error's reference in the viewer's
+  language; else the English sentence it came with; else, for an error without a reference, the default sentence of
+  its code.
+
+Use `formatRole(role)` for a role label; never put one in your own catalog.
+
+**Checks.** `src/strings/strings.test.ts` checks every namespace: both languages have the same keys and the same
+`{placeholders}` (in both plural forms too); English text holds no Chinese character and no full-width punctuation;
+zh-TW text is Traditional Chinese except names, loanwords (`agent`, `worktree`, `session`, and the like), addresses
+and bare templates; every key renders in both languages with sample values and leaves nothing unfilled; and no key is
+unused.
+
+**Known limits.** Monaco has no language pack: its own menus and its find widget are English in both languages. xterm
+has no locale.
+
+## Design system
+
+`src/ui/`: `tokens.css` (CSS custom properties), `base.css`, `components.css`, components and icons. Import from
+`src/ui/index.ts`.
+
+- **Theme**: dark by default; switches automatically when the operating system prefers light; you can choose in the
+  menu (`<html data-theme>`).
+- **Colors**: `--color-bg`, `--color-surface-1..3`, `--color-border(-strong)`, `--color-text(-muted/-subtle)`,
+  `--color-accent(-solid)`, `--color-success|warning|danger|info(-soft)`. Text contrast is ≥ 4.5:1 in both themes
+  (tested).
+- **Fonts**: no web fonts. `--font-sans` (the system UI fonts, then PingFang TC / Noto Sans TC / Microsoft JhengHei)
+  and `--font-mono` (code and terminals). Both stacks end with Traditional Chinese families, so Chinese file names
+  render correctly in English mode.
+- **Spacing**: `--space-1` (2px) … `--space-10` (48px), a 4px grid; radii `--radius-sm|md|lg`; layers `--z-*`.
+- **Components**: `Button`, `IconButton` (a `label` from the catalog is required), `Input`, `TextArea`, `Select`,
+  `Dialog` (focus trap, Esc, focus returns), `Drawer`, `Tabs` (arrow keys, Home/End), `Tooltip`, `Badge`, `Avatar`
+  (name + color, picks a readable text color), `Banner`, `ToastProvider`/`useToast`, `Spinner`, `EmptyState`, `Table`,
+  `SplitPane` (drag, arrow keys, double-click resets; the remembered size is a wish and the size SHOWN is that wish
+  inside the limits of the container as it is now, which the component observes; the limits keep a minimum for the
+  pane on the other side and never push the fixed pane below its own; the separator's `aria-valuenow` / `-min` /
+  `-max` report what is on screen; logic in `src/ui/split-resize.ts`; the workbench's minimums, including what the
+  file tree leaves for the editor AND the agents column, are in `src/app/workspace/layout-limits.ts`), `Menu`, `LanguageMenu`, `Panel`, `CopyButton`, `Kbd`, and the inline SVG icons of
+  `icons.tsx` (do not use emoji as icons).
+- Style: a calm, information-dense workbench (like a code editor, not a marketing page). No decorative gradients; the
+  focus ring is always visible; everything works with the keyboard.
+
+## Monaco and xterm (lazy loaded)
+
+Load Monaco (about 3.8 MB) and xterm only through `src/lib/lazy.ts`:
 
 ```ts
 const { createEditor, createSmurgModel, monaco, monacoThemeFor } = await loadMonaco();
 const { createViewerTerminal } = await loadXterm();
 ```
 
-**絕對不要**直接 `import` `lib/monaco.ts` 或 `lib/xterm.ts`：`pnpm build` 的 `scripts/check-chunks.ts` 會在它們進入
-初始載入時讓建置失敗。
+**Never** `import` `lib/monaco.ts` or `lib/xterm.ts` directly: `scripts/check-chunks.ts`, run by `pnpm build`, fails
+the build when they end up in the initial load.
 
-- `lib/monaco.ts`（yjs-monaco.md Q2 驗證過的設定）：0.56+ 的精簡進入點、編輯器 worker（`?worker`）、
-  `unicodeHighlight` 允許 zh-hant/zh-hans、`unusualLineTerminators: 'off'`、唯讀起始（第一次同步後才綁定 y-monaco）、
-  `createSmurgModel()` 強制 LF。y-monaco 的 deep import 由 `vite.config.ts` 的 alias 對應到同一個 Monaco。
-  遠端游標樣式用 `lib/presence-css.ts`。
-- `lib/xterm.ts`（pty-packaging.md §6.2 驗證過）：`createViewerTerminal()` 註冊**完整**的查詢攔截
-  （DA1/DA2/DA3、DSR/CPR/DECXCPR、DECRQM、DECRQSS、XTWINOPS 回報、OSC 4/10/11/12 查詢；有測試），
-  依串流順序套用 resize，快照先 reset 再畫。附帶 web-links、unicode11 addon（fit addon 不再使用：`@xterm/addon-fit`
-  仍在 package.json，可在下次調整相依時移除）。
-- 終端機大小（review LEAD-01，`features/agents/terminal-fit.ts`）：**開啟 session 的人**（擁有者）的面板決定 PTY 大小（主人和
-  「可使用 agent」的成員都可以在任何 session 裡輸入，但大小只跟著擁有者，面板之間不會互相搶）——欄和列都依可見區域計算
-  （`viewer.ts` 的 `measureTerminal` 量面板，`planOwnerSize` 算大小），隨 `session.attach` 送出，之後面板大小改變、窗格或
-  抽屜開關、字型載入完成、分頁重新可見時（150 ms debounce）送 `exec.resize`；daemon 的 `exec.resize` 依串流順序套用。
-  下限：Claude Code（agent）80 × 24（pty-packaging.md F16/F17 驗證的大小）、一般終端機只有 daemon 的 20 × 5。面板比下限小時終端機維持下限、面板可捲動，上方一行提示說明（`data-testid="terminal-size-hint"`），不會默默裁掉。
-  其他人（以及擁有者另一個不在主導大小的視窗）以 PTY 的大小顯示，比面板大時兩個方向都可捲動、捲軸一直看得到，
-  「縮放以符合寬度」只縮小畫面、不重新排列。viewport 帶 `data-cols`/`data-rows`（實際大小）、`data-fit-cols`/`data-fit-rows`
-  （這個面板放得下的大小）、`data-driving`，給測試用。
+- `lib/monaco.ts` (the configuration verified in yjs-monaco.md Q2): the slim entry point of 0.56+, the editor worker
+  (`?worker`), `unicodeHighlight` allows zh-hant/zh-hans, `unusualLineTerminators: 'off'`, starts read-only (y-monaco
+  is bound only after the first sync), `createSmurgModel()` forces LF. An alias in `vite.config.ts` maps y-monaco's
+  deep imports to the same Monaco. Remote cursor styles use `lib/presence-css.ts`.
+- `lib/xterm.ts` (verified in pty-packaging.md §6.2): `createViewerTerminal()` registers the **complete** query
+  interception (DA1/DA2/DA3, DSR/CPR/DECXCPR, DECRQM, DECRQSS, XTWINOPS reports, OSC 4/10/11/12 queries; tested),
+  applies resizes in stream order, and resets before it draws a snapshot. It comes with the web-links and unicode11
+  addons (the fit addon is no longer used: `@xterm/addon-fit` is still in package.json and can be removed the next
+  time the dependencies change).
+- Terminal size (`features/agents/terminal-fit.ts`): the panel of **the person who opened the session** (the owner)
+  decides the PTY size. The host and members with agent access may type in any session, but the size follows only the
+  owner, so panels do not fight over it. Columns and rows are both computed from the visible area (`measureTerminal`
+  in `viewer.ts` measures the panel, `planOwnerSize` computes the size). The size is sent with `session.attach`, and
+  afterwards `exec.resize` is sent (150 ms debounce) when the panel size changes, a pane or the drawer opens or
+  closes, the fonts finish loading, or the tab becomes visible again. The daemon applies `exec.resize` in stream order.
+  Lower limits: 80 × 24 for Claude Code (an agent; the size verified in pty-packaging.md F16/F17), and only the
+  daemon's 20 × 5 for a plain terminal. When the panel is smaller than the limit, the terminal stays at the limit, the
+  panel scrolls, and one line above it explains why (`data-testid="terminal-size-hint"`); nothing is cut off silently.
+  Everyone else (and another window of the owner that does not drive the size) sees the terminal at the PTY's size.
+  When that is larger than the panel it scrolls in both directions with the scrollbars always visible, and "Scale to
+  fit the width" only draws it smaller; it does not rearrange the content. The viewport carries
+  `data-cols`/`data-rows` (the actual size), `data-fit-cols`/`data-fit-rows` (the size that fits this panel) and
+  `data-driving`, for tests.
 
-### 角色、session 與活動動態（as built，協定 v2，主人決定 2026-10-01）
+### Roles, sessions and the activity feed (as built, protocol v3)
 
-- **沒有客人沙盒，也沒有客人自己的 agent**：每個 session 都在主人的電腦上、以主人的身分、用主人的 Claude 帳號執行。
-  主人和「可使用 agent」（角色 `agent`）的成員可以開 session（`session.create`：主工作區、新的 worktree 或自己保留的
-  worktree），也可以在**任何** session 裡直接輸入、採用或拒絕建議（`session.drive`）；「可編輯」只能提出建議；「旁觀」只能看。
-  主人可以終止任何 session；開啟的人可以結束自己開的。
-- **新增 session**（`features/agents/new-session.ts`、`NewSessionDialog.tsx`）：主人與「可使用 agent」看到同樣的選項，
-  一行說明 session 在主人的電腦上、用主人的 Claude 帳號執行（`data-testid="new-session-runs-as"`）。沒有 API key、
-  沒有沙盒說明、沒有登入程序。
-- **session 面板**：分頁標示「{名稱}（{開啟的人} 開的）」（`plainSessionTitle` 會去掉 daemon 預設標題裡的「（Amy）」）；
-  不能輸入的人看到「只能觀看」，詳細資訊裡告訴「可編輯」怎麼提建議。agent 沒有登入時（那是主人的 Claude 登入）主人看到
-  「在終端機輸入 /login」，其他人看到請主人登入；可以輸入的人可以「重新檢查登入狀態」（`session.loginStatus`）。
-- **關閉已結束 session 的分頁**（`features/agents/SessionTabs.tsx`、`closed-sessions.ts`；ARCHITECTURE §9）：session 結束後
-  （`status: 'exited'`），每個人（旁觀者也是）都可以在**自己的**面板關掉它的分頁：分頁旁的關閉按鈕（無障礙名稱「關閉 …」，
-  選取的分頁按 Tab 就到）、在分頁上按 Delete、滑鼠中鍵，或 session 列上的「關閉分頁」。不送任何訊息給 daemon，其他人的面板
-  和控制台不受影響；關閉的 id 記在這個瀏覽器的 localStorage（`smurg.agents.closedSessions`，依工作區），daemon 還列著那個
-  session 時重新整理或重新連線都不會再出現，daemon 不再列出後就把 id 清掉。關閉後顯示右邊（沒有就左邊）的分頁並把鍵盤
-  焦點移過去，沒有分頁時焦點到「新增 session」。執行中的 session 沒有這些控制項（結束它仍然是「結束 session」／「強制終止」）。
-  面板用自己的分頁列（`SessionTabs`，和 `ui/Tabs` 相同的鍵盤操作與樣式），因為 `ui/Tabs` 的分頁不能帶第二個控制項。
-  daemon 只保留已結束的 session 15 分鐘（最多 32 個），而且忘掉時不會通知：一直開著的面板再切回那個分頁時 `session.attach`
-  會回 `not_found`，終端機顯示「這個 session 結束已久…你可以關閉這個分頁」（不是「無法連接」加重試）。
-- **建議**：可以輸入的人（主人、「可使用 agent」）看到焦點 session 的建議佇列；「可編輯」看到建議輸入框；通知不指名是誰
-  採用或拒絕（`Suggestion` 沒有這個欄位）。編輯器的「送到 agent」：可以輸入的人直接貼進任何 agent session，「可編輯」提出建議。
-- **控制台**：角色清單是「可使用 agent／可編輯／旁觀」。選「可使用 agent」建立邀請或變更成員角色時，先顯示風險的確認對話框
-  （`features/console/RoleRiskDialog.tsx`，`data-testid="role-risk-text"`），主人按「我了解…」後才送出；取消就什麼都不送。
-  拿掉成員的「可使用 agent」時，若他開的 session 還在執行，也會先確認（那些 session 會結束）。設定裡沒有沙盒網域。
-- **活動動態**：agent 透過 shell 指令造成的修改（daemon 判斷後是 `agent.edit`，actor 是那個 agent，帶 `via: 'bash'`，
-  ARCHITECTURE §5.4、§11 D-13）顯示為那個 agent 的修改，旁邊有小小的「透過指令」標記；標記只看 `via` 欄位，不看摘要的文字。
-  「外部程式」只在 daemon 這樣說時出現（`system` actor）。
+- **There is no guest sandbox and no agent of a guest's own.** Every session runs on the host's computer, as the host,
+  with the host's Claude account. The host and members with agent access (role `agent`) can open sessions
+  (`session.create`: in the main workspace, in a new worktree or in a worktree they kept) and can type directly in
+  **any** session and accept or reject its suggestions (`session.drive`). An Editor can only make suggestions; a
+  Viewer can only watch. The host can terminate any session; the person who opened a session can end it.
+- **New session** (`features/agents/new-session.ts`, `NewSessionDialog.tsx`): the host and members with agent access
+  see the same options, and one line says that the session runs on the host's computer with the host's Claude account
+  (`data-testid="new-session-runs-as"`). There is no API key, no sandbox explanation and no login procedure.
+- **Session titles**: `SessionInfo.title` is optional; it is present only when the person who opened the session typed
+  one. The client builds the default title (`src/lib/stores/sessions.ts`): `sessionTitle()` gives the typed title, or
+  `Claude (Ian)` / `Terminal (Ian)` from the kind and the opener's name (the wire catalog's `session.title.*`);
+  `plainSessionTitle()` gives the typed title, or the bare `Claude` / `Terminal`, for wording that already names the
+  opener. The host sends no default title. Agent display names have one spelling, `Claude (Ian)`, and the browser's
+  device name is `Chrome (macOS)`, or `Browser` when the user agent says nothing; neither is translated.
+- **The session panel**: a tab is labeled with the session's name and the person who opened it. Someone who cannot
+  type sees that they can only watch, and the details tell an Editor how to make a suggestion. When the agent is not
+  logged in (it is the host's Claude login), the host is told to type `/login` in the terminal and everyone else is
+  told to ask the host to log in. Anyone who can type can check the login state again (`session.loginStatus`).
+- **Closing the tab of an ended session** (`features/agents/SessionTabs.tsx`, `closed-sessions.ts`; ARCHITECTURE §9):
+  after a session has ended (`status: 'exited'`), everyone (a Viewer too) can close its tab in **their own** panel:
+  the close button next to the tab (accessible name "Close …", one Tab press away from the selected tab), Delete on
+  the tab, the middle mouse button, or "Close tab" in the session bar. Nothing is sent to the daemon, and other
+  people's panels and the console are not affected. The closed ids are kept in this browser's localStorage
+  (`smurg.agents.closedSessions`, per workspace). While the daemon still lists the session, it does not come back
+  after a reload or a reconnect; once the daemon no longer lists it, the id is dropped. After closing, the tab to the
+  right (or to the left when there is none) is shown and gets the keyboard focus; when no tab is left, the focus goes
+  to "New session". A running session has none of these controls (ending it is still "End session" or the force
+  terminate action).
+  The panel uses its own tab bar (`SessionTabs`, the same keyboard behavior and style as `ui/Tabs`), because a tab of
+  `ui/Tabs` cannot carry a second control.
+  The daemon keeps an ended session for only 15 minutes (32 at most) and does not announce when it forgets one. When
+  a panel that stayed open goes back to that tab, `session.attach` answers `not_found`, and the terminal says that the
+  session ended a while ago and that you can close the tab (not "cannot connect" with a retry).
+- **Suggestions**: anyone who can type (the host, members with agent access) sees the suggestion queue of the focused
+  session. An Editor sees the suggestion input. Notifications do not name who accepted or rejected (`Suggestion` has
+  no such field). The editor's "Send to agent": anyone who can type pastes straight into any agent session; an Editor
+  makes a suggestion.
+- **Console**: the role list is Agent access / Editor / Viewer. When the host picks Agent access for a new invite or
+  for a member's role, a confirmation dialog shows the risk first (`features/console/RoleRiskDialog.tsx`,
+  `data-testid="role-risk-text"`), and nothing is sent until the host clicks the "I understand, …" button; Cancel
+  sends nothing. Taking agent access away from a member whose sessions are still running asks for confirmation too
+  (those sessions end). The settings have no sandbox domains.
+- **Activity feed**: a change an agent made through a shell command (the daemon decides it is an `agent.edit`, the
+  actor is that agent, with `via: 'bash'`; ARCHITECTURE §5.4, §11 D-13) is shown as that agent's change with a small
+  "via a command" mark next to it. The mark depends only on the `via` field, never on the text of the summary. An
+  outside change appears only when the daemon says so (the `system` actor).
 
-## 測試
+## Tests
 
 ```sh
-pnpm --filter @smurg/web test                                       # 全部（jsdom + 真的瀏覽器驗收測試）
-pnpm --filter @smurg/web exec vitest run src/features/files         # 只跑某個功能
-pnpm --filter @smurg/web exec vitest run e2e --silent=false         # 只跑真的瀏覽器驗收測試（印出實測時間）
-pnpm exec vitest run --project @smurg/web-smoke                     # 在 repo 根目錄：建置後的正式版網頁（由真的 relay 提供）
+pnpm --filter @smurg/web test                                       # everything (jsdom + the real-browser acceptance tests)
+pnpm --filter @smurg/web exec vitest run src/features/files         # one feature only
+pnpm --filter @smurg/web exec vitest run e2e --silent=false         # only the real-browser acceptance tests (prints measured times)
+pnpm exec vitest run --project @smurg/web-smoke                     # in the repo root: the built production app (served by a real relay)
 ```
 
-`e2e/smoke/` 是獨立的 vitest project：globalSetup 先把網頁建置一次（`vite build` + `scripts/check-chunks.ts`，輸出在該
-project 的暫存目錄，不動 `dist/`），再由真的 relay（`startLocalRelay({ webDist })`，和正式環境一樣由 Worker 提供靜態檔）
-提供，daemon 組合所有模組，用系統的 Chrome（無頭、全新 context、開發用登入；不隱藏捲軸，終端機的測試要量捲軸）走完。
-共用的 harness 在 `e2e/smoke/helpers.ts`（`startSmoke`、`joinAs`、`joinAsHost`：主人自己的連結由
-`daemon.internals.invites.createHostInvite()` 產生、`openSession`、終端機文字）。每個步驟都等條件，不等固定時間。
+**Language in tests.**
 
-| 檔案 | 驗收標準 |
+- Every test starts in English: `src/testing/setup.ts` applies `en` before each test and again after it. Nothing under
+  test reads `navigator.languages`, a cookie or localStorage implicitly.
+- `useTestLocale('zh-TW')` (`src/testing/locale.ts`) pins a file, or one `describe`, to Traditional Chinese. Use it
+  only in `*.zh-TW.test.tsx` files: one per feature panel, which renders the panel, asserts a handful of zh-TW strings
+  and `document.documentElement.lang === 'zh-Hant-TW'` (the platform's own is `src/app/app.zh-TW.test.tsx`). Inside a
+  single test of another file, `applyLocale('zh-TW')` from `src/lib/locale.ts` switches for that test only (the setup
+  file resets it).
+- Assert the English text literally, for example `screen.getByRole('button', { name: 'New session' })`. Never assert
+  through the catalog (`t('key')` in an `expect`): such a test cannot catch a wrong string.
+- Browser tests create every context with an explicit `locale` (`en-US` by default: `env.newPage()` of
+  `e2e/smoke/helpers.ts`; `env.newPage({ locale: 'zh-TW' })` for a Chinese page). The helpers click through the app by
+  its visible labels and keep those labels for both languages (`WORDS`); `chooseLanguage(page, locale)` uses the
+  language menu, and `cjkTexts(page)` lists every visible text and accessible name that holds a CJK character.
+
+`e2e/smoke/` is a separate vitest project. Its globalSetup builds the web app once (`vite build` +
+`scripts/check-chunks.ts`, output in the project's temporary directory, `dist/` is not touched). A real relay serves
+it (`startLocalRelay({ webDist })`; the Worker serves the static files as in production), the daemon is composed of
+all modules, and the system's Chrome walks through it (headless, a fresh context, development login; scrollbars are
+not hidden, because the terminal tests measure them).
+The shared harness is `e2e/smoke/helpers.ts` (`startSmoke`, `joinAs`, `joinAsHost`: the host's own link comes from
+`daemon.internals.invites.createHostInvite()`, `openSession`, the terminal's text). Every step waits for a condition,
+never for a fixed time.
+
+| File | Acceptance criteria |
 |---|---|
-| `built-app.smoke.test.ts` | 邀請連結加入 → 開檔 → 輸入 → 磁碟、R7.1b 兩個瀏覽器同時編輯、R8.2b agent 鎖定的唯讀提示、「可使用 agent」開終端機（以主人的使用者執行）、CSP |
-| `terminal.smoke.test.ts` | LEAD-01：擁有者的 PTY 跟著面板（窄的 420 px 與寬的面板，`stty size` 等於面板放得下的大小，終端機沒有任何部分落在可見、可捲動的容器外）；觀看者以 PTY 大小顯示，80 欄的整行可以捲動看到，「縮放以符合寬度」 |
-| `close-session.smoke.test.ts` | 關閉已結束 session 的分頁（ARCHITECTURE §9）：每個人（旁觀者也是）在自己的面板用分頁上的關閉按鈕、Delete 或「關閉分頁」關掉已結束的 session，其他人的面板不受影響、daemon 仍列著它；重新整理後不會再出現；關閉後選到相鄰的分頁並取得鍵盤焦點；分頁列放不下時選取的分頁連同關閉按鈕會捲進可見範圍；執行中的 session 沒有這些控制項。第二組用 2 秒就忘掉已結束 session 的 daemon（正式是 15 分鐘）：一直開著的分頁說明內容已不再保留（沒有重試）、仍可關閉，重新整理後不再出現，記下的 id 也清掉 |
-| `login.smoke.test.ts` | 未登入載入 `/`、`/join/<id>`：零主控台錯誤、零失敗請求；CLI 的裝置代碼登入 |
-| `acceptance.smoke.test.ts` | R11.1c 控制台一鍵終止與踢人、R6 建議（修改後採用、拒絕、提出者看到結果）、R9 worktree 合併（完整 diff、合併、拒絕後 worktree 不變）、R8.4 真的衝突出現在衝突面板；「可使用 agent」的成員開自己的 session（以主人的使用者執行）並直接在主人的 session 裡輸入、採用「可編輯」的建議；控制台給出「可使用 agent」前的風險確認（邀請與變更角色） |
-| `transfer-resume.smoke.test.ts` | R7.3：透過 `drop-proxy.ts`（relay 前的 TCP proxy）在上傳一半時切斷傳輸 socket，上傳自己續傳完成、內容相同、只補送沒到的部分 |
+| `built-app.smoke.test.ts` | Join with an invite link -> open a file -> type -> the disk; R7.1b two browsers editing at once; R8.2b the read-only notice under an agent's lock; a member with agent access opens a terminal (it runs as the host's user); CSP |
+| `terminal.smoke.test.ts` | The owner's PTY follows the panel (a narrow 420 px panel and a wide one; `stty size` equals the size that fits the panel; no part of the terminal lies outside the visible, scrollable container). A watcher sees the PTY's size, can scroll to see a full 80-column line, and can use "Scale to fit the width" |
+| `close-session.smoke.test.ts` | Closing the tab of an ended session (ARCHITECTURE §9): everyone (a Viewer too) closes an ended session in their own panel with the tab's close button, Delete or "Close tab"; other people's panels are not affected and the daemon still lists it; it does not come back after a reload; after closing, the neighboring tab is selected and gets the keyboard focus; when the tab bar overflows, the selected tab scrolls into view together with its close button; a running session has none of these controls. A second group uses a daemon that forgets an ended session after 2 seconds (15 minutes in production): a tab that stayed open says the content is no longer kept (no retry), can still be closed, does not come back after a reload, and the remembered id is dropped |
+| `splitter.smoke.test.ts` | The dividers of the workbench under a real mouse: a hover never moves a divider; a press within 3 px on either side grabs the line without moving it and the line then follows the pointer; a drag stops on the release wherever the pointer is; a drag that loses its release ends with the button; the terminal still refits; arrow keys resize, a double click comes back to the default width and the width survives a reload; in a window too small for the remembered width the editor keeps its minimum; in a narrow window with a wide remembered file tree the agents column keeps its 260 px, its divider still moves by mouse and keys, and each separator's `aria-valuenow` / `aria-valuemax` is the size on screen |
+| `login.smoke.test.ts` | Loading `/` and `/join/<id>` without a login: zero console errors, zero failed requests; the CLI's device-code login |
+| `language.smoke.test.ts` | An `en-US` browser: landing, join, workbench, the activity feed (the host's own sentences), an error and the host console with its audit log, each followed by a scan of the whole document for CJK characters; the language menu switches to 繁體中文 without a navigation; `<html lang>`, the stored choice and the cookie follow; the choice survives a reload; the relay's `/device` follows the cookie; detection (`zh-HK` is Traditional Chinese, `zh-CN` and `ja` get English) and the relay's own language link is followed by the app |
+| `zh-TW.smoke.test.ts` | The one smoke test in Traditional Chinese (`locale: 'zh-TW'`): join through an invite link, the workbench, a terminal session, a suggestion the host accepts, the host's sentence in the activity feed and `/device` |
+| `acceptance.smoke.test.ts` | R11.1c one-click terminate and remove in the console; R6 suggestions (accept after editing, reject, the author sees the result); R9 worktree merge (the full diff, merge, the worktree is unchanged after a reject); R8.4 a real conflict appears in the conflicts panel; a member with agent access opens their own session (it runs as the host's user), types directly in the host's session and accepts an Editor's suggestion; the console's risk confirmation before it gives agent access (an invite and a role change) |
+| `transfer-resume.smoke.test.ts` | R7.3: `drop-proxy.ts` (a TCP proxy in front of the relay) cuts the transfer socket in the middle of an upload; the upload resumes by itself and completes, the content is identical, and only the missing part is sent again |
 
-沒有系統 Chrome 時會跳過並印出原因。
+Without a system Chrome these tests are skipped and the reason is printed.
 
-`src/testing/`：
+`src/testing/`:
 
-- `FakeConnection`：手動驅動的連線。`conn.admit(makeWelcome({ role }))`、`conn.emit('session.state', …)`、
-  `conn.handle('file.tree', () => …)`（自動回應）、`conn.respond(type, result)` / `conn.fail(type, error)`（回應最早的待處理請求）、
-  `conn.requestsOf(type)`、`conn.notificationsOf(type)`、`conn.hostOffline()`、`conn.keyMismatch()`、`conn.kicked()`…
-  送出與收到的 payload 都用 protocol registry 驗證，fixture 不會偏離真實格式。
-- `renderInWorkspace(<FilesPanel />, { role: 'editor' })`：在一個以 FakeConnection 驅動的工作區裡 render，回傳 `{ conn, stores, session }`。
-- `createTestServices()` / `renderApp()`：整個 App（記憶體路由、假的登入、記憶體 pin store）。
-- `fixtures.ts`：`makeWelcome`、`makeSession`、`makeEntry`、`makeSuggestion`、`makeConflict`、`makeInvite`…
-- `createManualScheduler()`：手動推進 store 的計時器（例如 `file.changed` 的合併延遲）。
+- `FakeConnection`: a connection you drive by hand. `conn.admit(makeWelcome({ role }))`,
+  `conn.emit('session.state', …)`, `conn.handle('file.tree', () => …)` (answers automatically),
+  `conn.respond(type, result)` / `conn.fail(type, error)` (answers the oldest pending request),
+  `conn.requestsOf(type)`, `conn.notificationsOf(type)`, `conn.hostOffline()`, `conn.keyMismatch()`, `conn.kicked()`…
+  Payloads sent and received are validated with the protocol registry, so fixtures cannot drift from the real format.
+- `renderInWorkspace(<FilesPanel />, { role: 'editor' })`: renders inside a workspace driven by a FakeConnection and
+  returns `{ conn, stores, session }`.
+- `createTestServices()` / `renderApp()`: the whole App (a memory router, a fake login, a memory pin store).
+- `fixtures.ts`: `makeWelcome`, `makeSession`, `makeEntry`, `makeSuggestion`, `makeConflict`, `makeInvite`…
+- `createManualScheduler()`: advances a store's timers by hand (for example the merge delay of `file.changed`).
+- `locale.ts`: `useTestLocale(locale)` and `TEST_LOCALE` (see above).
 
 ```tsx
 const { conn } = renderInWorkspace(<FilesPanel />);
@@ -471,27 +652,37 @@ conn.respond('file.tree', { entries: [makeEntry('README.md')], truncated: false 
 expect(await screen.findByText('README.md')).toBeTruthy();
 ```
 
-驗收測試（名稱引用 SPEC 的驗收標準）：
+Acceptance tests (their names quote the acceptance criteria of the SPEC):
 
-- `e2e/browser.e2e.test.ts`（**真的瀏覽器**）：真的 relay（本機 workerd）+ 真的 daemon（`tests/e2e` 的 harness）+
-  這個 app（Vite dev server，和上面的開發方式相同）+ 系統的 Chrome（playwright-core、headless、全新的 context、
-  沒有匯入任何 cookie）。涵蓋：用真的邀請連結加入（片段在登入轉址前就離開網址列、請求中不含祕密、pin 存進 IndexedDB）、
-  「主人斷線後 10 秒內，所有客人的介面顯示離線」（實測約 4.3 秒）、以及「relay 把 daemon 公鑰替換成自己的公鑰時，
-  客戶端拒絕連線並顯示警告」（首次加入與已 pin 金鑰後重新連線兩種，攻擊者用 `tests/e2e/src/mitm-relay.ts`；
-  msg3 從未送出、邀請沒有被使用）。沒有安裝 Chrome 的機器會自動略過。約 15 秒。
-- `app/workspace/connection-states.test.tsx`：每個連線狀態的畫面（jsdom，以 FakeConnection 驅動）。
-- `app/pages/JoinPage.test.tsx`：加入流程的每個分支。
+- `e2e/browser.e2e.test.ts` (**a real browser**): a real relay (local workerd) + a real daemon (the harness of
+  `tests/e2e`) + this app (the Vite dev server, the same as in development above) + the system's Chrome
+  (playwright-core, headless, a fresh context, no imported cookies). It covers: joining with a real invite link (the
+  fragment leaves the address bar before the login redirect, no request contains the secret, the pin is stored in
+  IndexedDB); "within 10 seconds after the host disconnects, every guest's interface shows offline" (measured: about
+  4.3 seconds); and "when the relay replaces the daemon's public key with its own, the client refuses the connection
+  and shows a warning" (both the first join and a reconnect after the key was pinned; the attacker is
+  `tests/e2e/src/mitm-relay.ts`; msg3 is never sent and the invite is not used). A machine without Chrome skips it
+  automatically. About 15 seconds.
+- `app/workspace/connection-states.test.tsx`: the screen of every connection state (jsdom, driven by a
+  FakeConnection).
+- `app/pages/JoinPage.test.tsx`: every branch of the join flow.
 
-這個 vitest project 的暫存目錄（本機 relay 的 miniflare 狀態等）由 `e2e/global-setup.ts` 建立並在結束後刪除。
-`e2e/` 不在 `tsc` 的範圍內（它 import `tests/e2e` 與 `apps/relay` 的原始碼，和這裡的 DOM lib 設定衝突），由 vitest 去除型別。
+`e2e/global-setup.ts` creates this vitest project's temporary directory (the local relay's miniflare state and so on)
+and deletes it at the end.
+`e2e/` is not part of the app's `tsc` program (it imports the sources of `tests/e2e` and `apps/relay`, which do not fit
+the app's Bundler resolution and JSX settings). It has its own `e2e/tsconfig.json`, and `pnpm --filter @smurg/web
+typecheck` checks both programs.
 
-## 建置與 chunk 大小
+## Build and chunk sizes
 
 ```sh
 pnpm --filter @smurg/web build                # vite build + scripts/check-chunks.ts
 ```
 
-2026-09-29（finish-web 之後）：初始載入 2 個 chunk，628.6 KiB（194.9 KiB gzip；之前 625.0 KiB / 193.8 KiB gzip，
-增加的是新字串），包含 React、protocol（zod、noble 密碼學、msgpack）、字串與加入流程；workspace chunk 298 KiB（84 KiB gzip）。
-Monaco chunk 約 3.8 MiB（971 KiB gzip）＋ editor worker ＋ CSS ＋ codicon，xterm chunk 352 KiB（91 KiB gzip），
-全部都在延遲載入的 chunk 裡。
+Measured on 2026-10-02 (v0.4.0, both languages): the initial load is 2 chunks, 736.1 KiB (224.5 KiB gzip). It
+contains React, the protocol (zod, the noble cryptography, msgpack), the strings and the join flow. Before the
+second language it was 628.6 KiB (194.9 KiB gzip): both language tables of the web catalog and the wire catalog
+(`@smurg/protocol/i18n`, every sentence the host can send, in both languages) load eagerly, which adds about 108 KiB
+(30 KiB gzip). The workspace chunk is 288 KiB (82 KiB gzip). The Monaco chunks are about 3.8 MiB
+(977 KiB gzip) plus the editor worker, CSS and codicon, and the xterm chunk is 352 KiB (91 KiB gzip). All of these
+are in lazy-loaded chunks.

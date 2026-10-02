@@ -73,7 +73,7 @@ const refusing = (requestedBytes: number): DiskReport => ({
 });
 
 describe('UploadJob — folders', () => {
-  it('拖曳檔案或資料夾到檔案樹，保留資料夾結構 — one plan for the batch creates every folder (also empty ones), then every file lands at its path', async () => {
+  it('files or folders dragged onto the file tree keep their folder structure — one plan for the batch creates every folder (also empty ones), then every file lands at its path', async () => {
     const h = harness();
     const items: UploadItem[] = [
       { path: 'proj', kind: 'dir' },
@@ -139,7 +139,7 @@ describe('UploadJob — folders', () => {
   });
 });
 
-describe('UploadJob — name conflicts (覆蓋 / 另存 / 取消)', () => {
+describe('UploadJob — name conflicts (overwrite / keep both / cancel)', () => {
   function withExisting(): Harness {
     const h = harness();
     h.link.daemon.put(MAIN, 'uploads/proj', 'dir');
@@ -148,7 +148,7 @@ describe('UploadJob — name conflicts (覆蓋 / 另存 / 取消)', () => {
   }
   const items = (): UploadItem[] => [{ path: 'proj', kind: 'dir' }, fileItem('proj/a.txt', 5, 1), fileItem('proj/b.txt', 6, 2)];
 
-  it('asks, then overwrites when the person chooses 覆蓋', async () => {
+  it('asks, then overwrites when the person chooses to overwrite', async () => {
     const h = withExisting();
     const job = h.job({ items: items() });
     job.start();
@@ -162,7 +162,7 @@ describe('UploadJob — name conflicts (覆蓋 / 另存 / 取消)', () => {
     expect(sha(stored(h.link, 'uploads/proj/a.txt'))).toBe(sha(syntheticBytes(1, 0, 5)));
   });
 
-  it('keeps both when the person chooses 另存 (the daemon picks a free name)', async () => {
+  it('keeps both when the person chooses to keep both (the daemon picks a free name)', async () => {
     const h = withExisting();
     const job = h.job({ items: items() });
     job.start();
@@ -173,7 +173,7 @@ describe('UploadJob — name conflicts (覆蓋 / 另存 / 取消)', () => {
     expect(sha(stored(h.link, 'uploads/proj/a (1).txt'))).toBe(sha(syntheticBytes(1, 0, 5)));
   });
 
-  it('uploads nothing when the person chooses 取消', async () => {
+  it('uploads nothing when the person chooses to cancel', async () => {
     const h = withExisting();
     const job = h.job({ items: items() });
     job.start();
@@ -198,8 +198,8 @@ describe('UploadJob — name conflicts (覆蓋 / 另存 / 取消)', () => {
   });
 });
 
-describe('UploadJob — disk space (R7.4 磁碟空間不足時，上傳在開始前就被拒絕)', () => {
-  it('磁碟空間不足時，上傳在開始前就被拒絕，而不是傳到一半失敗 — the refusal carries the numbers and no chunk is sent', async () => {
+describe('UploadJob — disk space (R7.4: with too little disk space an upload is refused before it starts)', () => {
+  it('with too little disk space an upload is refused before it starts, not halfway — the refusal carries the numbers and no chunk is sent', async () => {
     const h = harness();
     h.link.daemon.disk = refusing;
     const job = h.job({ items: [{ path: 'p', kind: 'dir' }, fileItem('p/a.bin', 2 * MiB, 1), fileItem('p/b.bin', MiB, 2)] });
@@ -224,7 +224,7 @@ describe('UploadJob — disk space (R7.4 磁碟空間不足時，上傳在開始
 });
 
 describe('UploadJob — interruptions', () => {
-  it('上傳中途斷線，重新連線後從中斷處繼續 — shows 「已暫停（離線）」 and continues by itself when the socket is back', async () => {
+  it('an upload cut off midway continues where it stopped after reconnecting — shows the offline pause and continues by itself when the socket is back', async () => {
     const h = harness({ ackChunks: 'manual' });
     const job = h.job({ items: [fileItem('big.bin', 6 * MiB, 5)] });
     job.start();
@@ -274,7 +274,7 @@ describe('UploadJob — interruptions', () => {
     expect(h.journal.records.size).toBe(0);
   });
 
-  it('上傳中途斷線，重新連線後從中斷處繼續 — after a page reload the journal resumes it: committed files are skipped, the partial is re-hashed and completed', async () => {
+  it('an upload cut off midway continues where it stopped after reconnecting — after a page reload the journal resumes it: committed files are skipped, the partial is re-hashed and completed', async () => {
     const h = harness({ ackChunks: 'manual', fileSlots: 1 });
     const items = (): UploadItem[] => [{ path: 'p', kind: 'dir' }, fileItem('p/first.bin', MiB, 1), fileItem('p/second.bin', 6 * MiB, 2)];
     const before = h.job({ items: items() });
@@ -338,7 +338,7 @@ describe('UploadJob — failures', () => {
 
   it('a refusal that concerns the whole job (permission changed) stops every file of it', async () => {
     const h = harness();
-    h.link.failNext('file.upload.begin', new SmurgError('forbidden', '沒有權限'), { times: 100 });
+    h.link.failNext('file.upload.begin', new SmurgError('forbidden'), { times: 100 });
     const job = h.job({ items: [{ path: 'p', kind: 'dir' }, fileItem('p/a.bin', 10, 1), fileItem('p/b.bin', 10, 2)] });
     job.start();
     await job.whenSettled();

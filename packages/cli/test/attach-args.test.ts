@@ -6,6 +6,7 @@ import { DEFAULT_FEATURE_MODULES, createDaemon, silentLogger, type Daemon } from
 import { waitFor } from '@smurg/daemon/testing';
 import { runCli } from '../src/cli/run.ts';
 import { attachUsage, formatSessionList } from '../src/commands/attach.ts';
+import { renderText } from '../src/i18n/index.ts';
 import { LocalWorkspaceChannel } from '../src/channel/local-channel.ts';
 import { echoSessions, type EchoSessions } from './fixtures/echo-sessions.ts';
 import { fakeTerminal, makeDirs, testIo, type Dirs } from './helpers.ts';
@@ -48,15 +49,15 @@ describe('smurg attach (arguments, list, refusals)', () => {
     const l = await local();
     const empty = testIo({ env: l.env });
     expect(await runCli(['attach'], empty)).toBe(0);
-    expect(empty.out()).toContain('本機');
-    expect(empty.out()).toContain('目前沒有 session');
-    l.echo.open({ ...HOST, kind: 'terminal', title: '第一個' });
-    l.echo.open({ ...HOST, kind: 'agent', title: 'Claude（Host）' });
+    expect(empty.out()).toContain('on this computer');
+    expect(empty.out()).toContain('This workspace has no sessions.');
+    l.echo.open({ ...HOST, kind: 'terminal', title: 'first one' });
+    l.echo.open({ ...HOST, kind: 'agent' });
     const io = testIo({ env: l.env });
     expect(await runCli(['attach'], io)).toBe(0);
-    expect(io.out()).toMatch(/1\s+ses_\S+\s+終端機\s+Host（你）\s+執行中\s+第一個/);
-    expect(io.out()).toMatch(/2\s+ses_\S+\s+agent\s+Host（你）/);
-    expect(io.out()).toContain('smurg attach <編號或 session ID>');
+    expect(io.out()).toMatch(/1\s+ses_\S+\s+terminal\s+Host \(you\)\s+running\s+first one/);
+    expect(io.out()).toMatch(/2\s+ses_\S+\s+agent\s+Host \(you\)\s+running\s+Claude \(Host\)/);
+    expect(io.out()).toContain('smurg attach <number or session ID>');
   });
 
   it('the control socket carries only what smurg attach sends (review F1): anything else is refused as forbidden and audited via control-socket', async () => {
@@ -100,7 +101,7 @@ describe('smurg attach (arguments, list, refusals)', () => {
     terminal.type('\x1d');
     expect(await done).toBe(0);
     expect(terminal.rawModeHistory).toEqual([true, false]);
-    expect(io.out()).toContain('接上 session「two」');
+    expect(io.out()).toContain('Attaching to session "two"');
   });
 
   it('refuses in zh-TW with exit 2: no terminal, an unknown session, an ambiguous prefix; an ended session is exit 1', async () => {
@@ -108,33 +109,34 @@ describe('smurg attach (arguments, list, refusals)', () => {
     const session = l.echo.open({ ...HOST, kind: 'terminal', title: 'x' });
     const noTty = testIo({ env: l.env, terminal: fakeTerminal({ isTTY: false }) });
     expect(await runCli(['attach', session.id], noTty)).toBe(2);
-    expect(noTty.err()).toContain('需要在終端機中執行');
+    expect(noTty.err()).toContain('smurg attach must run in a terminal');
     const unknown = testIo({ env: l.env });
     expect(await runCli(['attach', 'ses_nope'], unknown)).toBe(2);
-    expect(unknown.err()).toContain('找不到 session「ses_nope」');
+    expect(unknown.err()).toContain('No session "ses_nope"');
     l.echo.open({ ...HOST, kind: 'terminal', title: 'y' });
     const ambiguous = testIo({ env: l.env });
     expect(await runCli(['attach', 'ses_'], ambiguous)).toBe(2);
-    expect(ambiguous.err()).toContain('符合多個 session');
+    expect(ambiguous.err()).toContain('matches more than one session');
     l.host.notify('exec.input', { sessionId: session.id, data: new TextEncoder().encode('exit 3\r') });
     await waitFor(() => l.echo.sessions.get(session.id)?.info.status === 'exited', { what: 'the session to end' });
     const ended = testIo({ env: l.env });
     expect(await runCli(['attach', session.id], ended)).toBe(1);
-    expect(ended.err()).toContain('已經結束（結束代碼 3）');
+    expect(ended.err()).toContain('has already exited (exit code 3)');
   });
 
   it('lists every session under the member who opened it (they all run as the host, §11 D-15): agent or terminal, the own ones marked', () => {
     const base = { root: { kind: 'main' as const }, status: 'running' as const, cols: 80, rows: 24, createdAt: 1, login: 'unknown' as const, attached: 0 };
     const text = formatSessionList(
       [
-        { ...base, id: 'ses_amy_agent', kind: 'agent', ownerUserId: 'dev:amy', ownerName: 'Amy', title: 'Claude（Amy）' },
-        { ...base, id: 'ses_host_term', kind: 'terminal', ownerUserId: 'dev:host', ownerName: 'Host', title: '終端機（Host）' },
+        { ...base, id: 'ses_amy_agent', kind: 'agent', ownerUserId: 'dev:amy', ownerName: 'Amy' },
+        { ...base, id: 'ses_host_term', kind: 'terminal', ownerUserId: 'dev:host', ownerName: 'Host', title: 'build' },
       ],
       'dev:amy',
+      'en',
     );
-    expect(text).toMatch(/1\s+ses_amy_agent\s+agent\s+Amy（你）\s+執行中\s+Claude（Amy）/);
-    expect(text).toMatch(/2\s+ses_host_term\s+終端機\s+Host\s+執行中\s+終端機（Host）/);
-    expect(text).not.toContain('Host（你）');
+    expect(text).toMatch(/1\s+ses_amy_agent\s+agent\s+Amy \(you\)\s+running\s+Claude \(Amy\)/);
+    expect(text).toMatch(/2\s+ses_host_term\s+terminal\s+Host\s+running\s+build/);
+    expect(text).not.toContain('Host (you)');
   });
 
   it('with nothing to attach to (no local host, never joined) or a malformed invite: exit 2 with what to do', async () => {
@@ -143,19 +145,19 @@ describe('smurg attach (arguments, list, refusals)', () => {
     const env = { HOME: dirs.home, SMURG_HOME: dirs.stateDir };
     const nothing = testIo({ env });
     expect(await runCli(['attach'], nothing)).toBe(2);
-    expect(nothing.err()).toContain('不知道要接上哪個工作區');
+    expect(nothing.err()).toContain('Which workspace to attach to is not known');
     expect(nothing.err()).toContain('--invite');
     const bad = testIo({ env });
     expect(await runCli(['attach', '--invite', 'https://smurg.app/join/ws_x#k=nope'], bad)).toBe(2);
-    expect(bad.err()).toContain('邀請連結不正確');
+    expect(bad.err()).toContain('The invite link is not valid');
   });
 
-  it('--help says who may type: the host and 「可使用 agent」 members into any session, every other role read-only (§11 D-15)', async () => {
-    const usage = attachUsage();
-    expect(usage).toContain('接上之後：按 Ctrl-] 離開（session 繼續執行）。主人和「可使用 agent」的組員可以在任何 session 裡輸入，其他角色唯讀。');
-    expect(usage).not.toContain('只有 session 的擁有者');
+  it('--help says who may type: the host and members with agent access into any session, every other role read-only (§11 D-15)', async () => {
+    const usage = renderText('en', attachUsage());
+    expect(usage).toContain('Once attached: press Ctrl-] to leave (the session keeps running). The host and members with agent access can type\n  into any session; other roles are read-only.');
+    expect(usage).not.toContain('only the owner');
     const io = testIo({ env: {} });
     expect(await runCli(['attach', '--help'], io)).toBe(0);
-    expect(io.out()).toContain('主人和「可使用 agent」的組員可以在任何 session 裡輸入');
+    expect(io.out()).toContain('The host and members with agent access can type');
   });
 });

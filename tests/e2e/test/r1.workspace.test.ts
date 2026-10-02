@@ -1,8 +1,8 @@
 // SPEC R1 acceptance (daemon and workspace), against the real relay, the real daemon and SDK clients.
-//  - 「主人斷線後 10 秒內，所有客人的介面顯示離線」: measured for a sleeping laptop (socket open, silent) and a clean stop.
-//  - 「對分享資料夾以外路徑的請求（包括 symlink、`..`）一律被拒絕並記錄」: at the PathGuard every file handler must use,
+//  - within 10 seconds of the host disconnecting, the interface of every guest shows offline: measured for a sleeping laptop (socket open, silent) and a clean stop.
+//  - every request for a path outside the shared folder (symlinks and `..` included) is refused and recorded: at the PathGuard every file handler must use,
 //    over the wire with a forged client, and (once the file module exists) through file.read.
-// The install-time criterion (「在全新的 macOS 和 Ubuntu 24.04 上…不超過 3 分鐘」) is manual: see docs/ACCEPTANCE.md.
+// The install-time criterion (on a fresh macOS and Ubuntu 24.04, from installing to a teammate opening a file: at most 3 minutes) is manual: see docs/ACCEPTANCE.md.
 import { MAIN_ROOT, type AnyEnvelope, type AuditEntry } from '@smurg/protocol';
 import { isPathDeniedError, userPrincipal, type Principal } from '@smurg/daemon';
 import type { ConnectionState } from '@smurg/protocol/client';
@@ -40,8 +40,8 @@ async function joinGuests(stack: Stack): Promise<StackClient[]> {
   ]);
 }
 
-describe('R1 主人離線', () => {
-  it('主人斷線後 10 秒內，所有客人的介面顯示離線 — the host laptop sleeps (socket stays open, silent)', async () => {
+describe('R1 the host goes offline', () => {
+  it('within 10 seconds of the host disconnecting, the interface of every guest shows offline — the host laptop sleeps (socket stays open, silent)', async () => {
     const stack = await startStack({ relay });
     try {
       const guests = await joinGuests(stack);
@@ -65,7 +65,7 @@ describe('R1 主人離線', () => {
       }));
       const sinceHeard = (ms: number | undefined) => (ms === undefined ? Infinity : ms + (t0 - lastHeard));
       const report = seen.map((s) => `${s.name} ${s.first?.ms} ms (${s.first?.reason}; relay's host.offline ${s.relay?.ms} ms)`).join(', ');
-      console.info(`[R1] host paused → guests show 「主人已離線」 after: ${report}; the host was last heard ${t0 - lastHeard} ms before the pause`);
+      console.info(`[R1] host paused → guests show "Host offline" after: ${report}; the host was last heard ${t0 - lastHeard} ms before the pause`);
 
       for (const s of seen) {
         expect(s.first, `${s.name} never showed the host offline`).not.toBeNull();
@@ -93,7 +93,7 @@ describe('R1 主人離線', () => {
     }
   });
 
-  it('主人斷線後 10 秒內，所有客人的介面顯示離線 — the host stops sharing (clean disconnect)', async () => {
+  it('within 10 seconds of the host disconnecting, the interface of every guest shows offline — the host stops sharing (clean disconnect)', async () => {
     const stack = await startStack({ relay });
     try {
       const guests = await joinGuests(stack);
@@ -101,7 +101,7 @@ describe('R1 主人離線', () => {
       await stack.daemon.stop('smurg stop');
       await Promise.all(guests.map((g) => g.waitFor((s) => s.kind === 'host-offline', OFFLINE_DEADLINE_MS + 2_000)));
       const seen = guests.map((g) => ({ name: g.name, ...firstStateAfter(g, t0, (s) => s.kind === 'host-offline') }));
-      console.info(`[R1] daemon stopped → guests show 「主人已離線」: ${seen.map((s) => `${s.name} ${s.ms} ms (${s.reason})`).join(', ')}`);
+      console.info(`[R1] daemon stopped → guests show "Host offline": ${seen.map((s) => `${s.name} ${s.ms} ms (${s.reason})`).join(', ')}`);
       for (const s of seen) expect(s.ms ?? Infinity).toBeLessThan(OFFLINE_DEADLINE_MS);
       await waitUntil(async () => (await relay.inspect('ws', stack.workspaceId)).hostStatus === 'offline', 5_000, 'the relay to mark the host offline');
     } finally {
@@ -110,7 +110,7 @@ describe('R1 主人離線', () => {
   });
 });
 
-describe('R1 分享資料夾以外的路徑', () => {
+describe('R1 paths outside the shared folder', () => {
   const projectFiles = {
     'README.md': '# project\n',
     'src/app.ts': 'export const app = 1;\n',
@@ -139,7 +139,7 @@ describe('R1 分享資料夾以外的路徑', () => {
     return entries.filter((e) => e.action === 'path.denied' && e.outcome === 'denied' && e.actor.kind === 'user' && e.actor.userId === userId);
   }
 
-  it('對分享資料夾以外路徑的請求（包括 symlink、`..`）一律被拒絕並記錄 — PathGuard, for a guest and for the host', async () => {
+  it('every request for a path outside the shared folder (symlinks and `..` included) is refused and recorded — PathGuard, for a guest and for the host', async () => {
     const stack = await startStack({ relay, projectFiles, outsideFiles });
     try {
       const amy = await stack.join({ name: 'amy', role: 'editor' });
@@ -184,7 +184,7 @@ describe('R1 分享資料夾以外的路徑', () => {
     }
   });
 
-  it('對分享資料夾以外路徑的請求（包括 symlink、`..`）一律被拒絕 — a forged `..` file.read over the encrypted channel', async () => {
+  it('every request for a path outside the shared folder (symlinks and `..` included) is refused — a forged `..` file.read over the encrypted channel', async () => {
     const stack = await startStack({ relay, projectFiles, outsideFiles });
     try {
       const mallory = await stack.newDevice('mallory');
@@ -213,8 +213,8 @@ describe('R1 分享資料夾以外的路徑', () => {
   });
 
   // An envelope whose path fails the lexical rules is refused by decodeEnvelope before any handler runs; the hub audits
-  // that refusal as path.denied (SPEC R1 「拒絕並記錄」, ARCHITECTURE §2 rule 4 / §7.4).
-  it('對分享資料夾以外路徑的請求（包括 symlink、`..`）一律被拒絕並記錄 — the forged `..` request is audited', async () => {
+  // that refusal as path.denied (SPEC R1: refused and recorded, ARCHITECTURE §2 rule 4 / §7.4).
+  it('every request for a path outside the shared folder (symlinks and `..` included) is refused and recorded — the forged `..` request is audited', async () => {
     const stack = await startStack({ relay, projectFiles, outsideFiles });
     try {
       const mallory = await stack.newDevice('mallory');
@@ -241,10 +241,10 @@ describe('R1 分享資料夾以外的路徑', () => {
     }
   });
 
-  it('對分享資料夾以外路徑的請求（包括 symlink、`..`）一律被拒絕並記錄 — file.read through a symlink out of the share', async () => {
+  it('every request for a path outside the shared folder (symlinks and `..` included) is refused and recorded — file.read through a symlink out of the share', async () => {
     const stack = await startStack({ relay, projectFiles, outsideFiles });
     try {
-      // A composition without the files module fails here instead of skipping (review SPEC-11).
+      // A composition without the files module fails here instead of skipping.
       expect(stack.daemon.ctx.router.has('file.read'), 'the default composition registers file.read').toBe(true);
       const amy = await stack.join({ name: 'amy', role: 'editor' });
       for (const path of ['link-out/secret.txt', 'link-secret', 'src/deep/up/secret.txt']) {

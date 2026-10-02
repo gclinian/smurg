@@ -1,4 +1,4 @@
-// The workbench layout switches a feature may offer in its own header (review WEB-02): collapse the suggestions pane
+// The workbench layout switches a feature may offer in its own header: collapse the suggestions pane
 // under the terminal, or give the agents column the whole width next to the file tree. Provided by the workbench;
 // null anywhere else (a feature then hides these buttons).
 import { createContext, useContext } from 'react';

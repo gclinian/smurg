@@ -1,6 +1,7 @@
 // Daemon-side errors. Everything that reaches a client is a SmurgError (@smurg/protocol); these subclasses add the
 // facts the router needs to audit correctly without re-deriving them.
 import { SmurgError, type ErrorDetail } from '@smurg/protocol';
+import { msg, type MessageRef } from '@smurg/protocol/i18n';
 
 /**
  * Why PathGuard refused a path (ARCHITECTURE §7.4). Sent to the client as `detail.reason`, so every value is safe to
@@ -17,7 +18,7 @@ export const PATH_DENIED_REASONS = [
   'read-only', // inside a shared read-only directory of a worktree (D12)
   'host-only', // a host-only path (ARCHITECTURE §5.2) written by someone who is not the host
   'hidden', // not visible to this principal (<share>/.smurg for non-hosts)
-  'host-private', // the host's private data (.git, .envrc, the host's personal Claude Code files) for a non-host (SEC-D-03)
+  'host-private', // the host's private data (.git, .envrc, the host's personal Claude Code files) for a non-host
   'hard-link', // a regular file with more than one link: it could alias a file outside the share
   'special-file', // FIFO, socket or device
   'changed', // the object changed between the check and the use (a swapped parent, a replaced file)
@@ -25,22 +26,23 @@ export const PATH_DENIED_REASONS = [
 ] as const;
 export type PathDeniedReason = (typeof PATH_DENIED_REASONS)[number];
 
-const PATH_DENIED_MESSAGES: Readonly<Record<PathDeniedReason, string>> = {
-  lexical: '路徑格式不正確',
-  'too-long': '路徑太長',
-  'unknown-root': '找不到這個工作區或 worktree',
-  'root-changed': '工作區資料夾已被移動或替換',
-  'outside-root': '不允許存取分享資料夾以外的路徑',
-  symlink: '不允許透過符號連結寫入',
-  'shared-link-tampered': '共享資料夾的連結已被竄改',
-  'read-only': '這個共享資料夾是唯讀的',
-  'host-only': '只有主人可以修改這個路徑',
-  hidden: '不允許存取這個路徑',
-  'host-private': '這是主人的私人檔案，只有主人可以存取',
-  'hard-link': '不允許存取有多個硬連結的檔案',
-  'special-file': '不支援這種特殊檔案',
-  changed: '檔案在檢查後被變更，請再試一次',
-  'not-directory': '路徑中有不是資料夾的項目',
+/** What a member reads for each reason (`path.*` of `@smurg/protocol/i18n`). An agent reads ../hooks/deny-text.ts. */
+const PATH_DENIED_TEXTS: Readonly<Record<PathDeniedReason, MessageRef>> = {
+  lexical: msg('path.lexical'),
+  'too-long': msg('path.tooLong'),
+  'unknown-root': msg('path.unknownRoot'),
+  'root-changed': msg('path.rootChanged'),
+  'outside-root': msg('path.outsideRoot'),
+  symlink: msg('path.symlink'),
+  'shared-link-tampered': msg('path.sharedLinkTampered'),
+  'read-only': msg('path.readOnly'),
+  'host-only': msg('path.hostOnly'),
+  hidden: msg('path.hidden'),
+  'host-private': msg('path.hostPrivate'),
+  'hard-link': msg('path.hardLink'),
+  'special-file': msg('path.specialFile'),
+  changed: msg('path.changed'),
+  'not-directory': msg('path.notDirectory'),
 };
 
 /**
@@ -56,7 +58,7 @@ export class PathDeniedError extends SmurgError {
 
   constructor(reason: PathDeniedReason, target: string, options?: { cause?: unknown }) {
     const detail: ErrorDetail = { reason };
-    super(reason === 'host-only' ? 'host_only' : 'path_denied', PATH_DENIED_MESSAGES[reason], detail, options);
+    super(reason === 'host-only' ? 'host_only' : 'path_denied', PATH_DENIED_TEXTS[reason], detail, options);
     this.name = 'PathDeniedError';
     this.reason = reason;
     this.target = target;
@@ -74,7 +76,7 @@ export function isPathDeniedError(value: unknown): value is PathDeniedError {
 export class AuthorizationError extends SmurgError {
   audited = false;
 
-  constructor(message?: string, detail?: ErrorDetail, code: 'forbidden' | 'host_only' = 'forbidden') {
+  constructor(message?: MessageRef, detail?: ErrorDetail, code: 'forbidden' | 'host_only' = 'forbidden') {
     super(code, message, detail);
     this.name = 'AuthorizationError';
   }
@@ -86,5 +88,5 @@ export function isAuthorizationError(value: unknown): value is AuthorizationErro
 
 /** What every stub of a not-yet-implemented service throws (ARCHITECTURE §7.2 composition). */
 export function notImplemented(service: string): SmurgError {
-  return new SmurgError('internal', `not implemented: ${service}`, { reason: 'not-implemented', service });
+  return new SmurgError('internal', undefined, { reason: 'not-implemented', service });
 }

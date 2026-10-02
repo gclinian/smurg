@@ -3,12 +3,14 @@
 # Runners (https://github.com/actions/runner-images, README "Available Images", read 2026-09-30):
 #   macos-15      macOS 15 on Apple silicon. Not macos-14: that image is deprecated and fails on purpose during the
 #                 brownouts of 2026-10-05 … 10-31, then is removed on 2026-11-02 (actions/runner-images#13518).
-#   ubuntu-24.04  Ubuntu 24.04 x64: the first run of the whole suite on Linux (docs/OPEN-QUESTIONS.md Q2).
+#   ubuntu-24.04  Ubuntu 24.04 x64 (docs/ACCEPTANCE.md "Linux verification").
 # Google Chrome is preinstalled on both (images/macos/macos-15-arm64-Readme.md "Browsers": Google Chrome 152;
 # images/ubuntu/Ubuntu2404-Readme.md "Browsers": Google Chrome 153 at /usr/bin/google-chrome), which is where
 # apps/web/e2e/chrome.ts looks, so the real-browser tests run. `claude` is not installed: the real-claude tests skip
-# and say so. No system package is installed on either runner: a host needs none (there is no guest sandbox,
-# ARCHITECTURE §11 D-15).
+# and say so. No system package is installed on either runner: a host needs none.
+#
+# Pull requests from forks run with the read-only token below and without secrets (the repository has none); the
+# workflow of a first-time contributor waits for a maintainer's approval (a repository setting).
 name: CI
 
 on:
@@ -30,7 +32,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
-      # Linux is expected to fail at first: let each OS finish and report on its own.
+      # Let each OS finish and report on its own.
       fail-fast: false
       matrix:
         os: [macos-15, ubuntu-24.04]

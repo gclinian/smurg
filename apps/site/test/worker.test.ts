@@ -2,7 +2,7 @@
 // workerd behind the real static-assets layer).
 import { describe, expect, it } from 'vitest';
 import worker from '../src/index.ts';
-import { DOWNLOADS, INSTALL_SCRIPT, REDIRECTS, WORKER_PATHS, type Env } from '../src/routes.ts';
+import { DOWNLOADS, INSTALL_SCRIPT, REDIRECTS, REPOSITORY, WORKER_PATHS, type Env } from '../src/routes.ts';
 
 /** A stand-in for the static-assets binding: records what reached it. */
 function assets(): Env & { seen: string[] } {
@@ -35,14 +35,28 @@ describe('smurg.ai worker', () => {
     }
   });
 
-  it('has that one redirect and nothing else: no GitHub, no docs redirects (the docs are pages of the site now)', () => {
-    expect([...REDIRECTS]).toEqual([['/install.sh', 'https://downloads.smurg.ai/latest/install.sh']]);
-    expect(WORKER_PATHS).toEqual(['/install.sh']);
+  it('302s /github and /source to the source repository on GitHub, query ignored', async () => {
+    expect(REPOSITORY).toBe('https://github.com/gclinian/smurg');
+    for (const path of ['/github', '/source', '/github?x=1']) {
+      const response = await get(`https://smurg.ai${path}`);
+      expect(response.status, path).toBe(302);
+      expect(response.headers.get('location'), path).toBe(REPOSITORY);
+      expect(response.headers.get('cache-control'), path).toBe('public, max-age=300');
+    }
   });
 
-  it('hands /github, /docs and every other request to the static assets, unchanged', async () => {
+  it('has those redirects and nothing else: no docs redirects (the docs are pages of the site)', () => {
+    expect([...REDIRECTS]).toEqual([
+      ['/install.sh', 'https://downloads.smurg.ai/latest/install.sh'],
+      ['/github', 'https://github.com/gclinian/smurg'],
+      ['/source', 'https://github.com/gclinian/smurg'],
+    ]);
+    expect(WORKER_PATHS).toEqual(['/install.sh', '/github', '/source']);
+  });
+
+  it('hands /docs and every other request to the static assets, unchanged', async () => {
     const env = assets();
-    const paths = ['/', '/zh-TW/', '/style.css', '/install', '/install.sh/', '/github', '/github/', '/docs', '/docs/', '/docs/hosting/', '/docs/HOSTING.md', '/license/', '/third-party-notices.txt', '/no-such-page'];
+    const paths = ['/', '/zh-TW/', '/style.css', '/install', '/install.sh/', '/github/', '/github/gclinian', '/source/', '/docs', '/docs/', '/docs/hosting/', '/zh-TW/docs/hosting/', '/docs/HOSTING.md', '/license/', '/third-party-notices.txt', '/no-such-page'];
     for (const path of paths) {
       const response = await get(`https://smurg.ai${path}`, env);
       expect(response.status, path).toBe(200);
@@ -64,7 +78,7 @@ describe('smurg.ai worker', () => {
     }
   });
 
-  it('never redirects to another host than smurg.ai and downloads.smurg.ai (no open redirect through the path)', async () => {
+  it('never redirects to another host than smurg.ai, downloads.smurg.ai and github.com (no open redirect through the path)', async () => {
     for (const url of [
       'https://www.smurg.ai//evil.example/x',
       'https://www.smurg.ai/%2F%2Fevil.example',
@@ -72,11 +86,15 @@ describe('smurg.ai worker', () => {
       'https://smurg.ai//evil.example',
       'https://smurg.ai/install.sh//evil.example',
       'https://smurg.ai/%2F%2Fevil.example/install.sh',
+      'https://smurg.ai/github//evil.example',
+      'https://www.smurg.ai/github',
     ]) {
       const response = await get(url);
       const location = response.headers.get('location');
       if (location === null) continue; // handed to the assets
-      expect(['smurg.ai', 'downloads.smurg.ai'], url).toContain(new URL(location).host);
+      expect(['smurg.ai', 'downloads.smurg.ai', 'github.com'], url).toContain(new URL(location).host);
+      // And on GitHub only ever the repository itself.
+      if (new URL(location).host === 'github.com') expect(location, url).toBe(REPOSITORY);
     }
   });
 

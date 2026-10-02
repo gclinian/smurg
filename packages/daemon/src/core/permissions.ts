@@ -1,7 +1,7 @@
 // Principals and the few permission facts that are not capabilities. The capability table itself lives in
 // @smurg/protocol (roles.ts: can(), registry: mayInvoke / mayReceive) and is enforced by the Router; this file only
 // builds principals and answers "is this the host" style questions, always failing closed.
-import { can, type Actor, type Capability, type Role } from '@smurg/protocol';
+import { agentDisplayName, can, type Actor, type Capability, type Role } from '@smurg/protocol';
 import type { MemberRecord, Principal, UserId } from './interfaces.ts';
 
 export const SYSTEM_ACTOR: Actor = Object.freeze({ kind: 'system' });
@@ -18,10 +18,9 @@ export function userPrincipal(member: MemberRecord): Principal | null {
   return Object.freeze({ kind: 'user', actor: userActor(member), userId: member.userId, role: member.role });
 }
 
-/** 「Claude（<owner>）」: how an agent appears in presence, locks, the activity feed and the audit log. */
-export function agentDisplayName(ownerDisplayName: string): string {
-  return `Claude（${ownerDisplayName}）`;
-}
+// `Claude (<owner>)`: how an agent appears in presence, locks, the activity feed and the audit log. The one function
+// that spells it lives in @smurg/protocol (names.ts); it is re-exported here for the daemon's modules.
+export { agentDisplayName };
 
 export function agentPrincipalFor(sessionId: string, owner: MemberRecord): Principal | null {
   if (owner.status !== 'active') return null;

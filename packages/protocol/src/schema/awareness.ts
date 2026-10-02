@@ -75,7 +75,7 @@ export const AWARENESS_USER_KINDS = ['human', 'agent'] as const;
 
 /**
  * The `user` field of every awareness state, always written by the daemon from its own view of the member
- * (a peer cannot claim to be the host or 「Claude（Ian）」).
+ * (a peer cannot claim to be the host or `Claude (Ian)`).
  */
 export const awarenessUserSchema = z.strictObject({
   name: displayNameSchema,

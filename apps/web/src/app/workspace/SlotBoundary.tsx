@@ -6,7 +6,7 @@ import { Button, EmptyState } from '../../ui/index.ts';
 import { IconAlertTriangle } from '../../ui/icons.tsx';
 
 interface SlotBoundaryProps {
-  /** zh-TW name of the slot (「檔案」). */
+  /** The slot's name in the viewer's language ("Files"). */
   name: string;
   children: ReactNode;
 }

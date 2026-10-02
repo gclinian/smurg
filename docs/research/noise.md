@@ -1,7 +1,7 @@
 # Research: end-to-end encrypted channel (Noise) for browser + Node
 
 Scope: SPEC R3 (whole section), section 0 ("do not implement cryptographic primitives yourself"), 7.2.
-Spike (runnable): `/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/noise`.
+Spike (runnable): `<spike dir>/noise`.
 Appendix A contains the complete `src/` of the spike verbatim, in case the scratchpad goes away.
 Date of the research: 2026-09-27. Machine: macOS arm64, Node v25.4.0 and v22.22.1, headless Chromium 145.
 
@@ -440,7 +440,7 @@ for (;;) for (const m of r.channel.open(await io.recv())) io.send(r.channel.seal
 ## 7. How to re-run the spike
 
 ```bash
-cd /private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/noise
+cd <spike dir>/noise
 npm install                       # root deps (noble, vite, ts, ws); eval/ has its own node_modules
 node test/vectors.run.ts          # 944 + 408 vectors + negative control
 node --test test/*.test.ts        # 23 tests (handshake / attacks / framing / device key)
@@ -454,7 +454,7 @@ bash demo/browser-e2e.sh          # Vite build + Node relay/daemon + headless Ch
                                   # phase2 (reconnect from IndexedDB), mitm, revoke + phase3; kills everything at exit
 ```
 
-**Verifier's re-run:** `bash /private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/noise-verify/run-verify.sh`.
+**Verifier's re-run:** `bash <spike dir>/noise-verify/run-verify.sh`.
 
 - It covers a fresh install, the vectors, 44 tests on Node 25 and 22, tsc, bench, the library evaluation plus clatterjs, key files, all Playwright probes in three engines, and the corrected-design end-to-end run. It kills the demo server on exit.
 - WebKit and Firefox are kept in `noise-verify/pw/browsers`.
@@ -1814,7 +1814,7 @@ process.exitCode = failed ? 1 : 0;
 
 Independent verification on 2026-09-27, same machine: Node 25.4.0 and 22.22.1, Chrome 153.0.8010.53 (system), and Playwright 1.63.0 WebKit 26.6 and Firefox 155.0, both downloaded into the verify spike dir. Nothing was installed globally and no home configuration was touched. All browser and key-file experiments used profiles and fake homes inside the verify spike.
 
-Verify spike: `/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/noise-verify`.
+Verify spike: `<spike dir>/noise-verify`.
 
 Contents:
 - A fresh `npm install` (no lockfile) of the same pinned versions.

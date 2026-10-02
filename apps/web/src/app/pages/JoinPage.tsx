@@ -3,7 +3,7 @@
 //      anything else ran, and so before any login redirect);
 //   2. parse it strictly (pending-invite.ts);
 //   3. log in if needed (the return URL carries no fragment; the invite waits in sessionStorage);
-//   4. ask: nothing is connected until the person clicks 「加入」 (review SEC-E-02: any web page can send a logged-in
+//   4. ask: nothing is connected until the person clicks "Join" (any web page can send a logged-in
 //      visitor to an invite link; joining on page load handed the visitor's relay identity to whoever made the link
 //      and made them a member of that workspace without a click);
 //   5. connect in invite mode; the SDK verifies the daemon key against `k` and PERSISTS THE PIN before it proves the
@@ -100,7 +100,7 @@ export function JoinPage({ workspaceId }: { workspaceId: string }) {
     case 'confirm-key-change':
       return (
         <KeyChangeConfirm
-          // Confirming the new key is itself a click on this invite: it counts as the explicit 「加入」 of step 4.
+          // Confirming the new key is itself a click on this invite: it counts as the explicit "Join" of step 4.
           onConfirm={() => setStep({ kind: 'connect', invite: step.invite, preferInvite: true })}
           onCancel={() => {
             clearPendingInvite(sessionStorage, workspaceId);
@@ -126,7 +126,7 @@ export function JoinPage({ workspaceId }: { workspaceId: string }) {
 }
 
 /**
- * Step 4: an explicit 「加入」. The host's name and the role are only known after the handshake, so the page says what
+ * Step 4: an explicit "Join". The host's name and the role are only known after the handshake, so the page says what
  * IS known: the workspace id, that the link came from someone else, and which identity the host will see.
  */
 function JoinConfirm({ workspaceId, user, onJoin, onCancel }: { workspaceId: string; user: RelayUser; onJoin(): void; onCancel(): void }) {

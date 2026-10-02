@@ -1,4 +1,5 @@
 import { SmurgError, type Role, type WorktreeInfo } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { FakeConnection } from '../../testing/fake-connection.ts';
@@ -39,20 +40,20 @@ describe('WorktreeSwitcher: main workspace or any worktree, with owner and branc
   it('lists the main workspace and every worktree with its owner and branch, and switches the file tree', async () => {
     const { stores, conn } = setup('agent', [AMY, IAN]);
     await settle();
-    const select = screen.getByLabelText('檢視的工作區') as HTMLSelectElement;
-    // Whose worktree and for what (WEB-18: not the branch id, which the details below show); without a known session,
+    const select = screen.getByLabelText('Viewing') as HTMLSelectElement;
+    // Whose worktree and for what (not the branch id, which the details below show); without a known session,
     // when it was created.
     const created = formatDateTime(T0);
-    expect([...select.options].map((option) => option.textContent)).toEqual(['主工作區', `我的 worktree（${created} 建立）`, `Ian的 worktree（${created} 建立）`]);
+    expect([...select.options].map((option) => option.textContent)).toEqual(['Main workspace', `My worktree (created ${created})`, `Ian's worktree (created ${created})`]);
     expect(select.value).toBe('main');
 
     fireEvent.change(select, { target: { value: 'wt:wt_ian' } });
     expect(stores.files.getState().activeRoot).toEqual({ kind: 'worktree', worktreeId: 'wt_ian' });
     expect(conn.lastRequest('file.tree')?.payload).toMatchObject({ root: { kind: 'worktree', worktreeId: 'wt_ian' }, path: '' });
-    const details = screen.getByRole('group', { name: '目前檢視的 worktree' });
-    expect(within(details).getByText('擁有者：Ian')).toBeTruthy();
-    expect(within(details).getByText('分支：smurg/ian/wt_ian')).toBeTruthy();
-    expect(within(details).getByText('已保留（目前沒有 session）')).toBeTruthy();
+    const details = screen.getByRole('group', { name: 'Worktree in view' });
+    expect(within(details).getByText('Owner: Ian')).toBeTruthy();
+    expect(within(details).getByText('Branch: smurg/ian/wt_ian')).toBeTruthy();
+    expect(within(details).getByText('Kept (no session at the moment)')).toBeTruthy();
     // Not this member's worktree: no merge request, no removal.
     expect(within(details).queryByRole('button')).toBeNull();
 
@@ -63,48 +64,48 @@ describe('WorktreeSwitcher: main workspace or any worktree, with owner and branc
   it('the owner sees the shared read-only folders and can ask for a merge from here', async () => {
     const { conn } = setup('agent', [AMY]);
     await settle();
-    fireEvent.change(screen.getByLabelText('檢視的工作區'), { target: { value: 'wt:wt_amy' } });
-    const details = screen.getByRole('group', { name: '目前檢視的 worktree' });
-    expect(within(details).getByText('唯讀的共享資料夾：data、checkpoints')).toBeTruthy();
-    expect(within(details).getByText('有 session 正在使用')).toBeTruthy();
-    fireEvent.click(within(details).getByRole('button', { name: '請主人合併' }));
-    const dialog = screen.getByRole('dialog', { name: '請主人合併 smurg/amy/wt_amy' });
-    fireEvent.click(within(dialog).getByRole('button', { name: '送出合併請求' }));
+    fireEvent.change(screen.getByLabelText('Viewing'), { target: { value: 'wt:wt_amy' } });
+    const details = screen.getByRole('group', { name: 'Worktree in view' });
+    expect(within(details).getByText('Read-only shared folders: data, checkpoints')).toBeTruthy();
+    expect(within(details).getByText('A session is using it')).toBeTruthy();
+    fireEvent.click(within(details).getByRole('button', { name: 'Ask the host to merge' }));
+    const dialog = screen.getByRole('dialog', { name: 'Ask the host to merge smurg/amy/wt_amy' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Send merge request' }));
     expect(conn.lastRequest('worktree.merge.request')?.payload).toEqual({ worktreeId: 'wt_amy' });
   });
 
   it('the host can remove a worktree after a confirmation; a refusal is shown', async () => {
     const { conn } = setup('host', [AMY]);
     await settle();
-    fireEvent.change(screen.getByLabelText('檢視的工作區'), { target: { value: 'wt:wt_amy' } });
-    fireEvent.click(screen.getByRole('button', { name: '移除這個 worktree' }));
-    const dialog = screen.getByRole('alertdialog', { name: '移除 Amy 的 worktree？' });
-    expect(within(dialog).getByText(/還沒合併回主工作區的修改會一起消失/)).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole('button', { name: '移除 worktree' }));
+    fireEvent.change(screen.getByLabelText('Viewing'), { target: { value: 'wt:wt_amy' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove this worktree' }));
+    const dialog = screen.getByRole('alertdialog', { name: "Remove Amy's worktree?" });
+    expect(within(dialog).getByText(/together with any changes not yet merged into the main workspace/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove worktree' }));
     expect(conn.lastRequest('worktree.remove')?.payload).toEqual({ worktreeId: 'wt_amy' });
     await act(async () => {
-      conn.fail('worktree.remove', new SmurgError('conflict', '這個 worktree 還有 session 在使用'));
+      conn.fail('worktree.remove', new SmurgError('conflict', msg('worktree.inUse')));
     });
-    expect(within(dialog).getByText('無法移除 worktree：這個 worktree 還有 session 在使用')).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole('button', { name: '移除 worktree' }));
+    expect(within(dialog).getByText('Could not remove the worktree: A session is using this worktree. End the session first.')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove worktree' }));
     await act(async () => {
       conn.respond('worktree.remove', {});
     });
-    expect(await screen.findByText('已移除 worktree。')).toBeTruthy();
+    expect(await screen.findByText('Worktree removed.')).toBeTruthy();
     expect(screen.queryByRole('alertdialog')).toBeNull();
     // The daemon then announces the removal: the tree falls back to the main workspace.
     act(() => conn.emit('worktree.removed', { worktreeId: 'wt_amy' }));
     await settle();
-    expect(screen.queryByLabelText('檢視的工作區')).toBeNull();
+    expect(screen.queryByLabelText('Viewing')).toBeNull();
   });
 
   it('keeps the select truthful when the shown worktree disappears from the list', async () => {
     const { conn, stores } = setup('editor', [AMY, IAN]);
     await settle();
     act(() => stores.files.setActiveRoot({ kind: 'worktree', worktreeId: 'wt_gone' }));
-    const select = screen.getByLabelText('檢視的工作區') as HTMLSelectElement;
+    const select = screen.getByLabelText('Viewing') as HTMLSelectElement;
     expect(select.value).toBe('wt:wt_gone');
-    expect(select.selectedOptions[0]?.textContent).toBe('已移除的 worktree');
+    expect(select.selectedOptions[0]?.textContent).toBe('Removed worktree');
     expect(conn.requestsOf('worktree.list')).toHaveLength(1);
   });
 });

@@ -43,7 +43,7 @@ export async function otherSpellings(dir: string, name: string): Promise<string[
 const SPELLING_INDEX_DIRS = 1024;
 
 /**
- * otherSpellings for ONE operation (review RCR-2; ResolveOptions.spellings): each directory is listed once, on its
+ * otherSpellings for ONE operation (ResolveOptions.spellings): each directory is listed once, on its
  * first missed name, and indexed by NFC form. Without it every miss listed the whole directory again, so a zip or a
  * watcher batch over a folder of n Mac-made (NFD) names cost n listings of n entries (measured on ext4: a 20,000-file
  * zip 374 s instead of 26 s). A snapshot: an entry created after the listing is not seen by this operation (its

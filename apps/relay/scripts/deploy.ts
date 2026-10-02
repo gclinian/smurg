@@ -1,5 +1,5 @@
 // Guided, idempotent PRODUCTION deploy of the relay to a Cloudflare account on the Workers Free plan, Google login
-// only (README.md「部署到 Cloudflare」). Entry point, from the repository root:
+// only (README.md "Deploying to Cloudflare"). Entry point, from the repository root:
 //
 //   scripts/deploy-relay.sh [--url https://<relay host>] [--google-client-id <id>] [--take-over-hostname] [--wait S]
 //   scripts/deploy-relay.sh --dry-run [--url …] [--google-client-id …]      no Cloudflare account contact at all
@@ -43,7 +43,7 @@
 //      "<host> (custom domain)" and no workers.dev target.
 //   8. Prints the URL, the Google OAuth redirect URI and JavaScript origin (and, for a custom domain, the authorized
 //      domain), and the CLI's DEFAULT_RELAY_URL line when it differs.
-//   9. Secrets again: the exact command for each missing one (GOOGLE_CLIENT_SECRET is pasted by the owner; this script
+//   9. Secrets again: the exact command for each missing one (GOOGLE_CLIENT_SECRET is pasted by the operator; this script
 //      never reads, prints, writes or passes any secret value).
 //  10. From outside, with retries while a new hostname comes up (workers.dev, or the custom domain's DNS record and
 //      certificate): /healthz, /api/login-options (google true, github false, dev false), /.well-known/jwks.json, the
@@ -58,7 +58,7 @@
 //      with apps/web/dist (or --web-dist) when that holds a web build, and says so when it does not.
 //
 // Exit codes: 0 done (Google may still be pending: then the next steps are printed), 1 failed, 2 usage,
-// 3 the owner must act first (log in, choose an account, put the signing key).
+// 3 the operator must act first (log in, choose an account, put the signing key).
 import { spawn } from 'node:child_process';
 import { lookup } from 'node:dns/promises';
 import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -77,7 +77,7 @@ import {
   relayOrigin,
 } from '@smurg/protocol/relay';
 import { DEFAULT_RELAY_URL } from '../../../packages/cli/src/relay/default-relay.ts';
-import { HSTS_MIN_MAX_AGE, WEB_DIST, hstsMaxAge, webDistProblem } from './ensure-web-dist.ts';
+import { HSTS_MIN_MAX_AGE, STAND_IN_TEXT, WEB_DIST, hstsMaxAge, webDistProblem } from './ensure-web-dist.ts';
 
 export const RELAY_DIR = fileURLToPath(new URL('..', import.meta.url));
 export const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
@@ -95,7 +95,7 @@ export const GOOGLE_ENDPOINTS = Object.freeze({
   GOOGLE_ISSUER: 'https://accounts.google.com',
 });
 
-/** The commands the OWNER runs (from the repository root, after `source scripts/env.sh`); printed, never run here. */
+/** The commands the OPERATOR runs (the person deploying) (from the repository root, after `source scripts/env.sh`); printed, never run here. */
 export const OWNER_COMMANDS = Object.freeze({
   // CI=false: scripts/env.sh sets CI=true, and wrangler would then refuse its interactive prompts.
   login: 'CI=false pnpm --filter @smurg/relay exec wrangler login',
@@ -131,26 +131,30 @@ export interface DeployOptions {
   readonly takeOverHostname?: boolean;
 }
 
-export const DEPLOY_USAGE = `用法（在 repo 根目錄）：
-  scripts/deploy-relay.sh [--url https://<relay 網址>] [--google-client-id <client ID>] [--take-over-hostname] [--wait 秒]
-  scripts/deploy-relay.sh --dry-run [--url …] [--google-client-id …]
-  scripts/deploy-relay.sh --check <relay 網址> [--web-dist 目錄] [--wait 秒]
+export const DEPLOY_USAGE = `Usage (from the repository root):
+  scripts/deploy-relay.sh [--url https://<relay host>] [--google-client-id <client ID>] [--take-over-hostname] [--wait S]
+  scripts/deploy-relay.sh --dry-run [--url ...] [--google-client-id ...]
+  scripts/deploy-relay.sh --check <relay URL> [--web-dist DIR] [--wait S]
 
-  把 relay 部署到你的 Cloudflare 帳號（Workers Free 方案、只用 Google 登入），可以重複執行。relay 只有一個公開網址，
-  由 apps/relay/wrangler.jsonc 決定：workers.dev（"workers_dev": true、沒有 "routes"；自己架設時的預設），或一個
-  Cloudflare 自訂網域（"workers_dev": false、routes 剛好一個 { "pattern": "<網域>", "custom_domain": true }）。
-  --url                 relay 的網址。workers.dev：https://smurg-relay.<子網域>.workers.dev（第一次部署時可省略：
-                        由部署結果得知，寫進 wrangler.jsonc）；自訂網域：必須等於 https://<routes 的網域>
-  --google-client-id    Google OAuth client ID（Web application），寫進 wrangler.jsonc 的 GOOGLE_CLIENT_ID
-  --take-over-hostname  自訂網域已經有別的網站、DNS 記錄或 Worker 在回應時仍然部署：wrangler 會不經詢問把它換成這個 relay
-                        （沒有這個選項時腳本會停下來說明）
-  --dry-run             只建置與檢查（wrangler deploy --dry-run）：不連 Cloudflare 帳號（不查登入與 secret）、不部署、
-                        不改 wrangler.jsonc
-  --check <網址>        只從外部檢查一個已部署的 relay（healthz、登入方式、JWKS、網頁與 CSP、Google 登入導向、網頁是不是
-                        這個 checkout 的建置、自訂網域的 http:// 轉到 https://）
-  --web-dist 目錄       --check 時比對的網頁建置（預設 apps/web/dist；裡面沒有建置結果時不比對）
-  --wait 秒             外部檢查失敗時重試多久（預設：部署 180、--check 20）
-  說明：apps/relay/README.md「部署到 Cloudflare」。
+  Deploys the relay to your Cloudflare account (Workers Free plan, Google login only). Safe to run again. The relay
+  has exactly one public hostname, and apps/relay/wrangler.jsonc says which: workers.dev ("workers_dev": true, no
+  "routes"; the default when you self-host), or one Cloudflare Custom Domain ("workers_dev": false and exactly one
+  route { "pattern": "<domain>", "custom_domain": true }).
+  --url                 The relay's URL. workers.dev: https://smurg-relay.<subdomain>.workers.dev (may be left out on
+                        the first deploy: the deploy result names it and it is written to wrangler.jsonc); custom
+                        domain: must equal https://<the domain in routes>
+  --google-client-id    The Google OAuth client ID (Web application); written to GOOGLE_CLIENT_ID in wrangler.jsonc
+  --take-over-hostname  Deploy although another site, DNS record or Worker answers at the custom domain: wrangler
+                        replaces it with this relay without asking (without this option the script stops and explains)
+  --dry-run             Build and check only (wrangler deploy --dry-run): no contact with the Cloudflare account (no
+                        login check, no secret check), no deploy, no change to wrangler.jsonc
+  --check <URL>         Only check a deployed relay from outside (healthz, login methods, JWKS, web app and CSP, the
+                        Google login redirect, whether the web app is the build of this checkout, http:// redirecting
+                        to https:// on a custom domain)
+  --web-dist DIR        With --check: the web build to compare with (default apps/web/dist; no comparison when it
+                        holds no build)
+  --wait S              How long to retry failing outside checks, in seconds (default: 180 for a deploy, 20 for --check)
+  Guide: apps/relay/README.md, "Deploying to Cloudflare".
 `;
 
 export function parseDeployArgs(argv: readonly string[]): DeployOptions | 'help' {
@@ -162,7 +166,7 @@ export function parseDeployArgs(argv: readonly string[]): DeployOptions | 'help'
   let takeOverHostname = false;
   const value = (i: number, name: string): string => {
     const next = argv[i + 1];
-    if (next === undefined || next.startsWith('--')) throw new DeployError(`${name} 需要一個值`, 2);
+    if (next === undefined || next.startsWith('--')) throw new DeployError(`${name} needs a value`, 2);
     return next;
   };
   for (let i = 0; i < argv.length; i++) {
@@ -172,17 +176,17 @@ export function parseDeployArgs(argv: readonly string[]): DeployOptions | 'help'
       case '--help':
         return 'help';
       case '--dry-run':
-        if (mode === 'check') throw new DeployError('--dry-run 和 --check 不能同時使用', 2);
+        if (mode === 'check') throw new DeployError('--dry-run and --check cannot be used together', 2);
         mode = 'dry-run';
         break;
       case '--check':
-        if (mode === 'dry-run') throw new DeployError('--dry-run 和 --check 不能同時使用', 2);
+        if (mode === 'dry-run') throw new DeployError('--dry-run and --check cannot be used together', 2);
         mode = 'check';
         url = value(i, '--check');
         i++;
         break;
       case '--url':
-        if (url !== undefined) throw new DeployError('--url 只能指定一次', 2);
+        if (url !== undefined) throw new DeployError('--url may be given only once', 2);
         url = value(i, '--url');
         i++;
         break;
@@ -192,7 +196,7 @@ export function parseDeployArgs(argv: readonly string[]): DeployOptions | 'help'
         break;
       case '--wait': {
         const text = value(i, '--wait');
-        if (!/^\d{1,4}$/.test(text)) throw new DeployError('--wait 必須是秒數（0–9999）', 2);
+        if (!/^\d{1,4}$/.test(text)) throw new DeployError('--wait must be a number of seconds (0-9999)', 2);
         wait = Number(text);
         i++;
         break;
@@ -205,15 +209,15 @@ export function parseDeployArgs(argv: readonly string[]): DeployOptions | 'help'
         takeOverHostname = true;
         break;
       default:
-        throw new DeployError(`不認得的參數 ${arg}（--help 看用法）`, 2);
+        throw new DeployError(`unknown argument ${arg} (see --help)`, 2);
     }
   }
   if (mode === 'check') {
-    if (googleClientId !== undefined) throw new DeployError('--check 不接受 --google-client-id', 2);
-    if (takeOverHostname) throw new DeployError('--check 不接受 --take-over-hostname（它只在部署時有作用）', 2);
+    if (googleClientId !== undefined) throw new DeployError('--check does not take --google-client-id', 2);
+    if (takeOverHostname) throw new DeployError('--check does not take --take-over-hostname (it only matters for a deploy)', 2);
     return { mode, url: checkTarget(url as string), waitSeconds: wait ?? 20, ...(webDist !== undefined ? { webDist } : {}) };
   }
-  if (webDist !== undefined) throw new DeployError('--web-dist 只能和 --check 一起使用：部署時比對的是剛建置的 apps/web/dist', 2);
+  if (webDist !== undefined) throw new DeployError('--web-dist only goes with --check: a deploy compares with the apps/web/dist it has just built', 2);
   return {
     mode,
     ...(url !== undefined ? { url: deployUrlOf(url) } : {}),
@@ -232,13 +236,13 @@ export function deployUrlOf(text: string): string {
   try {
     origin = relayOrigin(text.trim());
   } catch (error) {
-    if (error instanceof RelayUrlError) throw new DeployError(`--url 不是正確的網址：${text}`, 2);
+    if (error instanceof RelayUrlError) throw new DeployError(`--url is not a valid URL: ${text}`, 2);
     throw error;
   }
-  if (origin.protocol !== 'https:') throw new DeployError(`--url 必須是 https（目前是 ${text}）`, 2);
+  if (origin.protocol !== 'https:') throw new DeployError(`--url must be https (got ${text})`, 2);
   if (isWorkersDevHost(origin.hostname)) return workersDevOrigin(text);
   if (origin.port !== '' || customDomainHost(origin.hostname) === null) {
-    throw new DeployError(`--url 必須是 https://smurg-relay.<你的子網域>.workers.dev，或 https://<自訂網域>（目前是 ${text}）`, 2);
+    throw new DeployError(`--url must be https://smurg-relay.<your subdomain>.workers.dev or https://<custom domain> (got ${text})`, 2);
   }
   return origin.origin;
 }
@@ -253,11 +257,11 @@ export function workersDevOrigin(text: string, workerName = 'smurg-relay'): stri
   try {
     origin = relayOrigin(text.trim()).origin;
   } catch (error) {
-    if (error instanceof RelayUrlError) throw new DeployError(`--url 不是正確的網址：${text}`, 2);
+    if (error instanceof RelayUrlError) throw new DeployError(`--url is not a valid URL: ${text}`, 2);
     throw error;
   }
   const pattern = new RegExp(`^https://${workerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9-]+)?\\.workers\\.dev$`);
-  if (!pattern.test(origin)) throw new DeployError(`--url 必須是 https://${workerName}.<你的子網域>.workers.dev（目前是 ${text}）`, 2);
+  if (!pattern.test(origin)) throw new DeployError(`--url must be https://${workerName}.<your subdomain>.workers.dev (got ${text})`, 2);
   return origin;
 }
 
@@ -266,7 +270,7 @@ function checkTarget(text: string): string {
   try {
     return relayOrigin(text.trim()).origin;
   } catch (error) {
-    if (error instanceof RelayUrlError) throw new DeployError(`--check 的網址不正確：${text}（https，本機可用 http://127.0.0.1:埠）`, 2);
+    if (error instanceof RelayUrlError) throw new DeployError(`the URL given to --check is not valid: ${text} (https; on this machine http://127.0.0.1:<port> also works)`, 2);
     throw error;
   }
 }
@@ -275,7 +279,7 @@ const GOOGLE_CLIENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.apps\.googleusercon
 
 export function googleClientIdOf(text: string): string {
   const id = text.trim();
-  if (!GOOGLE_CLIENT_ID.test(id)) throw new DeployError(`--google-client-id 看起來不是 Google 的 OAuth client ID（應該是 …apps.googleusercontent.com）：${text}`, 2);
+  if (!GOOGLE_CLIENT_ID.test(id)) throw new DeployError(`--google-client-id does not look like a Google OAuth client ID (expected ...apps.googleusercontent.com): ${text}`, 2);
   return id;
 }
 
@@ -326,19 +330,19 @@ export function parseWranglerJsonc(text: string): ProductionConfigView & Record<
   try {
     return JSON.parse(stripJsonComments(text)) as ProductionConfigView & Record<string, unknown>;
   } catch {
-    throw new DeployError('無法解析 apps/relay/wrangler.jsonc（JSONC）');
+    throw new DeployError('cannot parse apps/relay/wrangler.jsonc (JSONC)');
   }
 }
 
 /** '' (not deployed yet) or an https origin. */
 function issuerProblem(issuer: unknown): string | null {
   if (issuer === '') return null;
-  if (typeof issuer !== 'string') return 'RELAY_ISSUER 必須是字串';
+  if (typeof issuer !== 'string') return 'RELAY_ISSUER must be a string';
   try {
     const origin = relayOrigin(issuer);
-    if (origin.protocol !== 'https:' || origin.origin !== issuer) return `RELAY_ISSUER 必須是 https 的網站根網址（目前是 ${issuer}）`;
+    if (origin.protocol !== 'https:' || origin.origin !== issuer) return `RELAY_ISSUER must be an https origin without a path (it is ${issuer})`;
   } catch {
-    return `RELAY_ISSUER 不是正確的網址（${issuer}）`;
+    return `RELAY_ISSUER is not a valid URL (${issuer})`;
   }
   return null;
 }
@@ -380,30 +384,30 @@ export function customDomainHost(text: string): string | null {
  */
 export function relayHostingOf(config: Pick<ProductionConfigView, 'workers_dev' | 'route' | 'routes'>): { readonly hosting: RelayHosting | null; readonly problems: readonly string[] } {
   const problems: string[] = [];
-  if (config.route !== undefined) problems.push('不能用 "route"（單數）：自訂網域寫在 "routes"（剛好一個 custom_domain）');
+  if (config.route !== undefined) problems.push('"route" (singular) is not allowed: a custom domain goes in "routes" (exactly one custom_domain entry)');
   const routes: readonly unknown[] = Array.isArray(config.routes) ? config.routes : [];
-  if (config.routes !== undefined && !Array.isArray(config.routes)) problems.push('"routes" 必須是陣列');
+  if (config.routes !== undefined && !Array.isArray(config.routes)) problems.push('"routes" must be an array');
   if (config.workers_dev === true) {
-    if (routes.length > 0) problems.push(`workers_dev 是 true 時不能有 routes（目前有 ${routes.length} 個）：relay 只能有一個公開網址，workers.dev 或一個自訂網域`);
+    if (routes.length > 0) problems.push(`with workers_dev true there must be no routes (found ${routes.length}): the relay has exactly one public hostname, workers.dev or one custom domain`);
     return problems.length === 0 ? { hosting: { kind: 'workers-dev' }, problems } : { hosting: null, problems };
   }
   if (config.workers_dev !== false) {
-    problems.push('workers_dev 必須明確寫成 true（workers.dev）或 false（自訂網域）');
+    problems.push('workers_dev must be written explicitly: true (workers.dev) or false (a custom domain)');
     return { hosting: null, problems };
   }
-  const shape = '{ "pattern": "<網域>", "custom_domain": true }';
+  const shape = '{ "pattern": "<domain>", "custom_domain": true }';
   if (routes.length !== 1) {
-    problems.push(`workers_dev 是 false 時，routes 必須剛好是一個自訂網域 ${shape}（目前有 ${routes.length} 個）`);
+    problems.push(`with workers_dev false, routes must be exactly one custom domain ${shape} (found ${routes.length})`);
     return { hosting: null, problems };
   }
   const route = routes[0] as Record<string, unknown> | null;
   if (typeof route !== 'object' || route === null || route['custom_domain'] !== true || Object.keys(route).sort().join(',') !== 'custom_domain,pattern') {
-    problems.push(`routes[0] 必須剛好是 ${shape}（不是一般的 route，也不能有 zone_id、zone_name 或其他欄位）：${JSON.stringify(route)}`);
+    problems.push(`routes[0] must be exactly ${shape} (not an ordinary route, and without zone_id, zone_name or any other field): ${JSON.stringify(route)}`);
     return { hosting: null, problems };
   }
   const host = typeof route['pattern'] === 'string' ? customDomainHost(route['pattern']) : null;
   if (host === null) {
-    problems.push(`routes[0].pattern 必須是一個網域名稱（小寫，不能有 *、路徑、埠，不是 workers.dev）：${JSON.stringify(route['pattern'])}`);
+    problems.push(`routes[0].pattern must be a hostname (lower case; no *, path or port; not workers.dev): ${JSON.stringify(route['pattern'])}`);
     return { hosting: null, problems };
   }
   return problems.length === 0 ? { hosting: { kind: 'custom-domain', host, origin: `https://${host}` }, problems } : { hosting: null, problems };
@@ -419,40 +423,40 @@ export function productionConfigProblems(config: ProductionConfigView): string[]
   const vars = config.vars ?? {};
   const { hosting, problems: hostingIssues } = relayHostingOf(config);
   problems.push(...hostingIssues);
-  if (config.preview_urls !== false) problems.push('preview_urls 必須是 false（每個版本都會多一個公開網址）');
-  if (vars['DEV_LOGIN'] !== '0') problems.push('vars.DEV_LOGIN 在正式環境必須是 "0"');
-  if (vars['RELAY_TAP_URL'] !== '') problems.push('vars.RELAY_TAP_URL 在正式環境必須是空字串');
+  if (config.preview_urls !== false) problems.push('preview_urls must be false (every version would get one more public URL)');
+  if (vars['DEV_LOGIN'] !== '0') problems.push('vars.DEV_LOGIN must be "0" in production');
+  if (vars['RELAY_TAP_URL'] !== '') problems.push('vars.RELAY_TAP_URL must be the empty string in production');
   const github = Object.keys(vars).filter((name) => name.startsWith('GITHUB_'));
-  if (github.length > 0) problems.push(`正式環境只用 Google 登入，最上層的 vars 不能有 ${github.join('、')}`);
+  if (github.length > 0) problems.push(`production uses Google login only: the top-level vars must not have ${github.join(', ')}`);
   const issuer = vars['RELAY_ISSUER'];
   const issuerIssue = issuerProblem(issuer);
   if (issuerIssue) problems.push(issuerIssue);
   else if (hosting?.kind === 'custom-domain' && issuer !== hosting.origin) {
-    problems.push(`vars.RELAY_ISSUER 必須是自訂網域的網址 ${hosting.origin}（目前是 ${String(issuer) || '空字串'}）`);
+    problems.push(`vars.RELAY_ISSUER must be the custom domain's URL ${hosting.origin} (it is ${String(issuer) || 'the empty string'})`);
   } else if (hosting?.kind === 'workers-dev' && issuer !== '' && workersDevTarget([String(issuer)], config.name ?? 'smurg-relay') !== issuer) {
-    problems.push(`vars.RELAY_ISSUER 必須是空字串（第一次部署前）或 https://${config.name ?? 'smurg-relay'}.<子網域>.workers.dev（目前是 ${String(issuer)}）`);
+    problems.push(`vars.RELAY_ISSUER must be the empty string (before the first deploy) or https://${config.name ?? 'smurg-relay'}.<subdomain>.workers.dev (it is ${String(issuer)})`);
   }
-  if (vars['ALLOWED_ORIGINS'] !== vars['RELAY_ISSUER']) problems.push('vars.ALLOWED_ORIGINS 必須和 RELAY_ISSUER 相同（relay 自己提供網頁）');
+  if (vars['ALLOWED_ORIGINS'] !== vars['RELAY_ISSUER']) problems.push('vars.ALLOWED_ORIGINS must equal RELAY_ISSUER (the relay serves the web app itself)');
   const clientId = vars['GOOGLE_CLIENT_ID'];
-  if (clientId !== '' && !(typeof clientId === 'string' && GOOGLE_CLIENT_ID.test(clientId))) problems.push(`vars.GOOGLE_CLIENT_ID 不是 Google 的 OAuth client ID（${String(clientId)}）`);
+  if (clientId !== '' && !(typeof clientId === 'string' && GOOGLE_CLIENT_ID.test(clientId))) problems.push(`vars.GOOGLE_CLIENT_ID is not a Google OAuth client ID (${String(clientId)})`);
   for (const [name, url] of Object.entries(GOOGLE_ENDPOINTS)) {
-    if (vars[name] !== url) problems.push(`vars.${name} 必須是 ${url}`);
+    if (vars[name] !== url) problems.push(`vars.${name} must be ${url}`);
   }
-  if (!config.secrets?.required?.includes(SIGNING_KEY_SECRET)) problems.push(`secrets.required 必須列出 ${SIGNING_KEY_SECRET}`);
+  if (!config.secrets?.required?.includes(SIGNING_KEY_SECRET)) problems.push(`secrets.required must list ${SIGNING_KEY_SECRET}`);
   const bindings = (config.durable_objects?.bindings ?? []).map((b) => `${b.name}:${b.class_name}`).join(',');
   if (bindings !== 'WORKSPACE:WorkspaceDO,TRANSFER:TransferDO,DEVICE_LOGIN:DeviceLoginDO') {
-    problems.push('durable_objects 必須是 WORKSPACE（WorkspaceDO）、TRANSFER（TransferDO）與 DEVICE_LOGIN（DeviceLoginDO）');
+    problems.push('durable_objects must be WORKSPACE (WorkspaceDO), TRANSFER (TransferDO) and DEVICE_LOGIN (DeviceLoginDO)');
   }
   // Exactly the migrations already applied in production, in order, plus new tags after them: v1 was deployed on
   // 2026-10-01; a class added to v1 afterwards would never be created (Cloudflare applies each tag once).
   const migrations = (config.migrations ?? []).map((m) => `${m.tag ?? ''}:${(m.new_sqlite_classes ?? []).join('+')}:${Object.keys(m).sort().join('+')}`).join(',');
   if (migrations !== 'v1:WorkspaceDO+TransferDO:new_sqlite_classes+tag,v2:DeviceLoginDO:new_sqlite_classes+tag') {
-    problems.push('migrations 必須剛好是 v1（new_sqlite_classes：WorkspaceDO、TransferDO）與 v2（new_sqlite_classes：DeviceLoginDO）（Free 方案只能用 SQLite；已部署的 v1 不能改）');
+    problems.push('migrations must be exactly v1 (new_sqlite_classes: WorkspaceDO, TransferDO) and v2 (new_sqlite_classes: DeviceLoginDO) (the Free plan only allows SQLite; a deployed v1 must not change)');
   }
   const assets = config.assets;
-  if (!assets?.directory || !/(?:^|[/\\])web[/\\]dist$/.test(assets.directory)) problems.push('assets.directory 必須是 ../web/dist');
-  if (assets?.not_found_handling !== 'single-page-application') problems.push('assets.not_found_handling 必須是 single-page-application');
-  if (JSON.stringify(assets?.run_worker_first) !== JSON.stringify(RELAY_WORKER_FIRST_PATTERNS)) problems.push('assets.run_worker_first 必須等於 @smurg/protocol 的 RELAY_WORKER_FIRST_PATTERNS');
+  if (!assets?.directory || !/(?:^|[/\\])web[/\\]dist$/.test(assets.directory)) problems.push('assets.directory must be ../web/dist');
+  if (assets?.not_found_handling !== 'single-page-application') problems.push('assets.not_found_handling must be single-page-application');
+  if (JSON.stringify(assets?.run_worker_first) !== JSON.stringify(RELAY_WORKER_FIRST_PATTERNS)) problems.push('assets.run_worker_first must equal RELAY_WORKER_FIRST_PATTERNS of @smurg/protocol');
   return problems;
 }
 
@@ -465,22 +469,22 @@ export type ProductionVarName = 'RELAY_ISSUER' | 'ALLOWED_ORIGINS' | 'GOOGLE_CLI
  */
 export function setProductionVars(text: string, values: Readonly<Partial<Record<ProductionVarName, string>>>): string {
   const start = /^ {2}"vars": \{[ \t]*$/m.exec(text);
-  if (!start) throw new DeployError('wrangler.jsonc：找不到最上層的 "vars" 區塊');
+  if (!start) throw new DeployError('wrangler.jsonc: the top-level "vars" block was not found');
   const bodyStart = start.index + start[0].length;
   const end = /^ {2}\},?[ \t]*$/m.exec(text.slice(bodyStart));
-  if (!end) throw new DeployError('wrangler.jsonc：找不到最上層 "vars" 區塊的結尾');
+  if (!end) throw new DeployError('wrangler.jsonc: the end of the top-level "vars" block was not found');
   const bodyEnd = bodyStart + end.index;
   let body = text.slice(bodyStart, bodyEnd);
   for (const [name, value] of Object.entries(values) as [ProductionVarName, string][]) {
     const line = new RegExp(`^( {4}"${name}": )"(?:[^"\\\\\\n]|\\\\.)*"`, 'gm');
     const count = body.match(line)?.length ?? 0;
-    if (count !== 1) throw new DeployError(`wrangler.jsonc：最上層的 vars 裡 "${name}" 出現 ${count} 次（應該剛好 1 次）`);
+    if (count !== 1) throw new DeployError(`wrangler.jsonc: "${name}" appears ${count} times in the top-level vars (expected exactly once)`);
     body = body.replace(line, (_all, prefix: string) => `${prefix}${JSON.stringify(value)}`);
   }
   const out = text.slice(0, bodyStart) + body + text.slice(bodyEnd);
   const original = parseWranglerJsonc(text);
   const expected = { ...original, vars: { ...original.vars, ...values } };
-  if (JSON.stringify(parseWranglerJsonc(out)) !== JSON.stringify(expected)) throw new DeployError('wrangler.jsonc：修改後的內容和預期不同，沒有寫入');
+  if (JSON.stringify(parseWranglerJsonc(out)) !== JSON.stringify(expected)) throw new DeployError('wrangler.jsonc: the edited text is not what was expected; nothing was written');
   return out;
 }
 
@@ -524,13 +528,13 @@ export function parseSecretList(stdout: string, stderr: string, exitCode: number
   }
   const start = stdout.search(/^\s*\[/m);
   const end = stdout.lastIndexOf(']');
-  if (start < 0 || end < start) return { kind: 'error', detail: 'wrangler secret list 的輸出不是 JSON' };
+  if (start < 0 || end < start) return { kind: 'error', detail: 'the output of wrangler secret list is not JSON' };
   try {
     const list = JSON.parse(stdout.slice(start, end + 1)) as unknown;
-    if (!Array.isArray(list)) return { kind: 'error', detail: 'wrangler secret list 的輸出不是陣列' };
+    if (!Array.isArray(list)) return { kind: 'error', detail: 'the output of wrangler secret list is not an array' };
     return { kind: 'names', names: list.map((s) => (s as { name?: unknown })?.name).filter((n): n is string => typeof n === 'string') };
   } catch {
-    return { kind: 'error', detail: 'wrangler secret list 的輸出不是 JSON' };
+    return { kind: 'error', detail: 'the output of wrangler secret list is not JSON' };
   }
 }
 
@@ -566,16 +570,16 @@ export function workersDevTarget(targets: readonly string[], workerName: string)
  * workers.dev URL equal to `url`; on a custom domain "<host> (custom domain)" and no workers.dev hostname at all.
  */
 export function deployedTargetProblem(targets: readonly string[], hosting: RelayHosting, workerName: string, url: string): string | null {
-  const listed = targets.join('、') || '無';
+  const listed = targets.join(', ') || 'none';
   if (hosting.kind === 'workers-dev') {
     const deployed = workersDevTarget(targets, workerName);
-    return deployed === url ? null : `部署後的 workers.dev 網址是 ${deployed ?? '（無）'}，不是 ${url}（targets：${listed}）`;
+    return deployed === url ? null : `the deployed workers.dev URL is ${deployed ?? '(none)'}, not ${url} (targets: ${listed})`;
   }
   if (targets.some((target) => isWorkersDevHost(target.replace(/^https:\/\//, '').split(/[/ ]/, 1)[0] ?? ''))) {
-    return `自訂網域的 relay 不能同時開著 workers.dev（targets：${listed}）`;
+    return `a relay on a custom domain must not also have workers.dev on (targets: ${listed})`;
   }
   if (!targets.includes(`${hosting.host}${CUSTOM_DOMAIN_TARGET_SUFFIX}`)) {
-    return `部署結果裡沒有自訂網域 ${hosting.host}${CUSTOM_DOMAIN_TARGET_SUFFIX}（targets：${listed}）`;
+    return `the deploy result does not list the custom domain ${hosting.host}${CUSTOM_DOMAIN_TARGET_SUFFIX} (targets: ${listed})`;
   }
   return null;
 }
@@ -605,13 +609,20 @@ export interface CheckOptions {
   readonly fetch?: typeof fetch;
 }
 
-/** The names of the checks added after the first six (tests and messages refer to them). */
+/**
+ * The names of the outside checks: stable English ids. Tests, the deploy's output and docs/RELEASING.md refer to them,
+ * so a name changes only together with those.
+ */
 export const CHECK_NAMES = Object.freeze({
-  webBuild: 'GET /（網頁是這個 checkout 的建置）',
-  httpsRedirect: 'http:// 轉到 https://',
+  healthz: 'GET /healthz',
+  loginOptions: 'GET /api/login-options',
+  jwks: 'GET /.well-known/jwks.json',
+  spaRoot: 'GET / (web app and CSP)',
+  spaDeepLink: 'GET /join/... (SPA deep link and CSP)',
+  googleLogin: 'GET /auth/google/login',
+  webBuild: 'GET / (web app is the build of this checkout)',
+  httpsRedirect: 'http:// redirects to https://',
 });
-
-const STAND_IN_TEXT = '尚未建置網頁介面';
 
 async function probe(fetcher: typeof fetch, url: string, init: { readonly redirect?: 'follow' | 'manual' } = {}): Promise<{ status: number; headers: Headers; text: string }> {
   const res = await fetcher(url, { ...init, signal: AbortSignal.timeout(15_000), headers: { 'user-agent': 'smurg-deploy-check' } });
@@ -620,7 +631,7 @@ async function probe(fetcher: typeof fetch, url: string, init: { readonly redire
   // CLI and the daemon are not browsers and could not pass it either.
   const mitigated = res.headers.get('cf-mitigated');
   if (mitigated !== null) {
-    throw new Error(`Cloudflare 擋下了這個請求（HTTP ${res.status}，cf-mitigated: ${mitigated}）：關掉這個網域的 Bot Fight Mode、I'm Under Attack，以及會 challenge 這個網址的 WAF 規則（CLI 與 daemon 不是瀏覽器，過不了 challenge）`);
+    throw new Error(`Cloudflare stopped this request (HTTP ${res.status}, cf-mitigated: ${mitigated}): turn off Bot Fight Mode and I'm Under Attack for this domain, and any WAF rule that challenges this URL (the CLI and the daemon are not browsers and cannot pass a challenge)`);
   }
   return { status: res.status, headers: res.headers, text };
 }
@@ -654,19 +665,19 @@ function httpsPreloaded(hostname: string): boolean {
  */
 function spaProblem(r: { status: number; headers: Headers; text: string }, https: boolean): string | null {
   if (r.status !== 200) return `HTTP ${r.status}`;
-  if (!(r.headers.get('content-type') ?? '').startsWith('text/html')) return `content-type ${r.headers.get('content-type') ?? '（無）'}`;
-  if (r.text.includes(STAND_IN_TEXT)) return '是開發用的替代頁面，不是網頁建置結果';
-  if (!r.text.includes('<div id="root"></div>') || !/<script type="module"[^>]*src="\/assets\//.test(r.text)) return '不是 smurg 網頁的 index.html';
+  if (!(r.headers.get('content-type') ?? '').startsWith('text/html')) return `content-type ${r.headers.get('content-type') ?? '(none)'}`;
+  if (r.text.includes(STAND_IN_TEXT)) return 'this is the development stand-in page, not a web build';
+  if (!r.text.includes('<div id="root"></div>') || !/<script type="module"[^>]*src="\/assets\//.test(r.text)) return "this is not the smurg web app's index.html";
   const csp = r.headers.get('content-security-policy') ?? '';
-  if (!csp.includes("frame-ancestors 'none'") || !csp.includes("default-src 'self'")) return `沒有 _headers 的 Content-Security-Policy（${csp || '無'}）`;
-  if ((r.headers.get('x-frame-options') ?? '').toUpperCase() !== 'DENY') return '沒有 X-Frame-Options: DENY';
-  if (r.headers.get('x-content-type-options') !== 'nosniff') return '沒有 X-Content-Type-Options: nosniff';
+  if (!csp.includes("frame-ancestors 'none'") || !csp.includes("default-src 'self'")) return `the Content-Security-Policy of _headers is missing (${csp || 'none'})`;
+  if ((r.headers.get('x-frame-options') ?? '').toUpperCase() !== 'DENY') return 'X-Frame-Options: DENY is missing';
+  if (r.headers.get('x-content-type-options') !== 'nosniff') return 'X-Content-Type-Options: nosniff is missing';
   if (https) {
     // Two Strict-Transport-Security headers (_headers' and, say, the zone's HSTS setting) reach fetch() joined with
     // ', '; a browser processes only the first one (RFC 6797 §8.1), so only the first one is judged.
     const hsts = r.headers.get('strict-transport-security');
     if (hsts === null || hstsMaxAge(hsts.split(',')[0] as string) === null) {
-      return `沒有 _headers 的 Strict-Transport-Security（max-age 至少 ${HSTS_MIN_MAX_AGE}；收到 ${hsts ?? '無'}）。線上的網頁若是 apps/web/public/_headers 加入這一行之前的建置，從要發佈的 commit 重新部署：scripts/deploy-relay.sh`;
+      return `the Strict-Transport-Security of _headers is missing (max-age at least ${HSTS_MIN_MAX_AGE}; got ${hsts ?? 'none'}). If the live web app was built before apps/web/public/_headers had this line, deploy again from the commit to release: scripts/deploy-relay.sh`;
     }
   }
   return null;
@@ -684,49 +695,49 @@ export async function checkRelay(origin: string, options: CheckOptions): Promise
       results.push({ name, ok: false, detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error) });
     }
   };
-  await run('GET /healthz', async () => {
+  await run(CHECK_NAMES.healthz, async () => {
     const r = await probe(fetcher, relayHttpUrl(origin, RELAY_PATHS.healthz));
     return r.status === 200 && r.text.trim() === 'ok' ? null : `HTTP ${r.status}`;
   });
-  await run('GET /api/login-options', async () => {
+  await run(CHECK_NAMES.loginOptions, async () => {
     const r = await probe(fetcher, relayHttpUrl(origin, RELAY_PATHS.loginOptions));
-    if (r.status !== 200) return `HTTP ${r.status}${r.status === 500 ? '（RELAY_ISSUER 或簽章金鑰沒有設定好）' : ''}`;
+    if (r.status !== 200) return `HTTP ${r.status}${r.status === 500 ? ' (RELAY_ISSUER or the signing key is not set up)' : ''}`;
     const parsed = relayLoginOptionsSchema.safeParse(JSON.parse(r.text));
-    if (!parsed.success) return `回應格式不對：${r.text.slice(0, 200)}`;
+    if (!parsed.success) return `unexpected response: ${r.text.slice(0, 200)}`;
     const { providers, dev } = parsed.data;
     const seen = `google=${providers.google} github=${providers.github} dev=${dev}`;
-    if (dev) return `${seen}：正式環境不能開啟開發用登入`;
-    if (providers.github) return `${seen}：正式環境只用 Google 登入`;
-    if (providers.google !== options.expectGoogle) return `${seen}：預期 google=${options.expectGoogle}`;
+    if (dev) return `${seen}: the development login must be off in production`;
+    if (providers.github) return `${seen}: production uses Google login only`;
+    if (providers.google !== options.expectGoogle) return `${seen}: expected google=${options.expectGoogle}`;
     return null;
   });
-  await run('GET /.well-known/jwks.json', async () => {
+  await run(CHECK_NAMES.jwks, async () => {
     const r = await probe(fetcher, relayHttpUrl(origin, RELAY_PATHS.jwks));
-    if (r.status !== 200) return `HTTP ${r.status}${r.status === 500 ? `（${SIGNING_KEY_SECRET} 沒有設定或格式不對）` : ''}`;
+    if (r.status !== 200) return `HTTP ${r.status}${r.status === 500 ? ` (${SIGNING_KEY_SECRET} is missing or malformed)` : ''}`;
     const keys = (JSON.parse(r.text) as { keys?: unknown }).keys;
-    if (!Array.isArray(keys) || keys.length === 0) return '沒有任何公鑰';
+    if (!Array.isArray(keys) || keys.length === 0) return 'no public key at all';
     for (const key of keys as Record<string, unknown>[]) {
-      if (key['kty'] !== 'OKP' || key['crv'] !== 'Ed25519' || typeof key['kid'] !== 'string' || typeof key['x'] !== 'string') return '公鑰不是 Ed25519 JWK';
-      if ('d' in key) return '公開了私鑰（d）！';
+      if (key['kty'] !== 'OKP' || key['crv'] !== 'Ed25519' || typeof key['kid'] !== 'string' || typeof key['x'] !== 'string') return 'a public key is not an Ed25519 JWK';
+      if ('d' in key) return 'the private key (d) is published';
     }
     return null;
   });
   const https = new URL(origin).protocol === 'https:';
-  await run('GET /（網頁與 CSP）', async () => spaProblem(await probe(fetcher, `${origin}/`), https));
-  await run('GET /join/…（SPA 深層連結與 CSP）', async () => spaProblem(await probe(fetcher, `${origin}/join/smurg-deploy-check`), https));
-  await run('GET /auth/google/login', async () => {
+  await run(CHECK_NAMES.spaRoot, async () => spaProblem(await probe(fetcher, `${origin}/`), https));
+  await run(CHECK_NAMES.spaDeepLink, async () => spaProblem(await probe(fetcher, `${origin}/join/smurg-deploy-check`), https));
+  await run(CHECK_NAMES.googleLogin, async () => {
     const r = await probe(fetcher, relayHttpUrl(origin, authLoginPath('google')), { redirect: 'manual' });
-    if (!options.expectGoogle) return r.status === 503 ? null : `HTTP ${r.status}（Google 尚未設定時應該是 503）`;
-    if (r.status !== 302) return `HTTP ${r.status}（應該轉到 Google）`;
+    if (!options.expectGoogle) return r.status === 503 ? null : `HTTP ${r.status} (expected 503 while Google is not set up)`;
+    if (r.status !== 302) return `HTTP ${r.status} (expected a redirect to Google)`;
     const location = new URL(r.headers.get('location') ?? 'about:blank');
-    if (location.origin !== new URL(GOOGLE_ENDPOINTS.GOOGLE_AUTHORIZE_URL).origin) return `轉到 ${location.origin}，不是 Google`;
+    if (location.origin !== new URL(GOOGLE_ENDPOINTS.GOOGLE_AUTHORIZE_URL).origin) return `redirects to ${location.origin}, not to Google`;
     const redirectUri = location.searchParams.get('redirect_uri');
-    if (redirectUri !== `${origin}${authCallbackPath('google')}`) return `redirect_uri 是 ${redirectUri ?? '（無）'}，應該是 ${origin}${authCallbackPath('google')}（RELAY_ISSUER 不對？）`;
+    if (redirectUri !== `${origin}${authCallbackPath('google')}`) return `redirect_uri is ${redirectUri ?? '(none)'}, expected ${origin}${authCallbackPath('google')} (is RELAY_ISSUER wrong?)`;
     const clientId = location.searchParams.get('client_id') ?? '';
-    if (options.googleClientId !== undefined ? clientId !== options.googleClientId : !GOOGLE_CLIENT_ID.test(clientId)) return `client_id 是 ${clientId || '（無）'}`;
+    if (options.googleClientId !== undefined ? clientId !== options.googleClientId : !GOOGLE_CLIENT_ID.test(clientId)) return `client_id is ${clientId || '(none)'}`;
     if (https) {
       const cookie = r.headers.get('set-cookie') ?? '';
-      if (!cookie.includes('__Host-') || !/;\s*Secure/i.test(cookie)) return 'https 的 relay 應該用 __Host- 開頭、Secure 的 cookie';
+      if (!cookie.includes('__Host-') || !/;\s*Secure/i.test(cookie)) return 'an https relay must use a Secure cookie whose name starts with __Host-';
     }
     return null;
   });
@@ -738,9 +749,9 @@ export async function checkRelay(origin: string, options: CheckOptions): Promise
       const live = webAssetsOf(r.text);
       if (live.join(' ') === wanted.join(' ')) return null;
       return (
-        `線上的網頁載入 ${live.join(' ') || '（沒有 /assets/ 檔案）'}，這裡的建置是 ${wanted.join(' ')}：線上的網頁不是這個 checkout 建置的版本。` +
-        '舊的網頁會拒絕新版 daemon 的 channel.welcome（多出的欄位），所以從要發佈的 commit 重新部署：scripts/deploy-relay.sh' +
-        '（只是 apps/web/dist 舊了或含有沒提交的修改時：pnpm --filter @smurg/web build 後再比對）'
+        `the live web app loads ${live.join(' ') || '(no /assets/ files)'}, the build here is ${wanted.join(' ')}: the live web app is not the build of this checkout. ` +
+        "An older web app refuses a newer daemon's channel.welcome (unknown fields), so deploy again from the commit to release: scripts/deploy-relay.sh " +
+        '(if apps/web/dist is only stale or holds uncommitted changes: pnpm --filter @smurg/web build, then compare again)'
       );
     });
   }
@@ -752,9 +763,9 @@ export async function checkRelay(origin: string, options: CheckOptions): Promise
       const location = r.headers.get('location');
       if ((r.status === 301 || r.status === 308) && location === relayHttpUrl(origin, RELAY_PATHS.healthz)) return null;
       return (
-        `${plain} 回應 HTTP ${r.status}${location !== null ? `（轉到 ${location}）` : ''}，不是永久轉到 https://：` +
-        '沒有 HSTS preload 的網域，瀏覽器第一次可能用 http 連線，網路上的人就能換掉網頁。在 Cloudflare dashboard → 這個網域的 zone → ' +
-        'SSL/TLS → Edge Certificates 打開 Always Use HTTPS'
+        `${plain} answers HTTP ${r.status}${location !== null ? ` (redirecting to ${location})` : ''}, not a permanent redirect to https://: ` +
+        'on a domain without HSTS preload a browser may connect over http the first time, and anyone on the network could then replace the web app. ' +
+        "In the Cloudflare dashboard, open this domain's zone -> SSL/TLS -> Edge Certificates and turn on Always Use HTTPS"
       );
     });
   }
@@ -774,7 +785,7 @@ export async function checkRelayUntil(origin: string, options: CheckOptions & { 
 }
 
 export function formatChecks(results: readonly CheckResult[]): string {
-  return results.map((r) => `  ${r.ok ? '✓' : '✗'} ${r.name}${r.ok ? '' : `：${r.detail}`}`).join('\n');
+  return results.map((r) => `  ${r.ok ? '✓' : '✗'} ${r.name}${r.ok ? '' : `: ${r.detail}`}`).join('\n');
 }
 
 // ── Who answers at a custom domain before a deploy ───────────────────────────────────────────────────────────────
@@ -790,7 +801,7 @@ export async function hostResolves(host: string): Promise<boolean> {
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOTFOUND' || code === 'ENODATA') return false;
-    throw new DeployError(`無法查詢 ${host} 的 DNS（${code ?? String(error)}）：確認網路後再執行一次`);
+    throw new DeployError(`the DNS lookup of ${host} failed (${code ?? String(error)}): check the network and run this again`);
   }
 }
 
@@ -803,13 +814,13 @@ export async function hostnameOccupant(host: string, deps: { readonly lookupHost
   const origin = `https://${host}`;
   try {
     const health = await probe(deps.fetch, relayHttpUrl(origin, RELAY_PATHS.healthz), { redirect: 'manual' });
-    if (health.status !== 200 || health.text.trim() !== 'ok') return { kind: 'other', detail: `${origin}/healthz 回應 HTTP ${health.status}` };
+    if (health.status !== 200 || health.text.trim() !== 'ok') return { kind: 'other', detail: `${origin}/healthz answers HTTP ${health.status}` };
     const options = await probe(deps.fetch, relayHttpUrl(origin, RELAY_PATHS.loginOptions), { redirect: 'manual' });
     if (options.status === 500) return { kind: 'relay' };
     if (options.status === 200 && relayLoginOptionsSchema.safeParse(JSON.parse(options.text)).success) return { kind: 'relay' };
-    return { kind: 'other', detail: `${origin}/api/login-options 回應 HTTP ${options.status}` };
+    return { kind: 'other', detail: `${origin}/api/login-options answers HTTP ${options.status}` };
   } catch (error) {
-    return { kind: 'other', detail: `${host} 有 DNS 記錄，但 ${origin} 沒有像 smurg relay 一樣回應（${error instanceof Error ? error.message : String(error)}）` };
+    return { kind: 'other', detail: `${host} has a DNS record, but ${origin} does not answer like a smurg relay (${error instanceof Error ? error.message : String(error)})` };
   }
 }
 
@@ -844,7 +855,7 @@ interface Ran {
   readonly stderr: string;
 }
 
-/** Runs a command; `show` lets its output through to the owner's terminal instead of capturing it. */
+/** Runs a command; `show` lets its output through to the operator's terminal instead of capturing it. */
 function runCommand(file: string, args: readonly string[], options: { readonly cwd: string; readonly env?: NodeJS.ProcessEnv; readonly show: boolean }): Promise<Ran> {
   return new Promise((done, fail) => {
     const child = spawn(file, args, {
@@ -867,9 +878,9 @@ function runCommand(file: string, args: readonly string[], options: { readonly c
 
 async function buildWebDefault(): Promise<void> {
   const built = await runCommand('pnpm', ['--filter', '@smurg/web', 'build'], { cwd: REPO_ROOT, show: true });
-  if (built.code !== 0) throw new DeployError(`網頁建置失敗（pnpm --filter @smurg/web build，結束代碼 ${built.code}）`);
+  if (built.code !== 0) throw new DeployError(`the web build failed (pnpm --filter @smurg/web build, exit code ${built.code})`);
   const checked = await runCommand(process.execPath, [join(RELAY_DIR, 'scripts', 'check-web-dist.ts')], { cwd: RELAY_DIR, show: true });
-  if (checked.code !== 0) throw new DeployError('網頁建置結果不能部署（scripts/check-web-dist.ts）');
+  if (checked.code !== 0) throw new DeployError('the web build cannot be deployed (scripts/check-web-dist.ts)');
 }
 
 class Tools {
@@ -915,7 +926,7 @@ class Tools {
     return parseSecretList(ran.stdout, ran.stderr, ran.code);
   }
 
-  /** `wrangler deploy --env ""` (output shown to the owner); returns the deploy targets. */
+  /** `wrangler deploy --env ""` (output shown to the operator); returns the deploy targets. */
   async deploy(): Promise<string[]> {
     const dir = await mkdtemp(join(tmpdir(), 'smurg-deploy-'));
     try {
@@ -924,11 +935,11 @@ class Tools {
       if (ran.code !== 0) {
         throw new DeployError(
           [
-            `wrangler deploy 失敗（結束代碼 ${ran.code}）。常見原因：`,
-            '  · workers.dev：帳號還沒有 workers.dev 子網域：打開 wrangler 印出的 https://dash.cloudflare.com/<帳號>/workers/onboarding 選一個，再執行一次。',
-            '  · 自訂網域：網域的 zone 必須在同一個 Cloudflare 帳號（而且由 Cloudflare 代管 DNS）。',
-            `  · 缺少 ${SIGNING_KEY_SECRET}：執行  ${OWNER_COMMANDS.signingKey}`,
-            '  · 登入過期：重新登入後再執行一次。',
+            `wrangler deploy failed (exit code ${ran.code}). Common causes:`,
+            '  - workers.dev: the account has no workers.dev subdomain yet: open the https://dash.cloudflare.com/<account>/workers/onboarding page that wrangler printed, choose one, and run this again.',
+            '  - custom domain: the zone of the domain must be on the same Cloudflare account (with Cloudflare as its DNS).',
+            `  - ${SIGNING_KEY_SECRET} is missing: run  ${OWNER_COMMANDS.signingKey}`,
+            '  - the login expired: log in again and run this again.',
           ].join('\n'),
         );
       }
@@ -943,7 +954,7 @@ class Tools {
     try {
       const args = ['deploy', '--dry-run', '--config', this.configPath, '--env=', '--outdir', dir, ...Object.entries(vars).flatMap(([name, value]) => ['--var', `${name}:${value}`])];
       const ran = await this.wrangler(args, { show: true });
-      if (ran.code !== 0) throw new DeployError(`wrangler deploy --dry-run 失敗（結束代碼 ${ran.code}）`);
+      if (ran.code !== 0) throw new DeployError(`wrangler deploy --dry-run failed (exit code ${ran.code})`);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -964,11 +975,11 @@ class Tools {
 
 function googleConsoleText(url: string, hosting: RelayHosting): string {
   return [
-    `  Google Cloud console → APIs & Services → Credentials → 你的 OAuth client（Web application）：`,
-    `    Authorized JavaScript origins：${url}`,
-    `    Authorized redirect URIs：     ${url}${authCallbackPath('google')}`,
+    `  Google Cloud console -> APIs & Services -> Credentials -> your OAuth client (Web application):`,
+    `    Authorized JavaScript origins: ${url}`,
+    `    Authorized redirect URIs:      ${url}${authCallbackPath('google')}`,
     ...(hosting.kind === 'custom-domain'
-      ? [`  Google Auth Platform → Branding → Authorized domains：${hosting.host} 所屬、你擁有的網域（Cloudflare 上的 zone，例如 app.smurg.ai → smurg.ai）`]
+      ? [`  Google Auth Platform -> Branding -> Authorized domains: the domain you own that ${hosting.host} belongs to (the zone on Cloudflare, e.g. app.smurg.ai -> smurg.ai)`]
       : []),
   ].join('\n');
 }
@@ -977,207 +988,207 @@ function googleConsoleText(url: string, hosting: RelayHosting): string {
 function assertRepoEnvironment(): void {
   const xdg = process.env['XDG_CONFIG_HOME'];
   if (xdg === undefined || resolve(xdg) !== resolve(REPO_ROOT, '.xdg')) {
-    throw new DeployError('請用 scripts/deploy-relay.sh 執行（它會 source scripts/env.sh，讓 wrangler 的登入資料留在 repo 的 .xdg/）', 2);
+    throw new DeployError("run this through scripts/deploy-relay.sh (it sources scripts/env.sh, so wrangler keeps its login in the repository's .xdg/)", 2);
   }
 }
 
 async function requireLogin(t: Tools): Promise<void> {
   const who = await t.whoami();
   if (!who.loggedIn) {
-    throw new DeployError(`wrangler 還沒有登入 Cloudflare（登入資料放在 ${join(REPO_ROOT, '.xdg')}）。請在 repo 根目錄執行：\n  source scripts/env.sh\n  ${OWNER_COMMANDS.login}`, 3);
+    throw new DeployError(`wrangler is not logged in to Cloudflare (its login is kept in ${join(REPO_ROOT, '.xdg')}). From the repository root, run:\n  source scripts/env.sh\n  ${OWNER_COMMANDS.login}`, 3);
   }
   const chosen = process.env['CLOUDFLARE_ACCOUNT_ID'];
-  if (who.accounts.length === 0) throw new DeployError('這個 Cloudflare 登入看不到任何帳號', 3);
+  if (who.accounts.length === 0) throw new DeployError('this Cloudflare login sees no account at all', 3);
   const account = chosen ? who.accounts.find((a) => a.id === chosen) : who.accounts.length === 1 ? who.accounts[0] : undefined;
   if (!account) {
     throw new DeployError(
       [
-        chosen ? `CLOUDFLARE_ACCOUNT_ID=${chosen} 不是這個登入可以使用的帳號。` : '這個 Cloudflare 登入有多個帳號，請指定要部署到哪一個：',
+        chosen ? `CLOUDFLARE_ACCOUNT_ID=${chosen} is not an account this login can use.` : 'This Cloudflare login has several accounts. Say which one to deploy to:',
         ...who.accounts.map((a) => `  ${a.id}  ${a.name}`),
-        '  然後執行：CLOUDFLARE_ACCOUNT_ID=<帳號 ID> scripts/deploy-relay.sh …',
+        '  then run: CLOUDFLARE_ACCOUNT_ID=<account ID> scripts/deploy-relay.sh ...',
       ].join('\n'),
       3,
     );
   }
-  t.out(`  已登入 Cloudflare 帳號：${account.name}（${account.id}）`);
+  t.out(`  Logged in to the Cloudflare account ${account.name} (${account.id})`);
 }
 
 async function runDeploy(t: Tools, options: DeployOptions): Promise<number> {
   const dryRun = options.mode === 'dry-run';
   const total = 10;
-  t.out(dryRun ? 'smurg relay 部署：--dry-run（不連 Cloudflare 帳號：不查登入、不查 secret、不部署、不改 wrangler.jsonc）' : 'smurg relay 部署（Cloudflare Workers，Free 方案，只用 Google 登入）');
+  t.out(dryRun ? 'smurg relay deploy: --dry-run (no contact with the Cloudflare account: no login check, no secret check, no deploy, no change to wrangler.jsonc)' : 'smurg relay deploy (Cloudflare Workers, Free plan, Google login only)');
 
-  t.step(1, total, 'Cloudflare 登入（wrangler whoami）');
-  if (dryRun) t.out(`  （--dry-run：略過。部署時若還沒登入，會請你執行：${OWNER_COMMANDS.login}）`);
+  t.step(1, total, 'Cloudflare login (wrangler whoami)');
+  if (dryRun) t.out(`  (--dry-run: skipped. A deploy that finds no login asks you to run: ${OWNER_COMMANDS.login})`);
   else await requireLogin(t);
 
-  t.step(2, total, `secret：${SIGNING_KEY_SECRET} 必須在第一次部署前存在`);
-  if (dryRun) t.out('  （--dry-run：略過 wrangler secret list）');
+  t.step(2, total, `Secrets: ${SIGNING_KEY_SECRET} must exist before the first deploy`);
+  if (dryRun) t.out('  (--dry-run: wrangler secret list skipped)');
   else {
     const secrets = await t.secretList();
-    if (secrets.kind === 'error') throw new DeployError(`wrangler secret list 失敗：\n${secrets.detail}`);
+    if (secrets.kind === 'error') throw new DeployError(`wrangler secret list failed:\n${secrets.detail}`);
     if (secrets.kind === 'no-worker' || !secrets.names.includes(SIGNING_KEY_SECRET)) {
       throw new DeployError(
         [
-          secrets.kind === 'no-worker' ? '這個帳號還沒有 smurg-relay 這個 Worker。' : `Worker 沒有 ${SIGNING_KEY_SECRET}。`,
-          `wrangler 不接受缺少 ${SIGNING_KEY_SECRET} 的部署（wrangler.jsonc 的 secrets.required）；先放進簽章金鑰`,
-          '（Worker 還不存在時，wrangler 會先建立一個空的 smurg-relay Worker），再執行一次這個腳本。在 repo 根目錄：',
+          secrets.kind === 'no-worker' ? 'This account has no Worker named smurg-relay yet.' : `The Worker has no ${SIGNING_KEY_SECRET}.`,
+          `wrangler refuses a deploy without ${SIGNING_KEY_SECRET} (secrets.required in wrangler.jsonc). Put the signing key first`,
+          '(when the Worker does not exist yet, wrangler creates an empty smurg-relay Worker for it), then run this script again. From the repository root:',
           '  source scripts/env.sh',
           `  ${OWNER_COMMANDS.signingKey}`,
-          '金鑰只經過管線交給 wrangler，不會顯示在畫面上，也不會寫進任何檔案。',
+          'The key only goes through the pipe to wrangler: it is never shown on screen and never written to a file.',
         ].join('\n'),
         3,
       );
     }
-    t.out(`  ${SIGNING_KEY_SECRET}：已設定`);
+    t.out(`  ${SIGNING_KEY_SECRET}: set`);
   }
 
-  t.step(3, total, '檢查 wrangler.jsonc 的正式環境設定');
+  t.step(3, total, 'Production settings in wrangler.jsonc');
   let config = await readProductionConfig(t.configPath);
   const problems = productionConfigProblems(config);
-  if (problems.length > 0) throw new DeployError(`wrangler.jsonc 不適合正式環境：\n${problems.map((p) => `  · ${p}`).join('\n')}`);
+  if (problems.length > 0) throw new DeployError(`wrangler.jsonc is not fit for production:\n${problems.map((p) => `  - ${p}`).join('\n')}`);
   // productionConfigProblems is empty, so the config has exactly one of the two supported shapes.
   const hosting = relayHostingOf(config).hosting as RelayHosting;
   const configuredUrl = String(config.vars['RELAY_ISSUER'] ?? '');
   const configuredClientId = String(config.vars['GOOGLE_CLIENT_ID'] ?? '');
   if (hosting.kind === 'custom-domain') {
-    t.out(`  公開網址：Cloudflare 自訂網域 ${hosting.host}（workers.dev 關閉）`);
+    t.out(`  Public hostname: the Cloudflare Custom Domain ${hosting.host} (workers.dev off)`);
     if (options.url !== undefined && options.url !== hosting.origin) {
       throw new DeployError(
-        `--url ${options.url} 不是 wrangler.jsonc 的自訂網域 ${hosting.origin}。` +
+        `--url ${options.url} is not the custom domain of wrangler.jsonc, ${hosting.origin}.` +
           (isWorkersDevHost(new URL(options.url).hostname)
-            ? '\n要部署到 workers.dev（自己架設）：把 wrangler.jsonc 的 "workers_dev" 改成 true、刪掉 "routes"，RELAY_ISSUER、ALLOWED_ORIGINS、GOOGLE_CLIENT_ID 改成 ""（apps/relay/README.md「自己架設：workers.dev（預設）」）。'
-            : '\n要換網域：改 wrangler.jsonc 的 routes[0].pattern 與 RELAY_ISSUER、ALLOWED_ORIGINS（apps/relay/README.md）。'),
+            ? '\nTo deploy to workers.dev (self-hosting): in wrangler.jsonc set "workers_dev" to true, delete "routes", and set RELAY_ISSUER, ALLOWED_ORIGINS and GOOGLE_CLIENT_ID to "" (apps/relay/README.md, "Self-hosting on workers.dev").'
+            : '\nTo use another domain: change routes[0].pattern, RELAY_ISSUER and ALLOWED_ORIGINS in wrangler.jsonc (apps/relay/README.md, "Self-hosting on your own domain").'),
         2,
       );
     }
   } else {
-    t.out(`  公開網址：這個帳號的 workers.dev 子網域（https://${config.name}.<子網域>.workers.dev）`);
+    t.out(`  Public hostname: this account's workers.dev subdomain (https://${config.name}.<subdomain>.workers.dev)`);
     if (options.url !== undefined && workersDevTarget([options.url], config.name) !== options.url) {
       throw new DeployError(
-        `--url ${options.url} 不是 https://${config.name}.<子網域>.workers.dev。` +
-          '\n要用自訂網域：把 wrangler.jsonc 的 "workers_dev" 改成 false，加上 "routes": [{ "pattern": "<網域>", "custom_domain": true }]，RELAY_ISSUER、ALLOWED_ORIGINS 改成 https://<網域>（apps/relay/README.md）。',
+        `--url ${options.url} is not https://${config.name}.<subdomain>.workers.dev.` +
+          '\nTo use a custom domain: in wrangler.jsonc set "workers_dev" to false, add "routes": [{ "pattern": "<domain>", "custom_domain": true }], and set RELAY_ISSUER and ALLOWED_ORIGINS to https://<domain> (apps/relay/README.md, "Self-hosting on your own domain").',
         2,
       );
     }
     if (options.url !== undefined && configuredUrl !== '' && options.url !== configuredUrl) {
-      t.out(`  注意：RELAY_ISSUER 會從 ${configuredUrl} 改成 ${options.url}（已經登入的人要重新登入；CLI 的 DEFAULT_RELAY_URL 也要一起改）`);
+      t.out(`  Note: RELAY_ISSUER changes from ${configuredUrl} to ${options.url} (everyone who is logged in must log in again; the CLI's DEFAULT_RELAY_URL must change with it)`);
     }
   }
   t.out('  OK');
 
-  t.step(4, total, '建置網頁（pnpm --filter @smurg/web build）並檢查 apps/web/dist');
+  t.step(4, total, 'Web build (pnpm --filter @smurg/web build) and the check of apps/web/dist');
   await t.buildWeb();
   // Step 10 expects exactly this build live (the content-hashed files its index.html loads).
   const webAssets = await localWebAssets(t.webDist);
-  if (webAssets === null) throw new DeployError(`${t.webDist} 不是網頁的建置結果（index.html 沒有載入 /assets/ 的檔案）`);
-  t.out(`  網頁：${webAssets.join(' ')}`);
+  if (webAssets === null) throw new DeployError(`${t.webDist} is not a web build (its index.html loads no /assets/ file)`);
+  t.out(`  Web app: ${webAssets.join(' ')}`);
 
-  t.step(5, total, hosting.kind === 'custom-domain' ? 'relay 的網址（自訂網域）' : 'relay 的 workers.dev 網址');
+  t.step(5, total, hosting.kind === 'custom-domain' ? "The relay's URL (custom domain)" : "The relay's workers.dev URL");
   let url = hosting.kind === 'custom-domain' ? hosting.origin : (options.url ?? (configuredUrl === '' ? null : configuredUrl));
-  if (url !== null) t.out(`  ${url}${hosting.kind === 'custom-domain' ? '（wrangler.jsonc 的 routes）' : options.url !== undefined ? '（--url）' : '（wrangler.jsonc）'}`);
+  if (url !== null) t.out(`  ${url} ${hosting.kind === 'custom-domain' ? '(routes in wrangler.jsonc)' : options.url !== undefined ? '(--url)' : '(wrangler.jsonc)'}`);
   if (hosting.kind === 'custom-domain') {
     // wrangler, as run here, replaces whatever has the hostname without asking (header comment, step 5).
-    if (dryRun) t.out(`  （--dry-run：不查 ${hosting.host} 現在由誰回應）`);
-    else if (options.takeOverHostname) t.out(`  --take-over-hostname：${hosting.host} 現有的 DNS 記錄或別的 Worker 的自訂網域會被換成這個 relay`);
+    if (dryRun) t.out(`  (--dry-run: who answers at ${hosting.host} now is not checked)`);
+    else if (options.takeOverHostname) t.out(`  --take-over-hostname: an existing DNS record of ${hosting.host}, or another Worker's custom domain there, is replaced by this relay`);
     else {
       const occupant = await hostnameOccupant(hosting.host, { lookupHost: t.lookupHost, fetch: t.fetch });
       if (occupant.kind === 'other') {
         throw new DeployError(
           [
-            `${hosting.host} 已經有東西在回應，而且不是 smurg relay：${occupant.detail}。`,
-            '這個腳本執行的 wrangler（CI=true、不互動）會不經詢問，把那個網址現有的 DNS 記錄或另一個 Worker 的自訂網域換成這個 relay。',
-            `  · 要保留它：把 wrangler.jsonc 的 routes 與 RELAY_ISSUER、ALLOWED_ORIGINS 改成別的網域。`,
-            `  · 確定要讓這個 relay 接手 ${hosting.host}：在 Cloudflare dashboard 移除舊的 DNS 記錄或自訂網域，或加上 --take-over-hostname 再執行一次。`,
+            `Something already answers at ${hosting.host}, and it is not a smurg relay: ${occupant.detail}.`,
+            "The wrangler this script runs (CI=true, not interactive) replaces that hostname's DNS record, or another Worker's custom domain, with this relay without asking.",
+            `  - To keep it: change routes, RELAY_ISSUER and ALLOWED_ORIGINS in wrangler.jsonc to another domain.`,
+            `  - To let this relay take ${hosting.host} over: remove the old DNS record or custom domain in the Cloudflare dashboard, or run this again with --take-over-hostname.`,
           ].join('\n'),
           3,
         );
       }
-      t.out(occupant.kind === 'none' ? `  ${hosting.host} 還沒有 DNS 記錄：部署時 Cloudflare 建立記錄與憑證` : `  ${hosting.host} 已經是 smurg relay：重新部署`);
+      t.out(occupant.kind === 'none' ? `  ${hosting.host} has no DNS record yet: Cloudflare creates the record and the certificate during the deploy` : `  ${hosting.host} is already a smurg relay: deploying again`);
     }
   } else if (url === null && dryRun) {
-    t.out('  還不知道（第一次部署時由部署結果得知，或用 --url 指定）');
+    t.out('  Not known yet (the first deploy names it, or give it with --url)');
   } else if (url === null) {
-    t.out('  還不知道：先部署一次（RELAY_ISSUER 是空的，relay 除了 /healthz 和網頁之外都回 500，沒有人能登入），從部署結果得知網址…');
+    t.out('  Not known yet: deploying once to learn it (RELAY_ISSUER is empty, so the relay answers 500 to everything but /healthz and the web app, and nobody can log in)...');
     const targets = await t.deploy();
     url = workersDevTarget(targets, config.name);
-    if (url === null) throw new DeployError(`部署結果裡沒有 workers.dev 網址（targets：${targets.join('、') || '無'}）；請用 --url https://${config.name}.<子網域>.workers.dev 指定`);
-    t.out(`  ${url}（部署結果）`);
+    if (url === null) throw new DeployError(`the deploy result lists no workers.dev URL (targets: ${targets.join(', ') || 'none'}); give it with --url https://${config.name}.<subdomain>.workers.dev`);
+    t.out(`  ${url} (from the deploy result)`);
   }
 
-  t.step(6, total, 'wrangler.jsonc：RELAY_ISSUER、ALLOWED_ORIGINS、GOOGLE_CLIENT_ID');
+  t.step(6, total, 'wrangler.jsonc: RELAY_ISSUER, ALLOWED_ORIGINS, GOOGLE_CLIENT_ID');
   const clientId = options.googleClientId ?? configuredClientId;
   const wanted: Partial<Record<ProductionVarName, string>> = {};
   if (url !== null && url !== configuredUrl) Object.assign(wanted, { RELAY_ISSUER: url, ALLOWED_ORIGINS: url });
   if (clientId !== configuredClientId) wanted.GOOGLE_CLIENT_ID = clientId;
-  if (url === null) t.out('  RELAY_ISSUER、ALLOWED_ORIGINS：網址還不知道，第一次部署時寫入');
+  if (url === null) t.out('  RELAY_ISSUER, ALLOWED_ORIGINS: the URL is not known yet; the first deploy writes them');
   if (Object.keys(wanted).length === 0) {
-    if (url !== null) t.out('  已經是正確的值，不需要修改');
+    if (url !== null) t.out('  Already correct: nothing to change');
   } else if (dryRun) {
     setProductionVars(await readFile(t.configPath, 'utf8'), wanted); // proves the edit would apply cleanly
-    for (const [name, value] of Object.entries(wanted)) t.out(`  （--dry-run，不寫入）${name} = ${value}`);
+    for (const [name, value] of Object.entries(wanted)) t.out(`  (--dry-run, not written) ${name} = ${value}`);
   } else {
     await t.writeProductionVars(wanted);
     for (const [name, value] of Object.entries(wanted)) t.out(`  ${name} = ${value}`);
-    t.out('  已寫入 apps/relay/wrangler.jsonc（這是公開的設定，請提交到 git）');
+    t.out('  Written to apps/relay/wrangler.jsonc (public settings: commit the file)');
     config = await readProductionConfig(t.configPath);
     const after = productionConfigProblems(config);
-    if (after.length > 0) throw new DeployError(`寫入後的 wrangler.jsonc 有問題：\n${after.map((p) => `  · ${p}`).join('\n')}`);
+    if (after.length > 0) throw new DeployError(`wrangler.jsonc has problems after the edit:\n${after.map((p) => `  - ${p}`).join('\n')}`);
   }
-  if (clientId === '') t.out('  GOOGLE_CLIENT_ID 還是空的：建立 Google OAuth client 後，用 --google-client-id <client ID> 再執行一次');
+  if (clientId === '') t.out('  GOOGLE_CLIENT_ID is still empty: create the Google OAuth client, then run this again with --google-client-id <client ID>');
 
-  t.step(7, total, dryRun ? 'wrangler deploy --dry-run --env ""（不部署）' : 'wrangler deploy --env ""');
+  t.step(7, total, dryRun ? 'wrangler deploy --dry-run --env "" (nothing is deployed)' : 'wrangler deploy --env ""');
   if (dryRun) {
     await t.dryRunDeploy(wanted);
   } else {
-    if (String(config.vars['RELAY_ISSUER']) !== url) throw new DeployError('wrangler.jsonc 的 RELAY_ISSUER 和要部署的網址不同，停止');
+    if (String(config.vars['RELAY_ISSUER']) !== url) throw new DeployError('RELAY_ISSUER in wrangler.jsonc is not the URL being deployed: stopped');
     const targets = await t.deploy();
     const problem = deployedTargetProblem(targets, hosting, config.name, url as string);
     if (problem !== null && hosting.kind === 'workers-dev') {
       const deployed = workersDevTarget(targets, config.name);
       throw new DeployError(
-        `${problem}：帳號的 workers.dev 子網域改過，或這是另一個 Cloudflare 帳號（自己架設）。` +
-          `\n確定要改用新網址的話，執行 scripts/deploy-relay.sh --url ${deployed ?? `https://${config.name}.<子網域>.workers.dev`}` +
-          '（已經登入的人要重新登入，Google OAuth client 的網址與 CLI 的 DEFAULT_RELAY_URL 也要一起改）。',
+        `${problem}: the account's workers.dev subdomain was changed, or this is another Cloudflare account (self-hosting).` +
+          `\nTo move to the new URL, run scripts/deploy-relay.sh --url ${deployed ?? `https://${config.name}.<subdomain>.workers.dev`}` +
+          " (everyone who is logged in must log in again; the URLs of the Google OAuth client and the CLI's DEFAULT_RELAY_URL must change with it).",
       );
     }
     if (problem !== null) {
       throw new DeployError(
-        `${problem}。wrangler 沒有回報把 ${url} 接到這個 Worker：網域的 zone 必須在同一個 Cloudflare 帳號；` +
-          '在 Cloudflare dashboard → Workers & Pages → smurg-relay → Settings → Domains & Routes 確認。',
+        `${problem}. wrangler did not report attaching ${url} to this Worker: the zone of the domain must be on the same Cloudflare account. ` +
+          'Check in the Cloudflare dashboard -> Workers & Pages -> smurg-relay -> Settings -> Domains & Routes.',
       );
     }
   }
 
-  t.step(8, total, 'relay 網址與 Google OAuth 設定值');
-  const shownUrl = url ?? `https://${config.name}.<子網域>.workers.dev`;
-  t.out(`  relay：${shownUrl}`);
+  t.step(8, total, "The relay's URL and the values for Google OAuth");
+  const shownUrl = url ?? `https://${config.name}.<subdomain>.workers.dev`;
+  t.out(`  relay: ${shownUrl}`);
   t.out(googleConsoleText(shownUrl, hosting));
   if (url !== null && DEFAULT_RELAY_URL !== url) {
-    t.out(`  CLI 的預設 relay（packages/cli/src/relay/default-relay.ts）目前是 ${DEFAULT_RELAY_URL === null ? 'null' : DEFAULT_RELAY_URL}；--check 全部通過後改成：`);
+    t.out(`  The CLI's built-in relay (packages/cli/src/relay/default-relay.ts) is ${DEFAULT_RELAY_URL === null ? 'null' : DEFAULT_RELAY_URL}; once --check passes, change it to:`);
     t.out(`    export const DEFAULT_RELAY_URL: string | null = '${url}';`);
   }
 
-  t.step(9, total, 'secret');
+  t.step(9, total, 'Secrets');
   let googleSecret = false;
   if (dryRun) {
-    t.out('  （--dry-run：略過 wrangler secret list）需要的 secret：');
-    t.out(`    ${SIGNING_KEY_SECRET}：${OWNER_COMMANDS.signingKey}`);
-    t.out(`    ${GOOGLE_SECRET}：${OWNER_COMMANDS.googleSecret}`);
+    t.out('  (--dry-run: wrangler secret list skipped) The secrets the relay needs:');
+    t.out(`    ${SIGNING_KEY_SECRET}: ${OWNER_COMMANDS.signingKey}`);
+    t.out(`    ${GOOGLE_SECRET}: ${OWNER_COMMANDS.googleSecret}`);
   } else {
     const secrets = await t.secretList();
-    if (secrets.kind !== 'names') throw new DeployError(`wrangler secret list 失敗：${secrets.kind === 'error' ? secrets.detail : 'Worker 不存在'}`);
+    if (secrets.kind !== 'names') throw new DeployError(`wrangler secret list failed: ${secrets.kind === 'error' ? secrets.detail : 'the Worker does not exist'}`);
     googleSecret = secrets.names.includes(GOOGLE_SECRET);
-    t.out(`  ${SIGNING_KEY_SECRET}：${secrets.names.includes(SIGNING_KEY_SECRET) ? '已設定' : '缺少'}`);
-    t.out(`  ${GOOGLE_SECRET}：${googleSecret ? '已設定' : `缺少。在 repo 根目錄（source scripts/env.sh 之後）執行，出現 "Enter a secret value:" 時貼上 Google 的 client secret：\n    ${OWNER_COMMANDS.googleSecret}`}`);
+    t.out(`  ${SIGNING_KEY_SECRET}: ${secrets.names.includes(SIGNING_KEY_SECRET) ? 'set' : 'missing'}`);
+    t.out(`  ${GOOGLE_SECRET}: ${googleSecret ? 'set' : `missing. From the repository root (after source scripts/env.sh) run this, and paste Google's client secret at "Enter a secret value:":\n    ${OWNER_COMMANDS.googleSecret}`}`);
     const unexpected = secrets.names.filter((n) => n !== SIGNING_KEY_SECRET && n !== GOOGLE_SECRET);
-    if (unexpected.length > 0) t.out(`  其他 secret（relay 用不到）：${unexpected.join('、')}`);
+    if (unexpected.length > 0) t.out(`  Other secrets (the relay does not use them): ${unexpected.join(', ')}`);
   }
 
-  t.step(10, total, '從外部檢查');
+  t.step(10, total, 'Checks from outside');
   if (dryRun || url === null) {
-    t.out('  （--dry-run：沒有部署，略過。部署後可以用 scripts/deploy-relay.sh --check <網址> 檢查）');
-    t.out('\n--dry-run 完成：沒有部署任何東西，也沒有修改 wrangler.jsonc。');
+    t.out('  (--dry-run: nothing was deployed, skipped. After a deploy: scripts/deploy-relay.sh --check <URL>)');
+    t.out('\n--dry-run finished: nothing was deployed and wrangler.jsonc was not changed.');
     return 0;
   }
   const googleReady = clientId !== '' && googleSecret;
@@ -1188,39 +1199,39 @@ async function runDeploy(t: Tools, options: DeployOptions): Promise<number> {
     fetch: t.fetch,
     waitMs: options.waitSeconds * 1000,
     intervalMs: t.retryIntervalMs,
-    onRetry: (failed) => t.out(`  尚未通過（${failed.map((f) => f.name).join('、')}），稍後重試…`),
+    onRetry: (failed) => t.out(`  Not passing yet (${failed.map((f) => f.name).join('; ')}); trying again shortly...`),
   });
   t.out(formatChecks(results));
   if (results.some((r) => !r.ok)) {
-    t.out(`\n有檢查沒有通過。新的 workers.dev 網址或自訂網域（DNS 記錄與憑證）有時要幾分鐘才能連上；稍後可以再執行 scripts/deploy-relay.sh --check ${url}`);
+    t.out(`\nSome checks did not pass. A new workers.dev hostname or custom domain (DNS record and certificate) can take a few minutes to come up; later, run scripts/deploy-relay.sh --check ${url}`);
     return 1;
   }
   if (!googleReady) {
-    t.out('\n已部署，但 Google 登入還沒有開啟。接下來：');
-    if (clientId === '') t.out('  1. Google Cloud console 建立 OAuth client（Web application），填入上面的 origin 與 redirect URI（apps/relay/README.md）。');
-    if (!googleSecret) t.out(`  ${clientId === '' ? 2 : 1}. 放入 client secret：${OWNER_COMMANDS.googleSecret}`);
-    t.out(`  最後：scripts/deploy-relay.sh${clientId === '' ? ' --google-client-id <client ID>' : ''}`);
+    t.out('\nDeployed, but Google login is not on yet. Next:');
+    if (clientId === '') t.out('  1. In the Google Cloud console, create an OAuth client (Web application) with the origin and the redirect URI above (apps/relay/README.md).');
+    if (!googleSecret) t.out(`  ${clientId === '' ? 2 : 1}. Put the client secret: ${OWNER_COMMANDS.googleSecret}`);
+    t.out(`  Then: scripts/deploy-relay.sh${clientId === '' ? ' --google-client-id <client ID>' : ''}`);
     return 0;
   }
-  t.out(`\n完成：${url} 已部署並通過所有檢查（Google 登入已開啟）。請提交 apps/relay/wrangler.jsonc。`);
+  t.out(`\nDone: ${url} is deployed and passes every check (Google login is on). Commit apps/relay/wrangler.jsonc.`);
   return 0;
 }
 
 async function runCheck(t: Tools, options: DeployOptions): Promise<number> {
   const url = options.url as string;
-  t.out(`從外部檢查 ${url}（預期：Google 登入開啟、沒有 GitHub 與開發用登入）`);
+  t.out(`Checking ${url} from outside (expected: Google login on, no GitHub login, no development login)`);
   const webDist = options.webDist ?? t.webDist;
   const webAssets = await localWebAssets(webDist);
   t.out(
     webAssets === null
-      ? `  ${webDist} 沒有網頁的建置結果：不比對線上的網頁是不是這個 checkout 的版本（要比對：先 pnpm --filter @smurg/web build）`
-      : `  比對線上的網頁與 ${webDist}（${webAssets.join(' ')}）`,
+      ? `  ${webDist} holds no web build: the live web app is not compared with this checkout (to compare: pnpm --filter @smurg/web build first)`
+      : `  Comparing the live web app with ${webDist} (${webAssets.join(' ')})`,
   );
   const distProblem = webAssets === null ? null : webDistProblem(webDist);
   if (distProblem !== null) {
     t.out(
-      `  注意：${webDist} 是 scripts/check-web-dist.ts 不接受的建置（${distProblem}${distProblem === 'no-hsts' ? '：apps/web/public/_headers 加入 HSTS 之前的建置' : ''}），` +
-        '可能比這個 checkout 舊；比對的是它載入的檔案（要比對這個 checkout：先 pnpm --filter @smurg/web build）',
+      `  Note: scripts/check-web-dist.ts would refuse the build in ${webDist} (${distProblem}${distProblem === 'no-hsts' ? ': built before apps/web/public/_headers had HSTS' : ''}); ` +
+        'it may be older than this checkout. The comparison uses the files it loads (to compare with this checkout: pnpm --filter @smurg/web build first)',
     );
   }
   const results = await checkRelayUntil(url, {
@@ -1229,11 +1240,11 @@ async function runCheck(t: Tools, options: DeployOptions): Promise<number> {
     fetch: t.fetch,
     waitMs: options.waitSeconds * 1000,
     intervalMs: t.retryIntervalMs,
-    onRetry: (failed) => t.out(`  尚未通過（${failed.map((f) => f.name).join('、')}），稍後重試…`),
+    onRetry: (failed) => t.out(`  Not passing yet (${failed.map((f) => f.name).join('; ')}); trying again shortly...`),
   });
   t.out(formatChecks(results));
   const failed = results.filter((r) => !r.ok).length;
-  t.out(failed === 0 ? '全部通過。' : `${failed} 項沒有通過。`);
+  t.out(failed === 0 ? 'All checks passed.' : `${failed} ${failed === 1 ? 'check' : 'checks'} did not pass.`);
   return failed === 0 ? 0 : 1;
 }
 
@@ -1251,10 +1262,10 @@ export async function main(argv: readonly string[], deps: DeployDeps = {}): Prom
     return await runDeploy(t, options);
   } catch (error) {
     if (error instanceof DeployError) {
-      err(`\ndeploy-relay：${error.message}\n`);
+      err(`\ndeploy-relay: ${error.message}\n`);
       return error.exitCode;
     }
-    err(`\ndeploy-relay：未預期的錯誤：${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+    err(`\ndeploy-relay: unexpected error: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
     return 1;
   }
 }

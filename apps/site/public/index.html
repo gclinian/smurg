@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>smurg: a real-time workspace for your team and Claude Code</title>
-<meta name="description" content="Share a project folder from your own computer. Teammates edit files with you in real time and watch and steer Claude Code sessions on your machine. End-to-end encrypted, for macOS and Linux, free during the prototype.">
+<meta name="description" content="Share a project folder from your own computer. Teammates edit files with you in real time and watch and steer Claude Code sessions on your machine. End-to-end encrypted, open source (MIT), for macOS and Linux.">
 <link rel="canonical" href="https://smurg.ai/">
 <link rel="alternate" hreflang="en" href="https://smurg.ai/">
-<link rel="alternate" hreflang="zh-TW" href="https://smurg.ai/zh-TW/">
+<link rel="alternate" hreflang="zh-Hant-TW" href="https://smurg.ai/zh-TW/">
 <link rel="alternate" hreflang="x-default" href="https://smurg.ai/">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/style.css">
@@ -42,7 +42,8 @@
         <li class="jump"><a href="#security">Security</a></li>
         <li class="jump"><a href="#faq">FAQ</a></li>
         <li><a href="/docs/">Docs</a></li>
-        <li class="lang"><a href="/zh-TW/" hreflang="zh-TW" lang="zh-TW">繁體中文</a></li>
+        <li><a href="https://github.com/gclinian/smurg">GitHub</a></li>
+        <li class="lang"><a href="/zh-TW/" hreflang="zh-Hant-TW" lang="zh-Hant-TW">繁體中文</a></li>
       </ul>
     </nav>
   </div>
@@ -51,7 +52,7 @@
 <main id="main">
 
 <section class="hero wrap" aria-labelledby="hero-title">
-  <p class="eyebrow"><span class="chip">v0.1.0 prototype</span> <span>Free during the prototype · macOS and Linux</span></p>
+  <p class="eyebrow"><span class="chip">Open source · MIT</span> <span>macOS and Linux</span></p>
   <h1 id="hero-title">A real-time workspace for your team and Claude&nbsp;Code, hosted on your own computer.</h1>
   <p class="lede">Share a project folder with <code>smurg host</code>: teammates join from a browser, edit files with you in real time, and watch and steer the Claude Code sessions on your machine, while the relay in between only forwards end-to-end encrypted data.</p>
 
@@ -63,7 +64,7 @@
     </div>
     <p class="visually-hidden" role="status" id="copy-status"></p>
     <p class="install-note">For macOS (Apple silicon, Intel) and Linux (x64, arm64, glibc). The script downloads one executable from <code>downloads.smurg.ai</code> and installs it to <code>~/.local/bin/smurg</code> only if its SHA-256 matches the release’s <code>SHA256SUMS</code>. No Node.js needed.</p>
-    <p class="ui-note">Got an invite link? Open it in Chrome; there is nothing to install. The app’s interface is currently in Traditional Chinese; English is coming.</p>
+    <p class="ui-note">Got an invite link? Open it in Chrome; there is nothing to install.</p>
   </div>
 
   <figure class="mock-figure">
@@ -75,25 +76,25 @@
         <symbol id="i-folder-c" viewBox="0 0 16 16"><path d="M1.75 4.25a1 1 0 0 1 1-1h3.4l1.5 1.5h5.6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/></symbol>
         <symbol id="i-lock" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.25"/><path d="M5.25 7V5a2.75 2.75 0 0 1 5.5 0v2"/></symbol>
       </svg>
-      <div class="m-app" lang="zh-TW">
+      <div class="m-app">
         <div class="m-chrome"><span class="m-dots"><i></i><i></i><i></i></span><span class="m-url">app.smurg.ai/w/Q7mX2cK9vT4pL8nR3wZ5aB</span></div>
         <div class="m-top">
-          <span class="m-word">smurg</span><span class="m-divider"></span><span class="m-ws">my-app</span><span class="m-host">主人：Ian</span><span class="m-pill">已連線</span>
+          <span class="m-word">smurg</span><span class="m-divider"></span><span class="m-ws">my-app</span><span class="m-host">Host: Ian</span><span class="m-pill">Connected</span>
           <span class="m-spacer"></span>
           <span class="m-avs"><i class="av av-ian">IA</i><i class="av av-amy">AM</i><i class="av av-ben">BE</i><i class="av av-agent"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i></span>
-          <span class="m-btn">主人控制台</span><span class="m-btn">離開</span>
+          <span class="m-btn">Host console</span><span class="m-btn">Leave</span>
         </div>
         <div class="m-body">
           <div class="m-files">
-            <div class="m-ph">檔案</div>
-            <div class="m-switch">檢視的工作區：主工作區</div>
+            <div class="m-ph">Files</div>
+            <div class="m-switch">Viewing: Main workspace</div>
             <ul class="m-tree">
               <li><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg>src</li>
               <li class="d1"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>app.ts</li>
-              <li class="d1 on"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>login.ts<span class="m-tag m-tag-human">Amy、Ben 編輯中</span></li>
+              <li class="d1 on"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>login.ts<span class="m-tag m-tag-human">Editing: Amy, Ben</span></li>
               <li class="d1"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>session.ts</li>
               <li><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg>tests</li>
-              <li class="d1"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>login.test.ts<span class="m-tag m-tag-agent">Claude（Amy）修改中</span></li>
+              <li class="d1"><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>login.test.ts<span class="m-tag m-tag-agent">Claude (Amy) editing</span></li>
               <li><svg class="ic" aria-hidden="true"><use href="#i-folder-c"/></svg>data</li>
               <li><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>package.json</li>
               <li><svg class="ic" aria-hidden="true"><use href="#i-file"/></svg>README.md</li>
@@ -101,33 +102,33 @@
           </div>
           <div class="m-editor">
             <div class="m-tabs"><span class="on">login.ts</span><span>app.ts</span></div>
-            <div class="m-banner"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg>Amy、Ben正在編輯這個檔案，agent 暫時不能修改它。</div>
+            <div class="m-banner"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg>This file is being edited by Amy, Ben, so agents cannot change it for now.</div>
             <pre class="m-code"><span><i class="m-ln">1</i><span class="tk-k">import</span> { createSession } <span class="tk-k">from</span> <span class="tk-s">'./session.ts'</span>;</span><span><i class="m-ln">2</i><span class="tk-k">import</span> { verify, redirect } <span class="tk-k">from</span> <span class="tk-s">'./auth.ts'</span>;</span><span><i class="m-ln">3</i></span><span><i class="m-ln">4</i><span class="tk-k">export async function</span> <span class="tk-f">login</span>(<span class="tk-v">req</span>: <span class="tk-t">Request</span>): <span class="tk-t">Promise</span>&lt;<span class="tk-t">Response</span>&gt; {</span><span><i class="m-ln">5</i>  <span class="tk-k">const</span> <span class="tk-v">user</span> = <span class="tk-k">await</span> <span class="tk-f">verify</span>(<span class="tk-v">req</span>);</span><span><i class="m-ln">6</i>  <span class="tk-k">if</span> (!<span class="tk-v">user</span>) {</span><span class="m-hl"><i class="m-ln">7</i>    <span class="tk-k">return</span> <span class="tk-f">redirect</span>(<span class="tk-s">'/login?expired=1'</span><span class="m-cur m-cur-amy"><b>Amy</b></span>);</span><span><i class="m-ln">8</i>  }</span><span><i class="m-ln">9</i>  <span class="tk-k">const</span> <span class="tk-v">session</span> = <span class="tk-k">await</span> <span class="tk-f">createSession</span>(<span class="m-sel-ben"><span class="tk-v">user</span></span><span class="m-cur m-cur-ben"><b>Ben</b></span>);</span><span><i class="m-ln">10</i>  <span class="tk-k">return</span> <span class="tk-f">redirect</span>(<span class="tk-s">'/'</span>, <span class="tk-v">session</span>.<span class="tk-v">cookie</span>);</span><span><i class="m-ln">11</i>}</span></pre>
-            <div class="m-status"><span>TypeScript</span><span>已自動儲存</span></div>
+            <div class="m-status"><span>TypeScript</span><span>Saved automatically</span></div>
           </div>
           <div class="m-agents">
-            <div class="m-ph">agent<span class="m-btn">＋ 新增 session</span></div>
-            <div class="m-tabs"><span class="on"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude（Amy 開的）</span><span><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude（Ian 開的）</span></div>
-            <div class="m-banner m-banner-info">這是 Amy 開的 session，你只能觀看。想讓它做什麼，請在下方的「建議」提出，由主人或「可使用 agent」的成員決定是否採用。</div>
+            <div class="m-ph">Agents<span class="m-btn">+ New session</span></div>
+            <div class="m-tabs"><span class="on"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude (Amy)</span><span><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg>Claude (Ian)</span></div>
+            <div class="m-banner m-banner-info">Amy opened this session; you can only watch. To have it do something, make a suggestion below: the host or a member with agent access decides whether to accept it.</div>
             <pre class="m-term"><span class="m-prompt">&gt; add a test for the expired-session redirect</span><span> </span><span><span class="m-ok">●</span> <span class="m-tool">Read</span>(src/login.ts)</span><span class="m-dim">  └ Read 11 lines</span><span><span class="m-ok">●</span> <span class="m-tool">Update</span>(tests/login.test.ts)</span><span class="m-dim">  └ Added “redirects an expired session”</span><span><span class="m-ok">●</span> <span class="m-tool">Bash</span>(pnpm test tests/login.test.ts)</span><span class="m-dim">  └ Tests passed</span><span>● The new test covers the expired-session redirect.</span><span class="m-prompt">&gt; <span class="m-caret"></span></span></pre>
             <div class="m-suggest">
-              <div class="m-ph">建議</div>
-              <div class="m-input">想請 agent 做什麼？例如：先幫這個函式補上測試。</div>
-              <span class="m-btn m-btn-primary">送出建議</span>
+              <div class="m-ph">Suggestions</div>
+              <div class="m-input">What should the agent do? For example: add tests for this function first.</div>
+              <span class="m-btn m-btn-primary">Send suggestion</span>
             </div>
           </div>
         </div>
         <div class="m-drawer">
-          <div class="m-tabs"><span class="on">活動</span><span>衝突</span><span>傳輸</span><span>合併請求 <i class="m-count">1</i></span></div>
+          <div class="m-tabs"><span class="on">Activity</span><span>Conflicts</span><span>Transfers</span><span>Merge requests <i class="m-count">1</i></span></div>
           <ul class="m-feed">
-            <li><i class="av av-agent"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i><span class="m-what">Claude（Amy）修改了 tests/login.test.ts（Edit）</span><span class="m-ago">剛剛</span></li>
-            <li><i class="av av-ben">BE</i><span class="m-what"><strong>Ben</strong> 上傳 data/fixtures.json</span><span class="m-ago">1 分鐘前</span></li>
-            <li><i class="av av-claude-ian"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i><span class="m-what">Claude（Ian）透過 shell 指令修改了 package.json</span><span class="m-via">透過指令</span><span class="m-ago">3 分鐘前</span></li>
+            <li><i class="av av-agent"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i><span class="m-what">Claude (Amy) edited tests/login.test.ts (Edit)</span><span class="m-ago">just now</span></li>
+            <li><i class="av av-ben">BE</i><span class="m-what"><strong>Ben</strong> Uploaded data/fixtures.json</span><span class="m-ago">1 minute ago</span></li>
+            <li><i class="av av-claude-ian"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i><span class="m-what">Claude (Ian) changed package.json with a shell command</span><span class="m-via">via a command</span><span class="m-ago">3 minutes ago</span></li>
           </ul>
         </div>
       </div>
     </div>
-    <figcaption>An illustration drawn after the app, not a screenshot: the file tree, the shared editor with Amy’s and Ben’s cursors, Amy’s Claude Code session with the suggestion box, and the activity feed. The labels are the app’s own, in Traditional Chinese.</figcaption>
+    <figcaption>An illustration drawn after the app, not a screenshot: the file tree, the shared editor with Amy’s and Ben’s cursors, Amy’s Claude Code session with the suggestion box, and the activity feed. The labels are the app’s own.</figcaption>
   </figure>
 </section>
 
@@ -157,7 +158,7 @@
         </div>
         <p class="kicker step-num">Step 1</p>
         <h3>The host shares a folder</h3>
-        <p>Sign in with Google, then share a folder. smurg runs in the foreground and prints two links: your own, which opens the workspace as the host, and an invite link for teammates (editor role by default, valid for 7 days). <kbd>Ctrl-C</kbd> stops sharing.</p>
+        <p>Log in with Google, then share a folder. smurg runs in the foreground and prints two links: your own, which opens the workspace as the host, and an invite link for teammates (Editor role by default, valid for 7 days). <kbd>Ctrl-C</kbd> stops sharing.</p>
         <pre class="snippet"><code>smurg login
 smurg host ~/projects/my-app</code></pre>
       </li>
@@ -182,7 +183,7 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <p class="kicker step-num">Step 2</p>
         <h3>Teammates join</h3>
-        <p>Send the invite link in a private message: the part after <code>#</code> is the key. Teammates open it in Chrome, sign in with Google and join, with nothing to install. To follow sessions in a terminal, <code>smurg attach --invite -</code> joins too.</p>
+        <p>Send the invite link in a private message: the part after <code>#</code> is the key. Teammates open it in Chrome, log in with Google and join, with nothing to install. To follow sessions in a terminal, <code>smurg attach --invite -</code> joins too.</p>
         <pre class="snippet"><code>https://app.smurg.ai/join/&lt;id&gt;#…</code></pre>
       </li>
 
@@ -208,7 +209,7 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <p class="kicker step-num">Step 3</p>
         <h3>Work with agents together</h3>
-        <p>Editors edit the same files at once; everyone sees every Claude Code session live and editors send suggestions to steer an agent. Teammates the host fully trusts can get the “can use agents” role: they open agent sessions and type into any session, and those sessions run as the host, with the host’s Claude account, on the host’s computer.</p>
+        <p>Editors edit the same files at once; everyone sees every Claude Code session live and editors send suggestions to steer an agent. Teammates the host fully trusts can get the Agent access role: they open agent sessions and type into any session, and those sessions run as the host, with the host’s Claude account, on the host’s computer.</p>
       </li>
     </ol>
   </div>
@@ -223,7 +224,7 @@ smurg host ~/projects/my-app</code></pre>
     <ul class="features">
       <li>
         <h3>Edit together</h3>
-        <p>A file tree and an editor in the browser. Several people type in the same file at once, each cursor labelled with a name, and changes save to the host’s disk automatically. Agents show up the same way, as “Claude (owner)”.</p>
+        <p>A file tree and an editor in the browser. Several people type in the same file at once, each cursor labelled with a name, and changes save to the host’s disk automatically. Agents show up the same way: an agent Amy opened is “Claude (Amy)”.</p>
       </li>
       <li>
         <h3>Upload and download</h3>
@@ -231,11 +232,11 @@ smurg host ~/projects/my-app</code></pre>
       </li>
       <li>
         <h3>Claude Code sessions</h3>
-        <p>Real Claude Code runs on the host’s computer. Everyone sees every session live, including what happened before they opened it, and can follow one in their own terminal with <code>smurg attach</code>. Suggestions wait until the host or a teammate with the “can use agents” role accepts them, edits them first or rejects them; nothing reaches an agent before that.</p>
+        <p>Real Claude Code runs on the host’s computer. Everyone sees every session live, including what happened before they opened it, and can follow one in their own terminal with <code>smurg attach</code>. Suggestions wait until the host or a teammate with agent access accepts them, edits them first or rejects them; nothing reaches an agent before that.</p>
       </li>
       <li>
         <h3>Worktrees and merge requests</h3>
-        <p>If the folder is a git repository, an agent can work in its own worktree on its own branch, away from the main workspace. When it is done, a teammate with the “can use agents” role (or the host) requests a merge; the host reads the full diff and merges or rejects it. A conflict stops the merge and leaves the main workspace as it was.</p>
+        <p>If the folder is a git repository, an agent can work in its own worktree on its own branch, away from the main workspace. When it is done, a teammate with agent access (or the host) requests a merge; the host reads the full diff and merges or rejects it. A conflict stops the merge and leaves the main workspace as it was.</p>
       </li>
       <li>
         <h3>Locks and attribution</h3>
@@ -243,7 +244,7 @@ smurg host ~/projects/my-app</code></pre>
       </li>
       <li>
         <h3>Roles and a host console</h3>
-        <p>Invite people as viewer, editor or “can use agents” (who may open agent sessions and type into them, as the host). The host console lists members, roles, invite links, sessions and the audit log; one click removes a member or ends a session. If the host’s computer sleeps or goes offline, everyone sees it within seconds.</p>
+        <p>Invite people as Viewer, Editor or with Agent access (who may open agent sessions and type into them, as the host). The host console lists members, roles, invite links, sessions and the audit log; one click removes a member or ends a session. If the host’s computer sleeps or goes offline, everyone sees it within seconds.</p>
       </li>
     </ul>
   </div>
@@ -259,7 +260,7 @@ smurg host ~/projects/my-app</code></pre>
 
     <figure class="diagram">
       <svg class="dg wide" viewBox="0 0 880 340" role="img" aria-labelledby="sec-wide-title">
-        <title id="sec-wide-title">The host’s computer holds the shared folder, the host’s Claude Code sessions, keys and the audit log, and the sessions that teammates with the “can use agents” role open there, which run as the host with no sandbox. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name and picture; at sign-in also the email), its IP address, the workspace code, and the size and time of each message.</title>
+        <title id="sec-wide-title">The host’s computer holds the shared folder, the host’s Claude Code sessions, keys and the audit log, and the sessions that teammates with agent access open there, which run as the host with no sandbox. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name and picture; at login also the email), its IP address, the workspace code, and the size and time of each message.</title>
         <rect class="bx" x="8" y="8" width="330" height="324" rx="14"/>
         <text class="tt" x="30" y="46">Your computer (host)</text>
         <text class="tm" x="30" y="68">Files and sessions stay here</text>
@@ -301,7 +302,7 @@ smurg host ~/projects/my-app</code></pre>
       </svg>
 
       <svg class="dg tall" viewBox="0 0 360 780" role="img" aria-labelledby="sec-tall-title">
-        <title id="sec-tall-title">The host’s computer holds the shared folder, the host’s Claude Code sessions, keys and the audit log, and the sessions that teammates with the “can use agents” role open there, which run as the host with no sandbox. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name and picture; at sign-in also the email), its IP address, the workspace code, and the size and time of each message.</title>
+        <title id="sec-tall-title">The host’s computer holds the shared folder, the host’s Claude Code sessions, keys and the audit log, and the sessions that teammates with agent access open there, which run as the host with no sandbox. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name and picture; at login also the email), its IP address, the workspace code, and the size and time of each message.</title>
         <rect class="bx" x="8" y="8" width="344" height="304" rx="14"/>
         <text class="tt" x="28" y="44">Your computer (host)</text>
         <text class="tm" x="28" y="68">Files and sessions stay here</text>
@@ -357,11 +358,11 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>Agents run as the host</h3>
-        <p>Every agent and terminal session runs on the host’s computer as the host: the host’s account, files and Claude Code login, with no sandbox. Besides the host, only teammates with the “can use agents” role open sessions or type into them; editors send suggestions and viewers watch. That role lets someone make an agent run any command on your computer, read your home folder and use your Claude account, so give it only to people you fully trust.</p>
+        <p>Every agent and terminal session runs on the host’s computer as the host: the host’s account, files and Claude Code login, with no sandbox. Besides the host, only teammates with the Agent access role open sessions or type into them; Editors send suggestions and Viewers watch. That role lets someone make an agent run any command on your computer, read your home folder and use your Claude account, so give it only to people you fully trust.</p>
       </div>
       <div>
         <h3>What the relay sees</h3>
-        <p>Which Google account each connection belongs to (its ID, name and picture; at sign-in Google also gives the relay the account’s email, used as the display name only when the account has no name), its IP address, the workspace code, and the size and time of each message, so it can tell who worked with whom, and when. Not file contents, file names, terminal output, commands, the invite secret or any key. It keeps only each workspace’s code and its owner’s account. smurg’s maintainer, who runs the relay, and Cloudflare can see the same.</p>
+        <p>Which Google account each connection belongs to (its ID, name and picture; at login Google also gives the relay the account’s email, used as the display name only when the account has no name), its IP address, the workspace code, and the size and time of each message, so it can tell who worked with whom, and when. Not file contents, file names, terminal output, commands, the invite secret or any key. It keeps only each workspace’s code and its owner’s account. On the shared relay, smurg’s maintainer, who runs it, and Cloudflare can see the same.</p>
       </div>
     </div>
 
@@ -370,10 +371,10 @@ smurg host ~/projects/my-app</code></pre>
       <ul>
         <li>Everyone in a workspace can read every file in the shared folder, <code>.env</code> files included; only <code>.git</code>, <code>.envrc</code>, smurg’s own <code>.smurg</code> folder and the host’s personal Claude Code settings are hidden. Don’t share a folder that holds passwords, keys or personal data.</li>
         <li>Agent sessions are not sandboxed and read what teammates write. A file could hide instructions meant for them (prompt injection), so keep Claude Code’s permission prompts on.</li>
-        <li>A teammate with the “can use agents” role can do on your computer whatever you can: run any command, read your home folder, spend your Claude usage. smurg can’t limit that.</li>
+        <li>A teammate with agent access can do on your computer whatever you can: run any command, read your home folder, spend your Claude usage. smurg can’t limit that.</li>
         <li>The web app is served by the relay. As with any end-to-end encryption in a browser, a tampered app could leak keys; the CLI doesn’t have this problem.</li>
       </ul>
-      <p class="more"><a href="/docs/hosting/">Read the host guide before you share</a> (in Traditional Chinese)</p>
+      <p class="more"><a href="/docs/hosting/">Read the host guide before you share</a></p>
     </div>
   </div>
 </section>
@@ -392,22 +393,26 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <div>
           <dt>Claude Code</dt>
-          <dd>To run agent sessions, the host’s computer needs Claude Code (the <code>claude</code> command) 2.1.220 or later, signed in: every session uses the host’s login. Worktrees need the shared folder to be a git repository.</dd>
+          <dd>To run agent sessions, the host’s computer needs Claude Code (the <code>claude</code> command) 2.1.220 or later, logged in: every session uses the host’s login. Worktrees need the shared folder to be a git repository.</dd>
         </div>
         <div>
           <dt>Teammates</dt>
           <dd>Any operating system with a browser. Chrome on a computer is the tested one; Safari and Firefox have not been tested yet. Optionally the smurg CLI on macOS or Linux.</dd>
         </div>
         <div>
-          <dt>Sign-in</dt>
+          <dt>Login</dt>
           <dd>A Google account, for the host and for teammates.</dd>
         </div>
         <div>
+          <dt>Languages</dt>
+          <dd>English and Traditional Chinese, in the web app, the <code>smurg</code> command and the guides. Everyone sees their own language, also inside one workspace.</dd>
+        </div>
+        <div>
           <dt>Relay</dt>
-          <dd>The shared relay runs on Cloudflare’s free plan and is for fair use: everyone shares one daily quota, and when it runs out nobody can connect until 00:00 UTC (08:00 in Taiwan). It is the only relay for now: its source isn’t public, so you can’t run your own.</dd>
+          <dd>The shared relay runs on Cloudflare’s free plan and is for fair use: everyone shares one daily quota, and when it runs out nobody can connect until 00:00 UTC (08:00 in Taiwan). The relay is open source too: you can <a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">run your own relay</a> on your own Cloudflare account.</dd>
         </div>
       </dl>
-      <p class="status">v0.1.0 is the first public release, a prototype. It was developed and tested on macOS on Apple silicon; the Intel Mac and Linux builds are built and smoke-tested on GitHub Actions. Known limits are listed in the <a href="/docs/changelog/">changelog</a>.</p>
+      <p class="status">smurg is a prototype. It is developed and tested on macOS on Apple silicon; the Intel Mac and Linux builds are built and smoke-tested on GitHub Actions, and nobody has hosted on Linux for real yet. What changed in each version is in the <a href="/docs/changelog/">changelog</a>.</p>
     </div>
   </div>
 </section>
@@ -420,7 +425,6 @@ smurg host ~/projects/my-app</code></pre>
     </div>
     <div>
       <p class="lead-text">The host guide covers installing, sharing a folder, what to check before you share and what to do when something goes wrong; the guide for teammates covers joining, roles, editing together and working with agents.</p>
-      <p class="ui-note">The guides are in Traditional Chinese for now.</p>
       <ul class="links-list">
         <li><a href="/docs/hosting/">Host guide</a></li>
         <li><a href="/docs/joining/">Guide for teammates</a></li>
@@ -432,10 +436,28 @@ smurg host ~/projects/my-app</code></pre>
   </div>
 </section>
 
-<section class="section" id="faq" aria-labelledby="faq-title">
+<section class="section" id="open-source" aria-labelledby="open-source-title">
   <div class="wrap section-grid">
     <div>
       <p class="kicker">06</p>
+      <h2 id="open-source-title">Open source (MIT)</h2>
+    </div>
+    <div>
+      <p class="lead-text">smurg is open source under the MIT License: the <code>smurg</code> command, the web app, the relay and this site. Read the code, build it yourself, run your own relay, or send a fix.</p>
+      <ul class="links-list">
+        <li><a href="https://github.com/gclinian/smurg">Source code on GitHub</a></li>
+        <li><a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">Run your own relay</a></li>
+        <li><a href="https://github.com/gclinian/smurg/blob/main/CONTRIBUTING.md">Contributing</a></li>
+        <li><a href="https://github.com/gclinian/smurg/blob/main/SECURITY.md">Reporting a vulnerability</a></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="faq" aria-labelledby="faq-title">
+  <div class="wrap section-grid">
+    <div>
+      <p class="kicker">07</p>
       <h2 id="faq-title">Questions</h2>
     </div>
     <div class="faq">
@@ -446,19 +468,23 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>How do I update or remove it?</h3>
-        <p><code>smurg update</code> replaces the executable with the newest version, after the same SHA-256 check (stop sharing first). <code>smurg uninstall</code> lists what it will remove, then removes the executable, its cache and <code>~/.smurg</code>; the <code>.smurg/</code> folders inside your projects are left to you. Version 0.2.0 has neither command: run the install line again to update it.</p>
+        <p><code>smurg update</code> replaces the executable with the newest version, after the same SHA-256 check (stop sharing first). <code>smurg uninstall</code> lists what it will remove, then removes the executable, its cache and <code>~/.smurg</code>; the <code>.smurg/</code> folders inside your projects are left to you.</p>
       </div>
       <div>
         <h3>What does the relay see?</h3>
-        <p>The Google account of each connection (ID, name and picture; at sign-in also the email), its IP address, the workspace code, and the size and time of each message, so it can tell who worked with whom, and when. Files, file names, terminal output, commands and keys are end-to-end encrypted between the host’s computer and each teammate. There is no other relay to choose for now: the relay’s source isn’t public, so hosts can’t run their own. If what the relay sees is too much for a project, don’t share it with smurg.</p>
+        <p>The Google account of each connection (ID, name and picture; at login also the email), its IP address, the workspace code, and the size and time of each message, so it can tell who worked with whom, and when. Files, file names, terminal output, commands and keys are end-to-end encrypted between the host’s computer and each teammate. If what the shared relay sees is too much for a project, run your own relay: then only you and your Cloudflare account see it.</p>
       </div>
       <div>
         <h3>Do teammates need their own Claude account?</h3>
-        <p>No. Every agent runs on the host’s computer with the host’s Claude Code login, so its usage counts against the host’s account. Viewers watch every session, editors also send suggestions, and teammates with the “can use agents” role open sessions and type into them, all as the host. The host needs Claude Code installed and signed in.</p>
+        <p>No. Every agent runs on the host’s computer with the host’s Claude Code login, so its usage counts against the host’s account. Viewers watch every session, Editors also send suggestions, and teammates with agent access open sessions and type into them, all as the host. The host needs Claude Code installed and logged in.</p>
       </div>
       <div>
         <h3>Can I see the source code?</h3>
-        <p>No, the source code is not public. The executables are free to download and use during the prototype, under the terms of the <a href="/license/">license</a>. The components smurg is built from keep their own licenses, listed in the <a href="/third-party-notices.txt">third-party notices</a> of the executables and in those of the <a href="https://app.smurg.ai/third-party-notices.txt">web app</a>.</p>
+        <p>Yes. smurg is open source under the <a href="/license/">MIT License</a>, and the source code is on <a href="https://github.com/gclinian/smurg">GitHub</a>. The components smurg is built from keep their own licenses, listed in the <a href="/third-party-notices.txt">third-party notices</a> of the executables and in those of the <a href="https://app.smurg.ai/third-party-notices.txt">web app</a>.</p>
+      </div>
+      <div>
+        <h3>Can I run my own relay?</h3>
+        <p>Yes. The relay is a Cloudflare Worker: deploy it with your own Cloudflare account (the free plan is enough) and your own Google OAuth client, following the <a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">relay’s README</a>, then log in with <code>smurg login --relay</code> and your relay’s address. Your invite links then point at your relay, and it has its own daily quota.</p>
       </div>
       <div>
         <h3>Which browsers work?</h3>
@@ -466,7 +492,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>What happens when the host’s computer sleeps?</h3>
-        <p>Everyone sees “host offline” within seconds. Edits wait in the browser and are sent when the host is back; agents can’t be used in the meantime. smurg keeps an idle computer awake while sharing, but closing a laptop’s lid still puts it to sleep.</p>
+        <p>Everyone sees “Host offline” within seconds. Edits wait in the browser and are sent when the host is back; agents can’t be used in the meantime. smurg keeps an idle computer awake while sharing, but closing a laptop’s lid still puts it to sleep.</p>
       </div>
     </div>
   </div>
@@ -476,15 +502,16 @@ smurg host ~/projects/my-app</code></pre>
 
 <footer class="site-footer">
   <div class="wrap footer-row">
-    <p>The smurg executables are free to download and use during the prototype.</p>
+    <p>smurg is open source under the MIT License.</p>
     <nav aria-label="Footer">
       <ul>
         <li><a href="/docs/">Docs</a></li>
         <li><a href="/docs/changelog/">Changelog</a></li>
         <li><a href="/license/">License</a></li>
         <li><a href="/third-party-notices.txt">Third-party notices</a></li>
+        <li><a href="https://github.com/gclinian/smurg">GitHub</a></li>
         <li><a href="https://app.smurg.ai/">Web app</a></li>
-        <li><a href="/zh-TW/" hreflang="zh-TW" lang="zh-TW">繁體中文</a></li>
+        <li><a href="/zh-TW/" hreflang="zh-Hant-TW" lang="zh-Hant-TW">繁體中文</a></li>
       </ul>
     </nav>
   </div>

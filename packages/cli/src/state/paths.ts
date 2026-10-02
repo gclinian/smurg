@@ -3,6 +3,7 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { usageError } from '../cli/errors.ts';
+import { m } from '../i18n/index.ts';
 
 export interface StatePaths {
   /** `~/.smurg` (0700). */
@@ -28,7 +29,7 @@ export function statePaths(env: Readonly<Record<string, string | undefined>>): S
   let stateDir: string;
   if (override !== undefined && override !== '') {
     // Fail closed: a relative SMURG_HOME would put keys wherever the command happens to run.
-    if (!isAbsolute(override)) throw usageError('SMURG_HOME 必須是絕對路徑');
+    if (!isAbsolute(override)) throw usageError(m('state.homeNotAbsolute'));
     stateDir = resolve(override);
   } else {
     stateDir = join(homeDirOf(env), '.smurg');

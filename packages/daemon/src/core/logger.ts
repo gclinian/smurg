@@ -28,7 +28,7 @@ export interface LineLoggerOptions {
  * What JSON.stringify leaves raw but a terminal may act on or a reader may misread: DEL and the C1 controls (U+0080–
  * U+009F; a terminal that takes them as controls reads U+009B as CSI and U+009D as OSC, e.g. a clipboard write), the
  * line and paragraph separators, the bidirectional overrides and isolates, and the invisible formatting characters that
- * make a name look like another (review GR-14: the soft hyphen, the Arabic letter mark, the Mongolian vowel separator,
+ * make a name look like another (the soft hyphen, the Arabic letter mark, the Mongolian vowel separator,
  * U+200B–U+200F with LRM / RLM, U+2060–U+2064, the byte order mark). Logged values can be names a guest chose (a
  * directory in the share, review attack F1), and the host reads the log in a terminal (`smurg host`: a file, errors on
  * stderr).

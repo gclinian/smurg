@@ -21,7 +21,7 @@ export default defineProject({
       XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME ?? `${repoRoot}.xdg`,
       WRANGLER_SEND_METRICS: 'false',
       TMPDIR: tmpRoot,
-      // No test may ever open the person's own browser (review OWNER-02): every CLI these tests spawn inherits this.
+      // No test may ever open the person's own browser: every CLI these tests spawn inherits this.
       SMURG_NO_BROWSER: '1',
     },
   },

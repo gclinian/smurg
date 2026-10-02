@@ -179,7 +179,7 @@ form.addEventListener('submit', (event) => {
   const probe = data.get('probe') !== '0';
   (document.getElementById('start') as HTMLButtonElement).disabled = true;
   run(workspaceId, bytes, path, finalize, probe).catch((error: unknown) => {
-    out.textContent = `量測失敗：${error instanceof Error ? error.message : String(error)}`;
+    out.textContent = `Measurement failed: ${error instanceof Error ? error.message : String(error)}`;
     document.body.dataset['measureState'] = 'failed';
   });
 });

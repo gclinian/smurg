@@ -24,7 +24,7 @@ describe('remote cursors: names and colours for people AND agents', () => {
       [102, human('</style><script>window.__pwned=1</script>', 'dev:eve')],
       [103, human('\\"; } .ui-dialog { display: none } /*', 'dev:trudy')],
       [104, human('line\nbreak{}\u0000\u007f', 'dev:nl')],
-      [105, agent('Claude（Ian）')],
+      [105, agent('Claude (Ian)')],
       [106, human('自己', 'dev:self')],
     ]);
     const css = editorPresenceCss(states, 106);
@@ -39,12 +39,12 @@ describe('remote cursors: names and colours for people AND agents', () => {
     expect(css).toContain('.yRemoteSelection-101{background-color:#88888840}');
     // The label is a CSS string: the names survive as text, with their quotes escaped.
     const label = rules.find((rule) => rule.selectorText === '.yRemoteSelectionHead-105::after');
-    expect(label?.style.getPropertyValue('content')).toContain('Claude（Ian）');
+    expect(label?.style.getPropertyValue('content')).toContain('Claude (Ian)');
     // Our own client gets no remote cursor.
     expect(css).not.toContain('-106');
   });
 
-  it('a caret name shows after a change, then fades; only the client that changed gets it back (WEB-03)', () => {
+  it('a caret name shows after a change, then fades; only the client that changed gets it back', () => {
     const states = new Map<number, Record<string, unknown>>([
       [7, human('Amy', 'dev:amy')],
       [8, human('Bob', 'dev:bob')],
@@ -60,10 +60,10 @@ describe('remote cursors: names and colours for people AND agents', () => {
     expect(after).toContain('.yRemoteSelectionHead-8:hover::after{animation:none;opacity:1}');
   });
 
-  it('agents are drawn with a dashed caret and labelled 「Claude（Ian）」', () => {
-    const css = editorPresenceCss(new Map([[7, agent('Claude（Ian）')]]), 1);
+  it('agents are drawn with a dashed caret and labelled "Claude (Ian)"', () => {
+    const css = editorPresenceCss(new Map([[7, agent('Claude (Ian)')]]), 1);
     expect(css).toContain('.yRemoteSelectionHead-7{border-left-style:dashed}');
-    expect(css).toContain('"Claude（Ian）"');
+    expect(css).toContain('"Claude (Ian)"');
   });
 
   it('participants: everyone but me (my other tab included), people before agents, one entry per person', () => {
@@ -71,7 +71,7 @@ describe('remote cursors: names and colours for people AND agents', () => {
       [1, human('Amy', 'dev:amy')],
       [2, human('Amy', 'dev:amy', '#3b82f6', { anchor: {}, head: {} })], // Amy's second tab, with a cursor
       [3, human('Me', 'dev:me')], // my other tab
-      [4, agent('Claude（Ian）')],
+      [4, agent('Claude (Ian)')],
       [5, { user: { name: '', color: '#000000' } }],
       [6, { nothing: true }],
       [9, human('Me', 'dev:me')], // this client
@@ -79,7 +79,7 @@ describe('remote cursors: names and colours for people AND agents', () => {
     const list = participantsOf(states, 9, 'dev:me');
     expect(list.map((p) => [p.name, p.kind, p.clientId])).toEqual([
       ['Amy', 'human', 2],
-      ['Claude（Ian）', 'agent', 4],
+      ['Claude (Ian)', 'agent', 4],
     ]);
   });
 });

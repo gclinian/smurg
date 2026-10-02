@@ -9,14 +9,9 @@ import { parseArgs } from '../cli/args.ts';
 import { CliError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
 import type { CliIo } from '../cli/io.ts';
+import { m, renderText, resolveLang, type Locale } from '../i18n/index.ts';
+import { INSTALL_COMMAND } from '../update/downloads.ts';
 import { composeExecutableNotices, NOTICE_ASSETS, nodeDistributionLicense } from '../licenses/notices.ts';
-
-export const LICENSES_USAGE = `用法：smurg licenses [--third-party]
-
-  顯示 smurg 的授權條款（LICENSE），以及 smurg 執行檔裡第三方軟體的授權與聲明（THIRD-PARTY-NOTICES）。
-  授權條款網頁：https://smurg.ai/license/
-  --third-party       只顯示第三方軟體的授權與聲明
-`;
 
 interface SeaAssets {
   isSea(): boolean;
@@ -35,7 +30,7 @@ export function licenseTexts(): LicenseTexts {
     try {
       return { license: sea.getAsset(NOTICE_ASSETS.license, 'utf8'), thirdParty: sea.getAsset(NOTICE_ASSETS.thirdParty, 'utf8') };
     } catch (err) {
-      throw new CliError('這個 smurg 執行檔裡沒有授權文件', { hint: '請重新安裝 smurg：curl -fsSL https://smurg.ai/install.sh | sh', cause: err });
+      throw new CliError(m('licenses.missing'), { hint: m('licenses.missing.hint', { install: INSTALL_COMMAND }), cause: err });
     }
   }
   const license = readFileSync(fileURLToPath(new URL('../../../../LICENSE', import.meta.url)), 'utf8');
@@ -44,10 +39,10 @@ export function licenseTexts(): LicenseTexts {
   return { license, thirdParty: node === null ? committed : composeExecutableNotices(committed, node) };
 }
 
-export function runLicenses(argv: readonly string[], io: CliIo, texts: () => LicenseTexts = licenseTexts): number {
+export function runLicenses(argv: readonly string[], io: CliIo, texts: () => LicenseTexts = licenseTexts, lang: Locale = resolveLang(io.env, io.systemLanguages)): number {
   const args = parseArgs(argv, { options: { 'third-party': { kind: 'boolean' }, help: { kind: 'boolean', short: 'h' } } });
   if (args.options['help']) {
-    io.stdout.write(LICENSES_USAGE);
+    io.stdout.write(renderText(lang, m('usage.licenses')));
     return EXIT.ok;
   }
   const { license, thirdParty } = texts();

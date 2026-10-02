@@ -10,7 +10,7 @@ export const SUGGESTIONS_VERSION = 1;
 export const storedSuggestionSchema = suggestionSchema.extend({
   /** Owner of the target session when the suggestion was made (sessions do not outlive the daemon). */
   sessionOwnerUserId: userIdSchema,
-  /** When the author last changed the text (suggest.edit): a plain accept right after it is ambiguous (SEC-D-01). */
+  /** When the author last changed the text (suggest.edit): a plain accept right after it is ambiguous. */
   editedAt: epochMsSchema.optional(),
 });
 export type StoredSuggestion = z.infer<typeof storedSuggestionSchema>;

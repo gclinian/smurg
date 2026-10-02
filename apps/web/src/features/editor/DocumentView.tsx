@@ -27,9 +27,9 @@ export interface DocumentViewProps {
   readonly reveal: RevealRequest | null;
   onRevealed(seq: number): void;
   onSelection(selection: EditorSelection | null): void;
-  /** Filled with the editor while it exists (the 「送到 agent」 menu reads the selection through it). */
+  /** Filled with the editor while it exists (the "Send to agent" menu reads the selection through it). */
   readonly editorRef: RefObject<EditorHandle | null>;
-  /** The editor's context-menu entry 「送到 agent…」 (omitted when the role cannot send). */
+  /** The editor's context-menu entry "Send to agent…" (omitted when the role cannot send). */
   readonly onSendToAgent?: () => void;
 }
 

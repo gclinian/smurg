@@ -3,7 +3,7 @@
 // local directory and records every call; a local HTTP server serves that directory as downloads.smurg.ai does (GET and
 // HEAD of /<key>, the query string ignored as R2 ignores it, the Content-Type and Cache-Control each upload set) and
 // answers for smurg.ai/install.sh; a stub `file` names the architecture each stand-in claims; a stub `gh` stands in for
-// the private GitHub release. Covered: the dry run, refusing to overwrite (and --resume), the upload order (the version
+// the GitHub release and the release workflow's artifact. Covered: the dry run, refusing to overwrite (and --resume), the upload order (the version
 // first, SHA256SUMS last, latest/ only after every file read back), a read-back failure stopping before latest/, --check,
 // --set-latest (rolling back), pre-releases and older versions never moving latest/, and the wrapper keeping the
 // person's gh login.
@@ -153,20 +153,30 @@ said="$(sed -n '2s/^# file: //p' "$2" 2>/dev/null)"
 if [ -n "$said" ]; then printf '%s\\n' "$said"; else exec /usr/bin/file -b "$2"; fi
 `;
 
-/** Stub `gh`: release view / release download of one release directory; every call (and GH_CONFIG_DIR) logged. */
+/**
+ * Stub `gh`: the GitHub release of one release directory (it carries SHA256SUMS and the notices only) and the release
+ * workflow's run whose artifact is that directory; every call (and GH_CONFIG_DIR) logged. `<ctl>/gh-record/` replaces
+ * what the GitHub release carries.
+ */
 function stubGh(releaseDir: string, ctl: string, log: string): string {
   return `#!/bin/sh
 printf 'GH_CONFIG_DIR=%s %s\\n' "\${GH_CONFIG_DIR:-}" "$*" >>'${log}'
 [ -e '${ctl}/gh-fails' ] && { echo 'gh: To get started with GitHub CLI, please run:  gh auth login' >&2; exit 4; }
+record='${releaseDir}'; [ -d '${ctl}/gh-record' ] && record='${ctl}/gh-record'
+dir=''; prev=''
+for a in "$@"; do [ "$prev" = --dir ] && dir="$a"; prev="$a"; done
 case "$1 $2" in
   'release view')
     draft=false; [ -e '${ctl}/gh-draft' ] && draft=true
     assets=''
-    for f in '${releaseDir}'/*; do assets="$assets{\\"name\\":\\"$(basename "$f")\\"},"; done
+    for f in SHA256SUMS THIRD-PARTY-NOTICES.txt; do [ -e "$record/$f" ] && assets="$assets{\\"name\\":\\"$f\\"},"; done
     printf '{"tagName":"%s","isDraft":%s,"assets":[%s]}\\n' "$3" "$draft" "\${assets%,}"; exit 0 ;;
   'release download')
-    dir=''; prev=''
-    for a in "$@"; do [ "$prev" = --dir ] && dir="$a"; prev="$a"; done
+    cp "$record/SHA256SUMS" "$record/THIRD-PARTY-NOTICES.txt" "$dir"/; exit 0 ;;
+  'run list')
+    if [ -e '${ctl}/gh-no-run' ]; then echo '[]'; else echo '[{"databaseId":4242}]'; fi; exit 0 ;;
+  'run download')
+    [ -e '${ctl}/gh-artifact-expired' ] && { echo 'no artifact matches any of the names or patterns provided' >&2; exit 1; }
     cp '${releaseDir}'/* "$dir"/; exit 0 ;;
 esac
 exit 1
@@ -513,7 +523,7 @@ describe('publishing a version (scripts/release-assets.sh → scripts/publish-do
     expect(again.code).toBe(1);
     expect(again.out).toContain('v9.8.7/smurg-darwin-x64 already exist with other contents');
     expect(again.out).toContain('docs/RELEASING.md §4 step 7');
-    // The owner deletes that one object (here: the stub bucket's file); --resume then uploads it again and finishes.
+    // A maintainer deletes that one object (here: the stub bucket's file); --resume then uploads it again and finishes.
     await rm(join(w.ctl, 'corrupt'));
     await rm(join(w.r2, 'v9.8.7', 'smurg-darwin-x64'));
     await writeFile(w.wranglerLog, '');
@@ -816,8 +826,8 @@ describe('a rehearsal with the real command (stand-ins named in the environment,
   });
 });
 
-describe('--from-release: the private GitHub release, with the person’s gh login', () => {
-  it('views and downloads the release’s seven files, refuses a draft, and says so when gh is not logged in', async () => {
+describe('--from-release: the release workflow’s artifact and the GitHub release, with the person’s gh login', () => {
+  it('takes the seven files of the run’s artifact, checks them against the GitHub release, refuses a draft, and says so when gh is not logged in', async () => {
     const w = await world();
     const out = await w.release('9.8.7');
     await writeExecutable(join(w.stubs, 'gh'), stubGh(out, w.ctl, w.ghLog));
@@ -830,11 +840,40 @@ describe('--from-release: the private GitHub release, with the person’s gh log
     const run = await w.publish(['--version', '9.8.7', '--from-release', '--dry-run']);
     expect(run.out).toContain('dry run done');
     expect(run.code).toBe(0);
+    const prefix = 'GH_CONFIG_DIR=/home/someone/.config/gh ';
     const calls = (await readFile(w.ghLog, 'utf8')).split('\n').filter((line) => line !== '');
-    expect(calls).toHaveLength(2);
-    expect(calls[0]).toBe('GH_CONFIG_DIR=/home/someone/.config/gh release view v9.8.7 --repo gclinian/smurg --json tagName,isDraft,assets');
-    expect(calls[1]).toMatch(/^GH_CONFIG_DIR=\/home\/someone\/\.config\/gh release download v9\.8\.7 --repo gclinian\/smurg --dir \S+ /);
-    expect(calls[1]).toContain(UPLOAD_ORDER.map((name) => `--pattern ${name}`).join(' '));
+    expect(calls).toHaveLength(4);
+    expect(calls[0]).toBe(`${prefix}release view v9.8.7 --repo gclinian/smurg --json tagName,isDraft,assets`);
+    expect(calls[1]).toBe(`${prefix}run list --repo gclinian/smurg --workflow release.yml --event push --branch v9.8.7 --status success --limit 1 --json databaseId`);
+    expect(calls[2]).toMatch(/^GH_CONFIG_DIR=\/home\/someone\/\.config\/gh run download 4242 --repo gclinian\/smurg --name release-9\.8\.7 --dir \S+$/);
+    expect(calls[3]).toMatch(/^GH_CONFIG_DIR=\/home\/someone\/\.config\/gh release download v9\.8\.7 --repo gclinian\/smurg --dir \S+ --clobber --pattern SHA256SUMS --pattern THIRD-PARTY-NOTICES\.txt$/);
+
+    // The GitHub release announced other checksums than the artifact's: not the files of that release.
+    await mkdir(join(w.ctl, 'gh-record'), { recursive: true });
+    await writeFile(join(w.ctl, 'gh-record', 'SHA256SUMS'), `${'0'.repeat(64)}  smurg-linux-x64\n`);
+    await writeFile(join(w.ctl, 'gh-record', NOTICES), await readFile(join(out, NOTICES)));
+    const other = await w.publish(['--version', '9.8.7', '--from-release', '--dry-run']);
+    expect(other.code).toBe(1);
+    expect(other.out).toContain('SHA256SUMS of the artifact release-9.8.7 (run 4242) is not the SHA256SUMS of the GitHub release v9.8.7');
+    // A GitHub release without its checksums.
+    await rm(join(w.ctl, 'gh-record', 'SHA256SUMS'));
+    const bare = await w.publish(['--version', '9.8.7', '--from-release', '--dry-run']);
+    expect(bare.code).toBe(1);
+    expect(bare.out).toContain('the GitHub release v9.8.7 has no SHA256SUMS');
+    await rm(join(w.ctl, 'gh-record'), { recursive: true });
+
+    // No successful run for the tag, and an artifact that is gone (kept 30 days).
+    await writeFile(join(w.ctl, 'gh-no-run'), '');
+    const noRun = await w.publish(['--version', '9.8.7', '--from-release', '--dry-run']);
+    expect(noRun.code).toBe(1);
+    expect(noRun.out).toContain('no successful run of release.yml for the tag v9.8.7');
+    await rm(join(w.ctl, 'gh-no-run'));
+    await writeFile(join(w.ctl, 'gh-artifact-expired'), '');
+    const expired = await w.publish(['--version', '9.8.7', '--from-release', '--dry-run']);
+    expect(expired.code).toBe(1);
+    expect(expired.out).toContain('gh run download 4242 --name release-9.8.7 failed');
+    expect(expired.out).toContain('use --dist: docs/RELEASING.md §4.3');
+    await rm(join(w.ctl, 'gh-artifact-expired'));
 
     await writeFile(join(w.ctl, 'gh-draft'), '');
     const draft = await w.publish(['--version', '9.8.7', '--from-release', '--dry-run']);

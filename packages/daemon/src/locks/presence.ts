@@ -1,16 +1,15 @@
-// Presence (SPEC R7 在場感知, R11 線上成員; ARCHITECTURE §5.4): who is here, on how many connections, looking at which
-// file, and one entry per running agent session 「Claude（<owner>）」 with a stable colour. `presence.state` is a full
+// Presence (SPEC R7 presence, R11 members online; ARCHITECTURE §5.4): who is here, on how many connections, looking at which
+// file, and one entry per running agent session `Claude (<owner>)` with a stable colour. `presence.state` is a full
 // snapshot, coalesced: a burst of changes (a reconnect storm, someone clicking through files) becomes one broadcast
 // per coalesceMs. Every newly opened interactive connection gets the current snapshot directly, so a client never
 // waits for the next change to learn who is here (also after a resume: queued snapshots are not replayed to
 // disconnected channels, they would be stale).
-import { LIST_MAX_ITEMS, fileRefKey, type FileRef, type PayloadInputOf, type PresenceAgent, type SessionInfo } from '@smurg/protocol';
+import { LIST_MAX_ITEMS, agentDisplayName, fileRefKey, type FileRef, type PayloadInputOf, type PresenceAgent, type SessionInfo } from '@smurg/protocol';
 import type { ClientConnection, Hub, MemberDirectory, PresenceService, UserId } from '../core/interfaces.ts';
 import type { Clock } from '../core/lifecycle.ts';
 import type { Logger } from '../core/logger.ts';
 import { isReadableOnBothThemes, pickAgentColor } from './colors.ts';
 import { isHiddenFromGuests } from './keys.ts';
-import { agentNameFor } from './text.ts';
 import { realTimers, type Timers } from './timers.ts';
 
 type PresenceState = PayloadInputOf<'presence.state'>;
@@ -105,7 +104,7 @@ export class PresenceServiceImpl implements PresenceService {
     return this.agents.get(sessionId)?.color ?? null;
   }
 
-  /** session.created / session.updated: agent sessions appear as 「Claude（owner）」 while they run. */
+  /** session.created / session.updated: agent sessions appear as `Claude (owner)` while they run. */
   sessionChanged(session: SessionInfo): void {
     if (session.kind !== 'agent') return;
     if (session.status === 'exited') {
@@ -116,7 +115,7 @@ export class PresenceServiceImpl implements PresenceService {
     this.setAgent({
       sessionId: session.id,
       ownerUserId: session.ownerUserId,
-      displayName: agentNameFor(session.ownerName),
+      displayName: agentDisplayName(session.ownerName),
       color: existing?.color ?? pickAgentColor(session.id, this.colorsInUse(session.id)),
       status: session.status,
     });

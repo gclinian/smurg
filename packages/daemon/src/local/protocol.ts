@@ -36,7 +36,7 @@ const version = z.literal(CTL_PROTOCOL_VERSION);
 
 /**
  * The daemon's stop reason for every `stop` of the control socket. The request carries no reason of its own (it used
- * to: verification F-2, 2026-10-02): whoever reaches the socket (every session of a 「可使用 agent」 member runs as the
+ * to: verification F-2, 2026-10-02): whoever reaches the socket (every session of a Agent access member runs as the
  * host's OS account) must not choose the text that `smurg host` and the daemon's listeners read, e.g. one of `smurg
  * host`'s own stop reasons, which made the host's terminal miss the stop.
  */

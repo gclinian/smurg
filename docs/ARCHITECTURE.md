@@ -13,8 +13,8 @@ listed in §11 with their reason.
 
 ## 0. Rules for everyone who writes or runs code in this repo
 
-These exist because of real incidents during the research phase (two spikes killed unrelated processes on the
-host machine by scanning the process table).
+These exist because of real incidents during the research phase (two spikes killed unrelated processes by scanning
+the process table).
 
 1. **Process signals.** Only ever signal a pid or process group that *your own code spawned and recorded*.
    Never `pkill`, `killall`, `kill -1`, or "every process that matches predicate X". Before `process.kill(-pgid)`
@@ -53,16 +53,23 @@ smurg/
 ├── apps/
 │   ├── web/            React + Vite SPA (Monaco, Yjs, xterm.js)
 │   ├── relay/          Cloudflare Worker + Durable Objects (WorkspaceDO, TransferDO, DeviceLoginDO); also serves the web SPA
-│   └── site/           smurg.ai product page (static files + a Worker for a few redirects; www is a zone rule)
+│   └── site/           smurg.ai product page in both languages (static files + a Worker for a few redirects; www is a
+│                       zone rule)
 ├── packages/
-│   ├── protocol/       zod schemas, roles/capabilities, Noise channel, framing, invite links, client SDK
+│   ├── protocol/       zod schemas, roles/capabilities, Noise channel, framing, invite links, client SDK,
+│   │                   locale detection (`/locale`) and the wire message catalog (`/i18n`)
 │   ├── daemon/         host-side daemon (library + hook/MCP entry points)
 │   └── cli/            `smurg` binary: host / attach / stop / update / uninstall (+ internal: hook, mcp, login)
 ├── tests/
-│   └── e2e/            cross-package acceptance tests (relay + daemon + headless clients)
-├── docs/               ARCHITECTURE.md, research/, ACCEPTANCE.md
+│   ├── e2e/            cross-package acceptance tests (relay + daemon + headless clients)
+│   └── lint/           repository-wide checks of the language rules (§10)
+├── docs/               ARCHITECTURE.md, GLOSSARY.md, HOSTING.md / JOINING.md (+ zh-TW/), RELEASING.md, research/, ACCEPTANCE.md
 └── scripts/            dev + packaging scripts
 ```
+
+Also at the root: `README.md` / `README.zh-TW.md`, `CHANGELOG.md`, `LICENSE` (MIT), `NOTICE`, `SECURITY.md`,
+`CONTRIBUTING.md`; `packages/protocol/test-vectors/README.md` names the origin and licenses of the vendored Noise test
+vectors (`cacophony.txt`: Unlicense; `snow.txt`: Apache-2.0 OR MIT).
 
 - pnpm workspaces, TypeScript (strict, ESM, `"type": "module"`), vitest for all tests.
 - **Node:** `engines.node ^22.18.0 || ^24.0.0`; develop and test on **Node 22 LTS** (`.nvmrc`). Node 23 and 25 are
@@ -85,8 +92,56 @@ smurg/
 Rejected with evidence (do not reintroduce): `noise-handshake`, `noise-protocol`, `noise-c.wasm`, `@libp2p/noise`,
 `diff-match-patch`, `node-diff3`, `chokidar`, `archiver`, `zip-stream`, `fflate` (as zip writer),
 `@monaco-editor/react`, `vite-plugin-monaco-editor`, `@cloudflare/vitest-pool-workers`, bun as daemon runtime.
-- Identifiers, message types and file names are English. UI strings are Traditional Chinese (zh-TW).
+- Identifiers, message types and file names are English. Languages: see "Languages" below.
 - `tests/e2e` is an addition to the layout in SPEC §6: acceptance tests need a home that can depend on every package.
+
+### Languages (English and Traditional Chinese)
+
+Two locales, `en` (the default, and the source of truth for keys) and `zh-TW`. `docs/GLOSSARY.md` binds the terms.
+
+1. **The language is the viewer's.** A process chooses a language only for text it shows to its own user: the browser
+   for the web app, a CLI process for its own output, the relay Worker per request for its HTML pages, `sh` for the
+   installer, the URL for smurg.ai. One detection rule, in `@smurg/protocol/locale` (`matchLanguageTag`,
+   `localeFromLanguages`, `localeFromAcceptLanguage`, `localeFromEnv`; shared test table `/locale/test-table`); the
+   installer's `pick_lang` is the same rule in POSIX sh. A choice a person made wins over detection: `SMURG_LANG`
+   (`en` / `zh-TW`) for the CLI and the installer (§8), the web app's language menu (§9), the `?lang=` links of the
+   relay's pages (§6); both of the latter write the cookie `smurg_lang`. smurg.ai never chooses: English pages at
+   `/`, `/docs/…`, `/license/`, their Traditional Chinese counterparts under `/zh-TW/`, each page linking to its
+   counterpart (a visible link and `<link rel="alternate" hreflang>`), and a generated `/sitemap.xml` that lists
+   every page with its alternates (`apps/site/scripts/site.ts`). `/github` and `/source` there are 302s to the
+   source repository, next to `/install.sh` (`apps/site/src/routes.ts`).
+2. **The daemon and the relay's JSON API never choose a display language.** Everything they write for people travels
+   as a `code` / `reason` + a message reference `{ id, params }` (`MessageRef`) + an English rendering as the
+   fallback (§4.3, §5.4). There is no locale in `ClientHello`. A client renders
+   `render(locale, ref) ?? <the English fallback>`.
+3. **Text with one shared audience or a machine reader is fixed English**: PTY bytes, hook deny reasons (§7.7), MCP
+   tool texts, git commit messages smurg writes (`smurg: worktree changes by {name}`, `Merge {branch} ({name})`), logs,
+   audit action and reason codes, maintainer and developer scripts.
+4. **Text written by a person or an agent is never translated**: a suggestion, a merge message, a reject reason, a
+   session title someone typed, `notify_member` text, display names, file names.
+5. **Names that are stored and shown to everyone have one language-neutral spelling**: the agent of a session is
+   `Claude (Ian)` (`agentDisplayName(owner)` in `@smurg/protocol`, the only function that spells it); device names
+   are `Chrome (macOS)` / `smurg CLI (<hostname>)`; the relay's fallback user name is `Google user`.
+6. **No source file outside a zh-TW catalog or a zh-TW document contains CJK** (`tests/lint/no-cjk.test.ts`).
+
+Catalogs (who owns which text):
+
+| Catalog | Where | Holds |
+|---|---|---|
+| Wire catalog | `packages/protocol/src/i18n/` (`@smurg/protocol/i18n`) | every text the daemon or the client SDK originates and a client shows: error sentences, activity sentences, daemon-written notifications, client-side request failures, the default text per error code, role labels, the default session titles. Functions of typed parameters, both locales side by side; ids are `area.thing[.variant]` |
+| Web catalog | `apps/web/src/strings/*.ts`, `apps/web/src/features/*/strings.ts` (+ `*.zh-TW.ts`) | everything the web app itself says |
+| CLI catalog | `packages/cli/src/i18n/{en,zh-TW}.ts` | everything the CLI itself says |
+| Relay pages | `apps/relay/src/lib/strings.ts` | the Worker's HTML pages |
+| Installer | `scripts/install.sh` (`msg 'english' 'zh-TW'`) | the installer's messages |
+
+Wire catalog API: `message(params, { en, 'zh-TW' })` defines a message; `msg(id, params)` makes a typed reference
+(the daemon); `render(locale, ref)` returns the text or `undefined` (unknown id, a parameter of the wrong type: the
+reference is untrusted wire input, so the caller shows the English fallback); `renderEnglish(ref)` is what the daemon
+writes into `message` / `summary` / `fallback`. Parameters are strings, numbers, booleans and lists of at most 10
+strings; the sender clips them (a path to 200 characters, at most 3 sample paths, at most 5 holder names). Byte
+sizes are numbers (`formatBytes` formats them the same way in both locales). No sentence is built from fragments:
+git steps are a `step` parameter with a table of names per locale inside the catalog (`GIT_STEPS`), file change
+kinds a `change` parameter (`FILE_CHANGES`).
 
 ### Dependency rules
 
@@ -94,12 +149,14 @@ Rejected with evidence (do not reintroduce): `noise-handshake`, `noise-protocol`
 protocol  ← daemon ← cli
 protocol  ← web
 protocol  ← cli
-relay     (no dependency on protocol's crypto; may import protocol's relay-control schemas only)
+relay     (no dependency on protocol's crypto; may import `@smurg/protocol/relay` and `@smurg/protocol/locale` only)
 ```
 
 `protocol` must run unchanged in Node ≥ 22, browsers, and must not import Node built-ins from its
-browser-reachable entry points (`@smurg/protocol`, `@smurg/protocol/client`). Node-only helpers go in
-`@smurg/protocol/node`.
+browser-reachable entry points (`@smurg/protocol`, `@smurg/protocol/client`, `/browser`, `/relay`, `/locale`,
+`/i18n`). Node-only helpers go in `@smurg/protocol/node`. `/locale` imports nothing at all; `/i18n` imports only its
+own files and `/locale` (no zod, no crypto); the barrel reaches `/i18n` because `SmurgError` renders its English
+message from a reference. `packages/protocol/test/entry-boundaries.test.ts` checks all of this.
 
 ---
 
@@ -127,7 +184,7 @@ Rules that follow (and that reviewers check):
 
 ```ts
 type Role = 'host' | 'agent' | 'editor' | 'viewer';
-//            主人     可使用 agent  可編輯      旁觀
+//            Host     Agent access  Editor      Viewer    (labels: `roleLabel(locale, role)` of @smurg/protocol/i18n)
 
 type UserId = string;        // relay-issued: "github:<id>" | "google:<sub>" | "dev:<name>"
 
@@ -153,7 +210,7 @@ type Capability =
 | worktree.merge.request | ✅ | ✅ | ❌ | ❌ |
 | worktree.merge.decide, lock.force-release, admin | ✅ | ❌ | ❌ | ❌ |
 
-The role `agent` (「可使用 agent」) replaced `runner` on 2026-10-01 (owner decision, §11 D-15): there are no sandboxed
+The role `agent` ("Agent access") replaced `runner` on 2026-10-01 (§11 D-15): there are no sandboxed
 guest sessions any more (`session.create.sandboxed` / `session.create.host` are gone). A session an `agent` member opens
 runs exactly like the host's own (the host's OS user, environment, HOME, `~/.claude` and Claude Code login), in the
 main workspace, a new worktree or their own kept worktree. `runner` is not accepted anywhere.
@@ -175,7 +232,7 @@ Resource-level rules (daemon handlers):
 ```ts
 type Actor =
   | { kind: 'user'; userId: UserId; displayName: string }
-  | { kind: 'agent'; sessionId: string; ownerUserId: UserId; displayName: string }  // "Claude（Ian）"
+  | { kind: 'agent'; sessionId: string; ownerUserId: UserId; displayName: string }  // "Claude (Ian)"
   | { kind: 'system' };
 ```
 
@@ -210,7 +267,7 @@ client                          relay (WorkspaceDO)                        daemo
     decodes; `node:crypto.verify` checks the Ed25519 signature against the relay's JWKS fetched beforehand; `typ`, `alg`,
     `iss`, `aud`, `exp`/`iat`/`nbf` (60 s skew), age ≤ 5 min and the `cnf` member are checked by hand. An unknown `kid`
     answers `busy` (the client retries) and triggers a rate-limited JWKS refresh.
-  - The times are checked against the **relay's** clock, not the host's (review REL-05): the daemon estimates it from
+  - The times are checked against the **relay's** clock, not the host's: the daemon estimates it from
     the `Date` header of each JWKS response (the relay sets it explicitly; local workerd adds none by itself), with the
     offset capped at ±24 h (fail closed beyond that). A host clock that differs from the relay's is logged as a warning;
     a time failure is logged with the token's offset and triggers a rate-limited key refresh.
@@ -249,7 +306,7 @@ client                          relay (WorkspaceDO)                        daemo
      are renumbered from 1 and queued one-way messages are dropped (except before the very first channel);
   6. a persisted client position is `ResumeState { channelId, lastSeq, nextSeq }`; a restored client skips 1e6 seqs;
   7. a request that failed LOCALLY (timeout, cancelled) leaves the outbox even when it was already sent, so a resumed
-     channel never replays it (review REL-03); `ClientRequestError.detail.sent` says whether it had been sent, and its
+     channel never replays it; `ClientRequestError.detail.sent` says whether it had been sent, and its
      message then says the outcome is unknown. There are no idempotency keys: a person who retries such a request may
      repeat an action the daemon did carry out.
   A logical channel continues only for the device (and user) it belongs to; a non-resumed admission of a device
@@ -267,8 +324,8 @@ client                          relay (WorkspaceDO)                        daemo
   - host → relay text `"ping"` every 2 s, answered by the DO auto-response without waking it; a DO alarm declares the
     host offline 6 s after the last ping and broadcasts `host.offline`;
   - daemon, CLI and web each run a **pong watchdog**: 6 s without `"pong"` ⇒ terminate the socket and reconnect with jitter;
-  - daemon sends encrypted `presence.heartbeat` every 3 s; the client shows 「主人已離線」 after 8 s of silence from the
-    daemon even if the relay says nothing. "Relay unreachable" is a *different* UI state from "host offline".
+  - daemon sends encrypted `presence.heartbeat` every 3 s; the client shows "Host offline" after 8 s of silence from the
+    daemon even if the relay says nothing. Relay unreachable ("Server unreachable" in the web app) is a *different* UI state from "Host offline".
 - **Client states** (`ConnectionState` of `@smurg/protocol/client`): `idle`, `connecting{cause}`, `handshaking`,
   `online{resumed}`, `host-offline{reason: 'relay' | 'silence' | 'stopped'}` (relay said so / 8 s daemon silence, a
   fresh socket after 20 s / `channel.closed{stopped}`), `relay-unreachable`, and the terminal `key-mismatch{detail:
@@ -279,7 +336,7 @@ client                          relay (WorkspaceDO)                        daemo
   fingerprint equals the pinned key's. A different daemon key is never pinned silently.
 - **Local connections**: the host's own `smurg attach` goes through the control socket (§7.1, §8) instead of the
   relay: no Noise (the 0600 socket inside the 0700 run dir authenticates the host's OS account), otherwise the same hub,
-  logical channel, resume, router and fan-out. Host only, and only for the attach (review F1, 2026-10-02): every session
+  logical channel, resume, router and fan-out. Host only, and only for the attach: every session
   runs as the host's OS account (§11 D-15), so the router accepts on a local channel nothing but what `smurg attach`
   sends (§8 "Control socket"), and every audit entry a local channel causes (`auth.connect` / `auth.disconnect` with
   mode `local` included) carries `detail.via: 'control-socket'`.
@@ -296,11 +353,11 @@ does not own that domain); the tests' fixtures use it as an arbitrary origin.
 
 The web app copies the fragment into `sessionStorage` and immediately removes it from the address bar
 (`history.replaceState`) before any navigation (including the OAuth redirect). That only rewrites the tab's own entry:
-the full URL, secret included, is already in the browser's global (and synced) history before any script runs (review
-SEC-E-05, a residual risk; the console shows each link's uses live so a leaked link can be revoked).
+the full URL, secret included, is already in the browser's global (and synced) history before any script runs (a
+residual risk; the console shows each link's uses live so a leaked link can be revoked).
 
-`/join/<id>` never connects on page load (review SEC-E-02): after the login it shows the workspace id and the identity
-the person is logged in as, and connects only when they click 「加入」 (「不要加入」 forgets the invite). A page that
+`/join/<id>` never connects on page load: after the login it shows the workspace id and the identity
+the person is logged in as, and connects only when they click "Join" ("Do not join" forgets the invite). A page that
 sends a logged-in visitor to an invite link therefore cannot make them join, or tell the inviting daemon who they are.
 
 The host gets their own single-use invite (role `host`, bound to the host's `userId`) printed by `smurg host`. It is
@@ -393,16 +450,26 @@ type Envelope = {
 
 Conventions:
 
-- Request `X` → response `X.ok` (same `id`) or `error` (same `id`, `payload: { code, message, detail? }`).
+- Request `X` → response `X.ok` (same `id`) or `error` (same `id`, `payload: { code, message, detail?, text? }`).
+  `message` is English (logs, the audit log, agents, a client that does not know the id). `text` is a message
+  reference (`{ id, params? }`, `messageRefSchema`): the client shows `render(locale, text) ?? render(locale,
+  defaultErrorRef(code)) ?? message`. Every error the daemon makes carries `text` (`error.default.<code>` when nothing
+  more specific was said); the field is optional in the schema because an error made from a plain string has none.
+  `new SmurgError(code, msg('worktree.inUse'), detail)`: `.text` is the reference, `.message` its English rendering.
 - Unsolicited daemon → client events use a fresh `id`.
 - `file.*` and `exec.*` never share message types or handlers (future two-way sync mode).
 - Binary fields are real bytes (`Uint8Array`), never base64.
+
+`PROTOCOL_VERSION` is 3 since 0.4.0 (message references: `error.text`, `ActivityEvent.text` / `renamedFrom`,
+`MemberNotification.msg` / `fallback`, `Suggestion.closedReason`, an optional `SessionInfo.title`, no
+`channel.closed.message`, the agent name `Claude (Ian)`). Nobody had installed an earlier version: there is no
+compatibility code for protocol 2 anywhere.
 
 Error codes: `bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `locked`, `path_denied`,
 `insufficient_disk`, `too_large`, `host_only`, `internal` (`sandbox_unavailable` is gone with the sandbox, §11 D-15).
 Finer distinctions travel in `detail.reason` and never become new codes (e.g. `bad_request` + `reason: 'hash-mismatch'`, `path_denied` +
 `reason: 'outside-root'`). Local client-side failures (timeout, connection lost) are `ClientRequestError`, a
-`SmurgError` with code `internal` and `detail.reason` = the failure.
+`SmurgError` with code `internal`, `detail.reason` = the failure and `text` = its `client.*` message.
 
 Every Envelope is decoded with `decodeEnvelope(bytes, { from, channel })`, which refuses (as `bad_request`, with
 `detail.reason`) a type that may not flow that way or on that socket, prototype keys at any depth, extension types and
@@ -431,10 +498,10 @@ type FileRef = { root: RootRef; path: string };   // POSIX, relative, normalised
 | `channel.welcome` | d→c | `Welcome = { channelId, resumed, member: Member, workspace: WorkspaceInfo, settings: PublicSettings, serverTime }` | inside the verdict record, not an Envelope |
 | `channel.memberUpdated` | d→c | `{ member: Member }` | own record changed without a channel close (e.g. a new display name) |
 | `channel.settingsUpdated` (addition) | d→c | `{ settings: PublicSettings }` | to everyone after each `admin.settings.set`: the settings otherwise reach clients only in the Welcome |
-| `channel.closed` | d→c | `{ reason: 'kicked'\|'revoked'\|'stopped'\|'role-changed'\|'protocol-error', message? }` | then the socket is dropped; also on the transfer socket |
+| `channel.closed` | d→c | `{ reason: 'kicked'\|'revoked'\|'stopped'\|'role-changed'\|'protocol-error' }` (only the reason: each client words it) | then the socket is dropped; also on the transfer socket |
 | `channel.ack` | both | `{ upTo: seq }` | lets the peer trim its outbox; always `seq: 0` (unsequenced, §4 Resume) |
-| `channel.leave` (addition) [none] | c→d | `{}` → `{}` | SPEC R4 「客人離開」: ends the sessions the caller opened within 5 s (`endReason: 'left'`, each audited `session.terminate` by the system), audits `member.leave`; membership and device key stay. A mere disconnect does none of this (§11 D-9). The host's own leave is a no-op. |
-| `error` | d→c | `{ code, message, detail? }` | on both sockets; answers a request (same id) or a refused one-way message |
+| `channel.leave` (addition) [none] | c→d | `{}` → `{}` | SPEC R4 (a guest leaves): ends the sessions the caller opened within 5 s (`endReason: 'left'`, each audited `session.terminate` by the system), audits `member.leave`; membership and device key stay. A mere disconnect does none of this (§11 D-9). The host's own leave is a no-op. |
+| `error` | d→c | `{ code, message, detail?, text? }` (§4.3) | on both sockets; answers a request (same id) or a refused one-way message |
 
 ```ts
 type Member = { userId; displayName; avatarUrl?; role: Role; color: string; online: boolean; joinedAt: number };
@@ -466,7 +533,7 @@ what the R2 forged-request test sends as a viewer. It is refused with `locked` w
 Host-only paths: `<share>/.claude/**`, `<share>/.mcp.json`, `<share>/.git/**`, `<share>/.smurg/**`, `.envrc`,
 `.vscode/**`, `.idea/**` are writable through `file.*` / `doc.*` / upload **by the host only**. Project-level Claude
 settings are hot-loaded by the host's unsandboxed agent: a collaborator who can write them can run code on the host
-and redirect the host's API credentials (§11 D-15: a 「可使用 agent」 member's own sessions run as the host and are not
+and redirect the host's API credentials (§11 D-15: a "Agent access" member's own sessions run as the host and are not
 held to this; the rule protects the host from editors and from what any member writes through `file.*`). `isHostOnlyPath()`
 matches these names at ANY depth (nested `.claude/` directories are loaded too) and after `foldPathName()`: NFKC plus
 a full case fold and HFS+ ignorable code points removed, because a case-insensitive file system treats more spellings
@@ -475,14 +542,14 @@ a guest one refused write; a false "not host-only" can run code on the host. Pat
 spelling of existing entries (§7.4). `<share>/.smurg` is not even readable for non-hosts (it holds other guests'
 partial uploads and the worktrees, which are reachable as their own roots).
 
-Host-private paths (review SEC-D-03, `isHostPrivatePath()` in `@smurg/protocol`): any `.git` directory, any `.envrc`,
+Host-private paths (`isHostPrivatePath()` in `@smurg/protocol`): any `.git` directory, any `.envrc`,
 and the host's personal Claude Code files `.claude/settings.local.json` and `CLAUDE.local.md`, at any depth and under
 every folded spelling. PathGuard refuses them to every non-host for **reads as well** (`path_denied`, reason
 `host-private`, audited), so guests (viewers included) cannot read `.git/config`, a deploy key in `.envrc` or the
 host's personal settings through `file.read`, `doc.open` or a download. `file.tree` does not list them for non-hosts
 (like `.smurg`), a guest's zip leaves them out (skipped as `host-private`), and conflict records about them are shown
-to the host only (one definition in `@smurg/protocol`). This binds what members read through smurg; a session a 「可使用
-agent」 member opens runs as the host and can read them like the host's own (§11 D-15).
+to the host only (one definition in `@smurg/protocol`). This binds what members read through smurg; a session a "Agent access"
+ member opens runs as the host and can read them like the host's own (§11 D-15).
 
 The daemon's own directories are refused for mutation through `file.*` even for the host (`forbidden`,
 `detail.reason: 'daemon-owned'`): `.smurg`, `.smurg/worktrees`, `.smurg/worktrees/<id>`, `.smurg/uploads/**` and
@@ -511,7 +578,7 @@ Chunks are 4 MiB by default (1–8 MiB accepted). Flow control: end-to-end ack w
 | `file.download.begin` [file.download] | c→d | `{ file: FileRef, zip?: boolean, offset?: number, ifMatch?: string }` → `{ downloadId, name, size?: number, etag?: string, zip: boolean }` |
 | `file.download.chunk` | d→c | `{ downloadId, index, offset, data: bytes }` |
 | `file.download.ack` [file.download] | c→d | `{ downloadId, index }` — grants credit |
-| `file.download.end` | d→c | `{ downloadId, totalBytes, skipped: { path, reason }[], zip64: boolean, error?: { code, message, detail? } }` — `error` (addition): a download that failed after `begin.ok` (disk error, file gone) ends typed |
+| `file.download.end` | d→c | `{ downloadId, totalBytes, skipped: { path, reason }[], zip64: boolean, error?: { code, message, detail?, text? } }` — `error` (addition): a download that failed after `begin.ok` (disk error, file gone) ends typed |
 | `file.download.cancel` [file.download] | c→d | `{ downloadId }` |
 
 The capabilities of the upload follow-ups (`file.write`) and of ack / cancel (`file.download`) are those of the
@@ -541,7 +608,7 @@ type FileEntry = {
   name; path; kind: 'file'|'dir'|'symlink'; size; mtime;
   readOnly?: boolean;            // e.g. inside a shared read-only dir of a worktree
   lock?: LockInfo;
-  lastModifiedBy?: Actor;        // drives the tree badge ("recently changed by Claude（Ian）")
+  lastModifiedBy?: Actor;        // drives the tree badge ("recently changed by Claude (Ian)")
 };
 ```
 
@@ -555,7 +622,7 @@ type FileEntry = {
 | `doc.awareness` | both | `{ docId, data: bytes }` — y-protocols awareness update |
 | `doc.close` | c→d | `{ docId }` |
 | `doc.saved` | d→c | `{ docId, file, hash, at }` |
-| `doc.rejected` | d→c | `{ docId, reason: 'agent-locked'\|'read-only'\|'forbidden'\|'file-unavailable', lock? }` — client must resync and drop local change. `file-unavailable` (addition, review REL-01): the file was moved, deleted or became unusable (binary, too large, a link out of the share) on disk; the text not yet saved is NOT lost (see below), so clients must not say it was discarded |
+| `doc.rejected` | d→c | `{ docId, reason: 'agent-locked'\|'read-only'\|'forbidden'\|'file-unavailable', lock? }` — client must resync and drop local change. `file-unavailable` (addition): the file was moved, deleted or became unusable (binary, too large, a link out of the share) on disk; the text not yet saved is NOT lost (see below), so clients must not say it was discarded |
 | `doc.conflict` | d→c | `{ conflict: ConflictRecord }` |
 | `doc.conflict.list` [file.read] | c→d | `{}` → `{ conflicts: ConflictRecord[] }` |
 | `doc.conflict.resolve` [file.write] | c→d | `{ conflictId, action: 'dismiss'\|'apply-agent-version' }` → `{ conflict }` — `apply-agent-version` writes the file: audited `doc.conflict-resolve` |
@@ -574,7 +641,7 @@ type ConflictRecord = {
 ```
 
 An open document whose file stays missing, binary or huge, or leads out of the share for more than 1.5 s (a pause
-that does not clear by itself, unlike a `git checkout`) is settled (review REL-01): every subscriber gets
+that does not clear by itself, unlike a `git checkout`) is settled: every subscriber gets
 `doc.rejected{file-unavailable}`, later human updates are reverted and refused the same way, and the text that was not
 on disk yet becomes a ConflictRecord (one hunk `{ humanText: <the unsaved text>, agentText: '', baseText: '' }`, its
 stored version is that text), announced with `doc.conflict` and audited `doc.conflict` (detail.kind `unsaved-text`):
@@ -593,26 +660,34 @@ type LockInfo =
 |---|---|---|
 | `lock.state` | d→c | `{ file: FileRef, lock: LockInfo \| null }` — broadcast on every change |
 | `lock.list` [file.read] | c→d | `{}` → `{ locks: LockInfo[] }` |
-| `lock.release` [file.write] | c→d | `{ file }` → `{}` — "讓 agent 先改": caller leaves the human lock |
+| `lock.release` [file.write] | c→d | `{ file }` → `{}` — "Let the agent go first": caller leaves the human lock |
 | `lock.forceRelease` [lock.force-release] | c→d | `{ file }` → `{}` |
 | `presence.heartbeat` | d→c | `{ at }` every 3 s |
 | `presence.state` | d→c | `{ members: PresenceMember[], agents: PresenceAgent[] }` |
 | `presence.update` | c→d | `{ activeFile?: FileRef \| null }` |
 | `activity.event` | d→c | `{ event: ActivityEvent }` |
 | `activity.list` [file.read] | c→d | `{ limit? /* ≤ 500 */, before? /* epoch ms, exclusive */ }` → `{ events: ActivityEvent[] }` — `at` is strictly increasing per log, so `before` is an exact cursor |
-| `activity.notify` (addition) | d→c | `{ notification: { id, at, from: Actor, text /* ≤ 2,000 */, file?: FileRef } }` — only to the notified member's channels: the coordination MCP tool 「通知某位組員」 (`notify_member`, SPEC R8) |
+| `activity.notify` (addition) | d→c | `{ notification: { id, at, from: Actor, text? /* ≤ 2,000 */, msg?: MessageRef, fallback?: string, file?: FileRef } }` — only to the notified member's channels. Exactly one of `text` (an agent's own words through the coordination MCP tool `notify_member`, SPEC R8; never translated) or `msg` + `fallback` (a notification the daemon wrote, `notify.*`: the two Claude Code version warnings, `from: { kind: 'system' }`; the client shows `render(locale, msg) ?? fallback`) |
 
 ```ts
 type PresenceMember = Member & { connections: number; activeFile?: FileRef };
 type PresenceAgent  = { sessionId; ownerUserId; displayName; color; activeFile?: FileRef; status: SessionStatus };
 type ActivityEvent  = { id; at; actor: Actor; kind: 'agent.edit'|'human.edit'|'file.create'|'file.delete'|'file.rename'
-                        |'file.upload'|'external.change'|'conflict'|'lock.denied'|'merge'; file?: FileRef; summary: string;
-                        via?: 'bash' /* addition, §11 D-13: an agent.edit attributed through the shell-command window */ };
+                        |'file.upload'|'external.change'|'conflict'|'lock.denied'|'merge'; file?: FileRef;
+                        text: MessageRef;      // the sentence (`activity.*`): rendered by each client in the viewer's language
+                        summary: string;       // the English rendering of `text` (≤ 500 characters): fallback and logs
+                        via?: 'bash';          // addition, §11 D-13: an agent.edit attributed through the shell-command window
+                        renamedFrom?: string;  // on `file.rename`: the path before (`file.path` is the new one)
+                      };
 ```
 
-`merge` (addition, review WEB-11): a worktree merge request (actor: the requester), and the host's approval,
-rejection or conflict (actor: the host), in everyone's feed. `file.rename` summaries are exactly
-「重新命名 {from} → {to}」: the web client reads the old path from it (§9).
+A client shows `render(locale, event.text) ?? event.summary` and never parses `summary`. The daemon clips the
+parameters (a path to 200 characters, at most 3 sample paths, at most 5 holder names plus `holderCount`). Lines of
+`activity.jsonl` written before protocol 3 have no `text`: they fail the schema and the reader drops them.
+
+`merge` (addition): a worktree merge request (actor: the requester), and the host's approval, rejection or conflict
+(actor: the host), in everyone's feed. A `file.rename` event carries the old path in `renamedFrom`: the web client
+follows a renamed file's tab from it (§9).
 
 The human lock has no `lock.acquire` request: it is taken by the daemon when it applies the first Yjs update
 from a human to a doc, and refreshed on every later update. `lock.acquire` exists only on the hook socket (§8).
@@ -623,12 +698,14 @@ from a human to a doc, and refreshed on every later update. `lock.acquire` exist
 type SessionStatus = 'starting' | 'running' | 'exited';
 type SessionInfo = {
   id; kind: 'agent' | 'terminal';
-  ownerUserId; ownerName;              // the member who OPENED it (§11 D-15): attribution, 「Claude（ownerName）」
-  title; root: RootRef; status: SessionStatus; exitCode?: number;
+  ownerUserId; ownerName;              // the member who OPENED it (§11 D-15): attribution, `Claude (ownerName)`
+  title?;                              // only a title the opener typed; clients build the default from kind + ownerName
+                                       // in the viewer's language (`session.title.agent` / `session.title.terminal`)
+  root: RootRef; status: SessionStatus; exitCode?: number;
   cols: number; rows: number; createdAt; endedAt?;
   login: 'unknown' | 'logged-out' | 'logged-in';   // the host's Claude login, as this session sees it
   attached: number;
-  // additions (review WEB-12), set once status is 'exited':
+  // additions, set once status is 'exited':
   endReason?: 'exit' | 'ended' | 'terminated' | 'kicked' | 'left' | 'role-changed' | 'stopped';
   endedBy?: { userId; displayName };   // who ended it on purpose: the owner (ended) or the host (terminated)
 };
@@ -648,8 +725,8 @@ type SessionInfo = {
 | `exec.resize` (owner) | both | `{ sessionId, cols, rows }` — c→d from the owner; d→c to attached viewers, in stream order with `exec.output` (they render at exactly the PTY size) |
 
 Every session runs like the host's own (§11 D-15): the host's OS user, unsandboxed, the host's environment / HOME /
-Claude Code login, whoever opened it. `session.create` needs `session.create` (host, 「可使用 agent」); typing into a
-session, accepting its suggestions and reading its login state need `session.drive` (host, 「可使用 agent」), for ANY
+Claude Code login, whoever opened it. `session.create` needs `session.create` (host, "Agent access"); typing into a
+session, accepting its suggestions and reading its login state need `session.drive` (host, "Agent access"), for ANY
 session. Ending (`session.end`) and resizing stay with the member who opened it. (Protocol 1's `apiKey`, kind `login`
 and `session.importConfig` are gone.)
 
@@ -662,7 +739,9 @@ type Suggestion = {
   id; sessionId; author: { userId; displayName }; text: string;
   source?: { file: FileRef; startLine: number; endLine: number };
   status: 'pending' | 'accepted' | 'accepted-modified' | 'rejected' | 'withdrawn';
-  createdAt; resolvedAt?; finalText?; rejectReason?;
+  createdAt; resolvedAt?; finalText?;
+  rejectReason?;                       // a person's words only
+  closedReason?: 'session-ended' | 'author-kicked' | 'author-demoted';  // the daemon closed it (status `rejected`); clients word it
 };
 ```
 
@@ -671,10 +750,10 @@ type Suggestion = {
 | `suggest.create` [suggest.create] | c→d | `{ sessionId, text, source? }` → `{ suggestion }` |
 | `suggest.edit` (author, pending) | c→d | `{ suggestionId, text }` → `{ suggestion }` |
 | `suggest.withdraw` (author, pending) | c→d | `{ suggestionId }` → `{ suggestion }` |
-| `suggest.accept` [session.drive] | c→d | `{ suggestionId, text?: string }` → `{ suggestion }` — any session (§11 D-15: the host and 「可使用 agent」 may type into it anyway). `text` is what the member saw (or typed) and exactly it is pasted: `accepted` when it equals the current text, `accepted-modified` otherwise. Without `text`, an accept within 10 s of the author's last `suggest.edit` is refused (`conflict`, reason `suggestion-changed`, audited as denied): the author must not swap the text between the review and the accept (review SEC-D-01). The web client always sends the text on screen. |
+| `suggest.accept` [session.drive] | c→d | `{ suggestionId, text?: string }` → `{ suggestion }` — any session (§11 D-15: the host and "Agent access" may type into it anyway). `text` is what the member saw (or typed) and exactly it is pasted: `accepted` when it equals the current text, `accepted-modified` otherwise. Without `text`, an accept within 10 s of the author's last `suggest.edit` is refused (`conflict`, reason `suggestion-changed`, audited as denied): the author must not swap the text between the review and the accept. The web client always sends the text on screen. |
 | `suggest.reject` [session.drive] | c→d | `{ suggestionId, reason? }` → `{ suggestion }` |
 | `suggest.list` [session.view] | c→d | `{ sessionId? }` → `{ suggestions }` — the caller's own; every suggestion for a holder of `session.drive` |
-| `suggest.updated` | d→c | `{ suggestion }` — to the author and every holder of `session.drive` (host, 「可使用 agent」) |
+| `suggest.updated` | d→c | `{ suggestion }` — to the author and every holder of `session.drive` (host, "Agent access") |
 
 There is no auto-accept code path. The only function that writes suggestion text into a PTY is called from the
 `suggest.accept` handler after the `session.drive` and pending checks.
@@ -688,7 +767,7 @@ There is no auto-accept code path. The only function that writes suggestion text
 | `worktree.merge.request` [worktree.merge.request] | c→d | `{ worktreeId, message? }` → `{ request: MergeRequest }` — any worktree (§11 D-15) |
 | `worktree.merge.list` [file.read] | c→d | `{}` → `{ requests }` |
 | `worktree.merge.diff` [worktree.merge.request] | c→d | `{ requestId }` → `{ diff: string /* ≤ 1 MiB UTF-8 */, truncated: boolean, files: { path, status: 'added'\|'modified'\|'deleted'\|'renamed'\|'copied'\|'type-changed'\|'unmerged'\|'unknown', additions, deletions, oldPath?, binary? }[] /* complete, ≤ 10,000 */ }` |
-| `worktree.merge.fileDiff` (addition) [worktree.merge.request] | c→d | `{ requestId, path }` → `{ path, diff: string /* ≤ 1 MiB */, truncated: boolean, binary: boolean }` — one file of `files` (any other path is refused), so the whole change can be reviewed when `merge.diff` was truncated (R9 「主人看到完整 diff」); the UI does not offer 「合併」 until every truncated file was opened |
+| `worktree.merge.fileDiff` (addition) [worktree.merge.request] | c→d | `{ requestId, path }` → `{ path, diff: string /* ≤ 1 MiB */, truncated: boolean, binary: boolean }` — one file of `files` (any other path is refused), so the whole change can be reviewed when `merge.diff` was truncated (R9: the host sees the complete diff); the UI does not offer "Merge" until every truncated file was opened |
 | `worktree.merge.approve` [worktree.merge.decide] | c→d | `{ requestId }` → `{ request }` (status `merged` or `conflict` + `conflictFiles`) |
 | `worktree.merge.reject` [worktree.merge.decide] | c→d | `{ requestId, reason? }` → `{ request }` |
 | `worktree.updated` / `worktree.merge.updated` | d→c | `{ worktree }` / `{ request }` |
@@ -701,8 +780,8 @@ type MergeRequest = { id; worktreeId; requestedBy: { userId; displayName }; mess
                       conflictFiles?: string[]; createdAt; decidedAt?; rejectReason? };
 ```
 
-**What a merge request contains** (addition, contract review C6). Agents normally edit without committing, so
-`worktree.merge.request` (by any holder of `worktree.merge.request`: the host, 「可使用 agent」) first commits the
+**What a merge request contains** (addition). Agents normally edit without committing, so
+`worktree.merge.request` (by any holder of `worktree.merge.request`: the host, "Agent access") first commits the
 worktree's working tree onto `smurg/<owner>/<id>` as the requester, with `message` (nothing to commit is fine), then fetches that commit into the main repository as
 `refs/smurg/merge/<requestId>` and records its id in `MergeRequest.commit`. `merge.diff`, `merge.fileDiff` and
 `merge.approve` all work on exactly that commit, whatever happens in the worktree afterwards; a later change needs a
@@ -764,15 +843,15 @@ Audit `action` vocabulary: `auth.join`, `auth.connect`, `auth.disconnect`, `auth
 `member.role`, `member.kick`, `member.leave` (addition, `channel.leave`), `invite.create`, `invite.revoke`,
 `device.revoke`, `settings.change`.
 
-- `auth.connect` / `auth.disconnect` (R11 「登入登出」) are written by the core for every connection (relay or local):
+- `auth.connect` / `auth.disconnect` (R11 logins and logouts) are written by the core for every connection (relay or local):
   target = deviceId, detail `{ mode, purpose, resumed }` / `{ mode, purpose, reason, durationMs }`.
 - `detail` is sanitised by key (bytes → sizes; `content`, `data`, `token`, `url`, `hash`, `apiKey`, `diff`, … replaced)
   and strings are cut at 2,000 characters, except top-level keys the caller lists in `fullText` (R6.3: the suggestion
   module lists `text` and `finalText`, up to 64 KiB). Never put a sensitive payload in `detail`.
-- The log is bounded (security review F5; §11 D-10): `denied` entries beyond 120 per actor and origin per minute are
+- The log is bounded (§11 D-10): `denied` entries beyond 120 per actor and origin per minute are
   counted, not written (one entry marks the start, one summary entry gives the count). The origin is the control socket
   (`detail.via: 'control-socket'`, §8) or the relay channels: a flood through the socket, whose actor is the host, has
-  its own budget and its summary says `via: 'control-socket'` (verification F-3, 2026-10-02); a connection with more than 60 refused
+  its own budget and its summary says `via: 'control-socket'`; a connection with more than 60 refused
   requests in a minute is closed with `protocol-error` and loses its logical channel (no replay of the flood);
   `audit.jsonl` is rotated at 32 MiB into `audit.1.jsonl` and `audit.2.jsonl` (0600) and queries page across them.
 
@@ -792,10 +871,18 @@ Hibernation API only (`ctx.acceptWebSocket(ws, tags)`); all routing state lives 
 socket attachments and `ctx.storage.kv` — never in memory, because local workerd really hibernates after ~10 s.
 The Worker also serves the web SPA (assets + `run_worker_first`), so web app and relay share one origin. For the
 shared relay that origin is `https://app.smurg.ai`, a Cloudflare Custom Domain with the Worker's workers.dev hostname
-off (it was `https://smurg-relay.gclin-ian.workers.dev` until 2026-10-01); another relay the owner runs (a test relay)
-defaults to its account's workers.dev. `scripts/deploy-relay.sh` deploys exactly one of these two shapes
-(`docs/RELEASING.md` §2). The source is private (2026-10-01, `docs/OPEN-QUESTIONS.md` Q1), so nobody outside the project
-deploys a relay of their own (§12).
+off; any other relay (a test relay, a relay someone hosts for themselves) defaults to its account's workers.dev or
+uses its own domain. `scripts/deploy-relay.sh` deploys exactly one of these two shapes (`docs/RELEASING.md` §2;
+self-hosting: `apps/relay/README.md`). The relay's HTML pages (`/device`, the login error pages) exist in both languages
+(text: `apps/relay/src/lib/strings.ts`) and choose per request: cookie `smurg_lang` → the first supported entry of
+`Accept-Language` → `en` (§1 Languages; `lib/locale.ts`). A GET page carries two plain links `<path>?lang=en|zh-TW`:
+that request sets `smurg_lang=<locale>; Path=/; Max-Age=31536000; SameSite=Lax; Secure` (not HttpOnly: the web app,
+same origin, reads and writes the same cookie, §9; no `Secure` on a plain-http local relay) and answers 303 to the
+same path without `lang` (never to a URL from the request); `lang` on a POST or with any other value is ignored.
+Pages carry `Vary: Accept-Language, Cookie`, `<html lang>` (`en` / `zh-Hant-TW`) and `<body data-state>` (which
+page it is, whatever the language: tests select by it); their CSP is unchanged (no script). The JSON API never
+chooses a language: errors are `{ error: <code>, message? }` with English messages. A Google account without a
+name and without a verified e-mail address is called `Google user`.
 
 | Route | Purpose |
 |---|---|
@@ -854,7 +941,7 @@ As built (relay report; details in `apps/relay/README.md`):
 - The TransferDO also sweeps silent clients (`bye 4000`). A frame from a client while no host is connected is answered
   with `host.offline`. Caps: 64 client sockets per workspace, 8 per account (per Durable Object). A client frame may be
   `MAX_RELAY_FRAME − 4` bytes (the prefixed host frame must still fit).
-- The CLI's device-code login (2026-10-01, `docs/OPEN-QUESTIONS.md` Q7; `apps/relay/src/auth/device.ts`,
+- The CLI's device-code login (every CLI login, RFC 8628 style; `apps/relay/src/auth/device.ts`,
   `device-store.ts`; the shared constants and schema in `@smurg/protocol/relay` `device-login.ts`). `POST
   /auth/device/start` (no session; JSON) answers `{ deviceCode, userCode, verificationUri, expiresIn: 600, interval: 5 }`:
   the user code is 8 characters of RFC 8628 §6.1's alphabet `BCDFGHJKLMNPQRSTVWXZ` (shown `XXXX-XXXX`; typed in any
@@ -872,35 +959,35 @@ As built (relay report; details in `apps/relay/README.md`):
   the code form; it never takes a code from its URL (a prefilled link would be the phisher's). Each `POST /device` must be
   a same-origin form (`isSameOriginFormPost`: `Origin` = the relay or an allow-listed origin, `Sec-Fetch-Site:
   same-origin` when present; 403 otherwise, a non-form body 415): `code` → the confirmation screen
-  (the account, the code, the IP address and approximate place and the age of the request, and the warning 「只有你自己
-  剛在終端機執行 smurg login 時才按「允許」；如果是別人給你這個代碼，請按「拒絕」。」); `code` + `account` + `decision=allow|deny`
+  (the account, the code, the IP address and approximate place and the age of the request, and the warning to press "Allow" only if you
+  just ran `smurg login` in your terminal yourself); `code` + `account` + `decision=allow|deny`
   → the decision, bound to the browser session's identity, refused (409) when the account is no longer the one the
   screen named. A code that is not pending (unknown, expired, decided, also by another account) is a wrong code; wrong
   codes are limited to 10 per account and 30 per IP address per 10 minutes (checked before the lookup; 429 with
-  「輸入錯誤的次數太多，請在 N 分鐘後再試。」), starts to 30 per IP address per 10 minutes (429 `too_many_requests` with
+  "Too many wrong codes. Try again in N minutes."), starts to 30 per IP address per 10 minutes (429 `too_many_requests` with
   `Retry-After`); the counters are `DeviceLoginDO` instances `limit:<kind>:<SHA-256 of the address or account>` with one
   alarm at the window's end. Every /device page: the relay HTML CSP (`frame-ancestors 'none'`, `form-action 'self'`),
   `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, `no-store`. Tests: `apps/relay/test/device.test.ts` (workerd),
   `apps/relay/test/cli-login.browser.test.ts` (Chrome, the real CLI), `tests/e2e/test/device-login.test.ts`, `web/e2e/smoke/login.smoke.test.ts`;
   the dev-only `/api/debug/device-login` (like `/api/debug/room`) lets the tests expire a login.
 - The CLI loopback login of smurg 0.1.0 (`GET`/`POST /auth/cli/start`, `POST /auth/cli/token`) was removed on
-  2026-10-01 (owner: no installed CLI used it); those paths answer 404 (`apps/relay/test/auth.test.ts`). What it taught
-  still holds for /device: a link alone never changes a login (review SEC-E-03), and /device reaches GitHub / Google
+  2026-10-01 (no installed CLI used it); those paths answer 404 (`apps/relay/test/auth.test.ts`). What it taught
+  still holds for /device: a link alone never changes a login, and /device reaches GitHub / Google
   through links, not forms, because Chromium applies the submitting page's CSP `form-action` to every redirect of a
-  form submission (review OWNER-01).
+  form submission.
 - Dev-only routes (`/auth/dev/*`, `/api/debug/room`, `/api/debug/device-login`) need `DEV_LOGIN=1` AND a local hostname.
 - `GET /api/login-options` (2026-09-29) answers `{ providers: { github: boolean, google: boolean }, dev: boolean }`
   without a session: a provider is `true` when its configuration is complete (its login route would not answer 503),
   `dev` when `DEV_LOGIN=1` AND the request's hostname is local (`devLoginEnabled`, the same gate as the dev routes).
   Nothing else (no client id, no endpoint); `Cache-Control: no-store`; no CORS headers, like `/healthz`, the JWKS and
-  `/api/me`; GET only. It is there so that the web app stops probing `/auth/<p>/login` and `/auth/dev/start` (WEB-14,
-  §9), which puts a 400 / 404 / 503 into the browser console on every page load. `/api/me` keeps its 401 for a
+  `/api/me`; GET only. It is there so that the web app stops probing `/auth/<p>/login` and `/auth/dev/start`
+  (§9), which puts a 400 / 404 / 503 into the browser console on every page load. `/api/me` keeps its 401 for a
   logged-out caller: the client SDK's login diagnosis (`probeLogin` in `client/engine.ts`), `RelayApi.me()`, the CLI's
   stored-session check and the relay tests rely on it.
 - The relay's `build` refuses to bundle a missing web build, the stand-in page that `pnpm dev:relay` and the tests put
   into `apps/web/dist`, a build without `_headers` carrying a `/*` Content-Security-Policy with `frame-ancestors 'none'`
   or without a `/*` `Strict-Transport-Security` of at least a year (lines under another rule do not count), and a build that would serve `.vite/manifest.json` (`.assetsignore` must list `.vite`) (`scripts/check-web-dist.ts`).
-- The SPA's own security headers (review SEC-E-04) come from `apps/web/public/_headers`, which Workers static assets
+- The SPA's own security headers come from `apps/web/public/_headers`, which Workers static assets
   apply to every asset and SPA route (relay routes keep their own headers): `Content-Security-Policy: default-src
   'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src
   'self' data: https:; font-src 'self' data:; media-src 'self' blob:; object-src 'none'; base-uri 'none';
@@ -955,26 +1042,24 @@ Inside the shared folder the daemon only creates `.smurg/` (`worktrees/` with tr
 removal, `trash/` for deletes in progress (emptied at start), `uploads/` when the state dir is on a different volume,
 and `daemon-lock.json`), and adds `.smurg/` to `.git/info/exclude`. It writes nothing into `.claude/` (§11, D-1).
 
-**One daemon per folder** (review CLI-05): `createDaemon` takes `<share>/.smurg/daemon-lock.json` (O_EXCL), which names
+**One daemon per folder**: `createDaemon` takes `<share>/.smurg/daemon-lock.json` (O_EXCL), which names
 a Unix socket the daemon holds while it runs (`<runDir>/<short>.<hex4>.lk`). A live marker in the folder refuses the
 share (`ShareLockError` reason `shared`), and so does a live marker in an ancestor folder (`ancestor-shared`), whatever
 the state dir or relay; a marker whose socket answers nothing (a crashed daemon) is taken over. Not detected: a
 descendant folder already hosted by a daemon of ANOTHER state dir (the CLI checks descendants of its own state dir).
-`prepareShare` also refuses a folder that contains the host's home directory or `/Users`, `/home`, `/root`, `/var/root`
-(review CLI-04): every member would see `~/.ssh` and the rest.
+`prepareShare` also refuses a folder that contains the host's home directory or `/Users`, `/home`, `/root`, `/var/root`: every member would see `~/.ssh` and the rest.
 
 `workspaces/<id>/state.json` writes that fail (disk full, permissions) are kept and retried with backoff up to every
-10 s, and every `flush()` tries again (review REL-14): a kick, role change, invite revocation or settings change is in
+10 s, and every `flush()` tries again: a kick, role change, invite revocation or settings change is in
 force at once in memory (fail closed) and on disk as soon as the disk takes it; admin requests meanwhile answer
 `internal {reason: 'state-not-saved', applied: true}` (`invite.create`: `applied: false`, the unseen link is revoked).
 `smurg stop` while a document is unsaved logs `STATE NOT SAVED`. Failed audit appends are kept (≤ 4 MiB) and written
 with the next one; a torn last line of `audit.jsonl` / `activity.jsonl` (a crash mid-write) is terminated when the log
-opens (review REL-02).
+opens.
 
 `sessions` state (`live.json`) lists every running session with its PTY child and descendants
 (`procs: { [sessionId]: { pid, id: sha256(start ‖ command) }[] }`, refreshed by the 2 s scan): a daemon that starts
-after a hard death ends those leftovers through killTree (env marker, or a recorded identity that still matches; review
-REL-09).
+after a hard death ends those leftovers through killTree (env marker, or a recorded identity that still matches).
 
 The single executable (`scripts/build-sea.sh`) extracts its native modules (node-pty, @parcel/watcher) and the docs
 compute worker on first use to `~/Library/Caches/smurg/native-<id>` / `$XDG_CACHE_HOME/smurg/native-<id>`
@@ -1016,15 +1101,14 @@ keyed by its `channelId`), `settings.changed`,
 `file.changed` (from watcher, with best-effort attribution), `doc.human-edit`, `doc.saved`,
 `agent.tool.pre`, `agent.tool.post`, `agent.file-changed`, `lock.changed`,
 `session.created`, `session.updated`, `session.exited`, `suggestion.changed`, `worktree.changed`, `merge.changed`,
-`daemon.stopping`, `state.write` (`{ document, ok }`: a state document the disk refused, or wrote again; review REL-14),
-`relay.link` (`{ purpose, state, reason?, status? }`: every state change of a relay link, `auth-rejected` included;
-reviews CLI-10, REL-08). Payloads: `core/interfaces.ts` (`DaemonEvents`). `smurg host` prints `state.write` and
+`daemon.stopping`, `state.write` (`{ document, ok }`: a state document the disk refused, or wrote again),
+`relay.link` (`{ purpose, state, reason?, status? }`: every state change of a relay link, `auth-rejected` included). Payloads: `core/interfaces.ts` (`DaemonEvents`). `smurg host` prints `state.write` and
 `relay.link` on the host's terminal (§8).
 
 Per-client state that must survive a resume (doc subscriptions, attached terminals) is keyed by the logical channel
 (`conn.channelId`), never by the socket (`conn.id`); service methods say `channelId` where they mean it. The core runs
 the per-member teardown (the sessions the member opened killed and audited, uploads aborted) for `member.kicked`,
-`member.left` and a demotion below 「可使用 agent」 (§11 D-15); feature modules do not duplicate it. The activity module alone turns bus
+`member.left` and a demotion below "Agent access" (§11 D-15); feature modules do not duplicate it. The activity module alone turns bus
 events into activity entries and their audit entries (mapping in `ActivityFeed`, `core/interfaces.ts`); exceptions that
 call `ActivityFeed.record` directly: the conflict panel (`conflict`) and the worktree module (`merge`).
 
@@ -1034,7 +1118,7 @@ and a retry of the same token only every `timing.relayAuthRetryMs` (5 min) inste
 `Daemon.updateRelayToken(token)` (`RelayLink.setToken`) reconnects at once with a new token; `smurg host` calls it when
 `credentials.json` has a renewed login for the same account. A link that drops is logged at warn with its reason, and
 its recovery with the time it was offline. Heartbeat, pong watchdog and open deadline use `monotonicNow(clock)` (a
-wall clock stepped back does not freeze them; review REL-04), and so do the lock manager's idle timeout and TTL
+wall clock stepped back does not freeze them), and so do the lock manager's idle timeout and TTL
 (§7.5).
 
 ### 7.4 PathGuard
@@ -1071,9 +1155,9 @@ into place (autosave rename, upload commit) PathGuard performs one post-move con
 if it landed outside. Every denial is audited as `path.denied`, including a request the decoder refuses because its
 path is lexically invalid (the hub audits it: `detail.reason: 'lexical'`, `problem`).
 
-Additional rules (daemon-core; security review F1):
+Additional rules (daemon-core):
 - For non-hosts the host-private paths (§5.2: `.git`, `.envrc`, `.claude/settings.local.json`, `CLAUDE.local.md`, at
-  any depth) are refused for reads and writes with reason `host-private` (review SEC-D-03; host-only keeps precedence
+  any depth) are refused for reads and writes with reason `host-private` (host-only keeps precedence
   for writes).
 - For non-hosts `<share>/.smurg` is hidden (not readable, however it is spelled or reached); regular files with more
   than one hard link are refused (one could alias a file outside the share); FIFOs, sockets and devices are refused.
@@ -1090,17 +1174,17 @@ Additional rules (daemon-core; security review F1):
   post-move check, which removed the file (fixed 2026-10-01). A case-only or normalisation-only move is renamed to the
   requested spelling (`files/fs-ops.ts` moveResolved). A name the caller makes up next to an existing one is built from
   the REQUEST's spelling: the upload plan numbers `readme.md` next to `README.md` as `readme (1).md`, as a single
-  upload does, and counts a candidate as taken under either spelling (review RCR-3).
+  upload does, and counts a candidate as taken under either spelling.
 - Linux (2026-10-01): ext4, btrfs, xfs and tmpfs compare names byte by byte while every request is NFC, so an entry
   stored in another normalisation (NFD) would be listed but never reachable. A segment that is not found is mapped onto
   the ONE entry of its directory whose NFC form equals it (an exact NFC twin wins; two or more other spellings count as
   not found), and it then goes through every check like any other entry. Directory listings and the zip walker leave out
   names no request can reach (an NFD twin next to its NFC name); the zip reports them as `duplicate-name`
   (`workspace/fs-util.ts` otherSpellings / unaddressableNames). Looking for the other spelling lists the directory: a
-  zip download, a watcher batch, an upload plan and a `file.tree` (review RV-7: a folder of n Mac-made sub-directories
+  zip download, a watcher batch, an upload plan and a `file.tree` (a folder of n Mac-made sub-directories
   cost 2n listings of it at depth 2) each keep one listing per directory for the whole operation, up to 1024
   directories at a time (an older one is listed again if needed; it never fails) (`ResolveOptions.spellings`, fs-util
-  SpellingIndex, review RCR-2; without it a folder of n Mac-made names cost n listings of n entries: a 20,000-file zip
+  SpellingIndex; without it a folder of n Mac-made names cost n listings of n entries: a 20,000-file zip
   took 374 s instead of 26 s on ext4). A single request that misses still lists its directory once.
 
 ### 7.5 Documents, locks and reconciliation (see `docs/research/yjs-monaco.md`)
@@ -1116,7 +1200,7 @@ Additional rules (daemon-core; security review F1):
   `Y.createRelativePositionFromJSON`) and re-encoded; client ids are bound per connection and the `user` field is
   overwritten with the daemon's view of the member. The daemon's own awareness state is `null`.
 - **Agent presence:** per `(file, agent session)` a real `Awareness` on a throwaway `Y.Doc`, forwarded into the room;
-  state `{ user: { name: 'Claude（Ian）', color, kind: 'agent' }, selection }` with the caret at the end of the last
+  state `{ user: { name: 'Claude (Ian)', color, kind: 'agent' }, selection }` with the caret at the end of the last
   applied change.
 - **Human edit → disk:** human-origin update → `locks.touchHuman` → debounce 300 ms (max wait 2 s) → per-file
   serialized flush: re-check containment; read + SHA-256 the file (never trust equal `size/mtime/ino`); if it differs
@@ -1136,8 +1220,8 @@ Additional rules (daemon-core; security review F1):
   `PreToolUse`, `Stop`, `SessionEnd`, or the TTL — a permission prompt that the owner rejects fires no Post event.
   Locks are capped per session and only granted for paths inside the session's root.
 - **Human lock:** shared between humans, idle timeout 30 s (setting); released when the last holder closes the file
-  or chooses 「讓 agent 先改」.
-- **Lock time** (review REL-04): idle timeouts and TTLs are durations measured on the monotonic clock (lock time = the
+  or chooses "Let the agent go first".
+- **Lock time**: idle timeouts and TTLs are durations measured on the monotonic clock (lock time = the
   wall time at start + monotonic time since, whole milliseconds), so a wall clock stepped back an hour neither keeps a
   lock alive for that hour nor expires every lock when it is stepped forward. Reported timestamps are epoch ms, off by
   at most the steps.
@@ -1162,10 +1246,10 @@ Additional rules (daemon-core; security review F1):
 **Who runs what (§11 D-15).** Every session runs like the host's own, whoever opened it: as the host's OS user,
 unsandboxed, with the host's environment (below), `HOME` = `config.sessions.hostHome`, the host's `claude` and its
 login and `~/.claude`, in the main workspace or a worktree (R9). `session.create` needs `session.create` (the host and
-「可使用 agent」, the member's CURRENT role, checked by the router and again in `SessionManager.create`); the member who
-opens a session is its owner (`SessionInfo.ownerUserId` / `ownerName`): the agent is 「Claude（owner）」 in presence,
+"Agent access", the member's CURRENT role, checked by the router and again in `SessionManager.create`); the member who
+opens a session is its owner (`SessionInfo.ownerUserId` / `ownerName`): the agent is `Claude (owner)` in presence,
 locks, the activity feed and the audit log, the hook registration carries the owner's id, only the owner ends it
-(`session.end`) and its PTY follows the owner's viewport. Every holder of `session.drive` (the host, 「可使用 agent」)
+(`session.end`) and its PTY follows the owner's viewport. Every holder of `session.drive` (the host, "Agent access")
 types into any session and decides its suggestions; editors and viewers watch (and suggest, R6).
 
 **Launch.** Every agent session is started as
@@ -1212,17 +1296,17 @@ host's own login and provider settings (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_USE_*`
 offset; fan-out to a daemon-side `@xterm/headless` mirror (5000 lines), a 2 MiB raw tail and every attached viewer.
 Re-attach = mirror snapshot (full scrollback) taken inside `term.write('', cb)`, then the raw gap, then live.
 The snapshot keeps as much scrollback as fits the attach payload: two small trial serializations estimate it, then at
-most 3 bounded passes, and an unchanged terminal reuses the last snapshot (review REL-12: ~360 ms for the first attach
-of a 31 MB colourful history, ~60 ms after). Flow control (review REL-06): the PTY is paused while any ready viewer's
+most 3 bounded passes, and an unchanged terminal reuses the last snapshot (~360 ms for the first attach
+of a 31 MB colourful history, ~60 ms after). Flow control: the PTY is paused while any ready viewer's
 connection has more than 1 MiB queued (`bufferedAmount`, which is the shared host uplink for relay clients) and resumes
 below 256 KiB, next to the mirror's own 1 MiB lag limit, so one chatty terminal can no longer hold every member's
 traffic behind tens of megabytes. Local attach reports 0.
-Input from every holder of `session.drive` (the host, 「可使用 agent」), into any session; resize only from the owner (the
+Input from every holder of `session.drive` (the host, "Agent access"), into any session; resize only from the owner (the
 member who opened it): the PTY size follows the owner's most recently active client; everyone else, the other members
 who type included, renders at the PTY size. The daemon mirror is the only responder to terminal queries: web viewers
 register the full set of swallow-handlers and `smurg attach` strips queries and OSC 52 from the output stream.
 
-**Ending a session (owner ends, host terminates, its owner kicked / leaving / set below 「可使用 agent」, daemon
+**Ending a session (owner ends, host terminates, its owner kicked / leaving / set below "Agent access", daemon
 stops).** `killTree`: the PTY child's process group + descendants found by walking `ppid` + same-uid processes whose
 environment carries this session's exact `SMURG_SESSION_ID`; `SIGSTOP`, re-scan, `SIGKILL`, in rounds (measured < 1 s).
 The §0 rule applies: nothing is signalled that is not positively tied to the session. There is **no** system-wide
@@ -1230,10 +1314,10 @@ sweep (§11, D-3). As built, because macOS hands out freed pids again within mil
 by pid + start time + full command line (the env-marker scan is bound to the same identity); the PTY-child root counts
 only while it is still the daemon's own child and not another session's PTY child or a helper; one scan only ever sends
 `SIGSTOP`, `SIGKILL` goes only to the frozen tree a second scan confirms, and a pid whose identity changed gets
-`SIGCONT` at once. Every session's descendants are remembered every 2 s (and recorded in `live.json`, REL-09). When a
+`SIGCONT` at once. Every session's descendants are remembered every 2 s (and recorded in `live.json`). When a
 session ANOTHER member opened exits by itself (`exit`), its leftovers (a `nohup … &`) are killed too, so that removing
 that member later ends everything they started; the host's own background jobs are theirs to keep, as in any terminal.
-Kick / leave (`channel.leave`, §11 D-9) / a demotion below 「可使用 agent」: `SessionManager.killAllForUser` ends every
+Kick / leave (`channel.leave`, §11 D-9) / a demotion below "Agent access": `SessionManager.killAllForUser` ends every
 session that member opened, each audited as `session.terminate` by the system with `detail.reason` `kicked` / `left` /
 `role-changed` (`SessionInfo.endReason` the same); R2's 3 s and R4's 5 s bound the whole teardown (`admin/handlers.ts`
 waits for it). `smurg stop` (SessionManager.stopAll) ends every session.
@@ -1280,7 +1364,7 @@ out): logged for the host and shown to the member who opened the session.
 Adding a version to the verified list means re-running the `claude-hooks` spike on it (mock Anthropic API only, §0).
 Tests that start the real `claude` accept any verified version.
 
-**Launch inputs are configuration, never ambient** (contract review C5; `config.sessions`, `core/config.ts`):
+**Launch inputs are configuration, never ambient** (`config.sessions`, `core/config.ts`):
 - `hostHome`: the host's home, every session's `HOME`. `createDaemon` fills it from its `homeDir` option (default
   `os.homedir()`); tests pass a temporary fake home, so a session never reads the developer's rc files or `~/.ssh` in a
   test.
@@ -1328,7 +1412,8 @@ rate-limits requests per token; and bounds line length.
 closed by itself: internal deadline of 5 s (shorter than the configured `timeout`), and on *any* error during
 `PreToolUse` — socket unreachable, malformed reply, deadline — it prints a JSON deny and exits 0. The deny reason
 reaches the model prefixed with `PreToolUse:<Tool> hook error:` on current versions, so reasons are written to read
-well after that prefix, e.g. 「此檔案正由 Amy 編輯中，請先處理其他檔案或稍後再試」.
+well after that prefix, e.g. "This file is being edited by Amy. Work on other files first, or try again later."
+These texts are fixed English (`packages/daemon/src/hooks/deny-text.ts`, §1 Languages): the reader is the model.
 
 **Two hooks, two code paths** (2026-09-29, §11 D-13). `hook-cli.ts` chooses by the argument the DAEMON wrote after
 `hook` in the session settings (never by anything a session sends), and any argument other than exactly
@@ -1357,15 +1442,29 @@ file). Attribution: §11 D-13.
 
 ## 8. CLI
 
+Language (§1 Languages): `SMURG_LANG` (`en` / `zh-TW`; anything else is ignored) → the first non-empty of `LC_ALL`,
+`LC_MESSAGES`, `LANG` (zh-TW when it is Traditional Chinese with a UTF-8 or no codeset) → on macOS, when all three are
+unset, the system language (`defaults read -g AppleLanguages`, cached; a failure is English) → `en`. Resolved once in
+`runCli` (`resolveLang(io.env, io.systemLanguages)`, over `localeFromEnv`) and carried in the command context
+(`CommandContext.lang`); messages are lazy `Text` values (`m(id, params)`, `packages/cli/src/i18n/`) rendered only
+where they are printed, so no throw site needs the language: `CliError.text` is what the person reads,
+`CliError.message` its English rendering (logs). The installer follows the same order (`pick_lang` in
+`scripts/install.sh`). English output is ASCII only. What the daemon refuses is rendered from the wire:
+`render(lang, error.text) ?? render(lang, defaultErrorRef(error.code)) ?? error.message` (the control socket's error
+replies are full error payloads, `{ ok: false, error: { code, message, detail?, text? } }`). What the daemon reports
+in process is a code the CLI words itself: `ShareError.reason` (`SHARE_ERROR_REASONS`: why a folder cannot be shared),
+`ShareLockError.reason`, `ControlSocketError.code`, and keep-awake's `PowerStatus.reason` (`POWER_REASONS`). The quoted
+outputs below are the English ones; the zh-TW catalog has the same messages.
+
 | Command | Behaviour |
 |---|---|
-| `smurg host <folder> [--relay URL] [--role R] [--expires D] [--max-uses N] [--name N] [--web-origin URL] [--no-keep-awake] [--no-browser] [--no-bash-attribution]` | refuse a folder that is already shared, that overlaps a folder a running host of this state dir shares (inside or around it, whatever the relay; CLI-05) or that contains a home directory (CLI-04), all before any login; login if needed (a stored login with less than 24 h left counts as missing); start daemon in the foreground, keep machine awake. `--role` is `agent` (「可使用 agent」, §11 D-15), `editor` (default) or `viewer`; anything else (`host`, the removed `runner`) is a usage error. **The start prints only the two links** (owner decision 2026-10-01): 「smurg 正在分享「<name>」」, the host link, the invite link (on `--web-origin`, e.g. the Vite dev server) under a line that names its expiry, and its use limit and role only when the host chose them, and 「按 Ctrl-C 停止分享。」. Nothing else is printed at the start unless the host must act on it: keep-awake refused at the start (not when `--no-keep-awake` switched it off; a later loss is printed too). The explanations (SPEC §11's warnings, what 「可使用 agent」 means, the switch, the fingerprint, keep-awake, the log file, the relay) are in `docs/HOSTING.md` (named in `--help`) and the state of this machine in `smurg status`. `--no-bash-attribution` sets `config.activity.attributeBashEdits` to false (§11 D-13; default true). (Removed with the guest sandbox, §11 D-15: `--no-guest-subscription-login`, `--allow-main-workspace-guests`, `--no-main-workspace-guests`: unknown options now; and the daemon no longer runs from `~/.smurg/cwd`.) |
-| `smurg attach [session] [--workspace W] [--invite -\|URL] [--relay URL] [--no-browser] [--accept-new-key]` | local daemon running → attach through the control socket as host; otherwise join through the relay with the CLI device key. The invite (its `#` part is the secret) comes from a no-echo prompt (`--invite -`) or `SMURG_INVITE`; a link in argv still works, with a warning (it is visible in `ps` and lands in shell history). An invite whose `k` differs from the key pinned for the workspace (the host started over with new workspace keys, `docs/HOSTING.md` §5.1 / §8, or someone poses as the host) is never used silently: the CLI prints the web's 「主人的電腦金鑰和之前不同」 explanation with the pinned and the invite's fingerprints (`formatFingerprintForDisplay`, the form `smurg status` shows) and continues only on an explicit `y` at a terminal (`CliIo.readLine`; never from a pipe) or with `--accept-new-key`; then it connects with `preferInvite` (the invite verifies the new key, which replaces the pin). Otherwise nothing is sent and the pin stays (verification M1, 2026-10-02) |
+| `smurg host <folder> [--relay URL] [--role R] [--expires D] [--max-uses N] [--name N] [--web-origin URL] [--no-keep-awake] [--no-browser] [--no-bash-attribution]` | refuse a folder that is already shared, that overlaps a folder a running host of this state dir shares (inside or around it, whatever the relay) or that contains a home directory, all before any login; login if needed (a stored login with less than 24 h left counts as missing); start daemon in the foreground, keep machine awake. `--role` is `agent` (Agent access, §11 D-15), `editor` (default) or `viewer`; anything else (`host`, the removed `runner`) is a usage error. **The start prints only the two links**: `smurg is sharing "<name>"`, the host link, the invite link (on `--web-origin`, e.g. the Vite dev server) under a line that names its expiry, and its use limit and role only when the host chose them, and `Press Ctrl-C to stop sharing.` Nothing else is printed at the start unless the host must act on it: keep-awake refused at the start (not when `--no-keep-awake` switched it off; a later loss is printed too). The explanations (SPEC §11's warnings, what "Agent access" means, the switch, the fingerprint, keep-awake, the log file, the relay) are in `docs/HOSTING.md` (named in `--help`) and the state of this machine in `smurg status`. `--no-bash-attribution` sets `config.activity.attributeBashEdits` to false (§11 D-13; default true). (Removed with the guest sandbox, §11 D-15: `--no-guest-subscription-login`, `--allow-main-workspace-guests`, `--no-main-workspace-guests`: unknown options now; and the daemon no longer runs from `~/.smurg/cwd`.) |
+| `smurg attach [session] [--workspace W] [--invite -\|URL] [--relay URL] [--no-browser] [--accept-new-key]` | local daemon running → attach through the control socket as host; otherwise join through the relay with the CLI device key. The invite (its `#` part is the secret) comes from a no-echo prompt (`--invite -`) or `SMURG_INVITE`; a link in argv still works, with a warning (it is visible in `ps` and lands in shell history). An invite whose `k` differs from the key pinned for the workspace (the host started over with new workspace keys, `docs/HOSTING.md` §5.1 / §8, or someone poses as the host) is never used silently: the CLI prints the same explanation as the web (the host's computer key differs from before) with the pinned and the invite's fingerprints (`formatFingerprintForDisplay`, the form `smurg status` shows) and continues only on an explicit `y` at a terminal (`CliIo.readLine`; never from a pipe) or with `--accept-new-key`; then it connects with `preferInvite` (the invite verifies the new key, which replaces the pin). Otherwise nothing is sent and the pin stays |
 | `smurg stop [--workspace W]` | ask the daemon (control socket) to stop: closes all channels, ends sessions; returns when the daemon is fully stopped |
-| `smurg status [--workspace W]` | every running daemon of this state dir: folder, relay (marked when it is the built-in one) and link states, connections, the daemon key fingerprint, keep-awake (same zh-TW wording as `host`'s notices), the switch of §11 D-13 as the daemon runs with it, the log file. Fields a daemon of an older build does not send are left out |
-| `smurg login [--relay URL] [--dev-user NAME] [--no-browser]` / `smurg logout [--relay URL] [--all]` | relay session for the CLI through the device-code login (§6; `packages/cli/src/relay/login.ts`): prints 「在任何裝置（電腦或手機）打開：」, `<relay>/device` and 「輸入代碼：XXXX-XXXX   （10 分鐘內有效）」, opens the page (never the code) when the browser rule below allows, then polls every `interval` s (+5 s after each `slow_down`; network and 5xx errors are retried until the code expires) until allowed (the session is saved), 「拒絕」 or expiry (exit 4); Ctrl-C ends it (exit 130). `smurg host` and `smurg attach` log in the same way when they need to. `--dev-user` only for a relay on a local hostname. (`--provider` is gone: the login method is chosen in the browser.) |
-| `smurg update [--check]` | (owner decision 2026-10-02; `commands/update.ts`, `update/*.ts`) replaces THIS single executable with the newest published one. Reads `<downloads>/latest/VERSION` and compares it with the executable's version as semver: the same → says so; older than this one → says so (never a downgrade; a `-dev` build is older than its release); `--check` only reports (exit 0). A newer one: refuses while a `smurg host` of this state dir runs (「請先執行 smurg stop」; nothing is stopped from here: a share that keeps running would mix the old daemon with the new `smurg hook` / `smurg attach`), then streams `v<X.Y.Z>/smurg-<platform>-<arch>` into a temp file in the executable's own directory and installs it only when the announced size, the sha256 of that version's `SHA256SUMS`, the build marker (exactly one, naming that version) and the file's own `--version` all agree; macOS: `com.apple.quarantine` is removed after the sha256 matched (`/usr/bin/xattr`, as the installer); then one `rename` over `process.execPath` (0755; the bytes are never touched, so the ad-hoc signature stays valid). Prints 「已更新 smurg：old → new」 and the changelog's URL. Nothing is replaced on any failure and the temp file goes on every way out (error, Ctrl-C → exit 130, `process.exit`); a progress line only on a terminal; timeouts (15 s for the two small files, 30 s without a byte for the download). Refused: not the single executable (a source checkout: exit 2, 「用 git 與 pnpm」), a directory that cannot be written (names it and the installer), a downloads site that is not https. `<downloads>` is `https://downloads.smurg.ai`, or `SMURG_INSTALL_BASE_URL` (tests, mirrors; the installer's variable and rule: https, or http only for 127.0.0.1 / localhost; a trailing `/v<X.Y.Z>` or `/latest` is dropped, so the installer's value works); redirects never leave that scheme |
-| `smurg uninstall [--keep-data] [--yes]` | (owner decision 2026-10-02; `commands/uninstall.ts`) removes the executable itself (`process.execPath`), the cache (every `native-<id>` dir of every build in the cache root in force and in the platform's default one; an emptied root too) and the state dir (`--keep-data` keeps it). Everything is looked at and every refusal happens before anything changes; then it prints each path with its size and what stays, and asks 「確定要移除嗎？ [y/N]」 through `CliIo.readLine` (`--yes` skips it; without a terminal and without `--yes` it refuses, exit 2; any answer but y / yes cancels, exit 1). Every running `smurg host` of this state dir is then stopped as `smurg stop` does and waited for; one that refuses or does not end aborts with nothing removed. Removal order: cache, state dir, the executable last. Never touched, only listed: the `.smurg/` of shared project folders (the folders of `workspaces.json` that still have one, and one around the current directory that holds the daemon's own entries), and shell profiles (it names the `PATH` line the installer suggested). Guards (fail closed): only the single executable uninstalls itself (a source checkout is told what to delete by hand); the state dir is removed only when its real path is not `/`, a top-level directory, the home directory or a folder around it or around `/Users`, `/home`; a `SMURG_HOME` other than `~/.smurg` must hold nothing but smurg's own entries (§7.1); a state dir that is a symlink is unlinked, not followed; a cache root or cache entry that is a symlink is skipped; `rm` never follows a symlink out of what it removes, and each path is removed only while it is still the file or directory that was listed (device and inode) |
+| `smurg status [--workspace W]` | every running daemon of this state dir: folder, relay (marked when it is the built-in one) and link states, connections, the daemon key fingerprint, keep-awake (the same wording as `host`'s notices), the switch of §11 D-13 as the daemon runs with it, the log file. Fields a daemon of an older build does not send are left out |
+| `smurg login [--relay URL] [--dev-user NAME] [--no-browser]` / `smurg logout [--relay URL] [--all]` | relay session for the CLI through the device-code login (§6; `packages/cli/src/relay/login.ts`): prints `On any device (a computer or a phone), open:`, `<relay>/device` and `Enter the code: XXXX-XXXX   (valid for 10 minutes)`, opens the page (never the code) when the browser rule below allows, then polls every `interval` s (+5 s after each `slow_down`; network and 5xx errors are retried until the code expires) until allowed (the session is saved), denied or expiry (exit 4); Ctrl-C ends it (exit 130). `smurg host` and `smurg attach` log in the same way when they need to. `--dev-user` only for a relay on a local hostname. (`--provider` is gone: the login method is chosen in the browser.) |
+| `smurg update [--check]` | (`commands/update.ts`, `update/*.ts`) replaces THIS single executable with the newest published one. Reads `<downloads>/latest/VERSION` and compares it with the executable's version as semver: the same → says so; older than this one → says so (never a downgrade; a `-dev` build is older than its release); `--check` only reports (exit 0). A newer one: refuses while a `smurg host` of this state dir runs (it says to run `smurg stop` first; nothing is stopped from here: a share that keeps running would mix the old daemon with the new `smurg hook` / `smurg attach`), then streams `v<X.Y.Z>/smurg-<platform>-<arch>` into a temp file in the executable's own directory and installs it only when the announced size, the sha256 of that version's `SHA256SUMS`, the build marker (exactly one, naming that version) and the file's own `--version` all agree; macOS: `com.apple.quarantine` is removed after the sha256 matched (`/usr/bin/xattr`, as the installer); then one `rename` over `process.execPath` (0755; the bytes are never touched, so the ad-hoc signature stays valid). Prints `Updated smurg: old -> new` and the changelog's URL. Nothing is replaced on any failure and the temp file goes on every way out (error, Ctrl-C → exit 130, `process.exit`); a progress line only on a terminal; timeouts (15 s for the two small files, 30 s without a byte for the download). Refused: not the single executable (a source checkout: exit 2, it says to use git and pnpm), a directory that cannot be written (names it and the installer), a downloads site that is not https. `<downloads>` is `https://downloads.smurg.ai`, or `SMURG_INSTALL_BASE_URL` (tests, mirrors; the installer's variable and rule: https, or http only for 127.0.0.1 / localhost; a trailing `/v<X.Y.Z>` or `/latest` is dropped, so the installer's value works); redirects never leave that scheme |
+| `smurg uninstall [--keep-data] [--yes]` | (`commands/uninstall.ts`) removes the executable itself (`process.execPath`), the cache (every `native-<id>` dir of every build in the cache root in force and in the platform's default one; an emptied root too) and the state dir (`--keep-data` keeps it). Everything is looked at and every refusal happens before anything changes; then it prints each path with its size and what stays, and asks `Remove these? [y/N]` through `CliIo.readLine` (`--yes` skips it; without a terminal and without `--yes` it refuses, exit 2; any answer but y / yes cancels, exit 1). Every running `smurg host` of this state dir is then stopped as `smurg stop` does and waited for; one that refuses or does not end aborts with nothing removed. Removal order: cache, state dir, the executable last. Never touched, only listed: the `.smurg/` of shared project folders (the folders of `workspaces.json` that still have one, and one around the current directory that holds the daemon's own entries), and shell profiles (it names the `PATH` line the installer suggested). Guards (fail closed): only the single executable uninstalls itself (a source checkout is told what to delete by hand); the state dir is removed only when its real path is not `/`, a top-level directory, the home directory or a folder around it or around `/Users`, `/home`; a `SMURG_HOME` other than `~/.smurg` must hold nothing but smurg's own entries (§7.1); a state dir that is a symlink is unlinked, not followed; a cache root or cache entry that is a symlink is skipped; `rm` never follows a symlink out of what it removes, and each path is removed only while it is still the file or directory that was listed (device and inode) |
 | `smurg hook`, `smurg mcp` | internal entry points used by Claude Code inside sessions (the hook event is in the stdin JSON); dispatched before anything else is loaded |
 
 **Arguments** (`cli/args.ts`): unknown options, a string option given twice, a boolean together with its `--no-` form
@@ -1376,13 +1475,13 @@ shared relay the project operates on Cloudflare Workers, `https://app.smurg.ai`
 (`packages/cli/src/relay/default-relay.ts`, `docs/RELEASING.md` §3; it was the workers.dev URL of the first deploy
 until 2026-10-01, before any release); `smurg attach` first takes the invite link's origin, or the relay a remembered
 join used. Before
-the release plan of 2026-09-30 there was no default (review CLI-12: a guessed domain would have received the host's
+the release plan of 2026-09-30 there was no default (a guessed domain would have received the host's
 login and every invite printed for it); an operated relay does not have that problem. Logins are stored per origin:
 an invite link carries the WEB origin, which is the relay in production but not in development (Vite on :5173 in front
 of the relay on :8787), so a CLI guest in the dev stack uses `--relay http://localhost:8787` (the CLI says so when it
 finds a login for another origin).
 
-**While `smurg host` runs** (reviews REL-08, CLI-03, CLI-10, REL-14, CLI-06) the host's terminal is told: the relay link
+**While `smurg host` runs** the host's terminal is told: the relay link
 dropping (after 3 s without recovery, so blips stay quiet) and coming back; the relay refusing the host's login
 (`auth-rejected`: members cannot connect) with the command to run; a stored login that expires within 24 h; and a state
 file the disk refuses (the change is in force but would not survive a restart) and its recovery. `credentials.json` is
@@ -1390,12 +1489,11 @@ re-read every 5 s: a newer login of the SAME account for that relay (`smurg logi
 daemon (`Daemon.updateRelayToken`) without a restart; another account's login is refused with a notice (the workspace
 belongs to the account that claimed it). A second Ctrl-C within 2 s of the first is ignored while the stop runs (it is
 usually one impatient key press, and leaving mid-teardown can leave session processes stopped); a later one leaves at
-once (exit 130). `smurg status` shows the link state `auth-rejected` as 「relay 拒絕了主人的登入（請執行 smurg login 重新登入）」.
+once (exit 130). `smurg status` shows the link state `auth-rejected` as "the relay refused the host's login (run smurg login to log in again)".
 
-**Update notice** (owner decision 2026-10-02; `update/notice.ts`). After `smurg host` printed its two links it asks
+**Update notice** (`update/notice.ts`). After `smurg host` printed its two links it asks
 `<downloads>/latest/VERSION` once, in the background (never awaited; ended by a stop), with a 2 s timeout, and prints
-ONE more line only when that version is newer than the executable: 「有新版本 0.3.0（目前 0.2.0）：停止分享後執行 smurg
-update」. Nothing is printed when it is the newest, on any failure or timeout; no request is made with
+ONE more line only when that version is newer than the executable: `Version 0.4.1 is available (this is 0.4.0): stop sharing, then run smurg update`. Nothing is printed when it is the newest, on any failure or timeout; no request is made with
 `SMURG_NO_UPDATE_CHECK` set, in an automated run (`CI`, or stdin / stdout not a terminal: the rule of `browserBlock`) or
 from source (where `smurg update` could not do what the line says). The request carries nothing about the machine. The
 CLI's vitest setup and `isolatedEnv()` set `SMURG_NO_UPDATE_CHECK=1`; the tests of the notice use a local server.
@@ -1431,7 +1529,7 @@ connect here. On a local channel the router therefore accepts only what `smurg a
 `packages/daemon/src/local/local-channel.ts`; checked before the capability). Everything else — `admin.*` (invites,
 roles, kicks, terminations, settings, the audit log), merge decisions, `lock.forceRelease`, `session.create` /
 `session.end`, suggestions, files, documents, `channel.leave` — is refused `forbidden` {reason: `control-socket`} and
-audited; every audit entry a local channel causes carries `detail.via: 'control-socket'` (review F1, 2026-10-02). What
+audited; every audit entry a local channel causes carries `detail.via: 'control-socket'`. What
 it RECEIVES unasked is limited the same way, in the hub (`send` / `broadcast`, per logical channel, so nothing else is
 queued for a resume either): only what `smurg attach` consumes, `exec.output`, `exec.resize`, `session.state`,
 `channel.closed`, `channel.ack`, `presence.heartbeat` and `error` (`LOCAL_CHANNEL_RECEIVES`) — no live audit log
@@ -1440,7 +1538,7 @@ queued for a resume either): only what `smurg attach` consumes, `exec.output`, `
 channels (the web console); `status` and `stop` are control requests, not channel messages, and are not affected. A
 `stop` names no reason (a request with one is refused `bad_request`): the daemon's stop reason is always `smurg stop`
 (`CTL_STOP_REASON`), and `smurg host` tells its own stops (a failed start, a failed summary) apart by what it did
-itself, never by that text, so every other stop is told on the host's terminal (verification F-2, 2026-10-02).
+itself, never by that text, so every other stop is told on the host's terminal.
 The socket stays open until every other module stopped (it answers status with `stopped: true` and refuses attach
 meanwhile), so `smurg stop` sees it go only when the daemon is done.
 
@@ -1449,10 +1547,13 @@ version is injected at build time; other builds say `<package version>-dev`); `s
 release's `SHA256SUMS` and an `install.sh` with the release URL filled in; `scripts/install.sh` installs only a
 sha256-verified executable into `~/.local/bin` (macOS: it removes the quarantine attribute after the check); there is
 no sandbox to set up on Linux any more (§11 D-15). The executable's extracted
-native dir of an older build is removed after 30 days unused. Releases (decided 2026-10-01, replacing the plan of
-2026-09-30; `docs/OPEN-QUESTIONS.md` Q1): the source stays private; `.github/workflows/release.yml` builds the four
-executables on a tag `v*` (`macos-15`, `macos-15-intel`, `ubuntu-24.04`, `ubuntu-24.04-arm`; macOS signed ad hoc only) and
-keeps a GitHub release in the private repository as the internal record; a person then verifies the files and uploads
+native dir of an older build is removed after 30 days unused. Releases: `.github/workflows/release.yml` builds the four
+executables on a tag `v*` (`macos-15`, `macos-15-intel`, `ubuntu-24.04`, `ubuntu-24.04-arm`; macOS signed ad hoc only);
+from 0.4.0 the GitHub release carries the notes, `SHA256SUMS` and the notices only (no executables): the executables, the
+installer and those two files are the workflow artifact `release-X.Y.Z` (kept 30 days). A person then runs
+`scripts/publish-downloads.sh --version X.Y.Z --from-release`, which takes the files from that artifact of the tag's
+successful run (`gh run download`), requires the release's `SHA256SUMS` and notices to be byte-identical to the
+artifact's, verifies the files and uploads
 them to Cloudflare R2 behind `https://downloads.smurg.ai` (`v<X.Y.Z>/`, immutable, then `latest/`); the one-line install
 `curl -fsSL https://smurg.ai/install.sh | sh` is a 302 from the product page `apps/site` to
 `https://downloads.smurg.ai/latest/install.sh`, with no GitHub fallback. An installed executable updates itself from the same
@@ -1461,12 +1562,11 @@ place (`smurg update`: `latest/VERSION`, then the version's `SHA256SUMS` and exe
 (`smurg-build-version=X.Y.Z;`, a comment build-sea puts at the top of the bundle) and, as any Node.js release build, the
 download URL of its Node.js release; `scripts/release-assets.sh` and `scripts/publish-downloads.sh` read both from all
 four executables (`scripts/release-markers.ts`), so a release cannot mix in an executable of another version or another
-Node.js than the one whose LICENSE its notices carry. The bundle must not name the private repository (build-sea
-refuses it: a `package.json` the code imports is inlined whole, so the private `package.json` files have no
-`repository` field). Runbook: `docs/RELEASING.md`.
+Node.js than the one whose LICENSE its notices carry. Runbook: `docs/RELEASING.md`.
 
-**Licenses.** smurg is proprietary (`LICENSE`; every `package.json` says `"license": "UNLICENSED"` and
-`"private": true`). The third-party notices are generated, never written by hand: `scripts/third-party-notices.ts` walks
+**Licenses.** smurg is MIT-licensed since 0.4.0 (`LICENSE`, Copyright (c) 2026 Guan-Chen, Lin; every `package.json`
+says `"license": "MIT"` and stays `"private": true`: nothing is published to npm); 0.1.0 to 0.3.0 were released
+before the license. The third-party notices are generated, never written by hand: `scripts/third-party-notices.ts` walks
 `pnpm-lock.yaml`'s production closure of `@smurg/cli` (with the daemon and protocol, for the four release targets) and of
 `@smurg/web`, and reproduces every package's license and notice files from `node_modules` into
 `packages/cli/THIRD-PARTY-NOTICES.txt` and `apps/web/public/third-party-notices.txt` (a package without one fails the
@@ -1484,8 +1584,11 @@ Routes: `/` (landing + login), `/join/:workspaceId` (invite acceptance), `/w/:wo
 
 ```
 apps/web/src/
-├── app/         routes, providers, layout shell, i18n strings (zh-TW)
-├── lib/         connection (client SDK wrapper, reconnect, offline detection), device-key store (IndexedDB), stores
+├── boot/        capture-invite, locale (resolves the language before anything renders)
+├── strings/     the catalog (`defineStrings(ns, en, zhTW)`) and the app-wide namespaces (+ `*.zh-TW.ts`)
+├── app/         routes, providers, layout shell
+├── lib/         connection (client SDK wrapper, reconnect, offline detection), device-key store (IndexedDB), stores,
+│                locale (the language controller)
 ├── features/
 │   ├── auth/        login, join flow, key-mismatch warning
 │   ├── files/       file tree, root switcher, drag-drop upload, download
@@ -1501,26 +1604,52 @@ apps/web/src/
 State lives in small stores keyed by message type; every store is fed by the single `Connection` object.
 Role-based hiding in the UI is cosmetic; the daemon enforces.
 
+Language (§1 Languages): `localStorage['smurg.lang']` → cookie `smurg_lang` → the first entry of
+`navigator.languages` that is English or Traditional Chinese → `en`; `<html lang>` is `en` / `zh-Hant-TW`.
+`src/boot/locale.ts` is the second import of `main.tsx` (after `capture-invite`, before the catalog and every
+component), so the first render is already in the right language. `src/lib/locale.ts` is the one controller: the
+catalog and the `Intl` formatters read the language at call time (`t('key')` takes no locale). The switch
+(`LanguageMenu`, a globe button on the landing page, the join / login / connection screens, the not-found page and
+the workspace's top bar; each language named in itself) records the choice in localStorage, mirrors it into the
+cookie `smurg_lang` (the relay's attributes, §6), so the relay's `/device` page follows, and re-mounts the route tree,
+which `app/App.tsx` keys by the locale: no reload; the stores, the services and the connection are kept, component
+state is lost, and a toast on screen or an error sentence already in a store keeps the old language. Monaco and
+xterm.js are not localised.
+
+Strings: `defineStrings(namespace, en, zhTW)` (`src/strings/catalog.ts`); the English table (`strings.ts`) defines
+the keys and its sibling `strings.zh-TW.ts` must have exactly them (a missing key is a compile error, an extra one
+an error at load). A value is a template with `{placeholders}`, or in English the plural pair `{ one, other }`
+chosen by `count`; a key that counts two things is two keys. `src/strings/strings.test.ts` checks the parity of the
+two tables (keys, placeholders, plural forms), that English text holds no CJK and zh-TW text is Traditional Chinese,
+and that no key is unused.
+
+Wire texts: What the daemon says is rendered here: errors as
+`render(locale, error.text) ?? render(locale, defaultErrorRef(error.code)) ?? error.message`, activity lines as
+`render(locale, event.text) ?? event.summary`, daemon-written notifications as `render(locale, n.msg) ?? n.fallback`,
+role labels with `roleLabel(locale, role)`. `summary` is never parsed. The web's own code-based wordings (connection states, session end reasons,
+reason hints, transfer failures, audit labels) stay in the web catalog. A selection sent to an agent is headed by the
+fixed `path:12-20` (one line: `path:12`).
+
 As built after the review round (details in `apps/web/README.md`):
-- `/join/:id` waits for an explicit 「加入」 before any connection (§4.1, SEC-E-02).
-- Documents: a tab whose file is deleted turns read-only with who did it and 「用這些內容重新建立」; a renamed file's tab
-  follows it (the renamer's) or offers 「開啟新位置」 (everyone else), read from the `file.rename` activity summary
-  (§5.4; review WEB-01). Text typed while the host was unreachable is kept across a new epoch: re-applied when the
-  host's text did not change meanwhile, otherwise offered back in a recovery notice (用我的版本取代 / 複製 / 捨棄);
-  there is no automatic 3-way merge (review REL-07). `doc.rejected{file-unavailable}` says the unsaved text is in the
-  conflict panel (REL-01).
-- Agent panel: the owner's panel (the member who opened the session) drives the PTY size (review LEAD-01): columns and
+- `/join/:id` waits for an explicit "Join" before any connection (§4.1).
+- Documents: a tab whose file is deleted turns read-only with who did it and "Create again from this content"; a renamed file's tab
+  follows it (the renamer's) or offers "Open the new location" (everyone else), read from the `file.rename` activity event's `renamedFrom`
+  (§5.4). Text typed while the host was unreachable is kept across a new epoch: re-applied when the
+  host's text did not change meanwhile, otherwise offered back in a recovery notice (replace with my version / copy / discard);
+  there is no automatic 3-way merge. `doc.rejected{file-unavailable}` says the unsaved text is in the
+  conflict panel.
+- Agent panel: the owner's panel (the member who opened the session) drives the PTY size: columns and
   rows are fitted to the visible area (`features/agents/terminal-fit.ts`, sent with `session.attach` and then as
   `exec.resize` on every panel, font or visibility change), with a floor of 80 × 24 for Claude Code (plain terminal
   20 × 5); below the floor the panel scrolls and a one-line hint says so. Everyone else, other drivers included, renders
-  at the PTY size with visible scrollbars and 「縮放以符合寬度」 (a CSS scale, nothing reflowed or sent; the daemon
+  at the PTY size with visible scrollbars and "Scale to fit the width" (a CSS scale, nothing reflowed or sent; the daemon
   refuses another driver's resize). A maximize button; a session that ended without its owner says why (`endReason` /
-  `endedBy`: 「已被主人（…）終止」; review WEB-12); 「在自己的終端機接上」 shows the `smurg attach` commands (SPEC-09).
-- Closing an ended session's tab (the owner's bug report of 2026-10-02: an ended session could not be closed;
+  `endedBy`, e.g. that the host ended it); "Attach from your own terminal" shows the `smurg attach` commands.
+- Closing an ended session's tab (2026-10-02: until then an ended session could not be closed;
   `features/agents/SessionTabs.tsx`, `closed-sessions.ts`). The tab of a session whose status is `exited` (whatever
-  its `endReason`) has a close button (accessible name 「關閉 <tab label>」; a sibling of the tab, in the tab order right
-  after the selected tab), Delete on the tab and a middle click do the same, and the session's bar offers 「關閉分頁」
-  where 「結束 session」 was. Every member may close it, a viewer too, and only in their OWN panel: nothing is sent to the
+  its `endReason`) has a close button (accessible name "Close <tab label>"; a sibling of the tab, in the tab order right
+  after the selected tab), Delete on the tab and a middle click do the same, and the session's bar offers "Close tab"
+  where "End session" was. Every member may close it, a viewer too, and only in their OWN panel: nothing is sent to the
   daemon (no message, no capability, nothing audited), the other members keep the tab and the console keeps its row. A
   RUNNING session has none of these controls (ending one stays the explicit `session.end` of the member who opened it
   and the host's `admin.session.terminate`), and a stored id never hides a session that is not `exited`. The closed
@@ -1528,39 +1657,48 @@ As built after the review round (details in `apps/web/README.md`):
   workspaces × 128 ids), so the tab does not come back on a reload or a reconnect while the daemon still lists the
   session; an id is dropped as soon as a loaded `session.list` no longer has that session as an ended one. After a
   close the neighbour to the right (else the one to the left) is shown and has the keyboard focus (no tab left:
-  「新增 session」); the selected tab is scrolled into view together with its close button; a closed session that is
-  focused by name afterwards (`focusSession`) is shown again. **Deliberately not removed for everyone** when its
+  "New session"); the selected tab is scrolled into view together with its close button; a closed session that is
+  focused by name afterwards (`focusSession`) is shown again; when every session is hidden this way, the empty
+  panel says so ("N ended sessions are hidden because you closed their tabs.") and "Show ended sessions" brings them
+  back (nothing is sent). **Deliberately not removed for everyone** when its
   opener or the host closes it: an ended tab is a read-only record that others may still be reading (why it ended, the
-  last screen; the end dialog promises 「終端機的內容仍然可以檢視」), closing is a view action like closing an editor tab,
+  last screen; the end dialog promises that the terminal's content can still be viewed), closing is a view action like closing an editor tab,
   and the shared list cleans itself: the daemon keeps an ended session for 15 minutes, at most 32 of them, then forgets
   it (§7.6; without a message, so a panel that stays connected keeps such a tab until its person closes it or reloads;
   showing that tab again finds nothing to attach to, and the terminal then says that the host's computer no longer
   keeps the content and that the tab can be closed, instead of a failure with a retry). Hence no `session.remove` and
   no protocol change.
 - Roles and sessions (§11 D-15, 2026-10-01; `lib/capabilities.ts`: `canCreateSession`, `canDrive`, `drivesSession()`,
-  `isRiskyRole()`): the host and `agent` members (「可使用 agent」) open sessions with the new-session dialog
-  (「agent（Claude Code）」 / 「一般終端機」; 「共享主工作區」, 「我的新 worktree」, 「繼續我保留的 worktree：{branch}」), which
+  `isRiskyRole()`): the host and `agent` members ("Agent access") open sessions with the new-session dialog
+  ("Agent (Claude Code)" / "Plain terminal"; "Shared main workspace", "A new worktree of my own", continue a kept worktree), which
   says on top that the session runs on the host's computer with the host's Claude account; an editor or viewer gets
   the dialog's explanation instead and cannot submit. Drivers (host, `agent`) type into ANY running session and see
-  the queue of pending suggestions on any session; editors and viewers see 「只能觀看」 and editors suggest through the
-  composer. Tabs name who opened a session (「Claude（Amy 開的）」, 「終端機（Amy 開的）」). 「送到 agent」 in the editor
+  the queue of pending suggestions on any session; editors and viewers see "Watch only" and editors suggest through the
+  composer. Tabs name who opened a session (the default title is built in the viewer's language from `kind` + `ownerName`; the
+  daemon sends a title only when the opener typed one). "Send to agent" in the editor
   pastes into any agent session for a driver and makes a suggestion for an editor. A merge request's diff is readable
-  by every holder of `worktree.merge.request`. There is no login guide, login process, API key field or 「匯入個人設定」
-  any more: a logged-out agent (the host's Claude login) shows one line (drivers also get 「重新檢查登入狀態」). The
+  by every holder of `worktree.merge.request`. There is no login guide, login process, API key field or settings import
+  any more: a logged-out agent (the host's Claude login) shows one line (drivers also get "Check login again"). The
   console shows the risk in an alert dialog (`RoleRiskDialog`) before an `agent` invite is created or a member is set
   to `agent`, and asks before taking the role from a member whose sessions would end; it has no sandbox column and no
   allowed-domains setting, and its kick / demote / leave texts name the sessions that end.
-- The activity feed shows an agent's shell edit (§11 D-13) as that agent's, with a small 「透過指令」 marker taken from
-  `ActivityEvent.via === 'bash'` (never from the summary's wording); 「外部程式」 appears only for the daemon's `system`
-  actor.
+- The activity feed shows an agent's shell edit (§11 D-13) as that agent's, with a small "via a command" marker taken from
+  `ActivityEvent.via === 'bash'` (never from the wording); "an outside program" appears only for the daemon's `system`
+  actor. Every line is `render(locale, event.text) ?? event.summary` (§5.4).
 - The suggestion queue (the host and `agent` members, any session) always sends the text on screen with
-  `suggest.accept` (§5.6, SEC-D-01); 「作為建議送給…」
-  in the editor creates the suggestion in one click (SPEC-08).
-- The host can force-release a lock from the editor banner and the tree's context menu (WEB-04); the console's invite
-  list refreshes on joins (WEB-05); the audit log shows each entry's details (SPEC-07); merge decisions reach the
-  requester as a notice and everyone's activity feed (WEB-11).
-- Login buttons come from one `GET /api/login-options` (§6; strict schema, `redirect: 'error'`; on any failure GitHub
-  and Google are offered and the dev login never is; WEB-14). `/api/me` is asked only while the host-scoped cookie
+  `suggest.accept` (§5.6); "Send as a suggestion to ..."
+  in the editor creates the suggestion in one click.
+- The host can force-release a lock from the editor banner and the tree's context menu; the console's invite
+  list refreshes on joins; the audit log shows each entry's details; merge decisions reach the
+  requester as a notice and everyone's activity feed.
+- Workbench layout (`app/workspace/layout-limits.ts`, `ui/SplitPane.tsx`): the file tree's separator leaves
+  `minRightOfFiles()` to its right: the editor's minimum alone, or, while the agents column is shown beside it, that
+  plus the column's own minimum and its separator, so a wide remembered file tree in a narrow window cannot squeeze
+  the agents column below its minimum and freeze its separator. `SplitPane` shows the remembered size clamped to the
+  container it observes (`ResizeObserver`) and reports the size shown (`aria-valuenow`); a drag starts from the size
+  on screen and moves only while the primary button is held.
+- Login buttons ("Log in with Google" / GitHub) come from one `GET /api/login-options` (§6; strict schema, `redirect: 'error'`; on any failure GitHub
+  and Google are offered and the dev login never is). `/api/me` is asked only while the host-scoped cookie
   `smurg_hint=1` says a relay session may exist (set when a login starts, on a 200 and when a workspace connects;
   cleared on 401 or logout), so a logged-out page load has a clean console (the relay keeps `/api/me`'s 401: the SDK,
   the CLI and its tests rely on it). The cookie carries no identity and grants nothing.
@@ -1577,11 +1715,34 @@ As built after the review round (details in `apps/web/README.md`):
 | Module integration | `packages/daemon/test/integration` | the REAL modules together (`createTestDaemon` without `modules` = DEFAULT_FEATURE_MODULES): docs + locks + hooks through the real `smurg hook` entry; sessions + worktree; suggest + sessions (real PTY); files + locks + docs; the real CLI's status / attach / stop on the control socket |
 | Acceptance (E2E) | `tests/e2e` | real relay (local workerd) + daemon + headless clients; one file per requirement `r1.*.test.ts` … `r11.*.test.ts`, plus `r2.agent-role.test.ts` (the `agent` role: its session runs as the host, drivers type into each other's sessions, an editor may not, a kick ends it) |
 | Claude-in-the-loop | `tests/e2e/claude.*` | opt-in (`SMURG_TEST_CLAUDE=1`): real `claude` with hooks (PreToolUse deny blocks Edit) |
-| Browser | `apps/web/e2e` (playwright-core + system Chrome) | join flow, 「主人已離線」, key-mismatch warning (Vite dev server) |
-| Built app | `apps/web/e2e/smoke` (own vitest project; at most 2 files at once, in the full gate after every other project) | `vite build` once, served by the real relay's Worker assets (`startLocalRelay({ webDist })`), a daemon with every module, system Chrome: join → type → disk, two-browser co-editing, agent-lock banner, an `agent` member's terminal running as the host; the 「可使用 agent」 role (an `agent` member opens a session and types into the host's, an editor's suggestion accepted by the member; the console's risk confirmation); the console's one-click terminate / kick (R11.1c), suggestions (R6), worktree merge by an `agent` member (R9), a real conflict (R8.4), an upload resumed after a dropped transfer socket (R7.3, through a TCP proxy in front of the relay), a logged-out page load with a clean console, the terminal size (LEAD-01), closing an ended session's tab (per viewer, with the button, Delete and 「關閉分頁」; closed after a reload; never a running session; with a daemon that forgets ended sessions after 2 s: what the tab says then, and that a reload no longer has it) |
+| Browser | `apps/web/e2e` (playwright-core + system Chrome) | join flow, "Host offline", key-mismatch warning (Vite dev server) |
+| Built app | `apps/web/e2e/smoke` (own vitest project; at most 2 files at once, in the full gate after every other project) | `vite build` once, served by the real relay's Worker assets (`startLocalRelay({ webDist })`), a daemon with every module, system Chrome: join → type → disk, two-browser co-editing, agent-lock banner, an `agent` member's terminal running as the host; the "Agent access" role (an `agent` member opens a session and types into the host's, an editor's suggestion accepted by the member; the console's risk confirmation); the console's one-click terminate / kick (R11.1c), suggestions (R6), worktree merge by an `agent` member (R9), a real conflict (R8.4), an upload resumed after a dropped transfer socket (R7.3, through a TCP proxy in front of the relay), a logged-out page load with a clean console, the terminal size, closing an ended session's tab (per viewer, with the button, Delete and "Close tab"; closed after a reload; never a running session; with a daemon that forgets ended sessions after 2 s: what the tab says then, and that a reload no longer has it); the two languages (`language.smoke.test.ts`: the English pages hold no CJK character; `zh-TW.smoke.test.ts`); the separators of the workbench (`splitter.smoke.test.ts`) |
+
+Languages in tests: every package asserts English by default and has a small zh-TW suite; every test names its
+language and nothing under test reads `LANG`, the system language or `navigator.languages` implicitly (a spawned CLI
+or installer gets `SMURG_LANG=en`, the web setup pins `en`, browser contexts set `locale`, fetches of the relay's
+pages send an explicit `accept-language`). The daemon and the protocol have nothing
+to pin: their tests assert codes, reasons and message references (`toMatchObject({ code, detail: { reason }, text:
+{ id, params } })`, activity `{ kind, text: { id, params } }`), hook denies against `hooks/deny-text.ts`, and
+`packages/daemon/test/wire-texts.test.ts` checks statically that no wire error in the daemon is made from a string
+literal, that the daemon's source has no CJK and that every catalog id is used. Catalog parity (both locales render
+for every id and sample, every parameter is used, every enumerated value has its own wording) is
+`packages/protocol/src/i18n/catalog.test.ts`. Enforcement across the repository is the root vitest project
+`tests/lint` (a folder with a vitest config and no package of its own; the root `tsc` checks it), one file per rule:
+`no-cjk.test.ts` (§1 Languages, rule 6: the zh-TW files and the mixed files with the rule their Chinese lines follow
+are listed there; test files may hold Chinese data but no Chinese title), `catalog-parity.test.ts` (across packages:
+every catalog has the two locales key for key; words two packages show for one thing are the same words, such as the
+language names, the role labels, "Host offline" and the key-change title the CLI quotes from the web app, the login
+button of the relay page and the web app; English says "log in", never "sign in"), `docs-parity.test.ts` (every user
+document has its zh-TW counterpart with the same numbered sections; both changelogs carry the same sections with as
+many entries each, `[Unreleased]` included), `docs-quotes.test.ts` (a list of catalog messages the guides and the
+product page must quote as rendered, and the reverse: every quoted text of a guide is catalog text or a listed
+exception), `pinned-locale.test.ts` (a test that starts the CLI or the installer, opens a browser context or fetches
+a relay page names its language; only `*.zh-TW.test.tsx` pins zh-TW in the web unit tests) and
+`acceptance-refs.test.ts` (every `file` › "title" reference of `docs/ACCEPTANCE.md` is a test that exists).
 
 R3's acceptance criteria are the hard gate: each criterion has a named automated test, listed in `docs/ACCEPTANCE.md`.
-(R5, the guest sandbox, was the other one until the owner withdrew it on 2026-10-01, §11 D-15.)
+(R5, the guest sandbox, was the other one until it was withdrawn on 2026-10-01, §11 D-15.)
 
 Harnesses: `@smurg/daemon/testing` (`createTestDaemon`: in-memory relay with a byte tap, test identity issuer, temp
 project optionally a git repo, real SDK clients; `createTempRunDir`, `isolatedGitEnv`, …) and `tests/e2e/src/harness.ts`
@@ -1596,10 +1757,9 @@ the R7.1 (two Y.Docs) and R4.1 (terminal state) acceptance tests. Roles in both 
 
 Each of these keeps the intent of the requirement and is backed by a verified finding.
 
-**Status: D-1 to D-11 were reviewed and approved by the project owner on 2026-09-28** (D-1 to D-10 together, D-11
-separately the same evening). A departure added after that is not covered by this approval: mark it "pending approval"
-in its row until the owner has confirmed it. D-15 is the owner's own decision (2026-10-01); it removed the guest
-sandbox and with it D-12 and D-14 (both withdrawn) and the guests' half of D-4 and D-9.
+**Status: D-1 to D-11 were reviewed and approved by the maintainers on 2026-09-28.** A departure added after that
+is marked in its row until it is confirmed. D-15 (2026-10-01) removed the guest sandbox and with it D-12 and D-14
+(both withdrawn) and the guests' half of D-4 and D-9.
 
 | # | SPEC says | We do | Why (evidence) |
 |---|---|---|---|
@@ -1610,20 +1770,20 @@ sandbox and with it D-12 and D-14 (both withdrawn) and the guests' half of D-4 a
 | D-5 | R3: the relay can only see workspace id, connection id, message size and timing | Also true for content, keys and device ids. But the relay performs the login, so it additionally knows the **account identity and IP address** of each connection. | Inherent to R2 (login at the relay). Stated openly rather than hidden. (`relay.md`) |
 | D-6 | R8: `FileChanged` hook as the basis of the fallback | The fallback is driven by the daemon's own file watcher; `FileChanged` only feeds the activity feed. | `FileChanged` watches literal file names in the cwd only and misses the first moments of a session. (`claude-hooks.md`) |
 | D-7 | §6: packages `web`, `relay`, `daemon`, `cli`, `protocol` | Adds `tests/e2e`. | Acceptance tests must depend on every package. |
-| D-8 | R3: 「踢人或改角色時，daemon 撤銷對應的裝置金鑰」 | A **kick** revokes every device key of the member. A **role change** does not revoke keys: it closes the member's channels (`channel.closed{role-changed}`), the router applies the new role to the very next message, and the client reconnects with the same key and a fresh Welcome. Losing the right to open sessions (a role below 「可使用 agent」, D-15) ends the sessions the member opened. | Revoking the keys on a role change would lock the member out: they could only come back through a new invite, which makes "change a role" the same as "kick". What the requirement protects against — the old role still being usable — is achieved by the per-message role check and the channel close. |
-| D-9 | R4: guests are logged out and their temp dir deleted 「客人離開…時」 | "Leaving" is the explicit 「離開」 (`channel.leave`): the sessions the member opened end within 5 s. A disconnect (closed tab, sleeping laptop) keeps them, because R4 also requires sessions to survive disconnects. (Until D-15 leaving also deleted the guest dir with the guest's Claude login, and guest dirs of members not connected for 7 days were removed; there are no guest dirs any more.) | A disconnect is indistinguishable from a network blip; ending sessions on every blip would break R4's 「客戶端斷線時 session 繼續在主人端執行」. |
-| D-10 | R1: every refused request 「拒絕並記錄」 | Every refusal is recorded, but a flood is recorded in bounded form: beyond 120 refused requests per actor and origin (the relay channels; the control socket, §8) per minute the audit log writes one "rate limited" entry and one summary with the count instead of one line per request, and a connection with more than 60 refusals in a minute is closed. | Without a bound, the lowest role (a viewer) could grow `audit.jsonl` on the host's disk without limit and push real entries out of every page (security review F5). The fact of every refusal and its count stay in the log. |
-| D-11 | D3: the host's session is not sandboxed | The host's agent is still refused (PreToolUse deny) an Edit / Write / NotebookEdit of a file outside the shared folder; Bash is unaffected. | The lock hook can grant locks only inside the session's root; allowing unlocked edits elsewhere would also let a main-root agent edit a worktree's files around their locks. The owner chose to keep this fail-closed behaviour (the alternative considered: outside every root → no decision, host sessions only). The deny reason tells the agent's owner that the file is outside the shared folder. |
-| D-12 **(withdrawn 2026-10-01, D-15)** | R4 登入引導; §13 「Claude Code 在遠端 PTY 中的登入流程…」 | Was: a guest's own Claude subscription login as a dedicated, sandboxed login process (session kind `login`). Gone with the guest sandbox: every session uses the host's Claude login (D-15). | — |
-| D-13 **(implemented 2026-09-29 as recommended by the project lead; switchable; the owner's confirmation of the default is pending; review SPEC-01)** | R8 acceptance 「每一次 agent 的修改都出現在活動動態中，標示是哪個 agent、屬於誰」; R11 「操作紀錄涵蓋…agent 修改」 | Edit / Write / MultiEdit / NotebookEdit changes (PostToolUse) and FileChanged-hook reports are attributed to the agent as before. NEW: **non-blocking Bash attribution.** A separate Bash ACTIVITY hook (`smurg hook bash-activity`, PreToolUse / PostToolUse / PostToolUseFailure of `Bash`, §7.7) only tells the daemon when a session starts and finishes a shell command; it never takes a lock, never decides, and fails OPEN (daemon unreachable ⇒ the command runs, nothing attributed), while the lock hook of the edit tools still fails closed. A disk change that nobody claimed (no agent lock, no Post echo, no announced writer) and that falls inside the Bash window of EXACTLY ONE session (every session runs unsandboxed since D-15, so any of them could have written anywhere), with 3 s of grace after the command ended (watcher latency), and whose root contains the file, is that agent's: `agent.edit`, 「Claude（owner）透過 shell 指令修改了…」, marked `via: 'bash'` in the feed entry (§5.4) and
-the audit entry; two or more such windows, none, or a writer of another root: 「外部程式」 as before — and then not even the worktree rule below names anyone. In a worktree without a Bash window an unannounced change is still attributed to the one agent session running there, else to the worktree's owner. The decision is announced as `agent.tool.post` (tool `Bash`, the file), so the file tree badge and the R8 fallback's conflict record (whose source) follow the same rule; the fallback itself (human text kept, conflict record) is unchanged. Switch: `config.activity.attributeBashEdits` (default true; false ⇒ the Bash hooks are not registered and Bash events are ignored). Explained in `docs/HOSTING.md` §5, not on the host's terminal (owner decision 2026-10-01); `smurg status` shows whether it is on. | A session can forge Bash windows with its own token: they only ever attribute changes inside that session's own root, and only to that session (an agent can claim unannounced changes of its own root, never frame another agent or a person; while its window is open, an unclaimed change elsewhere is 「外部程式」 instead of anyone's); forged windows are paired by `tool_use_id`, capped (8 open, 10 min each) and rate-limited (240 / min, burst 60). Known limits: a change the host's own tools (an editor outside smurg, a terminal) make during an agent's Bash window in the same root is attributed to that agent; for 5 s after a person's autosave the file module attributes any change of that file to that person (not part of this rule). Cost: ~52 ms per hook invocation with the dev entry (two per Bash call). Tests: `daemon/hooks/hook-cli.test.ts` (Bash hook exits 0 with no output within its deadline in every error case while the Edit hook denies), `hook-server.test.ts`, `settings-writer.test.ts`, `claude-bash.test.ts` (real claude: a scripted Bash edit in the activity feed as the agent), `daemon/locks/activity.test.ts`, `bash-attribution.real-modules.test.ts` (the conflict record's source). |
-| D-14 **(withdrawn 2026-10-01, D-15)** | R9 「開 agent session 時可以選擇「共享主工作區」或「我的 worktree」」 | Was: guests' sandboxed sessions kept out of the main workspace by default on a Linux host (`--allow-main-workspace-guests`, `PublicSettings.guestMainWorkspace`). Gone with the guest sandbox: R9's choice is open to everyone who may open sessions. | — |
-| D-15 **(owner decision 2026-10-01; replaces SPEC R5, the guests' half of R4, D-4, D-12 and D-14)** | D3 「主人的 session 不放沙盒；客人做不到的事可以請主人代為執行」; R4 客人 session (own temp `HOME`, credentials stripped, sandbox, logout on leave, imported config); R5 客人沙盒; §8 「可執行 agent」 「開自己的 agent session 和一般終端機（沙盒內）」, 「主人 session（無沙盒）」 host only | **No guest sandbox and no guest agents.** The role 「可使用 agent」 (wire id `agent`; it replaces `runner`, which no longer exists anywhere) opens agent and terminal sessions (`session.create`) that run exactly like the host's own: the host's OS user, unsandboxed, the host's environment / `HOME` / `~/.claude` and Claude Code login, in the main workspace or a new / own kept worktree (R9 unchanged). Every holder of `session.drive` (the host, 「可使用 agent」) types into ANY session, the host's included, and accepts / rejects suggestions on any session (`suggest.updated` reaches them all); editors keep R6 suggestions and cannot type, viewers watch. The member who opens a session is its owner (`SessionInfo.ownerUserId` / `ownerName`): the agent is 「Claude（<owner>）」 in presence, locks, the activity feed and the audit log; only the owner ends it (`session.end`; the host terminates any session), and its PTY follows the owner's viewport. A kick, a leave (`channel.leave`) or a role below 「可使用 agent」 ends every session that member opened, each audited `session.terminate` by the system with `detail.reason` `kicked` / `left` / `role-changed` (R2's 3 s); a session another member opened loses its background jobs when it exits by itself. Merge requests: any holder of `worktree.merge.request` (the host, 「可使用 agent」), for any worktree, and the same members review its diff; the host approves or rejects (unchanged); a request not made by the host is still verified blob by blob and refused when it carries host-only paths. Protocol version 2 (the role id, `SessionInfo`, `session.create`, `PublicSettings` / `HostSettings` changed shape and every object is strict); a peer of another version is refused with the verdict `version`; no compatibility with protocol 1 or with 0.1.0 state files (owner: nobody installed 0.1.0). Removed: session kind `login`, `session.importConfig`, `session.create.apiKey`, guest dirs (`~/.smurg/guests`) and their 7-day retention, `PublicSettings.guestSubscriptionLogin` / `guestMainWorkspace`, `HostSettings.allowedDomains`, the error code `sandbox_unavailable`, the audit actions `sandbox.refused` / `session.import-config`, the `sandbox` module and `@anthropic-ai/sandbox-runtime`, the in-sandbox hook self-test (`SmurgProbe`), the guest variant of the session settings (`--strict-mcp-config`, `claudeMdExcludes`, `disabledMcpjsonServers`, the seeded `.claude.json`), the watcher's hand-off to the sandbox guard, `smurg host --no-guest-subscription-login` / `--allow-main-workspace-guests` / `--no-main-workspace-guests` (unknown options now) and the daemon's working directory `~/.smurg/cwd`. Kept: hooks / locks (R8) for every agent session, Bash attribution (D-13), worktrees and merge requests (R9), PathGuard and the host-only / host-private rules for what members do through smurg. | The owner chose usability over confinement (2026-10-01): one guest sandbox for macOS and Linux cost far more than a class group needs (§12 of earlier revisions: Linux mount residuals, the guard, placeholders, the login process) and still left members without their own Claude account outside. **Consequence, stated to the host in plain words** (`docs/HOSTING.md`, the console's confirmation): a 「可使用 agent」 member has the host's OS account in practice — through any session they can read and write everything the host can (`~/.ssh`, other projects, `~/.smurg` with the daemon key and `state.json`, so they could even change their own role), use and bill the host's Claude account and answer the host's own Claude Code prompts; the role is for people the host trusts completely. The control socket, which authenticates that OS account, accepts only what `smurg attach` sends (§8 "Control socket", review F1 2026-10-02), so such a member cannot make the host's decisions in the host's name through smurg (roles, kicks, terminations, merges, invites, settings, the audit log); what a local channel does is audited `via: 'control-socket'`. Revoking the role ends their sessions, not what they did as the host's OS user: `docs/HOSTING.md` §5.1 「收回之後」 is the host's checklist (new workspace keys and invites, a new relay login, other credentials, persistence points). smurg's own checks still bind what members do through smurg (`file.*`, `doc.*`, uploads, PathGuard; a member's agent is refused Edit / Write of host-only paths by the lock hook because it acts as its owner), and editors / viewers keep the old boundaries (no PTY input, no sessions). Tests: protocol `roles.test.ts`, `schema/registry.test.ts`, `schema/session-info.test.ts`; daemon `authorization.test.ts` (every request × every role), `sessions/launch.test.ts` › the permission matrix, › every session runs like the host's own, › an agent a 可使用 agent member opens…, › the sessions a member opened end when the member goes; `sessions/real-modules.test.ts`, `sessions/r4.test.ts`, `sessions/claude-real.test.ts`, `suggest/suggestions.test.ts` › who accepts, › suggest.updated reaches…, `worktree/merge.test.ts` › anyone with worktree.merge.request…, `settings.test.ts` › no guest switches, `local-control.test.ts` (› the local channel sends only what smurg attach sends: every client message of the registry over a local channel and over the host's relay channel; › what the local channel receives (verification F-1): every other daemon message of the registry neither sent nor queued, no `admin.audit.entry`; › a refusal flood through the socket leaves the host's own refusals on the web their audit budget (F-3)), `local/control-server.test.ts` › a stop request names no reason (F-2), `audit.test.ts` › the control socket has a budget of its own (F-3); cli `host-relay.test.ts` (`--role agent`, removed flags, attach typing; › a stop request names no reason … whatever its reason (F-2); › a start that fails is reported as the failure it is), `attach-args.test.ts` › the control socket carries only what smurg attach sends, › --help says who may type, `host-state-file.test.ts` › a CLI member after the host started over with new workspace keys (M1), `stop-status.test.ts`; e2e `r2.agent-role.test.ts`, `r11.console.test.ts`. |
+| D-8 | R3: on a kick or a role change the daemon revokes the member's device keys | A **kick** revokes every device key of the member. A **role change** does not revoke keys: it closes the member's channels (`channel.closed{role-changed}`), the router applies the new role to the very next message, and the client reconnects with the same key and a fresh Welcome. Losing the right to open sessions (a role below "Agent access", D-15) ends the sessions the member opened. | Revoking the keys on a role change would lock the member out: they could only come back through a new invite, which makes "change a role" the same as "kick". What the requirement protects against — the old role still being usable — is achieved by the per-message role check and the channel close. |
+| D-9 | R4: guests are logged out and their temp dir deleted when the guest leaves | "Leaving" is the explicit "Leave" (`channel.leave`): the sessions the member opened end within 5 s. A disconnect (closed tab, sleeping laptop) keeps them, because R4 also requires sessions to survive disconnects. (Until D-15 leaving also deleted the guest dir with the guest's Claude login, and guest dirs of members not connected for 7 days were removed; there are no guest dirs any more.) | A disconnect is indistinguishable from a network blip; ending sessions on every blip would break R4's rule that a session keeps running on the host when its client disconnects. |
+| D-10 | R1: every refused request is refused and recorded | Every refusal is recorded, but a flood is recorded in bounded form: beyond 120 refused requests per actor and origin (the relay channels; the control socket, §8) per minute the audit log writes one "rate limited" entry and one summary with the count instead of one line per request, and a connection with more than 60 refusals in a minute is closed. | Without a bound, the lowest role (a viewer) could grow `audit.jsonl` on the host's disk without limit and push real entries out of every page. The fact of every refusal and its count stay in the log. |
+| D-11 | D3: the host's session is not sandboxed | The host's agent is still refused (PreToolUse deny) an Edit / Write / NotebookEdit of a file outside the shared folder; Bash is unaffected. | The lock hook can grant locks only inside the session's root; allowing unlocked edits elsewhere would also let a main-root agent edit a worktree's files around their locks. The maintainers chose to keep this fail-closed behaviour (the alternative considered: outside every root → no decision, host sessions only). The deny reason tells the agent's owner that the file is outside the shared folder. |
+| D-12 **(withdrawn 2026-10-01, D-15)** | R4 login guide; §13 (the Claude Code login flow in a remote PTY) | Was: a guest's own Claude subscription login as a dedicated, sandboxed login process (session kind `login`). Gone with the guest sandbox: every session uses the host's Claude login (D-15). | — |
+| D-13 **(implemented 2026-09-29; switchable, on by default)** | R8 acceptance: every agent edit appears in the activity feed, saying which agent and whose it is; R11: the audit log covers agent edits | Edit / Write / MultiEdit / NotebookEdit changes (PostToolUse) and FileChanged-hook reports are attributed to the agent as before. NEW: **non-blocking Bash attribution.** A separate Bash ACTIVITY hook (`smurg hook bash-activity`, PreToolUse / PostToolUse / PostToolUseFailure of `Bash`, §7.7) only tells the daemon when a session starts and finishes a shell command; it never takes a lock, never decides, and fails OPEN (daemon unreachable ⇒ the command runs, nothing attributed), while the lock hook of the edit tools still fails closed. A disk change that nobody claimed (no agent lock, no Post echo, no announced writer) and that falls inside the Bash window of EXACTLY ONE session (every session runs unsandboxed since D-15, so any of them could have written anywhere), with 3 s of grace after the command ended (watcher latency), and whose root contains the file, is that agent's: `agent.edit`, `activity.agentBashChange` ("Claude (owner) changed ... with a shell command"), marked `via: 'bash'` in the feed entry (§5.4) and
+the audit entry; two or more such windows, none, or a writer of another root: "an outside program" as before — and then not even the worktree rule below names anyone. In a worktree without a Bash window an unannounced change is still attributed to the one agent session running there, else to the worktree's owner. The decision is announced as `agent.tool.post` (tool `Bash`, the file), so the file tree badge and the R8 fallback's conflict record (whose source) follow the same rule; the fallback itself (human text kept, conflict record) is unchanged. Switch: `config.activity.attributeBashEdits` (default true; false ⇒ the Bash hooks are not registered and Bash events are ignored). Explained in `docs/HOSTING.md` §5, not on the host's terminal; `smurg status` shows whether it is on. | A session can forge Bash windows with its own token: they only ever attribute changes inside that session's own root, and only to that session (an agent can claim unannounced changes of its own root, never frame another agent or a person; while its window is open, an unclaimed change elsewhere is "an outside program" instead of anyone's); forged windows are paired by `tool_use_id`, capped (8 open, 10 min each) and rate-limited (240 / min, burst 60). Known limits: a change the host's own tools (an editor outside smurg, a terminal) make during an agent's Bash window in the same root is attributed to that agent; for 5 s after a person's autosave the file module attributes any change of that file to that person (not part of this rule). Cost: ~52 ms per hook invocation with the dev entry (two per Bash call). Tests: `daemon/hooks/hook-cli.test.ts` (Bash hook exits 0 with no output within its deadline in every error case while the Edit hook denies), `hook-server.test.ts`, `settings-writer.test.ts`, `claude-bash.test.ts` (real claude: a scripted Bash edit in the activity feed as the agent), `daemon/locks/activity.test.ts`, `bash-attribution.real-modules.test.ts` (the conflict record's source). |
+| D-14 **(withdrawn 2026-10-01, D-15)** | R9: opening an agent session offers the shared main workspace or a worktree of one's own | Was: guests' sandboxed sessions kept out of the main workspace by default on a Linux host (`--allow-main-workspace-guests`, `PublicSettings.guestMainWorkspace`). Gone with the guest sandbox: R9's choice is open to everyone who may open sessions. | — |
+| D-15 **(decided 2026-10-01; replaces SPEC R5, the guests' half of R4, D-4, D-12 and D-14)** | D3: the host's sessions are not sandboxed, and what guests cannot do they ask the host to run; R4 guest sessions (own temp `HOME`, credentials stripped, sandbox, logout on leave, imported config); R5 the guest sandbox; §8: the role that could run agents opened its own agent sessions and terminals inside the sandbox, and unsandboxed sessions were the host's only | **No guest sandbox and no guest agents.** The role "Agent access" (wire id `agent`; it replaces `runner`, which no longer exists anywhere) opens agent and terminal sessions (`session.create`) that run exactly like the host's own: the host's OS user, unsandboxed, the host's environment / `HOME` / `~/.claude` and Claude Code login, in the main workspace or a new / own kept worktree (R9 unchanged). Every holder of `session.drive` (the host, "Agent access") types into ANY session, the host's included, and accepts / rejects suggestions on any session (`suggest.updated` reaches them all); editors keep R6 suggestions and cannot type, viewers watch. The member who opens a session is its owner (`SessionInfo.ownerUserId` / `ownerName`): the agent is `Claude (<owner>)` in presence, locks, the activity feed and the audit log; only the owner ends it (`session.end`; the host terminates any session), and its PTY follows the owner's viewport. A kick, a leave (`channel.leave`) or a role below "Agent access" ends every session that member opened, each audited `session.terminate` by the system with `detail.reason` `kicked` / `left` / `role-changed` (R2's 3 s); a session another member opened loses its background jobs when it exits by itself. Merge requests: any holder of `worktree.merge.request` (the host, "Agent access"), for any worktree, and the same members review its diff; the host approves or rejects (unchanged); a request not made by the host is still verified blob by blob and refused when it carries host-only paths. Protocol version 2, 3 since 0.4.0 (§4.3) (the role id, `SessionInfo`, `session.create`, `PublicSettings` / `HostSettings` changed shape and every object is strict); a peer of another version is refused with the verdict `version`; no compatibility with protocol 1 or with 0.1.0 state files (nobody had installed 0.1.0). Removed: session kind `login`, `session.importConfig`, `session.create.apiKey`, guest dirs (`~/.smurg/guests`) and their 7-day retention, `PublicSettings.guestSubscriptionLogin` / `guestMainWorkspace`, `HostSettings.allowedDomains`, the error code `sandbox_unavailable`, the audit actions `sandbox.refused` / `session.import-config`, the `sandbox` module and `@anthropic-ai/sandbox-runtime`, the in-sandbox hook self-test (`SmurgProbe`), the guest variant of the session settings (`--strict-mcp-config`, `claudeMdExcludes`, `disabledMcpjsonServers`, the seeded `.claude.json`), the watcher's hand-off to the sandbox guard, `smurg host --no-guest-subscription-login` / `--allow-main-workspace-guests` / `--no-main-workspace-guests` (unknown options now) and the daemon's working directory `~/.smurg/cwd`. Kept: hooks / locks (R8) for every agent session, Bash attribution (D-13), worktrees and merge requests (R9), PathGuard and the host-only / host-private rules for what members do through smurg. | The maintainers chose usability over confinement (2026-10-01): one guest sandbox for macOS and Linux cost far more than a class group needs (§12 of earlier revisions: Linux mount residuals, the guard, placeholders, the login process) and still left members without their own Claude account outside. **Consequence, stated to the host in plain words** (`docs/HOSTING.md`, the console's confirmation): a "Agent access" member has the host's OS account in practice — through any session they can read and write everything the host can (`~/.ssh`, other projects, `~/.smurg` with the daemon key and `state.json`, so they could even change their own role), use and bill the host's Claude account and answer the host's own Claude Code prompts; the role is for people the host trusts completely. The control socket, which authenticates that OS account, accepts only what `smurg attach` sends (§8 "Control socket"), so such a member cannot make the host's decisions in the host's name through smurg (roles, kicks, terminations, merges, invites, settings, the audit log); what a local channel does is audited `via: 'control-socket'`. Revoking the role ends their sessions, not what they did as the host's OS user: `docs/HOSTING.md` §5.1 (after taking the role back) is the host's checklist (new workspace keys and invites, a new relay login, other credentials, persistence points). smurg's own checks still bind what members do through smurg (`file.*`, `doc.*`, uploads, PathGuard; a member's agent is refused Edit / Write of host-only paths by the lock hook because it acts as its owner), and editors / viewers keep the old boundaries (no PTY input, no sessions). Tests: protocol `roles.test.ts`, `schema/registry.test.ts`, `schema/session-info.test.ts`; daemon `authorization.test.ts` (every request × every role), `sessions/launch.test.ts` › the permission matrix, › every session runs like the host's own, › an agent an Agent access member opens…, › the sessions a member opened end when the member goes; `sessions/real-modules.test.ts`, `sessions/r4.test.ts`, `sessions/claude-real.test.ts`, `suggest/suggestions.test.ts` › who accepts, › suggest.updated reaches…, `worktree/merge.test.ts` › anyone with worktree.merge.request…, `settings.test.ts` › no guest switches, `local-control.test.ts` (› the local channel sends only what smurg attach sends: every client message of the registry over a local channel and over the host's relay channel; › what the local channel receives (verification F-1): every other daemon message of the registry neither sent nor queued, no `admin.audit.entry`; › a refusal flood through the socket leaves the host's own refusals on the web their audit budget (F-3)), `local/control-server.test.ts` › a stop request names no reason (F-2), `audit.test.ts` › the control socket has a budget of its own (F-3); cli `host-relay.test.ts` (`--role agent`, removed flags, attach typing; › a stop request names no reason … whatever its reason (F-2); › a start that fails is reported as the failure it is), `attach-args.test.ts` › the control socket carries only what smurg attach sends, › --help says who may type, `host-state-file.test.ts` › a CLI member after the host started over with new workspace keys (M1), `stop-status.test.ts`; e2e `r2.agent-role.test.ts`, `r11.console.test.ts`. |
 
 ## 12. Known limits of the prototype
 
-- **Sessions opened by members run unsandboxed, as the host** (owner decision 2026-10-01, §11 D-15). A member with the
-  role `agent` (「可使用 agent」) opens agent and terminal sessions that run as the host's OS user, with the host's
+- **Sessions opened by members run unsandboxed, as the host** (§11 D-15, 2026-10-01). A member with the
+  role `agent` ("Agent access") opens agent and terminal sessions that run as the host's OS user, with the host's
   environment, HOME, `~/.claude` and Claude Code login, on the host's computer, and types into any session, the
   host's included. Nothing confines such a session: through it the member can run any command the host could, read
   and write everything the host's account can (the home folder, `~/.ssh`, other projects, the state dir `~/.smurg`,
@@ -1642,113 +1802,110 @@ the audit entry; two or more such windows, none, or a writer of another root: �
   24.04 arm64 VM and on CI's ubuntu-24.04 x64 (`.github/workflows/ci.yml`; counts in `docs/ACCEPTANCE.md` "Linux
   verification"; to be re-run after D-15). Not run on Linux: a real `claude`, keep-awake through `systemd-inhibit`
   from a local desktop session (from an SSH session polkit refuses it on Ubuntu: verified, and `smurg host` says so),
-  the installer on a fresh machine (`docs/OPEN-QUESTIONS.md` Q2). A single request that misses its NFC name on Linux
+  the installer on a fresh machine. A single request that misses its NFC name on Linux
   (a create, an upload's commit) still lists its directory once, so an upload of n new non-ASCII names into a folder of
   m entries costs n listings of m entries.
 - **Real accounts are not exercised by the tests.** Real Google / GitHub OAuth and a real Cloudflare deployment need
   credentials. They were first exercised by hand on 2026-10-01: the shared relay deployed to Cloudflare
-  (`docs/RELEASING.md` §2, now at `https://app.smurg.ai`) and the owner's Google login in the browser there; the CLI
+  (`docs/RELEASING.md` §2, now at `https://app.smurg.ai`) and a maintainer's Google login in the browser there; the CLI
   login and a second account joining are still to do. GitHub login is not configured on the shared relay and stays
   untested against the real provider.
 - **Browser device keys are not encrypted at rest** (see §4.2).
 - Zip downloads are not resumable; archives that need ZIP64 for sizes/offsets cannot be opened by Apple's `ditto`
   (files ≥ 4 GiB are placed last and flagged).
 
-Left after the review round of 2026-09-29 (owner questions with options and recommendations: `docs/OPEN-QUESTIONS.md`):
+Left after the review round of 2026-09-29, and the decisions that stand until changed:
 
-- **Releases** (review CLI-01, SPEC R1 「一行指令安裝」; decided 2026-09-30, replaced 2026-10-01: private source, public
-  binaries; `docs/OPEN-QUESTIONS.md` Q1, `docs/RELEASING.md`): built by GitHub Actions on a tag `v*` for macOS arm64 /
-  x64 and Linux x64 / arm64, each on its own runner (`macos-15`, `macos-15-intel`, `ubuntu-24.04`, `ubuntu-24.04-arm`),
-  kept as a GitHub release of the private repository, and published by a person to Cloudflare R2
-  (`https://downloads.smurg.ai`). The workflows cannot run locally, and R1.1 (fresh machine to invite link in 3
-  minutes) is measured by hand after the first release. macOS executables carry an ad-hoc signature only (no Developer
-  ID, not notarized); the installer relies on `curl` setting no quarantine attribute and removes one after the sha256
-  check. `SHA256SUMS` is not signed, so it does not protect against a compromised GitHub account or workflow, or a
-  compromised Cloudflare account that holds the bucket. `smurg update` (§8) has exactly the installer's trust: https,
-  `downloads.smurg.ai` and the same unsigned `SHA256SUMS` (its checks of the build marker and of `--version` catch a
-  mixed-up or broken file, not a forged one). It is all-or-nothing per file but not per machine: a `smurg host` of
-  ANOTHER state dir (`SMURG_HOME`) that runs from the same executable is not seen and keeps its old daemon; and the
-  update notice of `smurg host` tells `downloads.smurg.ai` (Cloudflare) the host's IP address at each start
-  (`SMURG_NO_UPDATE_CHECK=1` switches it off). `smurg uninstall` removes what smurg wrote on this machine only: the
-  relay keeps the account's sessions until they expire, and `.smurg/` in shared folders stays (listed).
-- **Private source, public code** (2026-10-01). The repository is private, but that does not keep the code secret: each
-  executable contains smurg's whole JavaScript program (a Node SEA embeds the bundle, and it can be extracted from the
-  file), and the web app's code is served to every browser that opens `https://app.smurg.ai`. What protects the code
-  is the license (`LICENSE`: use free of charge, no redistribution, modification or reverse engineering beyond what the
-  law allows), not secrecy. The license text was written without a lawyer; its holder is named since 2026-10-01, the
-  legal review is open (`docs/OPEN-QUESTIONS.md` Q14). The third-party components keep their own licenses: their notices
-  travel with every copy (§8 "Licenses"). GitHub Actions minutes are billed on a private repository
-  (`docs/RELEASING.md`).
-- **The shared relay** (Cloudflare Workers free plan, the custom domain `https://app.smurg.ai` (workers.dev until
-  2026-10-01), Google login only; the CLI's default): the free
-  plan's daily limits (100,000 requests, 100,000 Durable Object rows written, … `docs/RELEASING.md` §8) are shared by
-  everyone who uses it; when one is used up, connections and messages of that kind fail for every workspace until
-  00:00 UTC. An estimate from the code (not measured on Cloudflare): the WorkspaceDO alarm alone costs ~720 requests and
-  ~720 rows written per workspace-hour while anyone is connected, and a busy terminal watched by several members costs
-  far more. The free plan's 10 ms CPU limit per request was not measured against the login routes. Every deploy
-  disconnects every socket (clients reconnect). The operator of the shared relay (and Cloudflare) can see what D-5 says
-  a relay sees, for every workspace on it. With the source private (2026-10-01), D-5's way out, "hosts who cannot
-  accept that deploy their own relay", has no path for anyone outside the project: `apps/relay` is in the private
-  repository. `--relay` still exists, for relays the owner runs; `docs/HOSTING.md` §2.1 / §2.2 tell hosts that there is no
-  alternative to the shared relay and not to share what they cannot let it see. Its web
-  app is one build for every host's daemon, and it decodes the daemon's messages with strict objects (§5), so it
+- **Releases and downloads**: built by GitHub Actions on a tag `v*` for macOS arm64 / x64 and Linux x64 / arm64, each
+  on its own runner (`macos-15`, `macos-15-intel`, `ubuntu-24.04`, `ubuntu-24.04-arm`), uploaded by a person to
+  Cloudflare R2 behind `https://downloads.smurg.ai` (`v<X.Y.Z>/` never overwritten, then `latest/`); no Cloudflare
+  credential lives in GitHub. The install line is `curl -fsSL https://smurg.ai/install.sh | sh` (a 302 to
+  `latest/install.sh`). From 0.4.0 the GitHub release carries the notes, `SHA256SUMS` and the notices only. The
+  workflows cannot run locally, and R1.1 (fresh machine to invite link in 3 minutes) is measured by hand. macOS
+  executables carry an ad-hoc signature only (no Developer ID, not notarized); the installer relies on `curl` setting
+  no quarantine attribute and removes one after the sha256 check. `SHA256SUMS` is not signed (open: minisign /
+  Sigstore with a key pinned in `install.sh`), so it does not protect against a compromised GitHub account or
+  workflow, or a compromised Cloudflare account that holds the bucket. `smurg update` (§8) has exactly the installer's
+  trust: https, `downloads.smurg.ai` and the same unsigned `SHA256SUMS` (its checks of the build marker and of
+  `--version` catch a mixed-up or broken file, not a forged one). It is all-or-nothing per file but not per machine: a
+  `smurg host` of ANOTHER state dir (`SMURG_HOME`) that runs from the same executable is not seen and keeps its old
+  daemon; and the update notice of `smurg host` tells `downloads.smurg.ai` (Cloudflare) the host's IP address at each
+  start (`SMURG_NO_UPDATE_CHECK=1` switches it off). `smurg uninstall` removes what smurg wrote on this machine only:
+  the relay keeps the account's sessions until they expire, and `.smurg/` in shared folders stays (listed). Intel
+  Macs after August 2027 (GitHub's last x86_64 macOS runner image) are open. Runbook: `docs/RELEASING.md`.
+- **License**: MIT since 0.4.0 (Copyright (c) 2026 Guan-Chen, Lin); the source is public at
+  `github.com/gclinian/smurg`; 0.1.0 to 0.3.0 were released before the license. The third-party components keep their own
+  licenses: their notices travel with every copy (§8 "Licenses").
+- **The shared relay** (one relay at `https://app.smurg.ai`, the CLI's built-in default `DEFAULT_RELAY_URL`, Google
+  login only; a release keeps its default relay forever; Cloudflare Workers free plan): the plan's daily limits are
+  shared by everyone who uses it; when one is used up, connections and messages of that kind fail for every workspace
+  until 00:00 UTC. An estimate from the code (not measured on Cloudflare): the WorkspaceDO alarm alone costs ~720
+  requests and ~720 rows written per workspace-hour while anyone is connected, and a busy terminal watched by several
+  members costs far more. The free plan's 10 ms CPU limit per request was not measured against the login routes.
+  Every deploy disconnects every socket (clients reconnect). The operator of the shared relay (and Cloudflare) can
+  see what D-5 says a relay sees, for every workspace on it. Hosts who cannot accept that deploy a relay of their
+  own (`apps/relay/README.md`) and pass `--relay`; `docs/HOSTING.md` §2.1 / §2.2 say what the shared relay sees. Its
+  web app is one build for every host's daemon, and it decodes the daemon's messages with strict objects (§5), so it
   refuses a daemon newer than itself (a field the daemon added is an unknown key to it; the reverse works, additions
   are optional): the shared relay is redeployed from each release's commit before the release is published
-  (`docs/RELEASING.md` §4 step 3), and a host running a build ahead of it (for example from `main`) cannot be joined
-  through it until the next deploy.
-- **Bash edits** (D-13): implemented 2026-09-29 as recommended by the project lead, switchable, the owner's
-  confirmation of the default is pending (§11, `docs/OPEN-QUESTIONS.md` Q12). (D-12, the guests' subscription login,
-  is gone with D-15.)
+  (`docs/RELEASING.md` §4), and a host running a build ahead of it (for example from `main`) cannot be joined through
+  it until the next deploy.
+- **Linux verification**: GitHub Actions on ubuntu-24.04 runs the whole gate; still manual on a real Ubuntu machine:
+  a real `claude`, keep-awake through `systemd-inhibit` from a desktop session, the R1.1 timing.
+- **Decisions that stand until changed**: `.env` files are ordinary project files that every member reads; the
+  default invite has no use limit and expires after 7 days; a kick takes effect in memory at once and is retried
+  until the disk takes it; no operation updates a worktree from main (the host merges in a terminal).
+- **Bash edits** (D-13): implemented 2026-09-29, switchable, on by default (§11). (D-12, the guests' subscription
+  login, is gone with D-15.)
 - **Attribution after an autosave** (files module): for 5 s after a person's autosave, any change of that file is
   attributed to that person (`EXPECT_CHANGE_TTL_MS`), so an agent's shell write in that window is shown as the
   person's and a conflict then names the person as the other side. Recognising the autosave's own echo by content hash
   (the docs module knows it) would remove this; not done (a change to the files and docs modules' event flow).
-- **Relay sessions** are stateless 7-day tokens and cannot be revoked before they expire (review SEC-E-03 residual).
-  The CLI's device-code login (2026-10-01; CLI-07 closed) has the flow's known residual: a person can be talked into
+- **Relay sessions** are stateless 7-day tokens and cannot be revoked before they expire.
+  The CLI's device-code login (2026-10-01) has the flow's known residual: a person can be talked into
   entering someone else's code (phishing); the confirmation screen names the account, where the request came from and
   when, and warns, but cannot prevent it.
-- **The invite URL stays in the browser's history** (review SEC-E-05); guest links from `smurg host` are multi-use for
+- **The invite URL stays in the browser's history**; guest links from `smurg host` are multi-use for
   7 days unless `--max-uses` / `--expires` say otherwise.
-- **Backpressure** (review REL-06 remainder): the hub has no priority queue in front of `ws.send` (a reply or heartbeat
+- **Backpressure**: the hub has no priority queue in front of `ws.send` (a reply or heartbeat
   can wait behind up to 1 MiB of one viewer's terminal output, ≈ 0.9 s at 1 MiB/s); the relay's Durable Objects apply no
   backpressure toward a slow browser; exec.output queued for a disconnected channel is bounded only by the channel's
-  outbox limits. The first attach of a very large colourful scrollback still blocks the daemon for ~360 ms (REL-12; no
+  outbox limits. The first attach of a very large colourful scrollback still blocks the daemon for ~360 ms (no
   worker thread).
-- **Requests with an unknown outcome** (review REL-03): a request that timed out is never replayed, but there are no
+- **Requests with an unknown outcome**: a request that timed out is never replayed, but there are no
   idempotency keys, so the person's own retry can repeat an action the daemon did carry out.
-- **Clocks** (review REL-04): the relay link and the lock manager use the monotonic clock; the hub, the channel server
+- **Clocks**: the relay link and the lock manager use the monotonic clock; the hub, the channel server
   and the rate limits still use the wall clock, and after a backward step audit `at` stays strictly increasing (entries
-  can look up to the step size in the future; owner question).
-- **State written late** (review REL-14): a change made while the disk refuses writes is in force and retried, but lost
+  can look up to the step size in the future).
+- **State written late**: a change made while the disk refuses writes is in force and retried, but lost
   if the daemon stops or crashes before the disk takes it (`STATE NOT SAVED` in the log, a warning on the host terminal).
-- **Documents** (reviews REL-01, REL-07): an open document does not follow a rename on disk (the web tab does, from the
-  activity summary); text typed while the host was down is merged back only when the host's text did not change
+- **Documents**: an open document does not follow a rename on disk (the web tab does, from the
+  `file.rename` activity event's `renamedFrom`); text typed while the host was down is merged back only when the host's text did not change
   meanwhile (otherwise it is offered back); this was tested with the web's in-test document room, not a real daemon
   restart.
-- **Share lock** (review CLI-05): a descendant folder already hosted by a daemon of another state dir is not detected.
-- **Worktrees** (review SPEC-03): there is no operation to bring the main workspace's changes into a worktree; a
+- **Share lock**: a descendant folder already hosted by a daemon of another state dir is not detected.
+- **Worktrees**: there is no operation to bring the main workspace's changes into a worktree; a
   conflicting merge is resolved by the host in their own terminal (`git merge refs/smurg/merge/<id>`) or rejected.
-- **Hook reachability** (review SEC-D-05): sessions run as the host, and a host agent runs no self-test of the hook
+- **Hook reachability**: sessions run as the host, and a host agent runs no self-test of the hook
   before it starts (until D-15 a guest's sandboxed agent did). When `smurg hook` cannot reach the daemon, the lock hook
   denies Edit / Write / NotebookEdit (fail closed) and the Bash activity hook lets the command run (§11 D-13).
 - **Keep-awake** is reported active once the inhibitor has run for 250 ms; one that ends at once is reported with its
-  reason (`the inhibitor was refused` when its stderr says it was refused: `systemd-inhibit` from an SSH session, where
+  reason code (`PowerStatus.reason`, `POWER_REASONS`; `refused` when its stderr says it was refused: `systemd-inhibit` from an SSH session, where
   polkit's `org.freedesktop.login1.inhibit-block-sleep` is `allow_any=no` on Ubuntu, verified there only; any other
-  polkit refusal, a site rule for a local session included, gets the same text, which says polkit and gives SSH on
-  Ubuntu as the example, review RV-6; its first stderr line goes to the log). A later loss is printed within 2 s
-  (CLI-13).
+  polkit refusal, a site rule for a local session included, gets the same code, which the CLI words as a polkit refusal with SSH on
+  Ubuntu as the example; its first stderr line goes to the log). A later loss is printed within 2 s.
 - **Native file watcher** (macOS, @parcel/watcher 2.6.0; 2026-09-29, §7.5): the daemon no longer makes overlapping or
   failing native calls, but three races are inside the native module and cannot be closed from JS: FSEvents stops the
   stream of a root that is deleted or moved away on its own thread while an unsubscribe of that root may be running
   (reachable now only by an outside deletion in the same millisecond as the daemon's own unsubscribe: worktree removal,
   `smurg stop`); an event that arrives while a subscribe is still starting dereferences a null tree (`startStream` sets
   it after `FSEventStreamStart`); an unsubscribe while the FSEvents thread is inside the callback. Measured with stress
-  children under load: every flow the daemon performs itself (worktree removal, REL-10 move and return, roots that
+  children under load: every flow the daemon performs itself (worktree removal, a root moved away and back, roots that
   vanish, stop and exit) 0 crashes in 271 runs; an outside rename issued in the same tick as the unsubscribe 9 crashes
   in 63 runs; subscribe / unsubscribe churn during continuous writes 2 in 120 runs (≈ 1 per 250k–500k native calls).
   Such a crash still ends the whole daemon and every session. Follow-up: a supervised child process that owns the
   native watcher (a crash then costs a watcher restart and a re-list), or a patched @parcel/watcher.
-- **Native file watcher on Linux** (@parcel/watcher 2.6.0, inotify; review GR-1, 2026-10-01): a new directory gets a
+- **Native file watcher on Linux** (@parcel/watcher 2.6.0, inotify, 2026-10-01): a new directory gets a
   watch only when the backend handles that directory's own creation, so the subdirectories made in the same burst
   (`mkdir -p`, a `git checkout`, an unpack) or moved in with their parent are never watched (measured: of a `mkdir -p
   one/two/three` and three files only `one` and its own file were reported; FSEvents reports all), and an inotify

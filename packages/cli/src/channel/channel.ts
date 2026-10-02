@@ -2,12 +2,13 @@
 // (no Noise, the host's OS account is the credential) or through the relay with the CLI's device key (Noise, pins):
 // typed requests, one-way messages, events, and how the connection ends.
 import type { PayloadInputOf, ResultOf, Welcome } from '@smurg/protocol';
+import { m, type Text } from '../i18n/index.ts';
 import type { EventHandler, InteractiveEventType, InteractiveNotifyType, InteractiveRequestType, RequestOptions } from '@smurg/protocol/client';
 
-/** Why a connection ended for good; `message` is zh-TW for the person. */
+/** Why a connection ended for good; `message` is what the person reads (rendered where it is printed). */
 export interface ChannelEnd {
   readonly reason: 'stopped' | 'kicked' | 'revoked' | 'role-changed' | 'disconnected' | 'closed' | 'rejected' | 'key-mismatch' | 'protocol-error';
-  readonly message: string;
+  readonly message: Text;
 }
 
 /** Transient state of a relay connection (the local socket has none). */
@@ -28,20 +29,20 @@ export interface WorkspaceChannel {
   close(): void;
 }
 
-/** zh-TW text for a channel.closed reason. */
-export function closedMessage(reason: string): string {
+/** What a channel.closed reason means for the person. */
+export function closedMessage(reason: string): Text {
   switch (reason) {
     case 'stopped':
-      return '主人已停止分享（smurg stop）。';
+      return m('channel.closed.stopped');
     case 'kicked':
-      return '你已被主人移出這個工作區。';
+      return m('channel.closed.kicked');
     case 'revoked':
-      return '這台裝置的金鑰已被撤銷。';
+      return m('channel.closed.revoked');
     case 'role-changed':
-      return '你的角色已變更，請重新連線。';
+      return m('channel.closed.roleChanged');
     case 'protocol-error':
-      return '連線因通訊協定錯誤被中斷。';
+      return m('channel.closed.protocolError');
     default:
-      return '連線已中斷。';
+      return m('channel.closed.other');
   }
 }

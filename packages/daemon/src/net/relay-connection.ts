@@ -27,7 +27,7 @@ import { backoffDelay } from './rate-limit.ts';
 /**
  * `auth-rejected`: the relay answered the upgrade with 401/403: the host's relay login expired or was revoked. Members
  * cannot connect until the host logs in again (`smurg login`) and the daemon gets the new token (setToken); the old
- * token is re-tried only every `timing.relayAuthRetryMs` (review REL-08 / CLI-03).
+ * token is re-tried only every `timing.relayAuthRetryMs`.
  */
 export type RelayLinkState = 'idle' | 'connecting' | 'online' | 'waiting' | 'auth-rejected' | 'replaced' | 'stopped';
 
@@ -51,7 +51,7 @@ export interface RelayLinkHandlers {
   /** bye 4001: a newer host connection took the workspace; this link stopped for good. */
   replaced?(): void;
   /**
-   * Every change of `state` (review CLI-10: the host must see the relay link drop and recover, and an expired login
+   * Every change of `state` (the host must see the relay link drop and recover, and an expired login
    * must look different from a network blip). `waiting` ↔ `connecting` flips of a retry loop are not reported.
    */
   stateChanged?(state: RelayLinkState, detail: RelayLinkStateDetail): void;
@@ -348,7 +348,7 @@ export class RelayLink {
     this.retrying = true;
     this.lastRejectedStatus = null;
     if (wasOnline) {
-      // Members see 「主人已離線」 from now on: the host must not be the only one who does not know (review CLI-10).
+      // Members see "The host is offline" from now on: the host must not be the only one who does not know.
       this.offlineSince = monotonicNow(this.options.clock);
       this.options.log.warn('relay link down; reconnecting', { link: this.options.label, reason });
       this.options.handlers.offline(reason);

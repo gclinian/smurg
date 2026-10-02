@@ -1,4 +1,4 @@
-// One daemon per shared folder (review CLI-05): the same folder hosted through another relay origin or from another
+// One daemon per shared folder: the same folder hosted through another relay origin or from another
 // SMURG_HOME, or a folder inside one already shared, is refused; a crashed daemon's lock is taken over.
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -47,7 +47,7 @@ async function otherDaemon(shareDir: string, workspaceId: string) {
   });
 }
 
-describe('one daemon per shared folder (CLI-05)', () => {
+describe('one daemon per shared folder', () => {
   it('refuses the same folder from another state dir / relay while the first daemon runs; takes it once that one stopped', async () => {
     const t: TestDaemon = await createTestDaemon({ modules: [] });
     cleanups.push(() => t.cleanup());

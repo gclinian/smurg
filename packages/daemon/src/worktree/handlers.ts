@@ -24,7 +24,7 @@ export function registerWorktreeHandlers(router: Router, _ctx: DaemonContext, ma
     }),
   );
 
-  // [worktree.merge.request]: any worktree (the host and 「可使用 agent」 may type into any session anyway, §11 D-15).
+  // [worktree.merge.request]: any worktree (the host and Agent access may type into any session anyway, §11 D-15).
   stack.add(router.handle('worktree.merge.request', async (payload, req) => ({ request: await manager.requestMerge(payload, req.principal) })));
 
   // [file.read]

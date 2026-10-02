@@ -24,7 +24,7 @@ export const UPLOAD_BYTES_IN_FLIGHT = TRANSFER_WINDOW_CHUNKS * DEFAULT_CHUNK_SIZ
 export const SNAPSHOT_INTERVAL_MS = 200;
 /** Journal entries older than the host's partial-upload TTL (48 h) are dropped at start. */
 export const JOURNAL_TTL_MS = 48 * 60 * 60 * 1000;
-/** How long 「放棄」 waits for the socket to remove partial uploads from the host. */
+/** How long "Discard this upload" waits for the socket to remove partial uploads from the host. */
 export const DISCARD_WAIT_MS = 30_000;
 /** The transfer socket closes this long after the last job ended. */
 export const LINK_IDLE_CLOSE_MS = 60_000;
@@ -266,7 +266,7 @@ export class TransferManager {
     this.scheduleIdleClose();
   }
 
-  /** Forget a finished job (the panel's 「清除」). */
+  /** Forget a finished job (the panel's "Clear finished"). */
   forget(id: string): void {
     const job = this.jobs.get(id);
     if (job && !job.finished) return;

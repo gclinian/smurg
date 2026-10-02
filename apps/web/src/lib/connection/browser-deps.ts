@@ -92,8 +92,9 @@ export function browserConnect(deps: BrowserConnectionDeps): ConnectFn {
 }
 
 /**
- * 「Chrome（macOS）」 for the host's device list. Best effort from the user agent; the host only uses it to tell a
- * member's devices apart.
+ * "Chrome (macOS)" for the host's device list; "Browser" when the user agent says nothing. Best effort; the host
+ * only uses it to tell a member's devices apart. The name is stored on the host and shown to everyone there, so it
+ * has ONE language-neutral spelling and is never translated.
  */
 export function describeDevice(userAgent: string): string {
   const ua = userAgent;
@@ -105,7 +106,7 @@ export function describeDevice(userAgent: string): string {
         ? 'Chrome'
         : /Safari\//.test(ua)
           ? 'Safari'
-          : '瀏覽器';
+          : 'Browser';
   const os = /iPhone|iPad|iPod/.test(ua)
     ? 'iOS'
     : /Android/.test(ua)
@@ -119,5 +120,5 @@ export function describeDevice(userAgent: string): string {
             : /Linux/.test(ua)
               ? 'Linux'
               : null;
-  return os === null ? browser : `${browser}（${os}）`;
+  return os === null ? browser : `${browser} (${os})`;
 }

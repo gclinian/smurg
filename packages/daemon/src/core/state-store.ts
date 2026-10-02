@@ -134,7 +134,7 @@ class JsonDocument<T> implements PersistentDocument<T> {
   private readonly onHealth: (doc: JsonDocument<unknown>, ok: boolean) => void;
   private value: T;
   /**
-   * The in-memory value differs from the file. It stays set after a FAILED write (review REL-14): the value is
+   * The in-memory value differs from the file. It stays set after a FAILED write: the value is
    * written again (backoff, and at once by flush()) until the disk takes it. A kick applied in memory must not be
    * undone by the next restart because one write failed.
    */
@@ -276,7 +276,7 @@ export class FileStateStore implements StateStore {
     this.log = log;
   }
 
-  /** Documents whose latest value could not be written (review REL-14): shown to the host, reported at stop. */
+  /** Documents whose latest value could not be written: shown to the host, reported at stop. */
   unsaved(): UnsavedDocument[] {
     return [...this.loaded].map((doc) => doc.unsaved()).filter((u): u is UnsavedDocument => u !== null);
   }

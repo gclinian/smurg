@@ -1,5 +1,5 @@
 // The workbench top bar: workspace name and host, connection status, member avatars with presence, own role, console
-// link (host), layout toggles, theme, and 「離開」 (channel.leave).
+// link (host), layout toggles, language, theme, and "Leave" (channel.leave).
 import { useState } from 'react';
 import type { PresenceAgent, PresenceMember } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -8,7 +8,7 @@ import { routePath } from '../../lib/router.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { useCapabilities, useConnectionState, useMember, useStores, useWorkspaceInfo, useWorkspaceSession } from '../../lib/workspace/context.tsx';
 import { tWorkbench } from '../../strings/workbench.ts';
-import { Avatar, Badge, Button, Dialog, IconButton, Tooltip, useToast } from '../../ui/index.ts';
+import { Avatar, Badge, Button, Dialog, IconButton, LanguageMenu, Tooltip, useToast } from '../../ui/index.ts';
 import { IconLogOut, IconPanelBottom, IconPanelLeft, IconPanelRight, IconSettings, IconUsers } from '../../ui/icons.tsx';
 import { tUi } from '../../strings/ui.ts';
 import { tApp } from '../../strings/app.ts';
@@ -77,6 +77,7 @@ export function TopBar({ view, layout }: { view: 'workbench' | 'console'; layout
             <IconButton label={tWorkbench('topbar.toggleRight')} icon={<IconPanelRight />} size="sm" pressed={layout.right} onClick={() => layout.toggle('right')} />
           </div>
         ) : null}
+        <LanguageMenu />
         <ThemeMenu />
         <Button size="sm" variant="secondary" icon={<IconLogOut />} onClick={() => setLeaving(true)}>
           {tWorkbench('topbar.leave')}
@@ -101,7 +102,7 @@ function MemberAvatars() {
           'sessionId' in person ? (
             <li key={`agent:${person.sessionId}`}>
               <Tooltip content={person.displayName}>
-                {/* A tab stop needs a role and a name of its own (review WEB-19). */}
+                {/* A tab stop needs a role and a name of its own. */}
                 <span tabIndex={0} className="app-avatars__item" role="img" aria-label={person.displayName}>
                   <Avatar name={person.displayName} color={person.color} size="sm" status="agent" />
                 </span>

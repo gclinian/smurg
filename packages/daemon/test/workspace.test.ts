@@ -40,7 +40,7 @@ describe('prepareShare', () => {
     expect(await prepareShare(project, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: false });
   });
 
-  // An empty `.git` (a directory, or an empty file) is no repository (git's own rule, review RCR-4), and nothing is
+  // An empty `.git` (a directory, or an empty file) is no repository (git's own rule), and nothing is
   // written into it.
   it('does not take an empty .git for a repository and writes nothing into it', async () => {
     const dirForm = await createTempProject(base, 'dir-form', { files: { 'x.txt': 'x' } });
@@ -114,7 +114,7 @@ describe('prepareShare', () => {
     await expect(prepareShare(join(base, 'missing'), join(base, 'state'), { homeDir: home })).rejects.toThrow(/does not exist/);
   });
 
-  it('refuses a folder that CONTAINS the home, with the state dir elsewhere (SMURG_HOME outside the home, CLI-04)', async () => {
+  it('refuses a folder that CONTAINS the home, with the state dir elsewhere (SMURG_HOME outside the home)', async () => {
     const t = join(base, 't');
     const home = join(t, 'home-h1');
     await mkdir(join(home, '.ssh'), { recursive: true });

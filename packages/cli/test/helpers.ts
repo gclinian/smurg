@@ -10,6 +10,9 @@ import { createTempDir, createTempRunDir, registerTestProcess, removeTempDir, re
 import type { SessionInfo } from '@smurg/protocol';
 import type { AttachTerminal, CliIo, CliSignal } from '../src/cli/io.ts';
 
+/** The language every test runs in unless it sets SMURG_LANG itself. */
+export const TEST_LANG = 'en';
+
 export const CLI_MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
 export const DAEMON_FIXTURE = fileURLToPath(new URL('./fixtures/daemon-proc.ts', import.meta.url));
 
@@ -121,7 +124,9 @@ export function testIo(options: {
   const exits: number[] = [];
   const opened: string[] = [];
   const io: TestIo = {
-    env: options.env,
+    // The language is pinned in every harness (English unless a test says otherwise): nothing under test reads the
+    // developer's own locale.
+    env: { SMURG_LANG: TEST_LANG, ...options.env },
     cwd: options.cwd ?? (options.env['HOME'] as string),
     stdout: { write: (chunk) => (out += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8')) },
     stderr: { write: (chunk) => (err += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8')) },
@@ -172,6 +177,8 @@ export function isolatedEnv(dirs: Dirs, extra: Record<string, string> = {}): Rec
     SHELL: '/bin/sh',
     TERM: 'xterm-256color',
     LANG: 'en_US.UTF-8',
+    // English, whatever the developer's own locale is (the zh-TW suite passes SMURG_LANG itself).
+    SMURG_LANG: TEST_LANG,
     TMPDIR: process.env['TMPDIR'] ?? '/tmp',
     ...extra,
   };

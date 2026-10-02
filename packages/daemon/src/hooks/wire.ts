@@ -200,12 +200,3 @@ export function sniffHookEventName(rawText: string): string | null {
 export function preToolUseDeny(reason: string): JsonObject {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
 }
-
-/**
- * Deny reason when the hook cannot get an answer from the daemon. Claude Code shows it to the model after
- * `PreToolUse:<Tool> hook error: `, so it reads as a sentence on its own; the English part keeps it greppable.
- */
-export function daemonUnreachableReason(detail: string): string {
-  const clean = detail.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
-  return `smurg 工作區的 daemon 無法連線（smurg daemon unreachable: ${clean}），為避免覆蓋組員的修改，已擋下這次修改，請稍後再試。`;
-}

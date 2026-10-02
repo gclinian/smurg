@@ -1,4 +1,4 @@
-// TEST ONLY: the relay's HTTP API as far as the CLI uses it (relay README "路由"), on 127.0.0.1: dev login, the
+// TEST ONLY: the relay's HTTP API as far as the CLI uses it (the routes in the relay README), on 127.0.0.1: dev login, the
 // device-code login (start, the token endpoint, and /device standing in for the person in the browser), /api/me and the
 // workspace claim. Every request is recorded. Tokens are made up; nothing here is a real credential.
 // tunnel(): for a daemon in ANOTHER process (the single executable), the host sockets (/ws/host/…, /xfer/host/…) are
@@ -32,7 +32,7 @@ export interface FakeRelay {
   readonly logins: Map<string, FakeDeviceLogin>;
   /** The account a login is allowed as (by /device, the person). */
   loginAs: User;
-  /** The person presses 「拒絕」 instead of 「允許」 on /device (any value). */
+  /** The person denies the request instead of allowing it on /device (any value). */
   loginError: string | null;
   /** What POST /auth/device/start tells the CLI (seconds). */
   device: { interval: number; expiresIn: number };
@@ -145,7 +145,7 @@ export async function startFakeRelay(): Promise<FakeRelay> {
         if (login.status === 'denied' || !login.user) return json(res, 400, { error: 'access_denied' });
         return json(res, 200, issue(login.user));
       }
-      // The person's browser on /device: GET stands in for "log in, enter the code shown in the terminal, press 允許"
+      // The person's browser on /device: GET stands in for "log in, enter the code shown in the terminal, allow"
       // for every pending login; POST (code, decision) for one login.
       if (req.method === 'GET' && url.pathname === '/device') {
         for (const login of relay.logins.values()) decide(login);
@@ -245,7 +245,7 @@ export async function startFakeRelay(): Promise<FakeRelay> {
 
 /**
  * A stand-in for the person's browser opened at the relay's /device: logs in, enters the code from the terminal and
- * presses 「允許」 (or 「拒絕」, with the fake relay's `loginError`).
+ * allows the request (or denies it, with the fake relay's `loginError`).
  */
 export async function browserOpening(url: string): Promise<boolean> {
   const res = await fetch(url);

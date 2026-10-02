@@ -1,4 +1,4 @@
-// The confirmation step before the host hands out 「可使用 agent」 (owner decision 2026-10-01, protocol v2): a member
+// The confirmation step before the host hands out agent access (owner decision 2026-10-01, protocol v2): a member
 // with that role opens sessions that run as the host — any command on the host's computer, the files of the host's home
 // directory, the host's Claude account. Shown before an invite of that role is created and before a member is set to
 // it; nothing is sent until the host confirms. Not a tooltip: an alert dialog with the risk in plain words.
@@ -17,7 +17,7 @@ export interface RoleRiskDialogProps {
 }
 
 export function RoleRiskDialog({ open, title, confirmLabel, onConfirm, onCancel }: RoleRiskDialogProps) {
-  // Focus starts on 「取消」: the safe answer is the default one.
+  // Focus starts on "Cancel": the safe answer is the default one.
   const cancel = useRef<HTMLButtonElement>(null);
   return (
     <Dialog

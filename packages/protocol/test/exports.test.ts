@@ -13,7 +13,17 @@ const pkg = JSON.parse(readFileSync(resolve(PKG_DIR, 'package.json'), 'utf8')) a
 describe('@smurg/protocol exports map', () => {
   it('declares exactly the agreed entry points', () => {
     expect(pkg.name).toBe('@smurg/protocol');
-    expect(Object.keys(pkg.exports).sort()).toEqual(['.', './browser', './client', './node', './package.json', './relay']);
+    expect(Object.keys(pkg.exports).sort()).toEqual([
+      '.',
+      './browser',
+      './client',
+      './i18n',
+      './locale',
+      './locale/test-table',
+      './node',
+      './package.json',
+      './relay',
+    ]);
   });
 
   it.each(Object.entries(pkg.exports))('%s -> %s exists', (_entry, target) => {
@@ -30,7 +40,7 @@ describe('@smurg/protocol exports map', () => {
 
   it('re-exports the constants from the barrel', async () => {
     const barrel = await import('../src/index.ts');
-    expect(barrel.PROTOCOL_VERSION).toBe(2);
+    expect(barrel.PROTOCOL_VERSION).toBe(3);
     expect(barrel.MAX_RELAY_FRAME).toBe(8 * 1024 * 1024 + 64 * 1024);
   });
 

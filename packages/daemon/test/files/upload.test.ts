@@ -139,8 +139,8 @@ describe('upload: begin → chunks → commit', () => {
   });
 });
 
-describe('R7.3 上傳中途斷線，重新連線後從中斷處繼續', () => {
-  it('上傳中途斷線，重新連線後從中斷處繼續 — the transfer socket drops half-way; the new socket resumes from the daemon bitmap', async () => {
+describe('R7.3 an upload that loses its connection continues where it stopped after reconnecting', () => {
+  it('an interrupted upload continues where it stopped — the transfer socket drops half-way; the new socket resumes from the daemon bitmap', async () => {
     const { ft: f, amy, xfer } = await setup();
     const source = patternSource('drop');
     const size = 8 * MiB;
@@ -164,7 +164,7 @@ describe('R7.3 上傳中途斷線，重新連線後從中斷處繼續', () => {
     void amy;
   });
 
-  it('上傳中途斷線，重新連線後從中斷處繼續 — the commit\'s answer was lost: beginning again with that id answers \'committed\' with the file, never a conflict with it', async () => {
+  it('an interrupted upload continues where it stopped — the commit\'s answer was lost: beginning again with that id answers \'committed\' with the file, never a conflict with it', async () => {
     const { ft: f, xfer } = await setup();
     const bob = await f.t.connect({ userId: 'dev:bob', displayName: 'Bob', role: 'editor' });
     const bobXfer = await bob.transfer();
@@ -186,7 +186,7 @@ describe('R7.3 上傳中途斷線，重新連線後從中斷處繼續', () => {
     expect(later).toMatchObject({ code: 'conflict', reason: 'exists' });
   });
 
-  it('上傳中途斷線，重新連線後從中斷處繼續 — also across a daemon restart (resume by uploadId and by identity)', async () => {
+  it('an interrupted upload continues where it stopped — also across a daemon restart (resume by uploadId and by identity)', async () => {
     const { ft: f, amy, xfer } = await setup();
     const source = patternSource('restart');
     const size = 6 * MiB + 1;
@@ -232,7 +232,7 @@ describe('R7.3 上傳中途斷線，重新連線後從中斷處繼續', () => {
   });
 });
 
-describe('R7.4 磁碟空間不足時，上傳在開始前就被拒絕，而不是傳到一半失敗', () => {
+describe('R7.4 without enough disk space an upload is refused before it starts, not half-way', () => {
   // 100 GiB volume, 6 GiB free; defaults reserve max(5 GiB, 5 % = 5 GiB) → at most 1 GiB may be uploaded now.
   const nearlyFull = (): SimulatedDisk => simulatedDisk(100 * GiB, 6 * GiB);
 
@@ -257,7 +257,7 @@ describe('R7.4 磁碟空間不足時，上傳在開始前就被拒絕，而不�
     return { code: error.code, disk: diskReportOfError(error), message: error.message };
   }
 
-  it('磁碟空間不足時，上傳在開始前就被拒絕，而不是傳到一半失敗 — plan and begin are refused with the numbers, before anything is written', async () => {
+  it('without enough disk space an upload is refused before it starts — plan and begin are refused with the numbers, before anything is written', async () => {
     const { ft: f, xfer } = await setup({ disk: nearlyFull() });
     const planned = await refusal(
       xfer.request('file.upload.plan', {
@@ -289,7 +289,7 @@ describe('R7.4 磁碟空間不足時，上傳在開始前就被拒絕，而不�
     expect(ok.disk).toMatchObject({ ok: true, requestedBytes: 512 * MiB, reserveBytes: 5 * GiB });
   });
 
-  it('磁碟空間不足時，上傳在開始前就被拒絕 — the reserve comes from the host settings and the host can change it', async () => {
+  it('without enough disk space an upload is refused before it starts — the reserve comes from the host settings and the host can change it', async () => {
     const { xfer, host } = await setup({ disk: nearlyFull() });
     const request = () => xfer.request('file.upload.begin', { root: MAIN_ROOT, path: 'x.bin', size: 2 * GiB, chunkSize: 4 * MiB, lastModified: 1 });
     expect((await refusal(request())).code).toBe('insufficient_disk');
@@ -304,7 +304,7 @@ describe('R7.4 磁碟空間不足時，上傳在開始前就被拒絕，而不�
     expect(small.disk).toMatchObject({ reserveBytes: 10 * GiB, ok: false });
   });
 
-  it('磁碟空間不足時，上傳在開始前就被拒絕 — a resume is checked again for its missing bytes only, never charged twice; other uploads count as pending', async () => {
+  it('without enough disk space an upload is refused before it starts — a resume is checked again for its missing bytes only, never charged twice; other uploads count as pending', async () => {
     const { ft: f, xfer } = await setup({ disk: nearlyFull() });
     const first = await xfer.request('file.upload.begin', { root: MAIN_ROOT, path: 'one.bin', size: 800 * MiB, chunkSize: 4 * MiB, lastModified: 1 });
     expect(uploadsOf(f).pendingBytes()).toBe(800 * MiB);
@@ -325,7 +325,7 @@ describe('R7.4 磁碟空間不足時，上傳在開始前就被拒絕，而不�
     await xfer.request('file.upload.begin', { root: MAIN_ROOT, path: 'two.bin', size: 400 * MiB, chunkSize: 4 * MiB, lastModified: 1 });
   });
 
-  it('磁碟空間不足時，上傳在開始前就被拒絕 — planned bytes stay reserved until their uploads begin', async () => {
+  it('without enough disk space an upload is refused before it starts — planned bytes stay reserved until their uploads begin', async () => {
     const { ft: f, xfer } = await setup({ disk: nearlyFull() });
     const bob = await f.t.connect({ userId: 'dev:bob', role: 'editor' });
     const bobXfer = await bob.transfer();

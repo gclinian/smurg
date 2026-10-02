@@ -9,10 +9,10 @@
 //  - resize policy `owner`: the PTY follows the owner's most recently active viewer; everyone else renders at the PTY
 //    size (exec.resize to ready viewers only, in stream order with the output);
 //  - flow control: the PTY is paused while the mirror lags more than 1 MiB, AND while any ready viewer's connection
-//    still has more than 1 MiB queued (review REL-06): all members share ONE socket from the daemon to the relay, so a
+//    still has more than 1 MiB queued: all members share ONE socket from the daemon to the relay, so a
 //    chatty terminal must not bury everyone's replies, doc sync and heartbeats under tens of megabytes. The program
 //    in the PTY then writes at the speed of the slowest live link, as over ssh.
-// Who may type is decided by the SessionManager (session.drive: the host, 「可使用 agent」); this class only tracks which
+// Who may type is decided by the SessionManager (session.drive: the host, Agent access); this class only tracks which
 // viewer drives the size (the owner's, policy `owner`).
 import * as pty from 'node-pty';
 import type { IPty } from 'node-pty';

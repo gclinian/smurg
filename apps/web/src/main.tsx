@@ -1,6 +1,8 @@
 // FIRST import, on purpose: moves an invite fragment out of the address bar before any other module runs
 // (ARCHITECTURE §4.1). Do not put anything above it.
 import './boot/capture-invite.ts';
+// SECOND import: the language of this browser, before the string catalogue and any component is evaluated.
+import './boot/locale.ts';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './strings/index.ts';

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { memberSchema, publicSettingsSchema, reasonTextSchema } from '../entities.ts';
+import { memberSchema, publicSettingsSchema } from '../entities.ts';
 import { seqSchema } from '../primitives.ts';
 
 // channel.* (ARCHITECTURE §5.1). `channel.hello` / `channel.welcome` are handshake structures (handshake.ts), and
@@ -17,16 +17,14 @@ export const channelMemberUpdatedPayloadSchema = z.strictObject({ member: member
 export const channelSettingsUpdatedPayloadSchema = z.strictObject({ settings: publicSettingsSchema });
 
 export const CHANNEL_CLOSED_REASONS = ['kicked', 'revoked', 'stopped', 'role-changed', 'protocol-error'] as const;
-export const channelClosedPayloadSchema = z.strictObject({
-  reason: z.enum(CHANNEL_CLOSED_REASONS),
-  message: reasonTextSchema.optional(),
-});
+/** Only the reason: each client words it in the viewer's language. */
+export const channelClosedPayloadSchema = z.strictObject({ reason: z.enum(CHANNEL_CLOSED_REASONS) });
 
 /** Lets the peer trim its outbox: every Envelope with `seq ≤ upTo` was processed. */
 export const channelAckPayloadSchema = z.strictObject({ upTo: seqSchema });
 
 /**
- * (Addition) The member leaves the workspace on purpose (SPEC R4 「客人離開」): the daemon ends the caller's sessions,
+ * (Addition) The member leaves the workspace on purpose (SPEC R4, a guest leaves): the daemon ends the caller's sessions,
  * deletes their guest directory (which logs Claude out) within R4's 5 s, audits `member.leave`, then answers. The
  * membership and device key stay, so the member can come back later. A mere disconnect does none of this, because
  * sessions must survive disconnects (R4).

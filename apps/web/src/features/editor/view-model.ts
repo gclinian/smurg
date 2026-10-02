@@ -5,6 +5,7 @@ import { fileRefKey, foldPathName, rootRefEquals, type Actor, type FileRef, type
 import type { DocMeta, DocRejectReason, DocRemoval, OpenDoc } from '../../lib/stores/docs.ts';
 import type { LocksState } from '../../lib/stores/locks.ts';
 import type { DocSessionState, OpenFailure } from './doc-session.ts';
+import { formatList } from '../../lib/format.ts';
 import { t } from './strings.ts';
 
 export type ReadOnlyReason =
@@ -12,16 +13,16 @@ export type ReadOnlyReason =
   | 'loading'
   /** Reconnecting: typing now would only be merged later, and could land on stale text. */
   | 'offline'
-  /** An agent holds the lock (SPEC R8): 「Claude（Ian）正在修改，暫時無法輸入」. */
+  /** An agent holds the lock (SPEC R8): "Claude (Ian) is editing; you cannot type for now". */
   | 'agent-lock'
   /** The member's role cannot write (viewer), or the file is read-only for them (shared dir, host-only path). */
   | 'no-permission'
-  /** The file was deleted or moved away while open (WEB-01): nothing typed here could be saved. */
+  /** The file was deleted or moved away while open: nothing typed here could be saved. */
   | 'removed'
   | 'error';
 
 export interface HumanLockView {
-  /** The local user shares the lock (then 「讓 agent 先改」 is offered). */
+  /** The local user shares the lock (then "Let the agent go first" is offered). */
   readonly iHold: boolean;
   /** Everyone holding it, local user included, in the daemon's order. */
   readonly holders: readonly { readonly userId: string; readonly displayName: string }[];
@@ -32,7 +33,7 @@ export interface HumanLockView {
 export interface EditorView {
   readonly readOnly: boolean;
   readonly reason: ReadOnlyReason | null;
-  /** zh-TW, for the banner / Monaco's readOnlyMessage; null when editable. */
+  /** In the viewer's language, for the banner / Monaco's readOnlyMessage; null when editable. */
   readonly message: string | null;
   /** The agent holding the file, when there is one. */
   readonly agentName: string | null;
@@ -51,7 +52,7 @@ export interface EditorViewInput {
  * The live lock of an open document from the locks store (lock.list, then every lock.state), or undefined until
  * lock.list has answered (the view then uses what doc.open / doc.rejected reported). A lock is announced under the
  * spelling that created it, which on a case-insensitive host can differ from the spelling the document was opened with
- * (「README.md」 / 「readme.md」, e.g. a path clicked in agent output): the daemon keys locks by the folded name, so the
+ * ("README.md" / "readme.md", e.g. a path clicked in agent output): the daemon keys locks by the folded name, so the
  * folded path matches too — otherwise the editor would never leave read-only after the agent's lock.state null.
  */
 export function liveLockOf(state: LocksState, file: FileRef): LockInfo | null | undefined {
@@ -107,9 +108,9 @@ export function humanLockView(lock: Extract<LockInfo, { kind: 'human' }>, userId
   return { iHold, holders: lock.holders.map(({ userId: id, displayName }) => ({ userId: id, displayName })), others };
 }
 
-/** 「Amy、Bob」 */
+/** "Amy, Bob" (joined in the language of the viewer). */
 export function joinNames(names: readonly string[]): string {
-  return names.join(t('list.separator'));
+  return formatList(names);
 }
 
 // ---- autosave (D13: there is no save button)
@@ -207,9 +208,9 @@ export function refusalTitle(refusal: OpenRefusal): string {
   }
 }
 
-// ---- a removed file (WEB-01)
+// ---- a removed file
 
-/** Who removed the file, for 「這個檔案已被{who}刪除」 (null: not attributed). */
+/** Who removed the file, for "This file was deleted by {who}" (null: not attributed). */
 export function removerName(by: Actor | null, selfUserId: string | null): string | null {
   if (by === null) return null;
   switch (by.kind) {

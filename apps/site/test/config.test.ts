@@ -1,6 +1,6 @@
 // wrangler.jsonc, read by wrangler itself: where the site is served, what is built before a deploy, and which requests
 // run the Worker. Every request that runs the Worker counts against the account's daily Workers Free quota, which the
-// shared relay uses too (docs/RELEASING.md §8), so the Worker runs first only for its own redirect.
+// shared relay uses too (docs/RELEASING.md), so the Worker runs first only for its own redirects.
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -25,7 +25,7 @@ describe('wrangler.jsonc', () => {
     expect(config.compatibility_date).toBe(relay.compatibility_date);
     expect(config.workers_dev).toBe(false);
     expect(config.preview_urls).toBe(false);
-    // Exactly the routes deployed on 2026-10-01. www.smurg.ai is the owner's proxied DNS record and the zone Redirect
+    // Exactly one route, the apex. www.smurg.ai is the maintainer's proxied DNS record and the zone Redirect
     // Rule (www -> https://smurg.ai/<path>, 301): a www custom domain here would take that record over on deploy.
     expect(config.routes).toEqual([{ pattern: 'smurg.ai', custom_domain: true }]);
   });
@@ -46,15 +46,16 @@ describe('wrangler.jsonc', () => {
     expect(readFileSync(join(SITE_ROOT, '..', '..', '.gitignore'), 'utf8')).toMatch(/^dist\/$/m);
   });
 
-  it('runs the Worker first only for /install.sh (src/routes.ts WORKER_PATHS)', () => {
+  it('runs the Worker first only for its redirects: /install.sh, /github and /source (src/routes.ts WORKER_PATHS)', () => {
     expect(config.assets?.run_worker_first).toEqual([...WORKER_PATHS]);
-    expect(WORKER_PATHS).toEqual(['/install.sh']);
+    expect(WORKER_PATHS).toEqual(['/install.sh', '/github', '/source']);
+    expect([...REDIRECTS.keys()]).toEqual([...WORKER_PATHS]);
     for (const path of REDIRECTS.keys()) expect(WORKER_PATHS.some((pattern) => matches(pattern, path)), path).toBe(true);
   });
 
   it('never runs the Worker for a page, a doc, the stylesheet, the script, the icon or the notices', () => {
     const served = [...testSite().files.keys()].filter((path) => !path.startsWith('_'));
-    expect(served.length).toBeGreaterThan(10);
+    expect(served.length).toBeGreaterThan(18);
     for (const path of served) {
       const urls = [`/${path}`];
       if (path === 'index.html') urls.push('/');
@@ -65,13 +66,13 @@ describe('wrangler.jsonc', () => {
 
   it('is documented in README.md: the paths, the build, the quota rule and the www Redirect Rule', () => {
     const readme = readFileSync(join(SITE_ROOT, 'README.md'), 'utf8');
-    for (const path of ['/install.sh', '/docs/', '/docs/hosting/', '/docs/joining/', '/docs/changelog/', '/license/', '/third-party-notices.txt']) {
+    for (const path of ['/install.sh', '/github', '/source', '/docs/', '/docs/hosting/', '/docs/joining/', '/docs/changelog/', '/license/', '/zh-TW/docs/', '/zh-TW/docs/hosting/', '/zh-TW/docs/joining/', '/zh-TW/docs/changelog/', '/zh-TW/license/', '/third-party-notices.txt', '/sitemap.xml']) {
       expect(readme, path).toContain(`\`${path}\``);
     }
-    for (const word of ['run_worker_first', 'Redirect Rule', 'scripts/build.ts', 'SMURG_SITE_THIRD_PARTY_NOTICES', 'SMURG_SITE_ALLOW_PLACEHOLDER', '<COPYRIGHT HOLDER>']) {
+    for (const word of ['run_worker_first', 'Redirect Rule', 'scripts/build.ts', 'SMURG_SITE_THIRD_PARTY_NOTICES', 'SMURG_SITE_ALLOW_PLACEHOLDER', 'hreflang', 'https://github.com/gclinian/smurg']) {
       expect(readme, word).toContain(word);
     }
-    // No link into the private repository (it names github.com only to explain what the build refuses).
-    expect(readme).not.toMatch(/github\.com\/gclinian/i);
+    // Nothing of the time the source was private.
+    expect(readme).not.toMatch(/private|proprietary|<COPYRIGHT HOLDER>/i);
   });
 });

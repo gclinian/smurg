@@ -67,7 +67,7 @@ describe.skipIf(BINARY === null)('the single executable (SMURG_SEA_BINARY)', () 
     const { stdout } = await run(s.bin, ['--version'], { env: s.env, cwd: s.dirs.home, timeout: 30_000 });
     // A release build prints its --version (build-sea.ts), any other build `<package version>-dev`; the protocol is the
     // one of the source it was built from (2 since ARCHITECTURE §11 D-15).
-    expect(PROTOCOL_VERSION).toBe(2);
+    expect(PROTOCOL_VERSION).toBe(3);
     expect(stdout).toMatch(new RegExp(`^smurg \\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)? \\(protocol v${PROTOCOL_VERSION}, daemon \\S+, node \\d+\\.\\d+\\.\\d+\\)\\n$`));
     if (process.env['SMURG_SEA_VERSION']) expect(stdout.startsWith(`smurg ${process.env['SMURG_SEA_VERSION']} (`)).toBe(true);
     // The binary runs on this machine, so it is this machine's build: its release name is smurg-<platform>-<arch>
@@ -222,8 +222,8 @@ describe.skipIf(BINARY === null)('the single executable (SMURG_SEA_BINARY)', () 
     expect(log).not.toContain('document compute worker');
 
     const stop = await run(s.bin, ['stop', '--workspace', workspaceId], { env: s.env, timeout: 60_000 });
-    expect(stop.stdout).toContain('已停止分享');
+    expect(stop.stdout).toContain('Stopped sharing.');
     expect(await hostExit).toBe(0);
-    expect(hostOut).toContain('已停止分享');
+    expect(hostOut).toContain('Stopped sharing.');
   });
 });

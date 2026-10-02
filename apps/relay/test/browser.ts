@@ -1,6 +1,10 @@
 // A minimal stand-in for a browser: a cookie jar (host-only, no path scoping needed here), manual redirects and form
 // POSTs. The real-browser tests are in cli-login.browser.test.ts.
 
+/** What an English browser and a Traditional Chinese browser send. Every test that reads a page passes one of them. */
+export const ACCEPT_ENGLISH = { 'accept-language': 'en-US,en;q=0.9' } as const;
+export const ACCEPT_ZH_TW = { 'accept-language': 'zh-TW,zh;q=0.9,en;q=0.8' } as const;
+
 export type Hop = { url: string; status: number; location: string | null; setCookies: string[]; method: string };
 
 export type NavigateOptions = {
@@ -14,11 +18,14 @@ export class CookieBrowser {
   readonly jar = new Map<string, string>();
   readonly hops: Hop[] = [];
 
-  /** Sent with every request, e.g. `cf-connecting-ip` (local workerd keeps a client's own value). */
+  /**
+   * Sent with every request, e.g. `cf-connecting-ip` (local workerd keeps a client's own value). Always includes an
+   * explicit `accept-language` (English unless the test says otherwise): no test depends on the fetch default.
+   */
   readonly headers: Record<string, string>;
 
   constructor(headers: Record<string, string> = {}) {
-    this.headers = headers;
+    this.headers = { ...ACCEPT_ENGLISH, ...headers };
   }
 
   cookieHeader(): string {

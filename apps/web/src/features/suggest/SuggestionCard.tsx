@@ -7,7 +7,7 @@ import { useCommand } from '../../lib/workspace/context.tsx';
 import { Badge, type Tone } from '../../ui/index.ts';
 import { IconFileText } from '../../ui/icons.tsx';
 import { t } from './strings.ts';
-import { lineRange } from './text.ts';
+import { resolutionReason, sourceLabel } from './text.ts';
 
 const STATUS_TONE: Record<Suggestion['status'], Tone> = {
   pending: 'info',
@@ -31,7 +31,7 @@ export function statusText(status: Suggestion['status']): string {
 
 export interface SuggestionCardProps {
   readonly suggestion: Suggestion;
-  /** Line above the text (「Amy 提出」, 「給 Ian 的 Claude」). */
+  /** Line above the text ("From Amy", "For Ian's Claude"). */
   readonly heading: ReactNode;
   readonly now: number;
   readonly children?: ReactNode;
@@ -42,6 +42,7 @@ export function SuggestionCard({ suggestion, heading, now, children, showStatus 
   const openFile = useCommand('openFile');
   const source = suggestion.source;
   const resolved = suggestion.status !== 'pending';
+  const reason = resolved ? resolutionReason(suggestion) : null;
   return (
     <article className="suggest-card" data-status={suggestion.status} aria-label={typeof heading === 'string' ? heading : undefined}>
       <header className="suggest-card__header">
@@ -64,7 +65,7 @@ export function SuggestionCard({ suggestion, heading, now, children, showStatus 
           aria-label={t('source.open', { path: source.file.path, line: source.startLine })}
         >
           <IconFileText />
-          <span>{t('source.label', { path: source.file.path, range: lineRange(source.startLine, source.endLine) })}</span>
+          <span>{sourceLabel(source.file.path, source.startLine, source.endLine)}</span>
         </button>
       ) : null}
       {resolved && suggestion.status === 'accepted-modified' && suggestion.finalText !== undefined ? (
@@ -73,9 +74,7 @@ export function SuggestionCard({ suggestion, heading, now, children, showStatus 
           <pre className="suggest-card__text">{suggestion.finalText}</pre>
         </div>
       ) : null}
-      {resolved && suggestion.status === 'rejected' && suggestion.rejectReason ? (
-        <p className="suggest-card__reason">{t('mine.reason', { reason: suggestion.rejectReason })}</p>
-      ) : null}
+      {reason !== null ? <p className="suggest-card__reason">{t('mine.reason', { reason })}</p> : null}
       {children}
     </article>
   );

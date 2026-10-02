@@ -86,14 +86,14 @@ export async function readText(path: string): Promise<string> {
   return readFile(path, 'utf8');
 }
 
-export async function settleError(promise: Promise<unknown>): Promise<{ code: string; reason?: string; detail?: Record<string, unknown>; message: string } | null> {
+export async function settleError(promise: Promise<unknown>): Promise<{ code: string; reason?: string; detail?: Record<string, unknown>; message: string; text?: { id: string; params?: Record<string, unknown> } } | null> {
   try {
     await promise;
     return null;
   } catch (err) {
-    const e = err as { code?: string; message?: string; detail?: Record<string, unknown> };
+    const e = err as { code?: string; message?: string; detail?: Record<string, unknown>; text?: { id: string; params?: Record<string, unknown> } };
     const reason = e.detail?.['reason'];
-    return { code: e.code ?? 'unknown', message: e.message ?? '', ...(typeof reason === 'string' ? { reason } : {}), ...(e.detail ? { detail: e.detail } : {}) };
+    return { code: e.code ?? 'unknown', message: e.message ?? '', ...(typeof reason === 'string' ? { reason } : {}), ...(e.detail ? { detail: e.detail } : {}), ...(e.text ? { text: e.text } : {}) };
   }
 }
 

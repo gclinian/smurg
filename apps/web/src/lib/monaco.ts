@@ -9,7 +9,7 @@
 //    script for label: editorWorkerService"); the production build emits it as a classic IIFE worker;
 //  - y-monaco 0.1.6 deep-imports monaco-editor/esm/vs/editor/editor.api.js: the alias in vite.config.ts maps it onto
 //    the same module this file loads, so there is exactly one Monaco instance;
-//  - unicodeHighlight allows zh-hant / zh-hans (otherwise full-width punctuation such as 「！」 gets a warning box);
+//  - unicodeHighlight allows zh-hant / zh-hans (otherwise full-width punctuation such as U+FF01, the full-width exclamation mark, gets a warning box);
 //  - unusualLineTerminators 'off' (the 0.57 default 'prompt' shows a window.confirm on EVERY client for a file with
 //    U+2028 and rewrites the shared file when accepted).
 import * as monaco from 'monaco-editor/editor';

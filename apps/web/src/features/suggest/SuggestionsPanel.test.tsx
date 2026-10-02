@@ -1,6 +1,6 @@
 // The suggestion flow per role (SPEC R6; ARCHITECTURE §5.6; protocol v2): a composer for editors, the author's list
 // (edit / withdraw while pending, the outcome afterwards), the queue beside the terminal for everyone who may type into
-// the session — the host and 可使用 agent members, on ANY session (accept, edit then accept, reject with a reason) —,
+// the session — the host and members with agent access, on ANY session (accept, edit then accept, reject with a reason) —,
 // notices to the author, the editor's selection action, and NO auto-accept anywhere.
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -9,8 +9,9 @@ import { HOST_USER, makeSession, makeSuggestion } from '../../testing/fixtures.t
 import { renderInWorkspace } from '../../testing/services.tsx';
 import { SuggestionsPanel } from './index.tsx';
 
+
 const hostSession = makeSession({ id: 'sess_host', ownerUserId: HOST_USER, ownerName: 'Ian', title: 'Claude' });
-const amySession = makeSession({ id: 'sess_amy', ownerUserId: 'dev:amy', ownerName: 'Amy', title: '我的 Claude', createdAt: 2 });
+const amySession = makeSession({ id: 'sess_amy', ownerUserId: 'dev:amy', ownerName: 'Amy', title: 'my Claude', createdAt: 2 });
 
 async function renderPanel(role: Role, options: { sessions?: SessionInfo[]; suggestions?: Suggestion[]; focus?: string } = {}) {
   const result = renderInWorkspace(<SuggestionsPanel />, { role });
@@ -24,218 +25,232 @@ async function renderPanel(role: Role, options: { sessions?: SessionInfo[]; sugg
   return result;
 }
 
-const panel = (): HTMLElement => screen.getByRole('region', { name: '建議' });
+const panel = (): HTMLElement => screen.getByRole('region', { name: 'Suggestions' });
 
 describe('composer: an editor suggests', () => {
-  it('an editor proposes text; it waits for the host or a 可使用 agent member, never goes into the session', async () => {
+  it('an editor proposes text; it waits for the host or a member with agent access, never goes into the session', async () => {
     const { conn } = await renderPanel('editor');
-    const box = screen.getByLabelText('給 Ian 開的「Claude」的建議');
-    expect(screen.getByText('建議會先進入等待清單；主人或「可使用 agent」的成員採用後，才會送進 session。')).toBeTruthy();
-    fireEvent.change(box, { target: { value: '請先幫 parseConfig 補上測試' } });
+    const box = screen.getByLabelText('Suggestion for "Claude", opened by Ian');
+    expect(screen.getByText('A suggestion waits in the queue first. It is sent into the session only after the host or a member with agent access accepts it.')).toBeTruthy();
+    fireEvent.change(box, { target: { value: 'Add tests for parseConfig first' } });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '送出建議' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Send suggestion' }));
     });
-    expect(conn.lastRequest('suggest.create')?.payload).toEqual({ sessionId: 'sess_host', text: '請先幫 parseConfig 補上測試' });
+    expect(conn.lastRequest('suggest.create')?.payload).toEqual({ sessionId: 'sess_host', text: 'Add tests for parseConfig first' });
     await act(async () => {
-      conn.respond('suggest.create', { suggestion: makeSuggestion({ sessionId: 'sess_host', text: '請先幫 parseConfig 補上測試' }) });
+      conn.respond('suggest.create', { suggestion: makeSuggestion({ sessionId: 'sess_host', text: 'Add tests for parseConfig first' }) });
     });
-    expect(screen.getByText('已送出建議，等待主人或「可使用 agent」的成員決定。')).toBeTruthy();
-    expect((screen.getByLabelText('給 Ian 開的「Claude」的建議') as HTMLTextAreaElement).value).toBe('');
+    expect(screen.getByText('Suggestion sent. The host or a member with agent access decides on it.')).toBeTruthy();
+    expect((screen.getByLabelText('Suggestion for "Claude", opened by Ian') as HTMLTextAreaElement).value).toBe('');
     // Nothing reached the session itself.
     expect(conn.notificationsOf('exec.input')).toEqual([]);
     // It is listed as mine, pending.
-    const mine = within(panel()).getByRole('region', { name: '我提出的建議' });
-    expect(mine.textContent).toContain('等待決定');
+    const mine = within(panel()).getByRole('region', { name: 'My suggestions' });
+    expect(mine.textContent).toContain('Waiting');
   });
 
   it('Ctrl+Enter sends; blank text is refused before anything is sent', async () => {
     const { conn } = await renderPanel('editor');
-    const box = screen.getByLabelText('給 Ian 開的「Claude」的建議');
+    const box = screen.getByLabelText('Suggestion for "Claude", opened by Ian');
     fireEvent.change(box, { target: { value: '   ' } });
     await act(async () => {
       fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
     });
     expect(conn.requestsOf('suggest.create')).toHaveLength(0);
-    fireEvent.change(box, { target: { value: '跑一下 lint' } });
+    fireEvent.change(box, { target: { value: 'run lint' } });
     await act(async () => {
       fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
     });
-    expect(conn.lastRequest('suggest.create')?.payload.text).toBe('跑一下 lint');
+    expect(conn.lastRequest('suggest.create')?.payload.text).toBe('run lint');
   });
 
   it('a viewer watches but cannot propose (told why)', async () => {
     await renderPanel('viewer');
-    expect(screen.queryByRole('button', { name: '送出建議' })).toBeNull();
-    expect(screen.getByText(/你的角色是「旁觀」/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Send suggestion' })).toBeNull();
+    expect(screen.getByText('As a viewer you can watch sessions but cannot make suggestions.')).toBeTruthy();
   });
 
   it('an ended session takes no more suggestions', async () => {
     await renderPanel('editor', { sessions: [{ ...hostSession, status: 'exited' }] });
-    expect(screen.queryByRole('button', { name: '送出建議' })).toBeNull();
-    expect(screen.getByText('這個 session 已結束，不能再提出建議。')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Send suggestion' })).toBeNull();
+    expect(screen.getByText('This session has ended, so it takes no more suggestions.')).toBeTruthy();
   });
 });
 
-describe('the queue beside the terminal (the host and 可使用 agent, any session)', () => {
-  const fromAmy = makeSuggestion({ id: 'sug_a', sessionId: 'sess_host', text: '請先補上測試', createdAt: 1 });
-  const fromBob = makeSuggestion({ id: 'sug_b', sessionId: 'sess_host', author: { userId: 'dev:bob', displayName: 'Bob' }, text: '順便更新 README', createdAt: 2 });
-  const fromCat = makeSuggestion({ id: 'sug_c', sessionId: 'sess_host', author: { userId: 'dev:cat', displayName: 'Cat' }, text: '改用 pnpm', createdAt: 3 });
+describe('the queue beside the terminal (the host and members with agent access, any session)', () => {
+  const fromAmy = makeSuggestion({ id: 'sug_a', sessionId: 'sess_host', text: 'Add the tests first', createdAt: 1 });
+  const fromBob = makeSuggestion({ id: 'sug_b', sessionId: 'sess_host', author: { userId: 'dev:bob', displayName: 'Bob' }, text: 'Update the README too', createdAt: 2 });
+  const fromCat = makeSuggestion({ id: 'sug_c', sessionId: 'sess_host', author: { userId: 'dev:cat', displayName: 'Cat' }, text: 'Switch to pnpm', createdAt: 3 });
 
   it('shows proposer, time and text for each pending suggestion, oldest first', async () => {
     await renderPanel('host', { suggestions: [fromBob, fromAmy, fromCat] });
-    const queue = within(panel()).getByRole('region', { name: '等待你決定的建議（3）' });
+    const queue = within(panel()).getByRole('region', { name: 'Suggestions waiting for your decision (3)' });
     const items = within(queue).getAllByRole('article');
-    expect(items.map((item) => item.getAttribute('aria-label'))).toEqual(['Amy 提出', 'Bob 提出', 'Cat 提出']);
-    expect(items[0]!.textContent).toContain('請先補上測試');
+    expect(items.map((item) => item.getAttribute('aria-label'))).toEqual(['From Amy', 'From Bob', 'From Cat']);
+    expect(items[0]!.textContent).toContain('Add the tests first');
     expect(items[0]!.querySelector('time')?.getAttribute('datetime')).toBe(new Date(1).toISOString());
   });
 
-  it('accept sends the id and the text the owner saw (SEC-D-01); the daemon pastes exactly that text as the owner', async () => {
+  it('accept sends the id and the text the owner saw; the daemon pastes exactly that text as the owner', async () => {
     const { conn } = await renderPanel('host', { suggestions: [fromAmy] });
     await act(async () => {
-      fireEvent.click(within(panel()).getByRole('button', { name: '採用' }));
+      fireEvent.click(within(panel()).getByRole('button', { name: 'Accept' }));
     });
     // Not only the id: an edit by the author between the owner's reading and the click must not reach the session.
     expect(conn.lastRequest('suggest.accept')?.payload).toEqual({ suggestionId: 'sug_a', text: fromAmy.text });
     await act(async () => {
       conn.respond('suggest.accept', { suggestion: { ...fromAmy, status: 'accepted', resolvedAt: 5 } });
     });
-    expect(screen.getByText('已採用 Amy 的建議，內容已送進 session。')).toBeTruthy();
-    expect(within(panel()).getByText('目前沒有等待你處理的建議。')).toBeTruthy();
+    expect(screen.getByText('Accepted the suggestion from Amy. It was sent into the session.')).toBeTruthy();
+    expect(within(panel()).getByText('No suggestions are waiting for you.')).toBeTruthy();
     // The browser never wrote the text into the PTY itself.
     expect(conn.notificationsOf('exec.input')).toEqual([]);
   });
 
   it('edit then accept sends the edited text (accepted-modified)', async () => {
     const { conn } = await renderPanel('host', { suggestions: [fromAmy] });
-    fireEvent.click(within(panel()).getByRole('button', { name: '修改後採用' }));
-    fireEvent.change(within(panel()).getByLabelText('修改建議內容'), { target: { value: '請先補上 parseConfig 的測試' } });
+    fireEvent.click(within(panel()).getByRole('button', { name: 'Edit and accept' }));
+    fireEvent.change(within(panel()).getByLabelText('Edit the suggestion'), { target: { value: 'Add the tests for parseConfig first' } });
     await act(async () => {
-      fireEvent.click(within(panel()).getByRole('button', { name: '採用修改後的內容' }));
+      fireEvent.click(within(panel()).getByRole('button', { name: 'Accept the edited text' }));
     });
-    expect(conn.lastRequest('suggest.accept')?.payload).toEqual({ suggestionId: 'sug_a', text: '請先補上 parseConfig 的測試' });
+    expect(conn.lastRequest('suggest.accept')?.payload).toEqual({ suggestionId: 'sug_a', text: 'Add the tests for parseConfig first' });
   });
 
   it('reject asks for an optional reason and sends it', async () => {
     const { conn } = await renderPanel('host', { suggestions: [fromAmy, fromBob] });
-    const [first] = within(panel()).getAllByRole('button', { name: '拒絕' });
+    const [first] = within(panel()).getAllByRole('button', { name: 'Reject' });
     fireEvent.click(first!);
-    fireEvent.change(within(panel()).getByLabelText('拒絕原因（選填，會告訴提出者）'), { target: { value: '  這部分我自己來 ' } });
+    fireEvent.change(within(panel()).getByLabelText('Reason for rejecting (optional; the author sees it)'), { target: { value: '  I will do this part myself ' } });
     await act(async () => {
-      fireEvent.click(within(panel()).getByRole('button', { name: '確認拒絕' }));
+      fireEvent.click(within(panel()).getByRole('button', { name: 'Confirm rejection' }));
     });
-    expect(conn.lastRequest('suggest.reject')?.payload).toEqual({ suggestionId: 'sug_a', reason: '這部分我自己來' });
+    expect(conn.lastRequest('suggest.reject')?.payload).toEqual({ suggestionId: 'sug_a', reason: 'I will do this part myself' });
     await act(async () => {
-      conn.respond('suggest.reject', { suggestion: { ...fromAmy, status: 'rejected', rejectReason: '這部分我自己來', resolvedAt: 9 } });
+      conn.respond('suggest.reject', { suggestion: { ...fromAmy, status: 'rejected', rejectReason: 'I will do this part myself', resolvedAt: 9 } });
     });
-    const [second] = within(panel()).getAllByRole('button', { name: '拒絕' });
+    const [second] = within(panel()).getAllByRole('button', { name: 'Reject' });
     fireEvent.click(second!);
     await act(async () => {
-      fireEvent.click(within(panel()).getByRole('button', { name: '確認拒絕' }));
+      fireEvent.click(within(panel()).getByRole('button', { name: 'Confirm rejection' }));
     });
     expect(conn.lastRequest('suggest.reject')?.payload).toEqual({ suggestionId: 'sug_b' });
   });
 
-  it("a 可使用 agent member decides on suggestions to the HOST's session too: no composer, the queue, accept sends the text", async () => {
+  it("a member with agent access decides on suggestions to the HOST's session too: no composer, the queue, accept sends the text", async () => {
     const fromErin = makeSuggestion({ id: 'sug_e', sessionId: 'sess_host', author: { userId: 'dev:erin', displayName: 'Erin' }, text: 'echo hi' });
     const { conn } = await renderPanel('agent', { suggestions: [fromErin] });
-    expect(screen.queryByRole('button', { name: '送出建議' })).toBeNull();
-    const queue = within(panel()).getByRole('region', { name: '等待你決定的建議（1）' });
-    expect(queue.textContent).toContain('主人和「可使用 agent」的成員都可以處理');
+    expect(screen.queryByRole('button', { name: 'Send suggestion' })).toBeNull();
+    const queue = within(panel()).getByRole('region', { name: 'Suggestions waiting for your decision (1)' });
+    expect(queue.textContent).toContain('The host and members with agent access can decide.');
     await act(async () => {
-      fireEvent.click(within(queue).getByRole('button', { name: '採用' }));
+      fireEvent.click(within(queue).getByRole('button', { name: 'Accept' }));
     });
     expect(conn.lastRequest('suggest.accept')?.payload).toEqual({ suggestionId: 'sug_e', text: 'echo hi' });
   });
 
   it('points to pending suggestions on other sessions', async () => {
-    const other = makeSession({ id: 'sess_host2', title: '第二個', createdAt: 5 });
+    const other = makeSession({ id: 'sess_host2', title: 'second', createdAt: 5 });
     const onOther = makeSuggestion({ id: 'sug_o', sessionId: 'sess_host2' });
     const { stores } = await renderPanel('host', { sessions: [hostSession, other, amySession], suggestions: [onOther, makeSuggestion({ id: 'sug_amy', sessionId: 'sess_amy' })] });
-    expect(within(panel()).getByText('其他 session 還有 2 則建議等待處理。')).toBeTruthy();
+    expect(within(panel()).getByText('2 suggestions are waiting in other sessions.')).toBeTruthy();
     await act(async () => {
-      fireEvent.click(within(panel()).getByRole('button', { name: '前往查看' }));
+      fireEvent.click(within(panel()).getByRole('button', { name: 'Go to them' }));
     });
     expect(stores.sessions.getState().focusedId).toBe('sess_host2');
   });
 });
 
-describe('no auto-accept anywhere (SPEC R6 「沒有自動採用選項」)', () => {
+describe('no auto-accept anywhere (SPEC R6: there is no auto-accept option)', () => {
   for (const role of ['host', 'agent', 'editor', 'viewer'] as const) {
     it(`${role}: no checkbox, switch or option that would accept suggestions automatically`, async () => {
       const pending = makeSuggestion({ id: 'sug_p', sessionId: role === 'host' ? 'sess_host' : 'sess_amy', author: { userId: 'dev:bob', displayName: 'Bob' } });
       await renderPanel(role, { sessions: [hostSession, amySession], suggestions: [pending], focus: role === 'host' ? 'sess_host' : 'sess_amy' });
       expect(within(panel()).queryAllByRole('checkbox')).toEqual([]);
       expect(within(panel()).queryAllByRole('switch')).toEqual([]);
-      expect(panel().textContent).not.toMatch(/自動/);
+      expect(panel().textContent).not.toMatch(/automatic|auto-accept/i);
     });
   }
 });
 
 describe("the author's own suggestions", () => {
   it('while pending they can be edited or withdrawn', async () => {
-    const mine = makeSuggestion({ id: 'sug_m', sessionId: 'sess_host', text: '原本的建議' });
+    const mine = makeSuggestion({ id: 'sug_m', sessionId: 'sess_host', text: 'the original suggestion' });
     const { conn } = await renderPanel('editor', { suggestions: [mine] });
-    const list = within(panel()).getByRole('region', { name: '我提出的建議' });
-    fireEvent.click(within(list).getByRole('button', { name: '編輯' }));
-    fireEvent.change(within(list).getByLabelText('修改我的建議'), { target: { value: '改過的建議' } });
+    const list = within(panel()).getByRole('region', { name: 'My suggestions' });
+    fireEvent.click(within(list).getByRole('button', { name: 'Edit' }));
+    fireEvent.change(within(list).getByLabelText('Edit my suggestion'), { target: { value: 'the changed suggestion' } });
     await act(async () => {
-      fireEvent.click(within(list).getByRole('button', { name: '儲存修改' }));
+      fireEvent.click(within(list).getByRole('button', { name: 'Save changes' }));
     });
-    expect(conn.lastRequest('suggest.edit')?.payload).toEqual({ suggestionId: 'sug_m', text: '改過的建議' });
+    expect(conn.lastRequest('suggest.edit')?.payload).toEqual({ suggestionId: 'sug_m', text: 'the changed suggestion' });
     await act(async () => {
-      conn.respond('suggest.edit', { suggestion: { ...mine, text: '改過的建議' } });
+      conn.respond('suggest.edit', { suggestion: { ...mine, text: 'the changed suggestion' } });
     });
     await act(async () => {
-      fireEvent.click(within(list).getByRole('button', { name: '撤回' }));
+      fireEvent.click(within(list).getByRole('button', { name: 'Withdraw' }));
     });
     expect(conn.lastRequest('suggest.withdraw')?.payload).toEqual({ suggestionId: 'sug_m' });
     await act(async () => {
-      conn.respond('suggest.withdraw', { suggestion: { ...mine, text: '改過的建議', status: 'withdrawn', resolvedAt: 3 } });
+      conn.respond('suggest.withdraw', { suggestion: { ...mine, text: 'the changed suggestion', status: 'withdrawn', resolvedAt: 3 } });
     });
-    expect(list.textContent).toContain('已撤回');
-    expect(within(list).queryByRole('button', { name: '編輯' })).toBeNull();
+    expect(list.textContent).toContain('Withdrawn');
+    expect(within(list).queryByRole('button', { name: 'Edit' })).toBeNull();
   });
 
   it('afterwards they show the outcome: the text actually sent, or the reason for a rejection', async () => {
-    const modified = makeSuggestion({ id: 'sug_1', sessionId: 'sess_host', text: '原文', status: 'accepted-modified', finalText: '主人修改後的內容', resolvedAt: 5 });
-    const rejected = makeSuggestion({ id: 'sug_2', sessionId: 'sess_host', text: '另一則', status: 'rejected', rejectReason: '已經做過了', resolvedAt: 6, createdAt: 2 });
+    const modified = makeSuggestion({ id: 'sug_1', sessionId: 'sess_host', text: 'the original', status: 'accepted-modified', finalText: 'what the host made of it', resolvedAt: 5 });
+    const rejected = makeSuggestion({ id: 'sug_2', sessionId: 'sess_host', text: 'another one', status: 'rejected', rejectReason: 'Already done', resolvedAt: 6, createdAt: 2 });
     await renderPanel('editor', { suggestions: [modified, rejected] });
-    const list = within(panel()).getByRole('region', { name: '我提出的建議' });
-    expect(list.textContent).toContain('修改後採用');
-    expect(list.textContent).toContain('實際送出的內容：');
-    expect(list.textContent).toContain('主人修改後的內容');
-    expect(list.textContent).toContain('已拒絕');
-    expect(list.textContent).toContain('原因：已經做過了');
-    expect(within(list).queryByRole('button', { name: '撤回' })).toBeNull();
+    const list = within(panel()).getByRole('region', { name: 'My suggestions' });
+    expect(list.textContent).toContain('Accepted with edits');
+    expect(list.textContent).toContain('Text that was sent:');
+    expect(list.textContent).toContain('what the host made of it');
+    expect(list.textContent).toContain('Rejected');
+    expect(list.textContent).toContain('Reason: Already done');
+    expect(within(list).queryByRole('button', { name: 'Withdraw' })).toBeNull();
+  });
+
+  it('a suggestion smurg closed itself says why, in the viewer\'s language (closedReason; nobody\'s words)', async () => {
+    const ended = makeSuggestion({ id: 'sug_c1', sessionId: 'sess_host', text: 'too late', status: 'rejected', closedReason: 'session-ended', resolvedAt: 6 });
+    const pending = makeSuggestion({ id: 'sug_c2', sessionId: 'sess_host', text: 'still waiting', createdAt: 3 });
+    const { conn } = await renderPanel('editor', { suggestions: [ended, pending] });
+    const list = within(panel()).getByRole('region', { name: 'My suggestions' });
+    expect(list.textContent).toContain('Reason: The session ended.');
+    await act(async () => {
+      conn.emit('suggest.updated', { suggestion: { ...pending, status: 'rejected', closedReason: 'session-ended', resolvedAt: 9 } });
+    });
+    const notices = within(screen.getByRole('region', { name: 'Notifications' }));
+    expect(notices.getByText(/^"still waiting"\s+Reason: The session ended\.$/)).toBeTruthy();
   });
 
   it('the author is notified when someone decides — not for what was already decided before', async () => {
-    const pending = makeSuggestion({ id: 'sug_n', sessionId: 'sess_host', text: '請補測試' });
-    const old = makeSuggestion({ id: 'sug_old', sessionId: 'sess_host', text: '舊的', status: 'accepted', resolvedAt: 1 });
+    const pending = makeSuggestion({ id: 'sug_n', sessionId: 'sess_host', text: 'Add tests' });
+    const old = makeSuggestion({ id: 'sug_old', sessionId: 'sess_host', text: 'an old one', status: 'accepted', resolvedAt: 1 });
     const { conn } = await renderPanel('editor', { suggestions: [pending, old] });
-    expect(screen.queryByText(/你的建議已/)).toBeNull();
+    expect(screen.queryByText(/^Your suggestion was/)).toBeNull();
     await act(async () => {
-      conn.emit('suggest.updated', { suggestion: { ...pending, status: 'rejected', rejectReason: '先不用', resolvedAt: 7 } });
+      conn.emit('suggest.updated', { suggestion: { ...pending, status: 'rejected', rejectReason: 'Not now', resolvedAt: 7 } });
     });
-    const notices = within(screen.getByRole('region', { name: '通知' }));
-    expect(notices.getByText('你的建議被拒絕了')).toBeTruthy();
-    expect(notices.getByText(/原因：先不用/)).toBeTruthy();
-    const second = makeSuggestion({ id: 'sug_n2', sessionId: 'sess_host', text: '第二則' });
+    const notices = within(screen.getByRole('region', { name: 'Notifications' }));
+    expect(notices.getByText('Your suggestion was rejected')).toBeTruthy();
+    // The suggestion in quotes on its own line, then the reason.
+    expect(notices.getByText(/^"Add tests"\s+Reason: Not now$/)).toBeTruthy();
+    const second = makeSuggestion({ id: 'sug_n2', sessionId: 'sess_host', text: 'a second one' });
     await act(async () => {
       conn.emit('suggest.updated', { suggestion: second });
     });
     await act(async () => {
-      conn.emit('suggest.updated', { suggestion: { ...second, status: 'accepted-modified', finalText: '改寫', resolvedAt: 8 } });
+      conn.emit('suggest.updated', { suggestion: { ...second, status: 'accepted-modified', finalText: 'rewritten', resolvedAt: 8 } });
     });
-    expect(notices.getByText('你的建議已修改後採用')).toBeTruthy();
+    expect(notices.getByText('Your suggestion was accepted with edits')).toBeTruthy();
   });
 });
 
-describe('the editor selection action (R6 「一鍵把它作為建議送進別人的 session（或直接送進自己的 session）」)', () => {
+describe("the editor selection action (R6: one click sends it as a suggestion into someone else's session, or straight into one's own)", () => {
   const selection = { file: { root: MAIN_ROOT, path: 'src/app.ts' }, startLine: 10, endLine: 12, text: 'function a() {\n  return 1;\n}' };
 
-  it("a 可使用 agent member types it into ANY session (the host's too) as a bracketed paste, with no Enter", async () => {
+  it("a member with agent access types it into ANY session (the host's too) as a bracketed paste, with no Enter", async () => {
     const { conn, session } = await renderPanel('agent', { sessions: [hostSession, amySession] });
     await act(async () => {
       await session.commands.dispatch('sendSelectionAsSuggestion', { ...selection, sessionId: 'sess_host' });
@@ -255,19 +270,19 @@ describe('the editor selection action (R6 「一鍵把它作為建議送進別�
       await session.commands.dispatch('sendSelectionAsSuggestion', { ...selection, sessionId: 'sess_host' });
     });
     expect(stores.sessions.getState().focusedId).toBe('sess_host');
-    const box = screen.getByLabelText('給 Ian 開的「Claude」的建議') as HTMLTextAreaElement;
-    expect(box.value).toContain('src/app.ts 第 10–12 行：');
+    const box = screen.getByLabelText('Suggestion for "Claude", opened by Ian') as HTMLTextAreaElement;
+    expect(box.value).toContain('src/app.ts:10-12\n');
     expect(box.value).toContain('function a() {');
-    expect(screen.getByText('附上的程式碼：src/app.ts 第 10–12 行')).toBeTruthy();
+    expect(screen.getByText('Attached code: src/app.ts, lines 10–12')).toBeTruthy();
     expect(conn.requestsOf('suggest.create')).toHaveLength(0);
     expect(conn.notificationsOf('exec.input')).toEqual([]);
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '送出建議' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Send suggestion' }));
     });
     expect(conn.lastRequest('suggest.create')?.payload.source).toEqual({ file: selection.file, startLine: 10, endLine: 12 });
   });
 
-  it("one click (mode 'send') creates an editor's suggestion at once, with the code reference (SPEC-08)", async () => {
+  it("one click (mode 'send') creates an editor's suggestion at once, with the code reference", async () => {
     const { conn, session } = await renderPanel('editor', { sessions: [hostSession, amySession], focus: 'sess_amy' });
     await act(async () => {
       await session.commands.dispatch('sendSelectionAsSuggestion', { ...selection, sessionId: 'sess_host', mode: 'send' });
@@ -278,19 +293,19 @@ describe('the editor selection action (R6 「一鍵把它作為建議送進別�
     expect(conn.notificationsOf('exec.input')).toEqual([]);
   });
 
-  it('without a session it asks which one: a 可使用 agent member pastes into any of them, an editor suggests', async () => {
+  it('without a session it asks which one: a member with agent access pastes into any of them, an editor suggests', async () => {
     const asAgent = await renderPanel('agent', { sessions: [hostSession, amySession] });
     await act(async () => {
       await asAgent.session.commands.dispatch('sendSelectionAsSuggestion', selection);
     });
-    let dialog = screen.getByRole('dialog', { name: '把選取的程式碼送到 session' });
+    let dialog = screen.getByRole('dialog', { name: 'Send the selected code to a session' });
     expect(within(dialog).getAllByRole('radio').map((choice) => choice.closest('label')?.textContent)).toEqual([
-      '貼到「我的 Claude」（不會自動按 Enter）',
-      '貼到「Claude」（不會自動按 Enter）',
+      'Paste into "my Claude" (Enter is not pressed for you)',
+      'Paste into "Claude" (Enter is not pressed for you)',
     ]);
     fireEvent.click(within(dialog).getAllByRole('radio')[1]!);
     await act(async () => {
-      fireEvent.click(within(dialog).getByRole('button', { name: '繼續' }));
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
     });
     expect(asAgent.conn.notificationsOf('exec.input').map((n) => n.payload.sessionId)).toEqual(['sess_host']);
     asAgent.unmount();
@@ -299,14 +314,14 @@ describe('the editor selection action (R6 「一鍵把它作為建議送進別�
     await act(async () => {
       await session.commands.dispatch('sendSelectionAsSuggestion', selection);
     });
-    dialog = screen.getByRole('dialog', { name: '把選取的程式碼送到 session' });
+    dialog = screen.getByRole('dialog', { name: 'Send the selected code to a session' });
     const choices = within(dialog).getAllByRole('radio');
-    expect(choices.map((choice) => choice.closest('label')?.textContent)).toEqual(['作為建議送給 Amy 開的「我的 Claude」', '作為建議送給 Ian 開的「Claude」']);
+    expect(choices.map((choice) => choice.closest('label')?.textContent)).toEqual(['Send as a suggestion to "my Claude", opened by Amy', 'Send as a suggestion to "Claude", opened by Ian']);
     fireEvent.click(choices[1]!);
     await act(async () => {
-      fireEvent.click(within(dialog).getByRole('button', { name: '繼續' }));
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Continue' }));
     });
-    expect((screen.getByLabelText('給 Ian 開的「Claude」的建議') as HTMLTextAreaElement).value).toContain('function a()');
+    expect((screen.getByLabelText('Suggestion for "Claude", opened by Ian') as HTMLTextAreaElement).value).toContain('function a()');
     expect(conn.notificationsOf('exec.input')).toEqual([]);
   });
 
@@ -315,7 +330,7 @@ describe('the editor selection action (R6 「一鍵把它作為建議送進別�
     await act(async () => {
       await session.commands.dispatch('sendSelectionAsSuggestion', { ...selection, sessionId: 'sess_host' });
     });
-    expect(screen.getByText('你的角色不能提出建議。')).toBeTruthy();
+    expect(screen.getByText('Your role cannot make suggestions.')).toBeTruthy();
     expect(conn.notificationsOf('exec.input')).toEqual([]);
     expect(conn.requestsOf('suggest.create')).toHaveLength(0);
   });

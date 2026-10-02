@@ -77,12 +77,12 @@ export function defaultFixture(): ConsoleFixture {
     audit: [makeAudit(1, { action: 'auth.connect', target: 'dev_amy_web' }), makeAudit(2), makeAudit(3, { action: 'authz.denied', outcome: 'denied', target: 'file.write', actor: { kind: 'user', userId: 'dev:bob', displayName: 'Bob' }, detail: { reason: 'forbidden-role' } })],
     sessions: [
       makeSession({ id: 'sess_host', title: 'Claude', createdAt: T0 }),
-      makeSession({ id: 'sess_amy', ownerUserId: 'dev:amy', ownerName: 'Amy', title: '登入頁', root: { kind: 'worktree', worktreeId: 'wt_1' }, attached: 2, createdAt: T0 + 1 }),
-      makeSession({ id: 'sess_old', kind: 'terminal', ownerUserId: 'dev:amy', ownerName: 'Amy', title: '終端機', status: 'exited', exitCode: 0, createdAt: T0 - 1 }),
+      makeSession({ id: 'sess_amy', ownerUserId: 'dev:amy', ownerName: 'Amy', title: 'login page', root: { kind: 'worktree', worktreeId: 'wt_1' }, attached: 2, createdAt: T0 + 1 }),
+      makeSession({ id: 'sess_old', kind: 'terminal', ownerUserId: 'dev:amy', ownerName: 'Amy', title: 'old shell', status: 'exited', exitCode: 0, createdAt: T0 - 1 }),
     ],
     suggestions: [
-      makeSuggestion({ id: 'sug_pending', sessionId: 'sess_amy', author: { userId: HOST_USER, displayName: 'Ian' }, text: '先補上表單驗證的測試' }),
-      makeSuggestion({ id: 'sug_done', sessionId: 'sess_host', text: '已經處理過的建議', status: 'accepted', resolvedAt: T0 + 5 }),
+      makeSuggestion({ id: 'sug_pending', sessionId: 'sess_amy', author: { userId: HOST_USER, displayName: 'Ian' }, text: 'Add tests for the form validation first' }),
+      makeSuggestion({ id: 'sug_done', sessionId: 'sess_host', text: 'A suggestion handled before', status: 'accepted', resolvedAt: T0 + 5 }),
     ],
     worktrees: [makeWorktree({ sessionId: 'sess_amy' })],
     requests: [makeMergeRequest()],

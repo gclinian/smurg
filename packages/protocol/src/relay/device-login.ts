@@ -3,7 +3,7 @@ import { z } from 'zod';
 // The CLI's device-code login (RFC 8628 style; ARCHITECTURE §6, decided 2026-10-01): `smurg login` asks the relay to
 // start a login (POST /auth/device/start), prints the relay's /device page and a short user code, and polls
 // POST /auth/device/token until the person, logged in to the relay in any browser (a phone will do), entered the code
-// and pressed 「允許」. Nothing reaches the CLI's machine from the browser, so it works the same over SSH.
+// and approved the request. Nothing reaches the CLI's machine from the browser, so it works the same over SSH.
 //
 // What relay and CLI both have to agree on lives here: the user-code alphabet and its normalisation, the device-code
 // shape, the timings and the error codes of the token endpoint.
@@ -14,7 +14,7 @@ import { z } from 'zod';
  */
 export const DEVICE_USER_CODE_ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ';
 export const DEVICE_USER_CODE_LENGTH = 8;
-/** A pending login lives this long (the code is printed as 「10 分鐘內有效」). */
+/** A pending login lives this long (the code is printed as valid for 10 minutes). */
 export const DEVICE_LOGIN_TTL_SECONDS = 600;
 /** Seconds between two polls of the token endpoint, until the relay answers `slow_down`. */
 export const DEVICE_LOGIN_INTERVAL_SECONDS = 5;

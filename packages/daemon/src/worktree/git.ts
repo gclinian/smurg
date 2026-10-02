@@ -16,6 +16,7 @@ import { access, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { SmurgError } from '@smurg/protocol';
+import { msg, type GitStep, type MessageRef } from '@smurg/protocol/i18n';
 
 /** Oldest git the worktree mode accepts: `merge-tree --write-tree` (2.38) and the `--attr-source` option (2.42). */
 export const GIT_MIN_VERSION: readonly [number, number, number] = Object.freeze([2, 42, 0]);
@@ -104,7 +105,7 @@ export interface GitResult {
 }
 
 export class GitUnavailableError extends SmurgError {
-  constructor(reason: 'git-not-found' | 'git-too-old' | 'git-unusable', message: string) {
+  constructor(reason: 'git-not-found' | 'git-too-old' | 'git-unusable', message: MessageRef) {
     super('conflict', message, { reason });
     this.name = 'GitUnavailableError';
   }
@@ -257,7 +258,7 @@ export class GitRunner {
     const signal = options.abortable === false ? undefined : this.signal;
     return new Promise((resolve, reject) => {
       if (signal?.aborted) {
-        reject(new SmurgError('conflict', 'daemon 正在停止', { reason: 'stopping' }));
+        reject(new SmurgError('conflict', msg('daemon.stopping'), { reason: 'stopping' }));
         return;
       }
       const child = execFile(
@@ -292,18 +293,18 @@ export class GitRunner {
             return;
           }
           if (code === 'ENOENT') {
-            reject(new GitUnavailableError('git-not-found', '找不到 git，無法使用 worktree 模式'));
+            reject(new GitUnavailableError('git-not-found', msg('worktree.unavailable.gitNotFound')));
             return;
           }
           if (code === 'ABORT_ERR' || signal?.aborted) {
-            reject(new SmurgError('conflict', 'daemon 正在停止', { reason: 'stopping' }));
+            reject(new SmurgError('conflict', msg('daemon.stopping'), { reason: 'stopping' }));
             return;
           }
           if ((error as { killed?: boolean }).killed) {
-            reject(new SmurgError('internal', 'git 執行逾時', { reason: 'git-timeout' }));
+            reject(new SmurgError('internal', msg('git.timeout'), { reason: 'git-timeout' }));
             return;
           }
-          reject(new SmurgError('internal', 'git 執行失敗', { reason: 'git-failed' }, { cause: error }));
+          reject(new SmurgError('internal', msg('git.failed'), { reason: 'git-failed' }, { cause: error }));
         },
       );
       if (options.input !== undefined) child.stdin?.end(options.input);
@@ -313,10 +314,15 @@ export class GitRunner {
 }
 
 /** Throws unless the command succeeded with complete output. */
-export function requireOk(result: GitResult, what: string): GitResult {
-  if (result.truncated) throw new SmurgError('too_large', `${what}：git 輸出過大`, { reason: 'git-output-too-large' });
-  if (result.code !== 0) throw new SmurgError('internal', `${what}失敗`, { reason: 'git-failed', step: what.slice(0, 60) });
+export function requireOk(result: GitResult, step: GitStep): GitResult {
+  if (result.truncated) throw new SmurgError('too_large', msg('git.outputTooLarge', { step }), { reason: 'git-output-too-large', step });
+  if (result.code !== 0) throw new SmurgError('internal', msg('git.stepFailed', { step }), { reason: 'git-failed', step });
   return result;
+}
+
+/** Paths as a message list parameter: at most 10, each at most 200 characters (the full sample is in `detail.paths`). */
+export function listedPaths(paths: readonly string[]): string[] {
+  return paths.slice(0, 10).map((path) => (path.length > 200 ? `${path.slice(0, 199)}\u2026` : path));
 }
 
 /** The first line of stdout (object ids, ref names). */

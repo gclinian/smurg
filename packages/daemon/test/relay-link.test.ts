@@ -100,7 +100,7 @@ describe('RelayLink', () => {
     await waitFor(() => link.state === 'online' && rec.online >= 2, { what: 'reconnect' });
   });
 
-  it('a wall clock stepped back an hour does not freeze the heartbeat or the pong watchdog (REL-04)', async () => {
+  it('a wall clock stepped back an hour does not freeze the heartbeat or the pong watchdog', async () => {
     const relay = new MemoryRelay(WS);
     let wallShift = 0;
     const stepped = { now: () => Date.now() + wallShift, monotonic: () => performance.now() };
@@ -187,7 +187,7 @@ describe('RelayLink', () => {
     expect(bob.socket.readyState).toBe(1);
   });
 
-  describe('the relay refuses the host session token (REL-08 / CLI-03) and link transitions reach the host (CLI-10)', () => {
+  describe('the relay refuses the host session token and link transitions reach the host', () => {
     const capture = (): { log: Logger; lines: string[] } => {
       const lines: string[] = [];
       return { log: createLineLogger({ level: 'debug', write: (line) => lines.push(line) }), lines };

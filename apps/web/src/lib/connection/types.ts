@@ -22,7 +22,7 @@ export interface WorkspaceConnection {
   /** Typed daemon event subscription. */
   on: Connection['on'];
   whenOnline(options?: WaitOptions): Promise<Welcome>;
-  /** 「離開」: channel.leave, then close. */
+  /** "Leave": channel.leave, then close. */
   leave(options?: RequestOptions): Promise<void>;
 }
 

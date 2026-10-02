@@ -96,7 +96,7 @@ describe('capability matrix vs SPEC §8 (cell by cell)', () => {
 
   for (const [column, role] of ROLES.entries()) {
     const cell = MERGE_ROW.cells[column];
-    it(`合併 worktree | ${role} = ${cell}`, () => {
+    it(`merge a worktree | ${role} = ${cell}`, () => {
       expect(can(role, 'worktree.merge.decide')).toBe(cell === '✅');
       // Whoever may decide or request may request; nobody else.
       expect(can(role, 'worktree.merge.request')).toBe(cell === '✅' || cell === '提出請求');

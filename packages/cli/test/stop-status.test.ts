@@ -37,7 +37,7 @@ describe('smurg status', () => {
     const { env } = await setup();
     const io = testIo({ env });
     expect(await runCli(['status'], io)).toBe(3);
-    expect(io.out()).toContain('目前沒有正在分享的工作區');
+    expect(io.out()).toContain('No workspace is being shared.');
   });
 
   it('lists every running daemon with its relay, connections, fingerprint, keep-awake, the Bash-attribution switch and log file', async () => {
@@ -49,23 +49,23 @@ describe('smurg status', () => {
     await rememberSharedFolder(statePaths(env), { folder: dirs.project, relay: 'http://localhost:8787', workspaceId: 'ws_status_aaaaaaaaaaaa', createdAt: 1 });
     const io = testIo({ env });
     expect(await runCli(['status'], io)).toBe(0);
-    expect(io.out()).toContain('工作區 ws_status_aaaaaaaaaaaa');
-    expect(io.out()).toContain('工作區 ws_status_bbbbbbbbbbbb');
-    expect(io.out()).toContain(`資料夾：${dirs.project}`);
-    // The same zh-TW words as the host's summary, never the daemon's English reason (CLI-13).
-    expect(io.out()).toContain('防止睡眠：未啟用（已用 --no-keep-awake 關閉）');
+    expect(io.out()).toContain('Workspace ws_status_aaaaaaaaaaaa');
+    expect(io.out()).toContain('Workspace ws_status_bbbbbbbbbbbb');
+    expect(io.out()).toContain(`  Folder: ${dirs.project}\n`);
+    // The same zh-TW words as the host's summary, never the daemon's English reason.
+    expect(io.out()).toContain('  Keep-awake: off (turned off with --no-keep-awake)\n');
     expect(io.out()).not.toContain('disabled');
-    expect(io.out()).toContain(`daemon 行程：${process.pid}`);
+    expect(io.out()).toContain(`  Daemon process: ${process.pid}`);
     // What `smurg host` no longer prints at the start (owner decision 2026-10-01).
-    expect(io.out()).toContain(`  daemon 金鑰指紋：${a.fingerprint}\n`);
-    expect(io.out()).toContain(`  紀錄檔：${join(dirs.stateDir, 'logs', 'ws_status_aaaaaaaaaaaa.log')}\n`);
-    expect(io.out()).toContain('  relay：互動連線 未使用，檔案傳輸 未使用\n');
+    expect(io.out()).toContain(`  Daemon key fingerprint: ${a.fingerprint}\n`);
+    expect(io.out()).toContain(`  Log: ${join(dirs.stateDir, 'logs', 'ws_status_aaaaaaaaaaaa.log')}\n`);
+    expect(io.out()).toContain('  Relay: interactive connection not used, file transfer not used\n');
     // The one switch left (§11 D-13); there is no guest sandbox, no guest login and no main-workspace switch any more.
-    expect(io.out()).toContain('  agent 的 shell 指令通知：開啟\n');
-    for (const gone of ['客人沙盒', '訂閱登入', '主工作區', 'runner']) expect(io.out(), gone).not.toContain(gone);
+    expect(io.out()).toContain("  Notices of agents' shell commands: on\n");
+    for (const gone of ['sandbox', 'subscription', 'main workspace', 'runner']) expect(io.out(), gone).not.toContain(gone);
     const one = testIo({ env });
     expect(await runCli(['status', '--workspace', 'ws_status_nothing000'], one)).toBe(3);
-    expect(one.out()).toContain('沒有正在執行的 smurg host');
+    expect(one.out()).toContain('No smurg host is running for workspace');
   });
 });
 
@@ -75,11 +75,11 @@ describe('smurg stop', () => {
     const daemon = await hostDaemon(dirs, 'ws_stop_cccccccccccccc');
     const io = testIo({ env });
     expect(await runCli(['stop'], io)).toBe(0);
-    expect(io.out()).toContain('已停止分享');
+    expect(io.out()).toContain('Stopped sharing.');
     expect(daemon.status().stopped).toBe(true);
     const again = testIo({ env });
     expect(await runCli(['stop'], again)).toBe(3);
-    expect(again.err()).toContain('沒有正在執行的 smurg host');
+    expect(again.err()).toContain('No smurg host is running');
   });
 
   it('picks the workspace of the current folder; with several running and no hint it asks for --workspace (exit 2)', async () => {
@@ -91,7 +91,7 @@ describe('smurg stop', () => {
     await rememberSharedFolder(statePaths(env), { folder: other, relay: 'http://localhost:8787', workspaceId: 'ws_stop_eeeeeeeeeeeeee', createdAt: 1 });
     const ambiguous = testIo({ env, cwd: dirs.home });
     expect(await runCli(['stop'], ambiguous)).toBe(2);
-    expect(ambiguous.err()).toContain('請用 --workspace 指定');
+    expect(ambiguous.err()).toContain('choose one with --workspace');
     const inFolder = testIo({ env, cwd: other });
     expect(await runCli(['stop'], inFolder)).toBe(0);
     await waitFor(() => b.status().stopped, { what: 'b to stop' });
@@ -105,6 +105,6 @@ describe('smurg stop', () => {
     const { env } = await setup();
     const io = testIo({ env });
     expect(await runCli(['stop', '--workspace', '../etc'], io)).toBe(2);
-    expect(io.err()).toContain('工作區 ID 不正確');
+    expect(io.err()).toContain('Not a workspace ID');
   });
 });

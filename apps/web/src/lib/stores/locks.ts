@@ -11,7 +11,7 @@ export interface LocksState extends Loadable {
 
 export interface LocksStore extends ReadableStore<LocksState> {
   reload(): Promise<void>;
-  /** 「讓 agent 先改」: leave the human lock of `file` (you must be one of its holders). */
+  /** "Let the agent go first": leave the human lock of `file` (you must be one of its holders). */
   release(file: FileRef): Promise<void>;
   /** Host only (`lock.force-release`). */
   forceRelease(file: FileRef): Promise<void>;

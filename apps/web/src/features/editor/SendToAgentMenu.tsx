@@ -1,4 +1,4 @@
-// 「送到 agent」 (SPEC R6): select code → straight into an agent session (the host and 可使用 agent: any session), or, for
+// "Send to agent" (SPEC R6): select code → straight into an agent session (the host and agent access: any session), or, for
 // an editor, as a suggestion to one. The editor only builds the text (file path + line range + code) and dispatches the
 // command; the suggest feature owns the suggestion flow (and the paste).
 import type { FileRef } from '@smurg/protocol';
@@ -6,17 +6,16 @@ import { useImperativeHandle, useRef, type Ref, type RefObject } from 'react';
 import { NoCommandHandlerError } from '../../lib/commands.ts';
 import { describeError } from '../../lib/errors.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
-import { selectSessionList } from '../../lib/stores/sessions.ts';
+import { plainSessionTitle, selectSessionList, sessionTitle } from '../../lib/stores/sessions.ts';
 import { useCapabilities, useCommands, useMember, useStores } from '../../lib/workspace/context.tsx';
 import { Menu, useToast, type MenuItem } from '../../ui/index.ts';
 import { IconAgent, IconEdit, IconLightbulb, IconSend } from '../../ui/icons.tsx';
 import type { EditorHandle } from './engine.ts';
 import { buildSelectionPayload, canSendToAgent, sessionTargets } from './selection.ts';
 import { t } from './strings.ts';
-import { plainSessionTitle } from '../../lib/stores/sessions.ts';
 
 export interface SendToAgentMenuHandle {
-  /** Opens the menu (the editor's context-menu entry 「送到 agent…」). */
+  /** Opens the menu (the editor's context-menu entry "Send to agent…"). */
   open(): void;
 }
 
@@ -68,11 +67,11 @@ export function SendToAgentMenu({ file, hasSelection, editorRef, ref }: SendToAg
     ? [
         ...targets.own.map((session) => ({
           id: `own:${session.id}`,
-          label: t('send.toOwn', { title: session.title }),
+          label: t('send.toOwn', { title: sessionTitle(session) }),
           icon: <IconAgent />,
           onSelect: () => send(session.id),
         })),
-        // Someone else's session: one click sends the suggestion (SPEC R6, review SPEC-08), or it goes into the
+        // Someone else's session: one click sends the suggestion (SPEC R6), or it goes into the
         // composer to add a note first.
         ...targets.others.flatMap((session) => [
           {

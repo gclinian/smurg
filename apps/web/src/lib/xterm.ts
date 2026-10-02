@@ -91,7 +91,7 @@ export interface ViewerTerminal {
 /**
  * Applies a theme, including the background of xterm's scroll viewport: its stylesheet paints `.xterm-viewport` black
  * (for the macOS scrollbar) and xterm never repaints it from the theme, which framed the light terminal in black bars
- * (review WEB-07).
+ *.
  */
 export function applyTerminalTheme(term: Terminal, theme: keyof typeof TERMINAL_THEMES): void {
   const colors = TERMINAL_THEMES[theme];

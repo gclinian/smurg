@@ -1,10 +1,11 @@
-// 「新增 session」 (SPEC R4, R9): kind, where (shared main workspace / my worktree: a new one or one of my kept ones),
-// what the role allows, and the daemon's refusal in plain zh-TW. Shown to the host and to members with 「可使用 agent」;
+// "New session" (SPEC R4, R9): kind, where (shared main workspace / my worktree: a new one or one of my kept ones),
+// what the role allows, and the daemon's refusal in plain words. Shown to the host and to members with agent access;
 // one line says where the session runs: on the host's computer, with the host's Claude account (protocol v2, owner
 // decision 2026-10-01: no guest sandbox, no guest login).
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
 import { shallowEqual, useStore } from '../../lib/store.ts';
+import { sessionTitle } from '../../lib/stores/sessions.ts';
 import { selectRole, selectUserId, selectWorkspaceInfo } from '../../lib/stores/workspace.ts';
 import { selectWorktreeList } from '../../lib/stores/worktrees.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
@@ -58,7 +59,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
   }, [open]);
 
   const keptChoices = options.worktree.kept.map((worktree) => ({ worktree, value: `worktree:${worktree.id}` as WhereChoice }));
-  // The form starts at 「共享主工作區」 (and so does a choice that is gone).
+  // The form starts at "Shared main workspace" (and so does a choice that is gone).
   const where: WhereChoice = effectiveWhere(options, form.where);
 
   const update = (patch: Partial<NewSessionForm>): void => setForm((previous) => ({ ...previous, ...patch }));
@@ -71,7 +72,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
     try {
       const session = await stores.sessions.create(buildCreatePayload(options, { ...form, where }, DEFAULT_TERMINAL_SIZE));
       setForm(INITIAL_FORM);
-      toast.show({ tone: 'success', title: t('new.created', { title: session.title }) });
+      toast.show({ tone: 'success', title: t('new.created', { title: sessionTitle(session) }) });
       onCreated(session);
     } catch (failure) {
       setError(describeSessionError(failure));

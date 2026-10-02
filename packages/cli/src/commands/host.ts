@@ -1,7 +1,7 @@
 // `smurg host <folder> [--relay URL] [--role R] [--expires D] [--max-uses N] [--name N] [--web-origin URL]
 //  [--no-keep-awake] [--no-browser] [--no-bash-attribution]`
 // (SPEC R1, §6, §11; ARCHITECTURE §8): shares a folder from this machine. `--no-bash-attribution` turns off the Bash
-// activity hook (config.activity.attributeBashEdits, §11 D-13). `--role agent` makes the printed link a 「可使用 agent」
+// activity hook (config.activity.attributeBashEdits, §11 D-13). `--role agent` makes the printed link an agent-access
 // invite (§11 D-15: its members open sessions that run as this machine's user, with the host's Claude login).
 //
 // The terminal shows only what the host uses or must act on (owner decision 2026-10-01): the two links. What the
@@ -18,12 +18,12 @@
 //     a one-line notice the host must act on: keep-awake refused at the start;
 //  6. tells the host when the relay link drops or recovers, when the relay refuses the host's login (and picks up a
 //     renewed login from credentials.json without a restart), when that login is about to expire, when a state file
-//     cannot be written (reviews REL-08, CLI-03, CLI-10, REL-14) and when keep-awake is lost (CLI-13);
+//     cannot be written and when keep-awake is lost;
 //  7. adds ONE line under the links when a newer smurg is published (../update/notice.ts: looked up in the background
 //     after the links are printed, at most 2 s, silent on every failure; never in an automated run or with
 //     SMURG_NO_UPDATE_CHECK=1);
 //  8. stops gracefully on Ctrl-C / SIGTERM / SIGHUP or `smurg stop` (another Ctrl-C within 2 s is ignored, a later one
-//     leaves at once; CLI-06).
+//     leaves at once).
 import { createWriteStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
@@ -47,6 +47,7 @@ import {
   type Logger,
   type PowerService,
   type PowerStatus,
+  type ShareErrorReason,
 } from '@smurg/daemon';
 import { INVITE_EXPIRES_IN_SEC_MAX, INVITE_MAX_USES_MAX, type GuestRole } from '@smurg/protocol';
 import { isRelayApiError } from '@smurg/protocol/client';
@@ -65,36 +66,18 @@ import { loadWorkspaces, newWorkspaceId, rememberSharedFolder, sharedFolderFor, 
 import { NativeExtractionError, ensureSeaNative } from '../sea/native.ts';
 import { powerState } from '../cli/power-text.ts';
 import { updateNotice, type UpdateNoticeDeps } from '../update/notice.ts';
-import { say, type CommandContext } from './context.ts';
+import { m, roleText, type MessageId, type Text } from '../i18n/index.ts';
+import type { DurationUnit } from '../i18n/en.ts';
+import { say, tr, type CommandContext } from './context.ts';
 
 /** `smurg host --help`; the --relay default depends on the built-in relay (../relay/default-relay.ts). */
-export function hostUsage(): string {
-  return `用法：smurg host <資料夾> [選項]
-
-  分享這台電腦上的一個專案資料夾，印出兩個連結：你自己的，和給組員的。smurg host 會一直在前景執行，按 Ctrl-C
-  或在另一個終端機執行 smurg stop 停止分享。金鑰指紋、設定與紀錄檔的位置：smurg status。
-  --relay 網址        relay 的網址（${relayDefaultText()}）
-  --role 角色        給組員的連結的角色：agent（可使用 agent）、editor（可編輯，預設）、viewer（旁觀）
-                      可使用 agent 的組員開的 session 以你的身分在這台電腦上執行、用你的 Claude 登入，
-                      也能在任何 session 裡輸入：只給你完全信任的人
-  --expires 期限      給組員的連結的有效期限，例如 30m、12h、7d（預設 7d，最長 365d）
-  --max-uses 次數     給組員的連結可以使用的次數（預設不限）
-  --name 名稱         工作區顯示的名稱（預設：資料夾名稱）
-  --web-origin 網址   連結指向的網頁（預設：relay 本身；本機開發可用 http://localhost:5173）
-  --no-keep-awake     分享期間不防止電腦睡眠
-  --no-browser        需要登入 relay 時不自動開啟瀏覽器，只顯示網址（SMURG_NO_BROWSER=1 也一樣）
-  --no-bash-attribution
-                      agent 執行 shell 指令時不通知 smurg（預設通知）
-
-  分享前必讀：https://smurg.ai/docs/hosting/#4-分享前必讀
-  「可使用 agent」角色與 --no-bash-attribution 的意思與風險：https://smurg.ai/docs/hosting/#5-可使用-agent角色與-agent-的-shell-指令
-`;
+export function hostUsage(): Text {
+  return m('usage.host', { relayDefault: relayDefaultText() });
 }
 
 /** The default of the switch (ARCHITECTURE §11 D-13; the daemon's own default is the same). */
 export const HOST_SWITCH_DEFAULTS = Object.freeze({ attributeBashEdits: true });
 
-const ROLE_NAMES: Readonly<Record<GuestRole, string>> = { agent: '可使用 agent', editor: '可編輯', viewer: '旁觀' };
 const DEFAULT_ROLE: GuestRole = 'editor';
 const DEFAULT_EXPIRES = '7d';
 /** daemon.stop() reason when the summary (the invite link) could not be made; only for the log. */
@@ -102,13 +85,13 @@ const STOP_SUMMARY_FAILED = 'summary-failed';
 const MIN_EXPIRES_SEC = 60;
 /** How often the host command looks at the keep-awake status after the start. */
 const POWER_WATCH_MS = 2_000;
-/** How often the host command re-reads credentials.json for a renewed relay login (reviews REL-08 / CLI-03). */
+/** How often the host command re-reads credentials.json for a renewed relay login. */
 const CREDENTIALS_WATCH_MS = 5_000;
 /** A relay login is renewed before sharing, and the host is reminded while sharing, when it has less left than this. */
 export const HOST_SESSION_MIN_VALIDITY_MS = 24 * 3600_000;
 /** A dropped relay link is told only when it has not come back within this time (brief blips are not news). */
 const LINK_DOWN_NOTICE_MS = 3_000;
-/** After the first Ctrl-C, further ones are ignored this long (the stop is running); later ones leave at once (CLI-06). */
+/** After the first Ctrl-C, further ones are ignored this long (the stop is running); later ones leave at once. */
 const SECOND_SIGNAL_GRACE_MS = 2_000;
 
 /** Test seams for the daemon (the in-memory relay, a test identity issuer, fewer modules, no caffeinate). */
@@ -132,20 +115,20 @@ function isInside(child: string, parent: string): boolean {
   return child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`);
 }
 
-/** The realpath of a folder that may be shared, or a zh-TW refusal. */
+/** The realpath of a folder that may be shared, or a refusal. */
 export async function validateFolder(ctx: CommandContext, folderArg: string): Promise<string> {
   const absolute = resolve(ctx.io.cwd, folderArg);
   let real: string;
   try {
     real = await realpath(absolute);
   } catch {
-    throw usageError(`找不到資料夾：${folderArg}`);
+    throw usageError(m('host.folder.notFound', { folder: folderArg }));
   }
-  if (!(await stat(real)).isDirectory()) throw usageError(`${folderArg} 不是資料夾`);
-  if (real === '/') throw usageError('不能分享整個檔案系統（/），請指定專案資料夾');
+  if (!(await stat(real)).isDirectory()) throw usageError(m('host.folder.notDirectory', { folder: folderArg }));
+  if (real === '/') throw usageError(m('host.folder.root'));
   const home = await realpath(homeDirOf(ctx.io.env)).catch(() => null);
-  if (home !== null && real === home) throw usageError('不能分享整個家目錄，請指定專案資料夾', `例如：smurg host ${join(home, 'my-project')}`);
-  // CLI-04: a folder that CONTAINS a home directory exposes ~/.ssh, ~/.aws, … to every member (the daemon refuses it too).
+  if (home !== null && real === home) throw usageError(m('host.folder.home'), m('host.folder.example', { example: join(home, 'my-project') }));
+  // A folder that CONTAINS a home directory exposes ~/.ssh, ~/.aws, … to every member (the daemon refuses it too).
   const containsHome = home !== null && isInside(home, real);
   let containsHomes = false;
   for (const homes of HOMES_PARENTS) {
@@ -153,11 +136,11 @@ export async function validateFolder(ctx: CommandContext, folderArg: string): Pr
     if (homesReal !== null && isInside(homesReal, real)) containsHomes = true;
   }
   if (containsHome || containsHomes) {
-    throw usageError('不能分享包含家目錄的資料夾', `家目錄裡有 SSH 金鑰、登入資料等私人檔案，組員會全部看得到。請分享專案資料夾本身${home !== null ? `，例如：smurg host ${join(home, 'my-project')}` : ''}`);
+    throw usageError(m('host.folder.containsHome'), m('host.folder.containsHome.hint', home !== null ? { example: join(home, 'my-project') } : {}));
   }
   const stateDir = await realpath(ctx.paths.stateDir).catch(() => resolve(ctx.paths.stateDir));
-  if (isInside(stateDir, real)) throw usageError(`不能分享這個資料夾：smurg 的狀態目錄（${ctx.paths.stateDir}）在它裡面`, '狀態目錄裡有金鑰與登入資料，不能讓組員看到。請分享專案資料夾本身。');
-  if (isInside(real, stateDir)) throw usageError('不能分享 smurg 狀態目錄裡的資料夾');
+  if (isInside(stateDir, real)) throw usageError(m('host.folder.containsState', { stateDir: ctx.paths.stateDir }), m('host.folder.containsState.hint'));
+  if (isInside(real, stateDir)) throw usageError(m('host.folder.insideState'));
   return real;
 }
 
@@ -231,7 +214,7 @@ async function openLog(ctx: CommandContext, workspaceId: string): Promise<{ logg
   try {
     await ensurePrivateDirectory(ctx.paths.logsDir);
   } catch (err) {
-    throw stateProblem(err, '紀錄檔目錄');
+    throw stateProblem(err, 'logs');
   }
   const path = hostLogPath(ctx.paths, workspaceId);
   const stream = createWriteStream(path, { flags: 'a', mode: 0o600 });
@@ -246,62 +229,55 @@ async function openLog(ctx: CommandContext, workspaceId: string): Promise<{ logg
 }
 
 /**
- * A state file the daemon refuses (review F3): written by another smurg version (protocol 2 has no compatibility with
- * earlier state, ARCHITECTURE §11 D-15) or not in the expected format. The daemon logged which file and why; there is
- * no migration: the way forward is a fresh workspace state.
+ * A state file the daemon refuses: written by another smurg version (there is no compatibility with earlier state) or
+ * not in the expected format. The daemon logged which file and why; there is no migration: the way forward is a fresh
+ * workspace state.
  */
 function stateFileProblem(err: unknown, logPath: string, workspaceDir: string): CliError {
-  return new CliError('這個工作區的狀態檔是別的 smurg 版本寫的，或不是預期的格式，daemon 拒絕啟動', {
-    hint:
-      `哪個檔案、什麼原因記在紀錄檔 ${logPath}。\n  ` +
-      `要重新分享：先把 ${workspaceDir} 移到別的地方（例如 mv "${workspaceDir}" "${workspaceDir}.old"），再執行一次 smurg host。` +
-      '這會建立新的工作區狀態：之前的成員和邀請連結都不再有效，組員要用新的邀請連結重新加入。\n  ' +
-      'daemon 金鑰也會換新，加入過的組員會看到「主人的電腦金鑰和之前不同」：請把 smurg status 顯示的新金鑰指紋用其他管道（當面、電話）告訴他們。',
-    cause: err,
-  });
+  return new CliError(m('host.stateFile'), { hint: m('host.stateFile.hint', { logPath, workspaceDir }), cause: err });
 }
+
+/** The daemon's reason codes for a folder it refuses to share (SHARE_ERROR_REASONS in @smurg/daemon). */
+const SHARE_REFUSALS: Readonly<Record<ShareErrorReason, MessageId>> = {
+  'not-found': 'host.share.notFound',
+  'not-a-directory': 'host.share.notDirectory',
+  'filesystem-root': 'host.share.root',
+  'home-directory': 'host.share.home',
+  'contains-home': 'host.folder.containsHome',
+  'contains-homes': 'host.share.containsHomes',
+  'state-dir-inside-share': 'host.share.stateInside',
+  'share-inside-state-dir': 'host.folder.insideState',
+  'smurg-not-a-directory': 'host.share.smurgNotDirectory',
+};
 
 /** A daemon start failure as the person should read it. */
 function daemonProblem(err: unknown, logPath: string, workspaceDir: string): CliError {
   if (err instanceof CliError) return err;
   if (err instanceof ShareError) {
-    const text: Record<string, string> = {
-      'the shared folder does not exist': '找不到要分享的資料夾',
-      'the shared folder is not a directory': '要分享的不是資料夾',
-      'the file system root cannot be shared': '不能分享整個檔案系統',
-      'the whole home directory cannot be shared': '不能分享整個家目錄',
-      'the daemon state directory must not be inside the shared folder': 'smurg 的狀態目錄在要分享的資料夾裡面',
-      'the shared folder must not be inside the daemon state directory': '不能分享 smurg 狀態目錄裡的資料夾',
-      '.smurg in the shared folder is not a directory': '資料夾裡的 .smurg 不是資料夾，請先移走它',
-      'a folder that contains the home directory cannot be shared': '不能分享包含家目錄的資料夾',
-      'a folder that contains the home directories cannot be shared': '不能分享包含使用者家目錄的資料夾',
-    };
-    return new CliError(text[err.message] ?? `無法分享這個資料夾（${err.message}）`, { exitCode: EXIT.usage, cause: err });
+    const text: Text = Object.hasOwn(SHARE_REFUSALS, err.reason) ? { id: SHARE_REFUSALS[err.reason] } : m('host.share.other', { reason: String(err.reason) });
+    return new CliError(text, { exitCode: EXIT.usage, cause: err });
   }
   if (err instanceof ShareLockError) {
-    // CLI-05: one daemon per folder, whatever its relay or state dir (the daemon's lock in <folder>/.smurg).
-    return new CliError(err.reason === 'ancestor-shared' ? '這個資料夾的上層資料夾已經在分享中' : '這個資料夾已經在分享中（可能是另一個 relay 或另一個 smurg 狀態目錄）', {
-      hint: '同一個資料夾同時只能由一個 smurg host 分享。用 smurg status 查看，或先停止另一個分享。',
-      cause: err,
-    });
+    // One daemon per folder, whatever its relay or state dir (the daemon's lock in <folder>/.smurg).
+    return new CliError(m(err.reason === 'ancestor-shared' ? 'host.locked.ancestor' : 'host.locked.shared'), { hint: m('host.locked.hint'), cause: err });
   }
-  if (err instanceof KeyFileError) return stateProblem(err, 'daemon 的金鑰或狀態目錄');
+  if (err instanceof KeyFileError) return stateProblem(err, 'daemon-key');
   if (err instanceof StateFileError) return stateFileProblem(err, logPath, workspaceDir);
-  if (err instanceof SocketPathError) return new CliError('smurg 狀態目錄的路徑太長，Unix socket 放不下', { hint: '請把 SMURG_HOME 設成較短的路徑。', cause: err });
+  if (err instanceof SocketPathError) return new CliError(m('state.socketPathTooLong', { path: workspaceDir }), { hint: m('state.socketPathTooLong.hint'), cause: err });
   const named = err as { name?: unknown; code?: unknown };
   if (named?.name === 'ControlSocketError' && named.code === 'daemon-running') {
-    return new CliError('這個工作區已經有 smurg host 在執行', { hint: '用 smurg status 查看，或 smurg stop 停止。', cause: err });
+    return new CliError(m('host.alreadyRunning'), { hint: m('host.alreadyShared.hint'), cause: err });
   }
-  if (named?.name === 'ControlSocketError') return new CliError('無法建立 daemon 的控制 socket', { hint: `詳細原因請看紀錄檔 ${logPath}`, cause: err });
-  return new CliError(`daemon 無法啟動（${err instanceof Error ? err.name : 'unknown'}）`, { hint: `詳細原因請看紀錄檔 ${logPath}`, cause: err });
+  if (named?.name === 'ControlSocketError') return new CliError(m('host.controlSocket'), { hint: m('host.seeLog', { logPath }), cause: err });
+  return new CliError(m('host.daemonFailed', { name: err instanceof Error ? err.name : 'unknown' }), { hint: m('host.seeLog', { logPath }), cause: err });
 }
 
-/** 「7 天」, 「12 小時」, 「30 分鐘」 (in days rather than weeks: --expires is written in days). */
-function formatDuration(seconds: number): string {
-  if (seconds % 86_400 === 0) return `${seconds / 86_400} 天`;
-  if (seconds % 3600 === 0) return `${seconds / 3600} 小時`;
-  if (seconds % 60 === 0) return `${seconds / 60} 分鐘`;
-  return `${seconds} 秒`;
+/** 7 days, 12 hours, 30 minutes (in days rather than weeks: --expires is written in days). */
+function durationOf(seconds: number): { amount: number; unit: DurationUnit } {
+  if (seconds % 86_400 === 0) return { amount: seconds / 86_400, unit: 'day' };
+  if (seconds % 3600 === 0) return { amount: seconds / 3600, unit: 'hour' };
+  if (seconds % 60 === 0) return { amount: seconds / 60, unit: 'minute' };
+  return { amount: seconds, unit: 'second' };
 }
 
 function formatTime(epochMs: number): string {
@@ -313,15 +289,15 @@ function formatTime(epochMs: number): string {
 function parseRole(text: string | undefined): GuestRole {
   if (text === undefined) return 'editor';
   if (text === 'agent' || text === 'editor' || text === 'viewer') return text;
-  if (text === 'host') throw usageError('邀請連結不能是主人角色（host）', '可用的角色：agent、editor、viewer。');
-  throw usageError(`不認得的角色「${text}」`, '可用的角色：agent（可使用 agent）、editor（可編輯）、viewer（旁觀）。');
+  if (text === 'host') throw usageError(m('host.role.host'), m('host.role.host.hint'));
+  throw usageError(m('host.role.unknown', { role: text }), m('host.role.unknown.hint'));
 }
 
 function parseName(text: string | undefined): string | undefined {
   if (text === undefined) return undefined;
   const trimmed = text.trim();
   // eslint-disable-next-line no-control-regex
-  if (trimmed.length === 0 || trimmed.length > 80 || /[\u0000-\u001f\u007f-\u009f]/.test(trimmed)) throw usageError('--name 必須是 1 到 80 個字元、不含控制字元');
+  if (trimmed.length === 0 || trimmed.length > 80 || /[\u0000-\u001f\u007f-\u009f]/.test(trimmed)) throw usageError(m('host.name.invalid'));
   return trimmed;
 }
 
@@ -339,7 +315,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
       'bash-attribution': { kind: 'boolean' },
       help: { kind: 'boolean', short: 'h' },
     },
-    positionals: ['資料夾'],
+    positionals: [m('arg.folder')],
     minPositionals: 1,
   });
   if (args.options['help']) {
@@ -348,10 +324,12 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   }
   const { io } = ctx;
   const role = parseRole(stringOption(args, 'role'));
-  const expiresInSec = parseDuration(stringOption(args, 'expires') ?? DEFAULT_EXPIRES, '--expires 的期限');
-  if (expiresInSec < MIN_EXPIRES_SEC || expiresInSec > INVITE_EXPIRES_IN_SEC_MAX) throw usageError('--expires 必須在 1 分鐘到 365 天之間');
+  const expiresText = stringOption(args, 'expires') ?? DEFAULT_EXPIRES;
+  const expiresInSec = parseDuration(expiresText);
+  if (expiresInSec === null) throw usageError(m('host.expires.unreadable', { text: expiresText }), m('host.expires.unreadable.hint'));
+  if (expiresInSec < MIN_EXPIRES_SEC || expiresInSec > INVITE_EXPIRES_IN_SEC_MAX) throw usageError(m('host.expires.range'));
   const maxUsesText = stringOption(args, 'max-uses');
-  const maxUses = maxUsesText === undefined ? undefined : parseCount(maxUsesText, '--max-uses ', 1, INVITE_MAX_USES_MAX);
+  const maxUses = maxUsesText === undefined ? undefined : parseMaxUses(maxUsesText);
   const name = parseName(stringOption(args, 'name'));
   const keepAwake = booleanOption(args, 'keep-awake') !== false;
   // ARCHITECTURE §11 D-13: on unless the host switches it off (`--no-bash-attribution`; `--x --no-x` is refused).
@@ -359,7 +337,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   const webOriginFlag = stringOption(args, 'web-origin');
   // The same rule as for a relay: https, or http on a local hostname (the link carries the invite secret).
   const webOrigin =
-    webOriginFlag === undefined ? undefined : relayOriginOf(webOriginFlag, '--web-origin', '網頁網址只能是 https 的網站根網址（本機開發可用 http://localhost:5173）。');
+    webOriginFlag === undefined ? undefined : relayOriginOf(webOriginFlag, 'web-origin');
   const folder = await validateFolder(ctx, args.positionals[0] as string);
 
   const origin = pickRelay(stringOption(args, 'relay'), io, await loadCredentials(ctx.paths)).origin;
@@ -367,7 +345,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   const workspaceId = existing?.workspaceId ?? newWorkspaceId();
   // Before any login: a folder that is already shared needs no browser.
   if (await daemonAt(ctlPathFor(ctx.paths, workspaceId))) {
-    throw new CliError('這個資料夾已經在分享中', { hint: '用 smurg status 查看，或 smurg stop 停止。' });
+    throw new CliError(m('host.alreadyShared'), { hint: m('host.alreadyShared.hint') });
   }
   await refuseOverlappingShare(ctx, folder);
   // No notice for the built-in relay here (owner decision 2026-10-01: the start shows only the links): a login names
@@ -381,9 +359,9 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     await relayApi(io, origin, { kind: 'bearer', token: session.token }).claimWorkspace(workspaceId);
   } catch (err) {
     if (isRelayApiError(err) && err.status === 409) {
-      throw new CliError(`工作區 ID ${workspaceId} 已被 relay 上的其他帳號使用`, { hint: `這個資料夾之前是用別的帳號分享的；目前登入的是 ${user.displayName}（${user.userId}）。` });
+      throw new CliError(m('host.workspaceTaken', { workspaceId }), { hint: m('host.workspaceTaken.hint', { name: user.displayName, userId: user.userId }) });
     }
-    throw relayProblem(err, origin, '建立工作區');
+    throw relayProblem(err, origin, 'claim');
   }
   if (!existing) await rememberSharedFolder(ctx.paths, { folder, relay: origin, workspaceId, createdAt: io.now() });
 
@@ -392,7 +370,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   try {
     ensureSeaNative();
   } catch (err) {
-    if (err instanceof NativeExtractionError) throw new CliError(`smurg 執行檔內建的原生模組無法使用（${err.message}）`, { hint: '請確認快取目錄可以寫入（可用 SMURG_CACHE_DIR 指定），或重新下載 smurg。', cause: err });
+    if (err instanceof NativeExtractionError) throw new CliError(m('host.native', { reason: err.message }), { hint: m('host.native.hint'), cause: err });
     throw err;
   }
   const log = await openLog(ctx, workspaceId);
@@ -436,30 +414,30 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   });
   const onSignal = (signal: CliSignal): void => {
     if (stopping !== null) {
-      // CLI-06: a double Ctrl-C is usually one impatient key press; leaving in the middle of ending the sessions'
+      // A double Ctrl-C is usually one impatient key press; leaving in the middle of ending the sessions'
       // processes is what can leave them stopped. Only a later Ctrl-C leaves at once.
       if (io.now() - stopStartedAt < SECOND_SIGNAL_GRACE_MS) {
-        say(ctx, '正在停止分享（結束 session、清理暫存目錄），請稍候…');
+        say(ctx, m('host.stopping.wait'));
         return;
       }
-      say(ctx, '\n再次收到中斷訊號，立即結束（daemon 可能沒有完整停止）。');
+      say(ctx, m('host.stopping.again'));
       io.exit(EXIT.interrupted);
       return;
     }
     stopStartedAt = io.now();
     stopping = { source: 'signal', reason: signal };
-    say(ctx, `\n收到 ${signal}，正在停止分享…`);
+    say(ctx, m('host.stopping.signal', { signal }));
     wake();
   };
   const unsubscribe = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((signal) => io.onSignal(signal, () => onSignal(signal)));
   // Stops are told apart by what this command knows, never by the reason text (verification F-2: anyone who reaches
   // the control socket used to choose it, and 'start-failed' / 'summary-failed' passed for this command's own stops,
-  // so the daemon stopped while the host's terminal still said 「按 Ctrl-C 停止分享」). Every daemon stop this command
+  // so the daemon stopped while the host's terminal still said to press Ctrl-C). Every daemon stop this command
   // did not start itself is a stop request; while the daemon is still starting it is told once the start returned (a
   // failed start stops the daemon too, and that failure is reported instead).
   let selfStop = false;
   let starting = true;
-  const announceControlStop = (): void => say(ctx, '\n收到停止要求（smurg stop），正在停止分享…');
+  const announceControlStop = (): void => say(ctx, m('host.stopping.control'));
   const stoppingListener = daemon.ctx.bus.on('daemon.stopping', () => {
     if (stopping !== null || selfStop) return;
     stopping = { source: 'control', reason: 'control' };
@@ -498,24 +476,24 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
       selfStop = true;
       await daemon.stop(STOP_SUMMARY_FAILED).catch(() => {});
       await cleanup();
-      throw err instanceof CliError ? err : new CliError('無法建立邀請連結', { cause: err });
+      throw err instanceof CliError ? err : new CliError(m('host.inviteFailed'), { cause: err });
     }
     // Keep-awake the system refused at the start (polkit over SSH, no systemd-inhibit): one line, after the links.
     // Switched off with --no-keep-awake (reason 'disabled') is the host's own choice: nothing to tell.
     const startPower = daemon.status().power;
-    if (!startPower.active && startPower.reason !== 'disabled') say(ctx, `\n${keepAwakeNotice(startPower)}`);
+    if (!startPower.active && startPower.reason !== 'disabled') say(ctx, m('host.keepAwake.notice', { state: powerState(startPower) }));
     // Keep-awake that is lost later (the inhibitor exited, e.g. no logind session) is told here, not only in the log.
     let keptAwake = startPower.active;
     powerWatch = setInterval(() => {
       const power = daemon.status().power;
-      if (keptAwake && !power.active && stopping === null) say(ctx, `\n⚠ 防止睡眠已失效：${powerState(power)}。電腦睡眠時組員會看到「主人已離線」。`);
+      if (keptAwake && !power.active && stopping === null) say(ctx, m('host.keepAwake.lost', { state: powerState(power) }));
       keptAwake = power.active;
     }, POWER_WATCH_MS);
     powerWatch.unref?.();
     relayWatch = watchRelay(ctx, daemon, { origin, userId: user.userId, session }, () => stopping !== null, deps.credentialsWatchMs ?? CREDENTIALS_WATCH_MS);
     // A newer version: one line under the links, whenever the answer comes (never awaited: the start is not delayed).
     void updateNotice(io, updateCheck.signal, deps.update).then((line) => {
-      if (line !== null && stopping === null) say(ctx, `\n${line}`);
+      if (line !== null && stopping === null) say(ctx, `\n${tr(ctx, line)}`);
     });
     deps.onReady?.(daemon);
   }
@@ -525,12 +503,12 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   if (how.source === 'signal') await daemon.stop(how.reason);
   else await power.released; // daemon.stop() is already running (started from the control socket); keep-awake is its last step
   await cleanup();
-  say(ctx, '已停止分享。');
+  say(ctx, m('host.stopped'));
   return EXIT.ok;
 }
 
 /**
- * CLI-05: a folder inside, or around, a folder that a running `smurg host` of this state dir shares, whatever the
+ * A folder inside, or around, a folder that a running `smurg host` of this state dir shares, whatever the
  * relay. The daemon's own lock (`<folder>/.smurg/daemon-lock.json`) also covers other state dirs sharing the same
  * folder or one of its ancestors.
  */
@@ -543,11 +521,11 @@ async function refuseOverlappingShare(ctx: CommandContext, folder: string): Prom
       if (!isInside(folder, entry.folder) && !isInside(entry.folder, folder)) continue;
       const what =
         entry.folder === folder
-          ? '這個資料夾已經在分享中'
+          ? m('host.overlap.same')
           : isInside(folder, entry.folder)
-            ? `這個資料夾的上層資料夾（${entry.folder}）已經在分享中`
-            : `這個資料夾裡的 ${entry.folder} 已經在分享中`;
-      throw new CliError(what, { hint: `同一份檔案同時只能由一個 smurg host 分享（工作區 ${daemon.status.workspaceId}，relay ${entry.relay}）。用 smurg status 查看，或先用 smurg stop --workspace ${daemon.status.workspaceId} 停止它。` });
+            ? m('host.overlap.ancestor', { folder: entry.folder })
+            : m('host.overlap.inside', { folder: entry.folder });
+      throw new CliError(what, { hint: m('host.overlap.hint', { workspaceId: daemon.status.workspaceId, relay: entry.relay }) });
     }
   }
 }
@@ -559,7 +537,7 @@ interface RelayWatchTarget {
 }
 
 /**
- * Reviews REL-08 / CLI-03 / CLI-10 / REL-14: what the daemon only logged is told on the host's terminal — the relay
+ * What the daemon only logged is told on the host's terminal — the relay
  * link dropping and coming back, the relay refusing the host's login (members cannot connect until the host logs in
  * again), a login that is about to expire, and a state file the disk refuses. A renewed login (`smurg login` in another
  * terminal writes credentials.json) is handed to the running daemon (Daemon.updateRelayToken): no restart, no new links.
@@ -571,8 +549,7 @@ export function watchRelay(ctx: CommandContext, daemon: Daemon, target: RelayWat
   let otherAccountWarned: string | null = null;
   let shown: 'online' | 'down' | 'auth' = 'online';
   let downTimer: ReturnType<typeof setTimeout> | undefined;
-  const loginHint = `smurg login --relay ${target.origin}`;
-  const tell = (text: string): void => {
+  const tell = (text: Text): void => {
     if (!stopped()) say(ctx, text);
   };
   const cancelDownNotice = (): void => {
@@ -583,20 +560,18 @@ export function watchRelay(ctx: CommandContext, daemon: Daemon, target: RelayWat
     if (purpose !== 'interactive') return; // the transfer link follows the same login and network: one notice is enough
     if (state === 'online') {
       cancelDownNotice();
-      if (shown !== 'online') tell('✓ 已重新連上 relay，組員可以再次連線。');
+      if (shown !== 'online') tell(m('host.relay.back'));
       shown = 'online';
     } else if (state === 'auth-rejected') {
       cancelDownNotice();
-      if (shown !== 'auth') {
-        tell(`\n⚠ relay 拒絕了這台電腦的登入（登入已過期或已失效），組員目前無法連線。\n  請在另一個終端機執行 ${loginHint}；smurg host 會自動改用新的登入並重新連線，不必重新分享。`);
-      }
+      if (shown !== 'auth') tell(m('host.relay.authRejected', { origin: target.origin }));
       shown = 'auth';
     } else if (state === 'waiting' && shown === 'online' && downTimer === undefined) {
       downTimer = setTimeout(() => {
         downTimer = undefined;
         if (shown !== 'online') return;
         shown = 'down';
-        tell('\n⚠ 與 relay 的連線中斷，組員暫時無法連線；正在自動重新連線…');
+        tell(m('host.relay.down'));
       }, LINK_DOWN_NOTICE_MS);
       downTimer.unref?.();
     }
@@ -607,14 +582,9 @@ export function watchRelay(ctx: CommandContext, daemon: Daemon, target: RelayWat
     if (!ok) {
       const first = unsaved.size === 0;
       unsaved.add(document);
-      if (first) {
-        tell(
-          '\n⚠ 無法寫入 smurg 的狀態檔（磁碟已滿或沒有權限？）。剛才的變更（例如踢人、改角色、撤銷邀請）現在有效，' +
-            '但在寫入成功之前停止分享的話，重新啟動後會消失；smurg 會持續重試。',
-        );
-      }
+      if (first) tell(m('host.state.unsaved'));
     } else if (unsaved.delete(document) && unsaved.size === 0) {
-      tell('✓ smurg 的狀態檔已重新寫入成功。');
+      tell(m('host.state.saved'));
     }
   });
   let busy = false;
@@ -632,19 +602,19 @@ export function watchRelay(ctx: CommandContext, daemon: Daemon, target: RelayWat
       if (stored !== undefined && stored.token !== token && stored.expiresAt > now) {
         if (stored.userId !== target.userId) {
           // The workspace belongs to the account that claimed it: another account's token would be refused anyway.
-          if (otherAccountWarned !== stored.token) tell(`\n⚠ ${target.origin} 的新登入是另一個帳號（${stored.displayName}），這個工作區屬於原本的帳號，smurg host 不會改用它。`);
+          if (otherAccountWarned !== stored.token) tell(m('host.login.otherAccount', { origin: target.origin, name: stored.displayName }));
           otherAccountWarned = stored.token;
         } else {
           token = stored.token;
           expiresAt = stored.expiresAt;
           expiryWarned = false;
           daemon.updateRelayToken(token);
-          tell('已改用新的 relay 登入。');
+          tell(m('host.login.renewed'));
         }
       }
       if (!expiryWarned && expiresAt - now < HOST_SESSION_MIN_VALIDITY_MS) {
         expiryWarned = true;
-        tell(`\n⚠ relay 的登入將在 ${formatTime(expiresAt)} 到期，到期後組員無法連線。請在另一個終端機執行 ${loginHint}；smurg host 會自動改用新的登入。`);
+        tell(m('host.login.expiring', { time: formatTime(expiresAt), origin: target.origin }));
       }
     })().finally(() => {
       busy = false;
@@ -661,17 +631,9 @@ export function watchRelay(ctx: CommandContext, daemon: Daemon, target: RelayWat
   };
 }
 
-/** Keep-awake that is not in force although the host did not switch it off (linux-binary F5): one line. */
-function keepAwakeNotice(status: PowerStatus): string {
-  return `⚠ 防止睡眠：${powerState(status)}。電腦睡眠時組員會看到「主人已離線」。`;
-}
-
-/** 「給組員的連結（用私訊傳給他們，7 天內有效）：」: the expiry always, the use limit and the role only when chosen. */
-export function inviteHeading(role: GuestRole, expiresInSec: number, maxUses: number | undefined): string {
-  const terms = ['用私訊傳給他們', `${formatDuration(expiresInSec)}內有效`];
-  if (maxUses !== undefined) terms.push(`可以使用 ${maxUses} 次`);
-  if (role !== DEFAULT_ROLE) terms.push(`角色：${ROLE_NAMES[role]}`);
-  return `給組員的連結（${terms.join('，')}）：`;
+/** "Link for your teammates (...):": the expiry always, the use limit and the role only when chosen. */
+export function inviteHeading(role: GuestRole, expiresInSec: number, maxUses: number | undefined): Text {
+  return m('host.invite.heading', { ...durationOf(expiresInSec), ...(maxUses !== undefined ? { maxUses } : {}), ...(role !== DEFAULT_ROLE ? { role: roleText(role) } : {}) });
 }
 
 /**
@@ -681,21 +643,23 @@ export function inviteHeading(role: GuestRole, expiresInSec: number, maxUses: nu
  */
 function printSummary(ctx: CommandContext, daemon: Daemon, s: { role: GuestRole; expiresInSec: number; maxUses: number | undefined; userId: string }): void {
   const principal = daemon.ctx.members.principalOf(s.userId);
-  if (!principal) throw new CliError('找不到主人的成員資料，無法建立邀請連結');
+  if (!principal) throw new CliError(m('host.noHostMember'));
   const { url } = daemon.ctx.invites.create({ role: s.role, expiresInSec: s.expiresInSec, ...(s.maxUses !== undefined ? { maxUses: s.maxUses } : {}) }, principal);
   say(
     ctx,
-    [
-      '',
-      `smurg 正在分享「${daemon.ctx.workspace.info.name}」`,
-      '',
-      '你的連結（只給你自己用）：',
-      `  ${daemon.hostInviteUrl ?? '（無法建立）'}`,
-      '',
-      inviteHeading(s.role, s.expiresInSec, s.maxUses),
-      `  ${url}`,
-      '',
-      '按 Ctrl-C 停止分享。',
-    ].join('\n'),
+    m('host.summary', {
+      name: daemon.ctx.workspace.info.name,
+      ...(daemon.hostInviteUrl !== undefined && daemon.hostInviteUrl !== null ? { hostUrl: daemon.hostInviteUrl } : {}),
+      inviteHeading: inviteHeading(s.role, s.expiresInSec, s.maxUses),
+      inviteUrl: url,
+    }),
   );
+}
+
+/** --max-uses: a whole number within the protocol's range. */
+function parseMaxUses(text: string): number {
+  const value = parseCount(text);
+  if (value === null) throw usageError(m('host.maxUses.notInteger', { text }));
+  if (value < 1 || value > INVITE_MAX_USES_MAX) throw usageError(m('host.maxUses.range', { min: 1, max: INVITE_MAX_USES_MAX }));
+  return value;
 }

@@ -8,6 +8,7 @@ import type { EventHandler, EventMeta, InteractiveEventType, InteractiveNotifyTy
 import { CTL_FRAME_KIND, CtlFrameDecoder, encodeCtlControl, encodeCtlFrame, parseCtlResponse, type CtlRequest, type CtlResponse } from '@smurg/daemon';
 import { CliError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
+import { m, wireError } from '../i18n/index.ts';
 import { closedMessage, type ChannelEnd, type ChannelStatus, type WorkspaceChannel } from './channel.ts';
 
 const CONNECT_TIMEOUT_MS = 5_000;
@@ -21,7 +22,7 @@ function connect(path: string, timeoutMs: number): Promise<Socket> {
     const socket = createConnection({ path });
     const timer = setTimeout(() => {
       socket.destroy();
-      reject(new CliError('smurg host 沒有回應（控制 socket 連線逾時）'));
+      reject(new CliError(m('ctl.connectTimeout')));
     }, timeoutMs);
     socket.once('connect', () => {
       clearTimeout(timer);
@@ -30,8 +31,8 @@ function connect(path: string, timeoutMs: number): Promise<Socket> {
     });
     socket.once('error', (err: NodeJS.ErrnoException) => {
       clearTimeout(timer);
-      if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED') reject(new CliError('這個工作區沒有正在執行的 smurg host', { exitCode: EXIT.notRunning }));
-      else reject(new CliError(`無法連線到 smurg host 的控制 socket（${err.code ?? 'unknown'}）`));
+      if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED') reject(new CliError(m('ctl.notRunning'), { exitCode: EXIT.notRunning }));
+      else reject(new CliError(m('ctl.connectFailed', { code: err.code ?? 'unknown' })));
     });
   });
 }
@@ -50,26 +51,26 @@ function readResponse(socket: Socket, decoder: CtlFrameDecoder, timeoutMs: numbe
       socket.destroy();
       reject(err);
     };
-    const timer = setTimeout(() => fail(new CliError('smurg host 沒有回應（控制請求逾時）')), timeoutMs);
+    const timer = setTimeout(() => fail(new CliError(m('ctl.requestTimeout'))), timeoutMs);
     const onData = (chunk: Buffer): void => {
       let frames;
       try {
         frames = decoder.push(new Uint8Array(chunk));
       } catch {
-        fail(new CliError('smurg host 的回應格式不正確'));
+        fail(new CliError(m('ctl.badResponse')));
         return;
       }
       if (frames.length === 0) return;
       const [first, ...rest] = frames;
       if (!first || first.kind !== CTL_FRAME_KIND.control) {
-        fail(new CliError('smurg host 的回應格式不正確'));
+        fail(new CliError(m('ctl.badResponse')));
         return;
       }
       let response: CtlResponse;
       try {
         response = parseCtlResponse(first.body);
       } catch {
-        fail(new CliError('smurg host 的回應格式不正確'));
+        fail(new CliError(m('ctl.badResponse')));
         return;
       }
       cleanup();
@@ -78,7 +79,7 @@ function readResponse(socket: Socket, decoder: CtlFrameDecoder, timeoutMs: numbe
       onRest(rest.map((f) => f.body));
       resolve(response);
     };
-    const onClose = (): void => fail(new CliError('smurg host 在回應前關閉了連線'));
+    const onClose = (): void => fail(new CliError(m('ctl.closedEarly')));
     const onError = (): void => undefined;
     socket.on('data', onData);
     socket.once('close', onClose);
@@ -128,7 +129,7 @@ export class LocalWorkspaceChannel implements WorkspaceChannel {
     this.welcome = welcome;
     socket.on('data', (chunk: Buffer) => this.onData(new Uint8Array(chunk)));
     socket.on('error', () => undefined);
-    socket.on('close', () => this.finish(this.closedReason === null ? { reason: 'disconnected', message: '與 smurg host 的連線中斷了。' } : { reason: endReason(this.closedReason), message: closedMessage(this.closedReason) }));
+    socket.on('close', () => this.finish(this.closedReason === null ? { reason: 'disconnected', message: m('ctl.disconnected') } : { reason: endReason(this.closedReason), message: closedMessage(this.closedReason) }));
     socket.resume();
   }
 
@@ -142,8 +143,8 @@ export class LocalWorkspaceChannel implements WorkspaceChannel {
       const response = await readResponse(socket, decoder, RESPONSE_TIMEOUT_MS, (r) => {
         rest = r;
       });
-      if (!response.ok) throw new CliError(`smurg host 拒絕了連線：${response.error.message}`);
-      if (response.op !== 'attach') throw new CliError('smurg host 的回應格式不正確');
+      if (!response.ok) throw new CliError(m('ctl.attachRefused', { reason: wireError(response.error) }));
+      if (response.op !== 'attach') throw new CliError(m('ctl.badResponse'));
       const channel = new LocalWorkspaceChannel(socket, decoder, response.welcome);
       for (const body of rest) channel.onEnvelope(body);
       return channel;
@@ -162,7 +163,7 @@ export class LocalWorkspaceChannel implements WorkspaceChannel {
         timeoutMs > 0
           ? setTimeout(() => {
               this.pending.delete(id);
-              reject(new CliError(`smurg host 沒有回應（${type}）`));
+              reject(new CliError(m('ctl.noAnswer', { type })));
             }, timeoutMs)
           : undefined;
       this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer });

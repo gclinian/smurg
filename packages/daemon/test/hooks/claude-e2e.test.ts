@@ -16,6 +16,7 @@ import { MAIN_ROOT, type FileRef } from '@smurg/protocol';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { DaemonEvents } from '../../src/core/interfaces.ts';
 import { buildSessionSettings, writePrivateJson } from '../../src/hooks/settings-writer.ts';
+import { agentHeldReason, humanHeldReason } from '../../src/hooks/deny-text.ts';
 import { TEST_HOST_USER } from '../../src/testing/index.ts';
 import { findClaude, isolatedEnv, MOCK_API_KEY, runClaude, seedClaudeTrust, startClaudeDaemon, type ClaudeDaemon, type ClaudeRun } from './claude-harness.ts';
 import { registerAgent } from './helpers.ts';
@@ -31,7 +32,7 @@ const HOST = { userId: TEST_HOST_USER, name: 'Host' };
 const IAN = { userId: 'dev:ian', name: 'Ian' };
 const LOCKED = 'hello from Amy\n';
 const FREE = 'free text\n';
-const HOLDER_REASON = '此檔案正由 Amy 編輯中，請先處理其他檔案或稍後再試';
+const HOLDER_REASON = humanHeldReason(['Amy']);
 const main = (path: string): FileRef => ({ root: MAIN_ROOT, path });
 
 describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthropic API)`, () => {
@@ -40,7 +41,7 @@ describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthr
 
   beforeAll(async () => {
     env = await startClaudeDaemon({ 'locked.txt': LOCKED, 'free.txt': FREE, 'notes/readme.md': '# notes\n' });
-    // Ian (a 「可使用 agent」 member) opens the sessions; the lock manager says Amy is typing in locked.txt.
+    // Ian (a Agent access member) opens the sessions; the lock manager says Amy is typing in locked.txt.
     env.daemon.ctx.members.admitMember({ userId: IAN.userId, displayName: IAN.name, role: 'agent', at: Date.now() });
     env.fakes.locks.holdHuman(main('locked.txt'), 'Amy');
   });
@@ -118,7 +119,7 @@ describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthr
   const readBoth = (): MockStep => ({ tools: [{ name: 'Read', input: { file_path: path('locked.txt') } }, { name: 'Read', input: { file_path: path('free.txt') } }] });
   const editLocked = (): MockStep => ({ tools: [{ name: 'Edit', input: { file_path: path('locked.txt'), old_string: 'hello', new_string: 'HACKED' } }] });
 
-  it(`SPEC §13 / R8.1: PreToolUse 回傳 deny 能確實擋下 Edit 工具 — 有人正在打字的檔案，agent 的 Edit 被擋下，並收到持有者的名字 (${V})`, async () => {
+  it(`SPEC §13 / R8.1: a PreToolUse deny really stops the Edit tool — an agent's Edit of a file someone is typing in is blocked and names the holder (${V})`, async () => {
     await resetFiles();
     const pres = capture('agent.tool.pre');
     const posts = capture('agent.tool.post');
@@ -153,16 +154,16 @@ describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthr
     expect(agentLocksAtExit).toEqual([]);
   }, 180_000);
 
-  it(`R8: 兩個 agent 同時修改同一個檔案時，後到者被擋下 — the second agent's real Edit is refused and names the first (${V})`, async () => {
+  it(`R8: when two agents change the same file at once the later one is blocked — the second agent's real Edit is refused and names the first (${V})`, async () => {
     await resetFiles();
     const first = registerAgent(env.hooks, HOST);
-    expect(env.fakes.locks.requestAgent({ file: main('free.txt'), sessionId: first.sessionId, ownerUserId: HOST.userId, agentName: 'Claude（Host）', sessionRoot: MAIN_ROOT }).granted).toBe(true);
+    expect(env.fakes.locks.requestAgent({ file: main('free.txt'), sessionId: first.sessionId, ownerUserId: HOST.userId, agentName: 'Claude (Host)', sessionRoot: MAIN_ROOT }).granted).toBe(true);
     try {
       const { mock } = await run('two-agents', [readBoth(), { tools: [{ name: 'Edit', input: { file_path: path('free.txt'), old_string: 'free', new_string: 'SECOND' } }] }, { text: 'DONE' }]);
       expect(await read('free.txt')).toBe(FREE);
       const denied = toolResult(mock, 3);
       expect(denied.isError).toBe(true);
-      expect(denied.text).toContain('此檔案正由 Claude（Host）修改中');
+      expect(denied.text).toContain(agentHeldReason('Claude (Host)'));
     } finally {
       env.fakes.locks.releaseAllForSession(first.sessionId, 'stop');
       env.hooks.unregisterSession(first.sessionId);

@@ -1,5 +1,5 @@
-// How a session is described in the panel: who opened it, kind, status, where it runs (SPEC R11 「狀態、擁有者、所在
-// worktree」), plus the zh-TW explanation of a failed session request. Every session runs as the host (protocol v2):
+// How a session is described in the panel: who opened it, kind, status, where it runs (SPEC R11 "status, owner, its
+// worktree"), plus the explanation of a failed session request. Every session runs as the host (protocol v2):
 // the person shown is the one who OPENED it.
 import { errorReasonOf, isSmurgError, type LoginState, type SessionInfo, type WorktreeInfo } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -7,8 +7,8 @@ import { plainSessionTitle } from '../../lib/stores/sessions.ts';
 import { worktreeLabel } from '../../lib/stores/worktrees.ts';
 import { t } from './strings.ts';
 
-/** 「Claude（Amy 開的）」: the name, then who opened it, once. */
-export function tabLabel(session: Pick<SessionInfo, 'title' | 'ownerName'>): string {
+/** "Claude (Amy)": the name, then who opened it, once. */
+export function tabLabel(session: Pick<SessionInfo, 'kind' | 'title' | 'ownerName'>): string {
   return t('tab.label', { title: plainSessionTitle(session), owner: session.ownerName });
 }
 
@@ -28,7 +28,7 @@ export function statusLabel(session: Pick<SessionInfo, 'status' | 'exitCode' | '
     case 'running':
       return t('status.running');
     case 'exited':
-      // Review WEB-12: a session the host terminated (or that ended because the person who opened it was removed,
+      // A session the host terminated (or that ended because the person who opened it was removed,
       // left, lost the right to open sessions, or the host stopped sharing) must not read like a normal exit.
       switch (session.endReason) {
         case 'terminated':
@@ -48,10 +48,10 @@ export function statusLabel(session: Pick<SessionInfo, 'status' | 'exitCode' | '
 }
 
 /**
- * 「主工作區」 or 「王小明的 worktree（加測試）」 (review WEB-18: not the branch id; `branchOf` gives it for a tooltip). The
+ * "Main workspace" or "Amy's worktree (add tests)" (not the branch id; `branchOf` gives it for a tooltip). The
  * id only when the worktree is not known to this client.
  */
-export function whereLabel(session: Pick<SessionInfo, 'root' | 'title' | 'ownerName'>, worktrees: ReadonlyMap<string, WorktreeInfo>, selfUserId: string | null = null): string {
+export function whereLabel(session: Pick<SessionInfo, 'kind' | 'root' | 'title' | 'ownerName'>, worktrees: ReadonlyMap<string, WorktreeInfo>, selfUserId: string | null = null): string {
   if (session.root.kind === 'main') return t('where.main');
   const worktree = worktrees.get(session.root.worktreeId);
   return worktree ? worktreeLabel(worktree, { selfUserId, name: plainSessionTitle(session) }) : t('where.worktree', { branch: session.root.worktreeId });
@@ -62,9 +62,14 @@ export function branchOf(session: Pick<SessionInfo, 'root'>, worktrees: Readonly
   return session.root.kind === 'worktree' ? worktrees.get(session.root.worktreeId)?.branch : undefined;
 }
 
-/** 「Amy 開的」, or 「你開的」 for the member's own. */
+/** The summary line's short form: "By Amy", or "By you" for the member's own. */
 export function openedByLabel(session: Pick<SessionInfo, 'ownerName' | 'ownerUserId'>, selfUserId: string | null): string {
   return session.ownerUserId === selfUserId ? t('owner.you') : t('owner.other', { name: session.ownerName });
+}
+
+/** The value of the details row "Opened by": the person's name, or "You". */
+export function openerName(session: Pick<SessionInfo, 'ownerName' | 'ownerUserId'>, selfUserId: string | null): string {
+  return session.ownerUserId === selfUserId ? t('owner.self') : session.ownerName;
 }
 
 /** What a re-check of the login says, against the session.login value it was made for. */
@@ -89,13 +94,13 @@ const REASON_HINTS: Readonly<Record<string, Parameters<typeof t>[0]>> = {
 
 export interface SessionErrorView {
   readonly title: string;
-  /** The daemon's own zh-TW message or a generic one. */
+  /** The daemon's own message (in the viewer's language) or a generic one. */
   readonly message: string;
   /** What to do next, when we know more than the message says. */
   readonly hint?: string;
 }
 
-/** A failed session.create (or another session request) in plain zh-TW. */
+/** A failed session.create (or another session request) in plain words. */
 export function describeSessionError(error: unknown): SessionErrorView {
   if (isSmurgError(error)) {
     if (error.code === 'forbidden') return { title: t('error.create'), message: t('error.forbidden') };
