@@ -441,8 +441,12 @@ smurg host ~/projects/my-app</code></pre>
     <div class="faq">
       <div>
         <h3>Do I need Node.js?</h3>
-        <p>No. The installer downloads a single executable built for your computer; installing it needs no sudo, and to upgrade you run the same line again. Teammates who join in a browser install nothing.</p>
+        <p>No. The installer downloads a single executable built for your computer; installing it needs no sudo. Teammates who join in a browser install nothing.</p>
         <p>The macOS executable has only an ad-hoc signature, not an Apple Developer ID. Install it with the line above: after checking the SHA-256, the installer removes the quarantine flag. A copy downloaded with a browser is blocked by Gatekeeper.</p>
+      </div>
+      <div>
+        <h3>How do I update or remove it?</h3>
+        <p><code>smurg update</code> replaces the executable with the newest version, after the same SHA-256 check (stop sharing first). <code>smurg uninstall</code> lists what it will remove, then removes the executable, its cache and <code>~/.smurg</code>; the <code>.smurg/</code> folders inside your projects are left to you. Version 0.2.0 has neither command: run the install line again to update it.</p>
       </div>
       <div>
         <h3>What does the relay see?</h3>

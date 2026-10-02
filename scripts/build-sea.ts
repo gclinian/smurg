@@ -38,7 +38,8 @@
 //     and the download URL of the Node.js release it is a copy of (only a warning when --node is not a release build).
 //  6. Smoke test (unless --no-smoke): packages/cli/test/sea.test.ts runs the binary: --version, NODE_OPTIONS ignored,
 //     `smurg hook` / `smurg mcp` (start-up time), login + host + a terminal session through `smurg attach` in a real
-//     PTY, and `smurg stop`.
+//     PTY, and `smurg stop`; packages/cli/test/sea-update.test.ts lets a COPY of it in a scratch HOME update itself
+//     from a local stand-in for the downloads site and uninstall itself.
 //
 // Output: packages/cli/dist/smurg-<platform>-<arch> (about 110 MiB) and its sha256 on stdout, and next to it
 // THIRD-PARTY-NOTICES.txt (the notices it embeds, for the release: scripts/release-assets.sh). Nothing is downloaded:
@@ -378,7 +379,7 @@ async function main(): Promise<void> {
 
   // 6. smoke test with the real binary
   if (options.smoke) {
-    run('pnpm', ['--filter', '@smurg/cli', 'exec', 'vitest', 'run', 'test/sea.test.ts', '--silent=false'], { ...process.env, SMURG_SEA_BINARY: options.out, SMURG_SEA_VERSION: options.version });
+    run('pnpm', ['--filter', '@smurg/cli', 'exec', 'vitest', 'run', 'test/sea.test.ts', 'test/sea-update.test.ts', '--silent=false'], { ...process.env, SMURG_SEA_BINARY: options.out, SMURG_SEA_VERSION: options.version });
   }
   if (!options.keepWork) rmSync(work, { recursive: true, force: true });
 }

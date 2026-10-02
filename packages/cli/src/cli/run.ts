@@ -4,6 +4,8 @@
 import { EXIT } from './exit-codes.ts';
 import { formatFailure, usageError } from './errors.ts';
 import type { CliIo } from './io.ts';
+import type { UninstallDeps } from '../commands/uninstall.ts';
+import type { UpdateDeps } from '../commands/update.ts';
 
 export const USAGE = `smurg — 多人 × 多 agent 即時協作工作區
 
@@ -15,6 +17,8 @@ export const USAGE = `smurg — 多人 × 多 agent 即時協作工作區
   status               顯示正在分享的工作區
   login                登入 relay（公用 relay 用 Google）
   logout               登出 relay
+  update               把 smurg 更新到最新版本（--check 只檢查）
+  uninstall            從這台電腦移除 smurg
   licenses             顯示授權條款與第三方軟體的授權聲明
   --version            顯示版本
 
@@ -22,7 +26,13 @@ export const USAGE = `smurg — 多人 × 多 agent 即時協作工作區
 說明文件：https://smurg.ai/docs/
 `;
 
-export async function runCli(argv: readonly string[], io: CliIo): Promise<number> {
+/** Test seams of the two commands that act on the executable itself (the real ones: process.execPath, the network). */
+export interface CliDeps {
+  readonly update?: UpdateDeps;
+  readonly uninstall?: UninstallDeps;
+}
+
+export async function runCli(argv: readonly string[], io: CliIo, deps: CliDeps = {}): Promise<number> {
   const [command, ...rest] = argv;
   try {
     switch (command) {
@@ -56,6 +66,14 @@ export async function runCli(argv: readonly string[], io: CliIo): Promise<number
       case 'logout': {
         const [{ runLogin, runLogout }, { commandContext }] = await Promise.all([import('../commands/login.ts'), import('../commands/context.ts')]);
         return await (command === 'login' ? runLogin : runLogout)(rest, commandContext(io));
+      }
+      case 'update': {
+        const [{ runUpdate }, { commandContext }] = await Promise.all([import('../commands/update.ts'), import('../commands/context.ts')]);
+        return await runUpdate(rest, commandContext(io), deps.update);
+      }
+      case 'uninstall': {
+        const [{ runUninstall }, { commandContext }] = await Promise.all([import('../commands/uninstall.ts'), import('../commands/context.ts')]);
+        return await runUninstall(rest, commandContext(io), deps.uninstall);
       }
       case 'licenses': {
         const { runLicenses } = await import('../commands/licenses.ts');

@@ -167,6 +167,8 @@ export function isolatedEnv(dirs: Dirs, extra: Record<string, string> = {}): Rec
     SMURG_HOME: dirs.stateDir,
     // A CLI started by a test never opens a browser (the owner's real one): see cli/io.ts browserBlock.
     SMURG_NO_BROWSER: '1',
+    // … and never asks downloads.smurg.ai whether a newer version exists (`smurg host`'s notice, update/notice.ts).
+    SMURG_NO_UPDATE_CHECK: '1',
     SHELL: '/bin/sh',
     TERM: 'xterm-256color',
     LANG: 'en_US.UTF-8',

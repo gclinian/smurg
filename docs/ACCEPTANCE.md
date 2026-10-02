@@ -29,10 +29,11 @@ source scripts/env.sh     # Node 22 LTS + the repo's pnpm; leave TMPDIR as it is
 pnpm check                # type check of every package, then every vitest project; exit 0 = green
 ```
 
-- **Expected result** (after D-15 and the control-socket fixes of 2026-10-02, macOS 26 arm64, Node 22.22.1):
-  `Test Files  231 passed | 2 skipped (233)` and `Tests  3571 passed | 12 skipped (3583)`, vitest's own duration
-  218 s, exit 0, nothing printed by `[smurg test run]` (below). The two skipped files are the opt-in `cli/sea` and
-  `cli/dev-stack`. The same tree before those fixes (regression verification, 2026-10-02): `231 passed | 2 skipped`,
+- **Expected result** (with `smurg update` / `smurg uninstall`, 2026-10-02, macOS 26 arm64, Node 22.22.1):
+  `Test Files  233 passed | 3 skipped (236)` and `Tests  3613 passed | 14 skipped (3627)`, vitest's own duration
+  214 s, exit 0, nothing printed by `[smurg test run]` (below). The three skipped files are the opt-in `cli/sea`,
+  `cli/sea-update` and `cli/dev-stack`. Before those two commands (after D-15 and the control-socket fixes of
+  2026-10-02): `231 passed | 2 skipped (233)`, `3571 passed | 12 skipped (3583)`, 218 s. The same tree before those fixes (regression verification, 2026-10-02): `231 passed | 2 skipped`,
   `3560 passed | 12 skipped (3572)`, 213 s and 219 s in two runs; `web-smoke` alone 5 files / 17 tests. The first
   full gate after D-15 had one failure, `daemon/files/upload-load.test.ts`'s latency comparison under the full gate's
   load (it passes alone; if it fails on a busy machine, run it alone and record both). Before D-15, on macOS (2026-10-01, cb99aa0 plus the smurg.ai domain migration, its review fixes
@@ -63,8 +64,9 @@ pnpm check                # type check of every package, then every vitest proje
   readiness probe was satisfied by the terminal's own echo before the shell had run; the paste itself now also waits
   for the daemon's terminal mirror to have parsed the program's output, `PtySession.paste`). Three further runs were
   green, the last one at a load average above 40.
-- **Skipped by default**: `packages/cli/test/sea.test.ts` (needs a built single executable, `SMURG_SEA_BINARY=<path>`,
-  which `scripts/build-sea.sh` runs) and `packages/cli/test/dev-stack.test.ts` (1 test; `SMURG_TEST_DEV_STACK=1`: it
+- **Skipped by default**: `packages/cli/test/sea.test.ts` and `packages/cli/test/sea-update.test.ts` (`smurg update` /
+  `smurg uninstall` with a copy of the real executable in a scratch HOME; both need a built single executable,
+  `SMURG_SEA_BINARY=<path>`, and `scripts/build-sea.sh` runs both) and `packages/cli/test/dev-stack.test.ts` (1 test; `SMURG_TEST_DEV_STACK=1`: it
   starts the whole dev stack on fixed ports). On macOS some tests skip inside files that run because they are
   Linux-only (the NFD-twin tests of `daemon/path-guard.test.ts` and `daemon/files/download.test.ts`, the Linux describe
   of `daemon/files/nfd-listings.test.ts`, the NFD case of the upload plan in `daemon/files/upload.test.ts`). Other skips

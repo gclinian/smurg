@@ -58,8 +58,10 @@ curl -fsSL https://smurg.ai/install.sh | sh
 
 - 要在 session 裡執行 Claude Code，這台電腦還需要已經登入的 `claude` 指令（2.1.220 以上）：每個 agent session 都用
   這個登入；要用 worktree，資料夾要是 git repository。
-- 升級：再執行一次同一行指令。移除：刪除 `~/.local/bin/smurg`、`~/.smurg`（登入、金鑰、工作區狀態）和快取目錄
-  （macOS：`~/Library/Caches/smurg`；Linux：`~/.cache/smurg`）。
+- 更新：`smurg update`（正在分享時先 `smurg stop`）。移除：`smurg uninstall` 會列出並移除執行檔 `~/.local/bin/smurg`、
+  `~/.smurg`（登入、金鑰、工作區狀態）和快取目錄（macOS：`~/Library/Caches/smurg`；Linux：`~/.cache/smurg`），不會動專案
+  資料夾裡的 `.smurg/`。0.2.0 還沒有這兩個指令：更新時再執行一次同一行安裝指令，移除時自己刪除這三個位置
+  （[`docs/HOSTING.md`](docs/HOSTING.md) §9）。
 
 ## 快速開始：主人
 
@@ -92,7 +94,7 @@ smurg host ~/projects/my-app     # 分享資料夾；在前景執行，按 Ctrl-
 
 | 文件 | 內容 |
 |---|---|
-| [`docs/HOSTING.md`](docs/HOSTING.md) | 主人指南：安裝、登入、公用 relay、分享、分享前須知、「可使用 agent」角色與風險、停止、疑難排解 |
+| [`docs/HOSTING.md`](docs/HOSTING.md) | 主人指南：安裝、登入、公用 relay、分享、分享前須知、「可使用 agent」角色與風險、停止、疑難排解、更新與移除 |
 | [`docs/JOINING.md`](docs/JOINING.md) | 組員指南：第一次使用 smurg 和 Claude Code 的人也看得懂 |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | 維護者：部署公用 relay、發佈新版本、部署產品介紹頁、回復舊版（英文） |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 各套件之間的約定（寫程式前請先讀 §0 的規則）、刻意偏離 SPEC 的地方（§11）、已知限制（§12） |
@@ -175,7 +177,7 @@ node packages/cli/src/main.ts --version     # 直接從原始碼執行 CLI
 **檢查（gate）**：`source scripts/env.sh && pnpm check`，不要改 `TMPDIR`，一次只跑一個。綠燈時應該看到的測試檔與
 測試數量、花費的時間和驗證過的環境，都寫在 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md)「How to run the gate」（數字隨功能
 增加而改變，只記在那裡）。預設略過的是
-`packages/cli/test/sea.test.ts`（要先建出單一執行檔，`SMURG_SEA_BINARY`）與 `packages/cli/test/dev-stack.test.ts`
+`packages/cli/test/sea.test.ts`、`packages/cli/test/sea-update.test.ts`（要先建出單一執行檔，`SMURG_SEA_BINARY`）與 `packages/cli/test/dev-stack.test.ts`
 （`SMURG_TEST_DEV_STACK=1`）；沒有系統 Chrome 或驗證過版本的 `claude` 時，相關測試也會略過，數字會不同。
 測試沒清掉的暫存目錄與程序（例如 worker 當掉）會在整輪結束後被移除，並在 stderr 印出
 `[smurg test run] removed N leftover(s)`：綠燈時不會出現這行，出現了就要找出是哪個測試。
@@ -232,6 +234,8 @@ scripts/dev-stack.sh --help                 # 選項：--dir、--relay-port、--
 | `smurg status [--workspace ID]` / `smurg stop [--workspace ID]` | 查看／停止這台電腦上正在分享的工作區（透過 daemon 的控制 socket）。`status` 顯示 `smurg host` 啟動時不印的資訊：資料夾、relay 與連線、daemon 金鑰指紋、防止睡眠、agent 的 shell 指令通知、紀錄檔的位置 |
 | `smurg login [--relay 網址] [--dev-user 名稱] [--no-browser]` | 用代碼登入 relay：印出 relay 的 `/device` 網址和一組代碼，在任何裝置的瀏覽器登入、輸入代碼並按「允許」（透過 SSH 也一樣；登入方式在瀏覽器裡選，公用 relay 只提供 Google）。登入資料存在 `$SMURG_HOME/credentials.json`，權限 0600，依網址分開記錄；`--dev-user` 只能用在本機的 relay |
 | `smurg logout [--relay 網址] [--all]` | 忘記 relay 的登入資料 |
+| `smurg update [--check]` | 更新到最新版本：讀 `https://downloads.smurg.ai/latest/VERSION`，有較新的版本時下載這台電腦的執行檔，sha256 與那個版本的 `SHA256SUMS` 相符才原地換掉目前的執行檔（不會換成較舊的版本）；`--check` 只檢查。正在分享時拒絕，請先 `smurg stop`。只能更新安裝好的單一執行檔（從原始碼執行時用 git 和 pnpm）。`smurg host` 在有新版本時會在兩個連結下面多印一行提示（`SMURG_NO_UPDATE_CHECK=1` 關閉；`CI` 或不在終端機裡時不檢查）。下載位置可用 `SMURG_INSTALL_BASE_URL` 改變（測試、鏡像站；只接受 https） |
+| `smurg uninstall [--keep-data] [--yes]` | 從這台電腦移除 smurg：執行檔本身、快取和狀態目錄（`--keep-data` 保留狀態目錄）。先列出每個要移除的路徑並詢問（`--yes` 不詢問；不在終端機裡執行時必須加）；正在分享的工作區會先停止。專案資料夾裡的 `.smurg/`（worktree）只列出、不會動，也不會改 shell 設定檔 |
 | `smurg licenses [--third-party]` | 印出 smurg 的授權條款（`LICENSE`）與執行檔裡第三方軟體的授權聲明（建置時嵌入執行檔；`--third-party` 只印後者，和發佈的 `THIRD-PARTY-NOTICES.txt` 相同） |
 
 選擇 relay 的順序：`--relay`、環境變數 `SMURG_RELAY_URL`、上次登入的 relay，都沒有時使用內建的公用 relay
@@ -243,7 +247,7 @@ https://app.smurg.ai（`smurg attach` 先用邀請連結的網址，或上次加
 
 單一執行檔（Node SEA，含 node-pty 等原生模組）：`scripts/build-sea.sh [--node <node>] [--version X.Y.Z] [--target 平台-架構]`
 （說明見 `scripts/build-sea.ts` 開頭）。它為這台電腦的平台建出 `packages/cli/dist/smurg-<平台>-<架構>`，再跑
-`packages/cli/test/sea.test.ts` 冒煙測試；沒有 `--version` 時版本是 `<套件版本>-dev`。執行檔第一次需要原生模組時
+`packages/cli/test/sea.test.ts` 與 `sea-update.test.ts` 冒煙測試；沒有 `--version` 時版本是 `<套件版本>-dev`。執行檔第一次需要原生模組時
 （`smurg host`）會把它們解壓縮到快取目錄 `~/Library/Caches/smurg/native-<id>`（Linux：`$XDG_CACHE_HOME/smurg`），
 每次啟動都用 sha256 驗證；`SMURG_CACHE_DIR` 可以改變位置；其他版本的目錄超過 30 天沒用會被刪除。
 

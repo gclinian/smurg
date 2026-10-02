@@ -35,6 +35,8 @@ import { LocalWorkspaceChannel } from '../src/channel/local-channel.ts';
 import { statePaths } from '../src/state/paths.ts';
 import { loadCredentials, saveSession } from '../src/state/credentials.ts';
 import { rememberSharedFolder } from '../src/state/workspaces.ts';
+import type { UpdateNoticeDeps } from '../src/update/notice.ts';
+import { startDownloads } from './downloads-server.ts';
 import { browserOpening, startFakeRelay, type FakeRelay } from './fake-relay.ts';
 import { echoSessions, type EchoSessions } from './fixtures/echo-sessions.ts';
 import { fakeTerminal, makeDirs, testIo, type Dirs, type TestIo } from './helpers.ts';
@@ -65,13 +67,21 @@ async function startHost(
   extraArgs: readonly string[] = [],
   extraModules: readonly FeatureModule[] = [],
   power?: PowerService,
-  more: { readonly now?: () => number; readonly credentialsWatchMs?: number; readonly loggedIn?: boolean; readonly onIo?: (io: TestIo) => void } = {},
+  more: {
+    readonly now?: () => number;
+    readonly credentialsWatchMs?: number;
+    readonly loggedIn?: boolean;
+    readonly onIo?: (io: TestIo) => void;
+    /** More environment (SMURG_INSTALL_BASE_URL of a local downloads server) and the update notice's seams. */
+    readonly env?: Record<string, string>;
+    readonly update?: UpdateNoticeDeps;
+  } = {},
 ): Promise<HostRun> {
   const dirs = await makeDirs();
   cleanups.push(() => dirs.cleanup());
   const relay = await startFakeRelay();
   cleanups.push(() => relay.close());
-  const env = { HOME: dirs.home, SMURG_HOME: dirs.stateDir };
+  const env = { HOME: dirs.home, SMURG_HOME: dirs.stateDir, ...more.env };
   // The in-memory relay serves one workspace id: pre-seed the folder's id as an earlier `smurg host` would have.
   const workspaceId = `ws_host_${Math.random().toString(36).slice(2, 14)}`;
   await rememberSharedFolder(statePaths(env), { folder: await realpath(dirs.project), relay: relay.origin, workspaceId, createdAt: 1 });
@@ -99,6 +109,7 @@ async function startHost(
     },
     onReady: (daemon) => ready(daemon),
     ...(more.credentialsWatchMs !== undefined ? { credentialsWatchMs: more.credentialsWatchMs } : {}),
+    ...(more.update ? { update: more.update } : {}),
   });
   cleanups.push(async () => {
     io.signal('SIGTERM');
@@ -681,5 +692,64 @@ describe('smurg attach through the relay (guest, CLI device key)', () => {
     const started = Date.now();
     expect(await runAttach(['--workspace', h.workspaceId], commandContext(offline), { relayFor }).catch((err: Error) => err.message)).toContain('主人目前離線');
     expect(Date.now() - started).toBeLessThan(15_000);
+  });
+});
+
+describe('smurg host: the update notice (owner decision 2026-10-02)', () => {
+  const INVITE_LINE = '給組員的連結（用私訊傳給他們，7 天內有效）：';
+  /** What `smurg host` printed from its summary on. */
+  const fromSummary = (h: HostRun): string => h.io.out().slice(h.io.out().indexOf('\nsmurg 正在分享'));
+  /** The seams of a release build: a single executable of version 0.2.0 (the tests themselves run from source). */
+  const released: UpdateNoticeDeps = { executable: '/nonexistent/bin/smurg', version: '0.2.0' };
+
+  it('adds ONE line under the two links when a newer version is published; the rest of the start is exactly as before', async () => {
+    const downloads = await startDownloads({ 'latest/VERSION': '0.3.0\n' });
+    cleanups.push(() => downloads.close());
+    const h = await startHost([], [], undefined, { loggedIn: true, env: { SMURG_INSTALL_BASE_URL: downloads.base }, update: released });
+    await waitFor(() => h.io.out().includes('有新版本'), { what: 'the update notice' });
+    expect(fromSummary(h)).toBe(`${summaryOf('project', h.links, INVITE_LINE)}\n有新版本 0.3.0（目前 0.2.0）：停止分享後執行 smurg update\n`);
+    expect(downloads.requests).toEqual(['latest/VERSION']);
+    expect(h.io.err()).toBe('');
+  });
+
+  it('says nothing when this is the newest version, when the site fails, and asks nothing at all from source or with SMURG_NO_UPDATE_CHECK=1', async () => {
+    const downloads = await startDownloads({ 'latest/VERSION': '0.2.0\n' });
+    cleanups.push(() => downloads.close());
+    const same = await startHost([], [], undefined, { loggedIn: true, env: { SMURG_INSTALL_BASE_URL: downloads.base }, update: released });
+    await waitFor(() => downloads.requests.length === 1, { what: 'the version request' });
+    const failing = await startDownloads({ 'latest/VERSION': (_req, res) => void res.writeHead(500).end('boom') });
+    cleanups.push(() => failing.close());
+    const failed = await startHost([], [], undefined, { loggedIn: true, env: { SMURG_INSTALL_BASE_URL: failing.base }, update: released });
+    await waitFor(() => failing.requests.length === 1, { what: 'the failing request' });
+    // Running from source (every other test of this file), and switched off: no request is made.
+    const silent = await startDownloads({ 'latest/VERSION': '9.9.9\n' });
+    cleanups.push(() => silent.close());
+    const fromSource = await startHost([], [], undefined, { loggedIn: true, env: { SMURG_INSTALL_BASE_URL: silent.base } });
+    const off = await startHost([], [], undefined, { loggedIn: true, env: { SMURG_INSTALL_BASE_URL: silent.base, SMURG_NO_UPDATE_CHECK: '1' }, update: released });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    for (const h of [same, failed, fromSource, off]) {
+      expect(fromSummary(h)).toBe(summaryOf('project', h.links, INVITE_LINE));
+      expect(h.io.err()).toBe('');
+    }
+    expect(silent.requests).toEqual([]);
+  });
+
+  it('never delays the start or the stop: a site that does not answer is given up silently', async () => {
+    const downloads = await startDownloads({ 'latest/VERSION': () => {} }); // accepts the request, never answers
+    cleanups.push(() => downloads.close());
+    // The links are printed (startHost returns with both) while the request is still open.
+    const h = await startHost([], [], undefined, { loggedIn: true, env: { SMURG_INSTALL_BASE_URL: downloads.base }, update: { ...released, timeoutMs: 400 } });
+    await waitFor(() => downloads.requests.length === 1, { what: 'the version request' });
+    expect(fromSummary(h)).toBe(summaryOf('project', h.links, INVITE_LINE));
+    await new Promise((resolve) => setTimeout(resolve, 700)); // past the timeout: still nothing
+    expect(fromSummary(h)).toBe(summaryOf('project', h.links, INVITE_LINE));
+    // With the default 2 s still running, a stop does not wait for it either.
+    const slow = await startHost([], [], undefined, { loggedIn: true, env: { SMURG_INSTALL_BASE_URL: downloads.base }, update: { ...released, timeoutMs: 60_000 } });
+    await waitFor(() => downloads.requests.length === 2, { what: 'the second version request' });
+    const started = Date.now();
+    slow.io.signal('SIGINT');
+    expect(await slow.done).toBe(0);
+    expect(Date.now() - started).toBeLessThan(15_000);
+    expect(slow.io.out()).not.toContain('有新版本');
   });
 });

@@ -81,9 +81,23 @@ describe('smurg CLI', () => {
 
   it('--help lists every command in zh-TW', async () => {
     const { stdout } = await run(process.execPath, [MAIN, '--help'], { timeout: 20_000 });
-    for (const command of ['host', 'attach', 'stop', 'status', 'login', 'logout', 'licenses']) expect(stdout).toContain(`  ${command}`);
+    for (const command of ['host', 'attach', 'stop', 'status', 'login', 'logout', 'update', 'uninstall', 'licenses']) expect(stdout).toContain(`  ${command}`);
     expect(stdout).toContain('SMURG_HOME');
     expect(stdout).toContain('https://smurg.ai/docs/');
+  });
+
+  it('smurg update / smurg uninstall: --help works from source, and both refuse to act on a source checkout (exit 2, nothing asked of the network)', async () => {
+    dirs = await makeDirs();
+    // A base no request could reach: the refusal comes first.
+    const env = isolatedEnv(dirs, { SMURG_INSTALL_BASE_URL: 'http://127.0.0.1:9' });
+    for (const command of ['update', 'uninstall']) {
+      const help = await run(process.execPath, [MAIN, command, '--help'], { env, timeout: 20_000 });
+      expect(help.stdout).toContain(`用法：smurg ${command}`);
+      await expect(run(process.execPath, command === 'uninstall' ? [MAIN, command, '--yes'] : [MAIN, command], { env, timeout: 20_000 })).rejects.toMatchObject({
+        code: 2,
+        stderr: expect.stringContaining('從原始碼執行'),
+      });
+    }
   });
 });
 

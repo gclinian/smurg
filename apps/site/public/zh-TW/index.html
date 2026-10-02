@@ -440,8 +440,12 @@ smurg host ~/projects/my-app</code></pre>
     <div class="faq">
       <div>
         <h3>需要安裝 Node.js 嗎？</h3>
-        <p>不需要。安裝程式會下載為你的電腦建置的單一執行檔，安裝它不需要 sudo；要升級時，再執行一次同一行指令。用瀏覽器加入的組員不需要安裝任何東西。</p>
+        <p>不需要。安裝程式會下載為你的電腦建置的單一執行檔，安裝它不需要 sudo。用瀏覽器加入的組員不需要安裝任何東西。</p>
         <p>macOS 的執行檔只有 ad-hoc 簽章，沒有 Apple 的開發者簽章（Developer ID）。請用上面那行指令安裝：安裝程式驗證 sha256 之後，會移除 quarantine 標記。用瀏覽器下載的執行檔會被 Gatekeeper 擋下。</p>
+      </div>
+      <div>
+        <h3>怎麼更新或移除？</h3>
+        <p><code>smurg update</code> 會把執行檔換成最新版本，一樣先驗證 sha256（請先停止分享）。<code>smurg uninstall</code> 先列出要移除的東西，再移除執行檔、快取和 <code>~/.smurg</code>；專案資料夾裡的 <code>.smurg/</code> 不會動，留給你自己決定。0.2.0 還沒有這兩個指令：要更新時，再執行一次安裝指令。</p>
       </div>
       <div>
         <h3>relay 看得到什麼？</h3>

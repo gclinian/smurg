@@ -21,7 +21,7 @@
 import { createHash } from 'node:crypto';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { basename, dirname, join, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, sep } from 'node:path';
 
 export interface NativeFile {
   readonly sha256: string;
@@ -68,6 +68,44 @@ function seaModule(): SeaModule {
 /** True inside the single executable. */
 export function isSeaBuild(): boolean {
   return seaState() !== null;
+}
+
+/**
+ * The single executable this process IS (process.execPath: absolute, symlinks resolved), or null when smurg runs from
+ * source (process.execPath is then the person's Node). `smurg update` replaces this file and `smurg uninstall` removes
+ * it, so both refuse on null.
+ */
+export function seaExecutable(): string | null {
+  try {
+    const sea = process.getBuiltinModule?.('node:sea') as { isSea?: () => boolean } | undefined;
+    return sea?.isSea?.() === true ? process.execPath : null;
+  } catch {
+    return null;
+  }
+}
+
+const NATIVE_DIR = /^native-[0-9a-f]{16}$/;
+const NATIVE_TEMP_DIR = /^\.native-[0-9a-f]{16}-[A-Za-z0-9]+$/;
+
+/** What an entry of a cache root is: a build's native dir, an extraction's temp dir, or not ours (null). */
+export function nativeCacheEntry(name: string): 'build' | 'temp' | null {
+  if (NATIVE_DIR.test(name)) return 'build';
+  return NATIVE_TEMP_DIR.test(name) ? 'temp' : null;
+}
+
+/**
+ * The cache roots a single executable of this person may have extracted into: the one in force ($SMURG_CACHE_DIR when
+ * absolute, else the platform's default) and the default itself; the rule of the bundle's banner
+ * (scripts/build-sea.ts), which decides the dir before this module is loaded. `home` is the person's home directory.
+ */
+export function nativeCacheRoots(env: Readonly<Record<string, string | undefined>>, platform: NodeJS.Platform, home: string): string[] {
+  const xdg = env['XDG_CACHE_HOME'];
+  const standard = platform === 'darwin' ? join(home, 'Library', 'Caches', 'smurg') : join(xdg !== undefined && isAbsolute(xdg) ? xdg : join(home, '.cache'), 'smurg');
+  const override = env['SMURG_CACHE_DIR'];
+  const roots = override !== undefined && isAbsolute(override) ? [override, standard] : [standard];
+  const own = seaState();
+  if (own !== null) roots.unshift(dirname(own.dir));
+  return [...new Set(roots.map((root) => (root.length > 1 && root.endsWith(sep) ? root.slice(0, -1) : root)))];
 }
 
 function sha256(bytes: Uint8Array): string {
@@ -117,8 +155,9 @@ export function pruneNativeCache(root: string, current: string, now = Date.now()
   }
   for (const name of names) {
     if (name === basename(current)) continue;
-    const native = /^native-[0-9a-f]{16}$/.test(name);
-    if (!native && !/^\.native-[0-9a-f]{16}-[A-Za-z0-9]+$/.test(name)) continue;
+    const kind = nativeCacheEntry(name);
+    if (kind === null) continue;
+    const native = kind === 'build';
     const path = join(root, name);
     try {
       const st = lstatSync(path);

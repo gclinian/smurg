@@ -3,6 +3,16 @@
 每個發佈版本的變更都記在這裡（格式參考 [Keep a Changelog](https://keepachangelog.com/zh-TW/1.1.0/)，版本號依照
 [語意化版本](https://semver.org/lang/zh-TW/)）。每個版本的段落也是那個版本的發佈說明；沒有對應段落的版本不會發佈。
 
+## [0.3.0] - 2026-10-02
+
+- **`smurg update`**：把 smurg 更新到最新版本。它從 `https://downloads.smurg.ai` 下載這台電腦的執行檔，sha256 與那個版本的
+  `SHA256SUMS` 相符才原地換掉目前的執行檔，並印出「舊版本 → 新版本」；`smurg update --check` 只檢查有沒有新版本。正在分享時
+  請先 `smurg stop`（分享中不能更新）。有新版本時，`smurg host` 會在兩個連結下面多印一行提示；不要這個檢查可以設定
+  `SMURG_NO_UPDATE_CHECK=1`。見[主人指南](docs/HOSTING.md) §9。
+- **`smurg uninstall`**：從這台電腦移除 smurg：執行檔、快取和 `~/.smurg`（登入、金鑰、工作區狀態；`--keep-data` 保留）。
+  它先列出每一個要移除的路徑，確認之後才動手（`--yes` 不詢問），正在分享的工作區會先停止。專案資料夾裡的 `.smurg/`
+  （worktree 和還沒合併的修改）不會動，只會列出來讓你自己決定。
+
 ## [0.2.0] - 2026-10-02
 
 - **「可執行 agent」改成「可使用 agent」，組員不再有自己的 agent 和沙盒**：主人可以把「可使用 agent」給完全信任的組員，

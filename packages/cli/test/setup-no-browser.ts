@@ -2,3 +2,6 @@
 // only opener (cli/io.ts openInBrowser) refuses when SMURG_NO_BROWSER is set; processes the tests spawn inherit it
 // (isolatedEnv() sets it too). test/browser-policy.test.ts fails if this is ever missing.
 process.env['SMURG_NO_BROWSER'] = '1';
+// … and no CLI a test starts with process.env asks downloads.smurg.ai for a newer version (update/notice.ts): the tests
+// of the notice inject their own io and a local server.
+process.env['SMURG_NO_UPDATE_CHECK'] = '1';

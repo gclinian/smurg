@@ -19,7 +19,10 @@
 //  6. tells the host when the relay link drops or recovers, when the relay refuses the host's login (and picks up a
 //     renewed login from credentials.json without a restart), when that login is about to expire, when a state file
 //     cannot be written (reviews REL-08, CLI-03, CLI-10, REL-14) and when keep-awake is lost (CLI-13);
-//  7. stops gracefully on Ctrl-C / SIGTERM / SIGHUP or `smurg stop` (another Ctrl-C within 2 s is ignored, a later one
+//  7. adds ONE line under the links when a newer smurg is published (../update/notice.ts: looked up in the background
+//     after the links are printed, at most 2 s, silent on every failure; never in an automated run or with
+//     SMURG_NO_UPDATE_CHECK=1);
+//  8. stops gracefully on Ctrl-C / SIGTERM / SIGHUP or `smurg stop` (another Ctrl-C within 2 s is ignored, a later one
 //     leaves at once; CLI-06).
 import { createWriteStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
@@ -61,6 +64,7 @@ import { stateProblem } from '../state/private-file.ts';
 import { loadWorkspaces, newWorkspaceId, rememberSharedFolder, sharedFolderFor, type WorkspaceBook } from '../state/workspaces.ts';
 import { NativeExtractionError, ensureSeaNative } from '../sea/native.ts';
 import { powerState } from '../cli/power-text.ts';
+import { updateNotice, type UpdateNoticeDeps } from '../update/notice.ts';
 import { say, type CommandContext } from './context.ts';
 
 /** `smurg host --help`; the --relay default depends on the built-in relay (../relay/default-relay.ts). */
@@ -119,6 +123,8 @@ export interface HostDeps {
   readonly onReady?: (daemon: Daemon) => void;
   /** TEST ONLY: how often credentials.json is re-read (default CREDENTIALS_WATCH_MS). */
   readonly credentialsWatchMs?: number;
+  /** The update notice's seams (the executable, its version, fetch, the timeout). */
+  readonly update?: UpdateNoticeDeps;
 }
 
 function isInside(child: string, parent: string): boolean {
@@ -463,7 +469,9 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   });
   let powerWatch: ReturnType<typeof setInterval> | undefined;
   let relayWatch: { dispose(): void } | undefined;
+  const updateCheck = new AbortController();
   const cleanup = async (): Promise<void> => {
+    updateCheck.abort();
     if (powerWatch !== undefined) clearInterval(powerWatch);
     relayWatch?.dispose();
     for (const off of unsubscribe) off();
@@ -505,6 +513,10 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     }, POWER_WATCH_MS);
     powerWatch.unref?.();
     relayWatch = watchRelay(ctx, daemon, { origin, userId: user.userId, session }, () => stopping !== null, deps.credentialsWatchMs ?? CREDENTIALS_WATCH_MS);
+    // A newer version: one line under the links, whenever the answer comes (never awaited: the start is not delayed).
+    void updateNotice(io, updateCheck.signal, deps.update).then((line) => {
+      if (line !== null && stopping === null) say(ctx, `\n${line}`);
+    });
     deps.onReady?.(daemon);
   }
 

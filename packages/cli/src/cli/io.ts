@@ -103,7 +103,7 @@ export interface BrowserSituation {
 }
 
 /** An environment flag is on unless it is unset, empty, `0` or `false`. */
-function flagOn(value: string | undefined): boolean {
+export function flagOn(value: string | undefined): boolean {
   return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false';
 }
 

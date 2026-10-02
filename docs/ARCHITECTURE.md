@@ -57,7 +57,7 @@ smurg/
 ├── packages/
 │   ├── protocol/       zod schemas, roles/capabilities, Noise channel, framing, invite links, client SDK
 │   ├── daemon/         host-side daemon (library + hook/MCP entry points)
-│   └── cli/            `smurg` binary: host / attach / stop (+ internal: hook, mcp, login)
+│   └── cli/            `smurg` binary: host / attach / stop / update / uninstall (+ internal: hook, mcp, login)
 ├── tests/
 │   └── e2e/            cross-package acceptance tests (relay + daemon + headless clients)
 ├── docs/               ARCHITECTURE.md, research/, ACCEPTANCE.md
@@ -1358,6 +1358,8 @@ file). Attribution: §11 D-13.
 | `smurg stop [--workspace W]` | ask the daemon (control socket) to stop: closes all channels, ends sessions; returns when the daemon is fully stopped |
 | `smurg status [--workspace W]` | every running daemon of this state dir: folder, relay (marked when it is the built-in one) and link states, connections, the daemon key fingerprint, keep-awake (same zh-TW wording as `host`'s notices), the switch of §11 D-13 as the daemon runs with it, the log file. Fields a daemon of an older build does not send are left out |
 | `smurg login [--relay URL] [--dev-user NAME] [--no-browser]` / `smurg logout [--relay URL] [--all]` | relay session for the CLI through the device-code login (§6; `packages/cli/src/relay/login.ts`): prints 「在任何裝置（電腦或手機）打開：」, `<relay>/device` and 「輸入代碼：XXXX-XXXX   （10 分鐘內有效）」, opens the page (never the code) when the browser rule below allows, then polls every `interval` s (+5 s after each `slow_down`; network and 5xx errors are retried until the code expires) until allowed (the session is saved), 「拒絕」 or expiry (exit 4); Ctrl-C ends it (exit 130). `smurg host` and `smurg attach` log in the same way when they need to. `--dev-user` only for a relay on a local hostname. (`--provider` is gone: the login method is chosen in the browser.) |
+| `smurg update [--check]` | (owner decision 2026-10-02; `commands/update.ts`, `update/*.ts`) replaces THIS single executable with the newest published one. Reads `<downloads>/latest/VERSION` and compares it with the executable's version as semver: the same → says so; older than this one → says so (never a downgrade; a `-dev` build is older than its release); `--check` only reports (exit 0). A newer one: refuses while a `smurg host` of this state dir runs (「請先執行 smurg stop」; nothing is stopped from here: a share that keeps running would mix the old daemon with the new `smurg hook` / `smurg attach`), then streams `v<X.Y.Z>/smurg-<platform>-<arch>` into a temp file in the executable's own directory and installs it only when the announced size, the sha256 of that version's `SHA256SUMS`, the build marker (exactly one, naming that version) and the file's own `--version` all agree; macOS: `com.apple.quarantine` is removed after the sha256 matched (`/usr/bin/xattr`, as the installer); then one `rename` over `process.execPath` (0755; the bytes are never touched, so the ad-hoc signature stays valid). Prints 「已更新 smurg：old → new」 and the changelog's URL. Nothing is replaced on any failure and the temp file goes on every way out (error, Ctrl-C → exit 130, `process.exit`); a progress line only on a terminal; timeouts (15 s for the two small files, 30 s without a byte for the download). Refused: not the single executable (a source checkout: exit 2, 「用 git 與 pnpm」), a directory that cannot be written (names it and the installer), a downloads site that is not https. `<downloads>` is `https://downloads.smurg.ai`, or `SMURG_INSTALL_BASE_URL` (tests, mirrors; the installer's variable and rule: https, or http only for 127.0.0.1 / localhost; a trailing `/v<X.Y.Z>` or `/latest` is dropped, so the installer's value works); redirects never leave that scheme |
+| `smurg uninstall [--keep-data] [--yes]` | (owner decision 2026-10-02; `commands/uninstall.ts`) removes the executable itself (`process.execPath`), the cache (every `native-<id>` dir of every build in the cache root in force and in the platform's default one; an emptied root too) and the state dir (`--keep-data` keeps it). Everything is looked at and every refusal happens before anything changes; then it prints each path with its size and what stays, and asks 「確定要移除嗎？ [y/N]」 through `CliIo.readLine` (`--yes` skips it; without a terminal and without `--yes` it refuses, exit 2; any answer but y / yes cancels, exit 1). Every running `smurg host` of this state dir is then stopped as `smurg stop` does and waited for; one that refuses or does not end aborts with nothing removed. Removal order: cache, state dir, the executable last. Never touched, only listed: the `.smurg/` of shared project folders (the folders of `workspaces.json` that still have one, and one around the current directory that holds the daemon's own entries), and shell profiles (it names the `PATH` line the installer suggested). Guards (fail closed): only the single executable uninstalls itself (a source checkout is told what to delete by hand); the state dir is removed only when its real path is not `/`, a top-level directory, the home directory or a folder around it or around `/Users`, `/home`; a `SMURG_HOME` other than `~/.smurg` must hold nothing but smurg's own entries (§7.1); a state dir that is a symlink is unlinked, not followed; a cache root or cache entry that is a symlink is skipped; `rm` never follows a symlink out of what it removes, and each path is removed only while it is still the file or directory that was listed (device and inode) |
 | `smurg hook`, `smurg mcp` | internal entry points used by Claude Code inside sessions (the hook event is in the stdin JSON); dispatched before anything else is loaded |
 
 **Arguments** (`cli/args.ts`): unknown options, a string option given twice, a boolean together with its `--no-` form
@@ -1383,6 +1385,14 @@ daemon (`Daemon.updateRelayToken`) without a restart; another account's login is
 belongs to the account that claimed it). A second Ctrl-C within 2 s of the first is ignored while the stop runs (it is
 usually one impatient key press, and leaving mid-teardown can leave session processes stopped); a later one leaves at
 once (exit 130). `smurg status` shows the link state `auth-rejected` as 「relay 拒絕了主人的登入（請執行 smurg login 重新登入）」.
+
+**Update notice** (owner decision 2026-10-02; `update/notice.ts`). After `smurg host` printed its two links it asks
+`<downloads>/latest/VERSION` once, in the background (never awaited; ended by a stop), with a 2 s timeout, and prints
+ONE more line only when that version is newer than the executable: 「有新版本 0.3.0（目前 0.2.0）：停止分享後執行 smurg
+update」. Nothing is printed when it is the newest, on any failure or timeout; no request is made with
+`SMURG_NO_UPDATE_CHECK` set, in an automated run (`CI`, or stdin / stdout not a terminal: the rule of `browserBlock`) or
+from source (where `smurg update` could not do what the line says). The request carries nothing about the machine. The
+CLI's vitest setup and `isolatedEnv()` set `SMURG_NO_UPDATE_CHECK=1`; the tests of the notice use a local server.
 
 **Browser.** A login opens the person's browser only through `CliIo.openUrl`, and the real implementation
 (`cli/io.ts` `browserBlock`) never opens one when `SMURG_NO_BROWSER` or `CI` is set, over SSH (`SSH_CONNECTION` /
@@ -1439,7 +1449,9 @@ executables on a tag `v*` (`macos-15`, `macos-15-intel`, `ubuntu-24.04`, `ubuntu
 keeps a GitHub release in the private repository as the internal record; a person then verifies the files and uploads
 them to Cloudflare R2 behind `https://downloads.smurg.ai` (`v<X.Y.Z>/`, immutable, then `latest/`); the one-line install
 `curl -fsSL https://smurg.ai/install.sh | sh` is a 302 from the product page `apps/site` to
-`https://downloads.smurg.ai/latest/install.sh`, with no GitHub fallback. Every executable carries a build marker
+`https://downloads.smurg.ai/latest/install.sh`, with no GitHub fallback. An installed executable updates itself from the same
+place (`smurg update`: `latest/VERSION`, then the version's `SHA256SUMS` and executable) and removes itself with
+`smurg uninstall` (the table above). Every executable carries a build marker
 (`smurg-build-version=X.Y.Z;`, a comment build-sea puts at the top of the bundle) and, as any Node.js release build, the
 download URL of its Node.js release; `scripts/release-assets.sh` and `scripts/publish-downloads.sh` read both from all
 four executables (`scripts/release-markers.ts`), so a release cannot mix in an executable of another version or another
@@ -1625,7 +1637,13 @@ Left after the review round of 2026-09-29 (owner questions with options and reco
   minutes) is measured by hand after the first release. macOS executables carry an ad-hoc signature only (no Developer
   ID, not notarized); the installer relies on `curl` setting no quarantine attribute and removes one after the sha256
   check. `SHA256SUMS` is not signed, so it does not protect against a compromised GitHub account or workflow, or a
-  compromised Cloudflare account that holds the bucket.
+  compromised Cloudflare account that holds the bucket. `smurg update` (§8) has exactly the installer's trust: https,
+  `downloads.smurg.ai` and the same unsigned `SHA256SUMS` (its checks of the build marker and of `--version` catch a
+  mixed-up or broken file, not a forged one). It is all-or-nothing per file but not per machine: a `smurg host` of
+  ANOTHER state dir (`SMURG_HOME`) that runs from the same executable is not seen and keeps its old daemon; and the
+  update notice of `smurg host` tells `downloads.smurg.ai` (Cloudflare) the host's IP address at each start
+  (`SMURG_NO_UPDATE_CHECK=1` switches it off). `smurg uninstall` removes what smurg wrote on this machine only: the
+  relay keeps the account's sessions until they expire, and `.smurg/` in shared folders stays (listed).
 - **Private source, public code** (2026-10-01). The repository is private, but that does not keep the code secret: each
   executable contains smurg's whole JavaScript program (a Node SEA embeds the bundle, and it can be extracted from the
   file), and the web app's code is served to every browser that opens `https://app.smurg.ai`. What protects the code

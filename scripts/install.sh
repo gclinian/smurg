@@ -193,6 +193,7 @@ summary() {
   say '下一步：'
   say '  smurg login                   # 用瀏覽器以 Google 帳號登入 smurg 內建的公用 relay（維護者提供的其他 relay：加上 --relay <網址>）'
   say '  smurg host <專案資料夾>       # 分享資料夾並印出兩個連結：你自己的、給組員的'
+  say '之後要更新：smurg update；要移除：smurg uninstall'
 }
 
 main() {

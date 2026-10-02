@@ -22,7 +22,8 @@ curl -fsSL https://smurg.ai/install.sh | sh
 
 - macOS 的執行檔沒有 Apple 的開發者簽章（只有 ad-hoc 簽章）。安裝程式驗證 sha256 之後，會移除 macOS 的隔離標記
   （quarantine），所以第一次執行時不會被 Gatekeeper 擋下。請用上面的指令安裝，不要用瀏覽器下載執行檔再手動執行。
-- 升級：再執行一次同一行指令（會取代 `~/.local/bin/smurg`；正在分享時請先停止分享）。`smurg --version` 顯示目前的版本。
+- 更新：`smurg update`；移除：`smurg uninstall`（都在 §9；0.2.0 還沒有這兩個指令，請再執行一次同一行安裝指令來更新，它會
+  取代 `~/.local/bin/smurg`，正在分享時請先停止分享）。`smurg --version` 顯示目前的版本。
 - 要在 session 裡執行 Claude Code，這台電腦還需要 `claude` 指令（2.1.220 以上），而且要**已經登入**你的 Claude 帳號：
   每個 agent session 都用這台電腦上的這個登入，包括「可使用 agent」的組員開的（§5.1）。
 - smurg 是免費使用的專有軟體，原始碼不公開：可以免費下載和使用，但不能散布、修改或反組譯（法律允許的範圍除外），條款見
@@ -132,7 +133,7 @@ smurg 正在分享「my-app」
 終端機不會重複這份指南的說明：**第一次分享之前請先讀 §4**，「可使用 agent」角色和 agent 的 shell 指令通知見 §5。
 分享中的詳細狀態用 `smurg status` 查看（§7）：daemon 金鑰指紋、shell 指令通知是否開啟、防止睡眠、紀錄檔的位置。
 終端機只在你需要處理的時候提示：**無法防止睡眠**（§6）、與 relay 的連線中斷、relay 拒絕你的登入、狀態檔寫不進
-磁碟（§7）。
+磁碟（§7）；有新版本時，連結下面會多一行「有新版本…」（§9.1）。
 
 **daemon 金鑰指紋**：組員第一次加入時，可以用其他管道（當面、電話）和你核對這組指紋，確認沒有人（包括 relay）冒充你。
 指紋用 `smurg status` 查看（「daemon 金鑰指紋：」那一行）。
@@ -304,3 +305,64 @@ smurg stop            # 停止分享：中斷所有連線、結束所有 session
 
 所有狀態（金鑰、登入、工作區、紀錄檔）都在 `~/.smurg`（可用 `SMURG_HOME` 改變位置），紀錄檔在 `~/.smurg/logs/`，
 不含邀請連結。
+
+## 9. 更新與移除
+
+`smurg update` 和 `smurg uninstall` 是 0.2.0 之後的版本才有的指令。還在用 0.2.0 的話，先再執行一次 §1 的安裝指令。
+
+### 9.1 更新：`smurg update`
+
+```sh
+smurg update --check    # 只檢查有沒有新版本，不下載
+smurg update            # 更新到最新版本
+```
+
+- `smurg update` 先讀 `https://downloads.smurg.ai/latest/VERSION`。有比目前新的版本時，從
+  `https://downloads.smurg.ai/v<版本>/` 下載這台電腦的執行檔和那個版本的 `SHA256SUMS`，**sha256 相符**、檔案確實是那個
+  版本、而且在這台電腦上能執行，才把目前的執行檔原地換掉，然後印出「舊版本 → 新版本」和變更紀錄的網址
+  （https://smurg.ai/docs/changelog/）。已經是最新版本時什麼都不做，也不會換成較舊的版本。
+- **正在分享時不能更新**：`smurg update` 會請你先執行 `smurg stop`，它不會自己停止分享。原因：還在執行的 daemon 是舊版，
+  而 agent session 每次呼叫的 `smurg` 指令已經是新版，兩個版本混在一起可能出錯。
+- 下載失敗、sha256 不符，或你按了 Ctrl-C：目前的執行檔不會被更動，下載到一半的暫存檔會刪除。
+- 執行檔所在的資料夾不能寫入時（例如不是用安裝程式裝的），它會說是哪個資料夾：請用當初安裝的方式更新，或重新執行 §1 的
+  安裝指令。
+- 信任的範圍和安裝程式相同：`SHA256SUMS` 沒有數位簽章，靠的是 https 和 downloads.smurg.ai 本身。
+- 環境變數 `SMURG_INSTALL_BASE_URL`（測試或鏡像站用）：改從這個網址下載。只接受 https。
+
+**新版本提示**：`smurg host` 印出兩個連結之後，會在背景向 `https://downloads.smurg.ai` 查一次最新版本（只有這一個請求，
+不附帶任何資料，最多等 2 秒）。有新版本時，在連結下面多印一行：
+
+```text
+有新版本 0.3.0（目前 0.2.0）：停止分享後執行 smurg update
+```
+
+沒有新版本、查不到或逾時時什麼都不印，也不影響分享。不要這個檢查：設定環境變數 `SMURG_NO_UPDATE_CHECK=1`。自動化環境
+（設定了 `CI`，或不是在終端機裡執行）不會檢查。
+
+### 9.2 移除：`smurg uninstall`
+
+```sh
+smurg uninstall               # 列出會移除的東西，確認之後移除
+smurg uninstall --keep-data   # 保留 ~/.smurg，只移除執行檔和快取
+```
+
+會移除：
+
+- 執行檔本身（用安裝程式裝的是 `~/.local/bin/smurg`）；
+- 快取：執行檔解壓縮出來的原生模組（macOS：`~/Library/Caches/smurg`；Linux：`~/.cache/smurg`；設定過 `SMURG_CACHE_DIR`
+  的話是那個資料夾裡的 `native-…`）；
+- 狀態目錄 `~/.smurg`（或 `SMURG_HOME`）：登入、裝置金鑰、每個工作區的金鑰、成員和邀請連結、紀錄檔。移除之後，分享過的
+  工作區的成員和邀請連結都不再有效。`--keep-data` 會保留它。
+
+不會動：
+
+- **專案資料夾裡的 `.smurg/`**：worktree 和還沒合併的修改都在裡面。`smurg uninstall` 只把它知道的這些資料夾列出來，
+  要不要刪由你決定。
+- shell 設定檔：安裝程式只提示過要把 `~/.local/bin` 加到 `PATH`，沒有改過你的設定檔。你自己加過的那一行，請自己刪掉。
+
+動手之前，它會列出每一個要移除的路徑和大小，並問「確定要移除嗎？ [y/N]」，輸入 `y` 才移除。`--yes` 不詢問；不在終端機裡
+執行時必須加 `--yes`，否則它只列出內容就結束。正在分享的工作區會先停止（和 `smurg stop` 一樣）；停不下來就中止，什麼都
+不移除。`SMURG_HOME` 指向不該刪的地方時（`/`、家目錄，或裡面有不是 smurg 建立的東西的資料夾），它會拒絕：這時用
+`--keep-data`，再自己處理那個資料夾。
+
+沒有 `smurg uninstall` 的版本（0.2.0），或從原始碼執行 smurg 時：自己刪除上面三個位置。
