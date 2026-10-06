@@ -18,7 +18,7 @@ export interface PanelProps {
   level?: 2 | 3;
 }
 
-/** A titled workbench region (sidebar, right panel): a fixed header and a scrolling body. */
+/** A titled region of code mode (the file tree, a tab of the drawer): a fixed header and a scrolling body. */
 export function Panel({ title, label, icon, actions, children, className, level = 2 }: PanelProps) {
   const Heading = level === 2 ? 'h2' : 'h3';
   return (

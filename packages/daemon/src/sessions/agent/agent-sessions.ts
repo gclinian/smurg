@@ -1124,7 +1124,8 @@ export class AgentSessionsImpl implements AgentSessions {
     const entry = this.need(sessionId);
     if (entry.runner.record.state === 'ended') return;
     if (!entry.runner.hasProcess) return; // parked already: the next message starts it with fresh launch files
-    if (reason !== 'slot') this.push(entry, lineEvent(msg('conversation.agent.restarting')));
+    // Said once per restart: a second reason while the first restart still waits for the turn to end adds nothing.
+    if (reason !== 'slot' && !entry.runner.restartPending) this.push(entry, lineEvent(msg('conversation.agent.restarting')));
     await entry.runner.restart();
   }
 

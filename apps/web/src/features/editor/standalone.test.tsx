@@ -167,6 +167,8 @@ describe('the editor of a held document, on its own', () => {
     expect(screen.queryByRole('tabpanel')).toBeNull();
     expect(view.fake.bindings[0]?.ytext.toString()).toBe(TEXT);
     await waitFor(() => expect(view.fake.editors.at(-1)?.readOnly).toBe(false));
+    // A spec is prose in a narrow column: its long lines wrap.
+    expect(view.fake.editors.at(-1)?.wrap).toBe(true);
     // Typing in the column's editor is what the rendered view shows.
     act(() => view.fake.bindings[0]?.ytext.insert(0, '> draft\n\n'));
     await waitFor(() => expect(screen.getByTestId('text').textContent).toBe(`> draft\n\n${TEXT}`), { timeout: DOCUMENT_TEXT_INTERVAL_MS * 10 });

@@ -36,6 +36,11 @@ export function columnsThatFit({ available, min = COLUMN_MIN_PX, separator = COL
 }
 
 const safeWeight = (weight: number): number => (Number.isFinite(weight) && weight > 0 ? weight : 1);
+/**
+ * Weights are widths divided by a share, so a share computed back from them can miss a whole pixel by a rounding
+ * error of the division (429.99999999999994 for 430): a width within this of the next pixel is that pixel.
+ */
+const EPSILON = 1e-6;
 
 /** Shares `room` px among the weights, nobody below `min`, in whole pixels that add up to `room`. */
 function distribute(room: number, weights: readonly number[], min: number): number[] {
@@ -58,7 +63,7 @@ function distribute(room: number, weights: readonly number[], min: number): numb
         continue;
       }
       const share = total > 0 ? (free * (weights[i] as number)) / total : 0;
-      if (share < min) {
+      if (share < min - EPSILON) {
         fixed[i] = true;
         changed = true;
       }
@@ -68,7 +73,7 @@ function distribute(room: number, weights: readonly number[], min: number): numb
   }
   // Whole pixels: round down, then hand the leftover pixels out from the left, to the columns that are above the
   // minimum (a column held at the minimum stays exactly there); to all of them when every column is at it.
-  const floored = widths.map((width) => Math.max(min, Math.floor(width)));
+  const floored = widths.map((width) => Math.max(min, Math.floor(width + EPSILON)));
   let leftover = Math.round(room - floored.reduce((sum, width) => sum + width, 0));
   const takers = fixed.some((isFixed) => !isFixed) ? floored.map((_, index) => index).filter((index) => !fixed[index]) : floored.map((_, index) => index);
   for (let turn = 0; leftover > 0 && takers.length > 0; turn += 1, leftover -= 1) {

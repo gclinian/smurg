@@ -3,8 +3,8 @@
 // agents may do, and what stops the start. The dialog (StartDialog.tsx) adds the icons and the two inline actions.
 import type { PlanInfo, StartPreflight, UserRef } from '@smurg/protocol';
 import { renderWireText } from '../../lib/errors.ts';
-import { formatList } from '../../lib/format.ts';
-import { andList, handEditsLine, itemNames, oneOrMany } from './model.ts';
+import { formatAnd, formatList } from '../../lib/format.ts';
+import { handEditsLine, itemNames, oneOrMany } from './model.ts';
 import { t } from './strings.ts';
 
 export type StartLineId =
@@ -69,7 +69,7 @@ export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'item
   }
   if (load.size > 0) push('responsible', t('start.responsible', { who: [...load.values()].map((entry) => t('split.load', { name: entry.user.displayName, count: entry.count })).join(t('sep')) }));
   const offline = [...load.values()].filter((entry) => !entry.online).map((entry) => entry.user.displayName);
-  if (offline.length > 0) push('offline', t(`start.offline.${oneOrMany(offline.length)}`, { names: andList(offline) }), 'warn');
+  if (offline.length > 0) push('offline', t(`start.offline.${oneOrMany(offline.length)}`, { names: formatAnd(offline) }), 'warn');
   if (preflight.youDecide > 0) push('youDecide', t('start.youDecide', { count: preflight.youDecide }));
 
   if (preflight.commit !== null) {
@@ -87,12 +87,12 @@ export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'item
 
   if (preflight.handEdits.spec.length + preflight.handEdits.plan.length > 0) push('handEdits', t('start.handEdits', { who: handEditsLine(preflight.handEdits) }), 'warn');
   if (preflight.invisibleCharacters.length > 0) {
-    push('invisible', t(`start.invisible.${oneOrMany(preflight.invisibleCharacters.length)}`, { files: andList(preflight.invisibleCharacters.map((target) => FILE_NAME[target])) }), 'warn');
+    push('invisible', t(`start.invisible.${oneOrMany(preflight.invisibleCharacters.length)}`, { files: formatAnd(preflight.invisibleCharacters.map((target) => FILE_NAME[target])) }), 'warn');
   }
   if (preflight.stale) push('stale', t('start.stale'), 'warn');
   if (preflight.openQuestion) push('openQuestion', t('start.openQuestion'), 'warn');
   if (preflight.editingNow.length > 0) {
-    push('editingNow', t(`start.editingNow.${oneOrMany(preflight.editingNow.length)}`, { names: andList(preflight.editingNow.map((user) => user.displayName)) }), 'warn');
+    push('editingNow', t(`start.editingNow.${oneOrMany(preflight.editingNow.length)}`, { names: formatAnd(preflight.editingNow.map((user) => user.displayName)) }), 'warn');
   }
   if (preflight.specOpenQuestions > 0) push('specOpenQuestions', t('start.specOpenQuestions', { count: preflight.specOpenQuestions }), 'warn');
 

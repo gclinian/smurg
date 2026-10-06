@@ -242,6 +242,52 @@ describe('Columns: measured', () => {
     expect(scrollTo).toHaveBeenCalledWith({ left: 1152, behavior: 'auto' });
   });
 
+  it('when the columns fit again (the window grew, a column was closed) nothing is "out of view" any more', () => {
+    const view = mount({ width: 1151, columns: items(4) });
+    const strip = document.querySelector('.ui-columns') as HTMLElement;
+    // Scrolled to the last column.
+    strip.scrollLeft = 384;
+    fireEvent.scroll(strip);
+    expect(screen.getByRole('button', { name: '1 more' }).className).toContain('ui-columns__more--left');
+    // The left column folds to its rail: all four fit. The browser resets the scroll position without an event.
+    stripWidth = 1395;
+    strip.scrollLeft = 0;
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(slotWidths()).toEqual(['349px', '349px', '349px', '348px']);
+    expect(screen.queryByRole('button', { name: /more/ })).toBeNull();
+    expect(last(view.onVisible)).toEqual(['c1', 'c2', 'c3', 'c4']);
+    // And a closed column: three fit a 1151 px strip, even if the element still reports its old scroll position.
+    stripWidth = 1151;
+    strip.scrollLeft = 384;
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+    view.rerender({ columns: items(3) });
+    expect(screen.queryByRole('button', { name: /more/ })).toBeNull();
+    expect(last(view.onVisible)).toEqual(['c1', 'c2', 'c3']);
+  });
+
+  it('a strip that is hidden for a while (the other mode is shown) keeps its layout', () => {
+    const { onCapacity } = mount({ width: 1151 });
+    expect(slotWidths()).toEqual(['384px', '384px', '383px']);
+    const calls = onCapacity.mock.calls.length;
+    // display: none reports no width.
+    stripWidth = 0;
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(slotWidths()).toEqual(['384px', '384px', '383px']);
+    expect(onCapacity.mock.calls.length).toBe(calls);
+    // Shown again, in a window that changed meanwhile.
+    stripWidth = 1300;
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(slotWidths()).toEqual(['434px', '434px', '432px']);
+  });
+
   it('follows the window: a narrower strip fits fewer columns', () => {
     const { onCapacity } = mount({ width: 1151 });
     expect(last(onCapacity)).toBe(3);

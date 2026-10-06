@@ -1,14 +1,16 @@
 // Which dialog of the console feature is open in a workspace. The dialogs are rendered once, by the feature's overlay
-// (ConsoleOverlays.tsx, mounted by the workspace shell in the sessions view and in code mode); whatever wants one
-// opens it here:
+// (ConsoleOverlays.tsx, mounted by the workspace shell in the sessions view and in code mode). ANOTHER feature opens
+// one with a command (lib/commands.ts; the handlers are registered in slots.tsx):
 //
-//   consoleDialogs(stores).open({ kind: 'claude-config', root: { kind: 'main' } });   // the trust gate of one root
-//   consoleDialogs(stores).open({ kind: 'host-rules' });                              // "My own Claude Code rules"
-//   consoleDialogs(stores).open({ kind: 'redact', sessionId, seq });                  // remove one conversation entry
+//   commands.dispatch('reviewProjectSettings', { root: { kind: 'main' } });   // the trust gate of one root
+//   commands.dispatch('showHostRules', {});                                    // "My own Claude Code rules"
+//   commands.dispatch('redactEvent', { sessionId, seq });                      // remove one conversation entry
+//
+// and the handlers put the request here: `consoleDialogs(stores).open({ kind: 'claude-config', root })`, …
 //
 // One at a time: opening one replaces another. All three are the host's: for anyone else the overlay renders
-// nothing (the daemon refuses `admin.*` from every other role anyway). This module is light on purpose (no
-// component): it may be imported where a dialog is opened.
+// nothing (the daemon refuses `admin.*` from every other role anyway). This module is the console feature's own
+// state: no other feature imports it.
 import type { RootRef } from '@smurg/protocol';
 import { createStore, type ReadableStore } from '../../lib/store.ts';
 import type { WorkspaceStores } from '../../lib/stores/index.ts';

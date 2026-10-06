@@ -8,7 +8,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { MESSAGE_TEXT_MAX_CHARS, SUGGESTION_TEXT_MAX_CHARS, type AgentSession } from '@smurg/protocol';
 import { useColumn } from '../../lib/columns/context.tsx';
 import { describeError } from '../../lib/errors.ts';
-import { formatRole } from '../../lib/format.ts';
+import { formatAnd, formatRole } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { sessionTitle } from '../../lib/stores/sessions.ts';
 import { useCapabilities, useCommands, useConnectionState, useStores, useWorkspaceSession } from '../../lib/workspace/context.tsx';
@@ -19,7 +19,7 @@ import { useConversationEnv } from './env.tsx';
 import { MentionField } from './MentionField.tsx';
 import { mentionsIn, personOf, withAgentAccess } from './people.ts';
 import { t } from './strings.ts';
-import { lineRange, namesList } from './text.ts';
+import { lineRange } from './text.ts';
 
 export interface ComposerProps {
   readonly session: AgentSession;
@@ -114,7 +114,7 @@ export function Composer({ session }: ComposerProps) {
   } else {
     const helpers = withAgentAccess(people);
     const responsible = personOf(people, session.responsible?.userId);
-    const names = namesList(helpers.map((person) => person.displayName));
+    const names = formatAnd(helpers.map((person) => person.displayName));
     if (session.responsible !== null && session.responsible.userId === self?.userId) hint = helpers.length > 0 ? t('composer.goes.responsible', { names }) : t('composer.goes.nobody');
     else if (session.responsible !== null && (responsible === undefined || withAgentAccess([responsible]).length > 0)) hint = t('composer.goes.one', { name: session.responsible.displayName });
     else if (helpers.length === 1) hint = t('composer.goes.one', { name: (helpers[0] as { displayName: string }).displayName });

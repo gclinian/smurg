@@ -1,16 +1,16 @@
 // The language of the app in a real browser (the built app, the real relay, a daemon with every module, system
 // Chrome):
-//  - an English browser (`en-US`) sees English everywhere a person goes: landing, join, workbench, the activity feed
-//    (sentences the HOST wrote: they arrive as message references, not as text), the host console and its audit log,
-//    an error. The whole document is scanned for CJK characters after each step, visible text and accessible names
-//    alike, so a sentence of the daemon that came through untranslated fails the test;
+//  - an English browser (`en-US`) sees English everywhere a person goes: landing, join, the sessions view, code mode
+//    with the activity feed (sentences the HOST wrote: they arrive as message references, not as text), the host
+//    console and its audit log, an error. The whole document is scanned for CJK characters after each step, visible
+//    text and accessible names alike, so a sentence of the daemon that came through untranslated fails the test;
 //  - the language menu switches to Traditional Chinese without a reload; <html lang>, the stored choice and the
 //    cookie follow; the choice survives a reload, and the relay's own page (/device) follows the cookie;
 //  - detection: the first supported entry of the browser's languages decides (zh-HK is Traditional Chinese; zh-CN and
 //    Japanese are not supported and get English).
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { STEP_MS, chooseLanguage, cjkTexts, explainFailures, joinAs, joinAsHost, startSmoke, systemChrome, workspaceOnline, type SmokeEnv } from './helpers.ts';
+import { STEP_MS, chooseLanguage, cjkTexts, explainFailures, joinAs, openDrawer, startSmoke, systemChrome, toCodeMode, workspaceOnline, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
 if (chrome === null) console.warn('[web smoke] SKIPPED: no system Chrome found (playwright-core downloads no browser); install Google Chrome to run it.');
@@ -38,7 +38,7 @@ describe.skipIf(chrome === null)('the language of the app (built app, real relay
     expect(await page.locator('html').getAttribute('lang'), where).toBe('en');
   }
 
-  it('an English browser sees English everywhere: landing, join, workbench, the activity feed, the console and an error (the whole document is scanned for CJK)', async () => {
+  it('an English browser sees English everywhere: landing, join, the sessions view, code mode with the activity feed, the console and an error (the whole document is scanned for CJK)', async () => {
     // Landing, logged out.
     host = await env.newPage();
     await host.goto(`${env.origin}/`);
@@ -53,7 +53,7 @@ describe.skipIf(chrome === null)('the language of the app (built app, real relay
     await expectEnglishOnly(host, 'landing with the language menu open', [OTHER_LANGUAGE]);
     await host.keyboard.press('Escape');
 
-    // Join (login, the confirmation) and the workbench.
+    // Join (login, the confirmation), the sessions view, then code mode.
     await host.goto(env.hostLink());
     await host.getByTestId('join-login').waitFor({ timeout: STEP_MS });
     await host.getByRole('heading', { name: 'Log in to join the workspace' }).waitFor({ timeout: STEP_MS });
@@ -68,8 +68,12 @@ describe.skipIf(chrome === null)('the language of the app (built app, real relay
     await workspaceOnline(host);
     const topbar = host.getByRole('banner', { name: 'Workspace' });
     expect(await topbar.locator('.ui-badge').first().textContent()).toContain('Host');
+    await host.getByRole('complementary', { name: 'Inbox and sessions' }).waitFor({ timeout: STEP_MS });
+    await host.getByRole('heading', { level: 2, name: 'Start with a topic' }).waitFor({ timeout: STEP_MS });
+    await expectEnglishOnly(host, 'the sessions view');
+    await toCodeMode(host);
     await host.getByRole('treeitem', { name: 'README.md' }).first().waitFor({ timeout: STEP_MS });
-    await expectEnglishOnly(host, 'workbench');
+    await expectEnglishOnly(host, 'code mode');
 
     // Something happens on the host: a new file. The feed's sentence is written by the daemon and rendered here.
     // (A new file goes next to the row that has the focus in the tree: README.md, in the root folder.)
@@ -83,10 +87,10 @@ describe.skipIf(chrome === null)('the language of the app (built app, real relay
     await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
     await host.getByRole('treeitem', { name: 'notes.txt' }).first().waitFor({ timeout: STEP_MS });
     // The drawer starts collapsed on its first tab, the activity feed: its own button opens it.
-    await host.getByRole('button', { name: 'Expand Activity and transfers' }).click();
+    await openDrawer(host);
     const feed = host.locator('.activity-feed');
     await feed.getByText('Created the file notes.txt', { exact: true }).first().waitFor({ timeout: STEP_MS });
-    await expectEnglishOnly(host, 'workbench with the activity feed');
+    await expectEnglishOnly(host, 'code mode with the activity feed');
 
     // An error: the same name again is refused, in English, whoever notices first (the page or the host's computer).
     await host.getByRole('button', { name: 'New file' }).first().click();
@@ -100,13 +104,15 @@ describe.skipIf(chrome === null)('the language of the app (built app, real relay
     await again.getByRole('button', { name: 'Cancel' }).click();
     await again.waitFor({ state: 'detached', timeout: STEP_MS });
 
-    // A guest: the same feed, their own role.
+    // A guest: their own role, the sessions view, and in code mode the same feed.
     const guest = await env.newPage();
     await joinAs(guest, env, 'gwen', 'editor');
     expect(await guest.getByRole('banner', { name: 'Workspace' }).locator('.ui-badge').first().textContent()).toContain('Editor');
-    await guest.getByRole('button', { name: 'Expand Activity and transfers' }).click();
+    await expectEnglishOnly(guest, "the guest's sessions view");
+    await toCodeMode(guest);
+    await openDrawer(guest);
     await guest.locator('.activity-feed').getByText('Created the file notes.txt', { exact: true }).first().waitFor({ timeout: STEP_MS });
-    await expectEnglishOnly(guest, "the guest's workbench");
+    await expectEnglishOnly(guest, "the guest's code mode");
 
     // The host console: members, invites, the audit log (action names and outcomes come from codes).
     await host.getByRole('link', { name: 'Host console' }).click();
@@ -120,7 +126,8 @@ describe.skipIf(chrome === null)('the language of the app (built app, real relay
   }, 300_000);
 
   it('the language menu switches to Traditional Chinese without a reload; <html lang>, the stored choice and the cookie follow; the choice survives a reload and the relay page /device follows it', async () => {
-    await host.goto(`${env.origin}/w/${env.stack.workspaceId}`);
+    // Code mode, where the first test left the drawer open on the activity feed (the layout is remembered).
+    await host.goto(`${env.origin}/w/${env.stack.workspaceId}/code`);
     await workspaceOnline(host);
     let navigations = 0;
     host.on('framenavigated', (frame) => {
@@ -134,7 +141,8 @@ describe.skipIf(chrome === null)('the language of the app (built app, real relay
     const topbar = host.getByRole('banner', { name: '工作區' });
     expect(await topbar.locator('.ui-badge').first().textContent()).toContain('主人');
     await host.getByRole('button', { name: '離開' }).waitFor({ timeout: STEP_MS });
-    // The feed (the drawer is still open: the layout is remembered): the same event of the host, now in Chinese.
+    // The mode switch and the feed (the drawer is still open): the same event of the host, now in Chinese.
+    expect(await topbar.getByRole('group', { name: '模式' }).getByRole('link').allTextContents()).toEqual(['session', '手寫 code 模式']);
     expect(await host.getByRole('tab', { name: '活動', exact: true }).getAttribute('aria-selected')).toBe('true');
     await host.locator('.activity-feed').getByText('新增檔案 notes.txt', { exact: true }).first().waitFor({ timeout: STEP_MS });
     expect(await host.evaluate(() => window.localStorage.getItem('smurg.lang'))).toBe('zh-TW');

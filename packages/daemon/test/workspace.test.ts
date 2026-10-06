@@ -168,8 +168,8 @@ describe('resolveConfig', () => {
     expect(config.sessions).toEqual({
       hostHome: null,
       claudePath: null,
-      claudeMinVersion: '2.1.220',
-      claudeVerifiedVersions: ['2.1.220', '2.1.283'],
+      claudeMinVersion: CLAUDE_MIN_VERSION,
+      claudeVerifiedVersions: [...CLAUDE_VERIFIED_VERSIONS],
       selfCommand: null,
     });
     // ARCHITECTURE §11 D-13 switch: on by default, booleans only.
@@ -210,23 +210,38 @@ describe('resolveConfig', () => {
 });
 
 describe('Claude Code version policy (ARCHITECTURE §7.6)', () => {
-  const policy = resolveConfig({ stateDir: '/tmp/s', shareDir: '/tmp/p', workspaceId: 'ws_test_0123456789', hostUserId: 'dev:host', hostName: 'Host' }).sessions;
+  const base = { stateDir: '/tmp/s', shareDir: '/tmp/p', workspaceId: 'ws_test_0123456789', hostUserId: 'dev:host', hostName: 'Host' };
+  // The release's policy: whatever core/config.ts says (the cases below follow the two constants, so a new verified
+  // version changes ONE line here: the transcription in the first case).
+  const policy = resolveConfig(base).sessions;
+  // A policy with two verified versions and a gap, for what the constants cannot show while only one is verified.
+  const twoVerified = resolveConfig({ ...base, sessions: { claudeMinVersion: '2.1.220', claudeVerifiedVersions: ['2.1.220', '2.1.283'] } }).sessions;
+  const parts = (version: string): [number, number, number] => version.split('.').map(Number) as [number, number, number];
+  const [major, minor, patch] = parts(CLAUDE_VERIFIED_VERSIONS.at(-1) as string);
+  const [minMajor, minMinor, minPatch] = parts(CLAUDE_MIN_VERSION);
 
-  it('the minimum is the oldest verified version, 2.1.220, and both 2.1.220 and 2.1.283 are verified', () => {
-    expect(CLAUDE_MIN_VERSION).toBe('2.1.220');
-    expect(CLAUDE_VERIFIED_VERSIONS).toEqual(['2.1.220', '2.1.283']);
+  it('the minimum is the oldest verified version, and the one verified version is 2.1.288 (DESIGN §2.2)', () => {
+    expect(CLAUDE_MIN_VERSION).toBe('2.1.288');
+    expect(CLAUDE_VERIFIED_VERSIONS).toEqual(['2.1.288']);
     expect(policy.claudeMinVersion).toBe(CLAUDE_VERIFIED_VERSIONS[0]);
+    expect(policy.claudeVerifiedVersions).toEqual(CLAUDE_VERIFIED_VERSIONS);
   });
 
-  it('both verified versions start without a warning', () => {
-    expect(claudeVersionVerdict('2.1.220 (Claude Code)\n', policy)).toEqual({ ok: true, version: '2.1.220', warning: null });
-    expect(claudeVersionVerdict('2.1.283 (Claude Code)\n', policy)).toEqual({ ok: true, version: '2.1.283', warning: null });
+  it('every verified version starts without a warning', () => {
+    for (const version of CLAUDE_VERIFIED_VERSIONS) expect(claudeVersionVerdict(`${version} (Claude Code)\n`, policy)).toEqual({ ok: true, version, warning: null });
+    expect(claudeVersionVerdict('2.1.220 (Claude Code)\n', twoVerified)).toEqual({ ok: true, version: '2.1.220', warning: null });
+    expect(claudeVersionVerdict('2.1.283 (Claude Code)\n', twoVerified)).toEqual({ ok: true, version: '2.1.283', warning: null });
   });
 
-  it('below the minimum: not ok (a session still starts, with a warning: every session is the host\'s own CLI, §11 D-15)', () => {
-    expect(claudeVersionVerdict('2.1.219 (Claude Code)', policy)).toEqual({ ok: false, version: '2.1.219', reason: 'below-minimum' });
+  // What is done with the verdict is the caller's: the agent runtime REFUSES an agent session below the minimum before
+  // the spawn (`session.claude.tooOld`, test/sessions/agent-sessions.test.ts); a terminal is not affected.
+  it('below the minimum: not ok', () => {
+    const justBelow = minPatch > 0 ? `${minMajor}.${minMinor}.${minPatch - 1}` : `${minMajor}.${Math.max(minMinor - 1, 0)}.999`;
+    expect(compareClaudeVersions(justBelow, CLAUDE_MIN_VERSION)).toBeLessThan(0);
+    expect(claudeVersionVerdict(`${justBelow} (Claude Code)`, policy)).toEqual({ ok: false, version: justBelow, reason: 'below-minimum' });
     expect(claudeVersionVerdict('2.0.999 (Claude Code)', policy)).toEqual({ ok: false, version: '2.0.999', reason: 'below-minimum' });
     expect(claudeVersionVerdict('1.99.500 (Claude Code)', policy)).toEqual({ ok: false, version: '1.99.500', reason: 'below-minimum' });
+    expect(claudeVersionVerdict('2.1.219 (Claude Code)', twoVerified)).toEqual({ ok: false, version: '2.1.219', reason: 'below-minimum' });
   });
 
   it('output that carries no readable version is not ok either', () => {
@@ -236,13 +251,14 @@ describe('Claude Code version policy (ARCHITECTURE §7.6)', () => {
   });
 
   it('warn - not refuse - on versions newer than the newest verified one', () => {
-    expect(claudeVersionVerdict('2.1.284 (Claude Code)', policy)).toEqual({ ok: true, version: '2.1.284', warning: 'newer-than-verified' });
-    expect(claudeVersionVerdict('2.2.0', policy)).toEqual({ ok: true, version: '2.2.0', warning: 'newer-than-verified' });
-    expect(claudeVersionVerdict('3.0.0 (Claude Code)', policy)).toEqual({ ok: true, version: '3.0.0', warning: 'newer-than-verified' });
+    for (const newer of [`${major}.${minor}.${patch + 1}`, `${major}.${minor + 1}.0`, `${major + 1}.0.0`]) {
+      expect(claudeVersionVerdict(`${newer} (Claude Code)`, policy), newer).toEqual({ ok: true, version: newer, warning: 'newer-than-verified' });
+    }
+    expect(claudeVersionVerdict('2.1.284', twoVerified)).toEqual({ ok: true, version: '2.1.284', warning: 'newer-than-verified' });
   });
 
   it('a version between two verified ones that is not listed starts with a warning too', () => {
-    expect(claudeVersionVerdict('2.1.250 (Claude Code)', policy)).toEqual({ ok: true, version: '2.1.250', warning: 'unverified' });
+    expect(claudeVersionVerdict('2.1.250 (Claude Code)', twoVerified)).toEqual({ ok: true, version: '2.1.250', warning: 'unverified' });
   });
 
   it('compares numerically, not as strings', () => {
@@ -251,6 +267,6 @@ describe('Claude Code version policy (ARCHITECTURE §7.6)', () => {
     expect(compareClaudeVersions('2.10.0', '2.9.999')).toBeGreaterThan(0);
     expect(compareClaudeVersions('2.1.283', '2.1.283')).toBe(0);
     expect(parseClaudeVersion('  2.1.283(Claude Code)')).toBe('2.1.283');
-    expect(claudeVersionVerdict('2.1.1000', policy)).toEqual({ ok: true, version: '2.1.1000', warning: 'newer-than-verified' });
+    expect(claudeVersionVerdict('2.1.1000', twoVerified)).toEqual({ ok: true, version: '2.1.1000', warning: 'newer-than-verified' });
   });
 });

@@ -68,24 +68,6 @@ export const PENDING_TEST_PARTS: readonly PendingTestPart[] = [
     owner: 'P12',
     why: 'the audit actions protocol 4 added (messages to agents, questions, permission answers, topics, plans, reports) are written by modules that are not composed yet; the scenario grows by them at integration',
   },
-  {
-    id: 'web-smoke:acceptance#R6',
-    where: 'apps/web/e2e/smoke/acceptance.smoke.test.ts',
-    owner: 'P8',
-    why: 'the suggestion flow in real browsers, typed into a terminal: the conversation smoke replaces it',
-  },
-  {
-    id: 'web-smoke:acceptance#agent-access-suggestion',
-    where: 'apps/web/e2e/smoke/acceptance.smoke.test.ts',
-    owner: 'P8',
-    why: 'the last step of the agent-access smoke (an editor suggests into a terminal, a member with agent access accepts); the steps before it still run',
-  },
-  {
-    id: 'web-smoke:zh-TW#suggestion',
-    where: 'apps/web/e2e/smoke/zh-TW.smoke.test.ts',
-    owner: 'P8',
-    why: 'the zh-TW suggestion step into a terminal; the rest of the zh-TW smoke still runs',
-  },
 ];
 
 /** Whether a part of a test waits for its package (never for the release gate). */

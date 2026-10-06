@@ -18,7 +18,7 @@ import type { ConversationModuleOptions, ConversationServiceImpl } from '../../s
 import { createConversationModule } from '../../src/conversation/module.ts';
 import { createSuggestModule } from '../../src/suggest/module.ts';
 import type { SuggestionModuleOptions, SuggestionServiceImpl } from '../../src/suggest/suggestion-service.ts';
-import { TEST_HOST_USER, createTestDaemon, settle, waitFor, type TestClient, type TestDaemon, type TestDaemonOptions } from '../../src/testing/index.ts';
+import { TEST_HOST_USER, createTempRunDir, createTestDaemon, removeTempRunDir, settle, waitFor, type TestClient, type TestDaemon, type TestDaemonOptions } from '../../src/testing/index.ts';
 
 export const HOST = TEST_HOST_USER;
 export const MEI = 'dev:mei';
@@ -60,10 +60,26 @@ export interface StackOptions {
 }
 
 const running: TestDaemon[] = [];
+const stateDirs: string[] = [];
 
-/** Every stack a test started is cleaned up after it. */
+/**
+ * A state directory for a daemon that a test stops and starts again on the same state (`StackOptions.stateDir`). It
+ * is removed by THIS file's hook, after every daemon of the test has stopped: a hook of the test file itself runs
+ * before this one (after-hooks run in reverse order) and would pull the directory away under a running daemon.
+ */
+export async function tempStateDir(): Promise<string> {
+  const dir = await createTempRunDir();
+  stateDirs.push(dir);
+  return dir;
+}
+
+/** Every stack a test started is cleaned up after it; then the state directories it asked for are removed. */
 afterEach(async () => {
-  for (const t of running.splice(0)) await t.cleanup();
+  try {
+    for (const t of running.splice(0)) await t.cleanup();
+  } finally {
+    for (const dir of stateDirs.splice(0)) await removeTempRunDir(dir);
+  }
 }, 60_000);
 
 /** The modules of a stack: [...before, fakes for the rest (with their handlers), conversation, suggest]. */

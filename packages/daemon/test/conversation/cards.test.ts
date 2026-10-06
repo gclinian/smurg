@@ -1,23 +1,16 @@
 // The cards a conversation keeps (ARCHITECTURE §5.9, §7.1): cards.json per session next to its transcript, what a
 // restart of the daemon does to open cards, the page rule of `cards()`, and what goes when a topic is deleted.
 import { readFile, stat, writeFile } from 'node:fs/promises';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { encodedSize, type AgentSession, type CardRef } from '@smurg/protocol';
 import { CARDS_INDEX_DOCUMENT, cardsFileSchema } from '../../src/conversation/cards-store.ts';
-import { createTempRunDir, removeTempRunDir } from '../../src/testing/index.ts';
-import { AMY, HOST, MEI, PARTS, bashRequest, cardsFile, collect, openDiscussion, openSession, principalOf, questionRequest, quiet, startStack, waitFor, watch } from './support.ts';
+import { AMY, HOST, MEI, PARTS, bashRequest, cardsFile, collect, openDiscussion, openSession, principalOf, questionRequest, quiet, startStack, tempStateDir, waitFor, watch } from './support.ts';
 
 const ONE_PART = [PARTS[0] as (typeof PARTS)[number]];
-const stateDirs: string[] = [];
-
-afterEach(async () => {
-  for (const dir of stateDirs.splice(0)) await removeTempRunDir(dir);
-});
 
 describe('cards.json', { timeout: 60_000 }, () => {
   it('a restart: what was open is withdrawn (restarted), settled cards stay readable, the same question asked again shows the earlier votes', async () => {
-    const stateDir = await createTempRunDir();
-    stateDirs.push(stateDir);
+    const stateDir = await tempStateDir();
     const first = await startStack({ stateDir });
     const session = await openSession(first, MEI);
     const lost = await openSession(first, HOST);
@@ -76,8 +69,7 @@ describe('cards.json', { timeout: 60_000 }, () => {
   });
 
   it('a cards.json that is not valid is kept aside and never guessed at; the session goes on without its earlier cards', async () => {
-    const stateDir = await createTempRunDir();
-    stateDirs.push(stateDir);
+    const stateDir = await tempStateDir();
     const first = await startStack({ stateDir });
     const session = await openSession(first, MEI);
     first.fakes.agents.raise(session.id, questionRequest('q1', ONE_PART));

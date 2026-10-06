@@ -137,6 +137,24 @@ describe('what a turn and a start can run into', { timeout: 60_000 }, () => {
     expect(reasons(r)).toEqual(['started']);
   });
 
+  it('two reasons to start again while a turn runs are ONE restart and one line (a member removed with a session rule and a topic rule)', async () => {
+    const r = await rig([{ match: 'wait', steps: [{ text: 'Working.' }, { wait: 'interrupt' }] }]);
+    const session = await r.s.sessions.create({ ...AGENT, firstMessage: 'wait for me' }, null as never, r.principal(TEST_HOST_USER));
+    await r.until(session.id, (now) => now.status === 'running' && now.lastSeq >= 5, 'the turn to run');
+    await r.agents.restartProcess(session.id, 'rules');
+    await r.agents.restartProcess(session.id, 'rules');
+    await r.agents.restartProcess(session.id, 'host');
+    expect((await r.ids(session.id)).filter((id) => id === 'conversation.agent.restarting')).toHaveLength(1);
+    // The turn ends: the process is given up once, and the next restart is announced again.
+    await r.agents.interrupt(session.id, { kind: 'system' });
+    await waitFor(() => r.agents.facts(session.id)?.hasProcess === false, { timeoutMs: 15_000, what: 'the restart at the end of the turn' });
+    expect(reasons(r)).toEqual(['started', 'parked']);
+    const next = await r.say(session.id, TEST_HOST_USER, 'and now?');
+    await waitFor(async () => (await r.deliveries(session.id, next.messageId)).includes('completed'), { timeoutMs: 15_000, what: 'the next turn' });
+    await r.agents.restartProcess(session.id, 'rules');
+    expect((await r.ids(session.id)).filter((id) => id === 'conversation.agent.restarting')).toHaveLength(2);
+  });
+
   it('the memory mark: a process above parkAboveRssBytes after a turn is parked at once, without a line; the next message resumes the conversation', async () => {
     const r = await rig([], { daemon: { agents: { parkAboveRssBytes: 1 } } });
     const session = await r.s.sessions.create({ ...AGENT, firstMessage: 'one' }, null as never, r.principal(TEST_HOST_USER));

@@ -17,7 +17,7 @@ import { MergeRequestItem } from './MergeRequestItem.tsx';
 import { MergeReviewDialog } from './MergeReview.tsx';
 import { RequestMergeDialog } from './RequestMergeDialog.tsx';
 import { t } from './strings.ts';
-import { useNow } from './use-now.ts';
+import { useNow } from '../../lib/use-now.ts';
 
 export interface MergeRequestsSectionProps {
   /** Level of the section's sub-headings (the console nests them one level deeper). */

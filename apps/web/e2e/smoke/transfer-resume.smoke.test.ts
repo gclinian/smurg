@@ -1,6 +1,6 @@
 // R7.3 in a real browser, over the real relay's TransferDO (docs/ACCEPTANCE.md R7.3: it was proven at daemon level and
 // in the web engine against a fake daemon only): the built app, loaded through a TCP proxy in front of the real relay
-// (drop-proxy.ts), uploads a file of a few tens of MiB from the files panel; half-way the proxy cuts the transfer
+// (drop-proxy.ts), uploads a file of a few tens of MiB from code mode's Transfers tab; half-way the proxy cuts the transfer
 // socket like a network would. The transfer Worker connects again on its own, asks what arrived and sends only the
 // rest: the file on the host is byte-identical, and far less than the whole file went up after the drop.
 import { createHash } from 'node:crypto';
@@ -8,7 +8,7 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startDropProxy, type DropProxy } from './drop-proxy.ts';
-import { joinAs, startSmoke, systemChrome, type SmokeEnv } from './helpers.ts';
+import { joinAs, startSmoke, systemChrome, toCodeMode, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
 if (chrome === null) console.warn('[web smoke] SKIPPED: no system Chrome found (playwright-core downloads no browser); install Google Chrome to run it.');
@@ -57,6 +57,8 @@ describe.skipIf(chrome === null)('R7.3 an upload over the real relay survives a 
     const page = await env.newPage();
     await joinAs(page, env, 'uma', 'editor');
     proxy.dropTransferAfter(DROP_AFTER);
+    // Uploads are code mode's: the Transfers tab of its drawer.
+    await toCodeMode(page);
     await page.getByRole('tab', { name: 'Transfers' }).click();
     await page.locator('input[type=file][multiple][hidden]').first().setInputFiles(source);
     const row = page.getByTestId('transfer-item').filter({ hasText: 'r73-upload.bin' }).first();

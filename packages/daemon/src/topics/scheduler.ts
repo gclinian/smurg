@@ -1,4 +1,4 @@
-// The scheduler of work items (ARCHITECTURE §5.10 "Execution"; design §4.5). It runs on every relevant event (a
+// The scheduler of work items (ARCHITECTURE §7.8 "Execution"; design §4.5). It runs on every relevant event (a
 // start, a merge decided, a session's status, the plan re-parsed, a change of the two files, `plan.resume`, a member
 // removed, an agent process started or gone) and does, for each armed item in plan order:
 //

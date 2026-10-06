@@ -19,7 +19,7 @@ import {
   type ConnectionOptions,
   type TransferConnectionOptions,
 } from '@smurg/protocol/client';
-import { createDaemon, type Daemon } from '../daemon.ts';
+import { DEFAULT_FEATURE_MODULES, createDaemon, type Daemon } from '../daemon.ts';
 import type { AgentsConfig, LimitsConfig, SessionLaunchConfig, TimingConfig } from '../core/config.ts';
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import type { PowerService } from '../core/interfaces.ts';
@@ -58,6 +58,11 @@ export interface TestDaemonOptions {
   /**
    * Session launch inputs (claudePath, selfCommand, version policy). `hostHome` defaults to the test's
    * fake home, never the developer's.
+   *
+   * Without `selfCommand` (the default) no agent session can start (`session.hooks.notConfigured`, before `claude` is
+   * even looked for). A test that passes `selfCommand` with the production sessions module MUST name its `claude`
+   * too: `claudePath` of the stand-in (installFakeClaude) or of the real binary under test with the fake API.
+   * createTestDaemon refuses the combination that would look on PATH and find the developer's own Claude Code.
    */
   readonly sessions?: Partial<SessionLaunchConfig>;
   readonly log?: Logger;
@@ -132,7 +137,19 @@ async function waitUntil(predicate: () => boolean, timeoutMs: number, what: stri
   }
 }
 
+/** The production sessions module (the one of DEFAULT_FEATURE_MODULES): it has no launch seam but the config. */
+const PRODUCTION_SESSIONS_MODULE = DEFAULT_FEATURE_MODULES.find((module) => module.name === 'sessions');
+
 export async function createTestDaemon(options: TestDaemonOptions = {}): Promise<TestDaemon> {
+  // No test starts the machine's real `claude` with the developer's login: with the production sessions module a
+  // null `claudePath` means "the first claude on PATH".
+  if (
+    (options.sessions?.selfCommand ?? null) !== null &&
+    (options.sessions?.claudePath ?? null) === null &&
+    (options.modules ?? DEFAULT_FEATURE_MODULES).some((module) => module === PRODUCTION_SESSIONS_MODULE)
+  ) {
+    throw new Error('createTestDaemon: sessions.selfCommand without sessions.claudePath would start the first `claude` on PATH (the developer\'s own). Pass the stand-in: sessions.claudePath = (await installFakeClaude(dir)).path');
+  }
   const base = await createTempDir('daemon');
   const clients: TestClient[] = [];
   let runDir: string | null = null;

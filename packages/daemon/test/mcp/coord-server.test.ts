@@ -137,7 +137,9 @@ describe('MCP protocol', () => {
     const tools = ((await mcp.request('tools/list'))['result'] as { tools: { name: string; description: string; inputSchema: Json }[] }).tools;
     expect(tools.map((t) => t.name)).toEqual(['who_is_editing', 'lock_status', 'wait_for_lock', 'list_sessions', 'notify_member', 'check_plan', 'propose_split', 'check_report']);
     expect(tools.map((t) => t.name)).toEqual(MCP_TOOLS.map((t) => t.name));
-    expect([...MCP_TOOL_NAMES, ...TOPIC_TOOL_NAMES.filter((name) => !(MCP_TOOL_NAMES as readonly string[]).includes(name))]).toEqual(MCP_TOOLS.map((t) => t.name));
+    // The socket's list (hooks/wire.ts) and the MCP server's definitions (mcp/tools.ts) name the same eight tools.
+    expect([...MCP_TOOL_NAMES]).toEqual(MCP_TOOLS.map((t) => t.name));
+    expect(MCP_TOOL_NAMES.slice(-TOPIC_TOOL_NAMES.length)).toEqual([...TOPIC_TOOL_NAMES]);
     expect(tools.every((t) => isAgentToolName(t.name))).toBe(true);
     expect(isAgentToolName('rm_rf')).toBe(false);
     for (const tool of tools) {
@@ -287,9 +289,10 @@ describe('R8: the coordination MCP server\'s tools: who is editing a file, query
     expect(results.filter((r) => r.isError && /Too many notifications/.test(r.text))).toHaveLength(3);
   });
 
-  // The daemon's socket schema takes its tool names from hooks/wire.ts (the agent runtime's file): until the three
-  // topic tools are listed there, the socket refuses them and this path is covered by topic-tools.test.ts alone.
-  it.skipIf(!isMcpToolName('check_plan'))('a topic tool travels the same road: check_plan from a session that is no discussion answers with one sentence', async () => {
+  // The daemon's socket schema takes its tool names from hooks/wire.ts (MCP_TOOL_NAMES): a tool that is not listed
+  // there is refused by the socket before any handler, so the three topic tools must be on it.
+  it('a topic tool travels the same road: check_plan from a session that is no discussion answers with one sentence', async () => {
+    for (const name of TOPIC_TOOL_NAMES) expect(isMcpToolName(name), name).toBe(true);
     const { mcp } = await setup();
     const answer = await mcp.call('check_plan');
     expect(answer.isError).toBe(false);

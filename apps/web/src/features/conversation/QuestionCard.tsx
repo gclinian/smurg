@@ -17,7 +17,7 @@ import {
   votersOf,
   type Question,
 } from '@smurg/protocol';
-import { formatAge, formatTime } from '../../lib/format.ts';
+import { formatAge, formatAnd, formatTime } from '../../lib/format.ts';
 import { kindLabel } from '../../lib/session-status.ts';
 import { useStore } from '../../lib/store.ts';
 import type { QuestionAnswerInput } from '../../lib/stores/conversations.ts';
@@ -31,7 +31,7 @@ import { useAction, useConversationEnv, useMarkSeen, useSessionFacts, type Sessi
 import { MentionField } from './MentionField.tsx';
 import { mentionsIn, personOf, withAgentAccess, type Person } from './people.ts';
 import { t } from './strings.ts';
-import { cardDomId, namesList } from './text.ts';
+import { cardDomId } from './text.ts';
 
 type Part = Question['parts'][number];
 type Vote = Question['votes'][number];
@@ -153,8 +153,8 @@ function PartView({ question, index, tally, leading, people, selfId, voting, bus
                 </span>
                 {option.description !== '' ? <span className="conv-q-opt__desc">{option.description}</span> : null}
               </span>
-              <span className="conv-q-opt__votes" title={count === 0 ? t('q.noVotes') : t('q.votesFor', { count, names: namesList(names) })}>
-                <AvatarStack people={votersAsPeople(chosenBy, people)} label={t('q.votesFor', { count, names: namesList(names) })} />
+              <span className="conv-q-opt__votes" title={count === 0 ? t('q.noVotes') : t('q.votesFor', { count, names: formatAnd(names) })}>
+                <AvatarStack people={votersAsPeople(chosenBy, people)} label={t('q.votesFor', { count, names: formatAnd(names) })} />
                 <span className="conv-q-opt__count">{count}</span>
               </span>
               <span className="conv-q-opt__bar" style={{ width: `${voters === 0 ? 0 : Math.round((count / voters) * 100)}%` }} aria-hidden="true" />
@@ -177,7 +177,7 @@ function PartView({ question, index, tally, leading, people, selfId, voting, bus
               <span className="conv-q-opt__label">{t('q.other')}</span>
             </span>
             <span className="conv-q-opt__votes">
-              <AvatarStack people={votersAsPeople(others, people)} label={t('q.votesFor', { count: others.length, names: namesList(others.map((vote) => vote.displayName)) })} />
+              <AvatarStack people={votersAsPeople(others, people)} label={t('q.votesFor', { count: others.length, names: formatAnd(others.map((vote) => vote.displayName)) })} />
               <span className="conv-q-opt__count">{tally[part.options.length] ?? 0}</span>
             </span>
             <span className="conv-q-opt__texts">
@@ -471,7 +471,7 @@ export const QuestionCard = memo(function QuestionCard({ questionId }: { questio
     void action
       .run(() => stores.conversations.comment(questionId, t('q.askSubmit.text', { mentions }), helpers.map((person) => person.userId)))
       .then((ok) => {
-        if (ok) setSaid(t('q.askSubmit.sent', { names: namesList(helpers.map((person) => person.displayName)) }));
+        if (ok) setSaid(t('q.askSubmit.sent', { names: formatAnd(helpers.map((person) => person.displayName)) }));
       });
   };
   const remind = (): void => {
@@ -561,7 +561,9 @@ export const QuestionCard = memo(function QuestionCard({ questionId }: { questio
           {ownWords ? (
             <textarea
               className="ui-input conv-q__note"
-              rows={1}
+              // Two rows: the placeholder is a whole sentence ("Only this note and the answer reach Claude") and one
+              // row cut it off in a column of ordinary width.
+              rows={2}
               aria-label={t('q.note.label')}
               placeholder={t('q.note.placeholder')}
               maxLength={ANSWER_NOTE_MAX_CHARS}
@@ -570,7 +572,7 @@ export const QuestionCard = memo(function QuestionCard({ questionId }: { questio
             />
           ) : (
             <p className="conv-card__who">
-              {helpers.length > 0 ? t('q.editor', { names: namesList(helpers.map((person) => person.displayName)) }) : null}{' '}
+              {helpers.length > 0 ? t('q.editor', { names: formatAnd(helpers.map((person) => person.displayName)) }) : null}{' '}
               {helpers.length > 0 ? (
                 <button type="button" className="conv-link" disabled={action.busy} onClick={askThem}>
                   {t('q.askSubmit')}

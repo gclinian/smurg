@@ -2,9 +2,11 @@
 // host's own machine without Noise but through the same hub and router as a relay client, restricted to what `smurg
 // attach` sends and audited via control-socket (review F1); the control-socket frame codec is strict. Also the hub's own refusals (contract review C3) and auth.disconnect (C4), which a local
 // connection makes easy to drive with raw, forged bytes.
+import { readdir } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, MESSAGE_REGISTRY, MESSAGE_TYPES, SmurgError, decodeEnvelope, encodeEnvelope, isSmurgError, mayReceive, type AnyEnvelope, type AuditEntry, type RequestType } from '@smurg/protocol';
-import { LOCAL_DEVICE_ID, type InboundNotifyType, type LocalAttachment } from '../src/core/interfaces.ts';
+import { FEATURE_SERVICE_NAMES, LOCAL_DEVICE_ID, type InboundNotifyType, type LocalAttachment } from '../src/core/interfaces.ts';
+import { isStubService } from '../src/core/stubs.ts';
 import { SocketPathError, assertSocketPath, runPathsFor, shortRunId } from '../src/core/sockets.ts';
 import { LOCAL_CHANNEL_RECEIVES, LOCAL_CHANNEL_TYPES, localChannelAllows, localChannelReceives } from '../src/local/local-channel.ts';
 import {
@@ -17,9 +19,12 @@ import {
   parseCtlRequest,
   parseCtlResponse,
 } from '../src/local/protocol.ts';
-import { createTestDaemon, waitFor, type TestDaemon } from '../src/testing/index.ts';
+import { fakesModule, fakesOf } from '../src/core/fakes/index.ts';
+import { localControlModule } from '../src/local/module.ts';
+import { createTempDir, createTestDaemon, installFakeClaude, removeTempDir, waitFor, type TestDaemon } from '../src/testing/index.ts';
 import { createProbe } from './fixtures/probe-module.ts';
 import { NOTIFY_SAMPLES, REQUEST_SAMPLES } from './fixtures/request-samples.ts';
+import { CLI_MAIN } from './integration/support.ts';
 
 let t: TestDaemon | null = null;
 
@@ -233,6 +238,76 @@ describe('the local channel sends only what smurg attach sends (review F1)', () 
       hostTransfer.close();
     }
     expect(problems).toEqual([]);
+  }, 60_000);
+
+  // The same, in front of the REAL handlers (createTestDaemon without `modules`: the release composition, with the
+  // stand-in `claude` so that a request that slipped through would really open a session). The probe above proves
+  // "no handler ran" for every type; this proves it by what the workspace looks like afterwards.
+  it('with the release composition: every protocol 4 request through the control socket is refused before its real handler, and nothing was done', async () => {
+    const scratch = await createTempDir('local-control');
+    try {
+      const claude = await installFakeClaude(scratch);
+      t = await createTestDaemon({
+        project: { git: true, files: { 'README.md': '# Shop\n' } },
+        sessions: { claudePath: claude.path, selfCommand: { file: process.execPath, args: [CLI_MAIN] } },
+        limits: { maxDenialsPerConnPerMinute: 10_000, auditDeniedPerActorPerMinute: 10_000 },
+      });
+      expect(FEATURE_SERVICE_NAMES.filter((name) => isStubService(t?.ctx.services[name]))).toEqual([]);
+      const audit: AuditEntry[] = [];
+      t.ctx.audit.subscribe((entry) => audit.push(entry));
+      const local = attachHost(t);
+      local.attachment.open();
+      // The shared folder as the daemon's start left it (its own `.smurg` is there).
+      const folderBefore = (await readdir(t.root)).sort();
+      expect(folderBefore).toEqual(['.git', '.smurg', 'README.md']);
+      const problems: string[] = [];
+      for (const type of ALL_CLIENT_TYPES) {
+        if (type === 'channel.ack') continue;
+        const since = audit.length;
+        const channel = MESSAGE_REGISTRY[type].channel === 'transfer' ? 'transfer' : 'interactive';
+        local.seq += 1;
+        const id = `rc-${type}`;
+        local.attachment.receive(encodeEnvelope({ type, id, seq: local.seq, payload: sampleOf(type) } as never, { from: 'client', channel }));
+        // Messages are handled in order: once a later request is answered, this one was decided.
+        const barrier = await local.request('session.list', {});
+        if (barrier.type !== 'session.list.ok') problems.push(`${type}: the channel no longer answers session.list (${barrier.type})`);
+        const answer = local.received.find((e) => e.id === id);
+        const denied = fresh(audit, since).filter((e) => e.outcome === 'denied' && e.target === type);
+        if (localChannelAllows(type)) {
+          // What `smurg attach` sends reaches the real handler: a list, or that handler's own "no such session".
+          if (denied.length > 0) problems.push(`${type}: on the list but refused`);
+          const isRequest = MESSAGE_REGISTRY[type].result !== null;
+          if (isRequest && type === 'session.list' && answer?.type !== 'session.list.ok') problems.push(`${type}: ${answer?.type ?? 'no answer'}`);
+          if (isRequest && type !== 'session.list' && (answer?.payload as { text?: { id?: string } } | undefined)?.text?.id !== 'session.notFound') problems.push(`${type}: ${JSON.stringify(answer?.payload)}`);
+          continue;
+        }
+        if (answer?.type !== 'error') problems.push(`${type}: not refused (${answer?.type ?? 'no answer'})`);
+        if (denied.length !== 1 || denied[0]?.detail?.['via'] !== 'control-socket') problems.push(`${type}: audited ${JSON.stringify(denied.map((e) => e.detail))}`);
+        if (MESSAGE_REGISTRY[type].channel === 'transfer') continue; // refused by the hub's decoder already (wrong socket)
+        if ((answer?.payload as { code?: string } | undefined)?.code !== 'forbidden' || denied[0]?.detail?.['reason'] !== 'control-socket') problems.push(`${type}: refused as ${JSON.stringify(answer?.payload)}`);
+      }
+      expect(problems).toEqual([]);
+
+      // Nothing was done: no session, no topic, no file, no invite, no settings change, and `claude` never ran.
+      const { services } = t.ctx;
+      expect(services.agents.list()).toEqual([]);
+      expect(services.sessions.list()).toEqual([]);
+      expect(services.topics.list({}).topics).toEqual([]);
+      expect(services.worktrees.list()).toEqual([]);
+      expect(services.locks.list()).toEqual([]);
+      expect((await readdir(t.root)).sort()).toEqual(folderBefore);
+      expect(await claude.echoed()).toEqual([]);
+      expect(t.ctx.lifecycle.status().claude).toBeUndefined();
+      const done = audit.filter((e) => e.outcome !== 'denied').map((e) => e.action);
+      expect(done).toEqual(['auth.connect']);
+      // The channel is still the host's attach channel.
+      expect(local.closedByDaemon).toBe(false);
+      expect((await local.request('session.list', {})).payload).toEqual({ sessions: [], hasMore: false });
+    } finally {
+      await t?.cleanup();
+      t = null;
+      await removeTempDir(scratch);
+    }
   }, 60_000);
 
   it('the host decisions a Agent access member could reach through the socket are refused there and change nothing; the audit says via control-socket', async () => {
@@ -461,6 +536,22 @@ describe('control-socket framing', () => {
     const frame = encodeCtlControl({ ok: true, op: 'status', status: t.ctx.lifecycle.status() });
     const [decoded] = new CtlFrameDecoder().push(frame);
     expect(parseCtlResponse(decoded?.body as Uint8Array)).toMatchObject({ ok: true, op: 'status', status: { workspaceId: t.workspaceId, started: true } });
+  });
+
+  it('the status carries Claude Code as the agent runtime last found it; before the first check the field is absent', async () => {
+    t = await createTestDaemon({ modules: [fakesModule(), localControlModule] });
+    expect(t.ctx.lifecycle.status().claude).toBeUndefined();
+    expect(Object.keys(t.ctx.lifecycle.status())).not.toContain('claude');
+    fakesOf(t.ctx).agents.claudeStatus = { version: '2.1.288', verdict: 'verified', login: 'logged-in' };
+    expect(t.ctx.lifecycle.status().claude).toEqual({ version: '2.1.288', verdict: 'verified', login: 'logged-in' });
+    // ... and it travels the control socket as `smurg status` reads it.
+    const [decoded] = new CtlFrameDecoder().push(encodeCtlControl({ ok: true, op: 'status', status: t.ctx.lifecycle.status() }));
+    expect(parseCtlResponse(decoded?.body as Uint8Array)).toMatchObject({ ok: true, op: 'status', status: { claude: { version: '2.1.288', verdict: 'verified', login: 'logged-in' } } });
+    // The release composition: the real runtime has checked nothing before the first agent session.
+    await t.cleanup();
+    t = await createTestDaemon();
+    expect(t.ctx.lifecycle.status()).toMatchObject({ agents: { running: 0, waiting: 0, stalled: 0, idle: 0 }, topics: { total: 0, paused: 0 }, hostRules: { count: 0 } });
+    expect(t.ctx.lifecycle.status().claude).toBeUndefined();
   });
 
   it('the status names what `smurg status` shows the host (fingerprint, relay, switch, git); a status without them (an older daemon) still parses', async () => {

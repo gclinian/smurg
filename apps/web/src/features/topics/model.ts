@@ -22,7 +22,7 @@ import { reportOutcomeRef } from '@smurg/protocol/i18n';
 import { intlTag } from '@smurg/protocol/locale';
 import { itemLabel } from '../../lib/columns/describe.ts';
 import { renderWireText } from '../../lib/errors.ts';
-import { formatDateTime, formatDuration, formatRole } from '../../lib/format.ts';
+import { formatAnd, formatDateTime, formatDuration, formatRole } from '../../lib/format.ts';
 import { getLocale } from '../../lib/locale.ts';
 import type { Tone } from '../../ui/index.ts';
 import { t } from './strings.ts';
@@ -33,22 +33,6 @@ import { t } from './strings.ts';
 
 /** The key suffix of a sentence that differs for one and for several where the number itself is not shown. */
 export const oneOrMany = (count: number): 'one' | 'many' => (count === 1 ? 'one' : 'many');
-
-const listFormats = new Map<string, Intl.ListFormat>();
-
-/**
- * Names or numbers as a part of a sentence, the way the viewer's language joins them: "Ian and Mei", "1, 2, and 3".
- * (Paths and commands are listed with commas instead, `formatList`: an "and" between two paths reads as part of one.)
- */
-export function andList(items: readonly string[]): string {
-  const tag = intlTag(getLocale());
-  let format = listFormats.get(tag);
-  if (!format) {
-    format = new Intl.ListFormat(tag, { style: 'long', type: 'conjunction' });
-    listFormats.set(tag, format);
-  }
-  return format.format(items);
-}
 
 const clocks = new Map<string, Intl.DateTimeFormat>();
 
@@ -92,7 +76,7 @@ export function agentAccessPeople<P extends Person>(members: readonly P[]): P[] 
 /** Their names as one phrase: "Ian and Mei". Nobody known yet: "the host". */
 export function agentAccessNames(members: readonly Person[]): string {
   const people = agentAccessPeople(members);
-  return people.length === 0 ? t('people.host') : andList(people.map((member) => member.displayName));
+  return people.length === 0 ? t('people.host') : formatAnd(people.map((member) => member.displayName));
 }
 
 /** Who may be made responsible for an item: every member holding `discuss` (routing only, DESIGN §3.9). */
@@ -131,13 +115,13 @@ export function itemNumbers(plan: Pick<PlanInfo, 'items'>, ids: readonly string[
     .map((id) => items.get(id)?.number)
     .filter((n): n is number => n !== undefined && n > 0)
     .sort((a, b) => a - b);
-  return andList(numbers.map(String));
+  return formatAnd(numbers.map(String));
 }
 
 /** "1 · Cart API" of the items with these ids, as one phrase. */
 export function itemNames(plan: Pick<PlanInfo, 'items'>, ids: readonly string[]): string {
   const items = byId(plan);
-  return andList(ids.map((id) => items.get(id)).filter((item): item is WorkItem => item !== undefined).map((item) => itemLabel(item)));
+  return formatAnd(ids.map((id) => items.get(id)).filter((item): item is WorkItem => item !== undefined).map((item) => itemLabel(item)));
 }
 
 export const isMerged = (item: Pick<WorkItem, 'merge'>): boolean => item.merge?.status === 'merged';
@@ -163,8 +147,22 @@ export interface ItemBadge {
   readonly waitsForPerson: boolean;
 }
 
+/**
+ * The follow-up that still asks for something: a message sent from the report after its newest version
+ * (`WorkItem.changesAsked`, kept by the host's smurg until the agent writes a new version). Once the report was
+ * reviewed AFTER that message, the reviewer has taken the version as it is (the follow-up was a question, and its
+ * answer is in the report): the item is reviewed, and nothing says "changes asked" any more.
+ */
+export function openChangesAsked(item: Pick<WorkItem, 'changesAsked' | 'report'>): WorkItem['changesAsked'] {
+  const asked = item.changesAsked;
+  if (asked === undefined) return undefined;
+  const report = item.report;
+  return report !== undefined && report.state === 'reviewed' && report.review !== undefined && report.review.at >= asked.at ? undefined : asked;
+}
+
 function reportBadge(item: WorkItem, report: ReportSummary): ItemBadge {
-  if (item.changesAsked !== undefined) return { text: t('badge.changesAsked', { name: item.changesAsked.by.displayName }), tone: 'info', bar: 'running', waitsForPerson: false };
+  const asked = openChangesAsked(item);
+  if (asked !== undefined) return { text: t('badge.changesAsked', { name: asked.by.displayName }), tone: 'info', bar: 'running', waitsForPerson: false };
   if (report.state === 'invalid') return { text: t('badge.reportInvalid'), tone: 'danger', bar: 'failed', waitsForPerson: true };
   if (report.state === 'changed-after-review') return { text: t('badge.changedAfterReview'), tone: 'warning', bar: 'report', waitsForPerson: false };
   if (report.outcome === 'complete') return { text: t('badge.report'), tone: 'success', bar: 'report', waitsForPerson: false };
@@ -212,7 +210,7 @@ export function itemBadge(item: WorkItem, plan: Pick<PlanInfo, 'items' | 'slots'
     case 'done':
       return item.report === undefined ? { text: t('badge.done'), tone: 'success', bar: 'report', waitsForPerson: false } : reportBadge(item, item.report);
     case 'reviewed': {
-      if (item.report?.state === 'changed-after-review' || item.changesAsked !== undefined) return reportBadge(item, item.report as ReportSummary);
+      if (item.report?.state === 'changed-after-review' || openChangesAsked(item) !== undefined) return reportBadge(item, item.report as ReportSummary);
       const reviewed = 'reviewed' as const;
       if (item.merge?.status === 'merged') return { text: t('badge.merged'), tone: 'success', bar: reviewed, waitsForPerson: false };
       if (item.merge?.status === 'conflict') return { text: t('badge.conflict'), tone: 'danger', bar: reviewed, waitsForPerson: true };
@@ -334,7 +332,7 @@ export function waitingForLine(plan: Pick<PlanInfo, 'waitingFor'>, now: number):
       if (entry.questions > 0) what.push(t('waiting.questions', { count: entry.questions }));
       if (entry.permissions > 0) what.push(t('waiting.permissions', { count: entry.permissions }));
       if (entry.reports > 0) what.push(t('waiting.reports', { count: entry.reports }));
-      return t('waiting.person', { name: entry.user.displayName, what: andList(what), time: formatDuration((now - entry.since) / 1000) });
+      return t('waiting.person', { name: entry.user.displayName, what: formatAnd(what), time: formatDuration((now - entry.since) / 1000) });
     })
     .join(t('sep'));
 }
@@ -419,5 +417,5 @@ export function specOpenQuestions(text: string): number {
 /** "Amy (SPEC.md, 14:12), Mei (SPEC.md, 14:03)": who edited the two files by hand, newest first. */
 export function handEditsLine(edits: { readonly spec: readonly HandEdit[]; readonly plan: readonly HandEdit[] }, now: number = Date.now()): string {
   const all = [...edits.spec.map((edit) => ({ ...edit, file: 'SPEC.md' })), ...edits.plan.map((edit) => ({ ...edit, file: 'PLAN.md' }))].sort((a, b) => b.at - a.at);
-  return andList(all.map((edit) => t('handEdit.entry', { name: edit.by === 'outside' ? t('handEdit.outside') : edit.by.displayName, file: edit.file, time: formatClock(edit.at, now) })));
+  return formatAnd(all.map((edit) => t('handEdit.entry', { name: edit.by === 'outside' ? t('handEdit.outside') : edit.by.displayName, file: edit.file, time: formatClock(edit.at, now) })));
 }

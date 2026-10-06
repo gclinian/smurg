@@ -234,7 +234,8 @@ export const PermissionCard = memo(function PermissionCard({ requestId }: { requ
           ) : null}
           {rule !== undefined ? (
             <>
-              <p className="conv-perm__rule">{rule.tool === 'Bash' ? t('perm.kind.bash', { pattern: rule.pattern }) : t('perm.kind.fetch', { host: rule.pattern.replace(/^domain:/, '') })}</p>
+              {/* In words: the rule `pnpm test *` is "commands that start with pnpm test" (the star is the rule's own syntax). */}
+              <p className="conv-perm__rule">{rule.tool === 'Bash' ? t('perm.kind.bash', { pattern: rule.pattern.replace(/\s*\*$/u, '') }) : t('perm.kind.fetch', { host: rule.pattern.replace(/^domain:/, '') })}</p>
               {topicScope ? (
                 <div className="conv-perm__scope" role="radiogroup" aria-label={t('perm.scope')}>
                   <label>

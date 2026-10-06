@@ -1,11 +1,11 @@
 // The product in Traditional Chinese, in real browsers (the built app, the real relay, a daemon with every module,
-// system Chrome with `locale: 'zh-TW'`): the join through an invite link, the workbench, a terminal session, a
-// suggestion accepted by the host, the daemon's sentences in the activity feed, and the relay's /device page. Every
-// other smoke test runs in English; this one keeps the second language working end to end.
+// system Chrome with `locale: 'zh-TW'`): the join through an invite link, the sessions view, a terminal in a column,
+// code mode with the daemon's sentences in the activity feed, and the relay's /device page. Most other smoke tests
+// run in English; this one keeps the second language working end to end. (A suggestion accepted on a zh-TW page is in
+// conversation.smoke.test.ts: it goes to an agent session, never into a terminal.)
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { STEP_MS, explainFailures, joinAs, openSession, startSmoke, systemChrome, terminalShows, typeInTerminal, waitForTerminalText, workspaceOnline, type SmokeEnv } from './helpers.ts';
-import { isPendingPart } from '../../../../tests/lint/pending-v050.ts';
+import { STEP_MS, columnOf, explainFailures, joinAs, openDrawer, openTerminal, rowOf, startSmoke, systemChrome, terminalOf, toCodeMode, typeInTerminal, waitForTerminalText, workspaceOnline, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
 if (chrome === null) console.warn('[web smoke] SKIPPED: no system Chrome found (playwright-core downloads no browser); install Google Chrome to run it.');
@@ -25,7 +25,7 @@ describe.skipIf(chrome === null)('the app in zh-TW (built app, real relay, syste
 
   const lang = (page: Page): Promise<string | null> => page.locator('html').getAttribute('lang');
 
-  it('join, workbench, a terminal session, a suggestion the host accepts, the activity feed and /device, all in Traditional Chinese', async () => {
+  it('join, the sessions view, a terminal in a column, code mode with the activity feed, and /device, all in Traditional Chinese', async () => {
     const host = await env.newPage({ locale: 'zh-TW' });
     // The join, step by step: Chinese from the first paint, through the login and the confirmation.
     await host.goto(env.hostLink());
@@ -41,34 +41,32 @@ describe.skipIf(chrome === null)('the app in zh-TW (built app, real relay, syste
     expect(await topbar.locator('.ui-badge').first().textContent()).toContain('主人');
     expect(await topbar.textContent()).toContain('主人：');
 
-    // A terminal session, opened through the zh-TW dialog; the host types into it.
-    const sessionId = await openSession(host, 'terminal', 'shell');
-    await host.getByRole('tab', { name: /^shell（host 開的）/ }).first().waitFor({ timeout: STEP_MS });
+    // The sessions view in Chinese: the mode switch, the inbox, the session list and its "New" control.
+    const mode = topbar.getByRole('group', { name: '模式' });
+    expect(await mode.getByRole('link').allTextContents()).toEqual(['session', '手寫 code 模式']);
+    await host.getByRole('complementary', { name: '收件夾與 session' }).waitFor({ timeout: STEP_MS });
+    await host.getByRole('button', { name: '新增', exact: true }).waitFor({ timeout: STEP_MS });
+
+    // A terminal, opened through the zh-TW menu and dialog; it is a column named by its title, and the host types into it.
+    const sessionId = await openTerminal(host, 'shell');
+    await columnOf(host, 'shell').locator('.agents-summary').getByText('你開的', { exact: true }).waitFor({ timeout: STEP_MS });
     await typeInTerminal(host, sessionId, 'echo ZH-$((6*7))');
     await waitForTerminalText(host, sessionId, 'ZH-42');
 
-    // A guest (editor) joins and sees the session.
+    // A guest (editor) joins, sees the terminal in the list and watches it: who opened it, and that it is watch-only.
     const guest = await env.newPage({ locale: 'zh-TW' });
     await joinAs(guest, env, 'mei', 'editor');
     expect(await guest.getByRole('banner', { name: '工作區' }).locator('.ui-badge').first().textContent()).toContain('可編輯');
-    await guest.getByRole('tab', { name: /^shell（host 開的）/ }).first().click();
-    // The guest suggests; the host accepts; the text arrives in the terminal. Protocol 4: suggestions go to agent
-    // sessions, never into a terminal, so this step waits for the conversation column (tests/lint/pending-v050.ts).
-    if (!isPendingPart('web-smoke:zh-TW#suggestion')) {
-      const composer = guest.getByRole('textbox', { name: /的「shell」的建議/ });
-      await composer.waitFor({ timeout: STEP_MS });
-      await composer.fill('echo 建議-FROM-MEI');
-      await guest.getByRole('button', { name: '送出建議' }).click();
-      const queue = host.locator('section[aria-label^="等待你決定的建議（1）"]');
-      await queue.getByText('echo 建議-FROM-MEI').waitFor({ timeout: STEP_MS });
-      expect(await terminalShows(host, sessionId, 'FROM-MEI')).toBe(false);
-      await queue.getByRole('button', { name: '採用', exact: true }).click();
-      await waitForTerminalText(host, sessionId, 'FROM-MEI');
-      await guest.getByText('你的建議已被採用').first().waitFor({ timeout: STEP_MS });
-    }
+    await rowOf(guest, 'shell').click();
+    const watched = columnOf(guest, 'shell');
+    await watched.locator('.agents-summary').getByText('host 開的', { exact: true }).waitFor({ timeout: STEP_MS });
+    await watched.getByText('只能觀看').waitFor({ timeout: STEP_MS });
+    expect(await terminalOf(guest, sessionId).getAttribute('data-readonly')).toBe('true');
+    await waitForTerminalText(guest, sessionId, 'ZH-42');
 
-    // The daemon's own sentence in the feed, in the viewer's language: a file with a Chinese name.
+    // Code mode. The daemon's own sentence in the feed, in the viewer's language: a file with a Chinese name.
     // (A new file goes next to the row that has the focus in the tree: README.md, in the root folder.)
+    for (const page of [host, guest]) await toCodeMode(page);
     await host.getByRole('treeitem', { name: 'README.md' }).first().click();
     await host.locator('.editor-doc__monaco[data-bound]').waitFor({ timeout: STEP_MS });
     await host.getByRole('button', { name: '新增檔案' }).first().click();
@@ -78,7 +76,7 @@ describe.skipIf(chrome === null)('the app in zh-TW (built app, real relay, syste
     await dialog.getByRole('button', { name: '建立' }).click();
     await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
     for (const page of [host, guest]) {
-      await page.getByRole('button', { name: '展開「動態與傳輸」' }).click();
+      await openDrawer(page);
       await page.locator('.activity-feed').getByText('新增檔案 待辦清單.md', { exact: true }).first().waitFor({ timeout: STEP_MS });
     }
 

@@ -179,7 +179,8 @@ export function parseDiffLines(section: string): DiffLine[] {
  * Source": the host would review a different order of tokens than the compiler reads), zero-width characters and
  * control characters (tab and CR excepted: CRLF files end every line with one).
  */
-const INVISIBLE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f؜​-‏‪-‮⁠-⁤⁦-⁩﻿]/u;
+// Written with escapes on purpose: the characters themselves cannot be seen (or kept) in an editor.
+const INVISIBLE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/u;
 const INVISIBLE_ALL = new RegExp(INVISIBLE.source, 'gu');
 
 export interface TextPiece {

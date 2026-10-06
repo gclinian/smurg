@@ -23,7 +23,7 @@ const INBOX = [
 ];
 
 describe('the left column in zh-TW', () => {
-  it('the inbox is 收件夾, with its two groups, the two counts in words, and rows composed in Chinese', async () => {
+  it('the inbox has the owner\'s word for it, its two groups, the two counts in words, and rows composed in Chinese', async () => {
     await mountSidebar({ inbox: INBOX });
     expect(screen.getByRole('complementary', { name: '收件夾與 session' })).toBeTruthy();
     const inbox = screen.getByRole('region', { name: '收件夾' });
@@ -55,7 +55,7 @@ describe('the left column in zh-TW', () => {
     expect(screen.getByRole('region', { name: '收件夾' }).textContent).toContain('目前沒有等你處理的事。旁觀者在這裡只會收到提及。');
   });
 
-  it('the session tree: phases, the fixed rows, statuses and who is responsible; "未分主題" for sessions without a topic', async () => {
+  it('the session tree: phases, the fixed rows, statuses and who is responsible; the group of sessions without a topic', async () => {
     await mountSidebar();
     const sessions = screen.getByRole('region', { name: 'session' });
     const tree = within(sessions).getByRole('tree', { name: '依主題分組的 session' });

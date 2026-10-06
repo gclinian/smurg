@@ -6,7 +6,7 @@ import { describeError } from '../../lib/errors.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
 import { Banner, Button, Dialog, Spinner } from '../../ui/index.ts';
-import { DiffText } from './DiffText.tsx';
+import { UnifiedDiff } from '../worktree/index.tsx';
 import { useTopic } from './shared.tsx';
 import { t } from './strings.ts';
 
@@ -61,7 +61,8 @@ export function PlanChanges({ topicId }: { topicId: string }) {
               {t('changes.truncated')}
             </Banner>
           ) : null}
-          <DiffText diff={file.diff} label={FILE_NAME[file.target]} />
+          {/* The worktree feature's diff lines: the one rendering of a unified diff a person reviews (invisible characters are shown). */}
+          <UnifiedDiff diff={file.diff} label={t('changes.diffLabel', { file: FILE_NAME[file.target] })} />
         </section>
       ))}
     </div>

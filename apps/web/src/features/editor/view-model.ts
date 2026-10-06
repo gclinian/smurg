@@ -108,6 +108,15 @@ export function humanLockView(lock: Extract<LockInfo, { kind: 'human' }>, userId
   return { iHold, holders: lock.holders.map(({ userId: id, displayName }) => ({ userId: id, displayName })), others };
 }
 
+/**
+ * Whether a file's long lines wrap at the edge of the pane. Prose does: a spec or a plan is written in paragraphs,
+ * each one line of the file, and is edited in a column a few hundred pixels wide, where a line that runs on would
+ * have to be scrolled sideways to be read. Code keeps its lines (a wrapped line of code hides its structure).
+ */
+export function wrapsLines(path: string): boolean {
+  return /\.(?:md|markdown|mdx|txt)$/i.test(path);
+}
+
 /** "Amy, Bob" (joined in the language of the viewer). */
 export function joinNames(names: readonly string[]): string {
   return formatList(names);

@@ -3,6 +3,7 @@
 // newest pointer of its kind offers the step; an older one is a quiet line that still opens the thing.
 import { memo } from 'react';
 import type { ColumnTarget, ConversationEventOf } from '@smurg/protocol';
+import { formatAnd } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectPlan, selectTopic } from '../../lib/stores/topics.ts';
 import { useCapabilities, useCommands, useStores } from '../../lib/workspace/context.tsx';
@@ -11,7 +12,6 @@ import { IconFileText, IconPlan, IconReport } from '../../ui/icons.tsx';
 import { useAction, useConversationEnv } from './env.tsx';
 import { withAgentAccess } from './people.ts';
 import { t } from './strings.ts';
-import { namesList } from './text.ts';
 
 export interface NextStepCardProps {
   readonly event: ConversationEventOf<'pointer'>;
@@ -58,7 +58,7 @@ export const NextStepCard = memo(function NextStepCard({ event, latest }: NextSt
             {t('next.spec.generate')}
           </Button>
         ) : null}
-        {canGenerate && !caps.canDrive && others.length > 0 ? <span className="conv-next__who">{t('next.spec.who', { names: namesList(others) })}</span> : null}
+        {canGenerate && !caps.canDrive && others.length > 0 ? <span className="conv-next__who">{t('next.spec.who', { names: formatAnd(others) })}</span> : null}
         <Button size="sm" variant={latest ? 'secondary' : 'ghost'} onClick={() => open({ kind: 'spec', topicId })}>
           {t('next.spec.open')}
         </Button>
@@ -78,8 +78,9 @@ export const NextStepCard = memo(function NextStepCard({ event, latest }: NextSt
     text = item === undefined ? t('next.report') : t('next.report.item', { item: `${item.number} · ${item.title}` });
     actions = (
       <>
-        {latest && item?.report !== undefined ? (
-          <span className="conv-next__who">{reviewers.length > 0 ? t('next.report.reviewers', { names: namesList(reviewers.map((reviewer) => reviewer.displayName)) }) : t('next.report.anyone')}</span>
+        {/* "Mei reviews it." only while it waits for a review: a reviewed report needs nobody. */}
+        {latest && item?.report !== undefined && (item.report.state === 'to-review' || item.report.state === 'changed-after-review') ? (
+          <span className="conv-next__who">{reviewers.length > 0 ? t('next.report.reviewers', { names: formatAnd(reviewers.map((reviewer) => reviewer.displayName)) }) : t('next.report.anyone')}</span>
         ) : null}
         {itemId !== undefined ? (
           <Button size="sm" variant={latest ? 'primary' : 'ghost'} onClick={() => open({ kind: 'report', topicId, itemId })}>

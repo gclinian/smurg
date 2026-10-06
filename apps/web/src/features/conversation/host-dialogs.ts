@@ -1,23 +1,34 @@
-// The three dialogs of the host that a conversation leads to. They are the console feature's (one overlay, mounted
-// by the shell in both modes); it asked for them to be opened through its light `dialogs.ts` until the commands
-// `redactEvent`, `reviewProjectSettings` and `showHostRules` exist (REQUESTS-P8 "From P10"). Everything of the
-// conversation feature that opens one goes through this file, so that change is one file. For anyone but the host
-// the overlay renders nothing.
+// The three dialogs of the host that a conversation leads to: the confirmation before an entry is removed, the review
+// of a folder's Claude Code project settings, and the host's own Claude Code rules. They are the console feature's:
+// it handles the commands `redactEvent`, `reviewProjectSettings` and `showHostRules` and mounts the dialogs once, in
+// both modes (features/console/slots.tsx). A conversation only dispatches; for anyone but the host nothing opens.
+import { useMemo } from 'react';
 import type { RootRef } from '@smurg/protocol';
-import type { WorkspaceStores } from '../../lib/stores/index.ts';
-import { consoleDialogs } from '../console/dialogs.ts';
+import { describeError } from '../../lib/errors.ts';
+import { useCommands } from '../../lib/workspace/context.tsx';
+import { useToast } from '../../ui/index.ts';
 
-/** "Remove this entry": the confirmation before one event is replaced by "The host removed this entry." */
-export function openRedact(stores: WorkspaceStores, sessionId: string, seq: number): void {
-  consoleDialogs(stores).open({ kind: 'redact', sessionId, seq });
+export interface HostDialogs {
+  /** "Remove this entry": the confirmation before one event is replaced by "The host removed this entry." */
+  redact(sessionId: string, seq: number): void;
+  /** The Claude Code project settings of the folder a session works in (the trust gate). */
+  projectSettings(root: RootRef): void;
+  /** Which of the host's own Claude Code allow rules apply to agents here. */
+  hostRules(): void;
 }
 
-/** The Claude Code project settings of the folder a session works in (the trust gate). */
-export function openProjectSettings(stores: WorkspaceStores, root: RootRef): void {
-  consoleDialogs(stores).open({ kind: 'claude-config', root });
-}
-
-/** Which of the host's own Claude Code allow rules apply to agents here. */
-export function openHostRules(stores: WorkspaceStores): void {
-  consoleDialogs(stores).open({ kind: 'host-rules' });
+export function useHostDialogs(): HostDialogs {
+  const commands = useCommands();
+  const toast = useToast();
+  return useMemo(() => {
+    // A build without the console feature has no handler: the button says so instead of doing nothing.
+    const failed = (error: unknown): void => {
+      toast.show({ tone: 'warning', title: describeError(error) });
+    };
+    return {
+      redact: (sessionId, seq) => void commands.dispatch('redactEvent', { sessionId, seq }).catch(failed),
+      projectSettings: (root) => void commands.dispatch('reviewProjectSettings', { root }).catch(failed),
+      hostRules: () => void commands.dispatch('showHostRules', {}).catch(failed),
+    };
+  }, [commands, toast]);
 }

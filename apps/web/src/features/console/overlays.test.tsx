@@ -1,10 +1,10 @@
-// The console feature's dialogs in the sessions view and in code mode (slots.tsx → ConsoleOverlays): opened through
+// The console feature's dialogs in the sessions view and in code mode (slots.tsx → ConsoleOverlays): asked for by
+// other features with the commands `reviewProjectSettings`, `showHostRules` and `redactEvent`, kept in
 // `consoleDialogs(stores)`, rendered for the host only. The trust gate of a root, the host's own rules (information),
 // and the confirmation before one conversation entry is removed (`admin.transcript.redact`, DESIGN §2.4).
 import { SmurgError } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { Suspense } from 'react';
 import { describe, expect, it } from 'vitest';
 import ConsoleOverlays from './ConsoleOverlays.tsx';
 import { consoleDialogs } from './dialogs.ts';
@@ -42,19 +42,28 @@ describe('console dialogs: the registry of a workspace', () => {
     expect(slots.inboxRows).toBeUndefined();
   });
 
-  it('the registered overlay is the lazy ConsoleOverlays: it renders the dialog that was asked for', async () => {
+  it('the registered overlay handles the three commands other features send, from the first moment, and renders the dialog that was asked for', async () => {
     const Overlay = slots.overlays?.[0];
     if (Overlay === undefined) throw new Error('no overlay registered');
     const fixture = defaultFixture();
     fixture.hostRules = { rules: [{ rule: 'Bash(npm run *)', source: 'user' }], seen: true };
-    const view = renderWithConsoleData(
-      <Suspense fallback={null}>
-        <Overlay />
-      </Suspense>,
-      { fixture },
-    );
-    act(() => consoleDialogs(view.stores).open({ kind: 'host-rules' }));
+    const view = renderWithConsoleData(<Overlay />, { fixture });
+    const bus = view.session.commands;
+    const dialogs = consoleDialogs(view.stores);
+    // The handlers are there with the overlay itself: the dialogs behind them may still be loading.
+    for (const name of ['redactEvent', 'reviewProjectSettings', 'showHostRules'] as const) expect(bus.has(name), name).toBe(true);
+    await act(async () => bus.dispatch('redactEvent', { sessionId: 'sess_disc', seq: 7 }));
+    expect(dialogs.getState()).toEqual({ kind: 'redact', sessionId: 'sess_disc', seq: 7 });
+    await act(async () => bus.dispatch('reviewProjectSettings', { root: WT }));
+    expect(dialogs.getState()).toEqual({ kind: 'claude-config', root: WT });
+    await act(async () => bus.dispatch('reviewProjectSettings', {}));
+    expect(dialogs.getState()).toEqual({ kind: 'claude-config' });
+    await act(async () => bus.dispatch('showHostRules', {}));
+    expect(dialogs.getState()).toEqual({ kind: 'host-rules' });
     expect(await screen.findByRole('dialog', { name: 'My own Claude Code rules' }, { timeout: 15_000 })).toBeTruthy();
+    // Gone with the overlay: a command then says that nobody handles it.
+    view.unmount();
+    for (const name of ['redactEvent', 'reviewProjectSettings', 'showHostRules'] as const) expect(bus.has(name), name).toBe(false);
   });
 });
 

@@ -330,6 +330,41 @@ describe('who changed a file nobody announced (Bash edits, FileChanged)', () => 
     expect(audit.entries.map((e) => [e.action, e.actor.kind])).toEqual([['agent.edit', 'agent']]);
   });
 
+  it("an agent the session registry names is recorded under that name (a work item's agent is `Claude (<item>)`, as its lock says), never under its owner's", async () => {
+    const dir = await createTempDir('activity');
+    dirs.push(dir);
+    const events: ActivityEvent[] = [];
+    const audit = new RecordingAudit();
+    const impl = new ActivityFeedImpl({
+      clock: new ManualClock(10_000),
+      log: silentLogger,
+      audit,
+      hub: {
+        broadcast: ((_type: string, payload: { event: ActivityEvent }) => {
+          events.push(payload.event);
+          return 1;
+        }) as never,
+        sendToUser: () => 0,
+      },
+      members: { get: (userId) => (userId === 'dev:bob' ? ({ userId, displayName: 'Bob' } as never) : null), active: () => null },
+      locks: () => ({ get: () => null }),
+      // What the sessions module's registry answers for the session of the work item "Cart API" that Bob started.
+      sessions: () => ({ list: () => [], agentActor: (sessionId) => (sessionId === 'ses_item' ? { kind: 'agent', sessionId, ownerUserId: 'dev:bob', displayName: 'Claude (Cart API)' } : null) }),
+      file: new ActivityLogFile(join(dir, 'activity.jsonl'), { log: silentLogger }),
+    });
+    await impl.start();
+    const bus = new TypedEventBus(silentLogger);
+    impl.attach(bus);
+    bus.emit('agent.tool.post', { sessionId: 'ses_item', ownerUserId: 'dev:bob', tool: 'Edit', file: { root: WT, path: 'src/cart.ts' }, ok: true });
+    // A session the registry does not know keeps the default name after its owner.
+    bus.emit('agent.tool.post', { sessionId: 'ses_other', ownerUserId: 'dev:bob', tool: 'Edit', file: { root: WT, path: 'src/other.ts' }, ok: true });
+    expect(events.map((e) => [e.kind, e.actor, e.file?.path, e.summary])).toEqual([
+      ['agent.edit', { kind: 'agent', sessionId: 'ses_item', ownerUserId: 'dev:bob', displayName: 'Claude (Cart API)' }, 'src/cart.ts', expect.stringContaining('Claude (Cart API)')],
+      ['agent.edit', { kind: 'agent', sessionId: 'ses_other', ownerUserId: 'dev:bob', displayName: 'Claude (Bob)' }, 'src/other.ts', expect.stringContaining('Claude (Bob)')],
+    ]);
+    expect(audit.entries.map((e) => [e.action, e.actor.kind === 'agent' ? e.actor.displayName : ''])).toEqual([['agent.edit', 'Claude (Cart API)'], ['agent.edit', 'Claude (Bob)']]);
+  });
+
   it('in a worktree with a terminal (or several sessions), the change is attributed to the worktree\'s owner, not to "an outside program"', async () => {
     const { bus, events } = await feed([sessionInfo('ses_bob_term', 'terminal', WT), sessionInfo('ses_main', 'agent', { kind: 'main' })]);
     bus.emit('file.changed', { root: WT, changes: [{ path: 'feature.txt', change: 'add' }] });

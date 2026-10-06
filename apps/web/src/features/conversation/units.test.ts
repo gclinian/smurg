@@ -5,7 +5,7 @@ import { MemoryStorage } from '../../testing/services.tsx';
 import { diffStat, parseDiff } from './diff.ts';
 import { DRAFTS_MAX, EMPTY_DRAFT, createDraftsStore } from './drafts.ts';
 import { applyMention, matchPeople, mentionQueryAt, mentionsIn, personOf, whoDiscuss, withAgentAccess, type Person } from './people.ts';
-import { cardDomId, commandHead, commonDir, lineRange, namesList, quoteSelection, showControls } from './text.ts';
+import { cardDomId, commandHead, commonDir, lineRange, quoteSelection, showControls } from './text.ts';
 
 const person = (displayName: string, role: Person['role'], userId = `dev:${displayName.toLowerCase().replace(/\s+/g, '-')}`): Person => ({ userId, displayName, role, color: '#000000', online: true });
 const PEOPLE: Person[] = [person('Ian', 'host'), person('Mei', 'agent'), person('Mei Lin', 'editor'), person('Amy', 'editor'), person('Leo', 'viewer')];
@@ -21,10 +21,7 @@ describe('text', () => {
     expect(showControls(code(0x2400))).toBe(code(0x2400));
   });
 
-  it('joins names as a sentence does, finds the folder paths share, and names a command by its first words', () => {
-    expect(namesList(['Ian'])).toBe('Ian');
-    expect(namesList(['Ian', 'Mei'])).toBe('Ian and Mei');
-    expect(namesList(['Ian', 'Mei', 'Amy'])).toBe('Ian, Mei, and Amy');
+  it('finds the folder paths share, and names a command by its first words', () => {
     expect(commonDir(['src/cart/a.ts', 'src/cart/b.ts', 'src/cart/sub/c.ts'])).toBe('src/cart');
     expect(commonDir(['src/a.ts', 'docs/b.md'])).toBeNull();
     expect(commonDir(['README.md'])).toBeNull();

@@ -19,6 +19,7 @@ import {
   type WorktreeInfo,
 } from '@smurg/protocol';
 import { useEffect, useState, type ReactNode } from 'react';
+import { formatAnd } from '../../lib/format.ts';
 import { ColumnHeaderExtra } from '../../lib/columns/context.tsx';
 import { describeError, renderWireText } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
@@ -31,7 +32,7 @@ import { Markdown } from '../markdown/index.ts';
 import { ChangedFiles } from '../worktree/index.tsx';
 import { AskBox } from './AskBox.tsx';
 import { topicDialogs } from './dialogs.ts';
-import { agentAccessNames, andList, isMerged, outcomeLabel } from './model.ts';
+import { agentAccessNames, isMerged, openChangesAsked, outcomeLabel } from './model.ts';
 import { Foot, LinkButton, Note, Scroll, formatClock, useAction, useMembers, useOpenSide, useSentNotice, useTopic } from './shared.tsx';
 import { t } from './strings.ts';
 import './topics.css';
@@ -109,6 +110,8 @@ function Report({ topic, report, item }: { topic: Topic; report: ReportInfo; ite
   const closed = merged && report.state === 'reviewed';
   const live = !topic.archived;
   const changes = report.changes;
+  // The report on screen is the newest word about its own state (the plan's copy of the summary follows a moment later).
+  const asked = item === undefined ? undefined : openChangesAsked({ changesAsked: item.changesAsked, report });
 
   return (
     <>
@@ -137,9 +140,9 @@ function Report({ topic, report, item }: { topic: Topic; report: ReportInfo; ite
               {report.error === undefined ? null : renderWireText(report.error.text, report.error.fallback)}
             </Banner>
           ) : null}
-          {item?.changesAsked !== undefined ? (
+          {asked !== undefined ? (
             <Banner tone="info" live="none">
-              {t('report.changesAsked', { name: item.changesAsked.by.displayName, time: formatClock(item.changesAsked.at) })}
+              {t('report.changesAsked', { name: asked.by.displayName, time: formatClock(asked.at) })}
             </Banner>
           ) : null}
           <Section icon={<IconCheckCircle size={14} />} title={t('report.section.done')}>
@@ -307,7 +310,7 @@ function ReviewFoot({ topic, report, item, request, worktree, merged }: { topic:
 
   if (toReview) {
     if (!may) {
-      const names = andList(report.reviewers.map((reviewer) => reviewer.displayName));
+      const names = formatAnd(report.reviewers.map((reviewer) => reviewer.displayName));
       return (
         <Foot className="report-foot" text={report.reviewers.length === 1 ? t('review.others.one', { name: names }) : t('review.others.many')}>
           {canRequest && !isHost && worktree !== undefined && request?.status === 'draft' ? <RequestMerge worktree={worktree} /> : null}

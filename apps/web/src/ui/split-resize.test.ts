@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { KEY_BIG_STEP, KEY_STEP, clampSize, dragMove, grabOffset, primaryPressed, sizeFromKey, sizeFromPointer, sizeFromSeparator, splitLimits, storedSize, type SplitGeometry } from './split-resize.ts';
 
-/** The agents column of a 1440 px window: a 1179 px container right of the file tree, a 1 px separator. */
+/** A pane fixed to the right edge of a 1440 px window (code mode's session column): a 1179 px container right of the file tree, a 1 px separator. */
 const geometry: SplitGeometry = { containerStart: 261, containerSize: 1179, separatorSize: 1 };
 const base = { minSize: 260, maxSize: 1100, minOther: 160, separatorSize: 1 };
 

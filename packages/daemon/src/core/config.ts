@@ -191,14 +191,16 @@ export interface SessionLaunchConfig {
   /** Absolute path of the `claude` executable; null ⇒ looked up on PATH when a session starts. */
   readonly claudePath: string | null;
   /**
-   * Oldest Claude Code version the hook setup is verified on: an older `claude` starts with a warning (never a
-   * refusal: every session is the host's own CLI). A property of smurg's setup, not of any model: which model a
-   * session uses is between the host's CLI and account. See claudeVersionVerdict().
+   * The floor: the oldest Claude Code version the agent runtime runs on. An AGENT session on an older `claude` is
+   * refused before the spawn (`session.claude.tooOld`; the host is told once, `notify.claudeVersionTooOld`); a
+   * terminal is not affected. A property of smurg's setup, not of any model: which model a session uses is between
+   * the host's CLI and account. See claudeVersionVerdict().
    */
   readonly claudeMinVersion: string;
   /**
-   * Versions the hook setup is verified on end to end, ascending (claude-hooks.md ran every experiment on each). Any
-   * other version starts with a warning, never a refusal.
+   * Versions the agent runtime is verified on end to end, ascending (the real-Claude suite against the fake API ran
+   * on each). Any other version at or above the floor starts; the host is told once
+   * (`notify.claudeVersionUnverified`).
    */
   readonly claudeVerifiedVersions: readonly string[];
   /**
@@ -225,9 +227,9 @@ export interface ActivityConfig {
 export const DEFAULT_ACTIVITY_CONFIG: ActivityConfig = Object.freeze({ attributeBashEdits: true });
 
 /**
- * Claude Code versions the hook setup is verified on (claude-hooks.md: the spike and its verification ran on both).
- * The session settings are written to work on each of them (ARCHITECTURE §7.6 "Claude Code version"). Adding one
- * means re-running that spike (mock Anthropic API only) on it.
+ * Claude Code versions the agent runtime is verified on (ARCHITECTURE §7.6 "Claude Code version"): the real-Claude
+ * suite (test/hooks/claude-*.test.ts, test/sessions/agent-claude-real.test.ts; fake Anthropic API only) is green on
+ * each. Adding one means running that suite on it.
  */
 export const CLAUDE_VERIFIED_VERSIONS: readonly string[] = Object.freeze(['2.1.288']);
 
@@ -255,7 +257,7 @@ export const DEFAULT_AGENTS_CONFIG: AgentsConfig = Object.freeze({
   inboxNotesPerMember: INBOX_NOTES_PER_MEMBER_MAX,
 });
 
-/** The oldest verified version: an older `claude` starts with a warning. */
+/** The oldest verified version: an agent session on an older `claude` is refused (`session.claude.tooOld`). */
 export const CLAUDE_MIN_VERSION = '2.1.288';
 
 export interface DaemonConfig {
@@ -496,17 +498,18 @@ export type ClaudeVersionVerdict =
   /** One of claudeVerifiedVersions: start without a note. */
   | { readonly ok: true; readonly version: string; readonly warning: null }
   /**
-   * Accepted but not verified: start, and warn the host (log) and the session owner. `newer-than-verified`: newer
-   * than every verified version (Claude Code updates itself; an update must not lock anyone out). `unverified`: at
-   * least the minimum but not listed (between two verified versions).
+   * Accepted but not verified: start, and tell the host once. `newer-than-verified`: newer than every verified
+   * version (Claude Code updates itself; an update must not lock anyone out). `unverified`: at least the minimum but
+   * not listed (between two verified versions).
    */
   | { readonly ok: true; readonly version: string; readonly warning: 'newer-than-verified' | 'unverified' }
   /** Older than the minimum, or `unrecognized`: `claude --version` printed no version we can read. */
   | { readonly ok: false; readonly version: string | null; readonly reason: 'below-minimum' | 'unrecognized' };
 
 /**
- * Judges the `claude` whose `--version` printed `versionOutput`. Nothing is refused for it (every session is the
- * host's own, unsandboxed CLI, §11 D-15): `ok: false` and every warning are logged and shown to the session's owner.
+ * Judges the `claude` whose `--version` printed `versionOutput`. It only judges; the agent runtime acts on it
+ * (sessions/agent/agent-sessions.ts `preflight`): `below-minimum` refuses the agent session before the spawn,
+ * `unrecognized` and every warning start it and tell the host once. Terminals never ask.
  */
 export function claudeVersionVerdict(
   versionOutput: string,

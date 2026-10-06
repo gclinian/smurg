@@ -30,11 +30,6 @@
 }
 
 /* ---------------------------------------------------------------- merge request list */
-.worktree-panel {
-  height: 100%;
-  overflow: auto;
-  padding: var(--space-4) var(--space-6) var(--space-6);
-}
 .worktree-requests {
   display: flex;
   flex-direction: column;
@@ -375,6 +370,19 @@
 }
 .worktree-diff__line--note {
   color: var(--color-text-subtle);
+}
+/* In a column of the sessions view (a report's changes, a Changes column) the two number columns take as little as
+   four digits need: at the dialog's 4.5em each they took a third of a narrow column. */
+@container column (max-width: 620px) {
+  .worktree-diff__line {
+    grid-template-columns: 3em 3em 1fr;
+  }
+  .worktree-diff__num {
+    padding: 0 var(--space-2);
+  }
+  .worktree-diff__text {
+    padding-left: var(--space-2);
+  }
 }
 
 @media (max-width: 720px) {

@@ -1,4 +1,4 @@
-// `worktrees.json` in the workspace state dir (ARCHITECTURE §7.1 "worktrees, merge requests"): every worktree the
+// `worktrees.json` in the workspace state dir (ARCHITECTURE §7.1): every worktree the
 // daemon created, what it must look like on disk (integrity.ts), and every merge request, drafts included. Loaded with
 // its schema: a file that does not match stops the daemon (StateStore), it is never reset.
 import { z } from 'zod';

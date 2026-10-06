@@ -800,6 +800,23 @@ describe('where the inbox reads from', () => {
     expect(inbox(team, HOST).map((item) => item.kind)).toEqual(['merge']);
   });
 
+  it('a removed worktree takes its reviewed draft out of the inbox at once: no `merge.changed` announces it', async () => {
+    const team = await setup({}, [HOST, MEI]);
+    const { fakes } = team;
+    const worktree = (await fakes.worktrees.acquireForItem({ topic: { id: 'tp_1', slug: 'checkout' }, itemId: 'cart-api', owner: principal(team, MEI) })).worktree;
+    fakes.worktrees.putRequest(buildMergeRequest({ id: 'mr_1', worktreeId: worktree.id, status: 'draft', requestedBy: undefined, reviewed: true, topicId: 'tp_1', itemId: 'cart-api' }));
+    expect(holders(team, 'merge:mr_1')).toEqual([HOST]);
+    await waitFor(() => told(team, HOST, 'merge:mr_1').includes('upsert'), { what: 'the ready merge at the host' });
+    // The worktree goes (`releaseItem`, `worktree.remove`): its drafts go with it, and only `worktree.changed` says so.
+    const heard: string[] = [];
+    const off = team.t.ctx.bus.on('merge.changed', () => heard.push('merge.changed'));
+    await fakes.worktrees.releaseItem(worktree.id);
+    off.dispose();
+    expect(heard).toEqual([]);
+    expect(holders(team, 'merge:mr_1')).toEqual([]);
+    await waitFor(() => told(team, HOST, 'merge:mr_1').at(-1) === 'remove', { what: 'the merge item leaving the host\'s inbox' });
+  });
+
   it('a module that is not composed contributes nothing, and nothing fails', async () => {
     const team = await setup({ modules: [fakesModule({ except: ['inbox', 'conversation', 'reports', 'plans', 'topics', 'agents', 'projectTrust', 'hostRules'] }), createInboxModule()] }, [HOST, AMY]);
     team.fakes.worktrees.putRequest(buildMergeRequest({ id: 'mr_1', topicId: 'tp_1', itemId: 'cart-api' }));

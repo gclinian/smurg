@@ -2,6 +2,8 @@
 // console, stubs for unfinished features, and a clean stop.
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, isSmurgError } from '@smurg/protocol';
+import { DEFAULT_FEATURE_MODULES } from '../src/daemon.ts';
+import { createSessionsModule } from '../src/sessions/module.ts';
 import { createTestDaemon, type TestDaemon } from '../src/testing/index.ts';
 
 let t: TestDaemon | null = null;
@@ -80,6 +82,23 @@ describe('test harness', () => {
     const error = await amy.conn.request('file.tree', { root: MAIN_ROOT, path: '' }).catch((e: unknown) => e);
     expect(isSmurgError(error) && error.code).toBe('internal');
     expect(error).toMatchObject({ detail: { reason: 'not-implemented' }, text: { id: 'error.default.internal' } });
+  });
+
+  it("never starts the developer's own claude: an agent session needs a hook command, and a hook command needs a named claude", async () => {
+    const selfCommand = { file: '/usr/bin/true', args: [] };
+    // The production sessions module would look for `claude` on PATH: refused before anything is created.
+    await expect(createTestDaemon({ sessions: { selfCommand } })).rejects.toThrow(/sessions\.claudePath/);
+    await expect(createTestDaemon({ modules: DEFAULT_FEATURE_MODULES, sessions: { selfCommand } })).rejects.toThrow(/sessions\.claudePath/);
+    // A sessions module with its own seams (its environment decides the PATH) is the test's business.
+    t = await createTestDaemon({ modules: [createSessionsModule({ hostEnv: () => ({ PATH: '/nonexistent' }) })], sessions: { selfCommand } });
+    await t.cleanup();
+    // The default test daemon has no hook command: an agent session is refused before `claude` is looked for.
+    t = await createTestDaemon();
+    const host = await t.connectHost();
+    const refused = await host.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' } }).catch((e: unknown) => e);
+    expect(refused).toMatchObject({ code: 'internal', text: { id: 'session.hooks.notConfigured' } });
+    expect(t.ctx.lifecycle.status().claude).toBeUndefined();
+    expect(t.ctx.services.agents.list()).toEqual([]);
   });
 
   it('stops cleanly: clients see channel.closed{stopped} (host offline), relay links closed', async () => {

@@ -13,7 +13,7 @@
 // The verification is itself a sequence of path-based checks (Node has no openat / O_BENEATH): an attacker would have
 // to win the race against git AND against this re-read, whose checks bracket the open. Documented as residual risk.
 //
-// A commit may have a SECOND PARENT (ARCHITECTURE §5.7 "A conflict"): after the daemon merged the main workspace's
+// A commit may have a SECOND PARENT (ARCHITECTURE §7.8 "A conflict"): after the daemon merged the main workspace's
 // HEAD into the working tree without committing (update-from-main.ts), the next commit records that HEAD as its
 // second parent, so git knows the two histories are joined and the host's trial merge no longer reports the conflict.
 import { createHash, randomBytes } from 'node:crypto';

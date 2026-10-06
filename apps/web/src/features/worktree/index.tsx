@@ -7,6 +7,7 @@ import { WorktreeSwitcherView } from './Switcher.tsx';
 import './worktree.css';
 
 export { ChangedFiles, type ChangedFilesProps } from './ChangedFiles.tsx';
+export { UnifiedDiff } from './FileDiff.tsx';
 export { MergeRequestsSection, type MergeRequestsSectionProps } from './MergeRequests.tsx';
 export { MergeReviewDialog, MergeReviewPanel, type MergeReviewDialogProps, type MergeReviewPanelProps } from './MergeReview.tsx';
 export { RequestMergeDialog, type RequestMergeDialogProps } from './RequestMergeDialog.tsx';

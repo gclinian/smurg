@@ -18,18 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { conversationModule } from '../../../../packages/daemon/src/conversation/module.ts';
-import { docsModule } from '../../../../packages/daemon/src/docs/module.ts';
-import { filesModule } from '../../../../packages/daemon/src/files/module.ts';
-import { hooksModule } from '../../../../packages/daemon/src/hooks/module.ts';
-import { inboxModule } from '../../../../packages/daemon/src/inbox/module.ts';
-import { localControlModule } from '../../../../packages/daemon/src/local/module.ts';
-import { locksModule } from '../../../../packages/daemon/src/locks/module.ts';
-import { sessionsModule } from '../../../../packages/daemon/src/sessions/module.ts';
-import { suggestModule } from '../../../../packages/daemon/src/suggest/module.ts';
 import { installFakeClaude, type FakeClaude, type FakeClaudeScenario } from '../../../../packages/daemon/src/testing/index.ts';
-import { topicsModule } from '../../../../packages/daemon/src/topics/module.ts';
-import { worktreeModule } from '../../../../packages/daemon/src/worktree/module.ts';
 import { STEP_MS, explainFailures, joinAs, joinAsHost, startSmoke, systemChrome, waitUntil, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
@@ -118,8 +107,6 @@ describe.skipIf(chrome === null)('a topic from start to finish in a real browser
       stack: {
         git: true,
         projectFiles: { 'README.md': '# Bookshop\n', 'src/app.ts': 'export const x = 1;\n' },
-        // The release's module list (DESIGN §9.3 P12), composed here until the daemon's default list has it.
-        modules: [locksModule, hooksModule, filesModule, docsModule, worktreeModule, sessionsModule, conversationModule, suggestModule, topicsModule, inboxModule, localControlModule],
         sessions: { claudePath: claude.path, selfCommand: { file: process.execPath, args: [CLI_MAIN] } },
       },
     });

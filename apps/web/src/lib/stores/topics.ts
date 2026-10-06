@@ -7,7 +7,8 @@
 //             expanded topic of the session list, an open plan column) and kept current by plan.updated, which
 //             reaches everyone; after a full resync the plans that were asked for are fetched again;
 //   reports   a work item's whole result report, loaded with loadReport() (an open report column) and kept current
-//             by report.updated (a summary: when its version moved on, the whole report is fetched again);
+//             by report.updated (a summary: when its version moved on, or when nothing a summary carries changed (a
+//             follow-up was asked or answered), the whole report is fetched again);
 //   notices   what a toast tells everyone: a topic was started, its spec draft or its plan is ready, the plan was
 //             updated, the topic is complete (DESIGN §5.3). Derived here from topic.updated; they are not inbox items.
 //
@@ -151,12 +152,24 @@ export function topicNoticeKind(previous: Topic | undefined, next: Topic): Topic
   return null;
 }
 
+/** Whether a report says, in the fields a summary carries, exactly what `summary` says. */
+function sameSummary(report: ReportSummary, summary: ReportSummary): boolean {
+  const fields = (one: ReportSummary): unknown[] => [one.version, one.writtenAt, one.outcome, one.state, one.reviewers.map((reviewer) => [reviewer.userId, reviewer.displayName]), one.escalatedAt ?? null, one.review ?? null, one.checks, one.error ?? null];
+  return JSON.stringify(fields(report)) === JSON.stringify(fields(summary));
+}
+
 export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecycle } {
   const state = createStore<TopicsState>(INITIAL_TOPICS_STATE);
   /** What was asked for and is fetched again after a full resync. */
   const wantedPlans = new Set<string>();
   const wantedReports = new Map<string, { topicId: string; itemId: string }>();
   let noticeId = 0;
+  /**
+   * Topics whose plan became ready while the agent was still in the turn that wrote it. The daemon moves the phase to
+   * `plan` when PLAN.md first parses, and says `generating: false` when that turn ends: the second event is the same
+   * news as the first, not an update of the plan, and is not told again.
+   */
+  const readyInThisTurn = new Set<string>();
   let ctx: StoreContext | null = null;
   const context = (): StoreContext => {
     if (!ctx) throw new Error('topics store is not bound to a connection');
@@ -187,9 +200,12 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
     }));
     // Before the first snapshot nothing is known: every topic would look new.
     if (announce && before.status === 'ready') {
-      const kind = topicNoticeKind(known, topic);
+      let kind = topicNoticeKind(known, topic);
+      if (kind === 'plan-ready' && topic.plan.generating) readyInThisTurn.add(topic.id);
+      else if (kind === 'plan-updated' && readyInThisTurn.has(topic.id)) kind = null;
       if (kind !== null) notice(kind, topic);
     }
+    if (!topic.plan.generating) readyInThisTurn.delete(topic.id);
     return topic;
   };
 
@@ -249,7 +265,10 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
       const reports = report ? mapWith(previous.reports, key, { ...report, ...summary }) : previous.reports;
       return { ...previous, plans, reports };
     });
-    if (loaded && loaded.version !== summary.version) {
+    // The whole report is read again when its version moved on (new sections, new changes), and when the summary says
+    // nothing new at all: then the news is in what a summary does not carry, a follow-up asked from the report or the
+    // agent's answer to one (the daemon announces both with the report's unchanged summary).
+    if (loaded && (loaded.version !== summary.version || sameSummary(loaded, summary))) {
       fetchReport(topicId, itemId, { fresh: true }).catch((error: unknown) => ctx?.reportError('topics', error));
     }
   };
@@ -412,6 +431,7 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
     },
     reset() {
       // What was asked for stays asked for (wantedPlans, wantedReports, the archived list): load() fetches it again.
+      readyInThisTurn.clear();
       state.setState((previous) => ({ ...INITIAL_TOPICS_STATE, archived: previous.archived === null ? null : new Map(), notices: previous.notices }));
     },
     load,

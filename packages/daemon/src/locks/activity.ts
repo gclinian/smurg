@@ -110,7 +110,7 @@ export interface ActivityDeps {
   /** Read lazily: services are created in any order. */
   readonly locks: () => Pick<LockManager, 'get'>;
   /** Read lazily: which sessions run in a worktree root (attribution of changes nobody announced). */
-  readonly sessions?: () => Pick<SessionManager, 'list'>;
+  readonly sessions?: () => Pick<SessionManager, 'list'> & Partial<Pick<SessionManager, 'agentActor'>>;
   readonly file: ActivityLogFile;
   /** config.activity.attributeBashEdits (§11 D-13). Default true. */
   readonly attributeBashEdits?: boolean;
@@ -618,8 +618,17 @@ export class ActivityFeedImpl implements ActivityFeed {
   }
 
   private agentActor(sessionId: string, ownerUserId: UserId): AgentActor {
+    // The agent is named as its session names it (`Claude (<topic>)`, `Claude (<work item>)`, `Claude (<opener>)`):
+    // the name its lock carries, so the feed and the audit log never call the same agent something else.
+    let named: string | undefined;
+    try {
+      const registered = this.sessions?.().agentActor?.(sessionId) ?? null;
+      if (registered !== null && registered.kind === 'agent') named = registered.displayName;
+    } catch {
+      // no SessionManager (stub): the default name after the owner
+    }
     const owner = this.members.get(ownerUserId);
-    return { kind: 'agent', sessionId, ownerUserId, displayName: agentDisplayName(owner?.displayName ?? userFallbackName(ownerUserId)) };
+    return { kind: 'agent', sessionId, ownerUserId, displayName: named ?? agentDisplayName(owner?.displayName ?? userFallbackName(ownerUserId)) };
   }
 
   private safeRecord(input: Parameters<ActivityFeedImpl['record']>[0]): void {

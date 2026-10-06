@@ -13,6 +13,7 @@ import {
   offersDownload,
   rejectionMessage,
   saveIndicator,
+  wrapsLines,
 } from './view-model.ts';
 
 const FILE = { root: MAIN_ROOT, path: 'src/app.ts' };
@@ -106,6 +107,13 @@ describe('editor view-model: who may type, and why not', () => {
   it('the live lock (locks store) wins over the one doc.open returned', () => {
     const view = editorView({ doc: openDoc({ lock: makeAgentLock(FILE.path) }), session: session(), userId: 'dev:amy', lock: null });
     expect(view.readOnly).toBe(false);
+  });
+});
+
+describe('which files wrap their long lines', () => {
+  it('prose wraps at the edge of the pane (a spec or a plan in a narrow column); code keeps its lines', () => {
+    for (const path of ['specs/checkout/SPEC.md', 'specs/checkout/PLAN.md', 'README.MD', 'notes.txt', 'docs/guide.markdown', 'site/page.mdx']) expect(wrapsLines(path), path).toBe(true);
+    for (const path of ['src/app.ts', 'package.json', 'Makefile', 'src/md.ts', 'a.md.bak', 'styles.css']) expect(wrapsLines(path), path).toBe(false);
   });
 });
 

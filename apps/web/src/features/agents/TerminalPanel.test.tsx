@@ -1,4 +1,5 @@
-// The agents panel with a FakeConnection and the REAL xterm.js viewer (jsdom): every session of the workspace has a tab,
+// The Terminal tab of code mode's drawer with a FakeConnection and the REAL xterm.js viewer (jsdom): every plain
+// terminal of the workspace has a tab,
 // the terminal attaches while shown (snapshot or delta, then live output placed by offset: no gap, no duplicate),
 // detaches when hidden, attaches again after a reconnect from the last offset, never answers terminal queries, sends
 // input for whoever may type (the host and members with agent access, into ANY session: session.drive) and the size only from the

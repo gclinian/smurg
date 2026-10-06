@@ -2,7 +2,8 @@
 // of globalSetup) served by the REAL relay (local workerd, its Worker serving the SPA assets exactly like production,
 // one origin for app, auth and WebSockets), a REAL daemon composing every module (tests/e2e startStack), and system
 // Chrome driven headless by playwright-core in a fresh context (no profile, no cookies imported; login is the relay's
-// dev login). Join with an invite link → the workspace is visible → open a file → type → the file on disk changes.
+// dev login). Join with an invite link → the workspace is visible (the sessions view) → code mode → open a file →
+// type → the file on disk changes.
 import { readFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
@@ -91,8 +92,16 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     await page.getByRole('banner', { name: 'Workspace' }).locator('[data-connection-view="online"]').filter({ hasText: 'Connected' }).waitFor({ timeout: 60_000 });
   }
 
-  /** Clicks through the file tree (folders, then the file) and waits for the bound editor. */
+  /** The top bar's "Code mode": the file tree, the editor and the drawer (the sessions view is where a member lands). */
+  async function toCodeMode(page: Page): Promise<void> {
+    await page.getByRole('banner', { name: 'Workspace' }).getByRole('link', { name: 'Code mode' }).click();
+    await page.waitForURL(`${relay.origin}/w/${stack.workspaceId}/code`, { timeout: 60_000 });
+    await page.getByRole('main', { name: 'Editor' }).waitFor({ timeout: 60_000 });
+  }
+
+  /** In code mode: clicks through the file tree (folders, then the file) and waits for the bound editor. */
   async function openInEditor(page: Page, ...items: string[]): Promise<void> {
+    await toCodeMode(page);
     for (const name of items) await page.getByRole('treeitem', { name }).first().click();
     await page.locator('.editor-doc__monaco[data-bound]').waitFor({ timeout: 60_000 });
   }
@@ -120,7 +129,12 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     // The daemon admitted Amy as an editor through the invite.
     expect(stack.daemon.ctx.members.active('dev:amy')?.role).toBe('editor');
 
-    // The file tree (files module) → open src/join.ts in the editor (docs module, Monaco + Yjs, lazy chunks).
+    // The workspace as a member meets it: the sessions view, with the inbox and the session list on the left.
+    await page.getByRole('complementary', { name: 'Inbox and sessions' }).waitFor({ timeout: 60_000 });
+    await page.getByRole('main', { name: 'Open columns' }).waitFor({ timeout: 60_000 });
+
+    // Code mode: the file tree (files module) → open src/join.ts in the editor (docs module, Monaco + Yjs, lazy chunks).
+    await toCodeMode(page);
     await page.getByRole('treeitem', { name: 'src' }).first().click();
     await page.getByRole('treeitem', { name: 'join.ts' }).first().click();
     const editor = page.locator('.editor-doc__monaco[data-bound]');
@@ -207,15 +221,16 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     await waitUntil(async () => (await readFile(onDisk, 'utf8')).includes('<!-- again -->'), 30_000, 'the edit after the release on disk');
   });
 
-  it('a member with agent access opens a terminal from the agents panel and runs a command in it — on the host\'s computer, as the host\'s user, no sandbox (the built app, real PTY)', async () => {
+  it('a member with agent access opens a terminal from the session list and runs a command in it — on the host\'s computer, as the host\'s user, no sandbox (the built app, real PTY)', async () => {
     const page = await freshPage();
     await joinWorkspace(page, 'gina', 'agent');
-    await page.getByRole('button', { name: 'New session' }).first().click();
-    const dialog = page.getByRole('dialog', { name: 'New session' });
+    await page.getByRole('button', { name: 'New', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Terminal' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New terminal' });
     await dialog.waitFor({ timeout: 15_000 });
-    await dialog.getByText('Plain terminal').click();
     await dialog.getByRole('button', { name: 'Open' }).click();
-    const viewport = page.locator('.agents-term__viewport[data-phase="live"]');
+    // The terminal is a column of the sessions view, named like the session ("Terminal (gina)").
+    const viewport = page.getByRole('region', { name: 'Terminal (gina)' }).locator('.agents-term__viewport[data-phase="live"]');
     await viewport.waitFor({ timeout: 60_000 });
     const sessions = stack.daemon.ctx.services.sessions.list();
     expect(sessions.find((session) => session.openedBy.userId === 'dev:gina')).toMatchObject({ kind: 'terminal', status: 'running', root: { kind: 'main' } });
@@ -241,7 +256,7 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     }
     const manifest = await fetch(`${relay.origin}/.vite/manifest.json`);
     expect(await manifest.text()).not.toMatch(/"isEntry"/);
-    // Everything that ran so far (join, Monaco, co-editing, the lock banner, xterm, the transfer worker) ran under that
+    // Everything that ran so far (join, the sessions view, code mode, Monaco, co-editing, the lock banner, xterm) ran under that
     // policy: not one violation in any browser of this file (afterAll checks the same once every test ran).
     expect(errors.filter((line) => /Content Security Policy|Refused to/.test(line))).toEqual([]);
   });

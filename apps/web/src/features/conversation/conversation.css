@@ -17,6 +17,9 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* Its height is the column's to give (a flex item, never its content's): what is inside may ask how tall the list
+     is (`@container conv-list (min-height: …)`). */
+  container: conv-list / size;
 }
 .conv {
   flex: 1;
@@ -421,13 +424,17 @@
   align-items: center;
   gap: var(--space-3);
 }
-/* The answer and Submit stay in view while a long question scrolls (DESIGN §5.12 item 13). */
-.conv-card--question:not(.ui-card--settled) > .ui-card__foot {
-  position: sticky;
-  bottom: calc(var(--space-6) * -1);
-  z-index: 1;
-  background: var(--color-surface-1);
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
+/* The answer and Submit stay in view while a long question scrolls (DESIGN §5.12 item 13), where the list is tall
+   enough to show the options above them. In a short list (code mode's session column above an open drawer, a small
+   window) a foot that sticks would cover the very options it answers: there it scrolls with its card. */
+@container conv-list (min-height: 560px) {
+  .conv-card--question:not(.ui-card--settled) > .ui-card__foot {
+    position: sticky;
+    bottom: calc(var(--space-6) * -1);
+    z-index: 1;
+    background: var(--color-surface-1);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+  }
 }
 
 /* a question */
@@ -957,9 +964,10 @@
 }
 
 /* ---------------------------------------------------------------- the host's "Remove this entry"
-   Shown when the pointer or the keyboard is in the row; always reachable with Tab. */
+   Shown when the pointer or the keyboard is in the row; always reachable with Tab. The button sits inside the kit's
+   tooltip anchor, and the anchor is what a row lays out: at the end of a head line, and beside the first lines of an
+   agent's text (a float: as a block of its own it took a line above every text the host reads). */
 .conv-redact {
-  margin-left: auto;
   opacity: 0;
 }
 .conv-row:hover .conv-redact,
@@ -967,6 +975,11 @@
 .conv-redact:focus-visible {
   opacity: 1;
 }
-.conv-agent__text > .conv-redact {
+.conv-msg__head > .ui-tooltip-anchor:last-child,
+.conv-smurg > summary > .ui-tooltip-anchor:last-child {
+  margin-left: auto;
+}
+.conv-agent__text > .ui-tooltip-anchor:first-child {
   float: right;
+  margin-left: var(--space-3);
 }

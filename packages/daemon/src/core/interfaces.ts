@@ -1471,7 +1471,11 @@ export interface AgentSessions {
    * line: SessionManager.teardownUser writes `conversation.responsible.fallback`. Emits session.updated.
    */
   setResponsible(sessionId: string, responsible: UserRef | null, by: Actor): void;
-  /** Clears `fallbackDecider` wherever it is that member, for good. Returns the sessions it changed. No line. */
+  /**
+   * Clears `fallbackDecider` wherever it is that member, for good. Returns the sessions it changed. No line. Emits bus
+   * `session.updated` for each of them (the wire's session did not change, so nothing is sent to clients): an open
+   * question's decider and the inbox follow at once.
+   */
   clearFallbackDecider(userId: UserId): string[];
   /** Handover: the locks' identity changes; `pathRights` never does. No line (teardownUser writes it). */
   setOwner(sessionId: string, ownerUserId: UserId, by: Actor): void;
@@ -1971,8 +1975,15 @@ export interface ReportService {
 // =====================================================================================================================
 
 export interface InboxService {
-  /** One list-rule page of the caller's inbox after `after`. */
+  /**
+   * One list-rule page of the caller's inbox after `after`, in KEY order; an `after` that is no longer in the box
+   * continues after where it was.
+   */
   list(principal: Principal, input?: Req<'inbox.list'>): Res<'inbox.list'>;
+  /**
+   * A mention or a result is removed; any other item is marked read until its stamp moves on (a question when
+   * everyone has voted, a report's new version, one more suggestion of the author, a merge request's status).
+   */
   seen(principal: Principal, keys: readonly string[]): void;
   /** Mentions and results only (`inbox.notDismissable` otherwise). */
   dismiss(principal: Principal, key: string): void;
@@ -1988,11 +1999,15 @@ export interface InboxService {
    * tells the sender with `ctx.services.activity.notify(senderUserId, { from: SYSTEM_ACTOR, msg:
    * msg('mention.inboxFull', { name }), fallback })`. The agent-facing `notify_member` (topics) calls this too and
    * tells the agent in the tool's own fixed English answer. The inbox itself never tells anyone.
+   *
+   * Never throws (nor does addResult): a note that is not valid for the wire is logged and not stored. A member who
+   * is not active gets nothing (the answer is `'stored'`).
    */
   addMention(input: { readonly userId: UserId; readonly from: Actor; readonly target: ColumnTarget; readonly anchor?: { readonly cardId?: string; readonly seq?: number }; readonly excerpt: string }): 'stored' | 'full';
   /**
    * A stored result for the author of a suggestion that was rejected, or accepted after an edit (an inbox item of
    * kind `result`: `result` is `outcome`, `from` who decided, `anchor.cardId` the suggestion, `excerpt` its text).
+   * One result is kept per suggestion; nothing is stored when the member's notes are full.
    */
   addResult(input: { readonly userId: UserId; readonly from: Actor; readonly suggestionId: string; readonly sessionId: string; readonly outcome: 'rejected' | 'accepted-edited'; readonly excerpt: string }): void;
   /** The items of one member right now (tests, the console). */

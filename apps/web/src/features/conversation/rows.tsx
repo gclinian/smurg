@@ -14,7 +14,7 @@ import { Avatar, Banner, Button, IconButton, cx } from '../../ui/index.ts';
 import { IconTrash } from '../../ui/icons.tsx';
 import { Markdown, StreamingMarkdown } from '../markdown/index.ts';
 import { useAction, useConversationEnv } from './env.tsx';
-import { openProjectSettings, openRedact } from './host-dialogs.ts';
+import { useHostDialogs } from './host-dialogs.ts';
 import { NextStepCard } from './NextStepCard.tsx';
 import { personOf } from './people.ts';
 import { PermissionCard } from './PermissionCard.tsx';
@@ -32,11 +32,11 @@ function Time({ at }: { at: number }) {
  * printed, something a person should not have written). Only the host has it; the confirmation is the console's.
  */
 function Redact({ seq }: { seq: number }) {
-  const stores = useStores();
   const caps = useCapabilities();
+  const hostDialogs = useHostDialogs();
   const { sessionId } = useConversationEnv();
   if (!caps.can('admin')) return null;
-  return <IconButton className="conv-redact" size="sm" label={t('redact')} icon={<IconTrash />} onClick={() => openRedact(stores, sessionId, seq)} />;
+  return <IconButton className="conv-redact" size="sm" label={t('redact')} icon={<IconTrash />} onClick={() => hostDialogs.redact(sessionId, seq)} />;
 }
 
 // ---- people and smurg
@@ -190,6 +190,7 @@ const LineRow = memo(function LineRow({ item }: { item: LineItem }) {
 
 const NoticeRow = memo(function NoticeRow({ item }: { item: NoticeItem }) {
   const stores = useStores();
+  const hostDialogs = useHostDialogs();
   const caps = useCapabilities();
   const { sessionId } = useConversationEnv();
   const { event } = item;
@@ -201,13 +202,22 @@ const NoticeRow = memo(function NoticeRow({ item }: { item: NoticeItem }) {
   });
   const action = useAction();
   const root = useStore(stores.sessions, (state) => selectSession(state, sessionId)?.root);
+  // A work item's session: "Try again" goes through its plan, so that smurg also tells the agent to go on with the item.
+  const topicId = useStore(stores.sessions, (state) => {
+    const session = selectSession(state, sessionId);
+    return session?.kind === 'agent' && session.itemId !== undefined ? session.topicId : undefined;
+  });
+  const itemId = useStore(stores.sessions, (state) => {
+    const session = selectSession(state, sessionId);
+    return session?.kind === 'agent' ? session.itemId : undefined;
+  });
   let button: ReactNode = null;
   let hint: string | null = null;
   if (event.action === 'retry' && status === 'failed' && caps.canDrive) {
     if (hostOnly && !caps.isHost) hint = t('notice.hostOnly');
     else {
       button = (
-        <Button size="sm" loading={action.busy} onClick={() => void action.run(() => stores.sessions.retry(sessionId))}>
+        <Button size="sm" loading={action.busy} onClick={() => void action.run(() => (topicId !== undefined && itemId !== undefined ? stores.topics.retryItem(topicId, itemId) : stores.sessions.retry(sessionId)))}>
           {t('notice.retry')}
         </Button>
       );
@@ -224,7 +234,7 @@ const NoticeRow = memo(function NoticeRow({ item }: { item: NoticeItem }) {
   if (settings && caps.isHost && root !== undefined && status !== 'ended') {
     button = (
       <>
-        <Button size="sm" onClick={() => openProjectSettings(stores, root)}>
+        <Button size="sm" onClick={() => hostDialogs.projectSettings(root)}>
           {t('notice.review')}
         </Button>
         {button}

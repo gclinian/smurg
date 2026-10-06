@@ -233,6 +233,8 @@ export const zhTW = {
   'claudeConfig.trust': '使用',
   'claudeConfig.ignore': '不載入',
   'claudeConfig.decideFailed': '無法儲存決定：{message}',
+  'claudeConfig.choice.title': '這個資料夾有 Claude Code 專案設定',
+  'claudeConfig.choice.ignore': '不載入（agent 不會讀 CLAUDE.md）',
 
   // ---- the host's own Claude Code allow rules: information only (OWNER-DECISIONS Q7)
   'hostRules.title': '我自己的 Claude Code 規則',

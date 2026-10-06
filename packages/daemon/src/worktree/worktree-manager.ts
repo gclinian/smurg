@@ -27,9 +27,9 @@
 // approve a draft directly; `worktree.merge.request` turns the draft with the working tree's commit into a pending
 // request under the same id.
 //
-// A conflict (§5.7 "A conflict"): `updateFromMain` commits the worktree's work, merges the main workspace's HEAD into
-// the working tree without committing and remembers that HEAD; the next commit of the working tree has it as second
-// parent and is refused while a conflicted file still has a marker line (update-from-main.ts).
+// A conflict (ARCHITECTURE §7.8 "A conflict"): `updateFromMain` commits the worktree's work, merges the main
+// workspace's HEAD into the working tree without committing and remembers that HEAD; the next commit of the working
+// tree has it as second parent and is refused while a conflicted file still has a marker line (update-from-main.ts).
 import { lstat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import {

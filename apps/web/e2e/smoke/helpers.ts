@@ -7,8 +7,13 @@
 // Language: every context sets its `locale` explicitly, English (`en-US`) unless a test asks for another one, so the
 // app's detection (navigator.languages) never depends on the machine that runs the tests. The helpers below click
 // through the app by its visible labels; WORDS holds those labels for the two languages a page can be in.
+//
+// The app a member lands in is the SESSIONS VIEW (`/w/:id`: the inbox and the session list on the left, columns on
+// the right). The file tree, the editor and the drawer (activity, conflicts, transfers, terminal) are CODE MODE
+// (`/w/:id/code`): a test that needs them calls `toCodeMode` first. Both views stay mounted and one is hidden, so
+// the helpers that look for a terminal look in the view that is on screen.
 import { join } from 'node:path';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
+import { chromium, type Browser, type BrowserContext, type Locator, type Page } from 'playwright-core';
 import { beforeEach } from 'vitest';
 import { startLocalRelay, type LocalRelay, type StartLocalRelayOptions } from '../../../relay/test-support/index.ts';
 import { bufferedLogger, startStack, type Stack, type StackOptions } from '../../../../tests/e2e/src/harness.ts';
@@ -56,7 +61,7 @@ const DIAGNOSTIC_AUDIT_ENTRIES = 150;
  * Registers, for every test of the calling suite, a dump of `env().diagnostics()` on stderr when the test fails: a
  * browser test that times out says only what the page did not show, and the daemon behind it is silent otherwise.
  */
-export function explainFailures(env: () => SmokeEnv | undefined): void {
+export function explainFailures(env: () => Pick<SmokeEnv, 'diagnostics'> | undefined): void {
   beforeEach(({ onTestFailed }) => {
     onTestFailed(async () => {
       const current = env();
@@ -79,12 +84,21 @@ const WORDS = {
     devLogin: 'Log in with a development account',
     workspace: 'Workspace',
     connected: 'Connected',
+    // The session list's one "New" control and its menu.
+    newControl: 'New',
+    newTopicItem: 'New topic',
+    newSessionItem: 'New session',
+    newTerminalItem: 'Terminal',
+    // The two dialogs behind it.
     newSession: 'New session',
-    plainTerminal: 'Plain terminal',
+    newTerminal: 'New terminal',
     newWorktree: 'A new worktree of my own',
     sessionName: 'Name (optional)',
+    firstMessage: 'What should Claude do first? (optional)',
     open: 'Open',
     language: 'Language',
+    // Code mode's drawer (it starts folded).
+    expandDrawer: 'Expand Activity, transfers and terminal',
   },
   'zh-TW': {
     join: '加入',
@@ -92,12 +106,18 @@ const WORDS = {
     devLogin: '以開發用帳號登入',
     workspace: '工作區',
     connected: '已連線',
+    newControl: '新增',
+    newTopicItem: '新增主題',
+    newSessionItem: '新增 session',
+    newTerminalItem: '終端機',
     newSession: '新增 session',
-    plainTerminal: '一般終端機',
+    newTerminal: '新增終端機',
     newWorktree: '我的新 worktree',
     sessionName: '名稱（選填）',
+    firstMessage: '要 Claude 先做什麼？（選填）',
     open: '開啟',
     language: '語言',
+    expandDrawer: '展開「動態、傳輸與終端機」',
   },
 } as const satisfies Record<SmokeLocale, Record<string, string>>;
 
@@ -123,9 +143,66 @@ export interface SmokeOptions {
   readonly frontOrigin?: string;
 }
 
-export async function startSmoke(options: SmokeOptions = {}): Promise<SmokeEnv> {
+/** Headless system Chrome and the pages a test opens in it, one fresh context per page, with what went wrong in each. */
+export interface SmokePages {
+  readonly browser: Browser;
+  /** Every problem of every page (the CSP check reads them all). */
+  readonly allProblems: string[];
+  newPage(options?: { readonly width?: number; readonly height?: number; readonly locale?: SmokeLocale }): Promise<Page>;
+  problemsOf(page: Page): PageProblems;
+  /** Closes every context and the browser. */
+  close(): Promise<void>;
+}
+
+/** Launches system Chrome for a smoke (startSmoke does; a test with a stack of its own, like the flow's, calls it itself). */
+export async function launchPages(): Promise<SmokePages> {
   const chrome = systemChrome();
   if (chrome === null) throw new Error('no system Chrome');
+  // Real scrollbars (playwright hides them in headless Chrome): the terminal tests measure what they cost.
+  const browser = await chromium.launch({ ...chromeLaunchOptions(chrome), ignoreDefaultArgs: ['--hide-scrollbars'] });
+  const allProblems: string[] = [];
+  const problems = new Map<Page, PageProblems>();
+  const contexts: BrowserContext[] = [];
+  return {
+    browser,
+    allProblems,
+    async newPage(size = {}) {
+      const locale = size.locale ?? DEFAULT_SMOKE_LOCALE;
+      const context = await browser.newContext({ locale, viewport: { width: size.width ?? 1440, height: size.height ?? 900 } });
+      contexts.push(context);
+      const page = await context.newPage();
+      pageLocales.set(page, locale);
+      const own: PageProblems = { console: [], pageErrors: [], failedRequests: [], httpErrors: [] };
+      problems.set(page, own);
+      page.on('pageerror', (error) => {
+        own.pageErrors.push(error.message);
+        allProblems.push(`pageerror: ${error.message}`);
+      });
+      page.on('console', (message) => {
+        if (message.type() !== 'error') return;
+        own.console.push(message.text());
+        allProblems.push(`console: ${message.text()}`);
+      });
+      page.on('requestfailed', (request) => {
+        own.failedRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`);
+      });
+      page.on('response', (response) => {
+        if (response.status() >= 400) own.httpErrors.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+      });
+      return page;
+    },
+    problemsOf(page) {
+      return problems.get(page) ?? { console: [], pageErrors: [], failedRequests: [], httpErrors: [] };
+    },
+    async close() {
+      for (const context of contexts.splice(0)) await context.close().catch(() => {});
+      await browser.close().catch(() => {});
+    },
+  };
+}
+
+export async function startSmoke(options: SmokeOptions = {}): Promise<SmokeEnv> {
+  if (systemChrome() === null) throw new Error('no system Chrome');
   const webDist = join(process.env['TMPDIR'] as string, 'web-dist');
   const stops: (() => Promise<void>)[] = [];
   try {
@@ -134,48 +211,18 @@ export async function startSmoke(options: SmokeOptions = {}): Promise<SmokeEnv> 
     const daemonLog = bufferedLogger();
     const stack = await startStack({ log: daemonLog.log, ...options.stack, relay });
     stops.push(() => stack.stop());
-    // Real scrollbars (playwright hides them in headless Chrome): the terminal tests measure what they cost.
-    const browser = await chromium.launch({ ...chromeLaunchOptions(chrome), ignoreDefaultArgs: ['--hide-scrollbars'] });
-    stops.push(() => browser.close());
+    const pages = await launchPages();
+    stops.push(() => pages.close());
     const origin = options.frontOrigin ?? relay.origin;
-    const allProblems: string[] = [];
-    const problems = new Map<Page, PageProblems>();
-    const contexts: BrowserContext[] = [];
     const retarget = (url: string): string => url.replace(relay.origin, origin);
     return {
       relay,
       stack,
-      browser,
+      browser: pages.browser,
       origin,
-      allProblems,
-      async newPage(size = {}) {
-        const locale = size.locale ?? DEFAULT_SMOKE_LOCALE;
-        const context = await browser.newContext({ locale, viewport: { width: size.width ?? 1440, height: size.height ?? 900 } });
-        contexts.push(context);
-        const page = await context.newPage();
-        pageLocales.set(page, locale);
-        const own: PageProblems = { console: [], pageErrors: [], failedRequests: [], httpErrors: [] };
-        problems.set(page, own);
-        page.on('pageerror', (error) => {
-          own.pageErrors.push(error.message);
-          allProblems.push(`pageerror: ${error.message}`);
-        });
-        page.on('console', (message) => {
-          if (message.type() !== 'error') return;
-          own.console.push(message.text());
-          allProblems.push(`console: ${message.text()}`);
-        });
-        page.on('requestfailed', (request) => {
-          own.failedRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`);
-        });
-        page.on('response', (response) => {
-          if (response.status() >= 400) own.httpErrors.push(`${response.status()} ${response.request().method()} ${response.url()}`);
-        });
-        return page;
-      },
-      problemsOf(page) {
-        return problems.get(page) ?? { console: [], pageErrors: [], failedRequests: [], httpErrors: [] };
-      },
+      allProblems: pages.allProblems,
+      newPage: (size) => pages.newPage(size),
+      problemsOf: (page) => pages.problemsOf(page),
       async invite(role) {
         return retarget(await stack.createInvite(role));
       },
@@ -198,7 +245,6 @@ export async function startSmoke(options: SmokeOptions = {}): Promise<SmokeEnv> 
         ].join('\n');
       },
       async stop() {
-        for (const context of contexts.splice(0)) await context.close().catch(() => {});
         for (const stop of stops.splice(0).reverse()) await stop().catch(() => {});
       },
     };
@@ -208,14 +254,22 @@ export async function startSmoke(options: SmokeOptions = {}): Promise<SmokeEnv> 
   }
 }
 
+/** What the join helpers need of an environment: startSmoke's, or one a test composed itself (the flow smoke's). */
+export interface JoinEnv {
+  readonly origin: string;
+  readonly stack: { readonly workspaceId: string };
+  invite(role: 'agent' | 'editor' | 'viewer'): Promise<string>;
+  hostLink(): string;
+}
+
 /** The join page's explicit "Join" (an invite link never joins on page load). */
 export async function confirmJoin(page: Page): Promise<void> {
   await page.getByTestId('join-confirm').waitFor({ timeout: STEP_MS });
   await page.getByRole('button', { name: wordsOf(page).join, exact: true }).click();
 }
 
-/** Opens `link` logged out, logs in with the relay's dev login as `name`, joins; resolves on the connected workbench. */
-export async function joinWith(page: Page, env: SmokeEnv, link: string, name: string): Promise<void> {
+/** Opens `link` logged out, logs in with the relay's dev login as `name`, joins; resolves on the connected sessions view. */
+export async function joinWith(page: Page, env: JoinEnv, link: string, name: string): Promise<void> {
   await page.goto(link);
   await page.getByTestId('join-login').waitFor({ timeout: STEP_MS });
   await page.getByLabel(wordsOf(page).accountName).fill(name);
@@ -232,38 +286,134 @@ export async function workspaceOnline(page: Page): Promise<void> {
 }
 
 /** A guest through a fresh invite of `role` (`agent`: "Agent access"). */
-export async function joinAs(page: Page, env: SmokeEnv, name: string, role: 'agent' | 'editor' | 'viewer' = 'editor'): Promise<void> {
+export async function joinAs(page: Page, env: JoinEnv, name: string, role: 'agent' | 'editor' | 'viewer' = 'editor'): Promise<void> {
   await joinWith(page, env, await env.invite(role), name);
 }
 
 /** The host themself, in the browser (their own host link; the dev account `host` is the stack's host). */
-export async function joinAsHost(page: Page, env: SmokeEnv): Promise<void> {
-  await joinWith(page, env, env.hostLink(), 'host');
+export async function joinAsHost(page: Page, env: JoinEnv, name = 'host'): Promise<void> {
+  await joinWith(page, env, env.hostLink(), name);
 }
 
-/** Opens a session of `kind` from the agents panel's "New session" dialog; resolves with its id once its terminal is live. */
-export async function openSession(page: Page, kind: 'terminal' | 'agent', title: string, options: { readonly worktree?: boolean } = {}): Promise<string> {
-  const words = wordsOf(page);
-  await page.getByRole('button', { name: words.newSession }).first().click();
-  const dialog = page.getByRole('dialog', { name: words.newSession });
+/** The view of the workspace that is on screen: the sessions view or code mode (the other one is mounted and hidden). */
+const SHOWN_VIEW = '.app-shell__view:not([hidden])';
+
+/** The mode a page shows: the sessions view (`/w/:id`) or code mode (`/w/:id/code`). */
+export type SmokeMode = 'sessions' | 'code';
+
+/**
+ * Switches `page` to `mode` with the top bar's mode switch (two links; nothing reloads, both views stay mounted) and
+ * resolves once that view is on screen (code mode: once its chunk is loaded and its editor region is there). Does
+ * nothing when the page shows that mode already.
+ */
+export async function toMode(page: Page, mode: SmokeMode): Promise<void> {
+  const shell = page.locator(`.app-shell[data-mode="${mode}"]`);
+  if ((await shell.count()) === 0) {
+    // The two segments are links: code mode's ends in "/code", the sessions view's is the workspace's own address.
+    await page.locator(`.app-topbar__mode ${mode === 'code' ? 'a[href$="/code"]' : 'a:not([href$="/code"])'}`).click();
+    await shell.waitFor({ timeout: STEP_MS });
+  }
+  await page.locator(`${SHOWN_VIEW}[data-view="${mode}"]`).waitFor({ timeout: STEP_MS });
+  if (mode === 'code') await page.locator('#workbench-main').waitFor({ timeout: STEP_MS });
+}
+
+/** Code mode: the file tree, the editor, the session beside it and the drawer. */
+export async function toCodeMode(page: Page): Promise<void> {
+  await toMode(page, 'code');
+}
+
+/** Back to the sessions view. */
+export async function toSessionsView(page: Page): Promise<void> {
+  await toMode(page, 'sessions');
+}
+
+/** Unfolds code mode's drawer (it starts folded on the activity feed); does nothing when it is unfolded already. */
+export async function openDrawer(page: Page): Promise<void> {
+  const expand = page.getByRole('button', { name: wordsOf(page).expandDrawer });
+  if ((await expand.count()) > 0) await expand.click();
+}
+
+/** A column by its title: the region of the sessions view's strip, or the session beside the editor in code mode. */
+export function columnOf(page: Page, title: string | RegExp): Locator {
+  return page.locator(SHOWN_VIEW).getByRole('region', { name: title, ...(typeof title === 'string' ? { exact: true } : {}) });
+}
+
+/** The row of the session list whose name starts with `title` (a session, a topic's Spec or Plan row). */
+export function rowOf(page: Page, title: string): Locator {
+  return page.getByRole('treeitem', { name: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) }).first();
+}
+
+/**
+ * Opens what the row `title` of the session list stands for: in the focused column, or with `side` in a column of
+ * its own beside it (Shift+click).
+ */
+export async function openFromList(page: Page, title: string, options: { readonly side?: boolean } = {}): Promise<void> {
+  await rowOf(page, title).click(options.side ? { modifiers: ['Shift'] } : {});
+}
+
+/** The "New" control of the session list, then one item of its menu; resolves with the dialog that opens. */
+async function newFromList(page: Page, item: string, dialogName: string): Promise<Locator> {
+  await page.getByRole('button', { name: wordsOf(page).newControl, exact: true }).click();
+  await page.getByRole('menuitem', { name: item, exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: dialogName });
   await dialog.waitFor({ timeout: STEP_MS });
-  if (kind === 'terminal') await dialog.getByText(words.plainTerminal).click();
+  return dialog;
+}
+
+/** "New" → "Terminal": the dialog of a plain terminal, open. */
+export async function newTerminalDialog(page: Page): Promise<Locator> {
+  return newFromList(page, wordsOf(page).newTerminalItem, wordsOf(page).newTerminal);
+}
+
+/** "New" → "New session": the dialog of an agent session without a topic, open. */
+export async function newSessionDialog(page: Page): Promise<Locator> {
+  return newFromList(page, wordsOf(page).newSessionItem, wordsOf(page).newSession);
+}
+
+/**
+ * Opens a plain terminal named `title` from the session list of the sessions view ("New" → "Terminal" → the dialog);
+ * resolves with its id once its terminal is live in its column. `worktree`: in a new worktree of the member's own.
+ */
+export async function openTerminal(page: Page, title: string, options: { readonly worktree?: boolean } = {}): Promise<string> {
+  const words = wordsOf(page);
+  const dialog = await newTerminalDialog(page);
   if (options.worktree) await dialog.getByText(words.newWorktree).click();
   await dialog.getByLabel(words.sessionName).fill(title);
   await dialog.getByRole('button', { name: words.open }).click();
   await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
-  // The new session's tab is selected: its panel is the visible one, with a live terminal.
-  const session = page.getByRole('tabpanel').locator('.agents-session', { has: page.locator('.agents-term__viewport[data-phase="live"]') });
+  // The new terminal opens in a column named by its title, with a live terminal.
+  const session = columnOf(page, title).locator('.agents-session', { has: page.locator('.agents-term__viewport[data-phase="live"]') });
   await session.first().waitFor({ timeout: STEP_MS });
   const id = await session.first().getAttribute('data-session-id');
   if (!id) throw new Error('no session id on the live terminal');
   return id;
 }
 
+/**
+ * Opens an agent session without a topic ("New" → "New session" → the dialog) and resolves with its id once its
+ * column is open. `first` is the member's first message (it is also the session's name when no `title` is given).
+ */
+export async function openAgentSession(page: Page, options: { readonly title?: string; readonly first?: string; readonly worktree?: boolean } = {}): Promise<string> {
+  const words = wordsOf(page);
+  const before = new Set(await page.locator(`${SHOWN_VIEW} [data-column-id^="session:"]`).evaluateAll((columns) => columns.map((column) => column.getAttribute('data-column-id') ?? '')));
+  const dialog = await newSessionDialog(page);
+  if (options.worktree) await dialog.getByText(words.newWorktree).click();
+  if (options.title !== undefined) await dialog.getByLabel(words.sessionName).fill(options.title);
+  if (options.first !== undefined) await dialog.getByLabel(words.firstMessage).fill(options.first);
+  await dialog.getByRole('button', { name: words.open }).click();
+  await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
+  const handle = await page.waitForFunction(
+    ({ view, known }) => [...document.querySelectorAll(`${view} [data-column-id^="session:"]`)].map((column) => column.getAttribute('data-column-id') ?? '').find((id) => !known.includes(id)) ?? false,
+    { view: SHOWN_VIEW, known: [...before] },
+    { timeout: STEP_MS },
+  );
+  return ((await handle.jsonValue()) as string).slice('session:'.length);
+}
+
 /** The text of every row of the terminal of session `id`, one row per line. */
 export async function terminalText(page: Page, id: string): Promise<string> {
   return terminalOf(page, id).evaluate((viewport) =>
-    [...viewport.querySelectorAll('.xterm-rows > div')].map((row) => (row.textContent ?? '').replace(/\u00a0/g, ' ').trimEnd()).join('\n'),
+    [...viewport.querySelectorAll('.xterm-rows > div')].map((row) => (row.textContent ?? '').replace(/ /g, ' ').trimEnd()).join('\n'),
   );
 }
 
@@ -277,28 +427,31 @@ export async function terminalText(page: Page, id: string): Promise<string> {
 export async function terminalShows(page: Page, id: string, text: string): Promise<boolean> {
   // The terminal must be there: "not shown" by a terminal that is missing would prove nothing.
   await terminalOf(page, id).waitFor({ timeout: STEP_MS });
-  return page.evaluate(terminalShowsIn, { id, text });
+  return page.evaluate(terminalShowsIn, { id, text, view: SHOWN_VIEW });
 }
 
 /** Waits until the terminal of session `id` shows `text` somewhere (see terminalShows). */
 export async function waitForTerminalText(page: Page, id: string, text: string, timeoutMs = STEP_MS): Promise<void> {
-  await page.waitForFunction(terminalShowsIn, { id, text }, { timeout: timeoutMs });
+  await page.waitForFunction(terminalShowsIn, { id, text, view: SHOWN_VIEW }, { timeout: timeoutMs });
 }
 
 /** Runs in the page: terminalShows. Self-contained (serialised into the page). */
-function terminalShowsIn({ id, text }: { readonly id: string; readonly text: string }): boolean {
-  const rows = [...document.querySelectorAll(`.agents-session[data-session-id="${id}"] .xterm-rows > div`)].map((row) => (row.textContent ?? '').replace(/\u00a0/g, ' '));
+function terminalShowsIn({ id, text, view }: { readonly id: string; readonly text: string; readonly view: string }): boolean {
+  const rows = [...document.querySelectorAll(`${view} .agents-session[data-session-id="${id}"] .xterm-rows > div`)].map((row) => (row.textContent ?? '').replace(/ /g, ' '));
   if (rows.join('\n').includes(text)) return true;
   const squeezed = text.replace(/\s+/g, '');
   return squeezed.length > 0 && rows.join('').replace(/\s+/g, '').includes(squeezed);
 }
 
-/** The visible terminal viewport of session `id`. */
+/**
+ * The terminal viewport of session `id` in the view on screen: its column in the sessions view, or its tab of the
+ * Terminal drawer in code mode (the same session may be mounted in both; the hidden one is not looked at).
+ */
 export function terminalOf(page: Page, id: string) {
-  return page.locator(`.agents-session[data-session-id="${id}"] .agents-term__viewport`);
+  return page.locator(`${SHOWN_VIEW} .agents-session[data-session-id="${id}"] .agents-term__viewport`);
 }
 
-/** Types a line into the (owner's) terminal of session `id`. */
+/** Types a line into the terminal of session `id` (the host or a member with agent access). */
 export async function typeInTerminal(page: Page, id: string, line: string): Promise<void> {
   await terminalOf(page, id).click();
   await page.keyboard.type(line);
@@ -339,5 +492,49 @@ export async function cjkTexts(page: Page, allowed: readonly string[] = []): Pro
       return found;
     },
     { pattern: CJK_PATTERN, allow: [...allowed] },
+  );
+}
+
+/**
+ * Every piece of text of the page that holds a Latin word and no CJK character at all, with the element it is in:
+ * what a page in Traditional Chinese shows untranslated. `allowed` lists what is legitimately Latin there: the terms
+ * the zh-TW catalogue keeps (session, spec, agent, Claude), names, paths and commands the test itself made; a piece
+ * made only of those (and of digits and punctuation) is fine. The inside of the code editor and of a terminal is not
+ * looked at (third-party widgets with a language of their own, and the files' own text), nor an avatar's initials.
+ * `notInterface`: a selector of more elements that hold no interface text (what smurg wrote to an agent, in English).
+ */
+export async function untranslatedTexts(page: Page, allowed: readonly (string | RegExp)[] = [], notInterface = ''): Promise<string[]> {
+  return page.evaluate(
+    ({ pattern, strings, regexes, apart }) => {
+      const cjk = new RegExp(pattern, 'u');
+      const patterns = regexes.map(([source, flags]) => new RegExp(source, flags.includes('g') ? flags : `${flags}g`));
+      const found: string[] = [];
+      const visit = (text: string | null, where: Element | null, kind: string): void => {
+        if (text === null || cjk.test(text)) return;
+        let rest = text;
+        for (const ok of patterns) rest = rest.replace(ok, ' ');
+        for (const ok of strings) rest = rest.split(ok).join(' ');
+        // A Latin word of two letters or more is left: a label nobody translated.
+        if (!/[A-Za-z]{2,}/.test(rest)) return;
+        found.push(`${kind} <${where?.tagName.toLowerCase() ?? '?'} class="${where?.getAttribute('class') ?? ''}">: ${text.trim().slice(0, 120)}`);
+      };
+      // Not looked at: the code editor and a terminal, and the initials of a name in an avatar.
+      const skipped = (element: Element | null): boolean => element?.closest(`.monaco-editor, .monaco-aria-container, .xterm, .ui-avatar__initials, script, style, noscript${apart === '' ? '' : `, ${apart}`}`) != null;
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) if (!skipped(node.parentElement)) visit(node.textContent, node.parentElement, 'text');
+      for (const element of document.querySelectorAll('[aria-label], [title], [placeholder], [aria-description], [alt]')) {
+        if (skipped(element)) continue;
+        for (const attribute of ['aria-label', 'title', 'placeholder', 'aria-description', 'alt']) visit(element.getAttribute(attribute), element, attribute);
+      }
+      visit(document.title, document.head, 'document.title');
+      return found;
+    },
+    {
+      pattern: CJK_PATTERN,
+      // Longest first: "PLAN.md" is taken out before "PLAN" could be.
+      strings: allowed.filter((entry): entry is string => typeof entry === 'string').sort((a, b) => b.length - a.length),
+      regexes: allowed.filter((entry): entry is RegExp => entry instanceof RegExp).map((entry) => [entry.source, entry.flags] as const),
+      apart: notInterface,
+    },
   );
 }

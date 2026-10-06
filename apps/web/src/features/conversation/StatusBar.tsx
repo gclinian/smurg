@@ -8,7 +8,7 @@ import { formatAge } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectOpenCards } from '../../lib/stores/conversations.ts';
 import { selectAccount } from '../../lib/stores/host.ts';
-import { selectTopic } from '../../lib/stores/topics.ts';
+import { selectPlan, selectTopic } from '../../lib/stores/topics.ts';
 import { useNow } from '../../lib/use-now.ts';
 import { useCapabilities, useStores } from '../../lib/workspace/context.tsx';
 import { Button, StatusGlyph, cx, useToast } from '../../ui/index.ts';
@@ -38,6 +38,9 @@ export function StatusBar({ session, onShowCard }: StatusBarProps) {
   });
   const account = useStore(stores.host, selectAccount);
   const topicPhase = useStore(stores.topics, (state) => (session.topicId === undefined ? undefined : selectTopic(state, session.topicId)?.phase));
+  // Why a work item's session stopped without a report, as its plan knows it (when the plan is loaded): the agent
+  // itself, a restart of the host's smurg, a person, an error.
+  const stalledBy = useStore(stores.topics, (state) => (session.topicId === undefined || session.itemId === undefined ? undefined : selectPlan(state, session.topicId)?.items.find((item) => item.id === session.itemId)?.stalledBy));
   const busy = session.status === 'running' || session.status === 'starting';
   const waiting = session.status === 'waiting-answer' || session.status === 'waiting-permission';
   const now = useNow(busy ? 1_000 : waiting ? 10_000 : 3_600_000);
@@ -89,7 +92,7 @@ export function StatusBar({ session, onShowCard }: StatusBarProps) {
       break;
     case 'stalled':
       wait = true;
-      text = t('status.stalled');
+      text = stalledBy === 'restart' ? t('status.stalled.restart') : stalledBy === 'stopped' ? t('status.stalled.stopped') : stalledBy === 'error' ? t('status.stalled.error') : t('status.stalled');
       if (caps.canDrive && session.topicId !== undefined && session.itemId !== undefined) {
         const { topicId, itemId } = session;
         act('continue', t('status.stalled.continue'), () => run(() => stores.topics.continueItem(topicId, itemId)));
@@ -98,7 +101,12 @@ export function StatusBar({ session, onShowCard }: StatusBarProps) {
     case 'failed':
       wait = true;
       text = t('status.failed');
-      if (caps.canDrive && (session.retryHostOnly !== true || caps.isHost)) act('retry', t('status.failed.retry'), () => run(() => stores.sessions.retry(sessionId)));
+      if (caps.canDrive && (session.retryHostOnly !== true || caps.isHost)) {
+        const { topicId, itemId } = session;
+        // A work item's session is tried again through its plan: the same session starts again AND smurg tells it to go
+        // on with the item (`plan.item.retry`). A plain `session.retry` would leave the item "running" with an idle agent.
+        act('retry', t('status.failed.retry'), () => run(() => (topicId !== undefined && itemId !== undefined ? stores.topics.retryItem(topicId, itemId) : stores.sessions.retry(sessionId))));
+      }
       break;
     case 'ended':
       text = t('status.ended');

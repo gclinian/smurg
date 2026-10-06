@@ -1,7 +1,11 @@
 // One schema-valid payload per request type (and per one-way client message). Typed as a mapped type over the
 // registry, so a request type added to @smurg/protocol without a sample here is a compile error.
-// Payloads point at objects that do not exist (dev:nobody, *_nope ids): where a real handler runs (admin.*), an
-// allowed request ends in not_found instead of changing the workspace.
+// Payloads point at objects that do not exist (dev:nobody, *_nope ids, a file whose folder is not there): where a
+// real handler runs (the admin handlers always; every handler with the release composition, test/authorization.test.ts
+// `REAL_ANSWERS`), an allowed request ends in not_found instead of changing the workspace. The few that cannot point
+// at nothing do what they say: `session.create` opens a free agent session, `topic.create` a topic with its
+// discussion (so a test that sends them to real modules gives the daemon the stand-in `claude`),
+// `admin.invite.create` an invite, `file.upload.plan` / `.begin` an upload that is never committed.
 import type { InboundNotifyType } from '../../src/core/interfaces.ts';
 import type { PayloadInputOf, RequestType } from '@smurg/protocol';
 

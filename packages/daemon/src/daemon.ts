@@ -15,13 +15,16 @@ import { registerAdminHandlers } from './admin/handlers.ts';
 import { InviteServiceImpl } from './admin/invites.ts';
 import { MemberDirectoryImpl } from './admin/members.ts';
 import { SettingsServiceImpl } from './admin/settings.ts';
+import { conversationModule } from './conversation/module.ts';
 import { docsModule } from './docs/module.ts';
 import { filesModule } from './files/module.ts';
 import { hooksModule } from './hooks/module.ts';
+import { inboxModule } from './inbox/module.ts';
 import { localControlModule } from './local/module.ts';
 import { locksModule } from './locks/module.ts';
 import { sessionsModule } from './sessions/module.ts';
 import { suggestModule } from './suggest/module.ts';
+import { topicsModule } from './topics/module.ts';
 import { worktreeModule } from './worktree/module.ts';
 import daemonPackage from '../package.json' with { type: 'json' };
 import { JsonlAuditLog } from './core/audit.ts';
@@ -66,8 +69,8 @@ export const DAEMON_VERSION: string = daemonPackage.version;
 
 /**
  * Feature modules composed in production (and by createTestDaemon / the e2e startStack when a test passes no
- * `modules`). Every area is listed already: its owner replaces the body of `src/<area>/module.ts` and never edits
- * this list. Tests that want a subset pass modules to createTestDaemon directly.
+ * `modules`): the release composition, every feature area exactly once (DESIGN §9.3; test/composition.test.ts
+ * transcribes the order). Tests that want a subset pass modules to createTestDaemon directly.
  *
  * Order. create() runs in this order but may not call other services, so the order matters for the rest:
  * register() and start() run in this order, stop() in reverse (after every channel was closed with `stopped`), and
@@ -80,9 +83,18 @@ export const DAEMON_VERSION: string = daemonPackage.version;
  *  - files (watcher, uploads, downloads), then docs: docs builds on file events and flushes dirty documents in its
  *    stop() while the watcher is still running;
  *  - worktree: kept worktrees are registered as roots before a session may be started in one;
- *  - sessions: after everything it launches with; its stop() (end every session) runs before worktree, hooks and
- *    locks stop;
- *  - suggest: accept pastes into a session, so it stops (no more pastes) before sessions do;
+ *  - sessions (terminals, the agent runtime, the trust gate, the host's own rules): after everything it launches
+ *    with; its stop() (end every terminal, park every agent process as "daemon stop") runs before worktree, hooks
+ *    and locks stop, and after everything below it stopped;
+ *  - conversation: its start() asks the agent runtime which sessions still exist and where their cards are, so it
+ *    starts after sessions; it stops (open cards withdrawn, nothing more sent to an agent) before the runtime does;
+ *  - suggest: its start() asks the registry which agent sessions still exist and closes the suggestions of the
+ *    others; an accepted suggestion is a message to an agent session, so it stops (no more messages) before the
+ *    runtime does;
+ *  - topics (topics, plans, reports, the scheduler): its start() asks worktree, sessions, conversation and suggest
+ *    what a restart left; it stops before sessions, so nothing is started while the sessions go down;
+ *  - inbox: derived from all of the above; its start() takes the first full view once they have loaded their state
+ *    (from then on it drops the "seen" marks of items that are not there);
  *  - local: the control socket opens last (a local `smurg attach` never sees a half-started daemon). Its module stops
  *    first, but the socket itself closes only when the registrations are disposed (after every module stopped), so
  *    `smurg stop` sees it go when the daemon is done (it answers status with stopped: true meanwhile).
@@ -94,7 +106,10 @@ export const DEFAULT_FEATURE_MODULES: readonly FeatureModule[] = Object.freeze([
   docsModule,
   worktreeModule,
   sessionsModule,
+  conversationModule,
   suggestModule,
+  topicsModule,
+  inboxModule,
   localControlModule,
 ]);
 
@@ -508,10 +523,13 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     };
 
     /** What `smurg status` shows about agents, from the modules that are composed (a stub contributes nothing). */
-    const agentStatus = (): Pick<DaemonStatus, 'agents' | 'topics' | 'projectSettings' | 'hostRules'> => {
-      const out: { -readonly [K in 'agents' | 'topics' | 'projectSettings' | 'hostRules']?: DaemonStatus[K] } = {};
+    const agentStatus = (): Pick<DaemonStatus, 'claude' | 'agents' | 'topics' | 'projectSettings' | 'hostRules'> => {
+      const out: { -readonly [K in 'claude' | 'agents' | 'topics' | 'projectSettings' | 'hostRules']?: DaemonStatus[K] } = {};
       try {
         if (!isStubService(services.agents)) {
+          // Claude Code as the agent runtime last found it (absent until its first check: `smurg status` says so).
+          const claude = services.agents.claude();
+          if (claude !== null) out.claude = claude;
           const counts = { running: 0, waiting: 0, stalled: 0, idle: 0 };
           for (const session of services.agents.list()) {
             if (session.status === 'running' || session.status === 'starting') counts.running += 1;

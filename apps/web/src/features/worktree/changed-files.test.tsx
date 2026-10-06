@@ -5,7 +5,7 @@ import { FakeConnection } from '../../testing/fake-connection.ts';
 import { makeMergeRequest, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
 import type { MergeDiff } from './diff-model.ts';
-import { ChangedFiles, MergeReviewPanel } from './index.tsx';
+import { ChangedFiles, MergeReviewPanel, UnifiedDiff } from './index.tsx';
 
 const section = (path: string): string => `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new\n`;
 
@@ -79,6 +79,28 @@ describe('ChangedFiles: the Changes of a result report', () => {
     expect(screen.getByText(/^Could not load the diff/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Reload' }));
     expect(conn.requestsOf('worktree.merge.diff')).toHaveLength(2);
+  });
+});
+
+describe('UnifiedDiff: a diff that stands alone (the changes of SPEC.md and PLAN.md before a Start)', () => {
+  it('is named by its caller, takes the keyboard focus to scroll, numbers its lines and marks what was added and removed', () => {
+    render(<UnifiedDiff diff={section('specs/checkout/PLAN.md')} label="Changes of PLAN.md" />);
+    const block = screen.getByRole('group', { name: 'Changes of PLAN.md' });
+    expect(block.tagName).toBe('PRE');
+    expect(block.tabIndex).toBe(0);
+    const lines = [...block.querySelectorAll('.worktree-diff__line')];
+    expect(lines.map((line) => line.className.replace('worktree-diff__line worktree-diff__line--', ''))).toEqual(['meta', 'meta', 'meta', 'meta', 'hunk', 'del', 'add']);
+    expect(lines[5]?.querySelector('.worktree-diff__text')?.textContent).toBe('-old');
+    expect([...(lines[6]?.querySelectorAll('.worktree-diff__num') ?? [])].map((cell) => cell.textContent)).toEqual(['', '1']);
+    expect(screen.queryByText(/invisible characters/)).toBeNull();
+  });
+
+  it('shows an invisible character as its code point and says so above the diff: what is started is what was read', () => {
+    render(<UnifiedDiff diff={'@@ -1 +1 @@\n-title: Cart\n+title: Cart\u202e tnemyap\n'} label="Changes of PLAN.md" />);
+    expect(screen.getByText(/^The diff of this file contains invisible characters/)).toBeTruthy();
+    const marked = screen.getByText('⟨U+202E⟩');
+    expect(marked.getAttribute('title')).toBe('Invisible character U+202E');
+    expect(screen.getByRole('group', { name: 'Changes of PLAN.md' }).textContent).not.toContain('\u202e');
   });
 });
 

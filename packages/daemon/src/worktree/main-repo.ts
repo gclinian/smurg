@@ -1,4 +1,4 @@
-// What the daemon does with a few named files of the MAIN workspace through git (ARCHITECTURE §5.10 "Start", §5.7):
+// What the daemon does with a few named files of the MAIN workspace through git (ARCHITECTURE §7.8 "Start", §5.7):
 //  - the checkpoint commit of a topic's SPEC.md and PLAN.md (exactly the paths it is given, never `--all`: the
 //    hardened runner ignores the host's global ignore file, so `--all` would take whatever else lies in the folder);
 //  - the blob ids of files at HEAD (the scheduler's pin check);

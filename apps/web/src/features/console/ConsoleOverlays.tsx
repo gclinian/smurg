@@ -1,7 +1,7 @@
 // The console feature's dialogs outside the console page (features/console/slots.tsx → `overlays`): mounted once by
-// the workspace shell, in the sessions view and in code mode, they render nothing until `consoleDialogs(stores)`
-// opens one (dialogs.ts). All three are the host's; for anyone else nothing is rendered and nothing is asked of the
-// daemon.
+// the workspace shell, in the sessions view and in code mode, they render nothing until one of the three commands
+// asks (`reviewProjectSettings`, `showHostRules`, `redactEvent`: slots.tsx puts the request into dialogs.ts). All
+// three are the host's; for anyone else nothing is rendered and nothing is asked of the daemon.
 //
 //   claude-config   the trust gate of a root's Claude Code project settings (DESIGN §2.9)
 //   host-rules      which of the host's own Claude Code allow rules apply (information only, OWNER-DECISIONS Q7)

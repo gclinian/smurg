@@ -296,6 +296,29 @@ describe('topics store: reports', () => {
     expect(selectReport(stores.topics.getState(), 'tp_1', 'cart-api')?.sections.done).toBe('More.');
   });
 
+  it('a follow-up asked from the report, and its answer, arrive as the unchanged summary: the loaded report is read again', async () => {
+    const { conn, stores, flush } = await ready();
+    const loading = stores.topics.loadReport('tp_1', 'cart-api');
+    conn.respond('report.get', { report: buildReport() });
+    expect((await loading).questions).toEqual([]);
+
+    // Someone asked about the result: the daemon announces the report again, and its summary says nothing new.
+    const asked = { id: 'fq_1', from: { userId: 'dev:mei', displayName: 'Mei' }, text: 'Why is it partial?', at: 1_700_000_000_000 };
+    conn.emit('report.updated', { topicId: 'tp_1', itemId: 'cart-api', report: buildReportSummary() });
+    expect(conn.pendingOf('report.get')).toHaveLength(1);
+    conn.respond('report.get', { report: buildReport({ questions: [asked] }) });
+    await flush();
+    expect(selectReport(stores.topics.getState(), 'tp_1', 'cart-api')?.questions).toEqual([asked]);
+
+    // The agent answered: the same again.
+    const answered = { ...asked, answer: { text: 'One check needs a display.', at: 1_700_000_001_000 } };
+    conn.emit('report.updated', { topicId: 'tp_1', itemId: 'cart-api', report: buildReportSummary() });
+    expect(conn.pendingOf('report.get')).toHaveLength(1);
+    conn.respond('report.get', { report: buildReport({ questions: [answered] }) });
+    await flush();
+    expect(selectReport(stores.topics.getState(), 'tp_1', 'cart-api')?.questions).toEqual([answered]);
+  });
+
   it('two askers of one report share one request; a report that moved on meanwhile is asked for afresh', async () => {
     const { conn, stores, flush } = await ready();
     const first = stores.topics.loadReport('tp_1', 'cart-api');
@@ -377,5 +400,25 @@ describe('topics store: what a change of a topic tells everyone', () => {
     ]);
     stores.topics.dismissNotice(notices[0]!.id);
     expect(stores.topics.getState().notices.map((notice) => notice.kind)).toEqual(['spec-ready']);
+  });
+
+  it('a new plan is told once: the end of the turn that wrote it is not "the plan was updated"; writing it again is', async () => {
+    const { conn, stores, flush, admit } = setupStores();
+    admit();
+    answerLoads(conn, { 'topic.list': { topics: [buildTopic({ phase: 'spec', spec: { exists: true } })], hasMore: false } });
+    await flush();
+    const kinds = (): string[] => stores.topics.getState().notices.map((notice) => notice.kind);
+    // "Generate plan": the agent writes PLAN.md, the daemon reads it (the phase is `plan`) while the turn still runs…
+    conn.emit('topic.updated', { topic: buildTopic({ phase: 'spec', spec: { exists: true }, plan: { ...plan, exists: false, valid: false, generating: true } }) });
+    conn.emit('topic.updated', { topic: buildTopic({ phase: 'plan', plan: { ...plan, generating: true } }) });
+    expect(kinds()).toEqual(['plan-ready']);
+    // …and the turn ends: the same plan, nothing new to tell.
+    conn.emit('topic.updated', { topic: buildTopic({ phase: 'plan', plan }) });
+    expect(kinds()).toEqual(['plan-ready']);
+    // "Update plan" later: the agent writes it again, and that is told when it has finished.
+    conn.emit('topic.updated', { topic: buildTopic({ phase: 'plan', plan: { ...plan, generating: true } }) });
+    expect(kinds()).toEqual(['plan-ready']);
+    conn.emit('topic.updated', { topic: buildTopic({ phase: 'plan', plan }) });
+    expect(kinds()).toEqual(['plan-ready', 'plan-updated']);
   });
 });

@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import { makeMember } from '../../testing/fixtures.ts';
 import {
   agentAccessNames,
-  andList,
   assignablePeople,
   assignHint,
   handEditsLine,
@@ -30,15 +29,6 @@ const IAN = { userId: 'dev:host', displayName: 'Ian' };
 const MEI = { userId: 'dev:mei', displayName: 'Mei' };
 const item = (id: string, number: number, overrides: Partial<WorkItem> = {}): WorkItem => buildWorkItem({ id, number, title: `Item ${id}`, ...overrides });
 const noSession = (): undefined => undefined;
-
-describe('lists inside a sentence', () => {
-  it('joins names the way English does', () => {
-    expect(andList([])).toBe('');
-    expect(andList(['Ian'])).toBe('Ian');
-    expect(andList(['Ian', 'Mei'])).toBe('Ian and Mei');
-    expect(andList(['1', '2', '3'])).toBe('1, 2, and 3');
-  });
-});
 
 describe('files and people', () => {
   it('the spec and the plan are files of the main workspace under specs/<slug>', () => {
@@ -111,6 +101,10 @@ describe('work items', () => {
     [item('a', 1, { state: 'reviewed', report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr', status: 'merged', ready: false } }), 'Reviewed · merged', 'success', false],
     [item('a', 1, { state: 'reviewed', report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr', status: 'conflict', ready: true } }), 'Reviewed · merge conflict', 'danger', true],
     [item('a', 1, { state: 'reviewed', report: buildReportSummary({ state: 'changed-after-review' }) }), 'Changed after the review', 'warning', false],
+    // A follow-up, then the review: the reviewer took the version as it is, so the item is reviewed.
+    [item('a', 1, { state: 'reviewed', report: buildReportSummary({ state: 'reviewed', review: { by: IAN, at: 20, version: 1 } }), changesAsked: { by: IAN, at: 10 }, merge: { requestId: 'mr', status: 'draft', ready: true } }), 'Reviewed · waits for the host to merge', 'success', false],
+    // The review, then a follow-up: the message still asks for something.
+    [item('a', 1, { state: 'reviewed', report: buildReportSummary({ state: 'reviewed', review: { by: IAN, at: 20, version: 1 } }), changesAsked: { by: IAN, at: 30 } }), 'Changes asked by Ian', 'info', false],
     [item('a', 1, { state: 'failed' }), 'Failed', 'danger', true],
     [item('a', 1, { state: 'stopped' }), 'Session ended', 'neutral', true],
     [item('a', 1, { disarmed: 'plan-changed' }), 'The plan changed: Start again', 'warning', true],

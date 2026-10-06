@@ -4,6 +4,10 @@
 // is first shown. Every terminal runs as the host: the host and members with agent access open terminals and type
 // into any of them.
 //
+// The drawer is short (220 px until someone drags it): the panel has no header bar of its own (the drawer's tab
+// already says "Terminal"), and "New terminal" sits at the end of the terminals' tab strip, so a terminal keeps
+// enough rows to work in.
+//
 // In the sessions view the same terminal is a column (TerminalColumn.tsx, registered in slots.tsx).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TerminalSession } from '@smurg/protocol';
@@ -11,7 +15,7 @@ import { useStore } from '../../lib/store.ts';
 import { isTerminalSession } from '../../lib/stores/sessions.ts';
 import { selectUserId } from '../../lib/stores/workspace.ts';
 import { useCapabilities, useStores } from '../../lib/workspace/context.tsx';
-import { Banner, Button, EmptyState, Panel, Spinner, Tabs } from '../../ui/index.ts';
+import { Banner, Button, EmptyState, Spinner, Tabs } from '../../ui/index.ts';
 import { IconPlus, IconTerminal } from '../../ui/icons.tsx';
 import { AttachDialog } from './AttachDialog.tsx';
 import { EndSessionDialog } from './EndSessionDialog.tsx';
@@ -98,11 +102,9 @@ export function TerminalPanel(_props: TerminalPanelProps) {
           title={t('empty.title')}
           description={canCreate ? t('empty.canCreate') : t('empty.cannotCreate')}
           action={
-            canCreate ? (
-              <Button size="sm" variant="primary" icon={<IconPlus />} onClick={() => setNewOpen(true)}>
-                {t('action.new')}
-              </Button>
-            ) : undefined
+            <Button size="sm" variant={canCreate ? 'primary' : 'secondary'} icon={<IconPlus />} onClick={() => setNewOpen(true)}>
+              {t('action.new')}
+            </Button>
           }
         />
       );
@@ -116,6 +118,7 @@ export function TerminalPanel(_props: TerminalPanelProps) {
         keepMounted
         value={selectedId ?? ''}
         onChange={setChosen}
+        actions={actions}
         items={list.map((session) => ({
           id: session.id,
           label: (
@@ -142,7 +145,8 @@ export function TerminalPanel(_props: TerminalPanelProps) {
   }
 
   return (
-    <Panel title={t('title')} icon={<IconTerminal />} actions={actions} className="agents-panel">
+    <section className="agents-panel" aria-label={t('title')}>
+      <h2 className="ui-visually-hidden">{t('title')}</h2>
       {body}
       <NewSessionDialog
         kind="terminal"
@@ -155,6 +159,6 @@ export function TerminalPanel(_props: TerminalPanelProps) {
       />
       <EndSessionDialog session={ending?.session ?? null} mode={ending?.mode ?? 'end'} onClose={() => setEnding(null)} />
       {attaching !== null ? <AttachDialog session={attaching} isHost={caps.isHost} relayOrigin={window.location.origin} onClose={() => setAttaching(null)} /> : null}
-    </Panel>
+    </section>
   );
 }

@@ -641,14 +641,3 @@
   overflow: auto;
 }
 
-/* Placeholders (features replace them). */
-.feature-placeholder {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.feature-worktree-switcher {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: var(--border-width) solid var(--color-border);
-}

@@ -1,8 +1,6 @@
-// Small pure helpers of the conversation column: what is shown of text people are asked to allow, how names and
+// Small pure helpers of the conversation column: what is shown of text people are asked to allow, how
 // paths are put into a sentence, the quote a code selection becomes.
 import type { FileRef } from '@smurg/protocol';
-import { intlTag } from '@smurg/protocol/locale';
-import { getLocale } from '../../lib/locale.ts';
 
 // eslint-disable-next-line no-control-regex
 const HIDDEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
@@ -19,19 +17,6 @@ export function showControls(text: string): string {
     if (code === 0x7f) return '\u2421';
     return `\u27e6U+${code.toString(16).toUpperCase().padStart(4, '0')}\u27e7`;
   });
-}
-
-const listFormats = new Map<string, Intl.ListFormat>();
-
-/** "Ian", "Ian and Mei", "Ian, Mei, and Amy": names inside a sentence, joined the way the viewer's language does. */
-export function namesList(names: readonly string[]): string {
-  const tag = intlTag(getLocale());
-  let format = listFormats.get(tag);
-  if (format === undefined) {
-    format = new Intl.ListFormat(tag, { style: 'long', type: 'conjunction' });
-    listFormats.set(tag, format);
-  }
-  return format.format(names);
 }
 
 /** The folder every path is in ("src/cart"), or null when they share none (or there is one path at the root). */

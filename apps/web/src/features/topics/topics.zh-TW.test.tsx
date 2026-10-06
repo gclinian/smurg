@@ -6,10 +6,11 @@ import { msg } from '@smurg/protocol/i18n';
 import { FAKE_HASH, buildPlan, buildReport, buildReportSummary, buildTopic, buildWorkItem } from '@smurg/protocol/testing';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { formatAnd } from '../../lib/format.ts';
 import { renderInColumn } from '../../testing/columns.tsx';
 import { useTestLocale } from '../../testing/locale.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
-import { andList, itemBadge } from './model.ts';
+import { itemBadge } from './model.ts';
 import { NewTopicDialog } from './NewTopicDialog.tsx';
 import PlanColumn from './PlanColumn.tsx';
 import ReportColumn from './ReportColumn.tsx';
@@ -53,7 +54,7 @@ describe('the topic screens in zh-TW', () => {
   });
 
   it('badges and lists', () => {
-    expect(andList(['Ian', 'Mei', 'Amy'])).toBe('Ian、Mei和Amy');
+    expect(formatAnd(['Ian', 'Mei', 'Amy'])).toBe('Ian、Mei和Amy');
     expect(itemBadge(buildWorkItem({ state: 'stalled', stalledBy: 'agent' }), PLAN).text).toBe('沒寫報告就停下了');
     expect(itemBadge(buildWorkItem({ state: 'done', report: buildReportSummary({ outcome: 'partial' }) }), PLAN).text).toMatch(/^報告待看 · /);
     expect(itemBadge(buildWorkItem({ state: 'queued', armed: true }), { ...PLAN, slots: { inUse: 8, max: 8, waitingForPeople: 5 } }).text).toBe('等待空閒的 agent：8 個裡有 8 個使用中，5 個在等人處理');

@@ -313,6 +313,9 @@ export class FakeWorktreeManager implements WorktreeManager {
 
   private async drop(worktreeId: string): Promise<void> {
     if (!this.worktrees.delete(worktreeId)) return;
+    // As the real manager: a removed worktree takes its DRAFT requests with it, silently (no `merge.changed`; the
+    // `worktree.changed` below is the announcement). Requests somebody asked for stay decidable.
+    for (const [id, request] of this.requests) if (request.worktreeId === worktreeId && request.status === 'draft') this.requests.delete(id);
     const root = this.roots.get(worktreeId);
     this.roots.delete(worktreeId);
     if (root && this.env.roots !== undefined) {

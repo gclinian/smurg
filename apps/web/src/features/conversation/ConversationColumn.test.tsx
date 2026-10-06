@@ -4,9 +4,8 @@ import { act, fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { MAIN_ROOT, SmurgError, type ConversationEvent } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
-import { buildEvent, buildPermission, buildQuestion, FAKE_NOW } from '@smurg/protocol/testing';
+import { buildEvent, buildPermission, buildPlan, buildQuestion, buildWorkItem, FAKE_NOW } from '@smurg/protocol/testing';
 import type { CommandMap } from '../../lib/commands.ts';
-import { consoleDialogs } from '../console/dialogs.ts';
 import { MOUNT_LIMIT } from './EventList.tsx';
 import { AMY, IAN, MEI, SID, openConversation, settle, updateSession } from './test-support.tsx';
 
@@ -192,23 +191,48 @@ describe('conversation column: the rows', () => {
     await openConversation({ role: 'editor', session: { status: 'failed' }, events });
     expect(within(screen.getByRole('log')).queryByRole('button')).toBeNull();
   });
+
+  it("a work item's failed session is tried again through its plan, from the notice and from the status bar: smurg then tells the agent to go on", async () => {
+    const events = [{ ...buildEvent('notice', { seq: 1, level: 'error', action: 'retry' }), text: msg('notice.processExited', { code: -1 }), fallback: "The agent's process ended unexpectedly (exit code -1)." } as ConversationEvent];
+    const view = await openConversation({ session: { status: 'failed', purpose: 'item', topicId: 't_1', topicName: 'Checkout', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, attempt: 1 }, events });
+    fireEvent.click(within(screen.getByRole('log')).getByRole('button', { name: 'Try again' }));
+    expect(view.conn.lastRequest('plan.item.retry')?.payload).toEqual({ topicId: 't_1', itemId: 'cart-api' });
+    fireEvent.click(within(statusBar()).getByRole('button', { name: 'Try again' }));
+    expect(view.conn.requestsOf('plan.item.retry')).toHaveLength(2);
+    // Never the bare restart of the process: the item would stay "running" with an agent nobody told to go on.
+    expect(view.conn.requestsOf('session.retry')).toHaveLength(0);
+  });
 });
+
+/**
+ * The three commands a conversation sends to the console feature (the host's dialogs are the console's): what was
+ * dispatched, newest last. The conversation never opens a dialog of another feature by itself.
+ */
+function hostCommands(view: Awaited<ReturnType<typeof openConversation>>): { [K in 'redactEvent' | 'reviewProjectSettings' | 'showHostRules']?: CommandMap[K] }[] {
+  const seen: { [K in 'redactEvent' | 'reviewProjectSettings' | 'showHostRules']?: CommandMap[K] }[] = [];
+  const bus = view.session.commands;
+  bus.handle('redactEvent', (payload) => void seen.push({ redactEvent: payload }));
+  bus.handle('reviewProjectSettings', (payload) => void seen.push({ reviewProjectSettings: payload }));
+  bus.handle('showHostRules', (payload) => void seen.push({ showHostRules: payload }));
+  return seen;
+}
 
 describe('conversation column: what only the host has', () => {
   it('"Remove this entry" on a message, on agent text, on a tool call and on its result asks for the confirmation with that event', async () => {
     const view = await openConversation({ role: 'host', events: conversation() });
-    const dialogs = consoleDialogs(view.stores);
+    const asked = hostCommands(view);
     const log = screen.getByRole('log');
     fireEvent.click(within(log.querySelector('.conv-msg') as HTMLElement).getByRole('button', { name: 'Remove this entry…' }));
-    expect(dialogs.getState()).toEqual({ kind: 'redact', sessionId: SID, seq: 2 });
+    expect(asked.at(-1)).toEqual({ redactEvent: { sessionId: SID, seq: 2 } });
     fireEvent.click(within(log.querySelector('.conv-agent__text') as HTMLElement).getByRole('button', { name: 'Remove this entry…' }));
-    expect(dialogs.getState()).toEqual({ kind: 'redact', sessionId: SID, seq: 5 });
+    expect(asked.at(-1)).toEqual({ redactEvent: { sessionId: SID, seq: 5 } });
     const run = [...log.querySelectorAll<HTMLDetailsElement>('details.conv-tool')][1] as HTMLDetailsElement;
     openDetails(run);
     fireEvent.click(within(run).getByRole('button', { name: 'Remove this entry…' }));
-    expect(dialogs.getState()).toEqual({ kind: 'redact', sessionId: SID, seq: 8 });
+    expect(asked.at(-1)).toEqual({ redactEvent: { sessionId: SID, seq: 8 } });
     fireEvent.click(within(run).getByRole('button', { name: 'Remove its result…' }));
-    expect(dialogs.getState()).toEqual({ kind: 'redact', sessionId: SID, seq: 9 });
+    expect(asked.at(-1)).toEqual({ redactEvent: { sessionId: SID, seq: 9 } });
+    expect(asked).toHaveLength(4);
 
     // The replacement arrives under the same seq: the output is gone, the entry says who removed it.
     act(() =>
@@ -232,9 +256,9 @@ describe('conversation column: what only the host has', () => {
       { ...buildEvent('notice', { seq: 1, level: 'warning', action: 'restart-agent' }), text: msg('session.projectSettings.untrusted'), fallback: "The host has not confirmed this folder's Claude Code project settings." } as ConversationEvent,
     ];
     const view = await openConversation({ role: 'host', events });
-    const dialogs = consoleDialogs(view.stores);
+    const asked = hostCommands(view);
     fireEvent.click(within(screen.getByRole('log')).getByRole('button', { name: 'Review the project settings' }));
-    expect(dialogs.getState()).toEqual({ kind: 'claude-config', root: MAIN_ROOT });
+    expect(asked.at(-1)).toEqual({ reviewProjectSettings: { root: MAIN_ROOT } });
     expect(within(screen.getByRole('log')).getByRole('button', { name: "Restart this session's agent now" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Permission mode: Asks before edits and commands' }));
@@ -246,7 +270,7 @@ describe('conversation column: what only the host has', () => {
     expect(within(dialog).getByText(/agents here run 2 kinds of commands without asking/)).toBeTruthy();
     expect(within(dialog).getByText(/Nothing is always allowed here/)).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Show them' }));
-    expect(dialogs.getState()).toEqual({ kind: 'host-rules' });
+    expect(asked.at(-1)).toEqual({ showHostRules: {} });
     view.unmount();
 
     // A member with agent access reads the sentence and may restart; reviewing is the host's.
@@ -301,6 +325,33 @@ describe('conversation column: the status bar', () => {
     updateSession(view, { status: 'failed' });
     fireEvent.click(within(status).getByRole('button', { name: 'Try again' }));
     expect(view.conn.lastRequest('session.retry')?.payload).toEqual({ sessionId: SID });
+  });
+
+  it('a tool call whose turn ended without its result does not read as done: "Running pnpm build · not finished"', async () => {
+    const events = [
+      buildEvent('turn.started', { seq: 1, turnId: 't_1' }),
+      buildEvent('tool.started', { seq: 2, turnId: 't_1', toolUseId: 'tu_1', tool: { name: 'Bash', verb: 'run', target: 'pnpm build' } }),
+      // The process died (or smurg was restarted) while the command's permission request was open.
+      buildEvent('turn.finished', { seq: 3, turnId: 't_1', outcome: 'interrupted', durationMs: 5_000 }),
+    ];
+    await openConversation({ events });
+    const run = within(screen.getByRole('log')).getByText('pnpm build').closest('details') as HTMLDetailsElement;
+    expect(run.getAttribute('data-state')).toBe('unfinished');
+    expect(run.querySelector('summary')?.textContent).toContain('Running');
+    expect(run.querySelector('summary')?.textContent).toContain('not finished');
+    expect(run.querySelector('summary')?.textContent).not.toContain('Ran');
+  });
+
+  it('a work item paused by a restart of smurg says so in its status bar, as its plan does', async () => {
+    const view = await openConversation({ role: 'agent', session: { status: 'stalled', purpose: 'item', topicId: 't_1', topicName: 'Checkout', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, attempt: 1 } });
+    // Until the plan is known: the plain sentence.
+    expect(statusBar().textContent).toContain('Stopped without a report.');
+    act(() => {
+      view.conn.emit('plan.updated', { plan: buildPlan({ topicId: 't_1', items: [buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', state: 'stalled', stalledBy: 'restart' })] }) });
+    });
+    expect(statusBar().textContent).toContain('Paused: smurg was restarted.');
+    expect(statusBar().textContent).not.toContain('Stopped without a report.');
+    expect(within(statusBar()).getByRole('button', { name: 'Continue' })).toBeTruthy();
   });
 
   it('offers what a stopped item and a host-only retry allow, and says a refusal in words', async () => {

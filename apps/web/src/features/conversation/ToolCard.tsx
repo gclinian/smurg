@@ -5,12 +5,12 @@ import { memo, useMemo, useState, type ReactNode } from 'react';
 import type { FileRef, ToolResultView, ToolView } from '@smurg/protocol';
 import { formatDuration } from '../../lib/format.ts';
 import type { AgentPiece, ReadsItem, ToolItem } from '../../lib/stores/conversations.ts';
-import { useCapabilities, useCommands, useStores } from '../../lib/workspace/context.tsx';
+import { useCapabilities, useCommands } from '../../lib/workspace/context.tsx';
 import { Button } from '../../ui/index.ts';
 import { IconAgent, IconCheck, IconChevronRight, IconEdit, IconFile, IconFileText, IconGlobe, IconSearch, IconShield, IconTerminal, IconWand, type IconComponent } from '../../ui/icons.tsx';
 import { parseDiff, type DiffLine } from './diff.ts';
 import { useConversationEnv } from './env.tsx';
-import { openRedact } from './host-dialogs.ts';
+import { useHostDialogs } from './host-dialogs.ts';
 import { t } from './strings.ts';
 import { commonDir } from './text.ts';
 
@@ -147,7 +147,7 @@ function OpenInEditor({ file }: { file: FileRef }) {
 
 /** Under an opened tool line: open its file; for the host, remove the call or its result from the conversation. */
 function ToolActions({ item, file }: { item: ToolItem; file: FileRef | undefined }) {
-  const stores = useStores();
+  const hostDialogs = useHostDialogs();
   const caps = useCapabilities();
   const { sessionId } = useConversationEnv();
   const host = caps.can('admin');
@@ -156,12 +156,12 @@ function ToolActions({ item, file }: { item: ToolItem; file: FileRef | undefined
     <div className="conv-tool__actions">
       {file !== undefined ? <OpenInEditor file={file} /> : null}
       {host ? (
-        <Button size="sm" variant="ghost" onClick={() => openRedact(stores, sessionId, item.started.seq)}>
+        <Button size="sm" variant="ghost" onClick={() => hostDialogs.redact(sessionId, item.started.seq)}>
           {t('redact')}
         </Button>
       ) : null}
       {host && item.finished !== null && item.finished.result.body !== undefined ? (
-        <Button size="sm" variant="ghost" onClick={() => openRedact(stores, sessionId, (item.finished as NonNullable<ToolItem['finished']>).seq)}>
+        <Button size="sm" variant="ghost" onClick={() => hostDialogs.redact(sessionId, (item.finished as NonNullable<ToolItem['finished']>).seq)}>
           {t('redact.result')}
         </Button>
       ) : null}
@@ -184,12 +184,15 @@ export const ToolCard = memo(function ToolCard({ item, renderPiece }: ToolCardPr
   const Icon = ICONS[tool.verb];
   const target = toolTarget(tool);
   const failed = finished !== null && (!finished.ok || (finished.result.exitCode !== undefined && finished.result.exitCode !== 0));
+  // The turn ended without this call's result (it was stopped, or its process died, often while a permission request
+  // was open): the line must not read as if the command ran or the file was changed.
+  const unfinished = finished === null && !running;
   const canOpenFile = tool.file !== undefined && tool.outside !== true && tool.verb !== 'run';
   return (
     <details
       className="conv-tool"
       data-tool={tool.name}
-      data-state={running ? 'running' : failed ? 'failed' : 'done'}
+      data-state={running ? 'running' : unfinished ? 'unfinished' : failed ? 'failed' : 'done'}
       open={open}
       onToggle={(event) => {
         const next = event.currentTarget.open;
@@ -201,12 +204,13 @@ export const ToolCard = memo(function ToolCard({ item, renderPiece }: ToolCardPr
         <span className="conv-tool__icon">
           <Icon size={14} />
         </span>
-        <span className="conv-tool__verb">{toolVerbLabel(tool, running)}</span>
+        <span className="conv-tool__verb">{toolVerbLabel(tool, running || unfinished)}</span>
         <span className="conv-tool__target" title={target}>
           {target}
         </span>
         <span className="conv-tool__meta">
           {running ? <span>{t('tool.running')}</span> : null}
+          {unfinished ? <span>{t('tool.unfinished')}</span> : null}
           {finished !== null ? <ResultMeta result={finished.result} ok={finished.ok} /> : null}
           {isTask && item.children.length > 0 ? <span>{t('tool.steps', { count: item.children.length })}</span> : null}
         </span>

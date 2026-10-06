@@ -349,6 +349,19 @@ describe('the workspace shell: overlays, focus, empty states, notices', () => {
     expect(document.activeElement).toBe(title('1 · Cart API'));
   });
 
+  it('with the left column folded to its rail, F6 lands on the rail once, then on the columns', async () => {
+    const { dispatch } = await open();
+    await dispatch('openColumn', { target: { kind: 'session', sessionId: 's_cart' } });
+    await userEvent.click(within(topbar()).getByRole('button', { name: 'Show or hide the inbox and the session list' }));
+    const rail = within(document.querySelector('.sidebar-rail') as HTMLElement).getByRole('button', { name: /^Inbox:/ });
+    const title = within(screen.getByRole('region', { name: '1 · Cart API' })).getByRole('heading', { level: 2 });
+    act(() => rail.focus());
+    await userEvent.keyboard('{F6}');
+    expect(document.activeElement).toBe(title);
+    await userEvent.keyboard('{F6}');
+    expect(document.activeElement).toBe(rail);
+  });
+
   it('after the last column is closed the focus goes back to the session list', async () => {
     const { dispatch } = await open();
     await dispatch('openColumn', { target: { kind: 'session', sessionId: 's_cart' } });

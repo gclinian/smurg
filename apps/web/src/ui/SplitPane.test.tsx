@@ -404,7 +404,7 @@ describe('SplitPane: a container smaller than the remembered size', () => {
     const { container, fixedPane } = mount({ storageKey: 'right', minOtherSize: 160 });
     // Not laid out yet: the limits of the props.
     expect(values()).toEqual({ now: 1100, min: 260, max: 1100 });
-    // 501 px for the editor and the agents column: 501 - 1 (the line) - 160 (the editor) = 340 for the agents.
+    // 501 px for the editor and the pane beside it: 501 - 1 (the line) - 160 (the editor) = 340 for that pane.
     resizeTo(container, 501);
     expect(fixedPane.style.width).toBe('340px');
     expect(values()).toEqual({ now: 340, min: 260, max: 340 });

@@ -11,6 +11,7 @@
 // plan column beside this one at once.
 import { fileRefKey, type Topic } from '@smurg/protocol';
 import { useEffect, useMemo, useState } from 'react';
+import { formatAnd } from '../../lib/format.ts';
 import { ColumnMenuItems } from '../../lib/columns/context.tsx';
 import { useStore } from '../../lib/store.ts';
 import { useCan, useCommand, useMember, useStores } from '../../lib/workspace/context.tsx';
@@ -20,7 +21,7 @@ import { IconAgent, IconCode, IconEdit, IconEye, IconFileText, IconPlan, IconWan
 import { StandaloneDocument, useDocumentText, useHeldDocument } from '../editor/standalone.tsx';
 import { Markdown } from '../markdown/index.ts';
 import { DiscussionFoot, ReviseBox, useDiscussion, type ReviseQuote } from './Discussion.tsx';
-import { andList, oneOrMany, specFile, specOpenQuestions, specSections } from './model.ts';
+import { oneOrMany, specFile, specOpenQuestions, specSections } from './model.ts';
 import { LinkButton, Note, Scroll, Toolbar, ToolbarPath, formatClock, useAction, useOpenSide, useTopic } from './shared.tsx';
 import { t } from './strings.ts';
 import './topics.css';
@@ -84,7 +85,7 @@ function Spec({ topic }: { topic: Topic }) {
   const oddities = (): string[] => {
     const lines: string[] = [];
     const typing = lock?.kind === 'human' ? lock.holders.filter((holder) => holder.userId !== member?.userId) : [];
-    if (typing.length > 0) lines.push(t(`spec.odd.editing.${oneOrMany(typing.length)}`, { names: andList(typing.map((holder) => holder.displayName)) }));
+    if (typing.length > 0) lines.push(t(`spec.odd.editing.${oneOrMany(typing.length)}`, { names: formatAnd(typing.map((holder) => holder.displayName)) }));
     const open = text === null ? 0 : specOpenQuestions(text);
     if (open > 0) lines.push(t('spec.odd.openQuestions', { count: open }));
     if (discussion?.status === 'waiting-answer') lines.push(t('spec.odd.question'));

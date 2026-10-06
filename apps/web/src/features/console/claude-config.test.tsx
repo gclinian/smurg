@@ -4,10 +4,11 @@
 import { SmurgError } from '@smurg/protocol';
 import { buildInboxItem } from '@smurg/protocol/testing';
 import { msg } from '@smurg/protocol/i18n';
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { makeWorktree } from '../../testing/fixtures.ts';
-import { acksNeeded, canTrust, decidePayload, fileStanding, needsDecision, sortRoots, type ClaudeConfigRoot } from './claude-config.ts';
+import { CAUTIOUS_CHOICE, acksNeeded, canTrust, choiceReady, decidePayload, fileStanding, needsDecision, sortRoots, type ClaudeConfigChoice, type ClaudeConfigRoot } from './claude-config.ts';
+import { ProjectSettingsReview } from './ProjectSettingsReview.tsx';
 import { defaultFixture, hash, makeConfigFile, renderConsole, settle } from './test-support.tsx';
 
 const MAIN = { kind: 'main' } as const;
@@ -79,11 +80,64 @@ describe('Claude Code project settings: the rules (pure)', () => {
     expect(decidePayload(undecided, 'ignore', new Set(['allows-tools'])).acknowledged).toEqual([]);
   });
 
+  it('a held choice (a form that sends the decision itself): "Run without them" is always ready, "Use them" with every needed tick; the cautious one is the start', () => {
+    const risky: ClaudeConfigRoot = { root: MAIN, state: 'ignored', files: [MCP, RISKY] };
+    expect(CAUTIOUS_CHOICE).toEqual({ decision: 'ignore', ticked: new Set() });
+    expect(choiceReady(risky, CAUTIOUS_CHOICE)).toBe(true);
+    expect(choiceReady(risky, { decision: 'trust', ticked: new Set() })).toBe(false);
+    expect(choiceReady(risky, { decision: 'trust', ticked: new Set(['credentials']) })).toBe(false);
+    expect(choiceReady(risky, { decision: 'trust', ticked: new Set(['allows-tools', 'credentials']) })).toBe(true);
+    // A tick that was set and a change of mind: nothing of it travels with "ignore".
+    expect(decidePayload(risky, 'ignore', new Set(['credentials'])).acknowledged).toEqual([]);
+  });
+
   it('what waits for the host is on top, the main workspace before worktrees', () => {
     const decidedMain: ClaudeConfigRoot = { root: MAIN, state: 'used', files: [{ ...SETTINGS, decision: 'trust' }] };
     const waitingWorktree: ClaudeConfigRoot = { root: WT, state: 'ignored', files: [SETTINGS] };
     expect(sortRoots([decidedMain, waitingWorktree]).map((root) => root.root)).toEqual([WT, MAIN]);
     expect(sortRoots([waitingWorktree, { ...decidedMain, files: [SETTINGS] }]).map((root) => root.root)).toEqual([MAIN, WT]);
+  });
+});
+
+describe('the review inside a form that sends the decision itself (the New topic dialog)', () => {
+  it('shows the same files and warning, two radios instead of the two buttons, the ticks only for "Use them", and sends nothing', () => {
+    const root: ClaudeConfigRoot = { root: MAIN, state: 'ignored', files: [SETTINGS, RISKY] };
+    let choice: ClaudeConfigChoice = CAUTIOUS_CHOICE;
+    const onChoice = vi.fn((next: ClaudeConfigChoice) => {
+      choice = next;
+    });
+    const view = render(<ProjectSettingsReview root={root} choice={choice} onChoice={onChoice} />);
+    const block = screen.getByRole('group', { name: 'This folder has Claude Code project settings' });
+    expect(within(block).getByText(/^The commands below run as you, on your computer/)).toBeTruthy();
+    expect(within(block).getByText('./scripts/lint.sh --fix')).toBeTruthy();
+    expect(within(block).getByText('Show .claude/settings.local.json')).toBeTruthy();
+    expect(within(block).queryByRole('button')).toBeNull();
+    const without = within(block).getByRole('radio', { name: 'Run without them (agents will not read CLAUDE.md)' }) as HTMLInputElement;
+    const use = within(block).getByRole('radio', { name: 'Use them' }) as HTMLInputElement;
+    expect([without.checked, use.checked]).toEqual([true, false]);
+    // No tick is asked for while the choice is "Run without them".
+    expect(within(block).queryByRole('checkbox')).toBeNull();
+
+    fireEvent.click(use);
+    expect(onChoice).toHaveBeenLastCalledWith({ decision: 'trust', ticked: new Set() });
+    view.rerender(<ProjectSettingsReview root={root} choice={choice} onChoice={onChoice} />);
+    const ticks = within(block).getAllByRole('checkbox') as HTMLInputElement[];
+    expect(ticks).toHaveLength(2);
+    fireEvent.click(ticks[0] as HTMLInputElement);
+    expect(choice).toEqual({ decision: 'trust', ticked: new Set(['credentials']) });
+    expect(choiceReady(root, choice)).toBe(false);
+    view.rerender(<ProjectSettingsReview root={root} choice={choice} onChoice={onChoice} />);
+    fireEvent.click((within(block).getAllByRole('checkbox') as HTMLInputElement[])[1] as HTMLInputElement);
+    expect(choiceReady(root, choice)).toBe(true);
+    // While the form is sending, nothing can be changed.
+    view.rerender(<ProjectSettingsReview root={root} choice={choice} onChoice={onChoice} disabled />);
+    expect((within(block).getByRole('radio', { name: 'Use them' }) as HTMLInputElement).disabled).toBe(true);
+    expect((within(block).getAllByRole('checkbox') as HTMLInputElement[]).every((tick) => tick.disabled)).toBe(true);
+  });
+
+  it('a root without files shows nothing to choose', () => {
+    const view = render(<ProjectSettingsReview root={{ root: MAIN, state: 'none', files: [] }} choice={CAUTIOUS_CHOICE} onChoice={() => {}} />);
+    expect(view.container.textContent).toBe('');
   });
 });
 

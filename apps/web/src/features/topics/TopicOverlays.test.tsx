@@ -4,7 +4,7 @@ import { SmurgError, unmergedError, type Role, type Topic } from '@smurg/protoco
 import { msg } from '@smurg/protocol/i18n';
 import { buildAgentSession, buildInboxItem, buildMergeRequest, buildPlan, buildReportSummary, buildTopic, buildWorkItem, buildWorktree } from '@smurg/protocol/testing';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { Suspense } from 'react';
+import { Suspense, type ComponentType } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { capabilitiesForRole } from '../../lib/capabilities.ts';
 import { COLUMN_KINDS } from '../../lib/columns/target.ts';
@@ -15,7 +15,6 @@ import { slots as worktreeSlots } from '../worktree/slots.tsx';
 import { topicDialogs, type TopicDialog } from './dialogs.ts';
 import { slots } from './slots.tsx';
 import { admitAs, settle, topicConnection } from './testing/support.tsx';
-import TopicOverlays from './TopicOverlays.tsx';
 
 const TOPIC: Topic = buildTopic({ name: 'Checkout', phase: 'complete', discussionSessionId: 'sess_d', spec: { exists: true }, plan: { ...buildTopic().plan, exists: true, valid: true, items: 2, started: 2, reviewed: 2 } });
 const PLAN = buildPlan({
@@ -36,11 +35,15 @@ async function setup(options: { role?: Role; topic?: Topic } = {}) {
   admitAs(conn, world);
   await settle();
   if (topic.archived) await act(async () => void (await context.stores.topics.loadArchived()));
+  // As the shell mounts it: the feature's overlay of slots.tsx (the handler of `newTopic` at once, the dialogs lazily).
+  const Overlay = slots.overlays?.[0] as ComponentType;
   render(
     <WorkspaceTestProviders context={context}>
-      <TopicOverlays />
+      <Overlay />
     </WorkspaceTestProviders>,
   );
+  // The handler is there with the page, whether or not the dialogs' code has arrived.
+  expect(context.session.commands.has('newTopic')).toBe(true);
   const dialogs = topicDialogs(context.stores);
   const open = (dialog: TopicDialog): void => act(() => dialogs.open(dialog));
   await settle();
@@ -54,7 +57,7 @@ describe('the topic overlays', () => {
     await act(async () => {
       await session.commands.dispatch('newTopic', {});
     });
-    expect(screen.getByRole('dialog', { name: 'New topic' })).toBeTruthy();
+    expect(await screen.findByRole('dialog', { name: 'New topic' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(dialogs.getState()).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();

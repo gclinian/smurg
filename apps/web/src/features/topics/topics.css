@@ -1,5 +1,5 @@
 /* The topic screens: the spec, plan and report columns, the Start dialog and the New topic dialog (ux/mock: spec-,
-   plan-, report-, start-, trust-). The column's frame, toolbar, scroll area and foot are the shell's (features/columns);
+   plan-, report-, start-). The column's frame, toolbar, scroll area and foot are the shell's (features/columns);
    everything here lives inside them or inside a dialog. */
 
 /* ---------------------------------------------------------------- shared pieces */
@@ -147,34 +147,11 @@
   color: var(--color-danger-text, var(--color-danger));
 }
 
-/* A unified diff as text ("Show the changes"). */
-.topics-diff {
-  margin: 0;
+/* "Show the changes": SPEC.md and PLAN.md since the last Start. The diff lines are the worktree feature's
+   (features/worktree UnifiedDiff); here they stay a block of their own inside the dialog. */
+.topics-changes__file .worktree-diff__code {
   max-height: 22em;
-  overflow: auto;
-  padding: var(--space-3) 0;
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg);
-  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  line-height: 1.5;
-}
-.topics-diff__line {
-  display: block;
-  padding: 0 var(--space-4);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.topics-diff__line--add {
-  background: var(--color-success-soft);
-}
-.topics-diff__line--del {
-  background: var(--color-danger-soft);
-}
-.topics-diff__line--hunk,
-.topics-diff__line--meta {
-  color: var(--color-text-subtle);
 }
 .topics-changes {
   display: flex;
@@ -687,80 +664,15 @@
   font-size: var(--text-sm);
 }
 
-/* ---------------------------------------------------------------- the trust block of the New topic dialog */
-.trust {
+/* The line that says the folder's Claude Code project settings are being read (the review itself is the console
+   feature's: features/console/ProjectSettingsReview.tsx). */
+.topics-form__reading {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--space-3);
-  min-width: 0;
   margin: 0;
-  padding: var(--space-4) var(--space-5);
-  border: var(--border-width) solid var(--color-border-strong);
-  border-left: 3px solid var(--color-warning);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-1);
+  color: var(--color-text-muted);
   font-size: var(--text-sm);
-}
-.trust__title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 0;
-  font-weight: var(--weight-semibold);
-}
-.trust__list {
-  margin: 0;
-  padding-left: var(--space-6);
-  color: var(--color-text-muted);
-  overflow-wrap: anywhere;
-}
-.trust__list code {
-  font-size: var(--text-xs);
-}
-.trust__path {
-  margin: 0;
-  color: var(--color-text-subtle);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-normal);
-}
-.trust__flag {
-  color: var(--color-warning-text, var(--color-warning));
-}
-.trust__text {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin: 0;
-  color: var(--color-text-muted);
-}
-.trust__choice,
-.trust__acks {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2) var(--space-5);
-}
-.trust__acks {
-  flex-direction: column;
-  align-items: flex-start;
-}
-.trust__choice label,
-.trust__acks label {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-2);
-}
-.trust__raw {
-  margin: var(--space-2) 0 0;
-  max-height: 14em;
-  overflow: auto;
-  padding: var(--space-3) var(--space-4);
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
 }
 
 @container column (max-width: 430px) {

@@ -1,4 +1,4 @@
-// A work item's worktree (ARCHITECTURE §5.10 "A work item's worktree", §5.7 "A conflict"; DESIGN §3.11, §4.7): created
+// A work item's worktree (ARCHITECTURE §5.10 "A work item's worktree", §7.8 "A conflict"; DESIGN §3.11, §4.7): created
 // on smurg/<topic slug>/<item id>, the item's and not a session's, its topic's folder unwritable for people (S21), and
 // the conflict path of T5.3: smurg merges the main workspace into it, the agent resolves, the next snapshot is a commit
 // with two parents. Everything runs on plain git: no model, the "agent" is this test writing files.

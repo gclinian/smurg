@@ -1,4 +1,4 @@
-// The terminal viewer the agents panel paints into: xterm.js through lib/xterm.ts, loaded lazily (lib/lazy.ts — xterm
+// The terminal viewer a terminal's column and the Terminal tab of code mode's drawer paint into: xterm.js through lib/xterm.ts, loaded lazily (lib/lazy.ts — xterm
 // must never reach the entry chunk). createViewerTerminal() already registers the FULL query-swallow set, orders
 // resizes with the output stream and paints snapshots after a reset; this adapter adds what the panel needs on top:
 // input only from those who may type (host and members with agent access; everyone else's terminal has stdin disabled, so xterm

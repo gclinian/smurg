@@ -11,6 +11,7 @@ import type { DocSession } from './doc-session.ts';
 import { useEditorEngineLoader, type EditorEngine, type EditorHandle } from './engine.ts';
 import type { EditorSelection } from './selection.ts';
 import { t } from './strings.ts';
+import { wrapsLines } from './view-model.ts';
 
 export interface RevealRequest {
   readonly key: string;
@@ -73,7 +74,7 @@ export function DocumentView({ session, file, readOnly, readOnlyMessage, reveal,
   useEffect(() => {
     const node = container.current;
     if (!engine || !node) return;
-    const created = engine.createEditor(node, { theme: latest.current.theme, ariaLabel: t('doc.editorLabel', { path: latest.current.file.path }) });
+    const created = engine.createEditor(node, { theme: latest.current.theme, ariaLabel: t('doc.editorLabel', { path: latest.current.file.path }), wrap: wrapsLines(latest.current.file.path) });
     setEditor(created);
     editorRef.current = created;
     const offSelection = created.onSelectionChange((selection) => latest.current.onSelection(selection));

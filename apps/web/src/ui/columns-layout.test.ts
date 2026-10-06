@@ -100,6 +100,18 @@ describe('column strip layout', () => {
     expect(layoutStrip(weightsFromWidths(pulled, overflow), { available: 1151 }).widths).toEqual(pulled);
   });
 
+  it('widths come back exactly from their weights, pixel for pixel, for every split of a strip', () => {
+    // Every position of one separator between two columns of a 1151 px strip, and of the first of three.
+    for (let first = 320; first <= 1150 - 320; first += 1) {
+      const two = { unit: 1150 / 2 };
+      expect(layoutStrip(weightsFromWidths([first, 1150 - first], two), { available: 1151 }).widths).toEqual([first, 1150 - first]);
+    }
+    for (let first = 320; first <= 1149 - 320 - 383; first += 1) {
+      const widths = [first, 1149 - 383 - first, 383];
+      expect(layoutStrip(weightsFromWidths(widths, { unit: 1149 / 3 }), { available: 1151 }).widths).toEqual(widths);
+    }
+  });
+
   it('says what is on screen: how many columns are out of view on each side', () => {
     const widths = [383, 383, 383, 383];
     // At the start: three whole columns, one more on the right.

@@ -26,7 +26,7 @@ import { SessionsSection } from './SessionsSection.tsx';
 import { SettingsSection } from './SettingsSection.tsx';
 import { SuggestionsSection } from './SuggestionsSection.tsx';
 import { t } from './strings.ts';
-import { useNow } from './use-now.ts';
+import { useNow } from '../../lib/use-now.ts';
 import './console.css';
 
 export interface HostConsolePageProps {

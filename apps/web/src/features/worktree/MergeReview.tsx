@@ -277,14 +277,18 @@ function ReviewHeader({ request, branch, files, additions, deletions }: { reques
     <div className="worktree-review__meta">
       <p className="worktree-review__summary">
         <span title={request.commit}>
-          {t('review.summary', { branch: branch ?? t('item.worktreeGone'), commit: shortCommit(request.commit), files: files === null ? t('review.fileCountUnknown') : t('review.fileCount', { count: files }) })}
+          {/* A merged work item's worktree is removed: there is no branch to name any more. */}
+          {branch === null
+            ? t('review.summaryGone', { commit: shortCommit(request.commit), files: files === null ? t('review.fileCountUnknown') : t('review.fileCount', { count: files }) })
+            : t('review.summary', { branch, commit: shortCommit(request.commit), files: files === null ? t('review.fileCountUnknown') : t('review.fileCount', { count: files }) })}
         </span>
         {files !== null ? <span className="worktree-review__counts">{t('review.counts', { additions: t('review.linesAdded', { count: additions }), deletions: t('review.linesDeleted', { count: deletions }) })}</span> : null}
         <span className="worktree-review__time">{t('item.requestedAt', { time: formatRelativeTime(request.createdAt) })}</span>
       </p>
       {request.message ? (
         <div className="worktree-review__message">
-          <span className="worktree-review__message-label">{request.requestedBy ? t('review.message', { name: request.requestedBy.displayName }) : t('review.messageDraft')}</span>
+          {/* A work item's change carries the message smurg wrote for it, whoever asked for the merge. */}
+          <span className="worktree-review__message-label">{request.requestedBy && request.itemId === undefined ? t('review.message', { name: request.requestedBy.displayName }) : t('review.messageDraft')}</span>
           <p>{request.message}</p>
         </div>
       ) : null}

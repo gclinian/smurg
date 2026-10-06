@@ -272,6 +272,9 @@ export const t = defineStrings(
     'claudeConfig.trust': 'Use them',
     'claudeConfig.ignore': 'Run without them',
     'claudeConfig.decideFailed': 'Could not save the decision: {message}',
+    // The same review inside a form that sends the decision itself (the New topic dialog).
+    'claudeConfig.choice.title': 'This folder has Claude Code project settings',
+    'claudeConfig.choice.ignore': 'Run without them (agents will not read CLAUDE.md)',
 
     // ---- the host's own Claude Code allow rules: information only (OWNER-DECISIONS Q7)
     'hostRules.title': 'My own Claude Code rules',

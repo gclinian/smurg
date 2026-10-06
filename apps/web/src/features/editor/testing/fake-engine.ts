@@ -20,6 +20,8 @@ export class FakeModel implements ModelHandle {
 }
 
 export class FakeEditor implements EditorHandle {
+  /** What the view asked for when it created the editor: long lines wrap. */
+  wrap = false;
   model: FakeModel | null = null;
   readOnly = true;
   readOnlyMessage: string | null = null;
@@ -82,8 +84,9 @@ export function createFakeEngine(): { engine: EditorEngine; loader: EditorEngine
   const models: FakeModel[] = [];
   const bindings: FakeBinding[] = [];
   const engine: EditorEngine = {
-    createEditor() {
+    createEditor(_container, options) {
       const editor = new FakeEditor();
+      editor.wrap = options.wrap === true;
       editors.push(editor);
       return editor;
     },

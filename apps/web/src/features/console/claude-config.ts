@@ -43,6 +43,23 @@ export function canTrust(root: ClaudeConfigRoot, ticked: ReadonlySet<ClaudeConfi
   return root.files.length > 0 && acksNeeded(root).every((ack) => ticked.has(ack));
 }
 
+/**
+ * A decision that is HELD, not sent: a form that contains the review (the New topic dialog) keeps it and sends it
+ * with its own submit, before it does what it is for.
+ */
+export interface ClaudeConfigChoice {
+  readonly decision: ClaudeConfigDecision;
+  readonly ticked: ReadonlySet<ClaudeConfigAck>;
+}
+
+/** What a form starts with: the cautious answer, nothing ticked. */
+export const CAUTIOUS_CHOICE: ClaudeConfigChoice = Object.freeze({ decision: 'ignore', ticked: new Set<ClaudeConfigAck>() });
+
+/** Whether a held choice can be sent as it stands: "Run without them" always, "Use them" with every needed tick. */
+export function choiceReady(root: ClaudeConfigRoot, choice: ClaudeConfigChoice): boolean {
+  return choice.decision === 'ignore' || canTrust(root, choice.ticked);
+}
+
 /** The decision about everything of a root that is on screen: its files by path and hash, and the ticks that count. */
 export function decidePayload(
   root: ClaudeConfigRoot,

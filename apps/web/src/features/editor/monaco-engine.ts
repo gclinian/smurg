@@ -96,7 +96,7 @@ export function createMonacoEngine(module: MonacoModule, Binding: MonacoBindingC
   let modelCounter = 0;
   return {
     createEditor(container, options) {
-      const editor = module.createEditor(container, { theme: module.monacoThemeFor(options.theme), ariaLabel: options.ariaLabel });
+      const editor = module.createEditor(container, { theme: module.monacoThemeFor(options.theme), ariaLabel: options.ariaLabel, wordWrap: options.wrap === true ? 'on' : 'off' });
       return new MonacoEditorHandle(editor, monaco);
     },
     createModel(text: string, file: FileRef) {

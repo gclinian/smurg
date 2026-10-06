@@ -11,21 +11,8 @@ export const RELEASE_GATE = process.env['SMURG_RELEASE_GATE'] === '1';
 /** The module list of the release, in composition order (DESIGN §9.3 P12; stopping runs it backwards). */
 export const RELEASE_MODULES = ['locks', 'hooks', 'files', 'docs', 'worktree', 'sessions', 'conversation', 'suggest', 'topics', 'inbox', 'local'] as const;
 
-/** Modules of the release that are not composed yet, with their package. */
-export const PENDING_MODULES: Readonly<Partial<Record<(typeof RELEASE_MODULES)[number], string>>> = Object.freeze({
-  conversation: 'P2',
-  topics: 'P4',
-  inbox: 'P3',
-});
+/** Modules of the release that are not composed yet, with their package. Empty: the release composition is on. */
+export const PENDING_MODULES: Readonly<Partial<Record<(typeof RELEASE_MODULES)[number], string>>> = Object.freeze({});
 
-/** Service slots that are still stubs in the default composition, with the package whose module fills them. */
-export const PENDING_SERVICES: Readonly<Partial<Record<FeatureServiceName, string>>> = Object.freeze({
-  agents: 'P1',
-  projectTrust: 'P1',
-  hostRules: 'P1',
-  conversation: 'P2',
-  topics: 'P4',
-  plans: 'P4',
-  reports: 'P4',
-  inbox: 'P3',
-});
+/** Service slots that are still stubs in the default composition, with the package whose module fills them. Empty. */
+export const PENDING_SERVICES: Readonly<Partial<Record<FeatureServiceName, string>>> = Object.freeze({});

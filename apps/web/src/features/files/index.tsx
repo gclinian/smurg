@@ -58,7 +58,7 @@ import { ForceReleaseDialog, useCanForceRelease } from './ForceReleaseDialog.tsx
 import { formatList } from '../../lib/format.ts';
 import { t } from './strings.ts';
 import { ancestorsOf, entryBadges, flattenTree, isEntryWritable, peopleUsing, targetDirOf, type EntryBadge, type TreeRow } from './tree-model.ts';
-import { useNow } from './use-now.ts';
+import { useNow } from '../../lib/use-now.ts';
 import './files.css';
 
 /** No props: everything comes from the workspace hooks (useStores().files, useCommand('openFile'), …). */

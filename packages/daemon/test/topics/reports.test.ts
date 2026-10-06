@@ -422,6 +422,9 @@ describe('T5.3 a reviewed draft is ready to merge', () => {
     expect(test.fakes.agents.log.of('end').at(-1)).toEqual([sessionId, { by: { kind: 'system' }, reason: 'merged', keepWorktree: true }]);
     await waitFor(() => test.fakes.worktrees.get(worktreeId) === null, { what: 'the worktree to be released' });
     expect(test.fakes.worktrees.log.of('releaseItem')).toEqual([[worktreeId]]);
+    // (the manager forgets the worktree at once and takes a moment to remove its folder: the item lets go of it when
+    // `releaseItem` has answered)
+    await waitFor(() => itemOf(test.plan(run.topicId), 'cart-api').worktreeId === undefined, { what: 'the item to let go of its worktree' });
     const finished = itemOf(test.plan(run.topicId), 'cart-api');
     expect(finished).toMatchObject({ state: 'reviewed', merge: { status: 'merged' } });
     expect(finished.worktreeId).toBeUndefined();

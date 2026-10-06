@@ -1,6 +1,7 @@
 // The whole smurg system on this machine in one command (README, "Local development"):
 //
 //   scripts/dev-stack.sh [--dir DIR] [--relay-port 8787] [--web-port 5173] [--host-user host] [--role editor]
+//                        [--stand-in-claude | --real-claude]
 //
 //  1. the relay (`pnpm run dev` in apps/relay: wrangler dev --env dev, dev login on) on http://localhost:<relay-port>;
 //  2. the web dev server (Vite) on http://localhost:<web-port>, proxying the relay routes;
@@ -16,15 +17,26 @@
 // DIR, so nothing touches the developer's ~/.smurg, ~/.claude or shell setup, and with SMURG_NO_BROWSER=1, so it
 // never opens the developer's browser. Invite links (they carry their secret)
 // go to this terminal only; the relay's and Vite's output goes to DIR/logs/.
+//
+// Which `claude` an agent session of this stack runs is never left to chance (the daemon takes the first `claude` on
+// the host's PATH, and Claude Code finds its login by itself: on macOS in the Keychain, whatever HOME is):
+//   --stand-in-claude   the scripted stand-in of the tests (packages/daemon/src/testing/fake-claude.mjs) stands first
+//                       on the host's PATH: no account, no network, nothing can be billed;
+//   --real-claude       the Claude Code of this machine, with the login it finds: said plainly before anything starts;
+//   neither             no `claude` on PATH: agent sessions answer "Claude Code was not found"; one on PATH: as
+//                       --real-claude when a person is at the terminal, and REFUSED when nobody is (a script, a test,
+//                       an agent: nobody would read what is about to be used; say it with one of the two switches).
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync } from 'node:fs';
-import { chmod, mkdir, realpath, stat, writeFile } from 'node:fs/promises';
+import { constants as fsConstants, createWriteStream, existsSync } from 'node:fs';
+import { access, chmod, mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+// TEST TOOL, loaded from its own file (no daemon, no native module): the stand-in `claude` of @smurg/daemon/testing.
+import { installFakeClaude, type FakeClaudeScenario } from '../packages/daemon/src/testing/fake-claude.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const CLI_MAIN = join(ROOT, 'packages', 'cli', 'src', 'main.ts');
@@ -40,7 +52,15 @@ const USAGE = `Usage: scripts/dev-stack.sh [options]
   --web-port PORT       the web dev server's port (default 5173)
   --host-user NAME      the host's development account (default host; the identity is dev:host)
   --role ROLE           the role of the invite link: agent (Agent access), editor (the default), viewer
+  --stand-in-claude     agent sessions run a scripted stand-in for Claude Code: no account, no network, nothing is
+                        billed (its script is DIR/stand-in-claude/fake-claude-scenario.json, read again at every turn)
+  --real-claude         agent sessions run the Claude Code installed on this computer, with the login it finds
+                        (your own account: agent sessions may cost money)
+  With neither: agent sessions run the Claude Code on PATH if there is one, and dev-stack says so before it starts;
+  when it is not run from a terminal it asks for one of the two switches instead of choosing.
 `;
+
+type ClaudeChoice = 'stand-in' | 'real' | null;
 
 interface Options {
   readonly dir: string;
@@ -48,6 +68,7 @@ interface Options {
   readonly webPort: number;
   readonly hostUser: string;
   readonly role: string;
+  readonly claude: ClaudeChoice;
 }
 
 function fail(message: string): never {
@@ -57,11 +78,16 @@ function fail(message: string): never {
 
 function parseOptions(argv: readonly string[]): Options {
   const values: Record<string, string> = {};
+  const switches = new Set<string>();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] as string;
     if (arg === '-h' || arg === '--help') {
       process.stdout.write(USAGE);
       process.exit(0);
+    }
+    if (arg === '--stand-in-claude' || arg === '--real-claude') {
+      switches.add(arg);
+      continue;
     }
     const match = /^--(dir|relay-port|web-port|host-user|role)(?:=(.*))?$/.exec(arg);
     if (!match) fail(`unknown argument ${arg} (--help shows the usage)`);
@@ -83,7 +109,115 @@ function parseOptions(argv: readonly string[]): Options {
   const relayPort = port('relay-port', 8787);
   const webPort = port('web-port', 5173);
   if (relayPort === webPort) fail('--relay-port and --web-port must differ');
-  return { dir: resolve(values['dir'] ?? join(tmpdir(), 'smurg-dev-stack')), relayPort, webPort, hostUser, role };
+  if (switches.size > 1) fail('--stand-in-claude and --real-claude exclude each other');
+  const claude: ClaudeChoice = switches.has('--stand-in-claude') ? 'stand-in' : switches.has('--real-claude') ? 'real' : null;
+  return { dir: resolve(values['dir'] ?? join(tmpdir(), 'smurg-dev-stack')), relayPort, webPort, hostUser, role, claude };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Which `claude` the agent sessions of this stack run.
+
+/** The first `claude` on `pathEnv`, as the daemon looks for it (sessions/claude.ts resolveClaude); null: none. */
+async function claudeOnPath(pathEnv: string | undefined): Promise<string | null> {
+  for (const entry of (pathEnv ?? '').split(':')) {
+    if (!isAbsolute(entry)) continue;
+    try {
+      const real = await realpath(join(entry, 'claude'));
+      if (!(await stat(real)).isFile()) continue;
+      await access(real, fsConstants.X_OK);
+      return real;
+    } catch {
+      // not here
+    }
+  }
+  return null;
+}
+
+/**
+ * What the stand-in does when nobody wrote it a script yet: it says what it is, and three words show an edit, a
+ * command and a question (each with the cards a real agent would cause). A developer edits the file to try more.
+ */
+const STAND_IN_SCENARIO: FakeClaudeScenario = {
+  turns: [
+    { match: '\\btry write\\b', steps: [{ tool: 'Write', input: { file_path: 'notes/stand-in.md', content: 'Written by the stand-in for Claude Code.\n' } }, { text: 'I wrote notes/stand-in.md.' }] },
+    { match: '\\btry run\\b', steps: [{ tool: 'Bash', input: { command: 'echo "hello from the stand-in"', description: 'Say hello' }, ask: true, run: true }, { text: 'The command ran.' }] },
+    {
+      match: '\\btry ask\\b',
+      steps: [
+        { tool: 'AskUserQuestion', input: { questions: [{ question: 'Which database should the sample use?', header: 'Database', multiSelect: false, options: [{ label: 'SQLite', description: 'One file' }, { label: 'Postgres', description: 'A server' }] }] } },
+        { text: 'Thank you.' },
+      ],
+    },
+    { steps: [{ text: 'This is the stand-in for Claude Code of scripts/dev-stack.sh --stand-in-claude: no model reads this. Send "try write", "try run" or "try ask" to see an edit, a command or a question.' }] },
+  ],
+};
+
+interface ClaudeSetup {
+  /** PATH of `smurg host` (and so of its sessions). */
+  readonly path: string;
+  /** What this stack's agent sessions will run, in plain words (printed before anything starts and in the summary). */
+  readonly lines: readonly string[];
+}
+
+/**
+ * Decides which `claude` this stack uses, BEFORE anything is created or started. Exits (2) when it would have to
+ * choose for nobody. Returns the Claude Code found on PATH (null: none, or the stand-in was asked for).
+ */
+async function decideClaude(options: Options): Promise<string | null> {
+  if (options.claude === 'stand-in') return null;
+  const found = await claudeOnPath(process.env['PATH'] ?? '/usr/bin:/bin');
+  if (found === null) {
+    if (options.claude === 'real') fail('--real-claude: there is no `claude` on PATH');
+    return null;
+  }
+  if (options.claude === null && process.stdout.isTTY !== true) {
+    process.stderr.write(
+      [
+        `dev-stack: a Claude Code is installed on this computer (${found}) and nobody is at a terminal to read what this stack would use.`,
+        '  Say which `claude` its agent sessions run:',
+        '    --stand-in-claude   a scripted stand-in: no account, no network, nothing is billed',
+        '    --real-claude       the Claude Code of this computer with the login it finds (your own account)',
+        '',
+      ].join('\n'),
+    );
+    process.exit(2);
+  }
+  return found;
+}
+
+/** Prepares what was decided (the stand-in is installed into DIR) and says it in plain words. */
+async function setUpClaude(options: Options, found: string | null, dir: string, home: string): Promise<ClaudeSetup> {
+  const pathEnv = process.env['PATH'] ?? '/usr/bin:/bin';
+  if (options.claude === 'stand-in') {
+    const standInDir = join(dir, 'stand-in-claude');
+    await mkdir(standInDir, { recursive: true });
+    // A script the developer changed stays as it is.
+    let scenario = STAND_IN_SCENARIO;
+    try {
+      scenario = JSON.parse(await readFile(join(standInDir, 'fake-claude-scenario.json'), 'utf8')) as FakeClaudeScenario;
+    } catch {
+      // none yet (or not JSON): the default
+    }
+    const standIn = await installFakeClaude(standInDir, scenario);
+    return {
+      path: `${standInDir}:${pathEnv}`,
+      lines: [
+        `agent sessions: the STAND-IN for Claude Code (${standIn.path}): scripted, no account, no network, nothing is billed.`,
+        `  its script, read again at every turn: ${standIn.scenarioPath}`,
+      ],
+    };
+  }
+  if (found === null) {
+    return { path: pathEnv, lines: ['agent sessions: there is no `claude` on PATH, so opening one answers "Claude Code was not found" (--stand-in-claude gives this stack a scripted one).'] };
+  }
+  return {
+    path: pathEnv,
+    lines: [
+      `agent sessions: the REAL Claude Code of this computer (${found}), with the login it finds.`,
+      `  It runs with HOME=${home}, but on macOS Claude Code keeps its login in the Keychain: it is YOUR account,`,
+      '  and what an agent session does may be billed to it. --stand-in-claude runs a scripted stand-in instead (no account).',
+    ],
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -149,7 +283,30 @@ function start(name: string, file: string, args: readonly string[], options: { c
   return recorded;
 }
 
+/**
+ * Waits until no process of the child's group is left (the leader has exited; a grandchild, e.g. the relay's workerd
+ * behind pnpm, may take a moment longer to end). Only LOOKS (signal 0): nothing is sent to a group whose leader is
+ * gone. Returns false when something is still there after `waitMs`.
+ */
+async function groupEmpty(recorded: Recorded, waitMs: number): Promise<boolean> {
+  const pgid = recorded.pid;
+  if (!Number.isInteger(pgid) || pgid <= 1 || pgid === process.pid || pgid === ownProcessGroup) return true;
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    try {
+      process.kill(-pgid, 0);
+    } catch (err) {
+      // ESRCH: the group is empty. EPERM: an id that is somebody else's by now, so ours is gone too.
+      if ((err as NodeJS.ErrnoException).code === 'ESRCH' || (err as NodeJS.ErrnoException).code === 'EPERM') return true;
+      throw err;
+    }
+    if (Date.now() > deadline) return false;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  }
+}
+
 async function stopChild(recorded: Recorded, graceMs: number): Promise<void> {
+  // (A leader that ended by itself earlier: its group id may be somebody else's by now. Nothing to look at.)
   if (recorded.exited) return;
   signalGroup(recorded, 'SIGTERM');
   const timer = new Promise<'timeout'>((resolveTimer) => setTimeout(() => resolveTimer('timeout'), graceMs).unref());
@@ -158,6 +315,8 @@ async function stopChild(recorded: Recorded, graceMs: number): Promise<void> {
     signalGroup(recorded, 'SIGKILL');
     await recorded.exit;
   }
+  // "Stopped" means its whole group, not only the process this script started.
+  if (!(await groupEmpty(recorded, 5_000))) process.stdout.write(`dev-stack: a process started by ${recorded.name} is still ending (process group ${recorded.pid}).\n`);
 }
 
 let stopping: Promise<void> | null = null;
@@ -240,6 +399,8 @@ async function main(): Promise<number> {
   if (!((major === 22 && minor >= 18) || major === 24) || process.env['SMURG_ROOT'] === undefined) {
     fail('run `source scripts/env.sh` in the repository root first (or use scripts/dev-stack.sh)');
   }
+  // Which `claude`: decided (or refused) before a folder is made or a process started.
+  const claudeFound = await decideClaude(options);
   for (const port of [options.relayPort, options.webPort]) {
     if (await portInUse(port)) fail(`port ${port} is in use (another dev-stack, or pnpm dev:relay / dev:web?); choose another with --relay-port / --web-port`);
   }
@@ -260,8 +421,13 @@ async function main(): Promise<number> {
   const relayOrigin = `http://localhost:${options.relayPort}`;
   const webOrigin = `http://localhost:${options.webPort}`;
   // SMURG_NO_BROWSER: the dev stack logs in with the dev login; a CLI it starts never opens the developer's browser.
-  const smurgEnv: NodeJS.ProcessEnv = { ...process.env, HOME: home, SMURG_HOME: stateDir, SMURG_NO_BROWSER: '1' };
+  const claude = await setUpClaude(options, claudeFound, dir, home);
+  for (const line of claude.lines) process.stdout.write(`dev-stack: ${line}\n`);
+  const smurgEnv: NodeJS.ProcessEnv = { ...process.env, HOME: home, SMURG_HOME: stateDir, SMURG_NO_BROWSER: '1', PATH: claude.path };
   delete smurgEnv['SMURG_RELAY_URL'];
+  // The stand-in's wrapper names its own script; a variable of the developer's shell must not point it elsewhere.
+  delete smurgEnv['FAKE_CLAUDE_SCENARIO'];
+  delete smurgEnv['FAKE_CLAUDE_ECHO'];
 
   let unexpected: string | null = null;
   const watch = (recorded: Recorded): void => {
@@ -345,6 +511,7 @@ async function main(): Promise<number> {
         `web: ${webOrigin}   <- use localhost, nothing else (the relay's cookie and Origin checks are tied to localhost)`,
         `host: dev:${options.hostUser} (HOME=${home}, SMURG_HOME=${stateDir})`,
         `shared folder: ${realProject}`,
+        ...claude.lines,
         `host link: ${links[0] ?? '(not found)'}`,
         `invite link (role ${options.role}): ${links[1] ?? '(not found)'}`,
         '',

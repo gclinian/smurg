@@ -1,5 +1,5 @@
-// The cross-feature command bus. A feature never imports another feature; when the file tree wants the editor to
-// open a file, it dispatches `openFile` and the editor (which registered the handler) does it.
+// The cross-feature command bus. A feature never reaches into another feature's dialogs or state; when the file tree
+// wants the editor to open a file, it dispatches `openFile` and the editor (which registered the handler) does it.
 //
 //   // editor feature, once:
 //   useCommandHandler('openFile', async ({ file, line }) => { await docs.open(file); revealLine(line); });
@@ -80,6 +80,21 @@ export interface CommandMap {
   revealFile: { readonly file: FileRef };
   /** Bring a panel of code mode into view (a drawer tab, the file tree, the session column). Handler: the workbench layout. */
   showPanel: { readonly panel: PanelId };
+  /**
+   * The host's confirmation before ONE event of a conversation is replaced by "The host removed this entry."
+   * (`admin.transcript.redact`, DESIGN §2.4). Nothing happens for anyone but the host. Handler: console feature.
+   */
+  redactEvent: { readonly sessionId: string; readonly seq: number };
+  /**
+   * The host's review of the Claude Code project settings (the trust gate, DESIGN §2.9): of `root`, or of every root
+   * that has such files. Nothing happens for anyone but the host. Handler: console feature.
+   */
+  reviewProjectSettings: { readonly root?: RootRef };
+  /**
+   * Which of the host's own Claude Code allow rules apply to agents here (information only). Nothing happens for
+   * anyone but the host. Handler: console feature.
+   */
+  showHostRules: Record<never, never>;
 }
 
 export type CommandName = keyof CommandMap;

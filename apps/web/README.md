@@ -16,14 +16,12 @@ conversation with an agent, a terminal, a topic's spec, its plan, a result repor
 mode** (`/w/:id/code`) is the workbench of 0.4.0 (file tree, editor, terminal, activity) behind a switch in the top
 bar. Both stay mounted.
 
-**How to read this document while 0.5.0 is being built** (state of 2026-10-07). "As built" means the code is in
-`src/` and has tests. "Contract" means the design fixes it and the feature that owns it is still finishing it: a
-contract paragraph says what the feature must do and names no file that is not in the tree. As built: the shell with
-both views, every store, the commands, the slots, the UI kit, the columns strip, the left column and the Markdown
-renderer. Being finished by their features, with components and unit tests already in the tree: the conversation
-column and its cards, the terminal column, the topic columns and dialogs, the console's new sections. Not in the
-tree yet: every built-app smoke of the new screens. Still in the tree from 0.4.0 and going: the whole of
-`features/suggest`, and a few transitional names in the shell that its last readers keep alive.
+**How to read this document** (state of 2026-10-07, after the integration of the web packages). "As built" means the
+code is in `src/` and has tests: the shell with both views, every store, the commands, the slots, the UI kit, the
+columns strip, the left column, the Markdown renderer, the conversation column and its cards, the terminal column, the
+topic columns and dialogs, the console. Every feature has its built-app smoke under `e2e/smoke`. Where a paragraph
+still says "Contract", it describes what the design fixes; the code named beside it is the place to look. Nothing of
+0.4.0's panels is left in the tree: `features/suggest` and the transitional names of the shell are gone.
 
 - [Run the whole system locally](#run-the-whole-system-locally)
 - [Directory layout and ownership](#directory-layout-and-ownership)
@@ -137,17 +135,23 @@ src/
 │   ├── editor/              the editor of code mode; its DocumentPane is also mounted by the spec and plan columns
 │   ├── worktree/            the worktree switcher, merge requests and the diff review (also mounted by the report column)
 │   ├── console/             the host console; the Claude Code project settings and the host's own rules (also reached from the sessions view)
-│   ├── activity/ files/ transfer/      the panels of code mode
-│   └── suggest/             0.4.0's suggestions panel: deleted by 0.5.0 (suggestions are cards in a conversation); still in the tree until the conversation feature has taken over its last parts
+│   └── activity/ files/ transfer/      the panels of code mode
 ├── strings/                 The string catalog (defineStrings / t in catalog.ts) and the app-wide namespaces
 ├── ui/                      Design system: tokens.css, base.css, components.css, components, icons
 └── testing/                 FakeConnection, fixtures, render helpers (workspace, column), vitest setup, the test language pin
 ```
 
-**Rules.** Features do not import each other (`features/a` does not import `features/b`), with the few parts the
-design shares on purpose, each imported through one file: the Markdown renderer (`features/markdown/index.ts`), the
-editor's document pane for a column (`features/editor/standalone.tsx`), the worktree feature's diff review
-(`features/worktree/index.tsx`) and the terminal's path links (`features/agents/path-links.ts`). The two shell folders
+**Rules.** Features do not import each other (`features/a` does not import `features/b`), with the few parts that
+are shared on purpose because one feature MOUNTS a piece another one owns, each imported through one file: the
+Markdown renderer (`features/markdown/index.ts`), the editor's document pane for a column
+(`features/editor/standalone.tsx`), the worktree feature's diff review (`features/worktree/index.tsx`: the changed
+files of a report, the review of a merge request, `UnifiedDiff` for a diff that stands alone), the terminal's path
+links (`features/agents/path-links.ts`), the file tree's force-release confirmation
+(`features/files/ForceReleaseDialog.tsx`) and the console's review of a folder's Claude Code project settings
+(`features/console/ProjectSettingsReview.tsx` with its rules in `claude-config.ts`: the ONE review of the app, mounted
+by the console's section, by the host's dialog in the sessions view and inside the New topic dialog). The whole list is
+pinned by a test (`app/workspace/feature-slots.test.ts` "features and each other"): a new line there is a decision.
+A feature never opens another feature's dialog or reads its state: it dispatches a command. The two shell folders
 `features/columns` and `features/sidebar` are imported by `app/workspace` only. Every cross-feature action goes
 through the command bus, and a feature shows itself in the sessions view through its `slots.tsx`, never by being
 imported. A feature reads the stores only through hooks and never creates a connection or a store itself. Two stores
@@ -537,6 +541,9 @@ observers.
 | `startUpload` | `{ root, targetDir, source: UploadSource }` | transfer |
 | `download` | `{ file, zip? }` | transfer |
 | `showPanel` | `{ panel: 'files' \| 'editor' \| 'session' \| 'activity' \| 'conflicts' \| 'transfers' \| 'terminal' }` | code mode's layout (`Workbench.tsx`) |
+| `redactEvent` | `{ sessionId, seq }` | console: the host's confirmation before ONE event of a conversation is replaced by "The host removed this entry." (`admin.transcript.redact`). Dispatched by a conversation's "Remove this entry…" |
+| `reviewProjectSettings` | `{ root? }` | console: the host's review of the Claude Code project settings of that root, or of every root that has such files. Dispatched by the notice of a session that runs without them |
+| `showHostRules` | `{}` | console: which of the host's own Claude Code allow rules apply to agents here. Dispatched by the permission dialog of a session |
 
 ```tsx
 // the editor feature:
@@ -547,9 +554,10 @@ await openColumn({ target: { kind: 'plan', topicId }, side: true });
 ```
 
 A command without a handler rejects with `NoCommandHandlerError`; `commands.whenHandled(name)` resolves once a
-handler exists (the shell uses it to open a file after code mode's chunk has loaded). Transitional, kept only until
-their last readers of 0.4.0 are gone: the command `focusSession` and the panel ids `agents` and `suggestions`; do not
-use them in new code.
+handler exists (the shell uses it to open a file after code mode's chunk has loaded). A handler that a person can
+reach from the first moment (`newSession`, the three commands of the console) is registered in the feature's
+`slots.tsx` itself, which loads with the page; the dialog behind it is a lazy chunk. The three commands of the console
+do nothing for anyone but the host.
 
 Drag-and-drop upload: call `collectDrop(event.dataTransfer)` (`lib/drop.ts`) **synchronously** inside the `drop` event,
 then dispatch `startUpload`.
@@ -580,7 +588,7 @@ export const slots = defineSlots({
 | `columns.conversation` `{ sessionId }` | an agent session's conversation | `conversation` |
 | `columns.terminal` `{ sessionId }` | a plain terminal | `agents` |
 | `columns.spec` `{ topicId }`, `columns.plan` `{ topicId }`, `columns.report` `{ topicId, itemId }`, `columns.changes` `{ requestId }` | a topic's spec, its plan, a work item's result report, a merge request without a report | `topics` |
-| `overlays` | components mounted once in the shell for as long as the workspace is open, in both views (not in the console page): dialogs, toasts, command handlers. Each in its own silent error boundary and `Suspense` | `agents` (New session), `conversation`, `topics` (New topic, the Start dialog), `console` (the project settings and own-rules dialogs), `worktree` |
+| `overlays` | components mounted once in the shell for as long as the workspace is open, in both views (not in the console page): dialogs, toasts, command handlers. Each in its own silent error boundary and `Suspense` | `agents` (New session), `conversation`, `topics` (New topic, the Start dialog), `console` (the handlers of `reviewProjectSettings`, `showHostRules` and `redactEvent`, and their three dialogs), `worktree` |
 | `menus.session(session, env)` | extra items of a session row's context menu, after the shell's "Open" and "Open to the side" | `conversation` (an agent session: rename, end), `agents` (a terminal: attach, end, terminate) |
 | `menus.topic(topic, env)` | a topic's "More actions", after the shell's "Watch its running sessions side by side" | `topics` (rename, restart the discussion, archive, restore, delete) |
 | `inboxRows[kind](item, base, env)` | returns the row to show instead of the shell's default (`{ title, mono?, where, action? }`) for an inbox item of that kind | `topics` (`attention`) |
@@ -738,7 +746,8 @@ three changes.
 - The right pane is ONE session column: the same body as in the sessions view, with a selector for which session
   (remembered per browser and workspace).
 - The drawer's tabs are Activity, Conflicts, Transfers and Terminal (plain terminals). There is no "Merge requests"
-  tab: a merge request is an inbox item and a report or Changes column.
+  tab: a merge request is an inbox item and a report or Changes column. The Terminal tab has no header bar of its
+  own: the drawer is 220 px tall until someone drags it, and "New terminal" sits at the end of the terminals' tabs.
 - The suggestions panel is gone.
 
 `openInCodeMode { root, file?, line?, sessionId? }` switches the route, sets the file tree's root, opens the file and
@@ -920,7 +929,9 @@ has no locale.
   `itemGlyph(item)`, `statusLabel(glyph)`, `phaseLabel(phase)`, `kindLabel(inboxKind)`: the session list, a column's
   header, the plan and the console say "Waiting for an answer" with the same words and glyph),
   `src/lib/columns/describe.ts` (`describeColumn`, `itemLabel({ number, title })`), `formatAge(at, now)` of
-  `src/lib/format.ts` ("6 min") with `useNow(intervalMs)` of `src/lib/use-now.ts`.
+  `src/lib/format.ts` ("6 min") with `useNow(intervalMs, enabled?)` of `src/lib/use-now.ts` (the one clock hook of
+  the app: no feature keeps a copy), `formatAnd(items)` for names or numbers inside a sentence ("Ian, Mei, and Amy")
+  and `formatList(items)` for paths and commands (commas only).
 - **Nothing is conveyed by colour alone**: every status glyph and kind icon has a name, and the two inbox counts are
   named ("2 waiting, 4 to look at").
 - Style: a calm, information-dense workbench (like a code editor, not a marketing page). No decorative gradients; the
@@ -1039,8 +1050,6 @@ screen is built to.
 - **Terminals in two places.** In the sessions view a terminal is a column; in code mode the same terminals are the
   tabs of the drawer's "Terminal" tab (`TerminalPanel`). 0.4.0's per-browser closing of an ended session's tab is
   gone with the session tabs: closing a column is the view action, and an ended terminal leaves the list by itself.
-- **Still in the tree from 0.4.0**: `features/suggest` (the suggestions panel and queue). The design deletes it;
-  do not build on it.
 - **Console**: the role list is Agent access / Editor / Viewer. When the host picks Agent access for a new invite or
   for a member's role, a confirmation dialog shows the risk first (`features/console/RoleRiskDialog.tsx`,
   `data-testid="role-risk-text"`), and nothing is sent until the host clicks the "I understand, …" button; Cancel
@@ -1099,31 +1108,36 @@ pnpm exec vitest run --project @smurg/web-smoke                     # in the rep
 it (`startLocalRelay({ webDist })`; the Worker serves the static files as in production), the daemon is composed of
 all modules, and the system's Chrome walks through it (headless, a fresh context, development login; scrollbars are
 not hidden, because the terminal tests measure them).
-The shared harness is `e2e/smoke/helpers.ts` (`startSmoke`, `joinAs`, `joinAsHost`: the host's own link comes from
-`daemon.internals.invites.createHostInvite()`, `openSession`, the terminal's text). Every step waits for a condition,
-never for a fixed time.
+The shared harness is `e2e/smoke/helpers.ts`: `startSmoke`, `joinAs`, `joinAsHost` (the host's own link comes from
+`daemon.internals.invites.createHostInvite()`); a member lands in the SESSIONS VIEW, so `toCodeMode(page)` /
+`toSessionsView(page)` use the top bar's mode switch (both views stay mounted: the helpers that read a terminal look
+only in the view on screen), `openDrawer(page)` unfolds code mode's drawer; `columnOf(page, title)` is a column's
+region, `rowOf(page, title)` a row of the session list, `openFromList(page, title, { side })` opens one;
+`openTerminal(page, title, { worktree })` and `openAgentSession(page, { title, first, worktree })` go through the
+session list's "New" control and resolve with the session's id; `terminalOf`, `typeInTerminal`,
+`waitForTerminalText`, `terminalShows`. Every step waits for a condition, never for a fixed time. A smoke that needs
+an agent passes `stack.sessions: { claudePath: (await installFakeClaude(dir, scenario)).path, selfCommand }` and never
+a `modules` list: the daemon's default list is the release's.
 
-The smokes in the tree (0.4.0's; each is adapted to the new shell by the package that owns its feature):
+The smokes that came from 0.4.0, as they are in the new shell:
 
 | File | Acceptance criteria |
 |---|---|
-| `built-app.smoke.test.ts` | Join with an invite link -> open a file -> type -> the disk; R7.1b two browsers editing at once; R8.2b the read-only notice under an agent's lock; a member with agent access opens a terminal (it runs as the host's user); CSP |
-| `terminal.smoke.test.ts` | The owner's PTY follows the panel (a narrow 420 px panel and a wide one; `stty size` equals the size that fits the panel; no part of the terminal lies outside the visible, scrollable container). A watcher sees the PTY's size, can scroll to see a full 80-column line, and can use "Scale to fit the width" |
-| `close-session.smoke.test.ts` | 0.4.0's closing of an ended session's tab, per browser. The behaviour went with the session tabs; the file is the integration work's to remove or rewrite |
-| `splitter.smoke.test.ts` | The dividers of code mode's workbench under a real mouse: a hover never moves a divider; a press within 3 px on either side grabs the line without moving it and the line then follows the pointer; a drag stops on the release wherever the pointer is; a drag that loses its release ends with the button; the terminal still refits; arrow keys resize, a double click comes back to the default width and the width survives a reload; in a window too small for the remembered width every pane keeps its minimum, and each separator's `aria-valuenow` / `aria-valuemax` is the size on screen |
+| `built-app.smoke.test.ts` | Join with an invite link -> the sessions view -> code mode -> open a file -> type -> the disk; R7.1b two browsers editing at once; R8.2b the read-only notice under an agent's lock; a member with agent access opens a terminal from the session list (a column; it runs as the host's user); CSP |
+| `splitter.smoke.test.ts` | The three dividers of code mode under a real mouse (file tree \| editor \| session column, and the drawer): a hover never moves a divider; a press within 3 px on either side grabs the line without moving it and the line then follows the pointer; a drag stops on the release wherever the pointer is; a drag that loses its release ends with the button; the terminal in the drawer still refits (a taller drawer, more rows); arrow keys resize, a double click comes back to the default width and the width survives a reload; in a window too small for the remembered width every pane keeps its minimum, and each separator's `aria-valuenow` / `aria-valuemax` is the size on screen |
 | `login.smoke.test.ts` | Loading `/` and `/join/<id>` without a login: zero console errors, zero failed requests; the CLI's device-code login |
-| `language.smoke.test.ts` | An `en-US` browser: landing, join, workbench, the activity feed (the host's own sentences), an error and the host console with its audit log, each followed by a scan of the whole document for CJK characters; the language menu switches to 繁體中文 without a navigation; `<html lang>`, the stored choice and the cookie follow; the choice survives a reload; the relay's `/device` follows the cookie; detection (`zh-HK` is Traditional Chinese, `zh-CN` and `ja` get English) and the relay's own language link is followed by the app |
-| `zh-TW.smoke.test.ts` | The one smoke test in Traditional Chinese (`locale: 'zh-TW'`): join through an invite link, the workbench, a terminal session, the host's sentence in the activity feed and `/device`. Its suggestion step typed into a terminal and is skipped until the conversation smoke replaces it |
-| `acceptance.smoke.test.ts` | R11.1c one-click terminate and remove in the console; R9 worktree merge (the full diff, merge, the worktree is unchanged after a reject); R8.4 a real conflict appears in the conflicts panel; a member with agent access opens their own terminal (it runs as the host's user) and types directly in the host's terminal; the console's risk confirmation before it gives agent access (an invite and a role change). Its R6 test and the suggestion step of the agent-access test typed into a terminal and are skipped until the conversation smoke replaces them (`tests/lint/pending-v050.ts`) |
+| `language.smoke.test.ts` | An `en-US` browser: landing, join, the sessions view, code mode with the activity feed (the host's own sentences), an error and the host console with its audit log, each followed by a scan of the whole document for CJK characters; the language menu switches to 繁體中文 without a navigation; `<html lang>`, the stored choice and the cookie follow; the choice survives a reload; the relay's `/device` follows the cookie; detection (`zh-HK` is Traditional Chinese, `zh-CN` and `ja` get English) and the relay's own language link is followed by the app |
+| `zh-TW.smoke.test.ts` | The old path in Traditional Chinese (`locale: 'zh-TW'`): join through an invite link, the sessions view, a terminal in a column (an editor watches it read-only), code mode with the host's sentence in the activity feed, and `/device`. A suggestion accepted on a zh-TW page is `conversation.smoke` |
+| `acceptance.smoke.test.ts` | R11.1c one-click terminate and remove in the console; R9 worktree merge (asked for from code mode's worktree switcher; the host's inbox item opens the full diff in a Changes column; merge; the worktree is unchanged after a reject); R8.4 a real conflict appears in the conflicts panel of code mode; a member with agent access opens their own terminal (it runs as the host's user) and types directly in the host's terminal, an editor only watches; the console's risk confirmation before it gives agent access (an invite and a role change). 0.4.0's R6 test and suggestion steps typed into a terminal and are deleted: `conversation.smoke` has the suggestion flow |
 | `transfer-resume.smoke.test.ts` | R7.3: `drop-proxy.ts` (a TCP proxy in front of the relay) cuts the transfer socket in the middle of an upload; the upload resumes by itself and completes, the content is identical, and only the missing part is sent again |
 
-The smokes 0.5.0 adds, by the names the design fixed (none is in the tree yet): each web package writes the smoke of
-its own feature against the stand-in `claude`: `columns.smoke` (the dividers of the strip under a real mouse) and
-`sidebar.smoke` (the shell), `conversation.smoke` and `conversation.perf.smoke` (the budget of "A conversation
-column"), `topics.smoke`, `console.smoke`. The integration work keeps the ones that cross features: `flow.smoke` (the
-whole flow with four browser contexts: a host, a member with agent access, an Editor, a Viewer), `flow.zh-TW.smoke`
-(the same path in Traditional Chinese, with a topic named in Chinese) and `flow.claude.smoke` (layer 3 above).
-`docs/ACCEPTANCE.md` ("T topics flow") says which acceptance rows wait for them.
+The smokes 0.5.0 added, one per feature, each against the stand-in `claude`: `columns.smoke` (the dividers of the
+strip under a real mouse) and `sidebar.smoke` (the shell), `terminal.smoke` (a terminal as a column),
+`conversation.smoke` and `conversation.perf.smoke` (the budget of "A conversation column"), `topics.smoke`,
+`console.smoke`. The ones that cross features are the integration's: `flow.smoke` (the whole flow with four browser
+contexts: a host, a member with agent access, an Editor, a Viewer), `flow.zh-TW.smoke` (the same path in Traditional
+Chinese, with a topic named in Chinese) and `flow.claude.smoke` (layer 3 above). `docs/ACCEPTANCE.md` ("T topics
+flow") names the rows they prove.
 
 Without a system Chrome these tests are skipped and the reason is printed.
 

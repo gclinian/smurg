@@ -5,18 +5,13 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { AuditEntry, Suggestion } from '@smurg/protocol';
 import { AUDIT_FULL_TEXT_HEAD_CHARS } from '../../src/core/interfaces.ts';
 import { ACCEPT_AFTER_EDIT_MS } from '../../src/suggest/suggestion-service.ts';
-import { TEST_HOST_NAME, TEST_HOST_USER, createTempRunDir, removeTempRunDir, settle, waitFor } from '../../src/testing/index.ts';
+import { TEST_HOST_NAME, TEST_HOST_USER, settle, waitFor } from '../../src/testing/index.ts';
+import { tempStateDir } from '../conversation/support.ts';
 import { agentSession, everythingSent, sentTo, startSuggest, type SuggestStack } from './support.ts';
-
-const stateDirs: string[] = [];
-
-afterEach(async () => {
-  for (const dir of stateDirs.splice(0)) await removeTempRunDir(dir);
-});
 
 async function settleError(promise: Promise<unknown>): Promise<{ code: string; reason?: string; message: string } | null> {
   try {
@@ -327,8 +322,7 @@ describe('suggestions and the life of sessions and members', { timeout: 60_000 }
   });
 
   it('suggestions survive a daemon restart (still pending while the session exists; closed once it is gone)', async () => {
-    const stateDir = await createTempRunDir();
-    stateDirs.push(stateDir);
+    const stateDir = await tempStateDir();
     const s = await startSuggest({}, { stateDir });
     const { suggestion: pending } = await s.bob.conn.request('suggest.create', { sessionId: 'ses_amy', text: 'survive me' });
     const { suggestion: orphan } = await s.bob.conn.request('suggest.create', { sessionId: 'ses_host', text: 'my session will be gone' });

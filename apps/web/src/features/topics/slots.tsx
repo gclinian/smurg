@@ -9,12 +9,33 @@
 //                                            only opens the plan).
 //
 // Keep this file light: it loads with the workspace page. Everything it names is behind a dynamic import, except
-// dialogs.ts (a few lines of state) and the strings.
-import { lazy } from 'react';
+// dialogs.ts (a few lines of state) and the strings. The handler of `newTopic` is registered here, at once (the "New"
+// control is there from the first moment), and the dialogs behind it (TopicOverlays.tsx) load on their own.
+import { lazy, Suspense } from 'react';
 import type { MenuItem } from '../../ui/Menu.tsx';
 import { defineSlots } from '../../lib/slots.ts';
+import { useCommandHandler, useStores } from '../../lib/workspace/context.tsx';
 import { topicDialogs } from './dialogs.ts';
 import { t } from './strings.ts';
+
+const Dialogs = lazy(() => import('./TopicOverlays.tsx'));
+
+/**
+ * The feature's overlay. A click on "New" → "New topic" right after the page appeared must not find "nobody handles
+ * this" because the dialogs' code is still on its way: the command only says which dialog is open (dialogs.ts), and
+ * the dialog shows as soon as its code is there.
+ */
+function TopicsOverlay() {
+  const stores = useStores();
+  useCommandHandler('newTopic', () => {
+    topicDialogs(stores).open({ kind: 'new' });
+  });
+  return (
+    <Suspense fallback={null}>
+      <Dialogs />
+    </Suspense>
+  );
+}
 
 export const slots = defineSlots({
   feature: 'topics',
@@ -24,7 +45,7 @@ export const slots = defineSlots({
     report: lazy(() => import('./ReportColumn.tsx')),
     changes: lazy(() => import('./ChangesColumn.tsx')),
   },
-  overlays: [lazy(() => import('./TopicOverlays.tsx'))],
+  overlays: [TopicsOverlay],
   menus: {
     topic(topic, env) {
       const dialogs = topicDialogs(env.stores);

@@ -129,6 +129,9 @@ export class InboxServiceImpl implements InboxService {
     stack.add(bus.on('suggestion.changed', touch));
     stack.add(bus.on('report.changed', touch));
     stack.add(bus.on('merge.changed', touch));
+    // A removed worktree takes its draft requests with it without a `merge.changed` (worktree-manager.ts): a
+    // reviewed draft ("ready to merge") leaves the host's inbox on this event.
+    stack.add(bus.on('worktree.changed', touch));
     stack.add(bus.on('plan.changed', touch));
     stack.add(bus.on('topic.changed', touch));
     // Who is responsible, what a session and its item are called, a session that ended.

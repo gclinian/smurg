@@ -65,6 +65,14 @@ describe('next-step cards', () => {
     fireEvent.click(within(plan).getByRole('button', { name: 'Open plan' }));
     expect(report.textContent).toContain('The result report of 1 · Cart API is written.');
     expect(report.textContent).toContain('Mei reviews it.');
+    // Once it was reviewed, nobody is named as its reviewer any more.
+    act(() => {
+      view.conn.emit('plan.updated', {
+        plan: buildPlan({ topicId: 't_1', items: [buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', state: 'reviewed', report: buildReportSummary({ reviewers: [MEI], state: 'reviewed', review: { by: MEI, at: 2, version: 1 } }) })] }),
+      });
+    });
+    expect(report.textContent).toContain('The result report of 1 · Cart API is written.');
+    expect(report.textContent).not.toContain('reviews it');
     fireEvent.click(within(report).getByRole('button', { name: 'Open report' }));
     expect(columns).toEqual([
       { target: { kind: 'plan', topicId: 't_1' }, side: true },

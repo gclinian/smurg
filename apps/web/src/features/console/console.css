@@ -524,6 +524,29 @@
 .console-trust__actions > .console-muted {
   margin-right: auto;
 }
+/* The review inside a form that sends the decision itself (the New topic dialog): one framed block, two radios. */
+.console-trust--choice {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-1);
+  font-size: var(--text-sm);
+}
+.console-trust__legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  font-weight: var(--weight-semibold);
+}
+.console-trust__choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+}
 
 /* ---------------------------------------------------------------- the host's own Claude Code rules */
 .console-host-rules {

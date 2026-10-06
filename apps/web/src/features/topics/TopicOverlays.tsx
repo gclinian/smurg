@@ -1,8 +1,9 @@
 // The dialogs of the topics feature, mounted once by the workspace shell in both modes (slots.tsx → overlays). Which
-// one is open is dialogs.ts; the command `newTopic` (the "New" control, the rail, the empty state) opens the first.
+// one is open is dialogs.ts; the command `newTopic` (the "New" control, the rail, the empty state) opens the first:
+// its handler is in slots.tsx, registered before this file has loaded.
 import { useCallback } from 'react';
 import { useStore } from '../../lib/store.ts';
-import { useCommandHandler, useStores } from '../../lib/workspace/context.tsx';
+import { useStores } from '../../lib/workspace/context.tsx';
 import { MergeReviewDialog } from '../worktree/index.tsx';
 import { topicDialogs } from './dialogs.ts';
 import { NewTopicDialog } from './NewTopicDialog.tsx';
@@ -15,7 +16,6 @@ export default function TopicOverlays() {
   const stores = useStores();
   const dialogs = topicDialogs(stores);
   const dialog = useStore(dialogs);
-  useCommandHandler('newTopic', () => dialogs.open({ kind: 'new' }));
   const close = useCallback(() => dialogs.close(), [dialogs]);
 
   if (dialog === null) return null;

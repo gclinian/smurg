@@ -1,6 +1,10 @@
-// The dividers of the workbench under a REAL mouse (the built app, the real relay, a daemon with every module, system
+// The dividers of CODE MODE under a REAL mouse (the built app, the real relay, a daemon with every module, system
 // Chrome at 1440 × 900; playwright's mouse goes through Chrome's own input pipeline: hit testing, pointer capture,
-// compatibility mouse events). The reported bug: "moving the divider between the code editor and the session area is
+// compatibility mouse events). Code mode (`/w/:id/code`, DESIGN §5.6) is the workbench: the file tree, the editor, ONE
+// session column beside the editor, and the drawer (activity, conflicts, transfers, terminal). The sessions view's
+// own dividers are covered by columns.smoke.test.ts and sidebar.smoke.test.ts.
+//
+// The bug this file was written for (v0.4.0): "moving the divider between the code editor and the session area is
 // broken (when the mouse touches the line from the right, the line moves by itself; it is hard to control)". What it
 // was (apps/web/src/ui/SplitPane.tsx before v0.4.0):
 //  - the drag state ended only with a pointerup that reached the separator. Chrome drops the pointer capture without
@@ -9,12 +13,15 @@
 //    because only the 3 px left of the line were its grab area, a pointer coming from the right pushed the line ahead
 //    of itself, one pixel per pixel, without any button;
 //  - a press moved the line to the pointer (a jump of up to 4 px), and the 3 px right of the line belonged to the
-//    terminal, the editor's margin or a panel header.
+//    pane beside it, the editor's margin or a panel header.
 // Now: nothing moves without the primary button; the line stays under the pointer where it was grabbed (3 px on either
 // side), stops on the release wherever the pointer is, keeps the editor a minimum, and the terminal still refits.
+import { mkdtemp } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { Page } from 'playwright-core';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { STEP_MS, explainFailures, joinAsHost, openSession, startSmoke, systemChrome, terminalOf, workspaceOnline, type SmokeEnv } from './helpers.ts';
+import { installFakeClaude } from '../../../../packages/daemon/src/testing/index.ts';
+import { STEP_MS, columnOf, explainFailures, joinAsHost, startSmoke, systemChrome, terminalOf, toCodeMode, workspaceOnline, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
 if (chrome === null) console.warn('[web smoke] SKIPPED: no system Chrome found (playwright-core downloads no browser); install Google Chrome to run it.');
@@ -28,38 +35,52 @@ interface Divider {
   readonly grow: 1 | -1;
 }
 
-// In document order: the file tree's and the agents column's separators are the horizontal splits'; the vertical
-// splits' are agents / suggestions and, while the bottom drawer is open (it starts collapsed), the drawer's.
-const FILES: Divider = { name: 'file tree | editor', selector: '.ui-split--horizontal > .ui-split__separator >> nth=0', axis: 'x', grow: 1 };
-const AGENTS: Divider = { name: 'editor | agents', selector: '.ui-split--horizontal > .ui-split__separator >> nth=1', axis: 'x', grow: -1 };
-const SUGGESTIONS: Divider = { name: 'terminal / suggestions', selector: '.ui-split--vertical > .ui-split__separator >> nth=0', axis: 'y', grow: -1 };
-const DRAWER: Divider = { name: 'workbench / drawer', selector: '.ui-split--vertical > .ui-split__separator >> nth=1', axis: 'y', grow: -1 };
-const DIVIDERS = [FILES, AGENTS, SUGGESTIONS, DRAWER] as const;
+// Code mode's own separators (the sessions view is mounted beside it, hidden, with separators of its own). In
+// document order: the file tree's and the session column's are the horizontal splits'; the vertical split's is the
+// drawer's, there only while the drawer is unfolded (it starts folded).
+const CODE = '.app-shell__view[data-view="code"]';
+const FILES: Divider = { name: 'file tree | editor', selector: `${CODE} .ui-split--horizontal > .ui-split__separator >> nth=0`, axis: 'x', grow: 1 };
+const SIDE: Divider = { name: 'editor | session column', selector: `${CODE} .ui-split--horizontal > .ui-split__separator >> nth=1`, axis: 'x', grow: -1 };
+const DRAWER: Divider = { name: 'workbench / drawer', selector: `${CODE} .ui-split--vertical > .ui-split__separator >> nth=0`, axis: 'y', grow: -1 };
+const DIVIDERS = [FILES, SIDE, DRAWER] as const;
 
-/** The agents column's width when nothing is remembered, and the least it gets (Workbench.tsx). */
-const AGENTS_DEFAULT_PX = 420;
-const AGENTS_MIN_PX = 260;
-/** What the separator of the agents column leaves the editor (layout-limits.ts MIN_EDITOR_PX). */
+/** The session column's width when nothing is remembered, and the least it gets (Workbench.tsx, layout-limits.ts MIN_SIDE_PX). */
+const SIDE_DEFAULT_PX = 420;
+const SIDE_MIN_PX = 320;
+/** What the separator of the session column leaves the editor (layout-limits.ts MIN_EDITOR_PX). */
 const MIN_EDITOR_PX = 160;
-/** What the file tree's separator leaves the editor (layout-limits.ts MIN_MAIN_PX); with the agents column and its line: 501. */
+/** What the file tree's separator leaves the editor (layout-limits.ts MIN_MAIN_PX); with the session column and its line: 561. */
 const MIN_MAIN_PX = 240;
 const WIDTH = 1440;
 const HEIGHT = 900;
 
-describe.skipIf(chrome === null)('the workbench dividers under a real mouse (built app, real relay, system Chrome)', () => {
+describe.skipIf(chrome === null)('the dividers of code mode under a real mouse (built app, real relay, system Chrome)', () => {
   let env: SmokeEnv;
   let page: Page;
   let sessionId: string;
 
   beforeAll(async () => {
-    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# Class project\n\nsome text to select\n', 'src/app.ts': 'export const x = 1;\n' } } });
+    // The agent session beside the editor runs the stand-in (no Claude Code, no account); it is only there to be a column.
+    const claude = await installFakeClaude(await mkdtemp(join(process.env['TMPDIR'] as string, 'splitter-claude-')), { turns: [{ steps: [{ text: 'Noted.' }] }] });
+    env = await startSmoke({
+      stack: {
+        projectFiles: { 'README.md': '# Class project\n\nsome text to select\n', 'src/app.ts': 'export const x = 1;\n' },
+        sessions: { claudePath: claude.path, selfCommand: { file: '/usr/bin/true', args: [] } },
+      },
+    });
     page = await env.newPage({ width: WIDTH, height: HEIGHT });
     await joinAsHost(page, env);
-    // A live terminal right of the divider (xterm, a ResizeObserver that refits the PTY), Monaco left of it.
-    sessionId = await openSession(page, 'terminal', 'shell');
+    const request = env.stack.hostClient.conn.request.bind(env.stack.hostClient.conn);
+    sessionId = (await request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24, title: 'shell' })).session.id;
+    await request('session.create', { kind: 'agent', workspace: { mode: 'main' }, title: 'beside' });
+    await toCodeMode(page);
+    // Monaco left of the divider, a conversation column right of it, and in the drawer a live terminal (xterm, a
+    // ResizeObserver that refits the PTY).
     await page.getByRole('treeitem', { name: 'README.md' }).first().click();
     await page.locator('.editor-doc__monaco[data-bound]').waitFor({ timeout: STEP_MS });
-    await waitDriving();
+    await page.getByRole('combobox', { name: 'Session shown beside the editor' }).selectOption({ label: 'beside' });
+    await columnOf(page, 'beside').getByRole('log').waitFor({ timeout: STEP_MS });
+    await showTerminal();
   }, 180_000);
 
   afterAll(async () => {
@@ -147,7 +168,7 @@ describe.skipIf(chrome === null)('the workbench dividers under a real mouse (bui
   async function waitDriving(): Promise<void> {
     await page.waitForFunction(
       (id) => {
-        const d = document.querySelector<HTMLElement>(`.agents-session[data-session-id="${id}"] .agents-term__viewport`)?.dataset;
+        const d = document.querySelector<HTMLElement>(`.app-shell__view[data-view="code"] .agents-session[data-session-id="${id}"] .agents-term__viewport`)?.dataset;
         return !!d && d['driving'] === 'true' && d['cols'] === d['fitCols'] && d['rows'] === d['fitRows'];
       },
       sessionId,
@@ -155,16 +176,23 @@ describe.skipIf(chrome === null)('the workbench dividers under a real mouse (bui
     );
   }
 
-  async function terminalCols(): Promise<number> {
-    return Number(await terminalOf(page, sessionId).getAttribute('data-cols'));
+  async function terminalRows(): Promise<number> {
+    return Number(await terminalOf(page, sessionId).getAttribute('data-rows'));
   }
 
   /** Opens (or closes) the bottom drawer with its button in the top bar: its separator exists only while it is open. */
   async function setDrawer(open: boolean): Promise<void> {
-    const toggle = page.locator('.app-topbar__toggles button').nth(1);
+    const toggle = page.getByRole('button', { name: 'Show or hide activity, transfers and terminal' });
     if ((await toggle.getAttribute('aria-pressed')) !== String(open)) await toggle.click();
     await page.locator(DRAWER.selector).waitFor({ state: open ? 'attached' : 'detached', timeout: STEP_MS });
     await frames();
+  }
+
+  /** The drawer unfolded on its Terminal tab, with the owner's terminal live and fitted. */
+  async function showTerminal(): Promise<void> {
+    await setDrawer(true);
+    await page.getByRole('tab', { name: 'Terminal', exact: true }).click();
+    await waitDriving();
   }
 
   it('a hover never moves a divider: across each one from both sides, one pixel at a time, no button', async () => {
@@ -173,7 +201,7 @@ describe.skipIf(chrome === null)('the workbench dividers under a real mouse (bui
     await setDrawer(false);
   }, 120_000);
 
-  it('a press within 3 px of the line, on EITHER side, grabs it without moving it, and the line then follows the pointer within a pixel (all four dividers)', async () => {
+  it('a press within 3 px of the line, on EITHER side, grabs it without moving it, and the line then follows the pointer within a pixel (all three dividers)', async () => {
     await setDrawer(true);
     for (const divider of DIVIDERS) {
       for (const offset of [-3, 0, 3]) {
@@ -200,163 +228,173 @@ describe.skipIf(chrome === null)('the workbench dividers under a real mouse (bui
         expect(await lineOf(divider), `${divider.name}: where the line is after the release`).toBe(line + divider.grow * 20);
       }
     }
-    await expectStillUnderHover(AGENTS, 'after twelve drags');
+    await expectStillUnderHover(SIDE, 'after nine drags');
     await setDrawer(false);
   }, 180_000);
 
-  it('slow and fast drags stop on the release wherever the pointer is — over the terminal, over Monaco, outside the window — and take neither the focus nor a selection', async () => {
-    // The keyboard is in the terminal, and stays there. (The terminal fills its panel first: a click below a
-    // terminal that is still a few rows short would land on nothing.)
-    await waitDriving();
+  it('slow and fast drags stop on the release wherever the pointer is — over the session column, over Monaco, outside the window — and take neither the focus nor a selection', async () => {
+    // The keyboard is in the terminal (the drawer's Terminal tab), and stays there. (The terminal fills its panel
+    // first: a click below a terminal that is still a few rows short would land on nothing.)
+    await showTerminal();
     await terminalOf(page, sessionId).click();
     const focused = (): Promise<string> => page.evaluate(() => document.activeElement?.getAttribute('class') ?? '');
     expect(await focused()).toContain('xterm-helper-textarea');
-    const cross = await crossOf(AGENTS);
-    // The limits of the agents column in this window: its own minimum; the editor keeps MIN_EDITOR_PX.
-    const lineAtMin = WIDTH - AGENTS_MIN_PX - 1;
+    const cross = await crossOf(SIDE);
+    // The limits of the session column in this window: its own minimum; the editor keeps MIN_EDITOR_PX.
+    const lineAtMin = WIDTH - SIDE_MIN_PX - 1;
     const lineAtMax = (await lineOf(FILES)) + 1 + MIN_EDITOR_PX;
 
-    // Slowly to the right, one pixel per event, past the limit and on into the terminal; released over the terminal.
-    let line = await lineOf(AGENTS);
+    // Slowly to the right, one pixel per event, past the limit and on into the session column; released over it.
+    let line = await lineOf(SIDE);
     await page.mouse.move(line, cross);
     await page.mouse.down();
     for (let x = line + 1; x <= lineAtMin + 80; x++) {
       await page.mouse.move(x, cross);
       if (x % 20 !== 0) continue;
       await frames();
-      expect(await lineOf(AGENTS), `slow drag: the line while the pointer is at ${x}`).toBe(Math.min(x, lineAtMin));
+      expect(await lineOf(SIDE), `slow drag: the line while the pointer is at ${x}`).toBe(Math.min(x, lineAtMin));
     }
     await frames();
-    expect(await lineOf(AGENTS)).toBe(lineAtMin);
-    // The panes ignore the pointer during a drag: the terminal is not what the mouse is over.
+    expect(await lineOf(SIDE)).toBe(lineAtMin);
+    // The panes ignore the pointer during a drag: the session column is not what the mouse is over.
     expect(await under([lineAtMin + 80, cross])).toBe('div.ui-split');
     await page.mouse.up();
     expect(await under([lineAtMin + 80, cross])).not.toBe('div.ui-split');
     await page.mouse.move(lineAtMin + 150, cross + 40, { steps: 10 });
-    expect(await lineOf(AGENTS), 'released over the terminal').toBe(lineAtMin);
-    await expectStillUnderHover(AGENTS, 'released over the terminal');
+    expect(await lineOf(SIDE), 'released over the session column').toBe(lineAtMin);
+    await expectStillUnderHover(SIDE, 'released over the session column');
 
     // Fast to the left (one event per 200 px), past the limit; released over Monaco.
-    line = await lineOf(AGENTS);
+    line = await lineOf(SIDE);
     await page.mouse.move(line, cross);
     await page.mouse.down();
     await page.mouse.move(line - 200, cross);
     await frames();
-    expect(await lineOf(AGENTS), 'fast drag: one 200 px move').toBe(line - 200);
+    expect(await lineOf(SIDE), 'fast drag: one 200 px move').toBe(line - 200);
     await page.mouse.move(line - 400, cross - 150);
     await frames();
-    expect(await lineOf(AGENTS), 'fast drag: a second 200 px move, away from the middle').toBe(line - 400);
+    expect(await lineOf(SIDE), 'fast drag: a second 200 px move, away from the middle').toBe(line - 400);
     await page.mouse.move(lineAtMax - 60, cross);
     await frames();
-    expect(await lineOf(AGENTS), 'the editor keeps its minimum').toBe(lineAtMax);
+    expect(await lineOf(SIDE), 'the editor keeps its minimum').toBe(lineAtMax);
     await page.mouse.up();
     await page.mouse.move(lineAtMax - 100, cross - 30, { steps: 5 });
-    expect(await lineOf(AGENTS), 'released over Monaco').toBe(lineAtMax);
-    await expectStillUnderHover(AGENTS, 'released over Monaco');
+    expect(await lineOf(SIDE), 'released over Monaco').toBe(lineAtMax);
+    await expectStillUnderHover(SIDE, 'released over Monaco');
 
     // Out of the window with the button down; released out there.
-    line = await lineOf(AGENTS);
+    line = await lineOf(SIDE);
     await page.mouse.move(line, cross);
     await page.mouse.down();
     await page.mouse.move(line + 300, cross, { steps: 6 });
     await page.mouse.move(line + 300, -60, { steps: 6 });
     await frames();
-    expect(await lineOf(AGENTS), 'the pointer above the window: the line still follows it along its axis').toBe(line + 300);
+    expect(await lineOf(SIDE), 'the pointer above the window: the line still follows it along its axis').toBe(line + 300);
     await page.mouse.move(WIDTH + 200, -60, { steps: 4 });
     await page.mouse.up();
     await frames();
-    expect(await lineOf(AGENTS), 'released outside the window').toBe(lineAtMin);
+    expect(await lineOf(SIDE), 'released outside the window').toBe(lineAtMin);
     await page.mouse.move(WIDTH - 100, cross, { steps: 5 });
-    await expectStillUnderHover(AGENTS, 'released outside the window');
+    await expectStillUnderHover(SIDE, 'released outside the window');
 
     expect(await focused(), 'the terminal kept the keyboard through every drag').toContain('xterm-helper-textarea');
     expect(await page.evaluate(() => String(window.getSelection() ?? '')), 'no text was selected by a drag').toBe('');
-    await dragLineTo(AGENTS, WIDTH - AGENTS_DEFAULT_PX - 1);
+    await dragLineTo(SIDE, WIDTH - SIDE_DEFAULT_PX - 1);
   }, 180_000);
 
   it('a drag that loses its release ends with the button — a second button during the drag, the panel hidden under the pressed button — and a hover afterwards moves nothing (the line that fled from the pointer)', async () => {
-    const cross = await crossOf(AGENTS);
+    const cross = await crossOf(SIDE);
 
     // Left down, drag, right down, left up: Chrome drops the pointer capture; the last pointerup is not the separator's.
-    let line = await lineOf(AGENTS);
+    let line = await lineOf(SIDE);
     await page.mouse.move(line, cross);
     await page.mouse.down({ button: 'left' });
     await page.mouse.move(line - 20, cross, { steps: 5 });
     await frames();
-    const stopped = await lineOf(AGENTS);
+    const stopped = await lineOf(SIDE);
     expect(Math.abs(stopped - (line - 20))).toBeLessThanOrEqual(1);
     await page.mouse.down({ button: 'right' });
     await page.mouse.up({ button: 'left' });
     await page.mouse.move(line - 50, cross, { steps: 6 });
     await frames();
-    expect(await lineOf(AGENTS), 'only the right button is down: the line stays where the left one went up').toBe(stopped);
+    expect(await lineOf(SIDE), 'only the right button is down: the line stays where the left one went up').toBe(stopped);
     await page.mouse.up({ button: 'right' });
     await page.mouse.move(line + 100, cross + 50, { steps: 5 });
-    await expectStillUnderHover(AGENTS, 'after a second button ended the drag');
+    await expectStillUnderHover(SIDE, 'after a second button ended the drag');
 
     // The panel hidden from the keyboard while the button is down: the separator leaves the page, the release goes
     // to something else.
-    line = await lineOf(AGENTS);
-    const toggle = page.locator('.app-topbar__toggles button').nth(2);
+    line = await lineOf(SIDE);
+    const toggle = page.getByRole('button', { name: 'Show or hide the session beside the editor' });
     await toggle.focus();
     await page.mouse.move(line, cross);
     await page.mouse.down();
     await page.mouse.move(line - 30, cross, { steps: 6 });
     await frames();
-    const dragged = await lineOf(AGENTS);
+    const dragged = await lineOf(SIDE);
     expect(Math.abs(dragged - (line - 30))).toBeLessThanOrEqual(1);
     await page.keyboard.press('Enter');
-    await page.locator(AGENTS.selector).waitFor({ state: 'detached', timeout: STEP_MS });
+    await page.locator(SIDE.selector).waitFor({ state: 'detached', timeout: STEP_MS });
     await page.mouse.up();
     await page.keyboard.press('Enter');
-    await page.locator(AGENTS.selector).waitFor({ timeout: STEP_MS });
+    await page.locator(SIDE.selector).waitFor({ timeout: STEP_MS });
     await frames();
-    expect(await lineOf(AGENTS), 'the panel is back at the width the drag gave it').toBe(dragged);
-    await expectStillUnderHover(AGENTS, 'after the panel was hidden under the pressed button');
+    expect(await lineOf(SIDE), 'the panel is back at the width the drag gave it').toBe(dragged);
+    await expectStillUnderHover(SIDE, 'after the panel was hidden under the pressed button');
 
-    await dragLineTo(AGENTS, WIDTH - AGENTS_DEFAULT_PX - 1);
+    await dragLineTo(SIDE, WIDTH - SIDE_DEFAULT_PX - 1);
     expect(env.problemsOf(page).pageErrors).toEqual([]);
   }, 180_000);
 
-  it('the terminal still refits: a wider panel gives the PTY more columns, the old width the old columns, and Monaco keeps to its pane', async () => {
-    await waitDriving();
-    const before = await terminalCols();
-    const line = await lineOf(AGENTS);
-    const fitCols = (compare: 'more' | 'fewer', than: number) =>
+  it('the terminal still refits: a taller drawer gives the PTY more rows, the old height the old rows; a wider session column takes the room from Monaco, which keeps to its pane', async () => {
+    await showTerminal();
+    const before = await terminalRows();
+    const drawerLine = await lineOf(DRAWER);
+    const fitRows = (compare: 'more' | 'fewer', than: number) =>
       page.waitForFunction(
         ({ id, compare, than }) => {
-          const cols = Number(document.querySelector<HTMLElement>(`.agents-session[data-session-id="${id}"] .agents-term__viewport`)?.dataset['fitCols']);
-          return compare === 'more' ? cols > than : cols < than;
+          const rows = Number(document.querySelector<HTMLElement>(`.app-shell__view[data-view="code"] .agents-session[data-session-id="${id}"] .agents-term__viewport`)?.dataset['fitRows']);
+          return compare === 'more' ? rows > than : rows < than;
         },
         { id: sessionId, compare, than },
         { timeout: STEP_MS },
       );
 
-    await dragLineTo(AGENTS, line - 240);
-    await fitCols('more', before);
+    await dragLineTo(DRAWER, drawerLine - 170);
+    await fitRows('more', before);
     await waitDriving();
-    const wide = await terminalCols();
-    expect(wide).toBeGreaterThan(before + 20);
-    // Both panes are laid out inside their own boxes: Monaco ends left of the line, the terminal lies right of it.
-    await page.waitForFunction((limit) => (document.querySelector('.editor-doc__monaco .monaco-editor')?.getBoundingClientRect().right ?? Number.POSITIVE_INFINITY) <= limit, line - 240, { timeout: STEP_MS });
-    const terminal = await terminalOf(page, sessionId).evaluate((node) => ({ left: node.getBoundingClientRect().left, right: node.getBoundingClientRect().right }));
-    expect(terminal.left).toBeGreaterThanOrEqual(line - 240 + 1);
-    expect(terminal.right).toBeLessThanOrEqual(WIDTH);
+    const tall = await terminalRows();
+    expect(tall).toBeGreaterThan(before + 5);
+    // Both panes are laid out inside their own boxes: Monaco ends above the line, the terminal lies below it.
+    await page.waitForFunction((limit) => (document.querySelector('.editor-doc__monaco .monaco-editor')?.getBoundingClientRect().bottom ?? Number.POSITIVE_INFINITY) <= limit, drawerLine - 170, { timeout: STEP_MS });
+    const terminal = await terminalOf(page, sessionId).evaluate((node) => ({ top: node.getBoundingClientRect().top, bottom: node.getBoundingClientRect().bottom }));
+    expect(terminal.top).toBeGreaterThanOrEqual(drawerLine - 170 + 1);
+    expect(terminal.bottom).toBeLessThanOrEqual(HEIGHT);
 
-    await dragLineTo(AGENTS, line);
-    await fitCols('fewer', wide);
+    await dragLineTo(DRAWER, drawerLine);
+    await fitRows('fewer', tall);
     await waitDriving();
-    expect(await terminalCols()).toBe(before);
+    expect(await terminalRows()).toBe(before);
+
+    // The session column, 240 px wider: Monaco ends left of the line, the conversation lies right of it.
+    const line = await lineOf(SIDE);
+    await dragLineTo(SIDE, line - 240);
+    await page.waitForFunction((limit) => (document.querySelector('.editor-doc__monaco .monaco-editor')?.getBoundingClientRect().right ?? Number.POSITIVE_INFINITY) <= limit, line - 240, { timeout: STEP_MS });
+    const column = await columnOf(page, 'beside').evaluate((node) => ({ left: node.getBoundingClientRect().left, right: node.getBoundingClientRect().right }));
+    expect(column.left).toBeGreaterThanOrEqual(line - 240 + 1);
+    expect(column.right).toBeLessThanOrEqual(WIDTH);
+    await dragLineTo(SIDE, line);
+    expect(await lineOf(SIDE)).toBe(line);
   }, 180_000);
 
   it('arrow keys on the focused separator resize, a double click comes back to the default width, and this browser remembers the width across a reload', async () => {
-    const separator = page.locator(AGENTS.selector);
+    const separator = page.locator(SIDE.selector);
     expect(await separator.getAttribute('role')).toBe('separator');
     expect(await separator.getAttribute('aria-orientation')).toBe('vertical');
-    const stored = (): Promise<string | null> => page.evaluate(() => window.localStorage.getItem('smurg.pane.right'));
+    const stored = (): Promise<string | null> => page.evaluate(() => window.localStorage.getItem('smurg.pane.side'));
     const valueNow = async (): Promise<number> => Number(await separator.getAttribute('aria-valuenow'));
 
-    const line = await lineOf(AGENTS);
+    const line = await lineOf(SIDE);
     const width = await valueNow();
     expect(width).toBe(WIDTH - line - 1);
     expect(Number(await separator.getAttribute('aria-valuemin'))).toBeLessThan(width);
@@ -364,68 +402,68 @@ describe.skipIf(chrome === null)('the workbench dividers under a real mouse (bui
     await separator.focus();
     await page.keyboard.press('ArrowLeft');
     await frames();
-    expect(await lineOf(AGENTS)).toBe(line - 16);
+    expect(await lineOf(SIDE)).toBe(line - 16);
     expect(await valueNow()).toBe(width + 16);
     await page.keyboard.press('Shift+ArrowRight');
     await frames();
-    expect(await lineOf(AGENTS)).toBe(line - 16 + 64);
+    expect(await lineOf(SIDE)).toBe(line - 16 + 64);
     expect(await stored()).toBe(String(width + 16 - 64));
 
     // A drag, then a double click on the line: the default width again.
-    await dragLineTo(AGENTS, line - 137);
+    await dragLineTo(SIDE, line - 137);
     expect(await stored()).toBe(String(width + 137));
-    const cross = await crossOf(AGENTS);
+    const cross = await crossOf(SIDE);
     await page.mouse.dblclick(line - 137 + 2, cross);
     await frames();
-    expect(await valueNow()).toBe(AGENTS_DEFAULT_PX);
-    expect(await lineOf(AGENTS)).toBe(WIDTH - AGENTS_DEFAULT_PX - 1);
-    expect(await stored()).toBe(String(AGENTS_DEFAULT_PX));
+    expect(await valueNow()).toBe(SIDE_DEFAULT_PX);
+    expect(await lineOf(SIDE)).toBe(WIDTH - SIDE_DEFAULT_PX - 1);
+    expect(await stored()).toBe(String(SIDE_DEFAULT_PX));
 
     // Remembered: the same width after the page is loaded again.
-    await dragLineTo(AGENTS, WIDTH - 555 - 1);
+    await dragLineTo(SIDE, WIDTH - 555 - 1);
     expect(await stored()).toBe('555');
     await page.reload();
     await workspaceOnline(page);
-    await page.locator(AGENTS.selector).waitFor({ timeout: STEP_MS });
-    expect(await lineOf(AGENTS)).toBe(WIDTH - 555 - 1);
-    await expectStillUnderHover(AGENTS, 'after a reload');
+    await page.locator(SIDE.selector).waitFor({ timeout: STEP_MS });
+    expect(await lineOf(SIDE)).toBe(WIDTH - 555 - 1);
+    await expectStillUnderHover(SIDE, 'after a reload');
   }, 180_000);
 
   it('a window too small for the remembered width: the editor keeps its minimum, nothing is pushed out of the window, and the divider still follows the pointer', async () => {
-    // The agents column remembers 900 px; the window then gets 1000 px wide.
-    await dragLineTo(AGENTS, WIDTH - 900 - 1);
-    expect(await lineOf(AGENTS)).toBe(WIDTH - 900 - 1);
+    // The session column remembers 900 px; the window then gets 1000 px wide.
+    await dragLineTo(SIDE, WIDTH - 900 - 1);
+    expect(await lineOf(SIDE)).toBe(WIDTH - 900 - 1);
     await page.setViewportSize({ width: 1000, height: 700 });
     await frames();
-    const line = await lineOf(AGENTS);
+    const line = await lineOf(SIDE);
     expect(line, 'the editor keeps its minimum width').toBe((await lineOf(FILES)) + 1 + MIN_EDITOR_PX);
-    const panel = await page.locator('.agents-panel').first().evaluate((node) => node.getBoundingClientRect().right);
-    expect(panel, 'the agents panel ends inside the window').toBeLessThanOrEqual(1000);
+    const panel = await columnOf(page, 'beside').evaluate((node) => node.getBoundingClientRect().right);
+    expect(panel, 'the session column ends inside the window').toBeLessThanOrEqual(1000);
     // Grabbed where it is shown; it follows from there.
-    const cross = await crossOf(AGENTS);
+    const cross = await crossOf(SIDE);
     await page.mouse.move(line + 2, cross);
     await page.mouse.down();
     await frames();
-    expect(await lineOf(AGENTS)).toBe(line);
+    expect(await lineOf(SIDE)).toBe(line);
     await page.mouse.move(line + 2 + 100, cross, { steps: 5 });
     await frames();
-    expect(await lineOf(AGENTS)).toBe(line + 100);
+    expect(await lineOf(SIDE)).toBe(line + 100);
     await page.mouse.up();
-    await expectStillUnderHover(AGENTS, 'in the small window');
+    await expectStillUnderHover(SIDE, 'in the small window');
     await page.setViewportSize({ width: WIDTH, height: HEIGHT });
     expect(env.problemsOf(page).pageErrors).toEqual([]);
   }, 180_000);
 
-  it('a narrow window with a wide remembered file tree: the agents column keeps its minimum, its divider can be moved by the mouse and by the keys, and each separator reports the size that is shown', async () => {
-    // What a person can have left behind in a wide window: a 640 px file tree and an 1100 px agents column.
+  it('a narrow window with a wide remembered file tree: the session column keeps its minimum, its divider can be moved by the mouse and by the keys, and each separator reports the size that is shown', async () => {
+    // What a person can have left behind in a wide window: a 640 px file tree and an 1100 px session column.
     await page.evaluate(() => {
       window.localStorage.setItem('smurg.pane.sidebar', '640');
-      window.localStorage.setItem('smurg.pane.right', '1100');
+      window.localStorage.setItem('smurg.pane.side', '1100');
     });
     await page.setViewportSize({ width: 1024, height: 768 });
     await page.reload();
     await workspaceOnline(page);
-    await page.locator(AGENTS.selector).waitFor({ timeout: STEP_MS });
+    await page.locator(SIDE.selector).waitFor({ timeout: STEP_MS });
     await frames();
 
     const widthOf = (selector: string): Promise<number> => page.locator(selector).first().evaluate((node) => node.getBoundingClientRect().width);
@@ -433,51 +471,51 @@ describe.skipIf(chrome === null)('the workbench dividers under a real mouse (bui
       const separator = page.locator(divider.selector);
       return { now: Number(await separator.getAttribute('aria-valuenow')), min: Number(await separator.getAttribute('aria-valuemin')), max: Number(await separator.getAttribute('aria-valuemax')) };
     };
-    const agentsWidth = async (): Promise<number> => 1024 - (await lineOf(AGENTS)) - 1;
-    const editorWidth = async (): Promise<number> => (await lineOf(AGENTS)) - (await lineOf(FILES)) - 1;
+    const sideWidth = async (): Promise<number> => 1024 - (await lineOf(SIDE)) - 1;
+    const editorWidth = async (): Promise<number> => (await lineOf(SIDE)) - (await lineOf(FILES)) - 1;
 
-    // The file tree gives way: it leaves the editor's minimum next to it AND the agents column with its line.
+    // The file tree gives way: it leaves the editor's minimum next to it AND the session column with its line.
     const files = await lineOf(FILES);
-    expect(files, 'the file tree leaves room for the editor and the agents column').toBe(1024 - 1 - (MIN_MAIN_PX + 1 + AGENTS_MIN_PX));
+    expect(files, 'the file tree leaves room for the editor and the session column').toBe(1024 - 1 - (MIN_MAIN_PX + 1 + SIDE_MIN_PX));
     expect(await values(FILES)).toEqual({ now: files, min: 160, max: files });
-    // The agents column: never below its minimum, and as wide as the editor's minimum allows.
-    expect(await agentsWidth()).toBeGreaterThanOrEqual(AGENTS_MIN_PX);
+    // The session column: never below its minimum, and as wide as the editor's minimum allows.
+    expect(await sideWidth()).toBeGreaterThanOrEqual(SIDE_MIN_PX);
     expect(await editorWidth()).toBe(MIN_EDITOR_PX);
-    expect(await widthOf('.agents-panel')).toBeGreaterThanOrEqual(AGENTS_MIN_PX);
-    expect(await page.locator('.agents-panel').first().evaluate((node) => node.getBoundingClientRect().right)).toBeLessThanOrEqual(1024);
+    expect(await widthOf(`${CODE} .col--code`)).toBeGreaterThanOrEqual(SIDE_MIN_PX);
+    expect(await page.locator(`${CODE} .col--code`).first().evaluate((node) => node.getBoundingClientRect().right)).toBeLessThanOrEqual(1024);
     // The separator says what is on screen, not what is remembered (1100) or what the props allow (1100).
-    const shown = await agentsWidth();
-    expect(await values(AGENTS)).toEqual({ now: shown, min: AGENTS_MIN_PX, max: shown });
-    expect(shown).toBe(AGENTS_MIN_PX + (MIN_MAIN_PX - MIN_EDITOR_PX));
+    const shown = await sideWidth();
+    expect(await values(SIDE)).toEqual({ now: shown, min: SIDE_MIN_PX, max: shown });
+    expect(shown).toBe(SIDE_MIN_PX + (MIN_MAIN_PX - MIN_EDITOR_PX));
 
     // The mouse moves it: 30 px to the right makes the column 30 px narrower, then back to the limit and no further.
-    const line = await lineOf(AGENTS);
-    const cross = await crossOf(AGENTS);
+    const line = await lineOf(SIDE);
+    const cross = await crossOf(SIDE);
     await page.mouse.move(line + 1, cross);
     await page.mouse.down();
     await page.mouse.move(line + 1 + 30, cross, { steps: 5 });
     await frames();
-    expect(await lineOf(AGENTS)).toBe(line + 30);
+    expect(await lineOf(SIDE)).toBe(line + 30);
     await page.mouse.move(line + 1 + 500, cross, { steps: 5 });
     await frames();
-    expect(await agentsWidth(), 'the column stops at its minimum').toBe(AGENTS_MIN_PX);
+    expect(await sideWidth(), 'the column stops at its minimum').toBe(SIDE_MIN_PX);
     await page.mouse.move(line + 1 + 30, cross, { steps: 5 });
     await page.mouse.up();
     await frames();
-    expect(await lineOf(AGENTS)).toBe(line + 30);
-    expect((await values(AGENTS)).now).toBe(shown - 30);
+    expect(await lineOf(SIDE)).toBe(line + 30);
+    expect((await values(SIDE)).now).toBe(shown - 30);
     // The keys move it too, from the size on screen.
-    await page.locator(AGENTS.selector).focus();
+    await page.locator(SIDE.selector).focus();
     await page.keyboard.press('ArrowLeft');
     await frames();
-    expect(await agentsWidth()).toBe(shown - 30 + 16);
+    expect(await sideWidth()).toBe(shown - 30 + 16);
     await page.keyboard.press('Home');
     await frames();
-    expect(await agentsWidth()).toBe(AGENTS_MIN_PX);
+    expect(await sideWidth()).toBe(SIDE_MIN_PX);
     await page.keyboard.press('End');
     await frames();
-    expect(await agentsWidth()).toBe(shown);
-    await expectStillUnderHover(AGENTS, 'in the narrow window');
+    expect(await sideWidth()).toBe(shown);
+    await expectStillUnderHover(SIDE, 'in the narrow window');
 
     // The file tree's width was only shown smaller, not forgotten: a wide window gives the 640 px back.
     expect(await page.evaluate(() => window.localStorage.getItem('smurg.pane.sidebar'))).toBe('640');
@@ -488,11 +526,11 @@ describe.skipIf(chrome === null)('the workbench dividers under a real mouse (bui
     // Back to the defaults for whatever runs after this test.
     await page.evaluate(() => {
       window.localStorage.removeItem('smurg.pane.sidebar');
-      window.localStorage.removeItem('smurg.pane.right');
+      window.localStorage.removeItem('smurg.pane.side');
     });
     await page.reload();
     await workspaceOnline(page);
-    await page.locator(AGENTS.selector).waitFor({ timeout: STEP_MS });
+    await page.locator(SIDE.selector).waitFor({ timeout: STEP_MS });
     expect(env.problemsOf(page).pageErrors).toEqual([]);
   }, 180_000);
 });

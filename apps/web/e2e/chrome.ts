@@ -3,6 +3,7 @@
 // process. apps/relay's browser tests launch Chrome with the same options (apps/relay/test/chrome.ts).
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { isAbsolute } from 'node:path';
 
 const CHROME_PATHS = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -11,8 +12,17 @@ const CHROME_PATHS = [
   '/opt/google/chrome/chrome',
 ];
 
-/** System Chrome, or null: the browser tests skip themselves without one. */
+/**
+ * System Chrome, or null: the browser tests skip themselves without one.
+ *
+ * `SMURG_TEST_CHROME=<absolute path>` names the browser instead, for a machine that has a Chrome or a Chromium of the
+ * same kind somewhere else (Google ships no Chrome for Linux on arm64: there a "Chrome for Testing" build that is
+ * already on the machine can run the browser tests). Nothing is ever downloaded, and a path that does not exist is
+ * "no Chrome" (the tests skip, loudly), never a silent fall back to another browser.
+ */
 export function systemChrome(): string | null {
+  const named = process.env['SMURG_TEST_CHROME'];
+  if (named !== undefined && named !== '') return isAbsolute(named) && existsSync(named) ? named : null;
   return CHROME_PATHS.find((path) => existsSync(path)) ?? null;
 }
 

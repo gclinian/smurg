@@ -76,6 +76,7 @@ export const t = defineStrings(
     'review.titleReadOnly': 'Merge request from {name}',
     'review.titleDraft': 'Changes on {branch}',
     'review.summary': 'Branch {branch} · commit {commit} · {files}',
+    'review.summaryGone': 'Worktree removed · commit {commit} · {files}',
     'review.fileCount': { one: '{count} file', other: '{count} files' },
     'review.fileCountUnknown': '… files',
     'review.counts': '{additions}, {deletions} in total',

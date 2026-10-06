@@ -22,7 +22,7 @@ import { editorPresenceCss, participantsOf, type Participant } from './presence.
 import { isEmptySelection, type EditorSelection } from './selection.ts';
 import { SendToAgentMenu, useCanSendToAgent, type SendToAgentMenuHandle } from './SendToAgentMenu.tsx';
 import { t } from './strings.ts';
-import { useNow } from './use-now.ts';
+import { useNow } from '../../lib/use-now.ts';
 import {
   classifyOpenFailure,
   droppedMessage,

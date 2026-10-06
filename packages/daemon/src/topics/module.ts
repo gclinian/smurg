@@ -66,7 +66,10 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       stack.add(ctx.bus.on('agent.turn.started', (event) => scheduler.onTurnStarted(event.sessionId)));
       stack.add(
         ctx.bus.on('agent.turn.finished', (event: DaemonEvents['agent.turn.finished']) => {
-          if (!core.started) return;
+          // The host's smurg is stopping: the agent runtime (which stops after this module) ends every running turn as
+          // `interrupted`. That is not a person's stop and nothing may be decided from it now: what the turn left is
+          // looked at when smurg starts again (Scheduler.afterRestart: `stalled` by `restart`, the plan paused).
+          if (!core.started || ctx.stopping.aborted) return;
           const hit = core.bySession(event.sessionId);
           if (hit === null) return;
           if (hit.item === null) void plans.onDiscussionTurn(event).catch(log('discussion turn not handled'));

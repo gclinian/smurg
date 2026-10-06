@@ -431,7 +431,7 @@
   border-bottom: var(--border-width) solid var(--color-border);
   padding: 0 var(--space-3);
   flex: none;
-  /* Many session tabs scroll inside the strip; they never widen the page. */
+  /* Many tabs (open files, terminals) scroll inside the strip; they never widen the page. */
   min-width: 0;
   max-width: 100%;
 }

@@ -19,7 +19,7 @@ import { Badge, Banner, Button, EmptyState, Select, Spinner, cx, useToast } from
 import { IconActivity, IconAgent, IconAlertTriangle, IconFileText, IconTerminal, IconUser } from '../../ui/icons.tsx';
 import { actorLabel, canOpenFileOf, FEED_FILTERS, filterLabel, kindLabel, kindTone, matchesFilter, viaShellCommand, type FeedFilter } from './feed-model.ts';
 import { t } from './strings.ts';
-import { useNow } from './use-now.ts';
+import { useNow } from '../../lib/use-now.ts';
 
 export function ActivityFeed() {
   const { activity, worktrees, sessions, columns } = useStores();

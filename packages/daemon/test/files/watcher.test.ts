@@ -5,7 +5,8 @@ import { mkdir, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, rootRefKey, type PayloadOf } from '@smurg/protocol';
-import type { DaemonEvents } from '../../src/core/interfaces.ts';
+import type { FeatureModule } from '../../src/core/context.ts';
+import type { DaemonEvents, SessionManager } from '../../src/core/interfaces.ts';
 import { createMemoryLogger } from '../../src/core/logger.ts';
 import { ROOT_GONE_TIMEOUT_MS } from '../../src/files/watcher.ts';
 import { waitFor, type TestClient } from '../../src/testing/index.ts';
@@ -109,6 +110,27 @@ describe('file watcher', { timeout: 60_000 }, () => {
     expect(rec.changes().some((c) => c.path.includes('.tmp.'))).toBe(false);
     f.t.ctx.bus.emit('agent.tool.post', { sessionId: 'sess_watch', ownerUserId: 'dev:amy', tool: 'Edit', file: { root: MAIN_ROOT, path: 'src/app.ts' }, ok: true });
     expect(f.t.ctx.services.files.lastModifiedBy({ root: MAIN_ROOT, path: 'src/app.ts' })).toMatchObject({ kind: 'agent', displayName: 'Claude (Amy)' });
+  });
+
+  it("an agent the session registry names is attributed under that name (a topic's agent is `Claude (<topic>)`, as its lock says), never under its owner's", async () => {
+    // What the sessions module's registry answers for a discussion session of the topic "Checkout" that Amy opened.
+    const named: FeatureModule = {
+      name: 'named-sessions',
+      create: () => ({ sessions: { agentActor: (sessionId: string) => (sessionId === 'sess_topic' ? { kind: 'agent', sessionId, ownerUserId: 'dev:amy', displayName: 'Claude (Checkout)' } : null) } as unknown as SessionManager }),
+      register: () => ({ dispose: () => {} }),
+    };
+    ft = await startFilesDaemon({ project: { files: { 'src/app.ts': 'x\n', 'src/other.ts': 'y\n' } }, extraModules: [named], files: { watch: false } });
+    const amy = await ft.t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
+    void amy;
+    const files = ft.t.ctx.services.files;
+    ft.t.ctx.bus.emit('agent.tool.post', { sessionId: 'sess_topic', ownerUserId: 'dev:amy', tool: 'Edit', file: { root: MAIN_ROOT, path: 'src/app.ts' }, ok: true });
+    expect(files.lastModifiedBy({ root: MAIN_ROOT, path: 'src/app.ts' })).toEqual({ kind: 'agent', sessionId: 'sess_topic', ownerUserId: 'dev:amy', displayName: 'Claude (Checkout)' });
+    // A session the registry does not know keeps the default name after its owner.
+    ft.t.ctx.bus.emit('agent.tool.post', { sessionId: 'sess_unknown', ownerUserId: 'dev:amy', tool: 'Edit', file: { root: MAIN_ROOT, path: 'src/other.ts' }, ok: true });
+    expect(files.lastModifiedBy({ root: MAIN_ROOT, path: 'src/other.ts' })).toEqual({ kind: 'agent', sessionId: 'sess_unknown', ownerUserId: 'dev:amy', displayName: 'Claude (Amy)' });
+    // A name gives no right and needs a member: the agent of somebody who is not one is nobody.
+    ft.t.ctx.bus.emit('agent.tool.post', { sessionId: 'sess_topic', ownerUserId: 'dev:gone', tool: 'Edit', file: { root: MAIN_ROOT, path: 'src/other.ts' }, ok: true });
+    expect(files.lastModifiedBy({ root: MAIN_ROOT, path: 'src/other.ts' })).toMatchObject({ displayName: 'Claude (Amy)' });
   });
 
   it('a burst is batched and de-duplicated: few messages, each path at most once per message', async () => {

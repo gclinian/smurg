@@ -48,7 +48,7 @@ describe('permission card: those who may answer', () => {
   it('"Always allow this kind" says what the kind is and asks where: this session, or every session of the topic', async () => {
     const view = await openPermission({}, { role: 'host', session: { purpose: 'item', topicId: 't_1', topicName: 'Checkout', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, attempt: 1, responsible: MEI } });
     const { card } = view;
-    expect(card.textContent).toContain('"This kind" is: commands that start with pnpm test *. It also covers the same command after Claude changes the files it runs.');
+    expect(card.textContent).toContain('"This kind" is: commands that start with pnpm test. It also covers the same command after Claude changes the files it runs.');
     expect(card.textContent).toContain("It is in Mei's inbox (responsible). You can answer too");
     const scope = within(card).getByRole('radiogroup', { name: 'Where "always" applies' });
     expect((within(scope).getByRole('radio', { name: 'in this session' }) as HTMLInputElement).checked).toBe(true);

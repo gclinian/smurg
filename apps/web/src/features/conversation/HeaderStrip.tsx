@@ -12,7 +12,7 @@ import { Avatar, Banner, Button, Chip, Dialog, IconButton, Menu, Spinner, type M
 import { IconFolder, IconGitBranch, IconLock, IconShield, IconStop, IconTrash, IconUsers } from '../../ui/icons.tsx';
 import { modeLabel } from './cards.ts';
 import { useAction, useConversationEnv } from './env.tsx';
-import { openHostRules } from './host-dialogs.ts';
+import { useHostDialogs } from './host-dialogs.ts';
 import { personOf } from './people.ts';
 import { t } from './strings.ts';
 
@@ -20,6 +20,7 @@ type Rules = ResultOf<'session.rules.get'>;
 
 function ModeDialog({ session, onClose }: { session: AgentSession; onClose(): void }) {
   const stores = useStores();
+  const hostDialogs = useHostDialogs();
   const caps = useCapabilities();
   const [rules, setRules] = useState<Rules | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -101,7 +102,7 @@ function ModeDialog({ session, onClose }: { session: AgentSession; onClose(): vo
             {t('mode.host', { count: rules.host.rules?.length ?? 0 })}{' '}
             {caps.isHost ? (
               // The host reads them in the console's own dialog (which also marks them as seen).
-              <button type="button" className="conv-link" onClick={() => openHostRules(stores)}>
+              <button type="button" className="conv-link" onClick={() => hostDialogs.hostRules()}>
                 {t('mode.host.show')}
               </button>
             ) : rules.host.rules !== undefined && rules.host.rules.length > 0 && !showHost ? (

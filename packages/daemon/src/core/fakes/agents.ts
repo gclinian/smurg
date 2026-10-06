@@ -923,6 +923,11 @@ export class FakeHostRules implements HostRules {
     return this.rulesFound.map((entry) => entry.rule);
   }
 
+  /**
+   * Stamped with "now" at every call ON PURPOSE (the real HostRules answers the time the rules were found): the
+   * inbox must keep the first time it saw while a fact lasts (test/inbox/inbox.test.ts "T4.4 a fact keeps the time it
+   * began …" needs a source that moves).
+   */
   attention(): AttentionFact[] {
     if (this.seen || this.rulesFound.length === 0) return [];
     const host = this.env.members?.hostUserId() ?? 'dev:host';

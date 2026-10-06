@@ -69,6 +69,7 @@ export const zhTW = {
   'review.titleReadOnly': '{name} 的合併請求',
   'review.titleDraft': '{branch} 的變更',
   'review.summary': '分支 {branch} · 提交 {commit} · {files}',
+  'review.summaryGone': 'worktree 已移除 · 提交 {commit} · {files}',
   'review.fileCount': '{count} 個檔案',
   'review.fileCountUnknown': '… 個檔案',
   'review.counts': '共{additions}、{deletions}',

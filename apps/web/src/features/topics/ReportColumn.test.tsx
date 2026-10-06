@@ -149,6 +149,12 @@ describe('the report column: asking and telling', () => {
     await setup({ plan: planWith({ changesAsked: { by: MEI, at: new Date().setHours(14, 20, 0, 0) } }) });
     expect(screen.getByText('Mei asked for changes at 14:20. Claude writes a new version of this report when it is done.')).toBeTruthy();
   });
+
+  it('does not say so any more once the report was reviewed after that follow-up', async () => {
+    const asked = new Date().setHours(14, 20, 0, 0);
+    await setup({ plan: planWith({ changesAsked: { by: MEI, at: asked } }), report: { ...REPORT, state: 'reviewed', review: { by: MEI, at: asked + 60_000, version: 1 } } });
+    expect(screen.queryByText(/asked for changes/)).toBeNull();
+  });
 });
 
 describe('the report column: "I\'ve reviewed this"', () => {

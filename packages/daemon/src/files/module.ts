@@ -9,6 +9,7 @@ import type { Actor } from '@smurg/protocol';
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import type { Router } from '../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../core/lifecycle.ts';
+import { isStubService } from '../core/stubs.ts';
 import type { StatfsFunction } from './disk.ts';
 import { DownloadServiceImpl } from './download.ts';
 import { EXPECT_CHANGE_TTL_MS, FileServiceImpl } from './file-service.ts';
@@ -48,8 +49,14 @@ export function filesInstanceOf(ctx: DaemonContext): FilesInstance | null {
 }
 
 function agentActor(ctx: DaemonContext, sessionId: string, ownerUserId: string): Actor | null {
+  // The agent is named as its session names it (`Claude (<topic>)`, `Claude (<work item>)`, `Claude (<opener>)`): the
+  // name the lock and the audit log already carry, so the activity feed never calls the same agent something else. A
+  // session the registry does not know (or no registry) gets the default name after its owner.
+  const sessions = ctx.services.sessions;
+  const registered = isStubService(sessions) ? null : sessions.agentActor(sessionId);
+  const agentName = registered !== null && registered.kind === 'agent' ? registered.displayName : undefined;
   // Only the actor (who to attribute a change to) is read here; no right is taken from this principal.
-  return ctx.members.agentPrincipal(sessionId, ownerUserId, { pathRights: 'member' })?.actor ?? null;
+  return ctx.members.agentPrincipal(sessionId, ownerUserId, { ...(agentName === undefined ? {} : { agentName }), pathRights: 'member' })?.actor ?? null;
 }
 
 export function createFilesModule(options: FilesModuleOptions = {}): FeatureModule {

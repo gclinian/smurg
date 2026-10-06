@@ -1,27 +1,27 @@
 // Acceptance criteria that were covered only in jsdom, now in real browsers on the BUILT app (docs/ACCEPTANCE.md
-// R11.1c, R6, R9, R8.4, and the role "Agent access"): the production build served by the real relay, a
+// R11.1c, R9, R8.4, and the role "Agent access"): the production build served by the real relay, a
 // daemon composing every module on a git repository, system Chrome driven headless (fresh contexts, the relay's dev
 // login). Every step waits for a condition.
+//
+// A member lands in the sessions view: a plain terminal is a column there; the file tree, the editor, the worktree
+// switcher and the conflicts panel are code mode. (A suggestion goes to an agent session, never into a terminal:
+// conversation.smoke.test.ts has that flow.)
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { STEP_MS, explainFailures, joinAs, joinAsHost, openSession, startSmoke, systemChrome, terminalOf, terminalShows, typeInTerminal, waitForTerminalText, waitUntil, workspaceOnline, type SmokeEnv } from './helpers.ts';
-import { isPendingPart } from '../../../../tests/lint/pending-v050.ts';
+import { STEP_MS, columnOf, explainFailures, joinAs, joinAsHost, newSessionDialog, newTerminalDialog, openFromList, openTerminal, rowOf, startSmoke, systemChrome, terminalOf, toCodeMode, toSessionsView, typeInTerminal, waitForTerminalText, waitUntil, workspaceOnline, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
 if (chrome === null) console.warn('[web smoke] SKIPPED: no system Chrome found (playwright-core downloads no browser); install Google Chrome to run it.');
 
 const NOTES = 'line one\nline two\nline three\n';
 
-/** The owner's queue with exactly one suggestion waiting (the section is named after its title and count). */
-const QUEUE_OF_ONE = 'section[aria-label^="Suggestions waiting for your decision (1)"]';
-
 /** What the host confirms before handing out agent access (verbatim). */
 const RISK = 'Anyone with agent access can have an agent run any command on your computer, read the files in your home directory and use your Claude account. Give it only to people you fully trust.';
 
-describe.skipIf(chrome === null)('acceptance in real browsers: console, suggestions, worktree merge, conflicts (built app, real relay)', () => {
+describe.skipIf(chrome === null)('acceptance in real browsers: console, worktree merge, conflicts, agent access (built app, real relay)', () => {
   let env: SmokeEnv;
   let host: Page;
 
@@ -49,18 +49,18 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
     await host.waitForURL(`${env.origin}/w/${env.stack.workspaceId}/console`, { timeout: STEP_MS });
   }
 
-  /** Each test starts with the host on the workbench (a failed test may have left the console open). */
-  async function onWorkbench(): Promise<void> {
+  /** Each test starts with the host on the sessions view (a failed test may have left the console or code mode open). */
+  async function onSessionsView(): Promise<void> {
     if (host.url() === `${env.origin}/w/${env.stack.workspaceId}`) return;
     await host.goto(`${env.origin}/w/${env.stack.workspaceId}`);
     await workspaceOnline(host);
   }
 
   it('the host can terminate any session or remove any member from the console with one click — one click each in the console (the removal after its confirmation), and the other browser shows the result: the session ended with the reason, the removed screen', async () => {
-    await onWorkbench();
+    await onSessionsView();
     const rita = await env.newPage();
     await joinAs(rita, env, 'rita', 'agent');
-    const sessionId = await openSession(rita, 'terminal', 'rita-shell');
+    const sessionId = await openTerminal(rita, 'rita-shell');
 
     await openConsole();
     // One click: the session's row in the console.
@@ -85,59 +85,6 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
     expect(env.stack.daemon.ctx.members.active('dev:rita')).toBeFalsy();
   }, 240_000);
 
-  // Protocol 4: a suggestion goes to an agent session, never into a terminal. This flow waits for the conversation
-  // column (tests/lint/pending-v050.ts).
-  it.skipIf(isPendingPart('web-smoke:acceptance#R6'))('R6 the suggestion flow — a teammate suggests; the owner sees the queue, edits the text and accepts: exactly that text arrives in the owner\'s terminal; a rejected suggestion never arrives; the author sees both outcomes', async () => {
-    await onWorkbench();
-    const sessionId = await openSession(host, 'terminal', 'host-shell');
-    const erin = await env.newPage();
-    await joinAs(erin, env, 'erin', 'editor');
-    await erin.getByRole('tab', { name: /host-shell/ }).first().click();
-
-    // Erin suggests; nothing reaches the session before the owner decides.
-    const composer = erin.getByRole('textbox', { name: /^Suggestion for "host-shell"/ });
-    await composer.waitFor({ timeout: STEP_MS });
-    await composer.fill('echo SUGGESTED-BY-ERIN');
-    await erin.getByRole('button', { name: 'Send suggestion' }).click();
-    const queue = host.getByRole('region', { name: /Suggestions waiting for your decision \(1\)/ }).or(host.locator(QUEUE_OF_ONE));
-    await queue.first().waitFor({ timeout: STEP_MS });
-    expect(await queue.first().textContent()).toContain('echo SUGGESTED-BY-ERIN');
-    expect(await terminalShows(host, sessionId, 'SUGGESTED-BY-ERIN')).toBe(false);
-
-    // The owner edits it before accepting: the edited text, and only it, is pasted into the owner's terminal.
-    await queue.first().getByRole('button', { name: 'Edit and accept' }).click();
-    await queue.first().getByRole('textbox', { name: 'Edit the suggestion' }).fill('echo EDITED-BY-HOST');
-    await queue.first().getByRole('button', { name: 'Accept the edited text' }).click();
-    await waitForTerminalText(host, sessionId, 'echo EDITED-BY-HOST');
-    expect(await terminalShows(host, sessionId, 'SUGGESTED-BY-ERIN')).toBe(false);
-    // The author sees the outcome.
-    await erin.getByText('Your suggestion was accepted with edits').first().waitFor({ timeout: STEP_MS });
-
-    // A second one is rejected: it never arrives; the author is told, with the reason.
-    await composer.fill('echo SHOULD-NEVER-ARRIVE');
-    await erin.getByRole('button', { name: 'Send suggestion' }).click();
-    const second = host.locator(QUEUE_OF_ONE);
-    await second.getByText('echo SHOULD-NEVER-ARRIVE').waitFor({ timeout: STEP_MS });
-    await second.getByRole('button', { name: 'Reject', exact: true }).click();
-    await second.getByRole('textbox', { name: /^Reason for rejecting/ }).fill('not now');
-    await second.getByRole('button', { name: 'Confirm rejection' }).click();
-    await erin.getByText('Your suggestion was rejected').first().waitFor({ timeout: STEP_MS });
-    await erin.getByText('Reason: not now').first().waitFor({ timeout: STEP_MS });
-    // The owner's terminal (and the daemon's own screen of it) never got it.
-    const suggestions = await env.stack.hostClient.conn.request('suggest.list', { sessionId });
-    expect(suggestions.suggestions.map((s) => [s.text, s.status])).toEqual(
-      expect.arrayContaining([
-        ['echo SUGGESTED-BY-ERIN', 'accepted-modified'],
-        ['echo SHOULD-NEVER-ARRIVE', 'rejected'],
-      ]),
-    );
-    expect(await terminalShows(host, sessionId, 'SHOULD-NEVER-ARRIVE')).toBe(false);
-    await typeInTerminal(host, sessionId, '');
-    await typeInTerminal(host, sessionId, 'echo AFTER-THE-REJECTION');
-    await waitForTerminalText(host, sessionId, 'AFTER-THE-REJECTION');
-    expect(await terminalShows(host, sessionId, 'SHOULD-NEVER-ARRIVE')).toBe(false);
-  }, 240_000);
-
   /** The worktree directory whose tree contains `file` (under <share>/.smurg/worktrees/). */
   async function worktreeWith(file: string): Promise<string | null> {
     const base = join(env.stack.root, '.smurg', 'worktrees');
@@ -149,27 +96,33 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
   }
 
   it('R9 merge — a member with agent access works in a worktree and requests a merge; the host reviews the complete diff and approves: the file is in the main workspace for everyone; a rejected request leaves the worktree as it was', async () => {
-    await onWorkbench();
+    await onSessionsView();
     const wes = await env.newPage();
     await joinAs(wes, env, 'wes', 'agent');
-    const sessionId = await openSession(wes, 'terminal', 'wes-work', { worktree: true });
+    const sessionId = await openTerminal(wes, 'wes-work', { worktree: true });
     await typeInTerminal(wes, sessionId, `printf 'from the worktree\\n' > merged-file.txt && echo WROTE-1`);
     await waitForTerminalText(wes, sessionId, 'WROTE-1');
     let worktreeDir: string | null = null;
     await waitUntil(async () => (worktreeDir = await worktreeWith('merged-file.txt')) !== null, STEP_MS, 'the file in the worktree');
 
-    // Wes asks for the merge.
-    await wes.getByRole('tab', { name: 'Merge requests' }).click();
-    await wes.getByRole('button', { name: 'Request merge' }).first().click();
+    // Wes asks for the merge: in code mode, the worktree switcher above the file tree shows his worktree.
+    await toCodeMode(wes);
+    const switcher = wes.getByRole('combobox', { name: 'Viewing' });
+    await switcher.waitFor({ timeout: STEP_MS });
+    await switcher.selectOption({ index: 1 });
+    await wes.getByRole('treeitem', { name: 'merged-file.txt' }).first().waitFor({ timeout: STEP_MS });
+    const askToMerge = wes.getByRole('group', { name: 'Worktree in view' }).getByRole('button', { name: 'Ask the host to merge' });
+    await askToMerge.click();
     const request = wes.getByRole('dialog', { name: /^Ask the host to merge/ });
     await request.waitFor({ timeout: STEP_MS });
     await request.getByRole('textbox', { name: 'Message (optional)' }).fill('add merged-file');
     await request.getByRole('button', { name: 'Send merge request' }).click();
+    await request.waitFor({ state: 'detached', timeout: STEP_MS });
 
-    // The host reviews the whole diff and merges.
-    await host.getByRole('tab', { name: 'Merge requests' }).click();
-    await host.getByRole('button', { name: 'Review', exact: true }).first().click();
-    const review = host.getByRole('dialog', { name: /^Review the merge request from / });
+    // The host: the request is an inbox item; it opens the whole diff in a Changes column, and the host merges there.
+    const asked = host.locator('.sidebar-section--inbox .inbox-item', { hasText: 'wes asks to merge changes of a session' });
+    await asked.locator('.inbox-item__main').click();
+    const review = columnOf(host, /^Changes: /);
     await review.waitFor({ timeout: STEP_MS });
     // The complete diff: the changed file, opened, with its added line.
     await review.getByRole('navigation', { name: 'Changed files' }).getByText('merged-file.txt').first().click();
@@ -177,22 +130,28 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
     await review.getByRole('button', { name: 'Merge into the main workspace' }).click();
     await review.getByRole('button', { name: 'Confirm merge' }).click();
     await waitUntil(async () => (await readFile(join(env.stack.root, 'merged-file.txt'), 'utf8').catch(() => '')) === 'from the worktree\n', STEP_MS, 'the merged file in the main workspace');
-    // Everyone sees it in the main workspace's file tree; the requester is told.
-    const erin = await env.newPage();
-    await joinAs(erin, env, 'fern', 'viewer');
-    await erin.getByRole('treeitem', { name: 'merged-file.txt' }).first().waitFor({ timeout: STEP_MS });
+    // The item left the host's inbox with the decision; the host closes the column of the merged request.
+    await asked.waitFor({ state: 'detached', timeout: STEP_MS });
+    await review.getByRole('button', { name: /^Close column: Changes/ }).click();
+    await review.waitFor({ state: 'detached', timeout: STEP_MS });
+    // Everyone sees it in the main workspace's file tree (code mode); the requester is told.
+    const fern = await env.newPage();
+    await joinAs(fern, env, 'fern', 'viewer');
+    await toCodeMode(fern);
+    await fern.getByRole('treeitem', { name: 'merged-file.txt' }).first().waitFor({ timeout: STEP_MS });
     await wes.getByText('The host merged your merge request into the main workspace.').first().waitFor({ timeout: STEP_MS });
 
     // A second change, rejected: the worktree stays exactly as it was, the main workspace does not get it.
+    await toSessionsView(wes);
     await typeInTerminal(wes, sessionId, `printf 'not wanted\\n' > rejected-file.txt && echo WROTE-2`);
     await waitForTerminalText(wes, sessionId, 'WROTE-2');
     await waitUntil(async () => (await readFile(join(worktreeDir as unknown as string, 'rejected-file.txt'), 'utf8').catch(() => '')) === 'not wanted\n', STEP_MS, 'the second file in the worktree');
     const before = (await readdir(worktreeDir as unknown as string)).sort();
-    await wes.getByRole('button', { name: 'Request merge' }).first().click();
+    await toCodeMode(wes);
+    await askToMerge.click();
     await wes.getByRole('dialog', { name: /^Ask the host to merge/ }).getByRole('button', { name: 'Send merge request' }).click();
-    await host.getByRole('button', { name: 'Review', exact: true }).first().waitFor({ timeout: STEP_MS });
-    await host.getByRole('button', { name: 'Review', exact: true }).first().click();
-    const review2 = host.getByRole('dialog', { name: /^Review the merge request from / });
+    await asked.locator('.inbox-item__main').click();
+    const review2 = columnOf(host, /^Changes: /);
     await review2.getByText('rejected-file.txt').first().waitFor({ timeout: STEP_MS });
     await review2.getByRole('button', { name: 'Reject', exact: true }).click();
     await review2.getByRole('textbox', { name: /^Reason for rejecting/ }).fill('not this one');
@@ -207,6 +166,7 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
   it('R8.4 when an agent changes a file through Bash while someone is editing it, what the person typed is not lost; the overlapping part appears in the conflict panel — a real conflict: the disk is written while a person types', async () => {
     const cara = await env.newPage();
     await joinAs(cara, env, 'cara', 'editor');
+    await toCodeMode(cara);
     await cara.getByRole('treeitem', { name: 'notes.md' }).first().click();
     await cara.locator('.editor-doc__monaco[data-bound]').waitFor({ timeout: STEP_MS });
     await cara.locator('.editor-doc__monaco .view-lines').getByText('line two').waitFor({ timeout: STEP_MS });
@@ -234,63 +194,52 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
     expect(((await cara.locator('.editor-doc__monaco .view-lines').textContent()) ?? '').replace(/ /g, ' ')).toContain('line two typed by cara');
   }, 240_000);
 
-  it("agent access — a member with the role opens a session of their own (it runs as the host: the host's computer and user, no sandbox) and types straight into the HOST's session; an editor's suggestion to that session is accepted by the member; the editor only watches", async () => {
-    await onWorkbench();
-    const hostSession = await openSession(host, 'terminal', 'host-typed');
+  it("agent access — a member with the role opens a session of their own (a terminal: it runs as the host, on the host's computer and as the host's user, no sandbox) and types straight into the HOST's session; an editor only watches", async () => {
+    await onSessionsView();
+    const hostSession = await openTerminal(host, 'host-typed');
     const abe = await env.newPage();
     await joinAs(abe, env, 'abe', 'agent');
 
-    // The new-session dialog: one line on where it runs; nothing about a sandbox, a login or an API key.
-    await abe.getByRole('button', { name: 'New session' }).first().click();
-    const dialog = abe.getByRole('dialog', { name: 'New session' });
-    await dialog.waitFor({ timeout: STEP_MS });
-    expect(await dialog.getByTestId('new-session-runs-as').textContent()).toBe("This session runs on the host's computer, and the agent uses the host's Claude account.");
-    expect(await dialog.textContent()).not.toMatch(/sandbox|API key|subscription/i);
-    await dialog.getByRole('button', { name: 'Cancel' }).click();
-    await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
-    const abeSession = await openSession(abe, 'terminal', 'abe-shell');
+    // The two dialogs behind "New": one line each on where it runs; nothing about a sandbox, a login or an API key.
+    const agentDialog = await newSessionDialog(abe);
+    expect(await agentDialog.getByTestId('new-session-runs-as').textContent()).toBe("This session runs on the host's computer, and the agent uses the host's Claude account.");
+    expect(await agentDialog.textContent()).not.toMatch(/sandbox|API key|subscription/i);
+    await agentDialog.getByRole('button', { name: 'Cancel' }).click();
+    await agentDialog.waitFor({ state: 'detached', timeout: STEP_MS });
+    const terminalDialog = await newTerminalDialog(abe);
+    expect(await terminalDialog.getByTestId('new-session-runs-as').textContent()).toBe("This terminal runs on the host's computer, as the host.");
+    expect(await terminalDialog.textContent()).not.toMatch(/sandbox|API key|subscription/i);
+    await terminalDialog.getByRole('button', { name: 'Cancel' }).click();
+    await terminalDialog.waitFor({ state: 'detached', timeout: STEP_MS });
+    const abeSession = await openTerminal(abe, 'abe-shell');
     expect(env.stack.daemon.ctx.services.sessions.get(abeSession)).toMatchObject({ kind: 'terminal', status: 'running', openedBy: { userId: 'dev:abe' }, root: { kind: 'main' } });
     expect(env.stack.daemon.ctx.services.sessions.get(abeSession)).not.toHaveProperty('sandboxed');
     await typeInTerminal(abe, abeSession, 'echo ABE-RUNS-AS-$(id -un)');
     await waitForTerminalText(abe, abeSession, `ABE-RUNS-AS-${userInfo().username}`);
-    // Everyone sees who opened it.
-    await host.getByRole('tab', { name: /abe-shell \(abe\)/ }).first().waitFor({ timeout: STEP_MS });
+    // Everyone sees the terminal in the session list, and who opened it on its column.
+    await openFromList(host, 'abe-shell', { side: true });
+    await columnOf(host, 'abe-shell').locator('.agents-summary').getByText('By abe', { exact: true }).waitFor({ timeout: STEP_MS });
 
-    // Abe types into the HOST's session: no "Watch only", the keystrokes reach the host's PTY.
-    await abe.getByRole('tab', { name: /host-typed/ }).first().click();
+    // Abe types into the HOST's terminal: no "Watch only", the keystrokes reach the host's PTY.
+    await openFromList(abe, 'host-typed', { side: true });
     await abe.locator(`.agents-session[data-session-id="${hostSession}"] .agents-term__viewport[data-phase="live"]`).waitFor({ timeout: STEP_MS });
     expect(await abe.locator(`.agents-session[data-session-id="${hostSession}"]`).getByText('Watch only').count()).toBe(0);
     expect(await terminalOf(abe, hostSession).getAttribute('data-readonly')).toBeNull();
     await typeInTerminal(abe, hostSession, 'echo TYPED-BY-ABE-$((6*7))');
     await waitForTerminalText(host, hostSession, 'TYPED-BY-ABE-42');
 
-    // An editor watches the same session read-only.
+    // An editor watches the same terminal read-only, and has no way to open one.
     const eve = await env.newPage();
     await joinAs(eve, env, 'eve', 'editor');
-    await eve.getByRole('tab', { name: /host-typed/ }).first().click();
+    await rowOf(eve, 'host-typed').click();
     const eveSession = eve.locator(`.agents-session[data-session-id="${hostSession}"]`);
     await eveSession.getByText('Watch only').waitFor({ timeout: STEP_MS });
     expect(await terminalOf(eve, hostSession).getAttribute('data-readonly')).toBe('true');
-    // …and suggests; Abe (not the host) accepts it. Protocol 4: suggestions go to agent sessions, never into a
-    // terminal, so this step waits for the conversation column (tests/lint/pending-v050.ts).
-    if (!isPendingPart('web-smoke:acceptance#agent-access-suggestion')) {
-      const composer = eve.getByRole('textbox', { name: /^Suggestion for "host-typed"/ });
-      await composer.fill('echo FROM-EVE-ACCEPTED-BY-ABE');
-      await eve.getByRole('button', { name: 'Send suggestion' }).click();
-      const queue = abe.locator(QUEUE_OF_ONE);
-      await queue.getByText('echo FROM-EVE-ACCEPTED-BY-ABE').waitFor({ timeout: STEP_MS });
-      expect(await terminalShows(host, hostSession, 'FROM-EVE-ACCEPTED-BY-ABE')).toBe(false);
-      await queue.getByRole('button', { name: 'Accept', exact: true }).click();
-      await waitForTerminalText(host, hostSession, 'echo FROM-EVE-ACCEPTED-BY-ABE');
-      await eve.getByText('Your suggestion was accepted').first().waitFor({ timeout: STEP_MS });
-      const suggestions = await env.stack.hostClient.conn.request('suggest.list', { sessionId: hostSession });
-      expect(suggestions.suggestions.map((s) => [s.text, s.status])).toEqual([['echo FROM-EVE-ACCEPTED-BY-ABE', 'accepted']]);
-    }
     for (const page of [abe, eve]) expect(env.problemsOf(page).pageErrors).toEqual([]);
   }, 300_000);
 
   it('the console names the roles Agent access / Editor / Viewer and shows the risk of agent access before an invite or a role change applies (nothing is sent before the host confirms)', async () => {
-    await onWorkbench();
+    await onSessionsView();
     const vic = await env.newPage();
     await joinAs(vic, env, 'vic', 'viewer');
     await openConsole();
@@ -329,8 +278,7 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
     await waitUntil(async () => env.stack.daemon.ctx.members.active('dev:vic')?.role === 'agent', STEP_MS, 'vic to have agent access');
     // Vic's page follows (a reconnect with the new role): the new-session dialog now opens a session.
     await vic.getByRole('banner', { name: 'Workspace' }).getByText('Agent access').first().waitFor({ timeout: STEP_MS });
-    await vic.getByRole('button', { name: 'New session' }).first().click();
-    await vic.getByRole('dialog', { name: 'New session' }).getByTestId('new-session-runs-as').waitFor({ timeout: STEP_MS });
+    await (await newSessionDialog(vic)).getByTestId('new-session-runs-as').waitFor({ timeout: STEP_MS });
     expect(env.problemsOf(vic).pageErrors).toEqual([]);
   }, 240_000);
 });

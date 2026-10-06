@@ -1,4 +1,4 @@
-// A conflict between a work item and the main workspace (ARCHITECTURE §5.7 "A conflict", §5.10 `plan.item.resolve`):
+// A conflict between a work item and the main workspace (ARCHITECTURE §7.8 "A conflict", §5.10 `plan.item.resolve`):
 // smurg merges, the agent resolves, nobody's agent runs git. The worktree's work is a commit S on its branch (the
 // caller made it: the working tree is clean against it); this merges the main workspace's HEAD into the working tree
 // WITHOUT committing, lists the files git could not merge and ends git's own merge state, leaving the files and their

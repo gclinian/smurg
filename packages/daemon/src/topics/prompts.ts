@@ -1,5 +1,5 @@
 // PURE, fixed English: the role prompts of a topic's sessions and every message smurg itself sends to an agent
-// (ARCHITECTURE §5.10 "What an agent is told"; design §4.1). Text for a model is never translated.
+// (ARCHITECTURE §7.8 "What an agent is told"; design §4.1). Text for a model is never translated.
 //
 // THE RULE of this file (security S20): nothing people or agents wrote is in a role prompt or under smurg's header. A
 // role prompt contains only values the daemon checked by pattern (the slug, an item id, a branch name, the tag). A

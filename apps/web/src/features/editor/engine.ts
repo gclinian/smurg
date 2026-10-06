@@ -43,7 +43,8 @@ export interface EditorHandle {
 }
 
 export interface EditorEngine {
-  createEditor(container: HTMLElement, options: { readonly theme: ResolvedTheme; readonly ariaLabel: string }): EditorHandle;
+  /** `wrap`: long lines continue on the next line instead of running out of the pane (prose: view-model.ts `wrapsLines`). */
+  createEditor(container: HTMLElement, options: { readonly theme: ResolvedTheme; readonly ariaLabel: string; readonly wrap?: boolean }): EditorHandle;
   /** One model per replica: dispose the previous one of the same file first (V6). */
   createModel(text: string, file: FileRef): ModelHandle;
   /** y-monaco: keeps model and Y.Text in step and renders remote selections (classes yRemoteSelection-<clientID>). */

@@ -1,24 +1,12 @@
 // Non-blocking connection indicators: the status pill in the top bar and the banner that stays on screen while the
 // host is offline or the relay is unreachable. Neither ever blocks the UI (SPEC §9: "Host offline", not a frozen
 // screen).
-import { useEffect, useState } from 'react';
 import type { ConnectionState } from '@smurg/protocol/client';
 import { describeConnection, secondsUntil, type ConnectionView } from '../../lib/connection/status.ts';
+import { useNow } from '../../lib/use-now.ts';
 import { tConn } from '../../strings/connection.ts';
 import { Banner, Tooltip, cx } from '../../ui/index.ts';
 import { IconCloudOff, IconPlugOff } from '../../ui/icons.tsx';
-
-/** Re-renders every `intervalMs` while `active` (retry countdowns). */
-export function useNow(active: boolean, intervalMs = 1000): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(timer);
-  }, [active, intervalMs]);
-  return now;
-}
 
 export function ConnectionStatusPill({ state }: { state: ConnectionState }) {
   const view = describeConnection(state);
@@ -46,7 +34,8 @@ function detailWithRetry(view: ConnectionView, now: number): string {
  */
 export function ConnectionBanner({ state }: { state: ConnectionState }) {
   const view = describeConnection(state);
-  const now = useNow(view.retryAt !== null);
+  // The retry countdown: the clock runs only while one is shown.
+  const now = useNow(1_000, view.retryAt !== null);
   if (view.blocking || view.kind === 'online' || view.kind === 'idle') return null;
   if (view.kind === 'host-offline') {
     return (

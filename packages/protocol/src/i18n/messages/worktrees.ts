@@ -265,10 +265,6 @@ export const worktrees = {
     en: () => 'The merge failed and the main workspace was not changed. Check the state of the main workspace, then try again.',
     'zh-TW': () => '合併失敗，主工作區沒有被修改；請檢查主工作區的狀態後再試',
   }),
-  'merge.diffNeedsRequest': message({}, {
-    en: () => 'Only the host and members with agent access can view this diff.',
-    'zh-TW': () => '只有主人和「可使用 agent」的成員可以查看這個 diff',
-  }),
   'merge.unrelatedHistories': message({}, {
     en: () => 'This worktree shares no history with the main workspace, so it cannot be merged.',
     'zh-TW': () => '這個 worktree 與主工作區沒有共同的歷史，無法合併',

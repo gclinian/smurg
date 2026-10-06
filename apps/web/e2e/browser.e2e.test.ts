@@ -1,6 +1,7 @@
 // @vitest-environment node
 // Acceptance tests of the web UI in a real browser (docs/ACCEPTANCE.md R1.3b, R3.2b): the real relay and daemon, the
 // app on the Vite dev server, system Chrome (headless, fresh contexts). Skipped when no system Chrome is installed.
+// A member lands in the sessions view (`/w/:id`); code mode (`/w/:id/code`) is the workbench with the drawer.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { BrowserContext, Page } from 'playwright-core';
 import type { ViteDevServer } from 'vite';
@@ -122,9 +123,18 @@ describe.skipIf(systemChrome() === null)('web UI in a real browser (relay + daem
       console.info(`[R1.3b] web UI showed "Host offline" ${shownAfter} ms after the host paused`);
       expect(shownAfter).toBeLessThan(10_000);
       expect(await page.getByRole('banner', { name: 'Workspace' }).textContent()).toContain('Host offline');
-      // Not frozen: the workbench still responds.
+      // Not frozen: the sessions view still responds (the inbox section folds and unfolds)…
+      const inbox = page.getByRole('region', { name: 'Inbox' }).getByRole('button', { name: /^Inbox/ });
+      expect(await inbox.getAttribute('aria-expanded')).toBe('true');
+      await inbox.click();
+      expect(await inbox.getAttribute('aria-expanded')).toBe('false');
+      await inbox.click();
+      // …and so does code mode, opened while the host is away: the banner stays, the drawer's tabs can be chosen.
+      await page.getByRole('banner', { name: 'Workspace' }).getByRole('link', { name: 'Code mode' }).click();
+      await page.waitForURL(`${env.webOrigin}/w/${env.stack.workspaceId}/code`, { timeout: 60_000 });
       await page.getByRole('tab', { name: 'Conflicts' }).click();
       expect(await page.getByRole('tab', { name: 'Conflicts' }).getAttribute('aria-selected')).toBe('true');
+      expect(await page.getByTestId('host-offline-banner').count()).toBe(1);
     } finally {
       env.stack.resumeHost();
     }

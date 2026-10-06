@@ -66,13 +66,27 @@ export function Columns({ columns, onWeights, onEqualize, onCapacity, onVisible,
   const weights = columns.map((column) => column.weight);
   const layout: StripLayout | null = available === null ? null : layoutStrip(weights, { available, min: minWidth, separator: COLUMN_SEPARATOR_PX });
   const widths = dragWidths !== null && dragWidths.length === columns.length ? dragWidths : (layout?.widths ?? null);
-  const view = widths === null || available === null ? null : viewStrip(widths, scrollLeft, available);
+  // A strip that does not overflow cannot be scrolled, whatever was last heard from a scroll event.
+  const overflowing = layout?.overflow === true;
+  const view = widths === null || available === null ? null : viewStrip(widths, overflowing ? scrollLeft : 0, available);
+
+  // The browser clamps (or resets) the scroll position when the content gets narrower: a column was closed, the
+  // window grew, the left column was folded away. No scroll event tells; read it back after every change of layout.
+  const widthsKey = widths === null ? '' : widths.join(',');
+  useLayoutEffect(() => {
+    const node = strip.current;
+    if (node) setScrollLeft(node.scrollLeft);
+  }, [available, widthsKey, overflowing]);
 
   // The strip's own box follows the window and the left column, never its columns: observing it cannot feed back.
   useLayoutEffect(() => {
     const node = strip.current;
     if (!node) return;
-    const observed = (value: number): void => setAvailable(value > 0 ? Math.floor(value) : null);
+    // A strip that is hidden (its view is the other mode) reports no width: it keeps the layout it had, so nothing
+    // jumps for a frame when it is shown again.
+    const observed = (value: number): void => {
+      if (value > 0) setAvailable(Math.floor(value));
+    };
     observed(node.clientWidth);
     if (typeof ResizeObserver === 'undefined') {
       const read = (): void => observed(node.clientWidth);

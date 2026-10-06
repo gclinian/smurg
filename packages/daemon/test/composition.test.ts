@@ -135,12 +135,21 @@ describe('composition', () => {
 });
 
 describe('DEFAULT_FEATURE_MODULES', () => {
-  // The order is explained next to the list in src/daemon.ts: providers first, the control socket last. While the
-  // release is being built, the modules of fixtures/pending-v050.ts are not in the list yet.
+  // The order is explained next to the list in src/daemon.ts: providers first, the control socket last. It is the
+  // release's list (DESIGN §9.3) minus what fixtures/pending-v050.ts still waits for: nothing, since the integration.
   const AREAS = RELEASE_MODULES.filter((name) => PENDING_MODULES[name] === undefined);
 
   it('lists every feature module exactly once, in dependency order', () => {
     const names = DEFAULT_FEATURE_MODULES.map((module) => module.name);
+    // Transcribed (not computed from the fixture): the release composition.
+    expect(names).toEqual(['locks', 'hooks', 'files', 'docs', 'worktree', 'sessions', 'conversation', 'suggest', 'topics', 'inbox', 'local']);
+    // What each module needs to be up before it starts (and still up while it stops): src/daemon.ts.
+    const before = (first: string, then: string): void => expect(names.indexOf(first), `${first} before ${then}`).toBeLessThan(names.indexOf(then));
+    for (const user of ['conversation', 'suggest', 'topics', 'inbox']) before('sessions', user);
+    before('conversation', 'suggest');
+    for (const provider of ['worktree', 'conversation', 'suggest']) before(provider, 'topics');
+    for (const source of ['conversation', 'suggest', 'topics', 'worktree']) before(source, 'inbox');
+    expect(names.at(-1)).toBe('local');
     for (const area of AREAS) expect(names.filter((name) => name === area), area).toHaveLength(1);
     expect(names).toEqual(AREAS);
     expect(new Set(DEFAULT_FEATURE_MODULES).size).toBe(DEFAULT_FEATURE_MODULES.length);

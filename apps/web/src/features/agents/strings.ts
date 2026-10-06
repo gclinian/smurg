@@ -1,8 +1,8 @@
 import { defineStrings } from '../../strings/catalog.ts';
 import { zhTW } from './strings.zh-TW.ts';
 
-// Namespace of the agents feature (session tabs, xterm panel, new-session dialog, attach dialog). English defines the
-// keys; strings.zh-TW.ts holds the same keys in Traditional Chinese.
+// Namespace of the agents feature (plain terminals: the terminal column, the Terminal tab of code mode's drawer, the
+// New session / New terminal dialog, the attach dialog). English defines the keys; strings.zh-TW.ts holds the same keys in Traditional Chinese.
 export const t = defineStrings(
   'agents',
   {

@@ -25,9 +25,9 @@ export interface SessionsViewProps {
   setSwitch(which: LayoutSwitch, on: boolean): void;
 }
 
-/** Where F6 lands, in order: the two sections of the left column, then each column's title. */
+/** Where F6 lands, in order: the two sections of the left column (its first button while it is a rail), then each column's title. */
 function regionStops(root: HTMLElement): HTMLElement[] {
-  return [...root.querySelectorAll<HTMLElement>('.sidebar-section .ui-collapsible__toggle, .sidebar-rail button, [data-region-focus]')].filter(
+  return [...root.querySelectorAll<HTMLElement>('.sidebar-section .ui-collapsible__toggle, .sidebar-rail__button button, [data-region-focus]')].filter(
     (element) => element.closest('[hidden]') === null,
   );
 }

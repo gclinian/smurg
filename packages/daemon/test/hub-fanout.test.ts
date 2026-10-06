@@ -30,11 +30,9 @@ function channelOf(daemon: TestDaemon, client: TestClient): string {
   return channelId;
 }
 
-/** The in-memory relay's host socket of the interactive tunnel (its `bufferedAmount` is a plain field). */
-function hostSocket(daemon: TestDaemon): { bufferedAmount: number } {
-  const socket = (daemon.relay as unknown as { hosts: Map<string, { bufferedAmount: number }> }).hosts.get('ws');
-  if (!socket) throw new Error('no host socket');
-  return socket;
+/** What the in-memory relay's host socket of the interactive tunnel reports as not yet sent (a slow link). */
+function setBuffered(daemon: TestDaemon, bytes: number): void {
+  if (!daemon.relay.setHostBuffered('ws', bytes)) throw new Error('no host socket');
 }
 
 describe('volatile messages (session.delta)', () => {
@@ -99,14 +97,13 @@ describe('volatile messages (session.delta)', () => {
     amy.conn.on('session.delta', (payload) => deltas.push(payload.text));
     amy.conn.on('session.events', (payload) => events.push(...payload.events.map((event) => event.seq)));
     const channelId = channelOf(t, amy);
-    const socket = hostSocket(t);
 
-    socket.bufferedAmount = VOLATILE_SKIP_BUFFERED_BYTES; // at the limit: still sent
+    setBuffered(t, VOLATILE_SKIP_BUFFERED_BYTES); // at the limit: still sent
     expect(t.ctx.hub.sendToChannels([channelId], 'session.delta', delta('a'))).toBe(1);
-    socket.bufferedAmount = VOLATILE_SKIP_BUFFERED_BYTES + 1;
+    setBuffered(t, VOLATILE_SKIP_BUFFERED_BYTES + 1);
     expect(t.ctx.hub.sendToChannels([channelId], 'session.delta', delta('b', 1))).toBe(0);
     expect(t.ctx.hub.sendToChannels([channelId], 'session.events', { sessionId: 'ses_a', events: [line(3)] })).toBe(1);
-    socket.bufferedAmount = 0;
+    setBuffered(t, 0);
     expect(t.ctx.hub.sendToChannels([channelId], 'session.delta', delta('c', 2))).toBe(1);
     await waitFor(() => deltas.length === 2 && events.length === 1, { what: 'what was sent' });
     await new Promise((resolve) => setTimeout(resolve, 30));

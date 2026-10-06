@@ -1,4 +1,4 @@
-// Work that stopped and has no card (ARCHITECTURE §5.11 "Attention"): the facts the topics module knows, derived from
+// Work that stopped and has no card (ARCHITECTURE §7.9 "Attention"): the facts the topics module knows, derived from
 // its state like everything else in the inbox. The inbox copies them into items as they are; `id` is stable, so an
 // item keeps its key (`attention:<subject>:<id>`) while the fact lasts.
 //

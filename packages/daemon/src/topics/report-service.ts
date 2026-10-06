@@ -1,4 +1,4 @@
-// ReportService (ARCHITECTURE §5.10 "The result report"; design §4.5). A report is a file the agent writes in its
+// ReportService (ARCHITECTURE §7.8 "The result report"; design §4.5). A report is a file the agent writes in its
 // worktree, `specs/<slug>/reports/<item id>.md`, so it is part of the item's change and reaches the main workspace
 // with the merge. It COUNTS only when the agent's own `check_report` answered ok for exactly that content in this
 // session (security S21): nobody can plant one. At the end of every completed turn of an execution session:
@@ -180,8 +180,12 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     const registered = this.core.report(topicId, itemId);
 
     if (event.outcome !== 'completed') {
-      // Stopped by a person, or ended with an error: stalled at once, without a nudge.
-      if (registered === null) this.stall(topic, item, event.outcome === 'interrupted' ? 'stopped' : 'error');
+      // Stopped by a person, or ended with an error: stalled at once, without a nudge. Not so when the turn ended
+      // because the session's PROCESS is gone (the runtime ends the turn with `error` and then says `failed`): that
+      // item is `failed` ("Try again" resumes the same session), whichever of the two this module hears first.
+      const agents = this.ctx.services.agents;
+      const processFailed = item.state === 'failed' || (!isStubService(agents) && agents.get(event.sessionId)?.status === 'failed');
+      if (registered === null && !processFailed) this.stall(topic, item, event.outcome === 'interrupted' ? 'stopped' : 'error');
       else this.core.publish(topicId);
       return;
     }

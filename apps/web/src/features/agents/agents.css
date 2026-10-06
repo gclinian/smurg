@@ -1,10 +1,14 @@
 /* Plain terminals: the Terminal tab of code mode's drawer, a terminal's column in the sessions view, the dialogs.
    Tokens from src/ui/tokens.css. */
 
-.agents-panel .ui-panel__body {
+/* The Terminal tab of the drawer: no header bar of its own (the drawer is short; its tab names the panel). */
+.agents-panel {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
+  background: var(--color-surface-1);
 }
 
 .agents-empty {
