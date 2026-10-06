@@ -242,6 +242,34 @@ describe('Columns: measured', () => {
     expect(scrollTo).toHaveBeenCalledWith({ left: 1152, behavior: 'auto' });
   });
 
+  it('a view that comes back with its current column out of view brings it into view once, when the strip is first measured', () => {
+    // A reload restores the open columns and which one has the focus; nothing asks to reveal it.
+    const view = mount({ width: 1151, columns: items(4), current: 'c4' });
+    const strip = document.querySelector('.ui-columns') as HTMLElement;
+    expect(strip.scrollLeft).toBe(1152);
+    fireEvent.scroll(strip);
+    expect(last(view.onVisible)).toContain('c4');
+    // Only then: a scroll by hand is not undone by a later render.
+    strip.scrollLeft = 0;
+    fireEvent.scroll(strip);
+    view.rerender({ columns: items(4), current: 'c4' });
+    expect(strip.scrollLeft).toBe(0);
+  });
+
+  it('a current column that is in view is left where it is; a strip measured later (its view was hidden) places it then', () => {
+    mount({ width: 1151, columns: items(4), current: 'c2' });
+    expect((document.querySelector('.ui-columns') as HTMLElement).scrollLeft).toBe(0);
+    document.body.innerHTML = '';
+    mount({ width: 0, columns: items(4), current: 'c4' });
+    const hidden = document.querySelector('.ui-columns') as HTMLElement;
+    expect(hidden.scrollLeft).toBe(0);
+    stripWidth = 1151;
+    act(() => {
+      window.dispatchEvent(new Event('resize'));
+    });
+    expect(hidden.scrollLeft).toBe(1152);
+  });
+
   it('when the columns fit again (the window grew, a column was closed) nothing is "out of view" any more', () => {
     const view = mount({ width: 1151, columns: items(4) });
     const strip = document.querySelector('.ui-columns') as HTMLElement;

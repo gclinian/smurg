@@ -194,7 +194,7 @@ describe('the workspace shell: commands', () => {
     await dispatch('openColumn', { target: { kind: 'session', sessionId: 's_cart' } });
     expect(columnNames()).toEqual(['1 · Cart API']);
     await dispatch('openColumn', { target: { kind: 'spec', topicId: 't1' }, side: true });
-    expect(columnNames()).toEqual(['1 · Cart API', 'Spec']);
+    expect(columnNames()).toEqual(['1 · Cart API', 'Spec · Checkout redesign']);
     await userEvent.click(screen.getByText('Fix flaky CI test'));
     // Replaces what the focused column showed.
     expect(columnNames()).toEqual(['1 · Cart API', 'Fix flaky CI test']);
@@ -210,6 +210,30 @@ describe('the workspace shell: commands', () => {
     await dispatch('openColumn', { target: { kind: 'plan', topicId: 't1' } });
     await dispatch('openColumn', { target: { kind: 'plan', topicId: 't2' }, side: true });
     expect(stores.columns.getState().columns.map((column) => [column.id, column.pinned])).toEqual([['plan:t1', true], ['plan:t2', false]]);
+  });
+
+  it('a plan column that is open when its topic starts executing is pinned at that moment: the first row click opens beside it', async () => {
+    const planned: Topic = { ...TOPIC, phase: 'plan' };
+    const { dispatch, stores, conn } = await open({ topics: [planned] });
+    await dispatch('openColumn', { target: { kind: 'session', sessionId: 's_disc' } });
+    await dispatch('openColumn', { target: { kind: 'plan', topicId: 't1' }, side: true });
+    const pinned = (): boolean | undefined => stores.columns.getState().columns.find((column) => column.id === 'plan:t1')?.pinned;
+    expect(pinned()).toBe(false);
+    // Start is pressed with the plan on screen (by this member or by anyone else).
+    act(() => conn.emit('topic.updated', { topic: TOPIC }));
+    expect(pinned()).toBe(true);
+    expect(stores.columns.getState().focusedId).toBe('plan:t1');
+    await userEvent.click(screen.getByText('1 · Cart API'));
+    expect(stores.columns.getState().columns.map((column) => column.id)).toEqual(['session:s_disc', 'plan:t1', 'session:s_cart']);
+    // Only that moment pins: unpinned by hand, it stays so while the topic goes on executing.
+    act(() => stores.columns.setPinned('plan:t1', false));
+    act(() => conn.emit('topic.updated', { topic: { ...TOPIC, plan: { ...TOPIC.plan, started: 1 } } }));
+    expect(pinned()).toBe(false);
+    // A topic that executes again after it was complete (one more work item) pins its plan again.
+    act(() => conn.emit('topic.updated', { topic: { ...TOPIC, phase: 'complete' } }));
+    expect(pinned()).toBe(false);
+    act(() => conn.emit('topic.updated', { topic: TOPIC }));
+    expect(pinned()).toBe(true);
   });
 
   it('from code mode, openColumn comes back to the sessions view; a console section is its own page', async () => {
@@ -338,11 +362,11 @@ describe('the workspace shell: overlays, focus, empty states, notices', () => {
     await userEvent.keyboard('{F6}');
     expect(document.activeElement).toBe(title('1 · Cart API'));
     await userEvent.keyboard('{F6}');
-    expect(document.activeElement).toBe(title('Plan'));
+    expect(document.activeElement).toBe(title('Plan · Checkout redesign'));
     await userEvent.keyboard('{F6}');
     expect(document.activeElement).toBe(inbox);
     await userEvent.keyboard('{Shift>}{F6}{/Shift}');
-    expect(document.activeElement).toBe(title('Plan'));
+    expect(document.activeElement).toBe(title('Plan · Checkout redesign'));
     // From inside a region F6 goes on from that region.
     act(() => screen.getByRole('treeitem', { name: /^1 · Cart API/ }).focus());
     await userEvent.keyboard('{F6}');
@@ -408,7 +432,7 @@ describe('the workspace shell: overlays, focus, empty states, notices', () => {
     act(() => conn.emit('topic.updated', { topic: { ...TOPIC, phase: 'complete' } }));
     const toast = (await screen.findByText('Checkout redesign: every item is reviewed. The topic is complete.')).closest('.ui-toast') as HTMLElement;
     await userEvent.click(within(toast).getByRole('button', { name: 'Open' }));
-    expect(columnNames()).toEqual(['Plan']);
+    expect(columnNames()).toEqual(['Plan · Checkout redesign']);
     // A topic somebody else started.
     act(() => conn.emit('topic.updated', { topic: buildTopic({ id: 't9', name: 'Dark mode', createdBy: { userId: 'dev:mei', displayName: 'Mei' } }) }));
     expect(await screen.findByText('A new topic was started: Dark mode')).toBeTruthy();

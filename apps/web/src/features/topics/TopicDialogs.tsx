@@ -9,7 +9,7 @@ import { selectPlan } from '../../lib/stores/topics.ts';
 import { useCommand, useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
 import { Banner, Button, Dialog, Input, useToast } from '../../ui/index.ts';
-import { isMerged } from './model.ts';
+import { isMerged, reviewStands } from './model.ts';
 import { useTopic } from './shared.tsx';
 import { t } from './strings.ts';
 
@@ -100,7 +100,7 @@ export function ArchiveTopicDialog({ topicId, onClose }: TopicDialogProps) {
   useEffect(() => stores.topics.ensurePlan(topicId), [stores, topicId]);
   if (topic === undefined) return null;
 
-  const notMerged = (plan?.items ?? []).filter((item) => item.inPlan && item.state === 'reviewed' && item.merge !== undefined && !isMerged(item));
+  const notMerged = (plan?.items ?? []).filter((item) => item.inPlan && reviewStands(item) && item.merge !== undefined && !isMerged(item));
   const nameOf = (itemId: string): string => {
     const item = plan?.items.find((candidate) => candidate.id === itemId);
     return item === undefined ? itemId : itemLabel(item);

@@ -42,6 +42,22 @@ export function startCount(preflight: Pick<StartPreflight, 'startsNow' | 'waits'
   return preflight.startsNow.length + preflight.waits.length;
 }
 
+/**
+ * The number the dialog's title says, which is the number on the plan's Start button that opened it: the items that
+ * start now; when everything a Start arms waits for another item, how many it arms.
+ */
+export function startHeadCount(preflight: Pick<StartPreflight, 'startsNow' | 'waits'>): number {
+  return preflight.startsNow.length > 0 ? preflight.startsNow.length : preflight.waits.length;
+}
+
+/** What the toast says after a Start: how many sessions started, and how many items start by themselves later. */
+export function startedNotice(preflight: Pick<StartPreflight, 'startsNow' | 'waits'>): { title: string; description?: string } {
+  const now = preflight.startsNow.length;
+  const later = preflight.waits.length;
+  if (now === 0) return { title: t('start.done.onlyLater', { count: later }) };
+  return { title: t('start.done', { count: now }), ...(later > 0 ? { description: t('start.done.later', { count: later }) } : {}) };
+}
+
 export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'items'>, selfUserId: string | null): StartLine[] {
   const lines: StartLine[] = [];
   const push = (id: StartLineId, text: string, tone: StartLine['tone'] = 'plain'): void => {

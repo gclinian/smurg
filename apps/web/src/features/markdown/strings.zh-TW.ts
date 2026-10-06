@@ -8,4 +8,5 @@ export const zhTW = {
   'task.open': '未完成',
   'code.label': '程式碼',
   'code.labelLang': '程式碼（{lang}）',
+  'plain.note': '以原文顯示：這段文字太長或層次太深，無法排版。',
 } as const;

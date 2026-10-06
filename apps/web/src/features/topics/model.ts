@@ -22,7 +22,7 @@ import { reportOutcomeRef } from '@smurg/protocol/i18n';
 import { intlTag } from '@smurg/protocol/locale';
 import { itemLabel } from '../../lib/columns/describe.ts';
 import { renderWireText } from '../../lib/errors.ts';
-import { formatAnd, formatDateTime, formatDuration, formatRole } from '../../lib/format.ts';
+import { formatAge, formatAnd, formatDateTime, formatRole } from '../../lib/format.ts';
 import { getLocale } from '../../lib/locale.ts';
 import type { Tone } from '../../ui/index.ts';
 import { t } from './strings.ts';
@@ -125,6 +125,12 @@ export function itemNames(plan: Pick<PlanInfo, 'items'>, ids: readonly string[])
 }
 
 export const isMerged = (item: Pick<WorkItem, 'merge'>): boolean => item.merge?.status === 'merged';
+/**
+ * The item's review stands: it was reviewed and its report still is. A report that changed after its review, or can no
+ * longer be read, asks for the review again while the item keeps the state `reviewed`: the host's smurg counts
+ * "N of M reviewed" and decides the topic's phase by the report, and so does everything here.
+ */
+export const reviewStands = (item: Pick<WorkItem, 'state' | 'report'>): boolean => item.state === 'reviewed' && (item.report === undefined || item.report.state === 'reviewed');
 /** The item has run at least once (it has a session, a report or an attempt). */
 export const wasStarted = (item: Pick<WorkItem, 'state' | 'attempt' | 'armed'>): boolean => item.state !== 'not-started' || item.attempt > 0;
 
@@ -191,7 +197,10 @@ export function itemBadge(item: WorkItem, plan: Pick<PlanInfo, 'items' | 'slots'
     case 'waiting': {
       const items = byId(plan);
       // Everything it waits for was reviewed: only the host's merge is missing.
-      const onlyMerge = waits.length > 0 && waits.every((id) => items.get(id)?.state === 'reviewed');
+      const onlyMerge = waits.length > 0 && waits.every((id) => {
+        const dependency = items.get(id);
+        return dependency !== undefined && reviewStands(dependency);
+      });
       return { text: t(onlyMerge ? 'badge.waitsMerge' : 'badge.waits', { items: itemNumbers(plan, waits) }), tone: 'neutral', bar: 'none', waitsForPerson: false };
     }
     case 'queued':
@@ -210,7 +219,7 @@ export function itemBadge(item: WorkItem, plan: Pick<PlanInfo, 'items' | 'slots'
     case 'done':
       return item.report === undefined ? { text: t('badge.done'), tone: 'success', bar: 'report', waitsForPerson: false } : reportBadge(item, item.report);
     case 'reviewed': {
-      if (item.report?.state === 'changed-after-review' || openChangesAsked(item) !== undefined) return reportBadge(item, item.report as ReportSummary);
+      if (!reviewStands(item) || openChangesAsked(item) !== undefined) return reportBadge(item, item.report as ReportSummary);
       const reviewed = 'reviewed' as const;
       if (item.merge?.status === 'merged') return { text: t('badge.merged'), tone: 'success', bar: reviewed, waitsForPerson: false };
       if (item.merge?.status === 'conflict') return { text: t('badge.conflict'), tone: 'danger', bar: reviewed, waitsForPerson: true };
@@ -277,7 +286,7 @@ export interface PlanSummary {
   readonly waitPerson: number;
   readonly running: number;
   readonly notStarted: number;
-  /** Reviewed items whose change the host has not merged. */
+  /** Items whose review stands and whose change the host has not merged. */
   readonly reviewedNotMerged: readonly WorkItem[];
 }
 
@@ -301,12 +310,12 @@ export function planSummary(plan: Pick<PlanInfo, 'items' | 'slots'>, sessionOf: 
       else waitsOthers += 1;
     }
     if (item.state === 'not-started' || item.state === 'waiting' || item.state === 'queued') notStarted += 1;
-    if (item.state === 'reviewed') {
+    if (reviewStands(item)) {
       reviewed += 1;
       if (isMerged(item)) merged += 1;
       else if (item.merge !== undefined) reviewedNotMerged.push(item);
     }
-    if (item.state === 'done') toReview += 1;
+    if (item.state === 'done' || (item.state === 'reviewed' && item.report?.state === 'changed-after-review')) toReview += 1;
     if (badge.waitsForPerson && item.state !== 'not-started') waitPerson += 1;
     else if (item.state === 'running') running += 1;
   }
@@ -324,7 +333,10 @@ export function progressLine(summary: PlanSummary): string {
   return parts.join(t('sep'));
 }
 
-/** "Ian 1 question (6 minutes) · Mei 1 permission request (40 seconds)" from `PlanInfo.waitingFor`; '' when nobody is waited for. */
+/**
+ * "Ian 1 question (6 min) · Mei 1 permission request (40 sec)" from `PlanInfo.waitingFor`; '' when nobody is waited
+ * for. The time is the age every other place prints for the same wait (the card, the status bar, the inbox row).
+ */
 export function waitingForLine(plan: Pick<PlanInfo, 'waitingFor'>, now: number): string {
   return plan.waitingFor
     .map((entry) => {
@@ -332,7 +344,7 @@ export function waitingForLine(plan: Pick<PlanInfo, 'waitingFor'>, now: number):
       if (entry.questions > 0) what.push(t('waiting.questions', { count: entry.questions }));
       if (entry.permissions > 0) what.push(t('waiting.permissions', { count: entry.permissions }));
       if (entry.reports > 0) what.push(t('waiting.reports', { count: entry.reports }));
-      return t('waiting.person', { name: entry.user.displayName, what: formatAnd(what), time: formatDuration((now - entry.since) / 1000) });
+      return t('waiting.person', { name: entry.user.displayName, what: formatAnd(what), time: formatAge(entry.since, now) });
     })
     .join(t('sep'));
 }

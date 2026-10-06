@@ -1170,8 +1170,8 @@ log holds a `card` event where one appeared; the entity travels in `session.watc
 | `session.delta` | d→c | `{ sessionId: string, turnId: string, blockId: string, offset: number, text: string, thinking?: true, parentToolUseId?: string }` | to live watchers: text of a block that is streaming; `offset` = UTF-16 units of the block before `text`; `parentToolUseId`: the subagent it belongs to. A delta the hub could not send is sent again with the next one, from the same offset; a client that still sees a gap stops appending to that block and waits for its `text` event (it may watch again, at most once per session in `DELTA_REWATCH_MIN_MS`). `thinking`: the agent thinks; such a delta has `text` '' and `offset` 0 and makes no block; it is repeated once per `DELTA_COALESCE_MS` while the agent thinks and ends with the next delta or event of that turn. **Volatile** |
 | `session.message.send` [session.drive] | c→d | `{ sessionId: string, text: string, mentions?: string[], origin?: 'composer' \| 'selection' }` → `{ messageId: string }` | a message to the agent (stored and sent as `agentText(text).text`). The session is not ended and its topic not archived; a `failed` or parked session is started by it |
 | `session.interrupt` [session.drive] | c→d | `{ sessionId: string }` → `{}` | "Stop": ends the running turn; open cards are withdrawn (`stopped`) |
-| `session.retry` [session.drive] | c→d | `{ sessionId: string }` → `{ session: AgentSession }` | starts a `failed` session again; after three failed starts in a row the host only (`retryHostOnly`) |
-| `session.restart` [session.drive] | c→d | `{ sessionId: string }` → `{ session: AgentSession }` | "Restart this session's agent now" (the action `restart-agent` of a notice): the session gives up its process now when idle, else at its next idle moment; the next message starts it again with fresh launch files. The session is not ended and its topic not archived. Audited `session.restart` |
+| `session.retry` [session.drive] | c→d | `{ sessionId: string }` → `{ session: AgentSession }` | starts a `failed` session again; after three failed starts in a row the host only (`retryHostOnly`). For the failed session of a work item that the plan holds as failed it does what `plan.item.retry` does: the same session resumes and smurg tells the agent to go on (started again alone, the agent would sit idle with its item shown as running) |
+| `session.restart` [session.drive] | c→d | `{ sessionId: string }` → `{ session: AgentSession }` | "Restart this session's agent now" (the action `restart-agent` of a notice): the session gives up its process now when idle, else at its next idle moment; the next message starts it again with fresh launch files. The session is not ended and its topic not archived. Audited `session.restart`. Refused with `conflict` (text `claudeConfig.confirmNeeded`, `detail.reason: 'confirm-needed'`) while the session runs without its folder's project settings and the host has not confirmed them: the agent would only start again as it was, so the member is told what has to happen first |
 | `session.responsible.set` [session.drive] | c→d | `{ sessionId: string, userId: string \| null }` → `{ session: AgentSession }` | the person must hold `discuss` (`responsible.notEligible`); null: nobody is assigned |
 | `session.mode.set` [session.drive] | c→d | `{ sessionId: string, mode: 'ask-all' \| 'ask-commands' }` → `{ session: AgentSession }` | refused for a discussion session (`session.mode.fixed`) |
 | `session.rules.get` [session.view] | c→d | `{ sessionId: string }` → `{ rules: RememberedRule[], host: { state: 'none' \| 'applied', rules?: string[] } }` | the session's and its topic's always-allowed kinds; `host.state` says whether the host's own Claude Code allow rules were found (they APPLY: every session runs as the host), `host.rules` (masked) only for the host and members with `session.drive` |
@@ -1195,7 +1195,7 @@ type Question = {
 type PermissionRequest = {
   id; sessionId; askedAt; status: 'open' | 'allowed' | 'denied' | 'withdrawn';
   tool: string; what: 'command' | 'edit' | 'fetch' | 'outside' | 'other';
-  command?; file?: FileRef; change?: { text }; url?; input?;                           // what it wants to do (masked)
+  command?; file?: FileRef; change?: { text }; url?; input?;                           // what it wants to do, WHOLE: never shortened, never masked (a request too large to show is denied)
   outside?: true; path?: string;                                                       // `path`: the host's copy only
   root: RootRef; reason?: string;                                                      // Claude Code's own English reason
   hostOnly: boolean;
@@ -2235,7 +2235,8 @@ the host's uncommitted `settings.local.json` is simply absent there, so a worktr
   hooks and its MCP server keep working with that flag (verified). A decision applies at a session's next process
   start: when the host decides, the sessions of that root give up their process at their next idle moment (at once
   when idle) and the next message starts them with the new decision; a member with agent access can ask for the
-  same per session (`session.restart`).
+  same per session (`session.restart`). While the folder's settings are still not confirmed that request is refused
+  (`conflict`, `claudeConfig.confirmNeeded`): a restart would change nothing.
 - **While sessions run.** Claude Code loads a changed project settings file into running sessions at once. The
   daemon therefore watches the three files and the recorded scripts of its roots; when the content changes to one
   that is not trusted it interrupts and parks the sessions of that root (`parkRoot`, line
@@ -2577,7 +2578,10 @@ event and the phase is `spec`. People edit the file as a document of the main ro
 After a discussion turn that changed the file, `Topic.spec.lastAgentChange` points at the edit's tool card and names
 who asked. `Topic.handEdits` lists every change of the two files that was not the discussion agent's since the last
 Start, per write path (typing in the editor, `file.write`, an upload, a rename or move into place, a delete, and
-`'outside'`: an outside program or another agent session), from the bus event `activity.recorded`.
+`'outside'`: an outside program or another agent session), from the bus event `activity.recorded`, and, for typing
+in the shared editor, from `doc.human-edit` / `doc.saved`: the activity feed has only one `human.edit` entry per
+person and file per minute, so a person who types again within that minute (after a Start, for example) is still
+recorded as having edited by hand at every save.
 
 **The plan** (`plan-format.ts`, pure; `plan-service.ts`). `specs/<slug>/PLAN.md` is free Markdown with ONE block
 between two marker lines; the block is what the daemon reads and also what people read and edit:
@@ -3236,10 +3240,10 @@ As built before 0.5.0 and still true (details in `apps/web/README.md`):
 | Integration | `packages/daemon/test` | daemon + in-memory transport + headless client. The core's own suites (`test/*.test.ts`: authorization over every request × every role, the control socket, composition, wire texts, audit, rates, hub fan-out, the member teardown, PathGuard's rules, the fakes) and one folder per module, each composing its REAL module with in-memory fakes of the others (`core/fakes`, §7.2) |
 | Agent runtime with the stand-in | `packages/daemon/test/sessions`, `test/hooks`, `test/conversation`, `test/topics`, `test/inbox`, `test/mcp`, `test/worktree` | the real modules against the **stand-in `claude`** (below): a session that asks, edits, waits, stops, parks, fails and resumes on cue; questions, votes and permission decisions by role; the plan format, the split, the scheduler with its pins, reports, real git; the inbox per kind × role × who is responsible; the tool gate's table; `agent-replay.test.ts` (the lines recorded from Claude Code 2.1.288 through the normaliser and the real runner, every resulting event validated against the registry) |
 | Real Claude Code, fake API | `packages/daemon/test/sessions/agent-claude-real.test.ts`, `test/hooks/claude-e2e.test.ts`, `claude-bash.test.ts`, `claude-failmodes.test.ts` | the **real-Claude suite** (below): the real `claude` binary of the verified version against the mock Anthropic API. Skipped, loudly, on a machine without it |
-| Module integration | `packages/daemon/test/integration` | the REAL modules together (`createTestDaemon` without `modules` = DEFAULT_FEATURE_MODULES): docs + locks + hooks through the real `smurg hook` entry; people and the agent on the spec in turns (`spec-coedit`); suggestions into a conversation (`suggest-conversation`); work items in worktrees (`worktree-items`); files + locks + docs; the real CLI's status / attach / stop on the control socket |
+| Module integration | `packages/daemon/test/integration` | the REAL modules together (`createTestDaemon` without `modules` = DEFAULT_FEATURE_MODULES): docs + locks + hooks through the real `smurg hook` entry; people and the agent on the spec in turns (`spec-coedit`); suggestions into a conversation (`suggest-conversation`); work items in worktrees (`worktree-items`); files + locks + docs; the real CLI's status / attach / stop on the control socket. And the release composition with nothing faked but the model (the stand-in `claude` through the real runner, the real `smurg hook` and `smurg mcp`, real git), four people as SDK clients: `release-composition` (a free agent session end to end, also after a restart) and `release-flow.session` / `.topic` / `.restart` / `.members` (a free session; one topic from the discussion to the archive; a restart of the daemon and a killed agent process; a member removed, a lost discussion, a free session in a worktree) |
 | Acceptance (E2E) | `tests/e2e` | real relay (local workerd) + daemon + headless clients: `r1.*` … `r11.*`, `workspace.test.ts`, `device-login.test.ts`, with `r2.agent-role.test.ts` for the `agent` role |
 | Browser | `apps/web/e2e` (playwright-core + system Chrome) | join flow, "Host offline", key-mismatch warning (Vite dev server) |
-| Built app | `apps/web/e2e/smoke` (own vitest project; at most 2 files at once, in the full gate after every other project) | `vite build` once, served by the real relay's Worker assets (`startLocalRelay({ webDist })`), a daemon with every module, system Chrome through `chromeLaunchOptions()` (§0 rule 4; never anyone's own browser), agents played by the stand-in `claude`. Per feature: the columns and their dividers under a real mouse, the left column, a conversation (and its rendering budget: a transcript of 5,000 events opens within 300 ms of scripting, a 60 s stream keeps every frame under 16 ms), topics, the console. Across features: the whole flow with four browser contexts (topic → question and votes → spec → plan → Start → permission → report → review → merge), the same path in Traditional Chinese with a Chinese topic name, and what 0.4.0 had: join → type → disk, two-browser co-editing, the agent-lock banner, a terminal running as the host, the console's one-click terminate / kick (R11.1c), a worktree merge (R9), a real conflict (R8.4), an upload resumed after a dropped transfer socket (R7.3), a logged-out page load with a clean console, the terminal size, the two languages, the separators of the workbench |
+| Built app | `apps/web/e2e/smoke` (own vitest project; at most 2 files at once, in the full gate after every other project) | `vite build` once, served by the real relay's Worker assets (`startLocalRelay({ webDist })`), a daemon with every module, system Chrome through `chromeLaunchOptions()` (§0 rule 4; never anyone's own browser), agents played by the stand-in `claude`. Per feature: the columns and their dividers under a real mouse, the left column, a conversation (and its rendering budget: a transcript of 5,000 events opens within 300 ms of scripting, a 60 s stream keeps every frame under 16 ms), topics, the console. Across features: the whole flow with four browser contexts (topic → question and votes → spec → plan → Start → permission → report → review → merge → a conflict → the mode switch → a restart of the host's smurg → a killed agent process), the short path in Traditional Chinese with a Chinese topic name, one short pass with the REAL `claude` against the fake API (`flow.claude.smoke`, only when `SMURG_TEST_CLAUDE_BIN` names the binary), and what 0.4.0 had: join → type → disk, two-browser co-editing, the agent-lock banner, a terminal running as the host, the console's one-click terminate / kick (R11.1c), a worktree merge (R9), a real conflict (R8.4), an upload resumed after a dropped transfer socket (R7.3), a logged-out page load with a clean console, the terminal size, the two languages, the dividers of code mode. `SMURG_TEST_CHROME=/absolute/path` names the browser on a machine whose Chrome is somewhere else (the Linux arm64 VM: a Chrome for Testing that is already there); nothing is ever downloaded |
 
 **The stand-in `claude`** (`packages/daemon/src/testing/fake-claude.mjs`, `installFakeClaude(dir, scenario)` of
 `@smurg/daemon/testing`). A stand-in for the executable that speaks the same bidirectional stream-json control
@@ -3305,7 +3309,8 @@ document has its zh-TW counterpart with the same numbered sections; both changel
 many entries each, `[Unreleased]` included), `docs-quotes.test.ts` (a list of catalog messages the guides and the
 product page must quote as rendered, and the reverse: every quoted text of a guide is catalog text or a listed
 exception), `pinned-locale.test.ts` (a test that starts the CLI or the installer, opens a browser context or fetches
-a relay page names its language; only `*.zh-TW.test.tsx` pins zh-TW in the web unit tests),
+a relay page names its language; only `*.zh-TW.test.tsx` pins zh-TW in the web unit tests, and the app shell and
+every folder of `apps/web/src/features` has such a suite),
 `acceptance-refs.test.ts` (every `file` › "title" reference of `docs/ACCEPTANCE.md` is a test that exists) and
 `pending.test.ts` (the list of what was still open while the packages of 0.5.0 were built in parallel,
 `pending-v050.ts`, and its callers stay in step; with `SMURG_RELEASE_GATE=1` that list, and the daemon's two lists of
@@ -3479,8 +3484,13 @@ Known limits of 0.5.0 (agent conversations, topics, the inbox). They are the ris
   deliberated, reads the whole conversation again at the host's cost; "Restart discussion" starts a fresh one.
 - **The shared relay and streaming.** The stream is sized for the shared relay's free plan (text deltas every
   200 ms, event batches every 100 ms, deltas only to columns on screen: about 15 frames per second for a member with
-  three streaming sessions on screen), but the daily allowance was not measured on Cloudflare: one busy workspace can
-  use a large part of it. Protocol 4 makes the release order matter again: the shared relay's web build refuses a
+  three streaming sessions on screen). Measured on a local relay (2026-10-07, the web-smoke project's flow smoke,
+  the stand-in `claude`): the owner's whole flow with four browsers took 114 s and the relay received 4,527 and
+  4,558 WebSocket frames in two runs, about 2,400 a minute for the four, about 600 per person and minute
+  (`docs/RELEASING.md` §8 has what was counted and what it means against the plan's allowance). Not measured: the
+  usage as Cloudflare counts it on the deployed relay, and a real model, which writes more text per turn than the
+  stand-in; one busy workspace can use a large part of the day's allowance. Protocol 4 makes the release order
+  matter again: the shared relay's web build refuses a
   daemon it does not know, so it is redeployed from the release commit before 0.5.0 is published (below).
 - **Agent conversations are in the browser only.** `smurg attach` attaches to terminal sessions; a member who works
   from the CLI can list agent sessions and cannot read or message one (§8). Slash commands of Claude Code are not

@@ -45,6 +45,7 @@ export const zhTW = {
   'detail.conflict': '合併已中止，主工作區沒有任何改變。發生衝突的檔案：',
   'detail.conflictHost': '接下來你可以：在自己的終端機裡手動合併並解決衝突（例如 git merge refs/smurg/merge/{id}）；先在主工作區調整這些檔案，再重新嘗試合併；或拒絕這個請求並說明原因。',
   'detail.conflictRequester': '主人會決定怎麼處理：在自己的電腦上解決衝突後合併，或拒絕這個請求。',
+  'detail.conflictItem': '這是工作項目的變更，所以它的 agent 可以解決衝突：主人和「可使用 agent」的成員，可以在這個項目的結果報告，或計畫裡它的那一列，按「請 agent 解決衝突」。',
   'action.review': '審核',
   'action.viewDiff': '查看差異',
   'mine.title': '我的 worktree',
@@ -65,7 +66,7 @@ export const zhTW = {
   'text.invalidLine': '原因只能有一行，而且不能有控制字元或文字方向控制字元。',
 
   // ---- review (host; the requester may look read-only)
-  'review.title': '審核{name}的合併請求',
+  'review.title': '審核 {name} 的合併請求',
   'review.titleReadOnly': '{name} 的合併請求',
   'review.titleDraft': '{branch} 的變更',
   'review.summary': '分支 {branch} · 提交 {commit} · {files}',

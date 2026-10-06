@@ -3,7 +3,7 @@ import { buildPlan, buildWorkItem, FAKE_HASH } from '@smurg/protocol/testing';
 import { msg } from '@smurg/protocol/i18n';
 import type { StartPreflight } from '@smurg/protocol';
 import { describe, expect, it } from 'vitest';
-import { START_WAITS_SHOWN, startCount, startLines } from './start-model.ts';
+import { START_WAITS_SHOWN, startCount, startHeadCount, startLines, startedNotice } from './start-model.ts';
 
 const IAN = { userId: 'dev:host', displayName: 'Ian' };
 const MEI = { userId: 'dev:mei', displayName: 'Mei' };
@@ -57,6 +57,17 @@ describe('the Start dialog’s lines', () => {
     expect(textOf(lines, 'offline')).toEqual(['Ken is offline right now: their items start and wait for them.']);
     expect(lines.find((line) => line.id === 'offline')?.tone).toBe('warn');
     expect(startCount(preflight())).toBe(3);
+  });
+
+  it('one number for the title and the plan\'s button: what starts now, else what the Start arms; the notice says what happened', () => {
+    expect(startHeadCount(preflight())).toBe(2);
+    expect(startedNotice(preflight())).toEqual({ title: 'Started 2 items.', description: '1 more item starts by itself later.' });
+    const all = preflight({ startsNow: ['cart-api'], waits: [] });
+    expect(startHeadCount(all)).toBe(1);
+    expect(startedNotice(all)).toEqual({ title: 'Started 1 item.' });
+    const waiting = preflight({ startsNow: [], waits: [{ itemId: 'a', for: ['x'] }, { itemId: 'b', for: ['x'] }] });
+    expect(startHeadCount(waiting)).toBe(2);
+    expect(startedNotice(waiting)).toEqual({ title: '2 items start by themselves later.' });
   });
 
   it('names the commit, as "you" for the caller, and what in the folder is NOT committed', () => {

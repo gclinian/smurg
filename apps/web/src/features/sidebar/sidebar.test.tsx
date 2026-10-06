@@ -108,6 +108,78 @@ describe('the inbox', () => {
     expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'report', topicId: 'tp_1', itemId: 'cart-api' }, from: 'inbox', side: true });
   });
 
+  it('a merge row of a work item opens its result report; a request without a report opens Changes', async () => {
+    const plan = buildPlan({
+      items: [
+        buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', state: 'reviewed', sessionId: 'sess_a', attempt: 1, report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr_2', status: 'conflict', ready: false } }),
+        buildWorkItem({ id: 'pay', number: 2, title: 'Payment form', state: 'running', sessionId: 's_pay', attempt: 1 }),
+      ],
+    });
+    const view = await mountSidebar({
+      plans: { tp_1: plan },
+      inbox: [
+        buildInboxItem('merge', { at: ago(4) }),
+        buildInboxItem('merge', { key: 'merge:mr_2', target: { kind: 'changes', requestId: 'mr_2' }, ready: false, conflict: true, at: ago(3) }),
+        buildInboxItem('merge', { key: 'merge:mr_3', target: { kind: 'changes', requestId: 'mr_3' }, ready: false, from: { kind: 'user', ...MEI }, itemId: 'pay', item: { number: 2, title: 'Payment form' }, at: ago(2) }),
+        buildInboxItem('merge', { key: 'merge:mr_4', target: { kind: 'changes', requestId: 'mr_4' }, ready: false, from: { kind: 'user', ...MEI }, topicId: undefined, itemId: undefined, item: undefined, at: ago(1) }),
+      ],
+    });
+    const open = async (key: string): Promise<void> => userEvent.click(within(document.querySelector(`[data-inbox-key="${key}"]`) as HTMLElement).getAllByRole('button')[0] as HTMLElement);
+    const report = { kind: 'report', topicId: 'tp_1', itemId: 'cart-api' };
+    // Reviewed and ready: the report, where the host reads the outcome and merges.
+    await open('merge:mr_1');
+    expect(view.opened).toHaveBeenLastCalledWith({ target: report, from: 'inbox' });
+    // The merge stopped on a conflict: the report again ("Ask the agent to resolve" is there).
+    await open('merge:mr_2');
+    expect(view.opened).toHaveBeenLastCalledWith({ target: report, from: 'inbox' });
+    // A work item nobody reported on yet, and a free session's worktree: the bare changes.
+    await open('merge:mr_3');
+    expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'changes', requestId: 'mr_3' }, from: 'inbox' });
+    await open('merge:mr_4');
+    expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'changes', requestId: 'mr_4' }, from: 'inbox' });
+    // The rows that lead to the report are the current ones while the focused column shows it.
+    act(() => void view.stores.columns.open({ kind: 'report', topicId: 'tp_1', itemId: 'cart-api' }));
+    const current = (key: string): boolean => (document.querySelector(`[data-inbox-key="${key}"]`) as HTMLElement).hasAttribute('data-current');
+    expect(['merge:mr_1', 'merge:mr_2', 'merge:mr_3', 'merge:mr_4'].map(current)).toEqual([true, true, false, false]);
+  });
+
+  it('a merge row asks for its topic\'s plan itself, and a click that comes before the plan waits for it', async () => {
+    // "Search filters" has no plan row to unfold: nothing but the inbox row asks for its plan.
+    const view = await mountSidebar();
+    const answers: (() => void)[] = [];
+    const plan = buildPlan({ topicId: 'tp_2', items: [buildWorkItem({ id: 'filters', number: 1, title: 'Filters', state: 'reviewed', report: buildReportSummary({ state: 'reviewed' }) })] });
+    view.conn.handle('plan.get', () => new Promise((resolve) => answers.push(() => resolve({ plan }))));
+    const conflict = buildInboxItem('merge', { key: 'merge:mr_9', target: { kind: 'changes', requestId: 'mr_9' }, ready: false, conflict: true, topicId: 'tp_2', itemId: 'filters', item: { number: 1, title: 'Filters' } });
+    act(() => view.conn.emit('inbox.changed', { upsert: [conflict], remove: [] }));
+    expect(view.conn.requestsOf('plan.get').map((request) => request.payload.topicId)).toContain('tp_2');
+    await userEvent.click(within(inboxSection()).getByRole('button', { name: /Merge request: 1 · Filters/ }));
+    expect(view.opened).not.toHaveBeenCalled();
+    await act(async () => {
+      for (const answer of answers) answer();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(view.opened).toHaveBeenCalledTimes(1);
+    expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'report', topicId: 'tp_2', itemId: 'filters' }, from: 'inbox' });
+  });
+
+  it('a row about an item that stopped asks for the plan that says why, and says it', async () => {
+    const plan = buildPlan({ topicId: 'tp_2', items: [buildWorkItem({ id: 'filters', number: 1, title: 'Filters', state: 'stalled', stalledBy: 'restart' })] });
+    const view = await mountSidebar({ plans: { tp_2: plan } });
+    const stalled = buildInboxItem('attention', { key: 'attention:item-stalled:tp_2.filters', topicId: 'tp_2', itemId: 'filters', item: { number: 1, title: 'Filters' } });
+    act(() => view.conn.emit('inbox.changed', { upsert: [stalled], remove: [] }));
+    expect(await within(inboxSection()).findByText('1 · Filters is paused: smurg was restarted')).toBeTruthy();
+    expect(view.conn.requestsOf('plan.get').map((request) => request.payload.topicId)).toContain('tp_2');
+  });
+
+  it('a merge row whose plan cannot be read opens the changes the item names', async () => {
+    const view = await mountSidebar();
+    view.conn.handle('plan.get', () => Promise.reject(new SmurgError('internal', 'The plan could not be read.')));
+    const conflict = buildInboxItem('merge', { ready: false, conflict: true, topicId: 'tp_2', itemId: 'filters', item: { number: 1, title: 'Filters' } });
+    act(() => view.conn.emit('inbox.changed', { upsert: [conflict], remove: [] }));
+    await userEvent.click(within(inboxSection()).getByRole('button', { name: /Merge request: 1 · Filters/ }));
+    await waitFor(() => expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'changes', requestId: 'mr_1' }, from: 'inbox' }));
+  });
+
   it('one tab stop for the list: Up, Down, Home and End move between rows; Shift+Enter opens to the side', async () => {
     const view = await mountSidebar({ inbox: INBOX });
     const buttons = [...inboxSection().querySelectorAll<HTMLButtonElement>('.inbox-item__main')];

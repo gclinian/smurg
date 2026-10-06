@@ -666,6 +666,13 @@
 
 /* The line that says the folder's Claude Code project settings are being read (the review itself is the console
    feature's: features/console/ProjectSettingsReview.tsx). */
+/* The sentences of the dialog's note, one under the other. */
+.topics-form__info {
+  margin: 0;
+}
+.topics-form__info + .topics-form__info {
+  margin-top: var(--space-3);
+}
 .topics-form__reading {
   display: flex;
   align-items: center;

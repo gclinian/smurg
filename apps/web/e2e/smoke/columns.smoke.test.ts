@@ -221,6 +221,14 @@ describe.skipIf(chrome === null)('the column strip under a real mouse (built app
     strip = await stripWhen(page, (s) => s.scrollLeft === 384 && s.more[0]?.side === 'left', 'the strip scrolled by one column');
     expect(strip.more).toEqual([{ side: 'left', text: '1 more' }]);
     expect(strip.columns[1]?.left).toBe(LEFT);
+    // A reload brings the same view back: the focused column ("four", the one the list marks) is in view again, not
+    // off the right edge of a strip that starts at its first column.
+    await page.reload();
+    await workspaceOnline(page);
+    strip = await stripWhen(page, (s) => s.columns.length === 4 && s.scrollLeft === 384 && s.more[0]?.side === 'left', 'after a reload the focused column is in view');
+    expect(strip.columns.map((c) => c.focused)).toEqual([false, false, false, true]);
+    expect(strip.columns[3]?.left).toBe(LEFT + 2 * 384);
+    expect(strip.pageFits).toBe(true);
     await page.getByRole('button', { name: '1 more' }).click();
     strip = await stripWhen(page, (s) => s.scrollLeft === 0 && s.more[0]?.side === 'right', 'the edge button scrolled back by one column');
     expect(strip.more).toEqual([{ side: 'right', text: '1 more' }]);

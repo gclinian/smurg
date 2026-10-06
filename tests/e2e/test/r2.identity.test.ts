@@ -2,7 +2,8 @@
 // invite here is made by the host over the encrypted channel (admin.invite.create), every kick goes through
 // admin.member.kick: the same path the host console uses.
 //  - an expired or used-up invite link cannot be used
-//  - a removed member loses all access within 3 seconds and their session processes are terminated (sessions: once the session module exists)
+//  - a removed member loses all access within 3 seconds and their session processes are terminated (here: a terminal
+//    with a background process; a free agent session and its `claude` process: r2.agent-role.test.ts)
 //  - forged client requests (for example a viewer sending `file.write`) are refused by the daemon
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';

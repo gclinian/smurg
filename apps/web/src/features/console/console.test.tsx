@@ -1,4 +1,4 @@
-import { CONSOLE_SECTIONS, SmurgError } from '@smurg/protocol';
+import { CONSOLE_SECTIONS, MAIN_ROOT, SmurgError } from '@smurg/protocol';
 import { buildInboxItem } from '@smurg/protocol/testing';
 import { msg } from '@smurg/protocol/i18n';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -272,8 +272,8 @@ describe('host console: members', () => {
 
 
 describe('host console: sessions and suggestions', () => {
-  it('shows every session with status, who opened it, where it runs and what its agent is doing (no sandbox column)', async () => {
-    const view = renderConsole();
+  it('shows every session with status, who opened it and where it runs (no sandbox column)', async () => {
+    renderConsole();
     const table = (await screen.findByText('login page')).closest('table') as HTMLElement;
     const amy = within(table).getByText('login page').closest('tr') as HTMLElement;
     expect(within(amy).getByText('Amy')).toBeTruthy();
@@ -282,19 +282,44 @@ describe('host console: sessions and suggestions', () => {
     expect(within(table).queryByText(/sandbox/i)).toBeNull();
     expect(within(table).getByRole('columnheader', { name: 'Opened by' })).toBeTruthy();
     expect(within(amy).getByText('2 connections watching')).toBeTruthy();
-    act(() =>
-      view.conn.emit('presence.state', {
-        members: [],
-        agents: [{ sessionId: 'sess_amy', ownerUserId: 'dev:amy', displayName: 'Claude (Amy)', color: '#3b82f6', status: 'running', activeFile: { root: { kind: 'worktree', worktreeId: 'wt_1' }, path: 'src/login.tsx' } }],
-      }),
-    );
-    expect(within(amy).getByText('Working on src/login.tsx')).toBeTruthy();
     const host = within(table).getByText('Claude').closest('tr') as HTMLElement;
     expect(within(host).getByText('Main workspace')).toBeTruthy();
     // Exited sessions are behind a toggle.
     expect(within(table).queryByText('old shell')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Show ended sessions (1)' }));
     expect(screen.getByText('Ended (exit code 0)')).toBeTruthy();
+  });
+
+  it('says what file an agent works on only while it works: not under a session that is idle, done or stopped', async () => {
+    const view = renderConsole({ fixture: topicFixture() });
+    const table = (await screen.findByText('2 · Payment form')).closest('table') as HTMLElement;
+    const row = (name: string): HTMLElement => within(table).getByText(name).closest('tr') as HTMLElement;
+    const discussion = within(table).getAllByText('Discussion').map((cell) => cell.closest('tr') as HTMLElement).find((line) => line.textContent?.includes('Checkout')) as HTMLElement;
+    const at = (path: string) => ({ root: MAIN_ROOT, path });
+    // The presence list keeps the last file of every agent session that is alive, whatever its state.
+    const presence = (free: 'running' | 'idle' | 'done') =>
+      act(() =>
+        view.conn.emit('presence.state', {
+          members: [],
+          agents: [
+            { sessionId: 'sess_free', ownerUserId: 'dev:amy', displayName: 'Claude (Amy)', color: '#3b82f6', status: free, activeFile: at('src/parser.ts') },
+            { sessionId: 'sess_disc', ownerUserId: 'dev:ian', displayName: 'Claude (Ian)', color: '#22c55e', status: 'waiting-answer', activeFile: at('specs/checkout/PLAN.md') },
+            { sessionId: 'sess_item', ownerUserId: 'dev:amy', displayName: 'Claude (Amy)', color: '#f59e0b', status: 'stalled', activeFile: at('specs/checkout/reports/payment-form.md') },
+          ],
+        }),
+      );
+    presence('running');
+    expect(within(row('try the parser')).getByText('Working on src/parser.ts')).toBeTruthy();
+    // Waiting for an answer is still inside a turn.
+    expect(within(discussion).getByText('Working on specs/checkout/PLAN.md')).toBeTruthy();
+    // The item stopped without a report: it works on nothing.
+    expect(within(row('2 · Payment form')).queryByText(/Working on/)).toBeNull();
+
+    for (const status of ['idle', 'done'] as const) {
+      act(() => view.conn.emit('session.state', { session: { ...FREE, status } }));
+      presence(status);
+      expect(within(row('try the parser')).queryByText(/Working on/)).toBeNull();
+    }
   });
 
   it('a session of the new model shows its topic, what it is for, its status in the words of the session list and who is responsible', async () => {

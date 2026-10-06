@@ -77,7 +77,7 @@
         <div class="m-top">
           <span class="m-word">smurg</span><span class="m-divider"></span><span class="m-ws">my-app</span><span class="m-host">Host: Ian</span><span class="m-pill">Connected</span>
           <span class="m-spacer"></span>
-          <span class="m-avs"><i class="av av-ian">IA</i><i class="av av-amy">AM</i><i class="av av-ben">BE</i></span>
+          <span class="m-avs"><i class="av av-ian">IA</i><i class="av av-amy">AM</i><i class="av av-ben">BE</i></span><span class="m-badge m-role">Host</span>
           <span class="m-btn">Host console</span><span class="m-seg"><span class="on">Sessions</span><span>Code mode</span></span><span class="m-btn">Leave</span>
         </div>
         <div class="m-body">
@@ -122,12 +122,11 @@
           <div class="m-col m-col-plan">
             <div class="m-ch"><i class="m-g m-g-doc"></i><span class="m-ct">Plan</span><span class="m-sub m-said">Checkout</span></div>
             <div class="m-plan">
-              <div class="m-sum"><span><i class="m-count m-n">3</i> work items</span><span><i class="m-count m-n">0</i> of <i class="m-count m-n">3</i> reviewed</span></div>
+              <div class="m-sum"><span><i class="m-count m-n">0</i> of <i class="m-count m-n">3</i> reviewed</span><span><i class="m-count m-n">1</i> report to review</span><span><i class="m-count m-n">1</i> waits for a person</span><span><i class="m-count m-n">1</i> not started</span></div>
               <div class="m-sec">Who is responsible</div>
               <div class="m-seg"><span class="on">Assigned</span><span>No one assigned: everyone watches</span></div>
               <div class="m-sec">Allowed in this topic</div>
               <div class="m-rules"><pre class="m-term">pnpm test *</pre></div>
-              <div class="m-sec">Work items</div>
               <div class="m-item"><b class="m-no">1</b><span class="m-said">Cart API</span><i class="av av-ian">IA</i><span class="m-badge m-badge-ok">Report to review</span></div>
               <div class="m-item"><b class="m-no">2</b><span class="m-said">Payment form</span><i class="av av-amy">AM</i><span class="m-badge m-badge-warn">Waiting for permission</span></div>
               <div class="m-item"><b class="m-no">3</b><span class="m-said">Checkout page</span><i class="av av-amy">AM</i><span class="m-badge">Waits for <i class="m-count m-n">1 and 2</i></span></div>
@@ -138,14 +137,16 @@
             <div class="m-rep">
               <div class="m-sec">What was done</div>
               <p class="m-said m-wrap">The cart is stored on the server, one per account, with add, remove and clear.</p>
+              <div class="m-sec">Why it was done this way</div>
+              <p class="m-said m-wrap">The team decided to keep the cart with the account.</p>
               <div class="m-sec">How it was verified</div>
-              <div class="m-check"><span class="m-ok">Passed:</span><pre class="m-term">pnpm test</pre></div>
-              <div class="m-check"><span class="m-warn">Not verified:</span><span class="m-said">two devices at once</span></div>
+              <div class="m-check"><span class="m-ok"><span class="visually-hidden">Passed:</span></span><pre class="m-term">pnpm test</pre></div>
+              <div class="m-check"><span class="m-warn"><span class="visually-hidden">Not verified:</span></span><span class="m-said">two devices at once</span></div>
               <div class="m-sec">What to watch out for</div>
               <p class="m-said m-wrap m-watch">The cart of a visitor who is not logged in is not kept.</p>
               <div class="m-sec">Changes</div>
               <div class="m-file"><code class="m-said">src/cart/api.ts</code><i class="m-count m-diff">+38 −6</i></div>
-              <div class="m-file"><code class="m-said">tests/cart.test.ts</code><i class="m-count m-diff">+52</i></div>
+              <div class="m-file"><code class="m-said">tests/cart.test.ts</code><i class="m-count m-diff">+52 −0</i></div>
             </div>
             <div class="m-input">Ask about this result, or tell Claude what to change</div>
             <div class="m-foot"><span class="m-btn m-btn-primary">I've reviewed this</span></div>
@@ -183,7 +184,7 @@
         </div>
         <p class="kicker step-num">Step 1</p>
         <h3>The host shares a folder</h3>
-        <p>Log in with Google, then share a folder. smurg runs in the foreground and prints two links: your own, which opens the workspace as the host, and an invite link for teammates (Editor role by default, valid for 7 days). <kbd>Ctrl-C</kbd> stops sharing.</p>
+        <p>Log in with Google, then share a folder. smurg runs in the foreground and prints two links: your own, which opens the workspace as the host (keep it to yourself), and an invite link for teammates (Editor role by default, valid for 7 days). <kbd>Ctrl-C</kbd> stops sharing.</p>
         <pre class="snippet"><code>smurg login
 smurg host ~/projects/my-app</code></pre>
       </li>
@@ -250,7 +251,7 @@ smurg host ~/projects/my-app</code></pre>
     <ul class="features">
       <li>
         <h3>Decide together</h3>
-        <p>An agent brings its decisions to the team as multiple-choice questions. Everyone but Viewers votes and comments, seeing each other’s choices live; one person, the one responsible for the session, submits the answer. The agent gets the answer and the vote, never the comments.</p>
+        <p>An agent brings its decisions to the team as multiple-choice questions. Everyone but Viewers votes and comments, seeing each other’s choices live; one person, the one responsible for the session, submits the answer. The agent gets the answer and the vote, never the comments, unless the person who submits copies one into the note for the agent.</p>
       </li>
       <li>
         <h3>A spec and a plan, as files</h3>
@@ -384,7 +385,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>The host keeps everything</h3>
-        <p>Files, agents, their conversations and the audit log live on the host’s computer; the relay stores none of them. While that computer sleeps or smurg is stopped, nobody can use the workspace; it reconnects when the host is back, and nothing runs again until someone continues it.</p>
+        <p>Files, agents, their conversations and the audit log live on the host’s computer; the relay stores none of them. While that computer sleeps or smurg is stopped, nobody can use the workspace; it reconnects when the host is back. After smurg itself was restarted nothing runs by itself: a plan that was being carried out waits until the host or a teammate with agent access continues it.</p>
       </div>
       <div>
         <h3>Agents run as the host</h3>
@@ -396,7 +397,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>Nothing reaches an agent unseen</h3>
-        <p>An Editor’s message is a suggestion: an agent gets it only when someone with agent access accepts it, as exactly the text that was shown. Work items start only from the spec and the plan that such a person confirmed; if either file changed since, the item waits.</p>
+        <p>An Editor’s message is a suggestion: an agent gets it only when someone with agent access accepts it, as exactly the text that was shown. Work items start only from the spec and the plan that such a person confirmed; if either file changed since, the item does not start until such a person starts it again.</p>
       </div>
       <div>
         <h3>What the relay sees</h3>
@@ -520,11 +521,11 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>What can an agent do without asking?</h3>
-        <p>A topic’s discussion agent reads the project and writes only the topic’s spec and plan. A work item’s agent edits files in its own worktree and runs read-only commands there; for anything else it asks, and only the host or a teammate with agent access can allow it. smurg checks this itself before every tool call. One exception is yours to know as a host: commands that your own Claude Code settings already allow run without asking here too.</p>
+        <p>A topic’s discussion agent reads the project and writes only the topic’s spec and plan. A work item’s agent edits files in its own worktree and runs read-only commands and simple file commands there (listing, copying or moving files); for anything else it asks, unless that kind of command was always allowed, and only the host or a teammate with agent access can allow it. smurg checks this itself before every tool call. One exception is yours to know as a host: commands that your own Claude Code settings already allow run without asking here too.</p>
       </div>
       <div>
         <h3>Has this been tested with real Claude?</h3>
-        <p>Not by its developers. The whole flow was tested with a scripted stand-in for the model, and real Claude Code only against a fake API; no real Claude account was used. So whether a real model asks its questions as cards and writes the plan and the report in the format smurg checks is not verified yet. smurg checks those formats itself, asks the agent to fix them, and puts work that stopped into an inbox.</p>
+        <p>Not by its developers. The whole flow was tested with a scripted stand-in for the model, and real Claude Code only against a fake API, on a Mac; no real Claude account was used. So whether a real model asks its questions as cards and writes the plan and the report in the format smurg checks is not verified yet. smurg checks those formats itself, asks the agent to fix them, and puts work that stopped into an inbox.</p>
       </div>
       <div>
         <h3>Can I see the source code?</h3>
@@ -540,7 +541,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>What happens when the host’s computer sleeps?</h3>
-        <p>Everyone sees “Host offline” within seconds. Edits wait in the browser and are sent when the host is back; agents can’t be reached in the meantime, and the ones waiting for a person keep waiting. smurg keeps an idle computer awake while sharing, but closing a laptop’s lid still puts it to sleep. After smurg itself was restarted, every conversation is still there, and nothing runs until the host or a teammate with agent access continues it.</p>
+        <p>Everyone sees “Host offline” within seconds. Edits wait in the browser and are sent when the host is back; agents can’t be reached in the meantime, and the ones waiting for a person keep waiting. smurg keeps an idle computer awake while sharing, but closing a laptop’s lid still puts it to sleep. After smurg itself was restarted, every conversation is still there, and nothing runs by itself: a plan that was being carried out waits until the host or a teammate with agent access continues it.</p>
       </div>
     </div>
   </div>

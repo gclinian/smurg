@@ -5,7 +5,7 @@ import { Terminal } from '@xterm/xterm';
 import type { ILink } from '@xterm/xterm';
 import { MAIN_ROOT, SmurgError, worktreeRoot, type FileEntry, type FileRef } from '@smurg/protocol';
 import { makeEntry } from '../../testing/fixtures.ts';
-import { createPathExistence, createPathLinkProvider, findPathCandidates, normalizeSessionPath, resolveCandidate } from './path-links.ts';
+import { createPathExistence, createPathLinkProvider, findPathCandidates, mayAskAbout, normalizeSessionPath, resolveCandidate } from './path-links.ts';
 
 
 const paths = (line: string) => findPathCandidates(line).map((c) => (c.line === undefined ? c.path : `${c.path}@${c.line}${c.column === undefined ? '' : `:${c.column}`}`));
@@ -107,5 +107,17 @@ describe('only paths that exist in the tree become links', () => {
     const provider = createPathLinkProvider(term, { root: () => MAIN_ROOT, exists: async () => null, activate: () => {} });
     expect(await new Promise((resolve) => provider.provideLinks(1, resolve))).toBeUndefined();
     term.dispose();
+  });
+});
+
+describe('which paths a viewer may ask the host about at all', () => {
+  it('never the host-private names or the .smurg folder for anyone but the host', () => {
+    const member = { isHost: false };
+    for (const path of ['.envrc', 'api/.envrc', '.git/config', 'vendor/lib/.git/HEAD', 'CLAUDE.local.md', 'docs/CLAUDE.local.md', '.claude/settings.local.json', '.Git/config', '.smurg/state.json', '.SMURG/x']) {
+      expect(mayAskAbout(path, member), path).toBe(false);
+      expect(mayAskAbout(path, { isHost: true }), path).toBe(true);
+    }
+    // What a member can open is asked about as before: host-ONLY files (only the host writes them) can be read.
+    for (const path of ['src/app.ts', 'README.md', '.env', '.github/workflows/ci.yml', 'CLAUDE.md', '.claude/settings.json', 'src/.smurg/x', 'gitignore/.gitignore']) expect(mayAskAbout(path, member), path).toBe(true);
   });
 });

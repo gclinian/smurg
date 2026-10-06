@@ -385,9 +385,20 @@
   }
 }
 
+/* The file list beside the diff needs room for both. In a narrow window (the dialog) and in a narrow column (the
+   Changes column: a column is 320 to 620 px wide in the usual layouts, whatever the window) the list stands above
+   the diff, no taller than a few files, so the diff of the file one picked stays in reach. */
 @media (max-width: 720px) {
   .worktree-review__split {
     grid-template-columns: 1fr;
+  }
+}
+@container column (max-width: 620px) {
+  .worktree-review__split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .worktree-review__files {
+    max-height: 13.5em;
   }
 }
 

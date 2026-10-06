@@ -11,6 +11,7 @@ import { describeError } from '../../lib/errors.ts';
 import { formatTime } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import type { DocRemoval, OpenDoc } from '../../lib/stores/docs.ts';
+import type { PresenceStore } from '../../lib/stores/presence.ts';
 import { useCapabilities, useCommands, useMember, useStores } from '../../lib/workspace/context.tsx';
 import { Avatar, Badge, Banner, Button, Spinner, useToast } from '../../ui/index.ts';
 import { IconAlertTriangle, IconCheck, IconDownload, IconEye, IconRefresh } from '../../ui/icons.tsx';
@@ -18,11 +19,11 @@ import type { DocSession, DocSessionState } from './doc-session.ts';
 import { ForceReleaseDialog, useCanForceRelease } from '../files/ForceReleaseDialog.tsx';
 import { DocumentView, type RevealRequest } from './DocumentView.tsx';
 import type { EditorHandle } from './engine.ts';
-import { editorPresenceCss, participantsOf, type Participant } from './presence.ts';
+import { agentsAtWorkOnly, editorPresenceCss, participantsOf, type Participant } from './presence.ts';
 import { isEmptySelection, type EditorSelection } from './selection.ts';
 import { SendToAgentMenu, useCanSendToAgent, type SendToAgentMenuHandle } from './SendToAgentMenu.tsx';
 import { t } from './strings.ts';
-import { useNow } from '../../lib/use-now.ts';
+import { useLocalNow } from '../../lib/use-now.ts';
 import {
   classifyOpenFailure,
   droppedMessage,
@@ -57,8 +58,11 @@ export interface DocumentPaneProps {
 
 const IDLE_SESSION: DocSessionState | undefined = undefined;
 
-/** Awareness participants of the current replica, and the <style> with their cursor colours and names. */
-function usePresence(session: DocSession | undefined, selfUserId: string | null): Participant[] {
+/**
+ * Awareness participants of the current replica, and the <style> with their cursor colours and names. An agent is one
+ * of them while it works (presence.ts `agentsAtWorkOnly`, by the host's presence list).
+ */
+function usePresence(session: DocSession | undefined, selfUserId: string | null, presence: PresenceStore): Participant[] {
   const replica = useStore(session ?? NULL_STORE, (state) => state?.replica ?? -1);
   const [participants, setParticipants] = useState<Participant[]>([]);
   useEffect(() => {
@@ -70,7 +74,7 @@ function usePresence(session: DocSession | undefined, selfUserId: string | null)
     // Per remote client, how often its state changed: a change shows its caret's name again (presence-css.ts).
     const changes = new Map<number, number>();
     const render = (): void => {
-      const states = awareness.getStates() as ReadonlyMap<number, Readonly<Record<string, unknown>>>;
+      const states = agentsAtWorkOnly(awareness.getStates() as ReadonlyMap<number, Readonly<Record<string, unknown>>>, presence.getState().agents);
       // textContent: the CSS is never parsed as HTML; names are escaped inside it (presence.ts).
       style.textContent = editorPresenceCss(states, awareness.clientID, changes);
       setParticipants(participantsOf(states, awareness.clientID, selfUserId));
@@ -82,12 +86,21 @@ function usePresence(session: DocSession | undefined, selfUserId: string | null)
     };
     render();
     awareness.on('change', onChange);
+    // An agent's turn that ends changes who is in the file, without any change of the awareness states.
+    let agents = presence.getState().agents;
+    const offPresence = presence.subscribe(() => {
+      const next = presence.getState().agents;
+      if (next === agents) return;
+      agents = next;
+      render();
+    });
     return () => {
       awareness.off('change', onChange);
+      offPresence();
       style.remove();
       setParticipants([]);
     };
-  }, [session, replica, selfUserId]);
+  }, [session, replica, selfUserId, presence]);
   return participants;
 }
 
@@ -100,7 +113,7 @@ export function DocumentPane({ doc, session, active, tabId, panelId, rootLabel, 
   const sessionState = useStore(session ?? NULL_STORE, (state) => state ?? IDLE_SESSION);
   const liveLock = useStore(stores.locks, (state) => liveLockOf(state, doc.file));
   const view = editorView({ doc, session: sessionState, userId, lock: liveLock });
-  const participants = usePresence(session, userId);
+  const participants = usePresence(session, userId, stores.presence);
   const editorRef = useRef<EditorHandle | null>(null);
   const menuRef = useRef<SendToAgentMenuHandle | null>(null);
   const [selection, setSelection] = useState<EditorSelection | null>(null);
@@ -174,7 +187,8 @@ function Participants({ participants }: { participants: readonly Participant[] }
 }
 
 function DocInfo({ doc, view, session }: { doc: OpenDoc; view: EditorView; session: DocSessionState | undefined }) {
-  const now = useNow(1_000, session?.pendingSave === true);
+  // The edit that waits to be saved was stamped by this browser: its age is counted on this browser's clock.
+  const now = useLocalNow(1_000, session?.pendingSave === true);
   // Nothing more will be saved to a file that is gone: the removed notice says so, not "waiting for the host's computer".
   const indicator = doc.removed !== null ? ({ kind: 'idle' } as const) : saveIndicator(session, now);
   return (

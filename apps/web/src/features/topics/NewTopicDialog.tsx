@@ -3,8 +3,9 @@
 // Latin letters). For the host the dialog contains the Claude Code project settings confirmation when the folder is
 // undecided: the console feature's review of the main workspace (features/console ProjectSettingsReview, the one
 // review of the app), held as a choice and sent before the topic is created; for anyone else it says that the session
-// runs without the project's CLAUDE.md until the host confirms. Editors and Viewers get the explanation instead of
-// the form (UX §10).
+// runs without the project's CLAUDE.md until the host confirms. Everyone who can start a topic reads whose Claude
+// account the agent uses; the host also reads that a personal subscription is for the host's own use (DESIGN §10
+// Q6). Editors and Viewers get the explanation instead of the form (UX §10).
 import { MESSAGE_TEXT_MAX_CHARS, TOPIC_NAME_MAX_CHARS, TOPIC_SLUG_PATTERN, isSmurgError, slugFromName, topicNameSchema, topicSpecPath } from '@smurg/protocol';
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { describeError } from '../../lib/errors.ts';
@@ -160,7 +161,9 @@ export function NewTopicDialog({ onClose }: { onClose(): void }) {
           </Banner>
         ) : null}
         <Banner tone="info" live="none">
-          {t('new.info')}
+          <p className="topics-form__info">{t('new.info')}</p>
+          {/* The host is told whose use a personal subscription is for (the owner's decision Q6); nothing is blocked. */}
+          {isHost ? <p className="topics-form__info">{t('new.info.subscription')}</p> : null}
         </Banner>
         {failure !== null && !failure.folder ? (
           <Banner tone="danger" live="alert">

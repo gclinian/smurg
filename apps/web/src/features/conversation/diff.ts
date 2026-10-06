@@ -2,6 +2,11 @@
 // they cannot see). The daemon sends the diff as text: with hunk headers (`@@ -41,3 +41,4 @@`) the lines get their
 // numbers; without any header (a new file, a short result) they are counted from 1; under a header that has no
 // numbers (`@@ replacement 1 of 2 @@`: the file could not be read or diffed) they have none.
+//
+// The file heading is the daemon's own two lines and nothing else: `--- a/<path>` (or `--- /dev/null`) directly
+// followed by `+++ b/<path>`, as the FIRST two lines. Everywhere else a line that starts with "+" is an added line and
+// one that starts with "-" a removed line, whatever follows the sign: the added line `++n;` arrives as `+++n;` and the
+// removed SQL comment `-- old` as `--- old`, and both must be drawn as the changes they are.
 export type DiffLineKind = 'add' | 'del' | 'context' | 'hunk' | 'meta';
 
 export interface DiffLine {
@@ -22,7 +27,14 @@ export function parseDiff(diff: string): DiffLine[] {
   let numbered = true;
   const source = diff.endsWith('\n') ? diff.slice(0, -1) : diff;
   if (source === '') return lines;
-  for (const raw of source.split('\n')) {
+  const raws = source.split('\n');
+  let start = 0;
+  if (raws.length >= 2 && (raws[0] as string).startsWith('--- ') && (raws[1] as string).startsWith('+++ ')) {
+    lines.push({ kind: 'meta', number: null, text: raws[0] as string }, { kind: 'meta', number: null, text: raws[1] as string });
+    start = 2;
+  }
+  for (let index = start; index < raws.length; index++) {
+    const raw = raws[index] as string;
     const hunk = HUNK.exec(raw);
     if (hunk) {
       oldLine = Number(hunk[1]);
@@ -32,7 +44,8 @@ export function parseDiff(diff: string): DiffLine[] {
     } else if (PLAIN_HUNK.test(raw)) {
       numbered = false;
       lines.push({ kind: 'hunk', number: null, text: raw });
-    } else if (raw.startsWith('+++') || raw.startsWith('---') || raw.startsWith('diff ') || raw.startsWith('index ') || raw.startsWith('\\ ')) {
+    } else if (raw.startsWith('\\ ')) {
+      // "\ No newline at end of file": the only line of a diff's body that has no sign.
       lines.push({ kind: 'meta', number: null, text: raw });
     } else if (raw.startsWith('+')) {
       lines.push({ kind: 'add', number: numbered ? newLine++ : null, text: raw.slice(1) });

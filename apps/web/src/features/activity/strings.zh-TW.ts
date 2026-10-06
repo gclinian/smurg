@@ -77,7 +77,7 @@ export const zhTW = {
   'conflict.fullTruncated': '內容太長，只顯示前 {shown} 個字元。',
   'conflict.close': '關閉',
   'conflict.failed': '無法處理衝突：{message}',
-  'conflict.agentLocked': '{agent}正在修改這個檔案，請稍後再試。',
+  'conflict.agentLocked': '{agent} 正在修改這個檔案，請稍後再試。',
   'conflict.hostOnly': '這個檔案只有主人可以修改，衝突也只有主人可以處理。',
   'actor.systemInText': '外部程式',
 } as const;

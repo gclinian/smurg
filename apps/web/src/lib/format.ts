@@ -5,6 +5,7 @@ import type { Actor, Role } from '@smurg/protocol';
 import { joinList, roleLabel } from '@smurg/protocol/i18n';
 import { intlTag, type Locale } from '@smurg/protocol/locale';
 import { tApp } from '../strings/app.ts';
+import { secondsShown } from './clock.ts';
 import { getLocale } from './locale.ts';
 
 interface Formatters {
@@ -59,10 +60,21 @@ export function formatters(locale: Locale = getLocale()): Formatters {
   return made;
 }
 
-/** "just now", "3 minutes ago", ..., then an absolute date after a week. */
+/**
+ * Whether a text made from this many elapsed seconds will read differently within a second or so: under a minute it
+ * is printed to the second. A time far in the future (a clock that is wrong) is not: it would keep the clock ticking
+ * each second for nothing.
+ */
+const changesWithinSeconds = (elapsed: number): boolean => elapsed < 60 && elapsed > -60;
+
+/**
+ * "just now", "3 minutes ago", ..., then an absolute date after a week. Under a minute the text changes within seconds:
+ * the clock is told (lib/clock.ts), so whoever shows it is redrawn in time.
+ */
 export function formatRelativeTime(at: number, now: number = Date.now()): string {
   const { relative, dateTime } = formatters();
   const seconds = Math.floor((now - at) / 1000);
+  if (changesWithinSeconds(seconds)) secondsShown();
   if (seconds < 10) return tApp('common.justNow');
   if (seconds < 60) return relative.format(-seconds, 'second');
   const minutes = Math.floor(seconds / 60);
@@ -109,11 +121,14 @@ export function formatDuration(seconds: number): string {
 
 /**
  * How long ago, in the least room: "40 sec", "6 min", "2 hr", "3 days" (an inbox row, a waiting line). Never
- * negative; whole units, rounded down, so "6 min" means at least six minutes.
+ * negative; whole units, rounded down, so "6 min" means at least six minutes. Under a minute the age is printed to the
+ * second: the clock is told (lib/clock.ts) and redraws every age on screen each second for as long as that lasts.
  */
 export function formatAge(at: number, now: number = Date.now()): string {
   const f = formatters();
-  const seconds = Math.max(0, Math.floor((now - at) / 1000));
+  const elapsed = Math.floor((now - at) / 1000);
+  if (changesWithinSeconds(elapsed)) secondsShown();
+  const seconds = Math.max(0, elapsed);
   if (seconds < 60) return f.shortSeconds.format(seconds);
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return f.shortMinutes.format(minutes);
@@ -143,9 +158,39 @@ export function formatList(items: readonly string[]): string {
   return joinList(getLocale(), items);
 }
 
-/** A few things that all apply, as a sentence says them: "5 and 6", "4, 5, and 6" (work item numbers, names). */
+// Chinese, Japanese and Korean letters, their punctuation and the full-width forms: text that carries its own spacing.
+const WIDE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\u3000-\u303f\uff00-\uffef]/u;
+const WIDE_WORD = /^\p{Script=Han}+$/u;
+const WIDE_PUNCTUATION = /[\u3000-\u303f\uff00-\uffef]/u;
+
+/**
+ * A few things that all apply, as a sentence says them: "5 and 6", "4, 5, and 6" (work item numbers, names). Where
+ * the language's word for "and" is a Chinese character, a space sets it apart from Latin text and digits beside it
+ * (the house style: "Ian" + "Mei" reads with a space on both sides of the word), and not from Chinese text.
+ */
 export function formatAnd(items: readonly string[]): string {
-  return formatters().conjunction.format(items);
+  const parts = formatters().conjunction.formatToParts(items);
+  return parts
+    .map((part, index) => {
+      if (part.type !== 'literal' || !WIDE_WORD.test(part.value)) return part.value;
+      const before = parts[index - 1]?.value.at(-1);
+      const after = parts[index + 1]?.value[0];
+      return `${before !== undefined && !WIDE.test(before) ? ' ' : ''}${part.value}${after !== undefined && !WIDE.test(after) ? ' ' : ''}`;
+    })
+    .join('');
+}
+
+/**
+ * Sentences one after the other in one line: a space between two of them, except after Chinese or full-width
+ * punctuation, which carries its own gap (a full-width full stop followed by a space reads as a hole).
+ */
+export function joinSentences(sentences: readonly (string | null | undefined)[]): string {
+  let text = '';
+  for (const sentence of sentences) {
+    if (sentence === null || sentence === undefined || sentence === '') continue;
+    text += text === '' || WIDE_PUNCTUATION.test(text.at(-1) as string) ? sentence : ` ${sentence}`;
+  }
+  return text;
 }
 
 /** Order of two names as the viewer's language sorts them; digits compare as numbers ("file2" before "file10"). */

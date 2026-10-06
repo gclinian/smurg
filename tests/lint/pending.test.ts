@@ -3,7 +3,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PENDING_ACCEPTANCE_REFS, PENDING_TEST_PARTS, RELEASE_GATE, isPendingPart } from './pending-v050.ts';
+import { OWNER, PENDING_ACCEPTANCE_REFS, PENDING_TEST_PARTS, RELEASE_GATE, isPendingPart } from './pending-v050.ts';
 import { read, repoFiles, REPO_ROOT } from './tree.ts';
 
 describe('the pending list of v0.5.0', () => {
@@ -12,7 +12,7 @@ describe('the pending list of v0.5.0', () => {
     for (const part of PENDING_TEST_PARTS) {
       if (!existsSync(join(REPO_ROOT, part.where))) problems.push(`${part.id}: ${part.where} does not exist`);
       else if (!read(part.where).includes(`isPendingPart('${part.id}')`)) problems.push(`${part.id}: ${part.where} does not call isPendingPart('${part.id}')`);
-      if (!/^P(?:[1-9]|1[0-2])$/.test(part.owner)) problems.push(`${part.id}: no package`);
+      if (!OWNER.test(part.owner)) problems.push(`${part.id}: no package`);
       if (part.why.length < 20) problems.push(`${part.id}: say why`);
     }
     expect(problems).toEqual([]);

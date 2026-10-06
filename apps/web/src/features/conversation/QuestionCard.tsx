@@ -25,7 +25,7 @@ import { useNow } from '../../lib/use-now.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { Avatar, AvatarStack, Badge, Button, Card, KindIcon, Select, cx, type SelectOption } from '../../ui/index.ts';
 import { IconComment, IconInfo } from '../../ui/icons.tsx';
-import { findMentions } from '../markdown/index.ts';
+import { PlainText } from '../markdown/index.ts';
 import { lateAnswerText, settledOf } from './cards.ts';
 import { useAction, useConversationEnv, useMarkSeen, useSessionFacts, type SessionFacts } from './env.tsx';
 import { MentionField } from './MentionField.tsx';
@@ -38,25 +38,6 @@ type Vote = Question['votes'][number];
 
 /** What the decider chose in "Submit a different answer": an option, someone's "Other" text, or their own words. */
 type Chosen = { readonly kind: 'option'; readonly option: number } | { readonly kind: 'other'; readonly by: string | null; readonly text: string };
-
-/** A text with the members it names marked. */
-function PlainText({ text, names }: { text: string; names: readonly string[] }) {
-  const marks = findMentions(text, names);
-  if (marks.length === 0) return <>{text}</>;
-  const out = [];
-  let at = 0;
-  for (const mark of marks) {
-    if (mark.start > at) out.push(text.slice(at, mark.start));
-    out.push(
-      <span key={mark.start} className="md-mention">
-        {text.slice(mark.start, mark.end)}
-      </span>,
-    );
-    at = mark.end;
-  }
-  if (at < text.length) out.push(text.slice(at));
-  return <>{out}</>;
-}
 
 function votersAsPeople(votes: readonly Vote[], people: readonly Person[]) {
   return votes.map((vote) => ({ id: vote.userId, name: vote.displayName, color: personOf(people, vote.userId)?.color }));
@@ -263,9 +244,7 @@ function Comments({ question, people, names, canComment, onAddToNote, onComment,
                   {t('q.addToNote')}
                 </button>
               ) : null}
-              <div className="conv-thread__text">
-                <PlainText text={comment.text} names={names} />
-              </div>
+              <PlainText className="conv-thread__text" text={comment.text} mentions={names} />
             </div>
           </div>
         ))}

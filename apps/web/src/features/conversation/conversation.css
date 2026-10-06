@@ -53,6 +53,19 @@
   outline-offset: 2px;
   border-radius: var(--radius-md);
 }
+/* A row that could not be drawn (rows.tsx RowBoundary): one line in its place; the host's "Remove this entry" is in
+   view there without the pointer. */
+.conv-row__failed {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--text-sm);
+}
+.conv-row__failed .conv-redact {
+  opacity: 1;
+}
 .conv__loading,
 .conv__earlier,
 .conv__start,
@@ -671,6 +684,31 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* One part of the request in its box and, while the box does not show all of it, the line that says how long it is
+   (PermissionCard.tsx Part). The same line stands over the buttons while Allow waits for the end of a box. */
+.conv-perm__part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.conv-perm__more {
+  margin: 0;
+  color: var(--color-warning);
+  font-size: var(--text-xs);
+}
+/* In a permission card nothing of an edit is off to the side (a tool line's diff scrolls sideways; whoever allows an
+   edit must not have to): a long line wraps, and what continues it hangs two characters in, under the line's text
+   and clear of the place where a line's number and its sign stand. */
+.conv-card--permission .conv-diff__line {
+  min-width: 0;
+}
+.conv-card--permission .conv-diff__text {
+  padding-left: calc(var(--space-2) + 2ch);
+  text-indent: -2ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .conv-perm__path {
   margin: 0;
   overflow-wrap: anywhere;
@@ -763,12 +801,29 @@
   font-size: var(--text-sm);
   flex: none;
 }
-.conv-status__text {
+/* The state, how long it has lasted, and what else stops the session: one line, cut at the column's edge. The two
+   sentences are live regions and stay in the tree while empty; the age between them is not one (StatusBar.tsx). */
+.conv-status__line {
+  display: flex;
+  align-items: baseline;
   flex: 1;
+  min-width: 0;
+}
+.conv-status__text,
+.conv-status__more {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.conv-status__age {
+  flex: none;
+  margin-inline-start: var(--space-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.conv-status__more:not(:empty) {
+  margin-inline-start: var(--space-3);
 }
 .conv-status--wait {
   color: var(--color-warning);
@@ -827,6 +882,17 @@
 }
 .conv-composer__input::placeholder {
   color: var(--color-text-subtle);
+}
+/* "Send" is the composer's one solid button, as in the mock (the kit's icon button has no primary variant; the button
+   sits inside the kit's tooltip anchor). */
+.conv-composer__box .conv-composer__send {
+  border-color: transparent;
+  background: var(--color-accent-solid);
+  color: var(--color-accent-contrast);
+}
+.conv-composer__box .conv-composer__send:hover:not(:disabled) {
+  background: var(--color-accent-solid-hover);
+  color: var(--color-accent-contrast);
 }
 .conv-mention__list {
   position: absolute;
@@ -960,6 +1026,21 @@
   }
   .conv-composer__hint > span + span {
     display: none;
+  }
+  /* An Editor's "Send suggestion" keeps only its icon here: the row belongs to the box, whose placeholder names the
+     session one writes to (DESIGN §5.12 item 11). The label stays the button's name for a screen reader. */
+  .conv-composer__suggest {
+    width: var(--control-height-md);
+    padding: 0;
+  }
+  .conv-composer__suggest > .ui-button__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 }
 

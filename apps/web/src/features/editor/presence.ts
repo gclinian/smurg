@@ -2,6 +2,8 @@
 // name, a colour and a cursor; an agent is named "Claude (Ian)" by the daemon. Every `user` field is written by the
 // daemon (a peer cannot choose its name), but names still end up in generated CSS and in the DOM, so they are treated
 // as untrusted text: escaped in CSS (lib/presence-css.ts), rendered as React text (never HTML).
+import type { PresenceAgent } from '@smurg/protocol';
+import { agentAtWork } from '../../lib/agent-work.ts';
 import { compareText } from '../../lib/format.ts';
 import { presenceCss, safeColor } from '../../lib/presence-css.ts';
 
@@ -27,6 +29,26 @@ type AwarenessStates = ReadonlyMap<number, Readonly<Record<string, unknown>> | n
 function userOf(state: Readonly<Record<string, unknown>> | null | undefined): RawUser | null {
   const user = state?.['user'];
   return typeof user === 'object' && user !== null ? (user as RawUser) : null;
+}
+
+/**
+ * The awareness states without the agents that do not work right now. The host's smurg leaves an agent's caret in a
+ * document for as long as its session lives; an agent that is idle, done or stopped is not "also in this file", and
+ * its caret is not drawn. An agent's state does not name its session, so it is matched to the host's presence list by
+ * owner, name and colour (the daemon gives every agent session its own colour), and it goes only when every such
+ * agent there is at rest: one the list does not know stays.
+ */
+export function agentsAtWorkOnly(states: AwarenessStates, agents: readonly PresenceAgent[]): AwarenessStates {
+  const kept = new Map<number, Readonly<Record<string, unknown>> | null | undefined>();
+  for (const [clientId, state] of states) {
+    const user = userOf(state);
+    if (user?.kind === 'agent') {
+      const same = agents.filter((agent) => agent.ownerUserId === user.userId && agent.displayName === user.name && agent.color === user.color);
+      if (same.length > 0 && !same.some((agent) => agentAtWork(agent.status))) continue;
+    }
+    kept.set(clientId, state);
+  }
+  return kept;
 }
 
 /** Everyone except this client, one entry per awareness client (a person with two tabs appears once). */

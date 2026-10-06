@@ -4,6 +4,12 @@
 // Enumerated values with their own wording: the permission modes (`permissionMode.*`).
 import { joinList, message } from '../define.ts';
 
+/** English names in front of a verb: `Amy`, `Amy and Mei`, `Amy, Mei and Leo`. */
+function namesEn(names: readonly string[]): string {
+  const last = names.at(-1);
+  return names.length < 2 || last === undefined ? joinList('en', names) : `${joinList('en', names.slice(0, -1))} and ${last}`;
+}
+
 /** `PermissionMode` values, worded as they read inside a sentence. */
 const MODE_PHRASES: Readonly<Record<string, { readonly en: string; readonly 'zh-TW': string }>> = {
   'ask-commands': {
@@ -153,7 +159,7 @@ export const conversation = {
     'zh-TW': () => 'agent 會在下一則訊息時以新設定重新啟動',
   }),
   'conversation.locked.spec': message({ path: 'string', holders: 'list' }, {
-    en: (p) => `Claude waits to edit ${p.path}: ${joinList('en', p.holders)} ${p.holders.length === 1 ? 'is' : 'are'} typing in it.`,
+    en: (p) => `Claude waits to edit ${p.path}: ${namesEn(p.holders)} ${p.holders.length === 1 ? 'is' : 'are'} typing in it.`,
     'zh-TW': (p) => `Claude 正在等待編輯 ${p.path}：${joinList('zh-TW', p.holders)} 正在輸入`,
   }),
   'conversation.redacted': message({}, {

@@ -6,8 +6,9 @@
 // The shell also owns what belongs to neither view: the top bar, the connection banners, the commands that move
 // between the views (openColumn, setMode, openInCodeMode), the overlays the features registered (dialogs and command
 // handlers that must exist in both modes), the notices, and the browser tab's title with the waiting count.
+import type { Topic } from '@smurg/protocol';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { isColumnRef } from '../../lib/columns/target.ts';
+import { columnId, isColumnRef } from '../../lib/columns/target.ts';
 import type { WorkspaceMode } from '../../lib/commands.ts';
 import { routePath } from '../../lib/router.ts';
 import { useStore } from '../../lib/store.ts';
@@ -81,6 +82,22 @@ export function WorkspaceShell({ mode }: WorkspaceShellProps) {
     stores.columns.open(target, { ...(side === undefined ? {} : { side }), ...(from === undefined ? {} : { from }), ...(anchor === undefined ? {} : { anchor }), ...(pin ? { pin } : {}) });
     goTo('sessions');
   });
+
+  // The same default for a plan column that is already open when its topic starts executing (Start pressed with the
+  // plan on screen): it is pinned at that moment, so the first click on an item's session opens beside it. Only the
+  // moment pins: a person who unpins the plan afterwards keeps it so. The phases seen last outlive a resync.
+  useEffect(() => {
+    const phases = new Map<string, Topic['phase']>();
+    const follow = (): void => {
+      for (const topic of stores.topics.getState().topics.values()) {
+        const before = phases.get(topic.id);
+        phases.set(topic.id, topic.phase);
+        if (before !== undefined && before !== 'executing' && topic.phase === 'executing') stores.columns.setPinned(columnId({ kind: 'plan', topicId: topic.id }), true);
+      }
+    };
+    follow();
+    return stores.topics.subscribe(follow);
+  }, [stores]);
 
   useCommandHandler('openInCodeMode', async ({ root, file, line, sessionId }) => {
     if (sessionId !== undefined) stores.columns.setCodeSession(sessionId);

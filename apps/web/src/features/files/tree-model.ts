@@ -15,6 +15,7 @@ import {
   type LockInfo,
   type RootRef,
 } from '@smurg/protocol';
+import { currentFileOf } from '../../lib/agent-work.ts';
 import { formatList, formatRelativeTime } from '../../lib/format.ts';
 import { selectDir, sortEntries, type FilesState } from '../../lib/stores/files.ts';
 import type { LocksState } from '../../lib/stores/locks.ts';
@@ -251,6 +252,7 @@ export function peopleUsing(presence: PresenceState, locks: LocksState, root: Ro
     }
   }
   for (const member of presence.members) if (member.userId !== selfUserId && member.online && within(member.activeFile)) add(member.displayName);
-  for (const agent of presence.agents) if (within(agent.activeFile)) add(agent.displayName);
+  // An agent counts while it works on the file, not for the file it touched last (lib/agent-work.ts).
+  for (const agent of presence.agents) if (within(currentFileOf(agent))) add(agent.displayName);
   return names;
 }

@@ -52,7 +52,7 @@ describe('the left column in zh-TW', () => {
 
   it('an empty inbox, also for a viewer', async () => {
     await mountSidebar({ role: 'viewer' });
-    expect(screen.getByRole('region', { name: '收件夾' }).textContent).toContain('目前沒有等你處理的事。旁觀者在這裡只會收到提及。');
+    expect(screen.getByRole('region', { name: '收件夾' }).textContent).toContain('目前沒有等你處理的事。「旁觀」的成員在這裡只會收到提及。');
   });
 
   it('the session tree: phases, the fixed rows, statuses and who is responsible; the group of sessions without a topic', async () => {

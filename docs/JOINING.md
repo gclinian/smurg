@@ -132,18 +132,20 @@ The screen you arrive at is the sessions view (the "Sessions" side of the switch
 - "For you to look at": suggestions for sessions you look after, result reports for you to review, changes ready to
   merge (the host), mentions of you, and what became of your own suggestions.
 
-The inbox shows two counts, how many items are waiting and how many are to look at; the same counts are in the
-browser tab's title and, while you are in code mode, on the "Sessions" side of the switch. What you should know
-about it:
+The inbox shows two counts, how many items are waiting and how many are to look at. While you are in code mode the
+same two counts are on the "Sessions" side of the switch; the browser tab's title shows only how many are waiting.
+What you should know about it:
 
 - **An item is a thing that waits, not a message.** It leaves when the thing is settled, whoever settles it, for
-  everyone at the same moment. You cannot dismiss it (only a mention, and the note about your own suggestion, can
-  be dismissed). Opening an item only takes its bold away.
+  everyone at the same moment. You cannot dismiss it. Only a mention, and the note about your own suggestion, can
+  be dismissed, and these two also leave as soon as you open them. Opening any other item only takes its bold away.
 - **Whose inbox**: an agent's question goes to the person who decides it (§5.3); a permission request and a
   suggestion to the session's responsible person when that person may answer them, otherwise to the host and every
-  member with agent access; a result report to whoever reviews it (§6). When the person who must act does not
-  (5 minutes by default, or they are offline), the item also appears for the host and the members with agent
-  access, who can act in that person's place.
+  member with agent access; a result report to whoever reviews it (§6). When the person who must answer a question
+  or a permission request does not (5 minutes by default, or they have been offline for a minute), it also appears
+  for the host and the members with agent access, who can act in that person's place. A result report does the same
+  after six times that long (30 minutes by default). A suggestion stays in the inbox it went to; the host and every
+  member with agent access can still accept it on its card.
 - A Viewer gets only mentions: "Nothing is waiting for you. As a viewer you get only mentions here."
 - A new item in "Agents are waiting" also shows a short notice with "Open" when its session is not on your screen.
 
@@ -164,7 +166,7 @@ Each session shows what it is doing:
 | "Idle" | The agent finished its turn and waits for the next message. A discussion is in this state most of the time. |
 | "Done" | The work item is finished and its result report is written. |
 | "Failed" | The agent's process ended with an error. It can be tried again. |
-| "Ended" | The session was ended on purpose. Its conversation stays readable. |
+| "Ended" | Someone ended the session, or it ended by itself: a work item's session ends when the item is merged and reviewed, and a topic's sessions end when the topic is archived. Its conversation stays readable (for a session without a topic: for 30 days). |
 
 **Columns** (the right side) are your own view; nobody else sees what you have open.
 
@@ -172,10 +174,12 @@ Each session shows what it is doing:
   Shift+Enter) adds a column next to the one you are reading instead of replacing it.
 - Up to four columns fit side by side, with dividers you can drag. A fifth is refused:
   "Four columns are open. Close one first."
+  When the window is too narrow for all of them, the ones that do not fit are reached with the button at the edge
+  of the columns (`1 more`).
 - "Pin column" keeps a column from being replaced; the plan of a topic that is being carried out is pinned by itself.
 - Closing a column never ends a session.
 - The left side folds: the inbox and the session list each collapse, and the whole left column can shrink to a
-  narrow strip that still shows the two counts.
+  narrow strip that shows one count: how many items are waiting or, when nothing waits, how many are to look at.
 
 ## 4. Code mode: edit files together
 
@@ -238,7 +242,7 @@ that wait for people are cards in the conversation: questions, permission reques
 Above the conversation a strip shows who is responsible for the session ("Responsible: Ian", or
 "Responsible: nobody"), where the agent works (the main workspace or a worktree) and what it may do without asking
 (for example "Asks before commands"; a topic's discussion shows "Reads code, writes only the spec and the plan").
-The line above the message box always says what the session is waiting for.
+The line above the message box says what the agent is doing or what it waits for (for example "Claude is idle.").
 
 ### 5.1 Messages (host and Agent access)
 
@@ -247,7 +251,8 @@ The line above the message box always says what the session is waiting for.
 - The agent is told who wrote each message (your name and role). Everything smurg itself tells an agent is in
   English, whatever language you use; you can write to the agent in any language.
 - "Stop" ends what the agent is doing now; the session stays open. Ending a session for good is in the column's
-  menu ("End session…"); a topic's discussion cannot be ended, only restarted (§6).
+  menu ("End session…"), for the host and for the member with agent access who opened the session or is
+  responsible for it; a topic's discussion cannot be ended, only restarted (§6).
 - Claude Code's own slash commands are not available: a message that starts with `/` is read as text.
 - **Remember**: an agent works on the host's computer with the host's account and spends the host's Claude usage.
   Ask it only for what the host agreed to, and never paste a password or an API key into a conversation: every
@@ -283,7 +288,8 @@ Agents are told to bring decisions to the team as multiple-choice questions. A q
   your own words.
 - **Comments** go under the options; `@name` mentions someone. "Comments are for the team. Claude does not read them."
 - **One person decides**, and the card says who: the session's responsible person; when nobody is assigned, the
-  person who opened the session or pressed Start (for a topic's discussion: whoever created the topic); the host if
+  person who opened the session or pressed Start (for a topic's discussion: whoever created the topic, or started
+  the discussion again); the host if
   that person is gone. The votes are advice: the person who decides clicks an option and presses "Submit answer",
   also against the vote ("You can submit now; votes are advice."). With a tie nothing is prefilled:
   "The vote is tied. Choose the answer yourself."
@@ -291,14 +297,17 @@ Agents are told to bring decisions to the team as multiple-choice questions. A q
   answers. A person who decides and has agent access can add a "Note for Claude (optional)", and can copy a comment
   into it with "Add to the note". An Editor who decides chooses among the agent's options; an answer in their own
   words needs someone with agent access ("Ask them to submit").
-- While a question is open in a session nobody is assigned to (every topic's discussion is one), it is in the inbox
+- While a question is open in a session nobody is assigned to (a topic's discussion is one unless someone was made
+  responsible for it), it is in the inbox
   of everyone who has not voted yet. The person who decides, and the host, can press
   "Remind those who have not voted".
-- **When the person who decides does not answer** for the waiting time (5 minutes by default), or is offline, the
-  host and the members with agent access can submit in their place ("Submit for Ian"); the conversation records it.
+- **When the person who decides does not answer** for the waiting time (5 minutes by default), or has been offline
+  for a minute, the host and the members with agent access can submit in their place ("Submit for Ian"); the
+  conversation records it.
   The host can always submit.
 - An agent can ask several questions in one card; each has its own votes, and one button submits them all. An
-  answered question folds to one line with the answer, so a discussion's decisions read as a list.
+  answered card folds to a few lines: the answer of each question, who submitted it and the note for the agent
+  ("Show the votes and comments" opens the rest), so a discussion's decisions read as a list.
 
 ### 5.4 Permission requests
 
@@ -315,9 +324,9 @@ Outside its own worktree, and for almost every command, an agent must ask first.
 
 ### 5.5 Terminal sessions
 
-A plain terminal is a shell on the host's computer, for running tests, builds and other commands by hand. Members
-with agent access open one with "New" in the session list ("Terminal") and can type into any terminal session;
-everyone else can only watch it (it is marked "Watch only"). A terminal opens as a column like any session, and in
+A plain terminal is a shell on the host's computer, for running tests, builds and other commands by hand. The host
+and members with agent access open one with "New" in the session list ("Terminal") and can type into any terminal
+session; Editors and Viewers can only watch it (it is marked "Watch only"). A terminal opens as a column like any session, and in
 code mode under "Terminal" at the bottom. Everything typed there runs as the host: never paste a password into it.
 "Attach from your own terminal" lists the `smurg attach` commands for it (§10).
 
@@ -329,9 +338,9 @@ step is a row of the topic in the session list.
 1. **New topic** (host and Agent access): "New topic" asks for a name and, if you like, what you want to build. It
    says what it does: "Start discussion" opens an agent on the host's computer, with the host's Claude account,
    that may read the code and write only the topic's folder (`specs/<folder>/` in the project).
-2. **Discussion**: one session per topic that everyone shares. Everyone talks with the agent (Editors through
-   suggestions, §5.2); the agent asks its questions as cards and everyone votes (§5.3). When the team has said
-   enough, a member with agent access can choose "Write the spec now".
+2. **Discussion**: one session per topic that everyone shares. Everyone but Viewers talks with the agent (Editors
+   through suggestions, §5.2); the agent asks its questions as cards and everyone but Viewers votes (§5.3). When
+   the team has said enough, the host or a member with agent access can choose "Write the spec now".
 3. **Spec**: the agent writes `SPEC.md` in the topic's folder and says so in the discussion ("Open spec"). In the
    spec column you read it, or switch to editing and type in it together with the others (file locks as in §4.1:
    while someone types, the agent waits its turn). "Ask the agent to revise" sends what you want changed to the
@@ -340,8 +349,9 @@ step is a row of the topic in the session list.
    with a title, a description and the items it must wait for. smurg checks the format; if it cannot read the work
    items, the plan says which line is wrong. When the spec changes later, the plan says so and offers "Update plan".
 5. **Who is responsible**: the agent suggests who looks after which work item among the members with agent access
-   who are present, and smurg fills in what it leaves open; "Suggest again" computes it anew. People change it item
-   by item, or choose "No one assigned: everyone watches". The responsible person of an item gets its agent's
+   who are present, and smurg fills in what it leaves open; "Suggest again" computes it anew. The host and the
+   members with agent access change it item by item, or choose "No one assigned: everyone watches"; Editors and
+   Viewers read who is responsible. The responsible person of an item gets its agent's
    questions, permission requests and result report in their inbox. Being responsible gives no extra rights: an
    Editor who is responsible decides questions among the agent's options and reviews the report, while commands
    are still allowed by members with agent access.
@@ -359,10 +369,12 @@ step is a row of the topic in the session list.
    "What to watch out for" and "Changes" (every changed file, with its diff). A report also says how the work
    ended: "Complete", "Partial" or "Blocked". Under it you can ask about the result or say what to change
    ("Ask about this result, or tell Claude what to change"); the question goes to the item's session and the answer
-   shows in both places.
+   shows in both places. After the item is merged the box is gone:
+   "This item is merged and its session has ended. Ask in the discussion."
 9. **Review**: "I've reviewed this" is for the item's responsible person; when nobody is assigned, anyone but a
-   Viewer can press it, once, for all. It means: I read the report and understand the change. If the agent changes
-   the report afterwards, it asks for a review again.
+   Viewer can press it, once, for all. It means: I read the report and understand the change. A report that says
+   "Partial" or "Blocked" asks once more before it counts ("Mark as reviewed"). If the agent changes the report
+   afterwards, it asks for a review again.
 10. **Merge**: reviewing does not merge. A reviewed item's changes go to the host's inbox by themselves
     ("Reviewed, ready to merge"), and the host merges them into the main workspace after reading the diff (§7).
 11. **Topic complete**: when every work item is reviewed, the topic is "Complete". "Archive topic" puts it away;
@@ -372,7 +384,8 @@ When something stops, it shows, and someone gets it in their inbox:
 
 - "Stopped without a report": an agent ended its turn without its report, although smurg asked it once more.
   "Continue" asks it to go on.
-- "Failed": the agent's process ended with an error. "Try again" continues the same conversation.
+- "Failed": the agent's process ended with an error. "Try again" continues the same conversation. After three
+  failed starts in a row only the host can try again.
 - The host's Claude account ran out of usage, or Claude Code on the host's computer is logged out: the sessions
   say so and wait; only the host can fix it.
 - After the host's smurg was restarted, nothing runs by itself (§8).
@@ -390,8 +403,9 @@ A worktree is a separate working copy of the project on the host's computer, on 
 there without disturbing the main workspace that everyone shares. A worktree is only a place to work, not a
 restriction: what runs in it runs as the host all the same.
 
-- **Every work item has its own worktree**; smurg creates it at Start and removes it when the item is merged and
-  reviewed. A single agent session without a topic can work in a worktree too, or in the main workspace.
+- **Every work item has its own worktree**; smurg creates it when the item starts (for an item that waits for
+  others: once those are merged) and removes it when the item is merged and reviewed. A single agent session
+  without a topic can work in a worktree too, or in the main workspace.
 - "Viewing" above the file tree in code mode switches between the main workspace and any worktree. Everyone who may
   edit can edit code in a worktree too (with file locks, as usual); the result report then says which files were
   also edited by hand, and by whom. Inside a work item's worktree the topic's `specs/` folder is read-only for
@@ -401,14 +415,16 @@ restriction: what runs in it runs as the host all the same.
   one copy in the main workspace.
 - **You read a work item's changes in its result report**: every file with its diff, as one change. A file that
   teammates cannot see (§2) is listed there without its content.
-- **Merging is the host's decision.** A reviewed report's changes are in the host's inbox by themselves. For work
-  that nobody reviewed, or for the worktree of a session without a topic, a member with agent access chooses
-  "Request merge". The host reads the full diff and then chooses "Merge into the main workspace" or "Reject" (a
-  rejected worktree stays as it is, and the reason is shown).
+- **Merging is the host's decision.** A reviewed report's changes are in the host's inbox by themselves. For a work
+  item whose report nobody reviewed yet, a member with agent access chooses "Request merge" under the report. For
+  the worktree of your own session without a topic, switch "Viewing" in code mode to that worktree and choose
+  "Ask the host to merge" (only the member who owns the worktree has this button). The host reads the full diff and
+  then chooses "Merge into the main workspace" or "Reject" (a rejected worktree stays as it is, and the reason is
+  shown).
 - **When a merge conflicts** with the main workspace, it stops and the main workspace is unchanged. The host or a
   member with agent access can then choose "Ask the agent to resolve": smurg brings the main workspace's changes
   into the item's worktree, the item's agent resolves the conflicting places and writes a new version of its
-  report, and the merge is offered again.
+  report. That report has to be reviewed again; then the change is back in the host's inbox.
 - When you end an agent session without a topic that worked in a worktree, you are asked whether to keep its
   worktree; deleting it deletes the changes that were not merged, and that cannot be undone.
 
@@ -520,7 +536,7 @@ Under the terminals, the list shows the agent sessions ("Agent sessions (convers
 topic, and the address where they open in the browser. Naming an agent session to `smurg attach` only prints that
 it is a conversation, not a terminal.
 
-Members with agent access can type into any terminal session; other roles can only watch (smurg says
+The host and members with agent access can type into any terminal session; other roles can only watch (smurg says
 "Read-only: …" first). When the host goes offline, `smurg attach` tells you within seconds. To protect your
 terminal, a session's output is filtered before it is shown: terminal queries, clipboard access (OSC 52) and other
 control sequences smurg does not know are never sent to your terminal (a program in someone else's session could

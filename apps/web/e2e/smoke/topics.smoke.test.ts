@@ -189,8 +189,9 @@ describe.skipIf(chrome === null)('a topic from start to finish in a real browser
 
   it('the Start dialog says what a Start does; Start runs item 1 in its own worktree and its checked report arrives', async () => {
     const plan = column(host, 'Plan');
+    // The button and the dialog's title say one number: what starts now (the second item waits for the first).
     await plan.getByRole('button', { name: /^Start 1 item$/ }).click();
-    const dialog = host.getByRole('dialog', { name: /^Start 2 items$/ });
+    const dialog = host.getByRole('dialog', { name: /^Start 1 item$/ });
     await dialog.getByText(/^1 item starts now: 1 · Cart API\.$/).waitFor({ timeout: STEP_MS });
     await dialog.getByText(/^2 · Checkout page starts by itself when 1 · Cart API is merged/).waitFor({ timeout: STEP_MS });
     await dialog.getByText(/smurg commits SPEC\.md and PLAN\.md to the branch main of the host's folder, as you\./).waitFor({ timeout: STEP_MS });

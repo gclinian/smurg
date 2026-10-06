@@ -22,7 +22,7 @@ import { StandaloneDocument, useDocumentText, useHeldDocument } from '../editor/
 import { Markdown } from '../markdown/index.ts';
 import { DiscussionFoot, ReviseBox, useDiscussion, type ReviseQuote } from './Discussion.tsx';
 import { oneOrMany, specFile, specOpenQuestions, specSections } from './model.ts';
-import { LinkButton, Note, Scroll, Toolbar, ToolbarPath, formatClock, useAction, useOpenSide, useTopic } from './shared.tsx';
+import { Foot, LinkButton, Note, Scroll, Toolbar, ToolbarPath, formatClock, useAction, useOpenSide, useTopic } from './shared.tsx';
 import { t } from './strings.ts';
 import './topics.css';
 
@@ -149,16 +149,20 @@ function Spec({ topic }: { topic: Topic }) {
     <>
       <ColumnMenuItems items={menu} />
       <Toolbar>
-        <Segmented<View>
-          label={t('spec.view')}
-          size="sm"
-          value={view}
-          onChange={setView}
-          options={[
-            { id: 'read', label: t('view.read'), icon: <IconEye size={14} /> },
-            { id: 'edit', label: t('view.edit'), icon: <IconEdit size={14} />, disabled: !canWrite || !live, ...(canWrite ? {} : { title: t('view.edit.viewer') }) },
-          ]}
-        />
+        {/* A viewer has nothing to switch to: no greyed "Edit" (whose reason only a pointer could reach), and a
+            sentence at the foot that says who can edit (UX §10). */}
+        {canWrite ? (
+          <Segmented<View>
+            label={t('spec.view')}
+            size="sm"
+            value={view}
+            onChange={setView}
+            options={[
+              { id: 'read', label: t('view.read'), icon: <IconEye size={14} /> },
+              { id: 'edit', label: t('view.edit'), icon: <IconEdit size={14} />, disabled: !live },
+            ]}
+          />
+        ) : null}
         <ToolbarPath path={file.path} />
         {canSuggest && live ? (
           <Button size="sm" icon={<IconWand />} onClick={() => setRevise({ quote: null })}>
@@ -215,6 +219,7 @@ function Spec({ topic }: { topic: Topic }) {
           <StandaloneDocument held={held} active={view === 'edit'} />
         </div>
       ) : null}
+      {canWrite ? null : <Foot className="topics-foot--status" text={t('view.edit.viewer')} />}
       {revise !== null && live ? (
         <ReviseBox topic={topic} target="spec" quote={revise.quote} onQuoteRemoved={() => setRevise({ quote: null })} onClose={() => setRevise(null)} />
       ) : (

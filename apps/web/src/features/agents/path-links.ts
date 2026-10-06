@@ -5,7 +5,7 @@
 // host's absolute layout is none of the viewer's business); (2) it resolves against the SESSION's root (the main
 // workspace or its worktree: Claude Code prints paths relative to its cwd); and (3) it EXISTS in that tree — known from
 // a loaded file-tree listing, else asked once with file.stat (cached). Everything uncertain is "not a link".
-import { isValidRelPath, rootRefKey, type FileEntry, type FileRef, type RootRef } from '@smurg/protocol';
+import { isHostPrivatePath, isSmurgDirName, isValidRelPath, rootRefKey, type FileEntry, type FileRef, type RootRef } from '@smurg/protocol';
 import type { IBufferRange, ILink, ILinkProvider, Terminal } from '@xterm/xterm';
 
 export interface PathCandidate {
@@ -95,6 +95,18 @@ export function normalizeSessionPath(raw: string): string | null {
 export function resolveCandidate(root: RootRef, candidate: Pick<PathCandidate, 'path'>): FileRef | null {
   const path = normalizeSessionPath(candidate.path);
   return path === null ? null : { root, path };
+}
+
+/**
+ * Whether asking the host about `path` (a path normalizeSessionPath returned) can be anything but a refusal for this
+ * viewer. The daemon hands the host-private names (everything inside a `.git`, any `.envrc`, the host's personal
+ * Claude Code files) and its own `.smurg` folder to nobody but the host: it does not even say whether they exist,
+ * writes the request into the audit log under the asker's name and counts it against the asker's connection. Text
+ * that merely names such a file must not make the people who read it ask.
+ */
+export function mayAskAbout(path: string, viewer: { readonly isHost: boolean }): boolean {
+  if (viewer.isHost) return true;
+  return !isHostPrivatePath(path) && !isSmurgDirName(path.split('/', 1)[0] ?? '');
 }
 
 export type LinkTargetKind = 'file' | 'dir';

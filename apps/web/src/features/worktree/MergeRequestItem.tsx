@@ -68,7 +68,10 @@ function StatusDetail({ request, mine, isHost, now }: { request: MergeRequest; m
   }
 }
 
-/** The files a merge stopped on, and what can happen next (different advice for the host and the requester). */
+/**
+ * The files a merge stopped on, and what can happen next (different advice for the host and the requester; for the
+ * change of a work item also where its agent is asked to resolve the conflict).
+ */
 export function ConflictDetails({ request, viewerIsHost }: { request: MergeRequest; viewerIsHost: boolean }) {
   const files = request.conflictFiles ?? [];
   return (
@@ -83,6 +86,8 @@ export function ConflictDetails({ request, viewerIsHost }: { request: MergeReque
           ))}
         </ul>
       ) : null}
+      {/* A work item has an agent that can do it: said first, before the ways by hand. */}
+      {request.itemId !== undefined ? <p className="worktree-conflict__next">{t('detail.conflictItem')}</p> : null}
       <p className="worktree-conflict__next">
         {viewerIsHost ? t('detail.conflictHost', { id: request.id }) : t('detail.conflictRequester')}
       </p>

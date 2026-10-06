@@ -3,7 +3,7 @@
 // screen).
 import type { ConnectionState } from '@smurg/protocol/client';
 import { describeConnection, secondsUntil, type ConnectionView } from '../../lib/connection/status.ts';
-import { useNow } from '../../lib/use-now.ts';
+import { useLocalNow } from '../../lib/use-now.ts';
 import { tConn } from '../../strings/connection.ts';
 import { Banner, Tooltip, cx } from '../../ui/index.ts';
 import { IconCloudOff, IconPlugOff } from '../../ui/icons.tsx';
@@ -34,8 +34,9 @@ function detailWithRetry(view: ConnectionView, now: number): string {
  */
 export function ConnectionBanner({ state }: { state: ConnectionState }) {
   const view = describeConnection(state);
-  // The retry countdown: the clock runs only while one is shown.
-  const now = useNow(1_000, view.retryAt !== null);
+  // The retry countdown: the clock runs only while one is shown. This browser set the time of the retry, so it is
+  // counted on this browser's clock, not the host's.
+  const now = useLocalNow(1_000, view.retryAt !== null);
   if (view.blocking || view.kind === 'online' || view.kind === 'idle') return null;
   if (view.kind === 'host-offline') {
     return (

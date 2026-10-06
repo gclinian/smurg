@@ -3,16 +3,16 @@
 // conversation do not render again because an event arrived. A piece that needs something that changes often (a card's
 // entity, the session's status) reads it from the store with its own selector.
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { rootRefKey, type AgentSession, type InboxItem, type Member, type Role, type RootRef } from '@smurg/protocol';
+import { isSmurgError, rootRefKey, type AgentSession, type FileRef, type InboxItem, type Member, type Role, type RootRef } from '@smurg/protocol';
 import { useColumn } from '../../lib/columns/context.tsx';
 import { describeError } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectSession } from '../../lib/stores/sessions.ts';
-import { useCommands, useMember, useStores } from '../../lib/workspace/context.tsx';
+import { useCapabilities, useCommands, useMember, useStores } from '../../lib/workspace/context.tsx';
 import type { MarkdownPaths } from '../markdown/index.ts';
 // The one piece of the terminal feature the conversation shares: how a path in agent output is recognised and
 // checked (DESIGN §5.5 "the existing path-links logic"). Pure functions; nothing of xterm comes with them.
-import { createPathExistence, findPathCandidates, resolveCandidate } from '../agents/path-links.ts';
+import { createPathExistence, findPathCandidates, mayAskAbout, resolveCandidate } from '../agents/path-links.ts';
 import { usePeople, type Person } from './people.ts';
 
 export interface ConversationEnv {
@@ -44,24 +44,60 @@ export function useAgentSession(sessionId: string): AgentSession | null {
   return watched;
 }
 
+/** After a refused lookup a conversation asks about no path for this long. */
+export const REFUSAL_QUIET_MS = 60_000;
+/** The error codes the daemon counts as a refusal (and audits under the asker's name): not "there is no such file". */
+const REFUSALS: ReadonlySet<string> = new Set(['path_denied', 'forbidden', 'host_only', 'unauthorized', 'rate_limited']);
+
+/**
+ * How a path in the text of this conversation becomes a button that opens the file. The text is on the screen of
+ * everyone who reads the conversation, and a lookup is a request of THAT reader to the host, so three rules keep
+ * reading from turning into asking (the Markdown renderer adds a fourth: a bound per text):
+ *   - a name the reader's role can never open (path-links.ts mayAskAbout) is not a candidate at all;
+ *   - a path the host refused is never asked about again;
+ *   - after a refusal nothing is asked for REFUSAL_QUIET_MS: what the lexical rule cannot know (a hard link, a link
+ *     that leads to a private file) costs one refused request, not one per mention.
+ */
 function usePaths(sessionId: string, root: RootRef | null): MarkdownPaths | undefined {
   const stores = useStores();
   const commands = useCommands();
+  const { isHost } = useCapabilities();
   const rootKey = root === null ? null : rootRefKey(root);
   return useMemo<MarkdownPaths | undefined>(() => {
     if (root === null) return undefined;
+    const viewer = { isHost };
+    const refused = new Set<string>();
+    let quietUntil = 0;
     const existence = createPathExistence({
       lookup: () => undefined,
-      stat: (ref) => stores.files.stat(ref),
+      async stat(ref) {
+        try {
+          return await stores.files.stat(ref);
+        } catch (error) {
+          if (isSmurgError(error) && REFUSALS.has(error.code)) {
+            refused.add(ref.path);
+            quietUntil = Date.now() + REFUSAL_QUIET_MS;
+          }
+          throw error;
+        }
+      },
       now: () => Date.now(),
     });
+    /** The file a candidate names, when this reader may ask about it. */
+    const askable = (candidate: { readonly path: string }): FileRef | null => {
+      const ref = resolveCandidate(root, candidate);
+      return ref !== null && mayAskAbout(ref.path, viewer) ? ref : null;
+    };
     return {
-      find: (text) => findPathCandidates(text).map((candidate) => ({ start: candidate.start, end: candidate.end, text: candidate.text })),
+      find: (text) =>
+        findPathCandidates(text)
+          .filter((candidate) => askable(candidate) !== null)
+          .map((candidate) => ({ start: candidate.start, end: candidate.end, text: candidate.text })),
       async resolve(match) {
         const candidate = findPathCandidates(match.text)[0];
         if (candidate === undefined) return null;
-        const ref = resolveCandidate(root, candidate);
-        if (ref === null) return null;
+        const ref = askable(candidate);
+        if (ref === null || refused.has(ref.path) || Date.now() < quietUntil) return null;
         if ((await existence.check(ref)) !== 'file') return null;
         return {
           label: ref.path,
@@ -77,7 +113,7 @@ function usePaths(sessionId: string, root: RootRef | null): MarkdownPaths | unde
     };
     // The root's key says everything about `root`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootKey, sessionId, stores, commands]);
+  }, [rootKey, sessionId, stores, commands, isHost]);
 }
 
 export function ConversationEnvProvider({ sessionId, root, children }: { sessionId: string; root: RootRef | null; children: ReactNode }) {

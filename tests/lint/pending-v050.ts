@@ -1,14 +1,22 @@
 // The pending list of v0.5.0 (DESIGN §9.3 P12, §9.4): what is skipped while the release is being built, each entry
-// with the package that brings it back. Phase 0 (the foundation) removed the behaviour these pointed at (agent
-// sessions in a PTY, suggestions pasted into a PTY); the packages named here put its replacement in place, and the
-// integration engineer (P12) empties the list. With SMURG_RELEASE_GATE=1 a non-empty list fails the lint.
+// with the package (or the step of the integration, P12A to P12G) that brings it back. Phase 0 (the foundation)
+// removed the behaviour these pointed at (agent sessions in a PTY, suggestions pasted into a PTY); the packages put
+// its replacement in place, and the integration empties the list. With SMURG_RELEASE_GATE=1 a non-empty list fails
+// the lint.
+//
+// What is left (2026-10-07, after the integration step P12C): nothing. The relay-level flow of a topic is in the tree
+// (tests/e2e/test/t.topic-flow.test.ts), and the audit scenario of tests/e2e/test/r11.console.test.ts drives agent
+// sessions and a topic with the stand-in claude: both lists are empty, and no test asks for a pending part.
 //
 // The daemon's own suites keep their part next to them: packages/daemon/test/fixtures/pending-v050.ts (modules and
 // service slots) and packages/daemon/test/fixtures/wire-text-owners.ts (catalog ids nothing produces yet).
 
 export const RELEASE_GATE = process.env['SMURG_RELEASE_GATE'] === '1';
 
-export type Package = 'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6' | 'P7' | 'P8' | 'P9' | 'P10' | 'P11' | 'P12';
+export type Package = 'P1' | 'P2' | 'P3' | 'P4' | 'P5' | 'P6' | 'P7' | 'P8' | 'P9' | 'P10' | 'P11' | 'P12' | `P12${'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G'}`;
+
+/** What an `owner` must look like (the two lints that read the lists check it). */
+export const OWNER = /^P(?:[1-9]|1[01]|12[A-G]?)$/;
 
 export interface PendingAcceptanceRef {
   /** The test file as docs/ACCEPTANCE.md spells it. */
@@ -20,25 +28,8 @@ export interface PendingAcceptanceRef {
   readonly why: string;
 }
 
-/** References of docs/ACCEPTANCE.md to tests that were deleted with the behaviour they covered. */
-export const PENDING_ACCEPTANCE_REFS: readonly PendingAcceptanceRef[] = [
-  {
-    file: 'daemon/suggest/r6.pty.test.ts',
-    owner: 'P2',
-    why: 'R6 over a real PTY: an accepted suggestion is now a message to an agent session (AgentSessions.send), never a paste',
-  },
-  {
-    file: 'daemon/integration/suggest-sessions.test.ts',
-    owner: 'P2',
-    why: 'the suggest module with the real PTY session manager: suggestions go to conversations now',
-  },
-  {
-    file: 'daemon/sessions/launch.test.ts',
-    title: "an agent an Agent access member opens is launched exactly like the host's, and is attributed to her: `Claude (Carol)`,",
-    owner: 'P1',
-    why: 'agent sessions are no longer PTYs: the agent runtime (runner, profiles, launch check) has its own suite',
-  },
-];
+/** References of docs/ACCEPTANCE.md to tests that are not in the tree (deleted with their behaviour, or not written yet). */
+export const PENDING_ACCEPTANCE_REFS: readonly PendingAcceptanceRef[] = [];
 
 export interface PendingTestPart {
   /** What the test passes to isPendingPart(). */
@@ -51,24 +42,11 @@ export interface PendingTestPart {
 }
 
 /**
- * Parts of cross-package tests (tests/e2e, the web smokes) that are skipped: each drove a suggestion into a TERMINAL
- * and read it back from the PTY. Protocol 4 sends suggestions to agent sessions only, and those need the agent
- * runtime (P1) and the conversation module (P2) in the composition, then the conversation column (P8).
+ * Parts of cross-package tests that are skipped. (The three parts of the web smokes that drove a suggestion into a
+ * TERMINAL were deleted, not revived: a terminal takes no suggestion in protocol 4. The two parts of tests/e2e
+ * r11.console came back with the integration: its scenario suggests to, and acts on, an agent session.)
  */
-export const PENDING_TEST_PARTS: readonly PendingTestPart[] = [
-  {
-    id: 'e2e:r11.console#R6',
-    where: 'tests/e2e/test/r11.console.test.ts',
-    owner: 'P12',
-    why: 'the suggest.* audit entries of R6 need an agent session to suggest to (P1 runtime, P2 conversation); the other R4-R9 entries are still checked',
-  },
-  {
-    id: 'e2e:r11.console#agent-actions',
-    where: 'tests/e2e/test/r11.console.test.ts',
-    owner: 'P12',
-    why: 'the audit actions protocol 4 added (messages to agents, questions, permission answers, topics, plans, reports) are written by modules that are not composed yet; the scenario grows by them at integration',
-  },
-];
+export const PENDING_TEST_PARTS: readonly PendingTestPart[] = [];
 
 /** Whether a part of a test waits for its package (never for the release gate). */
 export function isPendingPart(id: string): boolean {

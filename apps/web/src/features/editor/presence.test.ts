@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { editorPresenceCss, participantsOf } from './presence.ts';
+import type { PresenceAgent } from '@smurg/protocol';
+import { agentsAtWorkOnly, editorPresenceCss, participantsOf } from './presence.ts';
 
 const human = (name: string, userId: string, color = '#3b82f6', selection: unknown = null) => ({ user: { name, color, kind: 'human', userId }, selection });
 const agent = (name: string, color = '#f59e0b') => ({ user: { name, color, kind: 'agent', userId: 'dev:host' }, selection: { anchor: {}, head: {} } });
@@ -81,5 +82,41 @@ describe('remote cursors: names and colours for people AND agents', () => {
       ['Amy', 'human', 2],
       ['Claude (Ian)', 'agent', 4],
     ]);
+  });
+
+  it('an agent that does not work is not "also in this file": its caret and its entry go, a working agent stays', () => {
+    const states = new Map<number, Record<string, unknown>>([
+      [1, human('Amy', 'dev:amy')],
+      [4, agent('Claude (Ian)', '#f59e0b')],
+      [5, agent('Claude (Ian)', '#22c55e')],
+      [9, human('Me', 'dev:me')],
+    ]);
+    // The host's presence list: one session per colour (the daemon gives every agent session its own).
+    const presence = (first: PresenceAgent['status'], second: PresenceAgent['status']): PresenceAgent[] => [
+      { sessionId: 's_1', ownerUserId: 'dev:host', displayName: 'Claude (Ian)', color: '#f59e0b', status: first },
+      { sessionId: 's_2', ownerUserId: 'dev:host', displayName: 'Claude (Ian)', color: '#22c55e', status: second },
+    ];
+    const shown = (agents: readonly PresenceAgent[]): number[] => participantsOf(agentsAtWorkOnly(states, agents), 9, 'dev:me').map((p) => p.clientId);
+
+    expect(shown(presence('running', 'waiting-permission'))).toEqual([1, 4, 5]);
+    // The first session's turn ended (idle), the second one's item is done: neither is in the file any more.
+    expect(shown(presence('idle', 'waiting-permission'))).toEqual([1, 5]);
+    expect(shown(presence('idle', 'done'))).toEqual([1]);
+    expect(shown(presence('stalled', 'failed'))).toEqual([1]);
+    // Their carets are not drawn either.
+    const css = editorPresenceCss(agentsAtWorkOnly(states, presence('idle', 'running')), 9);
+    expect(css).not.toContain('yRemoteSelectionHead-4');
+    expect(css).toContain('.yRemoteSelectionHead-5{border-left-style:dashed}');
+    expect(css).toContain('yRemoteSelectionHead-1');
+
+    // An agent the presence list does not know (the list has not arrived, another colour) is left as it is.
+    expect(shown([])).toEqual([1, 4, 5]);
+    expect(shown([{ sessionId: 's_3', ownerUserId: 'dev:host', displayName: 'Claude (Ian)', color: '#000000', status: 'idle' }])).toEqual([1, 4, 5]);
+    // Two sessions that cannot be told apart: the caret stays while one of them works.
+    const twins: PresenceAgent[] = [
+      { sessionId: 's_1', ownerUserId: 'dev:host', displayName: 'Claude (Ian)', color: '#f59e0b', status: 'idle' },
+      { sessionId: 's_9', ownerUserId: 'dev:host', displayName: 'Claude (Ian)', color: '#f59e0b', status: 'running' },
+    ];
+    expect(shown(twins)).toEqual([1, 4, 5]);
   });
 });

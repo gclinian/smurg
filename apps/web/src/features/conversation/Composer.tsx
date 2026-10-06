@@ -68,7 +68,10 @@ export function Composer({ session }: ComposerProps) {
   }
 
   const offline = connection.kind !== 'online';
-  const title = sessionTitle(session);
+  // The box names the session one writes to (DESIGN §5.12 item 11). "Discussion" is the same word in every topic:
+  // a discussion is named with its topic, as its column is.
+  const name = sessionTitle(session);
+  const title = session.purpose === 'discussion' && session.topicName !== undefined ? t('composer.inTopic', { title: name, topic: session.topicName }) : name;
   const placeholder = drive ? t('composer.message', { title }) : t('composer.suggest', { title });
   const max = drive ? MESSAGE_TEXT_MAX_CHARS : SUGGESTION_TEXT_MAX_CHARS;
   const text = draft.text;
@@ -160,7 +163,9 @@ export function Composer({ session }: ComposerProps) {
         {drive ? (
           <IconButton className="conv-composer__send" variant="secondary" label={t('composer.send')} icon={<IconSend />} disabled={offline || sending} onClick={send} />
         ) : (
-          <Button variant="primary" icon={<IconLightbulb />} loading={sending} disabled={offline} onClick={send}>
+          // In a narrow column only its icon shows (conversation.css): the row belongs to the box, whose placeholder
+          // names the session one is about to write to (DESIGN §5.12 item 11). The label stays its name.
+          <Button className="conv-composer__suggest" variant="primary" icon={<IconLightbulb />} loading={sending} disabled={offline} title={t('composer.sendSuggestion')} onClick={send}>
             {t('composer.sendSuggestion')}
           </Button>
         )}

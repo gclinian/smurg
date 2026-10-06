@@ -12,7 +12,7 @@ import { Banner, Button, Dialog, Spinner, useToast } from '../../ui/index.ts';
 import { IconAlertCircle, IconAlertTriangle, IconCheck, IconEdit, IconFolder, IconGitBranch, IconPlay, IconQuestion, IconShield, IconUser } from '../../ui/icons.tsx';
 import { PlanChanges } from './PlanChanges.tsx';
 import { LinkButton, useAction, useTopic } from './shared.tsx';
-import { startCount, startLines, type StartLine, type StartLineId } from './start-model.ts';
+import { startCount, startHeadCount, startLines, startedNotice, type StartLine, type StartLineId } from './start-model.ts';
 import { t } from './strings.ts';
 import { TopicRules } from './TopicRules.tsx';
 
@@ -73,8 +73,8 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
   const preflight = load.status === 'ready' ? load.preflight : null;
-  const count = preflight === null ? 0 : startCount(preflight);
-  const startable = preflight !== null && preflight.blockers.length === 0 && count > 0;
+  const startable = preflight !== null && preflight.blockers.length === 0 && startCount(preflight) > 0;
+  const headCount = preflight === null ? 0 : startHeadCount(preflight);
 
   const start = async (): Promise<void> => {
     if (preflight === null || !startable) return;
@@ -88,7 +88,7 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
         specHash: preflight.specHash,
         planHash: preflight.planHash,
       });
-      toast.show({ tone: 'success', title: t('start.done', { count }) });
+      toast.show({ tone: 'success', ...startedNotice(preflight) });
       onClose();
     } catch (error) {
       if (isSmurgError(error) && knownErrorReasonOf(error) === 'plan-changed') {
@@ -141,7 +141,7 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
       open
       onClose={onClose}
       size="lg"
-      title={preflight === null || count === 0 ? t('start.title') : t('start.titleCount', { count })}
+      title={headCount === 0 ? t('start.title') : t('start.titleCount', { count: headCount })}
       description={t('start.lead')}
       footer={
         <>

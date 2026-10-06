@@ -14,6 +14,7 @@ export const t = defineStrings(
     'task.open': 'Not done',
     'code.label': 'Code',
     'code.labelLang': 'Code ({lang})',
+    'plain.note': 'Shown as it was written: this text is too long or too deeply nested to format.',
   },
   zhTW,
 );

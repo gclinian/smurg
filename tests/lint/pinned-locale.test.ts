@@ -37,8 +37,12 @@ describe('every test pins its language', () => {
     const pins = repoFiles().filter((path) => /^apps\/web\/.*\.(ts|tsx)$/.test(path) && /useTestLocale\(\s*'zh-TW'\s*\)/.test(read(path)));
     const allowed = (path: string): boolean => /\.zh-TW\.test\.tsx$/.test(path) || path === 'apps/web/src/testing/locale.ts' || path === 'apps/web/src/testing/setup.ts';
     expect(pins.filter((path) => !allowed(path))).toEqual([]);
-    // Each feature panel and the app shell have their zh-TW suite.
-    expect(pins.filter((path) => /\.zh-TW\.test\.tsx$/.test(path)).length).toBeGreaterThanOrEqual(9);
+    // The app shell and EVERY feature folder have a zh-TW suite: a feature that is added brings its own.
+    const suites = pins.filter((path) => /\.zh-TW\.test\.tsx$/.test(path));
+    const features = [...new Set(repoFiles().flatMap((path) => /^apps\/web\/src\/features\/([^/]+)\//.exec(path)?.[1] ?? []))];
+    expect(features.length).toBeGreaterThanOrEqual(12);
+    expect(features.filter((name) => !suites.some((path) => path.startsWith(`apps/web/src/features/${name}/`)))).toEqual([]);
+    expect(suites.some((path) => path.startsWith('apps/web/src/app/'))).toBe(true);
   });
 
   it('browser tests: every browser context names its locale', () => {

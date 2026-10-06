@@ -26,15 +26,15 @@ describe('the columns in zh-TW', () => {
     expect(within(cart).getByRole('img', { name: '等待回答' })).toBeTruthy();
     expect(within(cart).getByRole('button', { name: '釘選這一欄：1 · Cart API' })).toBeTruthy();
     expect(within(cart).getByRole('button', { name: '關閉這一欄：1 · Cart API' })).toBeTruthy();
-    const plan = screen.getByRole('region', { name: '計畫' });
+    const plan = screen.getByRole('region', { name: '計畫 · Checkout redesign' });
     expect(within(plan).getByRole('heading', { level: 2 }).textContent).toBe('計畫');
     expect(screen.getByRole('region', { name: '討論 · Checkout redesign' })).toBeTruthy();
-    await userEvent.click(within(plan).getByRole('button', { name: '「計畫」的更多操作' }));
-    expect(within(screen.getByRole('menu', { name: '「計畫」的更多操作' })).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['釘選這一欄', '關閉其他欄', 'Update plan']);
+    await userEvent.click(within(plan).getByRole('button', { name: '「計畫 · Checkout redesign」的更多操作' }));
+    expect(within(screen.getByRole('menu', { name: '「計畫 · Checkout redesign」的更多操作' })).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['釘選這一欄', '關閉其他欄', 'Update plan']);
     await userEvent.keyboard('{Escape}');
     expect(screen.getAllByRole('separator')[0]?.getAttribute('aria-label')).toBe('拖曳或用方向鍵調整「1 · Cart API」的寬度');
-    await userEvent.click(within(plan).getByRole('button', { name: '釘選這一欄：計畫' }));
-    expect(within(plan).getByRole('button', { name: '取消釘選：計畫' }).getAttribute('aria-pressed')).toBe('true');
+    await userEvent.click(within(plan).getByRole('button', { name: '釘選這一欄：計畫 · Checkout redesign' }));
+    expect(within(plan).getByRole('button', { name: '取消釘選：計畫 · Checkout redesign' }).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('the fifth column, a session the host no longer keeps, a kind nothing shows', async () => {
@@ -52,8 +52,8 @@ describe('the columns in zh-TW', () => {
     const gone = screen.getByRole('region', { name: 'session' });
     expect(gone.textContent).toContain('主人的電腦不再保留它的內容');
     expect(within(gone).getByRole('button', { name: '關閉這一欄' })).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'spec' })).toBeTruthy();
-    expect(screen.getByRole('region', { name: '結果報告：1 · Cart API' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'spec · Checkout redesign' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: '結果報告：1 · Cart API · Checkout redesign' })).toBeTruthy();
     // Every word of the frame is Chinese (the names people gave stay as they are).
     for (const button of screen.getAllByRole('button')) expect(button.getAttribute('aria-label') ?? button.textContent, button.outerHTML.slice(0, 80)).toMatch(CJK);
   });

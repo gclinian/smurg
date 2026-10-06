@@ -78,6 +78,7 @@ export function ColumnStrip({ shown, empty, onLastClosed, id }: ColumnStripProps
       columns={items}
       empty={empty}
       reveal={reveal}
+      current={state.focusedId}
       onWeights={(weights) => stores.columns.setWeights(weights)}
       onEqualize={() => stores.columns.equalize()}
       onCapacity={(count) => stores.columns.setCapacity(count)}

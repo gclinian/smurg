@@ -39,7 +39,11 @@ export function makeMember(overrides: Partial<Member> = {}): Member {
   };
 }
 
-export function makeWelcome(options: { role?: Role; userId?: string; displayName?: string; channelId?: string; name?: string; resumed?: boolean } = {}): Welcome {
+/**
+ * `serverTime` is the host's clock at the admission. Default: this computer's time now, so the host's clock and the
+ * test's agree (lib/use-now.ts corrects by their difference); a test on a manual scheduler passes that scheduler's time.
+ */
+export function makeWelcome(options: { role?: Role; userId?: string; displayName?: string; channelId?: string; name?: string; resumed?: boolean; serverTime?: number } = {}): Welcome {
   const role = options.role ?? 'editor';
   return {
     channelId: options.channelId ?? 'ch_1',
@@ -51,7 +55,7 @@ export function makeWelcome(options: { role?: Role; userId?: string; displayName
     }),
     workspace: { id: WORKSPACE_ID, name: 'class-project', hostUserId: HOST_USER, hostName: 'Ian', platform: 'darwin', isGitRepo: true },
     settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [] },
-    serverTime: T0,
+    serverTime: options.serverTime ?? Date.now(),
   };
 }
 

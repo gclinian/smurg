@@ -35,7 +35,7 @@ no `sudo`, no system packages.
 - To run agents, this computer also needs the `claude` command (Claude Code **2.1.288 or later**), **already logged
   in** to your Claude account: every agent session uses this computer's login, whoever in the workspace it works for
   (§4, §5.1). An older Claude Code is refused for agent sessions; with a newer one than this smurg was verified
-  with, agent sessions run and say so. `smurg status` shows which it is (§7).
+  with, agent sessions run and you get one notification that says so. `smurg status` shows which it is (§7).
 - To let agents carry out work items, the folder you share must be a **git repository** with at least one commit,
   and this computer needs git 2.42 or later (§10.2). Without git, a topic's discussion, spec and plan still work.
 - **Language**: smurg's interface comes in English and Traditional Chinese, and everyone sees their own language. The
@@ -210,12 +210,15 @@ conversations; nothing runs by itself until someone continues it (§7, §10.5).
   it, but that is best effort. Do not let agents work in a folder whose files, or whose commands' output, hold
   secrets (§5.4 says where conversations are kept and how to delete them).
 - **Whose Claude account works for the group**: every agent uses the account `claude` is logged in to on this
-  computer, also when it works for a teammate; the usage and the cost are yours. Anthropic's terms do not allow
-  making a personal account (a Pro or Max subscription) available to other people; for a group, log Claude Code in
-  with an API key, a Team or Enterprise plan, or a cloud provider. smurg does not stop you. The dialog that starts a
-  topic says whose account the agent uses, the host console's security notes say what fits a group, and when Claude
-  Code reports a personal subscription login while other members are in the workspace, you (and only you) are told
-  once per workspace:
+  computer, also when it works for a teammate; the usage and the cost are yours. **A personal Claude subscription
+  (Pro or Max) is for your own use.** Anthropic's terms do not allow making a personal account available to other
+  people; for a group, log Claude Code in with an API key, a Team or Enterprise plan, or a cloud provider. smurg
+  does not stop you; it tells you in three places. The dialog that starts a topic says whose account the agent
+  uses. The host console's security notes say what fits a group:
+  "Agents here use your Claude Code login. A personal Pro or Max subscription is for your own use: when other people work with agents here, use an API key or a Team or Enterprise plan."
+  And when an agent starts while Claude Code reports a personal subscription login and the workspace has members
+  besides you, you (and only you) get one notification in the web app, at most once each time you share (it stays
+  in the host console, above the list of sessions, until you press "Got it"):
   "Agents here use your personal Claude subscription. Anthropic's terms do not allow making a personal account available to other people; for a group, use an API key, a Team or Enterprise plan, or a cloud provider."
 - **No agent session is sandboxed.** smurg limits what an agent does by itself and asks before commands (§5.2),
   but whatever is allowed runs under your operating-system account. Agents read files that teammates wrote or
@@ -362,8 +365,8 @@ denied, never shortened.
 
 - **Who can answer**: you and every member with agent access; Editors and Viewers see the request and cannot answer
   it. It goes first to the inbox of the session's responsible person when that person can answer it; when nobody is
-  assigned, or after the waiting time (5 minutes unless you change it in the host console's settings, at once when
-  that person is offline), it is in your inbox and in that of every member with agent access. The first answer
+  assigned, or after the waiting time (5 minutes unless you change it in the host console's settings; one minute
+  when that person is offline), it is in your inbox and in that of every member with agent access. The first answer
   wins. The setting is "Waiting time before others are asked (minutes)".
 - **The answers**: "Allow once", "Always allow this kind" or "Deny" (with an optional line that tells the agent
   what to do instead).
@@ -378,8 +381,10 @@ denied, never shortened.
 - **Requests only you can allow**: a request that smurg recognizes as reaching beyond the project (a file outside
   it, for example) says "Only the host can allow this: it reaches beyond the shared project." It is a label for what
   smurg can recognize, not a wall: a command that is allowed can still reach anywhere your account can.
-- Every answer is in the audit log with the whole command, and so is every command that ran without a request,
-  with the reason (a kind someone always allowed, one of your own rules, a read-only command in a worktree).
+- Every answer is in the audit log with the whole command, and so is every command that ran without a request (the
+  entry "Agent ran a command"). That entry does not say which rule let the command through (a kind someone always
+  allowed, one of your own rules, a read-only command in a worktree); a command that a topic's always-allowed kind
+  answered has an entry of its own that names the kind.
 
 ### 5.3 Your own Claude Code: allow rules, MCP servers, project settings, `CLAUDE.md`
 
@@ -389,7 +394,10 @@ runs without a permission request, also when the agent works for a teammate. smu
 rules apply: an inbox item, "Your own Claude Code rules apply here", opens the list; it is information, there is
 nothing to confirm ("Agents here run them without asking too."). The list stays in the host console under
 "My own Claude Code rules"; `smurg status` shows how many apply (§7), and you and members with agent access can
-read the list in a session's permission menu. To keep a rule from applying here,
+read the list in a session's permission menu. smurg learns the rules from Claude Code when an agent starts: until
+the first agent session has started, the list is empty and `smurg status` says "none apply to agent sessions". When
+a new rule appears later, you are told again. The list names where each rule comes from: your user settings, the
+project's settings (once you confirmed them, below) or managed settings. To keep a rule from applying here,
 remove it from your own Claude Code settings. The limits of §5.2 hold regardless of your rules: a discussion agent
 stays without a shell, and no agent changes Claude Code's settings.
 
@@ -404,15 +412,22 @@ project's own `.mcp.json` also need the confirmation below.
 environment variables. In your own terminal Claude Code asks whether you trust a folder before it loads them. An
 agent session in smurg never shows that question, so smurg asks you instead:
 
-- When you create the first topic in a folder that has such settings, the dialog shows what they do: every command
-  they run, every permission rule, every environment variable (the ones that could send your Claude login to
-  another server are marked), with the files one click away. You choose whether agents use them. When a teammate
-  creates the topic first, you get an inbox item instead: "Claude Code project settings wait for the host".
+- As soon as you share a folder whose settings you have not decided about, you (and only you) have an inbox item:
+  "Claude Code project settings wait for the host". It opens the review in the host console. Until you decide, the
+  dialog that starts a topic shows you the same review under "This folder has Claude Code project settings": every
+  command the settings run, every permission rule, every environment variable (the ones that could send your Claude
+  login to another server are marked), with the files one click away. You choose "Use them" or
+  "Run without them (agents will not read CLAUDE.md)"; when the settings can send your login elsewhere or let
+  agents act without asking, you first tick what you have read. A teammate who starts a topic before you decided is
+  told that the discussion runs without the settings until you confirm. While work items run in worktrees before
+  you decided, the same item is in your inbox once for the main workspace and once for each worktree: they are about
+  the same content, and one decision settles all of them.
 - Until you confirm, agent sessions run without those settings, and, as Claude Code works, also without the
   project's `CLAUDE.md`; the conversation says so:
   "The host has not confirmed this folder's Claude Code project settings. This session runs without them and without the project's CLAUDE.md."
 - You confirm a content, not a folder. When one of the files changes, or a script inside the folder that their
-  commands call, the agents working there are stopped until you have looked again:
+  commands call, the agents working there are stopped, and from then on they run without the settings until you
+  have looked again:
   "This folder's Claude Code project settings changed. The agent was stopped until the host confirms them."
   While a content is confirmed, those files and scripts can be changed through smurg only by you. What a script
   runs in turn is not followed: anyone who can edit files in the folder can change what your confirmed commands
@@ -521,8 +536,10 @@ before everything has stopped).
 **What a stop does to sessions.** Terminal sessions end. Agent sessions are paused: their agents stop, their
 conversations are kept, and smurg says how many there are, for example
 `3 agent sessions are paused. They continue when you share this folder again.` When you share the folder again,
-every conversation is readable, every agent is idle and every plan is paused: nothing runs until you or a member
-with agent access presses "Continue all" (§10.5). An agent that was in the middle of its work says so:
+every conversation is readable and every agent is idle; a plan that had work running or waiting to start is paused.
+Nothing runs by itself: a paused plan goes on when you or a member with agent access presses "Continue all"
+(§10.5), and a discussion or a session without a topic goes on with its next message. An agent that was in the
+middle of its work says so:
 "smurg was restarted on the host's computer. The agent's turn was interrupted."
 
 If `smurg host` ends without stopping properly (a crash, a kill, the computer losing power), the agents' own
@@ -561,15 +578,17 @@ they open in the browser, not in a terminal.
 | "Anthropic rejected the host's Claude Code login. The host must log in again in their own terminal." | The login on this computer is no longer accepted. Run `claude` in your own terminal, log out and log in again. |
 | An agent session cannot be started, and the sentence ends with "The host should update Claude Code." | Agent sessions need Claude Code 2.1.288 or later (§1); the sentence names the version it found. Update Claude Code (`claude update`, or the way you installed it). `smurg status` shows the version smurg sees. |
 | "The claude command was not found on the host." / "Claude Code did not answer when the session started. The host should check that `claude` runs in a terminal on their computer." | Claude Code is not installed for your account, is not in the `PATH` that `smurg host` was started with, or does not start. Run `claude` in the terminal you start `smurg host` from. A session that failed has "Try again"; after three failed starts only you can try again. |
-| "The host's Claude account has reached a usage limit." (your inbox: "The host's Claude account reached a usage limit") | The account `claude` is logged in to has no usage left for now. Every agent waits; work continues by itself when the limit resets, and the web app says when if Claude Code reports it. Many agents working at once use a subscription's allowance quickly (§10.4). |
+| "The host's Claude account has reached a usage limit." (your inbox: "The host's Claude account reached a usage limit") | The account `claude` is logged in to has no usage left for now. Every agent waits, and the web app says when the limit resets if Claude Code reports it. Whether the work then goes on by itself is up to Claude Code (smurg starts nothing again, and this was not tried with a real account): if an agent stays where it was, send it a message. Many agents working at once use a subscription's allowance quickly (§10.4). |
 | A work item says "Stopped without a report" | Its agent ended its turn without writing the result report, although smurg asked it once more ("smurg asked Claude for the result report"), or someone stopped it. Open the session to see where it stands; "Continue" asks the agent to go on. |
-| A work item says "The agent's process failed", or its session shows "The agent's process ended unexpectedly" | Claude Code's process ended. "Try again" continues the same conversation. If it keeps failing, look at the daemon's log (§7). |
-| A work item "Did not start": "The spec or the plan changed since Start. This item did not start." | A work item starts only from the spec and the plan that someone confirmed when they pressed Start (§10.2). Open the plan, look at what changed and start the item again. |
+| A work item says "Failed" (your inbox: "the agent's process failed"), or its session shows "The agent's process ended unexpectedly" | Claude Code's process ended. "Try again" continues the same conversation. If it keeps failing, look at the daemon's log (§7). |
+| A work item says "The plan changed: Start again" (your inbox: "did not start"): "The spec or the plan changed since Start. This item did not start." | A work item starts only from the spec and the plan that someone confirmed when they pressed Start (§10.2). Open the plan, look at what changed and press "Start again" on the item. |
 | Start is refused: "Work items run in git worktrees, and this folder is not a git repository yet. The host can make it one: run `git init`, then commit once." | Do that in the shared folder, in your own terminal (§10.2). |
 | Start is refused: "The spec and the plan could not be committed: git is in the middle of another operation in the main workspace." | Finish or abort the merge or rebase in the shared folder, then press Start again. |
-| A work item waits although nothing seems to run; an agent session cannot be started and the sentence ends with "Try again when one is idle." | The limit of agents that work at once is reached (§10.4), often because several of them wait for a person: answer the questions and permission requests in the inbox, or raise the limit in the host console's settings. |
+| A work item waits although nothing seems to run (the plan says "Waiting for a free agent") | The limit of work items that run at once is reached (§10.4), often because several of them wait for a person: answer the questions and permission requests in the inbox, or raise the limit in the host console's settings ("Work items running at the same time"). |
+| An agent session cannot be started, and the sentence ends with "Try again when one is idle." | This computer already runs 32 agent processes, the fixed limit of one `smurg host`; it is not a setting. smurg puts an idle agent's process aside by itself to make room, but an agent that is working or waiting for a person keeps its process: answer what waits in the inbox, or end sessions you no longer need. |
 | A teammate cannot start a topic or open a session | Only Agent access can (§5.1). To give it, change their role in the host console; read the risk in §5.1 first. |
 | Files an agent changed with a shell command show as "Outside program" in the activity feed | You started sharing with `--no-bash-attribution`, or two or more agents were running shell commands at the same time, so smurg cannot tell which one it was (§5.5). |
+| A new folder shows as "Outside program" in the activity feed and the audit log, although an agent, a merge or smurg itself created it | smurg attributes files, not folders: every new folder is recorded that way (a topic's folder under `specs/`, a folder an agent creates in its worktree, a folder a merge brings into the main workspace). The files in it are attributed to whoever wrote them. |
 
 All state (keys, logins, workspaces, conversations, log files) is in `~/.smurg` (`SMURG_HOME` changes the place);
 the log files are in `~/.smurg/logs/` and contain no invite links.
@@ -701,7 +720,8 @@ the host you can always submit an answer too.
   "Reviewed, ready to merge", with the items that wait for it. A member with agent access can also ask you to merge
   work that nobody reviewed.
 - You read the complete diff, then choose "Merge into the main workspace" or "Reject". The merge commit is yours and
-  says whose work it was (`Merge smurg/<topic folder>/<item id> (<who started it>)`).
+  says whose work it was (`Merge smurg/<topic folder>/<item id> (<name>)`: the member who asked for the merge, else
+  the one who started the item).
 - **Work items that depend on others start only after you merged those.** In a plan with dependencies, you are the
   one everybody waits for: the plan says which items wait for a merge, and the inbox puts the merges that unblock
   something first.
@@ -757,8 +777,9 @@ by itself:
   six times that long.
 - **A member leaves the workspace, or you change their role** so that they can no longer use agents: their
   terminals and their agent sessions without a topic end. The sessions of topics pass to you and keep running
-  ("Amy left. This session now runs for the host."). Whatever they were responsible for is decided by the next
-  person in line: whoever opened the session or pressed Start, or you.
+  ("Amy left. This session now runs for the host."). When they left or are now a Viewer, whatever they were
+  responsible for is decided by the next person in line: whoever opened the session or pressed Start, or you. A
+  member you made an Editor stays responsible for what they had.
 - **You remove a member**: the same, but their topic sessions are stopped first
   ("Amy was removed. This session was stopped and now runs for the host."). A member who is removed and joins again
   does not get their old sessions back.
@@ -785,8 +806,10 @@ A topic's discussion is one conversation that everyone shares, and it can get lo
 ### 10.8 What was verified, and what was not
 
 The flow of this version (discussion with questions and votes, spec, plan, work items, result reports, review,
-merge) was verified by smurg's developers against a scripted stand-in for the model, and real Claude Code was run
-only against a fake API on the development machine. No real Claude account was used for testing. So how a real
+merge) was verified by smurg's developers against a scripted stand-in for the model, and real Claude Code (version
+2.1.288, the oldest that agent sessions accept) was run only against a fake API on the development machine. That
+machine is a Mac: real Claude Code was not run with smurg on Linux at all for this version; on Linux only the
+stand-in was tested. No real Claude account was used for testing. So how a real
 model behaves in this flow is not verified yet: whether it asks its questions as cards as it is told, writes the
 plan and the report in the format smurg checks, and proposes a sensible split of the work. This may need tuning in
 later versions.

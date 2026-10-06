@@ -127,6 +127,26 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, worktree
     // The complete diff: the changed file, opened, with its added line.
     await review.getByRole('navigation', { name: 'Changed files' }).getByText('merged-file.txt').first().click();
     await review.getByRole('region', { name: 'Diff of merged-file.txt' }).getByText('+from the worktree').waitFor({ timeout: STEP_MS });
+    // In a narrow column (a column is 320 to 620 px wide in the usual layouts, whatever the window) the file list
+    // stands above the diff, each as wide as the column lets it: no file name broken every few letters beside a diff
+    // of twelve characters.
+    const size = host.viewportSize() ?? { width: 1440, height: 900 };
+    const boxes = async (): Promise<{ column: number; files: { x: number; y: number; width: number; height: number }; diff: { x: number; y: number; width: number; height: number } }> => {
+      const [column, files, diff] = [await review.boundingBox(), await review.getByRole('navigation', { name: 'Changed files' }).boundingBox(), await review.locator('.worktree-review__diff').boundingBox()];
+      if (column === null || files === null || diff === null) throw new Error('the Changes column is not laid out');
+      return { column: column.width, files, diff };
+    };
+    await host.setViewportSize({ width: 880, height: size.height });
+    try {
+      await expect.poll(async () => (await boxes()).column, { timeout: STEP_MS }).toBeLessThanOrEqual(620);
+      await expect.poll(async () => { const now = await boxes(); return now.files.y + now.files.height <= now.diff.y; }, { timeout: 10_000 }).toBe(true);
+      const narrow = await boxes();
+      expect(narrow.files.width).toBe(narrow.diff.width);
+      expect(narrow.files.width).toBeGreaterThan(narrow.column - 80);
+    } finally {
+      // Whatever came of it, the tests after this one get the window they expect.
+      await host.setViewportSize(size);
+    }
     await review.getByRole('button', { name: 'Merge into the main workspace' }).click();
     await review.getByRole('button', { name: 'Confirm merge' }).click();
     await waitUntil(async () => (await readFile(join(env.stack.root, 'merged-file.txt'), 'utf8').catch(() => '')) === 'from the worktree\n', STEP_MS, 'the merged file in the main workspace');

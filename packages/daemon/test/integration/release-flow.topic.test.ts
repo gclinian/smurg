@@ -12,9 +12,10 @@
 // agent) and with the real inbox (reports, merges, attention items).
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type AgentSession, type ConversationEvent, type PlanInfo, type Topic } from '@smurg/protocol';
 import type { FakeClaudeScenario, FakeClaudeStep } from '../../src/testing/index.ts';
+import { DocClient, destroyDocClients } from '../docs/helpers.ts';
 import { AMY, IAN, LEO, MEI, audited, eventOf, everythingAgentsReceived, inboxItem, inboxWithout, kinds, launches, permissionAt, questionAt, refusal, startFlow, statusIs, told, turnsFinished, waitFor, type Flow, type Person } from './release-flow.support.ts';
 
 const SLUG = 'checkout';
@@ -187,6 +188,9 @@ const itemOf = (plan: PlanInfo | undefined, id: string) => plan?.items.find((ite
 const text = (path: string, flow: Flow, root = flow.root): Promise<string> => readFile(join(root, path), 'utf8');
 const bytes = (content: string): Uint8Array => new TextEncoder().encode(content);
 
+// (An editor a test left open; this hook runs before the one of release-flow.support.ts that stops the daemon.)
+afterEach(() => destroyDocClients());
+
 describe('the release composition: one topic from the discussion to the archive, four people', { timeout: 480_000 }, () => {
   it('discussion, spec, revision, plan, split, Start, items in worktrees, reports, reviews, merges, a conflict, complete, archive', async () => {
     const flow = await startFlow({
@@ -239,6 +243,8 @@ describe('the release composition: one topic from the discussion to the archive,
     await mei.conn.request('question.submit', { questionId: payment.id, answers: [{ options: [0] }] });
     await turnsFinished(leo, discussionId, 1);
     await statusIs(leo, discussionId, 'idle');
+    // (The events of a session travel in batches, a moment after a state that says the same: wait for the last one.)
+    await eventOf(leo, discussionId, (event) => event.kind === 'pointer' && event.target === 'spec', "the spec's next-step card");
     // What everyone saw of the turn. The tool gate refused the two things a discussion agent may not do, with a sentence
     // the agent reads; the write of its own file needed no card.
     const draftTurn = leo.events(discussionId);
@@ -283,6 +289,8 @@ describe('the release composition: one topic from the discussion to the archive,
     // The spec says who asked for the agent's last change: Amy. Still no hand edit: the agent wrote it.
     const revised = await topicIs(leo, topicId, (topic) => topic.spec.lastAgentChange?.askedBy?.userId === AMY, 'the revised spec');
     expect(revised.handEdits).toEqual({ spec: [], plan: [] });
+    // (The pointer is an event of the session: it travels in a batch, a moment after the topic's own update.)
+    await waitFor(() => leo.events(discussionId).filter((event) => event.kind === 'pointer').length >= 2, { what: "the revised spec's next-step card at the Viewer" });
     expect(leo.events(discussionId).filter((event) => event.kind === 'pointer')).toHaveLength(2);
     await inboxWithout(mei, (item) => item.kind === 'suggestion', 'the accepted suggestion');
 
@@ -297,6 +305,7 @@ describe('the release composition: one topic from the discussion to the archive,
     await turnsFinished(leo, discussionId, 3);
     await statusIs(leo, discussionId, 'idle');
     const planned = await topicIs(leo, topicId, (topic) => topic.phase === 'plan' && !topic.plan.generating, 'the plan');
+    await eventOf(leo, discussionId, (event) => event.kind === 'pointer' && event.target === 'plan', "the plan's next-step card");
     // The generate turn as everyone saw it: smurg's own message (folded in the conversation), the broken plan the
     // agent's own check refused with the line, the fixed plan, the split, and the plan's next-step card.
     const planTurn = leo.events(discussionId).slice(beforePlan);
@@ -358,6 +367,15 @@ describe('the release composition: one topic from the discussion to the archive,
     await ian.conn.request('file.write', { file: { root: MAIN_ROOT, path: SPEC_PATH }, content: bytes(SPEC_BY_IAN) });
     await topicIs(leo, topicId, (topic) => topic.handEdits.spec.length === 1 && topic.plan.stale, 'the hand edit of the spec');
     expect(lastTopic(leo, topicId)).toMatchObject({ handEdits: { spec: [{ by: { userId: IAN, displayName: 'Ian' } }], plan: [] }, spec: { changedBy: { kind: 'user', userId: IAN } }, plan: { stale: true } });
+    // Amy fixes one too, TYPING in the editor as a browser does (a shared document, saved by smurg): named as well.
+    const amyEditor = await DocClient.open(amy.conn, { root: MAIN_ROOT, path: SPEC_PATH });
+    await waitFor(() => amyEditor.synced && amyEditor.text.toString() === SPEC_BY_IAN, { what: "the spec in Amy's editor" });
+    const SPEC_AT_START = SPEC_BY_IAN.replace('Cart, payment, receipt.', 'Cart, payment and receipt.');
+    amyEditor.text.delete(SPEC_BY_IAN.indexOf('payment, receipt.') + 'payment'.length, 1);
+    amyEditor.text.insert(SPEC_BY_IAN.indexOf('payment, receipt.') + 'payment'.length, ' and');
+    await waitFor(async () => (await text(SPEC_PATH, flow)) === SPEC_AT_START, { what: "the autosave of Amy's typing" });
+    await topicIs(leo, topicId, (topic) => topic.handEdits.spec.length === 2 && topic.spec.changedBy?.kind === 'user' && topic.spec.changedBy.userId === AMY, "Amy's typing as a hand edit");
+    expect(lastTopic(leo, topicId)).toMatchObject({ handEdits: { spec: [{ by: { userId: IAN } }, { by: { userId: AMY, displayName: 'Amy' } }], plan: [] }, plan: { stale: true } });
     expect(await refusal(amy.conn.request('plan.preflight', { topicId }))).toMatchObject({ code: 'forbidden' });
     const headBefore = await flow.git(['rev-parse', 'HEAD']);
     const { preflight } = await mei.conn.request('plan.preflight', { topicId });
@@ -369,7 +387,7 @@ describe('the release composition: one topic from the discussion to the archive,
       responsible: [{ itemId: 'cart-api', user: { userId: MEI }, online: true }, { itemId: 'checkout-page', user: { userId: AMY }, online: true }, { itemId: 'receipt-email', user: { userId: IAN }, online: true }],
       youDecide: 1,
       commit: { needed: true, branch: 'main', as: { userId: MEI }, files: [SPEC_PATH, PLAN_PATH], alsoInFolder: [] },
-      handEdits: { spec: [{ by: { userId: IAN } }], plan: [] },
+      handEdits: { spec: [{ by: { userId: IAN } }, { by: { userId: AMY } }], plan: [] },
       stale: true,
       openQuestion: false,
       specOpenQuestions: 0,
@@ -385,7 +403,7 @@ describe('the release composition: one topic from the discussion to the archive,
     const started = (await mei.conn.request('plan.start', { topicId, planRevision: preflight.planRevision, specHash: preflight.specHash, planHash: preflight.planHash })).plan;
 
     // ---- the checkpoint commit: exactly the two files, as Mei, with who edited them by hand
-    expect(await flow.git(['log', '-1', '--format=%s%n%an%n%(trailers:key=Edited-by,valueonly)'])).toBe('smurg: spec and plan of checkout\nMei\nIan');
+    expect(await flow.git(['log', '-1', '--format=%s%n%an%n%(trailers:key=Edited-by,valueonly)'])).toBe('smurg: spec and plan of checkout\nMei\nIan\nAmy');
     expect((await flow.git(['show', '--name-only', '--format=', 'HEAD'])).split('\n').sort()).toEqual([PLAN_PATH, SPEC_PATH]);
     expect(await flow.git(['rev-parse', 'HEAD~1'])).toBe(headBefore);
     expect(await flow.git(['status', '--porcelain'])).toBe('');
@@ -424,7 +442,7 @@ describe('the release composition: one topic from the discussion to the archive,
     const cartRoot = flow.d.ctx.roots.get({ kind: 'worktree', worktreeId: cartWt })?.realPath as string;
     const receiptRoot = flow.d.ctx.roots.get({ kind: 'worktree', worktreeId: receiptWt })?.realPath as string;
     // Each checkout holds the spec and the plan exactly as they were pinned.
-    expect(await text(SPEC_PATH, flow, cartRoot)).toBe(SPEC_BY_IAN);
+    expect(await text(SPEC_PATH, flow, cartRoot)).toBe(SPEC_AT_START);
     expect(await text(PLAN_PATH, flow, receiptRoot)).toBe(PLAN);
 
     // ================================================================================================================
@@ -446,7 +464,7 @@ describe('the release composition: one topic from the discussion to the archive,
     expect(cartTools[2]?.result.body).toMatchObject({ text: expect.stringContaining("A work item's session does not change its topic's SPEC.md or PLAN.md.") });
     expect(await text('src/cart/total.ts', flow, cartRoot)).toContain('export const total');
     expect(await text('src/app.ts', flow, cartRoot)).toBe(APP_BY_CART);
-    expect(await text(SPEC_PATH, flow, cartRoot)).toBe(SPEC_BY_IAN);
+    expect(await text(SPEC_PATH, flow, cartRoot)).toBe(SPEC_AT_START);
     // Nothing of it is in the main workspace: the work is in the item's own checkout.
     expect(await text('src/app.ts', flow)).toBe(APP_BEFORE);
     await expect(text('src/cart/total.ts', flow)).rejects.toMatchObject({ code: 'ENOENT' });
@@ -528,6 +546,8 @@ describe('the release composition: one topic from the discussion to the archive,
     const stalled = await planIs(leo, topicId, (plan) => itemOf(plan, 'receipt-email')?.state === 'stalled', 'work item 3 stalled');
     expect(itemOf(stalled, 'receipt-email')).toMatchObject({ state: 'stalled', stalledBy: 'agent', responsible: { userId: IAN } });
     await statusIs(leo, receiptId, 'stalled');
+    await turnsFinished(leo, receiptId, 2);
+    await waitFor(() => leo.events(receiptId).at(-1)?.kind === 'delivery', { what: 'the end of the nudged turn of work item 3 at the Viewer' });
     const receiptEvents = leo.events(receiptId);
     expect(kinds(receiptEvents)).toEqual(['line', 'smurg', 'delivery', 'delivery', 'turn.started', 'tool.started', 'tool.finished', 'text', 'turn.finished', 'delivery', 'line', 'smurg', 'delivery', 'turn.started', 'text', 'turn.finished', 'delivery']);
     expect(receiptEvents[10]).toMatchObject({ kind: 'line', text: { id: 'conversation.nudge.report' } });
@@ -546,12 +566,20 @@ describe('the release composition: one topic from the discussion to the archive,
     // Amy edits the spec after Start: what waited is disarmed, nothing of her text reaches an agent; Mei arms it again
     // ================================================================================================================
     const launchesBeforeEdit = await launches(flow);
-    const SPEC_BY_AMY = SPEC_BY_IAN.replace('Invoices. Coupons.', `Invoices. Coupons. ${AMY_SPEC_EDIT}`);
-    await amy.conn.request('file.write', { file: { root: MAIN_ROOT, path: SPEC_PATH }, content: bytes(SPEC_BY_AMY) });
+    // She types in the editor she already typed in before the Start, seconds ago. (The activity feed has one "edited"
+    // entry per person and file per minute; the topic knows the hand edit all the same: the next Start must name her.)
+    const SPEC_BY_AMY = SPEC_AT_START.replace('Invoices. Coupons.', `Invoices. Coupons. ${AMY_SPEC_EDIT}`);
+    expect(amyEditor.text.toString()).toBe(SPEC_AT_START);
+    amyEditor.text.insert(SPEC_AT_START.indexOf('Invoices. Coupons.') + 'Invoices. Coupons.'.length, ` ${AMY_SPEC_EDIT}`);
+    await waitFor(async () => (await text(SPEC_PATH, flow)) === SPEC_BY_AMY, { what: "the autosave of Amy's edit" });
     const disarmed = await planIs(leo, topicId, (plan) => itemOf(plan, 'checkout-page')?.disarmed !== undefined, 'the disarmed item');
     expect(itemOf(disarmed, 'checkout-page')).toMatchObject({ state: 'not-started', armed: false, disarmed: 'plan-changed', startError: { text: { id: 'plan.item.disarmed.changed' } } });
     expect((await audited(flow, 'scheduler.disarm')).map((entry) => entry.detail)).toMatchObject([{ topicId, itemId: 'checkout-page', reason: 'plan-changed', startedBy: MEI }]);
-    expect(await topicIs(leo, topicId, (topic) => topic.handEdits.spec.length === 1, "Amy's hand edit")).toMatchObject({ handEdits: { spec: [{ by: { userId: AMY, displayName: 'Amy' } }], plan: [] }, plan: { stale: true } });
+    expect(await topicIs(leo, topicId, (topic) => topic.handEdits.spec.length === 1 && topic.spec.changedBy?.kind === 'user', "Amy's hand edit")).toMatchObject({ handEdits: { spec: [{ by: { userId: AMY, displayName: 'Amy' } }], plan: [] }, spec: { changedBy: { kind: 'user', userId: AMY } }, plan: { stale: true } });
+    // In the feed and the audit log her typing in this file is still one entry for the minute.
+    expect((await leo.conn.request('activity.list', { limit: 500 })).events.filter((event) => event.kind === 'human.edit' && event.actor.kind === 'user' && event.actor.userId === AMY && event.file?.path === SPEC_PATH)).toHaveLength(1);
+    // She closes the editor (her lock on the file goes with it).
+    amyEditor.close();
     // The member who pressed Start and the host are told; "Show the changes" shows what changed since the Start.
     for (const member of [mei, ian]) expect(await inboxItem(member, (item) => item.kind === 'attention' && item.subject === 'item-not-started', 'the item that will not start')).toMatchObject({ waiting: true, topicId, itemId: 'checkout-page', target: { kind: 'plan', topicId } });
     const changes = await leo.conn.request('plan.changes', { topicId });
@@ -560,8 +588,8 @@ describe('the release composition: one topic from the discussion to the archive,
     // Nothing of it reached an agent: no session started, the running items keep the copy they started from, and the
     // text is in nothing any agent process was given.
     expect(await launches(flow)).toBe(launchesBeforeEdit);
-    expect(await text(SPEC_PATH, flow, cartRoot)).toBe(SPEC_BY_IAN);
-    expect(await text(SPEC_PATH, flow, receiptRoot)).toBe(SPEC_BY_IAN);
+    expect(await text(SPEC_PATH, flow, cartRoot)).toBe(SPEC_AT_START);
+    expect(await text(SPEC_PATH, flow, receiptRoot)).toBe(SPEC_AT_START);
     expect(await everythingAgentsReceived(flow)).not.toContain('amy-spec-edit');
     // Nobody can write the spec copy or the report inside an item's worktree: not an Editor, not Mei, not the host.
     for (const member of [amy, mei, ian]) {

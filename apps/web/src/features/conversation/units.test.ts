@@ -1,9 +1,10 @@
 // The pure helpers of the conversation feature: text, people and mentions, drafts, diffs.
 import { describe, expect, it } from 'vitest';
 import { MAIN_ROOT, MENTIONS_PER_TEXT_MAX } from '@smurg/protocol';
+import type { ConnectionState } from '../../lib/connection/types.ts';
 import { MemoryStorage } from '../../testing/services.tsx';
 import { diffStat, parseDiff } from './diff.ts';
-import { DRAFTS_MAX, EMPTY_DRAFT, createDraftsStore } from './drafts.ts';
+import { DRAFTS_MAX, EMPTY_DRAFT, createDraftsStore, draftsOf, forgetDrafts } from './drafts.ts';
 import { applyMention, matchPeople, mentionQueryAt, mentionsIn, personOf, whoDiscuss, withAgentAccess, type Person } from './people.ts';
 import { cardDomId, commandHead, commonDir, lineRange, quoteSelection, showControls } from './text.ts';
 
@@ -122,6 +123,77 @@ describe('drafts', () => {
     loose.setText('s1', 'x');
     expect(loose.get('s1').text).toBe('x');
   });
+
+  it('a member who is removed, whose device is revoked or whose browser belongs to another account now leaves no draft in this browser', () => {
+    const KEY = 'smurg.drafts.ws_1';
+    /** A workspace session as drafts see it: its connection's state, which a test moves by hand. */
+    const workspace = () => {
+      let state: ConnectionState = { kind: 'connecting', attempt: 1, retryAt: null, cause: null };
+      const listeners = new Set<(state: ConnectionState) => void>();
+      return {
+        connection: {
+          getState: () => state,
+          subscribe: (listener: (state: ConnectionState) => void) => (listeners.add(listener), () => listeners.delete(listener)),
+        },
+        becomes(next: ConnectionState): void {
+          state = next;
+          for (const listener of [...listeners]) listener(next);
+        },
+        get listeners() {
+          return listeners.size;
+        },
+      };
+    };
+    const ended: ConnectionState[] = [
+      { kind: 'closed', reason: 'kicked', daemonReason: 'kicked' },
+      { kind: 'closed', reason: 'revoked', daemonReason: 'revoked' },
+      { kind: 'rejected', reason: 'kicked' },
+      { kind: 'rejected', reason: 'device-revoked' },
+      { kind: 'rejected', reason: 'device-other-account' },
+    ];
+    for (const state of ended) {
+      const session = workspace();
+      const drafts = draftsOf(session, 'ws_1');
+      expect(draftsOf(session, 'ws_1')).toBe(drafts);
+      drafts.append('s1', 'src/secret.ts:1\n```\nconst key = 1;\n```\n', { file: { root: MAIN_ROOT, path: 'src/secret.ts' }, startLine: 1, endLine: 1 });
+      expect(window.localStorage.getItem(KEY)).toContain('const key = 1;');
+      session.becomes(state);
+      expect(window.localStorage.getItem(KEY), JSON.stringify(state)).toBeNull();
+      expect(drafts.getState().size).toBe(0);
+      expect(session.listeners).toBe(0);
+      // Nothing typed afterwards (the page still shows for a moment) is kept either.
+      drafts.setText('s1', 'typed after the end');
+      expect(window.localStorage.getItem(KEY)).toBeNull();
+    }
+
+    // What does not end the member's access keeps the drafts: the host is away, the page is closed, an old client.
+    const kept: ConnectionState[] = [
+      { kind: 'host-offline', reason: 'relay', since: 1 },
+      { kind: 'closed', reason: 'local' },
+      { kind: 'closed', reason: 'login-required' },
+      { kind: 'rejected', reason: 'version' },
+    ];
+    for (const state of kept) {
+      const session = workspace();
+      draftsOf(session, 'ws_1').setText('s1', 'Half a thought');
+      session.becomes(state);
+      expect(window.localStorage.getItem(KEY), JSON.stringify(state)).toContain('Half a thought');
+    }
+
+    // A workspace that is opened when the access has already ended: what an earlier visit left goes at once.
+    const late = workspace();
+    late.becomes({ kind: 'rejected', reason: 'kicked' });
+    expect(draftsOf(late, 'ws_1').getState().size).toBe(0);
+    expect(window.localStorage.getItem(KEY)).toBeNull();
+
+    // For the places that end a member's access themselves (logging out, leaving).
+    const storage = new MemoryStorage();
+    createDraftsStore('ws_2', storage).setText('s1', 'x');
+    createDraftsStore('ws_3', storage).setText('s1', 'y');
+    forgetDrafts('ws_2', storage);
+    expect(storage.getItem('smurg.drafts.ws_2')).toBeNull();
+    expect(storage.getItem('smurg.drafts.ws_3')).not.toBeNull();
+  });
 });
 
 describe('diff', () => {
@@ -143,5 +215,31 @@ describe('diff', () => {
     expect(parseDiff('')).toEqual([]);
     // A replacement the daemon could not number has a heading and no line numbers.
     expect(parseDiff('@@ replacement 1 of 2 @@\n-a\n+b').map((line) => [line.kind, line.number])).toEqual([['hunk', null], ['del', null], ['add', null]]);
+  });
+
+  it('a removed line "-- x" and an added line "++n" are a removal and an addition with their numbers, never a file heading', () => {
+    // What the daemon sends for an edit that removes the SQL comment "-- old" and adds the line "++n, evil();".
+    const lines = parseDiff('--- a/src/a.js\n+++ b/src/a.js\n@@ -7,3 +7,3 @@\n before\n--- old\n+++n, evil();\n after\n');
+    expect(lines.map((line) => [line.kind, line.number, line.text])).toEqual([
+      ['meta', null, '--- a/src/a.js'],
+      ['meta', null, '+++ b/src/a.js'],
+      ['hunk', null, '@@ -7,3 +7,3 @@'],
+      ['context', 7, 'before'],
+      ['del', 8, '-- old'],
+      ['add', 8, '++n, evil();'],
+      ['context', 9, 'after'],
+    ]);
+    expect(diffStat(lines)).toEqual({ additions: 1, deletions: 1 });
+    // The diff of a tool's result has no file heading: its first lines are changes whatever they start with.
+    expect(parseDiff('@@ -1,1 +1,1 @@\n--- a\n+++ b').map((line) => [line.kind, line.number, line.text])).toEqual([
+      ['hunk', null, '@@ -1,1 +1,1 @@'],
+      ['del', 1, '-- a'],
+      ['add', 1, '++ b'],
+    ]);
+    // A new file whose first line starts with "++" (no heading at all), and a lone "--- " line with no "+++ " under it.
+    expect(parseDiff('+++ b/x\n+second').map((line) => [line.kind, line.number, line.text])).toEqual([['add', 1, '++ b/x'], ['add', 2, 'second']]);
+    expect(parseDiff('--- a/x\n-gone').map((line) => line.kind)).toEqual(['del', 'del']);
+    // The replacements the daemon could not diff keep the file heading above their own headings.
+    expect(parseDiff('--- /dev/null\n+++ b/new.sql\n@@ replacement 1 of 1 @@\n--- x\n+++ y').map((line) => line.kind)).toEqual(['meta', 'meta', 'hunk', 'del', 'add']);
   });
 });

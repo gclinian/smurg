@@ -51,12 +51,16 @@
   color: var(--color-text-subtle);
   font-size: var(--text-sm);
 }
+/* What a body puts beside its title (a report's outcome, "Attempt 2 of 2") keeps its width, up to half of the
+   header: in a narrow column the title gives way with an ellipsis, not the badge (DESIGN §5.12 item 22: the outcome
+   beside the title). */
 .col-head__extra {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-width: 0;
+  max-width: 50%;
   overflow: hidden;
 }
 .col-head__actions {

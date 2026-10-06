@@ -7,17 +7,25 @@
 //   const amy = await stack.join({ name: 'amy', role: 'editor' });   // real invite (made by the host over E2E)
 //   await amy.conn.request('lock.list', {});
 //   stack.pauseHost();                                                // the host's laptop goes to sleep
+//   await stack.restartDaemon();                                      // `smurg host` again on the same folder and state
 //   await stack.stop();                                               // clients, daemon, relay (if owned), temp dirs
 //
+// Agent sessions (protocol 4) run the scripted stand-in for Claude Code, never a `claude` of this computer:
+//
+//   const stack = await startStack({ git: true, claude: { turns: [{ steps: [{ text: 'ok' }] }] } });
+//   await stack.claude?.setScenario({ … });                           // read again at every turn
+//
 // Everything a stack starts is stopped by stop(), in reverse order; nothing touches ~/.smurg (the state dir is a
-// temp directory) and no process is spawned (workerd belongs to wrangler's harness, which stop() closes).
+// temp directory). The stack itself spawns no process (workerd belongs to wrangler's harness, which stop() closes);
+// the daemon's sessions do (a shell, the stand-in `claude`), and the daemon ends them when it stops.
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { createDaemon, createLineLogger, DEFAULT_FEATURE_MODULES, silentLogger, type Daemon, type FeatureModule, type LimitsConfig, type Logger, type SessionLaunchConfig, type TimingConfig } from '@smurg/daemon';
-import { createTempRunDir, isolatedGitEnv, removeTempRunDir } from '@smurg/daemon/testing';
+import { createDaemon, createLineLogger, DEFAULT_FEATURE_MODULES, silentLogger, type AgentsConfig, type Daemon, type FeatureModule, type LimitsConfig, type Logger, type SessionLaunchConfig, type TimingConfig } from '@smurg/daemon';
+import { createTempRunDir, installFakeClaude, isolatedGitEnv, removeTempRunDir, type FakeClaude, type FakeClaudeScenario } from '@smurg/daemon/testing';
 import { parseInviteUrl, type AuditEntry, type GuestRole, type HostSettings, type Welcome } from '@smurg/protocol';
 import {
   Connection,
@@ -60,11 +68,30 @@ export interface StackOptions {
   readonly modules?: readonly FeatureModule[];
   readonly timing?: Partial<TimingConfig>;
   readonly limits?: Partial<LimitsConfig>;
-  /** Session launch inputs (selfCommand, claudePath, …); hostHome is always the stack's fake home. */
+  /** The agent runtime's timers. */
+  readonly agents?: Partial<AgentsConfig>;
+  /**
+   * Session launch inputs (selfCommand, claudePath, …); hostHome is always the stack's fake home. A `selfCommand`
+   * without a `claudePath` is refused: the daemon would look for `claude` on PATH, i.e. the developer's own Claude
+   * Code with the developer's login. Use `claude` below, or pass the path of a stand-in.
+   */
   readonly sessions?: Partial<Omit<SessionLaunchConfig, 'hostHome'>>;
+  /**
+   * Agent sessions run the scripted stand-in for Claude Code (`installFakeClaude` of @smurg/daemon/testing, installed
+   * into this stack's temp folder) and the REAL `smurg hook` / `smurg mcp` commands (node + packages/cli/src/main.ts),
+   * so the tool gate, the locks and `check_plan` / `check_report` work as in production. `true`: an empty scenario
+   * (every message is answered "ok"); `stack.claude.setScenario()` changes it at any time. Without this option (and
+   * without `sessions`) an agent session is refused before anything is started (`session.hooks.notConfigured`).
+   */
+  readonly claude?: FakeClaudeScenario | boolean;
+  /** Dev login name of the host (default HOST_LOGIN: `dev:host`, shown as "Host"); another name is shown capitalised. */
+  readonly hostLogin?: string;
   /** Daemon logger (default silent). */
   readonly log?: Logger;
 }
+
+/** The `smurg` command as sessions run it in development (node + the CLI's source entry): the real hooks and MCP tools. */
+export const CLI_MAIN = fileURLToPath(new URL('../../../packages/cli/src/main.ts', import.meta.url));
 
 /** One person's device: a relay login, a device key and a pin store that survive across Connection instances. */
 export interface StackDevice {
@@ -115,7 +142,10 @@ export interface JoinOptions {
 export interface Stack {
   readonly relay: LocalRelay;
   readonly tap: RelayTap | undefined;
+  /** The daemon that runs NOW (another object after `restartDaemon`); throws while it is stopped. */
   readonly daemon: Daemon;
+  /** The stand-in for Claude Code of this stack (`StackOptions.claude`), else undefined. */
+  readonly claude: FakeClaude | undefined;
   readonly workspaceId: string;
   /** Realpath of the shared folder. */
   readonly root: string;
@@ -146,6 +176,21 @@ export interface Stack {
   /** The host's laptop goes to sleep: the daemon stops sending and answering, its sockets stay open. */
   pauseHost(): void;
   resumeHost(): void;
+  /** The host stops sharing (`smurg stop`): the daemon stops, the relay and every client stay as they are. */
+  stopDaemon(): Promise<void>;
+  /** `smurg host` again on the same folder, state directory and home; resolves when the relay sees the host online. */
+  startDaemon(): Promise<void>;
+  /** stopDaemon() then startDaemon(). The clients are not touched: their connections come back by themselves. */
+  restartDaemon(): Promise<void>;
+  /** The command lines of the processes started with a file of this stack's state directory (the agent sessions). */
+  agentProcesses(): Promise<string[]>;
+  /**
+   * Kills the `claude` process of one agent session as a crash would (SIGKILL). Only a process whose command line
+   * names THIS stack's own state directory and that session's launch files is signalled. Returns how many were.
+   */
+  killAgentOf(sessionId: string): Promise<number>;
+  /** git in the shared folder (or `cwd`), with the isolated configuration the repository was made with (`git: true`). */
+  git(args: readonly string[], cwd?: string): Promise<string>;
   stop(): Promise<void>;
 }
 
@@ -167,6 +212,16 @@ export async function startStack(options: StackOptions = {}): Promise<Stack> {
     if (errors.length > 0) throw new AggregateError(errors, 'stack cleanup failed');
   };
 
+  // Never the developer's own Claude Code: a hook command makes agent sessions startable, and without a named
+  // `claude` the daemon would take the first one on PATH, with the login it finds there.
+  const launch = options.sessions ?? {};
+  if (launch.selfCommand != null && launch.claudePath == null) {
+    throw new Error('startStack: `sessions.selfCommand` needs `sessions.claudePath` (a stand-in: use the option `claude`), or agent sessions would run the `claude` found on PATH');
+  }
+  if (options.claude !== undefined && options.claude !== false && (launch.selfCommand != null || launch.claudePath != null)) {
+    throw new Error('startStack: give either `claude` (the stand-in with the real hook command) or `sessions.claudePath` / `sessions.selfCommand`, not both');
+  }
+
   try {
     const base = await createTempDir('stack');
     cleanups.push(() => removeTempDir(base));
@@ -179,7 +234,15 @@ export async function startStack(options: StackOptions = {}): Promise<Stack> {
     cleanups.push(() => removeTempRunDir(runDir));
     await writeTree(root, options.projectFiles ?? { 'README.md': '# e2e\n' });
     await writeTree(outside, options.outsideFiles ?? { 'secret.txt': 'outside the share\n' });
-    if (options.git) await initGitRepo(root, join(base, '.git-home'));
+    const gitHome = join(base, '.git-home');
+    if (options.git) await initGitRepo(root, gitHome);
+    let claude: FakeClaude | undefined;
+    if (options.claude !== undefined && options.claude !== false) {
+      const claudeDir = join(base, 'claude');
+      await mkdir(claudeDir, { recursive: true });
+      claude = await installFakeClaude(claudeDir, options.claude === true ? {} : options.claude);
+    }
+    const sessionsConfig = claude === undefined ? options.sessions : { ...launch, claudePath: claude.path, selfCommand: { file: process.execPath, args: [CLI_MAIN] } };
 
     let relay: LocalRelay;
     if (options.relay) {
@@ -199,41 +262,60 @@ export async function startStack(options: StackOptions = {}): Promise<Stack> {
       return session;
     };
 
-    const host = await login(HOST_LOGIN);
+    const hostLogin = options.hostLogin ?? HOST_LOGIN;
+    const host = await login(hostLogin);
     const workspaceId = await relay.createWorkspace(host.token, randomWorkspaceId());
     const wire = new WireLog();
     const hostLink = new HostLinkGate(wire);
 
-    const daemon = await createDaemon({
-      config: {
-        stateDir,
-        runDir,
-        shareDir: root,
-        workspaceId,
-        hostUserId: host.userId,
-        hostName: host.displayName,
-        relayUrl: relay.origin,
-        webOrigin: relay.origin,
-        // caffeinate would keep the developer's machine awake; keep-awake is not what these tests measure.
-        keepAwake: false,
-        ...(options.settings ? { defaultSettings: options.settings } : {}),
-        ...(options.timing ? { timing: options.timing } : {}),
-        ...(options.limits ? { limits: options.limits } : {}),
-        ...(options.sessions ? { sessions: options.sessions } : {}),
-      },
-      relay: { token: host.token, socketFactory: hostLink.factory },
-      homeDir,
-      modules: options.modules ?? DEFAULT_FEATURE_MODULES,
-      log: options.log ?? silentLogger,
-    });
-    cleanups.push(() => daemon.stop('test-stopped'));
+    // The daemon that runs now; null while the host is "not sharing" (stopDaemon). A start on the same state directory,
+    // folder and home is what `smurg host` does after a reboot.
+    let daemon: Daemon | null = null;
+    const running = (): Daemon => {
+      if (daemon === null) throw new Error('the daemon of this stack is stopped');
+      return daemon;
+    };
+    const startDaemon = async (): Promise<void> => {
+      if (daemon !== null) throw new Error('the daemon of this stack runs already');
+      const next = await createDaemon({
+        config: {
+          stateDir,
+          runDir,
+          shareDir: root,
+          workspaceId,
+          hostUserId: host.userId,
+          hostName: host.displayName,
+          relayUrl: relay.origin,
+          webOrigin: relay.origin,
+          // caffeinate would keep the developer's machine awake; keep-awake is not what these tests measure.
+          keepAwake: false,
+          ...(options.settings ? { defaultSettings: options.settings } : {}),
+          ...(options.timing ? { timing: options.timing } : {}),
+          ...(options.limits ? { limits: options.limits } : {}),
+          ...(options.agents ? { agents: options.agents } : {}),
+          ...(sessionsConfig ? { sessions: sessionsConfig } : {}),
+        },
+        relay: { token: host.token, socketFactory: hostLink.factory },
+        homeDir,
+        modules: options.modules ?? DEFAULT_FEATURE_MODULES,
+        log: options.log ?? silentLogger,
+      });
+      daemon = next;
+      await next.start();
+      await waitUntil(async () => {
+        const [ws, xfer] = await Promise.all([relay.inspect('ws', workspaceId), relay.inspect('xfer', workspaceId)]);
+        return ws.hostStatus === 'online' && xfer.hostStatus === 'online';
+      }, 15_000, 'the daemon to be online at the relay (ws and xfer)');
+    };
+    const stopDaemon = async (reason: string): Promise<void> => {
+      const last = daemon;
+      daemon = null;
+      await last?.stop(reason);
+    };
+    cleanups.push(() => stopDaemon('test-stopped'));
     // A paused host is woken up before it is stopped, so its sockets really close.
     cleanups.push(() => hostLink.resume());
-    await daemon.start();
-    await waitUntil(async () => {
-      const [ws, xfer] = await Promise.all([relay.inspect('ws', workspaceId), relay.inspect('xfer', workspaceId)]);
-      return ws.hostStatus === 'online' && xfer.hostStatus === 'online';
-    }, 15_000, 'the daemon to be online at the relay (ws and xfer)');
+    await startDaemon();
 
     const clients: { close(): void }[] = [];
     cleanups.push(() => {
@@ -307,17 +389,26 @@ export async function startStack(options: StackOptions = {}): Promise<Stack> {
       return client;
     };
 
-    const hostInvite = daemon.hostInviteUrl;
+    const hostInvite = running().hostInviteUrl;
     if (!hostInvite) throw new Error('the daemon did not create the host invite');
     const invitesIssued: string[] = [hostInvite];
-    const hostClient = await open(await newDevice(HOST_LOGIN), hostInvite, true);
+    const hostClient = await open(await newDevice(hostLogin), hostInvite, true);
+    const gitEnv = isolatedGitEnv(gitHome);
+    /** A session's launch files are in <stateDir>/sessions/<workspace>/<hex of the session id>/. */
+    const agentProcessLines = async (): Promise<string[]> => {
+      const { stdout } = await execFileAsync('ps', ['-axo', 'pid=,command='], { maxBuffer: 16 * 1024 * 1024 });
+      return stdout.split('\n').filter((line) => line.includes(stateDir));
+    };
 
     const stack: Stack = {
       relay,
       tap: relay.tap,
-      daemon,
+      get daemon() {
+        return running();
+      },
+      claude,
       workspaceId,
-      root: daemon.ctx.workspace.shareRealPath,
+      root: running().ctx.workspace.shareRealPath,
       outside,
       stateDir,
       homeDir,
@@ -344,11 +435,34 @@ export async function startStack(options: StackOptions = {}): Promise<Stack> {
         return open(device, invite, joinOptions.waitOnline ?? true, joinOptions.connection);
       },
       audit: async (limit = 500) => {
-        await daemon.ctx.audit.flush();
-        return daemon.ctx.audit.query({ limit });
+        await running().ctx.audit.flush();
+        return running().ctx.audit.query({ limit });
       },
       pauseHost: () => hostLink.pause(),
       resumeHost: () => hostLink.resume(),
+      stopDaemon: () => stopDaemon('test-stopped'),
+      startDaemon,
+      restartDaemon: async () => {
+        await stopDaemon('test-restart');
+        await startDaemon();
+      },
+      agentProcesses: async () => (await agentProcessLines()).map((line) => line.trim().replace(/^\d+\s+/, '')),
+      killAgentOf: async (sessionId) => {
+        const mark = `/${Buffer.from(sessionId, 'utf8').toString('hex')}/settings.json`;
+        let killed = 0;
+        for (const line of await agentProcessLines()) {
+          if (!line.includes(mark)) continue;
+          const pid = Number.parseInt(line.trim().split(/\s+/)[0] ?? '', 10);
+          if (!Number.isSafeInteger(pid) || pid <= 1) continue;
+          process.kill(pid, 'SIGKILL'); // a child of this stack's own daemon
+          killed += 1;
+        }
+        return killed;
+      },
+      git: async (args, cwd = root) => {
+        if (!options.git) throw new Error('this stack shares a plain folder: start it with `git: true`');
+        return (await execFileAsync('git', [...args], { cwd, env: gitEnv, maxBuffer: 16 * 1024 * 1024 })).stdout.trim();
+      },
       stop: runCleanups,
     };
     return stack;

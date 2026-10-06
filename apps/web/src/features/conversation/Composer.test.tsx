@@ -38,6 +38,11 @@ describe('composer: a member with agent access', () => {
     expect(field.value).toBe('');
   });
 
+  it('a discussion is named with its topic: two discussions side by side have different boxes', async () => {
+    await openConversation({ role: 'agent', session: { purpose: 'discussion', topicId: 't_1', topicName: 'Checkout redesign', modeFixed: true } });
+    expect(box('Message Claude · Discussion · Checkout redesign').placeholder).toBe('Message Claude · Discussion · Checkout redesign');
+  });
+
   it('"@" offers the members and fills the mentions; a text that could not be sent stays with the reason', async () => {
     const view = await openConversation({ role: 'agent' });
     const field = box('Message Claude · Claude (Ian)');

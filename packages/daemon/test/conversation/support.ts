@@ -5,6 +5,7 @@
 //   const session = await openSession(s, 'mei');
 //   s.fakes.agents.raise(session.id, questionRequest('q1'));         // what Claude Code would do
 //   await s.amy.conn.request('question.vote', { questionId: 'q1', part: 0, options: [0] });
+import { lstat, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach } from 'vitest';
 import type { AgentSession, AuditEntry, HostSettings, PayloadOf, ResultOf, Role, SmurgError } from '@smurg/protocol';
@@ -73,13 +74,42 @@ export async function tempStateDir(): Promise<string> {
   return dir;
 }
 
-/** Every stack a test started is cleaned up after it; then the state directories it asked for are removed. */
+/** Everything under `dir` with its size and the time it was last written (equal lists: nothing was written). */
+async function onDisk(dir: string): Promise<string[]> {
+  const out: string[] = [];
+  const walk = async (path: string): Promise<void> => {
+    for (const name of (await readdir(path)).sort()) {
+      const full = join(path, name);
+      const stat = await lstat(full);
+      out.push(`${full.slice(dir.length)} ${stat.isDirectory() ? 'dir' : stat.size} ${stat.mtimeMs}`);
+      if (stat.isDirectory()) await walk(full);
+    }
+  };
+  await walk(dir);
+  return out;
+}
+
+/**
+ * Every stack a test started is cleaned up after it; then the state directories it asked for are removed. In between
+ * each of them is looked at twice: a daemon that has stopped writes nothing more (a late write would land in a state
+ * directory that the next start, or an uninstall, already took over).
+ */
 afterEach(async () => {
+  let late: string | null = null;
   try {
     for (const t of running.splice(0)) await t.cleanup();
+    const left = await Promise.all(stateDirs.map((dir) => onDisk(dir)));
+    if (left.length > 0) await new Promise((resolve) => setTimeout(resolve, 300));
+    for (const [index, dir] of stateDirs.entries()) {
+      const now = await onDisk(dir);
+      const before = left[index] ?? [];
+      const changed = [...now.filter((line) => !before.includes(line)), ...before.filter((line) => !now.includes(line))];
+      if (changed.length > 0) late = `written after the daemon stopped, in ${dir}: ${changed.slice(0, 10).join(' | ')}`;
+    }
   } finally {
     for (const dir of stateDirs.splice(0)) await removeTempRunDir(dir);
   }
+  if (late !== null) throw new Error(late);
 }, 60_000);
 
 /** The modules of a stack: [...before, fakes for the rest (with their handlers), conversation, suggest]. */

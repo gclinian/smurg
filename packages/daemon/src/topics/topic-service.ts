@@ -75,6 +75,10 @@ export class TopicServiceImpl implements TopicService {
   private readonly ending = new Set<string>();
   /** Files of a discussion the agent is waiting for: the notice `conversation.locked.spec` is written once per wait. */
   private readonly lockNoticed = new Set<string>();
+  /** Who typed in a topic's spec or plan (`<topic id>:<kind>`) since the editor's text of it was last saved. */
+  private readonly typing = new Map<string, Set<UserId>>();
+  /** Whose typing the last save of such a file held (a save nobody typed before only finishes that one). */
+  private readonly lastTyped = new Map<string, readonly UserId[]>();
 
   constructor(ctx: DaemonContext, core: TopicsCore) {
     this.ctx = ctx;
@@ -279,6 +283,7 @@ export class TopicServiceImpl implements TopicService {
     this.ctx.bus.emit('topic.removed', { topicId: topic.id, sessionIds });
     if (!isStubService(agents)) await agents.forget(sessionIds);
     this.core.removeTopic(topic.id);
+    this.forgetTyping(topic.id);
     this.ctx.hub.broadcast('topic.removed', { topicId: topic.id });
     this.ctx.audit.record({ actor: principal.actor, action: 'topic.delete', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, slug: topic.slug, name: topic.name, sessions: sessionIds.length } });
     this.core.publishAttention();
@@ -517,24 +522,71 @@ export class TopicServiceImpl implements TopicService {
     const hits = [this.core.topicFileOf(entry.file), entry.renamedFrom === undefined ? null : this.core.topicFileOf({ root: entry.file.root, path: entry.renamedFrom })];
     for (const hit of hits) {
       if (hit === null || hit.topic.archived) continue;
-      const { topic, kind } = hit;
-      this.core.noteWriter(topic.id, kind, entry.actor);
-      const byDiscussion = entry.actor.kind === 'agent' && topic.discussionSessions.includes(entry.actor.sessionId);
-      if (!byDiscussion) {
-        // A person is named (as the member directory knows them); an outside program or another agent session is `outside`.
-        const named = entry.actor.kind === 'user' ? userRefSchema.safeParse(this.ctx.members.userRef(entry.actor.userId) ?? { userId: entry.actor.userId, displayName: entry.actor.displayName }) : null;
-        const edit: HandEdit = { by: named !== null && named.success ? named.data : 'outside', at: entry.at };
-        this.core.update(topic.id, (draft) => {
-          const list = draft.handEdits[kind];
-          const same = (other: HandEdit): boolean => (typeof other.by === 'string' || typeof edit.by === 'string' ? other.by === edit.by : other.by.userId === edit.by.userId);
-          // One entry per person, with the time of their newest edit; the oldest entry goes when the list is full.
-          const kept = list.filter((other) => !same(other));
-          kept.push(edit);
-          draft.handEdits[kind] = kept.slice(-HAND_EDITS_MAX);
-        });
-        this.core.publish(topic.id);
-      }
-      this.scheduleRefresh(topic.id);
+      this.noteWrite(hit.topic, hit.kind, entry.actor, entry.at);
+      this.scheduleRefresh(hit.topic.id);
+    }
+  }
+
+  /** One write of a topic's spec or plan: who the next read of the file names, and (unless it was the discussion agent) a hand edit. */
+  private noteWrite(topic: StoredTopic, kind: 'spec' | 'plan', actor: Actor, at: number): void {
+    this.core.noteWriter(topic.id, kind, actor);
+    if (actor.kind === 'agent' && topic.discussionSessions.includes(actor.sessionId)) return;
+    // A person is named (as the member directory knows them); an outside program or another agent session is `outside`.
+    const named = actor.kind === 'user' ? userRefSchema.safeParse(this.ctx.members.userRef(actor.userId) ?? { userId: actor.userId, displayName: actor.displayName }) : null;
+    const edit: HandEdit = { by: named !== null && named.success ? named.data : 'outside', at };
+    const same = (other: HandEdit): boolean => (typeof other.by === 'string' || typeof edit.by === 'string' ? other.by === edit.by : other.by.userId === edit.by.userId);
+    const listed = this.core.topic(topic.id)?.handEdits[kind].find(same);
+    // Already told about this very write (a save in the editor is heard twice: as the feed's entry and as the save).
+    if (listed !== undefined && listed.at >= at) return;
+    this.core.update(topic.id, (draft) => {
+      // One entry per person, with the time of their newest edit; the oldest entry goes when the list is full.
+      const kept = draft.handEdits[kind].filter((other) => !same(other));
+      kept.push(edit);
+      draft.handEdits[kind] = kept.slice(-HAND_EDITS_MAX);
+    });
+    // A new name is announced at once. The newer time of a name that is listed travels with the read of the file that
+    // follows every write (both callers schedule it): while someone types, every save would otherwise be told twice.
+    if (listed === undefined) this.core.publish(topic.id);
+  }
+
+  /**
+   * Typing in the editor. The activity feed keeps ONE `human.edit` entry per person and file per minute (autosave
+   * runs all the time), so `onActivity` does not hear every save; but every save of a person's typing is a hand
+   * edit: a Start in between forgets the list, and the next Start must name the person again (and commit with their
+   * `Edited-by`). So the two files are followed here as the editor saves them: who typed since the last save.
+   */
+  onHumanEdit(event: { readonly file: FileRef; readonly userId: UserId }): void {
+    if (!this.core.started) return;
+    const hit = this.core.topicFileOf(event.file);
+    if (hit === null || hit.topic.archived) return;
+    const key = `${hit.topic.id}:${hit.kind}`;
+    const people = this.typing.get(key);
+    if (people === undefined) this.typing.set(key, new Set([event.userId]));
+    else people.add(event.userId);
+  }
+
+  /** The editor's text of a file was written to disk (also reads the topic's files again, as any change on disk does). */
+  onDocSaved(event: { readonly file: FileRef; readonly at: number }): void {
+    if (!this.core.started) return;
+    const hit = this.core.topicFileOf(event.file);
+    if (hit === null || hit.topic.archived) return;
+    const key = `${hit.topic.id}:${hit.kind}`;
+    const typed = this.typing.get(key);
+    this.typing.delete(key);
+    // Nobody typed since the last save: this one writes what arrived while that one was being written.
+    const people = typed === undefined ? (this.lastTyped.get(key) ?? []) : [...typed];
+    this.lastTyped.set(key, people);
+    for (const userId of people) {
+      this.noteWrite(hit.topic, hit.kind, { kind: 'user', userId, displayName: this.ctx.members.userRef(userId)?.displayName ?? userId }, event.at);
+    }
+    this.scheduleRefresh(hit.topic.id);
+  }
+
+  /** A topic is gone (deleted): nothing is remembered about who typed in its files. */
+  private forgetTyping(topicId: string): void {
+    for (const kind of ['spec', 'plan'] as const) {
+      this.typing.delete(`${topicId}:${kind}`);
+      this.lastTyped.delete(`${topicId}:${kind}`);
     }
   }
 

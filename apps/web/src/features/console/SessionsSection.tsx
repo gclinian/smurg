@@ -12,6 +12,7 @@
 // stays here in the daemon's own words until the host says "Got it".
 import { useState } from 'react';
 import { isSessionOver, type AgentSession, type SessionInfo } from '@smurg/protocol';
+import { agentAtWork } from '../../lib/agent-work.ts';
 import { describeError, renderWireText } from '../../lib/errors.ts';
 import { formatDateTime, formatRelativeTime } from '../../lib/format.ts';
 import { sessionGlyph, statusLabel } from '../../lib/session-status.ts';
@@ -157,8 +158,9 @@ export function SessionsSection({ now }: { now: number }) {
       id: 'title',
       header: t('sessions.col.title'),
       cell: (session) => {
-        // What the agent is working on right now (presence.state), e.g. the file it is editing.
-        const file = isSessionOver(session) ? undefined : agents.find((agent) => agent.sessionId === session.id)?.activeFile;
+        // The file the agent works on right now (presence.state). Presence keeps an agent's last file while its session
+        // lives, so the line is shown only while the agent is at work: not under "Idle", "Done" or "Stopped".
+        const file = session.kind === 'agent' && agentAtWork(session.status) ? agents.find((agent) => agent.sessionId === session.id)?.activeFile : undefined;
         return (
           <span className="console-session">
             <span className="console-session__title">{sessionTitle(session)}</span>

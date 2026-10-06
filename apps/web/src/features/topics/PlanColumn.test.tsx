@@ -254,7 +254,8 @@ describe('the plan column: executing', () => {
     await setup({ topic: EXECUTING, plan: RUNNING, sessions: SESSIONS });
     expect(screen.getByText('0 of 6 reviewed')).toBeTruthy();
     expect(screen.getByText('1 report to review · 3 wait for a person · 1 running · 1 not started')).toBeTruthy();
-    expect(screen.getByText(/^Waiting for: Ian 1 question \(6 minutes\)$/)).toBeTruthy();
+    // Five and a half minutes: whole minutes, rounded down, as every other place counts that wait.
+    expect(screen.getByText(/^Waiting for: Ian 1 question \(5 min\)$/)).toBeTruthy();
     expect(within(row('Cart API')).getByText('Waiting for an answer')).toBeTruthy();
     expect(within(row('Payment form')).getByText('Running')).toBeTruthy();
     expect(within(row('Receipt email')).getByText('Report to review · partial')).toBeTruthy();
@@ -334,6 +335,20 @@ describe('the plan column: executing', () => {
     expect(openColumn).toHaveBeenLastCalledWith({ target: { kind: 'report', topicId: 'tp_1', itemId: 'b' }, side: true });
     fireEvent.click(within(row('Cart API')).getByRole('button', { name: 'Ask the agent to resolve' }));
     expect(conn.lastRequest('plan.item.resolve')?.payload).toEqual({ topicId: 'tp_1', itemId: 'a' });
+  });
+
+  it('a report that changed after its review is to review again: not in "N of M reviewed", and not what the host is led to merge', async () => {
+    const changed = buildPlan({
+      items: [
+        buildWorkItem({ id: 'a', number: 1, title: 'Cart API', state: 'reviewed', attempt: 1, report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr_1', status: 'merged', ready: false } }),
+        buildWorkItem({ id: 'b', number: 2, title: 'Payment form', state: 'reviewed', attempt: 1, report: buildReportSummary({ state: 'changed-after-review', version: 2 }), merge: { requestId: 'mr_3', status: 'draft', ready: false } }),
+      ],
+    });
+    await setup({ role: 'host', topic: { ...EXECUTING, plan: planOf({ items: 2, started: 2, reviewed: 1, merged: 1 }) }, plan: changed });
+    expect(within(row('Payment form')).getByText('Changed after the review')).toBeTruthy();
+    expect(screen.getByText('1 of 2 reviewed')).toBeTruthy();
+    expect(screen.getByText('1 report to review · 1 merged')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Open the next one to merge' })).toBeNull();
   });
 });
 

@@ -2,10 +2,11 @@
 // or the list. The body is built when the line is first opened, so a conversation with a thousand tool cards mounts a
 // thousand short lines. A subagent's (Task) own pieces nest under its line.
 import { memo, useMemo, useState, type ReactNode } from 'react';
-import type { FileRef, ToolResultView, ToolView } from '@smurg/protocol';
+import { fileRefEquals, type FileRef, type PermissionRequest, type ToolResultView, type ToolView } from '@smurg/protocol';
 import { formatDuration } from '../../lib/format.ts';
-import type { AgentPiece, ReadsItem, ToolItem } from '../../lib/stores/conversations.ts';
-import { useCapabilities, useCommands } from '../../lib/workspace/context.tsx';
+import { useStore } from '../../lib/store.ts';
+import { INITIAL_CONVERSATIONS_STATE, type AgentPiece, type ConversationsState, type ReadsItem, type ToolItem } from '../../lib/stores/conversations.ts';
+import { useCapabilities, useCommands, useStores } from '../../lib/workspace/context.tsx';
 import { Button } from '../../ui/index.ts';
 import { IconAgent, IconCheck, IconChevronRight, IconEdit, IconFile, IconFileText, IconGlobe, IconSearch, IconShield, IconTerminal, IconWand, type IconComponent } from '../../ui/icons.tsx';
 import { parseDiff, type DiffLine } from './diff.ts';
@@ -53,10 +54,32 @@ const ICONS: Readonly<Record<ToolView['verb'], IconComponent>> = {
   other: IconWand,
 };
 
-/** "Edited", "Running", "Used WebSearch": the verb of a tool line, by whether it still runs. */
-export function toolVerbLabel(tool: ToolView, running: boolean): string {
-  if (tool.verb === 'other') return t(running ? 'tool.other.running' : 'tool.other', { name: tool.name });
-  return t(running ? `tool.${tool.verb}.running` : `tool.${tool.verb}`);
+/**
+ * What became of a tool call, as its line says it:
+ * - `running`: it runs now ("Running pnpm test");
+ * - `done`: it had its effect ("Edited src/app.ts", "Ran pnpm test · exit 1": a command that ran and failed did run);
+ * - `call`: it has not had its effect, or never will, and the line must not read as if it had ("Command pnpm test"
+ *   beside "waiting", "Edit of SPEC.md" beside "failed", "Command pnpm build" beside "not finished").
+ */
+export type ToolLineState = 'running' | 'done' | 'call';
+
+/** "Edited", "Running", "Edit of", "Used WebSearch": how a tool line starts, by what became of the call. */
+export function toolVerbLabel(tool: ToolView, state: ToolLineState): string {
+  const form = state === 'done' ? '' : (`.${state}` as const);
+  if (tool.verb === 'other') return t(`tool.other${form}`, { name: tool.name });
+  return t(`tool.${tool.verb}${form}`);
+}
+
+/**
+ * Whether `request` is the open permission request of this call. A request does not name its call; it carries the
+ * same tool, and the same file, command or address (the daemon builds both from one call).
+ */
+export function asksFor(request: PermissionRequest, tool: ToolView): boolean {
+  if (request.status !== 'open' || request.tool !== tool.name) return false;
+  if (request.file !== undefined || tool.file !== undefined) return request.file !== undefined && tool.file !== undefined && fileRefEquals(request.file, tool.file);
+  if (request.outside === true || tool.outside === true) return request.outside === tool.outside;
+  const named = request.command ?? request.url;
+  return named === undefined || named === tool.target;
 }
 
 /** What the line names: the path, the command, the pattern; an outside path is never shown. */
@@ -169,6 +192,8 @@ function ToolActions({ item, file }: { item: ToolItem; file: FileRef | undefined
   );
 }
 
+const NO_CONVERSATIONS = { getState: (): ConversationsState => INITIAL_CONVERSATIONS_STATE, subscribe: () => () => {} };
+
 export interface ToolCardProps {
   readonly item: ToolItem;
   /** How the nested pieces of a subagent are drawn (the event list's own renderer). */
@@ -177,22 +202,34 @@ export interface ToolCardProps {
 
 export const ToolCard = memo(function ToolCard({ item, renderPiece }: ToolCardProps) {
   const { tool, finished, running } = item;
+  const stores = useStores();
+  const { sessionId } = useConversationEnv();
+  // The daemon says a call has started before its permission is decided: until then the call does not run, it waits.
+  // Only a call without a result listens (a long conversation mounts a thousand finished lines).
+  const waiting = useStore(running ? stores.conversations : NO_CONVERSATIONS, (state) => {
+    for (const request of state.conversations.get(sessionId)?.permissions.values() ?? []) if (asksFor(request, tool)) return true;
+    return false;
+  });
   const isTask = tool.verb === 'task';
   // A subagent at work shows what it does; everything else opens when asked.
   const [open, setOpen] = useState(isTask && running);
   const [built, setBuilt] = useState(open);
   const Icon = ICONS[tool.verb];
   const target = toolTarget(tool);
-  const failed = finished !== null && (!finished.ok || (finished.result.exitCode !== undefined && finished.result.exitCode !== 0));
+  const exited = finished?.result.exitCode !== undefined;
+  const failed = finished !== null && (!finished.ok || (exited && finished.result.exitCode !== 0));
   // The turn ended without this call's result (it was stopped, or its process died, often while a permission request
   // was open): the line must not read as if the command ran or the file was changed.
   const unfinished = finished === null && !running;
+  // A call that failed without an exit code did not do what its verb says (the edit was refused, the command was
+  // denied): only a command that ran and came back with a code reads as run.
+  const state: ToolLineState = running ? (waiting ? 'call' : 'running') : unfinished || (failed && !exited) ? 'call' : 'done';
   const canOpenFile = tool.file !== undefined && tool.outside !== true && tool.verb !== 'run';
   return (
     <details
       className="conv-tool"
       data-tool={tool.name}
-      data-state={running ? 'running' : unfinished ? 'unfinished' : failed ? 'failed' : 'done'}
+      data-state={waiting ? 'waiting' : running ? 'running' : unfinished ? 'unfinished' : failed ? 'failed' : 'done'}
       open={open}
       onToggle={(event) => {
         const next = event.currentTarget.open;
@@ -204,12 +241,12 @@ export const ToolCard = memo(function ToolCard({ item, renderPiece }: ToolCardPr
         <span className="conv-tool__icon">
           <Icon size={14} />
         </span>
-        <span className="conv-tool__verb">{toolVerbLabel(tool, running || unfinished)}</span>
+        <span className="conv-tool__verb">{toolVerbLabel(tool, state)}</span>
         <span className="conv-tool__target" title={target}>
           {target}
         </span>
         <span className="conv-tool__meta">
-          {running ? <span>{t('tool.running')}</span> : null}
+          {running ? <span>{t(waiting ? 'tool.waiting' : 'tool.running')}</span> : null}
           {unfinished ? <span>{t('tool.unfinished')}</span> : null}
           {finished !== null ? <ResultMeta result={finished.result} ok={finished.ok} /> : null}
           {isTask && item.children.length > 0 ? <span>{t('tool.steps', { count: item.children.length })}</span> : null}

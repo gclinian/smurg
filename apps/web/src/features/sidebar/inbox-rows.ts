@@ -5,7 +5,7 @@
 // shown as it is.
 //
 // A feature may change the row of a kind it knows better (lib/slots.ts `inboxRows`); this module composes all of them.
-import type { HostState, InboxItem, UserRef } from '@smurg/protocol';
+import type { ColumnTarget, HostState, InboxItem, UserRef } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { itemLabel } from '../../lib/columns/describe.ts';
 import { renderWireText } from '../../lib/errors.ts';
@@ -13,7 +13,7 @@ import { formatActor, formatAge, formatAnd, formatNumber } from '../../lib/forma
 import { kindLabel } from '../../lib/session-status.ts';
 import type { InboxRowAction, InboxRowView } from '../../lib/slots.ts';
 import { selectSession, sessionTitle, type SessionsState, type SessionsStore } from '../../lib/stores/sessions.ts';
-import { selectTopic, type TopicsState, type TopicsStore } from '../../lib/stores/topics.ts';
+import { selectPlan, selectTopic, type TopicsState, type TopicsStore } from '../../lib/stores/topics.ts';
 import { t } from './strings.ts';
 
 export interface InboxRowContext {
@@ -67,12 +67,17 @@ function attention(item: InboxItem, ctx: InboxRowContext, where: string): InboxR
   const { topicId, itemId, sessionId } = item;
   const action = (id: string, label: string, run: () => Promise<unknown>): InboxRowAction => ({ id, label, run: async () => void (await run()) });
   switch (item.subject) {
-    case 'item-stalled':
+    case 'item-stalled': {
+      // Why it stopped is in the item's plan (when the plan is loaded): the row says what the plan's badge and the
+      // session's status bar say. Stopped by the agent itself, or not known: "stopped without a report".
+      const why = topicId === undefined || itemId === undefined ? undefined : selectPlan(ctx.topics, topicId)?.items.find((entry) => entry.id === itemId)?.stalledBy;
+      const key = why === undefined || why === 'agent' ? 'title.attention.itemStalled' : (`title.attention.itemStalled.${why}` as const);
       return {
-        title: name === null ? renderWireText(msg('attention.itemStalled'), 'Stopped without a report') : t('title.attention.itemStalled', { item: name }),
+        title: name === null ? renderWireText(msg('attention.itemStalled'), 'Stopped without a report') : t(key, { item: name }),
         where: topicName ?? where,
         ...(topicId !== undefined && itemId !== undefined ? { action: action('continue', t('action.continue'), () => ctx.stores.topics.continueItem(topicId, itemId)) } : {}),
       };
+    }
     case 'item-failed':
       return {
         title: name === null ? renderWireText(msg('attention.itemFailed'), "The agent's process failed") : t('title.attention.itemFailed', { item: name }),
@@ -192,6 +197,43 @@ export function describeInboxItem(item: InboxItem, ctx: InboxRowContext): InboxR
     case 'attention':
       return attention(item, ctx, where);
   }
+}
+
+/** The work item a merge row is about, when its topic is open: an archived topic's report is read-only, so nothing merges there. */
+function itemOfMergeRow(item: InboxItem, topics: TopicsState): { topicId: string; itemId: string } | null {
+  const { topicId, itemId } = item;
+  return item.kind === 'merge' && topicId !== undefined && itemId !== undefined && topics.topics.has(topicId) ? { topicId, itemId } : null;
+}
+
+/**
+ * Where a row leads (UX §7). A merge request of a work item that has a result report leads to that report: the
+ * outcome, the checks, "What to watch out for", the host's "Merge…" and "Ask the agent to resolve" are there (DESIGN
+ * §5.4). The Changes column the item names is for a request without a report: a free session's worktree, or a work
+ * item's worktree somebody asked to merge before its agent reported.
+ */
+export function inboxTarget(item: InboxItem, topics: TopicsState): ColumnTarget {
+  const about = itemOfMergeRow(item, topics);
+  if (about === null) return item.target;
+  // A reviewed draft was reviewed from its report; for any other request the plan says whether the item has one.
+  const reported = item.ready === true || selectPlan(topics, about.topicId)?.items.some((entry) => entry.id === about.itemId && entry.report !== undefined) === true;
+  return reported ? { kind: 'report', ...about } : item.target;
+}
+
+/** The topic whose plan `inboxTarget` needs and the store does not hold yet; null when it can say where the row leads. */
+export function planNeededFor(item: InboxItem, topics: TopicsState): string | null {
+  const about = itemOfMergeRow(item, topics);
+  return about !== null && item.ready !== true && selectPlan(topics, about.topicId) === undefined ? about.topicId : null;
+}
+
+/** The topics whose plans the rows read and the store does not hold yet: where a merge row leads, why an item stopped. */
+export function plansToLoad(items: Iterable<InboxItem>, topics: TopicsState): string[] {
+  const wanted = new Set<string>();
+  for (const item of items) {
+    const stalledIn = item.kind === 'attention' && item.subject === 'item-stalled' && item.itemId !== undefined ? item.topicId : undefined;
+    const topicId = stalledIn !== undefined && selectPlan(topics, stalledIn) === undefined ? stalledIn : planNeededFor(item, topics);
+    if (topicId !== null) wanted.add(topicId);
+  }
+  return [...wanted];
 }
 
 /** Whether the member may take the item out of the inbox by hand (the daemon refuses anything else). */

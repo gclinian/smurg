@@ -116,6 +116,25 @@ describe('New topic: who may start one', () => {
   });
 });
 
+describe('New topic: whose Claude account works', () => {
+  const ACCOUNT = "Starting a topic opens its discussion session: an agent on the host's computer, with the host's Claude account. It may read the code and write only this folder.";
+  const OWN_USE = 'A personal Claude subscription (Pro or Max) is for your own use. When other people work with agents here, use an API key or a Team or Enterprise plan.';
+
+  it('the host is told that a personal subscription is for their own use (the owner\'s decision Q6); nothing is blocked', async () => {
+    const { dialog, field, start } = await setup({ role: 'host' });
+    expect(within(dialog).getByText(ACCOUNT)).toBeTruthy();
+    expect(within(dialog).getByText(OWN_USE)).toBeTruthy();
+    fireEvent.change(field('Name'), { target: { value: 'Checkout redesign' } });
+    expect(start().disabled).toBe(false);
+  });
+
+  it('a member with agent access reads whose account it is; the sentence about the subscription is the host\'s', async () => {
+    const { dialog } = await setup({ role: 'agent' });
+    expect(within(dialog).getByText(ACCOUNT)).toBeTruthy();
+    expect(within(dialog).queryByText(/personal Claude subscription/)).toBeNull();
+  });
+});
+
 describe('New topic: the Claude Code project settings', () => {
   it('a member who is not the host is told the session runs without them until the host confirms', async () => {
     const { dialog, conn } = await setup({ role: 'agent', host: UNDECIDED });

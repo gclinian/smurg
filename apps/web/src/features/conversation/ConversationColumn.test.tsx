@@ -1,7 +1,7 @@
 // The conversation column as a whole (DESIGN §5.5, UX §4): watching, the rows of the list, streaming text, tool
 // lines, the status bar, the strip and its menus, anchors and history.
 import { act, fireEvent, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MAIN_ROOT, SmurgError, type ConversationEvent } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { buildEvent, buildPermission, buildPlan, buildQuestion, buildWorkItem, FAKE_NOW } from '@smurg/protocol/testing';
@@ -27,7 +27,11 @@ function conversation(): ConversationEvent[] {
   ];
 }
 
-const statusBar = (): HTMLElement => screen.getAllByRole('status').find((node) => node.classList.contains('conv-status')) as HTMLElement;
+const statusBar = (): HTMLElement => document.querySelector('.conv-status') as HTMLElement;
+/** A time on a whole second: the app's clock ticks on whole seconds, so a wait that starts here counts 1, 2, 3 with it. */
+const WHOLE_SECOND = 1_790_000_010_000;
+/** What a screen reader hears of the status bar: its live regions (the state; the account's state or a refusal). */
+const spoken = (): string[] => within(statusBar()).getAllByRole('status').map((node) => node.textContent ?? '');
 const openDetails = (details: HTMLDetailsElement): void => {
   details.open = true;
   fireEvent(details, new Event('toggle'));
@@ -82,7 +86,7 @@ describe('conversation column: the rows', () => {
 
     expect(within(log).getAllByText('Claude')).toHaveLength(1);
     expect(within(log).getByText("I'll add the test next to the existing ones.")).toBeTruthy();
-    expect(within(log).getByText('Ian stopped the agent.', { exact: false })).toBeTruthy();
+    expect(within(log).getByText('Ian stopped the agent', { exact: false })).toBeTruthy();
   });
 
   it('marks an accepted suggestion, removed hidden characters, a queued message, and my own messages', async () => {
@@ -327,7 +331,61 @@ describe('conversation column: the status bar', () => {
     expect(view.conn.lastRequest('session.retry')?.payload).toEqual({ sessionId: SID });
   });
 
-  it('a tool call whose turn ended without its result does not read as done: "Running pnpm build · not finished"', async () => {
+  it('a screen reader hears the state once: the seconds count beside the live region, not in it', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], now: WHOLE_SECOND });
+    try {
+      const view = await openConversation({ session: { status: 'running', runningSince: Date.now() }, events: [buildEvent('turn.started', { seq: 1, turnId: 't_1' })] });
+      const age = (): string | null | undefined => statusBar().querySelector('.conv-status__age')?.textContent;
+      expect(spoken()).toEqual(['Claude is working', '']);
+      expect(age()).toBe('· 0 sec');
+      for (let second = 1; second <= 5; second++) {
+        act(() => void vi.advanceTimersByTime(1_000));
+        expect(spoken()).toEqual(['Claude is working', '']);
+        expect(age()).toBe(`· ${second} sec`);
+      }
+      // Nothing inside a live region is the age; the bar as a whole still reads as one line.
+      expect(statusBar().querySelector('[role="status"] .conv-status__age')).toBeNull();
+      expect(statusBar().textContent).toContain('Claude is working · 5 sec');
+
+      // A change of state is what the region says next.
+      updateSession(view, { status: 'idle' });
+      expect(spoken()).toEqual(['Claude is idle.', '']);
+      expect(age()).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('one wait, one number: a new permission card and its status bar count the seconds together, from the first one', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], now: WHOLE_SECOND });
+    try {
+      const askedAt = Date.now();
+      await openConversation({
+        session: { status: 'waiting-permission', waitingSince: askedAt },
+        events: [line(1), buildEvent('card', { seq: 2, card: 'permission', id: 'pr_1' })],
+        reply: { permissions: [buildPermission({ id: 'pr_1', sessionId: SID, askedAt })] },
+      });
+      const card = document.getElementById('conv-card-pr_1') as HTMLElement;
+      const age = (): string | null | undefined => statusBar().querySelector('.conv-status__age')?.textContent;
+      for (const second of [1, 2, 3, 4]) {
+        act(() => void vi.advanceTimersByTime(1_000));
+        expect(age()).toBe(`· ${second} sec`);
+        expect(card.textContent).toContain(`waiting ${second} sec`);
+      }
+      expect(spoken()[0]).toBe('Claude is waiting for permission');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an ended session says so once on screen: the status is spoken, the composer’s place shows the sentence', async () => {
+    await openConversation({ session: { status: 'ended', endedAt: FAKE_NOW } });
+    expect(spoken()[0]).toBe('This session has ended.');
+    expect(statusBar().className).toContain('ui-visually-hidden');
+    expect(screen.getByText('This session has ended. It takes no more messages.')).toBeTruthy();
+  });
+
+  it('a tool call whose turn ended without its result does not read as done or as running: "Command pnpm build · not finished"', async () => {
     const events = [
       buildEvent('turn.started', { seq: 1, turnId: 't_1' }),
       buildEvent('tool.started', { seq: 2, turnId: 't_1', toolUseId: 'tu_1', tool: { name: 'Bash', verb: 'run', target: 'pnpm build' } }),
@@ -337,9 +395,62 @@ describe('conversation column: the status bar', () => {
     await openConversation({ events });
     const run = within(screen.getByRole('log')).getByText('pnpm build').closest('details') as HTMLDetailsElement;
     expect(run.getAttribute('data-state')).toBe('unfinished');
-    expect(run.querySelector('summary')?.textContent).toContain('Running');
+    expect(run.querySelector('summary')?.textContent).toContain('Command');
     expect(run.querySelector('summary')?.textContent).toContain('not finished');
-    expect(run.querySelector('summary')?.textContent).not.toContain('Ran');
+    expect(run.querySelector('summary')?.textContent).not.toMatch(/Ran|Running/);
+  });
+
+  it('a call that was refused does not read as done: "Edit of SPEC.md · failed", and a command that ran and failed did run', async () => {
+    const spec = file('specs/checkout/SPEC.md');
+    const events = [
+      buildEvent('turn.started', { seq: 1, turnId: 't_1' }),
+      // The edit was refused (people are typing in the file): nothing was edited.
+      buildEvent('tool.started', { seq: 2, turnId: 't_1', toolUseId: 'tu_1', tool: { name: 'Edit', verb: 'edit', target: spec.path, file: spec } }),
+      buildEvent('tool.finished', { seq: 3, turnId: 't_1', toolUseId: 'tu_1', ok: false, result: {} }),
+      // A command that was denied never ran; one that came back with a code did.
+      buildEvent('tool.started', { seq: 4, turnId: 't_1', toolUseId: 'tu_2', tool: { name: 'Bash', verb: 'run', target: 'pnpm add left-pad' } }),
+      buildEvent('tool.finished', { seq: 5, turnId: 't_1', toolUseId: 'tu_2', ok: false, result: {} }),
+      buildEvent('tool.started', { seq: 6, turnId: 't_1', toolUseId: 'tu_3', tool: { name: 'Bash', verb: 'run', target: 'pnpm test cart' } }),
+      buildEvent('tool.finished', { seq: 7, turnId: 't_1', toolUseId: 'tu_3', ok: false, result: { exitCode: 1 } }),
+      buildEvent('tool.started', { seq: 8, turnId: 't_1', toolUseId: 'tu_4', tool: { name: 'Write', verb: 'create', target: 'src/new.ts', file: file('src/new.ts') } }),
+      buildEvent('tool.finished', { seq: 9, turnId: 't_1', toolUseId: 'tu_4', ok: false, result: {} }),
+    ];
+    await openConversation({ session: { status: 'running', runningSince: FAKE_NOW }, events });
+    const summary = (target: string): string => within(screen.getByRole('log')).getByText(target).closest('details')?.querySelector('summary')?.textContent ?? '';
+    expect(summary(spec.path)).toContain('Edit of');
+    expect(summary(spec.path)).toContain('failed');
+    expect(summary(spec.path)).not.toContain('Edited');
+    expect(summary('pnpm add left-pad')).toContain('Command');
+    expect(summary('pnpm add left-pad')).not.toContain('Ran');
+    expect(summary('pnpm test cart')).toContain('Ran');
+    expect(summary('pnpm test cart')).toContain('exit 1');
+    expect(summary('src/new.ts')).toContain('New file');
+    expect(summary('src/new.ts')).not.toContain('Created');
+  });
+
+  it('a call that waits at its permission card says so, not "Running … running"; once allowed, it runs', async () => {
+    const events = [
+      buildEvent('turn.started', { seq: 1, turnId: 't_1' }),
+      buildEvent('tool.started', { seq: 2, turnId: 't_1', toolUseId: 'tu_1', tool: { name: 'Read', verb: 'read', target: 'src/cart.ts', file: file('src/cart.ts') } }),
+      buildEvent('tool.started', { seq: 3, turnId: 't_1', toolUseId: 'tu_2', tool: { name: 'Bash', verb: 'run', target: 'pnpm test' } }),
+      buildEvent('card', { seq: 4, card: 'permission', id: 'pr_1' }),
+    ];
+    const request = buildPermission({ id: 'pr_1', sessionId: SID, tool: 'Bash', command: 'pnpm test' });
+    const view = await openConversation({ session: { status: 'waiting-permission', waitingSince: FAKE_NOW }, events, reply: { permissions: [request] } });
+    const run = within(screen.getByRole('log')).getAllByText('pnpm test')[0]?.closest('details') as HTMLDetailsElement;
+    expect(run.getAttribute('data-state')).toBe('waiting');
+    expect(run.querySelector('summary')?.textContent).toContain('Command');
+    expect(run.querySelector('.conv-tool__meta')?.textContent).toBe('waiting');
+    expect(run.querySelector('summary')?.textContent).not.toMatch(/Running|running/);
+    // Another call of the turn that runs beside it is not the one that waits.
+    const read = within(screen.getByRole('log')).getByText('src/cart.ts').closest('details') as HTMLDetailsElement;
+    expect(read.getAttribute('data-state')).toBe('running');
+    expect(read.querySelector('summary')?.textContent).toContain('Reading');
+
+    act(() => view.conn.emit('permission.updated', { request: { ...request, status: 'allowed', decision: { by: IAN, at: FAKE_NOW } } }));
+    expect(run.getAttribute('data-state')).toBe('running');
+    expect(run.querySelector('summary')?.textContent).toContain('Running');
+    expect(run.querySelector('.conv-tool__meta')?.textContent).toBe('running');
   });
 
   it('a work item paused by a restart of smurg says so in its status bar, as its plan does', async () => {

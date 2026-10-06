@@ -77,7 +77,7 @@
         <div class="m-top">
           <span class="m-word">smurg</span><span class="m-divider"></span><span class="m-ws">my-app</span><span class="m-host">主人：Ian</span><span class="m-pill">已連線</span>
           <span class="m-spacer"></span>
-          <span class="m-avs"><i class="av av-ian">IA</i><i class="av av-amy">AM</i><i class="av av-ben">BE</i></span>
+          <span class="m-avs"><i class="av av-ian">IA</i><i class="av av-amy">AM</i><i class="av av-ben">BE</i></span><span class="m-badge m-role">主人</span>
           <span class="m-btn">主人控制台</span><span class="m-seg"><span class="on">session</span><span>手寫 code 模式</span></span><span class="m-btn">離開</span>
         </div>
         <div class="m-body">
@@ -122,15 +122,14 @@
           <div class="m-col m-col-plan">
             <div class="m-ch"><i class="m-g m-g-doc"></i><span class="m-ct">計畫</span><span class="m-sub m-said">結帳流程</span></div>
             <div class="m-plan">
-              <div class="m-sum"><span><i class="m-count m-n">3</i> 個工作項目</span><span><i class="m-count m-n">0 / 3</i> 已看過</span></div>
+              <div class="m-sum"><span><i class="m-count m-n">0 / 3</i> 已看過</span><span><i class="m-count m-n">1</i> 份報告待看</span><span><i class="m-count m-n">1</i> 個等人處理</span><span><i class="m-count m-n">1</i> 個尚未開始</span></div>
               <div class="m-sec">誰負責</div>
               <div class="m-seg"><span class="on">指派負責人</span><span>不指派：大家一起看</span></div>
               <div class="m-sec">這個主題一律允許</div>
               <div class="m-rules"><pre class="m-term">pnpm test *</pre></div>
-              <div class="m-sec">工作項目</div>
               <div class="m-item"><b class="m-no">1</b><span class="m-said">購物車 API</span><i class="av av-ian">IA</i><span class="m-badge m-badge-ok">報告待看</span></div>
               <div class="m-item"><b class="m-no">2</b><span class="m-said">付款表單</span><i class="av av-amy">AM</i><span class="m-badge m-badge-warn">等待許可</span></div>
-              <div class="m-item"><b class="m-no">3</b><span class="m-said">結帳頁</span><i class="av av-amy">AM</i><span class="m-badge">等待 <i class="m-count m-n">1 和 2</i></span></div>
+              <div class="m-item"><b class="m-no">3</b><span class="m-said">結帳頁</span><i class="av av-amy">AM</i><span class="m-badge">等待 <i class="m-count m-n">1和2</i></span></div>
             </div>
           </div>
           <div class="m-col m-col-rep">
@@ -138,14 +137,16 @@
             <div class="m-rep">
               <div class="m-sec">做了什麼</div>
               <p class="m-said m-wrap">購物車存在伺服器上，每個帳號一個，可以加入、移除和清空。</p>
+              <div class="m-sec">為什麼這樣做</div>
+              <p class="m-said m-wrap">團隊決定讓購物車跟著帳號存。</p>
               <div class="m-sec">怎麼驗證的</div>
-              <div class="m-check"><span class="m-ok">通過：</span><pre class="m-term">pnpm test</pre></div>
-              <div class="m-check"><span class="m-warn">未驗證：</span><span class="m-said">兩台裝置同時使用</span></div>
+              <div class="m-check"><span class="m-ok"><span class="visually-hidden">通過：</span></span><pre class="m-term">pnpm test</pre></div>
+              <div class="m-check"><span class="m-warn"><span class="visually-hidden">未驗證：</span></span><span class="m-said">兩台裝置同時使用</span></div>
               <div class="m-sec">要注意什麼</div>
               <p class="m-said m-wrap m-watch">沒有登入的訪客，購物車不會保留。</p>
               <div class="m-sec">變更</div>
               <div class="m-file"><code class="m-said">src/cart/api.ts</code><i class="m-count m-diff">+38 −6</i></div>
-              <div class="m-file"><code class="m-said">tests/cart.test.ts</code><i class="m-count m-diff">+52</i></div>
+              <div class="m-file"><code class="m-said">tests/cart.test.ts</code><i class="m-count m-diff">+52 −0</i></div>
             </div>
             <div class="m-input">追問這個結果，或告訴 Claude 要改什麼</div>
             <div class="m-foot"><span class="m-btn m-btn-primary">我已看過</span></div>
@@ -250,7 +251,7 @@ smurg host ~/projects/my-app</code></pre>
     <ul class="features">
       <li>
         <h3>一起決定</h3>
-        <p>agent 把需要決定的事用選擇題交給團隊。除了「旁觀」，每個人都可以投票和留言，即時看到彼此的選擇；最後由一個人，也就是這個 session 的負責人，送出答案。agent 收到的是答案和投票結果，不會收到留言。</p>
+        <p>agent 把需要決定的事用選擇題交給團隊。除了「旁觀」，每個人都可以投票和留言，即時看到彼此的選擇；最後由一個人，也就是這個 session 的負責人，送出答案。agent 收到的是答案和投票結果，不會收到留言，除非送出答案的人把某一則留言加進給 agent 的備註。</p>
       </li>
       <li>
         <h3>spec 和計畫都是檔案</h3>
@@ -293,7 +294,7 @@ smurg host ~/projects/my-app</code></pre>
         <title id="sec-wide-title">主人的電腦上有分享的資料夾、agent 和它們的對話、金鑰與操作紀錄。「可使用 agent」的組員在那裡開始的 agent 和終端機，以主人的身分執行，沒有沙盒。每位組員的瀏覽器或 smurg CLI 都有自己的端對端加密通道連到主人的電腦。relay 是一個 Cloudflare Worker，只以密文轉送這條通道。它看得到每條連線的 Google 帳號（ID、名稱、大頭貼；登入時還有 email）、IP 位址、工作區代碼，以及每筆資料的大小和時間。</title>
         <rect class="bx" x="8" y="8" width="330" height="324" rx="14"/>
         <text class="tt" x="30" y="46">你的電腦（主人）</text>
-        <text class="tm" x="30" y="68">檔案和 agent 都留在這裡</text>
+        <text class="tm" x="30" y="68">檔案和 session 都留在這裡</text>
         <path class="ln" d="M30 93h8l3 4h11v14H30z"/>
         <text class="ts" x="64" y="107">分享的資料夾</text>
         <rect class="ln" x="30" y="124" width="22" height="17" rx="3"/>
@@ -335,7 +336,7 @@ smurg host ~/projects/my-app</code></pre>
         <title id="sec-tall-title">主人的電腦上有分享的資料夾、agent 和它們的對話、金鑰與操作紀錄。「可使用 agent」的組員在那裡開始的 agent 和終端機，以主人的身分執行，沒有沙盒。每位組員的瀏覽器或 smurg CLI 都有自己的端對端加密通道連到主人的電腦。relay 是一個 Cloudflare Worker，只以密文轉送這條通道。它看得到每條連線的 Google 帳號（ID、名稱、大頭貼；登入時還有 email）、IP 位址、工作區代碼，以及每筆資料的大小和時間。</title>
         <rect class="bx" x="8" y="8" width="344" height="304" rx="14"/>
         <text class="tt" x="28" y="44">你的電腦（主人）</text>
-        <text class="tm" x="28" y="68">檔案和 agent 都留在這裡</text>
+        <text class="tm" x="28" y="68">檔案和 session 都留在這裡</text>
         <path class="ln" d="M28 91h8l3 4h11v14H28z"/>
         <text class="ts" x="62" y="106">分享的資料夾</text>
         <rect class="ln" x="28" y="122" width="22" height="17" rx="3"/>
@@ -384,7 +385,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>所有東西都留在主人的電腦上</h3>
-        <p>檔案、agent、它們的對話和操作紀錄都在主人的電腦上，relay 不保存其中任何一樣。主人的電腦睡眠或 smurg 停止時，沒有人能使用工作區；主人回來後會自動重新連線，而在有人讓它繼續之前，什麼都不會再執行。</p>
+        <p>檔案、agent、它們的對話和操作紀錄都在主人的電腦上，relay 不保存其中任何一樣。主人的電腦睡眠或 smurg 停止時，沒有人能使用工作區；主人回來後會自動重新連線。smurg 本身重新啟動之後，什麼都不會自己執行：執行到一半的計畫會等主人或「可使用 agent」的組員讓它繼續。</p>
       </div>
       <div>
         <h3>agent 以主人的身分執行</h3>
@@ -396,7 +397,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>沒有東西會在沒人看過的情況下送給 agent</h3>
-        <p>「可編輯」的組員傳的訊息是建議：要有「可使用 agent」的人採用，agent 才會收到，而且收到的就是畫面上顯示的那段文字。工作項目只會從這樣的人確認過的 spec 和計畫開始；之後只要其中一個檔案變了，項目就會等待。</p>
+        <p>「可編輯」的組員傳的訊息是建議：要有「可使用 agent」的人採用，agent 才會收到，而且收到的就是畫面上顯示的那段文字。工作項目只會從這樣的人確認過的 spec 和計畫開始；之後只要其中一個檔案變了，項目就不會開始，要等這樣的人再按一次開始。</p>
       </div>
       <div>
         <h3>relay 看得到什麼</h3>
@@ -520,11 +521,11 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>agent 不用先問就能做什麼？</h3>
-        <p>主題的討論 agent 只能讀專案，並且只能寫這個主題的 spec 和計畫。工作項目的 agent 在自己的 worktree 裡改檔案、執行唯讀的指令；其他的事它都會先問，只有主人或「可使用 agent」的組員可以允許。這些是 smurg 自己在 agent 每一次使用工具之前檢查的。主人要知道一個例外：你自己的 Claude Code 設定已經允許的指令，在這裡也不會先問。</p>
+        <p>主題的討論 agent 只能讀專案，並且只能寫這個主題的 spec 和計畫。工作項目的 agent 在自己的 worktree 裡改檔案、執行唯讀的指令和簡單的檔案指令（列出、複製或搬移檔案）；其他的事它都會先問（已經設為一律允許的那一類指令除外），只有主人或「可使用 agent」的組員可以允許。這些是 smurg 自己在 agent 每一次使用工具之前檢查的。主人要知道一個例外：你自己的 Claude Code 設定已經允許的指令，在這裡也不會先問。</p>
       </div>
       <div>
         <h3>這套流程用真正的 Claude 測試過嗎？</h3>
-        <p>開發者沒有。整個流程是用照劇本回應的模型替身測試的，真正的 Claude Code 也只對著假的 API 執行過；沒有使用任何真正的 Claude 帳號。所以真正的模型會不會用卡片提出選擇題、會不會用 smurg 檢查的格式寫計畫和報告，都還沒有驗證。smurg 會自己檢查這些格式、請 agent 修正，並把停下來的工作放進收件夾。</p>
+        <p>開發者沒有。整個流程是用照劇本回應的模型替身測試的，真正的 Claude Code 也只在 Mac 上對著假的 API 執行過；沒有使用任何真正的 Claude 帳號。所以真正的模型會不會用卡片提出選擇題、會不會用 smurg 檢查的格式寫計畫和報告，都還沒有驗證。smurg 會自己檢查這些格式、請 agent 修正，並把停下來的工作放進收件夾。</p>
       </div>
       <div>
         <h3>看得到原始碼嗎？</h3>
@@ -540,7 +541,7 @@ smurg host ~/projects/my-app</code></pre>
       </div>
       <div>
         <h3>主人的電腦睡眠時會怎樣？</h3>
-        <p>所有人幾秒內就會看到「主人已離線」。編輯的內容會留在瀏覽器裡，主人回來後再送出；這段期間碰不到 agent，在等人處理的 agent 會繼續等。分享期間 smurg 會防止電腦閒置時睡眠，但闔上筆電螢幕仍然會睡眠。smurg 本身重新啟動之後，每一段對話都還在，而在主人或「可使用 agent」的組員讓它繼續之前，什麼都不會執行。</p>
+        <p>所有人幾秒內就會看到「主人已離線」。編輯的內容會留在瀏覽器裡，主人回來後再送出；這段期間碰不到 agent，在等人處理的 agent 會繼續等。分享期間 smurg 會防止電腦閒置時睡眠，但闔上筆電螢幕仍然會睡眠。smurg 本身重新啟動之後，每一段對話都還在，而且什麼都不會自己執行：執行到一半的計畫會等主人或「可使用 agent」的組員讓它繼續。</p>
       </div>
     </div>
   </div>

@@ -189,7 +189,8 @@ describe.skipIf(chrome === null)('the left column in real browsers (built app, r
     // Shift+Enter on "Spec": a second column, to the side; the empty step opens its empty state.
     await rowIn(mei, /^Spec/).focus();
     await mei.keyboard.press('Shift+Enter');
-    await expect.poll(() => columnNames(mei), { timeout: STEP_MS }).toEqual([`Discussion · ${TOPIC}`, 'Spec']);
+    // (A spec column is named with its topic, like a discussion: two of them can be told apart.)
+    await expect.poll(() => columnNames(mei), { timeout: STEP_MS }).toEqual([`Discussion · ${TOPIC}`, `Spec · ${TOPIC}`]);
     expect(await rowIn(mei, /^Spec/).getAttribute('aria-selected')).toBe('true');
 
     // Left on a row goes to its topic; Left again folds it: the fold says what waits inside.

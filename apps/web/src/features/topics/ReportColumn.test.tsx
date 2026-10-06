@@ -192,8 +192,15 @@ describe('the report column: "I\'ve reviewed this"', () => {
     expect(screen.getByRole('button', { name: "I've reviewed this" })).toBeTruthy();
     editor.unmount();
     await setup({ role: 'viewer', report: { ...REPORT, ...everyone }, plan: planWith({ responsible: null, report: buildReportSummary(everyone) }) });
-    expect(screen.getByText('Nobody is assigned to this item: anyone but a viewer can review it. Everyone can read it and ask follow-ups.')).toBeTruthy();
+    expect(screen.getByText('Nobody is assigned to this item: anyone but a viewer can review it. Everyone can read it.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: "I've reviewed this" })).toBeNull();
+  });
+
+  it('a viewer\'s foot does not promise follow-ups: there is no box to ask in', async () => {
+    await setup({ role: 'viewer' });
+    expect(screen.getByText('Ian is responsible for this item and reviews this report. Everyone can read it.')).toBeTruthy();
+    expect(screen.queryByText(/ask follow-ups/)).toBeNull();
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 
   it('once escalated a member with agent access reviews instead of the responsible person', async () => {

@@ -43,9 +43,14 @@ export function ColumnPictureIcon({ picture, size = 16 }: { picture: ColumnPictu
   }
 }
 
-/** The name of a column for a screen reader and for the separator behind it: "Discussion · Checkout redesign". */
+/**
+ * The name of a column for a screen reader, for its header's buttons and for the separator behind it. A column whose
+ * title is the same word in every topic (a discussion, the spec, the plan) or may repeat between topics (a result
+ * report) is named with its topic, "Plan · Checkout redesign": two of them side by side have different names.
+ */
 export function columnName(description: ColumnDescription): string {
-  return description.discussion && description.topicName !== undefined ? t('title.topic', { title: description.title, topic: description.topicName }) : description.title;
+  const perTopic = description.discussion || description.kind === 'spec' || description.kind === 'plan' || description.kind === 'report';
+  return perTopic && description.topicName !== undefined ? t('title.topic', { title: description.title, topic: description.topicName }) : description.title;
 }
 
 export interface ColumnFrameProps {

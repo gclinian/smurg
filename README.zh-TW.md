@@ -23,7 +23,8 @@ https://smurg.ai/zh-TW/docs/；網頁版（公用 relay）：https://app.smurg.a
   - *計畫*：agent 把 spec 變成 `PLAN.md`，一份列出工作項目和先後順序的清單，並建議每個項目由誰負責。大家可以改分工，
     或選擇不指派、大家一起看。
   - *執行*：按下開始後，每個工作項目開一個 agent session，各自在自己的 git worktree 裡。agent 在裡面改檔案不用先問，
-    執行指令前會先問；「可使用 agent」的成員可以只允許一次，或一律允許那一類指令。
+    執行指令前會先問（唯讀的指令和 worktree 裡簡單的檔案指令不用問）；「可使用 agent」的成員可以只允許一次，或一律允許
+    那一類指令。
   - *檢視*：每個完成的項目都有結果報告（做了什麼、為什麼這樣做、怎麼驗證的、要注意什麼、diff）。負責人可以追問，然後按
     「我已看過」；最後由主人合併。
 - **每個人有自己的收件夾**：由你決定的選擇題、還沒投的票、權限請求、停下來的工作、建議、待看的報告、合併、提及。事情
@@ -47,9 +48,9 @@ https://smurg.ai/zh-TW/docs/；網頁版（公用 relay）：https://app.smurg.a
 - **「可使用 agent」沒有任何隔離**：這個角色的組員可以開終端機，也可以允許 agent 請求執行的任何事，都是以主人的身分在
   主人的電腦上執行；可以執行任何指令、讀主人的家目錄、用主人的 Claude 帳號（費用算主人的）。只把這個角色給完全信任的人
   （[主人指南](docs/zh-TW/HOSTING.md) §5.1；[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §11 D-15、§12，英文）。
-- **用的是誰的 Claude 帳號**：每個 agent 都用主人的 Claude Code 登入，替組員工作時也一樣。Anthropic 的條款不允許把個人
-  訂閱提供給其他人使用；多人使用時，主人應該讓 Claude Code 改用 API 金鑰、Team 或 Enterprise 方案，或雲端供應商登入
-  （[主人指南](docs/zh-TW/HOSTING.md) §4）。
+- **用的是誰的 Claude 帳號**：每個 agent 都用主人的 Claude Code 登入，替組員工作時也一樣。個人的 Claude 訂閱（Pro 或
+  Max）只供主人自己使用：Anthropic 的條款不允許把它提供給其他人使用。多人使用時，主人應該讓 Claude Code 改用 API 金鑰、
+  Team 或 Enterprise 方案，或雲端供應商登入；smurg 會提醒，但不會阻止主人（[主人指南](docs/zh-TW/HOSTING.md) §4）。
 - **每個成員都讀得到每一段對話**，之後才加入的成員也一樣；agent 讀到的任何東西，它都可能說出來。常見金鑰格式的遮蔽只是
   盡力而為。
 - **需求**：agent session 需要主人的電腦上有 Claude Code 2.1.288 以上（版本太舊會被拒絕）；執行工作項目需要分享的資料夾
@@ -60,7 +61,7 @@ https://smurg.ai/zh-TW/docs/；網頁版（公用 relay）：https://app.smurg.a
 - **macOS 執行檔沒有 Apple 的開發者簽章**（只有 ad-hoc 簽章）。請用下面的一行指令安裝：它先驗證 sha256，再移除
   macOS 的隔離標記（quarantine）。只有 Apple Silicon 的執行檔在開發機上測試過；Intel Mac 與 Linux 的執行檔由 GitHub
   Actions 在各自的平台上建置，並在那裡跑冒煙測試。
-- **公用 relay 用 Cloudflare 的免費方案**：所有人共用每天的用量上限，用完時到台灣時間早上 8 點前都無法連線
+- **公用 relay 用 Cloudflare 的免費方案**：所有人共用每天的用量上限，用完時到 UTC 0 點（台灣時間早上 8 點）前都無法連線
   （[主人指南](docs/zh-TW/HOSTING.md) §2）。要避開這個限制，可以自己架設 relay
   （[`apps/relay/README.md`](apps/relay/README.md)，英文）。
 - 主人只能用 macOS 或 Linux（不支援 Windows）。還沒有做的：agent 對話的終端機介面（`smurg attach` 只能接上終端機
@@ -141,3 +142,10 @@ https://app.smurg.ai/third-party-notices.txt）。
 從原始碼開發、專案結構、檢查、`smurg` 的每個指令、打包與發佈，以及其他給開發者和維護者的文件（架構、驗收、發佈流程、
 relay 與 smurg.ai 的說明），都寫在英文版的 [README.md](README.md)（「The rest is for developers」之後）。想貢獻的話，請先讀
 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+
+想在自己的電腦上把整套系統跑起來試試（relay、網頁、`smurg host`），用 `scripts/dev-stack.sh --stand-in-claude`：agent
+session 會由一個照劇本回應的 Claude Code 替身執行，不需要帳號、不連網路，也不會產生費用。改用 `--real-claude` 的話，
+agent session 執行的是這台電腦上安裝的 Claude Code，用的是它找到的登入，也就是你自己的帳號。兩個都不加時：電腦上沒有
+`claude` 的話，agent session 會回答找不到 Claude Code（終端機、檔案和其他功能照常）；有 `claude` 的話，它會在啟動前先
+說清楚 agent session 將使用真正的 Claude Code 和你的登入；如果不是在終端機裡執行（例如由腳本或測試執行），它什麼都不
+啟動，並請你從這兩個選項裡選一個。

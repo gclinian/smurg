@@ -58,9 +58,13 @@ pnpm dev:web                          # front end: http://localhost:5173; /auth 
 2. The login block of the landing page shows the "Development login" form. It appears **only** when the relay
    reports that the development login is available (`DEV_LOGIN=1` and a local host name). A production address never
    shows it and never probes for it. Type an account name (for example `amy`) to log in.
-3. **The host shares a folder.** The simplest way is `scripts/dev-stack.sh` (run it in the repo root). It starts the
-   relay, Vite and `smurg host` (a sample git project, a fake HOME) in one go, prints the host's link and the invite
-   link (http://localhost:5173/join/…), and Ctrl-C stops everything.
+3. **The host shares a folder.** The simplest way is `scripts/dev-stack.sh --stand-in-claude` (run it in the repo
+   root). It starts the relay, Vite and `smurg host` (a sample git project, a fake HOME) in one go, prints the host's
+   link and the invite link (http://localhost:5173/join/…), and Ctrl-C stops everything. With `--stand-in-claude`
+   the stack's agent sessions run a scripted stand-in for Claude Code (no account, no network, nothing is billed);
+   `--real-claude` runs the Claude Code of this computer with the login it finds, which is your own account. Without
+   either switch and with a `claude` on `PATH`, the script says before it starts anything that agent sessions will
+   run the real Claude Code with your login, and refuses (exit 2) when nobody is at a terminal.
    By hand: `smurg login --relay http://localhost:8787 --dev-user host`, then
    `smurg host <folder> --relay http://localhost:8787 --web-origin http://localhost:5173`. The terminal prints the
    host's own link and the invite link `http://localhost:5173/join/<workspaceId>#k=…&s=…`. Teammates open the invite
@@ -90,8 +94,11 @@ logged in on the relay's own CLI login page) or one 401 (an expired session).
 **Agent sessions on a development machine.** An agent session is the host's own `claude` in its structured mode
 (ARCHITECTURE §7.6): the daemon runs the first `claude` on the host's `PATH`, needs Claude Code 2.1.288 or newer and
 a login. Without one, terminals, files, the editor and every screen still work, and an agent session says why it
-cannot start. No test uses a real Claude Code account: the tests of this package drive a `FakeConnection`, and the
-built-app smokes run the daemon with the scripted stand-in `claude` of `packages/daemon/src/testing/` ("Tests").
+cannot start. `scripts/dev-stack.sh --stand-in-claude` puts the scripted stand-in first on the stack's `PATH`
+instead: it follows `<dir>/stand-in-claude/fake-claude-scenario.json`, read again at every turn (send `try write`,
+`try run` or `try ask` to see an edit, a command with its permission request, or a question). No test uses a real
+Claude Code account: the tests of this package drive a `FakeConnection`, and the built-app smokes run the daemon
+with the same stand-in `claude` of `packages/daemon/src/testing/` ("Tests").
 
 ## Directory layout and ownership
 
@@ -122,7 +129,7 @@ src/
 │   ├── monaco.ts xterm.ts   Heavy modules (load them only through lazy.ts)
 │   ├── presence-css.ts      CSS for y-monaco's remote cursors
 │   ├── drop.ts              Drag and drop -> UploadSource (call it synchronously inside the drop event)
-│   └── format.ts errors.ts preferences.ts color.ts store.ts router.ts use-now.ts
+│   └── format.ts errors.ts preferences.ts color.ts store.ts router.ts use-now.ts clock.ts agent-work.ts
 ├── features/<feature>/      A feature's area: slots.tsx (what it contributes to the sessions view), index.tsx (its
 │                            fixed places in code mode and the console), strings.ts and strings.zh-TW.ts, other files
 │   ├── columns/             (shell) the strip of up to four columns: frame, header, pin, dividers, focus, the side column of code mode
@@ -709,9 +716,11 @@ contract they are built to (DESIGN §5.5 and §5.12 items 10 to 17).
   watched again after every Welcome, and why a delta that does not continue what the block holds stops the block
   until its text event. A hidden column watches with `live: false` and gets no deltas.
 - **Follow the end** only while the view is at the end; otherwise a "New activity" button.
-- **Budget, to be checked by the conversation feature's performance smoke:** a transcript of 5,000 events (1,000 of
+- **Budget, checked by `e2e/smoke/conversation.perf.smoke.test.ts`:** a transcript of 5,000 events (1,000 of
   them tool cards with bodies) opens in under 300 ms of scripting, and a 60 s stream at 5 deltas per second keeps
-  every frame under 16 ms of scripting.
+  every frame under 16 ms of scripting. Measured on 2026-10-07 (macOS arm64, system Chrome): 59.1 ms to open a
+  transcript of 5,007 events with 200 rows mounted; in the stream, 1.18 ms per 200 ms interval at the median and
+  8.06 ms at the worst.
 - **Markdown** (`features/markdown`, as built): the tokens of `marked`'s lexer rendered to React elements by smurg's
   own renderer. No HTML string is ever injected; raw HTML in the text shows as text; links are `http`, `https` and
   `mailto` only, open in a new tab with `rel="noopener noreferrer"` and show their address; **images are not
@@ -930,8 +939,17 @@ has no locale.
   header, the plan and the console say "Waiting for an answer" with the same words and glyph),
   `src/lib/columns/describe.ts` (`describeColumn`, `itemLabel({ number, title })`), `formatAge(at, now)` of
   `src/lib/format.ts` ("6 min") with `useNow(intervalMs, enabled?)` of `src/lib/use-now.ts` (the one clock hook of
-  the app: no feature keeps a copy), `formatAnd(items)` for names or numbers inside a sentence ("Ian, Mei, and Amy")
-  and `formatList(items)` for paths and commands (commas only).
+  the app: no feature keeps a copy), `formatAnd(items)` for names or numbers inside a sentence ("Ian, Mei, and Amy";
+  zh-TW sets its word for "and" apart from Latin text), `formatList(items)` for paths and commands (commas only)
+  and `joinSentences([...])` for two sentences in one line (no space after a full-width full stop).
+- **The clock is the host's and there is one**: `useNow` returns the browser's time corrected by the difference
+  measured at the Welcome (`stores.workspace` `clockSkewMs`), because every time the daemon stamps is a time of the
+  host's computer; `useLocalNow` is for a time this browser set itself (a retry countdown, an unsaved edit). All
+  callers share the timer of `src/lib/clock.ts`: an age under a minute is printed to the second, so while one is on
+  screen every caller that shows ages is redrawn each second and one wait reads the same on its card, its status
+  bar, its inbox row and the plan. `Date.now()` is not compared with a time from the host.
+- **A live region does not hold a counter**: the status bar's `role="status"` is its sentence; the age stands beside
+  it (a region that changes each second is read out each second).
 - **Nothing is conveyed by colour alone**: every status glyph and kind icon has a name, and the two inbox counts are
   named ("2 waiting, 4 to look at").
 - Style: a calm, information-dense workbench (like a code editor, not a marketing page). No decorative gradients; the
@@ -1082,9 +1100,12 @@ pnpm exec vitest run --project @smurg/web-smoke                     # in the rep
    tools (`packages/daemon/src/testing/fake-claude.mjs`, installed with `installFakeClaude`): it speaks Claude Code's
    structured protocol and does what a scenario file says, so neither a maintainer's machine nor CI needs Claude
    Code or an account.
-3. **Real Claude Code against the repository's fake Anthropic API** (only when the verified version, 2.1.288, is
-   there; never a real account): one pass of discussion, question, spec, plan, one work item and its report through
-   the built app.
+3. **Real Claude Code against the repository's fake Anthropic API** (`e2e/smoke/flow.claude.smoke.test.ts`; never a
+   real account): one short pass through the built app on the real binary: a session without a topic, its first
+   message, a tool, a command that a member with agent access allows and that really runs, a question and its
+   answer. It runs only when `SMURG_TEST_CLAUDE_BIN=/absolute/path` names a Claude Code of the verified version,
+   2.1.288; it never takes a `claude` from `PATH`, and skips loudly otherwise. A topic on the real binary is tested
+   at the daemon (`packages/daemon/test/sessions/agent-claude-real.test.ts`), not in a browser.
 
 **Language in tests.**
 
@@ -1134,12 +1155,28 @@ The smokes that came from 0.4.0, as they are in the new shell:
 The smokes 0.5.0 added, one per feature, each against the stand-in `claude`: `columns.smoke` (the dividers of the
 strip under a real mouse) and `sidebar.smoke` (the shell), `terminal.smoke` (a terminal as a column),
 `conversation.smoke` and `conversation.perf.smoke` (the budget of "A conversation column"), `topics.smoke`,
-`console.smoke`. The ones that cross features are the integration's: `flow.smoke` (the whole flow with four browser
-contexts: a host, a member with agent access, an Editor, a Viewer), `flow.zh-TW.smoke` (the same path in Traditional
-Chinese, with a topic named in Chinese) and `flow.claude.smoke` (layer 3 above). `docs/ACCEPTANCE.md` ("T topics
-flow") names the rows they prove.
+`console.smoke`. Three cross the features:
 
-Without a system Chrome these tests are skipped and the reason is printed.
+| File | What it walks through |
+|---|---|
+| `flow.smoke.test.ts` | The owner's whole flow as ONE story in 23 tests, four browser contexts: Ian (Host), Mei (Agent access, on a zh-TW page), Amy (Editor), Leo (Viewer). New topic with the folder's project settings confirmed in the dialog; a question in two parts with votes, a comment, a mention, a tie and the submit; the spec, edited by two people while the agent waits its turn; a revision asked for as a suggestion; Generate plan, the proposed split, the Start dialog and its commit; three sessions side by side (T4.3); a spec edit that disarms an item; permission cards (once, never-always, always in this topic); a question nobody answers until the host submits for its decider; an agent that stops without a report; a partial report, a follow-up and "I've reviewed this"; the merge from the host's inbox, a merge conflict the agent resolves; the topic complete; the mode switch (T7.1); one more work item; a restart of the host's smurg with "Continue all"; a killed agent process and "Try again"; and at the end what the Viewer could not do, and what the flow sent through the relay. About 114 s |
+| `flow.zh-TW.smoke.test.ts` | The short path of the flow by a host on a zh-TW page, with a topic named in Chinese, and an Editor on an English page (T8.2): at every stop the Chinese page holds no label nobody translated (`untranslatedTexts`), the English page no Chinese besides what people and the agent wrote (`cjkTexts`) |
+| `flow.claude.smoke.test.ts` | Layer 3 above |
+
+`e2e/smoke/flow-env.ts` is the flow's own stack: the same parts as `startSmoke`, but the daemon can restart in the
+middle of the story on the same folder and state while the four browsers stay open (`restartDaemon`), one agent
+process can be killed, the host's account is named, and the relay runs with its test tap so that `frames()` counts
+what the whole flow sent through it. `helpers.ts` gained `launchPages` (the browser and its pages without a stack)
+and `JoinEnv` (what the join helpers need of either stack) for it. `SMURG_SMOKE_SHOTS=<folder>` makes the flow
+smokes (and `console.smoke`) write a numbered picture per step and person, and `flow.smoke` a `flow-measure.json`.
+`SMURG_SMOKE_SCHEME=dark` runs every smoke, and takes those pictures, in the dark theme (headless Chrome prefers
+light, so without it the app's default theme is never on a picture).
+`docs/ACCEPTANCE.md` ("T topics flow") names the rows they prove.
+
+Without a system Chrome these tests are skipped and the reason is printed. `e2e/chrome.ts` looks for Google Chrome
+in its usual places; `SMURG_TEST_CHROME=/absolute/path` names a browser somewhere else (the Linux arm64 VM, for
+which Google ships no Chrome, runs the smokes on a Chrome for Testing that way). Nothing is ever downloaded, and a
+path that does not exist means "no Chrome".
 
 `src/testing/`:
 
@@ -1209,5 +1246,5 @@ the second language it was 628.6 KiB (194.9 KiB gzip): both language tables of t
 (`@smurg/protocol/i18n`, every sentence the host can send, in both languages) load eagerly, which adds about 108 KiB
 (30 KiB gzip). The workspace chunk was 288 KiB (82 KiB gzip). The Monaco chunks are about 3.8 MiB (977 KiB gzip)
 plus the editor worker, CSS and codicon, and the xterm chunk is 352 KiB (91 KiB gzip). All of these are in
-lazy-loaded chunks. 0.5.0 adds catalog text, the stores of the sessions view and one dependency (`marked`); its
-numbers are measured when the release is verified and replace these.
+lazy-loaded chunks. 0.5.0 adds catalog text, the stores of the sessions view and one dependency (`marked`).
+**PLACEHOLDER FOR THE GATE RUN (v0.5.0):** the sizes of 0.5.0's build (`pnpm --filter @smurg/web build` prints them) replace the numbers above.

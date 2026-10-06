@@ -36,7 +36,7 @@ export function setupStores(base: WelcomeOptions = {}): StoresTestContext {
     storage,
     dispose,
     admit: (options = {}) =>
-      conn.admit(makeWelcome({ ...base, ...(options.role ? { role: options.role } : {}), ...(options.channelId ? { channelId: options.channelId } : {}) }), { resumed: options.resumed ?? false }),
+      conn.admit(makeWelcome({ serverTime: scheduler.now(), ...base, ...(options.role ? { role: options.role } : {}), ...(options.channelId ? { channelId: options.channelId } : {}) }), { resumed: options.resumed ?? false }),
     flush: () => new Promise<void>((resolve) => setTimeout(resolve, 0)),
   };
 }

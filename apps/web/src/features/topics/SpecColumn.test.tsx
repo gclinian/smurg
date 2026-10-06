@@ -149,7 +149,10 @@ describe('the spec column: Read', () => {
   it('a viewer reads: no Edit, no revise box, no "Generate plan"', async () => {
     await setup({ role: 'viewer' });
     expect(screen.getByRole('heading', { name: 'Goal' })).toBeTruthy();
-    expect((screen.getByRole('radio', { name: 'Edit' }) as HTMLButtonElement).disabled).toBe(true);
+    // "Edit" is absent, not greyed with a reason only a pointer reaches; a sentence says who can edit.
+    expect(screen.queryByRole('radio', { name: 'Edit' })).toBeNull();
+    expect(screen.queryByRole('radiogroup', { name: 'Spec view' })).toBeNull();
+    expect(screen.getByText('Viewers read. Editing needs the role Editor or above.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Ask the agent to revise' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Ask the agent to revise "/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Generate plan' })).toBeNull();

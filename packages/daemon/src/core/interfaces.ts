@@ -334,9 +334,11 @@ export interface DaemonEvents {
   /** `AgentSessions.account()` changed. Emitted by sessions, which also sends `session.host` to everyone. */
   'account.changed': { readonly account: AccountInfo };
   /**
-   * The activity module recorded an entry (EVERY entry it records). Topics read hand edits from it, worktree
-   * `changes.byHand`. `renamedFrom`: with kind `file.rename`, the path the entry had before, relative to `file.root`
-   * (`file.path` is the new one): a rename of SPEC.md or PLAN.md away from its path, or into it, is a hand edit.
+   * The activity module recorded an entry (EVERY entry it records). Topics read hand edits from it (and, because the
+   * feed has only ONE `human.edit` entry per person and file per minute, typing in the editor from `doc.human-edit` /
+   * `doc.saved`), worktree `changes.byHand`. `renamedFrom`: with kind `file.rename`, the path the entry had before,
+   * relative to `file.root` (`file.path` is the new one): a rename of SPEC.md or PLAN.md away from its path, or into
+   * it, is a hand edit.
    */
   'activity.recorded': {
     readonly entry: { readonly actor: Actor; readonly kind: string; readonly file?: FileRef; readonly at: number; readonly via?: 'bash'; readonly renamedFrom?: string };

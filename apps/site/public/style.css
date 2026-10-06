@@ -953,6 +953,13 @@ html:lang(zh-Hant) .lede {
   color: var(--m-warning-text);
 }
 
+/* the viewer's own role, after the avatars of the top bar */
+.m-role {
+  margin-left: 0;
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+}
+
 /* a column: its header, the strip under it, its content */
 .m-ch {
   display: flex;
@@ -1153,9 +1160,21 @@ html:lang(zh-Hant) .lede {
 /* the plan */
 .m-sum {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 0 5px;
   color: var(--m-muted);
   font-size: 11px;
+}
+
+/* "0 of 3 reviewed" leads; what is going on follows, its parts joined by a middle dot as in the app */
+.m-sum > :first-child {
+  margin-right: 7px;
+  color: var(--m-text);
+  font-weight: 600;
+}
+
+.m-sum > span + span:not(:last-child)::after {
+  content: '\00a0\00b7';
 }
 
 .m-sec {
@@ -1228,6 +1247,15 @@ html:lang(zh-Hant) .lede {
 
 .m-warn {
   color: var(--m-warning-text);
+}
+
+/* The app draws a check mark or a warning sign and says the word to screen readers only; so does the picture. */
+.m-check > .m-ok::before {
+  content: '\2713';
+}
+
+.m-check > .m-warn::before {
+  content: '\26a0\fe0e';
 }
 
 .m-watch {

@@ -6,9 +6,11 @@ import { cp, mkdir, rm, unlink, writeFile } from 'node:fs/promises';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MAIN_ROOT, type AgentSession, type ConversationEvent, type PayloadOf } from '@smurg/protocol';
+import { MAIN_ROOT, type AgentSession, type ConversationEvent, type PayloadOf, type RememberedRule } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
-import type { AgentStartInput, DaemonEvents, Principal } from '../../src/core/interfaces.ts';
+import { buildTopic } from '@smurg/protocol/testing';
+import type { FeatureModule } from '../../src/core/context.ts';
+import type { AgentStartInput, DaemonEvents, PlanService, Principal, TopicService } from '../../src/core/interfaces.ts';
 import type { AgentSessionsImpl } from '../../src/sessions/agent/agent-sessions.ts';
 import { createSessionsModule } from '../../src/sessions/module.ts';
 import { TEST_HOST_USER, createTempRunDir, createTestDaemon, waitFor, type FakeClaudeScenario, type FakeClaudeStep, type TestClient } from '../../src/testing/index.ts';
@@ -220,6 +222,127 @@ describe('session.* handlers of agent sessions', { timeout: 60_000 }, () => {
     expect(r.s.fakes.activity.notifications.filter((n) => n.msg?.id === 'hostRules.found')).toHaveLength(1);
     await r.host.conn.request('admin.hostRules.seen', {});
     expect(r.s.t.ctx.services.hostRules.attention()).toEqual([]);
+  });
+});
+
+describe('"Try again" on a work item\'s session', { timeout: 60_000 }, () => {
+  // Found by the browser flow (P12E): `session.retry` alone started a failed item's agent again and left it idle, its
+  // item shown as running, nobody asked. The plan's "Try again" (`plan.item.retry`) also tells the agent to go on.
+  it('session.retry of a failed item session is the plan\'s "Try again"; an item the plan does not hold as failed, and a session without an item, start again as they are', async () => {
+    /** The plan service as far as the handler needs it: what the plan says of the item, and its "Try again". */
+    const plan = { state: 'failed' as 'failed' | 'done', retried: [] as { topicId: string; itemId: string; by: string | null }[] };
+    const plans: FeatureModule = {
+      name: 'plans-stand-in',
+      create: (ctx) => ({
+        plans: {
+          itemBySession: (sessionId: string) => (ctx.services.agents.get(sessionId)?.purpose === 'item' ? { topicId: TOPIC.id, item: { id: 'cart-api', sessionId, state: plan.state } } : null),
+          retryItem: async (input: { topicId: string; itemId: string }, principal: Principal) => {
+            plan.retried.push({ ...input, by: principal.userId });
+            const sessionId = ctx.services.agents.list({ topicId: input.topicId }).find((session) => session.itemId === input.itemId)?.id as string;
+            await ctx.services.agents.retry(sessionId, principal);
+            await ctx.services.agents.send(sessionId, { kind: 'smurg', purpose: 'continue-item', text: 'Continue the work item.' });
+            return {};
+          },
+        } as unknown as PlanService,
+      }),
+      register: () => ({ dispose: () => {} }),
+    };
+    const r = await rig(
+      [
+        { match: 'crash', once: true, steps: [{ tool: 'Bash', input: { command: 'make' }, ask: true }] },
+        { match: 'Continue the work item', steps: [{ text: 'Going on.' }] },
+      ],
+      { extraModules: [plans] },
+    );
+    const mei = await r.s.t.connect({ userId: 'dev:mei', displayName: 'Mei', role: 'agent' });
+    const kill = async (sessionId: string): Promise<void> => {
+      process.kill(r.agents.liveChildren().find((child) => child.id === sessionId)?.pid as number, 'SIGKILL'); // a child of this test's daemon
+      await r.until(sessionId, (now) => now.status === 'failed', 'the failure');
+    };
+    const smurgMessages = async (sessionId: string): Promise<string[]> => (await r.events(sessionId)).flatMap((event) => (event.kind === 'smurg' ? [event.purpose] : []));
+    const retries = async (): Promise<number> => (await r.s.t.ctx.audit.query({ limit: 100 })).filter((entry) => entry.action === 'session.retry').length;
+
+    // ---- an item's process dies while it waits for a permission; Mei presses "Try again" in its conversation ----
+    const item = await r.topicSession('item', r.principal('dev:mei'), { firstMessage: { kind: 'smurg', purpose: 'start-item', text: 'crash now' } });
+    await waitFor(() => r.bus.some((entry) => entry.name === 'agent.request'), { what: 'the permission request' });
+    await kill(item.id);
+    const retried = await mei.conn.request('session.retry', { sessionId: item.id });
+    expect(retried.session).toMatchObject({ id: item.id, purpose: 'item' });
+    expect(plan.retried).toEqual([{ topicId: TOPIC.id, itemId: 'cart-api', by: 'dev:mei' }]);
+    // The same session resumed AND the agent was told to go on: it works again.
+    await waitFor(async () => (await r.events(item.id)).some((event) => event.kind === 'text' && event.text === 'Going on.'), { timeoutMs: 15_000, what: 'the agent to go on' });
+    expect(await smurgMessages(item.id)).toEqual(['start-item', 'continue-item']);
+    expect(await r.ids(item.id)).toContain('conversation.retry.resumed');
+    expect(await retries()).toBe(1);
+
+    // ---- the plan does not hold the item as failed (its report is in): the session only starts again ----
+    await r.until(item.id, idle, 'the turn to end');
+    plan.state = 'done';
+    await kill(item.id);
+    expect((await mei.conn.request('session.retry', { sessionId: item.id })).session.status).toBe('starting');
+    await r.until(item.id, idle, 'the plain retry');
+    expect(plan.retried).toHaveLength(1);
+    expect(await smurgMessages(item.id)).toEqual(['start-item', 'continue-item']);
+    expect(await retries()).toBe(2);
+
+    // ---- a session without an item: as before ----
+    plan.state = 'failed';
+    const { session: free } = await mei.conn.request('session.create', AGENT);
+    await r.until(free.id, idle, 'the free session');
+    await kill(free.id);
+    expect((await mei.conn.request('session.retry', { sessionId: free.id })).session.status).toBe('starting');
+    await r.until(free.id, idle, 'its retry');
+    expect(plan.retried).toHaveLength(1);
+    expect(await retries()).toBe(3);
+  });
+});
+
+describe('a topic\'s always-allowed kinds and the sessions of that topic', { timeout: 60_000 }, () => {
+  // Found by the flow over the real relay (tests/e2e t.topic-flow): `ruleCount` of a session counts its topic's rules,
+  // but nobody announced the topic's OTHER sessions when the topic got a rule, so every client kept their old count.
+  it('when a topic\'s rules change, every session of the topic is announced again with its new ruleCount (and no other session is)', async () => {
+    /** The topics service as far as the runtime reads it: the rules of the topic. */
+    let rules: RememberedRule[] = [];
+    const topics: FeatureModule = {
+      name: 'topics-stand-in',
+      create: () => ({ topics: { rules: (topicId: string) => (topicId === TOPIC.id ? rules.map((rule) => ({ ...rule })) : []) } as unknown as TopicService }),
+      register: () => ({ dispose: () => {} }),
+    };
+    const r = await rig([], { extraModules: [topics] });
+    const leo = await r.s.t.connect({ userId: 'dev:leo', displayName: 'Leo', role: 'viewer' });
+    const told: AgentSession[] = [];
+    leo.conn.on('session.state', ({ session }) => {
+      if (session.kind === 'agent') told.push(session);
+    });
+    const host = r.principal(TEST_HOST_USER);
+    const discussion = await r.topicSession('discussion', host);
+    const item = await r.topicSession('item', host);
+    const { session: free } = await r.host.conn.request('session.create', AGENT);
+    for (const id of [discussion.id, item.id, free.id]) await r.until(id, idle, 'the start');
+    await waitFor(() => [discussion.id, item.id, free.id].every((id) => told.findLast((session) => session.id === id)?.status === 'idle'), { what: 'the three idle sessions at the Viewer' });
+    const before = new Map([discussion.id, item.id, free.id].map((id) => [id, r.agents.get(id) as AgentSession]));
+    expect([...before.values()].map((session) => session.ruleCount)).toEqual([0, 0, 0]);
+    told.length = 0;
+
+    // ---- the topic gets a rule (a member pressed "Always allow in every session of this topic" in ONE session)
+    const rule: RememberedRule = { id: 'rl_1', tool: 'Bash', pattern: 'pnpm test *', scope: 'topic', addedBy: { userId: 'dev:mei', displayName: 'Mei' }, addedAt: 1 };
+    const topic = buildTopic({ id: TOPIC.id, name: TOPIC.name, slug: TOPIC.slug });
+    rules = [rule];
+    r.s.t.ctx.bus.emit('topic.changed', { topic: { ...topic, rules }, previous: topic });
+    await waitFor(() => told.length >= 2, { what: 'both sessions of the topic at the Viewer' });
+    expect(told.map((session) => `${session.id === discussion.id ? 'discussion' : session.id === item.id ? 'item' : 'free'} ${session.ruleCount}`).sort()).toEqual(['discussion 1', 'item 1']);
+    // Nothing else of them changed: not their activity time, not what makes a row bold.
+    for (const session of told) expect(session).toEqual({ ...before.get(session.id), ruleCount: 1 });
+    expect((await leo.conn.request('session.list', {})).sessions.map((session) => (session.kind === 'agent' ? session.ruleCount : -1))).toEqual([1, 1, 0]);
+
+    // ---- a change of the topic that is not about its rules announces no session
+    told.length = 0;
+    r.s.t.ctx.bus.emit('topic.changed', { topic: { ...topic, name: 'Checkout v2', rules }, previous: { ...topic, rules } });
+    // ---- the rule goes (removed by a member, or with the member who added it)
+    rules = [];
+    r.s.t.ctx.bus.emit('topic.changed', { topic: { ...topic, name: 'Checkout v2', rules }, previous: { ...topic, name: 'Checkout v2', rules: [rule] } });
+    await waitFor(() => told.length >= 2, { what: 'both sessions of the topic at the Viewer, again' });
+    expect(told.map((session) => `${session.id === discussion.id ? 'discussion' : session.id === item.id ? 'item' : 'free'} ${session.ruleCount}`).sort()).toEqual(['discussion 0', 'item 0']);
   });
 });
 

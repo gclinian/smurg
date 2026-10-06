@@ -2,7 +2,13 @@
 // a command as it will run, an edit as its diff, any other tool's whole input; nothing is shortened or masked, and
 // characters a reader cannot see are made visible. The host and members with agent access answer; everyone else
 // reads who can. The focus lands on the card, never on Allow.
-import { memo, useId, useRef, useState } from 'react';
+//
+// A long part scrolls inside its box (UX §5.2). A box that does not show all of its part says so, with the number of
+// lines, and "Allow once" and "Always allow this kind" wait until the end of every such box has been on screen: a
+// command of `pnpm test`, a dozen empty lines and then something else is otherwise allowed unseen (DESIGN S6: a
+// person never allows what they cannot see). Nothing scrolls sideways: the command wraps, and in this card the diff
+// wraps too (conversation.css).
+import { memo, useCallback, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { DENY_MESSAGE_MAX_CHARS, mayAllowForTopic, mayDecidePermission, ruleString, type PermissionRequest } from '@smurg/protocol';
 import { formatAge, formatTime } from '../../lib/format.ts';
 import { kindLabel } from '../../lib/session-status.ts';
@@ -32,8 +38,58 @@ function titleOf(request: PermissionRequest): string {
   }
 }
 
+const lineCount = (text: string): number => text.replace(/\n$/, '').split('\n').length;
+const ROUNDING_PX = 2;
+
+type PartName = 'command' | 'change' | 'url' | 'input';
+/** Tells the card that a part's box does not show all of it and its end has not been on screen yet (or that this is over). */
+type ReportUnread = (part: PartName, unread: boolean) => void;
+
+/**
+ * One part of what is asked, in its own box (the element given as `children`, which scrolls when the part is long).
+ * While the box does not show all of the part, the line under it says how long the part is; `onUnread` hears whether
+ * its end still has to be scrolled to. A box that was at its end once stays read: the reader had all of it on screen.
+ */
+function Part({ name, lines, onUnread, children }: { name: PartName; lines: number; onUnread: ReportUnread | undefined; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [state, setState] = useState<'whole' | 'more' | 'read'>('whole');
+  // Layout effects: a card that is drawn for the first time with a long part never shows Allow as available.
+  useLayoutEffect(() => {
+    const box = ref.current?.firstElementChild;
+    if (!(box instanceof HTMLElement)) return;
+    let reachedEnd = false;
+    // A box without a size (a column that is not on screen) scrolls nothing: it is measured again when it gets one.
+    // The browser rounds the three numbers each by itself: two pixels are no line of text.
+    const measure = (): void => {
+      const hidden = box.scrollHeight - box.clientHeight;
+      if (hidden > ROUNDING_PX && box.scrollTop >= hidden - ROUNDING_PX) reachedEnd = true;
+      setState(hidden <= ROUNDING_PX ? 'whole' : reachedEnd ? 'read' : 'more');
+    };
+    measure();
+    box.addEventListener('scroll', measure, { passive: true });
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(box);
+    return () => {
+      box.removeEventListener('scroll', measure);
+      observer?.disconnect();
+    };
+  }, []);
+  const unread = state === 'more';
+  useLayoutEffect(() => {
+    if (onUnread === undefined || !unread) return;
+    onUnread(name, true);
+    return () => onUnread(name, false);
+  }, [onUnread, name, unread]);
+  return (
+    <div ref={ref} className="conv-perm__part">
+      {children}
+      {state === 'whole' ? null : <p className="conv-perm__more">{t('perm.more', { count: lines })}</p>}
+    </div>
+  );
+}
+
 /** Exactly what is asked for: the command, the diff, the address, or the whole input. */
-function Asked({ request }: { request: PermissionRequest }) {
+function Asked({ request, onUnread }: { request: PermissionRequest; onUnread?: ReportUnread }) {
   const parts = [];
   if (request.outside === true && request.path === undefined && request.file === undefined) {
     parts.push(
@@ -52,24 +108,36 @@ function Asked({ request }: { request: PermissionRequest }) {
   }
   if (request.command !== undefined) {
     parts.push(
-      <pre key="command" className="conv-perm__cmd" tabIndex={0}>
-        <code>{showControls(request.command)}</code>
-      </pre>,
+      <Part key="command" name="command" lines={lineCount(request.command)} onUnread={onUnread}>
+        <pre className="conv-perm__cmd" tabIndex={0}>
+          <code>{showControls(request.command)}</code>
+        </pre>
+      </Part>,
     );
   }
-  if (request.change !== undefined) parts.push(<DiffView key="change" diff={showControls(request.change.text)} {...(path === undefined ? {} : { path })} />);
+  if (request.change !== undefined) {
+    parts.push(
+      <Part key="change" name="change" lines={lineCount(request.change.text)} onUnread={onUnread}>
+        <DiffView diff={showControls(request.change.text)} {...(path === undefined ? {} : { path })} />
+      </Part>,
+    );
+  }
   if (request.url !== undefined) {
     parts.push(
-      <pre key="url" className="conv-perm__cmd" tabIndex={0}>
-        <code>{showControls(request.url)}</code>
-      </pre>,
+      <Part key="url" name="url" lines={lineCount(request.url)} onUnread={onUnread}>
+        <pre className="conv-perm__cmd" tabIndex={0}>
+          <code>{showControls(request.url)}</code>
+        </pre>
+      </Part>,
     );
   }
   if (request.input !== undefined) {
     parts.push(
-      <pre key="input" className="conv-perm__cmd conv-perm__cmd--input" tabIndex={0} aria-label={t('perm.input', { tool: request.tool })}>
-        <code>{showControls(request.input)}</code>
-      </pre>,
+      <Part key="input" name="input" lines={lineCount(request.input)} onUnread={onUnread}>
+        <pre className="conv-perm__cmd conv-perm__cmd--input" tabIndex={0} aria-label={t('perm.input', { tool: request.tool })}>
+          <code>{showControls(request.input)}</code>
+        </pre>
+      </Part>,
     );
   }
   return <>{parts}</>;
@@ -136,6 +204,11 @@ export const PermissionCard = memo(function PermissionCard({ requestId }: { requ
   const [scope, setScope] = useState<'session' | 'topic'>('session');
   const [denying, setDenying] = useState(false);
   const [message, setMessage] = useState('');
+  /** The parts whose box does not show all of them and whose end has not been on screen yet. */
+  const [unread, setUnread] = useState<readonly PartName[]>([]);
+  const reportUnread = useCallback<ReportUnread>((part, more) => {
+    setUnread((previous) => (more === previous.includes(part) ? previous : more ? [...previous, part] : previous.filter((one) => one !== part)));
+  }, []);
 
   const icon = <KindIcon kind="permission" label={kindLabel('permission')} />;
   if (request === undefined) {
@@ -173,7 +246,9 @@ export const PermissionCard = memo(function PermissionCard({ requestId }: { requ
   const selfId = self?.userId ?? null;
   const mayDecide = role !== null && selfId !== null && mayDecidePermission({ userId: selfId, role }, { hostOnly: request.hostOnly });
   const topicScope = facts?.topicId !== undefined && mayAllowForTopic(role);
+  const mustRead = unread.length > 0;
   const decide = (decision: 'allow' | 'allow-always' | 'deny'): void => {
+    if (decision !== 'deny' && mustRead) return;
     setLate(null);
     const trimmed = message.trim();
     void action.run(() =>
@@ -198,11 +273,11 @@ export const PermissionCard = memo(function PermissionCard({ requestId }: { requ
       {mayDecide ? (
         <>
           <div className="conv-card__actions">
-            <Button variant="primary" disabled={action.busy} onClick={() => decide('allow')}>
+            <Button variant="primary" disabled={action.busy || mustRead} onClick={() => decide('allow')}>
               {t('perm.allow')}
             </Button>
             {rule !== undefined ? (
-              <Button disabled={action.busy} onClick={() => decide('allow-always')}>
+              <Button disabled={action.busy || mustRead} onClick={() => decide('allow-always')}>
                 {t('perm.always')}
               </Button>
             ) : null}
@@ -210,6 +285,7 @@ export const PermissionCard = memo(function PermissionCard({ requestId }: { requ
               {denying ? t('perm.deny.confirm') : t('perm.deny')}
             </Button>
           </div>
+          {mustRead ? <p className="conv-perm__more">{t('perm.readFirst')}</p> : null}
           {denying ? (
             <input
               className="ui-input"
@@ -280,7 +356,7 @@ export const PermissionCard = memo(function PermissionCard({ requestId }: { requ
       className="conv-card conv-card--permission"
       footer={footer}
     >
-      <Asked request={request} />
+      <Asked request={request} onUnread={reportUnread} />
       {where}
       {request.reason !== undefined ? <p className="conv-card__who">{t('perm.reason', { reason: request.reason })}</p> : null}
     </Card>

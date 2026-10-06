@@ -2,7 +2,10 @@
 // (finished and streaming), tool lines, system lines, notices and the end of a turn that did not simply complete.
 // Every row is memoised on its render item, which keeps its identity while nothing in it changed
 // (lib/stores/conversations.ts), so an arriving event renders one row.
-import { memo, useCallback, type ReactNode } from 'react';
+//
+// Every row has an error boundary of its own (RowBoundary): whatever one entry holds, a row that cannot be drawn is
+// one line saying so, and the rows around it, the open cards and the composer under the list stay.
+import { Component, memo, useCallback, type ErrorInfo, type ReactNode } from 'react';
 import type { ConversationEventOf } from '@smurg/protocol';
 import { renderWireText } from '../../lib/errors.ts';
 import { formatRole, formatTime } from '../../lib/format.ts';
@@ -273,8 +276,78 @@ const TurnEndRow = memo(function TurnEndRow({ item }: { item: TurnEndItem }) {
   );
 });
 
+// ---- a row that cannot be drawn
+
+/**
+ * The events behind a row that the host can remove one by one: a person's message, smurg's message, the blocks of an
+ * agent's text, the place of a card. (A tool line removes its own call and result when it is opened.)
+ */
+function removableSeqs(item: RenderItem): readonly number[] {
+  switch (item.kind) {
+    case 'message':
+    case 'smurg':
+      return [item.event.seq];
+    case 'text':
+      return item.blocks.map((block) => block.seq);
+    case 'card':
+      return [item.seq];
+    default:
+      return [];
+  }
+}
+
+interface RowBoundaryProps {
+  readonly item: RenderItem;
+  readonly children: ReactNode;
+}
+
+interface RowBoundaryState {
+  readonly failed: boolean;
+  /** The item the state is about: another item starts over. */
+  readonly item: RenderItem;
+}
+
+/**
+ * The error boundary of ONE row. Without it a row that throws while rendering took the whole column: the other
+ * entries, the permission requests and questions that wait in it, the composer, and the host's "Remove this entry",
+ * which is why the place of the row still offers that. The row is drawn again when its item is replaced (the entry
+ * was removed, a card was settled).
+ */
+class RowBoundary extends Component<RowBoundaryProps, RowBoundaryState> {
+  override state: RowBoundaryState = { failed: false, item: this.props.item };
+
+  static getDerivedStateFromError(): Partial<RowBoundaryState> {
+    return { failed: true };
+  }
+
+  static getDerivedStateFromProps(props: RowBoundaryProps, state: RowBoundaryState): RowBoundaryState | null {
+    return props.item === state.item ? null : { failed: false, item: props.item };
+  }
+
+  override componentDidCatch(error: unknown, info: ErrorInfo): void {
+    // Development aid only; nothing sensitive is in a render error.
+    console.error(`conversation row ${this.props.item.key} cannot be drawn`, error, info.componentStack);
+  }
+
+  override render(): ReactNode {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <p className="conv-row__failed">
+        <span>{t('row.failed')}</span>
+        {removableSeqs(this.props.item).map((seq) => (
+          <Redact key={seq} seq={seq} />
+        ))}
+      </p>
+    );
+  }
+}
+
 /** One item of the folded list as its row. `latestPointers`: the `seq` of the newest pointer of each target. */
 export function renderRow(item: RenderItem, latestPointers: ReadonlySet<number>): ReactNode {
+  return <RowBoundary item={item}>{rowOf(item, latestPointers)}</RowBoundary>;
+}
+
+function rowOf(item: RenderItem, latestPointers: ReadonlySet<number>): ReactNode {
   switch (item.kind) {
     case 'message':
       return <MessageRow item={item} />;

@@ -1,13 +1,13 @@
 // The conversation column in Traditional Chinese: the strip, the rows, the three cards, the status bar and the
 // composer speak zh-TW (role labels and the daemon's lines from the wire catalogue), and what people and agents
 // wrote stays as it was written.
-import { fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { ConversationEvent } from '@smurg/protocol';
+import { SmurgError, type ConversationEvent } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { buildEvent, buildPermission, buildQuestion, buildSuggestion, FAKE_NOW } from '@smurg/protocol/testing';
 import { useTestLocale } from '../../testing/locale.ts';
-import { AMY, IAN, MEI, SID, openConversation } from './test-support.tsx';
+import { AMY, IAN, MEI, SID, openConversation, settle } from './test-support.tsx';
 
 useTestLocale('zh-TW');
 
@@ -48,7 +48,10 @@ describe('conversation column in zh-TW', () => {
     // What people and agents wrote is never translated.
     expect(message.textContent).toContain('Use the session store');
     expect(within(log).getByText('I will look at the cart first.')).toBeTruthy();
-    expect(log.querySelector('details.conv-tool summary')?.textContent).toContain('正在執行');
+    // The command waits at its permission card (below): its line does not say that it runs.
+    expect(log.querySelector('details.conv-tool summary')?.textContent).toContain('指令');
+    expect(log.querySelector('details.conv-tool summary')?.textContent).toContain('等待許可');
+    expect(log.querySelector('details.conv-tool summary')?.textContent).not.toContain('執行');
 
     const question = document.getElementById('conv-card-q_1') as HTMLElement;
     expect(within(question).getByRole('heading', { name: 'Claude 的選擇題' })).toBeTruthy();
@@ -75,18 +78,49 @@ describe('conversation column in zh-TW', () => {
     expect(within(suggestion).getByRole('button', { name: '採用' })).toBeTruthy();
     expect(within(suggestion).getByRole('button', { name: '修改後採用' })).toBeTruthy();
 
-    const status = screen.getAllByRole('status').find((node) => node.classList.contains('conv-status')) as HTMLElement;
+    const status = document.querySelector('.conv-status') as HTMLElement;
     expect(status.textContent).toContain('Claude 正在等待許可');
     expect(within(status).getByRole('button', { name: '顯示' })).toBeTruthy();
     expect(screen.getByRole('combobox', { name: '傳訊息給 Claude · Claude (Ian)' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '傳送' })).toBeTruthy();
   });
 
+  it('sentences in one line stand without a gap, a turn-end line has no full stop before its time, and waiting counts beside the sentence', async () => {
+    const view = await openConversation({
+      role: 'agent',
+      session: { status: 'stalled', purpose: 'item', topicId: 't_1', topicName: 'Checkout', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, attempt: 1 },
+      events: [buildEvent('turn.started', { seq: 1, turnId: 't_1' }), buildEvent('turn.finished', { seq: 2, turnId: 't_1', outcome: 'interrupted', stoppedBy: IAN, durationMs: 2_000 })],
+    });
+    const status = document.querySelector('.conv-status') as HTMLElement;
+    const sentences = (): string[] => within(status).getAllByRole('status').map((node) => node.textContent ?? '');
+    // The same words as the plan's badge and the inbox row ("stopped without a report").
+    expect(sentences()[0]).toBe('沒寫報告就停下了。');
+
+    act(() => view.conn.emit('session.host', { account: { state: 'usage-limit', sessions: 1 }, mainProjectSettings: 'none' }));
+    fireEvent.click(within(status).getByRole('button', { name: '繼續' }));
+    act(() => {
+      view.conn.fail('plan.item.continue', new SmurgError('conflict', 'not now'));
+    });
+    await settle();
+    // Two sentences of one line: a full-width full stop is followed by the next sentence, not by a space.
+    expect(sentences()[1]).toMatch(/^主人的 Claude 帳號已達用量上限。沒有成功：/);
+    for (const sentence of sentences()) expect(sentence).not.toContain('。 ');
+
+    const line = screen.getByRole('log').querySelector('.conv-sys[data-outcome="interrupted"]') as HTMLElement;
+    expect(line.textContent).toMatch(/^Ian 停止了 agent · /);
+
+    // While it waits, the sentence is what is spoken; the age stands beside it.
+    act(() => view.conn.emit('session.state', { session: { ...view.agentSession, status: 'waiting-permission', waitingSince: Date.now() - 6 * 60_000 - 5_000 } }));
+    expect(sentences()[0]).toBe('Claude 正在等待許可');
+    expect(status.querySelector('.conv-status__age')?.textContent).toBe('· 6 分鐘');
+  });
+
   it('an Editor suggests and a viewer watches, in Chinese', async () => {
     const editor = await openConversation({ role: 'editor', events: events.slice(0, 2) });
     expect(screen.getByRole('combobox', { name: '向 Claude 提出建議 · Claude (Ian)' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '送出建議' })).toBeTruthy();
-    expect(screen.getByText('會以建議的形式送給 Ian和Mei，採用之後才會送給 agent。')).toBeTruthy();
+    // Two names read "Ian 和 Mei": a space sets the Chinese word apart from Latin names (the house style).
+    expect(screen.getByText('會以建議的形式送給 Ian 和 Mei，採用之後才會送給 agent。')).toBeTruthy();
     editor.unmount();
 
     await openConversation({ role: 'viewer', session: { status: 'ended', endedAt: FAKE_NOW } });

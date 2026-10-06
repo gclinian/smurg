@@ -88,5 +88,5 @@ export const zhTW = {
 
   'toast.roleChanged': '你的角色已變更為「{role}」',
   'toast.resynced': '已重新連線，畫面已重新載入最新狀態',
-  'banner.memoryKeys': '這個瀏覽器無法保存裝置金鑰（可能是私密瀏覽模式）。關閉分頁後，需要新的邀請連結才能再次加入。',
+  'banner.memoryKeys': '這個瀏覽器無法儲存裝置金鑰（可能是私密瀏覽模式）。關閉分頁後，需要新的邀請連結才能再次加入。',
 } as const;

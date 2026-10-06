@@ -101,6 +101,35 @@
   font-size: var(--text-sm);
   white-space: pre-wrap;
 }
+/* The whole line after a code fence (the language, and whatever else was written there), above the code. It is as
+   wide as the block, not as the longest line of the code, so all of it is in view without scrolling sideways. */
+.md-body .md-pre__info {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: none;
+}
+.md-body .md-link__title {
+  color: var(--color-text-muted);
+}
+/* A text exactly as it was written: every character and every line break (PlainText, and a text the renderer could
+   not format within its bounds). */
+.md-plain {
+  min-width: 0;
+  line-height: var(--leading-normal);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.md-body .md-note {
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.md-body .md-note + .md-plain {
+  margin-top: var(--space-2);
+}
 .md-body .md-table {
   overflow-x: auto;
 }
@@ -172,16 +201,13 @@
 .md-body .md-path:hover {
   text-decoration-style: solid;
 }
-.md-body .md-mention {
+.md-body .md-mention,
+.md-plain .md-mention {
   padding: 0 3px;
   border-radius: var(--radius-sm);
   background: var(--color-accent-soft);
   color: var(--color-accent);
   font-weight: var(--weight-medium);
-}
-.md-body .md-image {
-  color: var(--color-text-muted);
-  font-style: italic;
 }
 /* A text that is still being written ends with a caret, inside its last block. */
 .md-body--streaming:empty::after,

@@ -176,6 +176,22 @@ describe('the plan as a whole', () => {
     expect(startsByItselfLines(plan)).toEqual(['Item 5 starts by itself when 1 is merged.']);
   });
 
+  it('a report that changed after its review asks for the review again: the item is not counted as reviewed, nor offered to merge', () => {
+    const draft = { requestId: 'm', status: 'draft', ready: false } as const;
+    const reviewed = item('a', 1, { state: 'reviewed', report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'm0', status: 'merged', ready: false }, attempt: 1 });
+    const changed = item('b', 2, { state: 'reviewed', report: buildReportSummary({ state: 'changed-after-review', version: 2 }), merge: draft, attempt: 1 });
+    // A reviewed report whose file can no longer be read does not stand either (the daemon counts by the report's state).
+    const unreadable = item('c', 3, { state: 'reviewed', report: buildReportSummary({ state: 'invalid' }), merge: draft, attempt: 1 });
+    const plan = buildPlan({ items: [reviewed, changed, unreadable, item('d', 4, { state: 'waiting', armed: true, dependsOn: ['b'] })] });
+    const summary = planSummary(plan, noSession);
+    expect(summary).toMatchObject({ total: 4, reviewed: 1, merged: 1, toReview: 1, waitPerson: 1, notStarted: 1 });
+    expect(summary.reviewedNotMerged).toEqual([]);
+    expect(progressLine(summary)).toBe('1 report to review · 1 waits for a person · 1 not started · 1 merged');
+    expect(itemBadge(unreadable, plan)).toMatchObject({ text: 'The report cannot be read', waitsForPerson: true });
+    // What waits for it waits for more than the host's merge.
+    expect(itemBadge(plan.items[3] as WorkItem, plan).text).toBe('Waits for 2');
+  });
+
   it('says who the plan waits for, and for how long', () => {
     const now = 1_000_000;
     const plan = buildPlan({
@@ -184,7 +200,8 @@ describe('the plan as a whole', () => {
         { user: MEI, questions: 0, permissions: 2, reports: 1, since: now - 40_000 },
       ],
     });
-    expect(waitingForLine(plan, now)).toBe('Ian 1 question (6 minutes) · Mei 2 permission requests and 1 report (40 seconds)');
+    // The same age, in the same form, as the card, the status bar and the inbox row of that wait.
+    expect(waitingForLine(plan, now)).toBe('Ian 1 question (6 min) · Mei 2 permission requests and 1 report (40 sec)');
     expect(waitingForLine(buildPlan(), now)).toBe('');
   });
 });

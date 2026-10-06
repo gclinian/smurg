@@ -1,16 +1,23 @@
 // marked's tokens → React elements (DESIGN §5.5). The rules, each with a test:
 //   - no HTML string is ever injected: raw HTML in the text is shown as the text it is;
 //   - a link leads to http, https or mailto only (links.ts), opens in a new tab with rel="noopener noreferrer" and
-//     shows its address on hover and on keyboard focus; anything else is shown as its text;
+//     shows its address on hover and on keyboard focus; anything else is shown as it was written;
 //   - an image is NEVER loaded (a remote image in agent text would make every viewer's browser contact a third
 //     party): it is a link with its alt text;
 //   - a code block is plain monospace text;
 //   - a path that the caller's adapter resolves is a button that opens the file (paths.ts);
-//   - a member named with "@" is marked when the caller says who can be named.
-import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
+//   - a member named with "@" is marked when the caller says who can be named;
+//   - NOTHING OF THE TEXT IS HIDDEN. What Markdown keeps out of sight is put on the page: a reference definition is
+//     printed as its line, a destination that is not a link stays in the text with its brackets, a title follows its
+//     link, the whole line after a code fence stands above the code, a link without text shows its address, and a
+//     link whose text names another place than it leads to shows where it leads. (The destination of an ordinary link
+//     is the one thing behind a hover or the keyboard focus, as §5.5 has it.) A text that cannot be formatted within
+//     the lexer's bounds (lex.ts) is shown as it was written, with a note.
+import { Fragment, memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Token, Tokens } from 'marked';
 import { decodeEntities } from './entities.ts';
-import { safeHref } from './links.ts';
+import type { PlainToken } from './lex.ts';
+import { namesAnotherPlace, safeHref } from './links.ts';
 import type { MarkdownPaths, PathMatch, PathTarget } from './paths.ts';
 import { t } from './strings.ts';
 
@@ -102,6 +109,25 @@ function PathLink({ match, paths }: { match: PathMatch; paths: MarkdownPaths }) 
   );
 }
 
+/** `text` with the members it names marked, and nothing else changed. */
+export function markMentions(text: string, names: readonly string[]): ReactNode {
+  const mentions = findMentions(text, names);
+  if (mentions.length === 0) return text;
+  const out: ReactNode[] = [];
+  let at = 0;
+  for (const mention of mentions) {
+    if (mention.start > at) out.push(text.slice(at, mention.start));
+    out.push(
+      <span key={mention.start} className="md-mention">
+        {text.slice(mention.start, mention.end)}
+      </span>,
+    );
+    at = mention.end;
+  }
+  if (at < text.length) out.push(text.slice(at));
+  return out;
+}
+
 /** A run of plain text with its paths and mentions marked. */
 function textRun(text: string, context: RenderContext, key: string): ReactNode {
   if (text === '') return null;
@@ -151,6 +177,28 @@ function ExternalLink({ href, children, image }: { href: string; children: React
   );
 }
 
+/** What a reader sees of a link's inline tokens, as one string. */
+function shownText(tokens: readonly Token[] | undefined): string {
+  let out = '';
+  for (const token of tokens ?? []) {
+    const one = token as Tokens.Generic;
+    if (one.type === 'br') out += '\n';
+    else if (Array.isArray(one.tokens) && one.tokens.length > 0) out += shownText(one.tokens);
+    else if (typeof one.text === 'string') out += decodeEntities(one.text);
+    else if (typeof one.raw === 'string') out += one.raw;
+  }
+  return out;
+}
+
+const holdsImage = (tokens: readonly Token[] | undefined): boolean =>
+  (tokens ?? []).some((token) => token.type === 'image' || holdsImage((token as Tokens.Generic).tokens));
+
+/** The title of a link or an image, after it: Markdown would keep it for a tooltip, where no reader looks for text. */
+function titleAfter(title: string | null | undefined, key: string): ReactNode {
+  if (typeof title !== 'string' || title === '') return null;
+  return <span key={`${key}.title`} className="md-link__title">{` "${decodeEntities(title)}"`}</span>;
+}
+
 function renderInline(tokens: readonly Token[] | undefined, context: RenderContext, prefix: string): ReactNode[] {
   if (tokens === undefined) return [];
   const out: ReactNode[] = [];
@@ -189,19 +237,40 @@ function renderInline(tokens: readonly Token[] | undefined, context: RenderConte
       case 'link': {
         const link = one as Tokens.Link;
         const href = safeHref(decodeEntities(link.href));
+        if (href === null || holdsImage(link.tokens)) {
+          // Not a link here: what was written stays, the destination included (`[ok](<any words at all>)`). An image
+          // inside a link has two destinations and room for one: that is shown as written too.
+          out.push(<InlineText key={key} text={link.raw} context={context} id={key} />);
+          break;
+        }
         // Inside a link nothing else is clickable: no path buttons, no nested links.
         const children = renderInline(link.tokens, { ...context, paths: undefined }, `${key}.`);
-        if (href === null) out.push(<span key={key}>{children}</span>);
-        else out.push(<ExternalLink key={key} href={href}>{children}</ExternalLink>);
+        const shown = shownText(link.tokens);
+        if (shown.trim() === '') {
+          out.push(<ExternalLink key={key} href={href}>{href}</ExternalLink>);
+        } else if (namesAnotherPlace(shown, href)) {
+          // The text names one place and the link leads to another: the text is text, the destination is the link.
+          out.push(
+            <span key={key}>
+              {children} (<ExternalLink href={href}>{href}</ExternalLink>)
+            </span>,
+          );
+        } else {
+          out.push(<ExternalLink key={key} href={href}>{children}</ExternalLink>);
+        }
+        out.push(titleAfter(link.title, key));
         break;
       }
       case 'image': {
         const image = one as Tokens.Image;
-        const alt = decodeEntities(image.text).trim();
-        const label = alt === '' ? t('image.noAlt') : t('image.link', { alt });
         const href = safeHref(decodeEntities(image.href));
-        if (href === null) out.push(<span key={key} className="md-image">{label}</span>);
-        else out.push(<ExternalLink key={key} href={href} image>{label}</ExternalLink>);
+        if (href === null) {
+          out.push(<InlineText key={key} text={image.raw} context={context} id={key} />);
+          break;
+        }
+        const alt = decodeEntities(image.text).trim();
+        out.push(<ExternalLink key={key} href={href} image>{alt === '' ? t('image.noAlt') : t('image.link', { alt })}</ExternalLink>);
+        out.push(titleAfter(image.title, key));
         break;
       }
       case 'html':
@@ -244,8 +313,25 @@ function renderBlock(token: Token, context: RenderContext, key: string, tight: b
   const one = token as Tokens.Generic;
   switch (one.type) {
     case 'space':
-    case 'def':
       return null;
+    case 'def':
+      // A reference definition, printed as the line it is (lex.ts keeps it in the token list).
+      return (
+        <p key={key} className="md-raw">
+          {one.raw.replace(/\n+$/, '')}
+        </p>
+      );
+    case 'plain': {
+      const plain = token as unknown as PlainToken;
+      return (
+        <Fragment key={key}>
+          <p className="md-note" data-why={plain.reason}>
+            {t('plain.note')}
+          </p>
+          <p className="md-plain">{plain.text}</p>
+        </Fragment>
+      );
+    }
     case 'hr':
       return <hr key={key} />;
     case 'heading': {
@@ -267,9 +353,15 @@ function renderBlock(token: Token, context: RenderContext, key: string, tight: b
     }
     case 'code': {
       const code = one as Tokens.Code;
-      const lang = (code.lang ?? '').trim().split(/\s+/)[0] ?? '';
+      // Everything written after the fence: the language, and whatever else stands on that line.
+      const info = (code.lang ?? '').trim();
       return (
-        <pre key={key} className="md-pre" aria-label={lang === '' ? t('code.label') : t('code.labelLang', { lang })} tabIndex={0}>
+        <pre key={key} className="md-pre" aria-label={info === '' ? t('code.label') : t('code.labelLang', { lang: info })} tabIndex={0}>
+          {info === '' ? null : (
+            <span className="md-pre__info" aria-hidden="true">
+              {info}
+            </span>
+          )}
           <code>{code.text}</code>
         </pre>
       );

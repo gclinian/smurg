@@ -8,6 +8,7 @@ import { FakeConnection } from '../../testing/fake-connection.ts';
 import { makeMergeRequest, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
 import { useTestLocale } from '../../testing/locale.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
+import { t as tTopics } from '../topics/strings.ts';
 import type { MergeDiff } from './diff-model.ts';
 import { MergeRequestsSection, WorktreeSwitcher } from './index.tsx';
 
@@ -44,7 +45,7 @@ describe('the worktree feature in zh-TW', () => {
     expect(screen.getByText('等待審核（1）')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: '審核' }));
-    const dialog = await screen.findByRole('dialog', { name: '審核Amy的合併請求' });
+    const dialog = await screen.findByRole('dialog', { name: '審核 Amy 的合併請求' });
     await act(async () => {
       conn.respond('worktree.merge.diff', DIFF);
     });
@@ -63,6 +64,21 @@ describe('the worktree feature in zh-TW', () => {
       conn.fail('worktree.merge.diff', new SmurgError('conflict', msg('merge.unrelatedHistories')));
     });
     expect(within(screen.getByRole('dialog')).getByText('無法載入差異：這個 worktree 與主工作區沒有共同的歷史，無法合併')).toBeTruthy();
+  });
+
+  it('a work item\'s conflict names the way through its agent with the label the plan and the report use', async () => {
+    const conn = new FakeConnection();
+    conn.handle('worktree.list', () => ({ worktrees: [makeWorktree()] }));
+    conn.handle('worktree.merge.list', () => ({ requests: [makeMergeRequest({ status: 'conflict', conflictFiles: ['src/app.ts'], topicId: 'tp_1', itemId: 'cart-api' })] }));
+    const context = createTestWorkspace({ conn, admit: false });
+    conn.admit(makeWelcome({ role: 'host' }));
+    render(
+      <WorkspaceTestProviders context={context}>
+        <MergeRequestsSection />
+      </WorkspaceTestProviders>,
+    );
+    const sentence = await screen.findByText(/^這是工作項目的變更，所以它的 agent 可以解決衝突/);
+    expect(sentence.textContent).toContain(`「${tTopics('item.resolve')}」`);
   });
 
   it('the root switcher joins the shared folders the zh-TW way', async () => {

@@ -52,6 +52,8 @@ export const t = defineStrings(
     'detail.conflictHost':
       'What you can do next: merge by hand in your own terminal and resolve the conflicts (for example git merge refs/smurg/merge/{id}); change these files in the main workspace and try the merge again; or reject the request and say why.',
     'detail.conflictRequester': 'The host decides what happens next: resolve the conflicts on their own computer and merge, or reject the request.',
+    'detail.conflictItem':
+      'This is the change of a work item, so its agent can resolve the conflict: "Ask the agent to resolve" is in the item\'s result report and on its row in the plan, for the host and members with agent access.',
     'action.review': 'Review',
     'action.viewDiff': 'View diff',
     'mine.title': 'My worktrees',

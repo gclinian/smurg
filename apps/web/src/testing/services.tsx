@@ -168,7 +168,15 @@ export function createTestWorkspace(
   // The columns store keeps the member's view in localStorage, which setup.ts clears after every test.
   const session = createWorkspaceSession(WORKSPACE_ID, conn, options.scheduler ? { scheduler: options.scheduler } : {});
   if (options.admit !== false) {
-    conn.admit(makeWelcome({ role: options.role ?? 'editor', ...(options.userId === undefined ? {} : { userId: options.userId }), ...(options.displayName === undefined ? {} : { displayName: options.displayName }) }));
+    conn.admit(
+      makeWelcome({
+        role: options.role ?? 'editor',
+        ...(options.userId === undefined ? {} : { userId: options.userId }),
+        ...(options.displayName === undefined ? {} : { displayName: options.displayName }),
+        // The host's clock is the test's own: with a scheduler of its own, that scheduler's.
+        ...(options.scheduler === undefined ? {} : { serverTime: options.scheduler.now() }),
+      }),
+    );
   }
   return { conn, session, stores: session.stores, services: options.services ?? createTestServices(), slots: options.slots ?? [] };
 }

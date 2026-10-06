@@ -133,13 +133,23 @@
   color: var(--color-text-muted);
   white-space: nowrap;
 }
+/* In a narrow place (a spec column) both parts give way with an ellipsis: neither is cut in the middle of a word. */
+.editor-doc__root {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .editor-doc__file {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   color: var(--color-text);
   font-family: var(--font-mono);
   text-overflow: ellipsis;
 }
 .editor-doc__sep {
+  flex: none;
   color: var(--color-text-subtle);
 }
 .editor-doc__meta {

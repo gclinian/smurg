@@ -163,7 +163,19 @@ export function registerSessionHandlers(router: Router, ctx: DaemonContext, sess
   // (retry-host-only): after three failed starts only the host.
   stack.add(
     router.handle('session.retry', async (payload, req) => {
-      agentSession(ctx, sessions, payload.sessionId);
+      const session = agentSession(ctx, sessions, payload.sessionId);
+      // A work item's failed session: "Try again" on the session is the plan's "Try again" (`plan.item.retry`): the
+      // same session resumes AND smurg tells the agent to go on. Started again alone, the agent would sit idle with
+      // its item shown as running, and nothing would ever ask anyone.
+      const plans = ctx.services.plans;
+      if (session.purpose === 'item' && session.status === 'failed' && !isStubService(plans)) {
+        const hit = plans.itemBySession(session.id);
+        const archived = session.topicId !== undefined && !isStubService(ctx.services.topics) && ctx.services.topics.get(session.topicId)?.archived === true;
+        if (hit !== null && !archived && hit.item.sessionId === session.id && hit.item.state === 'failed') {
+          await plans.retryItem({ topicId: hit.topicId, itemId: hit.item.id }, req.principal);
+          return { session: agentSession(ctx, sessions, payload.sessionId) };
+        }
+      }
       return { session: await agents.retry(payload.sessionId, req.principal) };
     }),
   );
@@ -240,6 +252,15 @@ export function registerSessionHandlers(router: Router, ctx: DaemonContext, sess
   stack.add(
     ctx.bus.on('trust.changed', (event) => {
       if (event.root.kind === 'main') ctx.hub.broadcast('session.host', hostState(ctx));
+    }),
+  );
+  // A topic's always-allowed kinds count in `ruleCount` of each of its sessions: when they change, every client is
+  // told the sessions again (the topic itself is announced by the topics module).
+  stack.add(
+    ctx.bus.on('topic.changed', ({ topic, previous }) => {
+      const now = topic.rules.map((rule) => rule.id).join(' ');
+      const before = (previous?.rules ?? []).map((rule) => rule.id).join(' ');
+      if (now !== before) agents.topicRulesChanged(topic.id);
     }),
   );
   // A host setting that shapes the launch changed: the sessions start again with it at their next idle moment.

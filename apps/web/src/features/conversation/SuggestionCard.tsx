@@ -1,6 +1,10 @@
 // A suggestion in the conversation, where it was made (UX §5.3): an Editor's text for the agent, which reaches the
 // agent only when a member with agent access accepts it (as it is, or edited). Its author may edit or withdraw it
 // while it waits. An accepted suggestion is the author's message further down; the card stays as one line.
+//
+// The card shows the stored text CHARACTER FOR CHARACTER (PlainText), never as Markdown: "Accept" makes the daemon
+// send exactly that string, and whoever accepts must have seen all of it (DESIGN S1: what that member sees IS what
+// is sent). Rendered as Markdown, a link's destination, a reference definition or a title were sent and not shown.
 import { memo, useRef, useState } from 'react';
 import { SUGGESTION_TEXT_MAX_CHARS, REASON_MAX_CHARS, type Suggestion } from '@smurg/protocol';
 import { formatTime } from '../../lib/format.ts';
@@ -8,7 +12,7 @@ import { kindLabel } from '../../lib/session-status.ts';
 import { useStore } from '../../lib/store.ts';
 import { useCapabilities, useCommands, useStores } from '../../lib/workspace/context.tsx';
 import { Button, Card, KindIcon } from '../../ui/index.ts';
-import { Markdown } from '../markdown/index.ts';
+import { PlainText } from '../markdown/index.ts';
 import { lateAnswerText, settledOf } from './cards.ts';
 import { useAction, useConversationEnv, useMarkSeen, useSessionFacts } from './env.tsx';
 import { t } from './strings.ts';
@@ -95,9 +99,7 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestionId }: { s
         {accepted ? null : (
           <details className="conv-q__more">
             <summary>{kindLabel('suggestion')}</summary>
-            <div className="conv-sug__text">
-              <Markdown text={suggestion.text} breaks mentions={mentionNames} headingBase={4} />
-            </div>
+            <PlainText className="conv-sug__text" text={suggestion.text} mentions={mentionNames} />
           </details>
         )}
       </Card>
@@ -192,9 +194,7 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestionId }: { s
 
   return (
     <Card ref={ref} id={cardDomId(suggestionId)} title={title} icon={icon} tone="info" meta={formatTime(suggestion.createdAt)} className="conv-card conv-card--suggestion" footer={footer}>
-      <div className="conv-sug__text">
-        <Markdown text={suggestion.text} breaks mentions={mentionNames} headingBase={4} />
-      </div>
+      <PlainText className="conv-sug__text" text={suggestion.text} mentions={mentionNames} />
       {suggestion.cleaned === true ? <p className="conv-card__who">{t('sug.cleaned')}</p> : null}
       <Source suggestion={suggestion} />
     </Card>

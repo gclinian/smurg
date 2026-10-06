@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentSession, ConversationEvent, PlanInfo } from '@smurg/protocol';
 import type { FakeClaudeScenario, FakeClaudeStep } from '../../src/testing/index.ts';
-import { AMY, IAN, MEI, audited, eventOf, inboxItem, inboxWithout, kinds, launches, permissionAt, questionAt, refusal, startFlow, statuses, statusIs, told, turnsFinished, waitFor, type Flow, type Person } from './release-flow.support.ts';
+import { AMY, IAN, MEI, audited, eventOf, inboxItem, inboxWithout, kinds, launches, onDisk, permissionAt, questionAt, refusal, startFlow, statuses, statusIs, told, turnsFinished, waitFor, type Flow, type Person } from './release-flow.support.ts';
 
 const SLUG = 'checkout';
 const SPEC_PATH = `specs/${SLUG}/SPEC.md`;
@@ -181,6 +181,15 @@ describe('the release composition across a restart of the host\'s smurg and a cr
     // ================================================================================================================
     // The host's smurg stops and starts again
     // ================================================================================================================
+    await flow.stop();
+    // A stopped smurg writes nothing more: not into its state (sessions, cards, topics, reports, the inbox, the audit
+    // and activity logs, transcripts), not into the shared folder (a late write would land in a folder that the next
+    // start, or an uninstall, already took over).
+    const left = { state: await onDisk(flow.stateDir), folder: await onDisk(flow.root) };
+    expect(left.state.some((line) => line.includes('topics.json'))).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(await onDisk(flow.stateDir)).toEqual(left.state);
+    expect(await onDisk(flow.root)).toEqual(left.folder);
     await flow.restart();
     ({ ian, mei, amy, leo } = flow);
     // No process survived, and none was started by the start.
@@ -304,7 +313,8 @@ describe('the release composition across a restart of the host\'s smurg and a cr
     for (const member of [ian, mei, amy, leo]) await member.watch(pageId);
     const build = await permissionAt(leo, (request) => request.sessionId === pageId && request.status === 'open', 'the command of work item 2');
     await inboxItem(mei, (item) => item.key === `permission:${build.id}`, 'the request of work item 2');
-    await flow.claude.setScenario(scenario(reportSteps('checkout-page', 'Checkout page')));
+    // (told to go on, it will want its command once more)
+    await flow.claude.setScenario(scenario([{ tool: 'Bash', input: { command: 'pnpm build' } }, { text: 'never said' }]));
 
     expect(await flow.killProcessOf(pageId)).toBe(1);
     await statusIs(leo, pageId, 'failed');
@@ -326,7 +336,28 @@ describe('the release composition across a restart of the host\'s smurg and a cr
     expect((await ian.inbox()).some((item) => item.subject === 'item-failed')).toBe(false);
     expect((await mei.inbox()).some((item) => item.subject === 'item-stalled')).toBe(false);
 
-    // ---- "Try again": the same session, the same attempt; smurg tells it to go on
+    // ---- "Try again" in the session's own column (`session.retry`): for a work item it is the plan's "Try again":
+    // the same session, the same attempt, AND smurg tells the agent to go on (it is never left idle and "running")
+    const exits = (): number[] => leo.events(pageId).flatMap((event, index) => (event.kind === 'notice' && event.text.id === 'notice.processExited' ? [index] : []));
+    const lineIds = (events: readonly ConversationEvent[]): string[] => events.flatMap((event) => (event.kind === 'line' ? [event.text.id] : []));
+    for (const member of [amy, leo]) expect(await refusal(member.conn.request('session.retry', { sessionId: pageId }))).toMatchObject({ code: 'forbidden' });
+    expect((await mei.conn.request('session.retry', { sessionId: pageId })).session).toMatchObject({ id: pageId, purpose: 'item', itemId: 'checkout-page' });
+    // The agent works again: it wants its command once more (a new card), and the plan says so.
+    const buildAgain = await permissionAt(leo, (request) => request.sessionId === pageId && request.status === 'open' && request.id !== build.id, 'the command of work item 2, asked again after "Try again"');
+    expect(itemOf(await planIs(leo, topicId, (plan) => itemOf(plan, 'checkout-page')?.state === 'running', 'work item 2 running again'), 'checkout-page')).toMatchObject({ state: 'running', sessionId: pageId, attempt: 1 });
+    await inboxWithout(mei, (item) => item.key === failedItem.key, 'the item that goes on');
+    const afterFirstKill = leo.events(pageId).slice((exits()[0] ?? 0) + 1);
+    expect(lineIds(afterFirstKill)).toEqual(['conversation.retry.resumed', 'conversation.continueRequested']);
+    expect(afterFirstKill.find((event) => event.kind === 'smurg')).toMatchObject({ purpose: 'continue-item', by: { userId: MEI } });
+    expect((await audited(flow, 'session.retry', 'plan.item.retry')).map((entry) => `${entry.action} ${entry.actor.kind === 'user' ? entry.actor.userId : ''}`)).toEqual([`session.retry ${MEI}`, `plan.item.retry ${MEI}`]);
+
+    // ---- it crashes once more; "Try again" in the plan (`plan.item.retry`) does the same
+    await flow.claude.setScenario(scenario(reportSteps('checkout-page', 'Checkout page')));
+    expect(await flow.killProcessOf(pageId)).toBe(1);
+    await statusIs(leo, pageId, 'failed');
+    expect(await permissionAt(leo, (request) => request.id === buildAgain.id && request.status === 'withdrawn', 'the second withdrawn request')).toMatchObject({ withdrawn: { reason: 'failed' } });
+    await planIs(leo, topicId, (plan) => itemOf(plan, 'checkout-page')?.state === 'failed', 'the item failed again');
+    await inboxItem(mei, (item) => item.key === failedItem.key, 'the failed item, again');
     expect(await refusal(amy.conn.request('plan.item.retry', { topicId, itemId: 'checkout-page' }))).toMatchObject({ code: 'forbidden' });
     const retried = (await mei.conn.request('plan.item.retry', { topicId, itemId: 'checkout-page' })).plan;
     expect(itemOf(retried, 'checkout-page')).toMatchObject({ state: 'running', sessionId: pageId, attempt: 1 });
@@ -334,11 +365,12 @@ describe('the release composition across a restart of the host\'s smurg and a cr
     await planIs(leo, topicId, (plan) => itemOf(plan, 'checkout-page')?.state === 'done', 'work item 2 done');
     await inboxWithout(mei, (item) => item.key === failedItem.key, 'the item that goes on');
     await eventOf(leo, pageId, (event) => event.kind === 'pointer' && event.target === 'report', "the report's card of work item 2");
-    const afterKill = leo.events(pageId).slice(leo.events(pageId).findIndex((event) => event.kind === 'notice' && event.text.id === 'notice.processExited') + 1);
-    expect(afterKill.filter((event) => event.kind === 'line').map((event) => (event.kind === 'line' ? event.text.id : ''))).toEqual(['conversation.retry.resumed', 'conversation.continueRequested']);
+    expect(exits()).toHaveLength(2);
+    const afterKill = leo.events(pageId).slice((exits()[1] ?? 0) + 1);
+    expect(lineIds(afterKill)).toEqual(['conversation.retry.resumed', 'conversation.continueRequested']);
     expect(afterKill.find((event) => event.kind === 'smurg')).toMatchObject({ purpose: 'continue-item', by: { userId: MEI } });
     expect(afterKill.at(-1)).toMatchObject({ kind: 'pointer', target: 'report', itemId: 'checkout-page', version: 1 });
-    expect((await audited(flow, 'session.retry', 'plan.item.retry')).map((entry) => `${entry.action} ${entry.actor.kind === 'user' ? entry.actor.userId : ''}`)).toEqual([`session.retry ${MEI}`, `plan.item.retry ${MEI}`]);
+    expect((await audited(flow, 'session.retry', 'plan.item.retry')).map((entry) => `${entry.action} ${entry.actor.kind === 'user' ? entry.actor.userId : ''}`)).toEqual([`session.retry ${MEI}`, `plan.item.retry ${MEI}`, `session.retry ${MEI}`, `plan.item.retry ${MEI}`]);
     expect(await statuses(leo, pageId).at(-1)).toBe('done');
     // Nothing a crash left behind runs on: every process is one of a live session.
     const alive = (await sessionsOf(leo, topicId)).filter((session) => session.status !== 'ended').length;

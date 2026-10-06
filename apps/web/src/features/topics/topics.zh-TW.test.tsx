@@ -43,18 +43,18 @@ describe('the topic screens in zh-TW', () => {
     expect(screen.getByRole('radio', { name: '不指派：大家一起看' })).toBeTruthy();
     expect(screen.getByText(/^建議的分工：讓可使用 agent 的人平均分擔/)).toBeTruthy();
     const page = screen.getByText('結帳頁').closest('li') as HTMLElement;
-    expect(within(page).getByText('等待 1和2')).toBeTruthy();
-    expect(within(page).getByText('在 1和2 之後')).toBeTruthy();
+    expect(within(page).getByText('等待 1 和 2')).toBeTruthy();
+    expect(within(page).getByText('在 1 和 2 之後')).toBeTruthy();
     expect(within(page).getByText('大小：大')).toBeTruthy();
     expect(screen.getByRole('button', { name: '開始 2 個項目' })).toBeTruthy();
-    expect(screen.getByText(/項目 3 會在 1和2 都合併後自動開始。/)).toBeTruthy();
+    expect(screen.getByText(/項目 3 會在 1 和 2 都合併後自動開始。/)).toBeTruthy();
     expect(screen.getByText('這個主題一律允許')).toBeTruthy();
     // What a person wrote is not translated.
     expect(screen.getByText('把金額計算集中到單一模組。')).toBeTruthy();
   });
 
   it('badges and lists', () => {
-    expect(formatAnd(['Ian', 'Mei', 'Amy'])).toBe('Ian、Mei和Amy');
+    expect(formatAnd(['Ian', 'Mei', 'Amy'])).toBe('Ian、Mei 和 Amy');
     expect(itemBadge(buildWorkItem({ state: 'stalled', stalledBy: 'agent' }), PLAN).text).toBe('沒寫報告就停下了');
     expect(itemBadge(buildWorkItem({ state: 'done', report: buildReportSummary({ outcome: 'partial' }) }), PLAN).text).toMatch(/^報告待看 · /);
     expect(itemBadge(buildWorkItem({ state: 'queued', armed: true }), { ...PLAN, slots: { inUse: 8, max: 8, waitingForPeople: 5 } }).text).toBe('等待空閒的 agent：8 個裡有 8 個使用中，5 個在等人處理');
@@ -88,8 +88,8 @@ describe('the topic screens in zh-TW', () => {
     const text = startLines(preflight, PLAN, MEI.userId).map((line) => line.text);
     expect(text).toEqual([
       '開始前請先修正 PLAN.md',
-      '2 個項目現在開始：1 · 購物車 API和2 · 付款表單。',
-      '3 · 結帳頁 會在 1 · 購物車 API和2 · 付款表單 都合併後自動開始，前提是 spec 和計畫還是你現在看到的內容。',
+      '2 個項目現在開始：1 · 購物車 API 和 2 · 付款表單。',
+      '3 · 結帳頁 會在 1 · 購物車 API 和 2 · 付款表單 都合併後自動開始，前提是 spec 和計畫還是你現在看到的內容。',
       '負責人：Ian 1 · Mei 1。',
       'Mei 目前離線：他負責的項目會開始，然後等他。',
       '這 1 個 session 的選擇題會由你決定。',
@@ -98,7 +98,7 @@ describe('the topic screens in zh-TW', () => {
       'spec 在這份計畫寫好之後有變動。',
       'spec 裡列了 2 個未決事項。',
       '主人還沒確認這個資料夾的 Claude Code 專案設定：agent 不會讀 CLAUDE.md。',
-      '每個項目都有一份全新的 checkout，沒有共用任何目錄，所以 agent 會先安裝需要的東西。',
+      '每個項目都在自己全新的 worktree 裡進行，沒有共享任何資料夾，所以 agent 會先安裝需要的東西。',
     ]);
   });
 
@@ -136,11 +136,28 @@ describe('the topic screens in zh-TW', () => {
     expect((within(dialog).getByLabelText(/^spec 與計畫的資料夾/) as HTMLInputElement).value).toBe('topic-1');
     expect(within(dialog).getByText(/資料夾名稱使用英文字母；主題會保留自己的名稱。/)).toBeTruthy();
     expect(within(dialog).getByText(/^開始主題會開啟它的討論 session/)).toBeTruthy();
+    // The sentence about a personal subscription is the host's.
+    expect(within(dialog).queryByText(/個人的 Claude 訂閱/)).toBeNull();
     fireEvent.click(within(dialog).getByRole('button', { name: '開始討論' }));
     expect(conn.lastRequest('topic.create')?.payload).toEqual({ name: '結帳流程改版', slug: 'topic-1' });
     await act(async () => {
       conn.fail('topic.create', new (await import('@smurg/protocol')).SmurgError('conflict', msg('topic.folderExists', { path: 'specs/topic-1' })));
     });
     expect(within(dialog).getByText('資料夾 specs/topic-1 已經存在，請換一個名稱')).toBeTruthy();
+  });
+
+  it('the New topic dialog tells the host whose use a personal subscription is for', async () => {
+    const world = { role: 'host' as const, topics: [] };
+    const conn = topicConnection(world);
+    const context = createTestWorkspace({ conn, admit: false });
+    admitAs(conn, world);
+    await settle();
+    render(
+      <WorkspaceTestProviders context={context}>
+        <NewTopicDialog onClose={() => {}} />
+      </WorkspaceTestProviders>,
+    );
+    const dialog = screen.getByRole('dialog', { name: '新增主題' });
+    expect(within(dialog).getByText('個人的 Claude 訂閱（Pro 或 Max）只供你自己使用。有其他人在這裡使用 agent 時，請改用 API 金鑰、Team 或 Enterprise 方案。')).toBeTruthy();
   });
 });

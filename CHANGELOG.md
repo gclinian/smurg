@@ -30,15 +30,17 @@ section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.m
   agent sessions with their topic and status).
 - **An inbox for every member**: the questions you decide, votes that are open, permission requests, work that
   stopped and needs someone, suggestions, result reports to review, changes ready to merge, and mentions (`@name`).
-  An item leaves when the thing is settled. When the person who must act does not answer (5 minutes by default; a
-  host setting), the item also reaches the host and the members with agent access, who can answer in their place.
+  An item leaves when the thing is settled. When the person who must answer a question or a permission request does
+  not (5 minutes by default; a host setting), it also reaches the host and the members with agent access, who can
+  answer in their place; a result report nobody reviewed does the same after six times as long.
 - **The sessions view and code mode.** The inbox and the session list, grouped by topic, are on the left; on the
   right up to four columns stand side by side (a conversation, a spec, a plan, a result report). The file tree, the
   editor, the activity feed and the terminals are now "Code mode", behind a switch in the top bar; both sides keep
   their state.
 - **Agents ask before they run commands.** A work item's agent edits files in its own worktree without asking and
-  asks before commands; only the host and members with agent access can allow a request, once or always for that
-  kind of command, in one session or in every session of a topic. smurg's own check runs before every tool call of
+  asks before commands, except read-only commands and simple file commands inside the worktree; only the host and
+  members with agent access can allow a request, once or always for that kind of command, in one session or in
+  every session of a topic. smurg's own check runs before every tool call of
   an agent, whatever Claude Code's settings allow: a discussion agent can only read the project and write its
   topic's spec and plan. See the [host guide](docs/HOSTING.md) §5.2.
 - **Suggestions go to agent sessions**, no longer to terminals. An Editor's message is a card in the conversation
@@ -48,13 +50,14 @@ section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.m
   Claude Code settings apply to agent sessions, and the host is told once which; the host's MCP servers are off for
   agents unless the host switches them on; a shared folder's Claude Code project settings are used only after the
   host has confirmed what they do; `CLAUDE.md` can be changed through smurg only by the host.
-- **Whose Claude account**: agents still use the host's Claude Code login for everyone. The host guide (§4) now says
-  which kind of account fits a group, and the host is told once when a personal subscription is used while other
-  members are present.
+- **Whose Claude account**: agents still use the host's Claude Code login for everyone. A personal Pro or Max
+  subscription is for the host's own use: the host guide (§4) and the host console now say which kind of account
+  fits a group, and each time `smurg host` runs, the host is told once when agents use a personal subscription and
+  the workspace has other members.
 - **Agent sessions survive a restart.** `smurg stop` ends terminal sessions and pauses agent sessions; their
   conversations are kept on the host's computer (in `~/.smurg`, removed by `smurg uninstall`). After `smurg host`
-  starts again nothing runs by itself: every plan is paused until the host or a member with agent access chooses
-  "Continue all". `smurg status` now also shows Claude Code's version and login, the agent sessions, the topics,
+  starts again nothing runs by itself: a plan that was being carried out is paused until the host or a member with
+  agent access chooses "Continue all". `smurg status` now also shows Claude Code's version and login, the agent sessions, the topics,
   and whether the folder's Claude Code project settings are confirmed.
 - **Requirements**: agent sessions need Claude Code 2.1.288 or later on the host's computer (an older one is
   refused); carrying out work items needs the shared folder to be a git repository with at least one commit, and git
@@ -65,8 +68,8 @@ section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.m
   converted: `smurg host` says so and names the folder to move aside ([host guide](docs/HOSTING.md) §8). If you run
   your own relay, deploy it again from this version before you update.
 - **What was verified**: the topics flow was tested with a scripted stand-in for the model, and real Claude Code
-  only against a fake API; no real Claude account was used. How a real model behaves in the flow may need tuning in
-  later versions ([host guide](docs/HOSTING.md) §10.8).
+  only against a fake API, on macOS only (not on Linux); no real Claude account was used. How a real model behaves
+  in the flow may need tuning in later versions ([host guide](docs/HOSTING.md) §10.8).
 
 ## [0.4.0] - 2026-10-02
 

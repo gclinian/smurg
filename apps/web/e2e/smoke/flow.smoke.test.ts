@@ -660,8 +660,9 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
   };
 
   it('Amy and Mei edit the spec together while the agent waits its turn', async () => {
-    // A viewer reads: "Edit" is not his to press.
-    expect(await spec(leo).getByRole('radio', { name: 'Edit' }).isDisabled()).toBe(true);
+    // A viewer reads: there is no "Edit" for him, and a sentence says who can.
+    expect(await spec(leo).getByRole('radio', { name: 'Edit' }).count()).toBe(0);
+    await spec(leo).getByText('Viewers read. Editing needs the role Editor or above.').waitFor({ timeout: STEP_MS });
     expect(await spec(leo).getByRole('button', { name: /^Ask the agent to revise/ }).count()).toBe(0);
     expect(await spec(leo).getByRole('button', { name: 'Generate plan' }).count()).toBe(0);
 
@@ -702,7 +703,9 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     }, STEP_MS, 'SPEC.md to hold the two hand edits and the agent\'s change');
     await spec(amy).getByRole('radio', { name: 'Read' }).click();
     await spec(mei).getByRole('radio', { name: '閱讀' }).click();
-    await spec(amy).getByText('Invoices. Gift cards.').waitFor({ timeout: STEP_MS });
+    // In the Read view: the editor Amy just left is still mounted (hidden) and holds the same line, as one piece of
+    // text or as two, depending on whether the agent's caret had been drawn in it when the editor was hidden.
+    await spec(amy).getByRole('article').getByText('Invoices. Gift cards.').waitFor({ timeout: STEP_MS });
     await shots('coedit-agent-edited');
   }, 300_000);
 
@@ -744,7 +747,7 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
       expect(await message.textContent()).toMatch(/suggestion, accepted by Mei/);
       await discussion(page).getByRole('log').getByText('Coupons are out of scope now.').waitFor({ timeout: STEP_MS });
     }
-    for (const { page } of people) await spec(page).getByText('Invoices. Gift cards. Coupons.').waitFor({ timeout: STEP_MS });
+    for (const { page } of people) await spec(page).getByRole('article').getByText('Invoices. Gift cards. Coupons.').waitFor({ timeout: STEP_MS });
     // The spec says who asked for the agent's last change.
     await spec(leo).getByText(/Changed by Claude at \d\d:\d\d, asked by Amy/).waitFor({ timeout: STEP_MS });
     for (const page of [ian, mei]) await expect.poll(() => inbox(page, 'suggestion').count(), { timeout: STEP_MS }).toBe(0);
@@ -826,8 +829,9 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
   };
 
   it('the Start dialog names the hand edits and the commit; Ian presses Start', async () => {
+    // The button and the dialog's title say one number: what starts now (the third item waits for the first).
     await plan(ian).getByRole('button', { name: 'Start 2 items' }).click();
-    const dialog = ian.getByRole('dialog', { name: 'Start 3 items' });
+    const dialog = ian.getByRole('dialog', { name: 'Start 2 items' });
     const line = (id: string): Locator => dialog.locator(`.start-line[data-line="${id}"]`);
     await expect.poll(() => line('starts').textContent(), { timeout: STEP_MS }).toContain('2 items start now: 1 · Cart API and 3 · Receipt email.');
     expect(await line('waits').textContent()).toContain('2 · Checkout page starts by itself when 1 · Cart API is merged, if the spec and the plan are still what you see now.');
@@ -845,8 +849,12 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     await shots('start-dialog', [{ name: 'Ian', page: ian }]);
 
     const head = await env.git(['rev-parse', 'HEAD']);
+    const started = toast(ian, 'Started 2 items.');
     await dialog.getByRole('button', { name: 'Start', exact: true }).click();
     await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
+    // The toast says what happened: two sessions started, the third item starts by itself.
+    await started;
+    await ian.locator('.ui-toast', { hasText: 'Started 2 items.' }).getByText('1 more item starts by itself later.').waitFor({ timeout: STEP_MS });
 
     // The commit smurg made: the two files, as Ian, with who edited them by hand.
     await waitUntil(async () => (await env.git(['rev-parse', 'HEAD'])) !== head, STEP_MS, 'the checkpoint commit');
@@ -868,6 +876,11 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
       await row(page, `session:${cartId}`).waitFor({ timeout: STEP_MS });
       await row(page, `session:${receiptId}`).waitFor({ timeout: STEP_MS });
     }
+    // Ian pressed Start with the plan on screen: it is pinned from that moment, so his first click on an item's
+    // session opens beside the plan instead of replacing it.
+    await plan(ian).getByRole('button', { name: /^Unpin column: Plan/ }).waitFor({ timeout: STEP_MS });
+    await openRow(ian, `session:${cartId}`);
+    expect(await openColumns(ian)).toContain(`plan:${topicId}`);
   }, 300_000);
 
   const openPermission = (page: Page, sessionId: string): Locator => session(page, sessionId).locator('.conv-card--permission:not(.ui-card--settled)');
@@ -897,6 +910,46 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     // Where each session works, and who is responsible, is in its header.
     await session(ian, cartId).getByText('Responsible: Mei').waitFor({ timeout: STEP_MS });
     await session(ian, cartId).getByText(`Started from plan item 1 in the worktree smurg/${SLUG}/cart-api`).waitFor({ timeout: STEP_MS });
+
+    // The command that waits at its permission card does not read as running, in either language.
+    for (const [page, words] of [
+      [ian, ['Command', 'waiting']],
+      [amy, ['Command', 'waiting']],
+      [mei, ['指令', '等待許可']],
+    ] as const) {
+      const line = session(page, cartId).locator('details.conv-tool', { hasText: 'pnpm test' });
+      await expect.poll(() => line.getAttribute('data-state'), { timeout: STEP_MS }).toBe('waiting');
+      const summary = (await line.locator('summary').textContent()) ?? '';
+      for (const word of words) expect(summary).toContain(word);
+      expect(summary).not.toMatch(/Running|running|正在執行|執行中/);
+    }
+    // One wait, one number: the card and the status bar under it count the same seconds, read in the same instant.
+    for (let sample = 0; sample < 3; sample++) {
+      const [card, bar] = await session(ian, cartId).evaluate((column) => {
+        const seconds = (text: string | null | undefined): string => (text ?? '').match(/\d+ (?:sec|min)/)?.[0] ?? '';
+        return [seconds(column.querySelector('.conv-card--permission:not(.ui-card--settled) .ui-card__meta')?.textContent), seconds(column.querySelector('.conv-status__age')?.textContent)];
+      });
+      expect(card).not.toBe('');
+      expect(bar).toBe(card);
+      await ian.waitForTimeout(700);
+    }
+    // An Editor's composer in a narrow column still names its session: the whole placeholder fits the box.
+    for (const [id, name] of [
+      [cartId, 'Suggest to Claude · 1 · Cart API'],
+      [receiptId, 'Suggest to Claude · 3 · Receipt email'],
+    ] as const) {
+      const box = session(amy, id).getByRole('combobox', { name });
+      const fits = await box.evaluate((node) => {
+        const field = node as HTMLTextAreaElement;
+        const style = getComputedStyle(field);
+        const pen = document.createElement('canvas').getContext('2d') as CanvasRenderingContext2D;
+        pen.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        return pen.measureText(field.placeholder).width <= field.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      });
+      expect(fits, name).toBe(true);
+      // The button beside it shows its icon and keeps its name.
+      await session(amy, id).getByRole('button', { name: 'Send suggestion' }).waitFor({ timeout: STEP_MS });
+    }
     await shots('three-sessions-side-by-side', people.filter((person) => person.page !== leo));
 
     // A vote in one column shows in the same column of the two others at once; the other columns do not move.
@@ -1088,17 +1141,26 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
   const reportOf = (page: Page, itemId: string): Locator => column(page, `report:${topicId}:${itemId}`);
   /** The newest next-step card of a session's column (the one that still offers its step). */
   const nextCard = (page: Page, sessionId: string, target: string): Locator => session(page, sessionId).locator(`.conv-next[data-target="${target}"][data-latest]`);
-  /** Ian opens a change from his inbox, reads the files it lists, and merges it into the main workspace. */
-  const mergeFromInbox = async (what: string): Promise<Locator> => {
+  /**
+   * Ian opens a change from his inbox: the row leads to the item's result report (never to the bare changes). He
+   * presses "Merge…" there, gets the complete diff in a dialog, and merges it into the main workspace. A merge that
+   * goes through closes the dialog; one that stops on a conflict leaves it open (`conflict`).
+   */
+  const mergeFromInbox = async (itemId: string, what: string, options: { readonly conflict?: boolean } = {}): Promise<{ report: Locator; review: Locator }> => {
     await inbox(ian, 'merge').filter({ hasText: `Reviewed, ready to merge: ${what}` }).locator('.inbox-item__main').click();
-    const changes = view(ian).locator('[data-column-id^="changes:"]');
-    await changes.getByRole('button', { name: 'Merge into the main workspace' }).click();
-    await changes.getByRole('button', { name: 'Confirm merge' }).click();
-    return changes;
+    const report = reportOf(ian, itemId);
+    await report.getByRole('heading', { name: 'What to watch out for' }).waitFor({ timeout: STEP_MS });
+    expect((await openColumns(ian)).filter((one) => one.startsWith('changes:'))).toEqual([]);
+    // (Toasts sit over the foot of the rightmost column.)
+    await dismissToasts(ian);
+    await report.getByRole('button', { name: 'Merge…' }).click();
+    const review = ian.getByRole('dialog', { name: /^Changes on smurg\// });
+    await review.getByRole('button', { name: 'Merge into the main workspace' }).click();
+    await review.getByRole('button', { name: 'Confirm merge' }).click();
+    if (options.conflict !== true) await review.waitFor({ state: 'detached', timeout: STEP_MS });
+    return { report, review };
   };
-  const closeChanges = async (): Promise<void> => {
-    for (const id of (await openColumns(ian)).filter((one) => one.startsWith('changes:'))) await closeColumn(ian, id);
-  };
+  const closeReport = (itemId: string): Promise<void> => closeColumn(ian, `report:${topicId}:${itemId}`);
 
   it('a result report marked partial, a follow-up, and "I\'ve reviewed this"', async () => {
     // The report's card closes the item's conversation and says who reviews it.
@@ -1130,7 +1192,8 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
       await files.getByRole('button', { name: /src\/app\.ts/ }).waitFor({ timeout: STEP_MS });
       // Only its reviewer has "I've reviewed this".
       expect(await report.getByRole('button', { name: "I've reviewed this" }).count()).toBe(0);
-      await report.getByText('Mei is responsible for this item and reviews this report. Everyone can read it and ask follow-ups.').waitFor({ timeout: STEP_MS });
+      // A Viewer has no box to ask in, and is not told there is one.
+      await report.getByText(`Mei is responsible for this item and reviews this report. ${page === leo ? 'Everyone can read it.' : 'Everyone can read it and ask follow-ups.'}`, { exact: true }).waitFor({ timeout: STEP_MS });
     }
     const amyFiles = reportOf(amy, 'cart-api').getByRole('list', { name: 'Changed files' });
     await amyFiles.getByRole('button', { name: /src\/app\.ts/ }).click();
@@ -1180,15 +1243,16 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     await showOnly(ian, [`plan:${topicId}`]);
     await shots('ready-to-merge');
 
-    const changes = await mergeFromInbox('1 · Cart API');
+    // The row leads to the report: the outcome, the check that was not verified and what to watch out for are what
+    // the host reads before the merge.
+    const { report: merging } = await mergeFromInbox('cart-api', '1 · Cart API');
     await waitUntil(async () => (await fileText('src/cart/total.ts')) === TOTAL_TS && (await fileText('src/app.ts')) === APP_BY_CART, STEP_MS, "item 1's change in the main workspace");
-    await changes.getByText('This request has already been decided: Merged.').waitFor({ timeout: STEP_MS });
-    // What the column says of a merged item: its worktree is gone, and the message is smurg's own (not "from Ian").
-    await changes.getByText(/Worktree removed · commit [0-9a-f]{7,} · 3 files/).waitFor({ timeout: STEP_MS });
-    await changes.getByText('Message:', { exact: true }).waitFor({ timeout: STEP_MS });
-    await changes.getByText('smurg: work item 1 (cart-api)').waitFor({ timeout: STEP_MS });
+    // What the report says of a merged item: it is finished, and questions go to the discussion.
+    await merging.locator('.col-head').getByText('Partial', { exact: true }).waitFor({ timeout: STEP_MS });
+    await merging.getByText(/Reviewed by Mei at \d\d:\d\d\. Merged into the main workspace/).waitFor({ timeout: STEP_MS });
+    await merging.getByText('This item is merged and its session has ended. Ask in the discussion.').waitFor({ timeout: STEP_MS });
     await expect.poll(() => inbox(ian, 'merge').count(), { timeout: STEP_MS }).toBe(0);
-    await closeChanges();
+    await closeReport('cart-api');
 
     // Item 1 is finished; item 2 started by itself, in a worktree that has what item 1 merged.
     for (const page of [ian, amy, leo]) {
@@ -1215,15 +1279,17 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     const amyReport = reportOf(amy, 'checkout-page');
     await amyReport.getByText('Waiting for your review').waitFor({ timeout: STEP_MS });
     await amyReport.locator('.col-head').getByText('Complete', { exact: true }).waitFor({ timeout: STEP_MS });
+    // The outcome stands whole beside the title, also in a narrow column: the title gives way, not the badge.
+    expect(await amyReport.locator('.col-head__extra').evaluate((extra) => extra.scrollWidth <= extra.clientWidth && extra.clientWidth > 0)).toBe(true);
     await shots('item-2-report-for-the-editor', [{ name: 'Amy', page: amy }]);
     await dismissToasts(amy);
     await amyReport.getByRole('button', { name: "I've reviewed this" }).click();
     await amyReport.getByText(/Reviewed by Amy at \d\d:\d\d\. The change is in the host's inbox, ready to merge\./).waitFor({ timeout: STEP_MS });
     // She cannot merge; Ian can.
     expect(await amyReport.getByRole('button', { name: 'Merge…' }).count()).toBe(0);
-    await mergeFromInbox('2 · Checkout page');
+    await mergeFromInbox('checkout-page', '2 · Checkout page');
     await waitUntil(async () => (await fileText('src/checkout/page.ts')).includes('checkout'), STEP_MS, "item 2's change in the main workspace");
-    await closeChanges();
+    await closeReport('checkout-page');
     for (const page of [ian, amy, leo]) await plan(page).getByText('2 of 3 reviewed').waitFor({ timeout: STEP_MS });
   }, 300_000);
 
@@ -1240,11 +1306,23 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     await inbox(ian, 'merge').filter({ hasText: 'Reviewed, ready to merge: 3 · Receipt email' }).waitFor({ timeout: STEP_MS });
 
     // Ian's merge stops on the conflict: nothing reached the main workspace, and every page says where it stands.
-    const changes = await mergeFromInbox('3 · Receipt email');
-    await changes.getByText('The merge was aborted and the main workspace is unchanged. Files in conflict:', { exact: false }).first().waitFor({ timeout: STEP_MS });
-    await changes.getByText('src/app.ts').first().waitFor({ timeout: STEP_MS });
+    const { report: conflicted, review } = await mergeFromInbox('receipt-email', '3 · Receipt email', { conflict: true });
+    await review.getByText('The merge was aborted and the main workspace is unchanged. Files in conflict:', { exact: false }).first().waitFor({ timeout: STEP_MS });
+    await review.getByText('src/app.ts').first().waitFor({ timeout: STEP_MS });
     expect(await fileText('src/app.ts')).toBe(APP_BY_CART);
-    await inbox(ian, 'merge').filter({ hasText: '3 · Receipt email' }).filter({ hasText: 'Conflict' }).waitFor({ timeout: STEP_MS });
+    // The dialog says the item's agent can resolve it, and where that is asked: Ian closes it and is there.
+    await review.getByText(/its agent can resolve the conflict: "Ask the agent to resolve" is in the item's result report/).waitFor({ timeout: STEP_MS });
+    await review.getByRole('button', { name: 'Close', exact: true }).last().click();
+    await review.waitFor({ state: 'detached', timeout: STEP_MS });
+    // The row of the request that conflicted leads to the same report, and the way on is there: the host can ask
+    // the agent to resolve, or try the merge again.
+    const conflictRow = inbox(ian, 'merge').filter({ hasText: '3 · Receipt email' }).filter({ hasText: 'Conflict' });
+    await conflictRow.locator('.inbox-item__main').click();
+    await expect.poll(() => conflictRow.getAttribute('data-current'), { timeout: STEP_MS }).toBe('');
+    expect((await openColumns(ian)).filter((one) => one.startsWith('changes:'))).toEqual([]);
+    await conflicted.getByText(/Reviewed by Mei at \d\d:\d\d\. The merge stopped on a conflict\./).waitFor({ timeout: STEP_MS });
+    await conflicted.getByRole('button', { name: 'Ask the agent to resolve' }).waitFor({ timeout: STEP_MS });
+    await conflicted.getByRole('button', { name: 'Merge…' }).waitFor({ timeout: STEP_MS });
     for (const page of [ian, amy, leo]) {
       await item(page, 'receipt-email').getByText('Reviewed · merge conflict').waitFor({ timeout: STEP_MS });
     }
@@ -1264,11 +1342,16 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
       // The report changed after it was reviewed: it must be read again, and the topic is not complete any more.
       await item(page, 'receipt-email').getByText('Changed after the review').waitFor({ timeout: STEP_MS });
       await phase(page).getByText('Executing', { exact: true }).waitFor({ timeout: STEP_MS });
+      // The plan counts it as the list on the left does: two of three reviewed, one report to review again.
+      await plan(page).getByText('2 of 3 reviewed').waitFor({ timeout: STEP_MS });
+      await plan(page).getByText('1 report to review · 2 merged').waitFor({ timeout: STEP_MS });
     }
     await inbox(mei, 'report').filter({ hasText: '結果報告：3 · Receipt email' }).waitFor({ timeout: STEP_MS });
-    // The request that conflicted is gone (the resolved work is a new one); nothing is in Ian's inbox until the review.
+    // The request that conflicted is gone (the resolved work is a new one); nothing is in Ian's inbox until the review,
+    // and the plan does not lead him to merge a version nobody has reviewed.
     await expect.poll(() => inbox(ian, 'merge').count(), { timeout: STEP_MS }).toBe(0);
-    await closeChanges();
+    expect(await plan(ian).getByRole('button', { name: 'Open the next one to merge' }).count()).toBe(0);
+    await closeReport('receipt-email');
     await shots('conflict-resolved-by-the-agent');
   }, 300_000);
 
@@ -1288,9 +1371,9 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     for (const { page } of people) await dismissToasts(page);
 
     // The last change merges cleanly now: the title names both.
-    await mergeFromInbox('3 · Receipt email');
+    await mergeFromInbox('receipt-email', '3 · Receipt email');
     await waitUntil(async () => (await fileText('src/app.ts')) === APP_RESOLVED, STEP_MS, 'the resolved change in the main workspace');
-    await closeChanges();
+    await closeReport('receipt-email');
     for (const page of [ian, amy, leo]) {
       await plan(page).getByText('Every result report has been reviewed.', { exact: true }).waitFor({ timeout: STEP_MS });
       for (const id of ['cart-api', 'checkout-page', 'receipt-email']) await item(page, id).getByText('Reviewed · merged').waitFor({ timeout: STEP_MS });
@@ -1478,7 +1561,7 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     await shots('process-killed');
 
     // "Try again": the same conversation goes on, and this time the item is finished.
-    await session(ian, giftId).getByRole('status').getByRole('button', { name: 'Try again' }).click();
+    await session(ian, giftId).locator('.conv-status').getByRole('button', { name: 'Try again' }).click();
     for (const page of [ian, amy, leo]) {
       await session(page, giftId).getByRole('log').getByText('The gift receipt is done.').waitFor({ timeout: STEP_MS });
       await item(page, 'gift-receipt').getByText('Report to review').waitFor({ timeout: STEP_MS });
@@ -1492,9 +1575,9 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     await reportOf(ian, 'gift-receipt').getByRole('button', { name: "I've reviewed this" }).click();
     await Promise.all(told);
     for (const { page } of people) await dismissToasts(page);
-    await mergeFromInbox('4 · Gift receipt');
+    await mergeFromInbox('gift-receipt', '4 · Gift receipt');
     await waitUntil(async () => (await fileText('src/gift/receipt.ts')).includes('gift'), STEP_MS, "item 4's change in the main workspace");
-    await closeChanges();
+    await closeReport('gift-receipt');
     for (const page of [ian, amy, leo]) {
       await phase(page).getByText('Complete', { exact: true }).waitFor({ timeout: STEP_MS });
       await plan(page).getByText('4 of 4 reviewed').waitFor({ timeout: STEP_MS });
@@ -1521,7 +1604,7 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     expect(await columns.getByRole('button', { name: acting }).allTextContents()).toEqual([]);
     expect(await columns.getByRole('combobox').count()).toBe(0);
     expect(await columns.getByRole('textbox').count()).toBe(0);
-    expect(await spec(leo).getByRole('radio', { name: 'Edit' }).isDisabled()).toBe(true);
+    expect(await spec(leo).getByRole('radio', { name: 'Edit' }).count()).toBe(0);
     await shots('the-viewer-at-the-end', [{ name: 'Leo', page: leo }]);
     // "New" tells him why not, for each of its three entries.
     for (const [entry, dialogName] of [

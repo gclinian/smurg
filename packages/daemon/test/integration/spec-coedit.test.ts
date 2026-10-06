@@ -6,7 +6,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MAIN_ROOT, topicSpecPath, type FileRef, type LockInfo } from '@smurg/protocol';
+import { MAIN_ROOT, topicPlanPath, topicSpecPath, type FileRef, type LockInfo } from '@smurg/protocol';
 import { fakesModule, fakesOf } from '../../src/core/fakes/index.ts';
 import { docsModule } from '../../src/docs/module.ts';
 import { filesModule } from '../../src/files/module.ts';
@@ -14,6 +14,7 @@ import { locksModule } from '../../src/locks/module.ts';
 import { createTestDaemon, waitFor, type TestDaemon } from '../../src/testing/index.ts';
 import { createTopicsModule } from '../../src/topics/module.ts';
 import { DocClient, destroyDocClients } from '../docs/helpers.ts';
+import { SPEC_TEXT, planText } from '../topics/support.ts';
 
 let t: TestDaemon | null = null;
 
@@ -117,5 +118,74 @@ describe('spec co-editing (real docs, locks, files and topics modules)', { timeo
     // The people who edited by hand are still listed for the next Start; the agent is not among them.
     expect(current()?.handEdits.spec.map((edit) => (typeof edit.by === 'string' ? edit.by : edit.by.userId)).sort()).toEqual(['dev:amy', 'dev:mei']);
     expect(fakes.agents.eventsOf(session.id).filter((event) => event.kind === 'pointer')).toMatchObject([{ target: 'spec' }, { target: 'spec' }]);
+  });
+
+  // The activity feed has ONE "edited" entry per person and file per minute (autosave runs all the time). The topic
+  // must still know a hand edit at EVERY save: a Start forgets the list, and whoever types after it, within that
+  // minute, has to be named by the next Start and in its commit (design §4.5; found by the browser flow, P12E).
+  it('typing in the editor is a hand edit at every save: after a Start, the same person typing again within the minute is named by the next Start', async () => {
+    t = await createTestDaemon({
+      modules: [locksModule, filesModule, docsModule, fakesModule({ except: ['topics', 'plans', 'reports'], handlers: true }), createTopicsModule({ fileDebounceMs: 50 })],
+      settings: { humanLockIdleMs: 1_000 },
+    });
+    const d = t;
+    const fakes = fakesOf(d.ctx);
+    await d.connectHost();
+    const mei = await d.connect({ userId: 'dev:mei', displayName: 'Mei', role: 'agent' });
+    const amy = await d.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
+    const { topic } = await mei.conn.request('topic.create', { name: 'Checkout' });
+    const spec: FileRef = { root: MAIN_ROOT, path: topicSpecPath(topic.slug) };
+    const current = (): NonNullable<ReturnType<typeof d.ctx.services.topics.get>> => {
+      const now = d.ctx.services.topics.get(topic.id);
+      if (now === null) throw new Error('the topic is gone');
+      return now;
+    };
+    const item = (id: string) => d.ctx.services.plans.get(topic.id)?.items.find((candidate) => candidate.id === id);
+    // The people among the spec's hand edits (the two files are written from outside smurg below: that is `outside`).
+    const people = () => current().handEdits.spec.flatMap((edit) => (typeof edit.by === 'string' ? [] : [{ name: edit.by.displayName, at: edit.at }]));
+    const start = async (itemIds?: string[]) => {
+      const { preflight } = await mei.conn.request('plan.preflight', { topicId: topic.id, ...(itemIds === undefined ? {} : { itemIds }) });
+      await mei.conn.request('plan.start', { topicId: topic.id, planRevision: preflight.planRevision, specHash: preflight.specHash, planHash: preflight.planHash, ...(itemIds === undefined ? {} : { itemIds }) });
+      return preflight;
+    };
+    await writeFile(join(d.root, spec.path), SPEC_TEXT);
+    await writeFile(join(d.root, topicPlanPath(topic.slug)), planText([{ id: 'first' }, { id: 'second', dependsOn: ['first'] }]));
+    // Told by hand as well: on Linux the watcher has no watch yet inside a folder that was made a moment ago together
+    // with its parent (the known limit of the inotify backend, src/files/watcher.ts), and these two come from outside.
+    d.ctx.bus.emit('file.changed', { root: MAIN_ROOT, changes: [{ path: spec.path, change: 'add' }, { path: topicPlanPath(topic.slug), change: 'add' }] });
+    await waitFor(() => d.ctx.services.plans.get(topic.id)?.items.length === 2 && current().spec.exists, { what: 'the spec and the plan to be read' });
+    await waitFor(() => current().handEdits.spec.length === 1 && current().handEdits.plan.length === 1, { what: 'the two files noted as written from outside' });
+    expect(current().handEdits).toMatchObject({ spec: [{ by: 'outside' }], plan: [{ by: 'outside' }] });
+
+    // ---- Amy types; the first Start names her and forgets the list ----
+    const amyDoc = await DocClient.open(amy.conn, spec);
+    await waitFor(() => amyDoc.synced && amyDoc.text.toString().includes('## Goal'), { what: "Amy's editor synced" });
+    amyDoc.text.insert(amyDoc.text.length, 'Guests can check out too.\n');
+    await waitFor(() => people().length === 1, { what: "Amy's first hand edit" });
+    expect(people()).toMatchObject([{ name: 'Amy' }]);
+    await waitFor(() => current().spec.changedBy?.kind === 'user', { what: 'the spec to be changed by Amy' });
+    const firstAt = people()[0]?.at ?? 0;
+    expect((await start()).handEdits).toMatchObject({ spec: [{ by: 'outside' }, { by: { userId: 'dev:amy' } }], plan: [{ by: 'outside' }] });
+    expect(current().handEdits).toEqual({ spec: [], plan: [] });
+    expect(fakes.worktrees.log.of('commitMainPaths').map((call) => (call[0] as { trailers: string[] }).trailers)).toEqual([['Edited-by: Amy']]);
+    expect(item('second')).toMatchObject({ state: 'waiting', armed: true });
+
+    // ---- she types again, seconds later: the item that waited is disarmed AND she is a hand editor again ----
+    amyDoc.text.insert(amyDoc.text.length, 'Gift cards are out of scope.\n');
+    await waitFor(() => item('second')?.disarmed === 'plan-changed', { what: 'the waiting item to be disarmed' });
+    await waitFor(() => people().length === 1, { what: "Amy's hand edit after the Start" });
+    expect(current().handEdits).toMatchObject({ spec: [{ by: { userId: 'dev:amy', displayName: 'Amy' } }], plan: [] });
+    expect(people()[0]?.at).toBeGreaterThan(firstAt);
+    // The file's last change is hers too (not "nobody's" because the feed had no entry for it).
+    await waitFor(() => current().spec.changedBy?.kind === 'user', { what: 'the last change of the spec to be Amy\'s' });
+    expect(current().spec.changedBy).toMatchObject({ kind: 'user', userId: 'dev:amy' });
+    // The feed itself still has its one entry per person and file per minute.
+    const feed = (await mei.conn.request('activity.list', { limit: 100 })).events.filter((event) => event.kind === 'human.edit' && event.file?.path === spec.path);
+    expect(feed).toHaveLength(1);
+
+    // ---- "Start again": the dialog names her, and so does the commit ----
+    expect((await start(['second'])).handEdits).toMatchObject({ spec: [{ by: { userId: 'dev:amy' } }], plan: [] });
+    expect(fakes.worktrees.log.of('commitMainPaths').map((call) => (call[0] as { trailers: string[] }).trailers)).toEqual([['Edited-by: Amy'], ['Edited-by: Amy']]);
+    expect(current().handEdits).toEqual({ spec: [], plan: [] });
   });
 });

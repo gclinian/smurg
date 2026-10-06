@@ -85,7 +85,8 @@ describe('the Start dialog', () => {
     expect((within(loading).getByRole('button', { name: 'Start' }) as HTMLButtonElement).disabled).toBe(true);
 
     await answer(preflight());
-    const dialog = screen.getByRole('dialog', { name: 'Start 3 items' });
+    // The title counts what starts now, like the button of the plan that opened it; the third item waits.
+    const dialog = screen.getByRole('dialog', { name: 'Start 2 items' });
     expect(within(dialog).getByText('2 items start now: 1 · Cart API and 2 · Payment form.')).toBeTruthy();
     expect(within(dialog).getByText(/^3 · Checkout page starts by itself when 1 · Cart API and 2 · Payment form are merged/)).toBeTruthy();
     expect(within(dialog).getByText('Responsible: Ian 1 · Mei 2.')).toBeTruthy();
@@ -102,7 +103,23 @@ describe('the Start dialog', () => {
       conn.respond('plan.start', { plan: PLAN });
     });
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText('Started 3 items.')).toBeTruthy();
+    // The toast says what happened: two sessions started, the third item starts by itself.
+    expect(await screen.findByText('Started 2 items.')).toBeTruthy();
+    expect(screen.getByText('1 more item starts by itself later.')).toBeTruthy();
+    expect(screen.queryByText(/Started 3 items/)).toBeNull();
+  });
+
+  it('when everything a Start arms waits for another item, the title counts what it arms and the toast says nothing started yet', async () => {
+    const { conn, answer } = await setup();
+    await answer(preflight({ startsNow: [], waits: [{ itemId: 'checkout-page', for: ['cart-api', 'payment-form'] }], alreadyStarted: ['cart-api', 'payment-form'] }));
+    const dialog = screen.getByRole('dialog', { name: 'Start 1 item' });
+    expect(within(dialog).getByText('No item starts now.')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
+    await act(async () => {
+      conn.respond('plan.start', { plan: PLAN });
+    });
+    expect(await screen.findByText('1 item starts by itself later.')).toBeTruthy();
+    expect(screen.queryByText(/^Started/)).toBeNull();
   });
 
   it('"Start this one" asks about that item only and starts only it', async () => {

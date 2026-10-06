@@ -4,18 +4,30 @@
 //   <Markdown text={block.text} paths={paths} />                         // parsed once per text
 //   <StreamingMarkdown read={() => store.streamText(id, blockId)} subscribe={(cb) => store.onStream(…)} />
 //
+//   <PlainText text={suggestion.text} mentions={names} />                // every character, nothing interpreted
+//
 // A streaming text is parsed again at most every STREAM_PARSE_MS, and only after its stable cut (stream.ts); what
 // arrives between two parses is appended to a text node of our own, so React state does not change per delta.
+//
+// The lexer runs inside bounds (lex.ts): a text that is too long, too deep or too slow to parse is shown as it was
+// written, and nothing a text holds can throw out of a render.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { lexer, type Token } from 'marked';
+import type { Token } from 'marked';
 import { cx } from '../../ui/cx.ts';
-import type { MarkdownPaths } from './paths.ts';
-import { MdBlock, type RenderContext } from './render.tsx';
+import { lexMarkdown } from './lex.ts';
+import type { MarkdownPaths, PathTarget } from './paths.ts';
+import { MdBlock, markMentions, type RenderContext } from './render.tsx';
 import { stableLength } from './stream.ts';
 import './markdown.css';
 
 /** A streaming block is parsed again at most this often. */
 export const STREAM_PARSE_MS = 200;
+/**
+ * How many different paths of ONE text are looked up. A text is on every reader's screen, and every lookup is a
+ * request of that reader to the host: a text that lists a hundred names must not become a hundred requests in the
+ * name of whoever happens to read it. The paths after these stay text.
+ */
+export const MAX_PATH_LOOKUPS = 32;
 
 export interface MarkdownOptions {
   /** File paths in the text become buttons that open the file. */
@@ -34,12 +46,45 @@ export interface MarkdownProps extends MarkdownOptions {
 }
 
 export function parseMarkdown(text: string, breaks = false): Token[] {
-  return lexer(text, { gfm: true, breaks });
+  return lexMarkdown(text, { breaks });
+}
+
+/** The caller's adapter for one text: the first MAX_PATH_LOOKUPS different paths are asked about, each once. */
+function lookupsOfOneText(paths: MarkdownPaths): MarkdownPaths {
+  const asked = new Map<string, Promise<PathTarget | null>>();
+  return {
+    find: (text) => paths.find(text),
+    resolve(match) {
+      let answer = asked.get(match.text);
+      if (answer === undefined) {
+        if (asked.size >= MAX_PATH_LOOKUPS) return Promise.resolve(null);
+        answer = paths.resolve(match);
+        asked.set(match.text, answer);
+      }
+      return answer;
+    },
+  };
 }
 
 function useRenderContext(options: MarkdownOptions): RenderContext {
   const { headingBase = 3, paths, mentions } = options;
-  return useMemo(() => ({ headingBase, paths, mentions }), [headingBase, paths, mentions]);
+  const limited = useMemo(() => (paths === undefined ? undefined : lookupsOfOneText(paths)), [paths]);
+  return useMemo(() => ({ headingBase, paths: limited, mentions }), [headingBase, limited, mentions]);
+}
+
+export interface PlainTextProps {
+  readonly text: string;
+  /** Display names that are marked when written as `@name`. */
+  readonly mentions?: readonly string[] | undefined;
+  readonly className?: string;
+}
+
+/**
+ * A text exactly as it was written: every character and every line break, nothing interpreted, nothing left out.
+ * For text a person is asked to pass on to an agent (a suggestion): what is on the card IS what is sent.
+ */
+export function PlainText({ text, mentions, className }: PlainTextProps) {
+  return <div className={cx('md-plain', className)}>{mentions === undefined ? text : markMentions(text, mentions)}</div>;
 }
 
 export function Markdown(props: MarkdownProps) {

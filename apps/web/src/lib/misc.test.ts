@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryStorage } from '../testing/services.tsx';
 import { createRecentWorkspaces, createThemeController } from './preferences.ts';
 import { cssString, presenceCss, safeColor } from './presence-css.ts';
-import { compareText, formatAge, formatAnd, formatBytes, formatDateTime, formatDuration, formatExactTime, formatList, formatNumber, formatRelativeTime, formatRole, formatTime } from './format.ts';
+import { compareText, formatAge, formatAnd, formatBytes, formatDateTime, formatDuration, formatExactTime, formatList, formatNumber, formatRelativeTime, formatRole, formatTime, joinSentences } from './format.ts';
 import { describeDevice } from './connection/browser-deps.ts';
 import { describeError, renderWireText } from './errors.ts';
 import { ClientRequestError, RelayApiError } from '@smurg/protocol/client';
@@ -186,7 +186,23 @@ describe('short ages and lists (the inbox, the plan)', () => {
     expect(formatAnd(['5', '6'])).toBe('5 and 6');
     expect(formatAnd(['4', '5', '6'])).toBe('4, 5, and 6');
     applyLocale('zh-TW');
-    expect(formatAnd(['5', '6'])).toBe('5和6');
+    // The house style sets Latin text and digits apart from Chinese: a space on each such side of the word for "and".
+    expect(formatAnd(['5', '6'])).toBe('5 和 6');
+    expect(formatAnd(['Ian', 'Mei'])).toBe('Ian 和 Mei');
+    expect(formatAnd(['Ian', 'Mei', 'Amy'])).toBe('Ian、Mei 和 Amy');
+    expect(formatAnd(['1 · Cart API', '3 · Receipt email'])).toBe('1 · Cart API 和 3 · Receipt email');
+    // Between two Chinese names there is nothing to set apart.
+    expect(formatAnd(['小明', '小華'])).toBe('小明和小華');
+    expect(formatAnd(['小明', 'Mei'])).toBe('小明和 Mei');
     applyLocale('en');
+  });
+
+  it('joinSentences: a space between two sentences, none after a full-width full stop', () => {
+    expect(joinSentences(['Claude is idle.', null, 'The host is offline.'])).toBe('Claude is idle. The host is offline.');
+    expect(joinSentences([undefined, '', 'One.'])).toBe('One.');
+    expect(joinSentences([])).toBe('');
+    expect(joinSentences(['Claude 待命中。', '主人離線中。'])).toBe('Claude 待命中。主人離線中。');
+    // A sentence that does not end in punctuation of its own is still set apart.
+    expect(joinSentences(['Claude 工作中', '主人離線中。'])).toBe('Claude 工作中 主人離線中。');
   });
 });

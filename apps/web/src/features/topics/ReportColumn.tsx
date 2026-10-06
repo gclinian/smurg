@@ -270,6 +270,7 @@ function ReviewFoot({ topic, report, item, request, worktree, merged }: { topic:
   const isHost = useCan('worktree.merge.decide');
   const canRequest = useCan('worktree.merge.request');
   const canDrive = useCan('session.drive');
+  const canAsk = useCan('suggest.create');
   const [busy, setBusy] = useState(false);
   const [confirmUnfinished, setConfirmUnfinished] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -311,8 +312,10 @@ function ReviewFoot({ topic, report, item, request, worktree, merged }: { topic:
   if (toReview) {
     if (!may) {
       const names = formatAnd(report.reviewers.map((reviewer) => reviewer.displayName));
+      // A viewer has no box to ask in: the sentence does not promise one.
+      const others = report.reviewers.length === 1 ? t(canAsk ? 'review.others.one' : 'review.others.one.readOnly', { name: names }) : t(canAsk ? 'review.others.many' : 'review.others.many.readOnly');
       return (
-        <Foot className="report-foot" text={report.reviewers.length === 1 ? t('review.others.one', { name: names }) : t('review.others.many')}>
+        <Foot className="report-foot" text={others}>
           {canRequest && !isHost && worktree !== undefined && request?.status === 'draft' ? <RequestMerge worktree={worktree} /> : null}
           {isHost && request !== undefined && !merged ? <MergeButton requestId={request.id} /> : null}
         </Foot>

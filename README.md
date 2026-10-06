@@ -31,7 +31,8 @@ https://app.smurg.ai.
     is responsible for which item. People change the assignment, or choose that nobody is assigned and everyone
     watches.
   - *Execute*: Start opens one agent session per work item, each in its own git worktree. Agents edit there without
-    asking and ask before commands; a member with agent access allows a command once, or always for that kind.
+    asking and ask before commands (read-only commands and simple file commands inside the worktree run without
+    asking); a member with agent access allows a command once, or always for that kind.
   - *Review*: each finished item has a result report (what was done, why, how it was verified, what to watch out
     for, the diff). The responsible person asks follow-ups and presses "I've reviewed this"; the host merges.
 - **An inbox per person**: the questions you decide, open votes, permission requests, work that stopped, suggestions,
@@ -63,10 +64,10 @@ https://app.smurg.ai.
   asks to run, as the host on the host's computer; they can run any command, read the host's home folder and use
   the host's Claude account (the cost is the host's). Give the role only to people you fully trust
   ([`docs/HOSTING.md`](docs/HOSTING.md) §5.1; [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §11 D-15, §12).
-- **Whose Claude account**: every agent uses the host's Claude Code login, also when it works for a teammate.
-  Anthropic's terms do not allow making a personal subscription available to other people; for a group, the host
-  should log Claude Code in with an API key, a Team or Enterprise plan, or a cloud provider
-  ([`docs/HOSTING.md`](docs/HOSTING.md) §4).
+- **Whose Claude account**: every agent uses the host's Claude Code login, also when it works for a teammate. A
+  personal Claude subscription (Pro or Max) is for the host's own use: Anthropic's terms do not allow making it
+  available to other people. For a group, the host should log Claude Code in with an API key, a Team or Enterprise
+  plan, or a cloud provider; smurg says so and does not stop the host ([`docs/HOSTING.md`](docs/HOSTING.md) §4).
 - **Every member reads every conversation**, including members who join later, and whatever an agent reads it may
   repeat. Masking of well-known key formats is best effort.
 - **Requirements**: agent sessions need Claude Code 2.1.288 or later on the host's computer (an older one is
@@ -184,15 +185,16 @@ The rest is for developers.
 
 You need macOS or Linux, [Node.js](https://nodejs.org/) 22 LTS (22.18 or later) or 24 LTS, and git. nvm is the
 easiest way to install Node (`nvm install 22`); Node 25 is outside vitest's supported range and is not supported. To
-run real agents you also need the `claude` command (2.1.288 or later); the tests and the local stack do not need it
-(they use a stand-in, see "Checks and common commands").
+run real agents you also need the `claude` command (2.1.288 or later); the tests do not need it, and neither does
+the local stack when it is started with `--stand-in-claude` (both use a scripted stand-in, see "Checks and common
+commands" and "Local development").
 
 ```sh
 git clone https://github.com/gclinian/smurg.git && cd smurg
 scripts/bootstrap-tools.sh                      # once: installs the pinned pnpm into .tools/ (nothing global)
 source scripts/env.sh                           # in every new shell (bash and zsh both work)
 scripts/with-install-lock.sh pnpm install       # installs the dependencies (about 1 GB on disk, all inside the repo)
-scripts/dev-stack.sh --role agent               # starts the whole system on this computer to try it (no account needed); Ctrl-C stops everything
+scripts/dev-stack.sh --stand-in-claude --role agent   # starts the whole system on this computer to try it (no account needed: its agents are a scripted stand-in); Ctrl-C stops everything
 ```
 
 `scripts/env.sh` puts Node 22 and the repository's pnpm first in `PATH`, keeps the tools' state inside the repository
@@ -212,7 +214,7 @@ Traditional Chinese counterpart; the terms are in [`docs/GLOSSARY.md`](docs/GLOS
 ```
 apps/
   web/         React + Vite front end (the sessions view and code mode; Monaco, Yjs, xterm.js)
-  relay/       Cloudflare Worker + Durable Objects (WorkspaceDO, TransferDO); it also serves the front end (app.smurg.ai)
+  relay/       Cloudflare Worker + Durable Objects (WorkspaceDO, TransferDO, DeviceLoginDO); it also serves the front end (app.smurg.ai)
   site/        the product page smurg.ai (static pages, plus a small Worker for redirects such as /install.sh)
 packages/
   protocol/    message schemas (zod), constants, roles, the Noise encrypted channel, the relay's control frames and routes, the shared message catalog
@@ -220,6 +222,7 @@ packages/
   cli/         the `smurg` command
 tests/
   e2e/         acceptance tests across packages (a real relay + daemon + headless clients)
+  lint/        repository-wide checks: the language rules, the two languages in step, what the documents quote and name
 scripts/       development environment, the single executable, release files and the install script
 docs/          guides, architecture and research reports
 ```
@@ -232,7 +235,7 @@ build step (Node ≥ 22.18 runs TypeScript directly).
 ```sh
 pnpm check                                  # type check + tests of every package (run it before you commit)
 pnpm typecheck                              # only the type check (TypeScript 7)
-pnpm test                                   # only the tests (vitest, one project per package)
+pnpm test                                   # only the tests (vitest: one project per package, plus apps/web/e2e/smoke and tests/lint)
 pnpm --filter @smurg/protocol test          # one package only
 pnpm build                                  # builds the front end (Vite) and the relay (wrangler dry-run)
 pnpm dev:relay                              # the relay's dev server http://127.0.0.1:8787 (local workerd, no Cloudflare account)
@@ -249,9 +252,10 @@ repository's fake Anthropic API with a dummy key and an isolated configuration f
 of test files and tests a green run shows, how long it takes and the environments it was verified in are in
 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md), "How to run the gate" (the numbers change as features are added and are
 recorded only there). Skipped by default: `packages/cli/test/sea.test.ts` and `packages/cli/test/sea-update.test.ts`
-(they need the single executable to be built first, `SMURG_SEA_BINARY`) and `packages/cli/test/dev-stack.test.ts`
-(`SMURG_TEST_DEV_STACK=1`); without a system Chrome or a verified version of `claude`, the tests that need them are
-skipped too, and the numbers differ. Temporary directories and processes that a test did not clean up (a crashed
+(they need the single executable to be built first, `SMURG_SEA_BINARY`) and the test of
+`packages/cli/test/dev-stack.test.ts` that starts the whole stack (`SMURG_TEST_DEV_STACK=1`; the file's other test
+always runs); without a system Chrome or a verified version of `claude`, the tests that need them are skipped too,
+and the numbers differ. Temporary directories and processes that a test did not clean up (a crashed
 worker, for example) are removed after the whole run, with a line on stderr,
 `[smurg test run] removed N leftover(s)`: a green run does not print it, so when it appears, find the test that left
 them.
@@ -262,9 +266,22 @@ One command starts the whole system on this computer (the relay, the web dev ser
 sample folder), with no account:
 
 ```sh
-scripts/dev-stack.sh                        # sources scripts/env.sh by itself; Ctrl-C stops everything
-scripts/dev-stack.sh --help                 # options: --dir, --relay-port, --web-port, --host-user, --role
+scripts/dev-stack.sh --stand-in-claude      # sources scripts/env.sh by itself; Ctrl-C stops everything
+scripts/dev-stack.sh --help                 # options: --dir, --relay-port, --web-port, --host-user, --role, --stand-in-claude, --real-claude
 ```
+
+Which Claude Code the stack's agent sessions run is yours to say:
+
+- `scripts/dev-stack.sh --stand-in-claude` runs the stack's agent sessions on a scripted stand-in for Claude Code
+  (no account, no network, nothing is billed; it follows `<dir>/stand-in-claude/fake-claude-scenario.json`, read
+  again at every turn: send `try write`, `try run` or `try ask` to see an edit, a command or a question).
+- `scripts/dev-stack.sh --real-claude` runs them on the Claude Code installed on this computer, with the login it
+  finds: your own account, and what an agent does may be billed to it.
+- With neither switch: when there is no `claude` on `PATH`, an agent session answers that Claude Code was not found
+  (terminals, files and everything else work). When there is one, the script says plainly, before it starts
+  anything and again in its summary, that agent sessions run the REAL Claude Code with your login; and when it is
+  not run from a terminal (a script, a test, an agent) it starts nothing, exits with 2 and names the two switches.
+  Automated runs always pass `--stand-in-claude`.
 
 What it does, in order:
 
@@ -286,13 +303,14 @@ What it does, in order:
    points at the web origin (:5173) while the CLI has to connect to the relay directly (:8787): logins are recorded
    per address, so without `--relay` the CLI asks for a separate login to :5173 and suggests `--relay`.
 4. On Ctrl-C: first lets `smurg host` stop properly (drops every connection, ends the terminal sessions, pauses the
-   agent sessions), then stops the web server and the relay. Every child runs in its own process group, and the script only signals the process groups
-   it started and recorded itself.
+   agent sessions), then stops the web server and the relay, and waits until every process group it started is empty
+   (a grandchild of pnpm can take a moment longer than its parent). Every child runs in its own process group, and
+   the script only signals the process groups it started and recorded itself.
 
 `<dir>` defaults to `$TMPDIR/smurg-dev-stack`. `smurg` uses a fake `HOME` (`<dir>/home`) and its own `SMURG_HOME`
 there, so it never touches your `~/.smurg`, `~/.claude` or shell startup files; when the path of `SMURG_HOME` is too
-long for a Unix socket (104 bytes on macOS), it uses `/tmp/smurg-dev-<uid>-<hash>` instead. Before it ends, the
-script prints the command that attaches the host to a terminal session on this computer
+long for a Unix socket (104 bytes on macOS), it uses `/tmp/smurg-dev-<uid>-<hash>` instead. In its summary the
+script also prints the command that attaches the host to a terminal session on this computer
 (`HOME=… SMURG_HOME=… node packages/cli/src/main.ts attach`).
 
 ### Keeping smurg from opening a browser
@@ -315,7 +333,7 @@ command.
 | `smurg host <folder>` | Shares a folder (in the foreground) and prints two links: yours and the teammates' |
 | `smurg attach [session]` | Attaches a terminal session to this terminal (lists every session when you name none); Ctrl-] detaches |
 | `smurg status` / `smurg stop` | Shows or stops the workspaces this computer is sharing |
-| `smurg login` / `smurg logout` | Signs in to a relay with a code, or forgets the login |
+| `smurg login` / `smurg logout` | Logs in to a relay with a code, or forgets the login |
 | `smurg update` | Updates the installed executable to the newest version (`--check` only checks) |
 | `smurg uninstall` | Removes smurg from this computer after listing what it will remove |
 | `smurg licenses` | Prints smurg's license and the notices of the third-party software in the executable |

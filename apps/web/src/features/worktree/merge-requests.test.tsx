@@ -5,8 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { FakeConnection } from '../../testing/fake-connection.ts';
 import { T0, makeMergeRequest, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
+import { t as tTopics } from '../topics/strings.ts';
 import type { MergeDiff } from './diff-model.ts';
-import { MergeRequestsSection } from './index.tsx';
+import { MergeRequestsSection, MergeReviewDialog } from './index.tsx';
 import MergeNotices from './MergeNotices.tsx';
 
 const section = (path: string, body = '@@ -1 +1 @@\n-old\n+new\n'): string => `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n${body}`;
@@ -353,6 +354,44 @@ describe('merge requests: the draft behind a result report', () => {
       conn.respond('worktree.merge.approve', { request: makeMergeRequest({ status: 'merged', decidedAt: T0 + 9 }) });
     });
     expect(await screen.findByText('The changes were merged into the main workspace.')).toBeTruthy();
+  });
+
+  it('a merged work item: its worktree is gone, and the message is the one smurg wrote, whoever asked for the merge', async () => {
+    const merged = makeMergeRequest({ status: 'merged', reviewed: true, topicId: 'tp_1', itemId: 'cart-api', message: 'smurg: work item 1 (cart-api)', requestedBy: { userId: 'dev:host', displayName: 'Ian' }, decidedAt: T0 + 9 });
+    const conn = new FakeConnection();
+    conn.handle('worktree.list', () => ({ worktrees: [] }));
+    conn.handle('worktree.merge.list', () => ({ requests: [merged] }));
+    const context = createTestWorkspace({ conn, admit: false });
+    conn.admit(makeWelcome({ role: 'host' }));
+    render(
+      <WorkspaceTestProviders context={context}>
+        <MergeReviewDialog requestId="mr_1" onClose={() => {}} />
+      </WorkspaceTestProviders>,
+    );
+    const dialog = await screen.findByRole('dialog');
+    await act(async () => {
+      conn.respond('worktree.merge.diff', COMPLETE);
+    });
+    expect(within(dialog).getByText('This request has already been decided: Merged.')).toBeTruthy();
+    // No "Branch Worktree removed", and not "Message from Ian:" over a message Ian never wrote.
+    expect(within(dialog).getByText(/^Worktree removed · commit a{7,} · 2 files$/)).toBeTruthy();
+    expect(within(dialog).getByText('Message:')).toBeTruthy();
+    expect(within(dialog).getByText('smurg: work item 1 (cart-api)')).toBeTruthy();
+    expect(within(dialog).queryByText(/Message from/)).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: 'Merge into the main workspace' })).toBeNull();
+  });
+
+  it('a work item\'s merge that stopped on a conflict says the item\'s agent can resolve it, and where to ask; a free session\'s does not', async () => {
+    const conflict: Partial<MergeRequest> = { status: 'conflict', conflictFiles: ['src/app.ts'], decidedAt: T0 + 1 };
+    const view = setup({ role: 'host', requests: [draft({ ...conflict, reviewed: true })] });
+    // The sentence names the button by the label the plan and the report give it.
+    const way = `This is the change of a work item, so its agent can resolve the conflict: "${tTopics('item.resolve')}" is in the item's result report and on its row in the plan, for the host and members with agent access.`;
+    expect(await screen.findByText(way)).toBeTruthy();
+    expect(screen.getByText(/What you can do next: merge by hand in your own terminal/)).toBeTruthy();
+    view.unmount();
+    setup({ role: 'host', requests: [makeMergeRequest(conflict)] });
+    expect(await screen.findByText(/What you can do next: merge by hand in your own terminal/)).toBeTruthy();
+    expect(screen.queryByText(/its agent can resolve the conflict/)).toBeNull();
   });
 
   it('a file on a host-private path is listed, and its diff is withheld from anyone but the host', async () => {

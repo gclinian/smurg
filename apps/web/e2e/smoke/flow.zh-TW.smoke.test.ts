@@ -214,8 +214,9 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     await expect.poll(() => view(host).locator('[data-column-id]').count(), { timeout: STEP_MS }).toBe(1);
 
     // ---- Start: the dialog in Chinese, then the item's session and its permission request.
+    // The button and the dialog's title say one number: what starts now.
     await plan.getByRole('button', { name: '開始 1 個項目' }).click();
-    const start = host.getByRole('dialog', { name: '開始 2 個項目' });
+    const start = host.getByRole('dialog', { name: '開始 1 個項目' });
     await expect.poll(() => start.locator('.start-line[data-line="starts"]').textContent(), { timeout: STEP_MS }).toContain('1 個項目現在開始：1 · 購物車金額。');
     expect(await start.locator('.start-line[data-line="commit"]').textContent()).toContain('smurg 會以你的身分，把 SPEC.md 和 PLAN.md 提交到主人資料夾的 main 分支。');
     await stop('start-dialog');
@@ -236,13 +237,18 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     await dismissToasts(host);
     await stop('report');
     await reportColumn.getByRole('button', { name: '我已看過' }).click();
+    // The change is in the host's inbox by itself; its row leads to the report, and the report's button shows the
+    // complete diff before the merge.
     await inbox(host, 'merge').filter({ hasText: '已看過，可以合併：1 · 購物車金額' }).locator('.inbox-item__main').click();
-    const changes = column(host, 'changes:');
-    await changes.getByRole('button', { name: '合併到主工作區' }).waitFor({ timeout: STEP_MS });
+    expect(await view(host).locator('[data-column-id^="changes:"]').count()).toBe(0);
     await dismissToasts(host);
+    await reportColumn.getByRole('button', { name: '合併…' }).click();
+    const changes = host.getByRole('dialog', { name: /的變更$/ });
+    await changes.getByRole('button', { name: '合併到主工作區' }).waitFor({ timeout: STEP_MS });
     await stop('changes-to-merge');
     await changes.getByRole('button', { name: '合併到主工作區' }).click();
     await changes.getByRole('button', { name: '確認合併' }).click();
+    await changes.waitFor({ state: 'detached', timeout: STEP_MS });
     await waitUntil(async () => (await readFile(join(env.stack.root, 'src', 'cart', 'total.ts'), 'utf8').catch(() => '')).includes('total'), STEP_MS, "item 1's change in the main workspace");
 
     // ---- The second item reports by itself; reviewed and merged, the topic is complete.
@@ -251,9 +257,12 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     await second.getByRole('button', { name: '我已看過' }).click();
     await host.locator('.ui-toast__title', { hasText: `${TOPIC}：所有項目都看過了，主題已完成。` }).first().waitFor({ timeout: STEP_MS });
     await inbox(host, 'merge').filter({ hasText: '已看過，可以合併：2 · 結帳頁面' }).locator('.inbox-item__main').click();
-    const lastChanges = view(host).locator('[data-column-id^="changes:"]').last();
+    await dismissToasts(host);
+    await second.getByRole('button', { name: '合併…' }).click();
+    const lastChanges = host.getByRole('dialog', { name: /的變更$/ });
     await lastChanges.getByRole('button', { name: '合併到主工作區' }).click();
     await lastChanges.getByRole('button', { name: '確認合併' }).click();
+    await lastChanges.waitFor({ state: 'detached', timeout: STEP_MS });
     await waitUntil(async () => (await readFile(join(env.stack.root, 'src', 'checkout', 'page.ts'), 'utf8').catch(() => '')).includes('page'), STEP_MS, "item 2's change in the main workspace");
     await host.locator('aside.sidebar .topic__phase').getByText('已完成', { exact: true }).waitFor({ timeout: STEP_MS });
     await dismissToasts(host);

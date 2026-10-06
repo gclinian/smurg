@@ -59,7 +59,9 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
           for (const change of event.changes) topics.onFileChanged({ root: event.root, path: change.path });
         }),
       );
-      stack.add(ctx.bus.on('doc.saved', (event) => topics.onFileChanged(event.file)));
+      // Typing in the editor: every save is a hand edit of whoever typed (the feed's entry is one per person and minute).
+      stack.add(ctx.bus.on('doc.human-edit', (event) => topics.onHumanEdit(event)));
+      stack.add(ctx.bus.on('doc.saved', (event) => topics.onDocSaved(event)));
       stack.add(ctx.bus.on('agent.tool.pre', (event) => topics.onToolPre(event)));
 
       // ---- sessions ----

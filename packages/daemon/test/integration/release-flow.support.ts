@@ -6,7 +6,7 @@
 // The people of every flow test: Ian (Host), Mei (Agent access), Amy (Editor), Leo (Viewer). Everything a test asserts
 // it reads from what these four RECEIVE (events, cards, inbox items, the audit log), not from the daemon's internals.
 import { execFile } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { lstat, mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach } from 'vitest';
@@ -292,6 +292,25 @@ export async function startFlow(options: FlowOptions = {}): Promise<Flow> {
       return killed;
     },
   };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// What is on disk (to see that a stopped daemon writes nothing more)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Every file and folder under `dir` with its size and the time it was last written, sorted: equal lists = nothing was written. */
+export async function onDisk(dir: string): Promise<string[]> {
+  const out: string[] = [];
+  const walk = async (path: string): Promise<void> => {
+    for (const name of (await readdir(path)).sort()) {
+      const full = join(path, name);
+      const stat = await lstat(full);
+      out.push(`${full.slice(dir.length)} ${stat.isDirectory() ? 'dir' : stat.size} ${stat.mtimeMs}`);
+      if (stat.isDirectory()) await walk(full);
+    }
+  };
+  await walk(dir);
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

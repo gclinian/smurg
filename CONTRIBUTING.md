@@ -24,6 +24,11 @@ driven by a stand-in for the `claude` command that follows a scripted scenario
 not installed in a verified version, and when it is, they run it only against the repository's fake Anthropic API,
 with a dummy key and an isolated configuration folder.
 
+To try the app by hand, start the local stack with `scripts/dev-stack.sh --stand-in-claude` (README, "Local
+development"): its agent sessions then run the same scripted stand-in. Without that switch a `claude` on your `PATH`
+would run the stack's agent sessions with your own login; the script says so before it starts anything, and refuses
+when it is not run from a terminal.
+
 ## Rules
 
 Read `docs/ARCHITECTURE.md` §0 before you write or run code. In short:

@@ -15,7 +15,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PENDING_ACCEPTANCE_REFS, RELEASE_GATE, isPendingAcceptanceRef } from './pending-v050.ts';
+import { OWNER, PENDING_ACCEPTANCE_REFS, RELEASE_GATE, isPendingAcceptanceRef } from './pending-v050.ts';
 import { read, REPO_ROOT } from './tree.ts';
 
 const DOC = 'docs/ACCEPTANCE.md';
@@ -165,7 +165,7 @@ describe('docs/ACCEPTANCE.md points at tests that exist', () => {
   it('the pending list is well-formed: every entry names its package and why, no entry twice', () => {
     for (const entry of PENDING_ACCEPTANCE_REFS) {
       expect(entry.file).toMatch(/\.test\.tsx?$/);
-      expect(entry.owner).toMatch(/^P(?:[1-9]|1[0-2])$/);
+      expect(entry.owner).toMatch(OWNER);
       expect(entry.why.length).toBeGreaterThan(20);
     }
     const keys = PENDING_ACCEPTANCE_REFS.map((entry) => `${entry.file} › ${entry.title ?? ''}`);

@@ -14,7 +14,7 @@ export const zhTW = {
   'area.conflicts': '衝突',
   'area.worktrees': 'worktree',
   'area.admin': '主人控制台資料',
-  'area.presence': '在線成員',
+  'area.presence': '線上成員',
   'area.workspace': '工作區',
   'area.transfers': '傳輸',
   'session.kind.agent': 'Claude',
@@ -52,7 +52,7 @@ export const zhTW = {
   'column.changes': '變更',
   'column.changesOf': '變更：{branch}',
   'worktree.mine': '我的 worktree',
-  'worktree.of': '{owner}的 worktree',
+  'worktree.of': '{owner} 的 worktree',
   'worktree.named': '{who}（{name}）',
   'worktree.since': '{who}（{time} 建立）',
 } as const;

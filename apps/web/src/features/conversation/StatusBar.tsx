@@ -1,10 +1,15 @@
 // The bar above the composer (UX §4, DESIGN §5.12 item 12): what the session is doing or waiting for, in one line
 // that a screen reader hears (`role="status"`; the conversation itself is silent). It also carries the one action
 // the state calls for: show the open card, try again, continue, write the spec, check the login.
+//
+// Only the sentences are live regions: the state, and beside it the account's state or a refusal. How long the state
+// has lasted stands between them, outside both: it changes every second, and a region that changes every second is
+// read out every second (DESIGN §5.9: the status speaks when the state changes, as streamed text is not read delta by
+// delta).
 import { useState, type ReactNode } from 'react';
 import type { AgentSession } from '@smurg/protocol';
 import { sessionGlyph, statusLabel } from '../../lib/session-status.ts';
-import { formatAge } from '../../lib/format.ts';
+import { formatAge, joinSentences } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectOpenCards } from '../../lib/stores/conversations.ts';
 import { selectAccount } from '../../lib/stores/host.ts';
@@ -41,9 +46,9 @@ export function StatusBar({ session, onShowCard }: StatusBarProps) {
   // Why a work item's session stopped without a report, as its plan knows it (when the plan is loaded): the agent
   // itself, a restart of the host's smurg, a person, an error.
   const stalledBy = useStore(stores.topics, (state) => (session.topicId === undefined || session.itemId === undefined ? undefined : selectPlan(state, session.topicId)?.items.find((item) => item.id === session.itemId)?.stalledBy));
-  const busy = session.status === 'running' || session.status === 'starting';
-  const waiting = session.status === 'waiting-answer' || session.status === 'waiting-permission';
-  const now = useNow(busy ? 1_000 : waiting ? 10_000 : 3_600_000);
+  // An age is shown while the agent runs or waits; under a minute the clock redraws it each second by itself.
+  const aging = session.status === 'running' || session.status === 'waiting-answer' || session.status === 'waiting-permission';
+  const now = useNow(aging ? 30_000 : 3_600_000);
   const action = useAction();
   const [login, setLogin] = useState<AgentSession['login'] | null>(null);
 
@@ -60,23 +65,25 @@ export function StatusBar({ session, onShowCard }: StatusBarProps) {
   };
 
   let text: string;
+  /** Since when the state has lasted, when the bar says how long. */
+  let since: number | undefined;
   let wait = false;
   switch (session.status) {
     case 'starting':
       text = t('status.starting');
       break;
-    case 'running': {
-      const age = formatAge(session.runningSince ?? now, now);
+    case 'running':
       if (session.doing === 'compacting') text = t('status.compacting');
-      else if (writing) text = t('status.writing', { age });
-      else if (thinking) text = t('status.thinking', { age });
-      else text = t('status.working', { age });
+      else {
+        text = t(writing ? 'status.writing' : thinking ? 'status.thinking' : 'status.working');
+        since = session.runningSince;
+      }
       break;
-    }
     case 'waiting-answer':
     case 'waiting-permission':
       wait = true;
-      text = t(session.status === 'waiting-answer' ? 'status.question' : 'status.permission', { age: formatAge(session.waitingSince ?? now, now) });
+      text = t(session.status === 'waiting-answer' ? 'status.question' : 'status.permission');
+      since = session.waitingSince;
       if (openCard !== null) act('show', t('status.show'), () => onShowCard(openCard));
       break;
     case 'idle':
@@ -112,7 +119,10 @@ export function StatusBar({ session, onShowCard }: StatusBarProps) {
       text = t('status.ended');
       break;
   }
-  if (catchingUp) text = t('status.catchingUp');
+  if (catchingUp) {
+    text = t('status.catchingUp');
+    since = undefined;
+  }
 
   // The host's Claude account, when it is why nothing moves.
   const loggedOut = session.status !== 'ended' && ((login ?? session.login) === 'logged-out' || account?.state === 'logged-out');
@@ -134,12 +144,18 @@ export function StatusBar({ session, onShowCard }: StatusBarProps) {
 
   const glyph = sessionGlyph(session);
   return (
-    <div className={cx('conv-status', (wait || accountLine !== null) && 'conv-status--wait')} role="status" data-status={session.status}>
+    // An ended session says so once on screen, in the composer's place ("This session has ended. It takes no more
+    // messages."): the bar is only spoken then, not drawn above the same words.
+    <div className={cx('conv-status', (wait || accountLine !== null) && 'conv-status--wait', session.status === 'ended' && 'ui-visually-hidden')} data-status={session.status}>
       {glyph !== null ? <StatusGlyph status={glyph} label={statusLabel(glyph)} /> : null}
-      <span className="conv-status__text">
-        {text}
-        {accountLine !== null ? ` ${accountLine}` : ''}
-        {action.error !== null ? ` ${t('actionFailed', { message: action.error })}` : ''}
+      <span className="conv-status__line">
+        <span className="conv-status__text" role="status">
+          {text}
+        </span>{' '}
+        {since !== undefined ? <span className="conv-status__age">{t('status.age', { age: formatAge(since, now) })}</span> : null}{' '}
+        <span className="conv-status__more" role="status">
+          {joinSentences([accountLine, action.error === null ? null : t('actionFailed', { message: action.error })])}
+        </span>
       </span>
       {actions}
     </div>

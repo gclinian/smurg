@@ -1,7 +1,14 @@
 // Unsent text of a composer, kept per session in this browser (UX §4: "Unsent text is kept per session in this
 // browser"; replacing a column loses nothing). One store per workspace; the composer of a session reads and writes
 // its entry, and "Send to agent" from the editor puts a quoted selection into it from outside the column.
+//
+// A draft can hold project code (a quoted selection), so it is not a convenience like a pane's width: it must not
+// stay in the browser of someone whose access to the workspace has ended. When the daemon removes the member, revokes
+// this device, or finds the browser logged in as another account, the workspace's drafts are deleted from the storage
+// and nothing more is written (draftsOf watches the connection). `forgetDrafts` is the same deletion for the places
+// that end a member's access themselves.
 import { MESSAGE_TEXT_MAX_CHARS, fileRefSchema, type FileRef } from '@smurg/protocol';
+import type { ConnectionState, WorkspaceConnection } from '../../lib/connection/types.ts';
 import { browserLocalStorage, readJson, writeJson, type PreferenceStorage } from '../../lib/preferences.ts';
 import { createStore, type ReadableStore } from '../../lib/store.ts';
 
@@ -28,6 +35,8 @@ export interface DraftsStore extends ReadableStore<ReadonlyMap<string, Draft>> {
   /** Adds `text` under what is there (a quoted selection) and asks the composer to take the focus. */
   append(sessionId: string, text: string, source: DraftSource | null): void;
   clear(sessionId: string): void;
+  /** The member's access has ended: every draft goes, from the page and from the storage, and none is kept from now on. */
+  forget(): void;
 }
 
 /** Drafts of sessions that no longer matter are not kept forever. */
@@ -59,8 +68,17 @@ function parse(value: unknown): Map<string, Draft> {
   return drafts;
 }
 
+/** Deletes what this browser kept of a workspace's unsent texts. */
+export function forgetDrafts(workspaceId: string, storage: PreferenceStorage | null = browserLocalStorage()): void {
+  try {
+    storage?.removeItem(storageKey(workspaceId));
+  } catch {
+    // a blocked storage kept nothing
+  }
+}
+
 export function createDraftsStore(workspaceId: string | null, storage: PreferenceStorage | null = browserLocalStorage()): DraftsStore {
-  const key = workspaceId === null ? null : storageKey(workspaceId);
+  let key = workspaceId === null ? null : storageKey(workspaceId);
   const state = createStore<ReadonlyMap<string, Draft>>(key === null ? new Map() : parse(readJson(storage, key)));
   const save = (drafts: ReadonlyMap<string, Draft>): void => {
     if (key === null) return;
@@ -99,17 +117,52 @@ export function createDraftsStore(workspaceId: string | null, storage: Preferenc
     clear(sessionId) {
       put(sessionId, (draft) => (draft.text === '' && draft.source === null ? draft : { text: '', source: null, focusToken: draft.focusToken }));
     },
+    forget() {
+      if (workspaceId !== null) forgetDrafts(workspaceId, storage);
+      // From here on the store is the page's only: what is typed while the page still shows is not written anywhere.
+      key = null;
+      if (state.getState().size > 0) state.setState(new Map());
+    },
   };
+}
+
+/**
+ * Whether the connection says that this person's access to the workspace, from this browser, is over: the daemon
+ * removed the member or revoked the device (while connected, or as its answer to the next attempt), or the device
+ * belongs to another account than the one logged in now. A closed page, a host that is away, an expired login or an
+ * outdated client end nothing.
+ */
+function accessEnded(state: ConnectionState): boolean {
+  if (state.kind === 'closed') return state.reason === 'kicked' || state.reason === 'revoked';
+  if (state.kind === 'rejected') return state.reason === 'kicked' || state.reason === 'device-revoked' || state.reason === 'device-other-account';
+  return false;
+}
+
+/** What drafts need of a workspace session: its connection's state. */
+export interface DraftsOwner {
+  readonly connection: Pick<WorkspaceConnection, 'getState' | 'subscribe'>;
 }
 
 const stores = new WeakMap<object, DraftsStore>();
 
-/** The drafts of one workspace session (created on first use; gone with the session object). */
-export function draftsOf(owner: object, workspaceId: string | null): DraftsStore {
+/**
+ * The drafts of one workspace session (created on first use; gone with the session object). They are forgotten the
+ * moment the session's connection says the member's access has ended.
+ */
+export function draftsOf(owner: DraftsOwner, workspaceId: string | null): DraftsStore {
   let store = stores.get(owner);
   if (store === undefined) {
-    store = createDraftsStore(workspaceId);
-    stores.set(owner, store);
+    const created = createDraftsStore(workspaceId);
+    store = created;
+    stores.set(owner, created);
+    if (accessEnded(owner.connection.getState())) created.forget();
+    else {
+      const stop = owner.connection.subscribe((state) => {
+        if (!accessEnded(state)) return;
+        stop();
+        created.forget();
+      });
+    }
   }
   return store;
 }

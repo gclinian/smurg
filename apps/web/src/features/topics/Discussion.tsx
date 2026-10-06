@@ -1,12 +1,12 @@
 // What the spec and plan columns say and do about the topic's discussion session: the status line at the foot of
-// the spec column ("Claude is working · 20 seconds", "Claude asks a question · Open the discussion"), the box that
+// the spec column ("Claude is working · 20 sec", "Claude asks a question · Open the discussion"), the box that
 // sends "Ask the agent to revise" there, and "Restart discussion" when the discussion is lost (DESIGN §3.9, §5.4).
 import { QUOTE_HEADING_MAX_CHARS, QUOTE_TEXT_MAX_CHARS, isSmurgError, type AgentSession, type Topic } from '@smurg/protocol';
-import { useEffect, useState } from 'react';
-import { formatDuration } from '../../lib/format.ts';
+import { formatAge } from '../../lib/format.ts';
 import { sessionGlyph, statusLabel } from '../../lib/session-status.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectSession } from '../../lib/stores/sessions.ts';
+import { useNow } from '../../lib/use-now.ts';
 import { useCan, useStores } from '../../lib/workspace/context.tsx';
 import { Button, StatusGlyph } from '../../ui/index.ts';
 import { IconRefresh } from '../../ui/icons.tsx';
@@ -21,18 +21,6 @@ export function useDiscussion(topic: Pick<Topic, 'discussionSessionId'>): AgentS
   const id = topic.discussionSessionId;
   const session = useStore(useStores().sessions, (state) => (id === undefined ? undefined : selectSession(state, id)));
   return session?.kind === 'agent' ? session : undefined;
-}
-
-/** The current time, every second while `enabled` ("Claude is working · 20 seconds"). */
-function useTicking(enabled: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!enabled) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(timer);
-  }, [enabled]);
-  return now;
 }
 
 /** "Restart discussion": asks first (the dialog says what a new discussion keeps and what it does not know). */
@@ -51,7 +39,8 @@ export function DiscussionFoot({ topic }: { topic: Topic }) {
   const session = useDiscussion(topic);
   const openSide = useOpenSide();
   const working = session !== undefined && (session.status === 'running' || session.status === 'starting');
-  const now = useTicking(working);
+  // "Claude is working · 20 sec": the age the session's own status bar shows, on the same clock.
+  const now = useNow(30_000, working);
 
   if (topic.archived) return <Foot className="topics-foot--status" text={t('archived.note')} />;
   if (topic.discussion === 'lost' || session === undefined || session.status === 'ended') {
@@ -68,7 +57,7 @@ export function DiscussionFoot({ topic }: { topic: Topic }) {
       : working
         ? session.runningSince === undefined
           ? t('discussion.working')
-          : t('discussion.workingFor', { time: formatDuration(Math.max(0, now - session.runningSince) / 1000) })
+          : t('discussion.workingFor', { time: formatAge(session.runningSince, now) })
         : session.status === 'waiting-answer'
           ? t('discussion.question')
           : session.status === 'waiting-permission'

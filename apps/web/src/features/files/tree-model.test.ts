@@ -1,8 +1,10 @@
 import { MAIN_ROOT, rootRefKey, type FileEntry, type LockInfo } from '@smurg/protocol';
 import { describe, expect, it } from 'vitest';
 import type { DirListing, FilesState } from '../../lib/stores/files.ts';
-import { HOST_USER, T0, makeAgentLock, makeEntry, makeHumanLock } from '../../testing/fixtures.ts';
-import { RECENT_CHANGE_MS, ancestorsOf, checkNewName, entryBadges, flattenTree, isEntryWritable, targetDirOf } from './tree-model.ts';
+import { HOST_USER, T0, makeAgentLock, makeEntry, makeHumanLock, makeMember } from '../../testing/fixtures.ts';
+import { INITIAL_LOCKS_STATE } from '../../lib/stores/locks.ts';
+import { INITIAL_PRESENCE_STATE } from '../../lib/stores/presence.ts';
+import { RECENT_CHANGE_MS, ancestorsOf, checkNewName, entryBadges, flattenTree, isEntryWritable, peopleUsing, targetDirOf } from './tree-model.ts';
 
 function listing(path: string, entries: FileEntry[], overrides: Partial<DirListing> = {}): DirListing {
   return { root: MAIN_ROOT, path, status: 'ready', entries, truncated: false, error: null, ...overrides };
@@ -180,5 +182,33 @@ describe('checkNewName: validation as you type (the daemon validates again)', ()
     expect(checkNewName('.claude', 'src', [], guest)).toMatchObject({ ok: false, message: 'Only the host can create or change a file with this name' });
     expect(checkNewName('.mcp.json', '', [], guest)).toMatchObject({ ok: false });
     expect(checkNewName('.mcp.json', '', [], { isHost: true })).toEqual({ ok: true, path: '.mcp.json' });
+  });
+});
+
+describe('peopleUsing: who a delete confirmation names', () => {
+  const at = (path: string) => ({ root: MAIN_ROOT, path });
+  const agent = (sessionId: string, name: string, status: 'running' | 'waiting-permission' | 'idle' | 'done' | 'stalled', path: string) => ({ sessionId, ownerUserId: HOST_USER, displayName: name, color: '#22c55e', status, activeFile: at(path) });
+
+  it('names the others who have the file open and the agents at work on it, not an agent whose last file it was', () => {
+    const presence = {
+      ...INITIAL_PRESENCE_STATE,
+      received: true,
+      members: [
+        { ...makeMember({ userId: 'dev:mei', displayName: 'Mei' }), connections: 1, activeFile: at('src/cart.ts') },
+        { ...makeMember({ userId: 'dev:amy', displayName: 'Amy' }), connections: 1, activeFile: at('src/cart.ts') },
+      ],
+      agents: [
+        agent('s_run', 'Claude (Ian)', 'running', 'src/cart.ts'),
+        agent('s_wait', 'Claude (Mei)', 'waiting-permission', 'src/cart.ts'),
+        // The presence list keeps an agent's last file while its session lives: these three work on nothing now.
+        agent('s_idle', 'Claude (Leo)', 'idle', 'src/cart.ts'),
+        agent('s_done', 'Claude (Amy)', 'done', 'src/cart.ts'),
+        agent('s_stalled', 'Claude (Bob)', 'stalled', 'src/cart.ts'),
+      ],
+    };
+    expect(peopleUsing(presence, INITIAL_LOCKS_STATE, MAIN_ROOT, 'src/cart.ts', 'dev:amy')).toEqual(['Mei', 'Claude (Ian)', 'Claude (Mei)']);
+    // A folder: anything below it.
+    expect(peopleUsing(presence, INITIAL_LOCKS_STATE, MAIN_ROOT, 'src', 'dev:amy')).toEqual(['Mei', 'Claude (Ian)', 'Claude (Mei)']);
+    expect(peopleUsing(presence, INITIAL_LOCKS_STATE, MAIN_ROOT, 'docs', 'dev:amy')).toEqual([]);
   });
 });

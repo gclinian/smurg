@@ -86,7 +86,7 @@ const QUOTES: readonly Quote[] = [
         inviteUrl: INVITE_URL,
       }),
   },
-  cliQuote('host.update.notice', { latest: '0.4.1', current: '0.4.0' }, ['HOSTING']),
+  cliQuote('host.update.notice', { latest: '0.5.1', current: '0.5.0' }, ['HOSTING']),
   {
     what: 'CLI host.keepAwake.notice with power.off.refused',
     guides: ['HOSTING'],
@@ -123,25 +123,125 @@ const QUOTES: readonly Quote[] = [
   webQuote('conn.pill.roleChanged', ['JOINING']),
   webQuote('editor.lock.release', ['JOINING']),
   webQuote('agents.terminal.watchOnly', ['JOINING']),
-  webQuote('suggest.queue.accept', ['JOINING']),
-  webQuote('suggest.queue.editAccept', ['JOINING']),
-  webQuote('suggest.queue.reject', ['JOINING']),
+  webQuote('conversation.sug.accept', ['JOINING']),
+  webQuote('conversation.sug.editAccept', ['JOINING']),
+  webQuote('conversation.sug.reject', ['JOINING']),
+  webQuote('conversation.sug.reaches', ['JOINING']),
   webQuote('activity.actor.system', ['JOINING']),
+  // ---- the topics flow (0.5.0): the sessions view, the cards, the plan and the report (JOINING)
+  webQuote('workbench.mode.sessions', ['JOINING']),
+  webQuote('workbench.mode.code', ['JOINING']),
+  webQuote('sidebar.inbox.group.waiting', ['JOINING']),
+  webQuote('sidebar.inbox.group.look', ['JOINING']),
+  webQuote('sidebar.inbox.empty.viewer', ['JOINING']),
+  webQuote('columns.refused', ['JOINING']),
+  webQuote('conversation.q.title', ['JOINING']),
+  webQuote('conversation.q.comment.note', ['JOINING']),
+  webQuote('conversation.q.tie', ['JOINING']),
+  webQuote('conversation.q.remind', ['JOINING']),
+  webQuote('conversation.perm.title.command', ['JOINING']),
+  webQuote('conversation.perm.allow', ['HOSTING', 'JOINING']),
+  webQuote('conversation.perm.always', ['HOSTING', 'JOINING']),
+  webQuote('conversation.perm.scope.session', ['HOSTING', 'JOINING']),
+  webQuote('conversation.perm.scope.topic', ['HOSTING', 'JOINING']),
+  webQuote('conversation.perm.hostOnly', ['HOSTING', 'JOINING']),
+  webQuote('conversation.mode.fixed', ['HOSTING', 'JOINING']),
+  webQuote('conversation.status.fresh', ['HOSTING', 'JOINING']),
+  webQuote('conversation.status.spec', ['JOINING']),
+  webQuote('topics.new.submit', ['JOINING']),
+  webQuote('topics.revise.open', ['JOINING']),
+  webQuote('topics.plan.generate', ['JOINING']),
+  webQuote('topics.assign.mode.everyone', ['JOINING']),
+  webQuote('topics.followUp.label', ['JOINING']),
+  webQuote('topics.review.action', ['JOINING']),
+  webQuote('topics.item.resolve', ['JOINING']),
+  webQuote('topics.review.request', ['JOINING']),
+  webQuote('topics.report.closed', ['JOINING']),
+  webQuote('worktree.active.requestMerge', ['JOINING']),
+  webQuote('conversation.q.settled.show', ['JOINING']),
+  webQuote('conversation.status.idle', ['JOINING']),
+  webQuote('sidebar.restart.continue', ['HOSTING', 'JOINING']),
+  { what: 'wire permissionMode.askCommands', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'permissionMode.askCommands') },
+  { what: 'wire attention.itemStalled', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'attention.itemStalled') },
+  // ---- what a host must be told (HOSTING §4, §5, §7, §8): whose Claude account, the host's own rules, project settings
+  // Owner decision Q6: the host guide says plainly that a personal subscription is for the host's own use, in the
+  // words of the console's security note, and quotes the one-time notice.
+  webQuote('console.security.account', ['HOSTING']),
+  { what: 'wire notice.personalSubscription', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.personalSubscription') },
+  // The one review of a folder's Claude Code project settings (the console's; also inside the New topic dialog).
+  webQuote('console.claudeConfig.choice.title', ['HOSTING']),
+  webQuote('console.claudeConfig.choice.ignore', ['HOSTING']),
+  webQuote('console.hostRules.title', ['HOSTING']),
+  cliQuote('status.hostRules', { count: 0 }, ['HOSTING']),
+  webQuote('console.audit.action.agent.command', ['HOSTING']),
+  webQuote('console.settings.maxLiveAgents', ['HOSTING']),
+  webQuote('topics.badge.planChanged', ['HOSTING']),
+  { what: 'wire attention.hostRules', guides: ['HOSTING'], render: (locale) => wire(locale, 'attention.hostRules') },
+  {
+    what: 'wire hostRules.found',
+    guides: ['HOSTING'],
+    render: (locale) => wire(locale, 'hostRules.found', { count: 3 }),
+    part: { en: 'Agents here run them without asking too.', 'zh-TW': '這裡的 agent 也會直接執行' },
+  },
+  { what: 'wire attention.projectSettings', guides: ['HOSTING'], render: (locale) => wire(locale, 'attention.projectSettings') },
+  { what: 'wire session.projectSettings.untrusted', guides: ['HOSTING'], render: (locale) => wire(locale, 'session.projectSettings.untrusted') },
+  { what: 'wire session.projectSettings.changed', guides: ['HOSTING'], render: (locale) => wire(locale, 'session.projectSettings.changed') },
+  { what: 'wire session.claude.notLoggedIn', guides: ['HOSTING'], render: (locale) => wire(locale, 'session.claude.notLoggedIn') },
+  { what: 'wire notice.rateLimit', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.rateLimit') },
+  { what: 'wire plan.start.noGit', guides: ['HOSTING'], render: (locale) => wire(locale, 'plan.start.noGit') },
+  { what: 'wire notice.unattended', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.unattended') },
+  { what: 'wire conversation.redacted', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.redacted') },
+  { what: 'wire conversation.owner.handover', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.owner.handover', { name: 'Amy' }) },
+  cliQuote('host.agentsPaused', { count: 3 }, ['HOSTING']),
+  cliQuote('status.claude.notChecked', undefined, ['HOSTING']),
+  cliQuote('attach.agents.heading', undefined, ['JOINING']),
   // ---- the activity feed's sentences (the wire catalog)
   { what: 'wire activity.agentBashChange', guides: ['HOSTING'], render: (locale) => wire(locale, 'activity.agentBashChange', { agent: 'Claude (Amy)', path: 'src/app.ts', change: 'change' }) },
 ];
 
 /** The sentences of the activity feed in the product page's picture of the app. */
 const PICTURE_QUOTES: readonly { what: string; render(locale: Locale, web: WebCatalogue): string }[] = [
-  { what: 'wire activity.agentEdit', render: (locale) => wire(locale, 'activity.agentEdit', { agent: 'Claude (Amy)', path: 'tests/login.test.ts', tool: 'Edit' }) },
-  { what: 'wire activity.fileUpload', render: (locale) => wire(locale, 'activity.fileUpload', { path: 'data/fixtures.json' }) },
-  { what: 'wire activity.agentBashChange', render: (locale) => wire(locale, 'activity.agentBashChange', { agent: 'Claude (Ian)', path: 'package.json', change: 'change' }) },
-  { what: 'web activity.via.shell', render: (locale, web) => web.text(locale, 'activity.via.shell') },
-  { what: 'web worktree.switcherLabel', render: (locale, web) => web.text(locale, 'worktree.switcherLabel') },
-  { what: 'web agents.action.new', render: (locale, web) => web.text(locale, 'agents.action.new') },
   { what: 'web workbench.topbar.console', render: (locale, web) => web.text(locale, 'workbench.topbar.console') },
+  { what: 'web workbench.mode.sessions', render: (locale, web) => web.text(locale, 'workbench.mode.sessions') },
+  { what: 'web workbench.mode.code', render: (locale, web) => web.text(locale, 'workbench.mode.code') },
+  { what: 'web workbench.topbar.host', render: (locale, web) => web.text(locale, 'workbench.topbar.host', { name: 'Ian' }) },
   { what: 'web conn.pill.online', render: (locale, web) => web.text(locale, 'conn.pill.online') },
+  { what: 'web sidebar.inbox.title', render: (locale, web) => web.text(locale, 'sidebar.inbox.title') },
+  { what: 'web sidebar.inbox.group.waiting', render: (locale, web) => web.text(locale, 'sidebar.inbox.group.waiting') },
+  { what: 'web sidebar.inbox.group.look', render: (locale, web) => web.text(locale, 'sidebar.inbox.group.look') },
+  { what: 'web sidebar.group.free', render: (locale, web) => web.text(locale, 'sidebar.group.free') },
+  { what: 'web sidebar.sessions.filter.waiting', render: (locale, web) => web.text(locale, 'sidebar.sessions.filter.waiting') },
+  { what: 'wire session.title.discussion', render: (locale) => wire(locale, 'session.title.discussion') },
+  { what: 'wire session.title.terminal', render: (locale) => wire(locale, 'session.title.terminal', { owner: 'Ian' }) },
+  { what: 'wire role.editor', render: (locale) => wire(locale, 'role.editor') },
+  { what: 'web stores.phase.executing', render: (locale, web) => web.text(locale, 'stores.phase.executing') },
+  { what: 'web conversation.responsible.nobody', render: (locale, web) => web.text(locale, 'conversation.responsible.nobody') },
+  { what: 'web conversation.mode.fixed', render: (locale, web) => web.text(locale, 'conversation.mode.fixed') },
+  { what: 'web conversation.message.suggestion', render: (locale, web) => web.text(locale, 'conversation.message.suggestion', { name: 'Ian' }) },
+  { what: 'web conversation.q.title', render: (locale, web) => web.text(locale, 'conversation.q.title') },
+  { what: 'web conversation.q.leading', render: (locale, web) => web.text(locale, 'conversation.q.leading') },
+  { what: 'web conversation.q.comment.note', render: (locale, web) => web.text(locale, 'conversation.q.comment.note') },
+  { what: 'web conversation.q.decide.opener', render: (locale, web) => web.text(locale, 'conversation.q.decide.opener') },
+  { what: 'web conversation.q.submit', render: (locale, web) => web.text(locale, 'conversation.q.submit', { count: 1 }) },
+  { what: 'web topics.assign.heading', render: (locale, web) => web.text(locale, 'topics.assign.heading') },
+  { what: 'web topics.assign.mode.assigned', render: (locale, web) => web.text(locale, 'topics.assign.mode.assigned') },
+  { what: 'web topics.assign.mode.everyone', render: (locale, web) => web.text(locale, 'topics.assign.mode.everyone') },
+  { what: 'web topics.rules.label', render: (locale, web) => web.text(locale, 'topics.rules.label') },
+  { what: 'web topics.badge.report', render: (locale, web) => web.text(locale, 'topics.badge.report') },
+  { what: 'web topics.badge.permission', render: (locale, web) => web.text(locale, 'topics.badge.permission') },
   { what: 'wire role.host', render: (locale) => wire(locale, 'role.host') },
+  { what: 'web topics.summary.reviewed', render: (locale, web) => web.text(locale, 'topics.summary.reviewed', { reviewed: 0, total: 3 }) },
+  { what: 'web topics.summary.toReview', render: (locale, web) => web.text(locale, 'topics.summary.toReview', { count: 1 }) },
+  { what: 'web topics.summary.waitPerson', render: (locale, web) => web.text(locale, 'topics.summary.waitPerson', { count: 1 }) },
+  { what: 'web topics.summary.notStarted', render: (locale, web) => web.text(locale, 'topics.summary.notStarted', { count: 1 }) },
+  { what: 'web topics.report.section.done', render: (locale, web) => web.text(locale, 'topics.report.section.done') },
+  { what: 'web topics.report.section.why', render: (locale, web) => web.text(locale, 'topics.report.section.why') },
+  { what: 'web topics.report.section.verified', render: (locale, web) => web.text(locale, 'topics.report.section.verified') },
+  { what: 'web topics.report.section.watchOut', render: (locale, web) => web.text(locale, 'topics.report.section.watchOut') },
+  { what: 'web topics.report.section.changes', render: (locale, web) => web.text(locale, 'topics.report.section.changes') },
+  { what: 'web topics.followUp.label', render: (locale, web) => web.text(locale, 'topics.followUp.label') },
+  { what: 'web topics.review.action', render: (locale, web) => web.text(locale, 'topics.review.action') },
+  { what: 'wire report.outcome.complete', render: (locale) => wire(locale, 'report.outcome.complete') },
 ];
 
 /**
@@ -211,7 +311,7 @@ function corpus(locale: Locale): string {
 
 /** Sample values the guides put where a catalog has a placeholder: a quote is compared piece by piece around them. */
 const SAMPLE_VALUES =
-  /Claude \((?:Amy|Ian)\)|<your name>|<你的名字>|Amy, Ben|Amy、Ben|\bAmy\b|\bBen\b|\bIan\b|src\/app\.ts|tests\/login\.test\.ts|package\.json|data\/fixtures\.json|my-app|0\.4\.[01]|WDJB-MJHT|https:\/\/\S+|ws_…#k=…&s=…|…|\.\.\./g;
+  /Claude \((?:Amy|Ian)\)|<your name>|<你的名字>|Amy, Ben|Amy、Ben|\bAmy\b|\bBen\b|\bIan\b|src\/app\.ts|tests\/login\.test\.ts|package\.json|data\/fixtures\.json|my-app|0\.5\.[01]|WDJB-MJHT|https:\/\/\S+|ws_…#k=…&s=…|…|\.\.\./g;
 
 function pieces(quote: string, minLength: number): string[] {
   return quote
@@ -240,17 +340,21 @@ function quotedTexts(path: string, locale: Locale): string[] {
   return [...new Set(out.map((quote) => quote.replace(/\s*\n\s*/g, locale === 'en' ? ' ' : '')))];
 }
 
-/** The labels of the product page's picture of the app (`.m-app`), without its file names, code and terminal lines. */
+/**
+ * The labels of the product page's picture of the app (`.m-app`), without what a person or an agent wrote there (the
+ * elements marked `m-said`: a topic's name, a question, a message, a report's sentences, file names) and without
+ * commands (`pre.m-term`).
+ */
 function pictureLabels(path: string): string[] {
   const html = read(path);
   const picture = /<div class="m-app">([\s\S]*?)<figcaption>/.exec(html)?.[1] ?? '';
   const labels = picture
-    .replace(/<pre class="m-(?:code|term)">[\s\S]*?<\/pre>/g, '')
-    .replace(/<ul class="m-tree">[\s\S]*?<\/ul>/g, (tree) => [...tree.matchAll(/<span class="m-tag[^"]*">([^<]*)<\/span>/g)].map((tag) => tag[1]).join('|'))
+    .replace(/<pre class="m-term">[\s\S]*?<\/pre>/g, '|')
+    .replace(/<(\w+) class="(?:[^"]* )?m-said(?: [^"]*)?">[^<]*<\/\1>/g, '|')
     .replace(/<i class="(?:av|m-count)[^"]*">[\s\S]*?<\/i>/g, '|')
     .split(/<[^>]+>|\|/)
     .map((label) => label.replace(/^[+＋]\s*/, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim())
-    .filter((label) => label.length > 1 && !['smurg', 'login.ts', 'app.ts', 'TypeScript', 'my-app', 'IA', 'AM', 'BE'].includes(label) && !label.startsWith('app.smurg.ai'));
+    .filter((label) => label.length > 1 && !['smurg', 'my-app'].includes(label) && !label.startsWith('app.smurg.ai'));
   return [...new Set(labels)];
 }
 
@@ -269,9 +373,6 @@ const NOT_UI_TEXT: Readonly<Record<string, readonly string[]>> = {
   ],
   'docs/JOINING.md': [
     'Should you check the key fingerprint?', // a heading of this guide
-    ' under the session and can ', // between two quotes
-    ' (see §7), and choose ', // between two quotes
-    ' and lets you choose ', // between two quotes
   ],
   'docs/zh-TW/HOSTING.md': [
     '主人還在嗎', // prose
@@ -282,17 +383,7 @@ const NOT_UI_TEXT: Readonly<Record<string, readonly string[]>> = {
     'Claude (Amy) 透過 shell 指令修改了 src/app.ts', // rendered with a verb: in the forward list
   ],
   'docs/zh-TW/JOINING.md': [
-    'Not logged in', // Claude Code's own words
     '要不要核對金鑰指紋', // a heading of this guide
-  ],
-  'apps/site/public/index.html': [
-    'Viewing: Main workspace', // a label and the chosen option of the switcher, joined by the picture
-    '3 minutes ago', // written by Intl.RelativeTimeFormat, not by a catalog
-  ],
-  'apps/site/public/zh-TW/index.html': [
-    '檢視的工作區：主工作區', // a label and the chosen option of the switcher, joined by the picture
-    '3 分鐘前', // written by Intl.RelativeTimeFormat, not by a catalog
-    'Claude (Ian) 透過 shell 指令修改了 package.json', // rendered with a verb: in the forward list
   ],
 };
 

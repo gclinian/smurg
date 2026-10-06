@@ -12,6 +12,7 @@ import type { MergeRequest } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
 import { formatRelativeTime } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
+import { useNow } from '../../lib/use-now.ts';
 import { useCan, useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
 import { Badge, Banner, Button, Dialog, Input, Spinner, useToast } from '../../ui/index.ts';
@@ -273,6 +274,7 @@ function MergeReview({ requestId, onClose, frame }: { requestId: string; onClose
 }
 
 function ReviewHeader({ request, branch, files, additions, deletions }: { request: MergeRequest; branch: string | null; files: number | null; additions: number; deletions: number }) {
+  const now = useNow();
   return (
     <div className="worktree-review__meta">
       <p className="worktree-review__summary">
@@ -283,7 +285,7 @@ function ReviewHeader({ request, branch, files, additions, deletions }: { reques
             : t('review.summary', { branch, commit: shortCommit(request.commit), files: files === null ? t('review.fileCountUnknown') : t('review.fileCount', { count: files }) })}
         </span>
         {files !== null ? <span className="worktree-review__counts">{t('review.counts', { additions: t('review.linesAdded', { count: additions }), deletions: t('review.linesDeleted', { count: deletions }) })}</span> : null}
-        <span className="worktree-review__time">{t('item.requestedAt', { time: formatRelativeTime(request.createdAt) })}</span>
+        <span className="worktree-review__time">{t('item.requestedAt', { time: formatRelativeTime(request.createdAt, now) })}</span>
       </p>
       {request.message ? (
         <div className="worktree-review__message">

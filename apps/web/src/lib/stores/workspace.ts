@@ -21,9 +21,19 @@ export interface WorkspaceState {
   readonly resumed: boolean | null;
   /** The latest role change, for the "Your role is now ..." notice. */
   readonly roleChange: RoleChange | null;
-  /** `Welcome.serverTime − Date.now()` at the latest admission (display only). */
+  /**
+   * How far the host's clock is ahead of this browser's: `Welcome.serverTime − Date.now()` at the latest admission, 0
+   * while the two agree within CLOCK_SKEW_IGNORED_MS. `useNow` (lib/use-now.ts) adds it, so that an age is counted on
+   * the clock that stamped its start.
+   */
   readonly clockSkewMs: number;
 }
+
+/**
+ * A difference smaller than this is the Welcome's time on the way (relay, a slow link), not a clock that is wrong:
+ * correcting by it would only make ages a little too short.
+ */
+export const CLOCK_SKEW_IGNORED_MS = 2_000;
 
 export interface WorkspaceStore extends ReadableStore<WorkspaceState> {
   /**
@@ -51,6 +61,7 @@ export const selectUserId = (state: WorkspaceState): string | null => state.memb
 export const selectWorkspaceInfo = (state: WorkspaceState): WorkspaceInfo | null => state.workspace;
 export const selectSettings = (state: WorkspaceState): PublicSettings | null => state.settings;
 export const selectIsHost = (state: WorkspaceState): boolean => state.member?.role === 'host';
+export const selectClockSkew = (state: WorkspaceState): number => state.clockSkewMs;
 
 /** Internal half used by createWorkspaceStores. */
 export interface WorkspaceArea {
@@ -65,6 +76,7 @@ export function createWorkspaceArea(conn: WorkspaceConnection): WorkspaceArea {
 
   const roleChangeOf = (previous: Member | null, next: Member, at: number): RoleChange | null =>
     previous !== null && previous.role !== next.role ? { from: previous.role, to: next.role, at } : null;
+  const clockSkewOf = (serverTime: number, now: number): number => (Math.abs(serverTime - now) < CLOCK_SKEW_IGNORED_MS ? 0 : serverTime - now);
 
   return {
     store: {
@@ -82,7 +94,7 @@ export function createWorkspaceArea(conn: WorkspaceConnection): WorkspaceArea {
         generation: resumed ? previous.generation : previous.generation + 1,
         resumed,
         roleChange: change ?? previous.roleChange,
-        clockSkewMs: welcome.serverTime - now,
+        clockSkewMs: clockSkewOf(welcome.serverTime, now),
       });
       return change;
     },

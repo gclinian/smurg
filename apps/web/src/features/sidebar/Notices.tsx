@@ -11,7 +11,7 @@ import { formatTime } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectAccount } from '../../lib/stores/host.ts';
 import { selectPausedTopics } from '../../lib/stores/topics.ts';
-import { selectUserId } from '../../lib/stores/workspace.ts';
+import { selectClockSkew, selectUserId } from '../../lib/stores/workspace.ts';
 import { useCan, useStores } from '../../lib/workspace/context.tsx';
 import { Banner, Button, useToast } from '../../ui/index.ts';
 import { useOpenInboxItem } from './InboxList.tsx';
@@ -104,7 +104,8 @@ export function InboxNotices({ sessionsShown }: InboxNoticesProps) {
           topics: stores.topics.getState(),
           selfUserId: selectUserId(stores.workspace.getState()),
           account: selectAccount(stores.host.getState()),
-          now: Date.now(),
+          // The host's clock, as the rows of the inbox count (lib/use-now.ts).
+          now: Date.now() + selectClockSkew(stores.workspace.getState()),
           stores: { topics: stores.topics, sessions: stores.sessions },
         };
         return describeInboxItem(item, ctx);

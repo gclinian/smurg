@@ -76,6 +76,13 @@ export function explainFailures(env: () => Pick<SmokeEnv, 'diagnostics'> | undef
 export type SmokeLocale = 'en-US' | 'zh-TW';
 export const DEFAULT_SMOKE_LOCALE: SmokeLocale = 'en-US';
 
+/**
+ * The colour scheme the test browser reports to the page. The app is dark by default and light where the system
+ * prefers light, which is what headless Chrome says; `SMURG_SMOKE_SCHEME=dark` runs the same smokes (and takes their
+ * pictures, with SMURG_SMOKE_SHOTS) in the dark theme.
+ */
+export const SMOKE_COLOR_SCHEME: 'light' | 'dark' = process.env['SMURG_SMOKE_SCHEME'] === 'dark' ? 'dark' : 'light';
+
 /** The labels the helpers click and wait for, in the language of the page (the app's catalogues are the source). */
 const WORDS = {
   'en-US': {
@@ -168,7 +175,7 @@ export async function launchPages(): Promise<SmokePages> {
     allProblems,
     async newPage(size = {}) {
       const locale = size.locale ?? DEFAULT_SMOKE_LOCALE;
-      const context = await browser.newContext({ locale, viewport: { width: size.width ?? 1440, height: size.height ?? 900 } });
+      const context = await browser.newContext({ locale, viewport: { width: size.width ?? 1440, height: size.height ?? 900 }, colorScheme: SMOKE_COLOR_SCHEME });
       contexts.push(context);
       const page = await context.newPage();
       pageLocales.set(page, locale);

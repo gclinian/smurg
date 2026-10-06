@@ -30,6 +30,11 @@ export interface ColumnsProps {
   moreLabel(count: number, side: 'left' | 'right'): string;
   /** Bring this column into view; a new `token` asks again for the same column. */
   reveal?: { readonly id: string; readonly token: number } | null;
+  /**
+   * The column the person is at (the focused one). It is in view when the strip is first laid out: a view that comes
+   * back (a reload, a restored tab, a strip whose mode was hidden until now) has no request that says so.
+   */
+  current?: string | null;
   /** No column is narrower than this (default 320 px). */
   minWidth?: number;
   /** Shown instead of the strip while there is no column. */
@@ -54,7 +59,7 @@ interface ActiveDrag {
  * Where the strip cannot be measured (not laid out yet, a test without a layout engine) the columns share it by
  * their weights through CSS alone and every column counts as on screen.
  */
-export function Columns({ columns, onWeights, onEqualize, onCapacity, onVisible, separatorLabel, moreLabel, reveal, minWidth = COLUMN_MIN_PX, empty, className, id }: ColumnsProps) {
+export function Columns({ columns, onWeights, onEqualize, onCapacity, onVisible, separatorLabel, moreLabel, reveal, current, minWidth = COLUMN_MIN_PX, empty, className, id }: ColumnsProps) {
   const strip = useRef<HTMLDivElement>(null);
   const [available, setAvailable] = useState<number | null>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -134,6 +139,17 @@ export function Columns({ columns, onWeights, onEqualize, onCapacity, onVisible,
     if (index !== -1 && view.visible[index] === false) scrollToColumn(index);
     // Only when asked: a scroll by hand must not be undone by the next render.
   }, [revealToken, revealId]);
+
+  // A strip that is measured for the first time starts at its left edge, and a request made before that found
+  // nothing to scroll: the current column comes into view then, once. Afterwards only a request scrolls.
+  const measured = view !== null;
+  const placed = useRef(false);
+  useLayoutEffect(() => {
+    if (!measured || placed.current) return;
+    placed.current = true;
+    const index = columns.findIndex((column) => column.id === current);
+    if (index !== -1 && view?.visible[index] === false) scrollToColumn(index);
+  }, [measured]);
 
   /** The widths the drag last put on screen (state may still be pending when the drag ends). */
   const dragged = useRef<readonly number[] | null>(null);

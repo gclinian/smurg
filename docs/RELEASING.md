@@ -468,8 +468,17 @@ every tool and obeys its refusal, on a host whose own settings allow everything;
 its topic's two files; that commands ask and "always allow" holds; that the host's private files stay out of reach
 of the search and read tools; that project settings nobody confirmed are not loaded; that a conversation is resumed
 after its process ended (`docs/ACCEPTANCE.md`: T2.1, T4.2, S4, S5, S8, S10, S16, S22, R8.1). The built app's one
-pass with real Claude Code in system Chrome (`flow.claude.smoke` of the web-smoke project: discussion, question,
-spec, plan, one work item, its report) belongs to this step too and takes its binary from the same variable.
+pass with real Claude Code in system Chrome belongs to this step too and takes its binary from the same variable
+(`flow.claude.smoke` of the web-smoke project: a session without a topic, its first message, a tool, a command that
+a member with agent access allows and that really runs, a question and its answer). It runs only when the variable
+is set; unlike the daemon's suite it never looks for a `claude` on `PATH`:
+
+```sh
+SMURG_TEST_CLAUDE_BIN=/absolute/path/to/claude-2.1.288 pnpm exec vitest run --project @smurg/web-smoke flow.claude
+```
+
+Both were run on macOS only: the Linux VM and CI's runners have no Claude Code, so real Claude Code is not tested on
+Linux (`docs/ACCEPTANCE.md`, "Linux verification").
 
 Making a newer Claude Code the verified one is a code change with a release of its own, not a release step: run
 this suite against it, then change the two constants in the same commit as whatever the suite made necessary.
@@ -497,7 +506,10 @@ this suite against it, then change the two constants in the same commit as whate
 5. The third-party notices are fresh: `node scripts/third-party-notices.ts --check` (0.5.0 added one dependency to
    the web app, the Markdown lexer `marked`, and its notices must list it).
 6. The frames per minute of the whole flow through the local relay (the flow of the web-smoke project's flow smoke:
-   four browsers, the stand-in `claude`; the relay's test tap sees every frame). The number goes into §8.
+   four browsers, the stand-in `claude`; the relay's test tap sees every frame). `pnpm exec vitest run --project
+   @smurg/web-smoke flow.smoke` prints it in its last test as `[flow] {…}` and, with `SMURG_SMOKE_SHOTS=<folder>`,
+   writes `<folder>/flow-measure.json`. §8 has the number of the integration run; record a new one there when it
+   differs much.
 7. Afterwards nothing is left: no `claude`, `workerd`, Chrome or daemon that the run started is alive, and
    `git status` shows only the intended changes.
 
@@ -607,12 +619,29 @@ agent's streaming text: every frame the relay forwards arrived as an incoming We
 
 0.5.0 sizes that stream for the free plan (ARCHITECTURE §12): an agent's streaming text travels at most once per
 200 ms and its finished events in batches at most once per 100 ms, per watching browser, and streaming text goes
-only to conversations that are on screen (a hidden column gets the finished events and no streaming frames). What that comes to for a whole
-working session is measured, not estimated: the release dry run (§4.5 step 6) counts the frames per minute of the
-whole flow through a local relay, and the number is recorded here before 0.5.0 is published.
+only to conversations that are on screen (a hidden column gets the finished events and no streaming frames). What
+that comes to for a whole working session is measured, not estimated: the flow smoke counts the frames of the whole
+flow through a local relay (§4.5 step 6).
 
-- **0.5.0, frames per minute of the whole flow through the relay: recorded by the integration run** (with the number
-  of members and streaming sessions of that run, and what it means against the daily allowance of the plan in use).
+- **0.5.0, measured** (2026-10-07, macOS arm64, Node 22.22.1, a local relay with its test tap;
+  `apps/web/e2e/smoke/flow.smoke.test.ts`, two runs): the owner's whole flow with four browsers (Host, Agent access,
+  Editor, Viewer) took 114 s each time. The relay received 4,527 and 4,558 WebSocket frames (3,391 / 3,418 from the
+  host, 1,136 / 1,140 from the four browsers; 2.60 / 2.61 MB), sent 4,547 / 4,578 on, and answered 40 HTTP requests.
+  That is **about 2,400 incoming frames per minute for four browsers** (2,388 and 2,409), about 600 per person and
+  minute.
+- **What was counted**: everything from the start of the relay to the end of the last step: four joins (login,
+  invite, Noise handshake, first sync), then one topic with 4 work items, 7 agent sessions, about 10 cards, two
+  people editing a document together and one restart of the host's smurg with four reconnects. Streaming text was on
+  screen in at most three columns per browser.
+- **What it means.** The stand-in agents answer at once, so this is the flow at a pace no real team has: real work
+  spreads the same events over much more time (and about one minute of the 114 s is a question nobody answers,
+  during which almost nothing travels, so the busy part is busier than the average says). Against the free plan's allowance as `apps/relay/README.md` records it
+  (100,000 Durable Object requests a day, 20 incoming WebSocket messages counting as 1): one whole flow is about
+  4,500 incoming frames, so about 230 requests, and by this item alone the day's allowance carries a little over 400
+  such flows across ALL workspaces of the shared relay. The alarms of connected workspaces (about 14,000 to 22,000
+  requests per workspace and day, same README) use the allowance much faster than the messages do. Not measured: a
+  real model (it writes more text per turn than the stand-in's scripted sentences), and the usage as Cloudflare
+  counts it on a deployed relay.
 
 Whether that leaves enough room on the free plan for the shared relay, or the paid plan is taken, is the owner's
 decision; it changes no code and no configuration (below).

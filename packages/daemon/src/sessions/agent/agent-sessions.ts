@@ -1040,6 +1040,21 @@ export class AgentSessionsImpl implements AgentSessions {
     this.touch(entry, false);
   }
 
+  /**
+   * The always-allowed kinds of a TOPIC changed (TopicService owns them; a session reads them at each process start).
+   * `ruleCount` of every session of that topic counts them, so each of these sessions is announced again
+   * (`session.updated`, `session.state`): without it every client would keep the old count of the topic's other
+   * sessions until something else of them changed. Nothing the session did: its activity time stays.
+   */
+  topicRulesChanged(topicId: string): void {
+    for (const entry of this.entries.values()) {
+      if (entry.runner.record.topic?.id !== topicId) continue;
+      const session = this.wire(entry);
+      this.ctx.bus.emit('session.updated', { session });
+      this.ctx.hub.broadcast('session.state', { session });
+    }
+  }
+
   clearFallbackDecider(userId: UserId): string[] {
     const changed: string[] = [];
     for (const entry of this.entries.values()) {

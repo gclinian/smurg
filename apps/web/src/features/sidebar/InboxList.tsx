@@ -2,8 +2,8 @@
 // (Enter or a click; Shift for "to the side") and marks it seen; a row may offer one action of its own ("Continue",
 // "Continue all"); a mention or a result can be dismissed. One tab stop for the whole list: Up and Down move between
 // rows; Tab goes on to the row's own action.
-import { isSmurgError, type InboxItem } from '@smurg/protocol';
-import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { isSmurgError, type ColumnTarget, type InboxItem } from '@smurg/protocol';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import { columnId, isColumnRef } from '../../lib/columns/target.ts';
 import { describeError } from '../../lib/errors.ts';
 import { formatAge, formatDateTime } from '../../lib/format.ts';
@@ -18,12 +18,14 @@ import { useSlotEnv, useSlots } from '../../lib/workspace/slots.tsx';
 import { useNow } from '../../lib/use-now.ts';
 import { Button, IconButton, KindIcon, cx, useToast } from '../../ui/index.ts';
 import { IconCheck, IconClose } from '../../ui/icons.tsx';
-import { describeInboxItem, isDismissable, type InboxRowContext } from './inbox-rows.ts';
+import { describeInboxItem, inboxTarget, isDismissable, planNeededFor, plansToLoad, type InboxRowContext } from './inbox-rows.ts';
 import { t } from './strings.ts';
 
 export interface InboxRow {
   readonly item: InboxItem;
   readonly view: InboxRowView;
+  /** Where the row leads (`inboxTarget`): not always the target the item names. */
+  readonly target: ColumnTarget;
 }
 
 /** The member's inbox as rows, in the order of the two groups. */
@@ -37,10 +39,16 @@ export function useInboxRows(): { waiting: InboxRow[]; look: InboxRow[]; now: nu
   const selfUserId = useStore(stores.workspace, selectUserId);
   const account = useStore(stores.host, selectAccount);
   const now = useNow();
+  // Where a work item's merge request leads and why an item stopped are in the topic's plan: the rows ask for the
+  // plans they read.
+  const neededPlans = plansToLoad(inbox.items.values(), topics).join('\n');
+  useEffect(() => {
+    for (const topicId of neededPlans === '' ? [] : neededPlans.split('\n')) stores.topics.ensurePlan(topicId);
+  }, [neededPlans, stores.topics]);
   return useMemo(() => {
     const ctx: InboxRowContext = { sessions, topics, selfUserId, account, now, stores: { topics: stores.topics, sessions: stores.sessions } };
     const groups = selectInboxGroups(inbox, selfUserId);
-    const row = (item: InboxItem): InboxRow => ({ item, view: slots.inboxRow(item, describeInboxItem(item, ctx), env) });
+    const row = (item: InboxItem): InboxRow => ({ item, view: slots.inboxRow(item, describeInboxItem(item, ctx), env), target: inboxTarget(item, topics) });
     return { waiting: groups.waiting.map(row), look: groups.look.map(row), now };
   }, [inbox, sessions, topics, selfUserId, account, now, stores.topics, stores.sessions, slots, env]);
 }
@@ -52,9 +60,16 @@ export function useOpenInboxItem(): (item: InboxItem, side: boolean) => void {
   const toast = useToast();
   return (item, side) => {
     stores.inbox.seen([item.key]);
-    openColumn({ target: item.target, from: 'inbox', ...(side ? { side: true } : {}), ...(item.anchor === undefined ? {} : { anchor: item.anchor }) }).catch((error: unknown) =>
-      toast.show({ tone: 'warning', title: t('inbox.failed', { reason: describeError(error) }) }),
-    );
+    const open = (): void => {
+      openColumn({ target: inboxTarget(item, stores.topics.getState()), from: 'inbox', ...(side ? { side: true } : {}), ...(item.anchor === undefined ? {} : { anchor: item.anchor }) }).catch((error: unknown) =>
+        toast.show({ tone: 'warning', title: t('inbox.failed', { reason: describeError(error) }) }),
+      );
+    };
+    // Right after the page appeared the plan that says where a merge row leads may still be on its way: the click
+    // waits for it. A plan that cannot be read leaves the target the item names.
+    const missing = planNeededFor(item, stores.topics.getState());
+    if (missing === null) open();
+    else void stores.topics.reloadPlan(missing).then(open, open);
   };
 }
 
@@ -128,11 +143,11 @@ export function InboxList() {
   };
 
   const renderRow = (row: InboxRow): ReactNode => {
-    const { item, view } = row;
+    const { item, view, target } = row;
     const index = all.indexOf(row);
     const kind = kindLabel(item.kind);
     const age = formatAge(item.at, now);
-    const current = isColumnRef(item.target) && columnId(item.target) === focusedColumn;
+    const current = isColumnRef(target) && columnId(target) === focusedColumn;
     const active = item.key === tabStop;
     return (
       <li key={item.key} className="inbox-item" data-kind={item.kind} data-unread={item.unread ? '' : undefined} data-current={current ? '' : undefined} data-inbox-key={item.key}>

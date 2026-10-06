@@ -187,6 +187,12 @@ describe('plural and list messages (the table of DESIGN A.10)', () => {
     expect(render('en', held(five, 7))).toBe('Claude (Ian) wanted to change a.ts, but Amy, Bob, Cat, Dan, Eve and 2 more are editing it: blocked');
     expect(render('zh-TW', held(five, 7))).toBe('Claude (Ian) 想修改 a.ts，但 Amy、Bob、Cat、Dan、Eve 等 7 人 正在編輯，已被擋下');
     expect(render('zh-TW', held(['Amy'], 1))).toBe('Claude (Ian) 想修改 a.ts，但 Amy 正在編輯，已被擋下');
+    // Names in front of "are": the last two are joined by "and", not by a comma.
+    const waits = (holders: string[]): MessageRef => msg('conversation.locked.spec', { path: 'specs/checkout/SPEC.md', holders });
+    expect(render('en', waits(['Amy']))).toBe('Claude waits to edit specs/checkout/SPEC.md: Amy is typing in it.');
+    expect(render('en', waits(['Amy', 'Mei']))).toBe('Claude waits to edit specs/checkout/SPEC.md: Amy and Mei are typing in it.');
+    expect(render('en', waits(five))).toBe('Claude waits to edit specs/checkout/SPEC.md: Amy, Bob, Cat, Dan and Eve are typing in it.');
+    expect(render('zh-TW', waits(['Amy', 'Mei']))).toBe('Claude 正在等待編輯 specs/checkout/SPEC.md：Amy、Mei 正在輸入');
   });
 
   it('sizes are formatted the same way in both locales', () => {

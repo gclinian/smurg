@@ -18,4 +18,11 @@ describe('Markdown (zh-TW)', () => {
     expect([...container.querySelectorAll('input')].map((box) => box.getAttribute('aria-label'))).toEqual(['已完成', '未完成']);
     expect(container.querySelector('img')).toBeNull();
   });
+
+  it('says in Traditional Chinese that a text is shown as it was written', () => {
+    const text = `${'>'.repeat(200)} 太深了`;
+    const { container } = render(<Markdown text={text} />);
+    expect(container.querySelector('.md-note')?.textContent).toBe('以原文顯示：這段文字太長或層次太深，無法排版。');
+    expect(container.querySelector('.md-plain')?.textContent).toBe(text);
+  });
 });
