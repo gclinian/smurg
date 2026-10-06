@@ -19,6 +19,7 @@ const ZH_TW_FILES: readonly RegExp[] = [
   /^SPEC\.md$/, // the original requirements (one English line on top says so)
   /^docs\/GLOSSARY\.md$/, // the two columns of the binding terms
   /^docs\/research\//, // historical research reports: they quote the UI of their time
+  /^docs\/design\//, // the design of a release as it was written, with its mock: it quotes the zh-TW wording it decides
 ];
 
 type LineRule = (line: string, index: number, lines: readonly string[]) => boolean;

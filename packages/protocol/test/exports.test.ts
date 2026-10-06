@@ -23,6 +23,7 @@ describe('@smurg/protocol exports map', () => {
       './node',
       './package.json',
       './relay',
+      './testing',
     ]);
   });
 
@@ -40,7 +41,7 @@ describe('@smurg/protocol exports map', () => {
 
   it('re-exports the constants from the barrel', async () => {
     const barrel = await import('../src/index.ts');
-    expect(barrel.PROTOCOL_VERSION).toBe(3);
+    expect(barrel.PROTOCOL_VERSION).toBe(4);
     expect(barrel.MAX_RELAY_FRAME).toBe(8 * 1024 * 1024 + 64 * 1024);
   });
 

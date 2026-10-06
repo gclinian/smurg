@@ -60,6 +60,19 @@ describe('browser-safe entry points', () => {
   );
 });
 
+describe('the test builders (@smurg/protocol/testing)', () => {
+  it.each(['index.ts', 'client/index.ts', 'browser/index.ts', 'node/index.ts', 'relay/index.ts', 'locale/index.ts', 'i18n/index.ts'])('src/%s does not reach testing/', (entry) => {
+    const reached = [...importGraph(entry).files].map((file) => relative(SRC_DIR, file)).filter((file) => file.startsWith('testing/'));
+    expect(reached).toEqual([]);
+  });
+
+  it('the builders themselves are browser-safe (the web app\'s tests load them)', () => {
+    const graph = importGraph('testing/index.ts');
+    expect(graph.broken).toEqual([]);
+    expect([...graph.bare.keys()].filter((spec) => NODE_BUILTINS.has(spec) || spec.startsWith('node:'))).toEqual([]);
+  });
+});
+
 describe('relay entry point', () => {
   it('depends on nothing but zod and ../constants.ts', () => {
     const graph = importGraph('relay/index.ts');

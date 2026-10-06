@@ -66,7 +66,7 @@ describe('R2 the role Agent access (§11 D-15)', () => {
 
       // 1. Ada opens a terminal: she owns it, and nothing marks it as anything but the host's own kind of session.
       const { session } = await ada.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 200, rows: 30 });
-      expect(session).toMatchObject({ kind: 'terminal', ownerUserId: ada.userId, ownerName: 'Ada', root: { kind: 'main' }, status: 'running' });
+      expect(session).toMatchObject({ kind: 'terminal', openedBy: { userId: ada.userId, displayName: 'Ada' }, root: { kind: 'main' }, status: 'running' });
       // Nobody typed a title: none travels (each client builds the default from the kind and the opener, in its own language).
       expect(session).not.toHaveProperty('title');
       expect(session).not.toHaveProperty('sandboxed');
@@ -111,7 +111,7 @@ describe('R2 the role Agent access (§11 D-15)', () => {
         'the kicked agent member\'s session to end',
       );
       console.info(`[R2] kick: the agent member's session ended after ${Date.now() - t0} ms`);
-      expect(ended).toMatchObject({ status: 'exited', endReason: 'kicked', ownerUserId: ada.userId });
+      expect(ended).toMatchObject({ status: 'exited', endReason: 'kicked', openedBy: { userId: ada.userId } });
       expect(ended).not.toHaveProperty('endedBy');
       expect((await host.request('session.list', {})).sessions.find((s) => s.id === hostTerminal.id)?.status).toBe('running');
 
@@ -129,7 +129,7 @@ describe('R2 the role Agent access (§11 D-15)', () => {
       expect(denied('session.create')).toMatchObject({ detail: { type: 'session.create', reason: 'capability', role: 'editor' } });
       const terminated = entries.filter((e) => e.action === 'session.terminate' && e.target === session.id);
       expect(terminated).toHaveLength(1);
-      expect(terminated[0]).toMatchObject({ actor: { kind: 'system' }, outcome: 'ok', detail: { sessionId: session.id, ownerUserId: ada.userId, kind: 'terminal', reason: 'kicked' } });
+      expect(terminated[0]).toMatchObject({ actor: { kind: 'system' }, outcome: 'ok', detail: { sessionId: session.id, openedBy: ada.userId, kind: 'terminal', reason: 'kicked' } });
       expect(entries.some((e) => e.action === 'session.terminate' && e.target === hostTerminal.id)).toBe(false);
     } finally {
       await stack.stop();

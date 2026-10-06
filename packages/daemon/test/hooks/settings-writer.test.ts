@@ -1,5 +1,6 @@
 // The files a session is launched with (ARCHITECTURE §7.6 "Launch", §11 D-1): settings.json (--settings) and
 // mcp.json (--mcp-config). Every session gets the same files: they all run like the host's own (§11 D-15).
+import { buildLaunchProfile } from '../../src/core/fakes/build.ts';
 import { lstat, mkdir, readFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -67,7 +68,7 @@ describe('session settings (ARCHITECTURE §7.6)', () => {
       for (const attributeBashEdits of [true, false]) {
         const server = new HookServerImpl({ ...d.t.ctx, config: { ...d.t.ctx.config, sessions: { ...d.t.ctx.config.sessions, selfCommand: SELF }, activity: { attributeBashEdits } } });
         const s = registerAgent(server, { userId: TEST_HOST_USER, name: 'Host' });
-        const files = await server.writeSessionFiles(s.sessionId);
+        const files = await server.writeSessionFiles(s.sessionId, buildLaunchProfile());
         const settings = JSON.parse(await readFile(files.settingsPath, 'utf8')) as { hooks: Record<string, { matcher?: string }[]> };
         expect(settings.hooks['PreToolUse']?.map((group) => group.matcher), String(attributeBashEdits)).toEqual(attributeBashEdits ? [EDITS, 'Bash'] : [EDITS]);
         await server.removeSessionFiles(s.sessionId);
@@ -113,13 +114,15 @@ describe('session files on disk', () => {
     d = await startHookDaemon({ daemon: { project: { files: { '.mcp.json': JSON.stringify({ mcpServers: { planted: { command: 'x' } } }), 'README.md': '#' } } } });
     const hooks = withSelfCommand(d.t.ctx);
     const s = registerAgent(hooks, { userId: 'dev:ian', name: 'Ian' });
-    const files = await hooks.writeSessionFiles(s.sessionId);
+    const files = await hooks.writeSessionFiles(s.sessionId, buildLaunchProfile());
     expect(files.dir).toBe(sessionFilesDir(d.t.stateDir, d.t.workspaceId, s.sessionId));
     expect(files.dir.startsWith(join(d.t.stateDir, 'sessions') + '/')).toBe(true);
     expect(files.claudeArgs).toEqual(['--settings', files.settingsPath, '--mcp-config', files.mcpConfigPath]);
     for (const dir of [join(d.t.stateDir, 'sessions'), dirname(files.dir), files.dir]) expect((await lstat(dir)).mode & 0o777).toBe(0o700);
-    for (const file of [files.settingsPath, files.mcpConfigPath]) expect((await lstat(file)).mode & 0o777).toBe(0o600);
-    expect((await readdir(files.dir)).sort()).toEqual(['mcp.json', 'settings.json']);
+    // The launch profile carries the session's role prompt: it is written beside the two files, as private as they are.
+    expect(files.rolePromptPath).toBe(join(files.dir, 'role.md'));
+    for (const file of [files.settingsPath, files.mcpConfigPath, files.rolePromptPath]) expect((await lstat(file)).mode & 0o777).toBe(0o600);
+    expect((await readdir(files.dir)).sort()).toEqual(['mcp.json', 'role.md', 'settings.json']);
     const settings = JSON.parse(await readFile(files.settingsPath, 'utf8')) as Record<string, unknown>;
     // The project's .mcp.json servers are not switched off any more: the session runs like the host's own.
     expect(settings).not.toHaveProperty('disabledMcpjsonServers');
@@ -135,8 +138,8 @@ describe('session files on disk', () => {
     const hooks = withSelfCommand(d.t.ctx);
     const host = registerAgent(hooks, { userId: TEST_HOST_USER, name: 'Host' });
     const ian = registerAgent(hooks, { userId: 'dev:ian', name: 'Ian' });
-    const hostFiles = await hooks.writeSessionFiles(host.sessionId);
-    const ianFiles = await hooks.writeSessionFiles(ian.sessionId);
+    const hostFiles = await hooks.writeSessionFiles(host.sessionId, buildLaunchProfile());
+    const ianFiles = await hooks.writeSessionFiles(ian.sessionId, buildLaunchProfile());
     const hostSettings = JSON.parse(await readFile(hostFiles.settingsPath, 'utf8')) as { permissions: Record<string, unknown> };
     expect(hostSettings.permissions['defaultMode']).toBe('default');
     expect(JSON.parse(await readFile(ianFiles.settingsPath, 'utf8'))).toEqual(hostSettings);
@@ -147,15 +150,15 @@ describe('session files on disk', () => {
   it('refuses to write session files without config.sessions.selfCommand, or for a session that is not registered (fail closed)', async () => {
     d = await startHookDaemon();
     const s = registerAgent(d.hooks, { userId: TEST_HOST_USER, name: 'Host' });
-    await expect(d.hooks.writeSessionFiles(s.sessionId)).rejects.toMatchObject({ code: 'internal', detail: { reason: 'no-self-command' } });
-    await expect(withSelfCommand(d.t.ctx).writeSessionFiles('ses_unknown')).rejects.toMatchObject({ detail: { reason: 'hook-session-not-registered' } });
+    await expect(d.hooks.writeSessionFiles(s.sessionId, buildLaunchProfile())).rejects.toMatchObject({ code: 'internal', detail: { reason: 'no-self-command' } });
+    await expect(withSelfCommand(d.t.ctx).writeSessionFiles('ses_unknown', buildLaunchProfile())).rejects.toMatchObject({ detail: { reason: 'hook-session-not-registered' } });
   });
 
   it("unregistering a session removes its files; a daemon start removes this workspace's stale session dirs", async () => {
     d = await startHookDaemon();
     const hooks = withSelfCommand(d.t.ctx);
     const s = registerAgent(hooks, { userId: TEST_HOST_USER, name: 'Host' });
-    const files = await hooks.writeSessionFiles(s.sessionId);
+    const files = await hooks.writeSessionFiles(s.sessionId, buildLaunchProfile());
     hooks.unregisterSession(s.sessionId);
     await expect.poll(() => lstat(files.dir).then(() => 'exists', () => 'gone')).toBe('gone');
     const stale = join(sessionFilesRoot(d.t.stateDir, d.t.workspaceId), 'deadbeef');

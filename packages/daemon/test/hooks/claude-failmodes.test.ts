@@ -11,6 +11,7 @@
 // and the Bash ACTIVITY hook must let the shell command run (its file appears, its result is not an error) within
 // its own 1 s deadline. Skipped LOUDLY without a verified `claude`; SMURG_TEST_CLAUDE_BIN selects another binary
 // (both verified versions were run: see docs/ACCEPTANCE.md).
+import { buildLaunchProfile } from '../../src/core/fakes/build.ts';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -85,7 +86,7 @@ describe.skipIf(claude === null)(`the lock hook fails closed and the Bash activi
     for (const [rel, content] of Object.entries(FILES)) await writeFile(path(rel), content);
     const marker = path(`bash-ran-${label}.txt`);
     const session = registerAgent(env.hooks, IAN);
-    const files = await env.hooks.writeSessionFiles(session.sessionId);
+    const files = await env.hooks.writeSessionFiles(session.sessionId, buildLaunchProfile());
     const settings = JSON.parse(await readFile(files.settingsPath, 'utf8')) as { hooks: Record<string, { matcher?: string; hooks: { args?: string[] }[] }[]> };
     // Both hooks are registered: the lock hook for the edit tools, the Bash activity hook for Bash.
     expect(settings.hooks['PreToolUse']?.map((group) => group.matcher)).toEqual(['Edit|Write|MultiEdit|NotebookEdit', 'Bash']);

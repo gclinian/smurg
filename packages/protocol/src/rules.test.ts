@@ -1,0 +1,120 @@
+// "Always allow this kind": a POSITIVE check. A rule is rememberable only in one of two forms; every bypass form the
+// security review named is refused.
+import { describe, expect, it } from 'vitest';
+import { checkRememberableRule, isRememberableRule, offerAlwaysRule, parseRuleString, ruleString } from './rules.ts';
+
+describe('rememberable Bash rules: two or three literal words, then *', () => {
+  it.each(['pnpm test *', 'pnpm lint *', 'pnpm test --run *', 'npm test *', 'cargo test *', 'go test *', 'yarn build *', 'pytest -q tests *', 'tsc -p tsconfig.json *', 'ls -la *'])(
+    'Bash(%s) can be remembered',
+    (pattern) => {
+      expect(checkRememberableRule('Bash', pattern)).toEqual({ ok: true, rule: { tool: 'Bash', pattern } });
+    },
+  );
+
+  it.each([
+    // [pattern, reason, what it would have allowed]
+    ['ls *', 'one-word', 'a one-word prefix'],
+    ['ls:*', 'one-word', "Claude Code's one-word prefix form"],
+    ['pnpm *', 'one-word', 'everything pnpm does, pnpm dlx included'],
+    ['bash -c *', 'interpreter', 'a shell'],
+    ['sh script.sh *', 'interpreter', 'a shell'],
+    ['env FOO=1 *', 'interpreter', 'env runs any program'],
+    ['FOO=1 bash *', 'interpreter', 'an environment assignment in front'],
+    ['/usr/bin/python3 x.py *', 'interpreter', 'a path to a program'],
+    ['./scripts/run.sh now *', 'interpreter', 'a path to a program'],
+    ['time pnpm test *', 'interpreter', 'a wrapper'],
+    ['sudo pnpm test *', 'interpreter', 'a wrapper'],
+    ['xargs rm -f *', 'interpreter', 'a wrapper'],
+    ['node build.js *', 'interpreter', 'an interpreter'],
+    ['python3 -m pytest *', 'interpreter', 'an interpreter'],
+    ['python -c *', 'interpreter', 'an interpreter'],
+    ['git -c core.sshCommand=x *', 'interpreter', 'git runs configured programs'],
+    ['git status *', 'interpreter', 'git, whatever the subcommand'],
+    ['find . -exec *', 'interpreter', 'a program with an exec option'],
+    ['sed -i s/a/b/ *', 'interpreter', 'a program with an exec option'],
+    ['npx vitest run *', 'fetches-code', 'fetches and runs a package'],
+    ['make test now *', 'fetches-code', 'builds and runs'],
+    ['docker run alpine *', 'fetches-code', 'fetches and runs an image'],
+    ['curl -s https://x *', 'fetches-code', 'the network'],
+    ['pnpm add left-pad *', 'fetches-code', 'installs a package (its scripts run)'],
+    ['pnpm dlx cowsay *', 'fetches-code', 'fetches and runs a package'],
+    ['npm install --save *', 'fetches-code', 'installs'],
+    ['npm run build *', 'fetches-code', 'runs any script of package.json'],
+    ['npm i x *', 'fetches-code', 'installs'],
+    ['yarn create app *', 'fetches-code', 'fetches and runs'],
+    ['cargo install x *', 'fetches-code', 'installs'],
+    ['go run main.go *', 'fetches-code', 'builds and runs'],
+    ['pip install x *', 'fetches-code', 'installs'],
+    ['pnpm --filter web *', 'fetches-code', 'an option in front leaves the subcommand to the wildcard (pnpm --filter web dlx …)'],
+    ['npm --prefix x *', 'fetches-code', 'the same'],
+    ['pnpm -C sub *', 'fetches-code', 'the same'],
+    ['pnpm --filter web test *', 'form', 'four literal words'],
+    ['pnpm test', 'form', 'no trailing *'],
+    ['pnpm test:*', 'form', 'the colon form with more than a word'],
+    ['pnpm test a b *', 'form', 'four literal words'],
+    ['pnpm test && rm -rf ~ *', 'form', 'a shell operator'],
+    ['pnpm test ) *', 'form', 'a closing parenthesis'],
+    ['pnpm test, pnpm add *', 'form', 'a comma (a list of rules)'],
+    ['pnpm "test x" *', 'form', 'a quote'],
+    ['pnpm  test *', 'form', 'a doubled space'],
+    ['pnpm $(id) *', 'form', 'a substitution'],
+    ['pnpm test * *', 'form', 'a wildcard in the middle'],
+    ['*', 'form', 'everything'],
+    ['', 'form', 'nothing'],
+  ] as const)('Bash(%s) is refused: %s (%s)', (pattern, reason, _what) => {
+    expect(checkRememberableRule('Bash', pattern)).toEqual({ ok: false, reason });
+    expect(isRememberableRule('Bash', pattern)).toBe(false);
+  });
+
+  it('a pattern longer than the limit is refused', () => {
+    expect(checkRememberableRule('Bash', `pnpm ${'x'.repeat(200)} *`)).toEqual({ ok: false, reason: 'form' });
+  });
+});
+
+describe('rememberable WebFetch rules: one domain', () => {
+  it.each(['domain:example.com', 'domain:docs.anthropic.com', 'domain:registry.npmjs.org', 'domain:a-b.example'])('WebFetch(%s) can be remembered', (pattern) => {
+    expect(isRememberableRule('WebFetch', pattern)).toBe(true);
+  });
+
+  it.each(['domain:localhost', 'domain:LOCALHOST', 'domain:127.0.0.1', 'domain:10.0.0.8', 'domain:2130706433', 'domain:*', 'domain:*.example.com', 'domain:', 'example.com', 'domain:exa mple.com', 'domain:example.com/path', 'domain:[::1]', 'domain:-a.com', 'url:https://example.com'])(
+    'WebFetch(%s) is refused',
+    (pattern) => {
+      expect(checkRememberableRule('WebFetch', pattern)).toEqual({ ok: false, reason: 'form' });
+    },
+  );
+});
+
+describe('other tools are never remembered', () => {
+  it.each(['Edit', 'Write', 'Read', 'mcp__mail__send', 'WebSearch', 'bash', ''])('%s(...)', (tool) => {
+    expect(isRememberableRule(tool, 'src/**')).toBe(false);
+    expect(isRememberableRule(tool, 'pnpm test *')).toBe(false);
+  });
+});
+
+describe('what a permission card offers', () => {
+  it('the rule Claude Code suggested, when it has a rememberable form', () => {
+    expect(offerAlwaysRule({ tool: 'Bash', pattern: 'pnpm test *' }, false)).toEqual({ alwaysRule: { tool: 'Bash', pattern: 'pnpm test *' } });
+    expect(offerAlwaysRule({ tool: 'WebFetch', pattern: 'domain:example.com' }, false)).toEqual({ alwaysRule: { tool: 'WebFetch', pattern: 'domain:example.com' } });
+  });
+
+  it('or why not, in one of five words', () => {
+    expect(offerAlwaysRule({ tool: 'Bash', pattern: 'pnpm test *' }, true)).toEqual({ noAlways: 'host-only' });
+    expect(offerAlwaysRule(null, false)).toEqual({ noAlways: 'no-suggestion' });
+    expect(offerAlwaysRule(undefined, false)).toEqual({ noAlways: 'no-suggestion' });
+    expect(offerAlwaysRule({ tool: 'Bash', pattern: 'python3 x.py *' }, false)).toEqual({ noAlways: 'interpreter' });
+    expect(offerAlwaysRule({ tool: 'Bash', pattern: 'pnpm add x *' }, false)).toEqual({ noAlways: 'fetches-code' });
+    expect(offerAlwaysRule({ tool: 'Bash', pattern: 'ls:*' }, false)).toEqual({ noAlways: 'one-word' });
+    expect(offerAlwaysRule({ tool: 'Edit', pattern: 'src/**' }, false)).toEqual({ noAlways: 'no-suggestion' });
+    expect(offerAlwaysRule({ tool: 'Bash', pattern: 'a b c d *' }, false)).toEqual({ noAlways: 'no-suggestion' });
+  });
+});
+
+describe('rule strings', () => {
+  it('are written tool(pattern) and parse back', () => {
+    expect(ruleString({ tool: 'Bash', pattern: 'pnpm test *' })).toBe('Bash(pnpm test *)');
+    expect(parseRuleString('Bash(pnpm test *)')).toEqual({ tool: 'Bash', pattern: 'pnpm test *' });
+    expect(parseRuleString('WebFetch(domain:example.com)')).toEqual({ tool: 'WebFetch', pattern: 'domain:example.com' });
+    expect(parseRuleString('Bash')).toBeNull();
+    expect(parseRuleString('(x)')).toBeNull();
+  });
+});

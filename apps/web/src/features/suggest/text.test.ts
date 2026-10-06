@@ -12,11 +12,13 @@ describe('suggestion text', () => {
     expect(cleanSuggestionText('a\r\nb\rc\td\x1b[201~e\x07\x00f\u009bg')).toBe('a\nb\nc\td[201~efg');
   });
 
-  it('refuses blank, too long and invalid text (the daemon applies the same rule)', () => {
+  it('refuses blank, too long and invalid text; what a reader cannot see is the daemon\'s to remove (protocol 4)', () => {
     expect(suggestionTextProblem('  \n\t ')).toBe('blank');
     expect(suggestionTextProblem('x'.repeat(SUGGESTION_TEXT_MAX_CHARS + 1))).toBe('too-long');
+    expect(suggestionTextProblem('a\u0000b')).toBe('invalid');
     expect(suggestionTextProblem('請補上測試 / add the tests')).toBeNull();
-    expect(suggestionTextProblem('bidi ‮ override')).toBe('invalid');
+    // Invisible characters are accepted here: the host's computer removes them and marks the text `cleaned`.
+    expect(suggestionTextProblem('bidi \u202e override')).toBeNull();
   });
 });
 

@@ -386,7 +386,7 @@ export function SessionTerminal({ session, isOwner, canType, active, scaled }: S
     };
   }, [viewer, scaled]);
 
-  const label = t('terminal.label', { owner: session.ownerName, title: plainSessionTitle(session) });
+  const label = t('terminal.label', { owner: session.openedBy.displayName, title: plainSessionTitle(session) });
   // Which hint, if any (one line, TERMINAL_HINT_PX high): the owner's floor (the panel is smaller than what the
   // program needs: the terminal keeps the floor and scrolls), or a PTY bigger than this panel (drawn at its size).
   const driving = isOwner && fit !== null && sameSize(rendered, fit);

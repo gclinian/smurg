@@ -3,6 +3,7 @@
 //  - the host can terminate any session or remove any member from the console with one click
 //  - every event R4–R9 define appears in the audit log: one scenario through the real relay touches every R4–R9 action of the
 //    protocol's audit vocabulary (AUDIT_ACTIONS)
+import { isPendingPart } from '../../lint/pending-v050.ts';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -151,7 +152,7 @@ describe('R11 host console', () => {
       appDoc.text.insert(0, '// amy\n');
       await waitUntil(() => stack.daemon.ctx.services.locks.get(main('src/app.ts'))?.kind === 'human', 15_000, 'Amy\'s lock');
       await waitUntil(async () => (await readFile(join(stack.root, 'src', 'app.ts'), 'utf8')).startsWith('// amy'), 15_000, 'the autosave');
-      const agent = stack.daemon.ctx.services.hooks.registerSession({ sessionId: 'ses_r11_agent', ownerUserId: carol.userId, agentName: 'Claude (Carol)', root: MAIN_ROOT });
+      const agent = stack.daemon.ctx.services.hooks.registerSession({ sessionId: 'ses_r11_agent', ownerUserId: carol.userId, agentName: 'Claude (Carol)', root: MAIN_ROOT, purpose: 'free', pathRights: 'member', tools: ['Read', 'Edit', 'Write', 'Bash'] });
       const appPath = join(stack.root, 'src', 'app.ts');
       expect((await runHook(agent.env, 'PreToolUse', appPath, stack.root)).stdout).toContain('Amy');
       await amy.conn.request('lock.release', { file: main('src/app.ts') });
@@ -189,39 +190,59 @@ describe('R11 host console', () => {
       await carol.conn.request('worktree.remove', { worktreeId });
       const { session: toTerminate } = await carol.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
       await host.request('admin.session.terminate', { sessionId: toTerminate.id });
-      await waitUntil(async () => (await host.request('session.list', {})).sessions.every((s) => s.ownerUserId !== carol.userId || s.status === 'exited'), 10_000, 'Carol\'s sessions to end');
+      await waitUntil(async () => (await host.request('session.list', {})).sessions.every((s) => s.openedBy.userId !== carol.userId || s.status === 'exited'), 10_000, 'Carol\'s sessions to end');
       // R4 a member leaves ("Leave"): the session they opened ends with them (§11 D-15).
       const { session: davesTerminal } = await dave.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
       await dave.conn.leave();
       await waitUntil(async () => (await host.request('session.list', {})).sessions.some((s) => s.id === davesTerminal.id && s.status === 'exited'), 5_000, 'Dave\'s session to end');
       expect((await host.request('session.list', {})).sessions.find((s) => s.id === davesTerminal.id)).toMatchObject({ status: 'exited', endReason: 'left' });
 
-      // R6 suggestions for the host's own terminal.
       const { session: hostTerminal } = await host.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 });
-      const { suggestion: s1 } = await amy.conn.request('suggest.create', { sessionId: hostTerminal.id, text: 'echo one' });
-      await amy.conn.request('suggest.edit', { suggestionId: s1.id, text: 'echo one, edited' });
-      await amy.conn.request('suggest.withdraw', { suggestionId: s1.id });
-      const { suggestion: s2 } = await amy.conn.request('suggest.create', { sessionId: hostTerminal.id, text: 'echo two' });
-      await host.request('suggest.reject', { suggestionId: s2.id, reason: '不需要' });
-      const { suggestion: s3 } = await amy.conn.request('suggest.create', { sessionId: hostTerminal.id, text: 'echo three' });
-      await host.request('suggest.accept', { suggestionId: s3.id });
+      // R6 suggestions. Protocol 4 sends them to AGENT sessions only: this part waits for the agent runtime and the
+      // conversation module in the composition (tests/lint/pending-v050.ts).
+      const withSuggestions = !isPendingPart('e2e:r11.console#R6');
+      const suggested: { s1: string; s2: string; s3: string } = { s1: '', s2: '', s3: '' };
+      if (withSuggestions) {
+        const { suggestion: s1 } = await amy.conn.request('suggest.create', { sessionId: hostTerminal.id, text: 'echo one' });
+        await amy.conn.request('suggest.edit', { suggestionId: s1.id, text: 'echo one, edited' });
+        await amy.conn.request('suggest.withdraw', { suggestionId: s1.id });
+        const { suggestion: s2 } = await amy.conn.request('suggest.create', { sessionId: hostTerminal.id, text: 'echo two' });
+        await host.request('suggest.reject', { suggestionId: s2.id, reason: '不需要' });
+        const { suggestion: s3 } = await amy.conn.request('suggest.create', { sessionId: hostTerminal.id, text: 'echo three' });
+        await host.request('suggest.accept', { suggestionId: s3.id });
+        Object.assign(suggested, { s1: s1.id, s2: s2.id, s3: s3.id });
+      }
 
       // Every R4–R9 action of ARCHITECTURE §5.8, read from the console like the host does. (R5's own action went with
       // the guest sandbox, §11 D-15: its sessions are R4's.)
+      const SUGGEST_ACTIONS: readonly AuditAction[] = ['suggest.create', 'suggest.edit', 'suggest.accept', 'suggest.reject', 'suggest.withdraw']; // R6
+      // What protocol 4 added for agent sessions, questions, permission requests, topics, plans and reports. They are
+      // written by modules that are not in the composition yet; this scenario grows by them at integration
+      // (tests/lint/pending-v050.ts).
+      const withAgentActions = !isPendingPart('e2e:r11.console#agent-actions');
+      const AGENT_ACTIONS: readonly AuditAction[] = [
+        'session.message', 'smurg.message', 'session.interrupt', 'session.retry', 'session.responsible', 'session.mode', 'session.rule.remove', 'session.handover', 'responsible.fallback',
+        'question.submit', 'question.remind', 'permission.decide', 'permission.auto', 'permission.auto-deny', 'agent.command',
+        'topic.create', 'topic.rename', 'topic.archive', 'topic.delete', 'topic.discussion.restart', 'topic.spec.request', 'topic.rule.add', 'topic.rule.remove',
+        'plan.generate', 'plan.start', 'plan.resume', 'plan.assign', 'plan.mode', 'plan.item.retry', 'plan.item.continue', 'plan.item.resolve', 'scheduler.start', 'scheduler.disarm',
+        'report.register', 'report.review', 'spec.commit',
+      ];
       const expected: readonly AuditAction[] = [
         'session.create', 'session.end', 'session.terminate', 'member.leave', // R4
-        'suggest.create', 'suggest.edit', 'suggest.accept', 'suggest.reject', 'suggest.withdraw', // R6
+        ...(withSuggestions ? SUGGEST_ACTIONS : []),
         'file.write', 'file.create', 'file.rename', 'file.delete', 'file.upload', 'file.download', 'doc.edit', // R7
         'agent.edit', 'external.change', 'doc.conflict', 'doc.conflict-resolve', 'lock.acquire', 'lock.release', 'lock.denied', 'lock.force-release', // R8
         'worktree.create', 'worktree.remove', 'worktree.merge.request', 'worktree.merge.approve', 'worktree.merge.reject', // R9
+        ...(withAgentActions ? AGENT_ACTIONS : []),
       ];
+      const waiting: readonly AuditAction[] = [...(withSuggestions ? [] : SUGGEST_ACTIONS), ...(withAgentActions ? [] : AGENT_ACTIONS)];
       // The list is exactly the protocol's vocabulary minus what R4–R9 do not define (identity, authorization, path
       // refusals: R2 / R3; the console's own actions: R11): a new or removed action cannot slip past this test.
       const notR4toR9 = new Set<AuditAction>([
         'auth.join', 'auth.connect', 'auth.disconnect', 'auth.rejected', 'authz.denied', 'path.denied',
-        'member.role', 'member.kick', 'invite.create', 'invite.revoke', 'device.revoke', 'settings.change',
+        'member.role', 'member.kick', 'invite.create', 'invite.revoke', 'device.revoke', 'settings.change', 'claude-config.decide', 'transcript.redact',
       ]);
-      expect([...expected].sort()).toEqual(AUDIT_ACTIONS.filter((action) => !notR4toR9.has(action)).sort());
+      expect([...expected, ...waiting].sort()).toEqual(AUDIT_ACTIONS.filter((action) => !notR4toR9.has(action)).sort());
       const logged = async (): Promise<Set<string>> => {
         const actions = new Set<string>();
         let before: number | undefined;
@@ -287,21 +308,23 @@ describe('R11 host console', () => {
       expect(one('file.upload', 'main:upload.txt')).toMatchObject({ actor: user(amy.userId) });
       expect(one('file.download', 'main:README.md')).toMatchObject({ actor: user(amy.userId) });
       expect(one('session.end', inWorktree.id)).toMatchObject({ actor: user(carol.userId), detail: { keepWorktree: true } });
-      expect(one('session.terminate', toTerminate.id)).toMatchObject({ actor: hostUser, detail: { ownerUserId: carol.userId } });
-      expect(one('session.terminate', davesTerminal.id)).toMatchObject({ actor: { kind: 'system' }, detail: { ownerUserId: dave.userId, kind: 'terminal', reason: 'left' } });
+      expect(one('session.terminate', toTerminate.id)).toMatchObject({ actor: hostUser, detail: { openedBy: carol.userId } });
+      expect(one('session.terminate', davesTerminal.id)).toMatchObject({ actor: { kind: 'system' }, detail: { openedBy: dave.userId, kind: 'terminal', reason: 'left' } });
       // Who opened each session; every session runs as the host, so there is no sandbox flag any more (§11 D-15).
       const hostCreate = one('session.create', hostTerminal.id);
       expect(hostCreate).toMatchObject({ actor: hostUser, detail: { sessionId: hostTerminal.id, kind: 'terminal', root: 'main' } });
       expect(hostCreate.detail).not.toHaveProperty('sandboxed');
       expect(one('session.create', inWorktree.id)).toMatchObject({ actor: user(carol.userId), detail: { kind: 'terminal', root: `wt:${worktreeId}`, worktreeId } });
       expect(one('member.leave', dave.userId)).toMatchObject({ actor: user(dave.userId) });
-      expect(one('suggest.create', s3.id)).toMatchObject({ actor: user(amy.userId), detail: { authorUserId: amy.userId, text: 'echo three' } });
-      expect(one('suggest.edit', s1.id)).toMatchObject({ actor: user(amy.userId), detail: { text: 'echo one, edited' } });
-      expect(one('suggest.withdraw', s1.id)).toMatchObject({ actor: user(amy.userId), detail: { outcome: 'withdrawn' } });
-      expect(one('suggest.reject', s2.id)).toMatchObject({ actor: hostUser, detail: { authorUserId: amy.userId, outcome: 'rejected', text: 'echo two', rejectReason: '不需要' } });
-      const accepted = one('suggest.accept', s3.id);
-      expect(accepted).toMatchObject({ actor: hostUser, detail: { authorUserId: amy.userId, authorName: 'Amy', outcome: 'accepted', finalText: 'echo three' } });
-      expect(typeof accepted.at).toBe('number');
+      if (withSuggestions) {
+        expect(one('suggest.create', suggested.s3)).toMatchObject({ actor: user(amy.userId), detail: { authorUserId: amy.userId, text: 'echo three' } });
+        expect(one('suggest.edit', suggested.s1)).toMatchObject({ actor: user(amy.userId), detail: { text: 'echo one, edited' } });
+        expect(one('suggest.withdraw', suggested.s1)).toMatchObject({ actor: user(amy.userId), detail: { outcome: 'withdrawn' } });
+        expect(one('suggest.reject', suggested.s2)).toMatchObject({ actor: hostUser, detail: { authorUserId: amy.userId, outcome: 'rejected', text: 'echo two', rejectReason: '不需要' } });
+        const accepted = one('suggest.accept', suggested.s3);
+        expect(accepted).toMatchObject({ actor: hostUser, detail: { authorUserId: amy.userId, authorName: 'Amy', outcome: 'accepted', finalText: 'echo three' } });
+        expect(typeof accepted.at).toBe('number');
+      }
       expect(one('worktree.create', worktreeId)).toMatchObject({ actor: user(carol.userId) });
       expect(one('worktree.merge.request', first.id)).toMatchObject({ actor: user(carol.userId) });
       expect(one('worktree.merge.approve', first.id)).toMatchObject({ actor: hostUser });

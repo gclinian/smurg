@@ -23,8 +23,9 @@ export interface MergeRequestItemProps {
 }
 
 export function MergeRequestItem({ request, worktree, userId, isHost, canView, now, onOpen }: MergeRequestItemProps) {
-  const name = request.requestedBy.displayName;
-  const mine = userId !== null && (request.requestedBy.userId === userId || worktree?.ownerUserId === userId);
+  // A draft (the snapshot of a work item nobody asked to merge yet) has no requester: it is named after its worktree's owner.
+  const name = request.requestedBy?.displayName ?? worktree?.ownerName ?? '';
+  const mine = userId !== null && (request.requestedBy?.userId === userId || worktree?.ownerUserId === userId);
   // worktree.merge.diff needs worktree.merge.request (the host and agent access, for any request).
   const canOpen = isHost || canView;
   return (

@@ -12,12 +12,12 @@ import { nextRequest, renderWithSessions } from './test-support.tsx';
 
 useTestLocale('zh-TW');
 
-const running = makeSession({ id: 'sess_run', title: 'Claude', ownerUserId: HOST_USER, ownerName: 'Ian', createdAt: 1 });
-const ended = makeSession({ id: 'sess_end', kind: 'terminal', title: 'first', ownerUserId: HOST_USER, ownerName: 'Ian', createdAt: 2, status: 'exited', exitCode: 0, endedAt: 3, endReason: 'exit' });
+const running = makeSession({ id: 'sess_run', title: 'Claude', openedBy: { userId: HOST_USER, displayName: 'Ian' }, createdAt: 1 });
+const ended = makeSession({ id: 'sess_end', kind: 'terminal', title: 'first', openedBy: { userId: HOST_USER, displayName: 'Ian' }, createdAt: 2, status: 'exited', exitCode: 0, endedAt: 3, endReason: 'exit' });
 
 describe('agents panel in zh-TW', () => {
   it('tabs, the session line and the dialog for a viewer are Traditional Chinese', async () => {
-    const { title: _title, ...untitled } = makeSession({ id: 'sess_ming', kind: 'terminal', ownerUserId: 'dev:ming', ownerName: 'Ming', createdAt: 5 });
+    const { title: _title, ...untitled } = makeSession({ id: 'sess_ming', kind: 'terminal', openedBy: { userId: 'dev:ming', displayName: 'Ming' }, createdAt: 5 });
     await renderWithSessions(<AgentsPanel />, { role: 'viewer', sessions: [running, untitled] });
     expect(document.documentElement.lang).toBe('zh-Hant-TW');
     expect(screen.getByRole('tablist', { name: 'session 分頁' })).toBeTruthy();

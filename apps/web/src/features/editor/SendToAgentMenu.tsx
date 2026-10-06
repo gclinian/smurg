@@ -76,13 +76,13 @@ export function SendToAgentMenu({ file, hasSelection, editorRef, ref }: SendToAg
         ...targets.others.flatMap((session) => [
           {
             id: `other:${session.id}`,
-            label: t('send.toOther', { owner: session.ownerName, title: plainSessionTitle(session) }),
+            label: t('send.toOther', { owner: session.openedBy.displayName, title: plainSessionTitle(session) }),
             icon: <IconLightbulb />,
             onSelect: () => send(session.id, 'send'),
           },
           {
             id: `draft:${session.id}`,
-            label: t('send.toOtherDraft', { owner: session.ownerName, title: plainSessionTitle(session) }),
+            label: t('send.toOtherDraft', { owner: session.openedBy.displayName, title: plainSessionTitle(session) }),
             icon: <IconEdit />,
             onSelect: () => send(session.id, 'draft'),
           },

@@ -3,11 +3,12 @@
 import { randomBytes } from 'node:crypto';
 import { createConnection } from 'node:net';
 import { MAIN_ROOT, type RootRef } from '@smurg/protocol';
+import { buildHookRegistration } from '../../src/core/fakes/build.ts';
 import { HookServerImpl } from '../../src/hooks/hook-server.ts';
 import { hooksModule } from '../../src/hooks/module.ts';
 import { requestDaemon } from '../../src/hooks/socket-client.ts';
 import type { JsonObject } from '../../src/hooks/wire.ts';
-import { createTestDaemon, type TestDaemon, type TestDaemonOptions } from '../../src/testing/index.ts';
+import { TEST_HOST_USER, createTestDaemon, type TestDaemon, type TestDaemonOptions } from '../../src/testing/index.ts';
 import { fakeServices, type FakeServices } from './fakes.ts';
 
 export interface HookDaemon {
@@ -26,18 +27,18 @@ export async function startHookDaemon(
   return { t, hooks, fakes };
 }
 
+/**
+ * Registers a session as the sessions module does: `pathRights` is `host` exactly when the host opened it (fixed at
+ * creation; a later `reassignSession` never changes it). Pass `pathRights` to say otherwise.
+ */
 export function registerAgent(
   hooks: HookServerImpl,
   owner: { readonly userId: string; readonly name: string },
-  options: { readonly sessionId?: string; readonly root?: RootRef } = {},
+  options: { readonly sessionId?: string; readonly root?: RootRef; readonly pathRights?: 'member' | 'host' } = {},
 ): { readonly sessionId: string; readonly token: string; readonly env: Readonly<Record<string, string>> } {
   const sessionId = options.sessionId ?? `ses_${randomBytes(8).toString('hex')}`;
-  const creds = hooks.registerSession({
-    sessionId,
-    ownerUserId: owner.userId,
-    agentName: `Claude (${owner.name})`,
-    root: options.root ?? MAIN_ROOT,
-  });
+  const pathRights = options.pathRights ?? (owner.userId === TEST_HOST_USER ? 'host' : 'member');
+  const creds = hooks.registerSession(buildHookRegistration({ sessionId, ownerUserId: owner.userId, agentName: `Claude (${owner.name})`, root: options.root ?? MAIN_ROOT, pathRights }));
   return { sessionId, token: creds.token, env: creds.env };
 }
 

@@ -3,11 +3,14 @@ import { errorPayloadSchema } from '../errors.ts';
 import { can, type Capability, type Role } from '../roles.ts';
 import * as admin from './messages/admin.ts';
 import * as channel from './messages/channel.ts';
+import * as conversation from './messages/conversation.ts';
 import * as docs from './messages/docs.ts';
 import * as files from './messages/files.ts';
+import * as inbox from './messages/inbox.ts';
 import * as presence from './messages/presence.ts';
 import * as sessions from './messages/sessions.ts';
 import * as suggestions from './messages/suggestions.ts';
+import * as topics from './messages/topics.ts';
 import * as transfer from './messages/transfer.ts';
 import * as worktrees from './messages/worktrees.ts';
 
@@ -45,19 +48,42 @@ export const HANDLER_CHECKS = [
   'transfer-connection', // only the connection that began/resumed this upload/download
   'doc-subscriber', // only a connection that opened this docId
   'doc-content-needs-file.write', // content-carrying sync messages from members without file.write are dropped + audited
-  'session-owner', // caller opened (owns) the session (host: admin.session.terminate instead)
-  'target-session-not-own', // suggest.create: the target session belongs to someone else
+  'session-owner', // caller opened the (terminal) session
+  'terminal-session', // the session is a terminal (an agent session: bad_request `not-a-terminal`, session.notTerminal)
+  'agent-session', // the session is an agent session (a terminal: bad_request `not-an-agent`, session.notAgent / suggest.terminal)
+  'session-open', // the agent session has not ended and its topic is not archived
+  'session-end-rule', // terminal: its opener. Agent: the host, or a session.drive holder who opened it or is responsible. Never a discussion
+  'retry-host-only', // session.retry after three failed starts in a row: the host only
+  'responsible-eligible', // the named person is an active member holding `discuss` (null: nobody)
+  'mode-not-fixed', // not a discussion session
   'suggestion-author-pending', // caller authored the suggestion and it is still pending
   'suggestion-pending', // the suggestion is still pending (accept / reject: any session the caller may drive)
+  'suggestion-limit', // at most SUGGESTIONS_PENDING_PER_AUTHOR_MAX pending per author and session
+  'question-open', // the question is still open (settledError otherwise)
+  'question-may-submit', // routing.ts maySubmit; submitting `other` or `note` needs session.drive (voting `other` does not)
+  'question-decider-or-host', // question.remind / question.seen: the decider (remind: or the host)
+  'permission-open', // the request is still open (first answer wins: settledError)
+  'permission-may-decide', // host-only requests: the host; allow-always only with alwaysRule; topic scope: a topic session, session.drive
+  'drive-or-suggest', // a session.drive holder sends a message; anyone else's text becomes a suggestion
+  'topic-open', // the topic exists and is not archived
+  'topic-archived', // topic.delete: archived topics only, no pending merge request
+  'rule-form', // the rule is one of the checked forms of rules.ts
+  'plan-pins', // plan.start: planRevision, specHash and planHash are the files' now; no preflight blocker holds
+  'report-may-review', // routing.ts mayReview; the version is the current one; unfinished work is acknowledged
+  'mentions-checked', // a mention is kept only when that member exists and the text contains @<their display name>; any other id is dropped without an error
+  'own-inbox', // the caller's own inbox; nothing names another member
   'worktree-owner-or-host', // caller owns the worktree, or is the host
+  'host-private-withheld', // merge diffs: files on host-private paths are withheld from everyone but the host; text through mask()
   'human-lock-holder', // caller is one of the human lock's holders
   'recipients:all', // fan-out to every admitted member holding `capability`
   'recipients:self', // only the member (or connection) concerned
   'recipients:requester', // the connection that sent the request
   'recipients:host', // host connections only
   'recipients:doc-subscribers', // connections that opened the doc
-  'recipients:attached-viewers', // connections attached to the session
-  'recipients:suggestion-parties', // the suggestion's author and every member holding session.drive (host, Agent access)
+  'recipients:attached-viewers', // connections attached to the (terminal) session
+  'recipients:watchers', // logical channels that watch the agent session (session.watch)
+  'recipients:live-watchers', // watchers that asked for deltas (`live`)
+  'recipients:suggestion-parties', // watchers of the session, the author, and the members whose inbox holds it
   'recipients:transfer-connection', // the transfer connection of that download
   'recipients:notified-member', // the connections of the member being notified
 ] as const;
@@ -81,9 +107,31 @@ export interface MessageSpec<
   readonly resultSensitive: boolean;
   /** Object keys (at any depth) whose string values redactForLog hides; bytes are always reduced to their length. */
   readonly redact: readonly string[];
-  /** Why this type is not in ARCHITECTURE §5 (null for catalog types); listed as a deviation. */
-  readonly addition: string | null;
+  /**
+   * A volatile d→c message is never queued for a disconnected logical channel and is skipped while the daemon's host
+   * socket has more than VOLATILE_SKIP_BUFFERED_BYTES buffered. It travels unsequenced (seq 0): never replayed, never
+   * acknowledged. Only `session.delta`.
+   */
+  readonly volatile: boolean;
+  /** The per-member token bucket the Router takes one token from before the handler runs (`rate_limited` when empty). */
+  readonly rate: RateBucket | null;
+  /**
+   * How the daemon bounds the size of this message (or of its `.ok`): `page` (EVENTS_PAGE_MAX_BYTES of events and
+   * cards), `batch` (EVENTS_BATCH_MAX_BYTES of events), `list` (LIST_REPLY_MAX_BYTES of entries, then `hasMore`; an
+   * event is split). null: the schema's own limits bound it.
+   */
+  readonly sizeRule: SizeRule | null;
 }
+
+/** Per-member token buckets of the Router, per minute (limits.ts RATE_LIMITS_PER_MINUTE; `mention` is taken by handlers). */
+export const RATE_BUCKETS = ['vote', 'comment', 'suggestion', 'mention'] as const;
+export type RateBucket = (typeof RATE_BUCKETS)[number];
+
+export const SIZE_RULES = ['page', 'batch', 'list'] as const;
+export type SizeRule = (typeof SIZE_RULES)[number];
+
+/** The daemon skips volatile messages while its host socket has more than this buffered. */
+export const VOLATILE_SKIP_BUFFERED_BYTES = 1024 * 1024;
 
 type SpecOptions = {
   readonly checks?: readonly HandlerCheck[];
@@ -91,7 +139,9 @@ type SpecOptions = {
   readonly sensitive?: boolean;
   readonly resultSensitive?: boolean;
   readonly redact?: readonly string[];
-  readonly addition?: string;
+  readonly volatile?: boolean;
+  readonly rate?: RateBucket;
+  readonly sizeRule?: SizeRule;
 };
 
 function spec<P extends z.ZodType, R extends z.ZodType | null, D extends MessageDirection>(
@@ -111,7 +161,9 @@ function spec<P extends z.ZodType, R extends z.ZodType | null, D extends Message
     sensitive: options.sensitive ?? false,
     resultSensitive: options.resultSensitive ?? false,
     redact: Object.freeze([...(options.redact ?? [])]),
-    addition: options.addition ?? null,
+    volatile: options.volatile ?? false,
+    rate: options.rate ?? null,
+    sizeRule: options.sizeRule ?? null,
   });
 }
 
@@ -142,19 +194,21 @@ function both<P extends z.ZodType>(payload: P, capability: MessageAccess, option
 
 const OWNER = 'owner-checked-in-handler';
 const TRANSFER = 'transfer';
+/** Keys under which conversation events and cards carry what people and agents wrote: never in a log. */
+const QUESTION_TEXT_KEYS = ['text', 'other', 'note', 'description', 'label', 'header'] as const;
+const PERMISSION_TEXT_KEYS = ['command', 'text', 'input', 'path', 'url', 'reason', 'message'] as const;
+const SUGGESTION_TEXT_KEYS = ['text', 'finalText', 'rejectReason'] as const;
+const CONVERSATION_TEXT_KEYS = [...new Set(['target', 'fallback', ...QUESTION_TEXT_KEYS, ...PERMISSION_TEXT_KEYS, ...SUGGESTION_TEXT_KEYS])] as const;
 
 export const MESSAGE_REGISTRY = Object.freeze({
   // ---- channel.* (§5.1) --------------------------------------------------------------------------------------
   'channel.memberUpdated': event(channel.channelMemberUpdatedPayloadSchema, 'none', { checks: ['recipients:self'] }),
   'channel.settingsUpdated': event(channel.channelSettingsUpdatedPayloadSchema, 'none', {
     checks: ['recipients:all'],
-    addition: 'PublicSettings reach clients only in the Welcome; after admin.settings.set connected clients kept stale values',
   }),
   'channel.closed': event(channel.channelClosedPayloadSchema, 'none', { channel: 'both', checks: ['recipients:self'] }),
   'channel.ack': both(channel.channelAckPayloadSchema, 'none'),
-  'channel.leave': request(channel.channelLeavePayloadSchema, channel.channelLeaveResultSchema, 'none', {
-    addition: 'SPEC R4 (a guest leaves): the sessions a member opened end when they leave; a disconnect must not do that',
-  }),
+  'channel.leave': request(channel.channelLeavePayloadSchema, channel.channelLeaveResultSchema, 'none'),
   error: event(errorPayloadSchema, 'none', { channel: 'both', checks: ['recipients:requester'] }),
 
   // ---- file.* (§5.2, interactive) ------------------------------------------------------------------------------
@@ -259,7 +313,6 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'doc.conflict.get': request(docs.docConflictGetPayloadSchema, docs.docConflictGetResultSchema, 'file.read', {
     resultSensitive: true,
     redact: ['humanText', 'agentText', 'baseText'],
-    addition: "the agent's full version can be a whole document (> msgpack's 1 MiB string limit), so it is not inline in ConflictRecord",
   }),
 
   // ---- lock.*, presence.*, activity.* (§5.4) -------------------------------------------------------------------
@@ -281,54 +334,245 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'activity.list': request(presence.activityListPayloadSchema, presence.activityListResultSchema, 'file.read'),
   'activity.notify': event(presence.activityNotifyPayloadSchema, 'none', {
     checks: ['recipients:notified-member'],
-    addition: "SPEC R8: the coordination MCP tool that notifies a teammate needs a way to reach the member's clients",
   }),
 
   // ---- session.* and exec.* (§5.5) -----------------------------------------------------------------------------
-  'session.create': request(sessions.sessionCreatePayloadSchema, sessions.sessionCreateResultSchema, 'session.create'),
-  'session.list': request(sessions.sessionListPayloadSchema, sessions.sessionListResultSchema, 'session.view'),
-  'session.loginStatus': request(
-    sessions.sessionLoginStatusPayloadSchema,
-    sessions.sessionLoginStatusResultSchema,
-    'session.drive',
-  ),
+  'session.create': request(sessions.sessionCreatePayloadSchema, sessions.sessionCreateResultSchema, 'session.create', {
+    redact: ['firstMessage'],
+  }),
+  'session.list': request(sessions.sessionListPayloadSchema, sessions.sessionListResultSchema, 'session.view', { sizeRule: 'list' }),
+  'session.state': event(sessions.sessionStatePayloadSchema, 'session.view', { checks: ['recipients:all'] }),
+  'session.host.get': request(sessions.sessionHostGetPayloadSchema, sessions.sessionHostGetResultSchema, 'session.view'),
+  'session.host': event(sessions.sessionHostPayloadSchema, 'session.view', { checks: ['recipients:all'] }),
+  'session.end': request(sessions.sessionEndPayloadSchema, sessions.sessionEndResultSchema, OWNER, {
+    checks: ['session-end-rule'],
+  }),
+  'session.rename': request(sessions.sessionRenamePayloadSchema, sessions.sessionCreateResultSchema, 'session.drive'),
+  // terminal sessions
   'session.attach': request(sessions.sessionAttachPayloadSchema, sessions.sessionAttachResultSchema, 'session.view', {
+    checks: ['terminal-session'],
     resultSensitive: true,
   }),
   'session.detach': notify(sessions.sessionDetachPayloadSchema, 'none'),
-  'session.end': request(sessions.sessionEndPayloadSchema, sessions.sessionEndResultSchema, OWNER, {
-    checks: ['session-owner'],
-  }),
-  'session.state': event(sessions.sessionStatePayloadSchema, 'session.view', { checks: ['recipients:all'] }),
   'exec.output': event(sessions.execOutputPayloadSchema, 'session.view', {
     checks: ['recipients:attached-viewers'],
     sensitive: true,
   }),
-  'exec.input': notify(sessions.execInputPayloadSchema, 'session.drive', { sensitive: true }),
+  'exec.input': notify(sessions.execInputPayloadSchema, 'session.drive', { checks: ['terminal-session'], sensitive: true }),
   'exec.resize': both(sessions.execResizePayloadSchema, OWNER, {
-    checks: ['session-owner', 'recipients:attached-viewers'],
+    checks: ['terminal-session', 'session-owner', 'recipients:attached-viewers'],
+  }),
+  // agent sessions (§5.9)
+  'session.watch': request(sessions.sessionWatchPayloadSchema, sessions.sessionWatchResultSchema, 'session.view', {
+    checks: ['agent-session'],
+    resultSensitive: true,
+    redact: CONVERSATION_TEXT_KEYS,
+    sizeRule: 'page',
+  }),
+  'session.unwatch': notify(sessions.sessionUnwatchPayloadSchema, 'none'),
+  'session.history': request(sessions.sessionHistoryPayloadSchema, sessions.sessionHistoryResultSchema, 'session.view', {
+    checks: ['agent-session'],
+    resultSensitive: true,
+    redact: CONVERSATION_TEXT_KEYS,
+    sizeRule: 'page',
+  }),
+  'session.cards.get': request(sessions.sessionCardsGetPayloadSchema, sessions.sessionCardsGetResultSchema, 'session.view', {
+    checks: ['agent-session'],
+    resultSensitive: true,
+    redact: CONVERSATION_TEXT_KEYS,
+    sizeRule: 'page',
+  }),
+  'session.events': event(sessions.sessionEventsPayloadSchema, 'session.view', {
+    checks: ['recipients:watchers'],
+    sensitive: true,
+    redact: CONVERSATION_TEXT_KEYS,
+    sizeRule: 'batch',
+  }),
+  'session.delta': event(sessions.sessionDeltaPayloadSchema, 'session.view', {
+    checks: ['recipients:live-watchers'],
+    sensitive: true,
+    redact: ['text'],
+    volatile: true,
+  }),
+  'session.message.send': request(sessions.sessionMessageSendPayloadSchema, sessions.sessionMessageSendResultSchema, 'session.drive', {
+    checks: ['agent-session', 'session-open', 'mentions-checked'],
+    sensitive: true,
+    redact: ['text'],
+  }),
+  'session.interrupt': request(sessions.sessionInterruptPayloadSchema, sessions.sessionInterruptResultSchema, 'session.drive', {
+    checks: ['agent-session'],
+  }),
+  'session.retry': request(sessions.sessionRetryPayloadSchema, sessions.sessionRetryResultSchema, 'session.drive', {
+    checks: ['agent-session', 'retry-host-only'],
+  }),
+  'session.restart': request(sessions.sessionRestartPayloadSchema, sessions.agentSessionResultSchema, 'session.drive', {
+    checks: ['agent-session', 'session-open'],
+  }),
+  'session.responsible.set': request(sessions.sessionResponsibleSetPayloadSchema, sessions.agentSessionResultSchema, 'session.drive', {
+    checks: ['agent-session', 'responsible-eligible'],
+  }),
+  'session.mode.set': request(sessions.sessionModeSetPayloadSchema, sessions.agentSessionResultSchema, 'session.drive', {
+    checks: ['agent-session', 'mode-not-fixed'],
+  }),
+  'session.rules.get': request(sessions.sessionRulesGetPayloadSchema, sessions.sessionRulesGetResultSchema, 'session.view', {
+    checks: ['agent-session'],
+  }),
+  'session.rule.remove': request(sessions.sessionRuleRemovePayloadSchema, sessions.agentSessionResultSchema, 'session.drive', {
+    checks: ['agent-session'],
+  }),
+  'session.loginStatus': request(
+    sessions.sessionLoginStatusPayloadSchema,
+    sessions.sessionLoginStatusResultSchema,
+    'session.drive',
+    { checks: ['agent-session'] },
+  ),
+
+  // ---- question.* and permission.* (§5.9) ------------------------------------------------------------------------
+  'question.vote': request(conversation.questionVotePayloadSchema, conversation.questionVoteResultSchema, 'discuss', {
+    checks: ['question-open'],
+    redact: ['other'],
+    rate: 'vote',
+  }),
+  'question.comment': request(conversation.questionCommentPayloadSchema, conversation.questionCommentResultSchema, 'discuss', {
+    checks: ['question-open', 'mentions-checked'],
+    redact: ['text'],
+    rate: 'comment',
+  }),
+  'question.submit': request(conversation.questionSubmitPayloadSchema, conversation.questionResultSchema, 'discuss', {
+    checks: ['question-open', 'question-may-submit'],
+    redact: QUESTION_TEXT_KEYS,
+  }),
+  'question.remind': request(conversation.questionRemindPayloadSchema, conversation.questionRemindResultSchema, 'discuss', {
+    checks: ['question-open', 'question-decider-or-host'],
+  }),
+  'question.seen': notify(conversation.questionSeenPayloadSchema, 'discuss', { checks: ['question-decider-or-host'] }),
+  'question.changed': event(conversation.questionChangedPayloadSchema, 'session.view', {
+    checks: ['recipients:watchers'],
+    redact: QUESTION_TEXT_KEYS,
+  }),
+  'question.updated': event(conversation.questionUpdatedPayloadSchema, 'session.view', {
+    checks: ['recipients:watchers'],
+    redact: QUESTION_TEXT_KEYS,
+  }),
+  'permission.decide': request(conversation.permissionDecidePayloadSchema, conversation.permissionResultSchema, 'session.drive', {
+    checks: ['permission-open', 'permission-may-decide'],
+    resultSensitive: true,
+    redact: PERMISSION_TEXT_KEYS,
+  }),
+  'permission.updated': event(conversation.permissionUpdatedPayloadSchema, 'session.view', {
+    checks: ['recipients:watchers'],
+    sensitive: true,
+    redact: PERMISSION_TEXT_KEYS,
   }),
 
   // ---- suggest.* (§5.6) ----------------------------------------------------------------------------------------
   'suggest.create': request(suggestions.suggestCreatePayloadSchema, suggestions.suggestionResultSchema, 'suggest.create', {
-    checks: ['target-session-not-own'],
+    checks: ['agent-session', 'session-open', 'suggestion-limit', 'mentions-checked'],
+    redact: SUGGESTION_TEXT_KEYS,
+    rate: 'suggestion',
   }),
   'suggest.edit': request(suggestions.suggestEditPayloadSchema, suggestions.suggestionResultSchema, OWNER, {
     checks: ['suggestion-author-pending'],
+    redact: SUGGESTION_TEXT_KEYS,
   }),
   'suggest.withdraw': request(suggestions.suggestWithdrawPayloadSchema, suggestions.suggestionResultSchema, OWNER, {
     checks: ['suggestion-author-pending'],
+    redact: SUGGESTION_TEXT_KEYS,
   }),
   'suggest.accept': request(suggestions.suggestAcceptPayloadSchema, suggestions.suggestionResultSchema, 'session.drive', {
     checks: ['suggestion-pending'],
+    redact: SUGGESTION_TEXT_KEYS,
   }),
   'suggest.reject': request(suggestions.suggestRejectPayloadSchema, suggestions.suggestionResultSchema, 'session.drive', {
     checks: ['suggestion-pending'],
+    redact: SUGGESTION_TEXT_KEYS,
   }),
-  'suggest.list': request(suggestions.suggestListPayloadSchema, suggestions.suggestListResultSchema, 'session.view'),
+  'suggest.list': request(suggestions.suggestListPayloadSchema, suggestions.suggestListResultSchema, 'session.view', {
+    redact: SUGGESTION_TEXT_KEYS,
+    sizeRule: 'list',
+  }),
   'suggest.updated': event(suggestions.suggestUpdatedPayloadSchema, 'session.view', {
     checks: ['recipients:suggestion-parties'],
+    redact: SUGGESTION_TEXT_KEYS,
   }),
+
+  // ---- topic.*, plan.*, report.* (§5.10) ---------------------------------------------------------------------------
+  'topic.create': request(topics.topicCreatePayloadSchema, topics.topicWithSessionResultSchema, 'session.create', {
+    redact: ['firstMessage'],
+  }),
+  'topic.list': request(topics.topicListPayloadSchema, topics.topicListResultSchema, 'session.view', { sizeRule: 'list' }),
+  'topic.updated': event(topics.topicUpdatedPayloadSchema, 'session.view', { checks: ['recipients:all'] }),
+  'topic.removed': event(topics.topicRemovedPayloadSchema, 'session.view', { checks: ['recipients:all'] }),
+  'topic.rename': request(topics.topicRenamePayloadSchema, topics.topicResultSchema, 'session.drive', { checks: ['topic-open'] }),
+  'topic.archive': request(topics.topicArchivePayloadSchema, topics.topicResultSchema, 'session.create'),
+  'topic.delete': request(topics.topicDeletePayloadSchema, topics.topicDeleteResultSchema, 'admin', { checks: ['topic-archived'] }),
+  'topic.discussion.restart': request(topics.topicDiscussionRestartPayloadSchema, topics.topicWithSessionResultSchema, 'session.create', {
+    checks: ['topic-open'],
+  }),
+  'topic.revise': request(topics.topicRevisePayloadSchema, topics.messageOrSuggestionResultSchema, 'suggest.create', {
+    checks: ['topic-open', 'drive-or-suggest', 'suggestion-limit', 'mentions-checked'],
+    sensitive: true,
+    redact: SUGGESTION_TEXT_KEYS,
+    rate: 'suggestion',
+  }),
+  'topic.spec.request': request(topics.topicSpecRequestPayloadSchema, topics.topicSpecRequestResultSchema, 'session.drive', {
+    checks: ['topic-open'],
+  }),
+  'topic.rule.add': request(topics.topicRuleAddPayloadSchema, topics.topicResultSchema, 'session.drive', {
+    checks: ['topic-open', 'rule-form'],
+  }),
+  'topic.rule.remove': request(topics.topicRuleRemovePayloadSchema, topics.topicResultSchema, 'session.drive', { checks: ['topic-open'] }),
+  'plan.generate': request(topics.planGeneratePayloadSchema, topics.planGenerateResultSchema, 'session.drive', { checks: ['topic-open'] }),
+  'plan.get': request(topics.planGetPayloadSchema, topics.planGetResultSchema, 'session.view'),
+  'plan.updated': event(topics.planUpdatedPayloadSchema, 'session.view', { checks: ['recipients:all'] }),
+  'plan.mode.set': request(topics.planModeSetPayloadSchema, topics.planResultSchema, 'session.drive', { checks: ['topic-open'] }),
+  'plan.assign': request(topics.planAssignPayloadSchema, topics.planResultSchema, 'session.drive', {
+    checks: ['topic-open', 'responsible-eligible'],
+  }),
+  'plan.suggest': request(topics.planSuggestPayloadSchema, topics.planResultSchema, 'session.drive', { checks: ['topic-open'] }),
+  'plan.preflight': request(topics.planPreflightPayloadSchema, topics.planPreflightResultSchema, 'session.create', { checks: ['topic-open'] }),
+  'plan.start': request(topics.planStartPayloadSchema, topics.planResultSchema, 'session.create', { checks: ['topic-open', 'plan-pins'] }),
+  'plan.changes': request(topics.planChangesPayloadSchema, topics.planChangesResultSchema, 'session.view', {
+    checks: ['topic-open'],
+    resultSensitive: true,
+    redact: ['diff'],
+  }),
+  'plan.resume': request(topics.planResumePayloadSchema, topics.planResultSchema, 'session.drive', { checks: ['topic-open'] }),
+  'plan.item.retry': request(topics.planItemRetryPayloadSchema, topics.planResultSchema, 'session.create', { checks: ['topic-open'] }),
+  'plan.item.continue': request(topics.planItemContinuePayloadSchema, topics.planItemActionResultSchema, 'session.drive', {
+    checks: ['topic-open'],
+  }),
+  'plan.item.resolve': request(topics.planItemResolvePayloadSchema, topics.planItemActionResultSchema, 'session.drive', {
+    checks: ['topic-open'],
+  }),
+  'report.get': request(topics.reportGetPayloadSchema, topics.reportGetResultSchema, 'session.view', {
+    resultSensitive: true,
+    redact: ['done', 'why', 'watchOut', 'followUps', 'text', 'note'],
+  }),
+  'report.updated': event(topics.reportUpdatedPayloadSchema, 'session.view', { checks: ['recipients:all'] }),
+  'report.followUp': request(topics.reportFollowUpPayloadSchema, topics.messageOrSuggestionResultSchema, 'suggest.create', {
+    checks: ['topic-open', 'drive-or-suggest', 'suggestion-limit', 'mentions-checked'],
+    sensitive: true,
+    redact: SUGGESTION_TEXT_KEYS,
+    rate: 'suggestion',
+  }),
+  'report.review': request(topics.reportReviewPayloadSchema, topics.reportReviewResultSchema, 'discuss', {
+    checks: ['topic-open', 'report-may-review'],
+  }),
+
+  // ---- inbox.* (§5.11) ---------------------------------------------------------------------------------------------
+  'inbox.list': request(inbox.inboxListPayloadSchema, inbox.inboxListResultSchema, 'none', {
+    checks: ['own-inbox'],
+    redact: ['excerpt', 'leading'],
+    sizeRule: 'list',
+  }),
+  'inbox.changed': event(inbox.inboxChangedPayloadSchema, 'none', {
+    checks: ['recipients:self'],
+    redact: ['excerpt', 'leading'],
+    sizeRule: 'list',
+  }),
+  'inbox.seen': notify(inbox.inboxSeenPayloadSchema, 'none', { checks: ['own-inbox'] }),
+  'inbox.dismiss': request(inbox.inboxDismissPayloadSchema, inbox.inboxDismissResultSchema, 'none', { checks: ['own-inbox'] }),
 
   // ---- worktree.* (§5.7) ---------------------------------------------------------------------------------------
   'worktree.list': request(worktrees.worktreeListPayloadSchema, worktrees.worktreeListResultSchema, 'file.read'),
@@ -341,18 +585,19 @@ export const MESSAGE_REGISTRY = Object.freeze({
     'worktree.merge.request',
   ),
   'worktree.merge.list': request(worktrees.worktreeMergeListPayloadSchema, worktrees.worktreeMergeListResultSchema, 'file.read'),
-  'worktree.merge.diff': request(worktrees.worktreeMergeDiffPayloadSchema, worktrees.worktreeMergeDiffResultSchema, 'worktree.merge.request', {
+  'worktree.merge.diff': request(worktrees.worktreeMergeDiffPayloadSchema, worktrees.worktreeMergeDiffResultSchema, 'file.read', {
+    checks: ['host-private-withheld'],
     resultSensitive: true,
     redact: ['diff'],
   }),
   'worktree.merge.fileDiff': request(
     worktrees.worktreeMergeFileDiffPayloadSchema,
     worktrees.worktreeMergeFileDiffResultSchema,
-    'worktree.merge.request',
+    'file.read',
     {
+      checks: ['host-private-withheld'],
       resultSensitive: true,
       redact: ['diff'],
-      addition: 'R9 (the host sees the complete diff): worktree.merge.diff is capped at 1 MiB, so every file must be reviewable on its own',
     },
   ),
   'worktree.merge.approve': request(
@@ -369,10 +614,7 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'worktree.merge.updated': event(worktrees.worktreeMergeUpdatedPayloadSchema, 'file.read', {
     checks: ['recipients:all'],
   }),
-  'worktree.removed': event(worktrees.worktreeRemovedPayloadSchema, 'file.read', {
-    checks: ['recipients:all'],
-    addition: 'R9: file trees that show a worktree must learn that it is gone; worktree.updated cannot express removal',
-  }),
+  'worktree.removed': event(worktrees.worktreeRemovedPayloadSchema, 'file.read', { checks: ['recipients:all'] }),
 
   // ---- admin.* (§5.8) ------------------------------------------------------------------------------------------
   'admin.invite.create': request(admin.adminInviteCreatePayloadSchema, admin.adminInviteCreateResultSchema, 'admin', {
@@ -393,6 +635,17 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'admin.audit.entry': event(admin.adminAuditEntryPayloadSchema, 'admin', { checks: ['recipients:host'] }),
   'admin.settings.get': request(admin.adminSettingsGetPayloadSchema, admin.hostSettingsResultSchema, 'admin'),
   'admin.settings.set': request(admin.adminSettingsSetPayloadSchema, admin.hostSettingsResultSchema, 'admin'),
+  'admin.claudeConfig.get': request(admin.adminClaudeConfigGetPayloadSchema, admin.adminClaudeConfigGetResultSchema, 'admin', {
+    resultSensitive: true,
+    redact: ['text', 'runs', 'permissions'],
+    sizeRule: 'list',
+  }),
+  'admin.claudeConfig.decide': request(admin.adminClaudeConfigDecidePayloadSchema, admin.adminClaudeConfigDecideResultSchema, 'admin'),
+  'admin.hostRules.get': request(admin.adminHostRulesGetPayloadSchema, admin.adminHostRulesGetResultSchema, 'admin'),
+  'admin.hostRules.seen': request(admin.adminHostRulesSeenPayloadSchema, admin.adminHostRulesSeenResultSchema, 'admin'),
+  'admin.transcript.redact': request(admin.adminTranscriptRedactPayloadSchema, admin.adminTranscriptRedactResultSchema, 'admin', {
+    checks: ['agent-session'],
+  }),
 });
 
 // ---------------------------------------------------------------------------------------------------------------

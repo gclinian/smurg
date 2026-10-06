@@ -8,7 +8,7 @@
 // (claude-hooks.md §1.1, §1.2, experiments C, C3, exp-v-hook-kill), and the file lives outside the shared folder. The
 // builders are pure; the writers write 0600 files atomically.
 import { constants as fsConstants } from 'node:fs';
-import { open, readdir, rename, rm, unlink } from 'node:fs/promises';
+import { open, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { randomBytes, createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { ensurePrivateDirectory } from '@smurg/protocol/node';
@@ -156,9 +156,11 @@ export interface WriteSessionFilesInput {
   readonly workspaceId: string;
   readonly sessionId: string;
   readonly settings: SessionSettingsInput;
+  /** The exact bytes of role.md (the session's role prompt; `--append-system-prompt-file`). */
+  readonly rolePrompt?: string;
 }
 
-/** Creates the session's private directory and writes settings.json + mcp.json into it (both 0600, atomic). */
+/** Creates the session's private directory and writes settings.json, mcp.json and role.md into it (0600). */
 export async function writeSessionFiles(input: WriteSessionFilesInput): Promise<SessionFiles> {
   const sessionsDir = join(input.stateDir, 'sessions');
   const root = sessionFilesRoot(input.stateDir, input.workspaceId);
@@ -171,7 +173,9 @@ export async function writeSessionFiles(input: WriteSessionFilesInput): Promise<
   const mcpConfigPath = join(dir, 'mcp.json');
   await writePrivateJson(dir, 'settings.json', buildSessionSettings(input.settings));
   await writePrivateJson(dir, 'mcp.json', buildMcpConfig(input.settings.command));
-  return Object.freeze({ dir, settingsPath, mcpConfigPath, claudeArgs: Object.freeze(claudeArgsFor({ settingsPath, mcpConfigPath })) });
+  const rolePromptPath = join(dir, 'role.md');
+  await writeFile(rolePromptPath, input.rolePrompt ?? '', { mode: 0o600, flag: fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW });
+  return Object.freeze({ dir, settingsPath, mcpConfigPath, rolePromptPath, claudeArgs: Object.freeze(claudeArgsFor({ settingsPath, mcpConfigPath })) });
 }
 
 /** Removes one session's directory (session ended). */

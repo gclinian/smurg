@@ -1,6 +1,7 @@
 // The activity feed (SPEC R8, R11; ARCHITECTURE §5.4, §7.3): activity.jsonl (private, bounded, paged newest first
 // with an exact `before` cursor), the bus → activity + audit mapping of ActivityFeed (core/interfaces.ts), and
 // activity.notify.
+import { buildAgentSession, buildTerminalSession } from '../../src/core/fakes/build.ts';
 import { lstat, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -260,7 +261,8 @@ describe('who changed a file nobody announced (Bash edits, FileChanged)', () => 
   const WT = { kind: 'worktree', worktreeId: 'wt_bob1' } as const;
 
   function sessionInfo(id: string, kind: 'agent' | 'terminal', root: SessionInfo['root']): SessionInfo {
-    return { id, kind, ownerUserId: 'dev:bob', ownerName: 'Bob', title: id, root, status: 'running', cols: 80, rows: 24, createdAt: 1, login: 'unknown', attached: 0 };
+    const openedBy = { userId: 'dev:bob', displayName: 'Bob' };
+    return kind === 'agent' ? buildAgentSession({ id, openedBy, title: id, root, status: 'running', createdAt: 1 }) : buildTerminalSession({ id, openedBy, title: id, root, createdAt: 1 });
   }
 
   async function feed(sessions: SessionInfo[]): Promise<{ readonly bus: TypedEventBus; readonly events: ActivityEvent[]; readonly audit: RecordingAudit }> {
@@ -333,8 +335,10 @@ describe('Bash windows (D-13): a change nobody claimed, inside the Bash window o
   const WT = { kind: 'worktree', worktreeId: 'wt_amy1' } as const;
   const OWNERS: Record<string, string> = { 'dev:amy': 'Amy', 'dev:bob': 'Bob', 'dev:host': 'Host' };
 
-  function info(id: string, owner: string, root: SessionInfo['root'], extra: Partial<SessionInfo> = {}): SessionInfo {
-    return { id, kind: 'agent', ownerUserId: owner, ownerName: OWNERS[owner] ?? owner, title: id, root, status: 'running', cols: 80, rows: 24, createdAt: 1, login: 'unknown', attached: 0, ...extra };
+  function info(id: string, owner: string, root: SessionInfo['root'], extra: { readonly kind?: 'terminal'; readonly status?: 'ended' } = {}): SessionInfo {
+    const openedBy = { userId: owner, displayName: OWNERS[owner] ?? owner };
+    if (extra.kind === 'terminal') return buildTerminalSession({ id, openedBy, title: id, root, createdAt: 1 });
+    return buildAgentSession({ id, openedBy, title: id, root, status: extra.status ?? 'running', createdAt: 1 });
   }
 
   async function feed(sessions: SessionInfo[], options: { readonly attributeBashEdits?: boolean; readonly lockOf?: (file: FileRef) => unknown } = {}) {

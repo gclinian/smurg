@@ -4,7 +4,7 @@
 // where it pointed at registration. Records persist in state.json so the rule survives a daemon restart.
 import { lstat, realpath } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { MAIN_ROOT, checkRelPath, isHostOnlyPath, opaqueIdSchema, rootRefKey, type RootRef } from '@smurg/protocol';
+import { MAIN_ROOT, checkRelPath, isHostOnlyPath, itemIdSchema, opaqueIdSchema, rootRefKey, topicSlugSchema, type RootRef } from '@smurg/protocol';
 import type { PersistentDocument, RegisterWorktreeRootInput, RootInfo, RootRegistry, SharedLink } from '../core/interfaces.ts';
 import { toDisposable, type Clock, type Disposable } from '../core/lifecycle.ts';
 import type { WorkspaceState } from '../core/workspace-state.ts';
@@ -26,7 +26,11 @@ type Listener = (change: { readonly kind: 'added' | 'removed'; readonly root: Ro
 export const ROOT_REMOVED_WAIT_MS = 15_000;
 
 function freezeRoot(root: RootInfo): RootInfo {
-  return Object.freeze({ ...root, sharedLinks: Object.freeze(root.sharedLinks.map((link) => Object.freeze({ ...link }))) });
+  return Object.freeze({
+    ...root,
+    sharedLinks: Object.freeze(root.sharedLinks.map((link) => Object.freeze({ ...link }))),
+    ...(root.item === undefined ? {} : { item: Object.freeze({ ...root.item }) }),
+  });
 }
 
 export class RootRegistryImpl implements RootRegistry {
@@ -52,6 +56,7 @@ export class RootRegistryImpl implements RootRegistry {
           ownerUserId: record.ownerUserId,
           sharedLinks: record.sharedLinks,
           registeredAt: record.registeredAt,
+          ...(record.item === undefined ? {} : { item: record.item }),
         }),
       );
     }
@@ -86,6 +91,11 @@ export class RootRegistryImpl implements RootRegistry {
     if (dirReal !== expected || dirStat === null || dirStat === 'not-directory' || !dirStat.isDirectory()) {
       throw new RootRegistrationError('a worktree must be a real directory at .smurg/worktrees/<worktreeId>');
     }
+    // An item worktree: its topic's folder becomes unwritable through smurg (PathGuard), so the facts must be well-formed.
+    const item = input.item === undefined ? undefined : { topicId: input.item.topicId, topicSlug: input.item.topicSlug, itemId: input.item.itemId };
+    if (item !== undefined && (!opaqueIdSchema.safeParse(item.topicId).success || !topicSlugSchema.safeParse(item.topicSlug).success || !itemIdSchema.safeParse(item.itemId).success)) {
+      throw new RootRegistrationError('invalid work item of a worktree root');
+    }
     const links: SharedLink[] = [];
     const seen = new Set<string>();
     for (const link of input.sharedLinks) {
@@ -119,6 +129,7 @@ export class RootRegistryImpl implements RootRegistry {
       ownerUserId: input.ownerUserId,
       sharedLinks: links,
       registeredAt: this.clock.now(),
+      ...(item === undefined ? {} : { item }),
     });
     this.state.update((draft) => {
       draft.worktreeRoots = draft.worktreeRoots.filter((record) => record.worktreeId !== input.worktreeId);
@@ -128,6 +139,7 @@ export class RootRegistryImpl implements RootRegistry {
         ownerUserId: input.ownerUserId,
         sharedLinks: links.map((link) => ({ ...link })),
         registeredAt: root.registeredAt,
+        ...(item === undefined ? {} : { item }),
       });
     });
     await this.state.flush();

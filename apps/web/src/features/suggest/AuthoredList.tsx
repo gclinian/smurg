@@ -113,7 +113,7 @@ export function AuthoredList({ userId, sessions, now }: AuthoredListProps) {
       <ul className="suggest-list">
         {visible.map((suggestion) => {
           const session = sessions.get(suggestion.sessionId);
-          const target = session ? t('session.label', { owner: session.ownerName, title: plainSessionTitle(session) }) : t('mine.unknownSession');
+          const target = session ? t('session.label', { owner: session.openedBy.displayName, title: plainSessionTitle(session) }) : t('mine.unknownSession');
           return <AuthoredItem key={suggestion.id} suggestion={suggestion} target={target} now={now} />;
         })}
       </ul>

@@ -3,7 +3,7 @@
 // "Agent access" first shows the risk (RoleRiskDialog) and applies only after the host confirms; losing it ends the
 // sessions the member opened (the daemon does), which is confirmed too.
 import { useState } from 'react';
-import { GUEST_ROLES, can, type GuestRole, type MemberWithDevices, type PresenceMember, type SessionInfo } from '@smurg/protocol';
+import { GUEST_ROLES, can, isSessionOver, type GuestRole, type MemberWithDevices, type PresenceMember, type SessionInfo } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
 import { compareText, formatRelativeTime, formatRole } from '../../lib/format.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
@@ -58,7 +58,7 @@ export function MembersSection({ now }: { now: number }) {
     members.map((member) => ({
       member,
       presence: presence.find((p) => p.userId === member.userId),
-      running: sessions.filter((session) => session.ownerUserId === member.userId && session.status !== 'exited'),
+      running: sessions.filter((session) => session.openedBy.userId === member.userId && !isSessionOver(session)),
     })),
   );
 

@@ -295,7 +295,7 @@ describe('what the local channel receives (verification F-1)', () => {
     for (const type of LOCAL_CHANNEL_RECEIVES) expect(DAEMON_TYPES).toContain(type);
   });
 
-  it('every other daemon message is neither sent nor queued to a local channel (send, sendToUser, broadcast), connected or waiting for a resume, although the host\'s role may receive it', async () => {
+  it('every other daemon message is neither sent nor queued to a local channel (send, sendToUser, sendToChannels, broadcast), connected or waiting for a resume, although the host\'s role may receive it', async () => {
     const td = await createTestDaemon();
     t = td;
     const local = attachHost(td);
@@ -305,12 +305,15 @@ describe('what the local channel receives (verification F-1)', () => {
     const refused = DAEMON_TYPES.filter((type) => !localChannelReceives(type) && mayReceive('host', type));
     // The registry would let the host receive them all: what keeps them away is the local channel's list.
     expect(refused).toEqual(expect.arrayContaining(['admin.audit.entry', 'activity.notify', 'activity.event', 'presence.state', 'channel.memberUpdated', 'channel.settingsUpdated', 'suggest.updated', 'worktree.merge.updated']));
+    // Protocol 4: conversations, cards, topics and the inbox are the web's; `smurg attach` is a terminal.
+    expect(refused).toEqual(expect.arrayContaining(['session.events', 'session.delta', 'question.changed', 'question.updated', 'permission.updated', 'topic.updated', 'topic.removed', 'plan.updated', 'report.updated', 'inbox.changed']));
     const problems: string[] = [];
     const tryAll = (state: string): void => {
       for (const type of refused) {
         // A payload that would not even encode: the refusal must come before anything is encoded or queued.
         if (td.ctx.hub.send(channelId, type as never, {} as never)) problems.push(`${state} send ${type}`);
         if (td.ctx.hub.broadcast(type as never, {} as never, { filter: (r) => r.channelId === channelId })) problems.push(`${state} broadcast ${type}`);
+        if (td.ctx.hub.sendToChannels([channelId], type as never, {} as never)) problems.push(`${state} sendToChannels ${type}`);
       }
       if (td.ctx.hub.sendToUser(td.hostUserId, 'activity.notify', NOTICE)) problems.push(`${state} sendToUser activity.notify`);
     };

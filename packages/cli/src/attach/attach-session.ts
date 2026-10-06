@@ -5,7 +5,7 @@
 // detaches (also in its kitty / CSI-u form). The output goes through an allow-list filter (./output-filter.ts): no
 // query, OSC 52, DCS, APC or other unknown sequence reaches the local terminal (the daemon's mirror answers queries). The local terminal is restored on EVERY way out: detach, the session's exit (whose exit
 // code becomes ours), a lost connection, a signal, an exception, process exit.
-import { EXEC_INPUT_MAX_BYTES, can, type SessionInfo } from '@smurg/protocol';
+import { EXEC_INPUT_MAX_BYTES, can, type SessionInfo, type TerminalSession } from '@smurg/protocol';
 import type { WorkspaceChannel } from '../channel/channel.ts';
 import type { ChannelEnd } from '../channel/channel.ts';
 import { errorText } from '../cli/errors.ts';
@@ -53,7 +53,8 @@ export type AttachOutcome =
 
 export interface AttachSessionOptions {
   readonly channel: WorkspaceChannel;
-  readonly session: SessionInfo;
+  /** A terminal session: `smurg attach` is a terminal; agent conversations open in the browser. */
+  readonly session: TerminalSession;
   readonly terminal: AttachTerminal;
   readonly io: Pick<CliIo, 'onExit' | 'onSignal'>;
   /** The language of the notices and of the window title. */
@@ -107,7 +108,7 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
   let session = options.session;
   const sessionId = session.id;
   /** The owner (who opened it) drives the PTY size (resize policy `owner`). */
-  const isOwner = session.ownerUserId === me;
+  const isOwner = session.openedBy.userId === me;
   /** The host and members with agent access type into any session (`session.drive`, ARCHITECTURE §11 D-15); others only watch. */
   const canType = can(channel.welcome.member.role, 'session.drive');
   const newFilter = (): OutputFilter => new OutputFilter({ utf8: options.utf8 ?? true });
@@ -119,7 +120,7 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
   /** Live output that arrived before the attach answer was painted. */
   let pending: { offset: number; data: Uint8Array }[] | null = [];
   /** The session's exit, seen in a session.state (it never reverts; it may arrive while the attach answer is pending). */
-  let exitedState: SessionInfo | null = session.status === 'exited' ? session : null;
+  let exitedState: TerminalSession | null = session.status === 'exited' ? session : null;
   let finished = false;
   let rawMode = false;
   let lastBell = 0;
@@ -197,7 +198,7 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
     write(title(parts.join(' - ')));
   };
 
-  const exitedMessage = (s: SessionInfo): string => note(m('attach.exited', { exitCode: s.exitCode ?? 0 }));
+  const exitedMessage = (s: TerminalSession): string => note(m('attach.exited', { exitCode: s.exitCode ?? 0 }));
 
   const requestAttach = async (): Promise<void> => {
     pending = [];
@@ -245,7 +246,7 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
       updateTitle();
     }),
     channel.on('session.state', (payload) => {
-      if (payload.session.id !== sessionId) return;
+      if (payload.session.id !== sessionId || payload.session.kind !== 'terminal') return;
       session = payload.session;
       if (session.status === 'exited') exitedState = session;
       // While the attach answer is pending, its queued output is painted first (requestAttach finishes then).
@@ -314,16 +315,16 @@ export function attachSession(options: AttachSessionOptions): Promise<AttachOutc
 }
 
 /** The line printed BEFORE the terminal is taken over, for someone whose role may not type into sessions. */
-export function readOnlyNotice(session: SessionInfo): Text {
-  return m('attach.readOnly', { owner: session.ownerName });
+export function readOnlyNotice(session: Pick<SessionInfo, 'openedBy'>): Text {
+  return m('attach.readOnly', { owner: session.openedBy.displayName });
 }
 
 /**
  * A session's title: the one its opener typed, else the default for its kind and owner (the wire carries no default
  * title: each client words it in its own language, from the wire catalog, so the web app and the CLI say the same).
  */
-export function sessionTitle(session: Pick<SessionInfo, 'kind' | 'ownerName'> & { readonly title?: string | undefined }): Text {
+export function sessionTitle(session: Pick<SessionInfo, 'kind' | 'openedBy'> & { readonly title?: string | undefined }): Text {
   if (session.title !== undefined && session.title !== '') return session.title;
-  const ref = msg(session.kind === 'agent' ? 'session.title.agent' : 'session.title.terminal', { owner: session.ownerName });
+  const ref = msg(session.kind === 'agent' ? 'session.title.agent' : 'session.title.terminal', { owner: session.openedBy.displayName });
   return wireText(ref, renderEnglish(ref));
 }

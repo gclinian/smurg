@@ -17,7 +17,14 @@ import { createConnection, createServer, type Server, type Socket } from 'node:n
 import { SmurgError, fileRefKey, opaqueIdSchema, rootRefSchema, type FileRef, type RootRef } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
-import type { HookServer, HookSessionCredentials, HookSessionRegistration, Principal } from '../core/interfaces.ts';
+import type {
+  HookServer,
+  HookSessionCredentials,
+  HookSessionRegistration,
+  Principal,
+  LaunchProfile,
+  UserId,
+} from '../core/interfaces.ts';
 import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { assertSocketPath } from '../core/sockets.ts';
 import { TokenBucket } from '../net/rate-limit.ts';
@@ -203,7 +210,14 @@ export class HookServerImpl implements HookServer {
    * Writes settings.json + mcp.json of a REGISTERED session and returns their paths and the flags for `claude`. Refuses
    * (fail closed) without config.sessions.selfCommand: a session whose hooks cannot run must not start.
    */
-  async writeSessionFiles(sessionId: string): Promise<SessionFiles> {
+  /** Handover: whose locks the agent's are. `pathRights` is never touched. */
+  reassignSession(sessionId: string, ownerUserId: UserId): void {
+    const entry = this.byId.get(sessionId);
+    if (!entry) return;
+    (entry as { registration: HookSessionRegistration }).registration = Object.freeze({ ...entry.registration, ownerUserId });
+  }
+
+  async writeSessionFiles(sessionId: string, launch: LaunchProfile): Promise<SessionFiles> {
     const entry = this.byId.get(sessionId);
     if (!entry) throw new SmurgError('internal', undefined, { reason: 'hook-session-not-registered' });
     const command = this.ctx.config.sessions.selfCommand;
@@ -216,6 +230,7 @@ export class HookServerImpl implements HookServer {
       workspaceId: this.ctx.config.workspaceId,
       sessionId,
       settings: { command, fileChangedNames, bashActivity: this.ctx.config.activity.attributeBashEdits },
+      rolePrompt: launch.rolePrompt,
     });
   }
 
@@ -532,7 +547,11 @@ export class HookServerImpl implements HookServer {
   }
 
   private principalOf(entry: SessionEntry): Principal | null {
-    return this.ctx.members.agentPrincipal(entry.registration.sessionId, entry.registration.ownerUserId);
+    // `pathRights` is the registration's (fixed at creation): a handover (reassignSession) never raises it.
+    return this.ctx.members.agentPrincipal(entry.registration.sessionId, entry.registration.ownerUserId, {
+      agentName: entry.registration.agentName,
+      pathRights: entry.registration.pathRights,
+    });
   }
 
   /** Undoes a lock whose grant the hook never heard of (decided too late, or for a session that is gone). */

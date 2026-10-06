@@ -5,6 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { CLIENT_REQUEST_FAILURES } from '../client/errors.ts';
 import { ERROR_CODES } from '../errors.ts';
 import { ROLES } from '../roles.ts';
+import { PERMISSION_MODES } from '../schema/entities.ts';
+import { ATTENTION_SUBJECTS } from '../schema/inbox.ts';
+import { REPORT_OUTCOMES } from '../schema/topics.ts';
 import {
   ADMIN_CHANGES,
   CONFLICT_RECOVERY_REASONS,
@@ -13,13 +16,16 @@ import {
   MESSAGES,
   MESSAGE_GROUPS,
   MESSAGE_IDS,
+  attentionRef,
   clientFailureRef,
   defaultErrorRef,
   formatBytes,
   isMessageId,
   msg,
+  permissionModeRef,
   render,
   renderEnglish,
+  reportOutcomeRef,
   roleLabel,
   roleRef,
   type MessageId,
@@ -30,7 +36,7 @@ import {
 // Han, Bopomofo, CJK punctuation (U+3000-303F) and full-width forms (U+FF00-FFEF): the no-CJK lint's definition.
 const CJK = /[　-〿㄀-ㄯ㐀-鿿豈-﫿＀-￯]/u;
 /** zh-TW texts that are deliberately identical to the English ones (proper names, loanwords). */
-const IDENTICAL_IN_BOTH: ReadonlySet<string> = new Set<string>(['session.title.agent']);
+const IDENTICAL_IN_BOTH: ReadonlySet<string> = new Set<string>(['session.title.agent', 'session.title.item']);
 
 /**
  * String parameters that are one of a fixed set of values (a nested table inside the form picks the words): every
@@ -46,6 +52,7 @@ const ENUM_PARAMS: Readonly<Record<string, Readonly<Record<string, readonly stri
   'activity.externalChange': { change: FILE_CHANGES },
   'activity.worktreeChange': { change: FILE_CHANGES },
   'activity.conflictRecovered': { reason: CONFLICT_RECOVERY_REASONS },
+  'conversation.mode.changed': { mode: PERMISSION_MODES },
 };
 
 function sample(kind: ParamKind, name: string, variant: number): string | number | boolean | string[] {
@@ -253,5 +260,47 @@ describe('seed: client request failures', () => {
   it('every client.* message belongs to a failure', () => {
     const reachable = new Set(CLIENT_REQUEST_FAILURES.flatMap((failure) => [clientFailureRef(failure)?.id, clientFailureRef(failure, true)?.id]));
     expect(MESSAGE_IDS.filter((id) => id.startsWith('client.')).filter((id) => !reachable.has(id))).toEqual([]);
+  });
+});
+
+describe('seed: enumerated values with their own wording (protocol 4)', () => {
+  it('the two permission modes', () => {
+    expect(PERMISSION_MODES.map((mode) => render('en', permissionModeRef(mode)))).toEqual(['Asks before edits and commands', 'Asks before commands']);
+    expect(PERMISSION_MODES.map((mode) => render('zh-TW', permissionModeRef(mode)))).toEqual(['編輯和執行指令前都先問', '執行指令前先問']);
+    expect(permissionModeRef('ask-nothing')).toBeUndefined();
+    expect(permissionModeRef('constructor')).toBeUndefined();
+    expect(render('en', msg('conversation.mode.changed', { by: 'Mei', mode: 'ask-all' }))).toBe('Mei changed the permission mode: asks before edits and commands');
+    expect(render('zh-TW', msg('conversation.mode.changed', { by: 'Mei', mode: 'ask-commands' }))).toBe('Mei 變更了權限模式：執行指令前先問');
+  });
+
+  it('how a work item ended', () => {
+    expect(REPORT_OUTCOMES.map((outcome) => render('en', reportOutcomeRef(outcome)))).toEqual(['Complete', 'Partial', 'Blocked']);
+    expect(REPORT_OUTCOMES.map((outcome) => render('zh-TW', reportOutcomeRef(outcome)))).toEqual(['完成', '部分完成', '受阻']);
+    expect(reportOutcomeRef('done')).toBeUndefined();
+  });
+
+  it('every attention subject, and nothing else under attention.*', () => {
+    const refs = ATTENTION_SUBJECTS.map((subject) => attentionRef(subject));
+    for (const ref of refs) {
+      expect(render('en', ref)).toEqual(expect.any(String));
+      expect(render('zh-TW', ref)).toMatch(CJK);
+    }
+    expect(render('en', attentionRef('item-stalled'))).toBe('Stopped without a report');
+    expect(render('zh-TW', attentionRef('item-stalled'))).toBe('沒寫報告就停下了');
+    expect(new Set(refs.map((ref) => ref?.id)).size).toBe(ATTENTION_SUBJECTS.length);
+    expect(MESSAGE_IDS.filter((id) => id.startsWith('attention.')).length).toBe(ATTENTION_SUBJECTS.length);
+    expect(attentionRef('coffee')).toBeUndefined();
+  });
+
+  it('the owner’s decisions: the zh-TW word for Inbox (OWNER-DECISIONS Q14); the host’s own Claude Code rules apply (Q7)', () => {
+    expect(render('zh-TW', msg('inbox.notDismissable'))).toBe('這個項目處理完才會離開收件夾');
+    expect(render('en', msg('hostRules.found', { count: 12 }))).toBe('Your own Claude Code settings allow 12 kinds of commands without asking. Agents here run them without asking too.');
+    expect(render('en', msg('hostRules.found', { count: 1 }))).toContain('1 kind of commands');
+  });
+
+  it('the default titles of agent sessions', () => {
+    expect(render('en', msg('session.title.discussion'))).toBe('Discussion');
+    expect(render('zh-TW', msg('session.title.discussion'))).toBe('討論');
+    expect(render('en', msg('session.title.item', { number: 2, title: 'Payment form' }))).toBe('2 · Payment form');
   });
 });

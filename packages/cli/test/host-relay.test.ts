@@ -569,7 +569,7 @@ describe('smurg attach through the relay (guest, CLI device key)', () => {
 
     // 2. The host starts a session (in the web app; here on the daemon side: the control socket cannot open sessions,
     // review F1) and prints something. The host's own terminal is attached through the control socket.
-    const session = h.echo.open({ ownerUserId: h.relay.loginAs.userId, ownerName: h.relay.loginAs.displayName, kind: 'agent' });
+    const session = h.echo.open({ ownerUserId: h.relay.loginAs.userId, ownerName: h.relay.loginAs.displayName });
     const host = await LocalWorkspaceChannel.open(h.daemon.config.runPaths.ctl, { deviceName: 'host test' });
     cleanups.push(() => host.close());
     h.echo.print(session.id, '\x1b[1mhello from the host\x1b[0m\r\n');
@@ -580,9 +580,9 @@ describe('smurg attach through the relay (guest, CLI device key)', () => {
     const attached = runAttach([session.id.slice(0, 12), '--workspace', h.workspaceId], commandContext(guest), { relayFor });
     await waitFor(() => terminal.text().includes('hello from the host'), { what: 'the snapshot on the guest terminal', timeoutMs: 15_000 });
     expect(terminal.rawMode).toBe(true);
-    expect(guest.out()).toContain('Attaching to session "Claude (Ian)" (opened by Ian). Press Ctrl-] to leave.');
+    expect(guest.out()).toContain('Attaching to session "Terminal (Ian)" (opened by Ian). Press Ctrl-] to leave.');
     expect(guest.out()).toContain('Read-only: Ian opened this session, and your role cannot type into sessions');
-    expect(terminal.text()).toContain('smurg: Claude (Ian) - read-only'); // the window title says it too
+    expect(terminal.text()).toContain('smurg: Terminal (Ian) - read-only'); // the window title says it too
     terminal.type('rm -rf important\r');
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(h.echo.inputs.get(session.id) ?? '').not.toContain('rm -rf');
@@ -622,7 +622,7 @@ describe('smurg attach through the relay (guest, CLI device key)', () => {
     expect(await runAttach(['--invite', h.links.invite], commandContext(testIo({ env: guestEnv })), { relayFor })).toBe(0);
     expect(h.daemon.ctx.members.get('dev:ada')?.role).toBe('agent');
     // The host opens a terminal session (in the web app; here on the daemon side, review F1): Ada does not own it.
-    const session = h.echo.open({ ownerUserId: h.relay.loginAs.userId, ownerName: h.relay.loginAs.displayName, kind: 'terminal' });
+    const session = h.echo.open({ ownerUserId: h.relay.loginAs.userId, ownerName: h.relay.loginAs.displayName });
     h.echo.print(session.id, 'host$ ');
     // A bigger terminal than the session: as a non-owner, Ada's size is not applied (resize policy `owner`).
     const terminal = fakeTerminal({ cols: 100, rows: 30 });

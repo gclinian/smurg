@@ -10,13 +10,13 @@ import { SuggestionsPanel } from './index.tsx';
 
 useTestLocale('zh-TW');
 
-const hostSession = makeSession({ id: 'sess_host', ownerUserId: HOST_USER, ownerName: 'Ian', title: 'Claude' });
+const hostSession = makeSession({ id: 'sess_host', openedBy: { userId: HOST_USER, displayName: 'Ian' }, title: 'Claude' });
 
 async function renderPanel(role: Role, suggestions: Suggestion[] = []) {
   const result = renderInWorkspace(<SuggestionsPanel />, { role });
   await act(async () => {
-    result.conn.respond('session.list', { sessions: [hostSession] });
-    result.conn.respond('suggest.list', { suggestions });
+    result.conn.respond('session.list', { sessions: [hostSession], hasMore: false });
+    result.conn.respond('suggest.list', { suggestions, hasMore: false });
   });
   await act(async () => {
     result.stores.sessions.focus('sess_host');

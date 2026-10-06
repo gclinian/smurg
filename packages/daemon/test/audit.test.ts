@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type AuditEntry } from '@smurg/protocol';
 import { JsonlAuditLog, auditDetailForMessage, sanitizeAuditDetail, withAuditVia } from '../src/core/audit.ts';
+import { AuditTextStore, sha256Hex } from '../src/core/audit-text.ts';
+import { AUDIT_FULL_TEXT_HEAD_CHARS } from '../src/core/interfaces.ts';
 import { ManualClock } from '../src/core/lifecycle.ts';
 import { silentLogger } from '../src/core/logger.ts';
 import { SYSTEM_ACTOR } from '../src/core/permissions.ts';
@@ -206,12 +208,98 @@ describe('JsonlAuditLog bounds (security review F5, contract review C12)', () =>
     await reopened.close();
   });
 
-  it('keeps a whole suggestion text only under the keys the caller lists in fullText (R6.3)', () => {
+  it('a fullText key keeps its first characters in the entry; other strings are cut as before (R6.3)', () => {
     const text = 'x'.repeat(5_000);
     expect((sanitizeAuditDetail({ text }) as { text: string }).text).toHaveLength(2_001); // cut + ellipsis
-    expect(sanitizeAuditDetail({ text, finalText: text, other: text }, ['text', 'finalText'])).toEqual({ text, finalText: text, other: `${'x'.repeat(2_000)}…` });
+    const head = `${'x'.repeat(AUDIT_FULL_TEXT_HEAD_CHARS)}…`;
+    expect(sanitizeAuditDetail({ text, finalText: text, other: text }, ['text', 'finalText'])).toEqual({ text: head, finalText: head, other: `${'x'.repeat(2_000)}…` });
+    // A short text is kept as it is; only top-level keys count.
+    expect(sanitizeAuditDetail({ text: 'short', nested: { text } }, ['text'])).toEqual({ text: 'short', nested: { text: `${'x'.repeat(2_000)}…` } });
     // Redaction by key still wins.
     expect(sanitizeAuditDetail({ content: 'SECRET' }, ['content'])).toEqual({ content: '[redacted]' });
+  });
+});
+
+describe('the full-text store (ARCHITECTURE §5.8)', () => {
+  it('an entry keeps the head, the SHA-256 and the length; the whole text is read back by its hash, also after a reopen', async () => {
+    base = await createTempDir('audit');
+    const path = join(base, 'audit.jsonl');
+    const textPath = join(base, 'audit-text.jsonl');
+    const clock = new ManualClock(1_760_000_000_000);
+    const texts = await AuditTextStore.open(textPath, { clock, log: silentLogger });
+    const log = await JsonlAuditLog.open(path, { clock, log: silentLogger, pageMax: 500, texts });
+    const long = `${'長'.repeat(3_000)} the end`;
+    const entry = log.record({ actor: SYSTEM_ACTOR, action: 'suggest.create', outcome: 'ok', detail: { text: long, note: 'kept', content: long }, fullText: ['text', 'content', 'missing'] });
+    expect(entry.detail).toEqual({ text: `${long.slice(0, AUDIT_FULL_TEXT_HEAD_CHARS)}…`, textSha256: sha256Hex(long), textChars: long.length, note: 'kept', content: '[redacted]' });
+    expect(await log.fullText(sha256Hex(long))).toBe(long);
+    // A short text gets its hash too (the reader never has to guess which entries have one).
+    const short = log.record({ actor: SYSTEM_ACTOR, action: 'suggest.create', outcome: 'ok', detail: { text: 'hi' }, fullText: ['text'] });
+    expect(short.detail).toEqual({ text: 'hi', textSha256: sha256Hex('hi'), textChars: 2 });
+    expect(await log.fullText(sha256Hex('hi'))).toBe('hi');
+    expect(await log.fullText(sha256Hex('never written'))).toBeNull();
+    expect(await log.fullText('not-a-hash')).toBeNull();
+    await log.close();
+    expect(((await stat(textPath)).mode & 0o777).toString(8)).toBe('600');
+    // The core log holds none of the text beyond the head.
+    expect(await readFile(path, 'utf8')).not.toContain('the end');
+
+    const again = await AuditTextStore.open(textPath, { clock, log: silentLogger });
+    const reopened = await JsonlAuditLog.open(path, { clock, log: silentLogger, pageMax: 500, texts: again });
+    expect(await reopened.fullText(sha256Hex(long))).toBe(long);
+    await reopened.close();
+  });
+
+  it('the same text is stored once; volume rotates the text files (never the core log) and the oldest texts go', async () => {
+    base = await createTempDir('audit');
+    const path = join(base, 'audit.jsonl');
+    const textPath = join(base, 'audit-text.jsonl');
+    const clock = new ManualClock(1_760_000_000_000);
+    const texts = await AuditTextStore.open(textPath, { clock, log: silentLogger, maxBytes: 8_192, files: 3 });
+    const log = await JsonlAuditLog.open(path, { clock, log: silentLogger, pageMax: 500, texts });
+    const same = 's'.repeat(2_000);
+    for (let i = 0; i < 5; i++) log.record({ actor: SYSTEM_ACTOR, action: 'suggest.create', outcome: 'ok', detail: { text: same }, fullText: ['text'] });
+    await log.flush();
+    expect((await stat(textPath)).size).toBeLessThan(2_200);
+
+    const roleChange = log.record({ actor: SYSTEM_ACTOR, action: 'member.role', outcome: 'ok', target: 'dev:rita', detail: { from: 'editor', to: 'agent' } });
+    const bodies: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      const body = `${i}:${'v'.repeat(1_500)}`;
+      bodies.push(body);
+      log.record({ actor: SYSTEM_ACTOR, action: 'suggest.create', outcome: 'ok', detail: { text: body }, fullText: ['text'] });
+    }
+    await log.flush();
+    // Three files, each at most the limit: about 60 kB of text went through, at most 3 × 8 kB is kept.
+    for (const name of ['audit-text.jsonl', 'audit-text.1.jsonl', 'audit-text.2.jsonl']) expect((await stat(join(base, name))).size).toBeLessThanOrEqual(8_192);
+    await expect(stat(join(base, 'audit-text.3.jsonl'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await log.fullText(sha256Hex(bodies.at(-1) as string))).toBe(bodies.at(-1));
+    expect(await log.fullText(sha256Hex(bodies[0] as string))).toBeNull();
+    expect(await log.fullText(sha256Hex(same))).toBeNull();
+    // …while every entry, the role change among them, is still in the core log with its hash.
+    const all = await log.query({ limit: 500 });
+    expect(all).toHaveLength(46);
+    expect(all.find((entry) => entry.at === roleChange.at)).toMatchObject({ action: 'member.role', target: 'dev:rita' });
+    expect(all[0]?.detail).toMatchObject({ textSha256: sha256Hex(bodies.at(-1) as string), textChars: (bodies.at(-1) as string).length });
+    await log.close();
+  });
+
+  it('without a store an entry still carries the hash, the length and the head', async () => {
+    base = await createTempDir('audit');
+    const log = await JsonlAuditLog.open(join(base, 'audit.jsonl'), { clock: new ManualClock(1), log: silentLogger, pageMax: 500 });
+    const entry = log.record({ actor: SYSTEM_ACTOR, action: 'suggest.create', outcome: 'ok', detail: { text: 'abc' }, fullText: ['text'] });
+    expect(entry.detail).toEqual({ text: 'abc', textSha256: sha256Hex('abc'), textChars: 3 });
+    expect(await log.fullText(sha256Hex('abc'))).toBeNull();
+    await log.close();
+  });
+
+  it('the daemon wires the store: audit-text.jsonl beside audit.jsonl, read back through ctx.audit.fullText', async () => {
+    t = await createTestDaemon();
+    const text = 'whole text '.repeat(400);
+    const entry = t.ctx.audit.record({ actor: SYSTEM_ACTOR, action: 'session.message', outcome: 'ok', detail: { text }, fullText: ['text'] });
+    expect(entry.detail?.['textChars']).toBe(text.length);
+    expect(await t.ctx.audit.fullText(entry.detail?.['textSha256'] as string)).toBe(text);
+    await t.ctx.audit.flush();
+    expect(await readFile(join(t.ctx.config.workspaceStateDir, 'audit-text.jsonl'), 'utf8')).toContain('whole text whole text');
   });
 });
 
@@ -247,8 +335,13 @@ describe('audit through the daemon', () => {
     const write = { file: { root: MAIN_ROOT, path: 'x.txt' }, content: bytes };
     await vera.conn.request('file.write', write).catch(() => {}); // denied
     await host.conn.request('file.write', write).catch(() => {}); // allowed (probe)
-    await vera.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24, title: MARKER }).catch(() => {});
-    await rita.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24, title: MARKER }).catch(() => {});
+    await vera.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, title: MARKER, firstMessage: MARKER }).catch(() => {});
+    await rita.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, title: MARKER, firstMessage: MARKER }).catch(() => {});
+    await vera.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24, title: MARKER }).catch(() => {});
+    // What a person writes to an agent is sensitive on the wire: a refused message leaves nothing of its text.
+    await vera.conn.request('session.message.send', { sessionId: 'sess_nope', text: MARKER }).catch(() => {});
+    await rita.conn.request('session.message.send', { sessionId: 'sess_nope', text: MARKER }).catch(() => {});
+    await vera.conn.request('question.comment', { questionId: 'q_nope', text: MARKER }).catch(() => {});
     // Terminal data (exec.input) is sensitive whoever types it; an agent member may drive any session (§11 D-15).
     rita.conn.notify('exec.input', { sessionId: 'sess_nope', data: bytes });
     vera.conn.notify('exec.input', { sessionId: 'sess_nope', data: bytes });

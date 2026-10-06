@@ -1,6 +1,6 @@
 // The text an accepted suggestion may carry into a bracketed paste (SPEC R6; ARCHITECTURE §7.6 accepted suggestions).
 import { describe, expect, it } from 'vitest';
-import { suggestionTextSchema } from '@smurg/protocol';
+import { suggestionStoredTextSchema, suggestionTextSchema } from '@smurg/protocol';
 import { PASTE_END, sanitizeSuggestionForPaste } from '../../src/suggest/sanitize.ts';
 
 describe('sanitizeSuggestionForPaste', () => {
@@ -38,7 +38,12 @@ describe('sanitizeSuggestionForPaste', () => {
       expect(sanitizeSuggestionForPaste(sample)).toBe(sample);
       expect(sanitizeSuggestionForPaste(sanitizeSuggestionForPaste(sample))).toBe(sample);
     }
-    // And the protocol itself refuses what the sanitiser would have to strip.
-    for (const bad of ['a\u001b[201~b', 'a\u009bb', 'a\rb', 'a\u0003b']) expect(suggestionTextSchema.safeParse(bad).success).toBe(false);
+    // Protocol 4 takes a person's text as it arrives (the daemon cleans it: one function, agentText); what is STORED
+    // and sent holds none of these.
+    for (const bad of ['a\u001b[201~b', 'a\u009bb', 'a\rb', 'a\u0003b']) {
+      expect(suggestionTextSchema.safeParse(bad).success).toBe(true);
+      expect(suggestionStoredTextSchema.safeParse(bad).success).toBe(false);
+      expect(suggestionStoredTextSchema.safeParse(sanitizeSuggestionForPaste(bad)).success).toBe(true);
+    }
   });
 });

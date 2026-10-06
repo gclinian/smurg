@@ -20,6 +20,7 @@ import {
   MAIN_ROOT,
   MERGE_FILES_MAX,
   SmurgError,
+  isSessionOver,
   type MergeRequest,
   type PayloadOf,
   type ResultInputOf,
@@ -27,8 +28,8 @@ import {
 } from '@smurg/protocol';
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
-import { AuthorizationError } from '../core/errors.ts';
-import type { MemberRecord, PersistentDocument, Principal, RootInfo, WorktreeHandle, WorktreeManager } from '../core/interfaces.ts';
+import { AuthorizationError, notImplemented } from '../core/errors.ts';
+import type { MemberRecord, PersistentDocument, Principal, RootInfo, SnapshotResult, WorktreeHandle, WorktreeManager } from '../core/interfaces.ts';
 import { isHostPrincipal, principalCan, userActor } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { ensureWorktreesDir, linkSharedDirs, removeWorktreeDir, sweepRemovals, untrackedInTheWay, writeExclude } from './fs-ops.ts';
@@ -871,7 +872,56 @@ export class WorktreeManagerImpl implements WorktreeManager {
     const sessions = this.ctx.services.sessions;
     if (isStubService(sessions)) return false;
     const session = sessions.get(sessionId);
-    return session !== null && session.status !== 'exited';
+    return session !== null && !isSessionOver(session);
+  }
+
+  // =================================================================================================================
+  // Work items (protocol 4; ARCHITECTURE §5.7, §7.8). Foundation state: the contract is in core/interfaces.ts and its
+  // in-memory fake in core/fakes/worktrees.ts; the implementation is this module's next step.
+  // =================================================================================================================
+
+  acquireForItem(_input: { readonly topic: { readonly id: string; readonly slug: string }; readonly itemId: string; readonly owner: Principal }): Promise<WorktreeHandle> {
+    return Promise.reject(notImplemented('WorktreeManager.acquireForItem'));
+  }
+
+  snapshot(_input: { readonly worktreeId: string; readonly message: string; readonly topicSlug?: string }): Promise<SnapshotResult> {
+    return Promise.reject(notImplemented('WorktreeManager.snapshot'));
+  }
+
+  setReviewed(_requestId: string, _reviewed: boolean): MergeRequest {
+    throw notImplemented('WorktreeManager.setReviewed');
+  }
+
+  commitMainPaths(_input: { readonly paths: readonly string[]; readonly message: string; readonly trailers: readonly string[]; readonly as: Principal }): Promise<{ readonly commit: string; readonly created: boolean; readonly branch: string; readonly blobs: Readonly<Record<string, string>> }> {
+    return Promise.reject(notImplemented('WorktreeManager.commitMainPaths'));
+  }
+
+  headBlobs(_paths: readonly string[]): Promise<Record<string, string | null>> {
+    return Promise.reject(notImplemented('WorktreeManager.headBlobs'));
+  }
+
+  mainState(): Promise<{ readonly isRepo: boolean; readonly hasCommit: boolean; readonly gitOk: boolean; readonly branch: string | null; readonly busy: boolean; readonly free: number }> {
+    return Promise.reject(notImplemented('WorktreeManager.mainState'));
+  }
+
+  updateFromMain(_worktreeId: string): Promise<{ readonly mergeParent: string; readonly conflicted: readonly string[] }> {
+    return Promise.reject(notImplemented('WorktreeManager.updateFromMain'));
+  }
+
+  diffMainPaths(_input: { readonly paths: readonly string[]; readonly against: 'head' | Readonly<Record<string, string | null>>; readonly maxBytes: number }): Promise<{ readonly path: string; readonly diff: string; readonly truncated: boolean }[]> {
+    return Promise.reject(notImplemented('WorktreeManager.diffMainPaths'));
+  }
+
+  setOwner(_worktreeId: string, _owner: Principal): Promise<void> {
+    return Promise.reject(notImplemented('WorktreeManager.setOwner'));
+  }
+
+  releaseItem(_worktreeId: string): Promise<void> {
+    return Promise.reject(notImplemented('WorktreeManager.releaseItem'));
+  }
+
+  unmerged(_topicId: string): WorktreeInfo[] {
+    return [];
   }
 }
 

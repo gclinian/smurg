@@ -2,6 +2,7 @@
 // engineers. FakeLockManager follows the LockManager contract of core/interfaces.ts closely enough to prove the hook
 // behaviour (human locks deny agents, agents exclude each other, a session's previous lock is released when it asks
 // again, a per-session cap, TTL, lock.changed on the bus, waitForRelease) — it is not the product's lock manager.
+import { buildAgentSession } from '../../src/core/fakes/build.ts';
 import { fileRefKey, rootRefEquals, type FileRef, type LockInfo, type MemberNotification, type SessionInfo } from '@smurg/protocol';
 import type { DaemonContext, FeatureModule } from '../../src/core/context.ts';
 import { LOCK_CAP_REASON, OUTSIDE_ROOT_REASON, agentHeldReason, humanHeldReason } from '../../src/hooks/deny-text.ts';
@@ -242,18 +243,5 @@ export function fakeServices(options: { readonly activity?: boolean; readonly se
 
 /** A SessionInfo for list_sessions. */
 export function sessionInfo(id: string, owner: { readonly userId: string; readonly name: string }, extra: Partial<SessionInfo> = {}): SessionInfo {
-  return {
-    id,
-    kind: 'agent',
-    ownerUserId: owner.userId,
-    ownerName: owner.name,
-    root: { kind: 'main' },
-    status: 'running',
-    cols: 120,
-    rows: 40,
-    createdAt: 1_760_000_000_000,
-    login: 'logged-in',
-    attached: 1,
-    ...extra,
-  };
+  return { ...buildAgentSession({ id, openedBy: { userId: owner.userId, displayName: owner.name }, status: 'running', createdAt: 1_760_000_000_000 }), ...extra } as SessionInfo;
 }

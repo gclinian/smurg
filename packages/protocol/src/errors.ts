@@ -28,6 +28,7 @@ export const ERROR_CODES = [
   'insufficient_disk',
   'too_large',
   'host_only',
+  'rate_limited',
   'internal',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];

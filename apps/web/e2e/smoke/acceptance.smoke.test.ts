@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { STEP_MS, explainFailures, joinAs, joinAsHost, openSession, startSmoke, systemChrome, terminalOf, terminalShows, typeInTerminal, waitForTerminalText, waitUntil, workspaceOnline, type SmokeEnv } from './helpers.ts';
+import { isPendingPart } from '../../../../tests/lint/pending-v050.ts';
 
 const chrome = systemChrome();
 if (chrome === null) console.warn('[web smoke] SKIPPED: no system Chrome found (playwright-core downloads no browser); install Google Chrome to run it.');
@@ -84,7 +85,9 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
     expect(env.stack.daemon.ctx.members.active('dev:rita')).toBeFalsy();
   }, 240_000);
 
-  it('R6 the suggestion flow — a teammate suggests; the owner sees the queue, edits the text and accepts: exactly that text arrives in the owner\'s terminal; a rejected suggestion never arrives; the author sees both outcomes', async () => {
+  // Protocol 4: a suggestion goes to an agent session, never into a terminal. This flow waits for the conversation
+  // column (tests/lint/pending-v050.ts).
+  it.skipIf(isPendingPart('web-smoke:acceptance#R6'))('R6 the suggestion flow — a teammate suggests; the owner sees the queue, edits the text and accepts: exactly that text arrives in the owner\'s terminal; a rejected suggestion never arrives; the author sees both outcomes', async () => {
     await onWorkbench();
     const sessionId = await openSession(host, 'terminal', 'host-shell');
     const erin = await env.newPage();
@@ -246,7 +249,7 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
     const abeSession = await openSession(abe, 'terminal', 'abe-shell');
-    expect(env.stack.daemon.ctx.services.sessions.get(abeSession)).toMatchObject({ kind: 'terminal', status: 'running', ownerUserId: 'dev:abe', root: { kind: 'main' } });
+    expect(env.stack.daemon.ctx.services.sessions.get(abeSession)).toMatchObject({ kind: 'terminal', status: 'running', openedBy: { userId: 'dev:abe' }, root: { kind: 'main' } });
     expect(env.stack.daemon.ctx.services.sessions.get(abeSession)).not.toHaveProperty('sandboxed');
     await typeInTerminal(abe, abeSession, 'echo ABE-RUNS-AS-$(id -un)');
     await waitForTerminalText(abe, abeSession, `ABE-RUNS-AS-${userInfo().username}`);
@@ -261,24 +264,28 @@ describe.skipIf(chrome === null)('acceptance in real browsers: console, suggesti
     await typeInTerminal(abe, hostSession, 'echo TYPED-BY-ABE-$((6*7))');
     await waitForTerminalText(host, hostSession, 'TYPED-BY-ABE-42');
 
-    // An editor watches the same session read-only and suggests; Abe (not the host) accepts it.
+    // An editor watches the same session read-only.
     const eve = await env.newPage();
     await joinAs(eve, env, 'eve', 'editor');
     await eve.getByRole('tab', { name: /host-typed/ }).first().click();
     const eveSession = eve.locator(`.agents-session[data-session-id="${hostSession}"]`);
     await eveSession.getByText('Watch only').waitFor({ timeout: STEP_MS });
     expect(await terminalOf(eve, hostSession).getAttribute('data-readonly')).toBe('true');
-    const composer = eve.getByRole('textbox', { name: /^Suggestion for "host-typed"/ });
-    await composer.fill('echo FROM-EVE-ACCEPTED-BY-ABE');
-    await eve.getByRole('button', { name: 'Send suggestion' }).click();
-    const queue = abe.locator(QUEUE_OF_ONE);
-    await queue.getByText('echo FROM-EVE-ACCEPTED-BY-ABE').waitFor({ timeout: STEP_MS });
-    expect(await terminalShows(host, hostSession, 'FROM-EVE-ACCEPTED-BY-ABE')).toBe(false);
-    await queue.getByRole('button', { name: 'Accept', exact: true }).click();
-    await waitForTerminalText(host, hostSession, 'echo FROM-EVE-ACCEPTED-BY-ABE');
-    await eve.getByText('Your suggestion was accepted').first().waitFor({ timeout: STEP_MS });
-    const suggestions = await env.stack.hostClient.conn.request('suggest.list', { sessionId: hostSession });
-    expect(suggestions.suggestions.map((s) => [s.text, s.status])).toEqual([['echo FROM-EVE-ACCEPTED-BY-ABE', 'accepted']]);
+    // …and suggests; Abe (not the host) accepts it. Protocol 4: suggestions go to agent sessions, never into a
+    // terminal, so this step waits for the conversation column (tests/lint/pending-v050.ts).
+    if (!isPendingPart('web-smoke:acceptance#agent-access-suggestion')) {
+      const composer = eve.getByRole('textbox', { name: /^Suggestion for "host-typed"/ });
+      await composer.fill('echo FROM-EVE-ACCEPTED-BY-ABE');
+      await eve.getByRole('button', { name: 'Send suggestion' }).click();
+      const queue = abe.locator(QUEUE_OF_ONE);
+      await queue.getByText('echo FROM-EVE-ACCEPTED-BY-ABE').waitFor({ timeout: STEP_MS });
+      expect(await terminalShows(host, hostSession, 'FROM-EVE-ACCEPTED-BY-ABE')).toBe(false);
+      await queue.getByRole('button', { name: 'Accept', exact: true }).click();
+      await waitForTerminalText(host, hostSession, 'echo FROM-EVE-ACCEPTED-BY-ABE');
+      await eve.getByText('Your suggestion was accepted').first().waitFor({ timeout: STEP_MS });
+      const suggestions = await env.stack.hostClient.conn.request('suggest.list', { sessionId: hostSession });
+      expect(suggestions.suggestions.map((s) => [s.text, s.status])).toEqual([['echo FROM-EVE-ACCEPTED-BY-ABE', 'accepted']]);
+    }
     for (const page of [abe, eve]) expect(env.problemsOf(page).pageErrors).toEqual([]);
   }, 300_000);
 

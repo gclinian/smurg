@@ -214,7 +214,6 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'attach.status.exited': (p) => `已結束（${p.exitCode}）`,
   'attach.status.starting': () => '啟動中',
   'attach.status.running': () => '執行中',
-  'attach.kind.agent': () => 'agent',
   'attach.kind.terminal': () => '終端機',
   'attach.owner.you': (p) => `${p.name}（你）`,
   'attach.list.empty': () => '這個工作區目前沒有 session。',

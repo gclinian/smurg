@@ -5,7 +5,7 @@
 // panel of the member who opened the session (SPEC R4, R7 agent panel, goal 2; ARCHITECTURE §5.5, §7.6; protocol v2).
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { SmurgError, worktreeRoot, type SessionInfo } from '@smurg/protocol';
+import { SmurgError, worktreeRoot, type TerminalSession } from '@smurg/protocol';
 import type { ILink } from '@xterm/xterm';
 import { HOST_USER, makeEntry, makeSession, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
 import { AgentsPanel } from './index.tsx';
@@ -14,14 +14,13 @@ import { bytes, flushTerm, nextRequest, recordingViewerFactory, renderWithSessio
 
 const decoder = new TextDecoder();
 
-const hostAgent = makeSession({ id: 'sess_host', title: 'Claude', ownerUserId: HOST_USER, ownerName: 'Ian', createdAt: 1 });
-const hostShell = makeSession({ id: 'sess_shell', kind: 'terminal', title: 'shell', ownerUserId: HOST_USER, ownerName: 'Ian', createdAt: 1, cols: 80, rows: 24 });
+const hostAgent = makeSession({ id: 'sess_host', title: 'Claude', openedBy: { userId: HOST_USER, displayName: 'Ian' }, createdAt: 1 });
+const hostShell = makeSession({ id: 'sess_shell', kind: 'terminal', title: 'shell', openedBy: { userId: HOST_USER, displayName: 'Ian' }, createdAt: 1, cols: 80, rows: 24 });
 const amyTerminal = makeSession({
   id: 'sess_amy',
   kind: 'terminal',
   title: 'tests',
-  ownerUserId: 'dev:amy',
-  ownerName: 'Amy',
+  openedBy: { userId: 'dev:amy', displayName: 'Amy' },
   root: worktreeRoot('wt_1'),
   createdAt: 2,
   cols: 80,
@@ -35,7 +34,7 @@ async function settle(): Promise<void> {
 }
 
 /** Answers the pending session.attach with a snapshot. */
-function snapshot(conn: Awaited<ReturnType<typeof renderWithSessions>>['conn'], session: SessionInfo, text: string, nextOffset: number) {
+function snapshot(conn: Awaited<ReturnType<typeof renderWithSessions>>['conn'], session: TerminalSession, text: string, nextOffset: number) {
   return conn.respond('session.attach', { session, mode: 'snapshot', data: bytes(text), cols: session.cols, rows: session.rows, nextOffset });
 }
 
@@ -56,7 +55,7 @@ describe('agents panel: every session of the workspace, for everyone (SPEC goal 
     expect(hostSummary.textContent).toContain('Main workspace');
     fireEvent.click(within(screen.getByRole('tabpanel')).getByRole('button', { name: 'Details' }));
     const hostInfo = screen.getByLabelText('Details of Claude');
-    expect(hostInfo.textContent).toContain('Agent (Claude Code)');
+    expect(hostInfo.textContent).toContain('Kind:Terminal');
     expect(hostInfo.textContent).toContain('Opened by:Ian');
     expect(hostInfo.textContent).toContain("The host's computer, with the host's Claude account");
     expect(hostInfo.textContent).not.toMatch(/sandbox/i);
@@ -76,7 +75,7 @@ describe('agents panel: every session of the workspace, for everyone (SPEC goal 
 
   it('a session nobody named is called after its kind and the person who opened it, once: "Terminal (Ming)"', async () => {
     // The host sends no default title (protocol 3): the panel builds it in the viewer's language.
-    const { title: _title, ...untitled } = makeSession({ id: 'sess_ming', kind: 'terminal', ownerUserId: 'dev:ming', ownerName: 'Ming' });
+    const { title: _title, ...untitled } = makeSession({ id: 'sess_ming', kind: 'terminal', openedBy: { userId: 'dev:ming', displayName: 'Ming' } });
     await renderWithSessions(<AgentsPanel />, { role: 'editor', sessions: [untitled] });
     expect(screen.getByRole('tab').textContent).toContain('Terminal (Ming)');
     expect(screen.getByRole('tab').textContent).not.toContain('(Ming) (Ming)');
@@ -163,7 +162,7 @@ describe('agents panel: terminal stream by offset', () => {
     });
     // The feed fences on the channel first (the old attachment's events), then asks for a delta from offset 3.
     await act(async () => {
-      conn.respond('session.list', { sessions: [hostAgent] });
+      conn.respond('session.list', { sessions: [hostAgent], hasMore: false });
     });
     const again = await nextRequest(conn, 'session.attach');
     expect(again.payload).toEqual({ sessionId: 'sess_host', haveOffset: 3 });
@@ -201,7 +200,7 @@ describe('agents panel: terminal stream by offset', () => {
     await settle();
     expect(conn.notificationsOf('session.detach').map((n) => n.payload.sessionId)).toEqual(['sess_host', 'sess_amy']);
     await act(async () => {
-      conn.respond('session.list', { sessions: [hostAgent, amyTerminal] }); // the fence
+      conn.respond('session.list', { sessions: [hostAgent, amyTerminal], hasMore: false }); // the fence
     });
     const back = await nextRequest(conn, 'session.attach');
     expect(back.payload).toEqual({ sessionId: 'sess_host', haveOffset: 5 });
@@ -310,14 +309,6 @@ describe('agents panel: input from the host and members with agent access (any s
     expect(screen.queryByText(/you can only watch/)).toBeNull();
   });
 
-  it("a small owner panel never shrinks the PTY below 80 × 24 for everyone; the panel scrolls instead", async () => {
-    const recording = recordingViewerFactory();
-    recording.proposed = { cols: 50, rows: 6 };
-    const { conn } = await renderWithSessions(<AgentsPanel />, { role: 'host', sessions: [hostAgent], recording });
-    const attach = await nextRequest(conn, 'session.attach');
-    expect(attach.payload).toEqual({ sessionId: 'sess_host', cols: 80, rows: 24 });
-  });
-
   it("a member with agent access types straight into the HOST's session (exec.input), but proposes no size and cannot end it", async () => {
     const recording = recordingViewerFactory();
     recording.proposed = { cols: 200, rows: 60 };
@@ -386,7 +377,7 @@ describe('agents panel: input from the host and members with agent access (any s
 
 describe('agents panel: file paths in the output open the file (SPEC R7)', () => {
   it("links only paths that exist in the session's own root, and opens them at the line; paths outside the tree are never looked up", async () => {
-    const worktreeAgent = makeSession({ id: 'sess_wt', ownerUserId: 'dev:bob', ownerName: 'Bob', root: worktreeRoot('wt_1') });
+    const worktreeAgent = makeSession({ id: 'sess_wt', openedBy: { userId: 'dev:bob', displayName: 'Bob' }, root: worktreeRoot('wt_1') });
     const { conn, recording, session } = await renderWithSessions(<AgentsPanel />, { role: 'editor', sessions: [worktreeAgent] });
     const stats: string[] = [];
     conn.handle('file.stat', (ref) => {
@@ -523,28 +514,6 @@ describe("agents panel: the owner's viewport drives the PTY size (policy `owner`
     });
   });
 
-  it("below Claude Code's floor the owner's agent keeps 80 × 24 and a hint says the panel scrolls (never clipped silently)", async () => {
-    await withResizeObserver(async () => {
-      const recording = recordingViewerFactory();
-      recording.proposed = { cols: 50, rows: 40 };
-      const { conn } = await renderWithSessions(<AgentsPanel />, { role: 'host', sessions: [hostAgent], recording });
-      const attach = await nextRequest(conn, 'session.attach');
-      // 80 columns; the rows fit what is left under the hint and above the horizontal scrollbar.
-      const rows = Math.floor((40 * 16 + 5 - 24 - 12) / 16);
-      expect(attach.payload).toEqual({ sessionId: 'sess_host', cols: 80, rows });
-      await act(async () => {
-        conn.respond('session.attach', { session: hostAgent, mode: 'snapshot', data: bytes('$ '), cols: 80, rows, nextOffset: 2 });
-      });
-      await act(async () => {
-        await flushTerm(recording.viewers[0]!.term);
-      });
-      const hint = screen.getByTestId('terminal-size-hint');
-      expect(hint.textContent).toContain('Panel smaller than 80 × 24');
-      expect(hint.getAttribute('title')).toContain('Claude Code needs at least 80 columns × 24 rows');
-      expect(conn.notificationsOf('exec.resize')).toEqual([]);
-    });
-  });
-
   it("the owner's second window, while the other one drives the size: the PTY's size scrolls with the hint, nothing is sent", async () => {
     await withResizeObserver(async () => {
       const recording = recordingViewerFactory();
@@ -608,7 +577,7 @@ describe("agents panel: the owner's viewport drives the PTY size (policy `owner`
 
 describe('agents panel: ending sessions', () => {
   it('the person who opened a session may end it; the host may terminate anyone’s; others neither', async () => {
-    const amyAgent = makeSession({ id: 'sess_amy', ownerUserId: 'dev:amy', ownerName: 'Amy', createdAt: 5 });
+    const amyAgent = makeSession({ id: 'sess_amy', openedBy: { userId: 'dev:amy', displayName: 'Amy' }, createdAt: 5 });
     const asAgent = await renderWithSessions(<AgentsPanel />, { role: 'agent', sessions: [amyAgent, hostAgent] });
     const tabs = screen.getAllByRole('tab');
     fireEvent.click(tabs.find((tab) => tab.textContent?.includes('Amy'))!);
@@ -621,33 +590,5 @@ describe('agents panel: ending sessions', () => {
     await renderWithSessions(<AgentsPanel />, { role: 'host', sessions: [amyAgent] });
     fireEvent.click(within(screen.getByRole('tabpanel')).getByRole('button', { name: 'Terminate' }));
     expect(screen.getByRole('alertdialog', { name: 'Terminate session' })).toBeTruthy();
-  });
-});
-
-describe("agents panel: a logged-out agent (every session uses the host's Claude login)", () => {
-  const loggedOut = { ...hostAgent, login: 'logged-out' as const };
-
-  it('the host is told to /login in the terminal, and may re-check (session.loginStatus)', async () => {
-    const { conn } = await renderWithSessions(<AgentsPanel />, { role: 'host', sessions: [loggedOut] });
-    const panel = within(screen.getByRole('tabpanel'));
-    expect(panel.getByText('Your Claude Code is not logged in. Click the terminal, type /login and follow the steps on screen.')).toBeTruthy();
-    fireEvent.click(panel.getByRole('button', { name: 'Check login again' }));
-    const check = await nextRequest(conn, 'session.loginStatus');
-    expect(check.payload).toEqual({ sessionId: 'sess_host' });
-    await act(async () => {
-      conn.respond('session.loginStatus', { login: 'logged-in' });
-    });
-    expect(panel.queryByText(/is not logged in\. Click the terminal/)).toBeNull();
-  });
-
-  it('a member with agent access may re-check too; an editor only reads that the host must log in', async () => {
-    const asAgent = await renderWithSessions(<AgentsPanel />, { role: 'agent', sessions: [loggedOut] });
-    expect(screen.getByText(/^The host's Claude Code is not logged in/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Check login again' })).toBeTruthy();
-    asAgent.unmount();
-    await renderWithSessions(<AgentsPanel />, { role: 'editor', sessions: [loggedOut] });
-    expect(screen.getByText(/^The host's Claude Code is not logged in/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Check login again' })).toBeNull();
-    expect(screen.queryByText(/API key|subscription/i)).toBeNull();
   });
 });

@@ -7,9 +7,22 @@ import {
   inviteInfoSchema,
   memberSchema,
   memberWithDevicesSchema,
+  projectSettingsStateSchema,
 } from '../entities.ts';
-import { LIST_MAX_ITEMS, PAGE_LIMIT_MAX } from '../limits.ts';
-import { epochMsSchema, opaqueIdSchema, userIdSchema } from '../primitives.ts';
+import {
+  CLAUDE_CONFIG_ENTRY_MAX_CHARS,
+  CLAUDE_CONFIG_FILES_MAX,
+  CLAUDE_CONFIG_LIST_MAX,
+  CLAUDE_CONFIG_SCRIPTS_MAX,
+  CLAUDE_CONFIG_TEXT_MAX_BYTES,
+  HOST_RULES_MAX,
+  HOST_RULE_MAX_CHARS,
+  LIST_MAX_ITEMS,
+  PAGE_LIMIT_MAX,
+  SHORT_TEXT_MAX_CHARS,
+} from '../limits.ts';
+import { entryPathSchema, rootRefSchema } from '../paths.ts';
+import { epochMsSchema, largeTextSchema, lineTextSchema, multilineTextSchema, opaqueIdSchema, sha256HexSchema, userIdSchema } from '../primitives.ts';
 import { emptyPayloadSchema } from './channel.ts';
 
 // admin.* — every type requires the `admin` capability (ARCHITECTURE §5.8).
@@ -72,3 +85,77 @@ export const hostSettingsResultSchema = z.strictObject({ settings: hostSettingsS
 
 /** `Partial<HostSettings>`; unknown keys are refused. */
 export const adminSettingsSetPayloadSchema = hostSettingsPatchSchema;
+
+// ---------------------------------------------------------------------------------------------------------------
+// Claude Code on the host: project settings (the trust gate), the host's own rules, transcripts (ARCHITECTURE §5.8)
+// ---------------------------------------------------------------------------------------------------------------
+
+export const CLAUDE_CONFIG_DECISIONS = ['trust', 'ignore'] as const;
+/** What a file's content needs its own tick for before "Use them". */
+export const CLAUDE_CONFIG_ACKS = ['credentials', 'allows-tools'] as const;
+const claudeConfigEntrySchema = multilineTextSchema(CLAUDE_CONFIG_ENTRY_MAX_CHARS);
+const claudeConfigListSchema = z.array(claudeConfigEntrySchema).max(CLAUDE_CONFIG_LIST_MAX);
+
+/**
+ * One of a root's three project-level Claude Code files (`.claude/settings.json`, `.claude/settings.local.json`,
+ * `.mcp.json`) with everything it does: `runs` (each command line, whole), `permissions` (each rule), `env` (every
+ * variable; `flagged`: it can send the host's login to another server), `otherKeys`, and `scripts` (files inside the
+ * root the commands point at: part of the trusted content, host-only for writes while it is trusted). `text`: the raw
+ * file. `changed`: the content differs from the one a stored decision was made for.
+ */
+export const claudeConfigFileSchema = z.strictObject({
+  path: entryPathSchema,
+  hash: sha256HexSchema,
+  decision: z.enum(CLAUDE_CONFIG_DECISIONS).nullable(),
+  changed: z.boolean(),
+  text: largeTextSchema(CLAUDE_CONFIG_TEXT_MAX_BYTES),
+  runs: claudeConfigListSchema,
+  permissions: claudeConfigListSchema,
+  env: z.array(z.strictObject({ name: lineTextSchema(SHORT_TEXT_MAX_CHARS, 1), flagged: z.boolean() })).max(CLAUDE_CONFIG_LIST_MAX),
+  otherKeys: z.array(lineTextSchema(SHORT_TEXT_MAX_CHARS, 1)).max(CLAUDE_CONFIG_LIST_MAX),
+  scripts: z.array(z.strictObject({ path: entryPathSchema, hash: sha256HexSchema })).max(CLAUDE_CONFIG_SCRIPTS_MAX),
+  needsAck: z.array(z.enum(CLAUDE_CONFIG_ACKS)).max(CLAUDE_CONFIG_ACKS.length),
+});
+export type ClaudeConfigFile = z.infer<typeof claudeConfigFileSchema>;
+
+export const claudeConfigRootSchema = z.strictObject({
+  root: rootRefSchema,
+  state: projectSettingsStateSchema,
+  files: z.array(claudeConfigFileSchema).max(CLAUDE_CONFIG_FILES_MAX),
+});
+
+/** THE list rule: a reply is closed at LIST_REPLY_MAX_BYTES; `hasMore` then, and `after` (`rootRefKey`) continues. */
+export const adminClaudeConfigGetPayloadSchema = z.strictObject({ after: lineTextSchema(SHORT_TEXT_MAX_CHARS, 1).optional() });
+export const adminClaudeConfigGetResultSchema = z.strictObject({
+  roots: z.array(claudeConfigRootSchema).max(LIST_MAX_ITEMS),
+  hasMore: z.boolean(),
+});
+
+/** Refused when a hash is no longer the file's (`claudeConfig.changed`) or a needed tick is missing (`claudeConfig.ackNeeded`). */
+export const adminClaudeConfigDecidePayloadSchema = z.strictObject({
+  root: rootRefSchema,
+  files: z.array(z.strictObject({ path: entryPathSchema, hash: sha256HexSchema })).min(1).max(CLAUDE_CONFIG_FILES_MAX),
+  decision: z.enum(CLAUDE_CONFIG_DECISIONS),
+  acknowledged: z.array(z.enum(CLAUDE_CONFIG_ACKS)).max(CLAUDE_CONFIG_ACKS.length),
+});
+export const adminClaudeConfigDecideResultSchema = emptyPayloadSchema;
+
+export const HOST_RULE_SOURCES = ['user', 'project', 'local', 'managed'] as const;
+
+/**
+ * The host's own Claude Code allow rules as agent sessions last reported them. They APPLY to agent sessions: every
+ * session runs as the host. `seen`: the host was shown this list (`admin.hostRules.seen`).
+ */
+export const adminHostRulesGetPayloadSchema = emptyPayloadSchema;
+export const adminHostRulesGetResultSchema = z.strictObject({
+  rules: z.array(z.strictObject({ rule: lineTextSchema(HOST_RULE_MAX_CHARS, 1), source: z.enum(HOST_RULE_SOURCES) })).max(HOST_RULES_MAX),
+  seen: z.boolean(),
+});
+
+/** The host has the list on screen: the `host-rules` inbox item leaves. No decision is taken. */
+export const adminHostRulesSeenPayloadSchema = emptyPayloadSchema;
+export const adminHostRulesSeenResultSchema = emptyPayloadSchema;
+
+/** Replaces one conversation event by "The host removed this entry." under the same `seq`. */
+export const adminTranscriptRedactPayloadSchema = z.strictObject({ sessionId: opaqueIdSchema, seq: z.int().min(1) });
+export const adminTranscriptRedactResultSchema = emptyPayloadSchema;

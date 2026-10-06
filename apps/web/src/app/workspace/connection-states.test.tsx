@@ -199,7 +199,7 @@ describe('connection states in the UI', () => {
     expect(within(suggestions).getByRole('button', { name: 'Expand suggestions' }).getAttribute('aria-expanded')).toBe('false');
     expect((suggestions.closest('.ui-split__pane') as HTMLElement).style.height).toBe('33px');
 
-    act(() => conn.emit('session.state', { session: makeSession({ id: 'sess_host', ownerUserId: 'dev:host', ownerName: 'Ian' }) }));
+    act(() => conn.emit('session.state', { session: makeSession({ id: 'sess_host', openedBy: { userId: 'dev:host', displayName: 'Ian' } }) }));
     const editorPane = screen.getByRole('main', { name: 'Editor' }).closest('.ui-split__pane') as HTMLElement;
     expect(editorPane.hidden).toBe(false);
     await userEvent.click(await screen.findByRole('button', { name: 'Maximize the agents panel (it takes the place of the editor)' }));

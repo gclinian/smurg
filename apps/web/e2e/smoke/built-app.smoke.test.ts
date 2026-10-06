@@ -218,7 +218,7 @@ describe.skipIf(chrome === null)('the built web app, served by the real relay, a
     const viewport = page.locator('.agents-term__viewport[data-phase="live"]');
     await viewport.waitFor({ timeout: 60_000 });
     const sessions = stack.daemon.ctx.services.sessions.list();
-    expect(sessions.find((session) => session.ownerUserId === 'dev:gina')).toMatchObject({ kind: 'terminal', status: 'running', root: { kind: 'main' } });
+    expect(sessions.find((session) => session.openedBy.userId === 'dev:gina')).toMatchObject({ kind: 'terminal', status: 'running', root: { kind: 'main' } });
     await viewport.click();
     await page.keyboard.type('echo web-$((5*5))-$(id -un)');
     await page.keyboard.press('Enter');

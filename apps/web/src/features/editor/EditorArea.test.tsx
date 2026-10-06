@@ -3,7 +3,7 @@ import { msg } from '@smurg/protocol/i18n';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { CommandMap } from '../../lib/commands.ts';
-import { T0, makeAgentLock, makeSession, makeWelcome } from '../../testing/fixtures.ts';
+import { T0, makeAgentLock, makeAgentSession, makeSession, makeWelcome } from '../../testing/fixtures.ts';
 import { renderInWorkspace } from '../../testing/services.tsx';
 import { EditorEngineContext } from './engine.ts';
 import { EditorArea } from './index.tsx';
@@ -223,8 +223,8 @@ describe('EditorArea: tabs, lazy editor, collaborative binding', () => {
       sent.push(payload);
     });
     act(() => {
-      view.conn.emit('session.state', { session: makeSession({ id: 'sess_ian', ownerUserId: 'dev:host', ownerName: 'Ian', title: 'Claude' }) });
-      view.conn.emit('session.state', { session: makeSession({ id: 'sess_term', kind: 'terminal', ownerUserId: 'dev:host', ownerName: 'Ian', title: 'zsh' }) });
+      view.conn.emit('session.state', { session: makeAgentSession({ id: 'sess_ian', openedBy: { userId: 'dev:host', displayName: 'Ian' }, title: 'Claude' }) });
+      view.conn.emit('session.state', { session: makeSession({ id: 'sess_term', kind: 'terminal', openedBy: { userId: 'dev:host', displayName: 'Ian' }, title: 'zsh' }) });
     });
     await view.open();
     await waitFor(() => expect(view.fake.bindings).toHaveLength(1));

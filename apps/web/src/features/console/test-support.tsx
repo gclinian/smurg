@@ -2,7 +2,7 @@
 // suggestions, worktrees) are answered from a mutable fixture, and HostConsolePage rendered in it. Action requests
 // (setRole, kick, terminate, create/revoke invite, settings.set, …) stay pending for the test to answer.
 import { render } from '@testing-library/react';
-import type { AuditEntry, HostSettings, InviteInfo, Member, MemberWithDevices, MergeRequest, Role, SessionInfo, Suggestion, WorktreeInfo } from '@smurg/protocol';
+import type { AuditEntry, HostSettings, InviteInfo, Member, MemberWithDevices, MergeRequest, Role, Suggestion, TerminalSession, WorktreeInfo } from '@smurg/protocol';
 import { FakeConnection } from '../../testing/fake-connection.ts';
 import { HOST_USER, T0, makeMember, makeMergeRequest, makeSession, makeSuggestion, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
@@ -39,6 +39,9 @@ export const SETTINGS: HostSettings = {
   sharedDirs: ['data'],
   diskReserveBytes: 5 * GIB,
   diskReservePercent: 5,
+  maxLiveAgents: 8,
+  escalateAfterMs: 600_000,
+  agentMcp: false,
 };
 
 export function makeAudit(index: number, overrides: Partial<AuditEntry> = {}): AuditEntry {
@@ -59,7 +62,7 @@ export interface ConsoleFixture {
   settings: HostSettings;
   /** Every entry on the "host's disk", any order: admin.audit.query pages through them newest first. */
   audit: AuditEntry[];
-  sessions: SessionInfo[];
+  sessions: TerminalSession[];
   suggestions: Suggestion[];
   worktrees: WorktreeInfo[];
   requests: MergeRequest[];
@@ -77,8 +80,8 @@ export function defaultFixture(): ConsoleFixture {
     audit: [makeAudit(1, { action: 'auth.connect', target: 'dev_amy_web' }), makeAudit(2), makeAudit(3, { action: 'authz.denied', outcome: 'denied', target: 'file.write', actor: { kind: 'user', userId: 'dev:bob', displayName: 'Bob' }, detail: { reason: 'forbidden-role' } })],
     sessions: [
       makeSession({ id: 'sess_host', title: 'Claude', createdAt: T0 }),
-      makeSession({ id: 'sess_amy', ownerUserId: 'dev:amy', ownerName: 'Amy', title: 'login page', root: { kind: 'worktree', worktreeId: 'wt_1' }, attached: 2, createdAt: T0 + 1 }),
-      makeSession({ id: 'sess_old', kind: 'terminal', ownerUserId: 'dev:amy', ownerName: 'Amy', title: 'old shell', status: 'exited', exitCode: 0, createdAt: T0 - 1 }),
+      makeSession({ id: 'sess_amy', openedBy: { userId: 'dev:amy', displayName: 'Amy' }, title: 'login page', root: { kind: 'worktree', worktreeId: 'wt_1' }, attached: 2, createdAt: T0 + 1 }),
+      makeSession({ id: 'sess_old', kind: 'terminal', openedBy: { userId: 'dev:amy', displayName: 'Amy' }, title: 'old shell', status: 'exited', exitCode: 0, createdAt: T0 - 1 }),
     ],
     suggestions: [
       makeSuggestion({ id: 'sug_pending', sessionId: 'sess_amy', author: { userId: HOST_USER, displayName: 'Ian' }, text: 'Add tests for the form validation first' }),
@@ -103,8 +106,8 @@ export function renderConsole(options: { role?: Role; fixture?: ConsoleFixture }
       .filter((entry) => before === undefined || entry.at < before)
       .slice(0, limit ?? AUDIT_PAGE),
   }));
-  conn.handle('session.list', () => ({ sessions: fixture.sessions }));
-  conn.handle('suggest.list', () => ({ suggestions: fixture.suggestions }));
+  conn.handle('session.list', () => ({ sessions: fixture.sessions, hasMore: false }));
+  conn.handle('suggest.list', () => ({ suggestions: fixture.suggestions, hasMore: false }));
   conn.handle('worktree.list', () => ({ worktrees: fixture.worktrees }));
   conn.handle('worktree.merge.list', () => ({ requests: fixture.requests }));
   const context = createTestWorkspace({ conn, admit: false });

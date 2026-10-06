@@ -107,15 +107,15 @@ export class PresenceServiceImpl implements PresenceService {
   /** session.created / session.updated: agent sessions appear as `Claude (owner)` while they run. */
   sessionChanged(session: SessionInfo): void {
     if (session.kind !== 'agent') return;
-    if (session.status === 'exited') {
+    if (session.status === 'ended') {
       this.removeAgent(session.id);
       return;
     }
     const existing = this.agents.get(session.id);
     this.setAgent({
       sessionId: session.id,
-      ownerUserId: session.ownerUserId,
-      displayName: agentDisplayName(session.ownerName),
+      ownerUserId: session.openedBy.userId,
+      displayName: agentDisplayName(session.openedBy.displayName),
       color: existing?.color ?? pickAgentColor(session.id, this.colorsInUse(session.id)),
       status: session.status,
     });

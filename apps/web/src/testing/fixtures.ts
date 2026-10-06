@@ -16,8 +16,9 @@ import {
   type PresenceMember,
   type Role,
   type RootRef,
-  type SessionInfo,
+  type AgentSession,
   type Suggestion,
+  type TerminalSession,
   type Welcome,
   type WorktreeInfo,
 } from '@smurg/protocol';
@@ -58,20 +59,43 @@ export function presenceOf(member: Member, overrides: Partial<PresenceMember> = 
   return { ...member, connections: 1, ...overrides };
 }
 
-export function makeSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
+/** A terminal session (a PTY: what the terminal panel shows), opened by the host. */
+export function makeSession(overrides: Partial<TerminalSession> = {}): TerminalSession {
   return {
     id: 'sess_1',
-    kind: 'agent',
-    ownerUserId: HOST_USER,
-    ownerName: 'Ian',
+    kind: 'terminal',
+    openedBy: { userId: HOST_USER, displayName: 'Ian' },
     title: 'Claude',
     root: MAIN_ROOT,
     status: 'running',
     cols: 120,
     rows: 40,
     createdAt: T0,
-    login: 'logged-in',
     attached: 0,
+    ...overrides,
+  };
+}
+
+/** An agent session (a conversation, protocol 4): a free one, idle, opened by the host. */
+export function makeAgentSession(overrides: Partial<AgentSession> = {}): AgentSession {
+  return {
+    id: 'sess_a1',
+    kind: 'agent',
+    purpose: 'free',
+    openedBy: { userId: HOST_USER, displayName: 'Ian' },
+    responsible: null,
+    title: 'Claude',
+    root: MAIN_ROOT,
+    status: 'idle',
+    permissionMode: 'ask-all',
+    modeFixed: false,
+    ruleCount: 0,
+    login: 'logged-in',
+    projectSettings: 'none',
+    noteworthyAt: T0,
+    lastSeq: 0,
+    lastActivityAt: T0,
+    createdAt: T0,
     ...overrides,
   };
 }
@@ -93,7 +117,7 @@ export function makeAgentLock(path: string, sessionId = 'sess_1'): LockInfo {
 }
 
 export function makeSuggestion(overrides: Partial<Suggestion> = {}): Suggestion {
-  return { id: 'sug_1', sessionId: 'sess_1', author: { userId: 'dev:amy', displayName: 'Amy' }, text: 'Add the tests first', status: 'pending', createdAt: T0, ...overrides };
+  return { id: 'sug_1', sessionId: 'sess_1', author: { userId: 'dev:amy', displayName: 'Amy' }, text: 'Add the tests first', origin: 'composer', status: 'pending', createdAt: T0, ...overrides };
 }
 
 export function makeActivity(overrides: Partial<ActivityEvent> = {}): ActivityEvent {
@@ -136,6 +160,7 @@ export function makeMergeRequest(overrides: Partial<MergeRequest> = {}): MergeRe
     requestedBy: { userId: 'dev:amy', displayName: 'Amy' },
     commit: 'a'.repeat(40),
     status: 'pending',
+    reviewed: false,
     createdAt: T0,
     ...overrides,
   };

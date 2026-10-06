@@ -10,6 +10,9 @@ const SETTINGS: HostSettings = {
   sharedDirs: ['data'],
   diskReserveBytes: 5 * GIB,
   diskReservePercent: 5,
+  maxLiveAgents: 8,
+  escalateAfterMs: 600_000,
+  agentMcp: false,
 };
 
 const draft = (overrides: Partial<SettingsDraft> = {}): SettingsDraft => ({ ...draftFromSettings(SETTINGS), ...overrides });

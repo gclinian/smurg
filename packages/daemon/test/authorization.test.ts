@@ -25,6 +25,8 @@ const ARCH3: Readonly<Record<Capability, readonly Role[]>> = {
   'session.view': ['host', 'agent', 'editor', 'viewer'],
   'file.write': ['host', 'agent', 'editor'],
   'suggest.create': ['host', 'agent', 'editor'],
+  // Protocol 4: everyone but viewers votes, comments, may be responsible and reviews a result report.
+  discuss: ['host', 'agent', 'editor'],
   // ARCHITECTURE §11 D-15: Agent access opens sessions (like the host's own) and types into any session.
   'session.create': ['host', 'agent'],
   'session.drive': ['host', 'agent'],

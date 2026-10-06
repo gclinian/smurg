@@ -177,8 +177,8 @@ describe('sessions of a Agent access member with the real hooks module (§11 D-1
     if (!supported) return ctx.skip('PTY sessions run on macOS and Linux only');
     const f = fixtureOrSkip(ctx);
     const session = await f.sessions.create({ kind: 'terminal', workspace: { mode: 'main' }, cols: 120, rows: 40 }, conn, carol());
-    expect(session).toMatchObject({ kind: 'terminal', ownerUserId: CAROL, ownerName: 'carol', root: { kind: 'main' } });
-    // No default title on the wire: each client builds it from kind + ownerName in the viewer's language.
+    expect(session).toMatchObject({ kind: 'terminal', openedBy: { userId: CAROL, displayName: 'carol' }, root: { kind: 'main' } });
+    // No default title on the wire: each client builds it from the opener's name in the viewer's language.
     expect(session.title).toBeUndefined();
     expect(Object.keys(session)).not.toContain('sandboxed');
     const token = `${randomBytes(3).readUIntBE(0, 3) + 70_000_000}`;
@@ -209,12 +209,12 @@ describe('sessions of a Agent access member with the real hooks module (§11 D-1
     const pidsOf = async (): Promise<number> => (await execFileAsync('/bin/ps', ['-A', '-ww', '-o', 'command='])).stdout.split('\n').filter((l) => l.includes(`sleep ${token}`)).length;
     await waitFor(async () => (await pidsOf()) === 1, 'the background job');
     const t0 = Date.now();
-    await f.sessions.killAllForUser(CAROL, 'kicked');
+    await f.sessions.teardownUser(CAROL, 'kicked');
     await waitFor(async () => (await pidsOf()) === 0, 'the session processes to be gone', 3_000);
     console.info(`[R2.2] the processes of a session the removed member opened were gone ${Date.now() - t0} ms after the kick`);
     expect(f.sessions.get(session.id)).toMatchObject({ status: 'exited', endReason: 'kicked' });
     expect(f.audit.filter((e) => e.action === 'session.terminate' && e.target === session.id)).toEqual([
-      expect.objectContaining({ actor: { kind: 'system' }, outcome: 'ok', detail: expect.objectContaining({ ownerUserId: CAROL, kind: 'terminal', reason: 'kicked' }) }),
+      expect.objectContaining({ actor: { kind: 'system' }, outcome: 'ok', detail: expect.objectContaining({ openedBy: CAROL, kind: 'terminal', reason: 'kicked' }) }),
     ]);
   });
 
@@ -238,7 +238,10 @@ describe('sessions of a Agent access member with the real hooks module (§11 D-1
       await type(session.id, `/usr/bin/perl -e '${perl}'\r`);
       await readWhenPresent(out('t-ready'));
       f.sessions.resize({ sessionId: session.id, cols: 100, rows: 30 }, conn, carol());
-      await waitFor(() => f.sessions.get(session.id)?.cols === 100 && f.sessions.get(session.id)?.rows === 30, 'the PTY resize');
+      await waitFor(() => {
+        const now = f.sessions.get(session.id);
+        return now?.kind === 'terminal' && now.cols === 100 && now.rows === 30;
+      }, 'the PTY resize');
       await waitFor(async () => (await readFile(out('t-winch'), 'utf8').catch(() => '')).includes('30 100'), 'SIGWINCH and the new size', 20_000);
       await type(session.id, '\x03');
       expect(await readWhenPresent(out('t-int'))).toBe('int\n');
@@ -270,26 +273,5 @@ describe('sessions of a Agent access member with the real hooks module (§11 D-1
     expect((await readWhenPresent(done)).trim()).toBe(worktree);
     expect(await readFile(join(worktree, 'wt-note'), 'utf8')).toBe('in-worktree\n');
     await f.sessions.end({ sessionId: session.id }, carol());
-  });
-
-  it('an agent a member opens gets the hooks module\'s launch files, the daemon\'s hook socket and the host\'s HOME, like the host\'s own agent', async (ctx) => {
-    if (!supported) return ctx.skip('PTY sessions run on macOS and Linux only');
-    const f = fixtureOrSkip(ctx);
-    const session = await f.sessions.create({ kind: 'agent', workspace: { mode: 'main' }, cols: 120, rows: 40 }, conn, carol());
-    expect(session).toMatchObject({ kind: 'agent', ownerUserId: CAROL, ownerName: 'carol' });
-    const argv = (await readWhenPresent(join(f.evidence, 'claude-argv'))).split('\n').filter(Boolean);
-    // The host's flags: no --strict-mcp-config (the guest variant is gone), never a permission flag.
-    expect(argv).toHaveLength(4);
-    expect(argv[0]).toBe('--settings');
-    expect(argv[2]).toBe('--mcp-config');
-    expect(argv[1]?.startsWith(join(await realpath(join(f.home, '.smurg')), 'sessions'))).toBe(true);
-    const settings = JSON.parse(await readWhenPresent(join(f.evidence, 'claude-settings')));
-    expect(settings.hooks.PreToolUse[0].matcher).toContain('Edit');
-    expect(settings.disableAllHooks).toBe(false);
-    expect(settings.permissions.defaultMode).toBe('default');
-    expect(settings).not.toHaveProperty('claudeMdExcludes');
-    expect(await readWhenPresent(join(f.evidence, 'claude-env'))).toBe(`socket=${f.daemon.ctx.config.runPaths.hook} home=${f.home} cwd=${f.share}\n`);
-    await f.sessions.end({ sessionId: session.id }, carol());
-    expect(f.sessions.get(session.id)?.status).toBe('exited');
   });
 });

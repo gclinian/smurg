@@ -1,7 +1,7 @@
 import { MAIN_ROOT, suggestionTextSchema, suggestionSourceSchema } from '@smurg/protocol';
 import { describe, expect, it } from 'vitest';
 import { capabilitiesForRole } from '../../lib/capabilities.ts';
-import { makeSession } from '../../testing/fixtures.ts';
+import { makeAgentSession, makeSession } from '../../testing/fixtures.ts';
 import { buildSelectionPayload, canSendToAgent, formatSelectionForAgent, sanitizeForAgent, selectionLines, sessionTargets } from './selection.ts';
 
 const FILE = { root: MAIN_ROOT, path: 'src/lib/番茄鐘.ts' };
@@ -52,10 +52,10 @@ describe('selection → agent text (R6: code selected in the editor goes, with o
 
   it('targets: the host and members with agent access type into every running agent session; an editor suggests to other people’s; never terminals or ended sessions', () => {
     const sessions = [
-      makeSession({ id: 'mine', ownerUserId: 'dev:amy', ownerName: 'Amy' }),
-      makeSession({ id: 'mine-terminal', kind: 'terminal', ownerUserId: 'dev:amy' }),
-      makeSession({ id: 'ian', ownerUserId: 'dev:host', ownerName: 'Ian' }),
-      makeSession({ id: 'ian-old', ownerUserId: 'dev:host', status: 'exited' }),
+      makeAgentSession({ id: 'mine', openedBy: { userId: 'dev:amy', displayName: 'Amy' } }),
+      makeSession({ id: 'mine-terminal', openedBy: { userId: 'dev:amy', displayName: 'Amy' } }),
+      makeAgentSession({ id: 'ian', openedBy: { userId: 'dev:host', displayName: 'Ian' } }),
+      makeAgentSession({ id: 'ian-old', openedBy: { userId: 'dev:host', displayName: 'Ian' }, status: 'ended', endReason: 'ended' }),
     ];
     for (const role of ['agent', 'host'] as const) {
       const driver = sessionTargets(sessions, 'dev:amy', capabilitiesForRole(role));

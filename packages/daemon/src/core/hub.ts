@@ -6,9 +6,11 @@
 // event lost with a socket is replayed on resume. Fan-out re-checks the recipient's CURRENT role with the registry's
 // mayReceive (fail closed), then any capability / filter the caller adds.
 import {
+  VOLATILE_SKIP_BUFFERED_BYTES,
   can,
   decodeEnvelope,
   encodeEnvelope,
+  getMessageSpec,
   mayReceive,
   type Actor,
   type ChannelPurpose,
@@ -383,7 +385,7 @@ export class HubImpl implements Hub {
     return count;
   }
 
-  broadcast<T extends OutboundType>(type: T, payload: PayloadInputOf<T>, options: BroadcastOptions = {}): number {
+  broadcast<T extends OutboundType>(type: T, payload: PayloadInputOf<T>, options: BroadcastOptions<T> = {}): number {
     let count = 0;
     for (const recipient of this.recipients({ purpose: options.purpose ?? 'interactive' })) {
       if (recipient.channelId === options.exclude) continue;
@@ -392,7 +394,22 @@ export class HubImpl implements Hub {
       if (this.localRefuses(recipient, type)) continue;
       if (options.capability !== undefined && !can(role, options.capability)) continue;
       if (options.filter && !options.filter(recipient, role)) continue;
-      if (this.deliver(recipient, type, payload, newId('ev'))) count++;
+      const body = role === 'host' && options.hostPayload !== undefined ? options.hostPayload : payload;
+      if (this.deliver(recipient, type, body, newId('ev'))) count++;
+    }
+    return count;
+  }
+
+  sendToChannels<T extends OutboundType>(channelIds: Iterable<string>, type: T, payload: PayloadInputOf<T>, options: { readonly hostPayload?: PayloadInputOf<T> } = {}): number {
+    let count = 0;
+    for (const channelId of new Set(channelIds)) {
+      const recipient = this.recipientOf(channelId);
+      if (!recipient) continue;
+      const role = this.roleOf(recipient.userId);
+      if (role === null || !mayReceive(role, type)) continue;
+      if (this.localRefuses(recipient, type)) continue;
+      const body = role === 'host' && options.hostPayload !== undefined ? options.hostPayload : payload;
+      if (this.deliver(recipient, type, body, newId('ev'))) count++;
     }
     return count;
   }
@@ -522,8 +539,21 @@ export class HubImpl implements Hub {
     return this.channelConn.get(channelId) ?? this.transferByChannel.get(channelId);
   }
 
-  /** Encodes and sends (interactive: sequenced + kept for replay). Returns false when nothing was queued or sent. */
+  /**
+   * Encodes and sends (interactive: sequenced + kept for replay). Returns false when nothing was queued or sent.
+   * A volatile type (registry `volatile`) is sent only to a connected channel whose host socket is not backed up, and
+   * unsequenced (seq 0, like channel.ack): never stored, never replayed, never acknowledged. That measure is the
+   * daemon's one link to the relay: it protects the host's link when the relay is slow; it cannot tell one slow
+   * viewer from another.
+   */
   private deliver(recipient: Recipient, type: string, payload: unknown, id: string): boolean {
+    if (getMessageSpec(type)?.volatile === true) {
+      if (recipient.purpose !== 'interactive') return false;
+      const conn = this.channelConn.get(recipient.channelId);
+      if (!conn || !conn.isOpen || conn.bufferedAmount > VOLATILE_SKIP_BUFFERED_BYTES) return false;
+      this.transmit(conn, encodeEnvelope({ type, id, seq: 0, payload } as never, { from: 'daemon', channel: 'interactive' }));
+      return true;
+    }
     if (recipient.purpose === 'interactive') {
       const channel = this.channels.get(recipient.channelId);
       if (!channel) return false;

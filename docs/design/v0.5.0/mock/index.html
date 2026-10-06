@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>smurg v0.5.0 mock</title>
+<!-- The app's real styles, copied unchanged by src/build.mjs: tokens, base, shared components, the shell. -->
+<link rel="stylesheet" href="app-tokens.css">
+<link rel="stylesheet" href="app-base.css">
+<link rel="stylesheet" href="app-components.css">
+<link rel="stylesheet" href="app-app.css">
+<link rel="stylesheet" href="app-files.css">
+<link rel="stylesheet" href="app-editor.css">
+<!-- New in v0.5.0 (this mock). -->
+<link rel="stylesheet" href="mock.css">
+</head>
+<body >
+<div id="root">
+<div class="index-page"><main>
+    <header><h1>smurg v0.5.0: interface mock</h1><p>Static pages (HTML + CSS + a little vanilla JS) on the app's real design tokens. Open any page; the left column, the columns, the dividers, the votes of a question and the answers of a permission request are clickable. The theme button in the top bar switches dark and light.</p></header>
+    <section><h2>1. Main screen</h2><ul><li><a href="01-main.html">01-main.html</a>: three columns: a conversation, the plan, a result report</li><li><a href="01-main.zh-TW.html">01-main.zh-TW.html</a>: the same in Traditional Chinese</li><li><a href="01-main-empty.html">01-main-empty.html</a>: nothing open on the right</li><li><a href="01-main-first-run.html">01-main-first-run.html</a>: a workspace without topics</li></ul></section><section><h2>2. A conversation column</h2><ul><li><a href="02-conversation-host.html">02-conversation-host.html</a>: Host: running with streaming text, a permission request, a question</li><li><a href="02-conversation-editor.html">02-conversation-editor.html</a>: the same as an Editor (Amy)</li><li><a href="02-conversation-viewer.html">02-conversation-viewer.html</a>: the same as a Viewer (Leo)</li><li><a href="02-states.html">02-states.html</a>: every state of the cards, the composer and the header (a sheet)</li></ul></section><section><h2>3. A topic from start to finish</h2><ul><li><a href="03-topic-1-new.html">03-topic-1-new.html</a>: New topic</li><li><a href="03-topic-2-discussion.html">03-topic-2-discussion.html</a>: the shared discussion: the agent asks, everyone votes</li><li><a href="03-topic-3-spec.html">03-topic-3-spec.html</a>: the spec, and asking the agent to revise it</li><li><a href="03-topic-4-spec-edit.html">03-topic-4-spec-edit.html</a>: editing the spec together</li><li><a href="03-topic-5-start.html">03-topic-5-start.html</a>: the Start dialog: what happens when you press Start</li><li><a href="03-topic-5-plan.html">03-topic-5-plan.html</a>: the plan: work items, suggested responsible people, reassigning</li><li><a href="03-topic-5-plan-everyone.html">03-topic-5-plan-everyone.html</a>: the plan with "Everyone watches"</li><li><a href="03-topic-6-execution.html">03-topic-6-execution.html</a>: execution: the plan and three sessions side by side</li><li><a href="03-topic-7-report.html">03-topic-7-report.html</a>: a result report</li><li><a href="03-topic-8-complete.html">03-topic-8-complete.html</a>: the topic is complete</li></ul></section><section><h2>4. Inbox</h2><ul><li><a href="04-inbox.html">04-inbox.html</a>: an item was clicked: what opened, and where</li><li><a href="04-inbox-collapsed.html">04-inbox-collapsed.html</a>: the inbox and two topics collapsed</li><li><a href="04-inbox-editor.html">04-inbox-editor.html</a>: the inbox of an Editor</li><li><a href="04-inbox-viewer.html">04-inbox-viewer.html</a>: the inbox of a Viewer</li></ul></section><section><h2>5. Code mode</h2><ul><li><a href="05-code-mode.html">05-code-mode.html</a>: the workbench behind the switch, opened from a session's changed file</li></ul></section><section><h2>6. Small windows</h2><ul><li><a href="06-small-4-columns.html">06-small-4-columns.html</a>: four columns: resize the window to 1024 px</li><li><a href="06-small-rail.html">06-small-rail.html</a>: the left column collapsed to its rail</li></ul></section>
+  </main></div>
+</div>
+
+<script src="mock.js"></script>
+</body>
+</html>

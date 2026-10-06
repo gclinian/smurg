@@ -14,6 +14,7 @@
     "./locale": "./src/locale/index.ts",
     "./locale/test-table": "./src/locale/test-table.ts",
     "./i18n": "./src/i18n/index.ts",
+    "./testing": "./src/testing/index.ts",
     "./package.json": "./package.json"
   },
   "scripts": {

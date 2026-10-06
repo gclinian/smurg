@@ -6,7 +6,7 @@
 // that stayed open longer than the daemon keeps the session (15 minutes, §7.6) says so instead of offering a retry.
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { SmurgError, type SessionInfo } from '@smurg/protocol';
+import { SmurgError, type TerminalSession } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { HOST_USER, WORKSPACE_ID, makeSession, makeWelcome } from '../../testing/fixtures.ts';
 import { CLOSED_SESSIONS_KEY } from './closed-sessions.ts';
@@ -14,9 +14,9 @@ import { AgentsPanel, tabAfterClose } from './index.tsx';
 import { nextRequest, renderWithSessions } from './test-support.tsx';
 
 
-const running = makeSession({ id: 'sess_run', kind: 'terminal', title: 'keeper', ownerUserId: HOST_USER, ownerName: 'Ian', createdAt: 1 });
-const ended = (id: string, title: string, createdAt: number, more: Partial<SessionInfo> = {}): SessionInfo =>
-  makeSession({ id, kind: 'terminal', title, ownerUserId: HOST_USER, ownerName: 'Ian', createdAt, status: 'exited', exitCode: 0, endedAt: createdAt + 1, endReason: 'exit', ...more });
+const running = makeSession({ id: 'sess_run', kind: 'terminal', title: 'keeper', openedBy: { userId: HOST_USER, displayName: 'Ian' }, createdAt: 1 });
+const ended = (id: string, title: string, createdAt: number, more: Partial<TerminalSession> = {}): TerminalSession =>
+  makeSession({ id, kind: 'terminal', title, openedBy: { userId: HOST_USER, displayName: 'Ian' }, createdAt, status: 'exited', exitCode: 0, endedAt: createdAt + 1, endReason: 'exit', ...more });
 const first = ended('sess_first', 'first', 2);
 const second = ended('sess_second', 'second', 3, { endReason: 'ended', endedBy: { userId: HOST_USER, displayName: 'Ian' } });
 const third = ended('sess_third', 'third', 4, { endReason: 'terminated', endedBy: { userId: HOST_USER, displayName: 'Ian' } });
@@ -210,7 +210,7 @@ describe("agents panel: closing an ended session's tab", () => {
     // While the list reloads the panel keeps the last one: the closed tab is not part of it.
     expect(tabTitles()).toEqual(['keeper (Ian)', 'second (Ian)']);
     await act(async () => {
-      view.conn.respond('session.list', { sessions: [running, first, second] });
+      view.conn.respond('session.list', { sessions: [running, first, second], hasMore: false });
     });
     expect(tabTitles()).toEqual(['keeper (Ian)', 'second (Ian)']);
     expect(storedClosed()).toEqual({ [WORKSPACE_ID]: ['sess_first'] });
@@ -225,7 +225,7 @@ describe("agents panel: closing an ended session's tab", () => {
       reloaded.conn.admit(makeWelcome({ role: 'viewer', channelId: 'ch_3' }), { resumed: false });
     });
     await act(async () => {
-      reloaded.conn.respond('session.list', { sessions: [running, second] });
+      reloaded.conn.respond('session.list', { sessions: [running, second], hasMore: false });
     });
     expect(tabTitles()).toEqual(['keeper (Ian)', 'second (Ian)']);
     expect(window.localStorage.getItem(CLOSED_SESSIONS_KEY)).toBeNull();

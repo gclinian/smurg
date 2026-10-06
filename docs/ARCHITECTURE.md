@@ -193,40 +193,49 @@ type Capability =
   | 'file.download'
   | 'file.write'             // edit, create, rename, delete, upload
   | 'session.view'
-  | 'session.create'         // open agent / terminal sessions; they run AS THE HOST, unsandboxed (§11 D-15)
-  | 'session.drive'          // type into ANY session (exec.input), accept / reject suggestions on any session
+  | 'session.create'         // open agent / terminal sessions; they run AS THE HOST, unsandboxed (§11 D-15). Also:
+                             // create a topic, restart its discussion, start work items, archive a topic
+  | 'session.drive'          // type into ANY terminal; send a message to ANY agent, stop its turn, answer its
+                             // permission requests, accept / reject suggestions, change who is responsible, the
+                             // permission mode, the always-allowed kinds, ask for the plan
   | 'suggest.create'
+  | 'discuss'                // vote, comment, mention, be responsible, review a result report
   | 'worktree.merge.request'
   | 'worktree.merge.decide'
   | 'lock.force-release'
-  | 'admin';                 // invites, roles, kick, audit, terminate any session, settings
+  | 'admin';                 // invites, roles, kick, audit, terminate any session, settings, the trust gate, redaction
 ```
 
 | Capability | host | agent | editor | viewer |
 |---|:-:|:-:|:-:|:-:|
 | file.read, file.download, session.view | ✅ | ✅ | ✅ | ✅ |
-| file.write, suggest.create | ✅ | ✅ | ✅ | ❌ |
+| file.write, suggest.create, discuss | ✅ | ✅ | ✅ | ❌ |
 | session.create, session.drive | ✅ | ✅ | ❌ | ❌ |
 | worktree.merge.request | ✅ | ✅ | ❌ | ❌ |
 | worktree.merge.decide, lock.force-release, admin | ✅ | ❌ | ❌ | ❌ |
 
-The role `agent` ("Agent access") replaced `runner` on 2026-10-01 (§11 D-15): there are no sandboxed
-guest sessions any more (`session.create.sandboxed` / `session.create.host` are gone). A session an `agent` member opens
-runs exactly like the host's own (the host's OS user, environment, HOME, `~/.claude` and Claude Code login), in the
-main workspace, a new worktree or their own kept worktree. `runner` is not accepted anywhere.
+The role `agent` ("Agent access") replaced `runner` on 2026-10-01 (§11 D-15): there are no sandboxed guest sessions.
+A session an `agent` member opens runs exactly like the host's own (the host's OS user, environment, HOME, `~/.claude`
+and Claude Code login). `discuss` (protocol 4) is what an Editor has and a Viewer has not: taking part in what the
+agents ask and produce, without being able to drive them.
 
-This table is implemented once, in `@smurg/protocol` (`roles.ts`), and used by the daemon for enforcement
-and by the web app only for hiding UI.
+This table is implemented once, in `@smurg/protocol` (`roles.ts`), and used by the daemon for enforcement and by the
+web app only for hiding UI. A registry entry may also say `none` (every member), `owner-checked-in-handler` or
+`host-only-in-handler`; then the handler decides.
 
 Resource-level rules (daemon handlers):
 
-- `exec.input`, `suggest.accept/reject`: `session.drive`, ANY session (host and `agent` members); the suggestion must be
-  pending.
-- `exec.resize` (and `session.attach`'s cols/rows), `session.end`: caller must **own** the session, i.e. have opened it
-  (host may `admin.session.terminate` any).
-- `suggest.create`: target session must belong to **someone else**.
-- `worktree.merge.request` (and its diffs): any member with the capability, for any worktree; a session in a kept
-  worktree: its owner only; `worktree.remove`: owner or host.
+- `exec.input`: `session.drive`, ANY terminal. `exec.resize` (and `session.attach`'s cols / rows): the member who
+  opened the terminal.
+- `session.end`: a terminal: the member who opened it. An agent session: the host, or a member with agent access who
+  opened it or is responsible for it. A topic's discussion is never ended this way (archive the topic or restart the
+  discussion). The host may `admin.session.terminate` any session. `keepWorktree: false` removes the worktree of a
+  terminal or a free agent session with it; the worktree of a work item is never released by a session's end (§5.10).
+- `suggest.create`: an agent session, the author's own included (what matters is who may drive, not whose session it
+  is); never a terminal. `suggest.accept` / `suggest.reject`: `session.drive`, any agent session; the suggestion must
+  be pending.
+- `worktree.merge.request`: any member with the capability, for any worktree; a session in a kept worktree: its owner
+  only; `worktree.remove`: owner or host. The diffs of a request: `file.read` (host-private files withheld).
 - `lock.release`: caller must be one of the human holders.
 
 ```ts
@@ -235,6 +244,54 @@ type Actor =
   | { kind: 'agent'; sessionId: string; ownerUserId: UserId; displayName: string }  // "Claude (Ian)"
   | { kind: 'system' };
 ```
+
+**An agent's rights on host-only paths are its session's, not its owner's.** Every agent session has `pathRights`,
+`host` when the host opened it and `member` otherwise, fixed when it is created. The principal an agent acts as
+(`MemberDirectory.agentPrincipal(sessionId, ownerUserId, { agentName?, pathRights })`) has the role `host` only with
+`pathRights: 'host'`; with `'member'` it is never `host`, whoever owns the session. A session that passes to the host
+when its opener goes (below) therefore gains nothing: PathGuard, the hook socket's lock path, the conversation
+module's host-only check and the file and document attribution all read this one principal.
+
+### Who decides
+
+An agent session has a **responsible person** (`AgentSession.responsible`, any member holding `discuss`, or nobody)
+and a stored **fallback decider** (the member who opened the session or pressed Start, until cleared for good). Being
+responsible is routing: it adds no capability. The rules are pure functions of `@smurg/protocol` (`routing.ts`) over
+those facts and the ACTIVE members with their current roles; the conversation, topics and inbox modules use these and
+nothing else, so a card, a refusal and an inbox can never disagree.
+
+| What | Who |
+|---|---|
+| The **decider** of a session's questions (`deciderOf`) | the responsible person, while still a member holding `discuss`; else the fallback decider, under the same condition; else the host |
+| Submitting the answer (`maySubmit`) | the decider; the host at any time; once the question escalated, every member with `session.drive` (recorded as `onBehalfOf`) |
+| Voting and commenting | every member holding `discuss`, for a vote on an option and for an "Other" vote in their own words alike (an Other vote is shown to people and never sent to the agent by the daemon). SUBMITTING `other` or `note` as the answer needs `session.drive` |
+| Answering a permission request (`mayDecidePermission`) | members with `session.drive`; a host-only request: the host |
+| Whose inbox holds a permission request or a suggestion (`permissionRecipients`) | host-only: the host. Else the responsible person, when they hold `session.drive` and it has not escalated; else the host and every member with agent access |
+| Reviewing a result report (`reviewersOf`, `mayReview`) | the responsible person, while a member holding `discuss`; else every member holding `discuss` (one review counts for all); once escalated, also every member with `session.drive` |
+| "Always allow this kind" | members with `session.drive`; only the two checked forms of `rules.ts`; never for a host-only request |
+
+A question or a permission request **escalates** after the host setting `escalateAfterMs` (default 5 minutes; a
+report after six times that), or at once when the person it waits for has been offline for a minute: it then also
+reaches the others who may settle it. Clients read the results from the entities (`Question.decider`,
+`ReportSummary.reviewers`, their inbox) and may call the `may*` functions to hide what a member cannot do.
+
+### When a member goes
+
+A kick, a leave, and a role change that took `session.create`, `session.drive` or `discuss` away end in the same
+state from any path (the admin handlers, the control socket). The core does it in ONE place (`admin/teardown.ts`),
+driven by `member.kicked`, `member.left` and `member.role-changed`, in this order, each step with a time budget so a
+kick answers within R2's 3 s:
+
+1. `ConversationService.memberRemoved`: their votes, the always-allowed kinds they added to sessions, a permission
+   mode they loosened, their queued messages (a kicked member's undelivered message stops its turn).
+2. `TopicService.memberRemoved`: the kinds they allowed for whole topics, items they armed that have not started.
+3. `SessionManager.teardownUser`: per session, end it (terminals, free sessions) or hand it to the host (a topic's
+   sessions, with a work item's worktree; stopped first after a kick; `pathRights` is never raised), and clear them
+   as responsible person and as fallback decider (kicked, left, or now a Viewer).
+4. `UploadService.abortAllForUser` (not for a role change).
+
+One `session.handover` audit entry per handed-over session says from whom, why, whether it was stopped, and what was
+removed. Feature modules do not duplicate any of this.
 
 ---
 
@@ -443,7 +500,7 @@ Byte fields are msgpack `bin` ⇄ `Uint8Array` (`z.instanceof(Uint8Array)`); not
 type Envelope = {
   type: string;       // e.g. "file.write"
   id: string;         // request id; responses echo it
-  seq: number;        // per channel, per direction, strictly increasing
+  seq: number;        // per channel, per direction, strictly increasing; 0 = unsequenced (channel.ack, volatile messages)
   payload: unknown;   // validated by the zod schema registered for `type`
 };
 ```
@@ -460,21 +517,59 @@ Conventions:
 - `file.*` and `exec.*` never share message types or handlers (future two-way sync mode).
 - Binary fields are real bytes (`Uint8Array`), never base64.
 
-`PROTOCOL_VERSION` is 3 since 0.4.0 (message references: `error.text`, `ActivityEvent.text` / `renamedFrom`,
-`MemberNotification.msg` / `fallback`, `Suggestion.closedReason`, an optional `SessionInfo.title`, no
-`channel.closed.message`, the agent name `Claude (Ian)`). Nobody had installed an earlier version: there is no
-compatibility code for protocol 2 anywhere.
+`PROTOCOL_VERSION` is 4 since 0.5.0 (`SessionInfo` is a terminal or an agent session; conversations as event logs;
+questions, permission requests, topics, plans, reports and the inbox; the capability `discuss`). Nobody had installed
+an earlier version: there is no compatibility code for protocol 3 anywhere.
 
 Error codes: `bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `locked`, `path_denied`,
-`insufficient_disk`, `too_large`, `host_only`, `internal` (`sandbox_unavailable` is gone with the sandbox, §11 D-15).
-Finer distinctions travel in `detail.reason` and never become new codes (e.g. `bad_request` + `reason: 'hash-mismatch'`, `path_denied` +
-`reason: 'outside-root'`). Local client-side failures (timeout, connection lost) are `ClientRequestError`, a
-`SmurgError` with code `internal`, `detail.reason` = the failure and `text` = its `client.*` message.
+`insufficient_disk`, `too_large`, `host_only`, `rate_limited`, `internal`. Finer distinctions travel in
+`detail.reason` and never become new codes (e.g. `bad_request` + `reason: 'not-an-agent'`, `conflict` + `reason:
+'settled'`, `path_denied` + `reason: 'outside-root'`). Local client-side failures (timeout, connection lost) are
+`ClientRequestError`, a `SmurgError` with code `internal`, `detail.reason` = the failure and `text` = its `client.*`
+message.
+
+A client reacts to a refusal by its `text.id` (one catalog id per sentence) or by one of the reasons protocol 4 fixes
+(`ERROR_REASONS` in `schema/error-details.ts`: `not-a-terminal`, `not-an-agent`, `ended`, `archived`, `settled`,
+`plan-changed`, `report-changed`, `unfinished`, `unmerged`, `not-failed`, `host-only`, `discussion`, `rate-limited`);
+it never parses `message`. Details with a shape have a builder and a reader there: `lockedError` / `lockOfError`,
+`insufficientDiskError` / `diskReportOfError`, `settledError` / `settledOfError` (a card that was answered, decided or
+withdrawn first: `{ card: { kind, id }, sessionId, status, by? }`; the card itself is never in an error: a detail
+holds no text people or agents wrote), `unmergedError` / `unmergedWorktreesOfError` (`topic.archive`).
 
 Every Envelope is decoded with `decodeEnvelope(bytes, { from, channel })`, which refuses (as `bad_request`, with
 `detail.reason`) a type that may not flow that way or on that socket, prototype keys at any depth, extension types and
 nesting deeper than 32. The daemon audits the refusals that mean "not allowed" (§7.4): an invalid path is
 `path.denied`, a forged direction / channel / unknown type is `authz.denied`.
+
+**Volatile messages.** A registry entry may be `volatile` (only `session.delta`, the text of a block that is
+streaming). The hub sends it unsequenced (`seq 0`) and only to a connected channel whose host socket has at most
+`VOLATILE_SKIP_BUFFERED_BYTES` (1 MiB) buffered: it is never stored for a channel that is away, never replayed after a
+resume, never acknowledged. That measure is the daemon's one link to the relay: it protects the host's link when the
+relay is slow, and it skips a delta for every watcher at once. The runner therefore keeps a delta the hub sent to no
+channel and sends its text again with the next one, from the same `offset`; a client that still sees a gap stops
+appending to that block and waits for the block's `text` event in `session.events` (it may watch again, at most once
+per session in `DELTA_REWATCH_MIN_MS`, so the recovery never adds load to the link it reacts to).
+
+**Size rules.** An application message is at most `MAX_APP_MESSAGE` (8 MiB + 32 KiB). Every field has a bound
+(`schema/limits.ts`), and a reply that carries a list of large things follows one of three rules, named in the
+registry (`sizeRule`) and implemented with one measuring function and one taker (`encodedSize`, `takeWithinBytes`
+in `codec.ts`):
+
+| Rule | For | What it does |
+|---|---|---|
+| `page` | `session.watch`, `session.history`, `session.cards.get` | at most `EVENTS_PAGE_MAX` (500) events and `EVENTS_PAGE_MAX_BYTES` (2 MiB) of events, never fewer than one; the cards the events point to fill what is left, the rest is named in `moreCards` |
+| `batch` | `session.events` | at most `EVENTS_BATCH_MAX` (64) events, `EVENTS_BATCH_MAX_BYTES` (512 KiB) and `EVENTS_BATCH_MS` (100 ms) per message |
+| `list` | `session.list`, `suggest.list`, `topic.list`, `inbox.list`, `inbox.changed`, `admin.claudeConfig.get` | the reply is closed at `LIST_REPLY_MAX_BYTES` (4 MiB; at most `LIST_MAX_ITEMS` entries, at least one) with `hasMore: true`; the next request passes `after`, the last id it got (`takeListPage` on the daemon, `collectPages` on a client) |
+
+`schema/worst-case.test.ts` builds the largest valid instance of every entity and reply and fails when one could
+exceed an Envelope.
+
+**Rates.** Counts cap what is stored; rates cap what one member can make everyone else's browser and the relay carry.
+A registry entry may name a bucket (`rate`): the Router takes one token of the member's bucket before the handler
+runs. Per minute: `vote` 30 (`question.vote`), `comment` 10 (`question.comment`), `suggestion` 10 (`suggest.create`,
+`topic.revise`, `report.followUp`, shared); handlers take `mention` (20, one per kept mention) and the MCP answers
+`agent-notify` (10 per session). A refusal is `rate_limited` (`detail: { reason: 'rate-limited', bucket }`), audited
+as `authz.denied` and counted against the connection's refusal budget like every refusal (§5.8).
 
 ---
 
@@ -483,7 +578,10 @@ nesting deeper than 32. The daemon audits the refusals that mean "not allowed" (
 `c→d` request, `d→c` event. Rows marked **(addition)** were added after the first version of this catalog, each for
 the reason given; the registry (`packages/protocol/src/schema/registry.ts`, `MESSAGE_REGISTRY`) is the executable form
 of this section and `registry.test.ts` transcribes these tables to keep both in step. Every object is strict (an
-unknown key is a protocol error); byte fields are `Uint8Array`; times are epoch-ms integers. All file references use:
+unknown key is a protocol error); byte fields are `Uint8Array`; times are epoch-ms integers. Besides the capability,
+a registry entry names the checks its handler owes (`checks`), what never reaches a log (`sensitive`, `redact`), and,
+since protocol 4, `volatile`, `rate` and `sizeRule` (§4.3). §5.1 to §5.8 are the areas of protocol 3 as protocol 4
+has them; §5.9 to §5.11 are new. All file references use:
 
 ```ts
 type RootRef = { kind: 'main' } | { kind: 'worktree'; worktreeId: string };
@@ -671,7 +769,7 @@ type LockInfo =
 
 ```ts
 type PresenceMember = Member & { connections: number; activeFile?: FileRef };
-type PresenceAgent  = { sessionId; ownerUserId; displayName; color; activeFile?: FileRef; status: SessionStatus };
+type PresenceAgent  = { sessionId; ownerUserId; displayName; color; activeFile?: FileRef; status: AgentSession['status'] };
 type ActivityEvent  = { id; at; actor: Actor; kind: 'agent.edit'|'human.edit'|'file.create'|'file.delete'|'file.rename'
                         |'file.upload'|'external.change'|'conflict'|'lock.denied'|'merge'; file?: FileRef;
                         text: MessageRef;      // the sentence (`activity.*`): rendered by each client in the viewer's language
@@ -692,71 +790,121 @@ follows a renamed file's tab from it (§9).
 The human lock has no `lock.acquire` request: it is taken by the daemon when it applies the first Yjs update
 from a human to a doc, and refreshed on every later update. `lock.acquire` exists only on the hook socket (§8).
 
-### 5.5 `session.*` and `exec.*`
+### 5.5 `session.*` and `exec.*`: sessions of both kinds, and terminals
+
+A session is a **terminal** (a PTY: attach, type, resize) or an **agent session** (a conversation with Claude Code:
+§5.9). Both run like the host's own (§11 D-15): the host's OS user, unsandboxed, the host's environment / HOME /
+Claude Code login, whoever opened them.
 
 ```ts
-type SessionStatus = 'starting' | 'running' | 'exited';
-type SessionInfo = {
-  id; kind: 'agent' | 'terminal';
-  ownerUserId; ownerName;              // the member who OPENED it (§11 D-15): attribution, `Claude (ownerName)`
-  title?;                              // only a title the opener typed; clients build the default from kind + ownerName
-                                       // in the viewer's language (`session.title.agent` / `session.title.terminal`)
-  root: RootRef; status: SessionStatus; exitCode?: number;
-  cols: number; rows: number; createdAt; endedAt?;
+type SessionInfo = TerminalSession | AgentSession;
+
+type SessionBase = {
+  id;
+  openedBy: { userId; displayName };   // who created it: attribution; never changes
+  title?;                              // ONLY what a person gave: the title typed in `session.create`, the first 40
+                                       // characters of a FREE agent session's first message, or `session.rename`.
+                                       // Without it every client shows `sessionTitleRef(session)` in the viewer's
+                                       // language (`session.title.terminal` / `.agent` / `.discussion` / `.item`)
+  root: RootRef; createdAt; endedAt?;
+  endReason?: 'exit' | 'ended' | 'terminated' | 'kicked' | 'left' | 'role-changed' | 'stopped'
+            | 'worktree-removed' | 'archived' | 'replaced' | 'merged';
+  endedBy?: { userId; displayName };   // the person who ended it, when one did
+};
+
+type TerminalSession = SessionBase & {
+  kind: 'terminal';
+  status: 'starting' | 'running' | 'exited'; exitCode?: number;
+  cols: number; rows: number; attached: number;
+};
+
+type AgentSession = SessionBase & {
+  kind: 'agent';
+  purpose: 'discussion' | 'item' | 'free';   // a topic's discussion, a work item's execution, or no topic at all
+  topicId?; itemId?; attempt?: number;       // discussion: topicId; item: topicId, itemId, attempt; free: none
+  topicName?: string;                        // with topicId: the topic's name, kept current by the daemon
+  item?: { number: number; title: string };  // with itemId: the item as PLAN.md has it now (number 0: it left the plan)
+  responsible: { userId; displayName } | null;   // §3 "Who decides"
+  branch?: string;                           // the worktree's branch, when it runs in one
+  status: 'starting' | 'running' | 'waiting-answer' | 'waiting-permission' | 'idle' | 'stalled' | 'done' | 'failed' | 'ended';
+  waitingSince?: number; doing?: 'compacting'; retryHostOnly?: true;
+  runningSince?: number;                     // when the turn that runs now started; absent between turns
+  permissionMode: 'ask-all' | 'ask-commands'; modeFixed: boolean;   // a discussion's mode is fixed
+  ruleCount: number;                         // always-allowed kinds in force (session + topic)
   login: 'unknown' | 'logged-out' | 'logged-in';   // the host's Claude login, as this session sees it
-  attached: number;
-  // additions, set once status is 'exited':
-  endReason?: 'exit' | 'ended' | 'terminated' | 'kicked' | 'left' | 'role-changed' | 'stopped';
-  endedBy?: { userId; displayName };   // who ended it on purpose: the owner (ended) or the host (terminated)
+  claudeVersion?: string;
+  projectSettings: 'used' | 'ignored' | 'none';    // the root's Claude Code project settings (§5.8, the trust gate)
+  noteworthyAt: number; lastSeq: number; lastActivityAt: number;
 };
 ```
 
-| Type | Dir | Payload |
-|---|---|---|
-| `session.create` [session.create] | c→d | `{ kind, workspace: { mode: 'main' } \| { mode: 'worktree', worktreeId?: string }, cols, rows, title? }` → `{ session }` — runs like the host's own whoever opens it (§11 D-15); the caller becomes its owner |
-| `session.list` [session.view] | c→d | `{}` → `{ sessions: SessionInfo[] }` |
-| `session.loginStatus` [session.drive] | c→d | `{ sessionId }` → `{ login }` — runs `claude auth status --json` in the session's environment (the host's) |
-| `session.attach` [session.view] | c→d | `{ sessionId, haveOffset?: number, cols?, rows? /* both or neither */ }` → `{ session, mode: 'snapshot'\|'delta', data: bytes, cols, rows, nextOffset }` — `snapshot` is a serialized terminal state painted after a reset; `delta` is raw output since `haveOffset` (only when still buffered and no resize happened since); `cols`/`rows` (addition): the owner's viewport, which sets the PTY size before the snapshot (resize policy `owner`); ignored for everyone else, the other members who may type included |
-| `session.detach` | c→d | `{ sessionId }` |
-| `session.end` (owner) | c→d | `{ sessionId, keepWorktree?: boolean }` → `{}` — the member who opened it; the host ends anyone's with `admin.session.terminate` |
-| `session.state` | d→c | `{ session: SessionInfo }` |
-| `exec.output` | d→c | `{ sessionId, offset, data: bytes }` |
-| `exec.input` [session.drive] | c→d | `{ sessionId, data: bytes }` — any session (the host's included) |
-| `exec.resize` (owner) | both | `{ sessionId, cols, rows }` — c→d from the owner; d→c to attached viewers, in stream order with `exec.output` (they render at exactly the PTY size) |
+`isSessionOver(session)`: an exited terminal or an ended agent session. An agent session has no PTY: it is not
+attached to, it is watched (§5.9). With `topicName` and `item` a client (the CLI's list among them) names a topic's
+session without loading the topic or its plan. `defaultPermissionMode(purpose, root)` is the mode a session starts
+with: `ask-commands`, except a free session in the main workspace (`ask-all`).
 
-Every session runs like the host's own (§11 D-15): the host's OS user, unsandboxed, the host's environment / HOME /
-Claude Code login, whoever opened it. `session.create` needs `session.create` (host, "Agent access"); typing into a
-session, accepting its suggestions and reading its login state need `session.drive` (host, "Agent access"), for ANY
-session. Ending (`session.end`) and resizing stay with the member who opened it. (Protocol 1's `apiKey`, kind `login`
-and `session.importConfig` are gone.)
+```ts
+type HostState = {                           // `session.host.get`, `session.host`
+  account: { state: 'ok' | 'logged-out' | 'usage-limit'; resetsAt?: number; sessions: number };
+  mainProjectSettings: 'used' | 'ignored' | 'none';
+};
+```
+
+| Type | Dir | Payload | Notes |
+|---|---|---|---|
+| `session.create` [session.create] | c→d | `{ kind: 'terminal', workspace: { mode: 'main' } \| { mode: 'worktree', worktreeId?: string }, cols: number, rows: number, title?: string } \| { kind: 'agent', workspace: { mode: 'main' } \| { mode: 'worktree', worktreeId?: string }, title?: string, firstMessage?: string }` → `{ session: SessionInfo }` | the session runs like the host's own, whoever opens it (§11 D-15); the caller is `openedBy`. `kind: 'agent'` makes a FREE agent session (no topic): nobody is responsible, `firstMessage` is the caller's first message. A topic's sessions are made by `topic.create` and `plan.start` |
+| `session.list` [session.view] | c→d | `{ topicId?: string, after?: string }` → `{ sessions: SessionInfo[], hasMore: boolean }` | without `topicId`: terminals; agent sessions of topics that are not archived (ended ones included); free sessions. With `topicId`: every agent session of that topic, archived or not (earlier attempts, earlier discussions). Oldest first; `after` is the last session's id list rule |
+| `session.state` | d→c | `{ session: SessionInfo }` | to everyone, on every change of a `SessionInfo` |
+| `session.host.get` [session.view] | c→d | `{}` → `{ account: { state: 'ok' \| 'logged-out' \| 'usage-limit', resetsAt?: number, sessions: number }, mainProjectSettings: 'used' \| 'ignored' \| 'none' }` | what every member may know of the host's side before a session exists: `account` (ONE state per workspace: `ok`, `logged-out`, `usage-limit` with `resetsAt` when Claude Code reported it; `sessions`: how many it stops) and whether the MAIN folder's Claude Code project settings are used (the New topic dialog of a member who is not the host) |
+| `session.host` | d→c | `{ account: { state: 'ok' \| 'logged-out' \| 'usage-limit', resetsAt?: number, sessions: number }, mainProjectSettings: 'used' \| 'ignored' \| 'none' }` | to everyone, whenever the account state or the main folder's trust state changes |
+| `session.end` (who may end it) | c→d | `{ sessionId: string, keepWorktree?: boolean }` → `{}` | a terminal: the member who opened it. An agent session: the host, or a member with agent access who opened it or is responsible for it. Never a topic's discussion (`forbidden`, `session.end.discussion`: archive the topic or restart the discussion). `keepWorktree` answers R9 for a terminal and a FREE agent session; a work item's worktree is never released by its session's end (§5.10) |
+| `session.rename` [session.drive] | c→d | `{ sessionId: string, title: string }` → `{ session: SessionInfo }` | agent sessions and terminals; the title a person typed (an untitled session is named by each client: `sessionTitleRef`, §1 Languages) |
+| `session.attach` [session.view] | c→d | `{ sessionId: string, haveOffset?: number, cols?: number, rows?: number }` → `{ session: TerminalSession, mode: 'snapshot' \| 'delta', data: bytes, cols: number, rows: number, nextOffset: number }` | terminals only (an agent session: `bad_request`, reason `not-a-terminal`). `haveOffset`: the client holds the output up to there; `cols` / `rows`: the opener's viewport drives the PTY size |
+| `session.detach` | c→d | `{ sessionId: string }` |  |
+| `exec.output` | d→c | `{ sessionId: string, offset: number, data: bytes }` | to attached viewers: PTY output from absolute byte `offset` |
+| `exec.input` [session.drive] | c→d | `{ sessionId: string, data: bytes }` | keystrokes / paste into ANY terminal (an agent session: `not-a-terminal`) |
+| `exec.resize` (opener) | both | `{ sessionId: string, cols: number, rows: number }` | c→d from the member who opened the terminal; d→c to viewers, in stream order with `exec.output` |
+
+`session.create` needs `session.create` (host, "Agent access"); typing into a terminal needs `session.drive`, for ANY
+terminal. Resizing stays with the member who opened it.
 
 `exec.request.*` (R10, run-on-behalf) is reserved for the launch phase and not implemented.
 
 ### 5.6 `suggest.*`
 
+A suggestion is text a member proposes for an AGENT session (never a terminal), the author's own included. Before a
+member who may drive accepts it, not one character of it reaches the agent. An accepted suggestion is sent as a
+message OF ITS AUTHOR, under a header that names who accepted it (§5.9 "Text for agents").
+
 ```ts
 type Suggestion = {
-  id; sessionId; author: { userId; displayName }; text: string;
+  id; sessionId; author: { userId; displayName };
+  text: string;                        // as the daemon stores, shows and sends it: `agentText(text).text`
+  cleaned?: true;                      // something a reader cannot see was removed
+  origin: 'composer' | 'follow-up' | 'revise' | 'selection';
+  topicId?; itemId?; mentions?: UserId[];
   source?: { file: FileRef; startLine: number; endLine: number };
   status: 'pending' | 'accepted' | 'accepted-modified' | 'rejected' | 'withdrawn';
-  createdAt; resolvedAt?; finalText?;
+  createdAt; resolvedAt?; finalText?; decidedBy?: { userId; displayName };
   rejectReason?;                       // a person's words only
-  closedReason?: 'session-ended' | 'author-kicked' | 'author-demoted';  // the daemon closed it (status `rejected`); clients word it
+  closedReason?: 'session-ended' | 'author-kicked' | 'author-demoted' | 'topic-archived';  // the daemon closed it; clients word it
 };
 ```
 
-| Type | Dir | Payload |
-|---|---|---|
-| `suggest.create` [suggest.create] | c→d | `{ sessionId, text, source? }` → `{ suggestion }` |
-| `suggest.edit` (author, pending) | c→d | `{ suggestionId, text }` → `{ suggestion }` |
-| `suggest.withdraw` (author, pending) | c→d | `{ suggestionId }` → `{ suggestion }` |
-| `suggest.accept` [session.drive] | c→d | `{ suggestionId, text?: string }` → `{ suggestion }` — any session (§11 D-15: the host and "Agent access" may type into it anyway). `text` is what the member saw (or typed) and exactly it is pasted: `accepted` when it equals the current text, `accepted-modified` otherwise. Without `text`, an accept within 10 s of the author's last `suggest.edit` is refused (`conflict`, reason `suggestion-changed`, audited as denied): the author must not swap the text between the review and the accept. The web client always sends the text on screen. |
-| `suggest.reject` [session.drive] | c→d | `{ suggestionId, reason? }` → `{ suggestion }` |
-| `suggest.list` [session.view] | c→d | `{ sessionId? }` → `{ suggestions }` — the caller's own; every suggestion for a holder of `session.drive` |
-| `suggest.updated` | d→c | `{ suggestion }` — to the author and every holder of `session.drive` (host, "Agent access") |
+| Type | Dir | Payload | Notes |
+|---|---|---|---|
+| `suggest.create` [suggest.create] | c→d | `{ sessionId: string, text: string, source?: { file: {…}, startLine: number, endLine: number }, mentions?: string[] }` → `{ suggestion: Suggestion }` | an AGENT session (a terminal: `bad_request`, reason `not-an-agent`, `suggest.terminal`), the author's own included; at most `SUGGESTIONS_PENDING_PER_AUTHOR_MAX` pending per author and session. With `source` the origin is `selection` rate `suggestion` |
+| `suggest.edit` (author, pending) | c→d | `{ suggestionId: string, text: string }` → `{ suggestion: Suggestion }` |  |
+| `suggest.withdraw` (author, pending) | c→d | `{ suggestionId: string }` → `{ suggestion: Suggestion }` |  |
+| `suggest.accept` [session.drive] | c→d | `{ suggestionId: string, text?: string }` → `{ suggestion: Suggestion }` | the text goes to the agent as a MESSAGE of its author, under a header naming who accepted it (`AgentSessions.send`); `text` present ⇒ `accepted-modified` |
+| `suggest.reject` [session.drive] | c→d | `{ suggestionId: string, reason?: string }` → `{ suggestion: Suggestion }` |  |
+| `suggest.list` [session.view] | c→d | `{ sessionId?: string, after?: string }` → `{ suggestions: Suggestion[], hasMore: boolean }` | without `sessionId`: every suggestion the caller may see. Newest first; `after` is the last suggestion's id list rule |
+| `suggest.updated` | d→c | `{ suggestion: Suggestion }` | to the watchers of the session, the author, and the members whose inbox holds it |
 
-There is no auto-accept code path. The only function that writes suggestion text into a PTY is called from the
-`suggest.accept` handler after the `session.drive` and pending checks.
+`topic.revise` and `report.followUp` (§5.10) create suggestions too, for a member who may not drive
+(`ConversationService.sendAs`). There is no auto-accept code path: the suggest module holds exactly one call that
+sends suggestion text to an agent, in the `suggest.accept` handler's service method, after the `session.drive` and
+pending checks.
 
 ### 5.7 `worktree.*`
 
@@ -766,19 +914,28 @@ There is no auto-accept code path. The only function that writes suggestion text
 | `worktree.remove` (owner or host) | c→d | `{ worktreeId }` → `{}` |
 | `worktree.merge.request` [worktree.merge.request] | c→d | `{ worktreeId, message? }` → `{ request: MergeRequest }` — any worktree (§11 D-15) |
 | `worktree.merge.list` [file.read] | c→d | `{}` → `{ requests }` |
-| `worktree.merge.diff` [worktree.merge.request] | c→d | `{ requestId }` → `{ diff: string /* ≤ 1 MiB UTF-8 */, truncated: boolean, files: { path, status: 'added'\|'modified'\|'deleted'\|'renamed'\|'copied'\|'type-changed'\|'unmerged'\|'unknown', additions, deletions, oldPath?, binary? }[] /* complete, ≤ 10,000 */ }` |
-| `worktree.merge.fileDiff` (addition) [worktree.merge.request] | c→d | `{ requestId, path }` → `{ path, diff: string /* ≤ 1 MiB */, truncated: boolean, binary: boolean }` — one file of `files` (any other path is refused), so the whole change can be reviewed when `merge.diff` was truncated (R9: the host sees the complete diff); the UI does not offer "Merge" until every truncated file was opened |
+| `worktree.merge.diff` [file.read] | c→d | `{ requestId }` → `{ diff: string /* ≤ 1 MiB UTF-8 */, truncated: boolean, files: { path, status: 'added'\|'modified'\|'deleted'\|'renamed'\|'copied'\|'type-changed'\|'unmerged'\|'unknown', additions, deletions, oldPath?, binary? }[] /* complete, ≤ 10,000 */ }` |
+| `worktree.merge.fileDiff` (addition) [file.read] | c→d | `{ requestId, path }` → `{ path, diff: string /* ≤ 1 MiB */, truncated: boolean, binary: boolean }` — one file of `files` (any other path is refused), so the whole change can be reviewed when `merge.diff` was truncated (R9: the host sees the complete diff); the UI does not offer "Merge" until every truncated file was opened |
 | `worktree.merge.approve` [worktree.merge.decide] | c→d | `{ requestId }` → `{ request }` (status `merged` or `conflict` + `conflictFiles`) |
 | `worktree.merge.reject` [worktree.merge.decide] | c→d | `{ requestId, reason? }` → `{ request }` |
 | `worktree.updated` / `worktree.merge.updated` | d→c | `{ worktree }` / `{ request }` |
 | `worktree.removed` (addition) | d→c | `{ worktreeId }` — file trees showing it switch back to the main root (`worktree.updated` cannot express removal) |
 
 ```ts
-type WorktreeInfo = { id; ownerUserId; ownerName; branch; sessionId?: string; kept: boolean; createdAt; sharedDirs: string[] };
-type MergeRequest = { id; worktreeId; requestedBy: { userId; displayName }; message?; commit: string /* git object id */;
-                      status: 'pending'|'merged'|'rejected'|'conflict';
+type WorktreeInfo = { id; ownerUserId; ownerName; branch; sessionId?: string; kept: boolean; createdAt; sharedDirs: string[];
+                      topicId?; itemId? };                    // an item worktree (§5.10)
+type MergeRequest = { id; worktreeId; requestedBy?: { userId; displayName }; message?; commit: string /* git object id */;
+                      topicId?; itemId?; reviewed: boolean;   // a work item's changes; its report was reviewed
+                      status: 'draft'|'pending'|'merged'|'rejected'|'conflict';
                       conflictFiles?: string[]; createdAt; decidedAt?; rejectReason? };
 ```
+
+**Protocol 4.** A work item's changes are a merge request too: when its agent finishes, the daemon snapshots the item
+worktree into a request in the state `draft` (nobody requested it: no `requestedBy`), which the result report shows
+(§5.10); `reviewed` follows the report's review. Because every member reads a report, the two diff requests need only
+`file.read`: the diff is made from git objects, past PathGuard, so for anyone but the host a file on a host-private
+path is listed as hidden and its diff withheld (in the whole-diff text as well), and the text passes `mask()`.
+In an item worktree no person writes the topic's folder (`specs/<slug>/**`) through smurg (§7.4).
 
 **What a merge request contains** (addition). Agents normally edit without committing, so
 `worktree.merge.request` (by any holder of `worktree.merge.request`: the host, "Agent access") first commits the
@@ -831,8 +988,36 @@ All git commands run with `execFile` (argument arrays, never a shell string), as
 type InviteInfo = { id; role; createdAt; expiresAt?: number; maxUses?: number; uses: number; revoked: boolean };
 type DeviceInfo = { deviceId; name; kind: 'web'|'cli'; addedAt; lastSeenAt; revoked: boolean };
 type AuditEntry = { id; at; actor: Actor; action: string; target?: string; outcome: 'ok'|'denied'|'error'; detail?: Record<string, unknown> };
-type HostSettings = PublicSettings & { diskReserveBytes: number; diskReservePercent: number };   // (allowedDomains: gone, §11 D-15)
+type HostSettings = PublicSettings & { diskReserveBytes: number; diskReservePercent: number;   // (allowedDomains: gone, §11 D-15)
+  maxLiveAgents: number;      // 2–32; default min(8, max(2, floor(RAM / 3 GiB))): processes of work items kept alive at once
+  escalateAfterMs: number;    // 1 min – 1 h, default 5 min: when a waiting card also reaches the others who may settle it (§3)
+  agentMcp: boolean };        // default false: execution and free sessions get only smurg's own MCP server
 ```
+
+**Claude Code on the host** (protocol 4):
+
+| Type | Dir | Payload | Notes |
+|---|---|---|---|
+| `admin.claudeConfig.get` [admin] | c→d | `{ after?: string }` → `{ roots: ClaudeConfigRoot[], hasMore: boolean }` | per root, the three project-level Claude Code files with everything they do (commands, permission rules, environment, scripts) and the state of the host's decision list rule |
+| `admin.claudeConfig.decide` [admin] | c→d | `{ root: RootRef, files: { path: string, hash: string }[], decision: 'trust' \| 'ignore', acknowledged: ('credentials' \| 'allows-tools')[] }` → `{}` | refused when a hash is no longer the file's (`claudeConfig.changed`) or a needed tick is missing (`claudeConfig.ackNeeded`) |
+| `admin.hostRules.get` [admin] | c→d | `{}` → `{ rules: { rule: string, source: 'user' \| 'project' \| 'local' \| 'managed' }[], seen: boolean }` | the host's own Claude Code allow rules as agent sessions last reported them. They APPLY to agent sessions; `seen`: the host was shown this list |
+| `admin.hostRules.seen` [admin] | c→d | `{}` → `{}` | the host has the list on screen: the `host-rules` inbox item leaves. No decision is taken |
+| `admin.transcript.redact` [admin] | c→d | `{ sessionId: string, seq: number }` → `{}` | replaces one conversation event by "The host removed this entry." under the same `seq`; audited `transcript.redact` |
+
+```ts
+type ClaudeConfigRoot = { root: RootRef; state: 'used' | 'ignored' | 'none'; files: ClaudeConfigFile[] };
+// ClaudeConfigFile: one of `.claude/settings.json`, `.claude/settings.local.json`, `.mcp.json` with its hash, the
+// host's decision, and everything it does: `runs` (each command line, whole), `permissions` (each rule), `env`
+// (`flagged`: it can send the host's login to another server), `otherKeys`, `scripts` (files inside the root the
+// commands point at: host-only for writes while trusted, §7.4), `text` (the raw file), `needsAck`, `changed`.
+```
+
+The trust gate: an agent session uses a root's project-level Claude Code settings only after the host confirmed
+exactly that content (`admin.claudeConfig.decide`, by hash); a file that changes afterwards parks the sessions of
+that root until the host looks again. The host's OWN Claude Code allow rules (user settings) are different: every
+agent session runs as the host, so they apply. smurg does not ask for what they already allow; it shows the host the
+list once (`admin.hostRules.get`, the `host-rules` inbox item, `admin.hostRules.seen`). The discussion agent's own
+limits (the tool gate, §7.6) are enforced regardless.
 
 Audit `action` vocabulary: `auth.join`, `auth.connect`, `auth.disconnect`, `auth.rejected`, `authz.denied`, `path.denied`,
 `file.write`, `file.create`, `file.rename`, `file.delete`, `file.upload`, `file.download`, `doc.edit`, `agent.edit`,
@@ -843,17 +1028,356 @@ Audit `action` vocabulary: `auth.join`, `auth.connect`, `auth.disconnect`, `auth
 `member.role`, `member.kick`, `member.leave` (addition, `channel.leave`), `invite.create`, `invite.revoke`,
 `device.revoke`, `settings.change`.
 
+Protocol 4 added: `session.message`, `smurg.message`, `session.interrupt`, `session.retry`, `session.restart`, `session.responsible`,
+`session.mode`, `session.rule.remove`, `session.handover` (§3 "When a member goes"), `responsible.fallback`,
+`question.submit`, `question.remind`, `permission.decide`, `permission.auto` (smurg answered by a rule or the mode),
+`permission.auto-deny` (the tool gate refused), `agent.command`, `topic.create`, `topic.rename`, `topic.archive`,
+`topic.delete`, `topic.discussion.restart`, `topic.spec.request`, `topic.rule.add`, `topic.rule.remove`,
+`plan.generate`, `plan.start`, `plan.resume`, `plan.assign`, `plan.mode`, `plan.item.retry`, `plan.item.continue`,
+`plan.item.resolve`, `scheduler.start`, `scheduler.disarm`, `report.register`, `report.review`, `spec.commit`,
+`claude-config.decide`, `transcript.redact`.
+
 - `auth.connect` / `auth.disconnect` (R11 logins and logouts) are written by the core for every connection (relay or local):
   target = deviceId, detail `{ mode, purpose, resumed }` / `{ mode, purpose, reason, durationMs }`.
 - `detail` is sanitised by key (bytes → sizes; `content`, `data`, `token`, `url`, `hash`, `apiKey`, `diff`, … replaced)
-  and strings are cut at 2,000 characters, except top-level keys the caller lists in `fullText` (R6.3: the suggestion
-  module lists `text` and `finalText`, up to 64 KiB). Never put a sensitive payload in `detail`.
+  and strings are cut at 2,000 characters. Never put a sensitive payload in `detail`.
+- **Full texts** (R6.3). A top-level key the caller lists in `fullText` (a message, a suggestion's `text` and
+  `finalText`, a command, a note) keeps its first 1,024 characters in the entry, next to `<key>Sha256` and
+  `<key>Chars`; the whole text goes to the full-text store, `audit-text.jsonl` beside the log (rotated at 32 MiB into
+  `.1` and `.2`, 0600), keyed by that hash and read back with `AuditLog.fullText(sha256)`. So volume from a member who
+  loops suggestions rotates the text files, never the core log with its role changes and decisions.
 - The log is bounded (§11 D-10): `denied` entries beyond 120 per actor and origin per minute are
   counted, not written (one entry marks the start, one summary entry gives the count). The origin is the control socket
   (`detail.via: 'control-socket'`, §8) or the relay channels: a flood through the socket, whose actor is the host, has
   its own budget and its summary says `via: 'control-socket'`; a connection with more than 60 refused
   requests in a minute is closed with `protocol-error` and loses its logical channel (no replay of the flood);
   `audit.jsonl` is rotated at 32 MiB into `audit.1.jsonl` and `audit.2.jsonl` (0600) and queries page across them.
+
+### 5.9 Agent sessions: the conversation, questions, permission requests
+
+**The event log.** A conversation is the ordered list of events of one agent session. `seq` starts at 1 and has no
+gaps; `at` is the daemon's time. Nothing changes afterwards except by redaction (`admin.transcript.redact` replaces
+one event by a notice under the same `seq`).
+
+```ts
+type ConversationEvent = { seq: number; at: number } & (
+  | { kind: 'message'; messageId; from: { userId; displayName; role: Role }; text: string; cleaned?: true;
+      origin: 'composer' | 'follow-up' | 'revise' | 'selection';
+      suggestion?: { id; acceptedBy: UserRef; modified: boolean }; mentions?: UserId[] }     // what a person sent
+  | { kind: 'smurg'; messageId; purpose: SmurgPurpose; by?: UserRef; text: string }           // what smurg sent itself
+  | { kind: 'delivery'; messageId; state: 'queued' | 'started' | 'completed' | 'cancelled' }
+  | { kind: 'turn.started'; turnId }
+  | { kind: 'turn.finished'; turnId; outcome: 'completed' | 'interrupted' | 'error' | 'max-turns' | 'budget';
+      durationMs: number; stoppedBy?: UserRef }
+  | { kind: 'text'; turnId; blockId; text: string; aborted?: true; truncated?: true; parentToolUseId? }
+  | { kind: 'tool.started'; turnId; toolUseId; tool: ToolView; parentToolUseId? }
+  | { kind: 'tool.finished'; turnId; toolUseId; ok: boolean; result: ToolResultView }
+  | { kind: 'card'; card: 'question' | 'permission' | 'suggestion'; id }                      // a card appeared here
+  | { kind: 'pointer'; target: 'spec' | 'plan' | 'report'; topicId; itemId?; version? }      // "the spec changed here"
+  | { kind: 'line'; text: WireRef; fallback: string }                                         // a system line
+  | { kind: 'notice'; level: 'info' | 'warning' | 'error'; text: WireRef; fallback: string; action?: 'restart-agent' | 'retry' }
+);
+type SmurgPurpose = 'write-spec' | 'generate-plan' | 'update-plan' | 'start-item' | 'continue-item' | 'retry-item'
+                  | 'fix-plan' | 'fix-report' | 'nudge-report' | 'resolve-conflict' | 'conversation-lost' | 'restart-discussion';
+type ToolView = { name: string; verb: 'read' | 'edit' | 'create' | 'run' | 'search' | 'fetch' | 'task' | 'smurg' | 'todo' | 'other';
+                  target?: string; file?: FileRef; outside?: true };
+type ToolResultView = { additions?; deletions?; exitCode?; matches?; durationMs?;
+                        body?: { kind: 'diff' | 'output' | 'list' | 'text'; text: string; truncated: boolean } };   // masked, clipped
+type WireRef = { id: string; params?: Record<string, string | number> };   // a wire catalog reference, JSON ≤ 2,000 characters
+type StreamingBlock = { turnId; blockId; text: string; parentToolUseId? };   // a block that streams now; never one the agent only thinks in
+```
+
+Claude Code's tools are classified in ONE place (`tools.ts` of `@smurg/protocol`): `EDIT_TOOL_NAMES`, `toolVerb(name)`
+(the verb of a tool card) and `permissionWhat(view)` (what a permission card is about), so the tool card and the
+permission card of the same call cannot disagree.
+
+Questions, permission requests and suggestions are **cards**: entities with their own requests and update events. The
+log holds a `card` event where one appeared; the entity travels in `session.watch` / `history` / `cards.get` and in
+`question.updated` / `permission.updated` / `suggest.updated`.
+
+| Type | Dir | Payload | Notes |
+|---|---|---|---|
+| `session.watch` [session.view] | c→d | `{ sessionId: string, haveSeq?: number, live?: boolean }` → `{ session: AgentSession, events: ConversationEvent[], firstSeq: number, nextSeq: number, hasEarlier: boolean, hasMore: boolean, streaming: StreamingBlock[], questions: Question[], permissions: PermissionRequest[], suggestions: Suggestion[], moreCards: CardRef[] }` | agent sessions only (a terminal: `bad_request`, reason `not-an-agent`), also those of archived topics. ONE page: the events after `haveSeq`, or the newest page without it or when it is more than `EVENTS_CATCH_UP_MAX` behind; the cards the page points to and every open card (the rest in `moreCards`); the blocks streaming now. A reply to a watch with `haveSeq` CONTINUES the caller's window when it is empty or `firstSeq === haveSeq + 1`, else it replaces it; `hasEarlier` of an empty page says events exist at or before `haveSeq`. Then the channel gets `session.events` and the card updates until `session.unwatch`, and `session.delta` only when `live` (default true). A watcher is its logical channel page rule |
+| `session.unwatch` | c→d | `{ sessionId: string }` |  |
+| `session.history` [session.view] | c→d | `{ sessionId: string, beforeSeq?: number, afterSeq?: number, limit: number }` → `{ events: ConversationEvent[], hasEarlier: boolean, hasMore: boolean, questions: Question[], permissions: PermissionRequest[], suggestions: Suggestion[], moreCards: CardRef[] }` | exactly one of `beforeSeq` (older) and `afterSeq` (catching up) page rule |
+| `session.cards.get` [session.view] | c→d | `{ sessionId: string, cards: CardRef[] }` → `{ questions: Question[], permissions: PermissionRequest[], suggestions: Suggestion[], moreCards: CardRef[] }` | at most `CARDS_GET_MAX` cards; what does not fit comes back in `moreCards` page rule |
+| `session.events` | d→c | `{ sessionId: string, events: ConversationEvent[] }` | to watchers. An event whose `seq` the client already has REPLACES it (redaction) batch rule |
+| `session.delta` | d→c | `{ sessionId: string, turnId: string, blockId: string, offset: number, text: string, thinking?: true, parentToolUseId?: string }` | to live watchers: text of a block that is streaming; `offset` = UTF-16 units of the block before `text`; `parentToolUseId`: the subagent it belongs to. A delta the hub could not send is sent again with the next one, from the same offset; a client that still sees a gap stops appending to that block and waits for its `text` event (it may watch again, at most once per session in `DELTA_REWATCH_MIN_MS`). `thinking`: the agent thinks; such a delta has `text` '' and `offset` 0 and makes no block; it is repeated once per `DELTA_COALESCE_MS` while the agent thinks and ends with the next delta or event of that turn **volatile** |
+| `session.message.send` [session.drive] | c→d | `{ sessionId: string, text: string, mentions?: string[], origin?: 'composer' \| 'selection' }` → `{ messageId: string }` | a message to the agent (stored and sent as `agentText(text).text`). The session is not ended and its topic not archived; a `failed` or parked session is started by it |
+| `session.interrupt` [session.drive] | c→d | `{ sessionId: string }` → `{}` | "Stop": ends the running turn; open cards are withdrawn (`stopped`) |
+| `session.retry` [session.drive] | c→d | `{ sessionId: string }` → `{ session: AgentSession }` | starts a `failed` session again; after three failed starts in a row the host only (`retryHostOnly`) |
+| `session.restart` [session.drive] | c→d | `{ sessionId: string }` → `{ session: AgentSession }` | "Restart this session's agent now" (the action `restart-agent` of a notice): the session gives up its process now when idle, else at its next idle moment; the next message starts it again with fresh launch files. The session is not ended and its topic not archived. Audited `session.restart` |
+| `session.responsible.set` [session.drive] | c→d | `{ sessionId: string, userId: string \| null }` → `{ session: AgentSession }` | the person must hold `discuss` (`responsible.notEligible`); null: nobody is assigned |
+| `session.mode.set` [session.drive] | c→d | `{ sessionId: string, mode: 'ask-all' \| 'ask-commands' }` → `{ session: AgentSession }` | refused for a discussion session (`session.mode.fixed`) |
+| `session.rules.get` [session.view] | c→d | `{ sessionId: string }` → `{ rules: RememberedRule[], host: { state: 'none' \| 'applied', rules?: string[] } }` | the session's and its topic's always-allowed kinds; `host.state` says whether the host's own Claude Code allow rules were found (they APPLY: every session runs as the host), `host.rules` (masked) only for the host and members with `session.drive` |
+| `session.rule.remove` [session.drive] | c→d | `{ sessionId: string, ruleId: string }` → `{ session: AgentSession }` |  |
+| `session.loginStatus` [session.drive] | c→d | `{ sessionId: string }` → `{ login: LoginState }` | agent sessions: runs `claude auth status --json` in the session's environment |
+
+```ts
+type Question = {
+  id; sessionId; askedAt; status: 'open' | 'answered' | 'withdrawn';
+  parts: { header; text; multi: boolean; options: { label; description }[] }[];        // ≤ 4 parts of ≤ 4 options
+  votes: { userId; displayName; part: number; options?: number[]; other?: string; at }[];
+  comments: { id; from: UserRef; text; at; mentions?: UserId[] }[];
+  eligible: number;                    // members holding `discuss` who are online or have voted on any part
+  decider: UserRef | null; deciderSeenAt?; escalatedAt?;
+  previous?: { askedAt; tally: number[][] };                                           // the same question asked again
+  answer?: { parts: { options?: number[]; other?: string; otherBy?: UserRef }[]; note?; by: UserRef; onBehalfOf?: UserRef; at; tally: number[][] };
+                                       // onBehalfOf: the decider, whenever someone else submitted
+  withdrawn?: { reason: 'stopped' | 'ended' | 'failed' | 'restarted'; by?: UserRef; at };   // by: who stopped the turn or ended the session
+};
+
+type PermissionRequest = {
+  id; sessionId; askedAt; status: 'open' | 'allowed' | 'denied' | 'withdrawn';
+  tool: string; what: 'command' | 'edit' | 'fetch' | 'outside' | 'other';
+  command?; file?: FileRef; change?: { text }; url?; input?;                           // what it wants to do (masked)
+  outside?: true; path?: string;                                                       // `path`: the host's copy only
+  root: RootRef; reason?: string;                                                      // Claude Code's own English reason
+  hostOnly: boolean;
+  alwaysRule?: { tool: 'Bash' | 'WebFetch'; pattern };                                 // what "always allow" would add
+  noAlways?: 'interpreter' | 'fetches-code' | 'one-word' | 'host-only' | 'no-suggestion';
+  escalatedAt?;
+  decision?: { by: UserRef; at; always?: 'session' | 'topic'; message? };
+  withdrawn?: { reason: 'stopped' | 'ended' | 'failed' | 'restarted'; at };
+};
+type RememberedRule = { id; tool: 'Bash' | 'WebFetch'; pattern; scope: 'session' | 'topic'; addedBy: UserRef; addedAt };
+```
+
+| Type | Dir | Payload | Notes |
+|---|---|---|---|
+| `question.vote` [discuss] | c→d | `{ questionId: string, part: number, options?: number[], other?: string }` → `{}` | one of `options` / `other`, or neither to take the vote back; `options` index that part's options (exactly one unless the part is `multi`). `other`: the voter's own words, for every member holding `discuss`; shown to people only, never sent to the agent by the daemon rate `vote` |
+| `question.comment` [discuss] | c→d | `{ questionId: string, text: string, mentions?: string[] }` → `{ commentId: string }` | rate `comment` |
+| `question.submit` [discuss] | c→d | `{ questionId: string, answers: ({ options: number[] } \| { other: string, otherBy?: string })[], note?: string }` → `{ question: Question }` | one answer per part. The decider; the host at any time; once the question escalated, every member with `session.drive`; whenever the submitter is not the decider the answer records `onBehalfOf`. SUBMITTING `other` or `note` needs `session.drive`. The first submit wins (afterwards `conflict`, reason `settled`: `settledError`) |
+| `question.remind` [discuss] | c→d | `{ questionId: string }` → `{}` | the decider or the host: a mention for every eligible member who has not voted; once a minute per question |
+| `question.seen` [discuss] | c→d | `{ questionId: string }` | the decider's client, once the card is on screen (`deciderSeenAt`) |
+| `question.changed` | d→c | `{ sessionId: string, questionId: string, vote?: { userId: string, displayName: string, part: number, options?: number[], other?: string, at: number }, voteRemoved?: { userId: string, part: number }, comment?: { id: string, from: UserRef, text: string, at: number, mentions?: string[] }, eligible?: number, deciderSeenAt?: number }` | to watchers: one small change of an OPEN question (a vote, a comment), never the whole question; `sessionId` names its session |
+| `question.updated` | d→c | `{ question: Question }` | to watchers: the whole entity, when it is answered or withdrawn, when the decider changes, when it escalates |
+| `permission.decide` [session.drive] | c→d | `{ requestId: string, decision: 'allow' \| 'allow-always' \| 'deny', scope?: 'session' \| 'topic', message?: string }` → `{ request: PermissionRequest }` | members with `session.drive`; a host-only request: the host. The first answer wins (afterwards `conflict`, reason `settled`, with `detail.card`, `detail.status`, `detail.by`: `settledError`; the card itself is not in the error). `allow-always` only when the request offers `alwaysRule` (the client never sends a rule); `scope: 'topic'` only for a topic's session. `message`: with `deny`, what the agent should do instead |
+| `permission.updated` | d→c | `{ request: PermissionRequest }` | to watchers: the whole entity. The host's copy carries `path` for an `outside` request; nobody else's does |
+
+**Votes.** A member has at most one vote per part and HAS VOTED once they voted on every part. Who has voted, the
+tally and the leading answer are pure functions of `@smurg/protocol` (`votes.ts`), used by the conversation module
+(the note for the agent, `answer.tally`), the inbox (`voted`, `allVoted`, `leading`) and the clients alike:
+`votersOf(question)` (`byPart`, `any`, `complete`), `questionTally(question)` (per part: one count per option, then
+"Other"), `allVoted(question)` (everyone eligible voted on every part), `leadingAnswer(question)` (per part the answer
+the votes lead to, or null: for a single-select part the option with strictly the most votes, more than "Other" too;
+for a multi-select part the options more than half of that part's voters chose) and `leadingLabel(question)` (the
+first part's, when exactly one option leads). The texts of a question's parts are distinct (`questionPartsSchema`:
+Claude Code keys the answer by them); the runner refuses a question that is not valid on the wire before a card exists
+and never clips one. The line `conversation.submittedFor` is written only when a question had escalated.
+
+**Text for agents.** Everything that goes to a model passes one of three functions of `@smurg/protocol`
+(`agent-text.ts`), so what a member with agent access sees on a card is exactly the characters the agent gets:
+
+- `agentText(raw)` for every string a PERSON wrote (messages, suggestions, notes, "Other" answers, comments, a
+  denial's line): NFC, LF line ends, control characters removed except tab and newline, invisible code points removed
+  (the emoji joiner only between visible characters), and a line that looks like a header (`[…]` alone on its line)
+  quoted with `> `. A payload ARRIVES as any text but NUL (`personTextSchema`); what is stored, shown and sent is
+  `agentText(text).text`, with `cleaned: true` when something a reader cannot see was removed.
+- `agentSafeName(displayName, userId)` for a display name as a model reads it (at most 40 letters, marks, digits,
+  space, `.`, `_`, `-`).
+- `frameMessage(header, body)`: the header line in front of a body: `[Ian · Host]` for a person, `[Amy · Editor,
+  suggestion accepted by Ian]` for an accepted suggestion, `[smurg <tag>]` for smurg itself (the tag is drawn at
+  random per session and announced in the role prompt). Because of the header no message starts with `/`.
+
+"Ask the agent to revise" (`topic.revise`) is composed by `composeRevise` BEFORE a message is sent or a suggestion is
+created, so a card shows exactly what an accept sends: a fixed English first line naming the file (`About SPEC.md,
+section "Cart rules":`), the quoted section as a fenced quotation (`quoteForAgent`), then the member's own text;
+`too_large` when the result exceeds `MESSAGE_TEXT_MAX_CHARS`.
+
+**What a conversation never holds.** `mask()` (`mask.ts`) is the one function that runs over every text that came
+from an agent or a tool before it is stored or sent: agent text blocks, diffs, command output, search file lists,
+fetch and other tool results, report sections, follow-up answers, merge diffs, the host's own rules. It hides what
+looks like a credential. Best effort: whatever an agent reads it may repeat to everyone. Bodies are clipped to their
+limits (`truncated`), never stored whole.
+
+**Remembered rules.** "Always allow this kind" adds a rule to the session (`scope: 'session'`) or to every session of
+its topic (`scope: 'topic'`). Which rules may be remembered at all is decided by `rules.ts` alone, a POSITIVE check
+with exactly two forms: `Bash(<two or three literal words> *)` and `WebFetch(domain:<hostname>)`. Never an
+interpreter or a shell, never something that fetches and runs code (a package manager's `add`, `install`, `exec`,
+`dlx`, `run`, `create`, `init`, `x`, or an option in front of its subcommand), never a one-word pattern, never for a
+host-only request. The check runs when a permission card is built (`alwaysRule` / `noAlways`), when a member types a
+rule for a topic, and again on every rule read back from disk. A client never sends a rule with a decision: it sends
+`allow-always`, and the daemon adds the rule the card offered.
+
+**Rates.** The token buckets of §4.3: `vote`, `comment` and `suggestion` are taken by the Router for the requests
+that name them; `mention` by the handlers that accept `mentions` (one token per kept mention); `agent-notify` per
+session by the agent-facing `notify_member` tool.
+
+### 5.10 `topic.*`, `plan.*`, `report.*`
+
+A **topic** is one piece of work the team discusses and then has agents carry out. Its files are in the project:
+`specs/<slug>/SPEC.md`, `specs/<slug>/PLAN.md`, `specs/<slug>/reports/<item id>.md` (`topicSpecPath` and friends in
+`schema/paths.ts`); the daemon's own records are in its state directory.
+
+```ts
+type Topic = {
+  id; name; slug;                      // the folder is specs/<slug>; [a-z0-9][a-z0-9-]{0,47}
+  phase: 'discussing' | 'spec' | 'plan' | 'executing' | 'complete';
+  archived: boolean; versioned: boolean; createdBy: UserRef; createdAt;
+  discussionSessionId?; discussion: 'live' | 'lost';
+  spec: { exists: boolean; changedAt?; changedBy?: Actor; lastAgentChange?: { sessionId; seq; at; askedBy?: UserRef } };
+  handEdits: { spec: HandEdit[]; plan: HandEdit[] };          // HandEdit = { by: UserRef | 'outside'; at }
+  plan: { exists; valid; error?: FileError; generating; stale; mode: 'assigned' | 'everyone'; paused;
+          changedAt?; changedBy?: Actor;                      // the last change of PLAN.md, whoever made it
+          items: number; started: number; reviewed: number; merged: number };
+  rules: RememberedRule[];             // kinds always allowed for every session of the topic
+};
+
+type PlanInfo = {
+  topicId; revision: number; specHash; planHash;             // the pins `plan.start` must repeat
+  mode: 'assigned' | 'everyone'; paused: boolean;
+  items: WorkItem[];                                          // ≤ 40 in the plan (+ items that left it but have a session)
+  split?: { source: 'agent' | 'smurg'; reason? };
+  warnings: WireText[];
+  waitingFor: { user: UserRef; questions; permissions; reports; since }[];
+  slots: { inUse: number; max: number; waitingForPeople: number };
+};
+type WorkItem = {
+  id; number; title; summary; dependsOn: string[]; size: 's' | 'm' | 'l'; touches: string[]; inPlan: boolean;
+  state: 'not-started' | 'waiting' | 'queued' | 'running' | 'stalled' | 'done' | 'reviewed' | 'failed' | 'stopped';
+  stalledBy?: 'agent' | 'restart' | 'stopped' | 'error';      // why a stalled item has no report: it stopped in prose,
+                                                              // smurg restarted, a person stopped the turn, the turn failed
+  armed: boolean; disarmed?: 'plan-changed' | 'starter-removed' | 'start-failed';
+  waitsFor?: string[];
+  responsible: { userId; displayName; source: 'agent' | 'smurg' | 'chosen' } | null;
+  startedBy?: UserRef; sessionId?; worktreeId?; attempt: number; startError?: WireText;
+  changesAsked?: { by: UserRef; at };
+  report?: ReportSummary;
+  merge?: { requestId; status: MergeRequest['status']; ready: boolean };
+};
+
+type ReportSummary = {
+  version: number; writtenAt; outcome: 'complete' | 'partial' | 'blocked';
+  state: 'to-review' | 'reviewed' | 'changed-after-review' | 'invalid';
+  reviewers: UserRef[]; escalatedAt?;
+  review?: { by: UserRef; at; version; insteadOf?: UserRef };
+  checks: { passed: number; notVerified: number }; error?: FileError;
+};
+type ReportInfo = ReportSummary & {
+  topicId; itemId; file: FileRef;
+  sections: { done; why; verified: { text; passed: boolean; note? }[]; watchOut; followUps? };
+  changes?: { requestId; files; additions; deletions; byHand: { path; by: UserRef[] }[] };
+  noChanges?: 'host-only-paths' | 'spec-files' | 'conflict-markers';
+  questions: { id; from: UserRef; at; text; truncated?: true; answer?: { text; truncated?: true; at } }[];
+};
+type WireText = { text: WireRef; fallback: string };          // FileError = WireText & { line?: number }
+```
+
+| Type | Dir | Payload | Notes |
+|---|---|---|---|
+| `topic.create` [session.create] | c→d | `{ name: string, slug?: string, firstMessage?: string }` → `{ topic: Topic, session: AgentSession }` | the slug defaults from the name (`slugFromName`); refused when a topic uses it or `specs/<slug>` exists. Creates the folder and the discussion session |
+| `topic.list` [session.view] | c→d | `{ archived?: boolean, after?: string }` → `{ topics: Topic[], hasMore: boolean }` | `archived` (default false): the archived topics instead of the others list rule |
+| `topic.updated` | d→c | `{ topic: Topic }` | to everyone |
+| `topic.removed` | d→c | `{ topicId: string }` | to everyone: the topic was deleted |
+| `topic.rename` [session.drive] | c→d | `{ topicId: string, name: string }` → `{ topic: Topic }` | the folder keeps its slug |
+| `topic.archive` [session.create] | c→d | `{ topicId: string, archived: boolean, deleteUnmerged?: boolean }` → `{ topic: Topic }` | archiving ends the topic's sessions (`archived`) and removes their worktrees. Worktrees with changes that were never merged need a decision: without `deleteUnmerged` the request is refused (`conflict`, reason `unmerged`, `detail.worktrees: { itemId, worktreeId, branch }[]`: `unmergedError`) and the dialog repeats it with `false` (keep them) or `true` (delete them) |
+| `topic.delete` [admin] | c→d | `{ topicId: string }` → `{}` | archived topics only; removes the daemon's records and transcripts, never files of the project |
+| `topic.discussion.restart` [session.create] | c→d | `{ topicId: string }` → `{ topic: Topic, session: AgentSession }` | a NEW discussion session; the old one ends (`replaced`) and stays readable |
+| `topic.revise` [suggest.create] | c→d | `{ topicId: string, target: 'spec' \| 'plan', text: string, quote?: { heading?: string, text: string }, mentions?: string[] }` → `{ messageId: string } \| { suggestion: Suggestion }` | "Ask the agent to revise": a member with `session.drive` sends a message to the discussion (origin `revise`); anyone else creates a suggestion with that origin. Exactly one of the two results. The text that is stored, shown and sent is `composeRevise`: a first line naming the file, the quoted section, then the member's text (`too_large` beyond `MESSAGE_TEXT_MAX_CHARS`) rate `suggestion` |
+| `topic.spec.request` [session.drive] | c→d | `{ topicId: string }` → `{}` | "Write the spec now" |
+| `topic.rule.add` [session.drive] | c→d | `{ topicId: string, tool: 'Bash' \| 'WebFetch', pattern: string }` → `{ topic: Topic }` | the checked forms only (`rules.ts`); applies to every session of the topic |
+| `topic.rule.remove` [session.drive] | c→d | `{ topicId: string, ruleId: string }` → `{ topic: Topic }` |  |
+
+| Type | Dir | Payload | Notes |
+|---|---|---|---|
+| `plan.generate` [session.drive] | c→d | `{ topicId: string }` → `{}` | generates or updates the plan; `Topic.plan.generating` until the turn ends |
+| `plan.get` [session.view] | c→d | `{ topicId: string }` → `{ plan: PlanInfo \| null }` |  |
+| `plan.updated` | d→c | `{ plan: PlanInfo }` | to everyone |
+| `plan.mode.set` [session.drive] | c→d | `{ topicId: string, mode: 'assigned' \| 'everyone' }` → `{ plan: PlanInfo }` |  |
+| `plan.assign` [session.drive] | c→d | `{ topicId: string, itemId: string, userId: string \| null }` → `{ plan: PlanInfo }` | before the item has a session the plan holds who is responsible; afterwards this writes through the session |
+| `plan.suggest` [session.drive] | c→d | `{ topicId: string }` → `{ plan: PlanInfo }` | "Suggest again": smurg's even split, for items that are not started and not `chosen` |
+| `plan.preflight` [session.create] | c→d | `{ topicId: string, itemIds?: string[] }` → `{ preflight: StartPreflight }` | what the Start dialog shows; its three pins go back in `plan.start` |
+| `plan.start` [session.create] | c→d | `{ topicId: string, itemIds?: string[], planRevision: number, specHash: string, planHash: string }` → `{ plan: PlanInfo }` | without ids: every item of that revision that is not started. Refused with `conflict`, reason `plan-changed`, when a pin differs from the files now |
+| `plan.changes` [session.view] | c→d | `{ topicId: string }` → `{ files: { target: 'spec' \| 'plan', diff: string, truncated: boolean }[] }` | "Show the changes": unified diffs of SPEC.md and PLAN.md as they are now against what the last Start pinned (against the last commit before the first Start), each cut at `PLAN_CHANGES_DIFF_MAX_BYTES` (`truncated`), through `mask()`; one entry per file that differs |
+| `plan.resume` [session.drive] | c→d | `{ topicId: string }` → `{ plan: PlanInfo }` | "Continue all" after a restart of the host's smurg |
+| `plan.item.retry` [session.create] | c→d | `{ topicId: string, itemId: string }` → `{ plan: PlanInfo }` | a failed item resumes its session; a stopped item gets a new session in the same worktree |
+| `plan.item.continue` [session.drive] | c→d | `{ topicId: string, itemId: string }` → `{}` | tells a stalled execution session to go on |
+| `plan.item.resolve` [session.drive] | c→d | `{ topicId: string, itemId: string }` → `{}` | after a merge conflict: smurg merges the main workspace into the item's worktree and asks the agent to resolve |
+| `report.get` [session.view] | c→d | `{ topicId: string, itemId: string }` → `{ report: ReportInfo }` |  |
+| `report.updated` | d→c | `{ topicId: string, itemId: string, report: ReportSummary }` | to everyone: the summary |
+| `report.followUp` [suggest.create] | c→d | `{ topicId: string, itemId: string, text: string, mentions?: string[] }` → `{ messageId: string } \| { suggestion: Suggestion }` | like `topic.revise`, to the item's session (origin `follow-up`) rate `suggestion` |
+| `report.review` [discuss] | c→d | `{ topicId: string, itemId: string, version: number, acknowledgeUnfinished?: boolean }` → `{ report: ReportSummary }` | "I've reviewed this": one of the reviewers; once escalated, every member with `session.drive`. `version` must be the current one; an outcome other than `complete` needs `acknowledgeUnfinished` |
+
+**A work item's worktree** is the item's, not its session's: created when the item starts, reused by a retry, and
+removed only when the item is merged and reviewed or its topic is archived (`WorktreeManager.releaseItem`); the end of
+a session, `keepWorktree` or not, never removes it. When the member who started an item goes, the worktree passes to
+the host with the session. `PlanInfo.slots` is the scheduler's own count: item sessions that hold a process (`inUse`)
+of the host setting `maxLiveAgents` (`max`); the agent runtime knows only its own limits.
+
+`StartPreflight` (the Start dialog): the pins (`planRevision`, `specHash`, `planHash`), what starts now and what
+waits for which items, who is responsible for each item and whether they are online, the commit of the two files that
+Start would make (`commit`), hand edits since the agent last wrote, invisible characters in the files, whether the
+plan is stale against the spec, open questions, who is editing right now, the trust state of the project settings,
+the topic's rules, the shared directories, and `blockers` (why Start is refused).
+
+### 5.11 `inbox.*`
+
+A member's inbox is DERIVED: everything that waits for that member (by the routing rules of §3 "Who decides") plus
+two kinds of stored notes (mentions and results). It is recomputed from the other services' state and events; only
+notes and seen marks are stored.
+
+```ts
+type InboxItem = {
+  key: string;                         // `<kind>:<id>`; `attention:<subject>:<id>`
+  kind: 'question' | 'vote' | 'permission' | 'attention' | 'suggestion' | 'report' | 'merge' | 'mention' | 'result';
+  subject?: 'item-stalled' | 'item-failed' | 'item-stopped' | 'item-not-started' | 'plan-paused' | 'discussion-lost'
+          | 'account' | 'project-settings' | 'host-rules' | 'storage';                 // of an `attention` item
+  at; unread: boolean; waiting: boolean;                                               // `waiting`: work stands still for it
+  topicId?; sessionId?; itemId?;
+  item?: { number: number; title: string };                                            // wherever itemId is: "1 · Cart API"
+  target: ColumnTarget; anchor?: { cardId?; seq? };                                    // what opening it shows
+  from?: Actor; excerpt: string; count?;
+  voted?; eligible?; allVoted?; leading?;                                              // a question
+  waitsFor?: UserRef; waitsForOffline?; escalated?; alsoFor?: UserRef[]; alsoForMore?;
+  outcome?; checks?;                                                                   // a report
+  result?: 'rejected' | 'accepted-edited';                                             // what became of my suggestion
+  ready?; unblocks?: number[]; conflict?;                                              // a merge
+};
+type ColumnTarget = { kind: 'session'; sessionId } | { kind: 'spec'; topicId } | { kind: 'plan'; topicId }
+                  | { kind: 'report'; topicId; itemId } | { kind: 'changes'; requestId }
+                  | { kind: 'console'; section: 'members' | 'sessions' | 'suggestions' | 'merges' | 'invites' | 'audit'
+                                               | 'settings' | 'claude-config' | 'host-rules' };   // CONSOLE_SECTIONS
+```
+
+One shape, and a table that says which fields each kind carries (`INBOX_KIND_FIELDS`; the schema enforces it: a
+required field is there, a field the kind does not carry is refused). Every item has `key`, `kind`, `at`, `unread`,
+`waiting`, `target` and `excerpt`; `waiting` is `inboxKindWaits(kind, subject)`; `item` goes with `itemId`.
+
+| Kind | Always | May have | `excerpt` |
+|---|---|---|---|
+| `question` (I decide) | `sessionId`, `anchor.cardId`, `voted`, `eligible`, `allVoted` | `topicId`, `itemId`, `item`, `leading`, `waitsFor`, `waitsForOffline`, `escalated`, `alsoFor`, `alsoForMore` | the text of part 1 |
+| `vote` | `sessionId`, `anchor.cardId`, `voted`, `eligible` | `topicId`, `itemId`, `item`, `waitsFor` (who decides), `waitsForOffline` | the text of part 1 |
+| `permission` | `sessionId`, `anchor.cardId` | `topicId`, `itemId`, `item`, `waitsFor`, `waitsForOffline`, `escalated`, `alsoFor`, `alsoForMore` | the command, the URL or the path relative to the root; never the absolute `path` |
+| `suggestion` (one per author and session) | `sessionId`, `anchor.cardId` (the oldest pending one), `from`, `count` | `topicId`, `itemId`, `item`, `alsoFor`, `alsoForMore` | the text of the oldest pending one |
+| `report` | `topicId`, `itemId`, `item`, `outcome`, `checks` | `sessionId`, `waitsFor`, `waitsForOffline`, `escalated`, `alsoFor`, `alsoForMore` | empty |
+| `merge` | `ready`, `conflict` | `topicId`, `itemId`, `item`, `from` (who asked; none for a reviewed draft), `unblocks` | the request's message, or empty |
+| `mention` | `from` | `topicId`, `sessionId`, `itemId`, `item`, `anchor` | the text around the mention |
+| `result` | `sessionId`, `anchor.cardId` (the suggestion), `from` (who decided), `result` | `topicId`, `itemId`, `item` | the suggestion's text |
+| `attention` | `subject` | `topicId`, `sessionId`, `itemId`, `item`, `count` | the topic's name for `plan-paused` and `discussion-lost`, else empty |
+
+`voted` counts the members who voted on every part; `leading` is `leadingLabel(question)` (§5.9 "Votes"): the leading
+option of the first part, absent on a tie. A row names a work item from `item`, never from `excerpt`. The host's
+attention subjects open a section of the console: `account` and `storage` → `sessions`, `project-settings` →
+`claude-config`, `host-rules` → `host-rules`.
+
+**Mentions.** A request may carry `mentions` (`session.message.send`, `question.comment`, `suggest.create`,
+`topic.revise`, `report.followUp`). An id is kept only when that member is active and the text contains `@<their
+display name>`; any other id is dropped without an error. When the mentioned member already has
+`INBOX_NOTES_PER_MEMBER_MAX` unopened notes the mention is not stored and the request still succeeds: its handler
+tells the sender with a notification (`mention.inboxFull`). "Ask them to submit" on a question card is a
+`question.comment` with `mentions`, whose text the client writes.
+
+| Type | Dir | Payload | Notes |
+|---|---|---|---|
+| `inbox.list` | c→d | `{ after?: string }` → `{ items: InboxItem[], hasMore: boolean }` | the caller's own items list rule |
+| `inbox.changed` | d→c | `{ upsert: InboxItem[], remove: string[] }` | to the member's own channels (never the control socket) list rule |
+| `inbox.seen` | c→d | `{ keys: string[] }` | clears `unread`; opening a mention or a result this way also removes it |
+| `inbox.dismiss` | c→d | `{ key: string }` → `{}` | mentions and results only (`inbox.notDismissable` otherwise) |
+
+An item that waits (a question to decide, a permission request, a report to review, a merge) leaves when it is
+settled, never by dismissal. `inbox.changed` goes to the member's own interactive channels only; the control socket
+gets none of it (§8).
 
 ---
 
@@ -1069,48 +1593,120 @@ compute worker on first use to `~/Library/Caches/smurg/native-<id>` / `$XDG_CACH
 
 ```
 packages/daemon/src/
-├── core/        context.ts interfaces.ts router.ts permissions.ts hub.ts state-store.ts audit.ts bus.ts config.ts
-│                sockets.ts (socket path limits, run paths)
-├── net/         relay-connection.ts channel-server.ts (handshake responder, resume, outbox) identity.ts (JWT verify)
-├── admin/       invites.ts members.ts handlers.ts
-├── workspace/   path-guard.ts roots.ts power.ts (caffeinate / systemd-inhibit)
-├── files/       file-service.ts watcher.ts handlers.ts upload.ts download.ts disk.ts
-├── docs/        doc-service.ts reconcile.ts (diff + 3-way) conflicts.ts handlers.ts
-├── locks/       lock-manager.ts presence.ts activity.ts handlers.ts
-├── sessions/    session-manager.ts pty-session.ts term-mirror.ts raw-tail.ts host-env.ts claude.ts kill-tree.ts handlers.ts
-├── hooks/       hook-server.ts (Unix socket) hook-cli.ts (entry used by Claude Code) settings-writer.ts
-├── mcp/         coord-server.ts (stdio MCP entry, proxies to hook socket)
-├── suggest/     suggestion-service.ts handlers.ts
-├── worktree/    worktree-manager.ts merge.ts handlers.ts
-├── local/       protocol.ts (ctl frames + schemas, shared with the CLI) local-channel.ts (the hub's channel for a
-│                local client) control-server.ts (ctl socket: stop / status / local attach) module.ts
-├── testing/     test harness (`@smurg/daemon/testing`): in-memory relay, test identity issuer, temp dirs, clients
-└── daemon.ts    composition root: builds DaemonContext, registers handlers, starts/stops everything
+├── core/          context.ts interfaces.ts router.ts permissions.ts hub.ts state-store.ts audit.ts audit-text.ts
+│                  rates.ts bus.ts config.ts stubs.ts sockets.ts (socket path limits, run paths)
+│   └── fakes/     TEST ONLY: an in-memory fake of every service protocol 4 added or changed, their mechanical handlers,
+│                  and builders (the pure ones are `@smurg/protocol/testing`)
+├── net/           relay-connection.ts channel-server.ts (handshake responder, resume, outbox) identity.ts (JWT verify)
+├── admin/         invites.ts members.ts handlers.ts teardown.ts (what happens when a member goes, §3)
+├── workspace/     path-guard.ts roots.ts power.ts (caffeinate / systemd-inhibit)
+├── files/         file-service.ts watcher.ts handlers.ts upload.ts download.ts disk.ts
+├── docs/          doc-service.ts reconcile.ts (diff + 3-way) conflicts.ts handlers.ts
+├── locks/         lock-manager.ts presence.ts activity.ts handlers.ts
+├── sessions/      the registry of both kinds; the terminal runner (pty-session.ts term-mirror.ts raw-tail.ts);
+│                  the agent runtime (the runner, the transcript, profiles, the trust gate, the host's rules)
+├── hooks/         hook-server.ts (Unix socket) tool-gate.ts hook-cli.ts (entry used by Claude Code)
+│                  settings-writer.ts mcp-tools.ts (the answers of the agent-facing tools)
+├── mcp/           coord-server.ts (stdio MCP entry, proxies to hook socket) tools.ts
+├── conversation/  messages to agents, questions, votes, comments, permission decisions, cards
+├── suggest/       suggestion-service.ts handlers.ts
+├── topics/        topics, the plan (format, preflight, pins, the scheduler), reports, prompts
+├── inbox/         the derived inbox, mentions, results
+├── worktree/      worktree-manager.ts merge.ts handlers.ts
+├── local/         protocol.ts (ctl frames + schemas, shared with the CLI) local-channel.ts (the hub's channel for a
+│                  local client) control-server.ts (ctl socket: stop / status / local attach) module.ts
+├── testing/       test harness (`@smurg/daemon/testing`): in-memory relay, test identity issuer, temp dirs, clients
+└── daemon.ts      composition root: builds DaemonContext, registers handlers, starts/stops everything
 ```
 
-Every feature module exports `register(router: Router, ctx: DaemonContext): Disposable`.
-Modules talk to each other **only** through the interfaces in `core/interfaces.ts` and events on `ctx.bus`.
+Every feature module exports a `FeatureModule` (`core/context.ts`): `create(ctx)` fills the service slots it
+implements (one provider per slot), `register(router, ctx)` adds its handlers and bus listeners and returns the
+`Disposable` that undoes them, `start` / `stop` are optional. Modules talk to each other **only** through the
+interfaces in `core/interfaces.ts` and events on `ctx.bus`; what several of them must compute the same way (who
+decides, text for agents, what may be always allowed, masking, sizes) is a pure function of `@smurg/protocol`.
 `ctx.lifecycle` (`stop()`, `status()`, `attachLocal()`) is what only the composition root can do; the control-server
-module uses it. `ctx.config.sessions` and `ctx.config.runPaths` carry the session-launch inputs (§7.6).
+module uses it. `ctx.config.sessions`, `ctx.config.agents` and `ctx.config.runPaths` carry the launch inputs (§7.6);
+`ctx.rates` is the per-member rate limiter (§4.3).
+
+**Service slots** (`ctx.services`, `FeatureServices`). A slot no module fills holds a stub whose every method answers
+`internal` "not implemented: <Service>" (`core/stubs.ts`), so the daemon composes with any subset of modules.
+
+| Slot | Interface | Module | What it is |
+|---|---|---|---|
+| `files`, `uploads`, `downloads` | `FileService`, `UploadService`, `DownloadService` | files | the tree, guarded reads and writes, transfers |
+| `docs` | `DocService` | docs | Yjs documents, reconciliation, conflicts |
+| `locks`, `presence`, `activity` | `LockManager`, `PresenceService`, `ActivityFeed` | locks | file locks, who is where, the activity feed |
+| `sessions` | `SessionManager` | sessions | the registry of terminals and agent sessions; `teardownUser` |
+| `agents` | `AgentSessions` | sessions | the agent runtime: start, send, the event log, watch / history, rules, mode, responsible person, labels, park and restart, the account state. Its own limits are `maxAgentSessions` and `maxAgentProcesses`; the host setting `maxLiveAgents` is the scheduler's |
+| `projectTrust` | `ProjectTrust` | sessions | the trust gate for a root's Claude Code project settings; `protectedPaths(root)` |
+| `hostRules` | `HostRules` | sessions | the host's own Claude Code allow rules: they apply; the host is shown them once |
+| `hooks` | `HookServer` | hooks | the hook and MCP socket; per-session credentials and launch files |
+| `conversation` | `ConversationService` | conversation | `session.message.send`, questions, permission decisions, `cards`, `sendAs` (which composes the text of a revise), `memberRemoved` |
+| `suggestions` | `SuggestionService` | suggest | suggestions to agent sessions |
+| `topics`, `plans`, `reports` | `TopicService`, `PlanService`, `ReportService` | topics | topics, the plan and its scheduler (it alone enforces `maxLiveAgents` and releases item worktrees), result reports; the checks the agent-facing tools answer with |
+| `inbox` | `InboxService` | inbox | the derived inbox; `addMention`, `addResult` |
+| `worktrees` | `WorktreeManager` | worktree | worktrees, snapshots of work items, merge requests, the diff of the spec and plan since a Start |
+
+**Who writes which system line and audit entry** is part of each method's contract in `core/interfaces.ts` (never a
+convention between two modules): the agent runtime writes the lines about a stop, a retry, a changed or reset mode,
+a removed rule, who is responsible, an end and a restart of its process, and every `notice.*` (the login notices
+among them); the caller of `AgentSessions.start` gives the line that opens a conversation; the conversation module
+writes `conversation.submittedFor` and `conversation.rule.added*`; the teardown of the session registry writes the
+handover and fallback lines; the topics module writes the lines about what it asked the agent.
+
+`core/fakes/` holds an in-memory implementation of each of the slots `agents`, `projectTrust`, `hostRules`,
+`sessions`, `hooks`, `conversation`, `suggestions`, `topics`, `plans`, `reports`, `inbox`, `worktrees`
+(`createFakes(env)`, `fakesModule({ except, handlers })`, `fakesOf(ctx)`): the same contracts, the same bus events,
+the same system lines, no rules of another module. A package's tests compose its real module with fakes for the rest
+in a test daemon; with `handlers: true` the fakes also answer the wire for their slots. Nothing the host runs may
+import them (a composition test follows the import graph of `daemon.ts`, `index.ts` and the session entry points).
+
+**The core's own work** beyond routing and fan-out: the member teardown (§3), the rate buckets (§4.3), volatile
+delivery and per-channel fan-out with a separate copy for the host (`hub.sendToChannels`, `hostPayload`), the audit
+log with its full-text store (§5.8), PathGuard (§7.4), and the admin handlers, which delegate the trust gate, the
+host's rules and redaction to the services above.
 
 ### 7.3 Internal events (`ctx.bus`)
 
-`member.joined`, `member.left`, `member.kicked`, `member.role-changed`, `device.added`, `device.revoked`,
-`conn.opened`, `conn.closed`, `channel.discarded` (a logical channel is gone for good: drop all per-channel state
-keyed by its `channelId`), `settings.changed`,
-`file.changed` (from watcher, with best-effort attribution), `doc.human-edit`, `doc.saved`,
-`agent.tool.pre`, `agent.tool.post`, `agent.file-changed`, `lock.changed`,
-`session.created`, `session.updated`, `session.exited`, `suggestion.changed`, `worktree.changed`, `merge.changed`,
-`daemon.stopping`, `state.write` (`{ document, ok }`: a state document the disk refused, or wrote again),
-`relay.link` (`{ purpose, state, reason?, status? }`: every state change of a relay link, `auth-rejected` included). Payloads: `core/interfaces.ts` (`DaemonEvents`). `smurg host` prints `state.write` and
-`relay.link` on the host's terminal (§8).
+Payloads: `core/interfaces.ts` (`DaemonEvents`).
 
-Per-client state that must survive a resume (doc subscriptions, attached terminals) is keyed by the logical channel
-(`conn.channelId`), never by the socket (`conn.id`); service methods say `channelId` where they mean it. The core runs
-the per-member teardown (the sessions the member opened killed and audited, uploads aborted) for `member.kicked`,
-`member.left` and a demotion below "Agent access" (§11 D-15); feature modules do not duplicate it. The activity module alone turns bus
-events into activity entries and their audit entries (mapping in `ActivityFeed`, `core/interfaces.ts`); exceptions that
-call `ActivityFeed.record` directly: the conflict panel (`conflict`) and the worktree module (`merge`).
+| Event | Emitted by | Meaning |
+|---|---|---|
+| `member.joined`, `member.left`, `member.kicked`, `member.role-changed` | core | membership; the last three drive the teardown of §3 |
+| `device.added`, `device.revoked`, `conn.opened`, `conn.closed` | core | devices and socket-level connections |
+| `channel.discarded` | core | a logical channel is gone for good: drop all per-channel state keyed by its `channelId` |
+| `settings.changed` | core | the host's settings (`maxLiveAgents`, `escalateAfterMs`, `agentMcp` among them) |
+| `file.changed` | files (watcher) | "re-check this path", with best-effort attribution |
+| `doc.human-edit`, `doc.saved` | docs | a person's edit was applied; a document was written |
+| `agent.tool.pre`, `agent.tool.post`, `agent.file-changed` | hooks | Claude Code's hook events for a modifying tool |
+| `agent.tool.gate` | hooks | the tool gate refused a tool call (which row, which path) |
+| `agent.ready` | sessions | an agent's process answered: version, login, tools. The runner itself writes what follows from it (the login notices, the account state) |
+| `agent.process` | sessions | `{ sessionId, purpose, topicId?, hasProcess, reason: 'started' \| 'parked' \| 'failed' \| 'ended' }`: every change of whether a session holds a process (parking changes nothing on the wire). The scheduler runs on it |
+| `agent.request`, `agent.request.withdrawn` | sessions | the agent asks a question or wants permission (the runner guarantees a question passes the wire's schema; a permission request carries the `ToolView` of its call); Claude Code withdrew it (`reason`, and `by`: who stopped the turn or ended the session). Not emitted for a restart of the daemon: the conversation module withdraws the open cards of its own store when it starts. The conversation module makes a card or answers by itself |
+| `agent.turn.started`, `agent.turn.finished` | sessions | a turn; the end carries the outcome, `stoppedBy`, the final text (masked), the messages it took (`messages`: for each, whether a person or smurg wrote it, who, its origin and the suggestion it was) and the files its edit tools changed |
+| `account.changed` | sessions | `{ account }`: the workspace's account state changed (the sessions module sends `session.host`) |
+| `lock.changed` | locks | every change of a file lock |
+| `session.created`, `session.updated`, `session.exited` | sessions | a session of either kind |
+| `question.changed`, `permission.changed` | conversation | every change of a card, with the entity before (`previous: null`: it just appeared) |
+| `suggestion.changed` | suggest | every change of a suggestion |
+| `topic.changed`, `topic.removed`, `plan.changed`, `report.changed` | topics | the entities of §5.10. `topic.removed { topicId, sessionIds }` is emitted BEFORE the topics module makes the agent runtime forget those sessions, so listeners can still map them |
+| `worktree.changed`, `merge.changed` | worktree | worktrees and merge requests (drafts included) |
+| `attention.changed` | topics, sessions, the trust gate, the host's rules | that source's attention facts changed: the inbox asks its `attention()` again |
+| `activity.recorded` | locks (activity) | every entry the activity module records (hand edits of topic files, `changes.byHand`); a rename carries `renamedFrom` |
+| `trust.changed` | sessions (the trust gate) | the host's decision about a root's project settings changed, or the files did |
+| `daemon.stopping` | core | stop() began |
+| `state.write` | core | `{ document, ok }`: a state document the disk refused, or wrote again |
+| `relay.link` | core | `{ purpose, state, reason?, status? }`: every state change of a relay link, `auth-rejected` included |
+
+`smurg host` prints `state.write` and `relay.link` on the host's terminal (§8).
+
+Per-client state that must survive a resume (doc subscriptions, attached terminals, watched conversations) is keyed
+by the logical channel (`conn.channelId`), never by the socket (`conn.id`); service methods say `channelId` where they
+mean it. The core runs the per-member teardown of §3 for `member.kicked`, `member.left` and a role change that took
+`session.create`, `session.drive` or `discuss` away; feature modules do not duplicate it. The activity module alone
+turns bus events into activity entries and their audit entries (mapping in `ActivityFeed`, `core/interfaces.ts`);
+exceptions that call `ActivityFeed.record` directly: the conflict panel (`conflict`) and the worktree module
+(`merge`).
 
 **Relay link** (`net/relay-connection.ts`): a refused WebSocket upgrade reports its HTTP status. 401/403 (the host's
 7-day relay session expired or was revoked) moves the link to `auth-rejected`: one error log that names `smurg login`,

@@ -5,6 +5,7 @@
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { STEP_MS, explainFailures, joinAs, openSession, startSmoke, systemChrome, terminalShows, typeInTerminal, waitForTerminalText, workspaceOnline, type SmokeEnv } from './helpers.ts';
+import { isPendingPart } from '../../../../tests/lint/pending-v050.ts';
 
 const chrome = systemChrome();
 if (chrome === null) console.warn('[web smoke] SKIPPED: no system Chrome found (playwright-core downloads no browser); install Google Chrome to run it.');
@@ -46,21 +47,25 @@ describe.skipIf(chrome === null)('the app in zh-TW (built app, real relay, syste
     await typeInTerminal(host, sessionId, 'echo ZH-$((6*7))');
     await waitForTerminalText(host, sessionId, 'ZH-42');
 
-    // A guest (editor) suggests; the host accepts; the text arrives in the terminal.
+    // A guest (editor) joins and sees the session.
     const guest = await env.newPage({ locale: 'zh-TW' });
     await joinAs(guest, env, 'mei', 'editor');
     expect(await guest.getByRole('banner', { name: '工作區' }).locator('.ui-badge').first().textContent()).toContain('可編輯');
     await guest.getByRole('tab', { name: /^shell（host 開的）/ }).first().click();
-    const composer = guest.getByRole('textbox', { name: /的「shell」的建議/ });
-    await composer.waitFor({ timeout: STEP_MS });
-    await composer.fill('echo 建議-FROM-MEI');
-    await guest.getByRole('button', { name: '送出建議' }).click();
-    const queue = host.locator('section[aria-label^="等待你決定的建議（1）"]');
-    await queue.getByText('echo 建議-FROM-MEI').waitFor({ timeout: STEP_MS });
-    expect(await terminalShows(host, sessionId, 'FROM-MEI')).toBe(false);
-    await queue.getByRole('button', { name: '採用', exact: true }).click();
-    await waitForTerminalText(host, sessionId, 'FROM-MEI');
-    await guest.getByText('你的建議已被採用').first().waitFor({ timeout: STEP_MS });
+    // The guest suggests; the host accepts; the text arrives in the terminal. Protocol 4: suggestions go to agent
+    // sessions, never into a terminal, so this step waits for the conversation column (tests/lint/pending-v050.ts).
+    if (!isPendingPart('web-smoke:zh-TW#suggestion')) {
+      const composer = guest.getByRole('textbox', { name: /的「shell」的建議/ });
+      await composer.waitFor({ timeout: STEP_MS });
+      await composer.fill('echo 建議-FROM-MEI');
+      await guest.getByRole('button', { name: '送出建議' }).click();
+      const queue = host.locator('section[aria-label^="等待你決定的建議（1）"]');
+      await queue.getByText('echo 建議-FROM-MEI').waitFor({ timeout: STEP_MS });
+      expect(await terminalShows(host, sessionId, 'FROM-MEI')).toBe(false);
+      await queue.getByRole('button', { name: '採用', exact: true }).click();
+      await waitForTerminalText(host, sessionId, 'FROM-MEI');
+      await guest.getByText('你的建議已被採用').first().waitFor({ timeout: STEP_MS });
+    }
 
     // The daemon's own sentence in the feed, in the viewer's language: a file with a Chinese name.
     // (A new file goes next to the row that has the focus in the tree: README.md, in the root folder.)

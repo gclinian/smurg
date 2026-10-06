@@ -2,6 +2,7 @@
 // (PreToolUse / PostToolUse / UserPromptSubmit on the hook socket, ARCHITECTURE §7.7), the docs module (touchHuman on
 // every human Yjs update, §7.5) and the files module's watcher (file.changed). Each helper does exactly what the
 // contract (core/interfaces.ts) says that module does, so these tests pin the locks module's side of it.
+import { buildAgentSession, buildTerminalSession } from '../../src/core/fakes/build.ts';
 import { MAIN_ROOT, type Actor, type FileRef, type PayloadOf, type RootRef, type SessionInfo } from '@smurg/protocol';
 import type { Connection } from '@smurg/protocol/client';
 import type { FileChangeKind } from '../../src/core/interfaces.ts';
@@ -18,21 +19,11 @@ export function agentSession(id: string, ownerUserId: string, ownerName: string,
   return { id, ownerUserId, ownerName, root };
 }
 
-export function sessionInfo(session: SimSession, status: SessionInfo['status'] = 'running', kind: SessionInfo['kind'] = 'agent'): SessionInfo {
-  return {
-    id: session.id,
-    kind,
-    ownerUserId: session.ownerUserId,
-    ownerName: session.ownerName,
-    title: 'claude',
-    root: session.root,
-    status,
-    cols: 80,
-    rows: 24,
-    createdAt: Date.now(),
-    login: 'logged-in',
-    attached: 1,
-  };
+/** The SessionInfo of a simulated session: an agent session (`running` / `ended`) or, for contrast, a terminal. */
+export function sessionInfo(session: SimSession, status: 'running' | 'ended' = 'running', kind: SessionInfo['kind'] = 'agent'): SessionInfo {
+  const openedBy = { userId: session.ownerUserId, displayName: session.ownerName };
+  if (kind === 'terminal') return buildTerminalSession({ id: session.id, openedBy, title: 'shell', root: session.root, status: status === 'ended' ? 'exited' : 'running', createdAt: Date.now() });
+  return buildAgentSession({ id: session.id, openedBy, title: 'claude', root: session.root, status, createdAt: Date.now() });
 }
 
 /** The deny JSON the hook prints on stdout (claude-hooks.md §3.4), or null (no decision: the owner's prompt stays). */

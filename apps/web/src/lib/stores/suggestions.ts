@@ -1,7 +1,7 @@
 // Suggestions (SPEC R6, ARCHITECTURE §5.6): text proposed for someone else's agent session. Only the session owner can
 // accept (optionally edited) or reject; there is no auto-accept anywhere. Live through suggest.updated, which reaches
 // the session owner, the author and the host.
-import type { PayloadInputOf, SessionInfo, Suggestion } from '@smurg/protocol';
+import { collectPages, type PayloadInputOf, type SessionInfo, type Suggestion } from '@smurg/protocol';
 import { createStore, type ReadableStore } from '../store.ts';
 import { loadSnapshot, mapFrom, mapWith, readyState, type AreaLifecycle, type Loadable, type StoreContext } from './base.ts';
 
@@ -33,7 +33,7 @@ export const selectSuggestionsForSession = (state: SuggestionsState, sessionId: 
   selectSuggestionList(state).filter((s) => s.sessionId === sessionId);
 /** Pending suggestions waiting for `userId`'s decision (on sessions they own). */
 export function selectPendingForOwner(state: SuggestionsState, sessions: ReadonlyMap<string, SessionInfo>, userId: string): Suggestion[] {
-  return selectSuggestionList(state).filter((s) => s.status === 'pending' && sessions.get(s.sessionId)?.ownerUserId === userId);
+  return selectSuggestionList(state).filter((s) => s.status === 'pending' && sessions.get(s.sessionId)?.openedBy.userId === userId);
 }
 /** What `userId` proposed. */
 export const selectAuthoredBy = (state: SuggestionsState, userId: string): Suggestion[] =>
@@ -56,8 +56,13 @@ export function createSuggestionsArea(): { store: SuggestionsStore; lifecycle: A
     return loadSnapshot(
       c,
       (loadable) => state.setState((previous) => ({ ...previous, ...loadable })),
-      () => c.conn.request('suggest.list', {}),
-      ({ suggestions }) => state.setState({ ...readyState(), suggestions: mapFrom(suggestions, (s) => s.id) }),
+      // `suggest.list` follows the list rule: read every page.
+      () =>
+        collectPages(async (after) => {
+          const page = await c.conn.request('suggest.list', after === undefined ? {} : { after });
+          return { items: page.suggestions, hasMore: page.hasMore };
+        }, (suggestion: Suggestion) => suggestion.id),
+      (suggestions) => state.setState({ ...readyState(), suggestions: mapFrom(suggestions, (s) => s.id) }),
     );
   };
 

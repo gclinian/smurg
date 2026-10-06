@@ -1,49 +1,15 @@
 // Handlers of every admin.* request (all require `admin`, checked by the router) and channel.leave, plus the live
 // audit feed (admin.audit.entry to host connections only) and the per-user teardown that kick, leave and demotion
-// share (the sessions the member opened killed, uploads aborted: R2's 3 s / R4's 5 s).
-import { SmurgError, can, type Role } from '@smurg/protocol';
+// share (admin/teardown.ts: what the member put in place goes, the sessions they opened end or pass to the host,
+// uploads aborted: R2's 3 s / R4's 5 s). The handlers of protocol 4 (Claude Code's project settings, the host's own
+// rules, redaction) delegate to ProjectTrust, HostRules and AgentSessions.
+import { SmurgError, type Role } from '@smurg/protocol';
 import { msg, type AdminChange } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
-import type { Router, UserId } from '../core/interfaces.ts';
+import type { MemberChange, Router, UserId } from '../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../core/lifecycle.ts';
 import { SYSTEM_PRINCIPAL } from '../core/permissions.ts';
-import { isStubService } from '../core/stubs.ts';
-
-/** How long kick / leave wait for sessions before answering (R2: 3 s for the whole kick). */
-const TEARDOWN_TIMEOUT_MS = 2_500;
-
-async function withTimeout(label: string, ctx: DaemonContext, work: () => Promise<unknown>): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<'timeout'>((resolve) => {
-    timer = setTimeout(() => resolve('timeout'), TEARDOWN_TIMEOUT_MS);
-  });
-  try {
-    const outcome = await Promise.race([work().then(() => 'done' as const), timeout]);
-    if (outcome === 'timeout') ctx.log.warn('user teardown step timed out', { step: label });
-  } catch (err) {
-    ctx.log.error('user teardown step failed', { step: label, error: err instanceof Error ? err.name : 'unknown' });
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
-
-/**
- * Ends everything a member runs on the host: the sessions they opened (killTree; they run as the host's OS user,
- * §11 D-15), their uploads. Stub services (features not built yet) are skipped.
- */
-export async function teardownUser(ctx: DaemonContext, userId: UserId, reason: 'kicked' | 'left' | 'role-changed'): Promise<void> {
-  const steps: Promise<void>[] = [];
-  const sessions = ctx.services.sessions;
-  if (!isStubService(sessions)) steps.push(withTimeout('sessions', ctx, () => sessions.killAllForUser(userId, reason)));
-  const uploads = ctx.services.uploads;
-  if (!isStubService(uploads) && reason !== 'role-changed') steps.push(withTimeout('uploads', ctx, () => uploads.abortAllForUser(userId)));
-  await Promise.all(steps);
-}
-
-/** Whether `role` may open sessions (the host, Agent access): a member set below it loses the sessions they opened. */
-function mayOwnSessions(role: Role): boolean {
-  return can(role, 'session.create');
-}
+import { roleChangeLoses, teardownMember } from './teardown.ts';
 
 /**
  * Writes the state after an admin change that is already in force in memory (kick, role, invite revoke: all fail
@@ -66,9 +32,11 @@ export function registerAdminHandlers(router: Router, ctx: DaemonContext): Dispo
   // Teardown is driven by the events, so a kick / leave / demotion from ANY path (handlers, the local control
   // socket, tests) ends the member's sessions; the handlers then await the same promise before answering.
   const teardowns = new Map<UserId, Promise<void>>();
-  const startTeardown = (userId: UserId, reason: 'kicked' | 'left' | 'role-changed'): void => {
+  const startTeardown = (userId: UserId, change: MemberChange, to?: Role): void => {
     const previous = teardowns.get(userId) ?? Promise.resolve();
-    const next = previous.then(() => teardownUser(ctx, userId, reason));
+    const next = previous.then(async () => {
+      await teardownMember(ctx, userId, change, to);
+    });
     teardowns.set(userId, next);
     void next.finally(() => {
       if (teardowns.get(userId) === next) teardowns.delete(userId);
@@ -81,7 +49,8 @@ export function registerAdminHandlers(router: Router, ctx: DaemonContext): Dispo
   stack.add(ctx.bus.on('member.left', (event) => startTeardown(event.userId, 'left')));
   stack.add(
     ctx.bus.on('member.role-changed', (event) => {
-      if (mayOwnSessions(event.from) && !mayOwnSessions(event.to)) startTeardown(event.userId, 'role-changed');
+      // A promotion takes nothing away; a demotion that loses session.create, session.drive or discuss does.
+      if (roleChangeLoses(event.from, event.to)) startTeardown(event.userId, 'role-changed', event.to);
     }),
   );
 
@@ -140,6 +109,34 @@ export function registerAdminHandlers(router: Router, ctx: DaemonContext): Dispo
   stack.add(router.handle('admin.audit.query', async (payload) => ({ entries: await ctx.audit.query(payload) })));
   stack.add(router.handle('admin.settings.get', () => ({ settings: ctx.settings.get() })));
   stack.add(router.handle('admin.settings.set', async (payload, req) => ({ settings: await ctx.settings.update(payload, req.principal) })));
+
+  // ---- Claude Code on the host (ARCHITECTURE §5.8): the trust gate, the host's own rules, redaction ---------------
+  stack.add(router.handle('admin.claudeConfig.get', (payload) => ctx.services.projectTrust.describe(payload)));
+  stack.add(
+    router.handle('admin.claudeConfig.decide', async (payload, req) => {
+      await ctx.services.projectTrust.decide(payload, req.principal);
+      return {};
+    }),
+  );
+  stack.add(router.handle('admin.hostRules.get', () => ctx.services.hostRules.view()));
+  stack.add(
+    router.handle('admin.hostRules.seen', async (_payload, req) => {
+      await ctx.services.hostRules.markSeen(req.principal);
+      return {};
+    }),
+  );
+  stack.add(
+    router.handle('admin.transcript.redact', async (payload, req) => {
+      // Agent sessions only: a terminal has no conversation.
+      if (ctx.services.agents.get(payload.sessionId) === null) {
+        const session = ctx.services.sessions.get(payload.sessionId);
+        throw session === null ? new SmurgError('not_found', msg('session.notFound')) : new SmurgError('bad_request', msg('session.notAgent'), { reason: 'not-an-agent' });
+      }
+      await ctx.services.agents.redact(payload.sessionId, payload.seq, req.principal);
+      ctx.audit.record({ actor: req.principal.actor, action: 'transcript.redact', outcome: 'ok', target: payload.sessionId, detail: { sessionId: payload.sessionId, seq: payload.seq } });
+      return {};
+    }),
+  );
 
   stack.add(
     router.handle('channel.leave', async (_payload, req) => {

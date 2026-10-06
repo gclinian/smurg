@@ -35,10 +35,12 @@ export function textProblemMessage(problem: TextProblem): string {
   }
 }
 
+// `topic-archived` (protocol 4) reads like an ended session here: the conversation it was written for is closed.
 const CLOSED_REASON_KEY = {
   'session-ended': 'closed.session-ended',
   'author-kicked': 'closed.author-kicked',
   'author-demoted': 'closed.author-demoted',
+  'topic-archived': 'closed.session-ended',
 } as const satisfies Record<NonNullable<Suggestion['closedReason']>, Parameters<typeof t>[0]>;
 
 /**

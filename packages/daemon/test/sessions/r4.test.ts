@@ -77,7 +77,10 @@ describe('R4 agent session', { timeout: 60_000 }, () => {
     await waitFor(() => webView.received.includes('PHASE-ONE-DONE') && cliView.received.includes('PHASE-ONE-DONE') && amyView.received.includes('PHASE-ONE-DONE'), 'phase one in every viewer');
     // The owner's window changes size mid-session.
     web.conn.notify('exec.resize', { sessionId: session.id, cols: 120, rows: 32 });
-    await waitFor(() => s.sessions.get(session.id)?.cols === 120, 'the PTY resize');
+    await waitFor(() => {
+      const now = s.sessions.get(session.id);
+      return now?.kind === 'terminal' && now.cols === 120;
+    }, 'the PTY resize');
     typeInto(web.conn, session.id, 'sh ./phase2.sh\r');
     await waitFor(() => [webView, cliView, amyView].every((v) => v.received.includes('PHASE-TWO-DONE')), 'phase two in every viewer');
 

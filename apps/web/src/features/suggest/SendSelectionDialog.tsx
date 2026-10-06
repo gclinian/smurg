@@ -67,7 +67,7 @@ export function SendSelectionDialog({ selection, sessions, canDrive, canSuggest,
               <span>
                 {canDrive
                   ? t('send.own', { title: sessionTitle(session) })
-                  : t('send.other', { owner: session.ownerName, title: plainSessionTitle(session) })}
+                  : t('send.other', { owner: session.openedBy.displayName, title: plainSessionTitle(session) })}
               </span>
             </label>
           ))}

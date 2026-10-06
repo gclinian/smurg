@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_FEATURE_MODULES, createDaemon, silentLogger, type Daemon } from '@smurg/daemon';
 import { waitFor } from '@smurg/daemon/testing';
 import { runCli } from '../src/cli/run.ts';
-import { attachUsage, formatSessionList } from '../src/commands/attach.ts';
+import type { SessionInfo } from '@smurg/protocol';
+import { attachUsage, formatSessionList, terminalSessions } from '../src/commands/attach.ts';
 import { renderText } from '../src/i18n/index.ts';
 import { LocalWorkspaceChannel } from '../src/channel/local-channel.ts';
 import { echoSessions, type EchoSessions } from './fixtures/echo-sessions.ts';
@@ -51,12 +52,12 @@ describe('smurg attach (arguments, list, refusals)', () => {
     expect(await runCli(['attach'], empty)).toBe(0);
     expect(empty.out()).toContain('on this computer');
     expect(empty.out()).toContain('This workspace has no sessions.');
-    l.echo.open({ ...HOST, kind: 'terminal', title: 'first one' });
-    l.echo.open({ ...HOST, kind: 'agent' });
+    l.echo.open({ ...HOST, title: 'first one' });
+    l.echo.open({ ...HOST });
     const io = testIo({ env: l.env });
     expect(await runCli(['attach'], io)).toBe(0);
     expect(io.out()).toMatch(/1\s+ses_\S+\s+terminal\s+Host \(you\)\s+running\s+first one/);
-    expect(io.out()).toMatch(/2\s+ses_\S+\s+agent\s+Host \(you\)\s+running\s+Claude \(Host\)/);
+    expect(io.out()).toMatch(/2\s+ses_\S+\s+terminal\s+Host \(you\)\s+running\s+Terminal \(Host\)/);
     expect(io.out()).toContain('smurg attach <number or session ID>');
   });
 
@@ -79,7 +80,7 @@ describe('smurg attach (arguments, list, refusals)', () => {
     }
     expect(l.echo.sessions.size).toBe(0);
     // What the attach itself needs still works over the same channel.
-    expect(await l.host.request('session.list', {})).toEqual({ sessions: [] });
+    expect(await l.host.request('session.list', {})).toEqual({ sessions: [], hasMore: false });
     await l.daemon.ctx.audit.flush();
     const denied = (await l.daemon.ctx.audit.query({ limit: 100 })).filter((e) => e.action === 'authz.denied').reverse();
     expect(denied.map((e) => [e.target, e.actor.kind === 'user' ? e.actor.userId : e.actor.kind, e.detail?.['reason'], e.detail?.['via']])).toEqual(
@@ -89,8 +90,8 @@ describe('smurg attach (arguments, list, refusals)', () => {
 
   it('picks a session by its number and attaches; Ctrl-] detaches with exit 0 and restores the terminal', async () => {
     const l = await local();
-    l.echo.open({ ...HOST, kind: 'terminal', title: 'one' });
-    const session = l.echo.open({ ...HOST, kind: 'terminal', title: 'two' });
+    l.echo.open({ ...HOST, title: 'one' });
+    const session = l.echo.open({ ...HOST, title: 'two' });
     l.echo.print(session.id, 'marker-two\r\n');
     const terminal = fakeTerminal({ cols: 90, rows: 20 });
     const io = testIo({ env: l.env, terminal });
@@ -106,14 +107,14 @@ describe('smurg attach (arguments, list, refusals)', () => {
 
   it('refuses in zh-TW with exit 2: no terminal, an unknown session, an ambiguous prefix; an ended session is exit 1', async () => {
     const l = await local();
-    const session = l.echo.open({ ...HOST, kind: 'terminal', title: 'x' });
+    const session = l.echo.open({ ...HOST, title: 'x' });
     const noTty = testIo({ env: l.env, terminal: fakeTerminal({ isTTY: false }) });
     expect(await runCli(['attach', session.id], noTty)).toBe(2);
     expect(noTty.err()).toContain('smurg attach must run in a terminal');
     const unknown = testIo({ env: l.env });
     expect(await runCli(['attach', 'ses_nope'], unknown)).toBe(2);
     expect(unknown.err()).toContain('No session "ses_nope"');
-    l.echo.open({ ...HOST, kind: 'terminal', title: 'y' });
+    l.echo.open({ ...HOST, title: 'y' });
     const ambiguous = testIo({ env: l.env });
     expect(await runCli(['attach', 'ses_'], ambiguous)).toBe(2);
     expect(ambiguous.err()).toContain('matches more than one session');
@@ -124,19 +125,34 @@ describe('smurg attach (arguments, list, refusals)', () => {
     expect(ended.err()).toContain('has already exited (exit code 3)');
   });
 
-  it('lists every session under the member who opened it (they all run as the host, §11 D-15): agent or terminal, the own ones marked', () => {
-    const base = { root: { kind: 'main' as const }, status: 'running' as const, cols: 80, rows: 24, createdAt: 1, login: 'unknown' as const, attached: 0 };
-    const text = formatSessionList(
-      [
-        { ...base, id: 'ses_amy_agent', kind: 'agent', ownerUserId: 'dev:amy', ownerName: 'Amy' },
-        { ...base, id: 'ses_host_term', kind: 'terminal', ownerUserId: 'dev:host', ownerName: 'Host', title: 'build' },
-      ],
-      'dev:amy',
-      'en',
-    );
-    expect(text).toMatch(/1\s+ses_amy_agent\s+agent\s+Amy \(you\)\s+running\s+Claude \(Amy\)/);
+  it('lists every terminal under the member who opened it (they all run as the host, §11 D-15), the own ones marked; agent sessions are conversations and are not listed', () => {
+    const base = { kind: 'terminal' as const, root: { kind: 'main' as const }, status: 'running' as const, cols: 80, rows: 24, createdAt: 1, attached: 0 };
+    const amy = { ...base, id: 'ses_amy_term', openedBy: { userId: 'dev:amy', displayName: 'Amy' } };
+    const host = { ...base, id: 'ses_host_term', openedBy: { userId: 'dev:host', displayName: 'Host' }, title: 'build' };
+    const agent: SessionInfo = {
+      kind: 'agent',
+      id: 'ses_amy_agent',
+      purpose: 'free',
+      openedBy: { userId: 'dev:amy', displayName: 'Amy' },
+      responsible: null,
+      root: { kind: 'main' },
+      status: 'idle',
+      permissionMode: 'ask-all',
+      modeFixed: false,
+      ruleCount: 0,
+      login: 'unknown',
+      projectSettings: 'none',
+      noteworthyAt: 1,
+      lastSeq: 0,
+      lastActivityAt: 1,
+      createdAt: 1,
+    };
+    expect(terminalSessions([amy, agent, host]).map((session) => session.id)).toEqual(['ses_amy_term', 'ses_host_term']);
+    const text = formatSessionList(terminalSessions([amy, agent, host]), 'dev:amy', 'en');
+    expect(text).toMatch(/1\s+ses_amy_term\s+terminal\s+Amy \(you\)\s+running\s+Terminal \(Amy\)/);
     expect(text).toMatch(/2\s+ses_host_term\s+terminal\s+Host\s+running\s+build/);
     expect(text).not.toContain('Host (you)');
+    expect(text).not.toContain('ses_amy_agent');
   });
 
   it('with nothing to attach to (no local host, never joined) or a malformed invite: exit 2 with what to do', async () => {

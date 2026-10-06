@@ -1,11 +1,13 @@
 // SuggestionService (SPEC R6, D2; ARCHITECTURE §5.6, §11 D-15). Anyone who may suggest (editor, Agent access, host)
-// proposes text for SOMEONE ELSE's session; a member who may drive sessions (`session.drive`: the host, Agent access)
-// accepts it (optionally edited: accepted-modified) or rejects it, on any session.
+// proposes text for an AGENT session (never a terminal); a member who may drive sessions (`session.drive`: the host,
+// Agent access) accepts it (optionally edited: accepted-modified) or rejects it, on any agent session.
 //
-// THE INVARIANT (R6.1): before such a member accepts, not one byte of a suggestion reaches the session. The text lives
-// in this service and in suggestions.json, nowhere near a PTY. There is exactly one call of
-// SessionManager.pasteSuggestion() in the whole daemon: in accept() below, after the capability and pending checks,
-// with the sanitised text (sanitize.ts). There is no auto-accept path and no setting for one.
+// THE INVARIANT (R6.1): before such a member accepts, not one byte of a suggestion reaches the agent. The text lives
+// in this service and in suggestions.json. There is exactly one call of AgentSessions.send() in this module: in
+// accept() below, after the capability and pending checks. There is no auto-accept path and no setting for one.
+//
+// Text a person wrote is cleaned once, here, with the shared agentText() (invisible characters and controls removed,
+// header-like lines quoted): what is stored, shown on the card and sent is the same string.
 //
 // R6.3: every step is audited with the author, the content (`text` / `finalText` are kept whole through
 // AuditInput.fullText), the outcome and the time.
@@ -13,11 +15,19 @@ import {
   LIST_MAX_ITEMS,
   SmurgError,
   can,
+  SUGGESTION_TEXT_MAX_CHARS,
+  agentTextWithin,
   suggestionSourceSchema,
   suggestionTextSchema,
   type PayloadOf,
-  type SessionInfo,
+  type ResultInputOf,
   type Suggestion,
+  isSessionOver,
+  takeListPage,
+  takeWithinBytes,
+  type AgentSession,
+  type CardRef,
+  type MessageOrigin,
 } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
@@ -26,7 +36,6 @@ import type { MemberRecord, PersistentDocument, Principal, SuggestionService, Us
 import { DisposableStack, newId, type Disposable } from '../core/lifecycle.ts';
 import { SYSTEM_ACTOR, principalCan } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
-import { sanitizeSuggestionForPaste } from './sanitize.ts';
 import {
   SUGGESTIONS_DOCUMENT,
   initialSuggestionsDocument,
@@ -81,14 +90,21 @@ function textChars(stored: StoredSuggestion): number {
   return stored.text.length + (stored.finalText?.length ?? 0);
 }
 
-/** Validates suggestion text again inside the service (fail closed even for a caller that skipped the router). */
-function validText(text: unknown): string {
+/**
+ * Validates suggestion text again inside the service (fail closed even for a caller that skipped the router) and
+ * cleans it for an agent: the one place a suggestion's text passes agentText().
+ */
+function cleanText(text: unknown): { readonly text: string; readonly cleaned: boolean } {
   const parsed = suggestionTextSchema.safeParse(text);
   if (!parsed.success) throw new SmurgError('bad_request', msg('suggest.invalidText'), { reason: 'invalid-text' });
-  return parsed.data;
+  const within = agentTextWithin(parsed.data, SUGGESTION_TEXT_MAX_CHARS);
+  if (!within.ok) throw new SmurgError('bad_request', msg('suggest.invalidText'), { reason: 'invalid-text' });
+  return within;
 }
 
 export class SuggestionServiceImpl implements SuggestionService {
+  /** Suggestions whose accept is on its way to the agent (a second accept must not send the text twice). */
+  private readonly accepting = new Set<string>();
   private readonly ctx: DaemonContext;
   readonly limits: SuggestionLimits;
   private readonly acceptAfterEditMs: number;
@@ -148,31 +164,36 @@ export class SuggestionServiceImpl implements SuggestionService {
   // SuggestionService
   // =================================================================================================================
 
-  async create(input: PayloadOf<'suggest.create'>, principal: Principal): Promise<Suggestion> {
+  async create(input: PayloadOf<'suggest.create'> & { readonly origin?: MessageOrigin; readonly topicId?: string; readonly itemId?: string; readonly cleaned?: boolean }, principal: Principal): Promise<Suggestion> {
     const author = this.memberOf(principal);
     if (!principalCan(principal, 'suggest.create')) throw new AuthorizationError(undefined, { reason: 'capability' });
-    const text = validText(input.text);
+    const own = cleanText(input.text);
+    const text = own.text;
+    // `input.cleaned`: the caller (ConversationService.sendAs) composed and cleaned the text already and something went.
+    const cleaned = own.cleaned || input.cleaned === true;
     let source: StoredSuggestion['source'];
     if (input.source !== undefined) {
       const parsed = suggestionSourceSchema.safeParse(input.source);
       if (!parsed.success) throw new SmurgError('bad_request', undefined, { reason: 'invalid-source' });
       source = parsed.data;
     }
+    // agent-session: suggestions go to agent sessions, the author's own included (what matters is who may drive).
     const session = this.requireRunningSession(input.sessionId);
-    // target-session-not-own: your own session takes your own keystrokes; suggestions are for someone else's agent.
-    if (session.ownerUserId === author.userId) {
-      throw new AuthorizationError(msg('suggest.ownSession'), { reason: 'target-session-not-own' });
-    }
     this.checkPendingBudget({ authorUserId: author.userId, sessionId: session.id, addChars: text.length, removeChars: 0 });
     const stored: StoredSuggestion = {
       id: newId('sug'),
       sessionId: session.id,
       author: { userId: author.userId, displayName: author.displayName },
       text,
+      ...(cleaned ? { cleaned: true as const } : {}),
+      origin: input.origin ?? (source !== undefined ? 'selection' : 'composer'),
+      ...(input.topicId !== undefined ? { topicId: input.topicId } : session.topicId !== undefined ? { topicId: session.topicId } : {}),
+      ...(input.itemId !== undefined ? { itemId: input.itemId } : session.itemId !== undefined ? { itemId: session.itemId } : {}),
+      ...(input.mentions !== undefined && input.mentions.length > 0 ? { mentions: [...input.mentions] } : {}),
       ...(source !== undefined ? { source } : {}),
       status: 'pending',
       createdAt: this.ctx.clock.now(),
-      sessionOwnerUserId: session.ownerUserId,
+      sessionOwnerUserId: session.openedBy.userId,
     };
     this.requireDoc().update((draft) => {
       draft.suggestions.push(stored);
@@ -205,11 +226,13 @@ export class SuggestionServiceImpl implements SuggestionService {
     this.requireAuthor(stored, principal);
     if (stored.status !== 'pending') throw NOT_PENDING(stored.status);
     if (!principalCan(principal, 'suggest.create')) throw new AuthorizationError(undefined, { reason: 'capability' });
-    const text = validText(input.text);
+    const { text, cleaned } = cleanText(input.text);
     this.checkPendingBudget({ authorUserId: stored.author.userId, sessionId: stored.sessionId, addChars: text.length, removeChars: stored.text.length, editing: true });
     const editedAt = this.ctx.clock.now();
     const updated = this.update(stored.id, (draft) => {
       draft.text = text;
+      if (cleaned) draft.cleaned = true;
+      else delete draft.cleaned;
       draft.editedAt = editedAt;
     });
     this.ctx.audit.record({
@@ -246,7 +269,8 @@ export class SuggestionServiceImpl implements SuggestionService {
     if (stored.status !== 'pending') throw NOT_PENDING(stored.status);
     this.requireRunningSession(stored.sessionId);
     // `text` is what the member saw (or typed): exactly that is pasted. Equal to the current text, it is a plain accept.
-    const modified = input.text !== undefined && input.text !== stored.text;
+    const accepted = input.text === undefined ? { text: stored.text, cleaned: false } : cleanText(input.text);
+    const modified = accepted.text !== stored.text;
     if (input.text === undefined && stored.editedAt !== undefined && this.ctx.clock.now() - stored.editedAt < this.acceptAfterEditMs) {
       this.ctx.audit.record({
         actor: principal.actor,
@@ -257,12 +281,22 @@ export class SuggestionServiceImpl implements SuggestionService {
       });
       throw new SmurgError('conflict', msg('suggest.changed'), { reason: 'suggestion-changed', suggestionId: stored.id, editedAt: stored.editedAt });
     }
-    const finalText = sanitizeSuggestionForPaste(validText(input.text ?? stored.text));
-    // From here to the state update nothing awaits: a second accept of the same suggestion cannot interleave.
-    // THE ONLY PATH OF SUGGESTION TEXT INTO A PTY (bracketed paste + Enter, as the owner).
+    const finalText = accepted.text;
+    if (this.accepting.has(stored.id)) throw NOT_PENDING('accepted');
+    this.accepting.add(stored.id);
+    // THE ONLY PATH OF SUGGESTION TEXT TO AN AGENT: a message of its author, under a header that names who accepted it.
     try {
-      this.ctx.services.sessions.pasteSuggestion(stored.sessionId, finalText, principal);
+      const author = this.ctx.members.principalOf(stored.author.userId) ?? { kind: 'user' as const, actor: { kind: 'user' as const, ...stored.author }, userId: stored.author.userId, role: 'editor' as const };
+      await this.ctx.services.agents.send(stored.sessionId, {
+        kind: 'person',
+        from: author,
+        text: finalText,
+        cleaned: stored.cleaned === true || accepted.cleaned,
+        origin: stored.origin,
+        suggestion: { id: stored.id, acceptedBy: { userId: principal.userId ?? stored.author.userId, displayName: principal.actor.kind === 'user' ? principal.actor.displayName : stored.author.displayName }, modified },
+      });
     } catch (err) {
+      this.accepting.delete(stored.id);
       if (!(err instanceof AuthorizationError)) {
         this.ctx.audit.record({
           actor: principal.actor,
@@ -274,10 +308,12 @@ export class SuggestionServiceImpl implements SuggestionService {
       }
       throw err;
     }
+    this.accepting.delete(stored.id);
     const updated = this.update(stored.id, (draft) => {
       draft.status = modified ? 'accepted-modified' : 'accepted';
       draft.resolvedAt = this.ctx.clock.now();
       draft.finalText = finalText;
+      if (principal.actor.kind === 'user') draft.decidedBy = { userId: principal.actor.userId, displayName: principal.actor.displayName };
     });
     this.auditOutcome(principal.actor, 'suggest.accept', updated, {});
     this.publish(updated, stored);
@@ -292,6 +328,7 @@ export class SuggestionServiceImpl implements SuggestionService {
     const updated = this.update(stored.id, (draft) => {
       draft.status = 'rejected';
       draft.resolvedAt = this.ctx.clock.now();
+      if (principal.actor.kind === 'user') draft.decidedBy = { userId: principal.actor.userId, displayName: principal.actor.displayName };
       if (input.reason !== undefined && input.reason.length > 0) draft.rejectReason = input.reason;
     });
     this.auditOutcome(principal.actor, 'suggest.reject', updated, {});
@@ -300,16 +337,20 @@ export class SuggestionServiceImpl implements SuggestionService {
     return toSuggestion(updated);
   }
 
-  /** The caller's own suggestions; every suggestion for a member who may decide them (session.drive). Newest first. */
-  list(input: PayloadOf<'suggest.list'>, principal: Principal): Suggestion[] {
+  /**
+   * The caller's own suggestions; every suggestion for a member who may decide them (session.drive). Newest first;
+   * one page of THE list rule after `input.after`.
+   */
+  list(input: PayloadOf<'suggest.list'>, principal: Principal): ResultInputOf<'suggest.list'> {
     const driver = principal.userId !== null && principalCan(principal, 'session.drive');
     const userId = principal.userId;
-    return this.stored()
+    const all = this.stored()
       .filter((item) => input.sessionId === undefined || item.sessionId === input.sessionId)
       .filter((item) => driver || (userId !== null && item.author.userId === userId))
       .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, LIST_MAX_ITEMS)
       .map(toSuggestion);
+    const page = takeListPage(all, input.after, (item) => item.id);
+    return { suggestions: page.items, hasMore: page.hasMore };
   }
 
   pending(): Suggestion[] {
@@ -434,16 +475,28 @@ export class SuggestionServiceImpl implements SuggestionService {
     }
   }
 
-  private requireRunningSession(sessionId: string): SessionInfo {
+  /** An agent session that has not ended (`suggest.terminal` for a terminal: its opener types into it). */
+  private requireRunningSession(sessionId: string): AgentSession {
     const session = this.ctx.services.sessions.get(sessionId);
     if (!session) throw new SmurgError('not_found', msg('session.notFound'), { reason: 'unknown-session' });
-    if (session.status === 'exited') throw new SmurgError('conflict', msg('suggest.sessionEnded'), { reason: 'session-ended' });
+    if (session.kind !== 'agent') throw new SmurgError('bad_request', msg('suggest.terminal'), { reason: 'not-an-agent' });
+    if (isSessionOver(session)) throw new SmurgError('conflict', msg('suggest.sessionEnded'), { reason: 'session-ended' });
     return session;
   }
 
   private sessionRunning(sessionId: string): boolean {
     const session = this.ctx.services.sessions.get(sessionId);
-    return session !== null && session.status !== 'exited';
+    return session !== null && !isSessionOver(session);
+  }
+
+  /** The suggestion cards `refs` name, plus (with `includeOpen`) the pending ones of the session, by the page rule. */
+  cards(sessionId: string, refs: readonly CardRef[], options: { readonly includeOpen: boolean; readonly budgetBytes: number; readonly atLeastOne?: boolean }): { readonly suggestions: Suggestion[]; readonly more: CardRef[]; readonly bytes: number } {
+    const wanted = new Set(refs.filter((ref) => ref.kind === 'suggestion').map((ref) => ref.id));
+    const candidates = this.stored()
+      .filter((item) => item.sessionId === sessionId && (wanted.has(item.id) || (options.includeOpen && item.status === 'pending')))
+      .map(toSuggestion);
+    const page = takeWithinBytes(candidates, options.budgetBytes, options.atLeastOne === true ? { atLeastOne: true } : {});
+    return { suggestions: page.taken, more: page.rest.map((suggestion) => ({ kind: 'suggestion' as const, id: suggestion.id })), bytes: page.bytes };
   }
 
   private memberOf(principal: Principal): MemberRecord {

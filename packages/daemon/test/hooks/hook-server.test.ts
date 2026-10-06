@@ -277,6 +277,10 @@ describe('forged events (everything on the socket is a claim)', () => {
     expect((await hookRequest(d.hooks.socketPath, host.token, pre(settings)))['hookOutput']).toBeNull();
     const audit = await d.t.ctx.audit.query({ limit: 20 });
     expect(audit.find((e) => e.action === 'path.denied')?.detail).toMatchObject({ reason: 'host-only' });
+    // A handover does not raise path rights (they are the session's, fixed when it was opened): Ian's session, now
+    // owned by the host, is refused exactly as before.
+    d.hooks.reassignSession(ians.sessionId, HOST.userId);
+    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, ians.token, pre(settings)))).toBe(pathDeniedReason('host-only'));
   });
 
   it('a flood beyond the lock cap: the session never holds more than the cap and requests beyond the per-token budget are denied', async () => {

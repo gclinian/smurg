@@ -20,7 +20,7 @@ import {
   type TransferConnectionOptions,
 } from '@smurg/protocol/client';
 import { createDaemon, type Daemon } from '../daemon.ts';
-import type { LimitsConfig, SessionLaunchConfig, TimingConfig } from '../core/config.ts';
+import type { AgentsConfig, LimitsConfig, SessionLaunchConfig, TimingConfig } from '../core/config.ts';
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import type { PowerService } from '../core/interfaces.ts';
 import { ShiftableClock, type Clock } from '../core/lifecycle.ts';
@@ -49,6 +49,12 @@ export interface TestDaemonOptions {
   readonly clock?: Clock;
   readonly timing?: Partial<TimingConfig>;
   readonly limits?: Partial<LimitsConfig>;
+  /**
+   * The agent runtime's limits and timers (`ctx.config.agents`). A test of anything that waits (escalation of a
+   * question, a permission request or a report; parking) sets `escalationSweepMs` (and what else it needs) small and
+   * moves time with `t.advanceClock(...)`: modules compare with `ctx.clock.now()` and look again on a real timer.
+   */
+  readonly agents?: Partial<AgentsConfig>;
   /**
    * Session launch inputs (claudePath, selfCommand, version policy). `hostHome` defaults to the test's
    * fake home, never the developer's.
@@ -152,6 +158,7 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
         ...(options.settings ? { defaultSettings: options.settings } : {}),
         ...(options.timing ? { timing: options.timing } : {}),
         ...(options.limits ? { limits: options.limits } : {}),
+        ...(options.agents ? { agents: options.agents } : {}),
         ...(options.sessions ? { sessions: options.sessions } : {}),
       },
       relay: { token: 'test-host-token', socketFactory: relay.hostSocketFactory() },

@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing/index.ts",
+    "./fakes": "./src/core/fakes/index.ts",
     "./hook-cli": "./src/hooks/hook-cli.ts",
     "./mcp": "./src/mcp/coord-server.ts",
     "./package.json": "./package.json"

@@ -7,7 +7,7 @@
 // exec.output and exec.resize are delivered in stream order (resize applies between the right bytes; render at the
 // PTY size, pty-packaging.md gotcha 4). After a full resync (workspace `generation` changes) the daemon forgot the
 // attachment: attach again, passing the last offset you rendered as `haveOffset`.
-import { defaultSessionTitle, type MessageRef, type PayloadInputOf, type PayloadOf, type ResultOf, type SessionInfo } from '@smurg/protocol';
+import { collectPages, defaultSessionTitle, isSessionOver, type MessageRef, type PayloadInputOf, type PayloadOf, type ResultOf, type SessionInfo, type TerminalSession } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { tStores } from '../../strings/stores.ts';
 import { renderWireText } from '../errors.ts';
@@ -57,8 +57,12 @@ export const INITIAL_SESSIONS_STATE: SessionsState = Object.freeze({ status: 'id
 export const selectSessionList = (state: SessionsState): SessionInfo[] => [...state.sessions.values()].sort((a, b) => b.createdAt - a.createdAt);
 export const selectSession = (state: SessionsState, id: string): SessionInfo | undefined => state.sessions.get(id);
 export const selectSessionsOf = (state: SessionsState, userId: string): SessionInfo[] =>
-  selectSessionList(state).filter((session) => session.ownerUserId === userId);
-export const selectRunningSessions = (state: SessionsState): SessionInfo[] => selectSessionList(state).filter((session) => session.status !== 'exited');
+  selectSessionList(state).filter((session) => session.openedBy.userId === userId);
+export const selectRunningSessions = (state: SessionsState): SessionInfo[] => selectSessionList(state).filter((session) => !isSessionOver(session));
+/** A terminal (a PTY the terminal panel attaches to), as opposed to an agent session (a conversation). */
+export const isTerminalSession = (session: SessionInfo): session is TerminalSession => session.kind === 'terminal';
+/** The terminals, newest first: what the terminal panel shows. */
+export const selectTerminalList = (state: SessionsState): TerminalSession[] => selectSessionList(state).filter(isTerminalSession);
 
 export function createSessionsArea(): { store: SessionsStore; lifecycle: AreaLifecycle } {
   const state = createStore<SessionsState>(INITIAL_SESSIONS_STATE);
@@ -78,8 +82,13 @@ export function createSessionsArea(): { store: SessionsStore; lifecycle: AreaLif
     return loadSnapshot(
       c,
       (loadable) => state.setState((previous) => ({ ...previous, ...loadable })),
-      () => c.conn.request('session.list', {}),
-      ({ sessions }) => state.setState((previous) => ({ ...previous, ...readyState(), sessions: mapFrom(sessions, (s) => s.id) })),
+      // `session.list` follows the list rule: read every page.
+      () =>
+        collectPages(async (after) => {
+          const page = await c.conn.request('session.list', after === undefined ? {} : { after });
+          return { items: page.sessions, hasMore: page.hasMore };
+        }, (session: SessionInfo) => session.id),
+      (sessions) => state.setState((previous) => ({ ...previous, ...readyState(), sessions: mapFrom(sessions, (s) => s.id) })),
     );
   };
 
@@ -172,13 +181,14 @@ export function createSessionsArea(): { store: SessionsStore; lifecycle: AreaLif
 /** What the title helpers read of a session (`title` is present only when the member who opened it typed one). */
 export interface TitledSession {
   readonly kind: SessionInfo['kind'];
-  readonly ownerName: string;
+  readonly openedBy: { readonly displayName: string };
   readonly title?: string | undefined;
 }
 
 /** The default title as a message of the wire catalogue: one wording for the web app and the CLI. */
 function defaultTitleRef(session: TitledSession): MessageRef {
-  return session.kind === 'agent' ? msg('session.title.agent', { owner: session.ownerName }) : msg('session.title.terminal', { owner: session.ownerName });
+  const owner = session.openedBy.displayName;
+  return session.kind === 'agent' ? msg('session.title.agent', { owner }) : msg('session.title.terminal', { owner });
 }
 
 function typedTitle(session: TitledSession): string | undefined {
@@ -192,7 +202,7 @@ function typedTitle(session: TitledSession): string | undefined {
  * a default title: one stored spelling could only be in one language.
  */
 export function sessionTitle(session: TitledSession): string {
-  return typedTitle(session) ?? renderWireText(defaultTitleRef(session), defaultSessionTitle(session.kind, session.ownerName));
+  return typedTitle(session) ?? renderWireText(defaultTitleRef(session), defaultSessionTitle(session.kind, session.openedBy.displayName));
 }
 
 /**

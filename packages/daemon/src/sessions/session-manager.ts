@@ -1,16 +1,19 @@
-// SessionManager (R4, R2 kick, R11; ARCHITECTURE §5.5, §7.6, §11 D-3 / D-15). Owns every PTY session of the daemon:
-// launch, fan-out to attached viewers, input from every member who may drive sessions, owner-only resize, login
-// state, ending (killTree).
+// SessionManager (R4, R2 kick, R11; ARCHITECTURE §5.5, §7.6, §11 D-3 / D-15). The registry of sessions of both kinds
+// and the runner of TERMINAL sessions: launch, fan-out to attached viewers, input from every member who may drive
+// sessions, opener-only resize, ending (killTree).
 //
-// Every session runs like the host's own (owner decision 2026-10-01, §11 D-15): the host's OS user, unsandboxed, the
-// host's environment, HOME and Claude Code login, whoever opened it (`session.create`: the host and Agent access).
-// The member who opened it is its owner: the agent is `Claude (owner)`, its locks and edits are attributed to them,
-// only they end it with session.end (the host terminates any session), and its PTY follows their viewport. Every member
-// with `session.drive` (the host, Agent access) may type into any session and accept its suggestions; editors and
-// viewers suggest (R6). When the owner is kicked, leaves or is set below Agent access, the sessions they opened end.
+// Protocol 4 state of this file (smurg 0.5.0, foundation): terminals work as before. An AGENT session is a Claude Code
+// conversation in structured mode (ctx.services.agents, AgentSessions): create / list / get / end / terminate
+// delegate to it, and until the agent runtime module provides that service its stub answers "not implemented". The
+// PTY agent session of 0.4.0 is gone (no terminal-style agent, ARCHITECTURE §11 D-16).
+//
+// Every session runs like the host's own (§11 D-15): the host's OS user, unsandboxed, the host's environment and HOME,
+// whoever opened it (`session.create`: the host and Agent access). The member who opened a terminal ends it with
+// session.end (the host terminates any session) and its PTY follows their viewport. Every member with
+// `session.drive` may type into any terminal.
 import { createHash, randomBytes } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { access, mkdir, readdir, realpath, stat } from 'node:fs/promises';
+import { access, mkdir, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import {
@@ -18,37 +21,41 @@ import {
   LIST_MAX_ITEMS,
   SmurgError,
   can,
+  mayEndSession,
   rootRefKey,
+  titleFromFirstMessage,
   type Actor,
+  type AgentSession,
   type LoginState,
   type PayloadOf,
   type ResultInputOf,
+  type Role,
   type RootRef,
+  type SessionEndReason,
   type SessionInfo,
-  type SessionKind,
-  type SessionStatus,
+  type TerminalSession,
+  type TerminalStatus,
 } from '@smurg/protocol';
-import { msg, renderEnglish, type MessageRef } from '@smurg/protocol/i18n';
-import { claudeVersionVerdict, type SessionLaunchConfig } from '../core/config.ts';
+import { msg, type MessageRef } from '@smurg/protocol/i18n';
+import type { SessionLaunchConfig } from '../core/config.ts';
 import type { DaemonContext } from '../core/context.ts';
-import { AuthorizationError } from '../core/errors.ts';
-import type { ClientConnection, HookSessionCredentials, MemberRecord, PersistentDocument, Principal, SessionAttachStart, SessionManager, UserId } from '../core/interfaces.ts';
-import { SYSTEM_ACTOR, agentDisplayName, principalCan } from '../core/permissions.ts';
+import { AuthorizationError, notImplemented } from '../core/errors.ts';
+import type { AgentSessions, ClientConnection, MemberChange, MemberRecord, PersistentDocument, Principal, SessionAttachStart, SessionManager, UserId, UserTeardown } from '../core/interfaces.ts';
+import { SYSTEM_ACTOR, principalCan } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
-import { ClaudeVersionProbe, LoginHintDetector, parseAuthStatus, resolveClaude, type ClaudeBinary } from './claude.ts';
 import { buildHostEnv } from './host-env.ts';
 import { killTree, rememberDescendants, systemProcessInspector, type KillTreeResult, type KnownProcess, type ProcessInspector, type ProcessRow } from './kill-tree.ts';
 import { removeSessionFiles } from './launch-files.ts';
 import { runProcess, runningHelperPids, type ProcessRunner } from './process-run.ts';
 import { PtySession, type PtyExit, type ViewerSink } from './pty-session.ts';
 
-export type SessionEndReason = 'exit' | 'ended' | 'terminated' | 'kicked' | 'left' | 'role-changed' | 'stopped';
+export type { SessionEndReason };
 
 /** Seams for tests and for the composition (the default module passes none). */
 export interface SessionsModuleOptions {
   /** The host's environment (default: process.env, read at each session start). */
   readonly hostEnv?: () => Readonly<Record<string, string | undefined>>;
-  /** Overrides of config.sessions launch inputs (tests: a fake `claude`, a hook command). */
+  /** Overrides of config.sessions launch inputs (the agent runtime's seams: a stand-in `claude`, a hook command). */
   readonly launch?: Partial<Pick<SessionLaunchConfig, 'claudePath' | 'selfCommand' | 'claudeMinVersion' | 'claudeVerifiedVersions'>>;
   /** Shell of terminal sessions (default: the host's $SHELL, else /bin/zsh, /bin/bash, /bin/sh). */
   readonly hostShell?: string;
@@ -77,40 +84,26 @@ export const DEFAULT_SESSION_LIMITS: SessionLimits = Object.freeze({
   authStatusTimeoutMs: 15_000,
 });
 
-interface LaunchContext {
-  readonly claude: ClaudeBinary | null;
-  /** The session's exact environment (`claude auth status` runs with it). */
-  env: Record<string, string> | null;
-  readonly cwd: string;
-}
-
+/** A terminal session. `ownerUserId` / `ownerName`: the member who opened it (the wire's `openedBy`). */
 interface Managed {
   readonly id: string;
-  readonly kind: SessionKind;
   readonly ownerUserId: UserId;
   readonly ownerName: string;
   readonly root: RootRef;
   readonly worktreeId: string | null;
   readonly createdAt: number;
-  /** Only a title the opener typed. Clients build the default from kind + ownerName, in the viewer's language. */
+  /** Only a title the opener typed. Clients build the default from the opener's name, in the viewer's language. */
   readonly title: string | undefined;
   readonly pty: PtySession;
-  readonly hookRegistered: boolean;
-  presence: boolean;
-  status: SessionStatus;
+  status: TerminalStatus;
   exitCode: number | undefined;
   endedAt: number | undefined;
-  login: LoginState;
-  launch: LaunchContext | null;
   ending: Promise<void> | null;
   endReason: SessionEndReason | null;
   /** Who ended it on purpose (the owner's "End", the host's terminate): shown to the owner. */
   endedBy: { readonly userId: UserId; readonly displayName: string } | null;
   cleaned: boolean;
-  loginCheck: Promise<LoginState> | null;
-  loginHintTimer: ReturnType<typeof setTimeout> | undefined;
   retentionTimer: ReturnType<typeof setTimeout> | undefined;
-  readonly hints: LoginHintDetector | null;
   /**
    * Descendants of the PTY child seen by the periodic scan (pid → start time). A natural `exit` reparents background
    * jobs to init before node-pty reports it, and on macOS `ps -E` hides the environment of Apple platform binaries
@@ -144,9 +137,7 @@ function identityDigest(start: string, command: string): string {
   return createHash('sha256').update(`${start}\u0000${command}`, 'utf8').digest('hex');
 }
 
-const CLAUDE_JSON_MAX_BYTES = 16 * 1024 * 1024;
 const OUTPUT_PIECE = Math.min(EXEC_OUTPUT_MAX_BYTES, 1024 * 1024);
-const LOGIN_HINT_DEBOUNCE_MS = 1_500;
 const DESCENDANT_SCAN_MS = 2_000;
 /** Exited sessions kept for late viewers (the retention timer drops them earlier). */
 const MAX_EXITED_RETAINED = 32;
@@ -172,12 +163,11 @@ export class SessionManagerImpl implements SessionManager {
   private readonly inspector: ProcessInspector;
   private readonly runner: ProcessRunner;
   private readonly sessions = new Map<string, Managed>();
-  /** Bumped by killAllForUser: a creation in flight for that user must not spawn (or must die right after). */
+  /** Bumped by teardownUser: a creation in flight for that user must not spawn (or must die right after). */
   private readonly userEpochs = new Map<UserId, number>();
   private readonly creating = new Map<UserId, number>();
   private sessionsDir: string | null = null;
   private liveDoc: PersistentDocument<LiveDocument> | null = null;
-  private versionProbe: ClaudeVersionProbe | null = null;
   private trackTimer: ReturnType<typeof setInterval> | undefined;
   private tracking = false;
   private stopping = false;
@@ -203,14 +193,9 @@ export class SessionManagerImpl implements SessionManager {
     await mkdir(stateDir, { recursive: true, mode: 0o700 });
     await mkdir(join(stateDir, 'sessions'), { recursive: true, mode: 0o700 });
     this.sessionsDir = await realpath(join(stateDir, 'sessions'));
-    this.versionProbe = new ClaudeVersionProbe({ scratchParent: this.sessionsDir, run: this.runner });
     this.liveDoc = await this.ctx.state.document(LIVE_DOCUMENT, liveDocumentSchema, () => ({ live: [] }));
-    // Sessions never survive the daemon: what a run that died hard left behind (its sessions' processes;
-    // version-probe scratch dirs) goes now.
+    // Terminals never survive the daemon: what a run that died hard left behind (its sessions' processes) goes now.
     await this.endLeftovers(this.liveDoc.get()).catch((err: unknown) => this.logError('ending the processes of a previous run failed', err));
-    for (const name of await readdir(this.sessionsDir).catch(() => [] as string[])) {
-      if (name.startsWith('.probe-')) await removeSessionFiles(join(this.sessionsDir, name)).catch(() => {});
-    }
     this.liveDoc.update((draft) => {
       draft.live = [];
       delete draft.procs;
@@ -251,7 +236,6 @@ export class SessionManagerImpl implements SessionManager {
     await Promise.all([...this.sessions.values()].map((m) => this.finish(m, 'stopped', true)));
     for (const m of this.sessions.values()) {
       if (m.retentionTimer !== undefined) clearTimeout(m.retentionTimer);
-      if (m.loginHintTimer !== undefined) clearTimeout(m.loginHintTimer);
       m.pty.dispose();
     }
     this.sessions.clear();
@@ -262,23 +246,30 @@ export class SessionManagerImpl implements SessionManager {
   // Queries
   // =================================================================================================================
 
-  /** Every session, oldest first (session.list: every member sees every session, R4 / SPEC §8). */
-  list(): SessionInfo[] {
-    return [...this.sessions.values()]
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .slice(-LIST_MAX_ITEMS)
-      .map((m) => this.info(m));
+  /** The agent sessions service, when its module is composed (else the stub: null). */
+  private agents(): AgentSessions | null {
+    const agents = this.ctx.services.agents;
+    return isStubService(agents) ? null : agents;
+  }
+
+  /**
+   * Terminals, agent sessions of topics that are not archived, free sessions; with `topicId` every agent session of
+   * that topic. Oldest first (by creation, then id); everything: the `session.list` handler pages it (the list rule).
+   */
+  list(filter: { readonly topicId?: string } = {}): SessionInfo[] {
+    const terminals: SessionInfo[] = filter.topicId === undefined ? [...this.sessions.values()].map((m) => this.info(m)) : [];
+    const agents: SessionInfo[] = this.agents()?.list(filter.topicId === undefined ? {} : { topicId: filter.topicId }) ?? [];
+    return [...terminals, ...agents].sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   }
 
   get(sessionId: string): SessionInfo | null {
     const m = this.sessions.get(sessionId);
-    return m ? this.info(m) : null;
+    return m ? this.info(m) : (this.agents()?.get(sessionId) ?? null);
   }
 
-  agentActor(sessionId: string): Actor | null {
-    const m = this.sessions.get(sessionId);
-    if (!m || m.kind !== 'agent') return null;
-    return { kind: 'agent', sessionId: m.id, ownerUserId: m.ownerUserId, displayName: agentDisplayName(m.ownerName) };
+  /** A terminal has no agent; an agent session's actor is the agent runtime's to name (it knows the session's label). */
+  agentActor(_sessionId: string): Actor | null {
+    return null;
   }
 
   /** Pid of the PTY child while it runs (tests, diagnostics). */
@@ -292,12 +283,11 @@ export class SessionManagerImpl implements SessionManager {
     return this.sessions.get(sessionId)?.pty.offset ?? null;
   }
 
-  private info(m: Managed): SessionInfo {
+  private info(m: Managed): TerminalSession {
     return {
+      kind: 'terminal',
       id: m.id,
-      kind: m.kind,
-      ownerUserId: m.ownerUserId,
-      ownerName: m.ownerName,
+      openedBy: { userId: m.ownerUserId, displayName: m.ownerName },
       ...(m.title !== undefined ? { title: m.title } : {}),
       root: m.root,
       status: m.status,
@@ -309,7 +299,6 @@ export class SessionManagerImpl implements SessionManager {
       // Why it ended and who ended it (a session the host terminated must not read like a normal exit).
       ...(m.status === 'exited' && m.endReason !== null ? { endReason: m.endReason } : {}),
       ...(m.status === 'exited' && m.endedBy !== null ? { endedBy: { userId: m.endedBy.userId, displayName: m.endedBy.displayName } } : {}),
-      login: m.login,
       attached: m.pty.viewerCount,
     };
   }
@@ -332,6 +321,7 @@ export class SessionManagerImpl implements SessionManager {
     // The member's CURRENT role (the router checked it for this message as well): the host and Agent access.
     if (!can(member.role, 'session.create')) throw new AuthorizationError(undefined, { reason: 'capability' });
     if (this.stopping || !this.started) throw sessionError('conflict', msg('daemon.stopping'), 'stopping');
+    if (input.kind === 'agent') return this.createFree(input, principal);
     const running = [...this.sessions.values()].filter((m) => m.status !== 'exited');
     if (running.length + this.inFlight() >= this.limits.maxSessions) throw sessionError('conflict', msg('session.limit'), 'session-limit');
     if (running.filter((m) => m.ownerUserId === userId).length + (this.creating.get(userId) ?? 0) >= this.limits.maxSessionsPerUser) {
@@ -347,6 +337,40 @@ export class SessionManagerImpl implements SessionManager {
     }
   }
 
+  /**
+   * A free agent session (no topic): the caller is `openedBy`, nobody is responsible. In the main workspace it asks
+   * before edits and commands; in a worktree of its own before commands. The stub of AgentSessions answers
+   * "not implemented" until the agent runtime module is composed.
+   */
+  private async createFree(input: Extract<PayloadOf<'session.create'>, { kind: 'agent' }>, principal: Principal): Promise<AgentSession> {
+    const ctx = this.ctx;
+    const firstMessage = input.firstMessage;
+    let workspace: { mode: 'main' } | { mode: 'worktree'; worktreeId: string } = { mode: 'main' };
+    let release: (() => Promise<void>) | null = null;
+    const sessionKey = `free_${randomBytes(8).toString('hex')}`;
+    if (input.workspace.mode === 'worktree') {
+      const handle = await ctx.services.worktrees.acquireForSession({ owner: principal, sessionId: sessionKey, ...(input.workspace.worktreeId !== undefined ? { worktreeId: input.workspace.worktreeId } : {}) });
+      workspace = { mode: 'worktree', worktreeId: handle.worktree.id };
+      release = () => ctx.services.worktrees.releaseFromSession(handle.worktree.id, sessionKey, { keep: true });
+    }
+    try {
+      return await ctx.services.agents.start({
+        purpose: 'free',
+        openedBy: principal,
+        responsible: null,
+        ...(input.title !== undefined ? { title: input.title } : firstMessage !== undefined ? { title: titleFromFirstMessage(firstMessage) } : {}),
+        workspace,
+        mode: workspace.mode === 'main' ? 'ask-all' : 'ask-commands',
+        // The agent runtime owns the role prompts; a free session's is its four fixed sentences.
+        rolePrompt: () => '',
+        ...(firstMessage === undefined ? {} : { firstMessage: { kind: 'person' as const, from: principal, text: firstMessage, cleaned: false, origin: 'composer' as const } }),
+      });
+    } catch (err) {
+      await release?.().catch(() => {});
+      throw err;
+    }
+  }
+
   private inFlight(): number {
     let total = 0;
     for (const count of this.creating.values()) total += count;
@@ -354,15 +378,14 @@ export class SessionManagerImpl implements SessionManager {
   }
 
   /**
-   * Starts `member`'s session exactly like the host's own (ARCHITECTURE §11 D-15): the host's environment (minus what
-   * a parent Claude Code session injects), HOME = config.sessions.hostHome, the host's `claude` and its login.
+   * Starts `member`'s terminal exactly like the host's own (ARCHITECTURE §11 D-15): the host's environment (minus what
+   * a parent Claude Code session injects) and HOME = config.sessions.hostHome.
    */
-  private async launch(input: PayloadOf<'session.create'>, member: MemberRecord): Promise<SessionInfo> {
+  private async launch(input: Extract<PayloadOf<'session.create'>, { kind: 'terminal' }>, member: MemberRecord): Promise<SessionInfo> {
     const ctx = this.ctx;
     const userId = member.userId;
     const epoch = this.userEpochs.get(userId) ?? 0;
     const id = `ses_${randomBytes(16).toString('hex')}`;
-    const kind = input.kind;
     const undo: (() => Promise<void> | void)[] = [];
     const rollback = async (): Promise<void> => {
       for (const step of undo.reverse()) {
@@ -395,59 +418,11 @@ export class SessionManagerImpl implements SessionManager {
         rootPath = handle.root.realPath;
       }
 
-      // 2. The claude binary and its version (agent sessions). A version smurg did not verify only warns: it is the
-      //    host's own CLI (Claude Code updates itself; an update must not lock anyone out).
+      // 2. Environment and command, then spawn.
       const hostEnv = this.hostEnv();
-      let claude: ClaudeBinary | null = null;
-      if (kind === 'agent') {
-        claude = await resolveClaude(this.launchConfig.claudePath, hostEnv['PATH']);
-        if (!claude) throw sessionError('not_found', msg('session.claudeNotFound'), 'claude-not-found');
-        const output = await this.requireProbe().output(claude);
-        const verdict = claudeVersionVerdict(output, this.launchConfig);
-        if (!verdict.ok) this.warnVersion(member, verdict.version, 'below-minimum');
-        else if (verdict.warning !== null) this.warnVersion(member, verdict.version, verdict.warning);
-      }
-
-      // 3. Hooks (agent sessions): the per-session token and the daemon-owned launch files.
-      let hookEnv: Readonly<Record<string, string>> = {};
-      let hookRegistered = false;
-      let claudeArgs: string[] = [];
-      const self = this.launchConfig.selfCommand;
-      if (kind === 'agent') {
-        if (self === null) throw sessionError('internal', msg('session.hooks.notConfigured'), 'hooks-unavailable');
-        let credentials: HookSessionCredentials;
-        try {
-          credentials = ctx.services.hooks.registerSession({ sessionId: id, ownerUserId: userId, agentName: agentDisplayName(member.displayName), root });
-        } catch (err) {
-          this.logError('hook registration failed', err);
-          throw sessionError('internal', msg('session.hooks.unavailable'), 'hooks-unavailable');
-        }
-        hookRegistered = true;
-        undo.push(() => ctx.services.hooks.unregisterSession(id));
-        hookEnv = credentials.env;
-        if (hookEnv['SMURG_SESSION_ID'] !== undefined && hookEnv['SMURG_SESSION_ID'] !== id) ctx.log.warn('hook env names another session; using ours', { session: id });
-        // The hooks module is the one writer of the launch files (ARCHITECTURE §7.6); it removes them on unregister.
-        let written: unknown;
-        try {
-          written = await ctx.services.hooks.writeSessionFiles(id);
-        } catch (err) {
-          this.logError('hook launch files could not be written', err);
-          throw sessionError('internal', msg('session.hooks.settingsNotWritten'), 'hooks-unavailable');
-        }
-        claudeArgs = (await this.checkedLaunchFiles(written)).claudeArgs;
-      }
-
-      // 4. Environment and command, then spawn.
-      const env = buildHostEnv({ hostEnv, home: this.launchConfig.hostHome, sessionId: id, hookEnv });
-      let file: string;
-      let args: string[];
-      if (kind === 'agent') {
-        file = (claude as ClaudeBinary).realPath;
-        args = claudeArgs;
-      } else {
-        file = await this.pickShell(this.options.hostShell, hostEnv['SHELL']);
-        args = ['-l'];
-      }
+      const env = buildHostEnv({ hostEnv, home: this.launchConfig.hostHome, sessionId: id, hookEnv: {} });
+      const file = await this.pickShell(this.options.hostShell, hostEnv['SHELL']);
+      const args = ['-l'];
       if (aborted()) throw new AuthorizationError(undefined, { reason: 'owner-removed' });
       let m: Managed | null = null;
       const pty = new PtySession({
@@ -460,43 +435,35 @@ export class SessionManagerImpl implements SessionManager {
         onExit: (exit) => {
           if (m) this.onPtyExit(m, exit);
         },
-        onOutput: (chunk) => {
-          if (m) this.observeLoginHints(m, chunk);
-        },
       });
       m = this.newManaged({
         id,
-        kind,
         member,
         root,
         worktreeId,
         ...(input.title !== undefined ? { title: input.title } : {}),
         pty,
-        hookRegistered,
       });
-      m.launch = { claude, env, cwd: rootPath };
       this.sessions.set(m.id, m);
       // Every session is in live.json while it runs: its processes are found after a hard death.
       this.liveDoc?.update((draft) => {
         draft.live.push(id);
       });
-      // Everything below belongs to the session now: ending it releases hooks, settings, worktree.
+      // Everything below belongs to the session now: ending it releases its worktree.
       undo.length = 0;
       if (aborted()) {
         await this.finish(m, 'kicked', true);
         throw new AuthorizationError(undefined, { reason: 'owner-removed' });
       }
-      m.presence = kind === 'agent' && this.setPresence(m, member);
       ctx.audit.record({
         actor: { kind: 'user', userId, displayName: member.displayName },
         action: 'session.create',
         outcome: 'ok',
         target: m.id,
-        detail: { sessionId: m.id, kind, root: rootRefKey(root), ...(worktreeId ? { worktreeId } : {}) },
+        detail: { sessionId: m.id, kind: 'terminal', root: rootRefKey(root), ...(worktreeId ? { worktreeId } : {}) },
       });
       this.publish(m, 'created');
       this.ensureDescendantTracking();
-      if (kind === 'agent') void this.checkLogin(m).catch(() => {});
       return this.info(m);
     } catch (err) {
       await rollback();
@@ -506,17 +473,14 @@ export class SessionManagerImpl implements SessionManager {
 
   private newManaged(input: {
     readonly id: string;
-    readonly kind: SessionKind;
     readonly member: MemberRecord;
     readonly root: RootRef;
     readonly worktreeId: string | null;
     readonly title?: string;
     readonly pty: PtySession;
-    readonly hookRegistered: boolean;
   }): Managed {
     return {
       id: input.id,
-      kind: input.kind,
       ownerUserId: input.member.userId,
       ownerName: input.member.displayName,
       root: input.root,
@@ -524,70 +488,17 @@ export class SessionManagerImpl implements SessionManager {
       createdAt: this.ctx.clock.now(),
       title: input.title,
       pty: input.pty,
-      hookRegistered: input.hookRegistered,
-      presence: false,
       status: 'running',
       exitCode: undefined,
       endedAt: undefined,
-      login: 'unknown',
-      launch: null,
       ending: null,
       endReason: null,
       endedBy: null,
       cleaned: false,
-      loginCheck: null,
-      loginHintTimer: undefined,
       retentionTimer: undefined,
-      hints: input.kind === 'agent' ? new LoginHintDetector() : null,
       known: new Map(),
       persistedProcs: '',
     };
-  }
-
-  private setPresence(m: Managed, member: MemberRecord): boolean {
-    const presence = this.ctx.services.presence;
-    if (isStubService(presence)) return false;
-    try {
-      presence.setAgent({ sessionId: m.id, ownerUserId: m.ownerUserId, displayName: agentDisplayName(member.displayName), color: member.color, status: 'running' });
-      return true;
-    } catch (err) {
-      this.logError('presence.setAgent failed', err);
-      return false;
-    }
-  }
-
-  private warnVersion(member: MemberRecord, version: string | null, warning: string): void {
-    this.ctx.log.warn('Claude Code version is not verified for smurg', { version: version ?? 'unrecognized', warning, owner: member.userId });
-    const activity = this.ctx.services.activity;
-    if (isStubService(activity)) return;
-    const known = version === null ? {} : { version };
-    const ref =
-      warning === 'below-minimum'
-        ? msg('notify.claudeVersionTooOld', { ...known, minVersion: this.launchConfig.claudeMinVersion })
-        : msg('notify.claudeVersionUnverified', { ...known, verified: this.launchConfig.claudeVerifiedVersions.slice(0, 10) });
-    try {
-      activity.notify(member.userId, { from: SYSTEM_ACTOR, msg: ref, fallback: renderEnglish(ref) });
-    } catch (err) {
-      this.logError('version warning notification failed', err);
-    }
-  }
-
-  /** Fail closed on launch files that do not look like smurg's: a missing flag must never start a hook-less agent. */
-  private async checkedLaunchFiles(files: unknown): Promise<{ dir: string; claudeArgs: string[] }> {
-    const record = files !== null && typeof files === 'object' ? (files as Record<string, unknown>) : {};
-    const dir = record['dir'];
-    const args = record['claudeArgs'];
-    const bad = (why: string): SmurgError => {
-      this.ctx.log.error('hook launch files refused', { why });
-      return sessionError('internal', msg('session.hooks.settingsInvalid'), 'hooks-unavailable');
-    };
-    if (typeof dir !== 'string' || !isAbsolute(dir) || !Array.isArray(args) || !args.every((arg) => typeof arg === 'string')) throw bad('shape');
-    const list = args as string[];
-    if (!list.includes('--settings') || !list.includes('--mcp-config')) throw bad('flags');
-    if (list.some((arg) => /^--(dangerously-skip-permissions|allow-dangerously-skip-permissions|permission-mode)/.test(arg))) throw bad('permissions');
-    const info = await stat(dir).catch(() => null);
-    if (!info?.isDirectory()) throw bad('dir');
-    return { dir: await realpath(dir), claudeArgs: [...list] };
   }
 
   private hostEnv(): Readonly<Record<string, string | undefined>> {
@@ -609,7 +520,7 @@ export class SessionManagerImpl implements SessionManager {
   // =================================================================================================================
 
   async attach(input: PayloadOf<'session.attach'>, conn: ClientConnection, principal: Principal): Promise<SessionAttachStart> {
-    const m = this.requireSession(input.sessionId);
+    const m = this.requireTerminal(input.sessionId);
     const channelId = conn.channelId;
     const sessionId = m.id;
     const hub = this.ctx.hub;
@@ -659,30 +570,23 @@ export class SessionManagerImpl implements SessionManager {
 
   /** Keystrokes from any member who may drive sessions (`session.drive`: the host, Agent access), into any session. */
   input(input: PayloadOf<'exec.input'>, conn: ClientConnection, principal: Principal): void {
-    const m = this.requireSession(input.sessionId);
+    const m = this.requireTerminal(input.sessionId);
     this.requireDriver(principal);
     if (!m.pty.input(conn.channelId, input.data)) throw sessionError('conflict', msg('session.exited'), 'session-exited');
   }
 
   resize(input: PayloadOf<'exec.resize'>, conn: ClientConnection, principal: Principal): void {
-    const m = this.requireSession(input.sessionId);
+    const m = this.requireTerminal(input.sessionId);
     this.requireOwnerPrincipal(m, principal);
     m.pty.ownerViewport(conn.channelId, input.cols, input.rows);
   }
 
-  /**
-   * The ONLY path of suggestion text into a PTY (R6), called after a member who may drive the session accepted it: a
-   * paste, then Enter. Like a terminal, the paste is bracketed when the program enabled bracketed paste (Claude Code
-   * does), so newlines inside the suggestion stay part of one prompt instead of submitting it line by line.
-   */
-  pasteSuggestion(sessionId: string, text: string, acceptedBy: Principal): void {
-    const m = this.requireSession(sessionId);
-    this.requireDriver(acceptedBy);
-    // No escape (it could end the paste early and inject keys) and no other control characters but tab and newline.
-    // eslint-disable-next-line no-control-regex
-    const clean = text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '').replace(/\r?\n/g, '\r');
-    // Bracketing and the Enter afterwards: PtySession.paste, once the mirror has parsed what the program printed.
-    if (!m.pty.paste(clean)) throw sessionError('conflict', msg('session.exited'), 'session-exited');
+  /** A terminal, or `bad_request` reason `not-a-terminal` for an agent session (it has no PTY: `session.notTerminal`). */
+  private requireTerminal(sessionId: string): Managed {
+    const m = this.sessions.get(sessionId);
+    if (m) return m;
+    if (this.agents()?.get(sessionId)) throw sessionError('bad_request', msg('session.notTerminal'), 'not-a-terminal');
+    throw sessionError('not_found', msg('session.notFound'), 'unknown-session');
   }
 
   private requireSession(sessionId: string): Managed {
@@ -712,48 +616,12 @@ export class SessionManagerImpl implements SessionManager {
   // Login
   // =================================================================================================================
 
+  /** Agent sessions only; the check itself (`claude auth status --json`) is the agent runtime's. */
   async loginStatus(sessionId: string, principal: Principal): Promise<LoginState> {
-    const m = this.requireSession(sessionId);
     this.requireDriver(principal);
-    if (m.kind !== 'agent' || m.status === 'exited') return m.login;
-    return this.checkLogin(m);
-  }
-
-  /** `claude auth status --json` in the session's exact environment (the host's Claude login, §11 D-15). */
-  private checkLogin(m: Managed): Promise<LoginState> {
-    if (m.loginCheck) return m.loginCheck;
-    const run = async (): Promise<LoginState> => {
-      const launch = m.launch;
-      if (!launch?.claude || !launch.env || m.status === 'exited') return m.login;
-      const result = await this.runner(launch.claude.realPath, ['auth', 'status', '--json'], { env: launch.env, cwd: launch.cwd, timeoutMs: this.limits.authStatusTimeoutMs, maxStdoutBytes: 64 * 1024 });
-      const login = parseAuthStatus(result);
-      // The session may have ended while the check ran.
-      if (login !== m.login && (m.status as SessionStatus) !== 'exited') {
-        m.login = login;
-        this.publish(m, 'updated');
-      }
-      return m.login;
-    };
-    const pending = run().catch((err: unknown) => {
-      this.logError('login status check failed', err);
-      return m.login;
-    });
-    m.loginCheck = pending;
-    void pending.finally(() => {
-      if (m.loginCheck === pending) m.loginCheck = null;
-    });
-    return pending;
-  }
-
-  /** TUI hints only trigger a re-check (debounced); they never decide the login state themselves. */
-  private observeLoginHints(m: Managed, chunk: Uint8Array): void {
-    if (!m.hints || m.status === 'exited' || !m.hints.push(chunk)) return;
-    if (m.loginHintTimer !== undefined) clearTimeout(m.loginHintTimer);
-    m.loginHintTimer = setTimeout(() => {
-      m.loginHintTimer = undefined;
-      void this.checkLogin(m);
-    }, LOGIN_HINT_DEBOUNCE_MS);
-    m.loginHintTimer.unref?.();
+    if (this.sessions.has(sessionId)) throw sessionError('bad_request', msg('session.notAgent'), 'not-an-agent');
+    if (!this.agents()?.get(sessionId)) throw sessionError('not_found', msg('session.notFound'), 'unknown-session');
+    throw notImplemented('session.loginStatus');
   }
 
   // =================================================================================================================
@@ -761,43 +629,76 @@ export class SessionManagerImpl implements SessionManager {
   // =================================================================================================================
 
   async end(input: PayloadOf<'session.end'>, principal: Principal): Promise<void> {
-    const m = this.requireSession(input.sessionId);
-    this.requireOwnerPrincipal(m, principal);
     // C17: only an explicit keepWorktree: false removes the worktree with the session.
     const keep = input.keepWorktree !== false;
+    const m = this.sessions.get(input.sessionId);
+    if (!m) {
+      await this.endAgent(input.sessionId, principal, keep);
+      return;
+    }
+    this.requireOwnerPrincipal(m, principal);
     const already = m.ending !== null;
     await this.finish(m, 'ended', keep, principal);
     if (!already) {
-      this.ctx.audit.record({ actor: principal.actor, action: 'session.end', outcome: 'ok', target: m.id, detail: { sessionId: m.id, kind: m.kind, keepWorktree: keep } });
+      this.ctx.audit.record({ actor: principal.actor, action: 'session.end', outcome: 'ok', target: m.id, detail: { sessionId: m.id, kind: 'terminal', keepWorktree: keep } });
     }
   }
 
+  /** An agent session: the host, or a member with agent access who opened it or is responsible for it; never a discussion. */
+  private async endAgent(sessionId: string, principal: Principal, keepWorktree: boolean): Promise<void> {
+    const agents = this.agents();
+    const session = agents?.get(sessionId) ?? null;
+    if (!agents || !session) throw sessionError('not_found', msg('session.notFound'), 'unknown-session');
+    if (session.purpose === 'discussion') throw new AuthorizationError(msg('session.end.discussion'), { reason: 'discussion' });
+    const member = principal.userId !== null && principal.role !== null ? { userId: principal.userId, role: principal.role } : null;
+    if (!member || !mayEndSession(member, { kind: 'agent', purpose: session.purpose, openedBy: session.openedBy.userId, responsible: session.responsible?.userId ?? null })) {
+      throw new AuthorizationError(msg('session.end.notAllowed'), { reason: 'not-allowed:session' });
+    }
+    // `keepWorktree` is a free session's choice. A work item's worktree is the item's: only PlanService releases it.
+    const keep = session.purpose === 'free' ? keepWorktree : true;
+    await agents.end(sessionId, { by: principal.actor, reason: 'ended', keepWorktree: keep });
+    this.ctx.audit.record({ actor: principal.actor, action: 'session.end', outcome: 'ok', target: sessionId, detail: { sessionId, kind: 'agent', purpose: session.purpose, ...(session.topicId === undefined ? {} : { topicId: session.topicId }), ...(session.itemId === undefined ? {} : { itemId: session.itemId }), keepWorktree: keep } });
+  }
+
   async terminate(sessionId: string, by: Principal): Promise<void> {
-    const m = this.requireSession(sessionId);
+    const m = this.sessions.get(sessionId);
+    if (!m) {
+      const agents = this.agents();
+      const session = agents?.get(sessionId) ?? null;
+      if (!agents || !session) throw sessionError('not_found', msg('session.notFound'), 'unknown-session');
+      await agents.end(sessionId, { by: by.actor, reason: 'terminated', keepWorktree: true });
+      this.ctx.audit.record({ actor: by.actor, action: 'session.terminate', outcome: 'ok', target: sessionId, detail: { sessionId, openedBy: session.openedBy.userId, kind: 'agent', purpose: session.purpose } });
+      return;
+    }
     await this.finish(m, 'terminated', true, by);
-    this.ctx.audit.record({ actor: by.actor, action: 'session.terminate', outcome: 'ok', target: m.id, detail: { sessionId: m.id, ownerUserId: m.ownerUserId, kind: m.kind } });
+    this.ctx.audit.record({ actor: by.actor, action: 'session.terminate', outcome: 'ok', target: m.id, detail: { sessionId: m.id, openedBy: m.ownerUserId, kind: 'terminal' } });
   }
 
   /**
-   * The member who opened these sessions was kicked, left, or lost Agent access (§11 D-15): every session they
-   * opened ends, each audited as `session.terminate` by the system with the reason. A creation in flight for them is
-   * abandoned (userEpochs).
+   * A member was kicked, left, or lost a role (ARCHITECTURE §3 "When a member goes"). Foundation state: the
+   * TERMINALS they opened end when they may no longer open sessions, each audited `session.terminate` by the system;
+   * a creation in flight for them is abandoned (userEpochs). What happens to their agent sessions (free sessions end,
+   * topic sessions pass to the host, they are cleared as responsible person and fallback decider) is the agent
+   * runtime's part of this method.
    */
-  async killAllForUser(userId: UserId, reason: 'kicked' | 'left' | 'role-changed'): Promise<void> {
+  async teardownUser(userId: UserId, change: MemberChange, to?: Role): Promise<UserTeardown> {
+    const maySessions = change === 'role-changed' && to !== undefined && can(to, 'session.create');
+    if (maySessions) return { ended: [], handedOver: [], cleared: [] };
     this.userEpochs.set(userId, (this.userEpochs.get(userId) ?? 0) + 1);
     const mine = [...this.sessions.values()].filter((m) => m.ownerUserId === userId && m.status !== 'exited' && m.ending === null);
     await Promise.all(
       mine.map(async (m) => {
-        await this.finish(m, reason, true);
+        await this.finish(m, change, true);
         this.ctx.audit.record({
           actor: SYSTEM_ACTOR,
           action: 'session.terminate',
           outcome: 'ok',
           target: m.id,
-          detail: { sessionId: m.id, ownerUserId: m.ownerUserId, kind: m.kind, reason },
+          detail: { sessionId: m.id, openedBy: m.ownerUserId, kind: 'terminal', reason: change },
         });
       }),
     );
+    return { ended: mine.map((m) => m.id), handedOver: [], cleared: [] };
   }
 
   /** Idempotent: the first reason wins; every caller waits for the same teardown. */
@@ -899,21 +800,11 @@ export class SessionManagerImpl implements SessionManager {
     if (m.cleaned) return;
     m.cleaned = true;
     const services = this.ctx.services;
-    if (m.loginHintTimer !== undefined) clearTimeout(m.loginHintTimer);
     m.status = 'exited';
     m.endedAt = this.ctx.clock.now();
     const exit = m.pty.exit;
     if (exit) m.exitCode = exit.exitCode;
-    m.launch = null;
     m.known = new Map();
-    if (m.hookRegistered) {
-      this.safely('hooks.unregisterSession', () => services.hooks.unregisterSession(m.id));
-      // The launch files are gone when the session is (unregisterSession starts their removal; wait for it here).
-      if (m.kind === 'agent') await services.hooks.removeSessionFiles(m.id).catch((err: unknown) => this.logError('session launch files removal failed', err));
-    }
-    if (!isStubService(services.locks)) this.safely('locks.releaseAllForSession', () => services.locks.releaseAllForSession(m.id, reason === 'kicked' ? 'kicked' : 'session-ended'));
-    if (m.presence && !isStubService(services.presence)) this.safely('presence.removeAgent', () => services.presence.removeAgent(m.id));
-    if (m.kind === 'agent' && !isStubService(services.docs)) this.safely('docs.clearAgentPresence', () => services.docs.clearAgentPresence(m.id));
     if (m.worktreeId !== null) {
       try {
         await services.worktrees.releaseFromSession(m.worktreeId, m.id, { keep: keepWorktree });
@@ -975,25 +866,7 @@ export class SessionManagerImpl implements SessionManager {
   // Helpers
   // =================================================================================================================
 
-  private safely(label: string, fn: () => void): void {
-    try {
-      fn();
-    } catch (err) {
-      this.logError(`${label} failed`, err);
-    }
-  }
-
   private logError(message: string, err: unknown): void {
     this.ctx.log.error(message, { error: err instanceof SmurgError ? `${err.code}:${String(err.detail?.['reason'] ?? '')}` : err instanceof Error ? err.name : 'unknown' });
-  }
-
-  private requireSessionsDir(): string {
-    if (!this.sessionsDir) throw sessionError('internal', msg('session.notStarted'), 'not-started');
-    return this.sessionsDir;
-  }
-
-  private requireProbe(): ClaudeVersionProbe {
-    if (!this.versionProbe) throw sessionError('internal', msg('session.notStarted'), 'not-started');
-    return this.versionProbe;
   }
 }

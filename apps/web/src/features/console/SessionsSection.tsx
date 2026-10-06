@@ -3,7 +3,7 @@
 // once (one click, as SPEC R11 asks; the session's worktree is kept). Every session runs on the host's computer with
 // the host's Claude account (protocol v2), so there is no sandbox column.
 import { useState } from 'react';
-import type { SessionInfo, WorktreeInfo } from '@smurg/protocol';
+import { isSessionOver, type SessionInfo, type WorktreeInfo } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
 import { formatRelativeTime } from '../../lib/format.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
@@ -15,17 +15,12 @@ import { plainSessionTitle, sessionTitle } from '../../lib/stores/sessions.ts';
 import { worktreeLabel } from '../../lib/stores/worktrees.ts';
 
 function statusView(session: SessionInfo): { label: string; tone: Tone } {
-  switch (session.status) {
-    case 'starting':
-      return { label: t('sessions.status.starting'), tone: 'info' };
-    case 'running':
-      return { label: t('sessions.status.running'), tone: 'success' };
-    case 'exited':
-      return {
-        label: session.exitCode !== undefined ? t('sessions.status.exitedCode', { code: session.exitCode }) : t('sessions.status.exited'),
-        tone: 'neutral',
-      };
+  if (isSessionOver(session)) {
+    const exitCode = session.kind === 'terminal' ? session.exitCode : undefined;
+    return { label: exitCode !== undefined ? t('sessions.status.exitedCode', { code: exitCode }) : t('sessions.status.exited'), tone: 'neutral' };
   }
+  if (session.status === 'starting') return { label: t('sessions.status.starting'), tone: 'info' };
+  return { label: t('sessions.status.running'), tone: 'success' };
 }
 
 export function whereLabel(session: SessionInfo, worktrees: ReadonlyMap<string, WorktreeInfo>, selfUserId: string | null = null): string {
@@ -46,15 +41,15 @@ export function SessionsSection({ now }: { now: number }) {
   const [terminating, setTerminating] = useState<ReadonlySet<string>>(new Set());
   const [showExited, setShowExited] = useState(false);
 
-  const live = sessions.filter((session) => session.status !== 'exited');
-  const exited = sessions.filter((session) => session.status === 'exited');
+  const live = sessions.filter((session) => !isSessionOver(session));
+  const exited = sessions.filter((session) => isSessionOver(session));
   const rows = showExited ? [...live, ...exited] : live;
 
   const terminate = async (session: SessionInfo): Promise<void> => {
     setTerminating((previous) => new Set(previous).add(session.id));
     try {
       await stores.admin.terminateSession(session.id);
-      toast.show({ tone: 'success', title: t('sessions.terminated', { owner: session.ownerName, title: plainSessionTitle(session) }) });
+      toast.show({ tone: 'success', title: t('sessions.terminated', { owner: session.openedBy.displayName, title: plainSessionTitle(session) }) });
     } catch (failure) {
       toast.show({ tone: 'danger', title: t('sessions.terminateFailed', { title: sessionTitle(session), message: describeError(failure) }) });
     } finally {
@@ -72,7 +67,7 @@ export function SessionsSection({ now }: { now: number }) {
       header: t('sessions.col.title'),
       cell: (session) => {
         // What the agent is working on right now (presence.state), e.g. the file it is editing.
-        const file = session.status === 'exited' ? undefined : agents.find((agent) => agent.sessionId === session.id)?.activeFile;
+        const file = isSessionOver(session) ? undefined : agents.find((agent) => agent.sessionId === session.id)?.activeFile;
         return (
           <span className="console-session">
             <Badge>{session.kind === 'agent' ? t('sessions.kind.agent') : t('sessions.kind.terminal')}</Badge>
@@ -83,7 +78,7 @@ export function SessionsSection({ now }: { now: number }) {
         );
       },
     },
-    { id: 'owner', header: t('sessions.col.owner'), cell: (session) => session.ownerName },
+    { id: 'owner', header: t('sessions.col.owner'), cell: (session) => session.openedBy.displayName },
     {
       id: 'status',
       header: t('sessions.col.status'),
@@ -93,19 +88,19 @@ export function SessionsSection({ now }: { now: number }) {
       },
     },
     { id: 'where', header: t('sessions.col.where'), cell: (session) => whereLabel(session, worktrees) },
-    { id: 'viewers', header: t('sessions.col.viewers'), align: 'end', cell: (session) => t('sessions.viewers', { count: session.attached }) },
+    { id: 'viewers', header: t('sessions.col.viewers'), align: 'end', cell: (session) => t('sessions.viewers', { count: session.kind === 'terminal' ? session.attached : 0 }) },
     {
       id: 'actions',
       header: t('sessions.col.actions'),
       hideHeader: true,
       align: 'end',
       cell: (session) =>
-        session.status === 'exited' ? null : (
+        isSessionOver(session) ? null : (
           <Button
             size="sm"
             variant="danger"
             loading={terminating.has(session.id)}
-            aria-label={t('sessions.terminateLabel', { owner: session.ownerName, title: plainSessionTitle(session) })}
+            aria-label={t('sessions.terminateLabel', { owner: session.openedBy.displayName, title: plainSessionTitle(session) })}
             onClick={() => void terminate(session)}
           >
             {t('sessions.terminate')}

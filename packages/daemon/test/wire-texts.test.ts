@@ -14,6 +14,8 @@ import { SHARE_ERROR_REASONS, ShareError } from '../src/workspace/share.ts';
 import { GitUnavailableError, listedPaths, requireOk } from '../src/worktree/git.ts';
 import { policyError } from '../src/worktree/review.ts';
 import { mergeCommitMessage, worktreeCommitMessage } from '../src/worktree/worktree-manager.ts';
+import { RELEASE_GATE } from './fixtures/pending-v050.ts';
+import { PENDING_WIRE_TEXTS } from './fixtures/wire-text-owners.ts';
 
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
 const PROTOCOL_SRC = fileURLToPath(new URL('../../protocol/src', import.meta.url));
@@ -117,13 +119,20 @@ describe('daemon source: no display language', () => {
 
   it('every wire message id is used: by the daemon, by the client SDK, or through a family helper', () => {
     const haystack = [
-      ...daemonSources.map((source) => source.text),
-      ...sourceFiles(PROTOCOL_SRC, (path) => path.includes(`${join('i18n', 'messages')}`)).map((path) => readFileSync(path, 'utf8')),
+      // Not the test-only fakes and harness: a fake that names an id does not make the daemon produce it.
+      ...daemonSources.filter((source) => !source.path.startsWith(join('core', 'fakes')) && !source.path.startsWith('testing')).map((source) => source.text),
+      ...sourceFiles(PROTOCOL_SRC, (path) => path.includes(`${join('i18n', 'messages')}`) || path.endsWith('.fixture.ts')).map((path) => readFileSync(path, 'utf8')),
     ].join('\n');
-    // Families reached through a helper that builds the id (defaultErrorRef, clientFailureRef, roleRef).
-    const viaHelper = (id: string): boolean => id.startsWith('error.default.') || id.startsWith('client.') || id.startsWith('role.');
+    // Families reached through a helper that builds the id (defaultErrorRef, clientFailureRef, roleRef,
+    // permissionModeRef, reportOutcomeRef, attentionRef).
+    const FAMILIES = ['error.default.', 'client.', 'role.', 'permissionMode.', 'report.outcome.', 'attention.'];
+    const viaHelper = (id: string): boolean => FAMILIES.some((family) => id.startsWith(family));
     const unused = MESSAGE_IDS.filter((id) => !viaHelper(id) && !haystack.includes(`'${id}'`));
-    expect(unused).toEqual([]);
+    // While v0.5.0 is being built: the ids of fixtures/wire-text-owners.ts wait for their package. For the release
+    // (SMURG_RELEASE_GATE=1) nothing waits.
+    expect(unused.filter((id) => RELEASE_GATE || !PENDING_WIRE_TEXTS.has(id))).toEqual([]);
+    // The list names only ids that exist.
+    expect([...PENDING_WIRE_TEXTS.keys()].filter((id) => !isMessageId(id))).toEqual([]);
   });
 
   it('every msg(...) id in the daemon exists in the catalog (also a compile error; this catches `as` casts)', () => {

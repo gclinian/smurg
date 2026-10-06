@@ -63,12 +63,12 @@ const MCP_INITIALIZE = `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initi
 
 describe('smurg CLI', () => {
   it('builds a version banner from all workspace packages', () => {
-    expect(versionBanner()).toBe(`smurg ${VERSION} (protocol v3, daemon ${VERSION}, node ${process.versions.node})`);
+    expect(versionBanner()).toBe(`smurg ${VERSION} (protocol v4, daemon ${VERSION}, node ${process.versions.node})`);
   });
 
   it('runs from source with plain node', async () => {
     const { stdout, stderr } = await run(process.execPath, [MAIN, '--version'], { timeout: 20_000 });
-    expect(stdout.trim()).toBe(`smurg ${VERSION} (protocol v3, daemon ${VERSION}, node ${process.versions.node})`);
+    expect(stdout.trim()).toBe(`smurg ${VERSION} (protocol v4, daemon ${VERSION}, node ${process.versions.node})`);
     expect(stderr).toBe('');
   });
 

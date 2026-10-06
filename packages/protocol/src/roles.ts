@@ -28,9 +28,14 @@ export const CAPABILITIES = [
   'file.download',
   'file.write', // edit, create, rename, delete, upload
   'session.view',
-  'session.create', // open agent / terminal sessions: the host's OS user, unsandboxed, the host's Claude login (D-15)
-  'session.drive', // type into ANY session, resize it, accept / reject suggestions on it, check its login (D-15)
+  // Open agent / terminal sessions (the host's OS user, unsandboxed, the host's Claude login: D-15). Also: create a
+  // topic, restart its discussion, start work items, archive a topic (each opens or ends agent sessions).
+  'session.create',
+  // Type into a terminal; send a message to an agent, stop its turn, answer its permission requests, accept or reject
+  // suggestions, change who is responsible, the permission mode, always-allowed kinds, ask for the plan (D-15).
+  'session.drive',
   'suggest.create',
+  'discuss', // vote, comment, mention, be responsible, review a result report
   'worktree.merge.request',
   'worktree.merge.decide',
   'lock.force-release',
@@ -50,6 +55,7 @@ const MATRIX: Matrix = {
   'session.view': { host: true, agent: true, editor: true, viewer: true },
   'file.write': { host: true, agent: true, editor: true, viewer: false },
   'suggest.create': { host: true, agent: true, editor: true, viewer: false },
+  discuss: { host: true, agent: true, editor: true, viewer: false },
   'session.create': { host: true, agent: true, editor: false, viewer: false },
   'session.drive': { host: true, agent: true, editor: false, viewer: false },
   'worktree.merge.request': { host: true, agent: true, editor: false, viewer: false },

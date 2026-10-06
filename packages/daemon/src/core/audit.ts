@@ -10,13 +10,13 @@
 // counted in one summary entry; the file is rotated to audit.1.jsonl / audit.2.jsonl (0600) at a size cap, and
 // queries page through the rotated files too.
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { open, rename, type FileHandle } from 'node:fs/promises';
 import {
   AUDIT_DETAIL_MAX_KEYS,
   AUDIT_TARGET_MAX_CHARS,
   FORBIDDEN_RECORD_KEYS,
-  SUGGESTION_TEXT_MAX_CHARS,
   auditEntrySchema,
   isSensitiveWireType,
   redactForLog,
@@ -25,10 +25,15 @@ import {
   type AuditEntry,
 } from '@smurg/protocol';
 import { LOCAL_CHANNEL_VIA } from '../local/local-channel.ts';
-import type { AuditInput, AuditLog, AuditQuery } from './interfaces.ts';
+import type { AuditTextStore } from './audit-text.ts';
+import { AUDIT_FULL_TEXT_HEAD_CHARS, type AuditInput, type AuditLog, type AuditQuery } from './interfaces.ts';
 import { newId, toDisposable, type Clock, type Disposable } from './lifecycle.ts';
 import type { Logger } from './logger.ts';
 import { StateFileError } from './state-store.ts';
+
+function sha256Hex(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
 
 /** Keys whose values are secrets or content wherever they appear in `detail` (compared case-insensitively). */
 const SECRET_KEYS: ReadonlySet<string> = new Set(
@@ -89,8 +94,8 @@ function withVia(detail: Readonly<Record<string, unknown>> | undefined): Readonl
 }
 
 const MAX_STRING = 2_000;
-/** A top-level `fullText` key keeps up to this many characters (a whole suggestion, R6.3). */
-const MAX_FULL_TEXT = SUGGESTION_TEXT_MAX_CHARS;
+/** A top-level `fullText` key keeps this many characters in the entry; the whole text goes to the full-text store. */
+const MAX_FULL_TEXT = AUDIT_FULL_TEXT_HEAD_CHARS;
 const MAX_ARRAY = 50;
 const MAX_DEPTH = 6;
 const REDACTED = '[redacted]';
@@ -100,7 +105,12 @@ function isByteArray(value: unknown): value is ArrayBufferView {
 }
 
 function clip(value: string, max: number): string {
-  return value.length > max ? `${value.slice(0, max)}…` : value;
+  if (value.length <= max) return value;
+  // Never cut a surrogate pair in half: a lone surrogate would not survive the JSON round trip of the log.
+  let end = max;
+  const last = value.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return `${value.slice(0, end)}…`;
 }
 
 function sanitizeValue(value: unknown, depth: number, fullText: ReadonlySet<string> = new Set()): unknown {
@@ -132,7 +142,8 @@ function sanitizeValue(value: unknown, depth: number, fullText: ReadonlySet<stri
 
 /**
  * The sanitiser record() applies; exported for tests and for modules that build detail elsewhere. Strings are cut
- * at 2,000 characters, except top-level keys named in `fullText` (up to SUGGESTION_TEXT_MAX_CHARS).
+ * at 2,000 characters; top-level keys named in `fullText` at AUDIT_FULL_TEXT_HEAD_CHARS (record() adds their hash and
+ * length and stores the whole text in the full-text store).
  */
 export function sanitizeAuditDetail(detail: Readonly<Record<string, unknown>> | undefined, fullText: readonly string[] = []): Record<string, unknown> | undefined {
   if (detail === undefined) return undefined;
@@ -207,6 +218,8 @@ export interface JsonlAuditLogOptions {
   readonly rotations?: number;
   /** `denied` entries recorded per actor per minute (default 120); 0 disables the budget. */
   readonly deniedPerActorPerMinute?: number;
+  /** Where the whole text of `fullText` keys goes. Without it an entry still carries the hash, the length and the head. */
+  readonly texts?: AuditTextStore;
 }
 
 const DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
@@ -306,6 +319,7 @@ export class JsonlAuditLog implements AuditLog {
   private readonly maxBytes: number;
   private readonly rotations: number;
   private readonly deniedPerActor: number;
+  private readonly texts: AuditTextStore | null;
   private handle: FileHandle | null;
   private size: number;
   private readonly listeners = new Set<(entry: AuditEntry) => void>();
@@ -331,6 +345,7 @@ export class JsonlAuditLog implements AuditLog {
     this.maxBytes = Math.max(4_096, options.maxBytes ?? DEFAULT_MAX_BYTES);
     this.rotations = Math.max(1, Math.floor(options.rotations ?? DEFAULT_ROTATIONS));
     this.deniedPerActor = Math.max(0, Math.floor(options.deniedPerActorPerMinute ?? DEFAULT_DENIED_PER_ACTOR_PER_MINUTE));
+    this.texts = options.texts ?? null;
   }
 
   /** Opens (or creates with 0600) the log; refuses a symlink, a foreign or a group/other-readable file. */
@@ -369,7 +384,7 @@ export class JsonlAuditLog implements AuditLog {
   record(input: AuditInput): AuditEntry {
     const at = Math.max(this.clock.now(), this.lastAt + 1);
     this.lastAt = at;
-    const detail = sanitizeAuditDetail(withVia(input.detail), input.fullText);
+    const detail = this.withFullTexts(sanitizeAuditDetail(withVia(input.detail), input.fullText), input);
     const target = clampTarget(input.target);
     let entry: AuditEntry = {
       id: newId('au'),
@@ -430,8 +445,29 @@ export class JsonlAuditLog implements AuditLog {
     return toDisposable(() => this.listeners.delete(listener));
   }
 
-  flush(): Promise<void> {
-    return this.tail;
+  async fullText(sha256: string): Promise<string | null> {
+    return this.texts === null ? null : this.texts.get(sha256);
+  }
+
+  async flush(): Promise<void> {
+    await this.tail;
+    await this.texts?.flush();
+  }
+
+  /**
+   * For every `fullText` key that holds a string: `<key>Sha256` and `<key>Chars` next to the clipped head, and the
+   * whole text into the full-text store. Secret-bearing keys were replaced by the sanitiser and are skipped.
+   */
+  private withFullTexts(detail: Record<string, unknown> | undefined, input: AuditInput): Record<string, unknown> | undefined {
+    if (detail === undefined || input.fullText === undefined || input.detail === undefined) return detail;
+    const out: Record<string, unknown> = { ...detail };
+    for (const key of input.fullText) {
+      const text = input.detail[key];
+      if (typeof text !== 'string' || typeof out[key] !== 'string' || out[key] === REDACTED) continue;
+      out[`${key}Sha256`] = this.texts === null ? sha256Hex(text) : this.texts.put(text);
+      out[`${key}Chars`] = text.length;
+    }
+    return out;
   }
 
   async close(): Promise<void> {
@@ -445,6 +481,7 @@ export class JsonlAuditLog implements AuditLog {
     if (this.backlog.length > 0) this.log.error('audit entries could not be written before close', { entries: this.backlog.length, notRecorded: this.backlogDropped });
     await this.handle?.close();
     this.handle = null;
+    await this.texts?.close();
   }
 
   /**

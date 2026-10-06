@@ -7,7 +7,7 @@
 //   conn.admit(makeWelcome({ role: 'editor' }));                          // online, resumed: false → stores load
 //   conn.emit('session.state', { session: makeSession() });               // a daemon event
 //   expect(conn.requestsOf('session.list')).toHaveLength(1);
-//   conn.respond('session.list', { sessions: [] });                       // answer the oldest pending one
+//   conn.respond('session.list', { sessions: [], hasMore: false });       // answer the oldest pending one
 //
 // Payloads are validated against the protocol registry both ways (a request the real encoder would refuse rejects
 // here too; an emitted event must be a valid daemon payload), so fixtures stay honest.

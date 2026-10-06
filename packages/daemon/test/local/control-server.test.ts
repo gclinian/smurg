@@ -35,7 +35,7 @@ async function client(path: string): Promise<RawCtlClient> {
 /** session.list answered with no sessions: a request `smurg attach` sends, without the real sessions module. */
 const sessionListModule: FeatureModule = {
   name: 'session-list',
-  register: (router) => router.handle('session.list', () => ({ sessions: [] })),
+  register: (router) => router.handle('session.list', () => ({ sessions: [], hasMore: false })),
 };
 
 function header(length: number, kind: number): Uint8Array {

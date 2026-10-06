@@ -18,17 +18,23 @@ export function userPrincipal(member: MemberRecord): Principal | null {
   return Object.freeze({ kind: 'user', actor: userActor(member), userId: member.userId, role: member.role });
 }
 
-// `Claude (<owner>)`: how an agent appears in presence, locks, the activity feed and the audit log. The one function
+// `Claude (<label>)`: how an agent appears in presence, locks, the activity feed and the audit log. The one function
 // that spells it lives in @smurg/protocol (names.ts); it is re-exported here for the daemon's modules.
 export { agentDisplayName };
 
-export function agentPrincipalFor(sessionId: string, owner: MemberRecord): Principal | null {
+/**
+ * The principal of an agent session whose daemon-internal owner is `owner`. `pathRights` is the session's (fixed at its
+ * creation, never raised by a handover): with `'member'` the role is never `host`, whoever owns the session now, so a
+ * session a member opened cannot write host-only paths after it passed to the host. `agentName`: the session's agent
+ * name (`Claude (<label>)`); default: named after the owner.
+ */
+export function agentPrincipalFor(sessionId: string, owner: MemberRecord, options: { readonly agentName?: string; readonly pathRights: 'member' | 'host' }): Principal | null {
   if (owner.status !== 'active') return null;
   return Object.freeze({
     kind: 'agent',
-    actor: { kind: 'agent' as const, sessionId, ownerUserId: owner.userId, displayName: agentDisplayName(owner.displayName) },
+    actor: { kind: 'agent' as const, sessionId, ownerUserId: owner.userId, displayName: options.agentName ?? agentDisplayName(owner.displayName) },
     userId: owner.userId,
-    role: owner.role,
+    role: options.pathRights === 'member' && owner.role === 'host' ? 'agent' : owner.role,
   });
 }
 

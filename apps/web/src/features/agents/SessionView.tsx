@@ -4,7 +4,7 @@
 // A running session is ended by the member who opened it (or terminated by the host); an ENDED one offers "Close tab"
 // to everyone instead, which only takes the tab out of that person's own panel (ARCHITECTURE §9).
 import { useState } from 'react';
-import type { SessionInfo } from '@smurg/protocol';
+import { isSessionOver, type SessionInfo } from '@smurg/protocol';
 import { drivesSession } from '../../lib/capabilities.ts';
 import { useStore } from '../../lib/store.ts';
 import { useCapabilities, useStores } from '../../lib/workspace/context.tsx';
@@ -14,7 +14,7 @@ import { useWorkbenchLayout } from '../../lib/workspace/layout.tsx';
 import { IconClose, IconEye, IconInfo, IconMaximize, IconMinimize, IconMinus, IconPlus, IconRefresh, IconTerminal, IconTrash } from '../../ui/icons.tsx';
 import { AttachDialog } from './AttachDialog.tsx';
 import { SessionTerminal } from './SessionTerminal.tsx';
-import { branchOf, effectiveLogin, kindLabel, openedByLabel, openerName, statusLabel, whereLabel, type LoginCheck } from './session-info.ts';
+import { branchOf, effectiveLogin, kindLabel, loginOf, openedByLabel, openerName, statusLabel, whereLabel, type LoginCheck } from './session-info.ts';
 import { t } from './strings.ts';
 
 export interface SessionViewProps {
@@ -35,7 +35,7 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
   const caps = useCapabilities();
   const toast = useToast();
   const worktrees = useStore(stores.worktrees, (state) => state.worktrees);
-  const isOwner = selfUserId !== null && session.ownerUserId === selfUserId;
+  const isOwner = selfUserId !== null && session.openedBy.userId === selfUserId;
   const driving = drivesSession(caps, session);
   const [scaled, setScaled] = useState(false);
   const [check, setCheck] = useState<LoginCheck | null>(null);
@@ -44,14 +44,14 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
   const [attaching, setAttaching] = useState(false);
   const layout = useWorkbenchLayout();
 
-  const login = effectiveLogin(session, check);
-  const exited = session.status === 'exited';
+  const login = effectiveLogin({ login: loginOf(session) }, check);
+  const exited = isSessionOver(session);
   const loggedOut = session.kind === 'agent' && !exited && login === 'logged-out';
 
   // session.loginStatus needs session.drive: the host and members with agent access re-check (the host's Claude login).
   const checkLogin = async (): Promise<void> => {
     setChecking(true);
-    const against = session.login;
+    const against = loginOf(session);
     try {
       const result = await stores.sessions.loginStatus(session.id);
       setCheck({ login: result, against });
@@ -73,7 +73,7 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
     [t('info.status'), statusLabel(session)],
     [t('info.where'), whereLabel(session, worktrees, selfUserId) + (branchOf(session, worktrees) ? ` · ${branchOf(session, worktrees)}` : '')],
     [t('info.runsAs'), t('runsAs.value')],
-    [t('info.viewers'), t('viewers', { count: session.attached })],
+    [t('info.viewers'), t('viewers', { count: session.kind === 'terminal' ? session.attached : 0 })],
   ];
 
   const statusBadge = <Badge tone={exited ? 'neutral' : session.status === 'running' ? 'success' : 'info'}>{statusLabel(session)}</Badge>;
@@ -163,7 +163,7 @@ export function SessionView({ session, selfUserId, isHost, active, keepTerminal,
           </dl>
           {!driving && !exited ? (
             <p className="agents-session__hint">
-              {caps.can('suggest.create') ? t('terminal.readOnly', { owner: session.ownerName }) : t('terminal.readOnlyViewer', { owner: session.ownerName })}
+              {caps.can('suggest.create') ? t('terminal.readOnly', { owner: session.openedBy.displayName }) : t('terminal.readOnlyViewer', { owner: session.openedBy.displayName })}
             </p>
           ) : null}
         </div>

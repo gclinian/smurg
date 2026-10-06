@@ -80,8 +80,10 @@ export function buildCreatePayload(
     workspace = id === 'new' ? { mode: 'worktree' } : { mode: 'worktree', worktreeId: id };
   }
   const title = form.title.trim();
+  // An agent session is a conversation (protocol 4): it has no PTY size.
+  if (form.kind === 'agent') return { kind: 'agent', workspace, ...(title !== '' ? { title } : {}) };
   return {
-    kind: form.kind,
+    kind: 'terminal',
     workspace,
     cols: size.cols,
     rows: size.rows,

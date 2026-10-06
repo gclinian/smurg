@@ -4,6 +4,7 @@
 // is registered), the real locks module (activity feed) and the real files module (@parcel/watcher); only the session
 // list is a stand-in naming the registered session. `smurg hook` runs from this package's sources (node + the CLI).
 // Skipped LOUDLY when no verified `claude` is available (SMURG_TEST_CLAUDE_BIN selects another binary).
+import { buildAgentSession, buildHookRegistration, buildLaunchProfile } from '../../src/core/fakes/build.ts';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,9 +53,9 @@ describe.skipIf(claude === null)(`D-13: an agent's Bash edit in the main workspa
   it('a scripted Bash `sed` / `printf >` shows up in the activity feed as `Claude (Ian)`, via bash; the Bash hook reported the window', async () => {
     const hooks = t.ctx.services.hooks as HookServerImpl;
     const sessionId = 'ses_claude_bash_1';
-    const creds = hooks.registerSession({ sessionId, ownerUserId: 'dev:ian', agentName: 'Claude (Ian)', root: MAIN_ROOT });
-    sessions.push({ id: sessionId, kind: 'agent', ownerUserId: 'dev:ian', ownerName: 'Ian', title: 'Claude (Ian)', root: MAIN_ROOT, status: 'running', cols: 80, rows: 24, createdAt: Date.now(), login: 'logged-in', attached: 0 });
-    const files = await hooks.writeSessionFiles(sessionId);
+    const creds = hooks.registerSession(buildHookRegistration({ sessionId, ownerUserId: 'dev:ian', agentName: 'Claude (Ian)', root: MAIN_ROOT }));
+    sessions.push(buildAgentSession({ id: sessionId, openedBy: { userId: 'dev:ian', displayName: 'Ian' }, title: 'Claude (Ian)', status: 'running', createdAt: Date.now() }));
+    const files = await hooks.writeSessionFiles(sessionId, buildLaunchProfile());
     const settings = JSON.parse(await readFile(files.settingsPath, 'utf8')) as { hooks: Record<string, { matcher?: string }[]> };
     expect(settings.hooks['PreToolUse']?.map((group) => group.matcher)).toEqual(['Edit|Write|MultiEdit|NotebookEdit', 'Bash']);
     const isolated = join(t.root, '..', `claude-run-${Date.now()}`);

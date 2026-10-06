@@ -161,6 +161,6 @@ describe('identifiers and tags', () => {
     expect(c.WORKSPACE_ID_MIN_LENGTH).toBeGreaterThanOrEqual(16);
     expect(c.WORKSPACE_ID_MAX_LENGTH).toBeLessThanOrEqual(255);
     expect(c.NOISE_PROLOGUE_TAG).toBe('smurg-noise/1');
-    expect(c.PROTOCOL_VERSION).toBe(3);
+    expect(c.PROTOCOL_VERSION).toBe(4);
   });
 });

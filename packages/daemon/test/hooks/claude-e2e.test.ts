@@ -9,6 +9,7 @@
 //
 // Skipped LOUDLY (see the log line) when no verified `claude` is available. SMURG_TEST_CLAUDE_BIN selects another
 // binary, e.g. the other verified version.
+import { buildLaunchProfile } from '../../src/core/fakes/build.ts';
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server, type Socket } from 'node:net';
 import { join } from 'node:path';
@@ -75,7 +76,7 @@ describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthr
     options: { readonly extraEnv?: Readonly<Record<string, string>>; readonly permissionMode?: string | null; readonly settingsOverride?: Record<string, unknown>; readonly prepareConfig?: (isolatedDir: string) => Promise<void> } = {},
   ): Promise<{ readonly run: ClaudeRun; readonly mock: MockAnthropic; readonly sessionId: string; readonly agentLocksAtExit: readonly string[] }> {
     const session = registerAgent(env.hooks, IAN);
-    const files = await env.hooks.writeSessionFiles(session.sessionId);
+    const files = await env.hooks.writeSessionFiles(session.sessionId, buildLaunchProfile());
     const isolated = await env.isolatedDir(label);
     await seedClaudeTrust({ cfgDir: join(isolated, 'cfg'), cwd: env.root, apiKey: MOCK_API_KEY });
     await options.prepareConfig?.(isolated);

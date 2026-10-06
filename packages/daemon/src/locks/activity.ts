@@ -42,6 +42,7 @@ import {
   type MemberNotification,
   type PayloadOf,
   type ResultInputOf,
+  isSessionOver,
 } from '@smurg/protocol';
 import { msg, renderEnglish, type MessageRef } from '@smurg/protocol/i18n';
 import type { ActivityFeed, AuditLog, DaemonEvents, EventBus, FileChangeKind, Hub, LockManager, MemberDirectory, Principal, SessionManager, UserId } from '../core/interfaces.ts';
@@ -534,7 +535,7 @@ export class ActivityFeedImpl implements ActivityFeed {
     if (covering.length !== 1) return 'ambiguous';
     const info = byId.get(covering[0] as string);
     if (info === undefined || info.kind !== 'agent' || !rootRefEquals(info.root, root)) return 'ambiguous';
-    return this.agentActor(info.id, info.ownerUserId);
+    return this.agentActor(info.id, info.openedBy.userId);
   }
 
   /** Records the changes of one batch that `actor`'s shell command made, then announces each (badge, conflict source). */
@@ -566,16 +567,16 @@ export class ActivityFeedImpl implements ActivityFeed {
   private worktreeWriter(worktreeId: string): AgentActor | Extract<Actor, { kind: 'user' }> | null {
     let running: ReturnType<SessionManager['list']>;
     try {
-      running = (this.sessions?.().list() ?? []).filter((s) => s.status !== 'exited' && s.root.kind === 'worktree' && s.root.worktreeId === worktreeId);
+      running = (this.sessions?.().list() ?? []).filter((s) => !isSessionOver(s) && s.root.kind === 'worktree' && s.root.worktreeId === worktreeId);
     } catch {
       return null; // no SessionManager (stub)
     }
     if (running.length === 0) return null;
-    const owners = new Set(running.map((s) => s.ownerUserId));
+    const owners = new Set(running.map((s) => s.openedBy.userId));
     if (owners.size !== 1) return null;
     const agents = running.filter((s) => s.kind === 'agent');
-    if (agents.length === 1 && running.length === 1) return this.agentActor((agents[0] as (typeof running)[number]).id, (agents[0] as (typeof running)[number]).ownerUserId);
-    const ownerUserId = running[0]?.ownerUserId as UserId;
+    if (agents.length === 1 && running.length === 1) return this.agentActor((agents[0] as (typeof running)[number]).id, (agents[0] as (typeof running)[number]).openedBy.userId);
+    const ownerUserId = running[0]?.openedBy.userId as UserId;
     const member = this.members.get(ownerUserId);
     return { kind: 'user', userId: ownerUserId, displayName: member?.displayName ?? userFallbackName(ownerUserId) };
   }

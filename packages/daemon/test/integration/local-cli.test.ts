@@ -95,7 +95,10 @@ describe('local control socket + the real CLI, every module composed', { timeout
     });
     terminal.onData((data) => (outer += data));
     // Attached: keystrokes typed in the CLI's terminal run in the session, and both the CLI and the web viewer see it.
-    await waitFor(() => d.ctx.services.sessions.get(session.id)?.attached === 2, { timeoutMs: 30_000, what: 'the CLI to attach' });
+    await waitFor(() => {
+      const now = d.ctx.services.sessions.get(session.id);
+      return now?.kind === 'terminal' && now.attached === 2;
+    }, { timeoutMs: 30_000, what: 'the CLI to attach' });
     terminal.write('echo cli-$((3*4))\r');
     await waitFor(() => outer.includes('cli-12'), { timeoutMs: 20_000, what: 'the output in the CLI\'s terminal' });
     await waitFor(() => web.text().includes('cli-12'), { timeoutMs: 20_000, what: 'the same output at the web viewer' });

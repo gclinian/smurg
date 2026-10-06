@@ -15,7 +15,7 @@ import { constants as fsConstants } from 'node:fs';
 import { link, lstat, open, rename, rmdir, unlink, type FileHandle } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { MAIN_ROOT, SmurgError, checkRelPath, isHostOnlyPath, isHostPrivatePath, isSmurgDirName, relPathSegments, rootRefKey, type FileRef, type RootRef } from '@smurg/protocol';
+import { MAIN_ROOT, SmurgError, checkRelPath, foldPathName, isHostOnlyPath, isHostPrivatePath, isInTopicDir, isSmurgDirName, relPathSegments, rootRefKey, type FileRef, type RootRef } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { PathDeniedError, isPathDeniedError, type PathDeniedReason } from '../core/errors.ts';
 import type { AuditLog, FileIdentity, GuardedFile, PathGuard, ResolveOptions, ResolvedPath, RootInfo, RootRegistry, SharedLink } from '../core/interfaces.ts';
@@ -31,6 +31,12 @@ export interface PathGuardOptions {
   readonly roots: RootRegistry;
   readonly audit: AuditLog;
   readonly platform?: NodeJS.Platform;
+  /**
+   * Root-relative paths that are host-only for writes right now, beyond the lexical list: the files the trust gate
+   * records for a root whose Claude Code project settings the host confirmed (ProjectTrust.protectedPaths). Asked at
+   * every write of a non-host, so the answer is always the trust gate's current one. Default: none.
+   */
+  readonly protectedPaths?: (root: RootRef) => ReadonlySet<string>;
 }
 
 function rootLabel(root: unknown): string {
@@ -56,9 +62,15 @@ function tmpNameFor(name: string): string {
   return `.${stem}.smurg-${randomBytes(6).toString('hex')}.tmp`;
 }
 
+/** A path as a case-insensitive file system would compare it (protocol foldPathName, segment by segment). */
+function foldedPath(path: string): string {
+  return relPathSegments(path).map(foldPathName).join('/');
+}
+
 export class PathGuardImpl implements PathGuard {
   private readonly roots: RootRegistry;
   private readonly audit: AuditLog;
+  private readonly protectedPaths: (root: RootRef) => ReadonlySet<string>;
   private readonly limits: PlatformLimits;
   /**
    * The file system compares names byte-wise, not normalisation-insensitively like APFS (Linux: ext4, btrfs, xfs,
@@ -69,6 +81,7 @@ export class PathGuardImpl implements PathGuard {
   constructor(options: PathGuardOptions) {
     this.roots = options.roots;
     this.audit = options.audit;
+    this.protectedPaths = options.protectedPaths ?? (() => new Set());
     const platform = options.platform ?? process.platform;
     this.limits = platformLimits(platform);
     this.normalisationSensitive = platform !== 'darwin';
@@ -355,7 +368,19 @@ export class PathGuardImpl implements PathGuard {
     const mainRef: FileRef | null = shared ? { root: MAIN_ROOT, path: resolvedRel } : null;
     const inMain = shared !== null || root.ref.kind === 'main';
     if (!isPrivileged && inMain && (startsWithSmurgDir(resolvedRel) || startsWithSmurgDir(diskRel))) throw new PathDeniedError('hidden', target);
-    const hostOnly = isHostOnlyPath(path) || isHostOnlyPath(resolvedRel) || isHostOnlyPath(diskRel);
+    const spellings = [path, resolvedRel, diskRel];
+    // An item worktree: its copy of the topic's folder is what the agent was started from, and the report file there
+    // belongs to the agent. No PERSON writes it through smurg (file.*, doc.*, uploads), the host included. The daemon
+    // itself may (it removes a stale report before a start); what the item's own agent may edit there is the tool
+    // gate's decision (hooks/tool-gate.ts), not this rule's.
+    const itemSlug = shared === null ? root.item?.topicSlug : undefined;
+    if (itemSlug !== undefined && options.principal.kind === 'user' && spellings.some((spelling) => isInTopicDir(spelling, itemSlug))) readOnly = true;
+    let hostOnly = spellings.some((spelling) => isHostOnlyPath(spelling));
+    if (!hostOnly && shared === null) {
+      // Files the trust gate records (scripts a trusted settings file runs): host-only while that content is trusted.
+      const recorded = this.recordedPaths(root.ref);
+      if (recorded.size > 0) hostOnly = spellings.some((spelling) => recorded.has(foldedPath(spelling)));
+    }
     if (options.forWrite) {
       if (readOnly) throw new PathDeniedError('read-only', target);
       if (hostOnly && !isPrivileged) throw new PathDeniedError('host-only', target);
@@ -393,6 +418,17 @@ export class PathGuardImpl implements PathGuard {
       hostOnly,
       mainRef,
     });
+  }
+
+  /** ProjectTrust.protectedPaths(root), folded; a failing provider protects nothing more (the lexical list still holds). */
+  private recordedPaths(root: RootRef): ReadonlySet<string> {
+    try {
+      const paths = this.protectedPaths(root);
+      if (paths.size === 0) return paths;
+      return new Set([...paths].map(foldedPath));
+    } catch {
+      return new Set();
+    }
   }
 
   private async revalidateParent(target: ResolvedPath, parent: FileIdentity, options: ResolveOptions): Promise<void> {

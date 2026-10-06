@@ -239,7 +239,6 @@ Docs: https://smurg.ai/docs/
   'attach.status.exited': (p: { exitCode: number }) => `exited (${p.exitCode})`,
   'attach.status.starting': () => 'starting',
   'attach.status.running': () => 'running',
-  'attach.kind.agent': () => 'agent',
   'attach.kind.terminal': () => 'terminal',
   'attach.owner.you': (p: { name: string }) => `${p.name} (you)`,
   'attach.list.empty': () => 'This workspace has no sessions.',

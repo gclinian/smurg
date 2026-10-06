@@ -91,7 +91,7 @@ export function TopBar({ view, layout }: { view: 'workbench' | 'console'; layout
 function MemberAvatars() {
   const { presence } = useStores();
   const members = useStore(presence, (state) => state.members.filter((m) => m.online), shallowArray);
-  const agents = useStore(presence, (state) => state.agents.filter((a) => a.status !== 'exited'), shallowArray);
+  const agents = useStore(presence, (state) => state.agents.filter((a) => a.status !== 'ended'), shallowArray);
   const shown: (PresenceMember | PresenceAgent)[] = [...members, ...agents].slice(0, MAX_AVATARS);
   const hidden = members.length + agents.length - shown.length;
   return (

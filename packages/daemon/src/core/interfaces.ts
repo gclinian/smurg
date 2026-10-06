@@ -14,15 +14,24 @@
 //    their methods (never in create()), because services are created in any order.
 //  * No blocking. Never spawnSync/execSync or run long synchronous work on the daemon's event loop (§0 rule 5).
 import type {
+  AccountInfo,
   Actor,
+  AgentPurpose,
+  AgentSession,
+  AttentionSubject,
   AuditAction,
   AuditEntry,
   BidirectionalType,
   CHANNEL_CLOSED_REASONS,
   Capability,
+  CardRef,
+  CardWithdrawnReason,
   ChannelPurpose,
   ClientEnvelope,
+  ColumnTarget,
   ConflictRecord,
+  ConversationEvent,
+  ConversationEventInput,
   DaemonInviteKey,
   DiskReport,
   EventType,
@@ -32,6 +41,7 @@ import type {
   HandshakeMode,
   HostSettings,
   HostSettingsPatch,
+  InboxItem,
   InviteInfo,
   LockInfo,
   LoginState,
@@ -39,19 +49,39 @@ import type {
   MemberNotification,
   MemberWithDevices,
   MergeRequest,
+  MessageOrigin,
   NotifyType,
   PayloadInputOf,
   PayloadOf,
+  PermissionMode,
+  PermissionRequest,
+  PlanInfo,
   PresenceAgent,
+  ProjectSettingsState,
   PublicSettings,
+  Question,
+  RateBucket,
+  RememberedRule,
+  ReportInfo,
+  ReportSummary,
   RequestType,
   ResultInputOf,
   Role,
   RootRef,
+  RoutingMember,
   SessionEndReason,
   SessionInfo,
+  SmurgPurpose,
+  StalledBy,
+  StartPreflight,
+  StreamingBlock,
   Suggestion,
+  ToolView,
+  Topic,
+  TurnOutcome,
+  UserRef,
   Welcome,
+  WorkItem,
   WorkspaceInfo,
   WorktreeInfo,
 } from '@smurg/protocol';
@@ -169,22 +199,23 @@ export interface DaemonEvents {
   /** A user was admitted into the workspace for the first time (or again after a kick, through a newer invite). */
   'member.joined': { readonly member: MemberRecord; readonly device: DeviceRecord; readonly inviteId: string };
   /**
-   * `channel.leave` (R4). Membership and devices stay. The core runs SessionManager.killAllForUser and
-   * UploadService.abortAllForUser for this event (the handler awaits them: R4, within 5 s); other listeners
-   * release everything else they hold for the user (human locks, doc subscriptions, presence).
+   * `channel.leave` (R4). Membership and devices stay. THE CORE runs the teardown of ARCHITECTURE §3 "When a member
+   * goes" for this event (admin/teardown.ts; the handler awaits it: R4, within 5 s): ConversationService.memberRemoved,
+   * TopicService.memberRemoved, SessionManager.teardownUser, UploadService.abortAllForUser, in that order. Other
+   * listeners release everything else they hold for the user (human locks, doc subscriptions, presence, the inbox).
    */
   'member.left': { readonly userId: UserId; readonly by: Actor };
   /**
-   * Kick (R2): devices are already revoked and channels closed when this fires. The core runs
-   * SessionManager.killAllForUser and UploadService.abortAllForUser for this event (the console's
-   * kick awaits them: R2, within 3 s); other listeners drop every other per-user resource (human locks, doc
-   * subscriptions, presence, pending suggestions).
+   * Kick (R2): devices are already revoked and channels closed when this fires. The core runs the same teardown (the
+   * console's kick awaits it: R2, within 3 s); other listeners drop every other per-user resource (human locks, doc
+   * subscriptions, presence, pending suggestions, stored inbox notes).
    */
   'member.kicked': { readonly userId: UserId; readonly by: Actor; readonly revokedDevices: readonly string[] };
   /**
    * Role changed without a kick. The member's channels were closed with `role-changed` (they reconnect with the new
-   * role). When the new role may not open sessions any more (below Agent access), the core runs
-   * killAllForUser('role-changed') for it: the sessions that member opened end.
+   * role). When the new role lost `session.drive` or `discuss`, the core runs the teardown for it (what the member put
+   * in place goes; with `session.create` gone their terminals and free sessions end and their topic sessions pass to
+   * the host).
    */
   'member.role-changed': { readonly userId: UserId; readonly from: Role; readonly to: Role; readonly by: Actor };
   'device.added': { readonly device: DeviceRecord };
@@ -222,16 +253,94 @@ export interface DaemonEvents {
   };
   /** FileChanged hook (activity feed only; correctness never depends on it, §7.6). */
   'agent.file-changed': { readonly sessionId: string; readonly ownerUserId: UserId; readonly file: FileRef; readonly change: 'add' | 'change' | 'unlink' };
+  /** The tool gate refused a tool call (rows G2–G7). Emitted by hooks; conversation audits `permission.auto-deny`, coalesced. */
+  'agent.tool.gate': { readonly sessionId: string; readonly tool: string; readonly row: GateRow; readonly path?: string };
+  /**
+   * An agent's process answered `initialize`. Emitted by sessions. The RUNNER itself writes what follows from it (the
+   * notices `notice.notLoggedIn` and `notice.personalSubscription`, the account state, the host's rules it reported):
+   * no other module has to listen.
+   */
+  'agent.ready': { readonly sessionId: string; readonly claudeVersion: string; readonly login: LoginState; readonly tools: readonly string[] };
+  /**
+   * `AgentSessionFacts.hasProcess` of a session changed (every change, and nothing else): it got a process
+   * (`started`: a start, a message to a parked or failed session, a retry), gave it up while staying idle (`parked`),
+   * lost it (`failed`), or ended. Parking moves no `session.updated` (a parked session stays `idle`), so this is how
+   * the scheduler learns that a slot is free. Emitted by sessions.
+   */
+  'agent.process': {
+    readonly sessionId: string;
+    readonly purpose: AgentPurpose;
+    readonly topicId?: string;
+    readonly hasProcess: boolean;
+    readonly reason: 'started' | 'parked' | 'failed' | 'ended';
+  };
+  /** The agent asks (AskUserQuestion) or wants permission. Emitted by sessions; conversation makes a card or answers itself. */
+  'agent.request': { readonly sessionId: string; readonly request: AgentRequest };
+  /**
+   * Claude Code withdrew a request: the turn was stopped (`stopped`), the session ended (`ended`) or its process failed
+   * (`failed`). `by`: the person who stopped the turn or ended the session, when a person did (`Question.withdrawn.by`).
+   * NOT emitted for a restart of the daemon: the runner keeps no request across one; the conversation module withdraws
+   * the cards that are open in its own store when it starts (`restarted`).
+   */
+  'agent.request.withdrawn': { readonly sessionId: string; readonly requestId: string; readonly reason: Exclude<CardWithdrawnReason, 'restarted'>; readonly by?: UserRef };
+  'agent.turn.started': { readonly sessionId: string; readonly turnId: string };
+  /**
+   * A turn ended. `finalText`: the agent's last text block (masked). `stoppedBy`: the person who stopped it (outcome
+   * `interrupted`). `messages`: the messages this turn took, oldest first, each with who wrote it: a person's message
+   * (`from`, `origin`, and `suggestionId` when it was an accepted suggestion: then `from` is the suggestion's author)
+   * or one of smurg's own (`purpose`, and `by` when a member asked for it). `edited`: the files its edit tools
+   * changed, each with the `seq` of its tool card. Topics run the plan and report checks, follow-up answers,
+   * `lastAgentChange` (who asked: the newest person among `messages`, else the newest `by`) and "stalled" from this.
+   */
+  'agent.turn.finished': {
+    readonly sessionId: string;
+    readonly turnId: string;
+    readonly outcome: TurnOutcome;
+    readonly finalText?: string;
+    readonly stoppedBy?: UserRef;
+    readonly messages: readonly TurnMessage[];
+    readonly edited: readonly { readonly file: FileRef; readonly seq: number }[];
+  };
   'lock.changed': { readonly file: FileRef; readonly lock: LockInfo | null; readonly previous: LockInfo | null; readonly reason: LockChangeReason };
   'session.created': { readonly session: SessionInfo };
-  /** Any change of SessionInfo other than creation and exit (attach count, login state, size). */
+  /** Any change of SessionInfo other than creation and exit (a terminal's attach count or size; an agent session's status, responsible person, mode, title, …). */
   'session.updated': { readonly session: SessionInfo };
-  /** `reason` is also what SessionInfo.endReason carries to clients. */
+  /** A session ended for good (a terminal exited; an agent session is `ended`). `reason` is also SessionInfo.endReason. */
   'session.exited': { readonly session: SessionInfo; readonly reason: SessionEndReason };
+  /** Every change of a question (a vote, a comment, the decider, escalation, the answer, a withdrawal). `previous` null: it was just asked. */
+  'question.changed': { readonly question: Question; readonly previous: Question | null };
+  /** Every change of a permission request. The host's copy (with `path`). `previous` null: it was just raised. */
+  'permission.changed': { readonly request: PermissionRequest; readonly previous: PermissionRequest | null };
   'suggestion.changed': { readonly suggestion: Suggestion; readonly previous: Suggestion | null };
+  /** `previous` null: the topic was just created. The hub fan-out (`topic.updated`) is the topics module's. */
+  'topic.changed': { readonly topic: Topic; readonly previous: Topic | null };
+  /**
+   * The topic was deleted. `sessionIds`: every agent session it had. TopicService emits this FIRST (listeners can still
+   * map the sessions: the conversation and suggest modules drop their cards, the inbox its notes) and then calls
+   * `AgentSessions.forget(sessionIds)` itself; the sessions module does not listen.
+   */
+  'topic.removed': { readonly topicId: string; readonly sessionIds: readonly string[] };
+  'plan.changed': { readonly topicId: string; readonly plan: PlanInfo };
+  /** `previous` null: the first version of the report was registered. */
+  'report.changed': { readonly topicId: string; readonly itemId: string; readonly report: ReportSummary; readonly previous: ReportSummary | null };
   /** `worktree` null ⇒ removed. */
   'worktree.changed': { readonly worktreeId: string; readonly worktree: WorktreeInfo | null };
+  /** Every change of a merge request, drafts included (`draft`, `reviewed`, `topicId`, `itemId`). */
   'merge.changed': { readonly request: MergeRequest };
+  /** The attention facts of one source changed: the inbox asks that source's `attention()` again. */
+  'attention.changed': { readonly source: AttentionSource };
+  /** `AgentSessions.account()` changed. Emitted by sessions, which also sends `session.host` to everyone. */
+  'account.changed': { readonly account: AccountInfo };
+  /**
+   * The activity module recorded an entry (EVERY entry it records). Topics read hand edits from it, worktree
+   * `changes.byHand`. `renamedFrom`: with kind `file.rename`, the path the entry had before, relative to `file.root`
+   * (`file.path` is the new one): a rename of SPEC.md or PLAN.md away from its path, or into it, is a hand edit.
+   */
+  'activity.recorded': {
+    readonly entry: { readonly actor: Actor; readonly kind: string; readonly file?: FileRef; readonly at: number; readonly via?: 'bash'; readonly renamedFrom?: string };
+  };
+  /** The host's decision about a root's project-level Claude Code settings changed, or the files did. */
+  'trust.changed': { readonly root: RootRef; readonly state: ProjectSettingsState };
   /** stop() began: finish or abort work; channels are closed right after the listeners ran. */
   'daemon.stopping': { readonly reason: string };
   /**
@@ -308,10 +417,12 @@ export interface AuditInput {
    */
   readonly detail?: Readonly<Record<string, unknown>>;
   /**
-   * Top-level `detail` keys whose string values are kept whole up to SUGGESTION_TEXT_MAX_CHARS instead of being cut
-   * at 2,000 characters: the suggestion module lists `text` and `finalText` so R6.3 logs the content that reached the
-   * PTY. Never list a key that can carry file contents or secrets (the key-based redaction still applies first:
-   * `content`, `data`, `diff`, … are replaced whatever this says).
+   * Top-level `detail` keys that carry a FULL TEXT a person or an agent wrote (a message, a suggestion, a command, a
+   * note): the entry keeps the first AUDIT_FULL_TEXT_HEAD_CHARS characters under the key, the text's SHA-256 under
+   * `<key>Sha256` and its length under `<key>Chars`; the whole text goes to the full-text store (`audit-text`, 3 ×
+   * 32 MiB, keyed by that hash; AuditLog.fullText reads it back). So a member who loops suggestions cannot rotate
+   * role changes and permission decisions out of the core log. Never list a key that can carry file contents or
+   * secrets (the key-based redaction applies first: `content`, `data`, `diff`, … are replaced whatever this says).
    */
   readonly fullText?: readonly string[];
 }
@@ -335,8 +446,13 @@ export interface AuditLog {
   query(query?: AuditQuery): Promise<AuditEntry[]>;
   /** Live feed (admin.audit.entry). */
   subscribe(listener: (entry: AuditEntry) => void): Disposable;
+  /** The whole text an entry's `<key>Sha256` names, or null when the full-text store no longer holds it. */
+  fullText(sha256: string): Promise<string | null>;
   flush(): Promise<void>;
 }
+
+/** Characters of a full text an audit entry itself keeps (AuditInput.fullText). */
+export const AUDIT_FULL_TEXT_HEAD_CHARS = 1_024;
 
 // =====================================================================================================================
 // Hub: admitted connections, logical channels (resume), fan-out
@@ -390,9 +506,11 @@ export interface Recipient {
   readonly conn: ClientConnection | null;
 }
 
-export interface BroadcastOptions {
+export interface BroadcastOptions<T extends OutboundType = OutboundType> {
   /** Default 'interactive'. */
   readonly purpose?: ChannelPurpose;
+  /** What a recipient who is the HOST gets instead of `payload` (a permission request's absolute `path`). */
+  readonly hostPayload?: PayloadInputOf<T>;
   /** Recipients must also hold this capability (on top of the registry's receive rule, which always applies). */
   readonly capability?: Capability;
   /** Extra recipient filter (e.g. doc subscribers, attached viewers, suggestion parties). */
@@ -410,15 +528,22 @@ export interface Hub {
   onlineUserIds(): ReadonlySet<UserId>;
   /**
    * One d→c message to one recipient: a ClientConnection or a channelId. Interactive: sequenced on the logical
-   * channel and kept until acknowledged, so it is replayed after a resume (sent even while disconnected). Transfer:
-   * sent now or dropped. Refused (returns false, logged) when the recipient's CURRENT role may not receive the type
-   * (registry `mayReceive`): fan-out fails closed.
+   * channel and kept until acknowledged, so it is replayed after a resume (sent even while disconnected); a volatile
+   * type is sent now or not at all (see sendToChannels). Transfer: sent now or dropped. Refused (returns false,
+   * logged) when the recipient's CURRENT role may not receive the type (registry `mayReceive`): fan-out fails closed.
    */
   send<T extends OutboundType>(target: ClientConnection | string, type: T, payload: PayloadInputOf<T>): boolean;
   /** To every recipient of `userId` (interactive: including disconnected logical channels that can still resume). */
   sendToUser<T extends OutboundType>(userId: UserId, type: T, payload: PayloadInputOf<T>, options?: { readonly purpose?: ChannelPurpose }): number;
   /** To every recipient allowed to receive `type` and passing `options`. Returns the number of recipients. */
-  broadcast<T extends OutboundType>(type: T, payload: PayloadInputOf<T>, options?: BroadcastOptions): number;
+  broadcast<T extends OutboundType>(type: T, payload: PayloadInputOf<T>, options?: BroadcastOptions<T>): number;
+  /**
+   * To the given logical channels (the watchers of a session), each checked like send(). `hostPayload`: what a channel
+   * of the host gets instead. A VOLATILE type (registry `volatile`: session.delta) is never queued for a disconnected
+   * channel, is skipped while the host socket has more than VOLATILE_SKIP_BUFFERED_BYTES buffered, and travels
+   * unsequenced. Returns the number of channels it was sent to (or queued for).
+   */
+  sendToChannels<T extends OutboundType>(channelIds: Iterable<string>, type: T, payload: PayloadInputOf<T>, options?: { readonly hostPayload?: PayloadInputOf<T> }): number;
   /** channel.closed{reason} → close the channel → ask the relay to drop the socket (peer.kick). */
   close(target: ClientConnection | string, reason: ChannelClosedReason, message?: string): void;
   /** close() for every connection of a user and discard their logical channels (no resume after a kick). */
@@ -493,6 +618,16 @@ export interface DaemonStatus {
   readonly relayUrl: string | null;
   readonly switches: { readonly attributeBashEdits: boolean };
   readonly isGitRepo: boolean;
+  /**
+   * What `smurg status` shows about agents (ARCHITECTURE §8); each is absent while its module is not there or has
+   * nothing to say. `claude`: from the daemon's last check (absent: not checked yet).
+   */
+  readonly claude?: { readonly version: string | null; readonly verdict: 'verified' | 'unverified' | 'too-old' | 'unknown'; readonly login: LoginState };
+  readonly agents?: { readonly running: number; readonly waiting: number; readonly stalled: number; readonly idle: number };
+  readonly topics?: { readonly total: number; readonly paused: number };
+  readonly projectSettings?: ProjectSettingsState;
+  /** How many of the host's own Claude Code allow rules apply to agent sessions. */
+  readonly hostRules?: { readonly count: number };
 }
 
 /**
@@ -577,6 +712,12 @@ export interface RootInfo {
   readonly ownerUserId: UserId | null;
   readonly sharedLinks: readonly SharedLink[];
   readonly registeredAt: number;
+  /**
+   * The worktree of one work item of a topic. PathGuard then refuses EVERY write under `specs/<topicSlug>/` in this
+   * root through file.*, doc.* and uploads (`read-only`): the copy of the spec and plan is what the agent was started
+   * from, and the report file belongs to the agent.
+   */
+  readonly item?: { readonly topicId: string; readonly topicSlug: string; readonly itemId: string };
 }
 
 export interface RegisterWorktreeRootInput {
@@ -586,6 +727,8 @@ export interface RegisterWorktreeRootInput {
   readonly ownerUserId: UserId;
   /** Symlinks the WorktreeManager already created in `dir`, each pointing at `<main>/<mainPath>`. */
   readonly sharedLinks: readonly { readonly path: string; readonly mainPath: string }[];
+  /** An item worktree (RootInfo.item). */
+  readonly item?: { readonly topicId: string; readonly topicSlug: string; readonly itemId: string };
 }
 
 export interface RootRegistry {
@@ -670,9 +813,9 @@ export interface ResolvedPath {
   readonly exists: boolean;
   /** lstat of `realPath` at resolution time (null when it does not exist). With finalSymlink 'self': of the link. */
   readonly identity: FileIdentity | null;
-  /** Inside a shared read-only link. */
+  /** Inside a shared read-only link, or under `specs/<slug>/` of an item worktree. */
   readonly readOnly: boolean;
-  /** A host-only path (lexically or after resolution). */
+  /** A host-only path (lexically, after resolution, or a file the trust gate records: ProjectTrust.protectedPaths). */
   readonly hostOnly: boolean;
   /** Reached through a registered shared link: the same object's FileRef in the main root. */
   readonly mainRef: FileRef | null;
@@ -736,8 +879,18 @@ export interface MemberDirectory {
   toMemberWithDevices(record: MemberRecord): MemberWithDevices;
   /** Principal of an active member (role as of now), or null. */
   principalOf(userId: UserId): Principal | null;
-  /** Principal of an agent session owned by `ownerUserId` (actor `Claude (owner)`). */
-  agentPrincipal(sessionId: string, ownerUserId: UserId): Principal | null;
+  /**
+   * Principal of an agent session whose daemon-internal owner is `ownerUserId`. `pathRights` (the session's, fixed at
+   * its creation: AgentSessionFacts / HookSessionRegistration) decides host-only paths, NOT the owner's role: with
+   * `'member'` the principal's role is never `host` (it is `agent` when the owner is the host, as after a handover),
+   * so PathGuard, the lock path and every other consumer refuse host-only writes; with `'host'` it is the owner's
+   * role. `agentName`: the session's agent name (HookSessionRegistration.agentName); default `Claude (<owner>)`.
+   */
+  agentPrincipal(sessionId: string, ownerUserId: UserId, options: { readonly agentName?: string; readonly pathRights: 'member' | 'host' }): Principal | null;
+  /** The active members with their CURRENT roles: the input of routing.ts (deciderOf, reviewersOf, …). */
+  routing(): RoutingMember[];
+  /** `{ userId, displayName }` of a member (any status), or null. */
+  userRef(userId: UserId): UserRef | null;
   device(deviceId: string): DeviceRecord | null;
   deviceByKey(publicKey: Uint8Array): DeviceRecord | null;
   devicesOf(userId: UserId): DeviceRecord[];
@@ -813,8 +966,9 @@ export interface PowerService {
 // Feature services (implemented by the feature engineers; stubs until then)
 // =====================================================================================================================
 
-type Req<T extends RequestType> = PayloadOf<T>;
-type Res<T extends RequestType> = ResultInputOf<T>;
+/** The validated payload a handler receives, and the `.ok` payload it returns. */
+export type Req<T extends RequestType> = PayloadOf<T>;
+export type Res<T extends RequestType> = ResultInputOf<T>;
 
 /** file.* on the interactive channel (R1, R7) plus the watcher. Module: src/files/. */
 export interface FileService {
@@ -1009,61 +1163,521 @@ export interface SessionAttachStart {
   afterReply(): void;
 }
 
+// =====================================================================================================================
+// Rates (ARCHITECTURE §5.9 "Rates"): per-member token buckets. Implemented by daemon-core (core/rates.ts).
+// =====================================================================================================================
+
+/** The registry's buckets (taken by the Router per message type, `mention` by handlers) plus an agent's `notify_member`. */
+export type RateBucketName = RateBucket | 'agent-notify';
+
+export interface RateLimiter {
+  /**
+   * Takes `count` tokens (default 1) of `bucket` for `key`: a user id, or a session id for `agent-notify`. False when
+   * the bucket does not hold that many (nothing is taken then). Buckets refill continuously to their per-minute size.
+   */
+  take(bucket: RateBucketName, key: string, count?: number): boolean;
+  /** take(), or throws SmurgError `rate_limited`. */
+  require(bucket: RateBucketName, key: string, count?: number): void;
+}
+
+// =====================================================================================================================
+// Agent sessions: shared types (ARCHITECTURE §7.2). Daemon-internal; nothing here is on the wire as such.
+// =====================================================================================================================
+
+export type { CardRef, MessageOrigin, StalledBy };
 /**
- * PTY sessions (R4; ARCHITECTURE §7.6, §11 D-15). Module: src/sessions/. Every session runs like the host's own (the
- * host's OS user, unsandboxed, the host's environment and Claude Code login), whoever opened it; its owner is the
- * member who opened it. The core calls killAllForUser itself on kick, leave and a demotion below Agent access (and
- * awaits it), so the session manager does not need to act on those events; it listens to channel.discarded (detach
- * viewers keyed by channelId) and daemon.stopping.
+ * One message a turn took (`agent.turn.finished.messages`). `person`: `from` wrote it (for an accepted suggestion
+ * its author, with `suggestionId`). `smurg`: `purpose`, and `by` when a member asked for it.
+ */
+export interface TurnMessage {
+  readonly messageId: string;
+  readonly kind: 'person' | 'smurg';
+  readonly origin?: MessageOrigin;
+  readonly from?: UserRef;
+  readonly by?: UserRef;
+  readonly purpose?: SmurgPurpose;
+  readonly suggestionId?: string;
+}
+/** The rows of the tool gate that deny (ARCHITECTURE §7.7). */
+export type GateRow = 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7';
+export type AttentionSource = 'topics' | 'sessions' | 'trust' | 'host-rules';
+
+/**
+ * What goes to an agent. The runner allocates the message id, appends the `message` / `smurg` event, and writes
+ * header + text to the process (or queues it while there is no process).
+ *  - `person`: `text` went through `agentText()` already (the runner applies it once more: it is idempotent);
+ *    `cleaned` is what that reported. With `suggestion` the header says who accepted it.
+ *  - `smurg`: `text` is built by topics/prompts.ts from fixed sentences; `by`: the member who asked, when one did.
+ */
+export type OutboundMessage =
+  | {
+      readonly kind: 'person';
+      readonly from: Principal;
+      readonly text: string;
+      readonly cleaned: boolean;
+      readonly origin: MessageOrigin;
+      readonly mentions?: readonly UserId[];
+      readonly suggestion?: { readonly id: string; readonly acceptedBy: UserRef; readonly modified: boolean };
+    }
+  | { readonly kind: 'smurg'; readonly purpose: SmurgPurpose; readonly text: string; readonly by?: UserRef };
+
+/** What another module may append to a conversation (no `seq`, no `at`): lines, notices, card and pointer events. */
+export type AppendableEvent = Extract<ConversationEventInput, { kind: 'line' | 'notice' | 'card' | 'pointer' }>;
+
+/** One page of a conversation. `cardRefs`: the cards these events point to. `bytes`: encodedSize of `events`. */
+export interface EventsPage {
+  readonly events: ConversationEvent[];
+  /** `seq` of the first event (0: the page is empty). */
+  readonly firstSeq: number;
+  /** `seq` the next live event will have. */
+  readonly nextSeq: number;
+  /**
+   * Events exist before the first event of the page / after its last. For an EMPTY page: asked with `haveSeq` or
+   * `afterSeq`, `hasEarlier` says events exist at or before it and `hasMore` is false; asked with `beforeSeq`,
+   * `hasMore` says events exist at or after it and `hasEarlier` is false.
+   */
+  readonly hasEarlier: boolean;
+  readonly hasMore: boolean;
+  readonly cardRefs: CardRef[];
+  readonly bytes: number;
+}
+
+export interface WatchStart extends EventsPage {
+  readonly session: AgentSession;
+  readonly streaming: StreamingBlock[];
+  /** Marks the channel live after the `.ok` went out: no gap, no duplicate. */
+  afterReply(): void;
+}
+
+/** The facts of an agent session other modules need. */
+export interface AgentSessionFacts {
+  readonly sessionId: string;
+  readonly purpose: AgentPurpose;
+  readonly topicId?: string;
+  readonly itemId?: string;
+  readonly attempt: number;
+  readonly root: RootRef;
+  readonly worktreeId?: string;
+  readonly openedBy: UserRef;
+  /** The daemon-internal owner: whose identity the agent's file locks use; starts as the opener, may pass to the host. */
+  readonly ownerUserId: UserId;
+  /** Fixed at creation; never raised by a handover. */
+  readonly pathRights: 'member' | 'host';
+  /** The opener / starter until cleared for good (routing.ts `deciderOf`). */
+  readonly fallbackDecider: UserId | null;
+  /** Who loosened the permission mode from its default, if anyone. */
+  readonly modeChangedBy?: UserId;
+  readonly hasProcess: boolean;
+}
+
+/**
+ * A request an agent raised on its own pipe (`can_use_tool`). `id` is what answerQuestion / decidePermission take: the
+ * RUNNER allocates it (Claude Code's own request id never leaves the runner), unique in the workspace across
+ * sessions and across restarts of the daemon, so the conversation module may use it as the card's id.
  *
- * Launch inputs come from ctx.config.sessions (hostHome, claudePath, claudeMinVersion, selfCommand) and the hook
- * socket path from ctx.config.runPaths.hook; nothing reads os.homedir() for them.
+ * `question`: the runner GUARANTEES that `parts` passes `questionPartsSchema` (1 to 4 parts, each within the wire's
+ * limits, their texts distinct). An AskUserQuestion that does not is refused by the runner itself with a fixed English
+ * sentence asking the agent to word it differently: no bus event, no card. Nothing is ever clipped to make it pass
+ * (the answer is keyed by the question texts and names the labels).
  *
- * End of life (contract review C17):
- *  - session.end {keepWorktree: false} is the ONLY path that removes the session's worktree with it;
- *  - a natural exit (/exit, crash), session.end without keepWorktree, admin.session.terminate, a kick and stopAll()
- *    all KEEP the worktree (WorktreeInfo.kept = true); the UI offers "Delete worktree" through worktree.remove (R9.4);
- *  - stopAll() (`smurg stop`, ARCHITECTURE §8) ends every session;
- *  - a disconnect keeps sessions (R4); an explicit channel.leave ends the sessions the member opened.
+ * `permission`: no Claude Code input shape has to be read outside the runner. `view` is the ToolView of this call,
+ * exactly what the tool card of the same call shows (`verb`; `target`: the command, the URL, the path relative to the
+ * root; `file`; `outside`): `permissionWhat(view)` gives `PermissionRequest.what`. `absPath`: the absolute path the
+ * tool names, when it names one (the host's copy of an `outside` request, the host-only check). `edit`: what an edit
+ * tool would write, normalised (absent for a tool that edits no file, and for an edit the runner cannot normalise,
+ * e.g. NotebookEdit: the card then shows the whole input). `input`: Claude Code's raw input, for the whole-input card
+ * (`PermissionRequest.input`, pretty-printed) only.
+ */
+export type AgentRequest =
+  | { readonly id: string; readonly kind: 'question'; readonly toolUseId: string; readonly parts: Question['parts'] }
+  | {
+      readonly id: string;
+      readonly kind: 'permission';
+      readonly toolUseId: string;
+      readonly tool: string;
+      readonly view: ToolView;
+      readonly absPath?: string;
+      readonly edit?:
+        | { readonly kind: 'replace'; readonly replacements: readonly { readonly oldText: string; readonly newText: string; readonly all: boolean }[] }
+        | { readonly kind: 'write'; readonly text: string };
+      readonly input: unknown;
+      /** Claude Code's own English reason and its type (`safetyCheck`, …). */
+      readonly reason?: string;
+      readonly reasonType?: string;
+      /** The absolute path Claude Code named as blocked, when it did. */
+      readonly blockedPath?: string;
+      /** The rule Claude Code suggests (`{ tool: 'Bash', pattern: 'pnpm test *' }`). Never echoed back as it came. */
+      readonly suggestedRule?: { readonly tool: string; readonly pattern: string };
+    };
+
+/**
+ * Work that stopped and has no card. `id` is stable: the inbox key is `attention:<subject>:<id>`. `recipients`: whose
+ * inbox holds it. The inbox copies these fields into the item as they are (INBOX_KIND_FIELDS `attention`):
+ *  - `item`: with `itemId`, the item's number and title (the row names the item from it);
+ *  - `excerpt`: the topic's name for `plan-paused` and `discussion-lost`, '' otherwise; never a sentence;
+ *  - `count`: the sessions an account problem stops; the items of a paused plan; the host's rules found;
+ *  - `target`: the session or the plan for the item subjects and `plan-paused`, the topic's discussion session for
+ *    `discussion-lost`, and for the host's subjects a section of the console (CONSOLE_SECTIONS): `account` and
+ *    `storage` → `{ kind: 'console', section: 'sessions' }`, `project-settings` → `'claude-config'`, `host-rules` →
+ *    `'host-rules'`.
+ */
+export interface AttentionFact {
+  readonly subject: AttentionSubject;
+  readonly id: string;
+  readonly at: number;
+  readonly recipients: readonly UserId[];
+  readonly topicId?: string;
+  readonly sessionId?: string;
+  readonly itemId?: string;
+  readonly item?: { readonly number: number; readonly title: string };
+  readonly target: ColumnTarget;
+  readonly count?: number;
+  readonly excerpt: string;
+}
+
+/** Who calls an MCP tool: known from the session's token, never from an argument. */
+export interface McpToolContext {
+  readonly sessionId: string;
+  readonly purpose: AgentPurpose;
+  readonly topic?: { readonly id: string; readonly slug: string };
+  readonly itemId?: string;
+  readonly root: RootRef;
+  readonly agent: Actor;
+}
+
+// =====================================================================================================================
+// AgentSessions (module sessions/, P1): Claude Code in structured mode, one process per live session
+// =====================================================================================================================
+
+export interface AgentStartInput {
+  readonly purpose: AgentPurpose;
+  /** A topic's session: the topic. `name` becomes `AgentSession.topicName` (kept current with `setLabels`). */
+  readonly topic?: { readonly id: string; readonly slug: string; readonly name: string };
+  /** A work item's session: `number` and `title` become `AgentSession.item` (kept current with `setLabels`). */
+  readonly item?: { readonly id: string; readonly number: number; readonly title: string; readonly attempt: number };
+  /** The first owner and the fallback decider; `pathRights` is `host` when this is the host, else `member`. */
+  readonly openedBy: Principal;
+  readonly responsible: UserRef | null;
+  /**
+   * A title a PERSON typed (`session.create.title`); never passed for a topic's session. Without it a free session
+   * with a `firstMessage` of a person gets `titleFromFirstMessage(text)`; any other session has no title and every
+   * client names it with `sessionTitleRef(session)`.
+   */
+  readonly title?: string;
+  /** The caller acquired the worktree. */
+  readonly workspace: { readonly mode: 'main' } | { readonly mode: 'worktree'; readonly worktreeId: string };
+  /** What the session starts with: `defaultPermissionMode(purpose, root)` unless the caller has a reason. */
+  readonly mode: PermissionMode;
+  /** Called once with the session's tag (and branch); the result is stored and used, byte for byte, at every process start. */
+  rolePrompt(facts: { readonly smurgTag: string; readonly branch?: string }): string;
+  /**
+   * The system line that opens the conversation (its first event, before `firstMessage`), worded by the caller:
+   * `conversation.started.free` (SessionManager.create), `conversation.started.discussion`,
+   * `conversation.discussion.restarted`, `conversation.started.item`, `conversation.retry` (TopicService / PlanService).
+   */
+  readonly opening?: MessageRef;
+  readonly firstMessage?: OutboundMessage;
+}
+
+/**
+ * The agent runtime (ARCHITECTURE §7.6). WHO WRITES WHICH LINE AND AUDIT ENTRY is part of each method's contract
+ * below, so no line is missing or written twice; the fakes append the same lines. The runner itself also writes, with
+ * no caller: `conversation.interrupted.restart`, `session.resume.lost`, `session.projectSettings.untrusted`, and every
+ * `notice.*` (among them the login notices after `agent.ready`).
+ *
+ * The agent's display name (locks, presence, the activity feed, the audit log) is
+ * `agentDisplayName(agentSafeName(label))`, the label being the item's title, else the topic's name, else the
+ * opener's display name; `setLabels` refreshes it.
+ */
+export interface AgentSessions {
+  /**
+   * Record, hook registration, launch files, process; then `opening` (a line) and `firstMessage`. Refuses: Claude
+   * Code older than the floor (`session.claude.tooOld`), logged out (`session.claude.notLoggedIn`), and its OWN two
+   * limits: `maxAgentSessions` (`session.limit.agents`) and `maxAgentProcesses` (`session.limit.processes`, after
+   * parking the longest-idle session). It does NOT know the host setting `maxLiveAgents`: that one is the
+   * scheduler's (PlanService), which counts the item sessions whose `facts().hasProcess` is true and starts an item
+   * only below it. A person's message always gets a process. Emits session.created, agent.process `started`.
+   */
+  start(input: AgentStartInput): Promise<AgentSession>;
+  get(sessionId: string): AgentSession | null;
+  /** Agent sessions, oldest first: those of topics that are not archived and free sessions; with `topicId` every session of that topic. */
+  list(filter?: { readonly topicId?: string }): AgentSession[];
+  facts(sessionId: string): AgentSessionFacts | null;
+
+  /**
+   * Appends the `message` / `smurg` event (and its `delivery` events) and audits `session.message` (a person's, with
+   * the full text) / `smurg.message`. Refused once the session ended (`conflict`, `session.ended.noMessages`, reason
+   * `ended`). A `failed` or parked session is started by it (agent.process `started`). A line that explains a
+   * `smurg` message (`conversation.specRequested`, …) is the caller's, appended before it.
+   */
+  send(sessionId: string, message: OutboundMessage): Promise<{ readonly messageId: string; readonly seq: number }>;
+  /** Drops messages of that member that are still queued in the runner (no process yet): a `delivery` `cancelled` each. */
+  cancelQueued(fromUserId: UserId): { readonly sessionId: string; readonly messageIds: readonly string[] }[];
+  /** Sessions whose running turn holds a message of that member that Claude Code has not started yet. */
+  holdingUndelivered(fromUserId: UserId): string[];
+  /**
+   * "Stop". By a person: the line `conversation.stopped`, audit `session.interrupt`; the turn ends `interrupted`
+   * with `stoppedBy`, and the open requests are withdrawn with `by` (agent.request.withdrawn). By the system (a kick):
+   * no line: the teardown writes `conversation.owner.handover.kicked`.
+   */
+  interrupt(sessionId: string, by: Actor): Promise<void>;
+  /**
+   * `failed` → starting (anything else: `conflict`, `session.retry.notFailed`, reason `not-failed`). Throws
+   * `forbidden` `session.retry.hostOnly` (reason `host-only`) after three failed starts when `by` is not the host.
+   * The line `conversation.retry.resumed`, audit `session.retry`.
+   */
+  retry(sessionId: string, by: Principal): Promise<AgentSession>;
+
+  /**
+   * Answers of the conversation module to requests it got through `agent.request`. `answers` maps each question text
+   * to the chosen label(s) or the free text, `notes` each question text to the note the daemon composed. Throw
+   * `conflict` when the request was withdrawn.
+   */
+  answerQuestion(sessionId: string, requestId: string, answer: { readonly answers: Readonly<Record<string, string>>; readonly notes: Readonly<Record<string, string>> }): void;
+  /**
+   * `sessionRule`: also remember this rule in the running process (destination `session`). `{ allow: false, message }`
+   * refuses a request of EITHER kind (a question too: the agent reads `message` as the tool's refusal). Throws
+   * `conflict` when the request was withdrawn.
+   */
+  decidePermission(
+    sessionId: string,
+    requestId: string,
+    decision: { readonly allow: true; readonly sessionRule?: { readonly tool: string; readonly pattern: string } } | { readonly allow: false; readonly message: string },
+  ): void;
+
+  /**
+   * By a person (`session.mode.set`): the line `conversation.mode.changed`, audit `session.mode`; remembers them as
+   * `modeChangedBy` while the mode is not the default. By the system (ConversationService.memberRemoved putting it
+   * back to `defaultPermissionMode`): the line `conversation.mode.reset` naming who had changed it; `modeChangedBy`
+   * is cleared. Emits session.updated.
+   */
+  setMode(sessionId: string, mode: PermissionMode, by: Actor): Promise<void>;
+  /**
+   * Replaces the session's own remembered rules (a topic's rules are read from TopicService.rules at each process
+   * start). For each rule that WENT: by a person the line `conversation.rule.removed` and audit `session.rule.remove`;
+   * by the system `conversation.rule.removed.member`, naming who had added it; then the process restarts at its next
+   * idle moment (as `restartProcess(…, 'rules')`). For a rule that was ADDED: nothing: the caller (the conversation
+   * module, on `allow-always`) writes `conversation.rule.added` / `.added.topic`. Emits session.updated (`ruleCount`).
+   */
+  setRules(sessionId: string, rules: readonly RememberedRule[], by: Actor): Promise<void>;
+  /** The session's own remembered rules. */
+  rules(sessionId: string): readonly RememberedRule[];
+  /**
+   * THE place the fact lives once a session exists. By a person (`session.responsible.set`, `plan.assign`): the line
+   * `conversation.responsible.changed` / `.cleared`, audit `session.responsible`. By the system (the teardown): no
+   * line: SessionManager.teardownUser writes `conversation.responsible.fallback`. Emits session.updated.
+   */
+  setResponsible(sessionId: string, responsible: UserRef | null, by: Actor): void;
+  /** Clears `fallbackDecider` wherever it is that member, for good. Returns the sessions it changed. No line. */
+  clearFallbackDecider(userId: UserId): string[];
+  /** Handover: the locks' identity changes; `pathRights` never does. No line (teardownUser writes it). */
+  setOwner(sessionId: string, ownerUserId: UserId, by: Actor): void;
+  /**
+   * Topics tell an execution session what its item's state is; the wire status `done` / `stalled` derives from it.
+   * `stalled`: all four causes travel to the wire (`WorkItem.stalledBy`).
+   */
+  setItemState(sessionId: string, state: { readonly reportRegistered: boolean; readonly stalled?: StalledBy }): void;
+  /** `AgentSession.title` by `session.rename` only (a person's words). No line. Emits session.updated. */
+  setTitle(sessionId: string, title: string, by: Actor): void;
+  /**
+   * `AgentSession.topicName` and `AgentSession.item` (what clients name a topic's session with), and the agent's
+   * display name with them. TopicService calls it for every session of a renamed topic; PlanService when a re-parse
+   * changed an item's number or title. No line. Emits session.updated.
+   */
+  setLabels(sessionId: string, labels: { readonly topicName?: string; readonly item?: { readonly number: number; readonly title: string } }): void;
+
+  /**
+   * Ends the session for good. By a person: the line `conversation.ended`. Open requests are withdrawn (`ended`, with
+   * `by`); agent.process `ended`; session.exited. It audits nothing: SessionManager.end / terminate audit
+   * `session.end` / `session.terminate`, and a module that ends sessions itself has its own entry (`topic.archive`,
+   * `topic.discussion.restart`, a merge). `keepWorktree` matters for a FREE session only (`false`: its worktree goes
+   * with it). The worktree of a work item is never released by its session's end: PlanService calls
+   * `WorktreeManager.releaseItem` (merged and reviewed, or archived), so callers pass `true` for a topic's session.
+   */
+  end(sessionId: string, input: { readonly by: Actor; readonly reason: SessionEndReason; readonly keepWorktree: boolean }): Promise<void>;
+  /**
+   * Park now when idle, else at the next idle moment (never with an open request); the next message resumes with
+   * fresh launch files. Why: `rules` (a remembered rule went), `project-settings` (the host decided about the root),
+   * `host` (a host setting that shapes the launch changed: `agentMcp`), `asked` (`session.restart`: a member pressed
+   * "Restart this session's agent now"; the handler audits `session.restart`), `slot` (the scheduler needs the
+   * process slot of an idle item session). Writes the line `conversation.agent.restarting`, except for `slot`
+   * (parking is invisible). Emits agent.process `parked` when the process is gone.
+   */
+  restartProcess(sessionId: string, reason: 'rules' | 'project-settings' | 'host' | 'asked' | 'slot'): Promise<void>;
+  /** Interrupt and park every session of a root (its project settings changed); the notice `session.projectSettings.changed` in each. */
+  parkRoot(root: RootRef, reason: 'project-settings-changed'): Promise<void>;
+
+  /** Appends a line, a notice, a card or a pointer event; returns its `seq`. */
+  append(sessionId: string, event: AppendableEvent): number;
+  /** Replaces one event by the notice `conversation.redacted` under the same `seq`, on disk and for watchers (the admin handler audits `transcript.redact`). */
+  redact(sessionId: string, seq: number, by: Principal): Promise<void>;
+  /**
+   * One page for `session.watch`: the events after `haveSeq`; the NEWEST page without `haveSeq` or when it is more than
+   * EVENTS_CATCH_UP_MAX events behind.
+   */
+  watch(input: Req<'session.watch'>, conn: ClientConnection): Promise<WatchStart>;
+  unwatch(sessionId: string, channelId: string): void;
+  history(input: Req<'session.history'>): Promise<EventsPage>;
+  /**
+   * A card update to the session's watching channels. `hostPayload`: what the host gets instead (a request's `path`).
+   * (`session.delta` is the runner's own: a delta the hub could not send to any channel is sent again with the next
+   * one, from the same offset.)
+   */
+  toWatchers<T extends OutboundType>(sessionId: string, type: T, payload: PayloadInputOf<T>, hostPayload?: PayloadInputOf<T>): void;
+  /** The user ids of the members whose channels watch the session right now. */
+  watchers(sessionId: string): UserId[];
+  /** A private directory of the session next to its transcript (the conversation module keeps cards.json there). */
+  storageDir(sessionId: string): Promise<string>;
+  /**
+   * Removes the records and transcripts of sessions for good. Called by TopicService.delete AFTER it emitted
+   * `topic.removed { topicId, sessionIds }`; nothing else calls it and the sessions module does not listen.
+   */
+  forget(sessionIds: readonly string[]): Promise<void>;
+
+  /**
+   * One account state per workspace. `sessions`: how many it stops. A change emits `account.changed` and
+   * `attention.changed { source: 'sessions' }`, and the sessions module sends `session.host` to everyone.
+   */
+  account(): AccountInfo;
+  /** Claude Code on the host as of the daemon's last check (`smurg status`); null: not checked yet. */
+  claude(): NonNullable<DaemonStatus['claude']> | null;
+  /** Subjects `account`, `storage` (both open the console's `sessions` section). */
+  attention(): AttentionFact[];
+}
+
+/**
+ * The trust gate for a root's project-level Claude Code settings (sessions/agent/project-settings.ts, P1). A change of
+ * a root's state emits `trust.changed`; for the MAIN root the sessions module also sends `session.host` to everyone
+ * (`HostState.mainProjectSettings`).
+ */
+export interface ProjectTrust {
+  state(root: RootRef): ProjectSettingsState;
+  /** For the session.create audit entry. */
+  hashes(root: RootRef): { readonly path: string; readonly hash: string }[];
+  /** One list-rule page of roots after `after` (`rootRefKey`). */
+  describe(input: Req<'admin.claudeConfig.get'>): Promise<Res<'admin.claudeConfig.get'>>;
+  /** Throws `conflict` claudeConfig.changed / `bad_request` claudeConfig.ackNeeded. Audits `claude-config.decide`. */
+  decide(input: Req<'admin.claudeConfig.decide'>, by: Principal): Promise<void>;
+  /** Root-relative paths that are host-only for writes while the root's content is trusted (the recorded scripts). */
+  protectedPaths(root: RootRef): ReadonlySet<string>;
+  /** Subject `project-settings`. */
+  attention(): AttentionFact[];
+}
+
+/**
+ * The host's own Claude Code allow rules (sessions/agent/host-rules.ts, P1). They APPLY to agent sessions (every
+ * session runs as the host): smurg does not ask for what they already allow, and never mirrors them. The host is told
+ * once which rules apply (information, no decision).
+ */
+export interface HostRules {
+  /** `admin.hostRules.get`: the rules as agent sessions last reported them, masked. */
+  view(): Res<'admin.hostRules.get'>;
+  /** `admin.hostRules.seen`: the host has the list on screen; the `host-rules` attention item leaves. */
+  markSeen(by: Principal): Promise<void>;
+  /** The complete list as rule strings, masked (`session.rules.get` for members with session.drive); [] when none. */
+  applied(): readonly string[];
+  /** Subject `host-rules`: rules were found and the host has not seen them. */
+  attention(): AttentionFact[];
+}
+
+// =====================================================================================================================
+// Terminal sessions and the registry of both kinds (module sessions/, P1)
+// =====================================================================================================================
+
+/** What teardownUser did, for the `session.handover` audit entries the core writes. */
+export interface UserTeardown {
+  /** Terminals and free sessions that ended. */
+  readonly ended: readonly string[];
+  /** Topic sessions that passed to the host; `stopped`: its turn was interrupted and its open cards withdrawn (a kick). */
+  readonly handedOver: readonly { readonly sessionId: string; readonly topicId: string; readonly stopped: boolean }[];
+  /** Sessions whose responsible person or fallback decider was cleared. */
+  readonly cleared: readonly string[];
+}
+
+/**
+ * The registry of sessions of BOTH kinds (R4; ARCHITECTURE §7.6, §11 D-15). Module: src/sessions/. Every session runs
+ * like the host's own (the host's OS user, unsandboxed, the host's environment and Claude Code login), whoever opened
+ * it. Terminals are PTYs (attach / input / resize); agent sessions are conversations (AgentSessions).
+ *
+ * End of life:
+ *  - session.end {keepWorktree: false} of a terminal or a FREE agent session is the ONLY path that removes the
+ *    session's worktree with it. `keepWorktree` does not apply to a work item's session: its worktree is the item's,
+ *    released only by PlanService (`WorktreeManager.releaseItem`: merged and reviewed, or archived); the registry
+ *    passes `keepWorktree: true` to AgentSessions.end for every topic session whatever the request said;
+ *  - a terminal's natural exit, session.end without keepWorktree, admin.session.terminate and stopAll() KEEP it;
+ *  - stopAll() (`smurg stop`) ends every terminal and every agent PROCESS; agent session records stay (idle);
+ *  - a disconnect keeps sessions (R4); what a kick, a leave and a demotion do is teardownUser.
  */
 export interface SessionManager {
-  /** `session.create` (host, Agent access): the caller becomes the session's owner. */
+  /**
+   * `session.create`: a terminal, or a free agent session (through AgentSessions.start with the opening line
+   * `conversation.started.free`, the mode `defaultPermissionMode('free', root)` and the caller's `title`). The caller
+   * is `openedBy`. Audits `session.create`.
+   */
   create(input: Req<'session.create'>, conn: ClientConnection, principal: Principal): Promise<SessionInfo>;
-  /** Every session, oldest first. */
-  list(): SessionInfo[];
+  /**
+   * Oldest first (by `createdAt`, then id). Without `topicId`: terminals; agent sessions of topics that are not
+   * archived; free sessions. With it: every agent session of that topic, archived or not. Everything, unpaged: the
+   * `session.list` handler applies THE list rule (`takeWithinBytes(…, LIST_REPLY_MAX_BYTES, { atLeastOne: true,
+   * maxItems: LIST_MAX_ITEMS })`, `after`, `hasMore`).
+   */
+  list(filter?: { readonly topicId?: string }): SessionInfo[];
+  /** Any session, also those of archived topics. */
   get(sessionId: string): SessionInfo | null;
+  /** Terminals only (`bad_request` reason `not-a-terminal` otherwise). */
   attach(input: Req<'session.attach'>, conn: ClientConnection, principal: Principal): Promise<SessionAttachStart>;
   /** Viewers are keyed by the logical channel (conn.channelId), not the socket: an attach survives a resume. */
   detach(sessionId: string, channelId: string): void;
-  /** `session.drive` (host, Agent access), any session (throws AuthorizationError otherwise). */
+  /** `session.drive`, any terminal. */
   input(input: PayloadOf<'exec.input'>, conn: ClientConnection, principal: Principal): void;
-  /** Owner only (resize policy `owner`). */
+  /** The member who opened the terminal only (resize policy `owner`). */
   resize(input: PayloadOf<'exec.resize'>, conn: ClientConnection, principal: Principal): void;
-  /** Owner only. */
+  /** routing.ts `mayEndSession`; a discussion: `session.end.discussion`. */
   end(input: Req<'session.end'>, principal: Principal): Promise<void>;
   /** admin.session.terminate: any session, audited `session.terminate`. */
   terminate(sessionId: string, by: Principal): Promise<void>;
-  /** Ends every session `userId` opened (kick, leave, demotion), each audited `session.terminate` by the system. */
-  killAllForUser(userId: UserId, reason: 'kicked' | 'left' | 'role-changed'): Promise<void>;
-  /** `session.drive`, any session. */
-  loginStatus(sessionId: string, principal: Principal): Promise<LoginState>;
   /**
-   * The ONLY function that writes suggestion text into a PTY (R6): bracketed paste + Enter. Called by
-   * SuggestionService.accept after its checks (`session.drive`, pending); there is no auto-accept path.
+   * A member was kicked, left, or lost a role (ARCHITECTURE §3 "When a member goes"). Decides per session:
+   *  - their terminals and free sessions END (when `session.create` is gone: kicked, left, below Agent access);
+   *  - their topic sessions pass to the host (AgentSessions.setOwner, HookServer.reassignSession, and for a work
+   *    item's session WorktreeManager.setOwner of its worktree; the line `conversation.owner.handover`), STOPPED
+   *    first when they were kicked (AgentSessions.interrupt by the system; the line `…handover.kicked`). `pathRights`
+   *    is never raised;
+   *  - wherever they are the responsible person or the fallback decider that is cleared, for good (kicked, left,
+   *    or now a Viewer): AgentSessions.setResponsible(null, system) / clearFallbackDecider, ONE line
+   *    `conversation.responsible.fallback` per session, audit `responsible.fallback`.
+   * The `session.handover` audit entries are the core's. Called by the core only (admin/teardown.ts), after
+   * ConversationService.memberRemoved and TopicService.memberRemoved.
    */
-  pasteSuggestion(sessionId: string, text: string, acceptedBy: Principal): void;
-  /** Actor of the session's agent (`Claude (owner)`), or null for terminals / unknown sessions. */
+  teardownUser(userId: UserId, change: MemberChange, to?: Role): Promise<UserTeardown>;
+  /** Agent sessions: `claude auth status --json` in the session's environment. */
+  loginStatus(sessionId: string, principal: Principal): Promise<LoginState>;
+  /** Actor of the session's agent (`Claude (<label>)`), or null for terminals / unknown sessions. */
   agentActor(sessionId: string): Actor | null;
-  /** stop(): end every session (daemon shutdown, `smurg stop`). */
+  /** stop(): end every terminal and every agent process (daemon shutdown, `smurg stop`). */
   stopAll(): Promise<void>;
 }
 
+/** How a member went (the bus events `member.kicked` / `member.left` / `member.role-changed`). */
+export type MemberChange = 'kicked' | 'left' | 'role-changed';
+
+// =====================================================================================================================
+// Hook + MCP socket (module hooks/, P1; the MCP answers in hooks/mcp-tools.ts are P4's)
+// =====================================================================================================================
+
 export interface HookSessionRegistration {
   readonly sessionId: string;
+  /** The session's daemon-internal owner (whose locks the agent's are). */
   readonly ownerUserId: UserId;
-  /** `Claude (owner)` */
+  /** `agentDisplayName(label)`. */
   readonly agentName: string;
   readonly root: RootRef;
+  readonly purpose: AgentPurpose;
+  readonly topic?: { readonly id: string; readonly slug: string };
+  readonly itemId?: string;
+  readonly pathRights: 'member' | 'host';
+  /** The profile's `--tools` list: the gate refuses anything else that is not `mcp__smurg__*`. */
+  readonly tools: readonly string[];
 }
 
 export interface HookSessionCredentials {
@@ -1072,13 +1686,31 @@ export interface HookSessionCredentials {
   readonly env: Readonly<Record<string, string>>;
 }
 
+/** What the sessions module asks the hooks module to write for one process start (ARCHITECTURE §7.6 "Profiles"). */
+export interface LaunchProfile {
+  /** Claude Code's own mode. A session in the main workspace is never `acceptEdits`. */
+  readonly mode: 'default' | 'acceptEdits';
+  readonly tools: readonly string[];
+  /** Rules for `permissions.allow` / `ask` / `deny`, one string per element (never parsed as a list). */
+  readonly allow: readonly string[];
+  readonly ask: readonly string[];
+  readonly deny: readonly string[];
+  /** `--strict-mcp-config`: only smurg's own MCP server exists. */
+  readonly strictMcp: boolean;
+  /** `user`: `--setting-sources user` (the root's project settings are not trusted). */
+  readonly settingSources: 'all' | 'user';
+  /** The exact bytes of role.md. */
+  readonly rolePrompt: string;
+}
+
 /** The daemon-owned launch files of one agent session (ARCHITECTURE §7.6 "Launch"). */
 export interface SessionLaunchFiles {
   /** `<stateDir>/sessions/<workspace key>/<hex(sessionId)>` (0700). */
   readonly dir: string;
   readonly settingsPath: string;
   readonly mcpConfigPath: string;
-  /** `--settings <…> --mcp-config <…>`; never a permission flag. */
+  readonly rolePromptPath: string;
+  /** The profile flags; the sessions module checks them against its allow-list before the spawn (fail closed). */
   readonly claudeArgs: readonly string[];
 }
 
@@ -1089,36 +1721,302 @@ export interface SessionLaunchFiles {
 export interface HookServer {
   readonly socketPath: string;
   registerSession(session: HookSessionRegistration): HookSessionCredentials;
+  /** Handover: whose locks the agent's are. Never touches `pathRights`. */
+  reassignSession(sessionId: string, ownerUserId: UserId): void;
   /** Revokes the token, aborts the session's waits, releases its locks and removes its launch files. */
   unregisterSession(sessionId: string): void;
   /**
-   * The ONE writer of a registered session's settings.json (hooks, kill-switch neutralizers, permissions) and mcp.json
-   * (the coordination MCP server), the same for every session (all run like the host's own, §11 D-15). Refuses
-   * (fail closed, `internal` with reason 'no-self-command') without config.sessions.selfCommand.
+   * The ONE writer of a registered session's settings.json (the tool gate for every tool, the other hooks, the
+   * hardened settings, the profile's rules), mcp.json (smurg's own MCP server) and role.md. Derived data: rewritten at
+   * every process start. Refuses (fail closed, `internal` with reason 'no-self-command') without
+   * config.sessions.selfCommand.
    */
-  writeSessionFiles(sessionId: string): Promise<SessionLaunchFiles>;
+  writeSessionFiles(sessionId: string, launch: LaunchProfile): Promise<SessionLaunchFiles>;
   removeSessionFiles(sessionId: string): Promise<void>;
 }
 
-/** Suggestions (R6). Module: src/suggest/. Persists suggestions.json; emits suggestion.changed; audits every step. */
+// =====================================================================================================================
+// Conversation: messages, questions, permission requests (module conversation/, P2); suggestions (module suggest/, P2)
+// =====================================================================================================================
+
+/** What ARCHITECTURE §3 "When a member goes" removed for one member (the `session.handover` audit detail). */
+export interface ConversationRemoval {
+  /** The always-allowed kinds they added to sessions, as rule strings. */
+  readonly rules: readonly string[];
+  /** Sessions whose permission mode they had loosened and that are back at their default. */
+  readonly modesReset: readonly string[];
+  /** Votes removed from open questions. */
+  readonly votes: number;
+  /** Queued messages dropped. */
+  readonly messages: number;
+}
+
+/**
+ * Messages, questions and permission requests (ARCHITECTURE §5.9). On `agent.request` it makes a card (the `card`
+ * event through AgentSessions.append, the entity to the watchers) or answers by itself. The lines it writes:
+ * `conversation.submittedFor` and `conversation.rule.added` / `.added.topic`; everything about modes, removed rules
+ * and who is responsible is written by AgentSessions (see there). At its start it withdraws the cards that are still
+ * open in its own store (`restarted`): the runner announces no withdrawal for a restart of the daemon.
+ */
+export interface ConversationService {
+  /** `session.message.send`. Mentions: see InboxService.addMention. */
+  send(input: Req<'session.message.send'>, principal: Principal): Promise<{ readonly messageId: string }>;
+  /**
+   * A person's text for an agent session from another module (`topic.revise`, `report.followUp`): a message when the
+   * principal holds session.drive, else a suggestion (through SuggestionService.create).
+   *
+   * The text that is stored, shown and sent is made HERE, before a message is sent or a suggestion is created: with
+   * `target` (`topic.revise`) `composeRevise({ target, quote, text }, MESSAGE_TEXT_MAX_CHARS)`; without it
+   * `agentTextWithin(text, MESSAGE_TEXT_MAX_CHARS)`. `blank` → `bad_request`; `too-long` → `too_large`. `quote` goes
+   * only with `target`.
+   */
+  sendAs(
+    principal: Principal,
+    input: {
+      readonly sessionId: string;
+      readonly text: string;
+      readonly origin: MessageOrigin;
+      readonly mentions?: readonly UserId[];
+      readonly target?: 'spec' | 'plan';
+      readonly quote?: { readonly heading?: string; readonly text: string };
+      readonly topicId?: string;
+      readonly itemId?: string;
+    },
+  ): Promise<{ readonly messageId: string } | { readonly suggestion: Suggestion }>;
+
+  /** Any member holding `discuss`, `options` or `other` alike (an "Other" vote is for people; the daemon never sends it). */
+  vote(input: Req<'question.vote'>, principal: Principal): void;
+  comment(input: Req<'question.comment'>, principal: Principal): { readonly commentId: string };
+  /**
+   * routing.ts `maySubmit`; `other` and `note` need session.drive. Records `onBehalfOf` (the decider) whenever the
+   * submitter is someone else; writes the line `conversation.submittedFor` only when the question had escalated.
+   * Answers the agent (AgentSessions.answerQuestion; the note composed with `questionTally` / `votersOf`). Audits
+   * `question.submit`. A question that is no longer open: `settledError`.
+   */
+  submit(input: Req<'question.submit'>, principal: Principal): Promise<Question>;
+  remind(input: Req<'question.remind'>, principal: Principal): void;
+  seen(questionId: string, principal: Principal): void;
+  /**
+   * The first answer wins (afterwards: `settledError`). `allow-always`: session scope → AgentSessions.setRules and the
+   * line `conversation.rule.added`; topic scope → TopicService.rememberRule and `conversation.rule.added.topic` (in
+   * the session the card is in). Before allowing an edit: the lock again (`permission.fileBusy`). Audits
+   * `permission.decide`.
+   */
+  decide(input: Req<'permission.decide'>, principal: Principal): Promise<PermissionRequest>;
+
+  question(id: string): Question | null;
+  /** `forHost`: with the absolute `path` of an `outside` request. */
+  permission(id: string, forHost: boolean): PermissionRequest | null;
+  openQuestions(): Question[];
+  /** The host's copies. */
+  openPermissions(): PermissionRequest[];
+  /** Answered questions of a session, oldest first (the quotation of `restart-discussion`). */
+  answeredQuestions(sessionId: string): Question[];
+  /**
+   * The question and permission cards `refs` name, plus (with `includeOpen`) every one of the session that is still
+   * open, while they fit `budgetBytes` (encodedSize; with `atLeastOne` the first one always); the rest in `more`.
+   */
+  cards(
+    sessionId: string,
+    refs: readonly CardRef[],
+    options: { readonly includeOpen: boolean; readonly budgetBytes: number; readonly forHost: boolean; readonly atLeastOne?: boolean },
+  ): { readonly questions: Question[]; readonly permissions: PermissionRequest[]; readonly more: CardRef[]; readonly bytes: number };
+
+  /**
+   * What §3 removes for a member who was kicked, left or changed role: their votes; the rules they added
+   * (AgentSessions.setRules by the system, which writes `conversation.rule.removed.member`); a mode they loosened
+   * (AgentSessions.setMode to `defaultPermissionMode(purpose, root)` by the system, which writes
+   * `conversation.mode.reset`); their queued messages (AgentSessions.cancelQueued); a kicked member's undelivered
+   * message stops its turn. Returns it for the `session.handover` entry. Called by the core only.
+   */
+  memberRemoved(userId: UserId, change: MemberChange, to?: Role): ConversationRemoval;
+}
+
+/**
+ * Suggestions (R6). Module: src/suggest/. Persists suggestions.json; emits suggestion.changed; audits every step with
+ * the full text. A suggestion's text is the output of `agentText()`: what the card shows and what an accept sends.
+ */
 export interface SuggestionService {
-  /** target-session-not-own: the session must belong to someone else. */
-  create(input: Req<'suggest.create'>, principal: Principal): Promise<Suggestion>;
+  /**
+   * Agent sessions only (`suggest.terminal`), the author's own included; at most 20 pending per author and session.
+   * Appends the `card` event. `cleaned`: the caller (ConversationService.sendAs) already composed and cleaned the
+   * text it passes, and something a reader cannot see was removed: the suggestion says so (`Suggestion.cleaned`).
+   */
+  create(input: Req<'suggest.create'> & { readonly origin?: MessageOrigin; readonly topicId?: string; readonly itemId?: string; readonly cleaned?: boolean }, principal: Principal): Promise<Suggestion>;
   /** Author, pending only. */
   edit(input: Req<'suggest.edit'>, principal: Principal): Promise<Suggestion>;
   withdraw(input: Req<'suggest.withdraw'>, principal: Principal): Promise<Suggestion>;
-  /** `session.drive` (any session), pending only; then SessionManager.pasteSuggestion (the only path into a PTY). */
+  /** `session.drive` (any session), pending only; then AgentSessions.send as a message of the author. Never a PTY. */
   accept(input: Req<'suggest.accept'>, principal: Principal): Promise<Suggestion>;
   reject(input: Req<'suggest.reject'>, principal: Principal): Promise<Suggestion>;
-  list(input: Req<'suggest.list'>, principal: Principal): Suggestion[];
-  /** Pending suggestions (host console). */
+  /** One list-rule page (`takeListPage`), newest first, after `after` (the last suggestion's id). */
+  list(input: Req<'suggest.list'>, principal: Principal): Res<'suggest.list'>;
+  /** Like ConversationService.cards, for suggestion cards. */
+  cards(
+    sessionId: string,
+    refs: readonly CardRef[],
+    options: { readonly includeOpen: boolean; readonly budgetBytes: number; readonly atLeastOne?: boolean },
+  ): { readonly suggestions: Suggestion[]; readonly more: CardRef[]; readonly bytes: number };
+  /** Pending suggestions (the inbox, the host console). */
   pending(): Suggestion[];
 }
+
+// =====================================================================================================================
+// Topics, plans, reports (module topics/, P4)
+// =====================================================================================================================
+
+/** What §3 removes for a member in the topics module (the `session.handover` audit detail). */
+export interface TopicRemoval {
+  /** The topic rules they added, as rule strings. */
+  readonly rules: readonly string[];
+  /** Armed items they started that had not started yet. */
+  readonly disarmed: readonly { readonly topicId: string; readonly itemId: string }[];
+}
+
+export interface TopicService {
+  /**
+   * In this order: the topic is stored and announced WITHOUT `discussionSessionId` (`topic.changed`, previous null);
+   * then the discussion session is started (AgentSessions.start with `topic: { id, slug, name }` and the opening line
+   * `conversation.started.discussion`); then the topic is announced again with it. So a listener of `session.created`
+   * always finds the session's topic.
+   */
+  create(input: Req<'topic.create'>, principal: Principal): Promise<{ readonly topic: Topic; readonly session: AgentSession }>;
+  /** One list-rule page. */
+  list(input: Req<'topic.list'>): Res<'topic.list'>;
+  get(topicId: string): Topic | null;
+  bySession(sessionId: string): Topic | null;
+  /** Also AgentSessions.setLabels({ topicName }) for every session of the topic. */
+  rename(input: Req<'topic.rename'>, principal: Principal): Promise<Topic>;
+  /**
+   * Archiving ends the topic's sessions (`archived`) and releases its item worktrees (WorktreeManager.releaseItem).
+   * When `WorktreeManager.unmerged(topicId)` is not empty and the request does not say `deleteUnmerged`: refused with
+   * `unmergedError` (`topic.archive.unmerged`), nothing changed; `false` keeps exactly those worktrees, `true`
+   * removes them too.
+   */
+  archive(input: Req<'topic.archive'>, principal: Principal): Promise<Topic>;
+  /**
+   * Archived topics only. Emits `topic.removed { topicId, sessionIds }` FIRST, then `AgentSessions.forget(sessionIds)`
+   * (records and transcripts), then its own records. Never files of the project.
+   */
+  delete(input: Req<'topic.delete'>, principal: Principal): Promise<void>;
+  restartDiscussion(input: Req<'topic.discussion.restart'>, principal: Principal): Promise<{ readonly topic: Topic; readonly session: AgentSession }>;
+  /** → ConversationService.sendAs to the discussion session (origin `revise`, with `target` and `quote`: sendAs composes the text). */
+  revise(input: Req<'topic.revise'>, principal: Principal): Promise<{ readonly messageId: string } | { readonly suggestion: Suggestion }>;
+  requestSpec(input: Req<'topic.spec.request'>, principal: Principal): Promise<void>;
+  addRule(input: Req<'topic.rule.add'>, principal: Principal): Promise<Topic>;
+  /** Also called by ConversationService for `allow-always` with scope 'topic'. */
+  rememberRule(topicId: string, rule: { readonly tool: 'Bash' | 'WebFetch'; readonly pattern: string }, by: Principal): Promise<RememberedRule>;
+  removeRule(input: Req<'topic.rule.remove'>, principal: Principal): Promise<Topic>;
+  /** The rules a session of this topic starts with (the sessions module reads them at each process start). */
+  rules(topicId: string): readonly RememberedRule[];
+  /** §3 for a member who was kicked, left or changed role: their topic rules go, items they armed are disarmed, plan records that name them are cleared. Called by the core only. */
+  memberRemoved(userId: UserId, change: MemberChange, to?: Role): TopicRemoval;
+  /** Subjects item-stalled, item-failed, item-stopped, item-not-started, plan-paused, discussion-lost. */
+  attention(): AttentionFact[];
+}
+
+export type FileCheck = { readonly ok: true } | { readonly ok: false; readonly errors: readonly { readonly line?: number; readonly message: string }[] };
+
+/**
+ * The plan and its scheduler. The host setting `maxLiveAgents` is ENFORCED HERE and nowhere else: `PlanInfo.slots`
+ * counts the item sessions whose `AgentSessions.facts().hasProcess` is true (`inUse`), of `max`; a queued item starts
+ * only below it. The scheduler runs again on `agent.process` (a slot was freed or taken), and may free a slot itself
+ * with `AgentSessions.restartProcess(sessionId, 'slot')` for the longest-idle item session without an open request.
+ * A session's start for an item passes `item: { id, number, title, attempt }` and `keepWorktree: true` at its end.
+ */
+export interface PlanService {
+  get(topicId: string): PlanInfo | null;
+  itemBySession(sessionId: string): { readonly topicId: string; readonly item: WorkItem } | null;
+  generate(input: Req<'plan.generate'>, principal: Principal): Promise<void>;
+  setMode(input: Req<'plan.mode.set'>, principal: Principal): Promise<PlanInfo>;
+  /** Before the item has a session: the plan's own record. Afterwards: AgentSessions.setResponsible. */
+  assign(input: Req<'plan.assign'>, principal: Principal): Promise<PlanInfo>;
+  suggest(input: Req<'plan.suggest'>, principal: Principal): Promise<PlanInfo>;
+  preflight(input: Req<'plan.preflight'>, principal: Principal): Promise<StartPreflight>;
+  start(input: Req<'plan.start'>, principal: Principal): Promise<PlanInfo>;
+  /**
+   * `plan.changes`: SPEC.md and PLAN.md as they are now against the pinned content of the last Start (its blob ids),
+   * or against HEAD before the first Start, through WorktreeManager.diffMainPaths (cut at PLAN_CHANGES_DIFF_MAX_BYTES).
+   */
+  changes(input: Req<'plan.changes'>, principal: Principal): Promise<Res<'plan.changes'>>;
+  resume(input: Req<'plan.resume'>, principal: Principal): Promise<PlanInfo>;
+  /** A failed item: AgentSessions.retry. A stopped item: a NEW session in the same worktree (opening line `conversation.retry`). */
+  retryItem(input: Req<'plan.item.retry'>, principal: Principal): Promise<PlanInfo>;
+  continueItem(input: Req<'plan.item.continue'>, principal: Principal): Promise<void>;
+  /** → WorktreeManager.updateFromMain, then `resolve-conflict` to the item's session. */
+  resolveItem(input: Req<'plan.item.resolve'>, principal: Principal): Promise<void>;
+  /** MCP `check_plan` (the session is in `ctx`, never in an argument). Messages are fixed English for the model. */
+  checkPlan(ctx: McpToolContext): { readonly ok: true; readonly items: number; readonly warnings: readonly string[] } | Extract<FileCheck, { ok: false }>;
+  /** MCP `propose_split`. */
+  recordSplit(ctx: McpToolContext, input: { readonly items: readonly { readonly id: string; readonly person: string }[]; readonly reason: string }): { readonly ok: true; readonly assigned: number; readonly unknownPeople: number };
+}
+
+export interface ReportService {
+  get(topicId: string, itemId: string): ReportInfo | null;
+  /** Reports whose state is 'to-review' or 'changed-after-review' (the inbox derives from this). */
+  toReview(): { readonly topicId: string; readonly itemId: string; readonly report: ReportSummary }[];
+  /** → ConversationService.sendAs to the item's session (origin `follow-up`). */
+  followUp(input: Req<'report.followUp'>, principal: Principal): Promise<{ readonly messageId: string } | { readonly suggestion: Suggestion }>;
+  /** → WorktreeManager.setReviewed. */
+  review(input: Req<'report.review'>, principal: Principal): Promise<ReportSummary>;
+  /** MCP `check_report`: validates the file in the caller's root; an ok answer records { sessionId, attempt, contentHash }. */
+  checkReport(ctx: McpToolContext): FileCheck;
+}
+
+// =====================================================================================================================
+// Inbox (module inbox/, P3): derived per member, never stored (except mentions, results and "seen" marks)
+// =====================================================================================================================
+
+export interface InboxService {
+  /** One list-rule page of the caller's inbox after `after`. */
+  list(principal: Principal, input?: Req<'inbox.list'>): Res<'inbox.list'>;
+  seen(principal: Principal, keys: readonly string[]): void;
+  /** Mentions and results only (`inbox.notDismissable` otherwise). */
+  dismiss(principal: Principal, key: string): void;
+  /**
+   * A stored mention (an inbox item of kind `mention`; `excerpt`: the text around the mention).
+   *
+   * The CALLER decides which ids count. That is the handler of a request that carries `mentions` (all of them end in
+   * the conversation / suggest modules: `session.message.send`, `question.comment`, `suggest.create`, and
+   * `topic.revise` / `report.followUp` through `sendAs`): an id is kept only when that member is active and the text
+   * contains `@<their display name>`; any other id is DROPPED WITHOUT AN ERROR (the request succeeds, the stored
+   * entity lists only the kept ids); one `mention` token per kept id (`ctx.rates`). `'full'`: the member has
+   * INBOX_NOTES_PER_MEMBER_MAX unopened notes and this one was not stored: the request STILL SUCCEEDS and the caller
+   * tells the sender with `ctx.services.activity.notify(senderUserId, { from: SYSTEM_ACTOR, msg:
+   * msg('mention.inboxFull', { name }), fallback })`. The agent-facing `notify_member` (topics) calls this too and
+   * tells the agent in the tool's own fixed English answer. The inbox itself never tells anyone.
+   */
+  addMention(input: { readonly userId: UserId; readonly from: Actor; readonly target: ColumnTarget; readonly anchor?: { readonly cardId?: string; readonly seq?: number }; readonly excerpt: string }): 'stored' | 'full';
+  /**
+   * A stored result for the author of a suggestion that was rejected, or accepted after an edit (an inbox item of
+   * kind `result`: `result` is `outcome`, `from` who decided, `anchor.cardId` the suggestion, `excerpt` its text).
+   */
+  addResult(input: { readonly userId: UserId; readonly from: Actor; readonly suggestionId: string; readonly sessionId: string; readonly outcome: 'rejected' | 'accepted-edited'; readonly excerpt: string }): void;
+  /** The items of one member right now (tests, the console). */
+  itemsOf(userId: UserId): InboxItem[];
+}
+
+// =====================================================================================================================
+// Worktrees and merge requests (module worktree/, P5)
+// =====================================================================================================================
 
 export interface WorktreeHandle {
   readonly worktree: WorktreeInfo;
   readonly root: RootInfo;
 }
+
+export type SnapshotResult =
+  | {
+      readonly ok: true;
+      /** A request in the state `draft`. */
+      readonly request: MergeRequest;
+      readonly files: number;
+      readonly additions: number;
+      readonly deletions: number;
+      /** Files a person also edited in the worktree (from `activity.recorded`). */
+      readonly byHand: readonly { readonly path: string; readonly by: readonly UserRef[] }[];
+    }
+  | { readonly ok: false; readonly reason: 'host-only-paths' | 'spec-files' | 'conflict-markers'; readonly files: readonly string[] };
 
 /**
  * Worktrees (R9, deviation D-2: `git clone --shared`). Module: src/worktree/. Registers every worktree with the
@@ -1129,24 +2027,86 @@ export interface WorktreeManager {
   get(worktreeId: string): WorktreeInfo | null;
   /** session.create {mode:'worktree'}: a new worktree for the owner, or a kept one (`worktreeId`) the owner owns. */
   acquireForSession(input: { readonly owner: Principal; readonly sessionId: string; readonly worktreeId?: string }): Promise<WorktreeHandle>;
-  /** Session ended: keep (R9 "ask whether to keep") or remove. Only session.end {keepWorktree: false} passes keep=false. */
+  /**
+   * A terminal or FREE agent session ended: keep (R9 "ask whether to keep") or remove. Only session.end
+   * {keepWorktree: false} passes keep=false. Never called for a work item's worktree (`itemId`): that one outlives its
+   * sessions and is released by `releaseItem` alone; an item worktree given here is kept whatever `keep` says.
+   */
   releaseFromSession(worktreeId: string, sessionId: string, options: { readonly keep: boolean }): Promise<void>;
   /** worktree-owner-or-host. */
   remove(worktreeId: string, principal: Principal): Promise<void>;
   /**
-   * Any member with `worktree.merge.request` (host, Agent access), any worktree (§11 D-15). Commits the worktree's
-   * working tree (with `message`; nothing to commit is fine) onto
-   * smurg/<owner>/<id>, fetches that commit into the main repository as refs/smurg/merge/<requestId>, and records its
-   * id in MergeRequest.commit. diff / fileDiff / approve work on exactly that commit (contract review C6).
+   * Any member with `worktree.merge.request` (host, Agent access), any worktree (§11 D-15). When the worktree's newest
+   * draft already has the commit a fresh snapshot gives, that draft becomes `pending` (same id, `requestedBy` set);
+   * otherwise commits the working tree (with `message`) onto its branch, fetches the commit into the main repository
+   * as refs/smurg/merge/<requestId>, and records its id in MergeRequest.commit.
    */
   requestMerge(input: Req<'worktree.merge.request'>, principal: Principal): Promise<MergeRequest>;
+  /** Every request, drafts included. */
   listMerges(principal: Principal): MergeRequest[];
-  /** `worktree.merge.request`. The whole diff of the request's commit, cut at MERGE_DIFF_MAX_BYTES (`truncated`). */
+  /** `file.read`. The whole diff of the request's commit, cut at MERGE_DIFF_MAX_BYTES; host-private files withheld from non-hosts; through `mask()`. */
   diff(input: Req<'worktree.merge.diff'>, principal: Principal): Promise<Res<'worktree.merge.diff'>>;
-  /** `worktree.merge.request`. One file of `diff().files` (refused for any other path; `git … -- <path>`). */
+  /** `file.read`. One file of `diff().files` (refused for any other path; `git … -- <path>`). */
   fileDiff(input: Req<'worktree.merge.fileDiff'>, principal: Principal): Promise<Res<'worktree.merge.fileDiff'>>;
+  /** A `pending` request, or a `draft` directly (it implies the request). */
   approve(input: Req<'worktree.merge.approve'>, principal: Principal): Promise<MergeRequest>;
   reject(input: Req<'worktree.merge.reject'>, principal: Principal): Promise<MergeRequest>;
+
+  // ---- work items (daemon-internal: no wire request reaches these directly) ----
+  /**
+   * The item's own worktree on smurg/<slug>/<item id> at the main workspace's HEAD; a retry reuses it. Removes an
+   * existing specs/<slug>/reports/<item id>.md. Registers the root with `item` (PathGuard: nobody writes
+   * specs/<slug>/**). Item worktrees do not count toward the per-owner limit.
+   */
+  acquireForItem(input: { readonly topic: { readonly id: string; readonly slug: string }; readonly itemId: string; readonly owner: Principal }): Promise<WorktreeHandle>;
+  /**
+   * The first half of requestMerge, run by the daemon: stage, verify, commit, fetch into refs/smurg/merge/<id>, policy
+   * check → a draft request (replacing the worktree's older draft), or the reason the policy refused. After
+   * updateFromMain the commit has the main HEAD as its second parent.
+   */
+  snapshot(input: { readonly worktreeId: string; readonly message: string; readonly topicSlug?: string }): Promise<SnapshotResult>;
+  /** Emits merge.changed. */
+  setReviewed(requestId: string, reviewed: boolean): MergeRequest;
+  /** The checkpoint commit in the main workspace: exactly `paths`, with trailers, as `as`. Serialized with merges. */
+  commitMainPaths(input: { readonly paths: readonly string[]; readonly message: string; readonly trailers: readonly string[]; readonly as: Principal }): Promise<{
+    readonly commit: string;
+    /** false: nothing to commit, HEAD already holds this content. */
+    readonly created: boolean;
+    readonly branch: string;
+    /** Blob ids of `paths` at the new HEAD. */
+    readonly blobs: Readonly<Record<string, string>>;
+  }>;
+  /** Blob ids of files at the main workspace's HEAD (null: not in HEAD): the scheduler's pin check. */
+  headBlobs(paths: readonly string[]): Promise<Record<string, string | null>>;
+  /** `free`: worktrees left before `maxWorktrees`. */
+  mainState(): Promise<{ readonly isRepo: boolean; readonly hasCommit: boolean; readonly gitOk: boolean; readonly branch: string | null; readonly busy: boolean; readonly free: number }>;
+  /** After a merge conflict: snapshot, merge the main HEAD without committing, record the second parent and the conflicted files. */
+  updateFromMain(worktreeId: string): Promise<{ readonly mergeParent: string; readonly conflicted: readonly string[] }>;
+  /**
+   * `plan.changes`: unified diffs of files of the MAIN workspace as they are in the working tree now, against the
+   * blobs given per path (`null`: the file did not exist then), or against HEAD. Only the paths that differ are
+   * returned; each diff is cut at `maxBytes` (`truncated`) and passes `mask()`. `[]` when the folder is not a git
+   * repository. The hardened git runner; never a path outside `paths`.
+   */
+  diffMainPaths(input: { readonly paths: readonly string[]; readonly against: 'head' | Readonly<Record<string, string | null>>; readonly maxBytes: number }): Promise<
+    { readonly path: string; readonly diff: string; readonly truncated: boolean }[]
+  >;
+  /**
+   * The handover of a work item's worktree (WorktreeInfo.ownerUserId / ownerName; emits worktree.changed): called by
+   * SessionManager.teardownUser when the session in it passes to the host, so a member who lost agent access no
+   * longer owns (and may no longer remove) it.
+   */
+  setOwner(worktreeId: string, owner: Principal): Promise<void>;
+  /**
+   * Merged and reviewed, or archived: unregister the root, remove the clone. THE only way an item's worktree goes
+   * (a session's end never releases it); called by PlanService / TopicService.
+   */
+  releaseItem(worktreeId: string): Promise<void>;
+  /**
+   * Item worktrees of a topic that hold changes that were never merged: a newest snapshot that is not merged, or
+   * edits since it (the Archive confirmation: `unmergedError`).
+   */
+  unmerged(topicId: string): WorktreeInfo[];
 }
 
 /** Every feature service slot; unimplemented ones hold a stub that throws internal "not implemented: <name>". */
@@ -1159,8 +2119,16 @@ export interface FeatureServices {
   readonly presence: PresenceService;
   readonly activity: ActivityFeed;
   readonly sessions: SessionManager;
+  readonly agents: AgentSessions;
+  readonly projectTrust: ProjectTrust;
+  readonly hostRules: HostRules;
   readonly hooks: HookServer;
+  readonly conversation: ConversationService;
   readonly suggestions: SuggestionService;
+  readonly topics: TopicService;
+  readonly plans: PlanService;
+  readonly reports: ReportService;
+  readonly inbox: InboxService;
   readonly worktrees: WorktreeManager;
 }
 
@@ -1175,8 +2143,16 @@ export const FEATURE_SERVICE_NAMES: readonly FeatureServiceName[] = Object.freez
   'presence',
   'activity',
   'sessions',
+  'agents',
+  'projectTrust',
+  'hostRules',
   'hooks',
+  'conversation',
   'suggestions',
+  'topics',
+  'plans',
+  'reports',
+  'inbox',
   'worktrees',
 ]);
 
@@ -1190,8 +2166,16 @@ export const FEATURE_SERVICE_LABELS: Readonly<Record<FeatureServiceName, string>
   presence: 'PresenceService',
   activity: 'ActivityFeed',
   sessions: 'SessionManager',
+  agents: 'AgentSessions',
+  projectTrust: 'ProjectTrust',
+  hostRules: 'HostRules',
   hooks: 'HookServer',
+  conversation: 'ConversationService',
   suggestions: 'SuggestionService',
+  topics: 'TopicService',
+  plans: 'PlanService',
+  reports: 'ReportService',
+  inbox: 'InboxService',
   worktrees: 'WorktreeManager',
 });
 

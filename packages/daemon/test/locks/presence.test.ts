@@ -128,11 +128,11 @@ describe('presence of agents', () => {
     const ian = agentSession('ses_ian', 'dev:ian', 'Ian');
     const hosts = agentSession('ses_host', 'dev:host', 'Host');
 
-    d.ctx.bus.emit('session.created', { session: sessionInfo(ian, 'starting') });
+    d.ctx.bus.emit('session.created', { session: sessionInfo(ian, 'running') });
     d.ctx.bus.emit('session.created', { session: sessionInfo(agentSession('ses_term', 'dev:ian', 'Ian'), 'running', 'terminal') });
     await waitFor(() => states.length > 0 && last(states).agents.length === 1, { what: 'Ian’s agent' });
     const first = last(states).agents[0];
-    expect(first).toMatchObject({ sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude (Ian)', status: 'starting' });
+    expect(first).toMatchObject({ sessionId: 'ses_ian', ownerUserId: 'dev:ian', displayName: 'Claude (Ian)', status: 'running' });
     expect(isReadableOnBothThemes(first?.color ?? '')).toBe(true);
 
     d.ctx.bus.emit('session.updated', { session: sessionInfo(ian, 'running') });
@@ -146,7 +146,7 @@ describe('presence of agents', () => {
     const memberColors = last(states).members.map((m) => m.color.toLowerCase());
     expect(memberColors).not.toContain(ianAgent?.color.toLowerCase());
 
-    d.ctx.bus.emit('session.exited', { session: sessionInfo(ian, 'exited'), reason: 'exit' });
+    d.ctx.bus.emit('session.exited', { session: sessionInfo(ian, 'ended'), reason: 'ended' });
     await waitFor(() => last(states).agents.length === 1, { what: 'the exited agent to disappear' });
     expect(last(states).agents[0]?.sessionId).toBe('ses_host');
   });

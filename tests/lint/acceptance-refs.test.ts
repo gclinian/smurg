@@ -9,9 +9,13 @@
 // A quoted title belongs to the nearest test file named before it in the same table cell (outside a table: the same
 // paragraph or list item). "…" abbreviates: every piece between "…" must occur in the file, in that order. A table cell
 // that starts with "— (was" records tests that were removed with their code and is not checked.
+//
+// While v0.5.0 is being built, the references of pending-v050.ts wait for the package that replaces the test they
+// named; with SMURG_RELEASE_GATE=1 nothing waits.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { PENDING_ACCEPTANCE_REFS, RELEASE_GATE, isPendingAcceptanceRef } from './pending-v050.ts';
 import { read, REPO_ROOT } from './tree.ts';
 
 const DOC = 'docs/ACCEPTANCE.md';
@@ -78,10 +82,11 @@ function units(lines: readonly string[]): [number, string][] {
   return out;
 }
 
-function check(): { problems: string[]; files: number; titles: number } {
+function check(): { problems: string[]; files: number; titles: number; pending: number } {
   const problems: string[] = [];
   let files = 0;
   let titles = 0;
+  let pending = 0;
   for (const [n, raw] of units(read(DOC).split('\n'))) {
     if (raw.startsWith('— (was')) continue;
     const text = raw.replaceAll(COLUMN_HEADING, '');
@@ -95,18 +100,25 @@ function check(): { problems: string[]; files: number; titles: number } {
     for (const match of text.matchAll(/›/g)) {
       if (!quoted.has(match.index as number)) problems.push(`${DOC}:${n}: a › that is not followed by a "quoted title": ${text.slice(Math.max(0, (match.index as number) - 60), (match.index as number) + 60)}`);
     }
-    let current: { ref: string; path: string } | null = null;
+    let current: { ref: string; path: string } | 'pending' | null = null;
     for (const mark of marks.sort((a, b) => a.at - b.at)) {
       if (mark.kind === 'file') {
         files += 1;
         const path = resolve(mark.value);
         if (path === null || !existsSync(join(REPO_ROOT, path))) {
+          if (isPendingAcceptanceRef(mark.value)) {
+            // The file went with the behaviour it tested; its titles wait with it.
+            pending += 1;
+            current = 'pending';
+            continue;
+          }
           problems.push(`${DOC}:${n}: \`${mark.value}\` -> ${path}: no such file`);
           current = null;
         } else current = { ref: mark.value, path };
         continue;
       }
       titles += 1;
+      if (current === 'pending') continue;
       if (current === null) {
         problems.push(`${DOC}:${n}: "${mark.value}" has no (existing) test file before it`);
         continue;
@@ -124,6 +136,10 @@ function check(): { problems: string[]; files: number; titles: number } {
       for (const piece of pieces) {
         const found = text.indexOf(piece, at);
         if (found < 0) {
+          if (isPendingAcceptanceRef(current.ref, piece)) {
+            pending += 1;
+            break;
+          }
           problems.push(`${DOC}:${n}: \`${current.ref}\` › "${piece}": ${text.includes(piece) ? 'in the file, but not after the piece before it' : 'not in the file'} (${current.path})`);
           break;
         }
@@ -131,7 +147,7 @@ function check(): { problems: string[]; files: number; titles: number } {
       }
     }
   }
-  return { problems, files, titles };
+  return { problems, files, titles, pending };
 }
 
 describe('docs/ACCEPTANCE.md points at tests that exist', () => {
@@ -144,5 +160,20 @@ describe('docs/ACCEPTANCE.md points at tests that exist', () => {
   it('reads the references (a change of the syntax must not turn the check into nothing)', () => {
     expect(result.files).toBeGreaterThan(150);
     expect(result.titles).toBeGreaterThan(100);
+  });
+
+  it('the pending list is well-formed: every entry names its package and why, no entry twice', () => {
+    for (const entry of PENDING_ACCEPTANCE_REFS) {
+      expect(entry.file).toMatch(/\.test\.tsx?$/);
+      expect(entry.owner).toMatch(/^P(?:[1-9]|1[0-2])$/);
+      expect(entry.why.length).toBeGreaterThan(20);
+    }
+    const keys = PENDING_ACCEPTANCE_REFS.map((entry) => `${entry.file} › ${entry.title ?? ''}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it.runIf(RELEASE_GATE)('the release gate: nothing is pending', () => {
+    expect(PENDING_ACCEPTANCE_REFS).toEqual([]);
+    expect(result.pending).toBe(0);
   });
 });

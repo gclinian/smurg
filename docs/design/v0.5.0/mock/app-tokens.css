@@ -1,0 +1,197 @@
+/*
+ * smurg design tokens. Dark is the default; the OS preference (prefers-color-scheme: light) switches to light unless
+ * the person picked a theme (<html data-theme="dark|light">, set by lib/preferences.ts).
+ *
+ * Contrast (WCAG 2.1 AA): every text colour below is >= 4.5:1 on the surfaces it is used on (text-subtle is the
+ * lowest, ~5.3:1 on surface-1 in both themes); accent-solid carries white text at >= 5:1.
+ * Character: a calm, dense workbench. No decorative gradients; elevation is border + a restrained shadow.
+ */
+:root {
+  color-scheme: dark;
+
+  /* ---- typography ---- */
+  --font-sans: system-ui, -apple-system, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', 'Hiragino Sans', 'Helvetica Neue',
+    Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, Consolas, 'Liberation Mono', 'Noto Sans Mono CJK TC',
+    'PingFang TC', 'Microsoft JhengHei', monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 18px;
+  --text-2xl: 24px;
+  --text-3xl: 32px;
+  /* CJK needs more leading than Latin UI text. */
+  --leading-tight: 1.3;
+  --leading-normal: 1.55;
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* ---- spacing (4 px grid, with 2 and 6 for dense rows) ---- */
+  --space-0: 0;
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 20px;
+  --space-8: 24px;
+  --space-9: 32px;
+  --space-10: 48px;
+
+  /* ---- shape ---- */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 999px;
+  --border-width: 1px;
+
+  /* ---- sizes ---- */
+  --control-height-sm: 24px;
+  --control-height-md: 30px;
+  --topbar-height: 44px;
+  --panel-header-height: 32px;
+
+  /* ---- layering ---- */
+  --z-drawer: 10;
+  /* A split pane's separator: above what the panes draw (a terminal's or an editor's scrollbars), below popovers. */
+  --z-separator: 15;
+  --z-banner: 20;
+  --z-popover: 100;
+  --z-dialog: 200;
+  --z-toast: 300;
+  --z-blocking: 400;
+
+  /* ---- motion ---- */
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---- colour: dark (default) ---- */
+  --color-bg: #0f1115;
+  --color-surface-1: #151821;
+  --color-surface-2: #1b1f2a;
+  --color-surface-3: #232838;
+  --color-overlay: rgb(5 7 10 / 0.72);
+  --color-border: #2a3040;
+  --color-border-strong: #3d4559;
+
+  --color-text: #e6e9ef;
+  --color-text-muted: #aab3c3;
+  --color-text-subtle: #8e98ab;
+  --color-text-inverse: #0f1115;
+
+  --color-accent: #7cb0ff;
+  --color-accent-solid: #2563eb;
+  --color-accent-solid-hover: #1d4ed8;
+  --color-accent-contrast: #ffffff;
+  --color-accent-soft: rgb(124 176 255 / 0.14);
+
+  --color-success: #4ade80;
+  --color-success-soft: rgb(74 222 128 / 0.12);
+  --color-warning: #fbbf24;
+  --color-warning-soft: rgb(251 191 36 / 0.12);
+  --color-warning-text: #fde68a;
+  --color-danger: #f87171;
+  --color-danger-solid: #b91c1c;
+  --color-danger-solid-hover: #991b1b;
+  --color-danger-soft: rgb(248 113 113 / 0.12);
+  --color-danger-text: #fecaca;
+  --color-info: #7cb0ff;
+  --color-info-soft: rgb(124 176 255 / 0.12);
+
+  --color-focus: #9cc2ff;
+  --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-focus);
+
+  --shadow-popover: 0 8px 24px rgb(0 0 0 / 0.4), 0 0 0 1px var(--color-border);
+  --shadow-dialog: 0 16px 48px rgb(0 0 0 / 0.5), 0 0 0 1px var(--color-border);
+
+  --scrollbar-thumb: #3d4559;
+  --selection: rgb(124 176 255 / 0.3);
+}
+
+/* Light: when the OS prefers it and the person did not pick dark, or when they picked light. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --color-bg: #f5f6f8;
+    --color-surface-1: #ffffff;
+    --color-surface-2: #ffffff;
+    --color-surface-3: #eef1f5;
+    --color-overlay: rgb(15 17 21 / 0.45);
+    --color-border: #d9dee6;
+    --color-border-strong: #b6bfcc;
+    --color-text: #1b1f27;
+    --color-text-muted: #485262;
+    --color-text-subtle: #5d6878;
+    --color-text-inverse: #ffffff;
+    --color-accent: #1d4ed8;
+    --color-accent-solid: #1d4ed8;
+    --color-accent-solid-hover: #1e40af;
+    --color-accent-contrast: #ffffff;
+    --color-accent-soft: rgb(29 78 216 / 0.1);
+    --color-success: #166534; /* 4.5:1+ on the soft success fill at 12 px */
+    --color-success-soft: rgb(21 128 61 / 0.1);
+    --color-warning: #b45309;
+    --color-warning-soft: #fff7e0;
+    --color-warning-text: #7c2d12;
+    --color-danger: #b91c1c;
+    --color-danger-solid: #b91c1c;
+    --color-danger-solid-hover: #991b1b;
+    --color-danger-soft: #fdecec;
+    --color-danger-text: #7f1d1d;
+    --color-info: #1d4ed8;
+    --color-info-soft: rgb(29 78 216 / 0.08);
+    --color-focus: #2563eb;
+    --shadow-popover: 0 8px 24px rgb(15 17 21 / 0.14), 0 0 0 1px var(--color-border);
+    --shadow-dialog: 0 16px 48px rgb(15 17 21 / 0.2), 0 0 0 1px var(--color-border);
+    --scrollbar-thumb: #c3cad5;
+    --selection: rgb(29 78 216 / 0.2);
+  }
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --color-bg: #f5f6f8;
+  --color-surface-1: #ffffff;
+  --color-surface-2: #ffffff;
+  --color-surface-3: #eef1f5;
+  --color-overlay: rgb(15 17 21 / 0.45);
+  --color-border: #d9dee6;
+  --color-border-strong: #b6bfcc;
+  --color-text: #1b1f27;
+  --color-text-muted: #485262;
+  --color-text-subtle: #5d6878;
+  --color-text-inverse: #ffffff;
+  --color-accent: #1d4ed8;
+  --color-accent-solid: #1d4ed8;
+  --color-accent-solid-hover: #1e40af;
+  --color-accent-contrast: #ffffff;
+  --color-accent-soft: rgb(29 78 216 / 0.1);
+  --color-success: #166534; /* 4.5:1+ on the soft success fill at 12 px */
+  --color-success-soft: rgb(21 128 61 / 0.1);
+  --color-warning: #b45309;
+  --color-warning-soft: #fff7e0;
+  --color-warning-text: #7c2d12;
+  --color-danger: #b91c1c;
+  --color-danger-solid: #b91c1c;
+  --color-danger-solid-hover: #991b1b;
+  --color-danger-soft: #fdecec;
+  --color-danger-text: #7f1d1d;
+  --color-info: #1d4ed8;
+  --color-info-soft: rgb(29 78 216 / 0.08);
+  --color-focus: #2563eb;
+  --shadow-popover: 0 8px 24px rgb(15 17 21 / 0.14), 0 0 0 1px var(--color-border);
+  --shadow-dialog: 0 16px 48px rgb(15 17 21 / 0.2), 0 0 0 1px var(--color-border);
+  --scrollbar-thumb: #c3cad5;
+  --selection: rgb(29 78 216 / 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+  }
+}

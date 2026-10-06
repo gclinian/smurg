@@ -23,6 +23,7 @@ import type {
   MemberDirectory,
   MemberRecord,
   Principal,
+  RateLimiter,
   RequestContext,
   Router,
   UserId,
@@ -44,6 +45,8 @@ export interface RouterOptions {
   readonly members: Pick<MemberDirectory, 'active'>;
   readonly audit: AuditLog;
   readonly log: Logger;
+  /** The per-member token buckets: one token of a type's registry `rate` bucket is taken before its handler runs. */
+  readonly rates: RateLimiter;
 }
 
 type AnyHandler = (payload: unknown, ctx: RequestContext) => unknown;
@@ -107,12 +110,14 @@ export class RouterImpl implements Router {
   private readonly members: Pick<MemberDirectory, 'active'>;
   private readonly audit: AuditLog;
   private readonly log: Logger;
+  private readonly rates: RateLimiter;
 
   constructor(options: RouterOptions) {
     this.sink = options.sink;
     this.members = options.members;
     this.audit = options.audit;
     this.log = options.log;
+    this.rates = options.rates;
   }
 
   handle<T extends RequestType>(type: T, handler: DaemonRequestHandler<T>): Disposable {
@@ -186,6 +191,20 @@ export class RouterImpl implements Router {
       this.sink.denied(conn);
       return;
     }
+    if (spec.rate !== null && !this.rates.take(spec.rate, member.userId)) {
+      // Rates cap what a member can make everyone else's browser and the relay carry (ARCHITECTURE §5.9). A refusal is
+      // audited like every refusal (under the per-actor budget) and counts toward the connection's denial budget.
+      this.audit.record({
+        actor: principal.actor,
+        action: 'authz.denied',
+        outcome: 'denied',
+        target: type,
+        detail: { type, reason: 'rate-limited', bucket: spec.rate, role: member.role },
+      });
+      this.sink.reply(conn, id, 'error', new SmurgError('rate_limited', undefined, { reason: 'rate-limited', bucket: spec.rate }).toPayload());
+      this.sink.denied(conn);
+      return;
+    }
     const ctx = new Context(type, id, conn, member, principal, this.audit);
     const handler = isRequest ? this.requests.get(type) : this.notifies.get(type);
     try {
@@ -214,7 +233,7 @@ export class RouterImpl implements Router {
 
   private replyError(conn: ClientConnection, ctx: Context, err: unknown): void {
     const error = SmurgError.wrap(err);
-    const refusal = isPathDeniedError(err) || ['path_denied', 'forbidden', 'host_only', 'unauthorized'].includes(error.code);
+    const refusal = isPathDeniedError(err) || ['path_denied', 'forbidden', 'host_only', 'unauthorized', 'rate_limited'].includes(error.code);
     if (isPathDeniedError(err)) {
       if (!err.audited) {
         err.audited = true;
@@ -226,6 +245,9 @@ export class RouterImpl implements Router {
       if (!(isAuthorizationError(err) && err.audited)) {
         this.audit.record({ actor: ctx.principal.actor, action: 'authz.denied', outcome: 'denied', target: ctx.type, detail: { type: ctx.type, reason: String(error.detail?.['reason'] ?? 'handler') } });
       }
+    } else if (error.code === 'rate_limited') {
+      // A handler's own bucket (mentions, a reminder): audited here, once.
+      this.audit.record({ actor: ctx.principal.actor, action: 'authz.denied', outcome: 'denied', target: ctx.type, detail: { type: ctx.type, reason: 'rate-limited', bucket: String(error.detail?.['bucket'] ?? 'handler') } });
     } else if (error.code === 'internal') {
       this.log.error('handler failed', {
         type: ctx.type,

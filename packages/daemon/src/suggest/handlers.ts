@@ -34,7 +34,7 @@ export function registerSuggestionHandlers(router: Router, _ctx: DaemonContext, 
   stack.add(router.handle('suggest.reject', async (payload, req) => ({ suggestion: await service.reject(payload, req.principal) })));
 
   // [session.view]: the caller's own suggestions; every suggestion for members who may decide them (session.drive).
-  stack.add(router.handle('suggest.list', (payload, req) => ({ suggestions: service.list(payload, req.principal) })));
+  stack.add(router.handle('suggest.list', (payload, req) => service.list(payload, req.principal)));
 
   return stack;
 }

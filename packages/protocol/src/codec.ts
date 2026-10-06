@@ -19,7 +19,7 @@ import {
   type WirePayloadOf,
   welcomeSchema,
 } from './schema/index.ts';
-import { CLIENT_HELLO_MAX_BYTES, DECODED_MAX_DEPTH, MESSAGE_TYPE_MAX_CHARS } from './schema/limits.ts';
+import { CLIENT_HELLO_MAX_BYTES, DECODED_MAX_DEPTH, LIST_MAX_ITEMS, LIST_REPLY_MAX_BYTES, MESSAGE_TYPE_MAX_CHARS } from './schema/limits.ts';
 
 // MessagePack codec for Envelopes (ARCHITECTURE §4.3) and for the two handshake structures (§4.2).
 //
@@ -226,6 +226,103 @@ function readEnvelopeId(value: unknown): string | null {
   if (!isPlainObject(value) || !Object.hasOwn(value, 'id')) return null;
   const id = envelopeIdSchema.safeParse(value['id']);
   return id.success ? id.data : null;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Sizes: the page rule, the batch rule and the list rule count bytes with ONE function
+// ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * The size of `value` as it travels inside an Envelope (its msgpack encoding). Every module that bounds a reply by
+ * bytes (EVENTS_PAGE_MAX_BYTES, EVENTS_BATCH_MAX_BYTES, LIST_REPLY_MAX_BYTES) measures with this, so two modules that
+ * share one budget (events from the sessions module, cards from the conversation module) agree on what is left.
+ * A value that cannot be encoded counts as Infinity.
+ */
+export function encodedSize(value: unknown): number {
+  try {
+    return encoder.encode(value).byteLength;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+export interface TakenWithinBytes<T> {
+  /** The items that fit, in order. */
+  readonly taken: T[];
+  /** The items that did not. */
+  readonly rest: T[];
+  /** The encoded size of `taken` (the sum of the items' sizes). */
+  readonly bytes: number;
+}
+
+/**
+ * THE rule behind every bounded reply: takes items in order while their sizes sum to at most `budgetBytes` (and at
+ * most `maxItems`). With `atLeastOne` the first item is taken even when it alone exceeds the budget (a list reply, a
+ * `session.cards.get`, an event batch: one entry always travels; the schemas bound a single entry far below
+ * MAX_APP_MESSAGE). Stops at the first item that does not fit: order is kept, nothing is skipped.
+ */
+export function takeWithinBytes<T>(
+  items: readonly T[],
+  budgetBytes: number,
+  options: { readonly atLeastOne?: boolean; readonly maxItems?: number; readonly sizeOf?: (item: T) => number } = {},
+): TakenWithinBytes<T> {
+  const sizeOf = options.sizeOf ?? encodedSize;
+  const maxItems = options.maxItems ?? Number.POSITIVE_INFINITY;
+  const taken: T[] = [];
+  let bytes = 0;
+  for (const item of items) {
+    if (taken.length >= maxItems) break;
+    const size = sizeOf(item);
+    if (bytes + size > budgetBytes && !(options.atLeastOne === true && taken.length === 0)) break;
+    taken.push(item);
+    bytes += size;
+  }
+  return { taken, rest: items.slice(taken.length), bytes };
+}
+
+/**
+ * THE list rule (`session.list`, `suggest.list`, `topic.list`, `inbox.list`, `admin.claudeConfig.get`) over a list
+ * that is already in its order: the entries after the one whose id is `after` (from the start when `after` is absent
+ * or no longer in the list), closed at LIST_REPLY_MAX_BYTES and at `maxItems` entries (default LIST_MAX_ITEMS), always
+ * at least one entry; `hasMore` when entries are left. The next request passes the last id it got as `after`.
+ */
+export function takeListPage<T>(
+  items: readonly T[],
+  after: string | undefined,
+  idOf: (item: T) => string,
+  options: { readonly maxItems?: number } = {},
+): { readonly items: T[]; readonly hasMore: boolean } {
+  const from = after === undefined ? 0 : items.findIndex((item) => idOf(item) === after) + 1;
+  const page = takeWithinBytes(items.slice(from), LIST_REPLY_MAX_BYTES, { atLeastOne: true, maxItems: options.maxItems ?? LIST_MAX_ITEMS });
+  return { items: page.taken, hasMore: page.rest.length > 0 };
+}
+
+/** How many pages `collectPages` reads at most (64 × 4 MiB: far beyond any list of the protocol). */
+export const LIST_PAGES_MAX = 64;
+
+/**
+ * The CLIENT side of the list rule: reads page after page (passing the last id it got as `after`) until `hasMore` is
+ * false, and returns every entry in order.
+ *
+ *   const sessions = await collectPages(async (after) => {
+ *     const page = await conn.request('session.list', after === undefined ? {} : { after });
+ *     return { items: page.sessions, hasMore: page.hasMore };
+ *   }, (session) => session.id);
+ */
+export async function collectPages<T>(
+  fetchPage: (after: string | undefined) => Promise<{ readonly items: readonly T[]; readonly hasMore: boolean }>,
+  idOf: (item: T) => string,
+): Promise<T[]> {
+  const all: T[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < LIST_PAGES_MAX; page++) {
+    const { items, hasMore } = await fetchPage(after);
+    all.push(...items);
+    const last = items.at(-1);
+    if (!hasMore || last === undefined) break;
+    after = idOf(last);
+  }
+  return all;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

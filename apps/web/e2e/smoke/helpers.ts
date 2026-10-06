@@ -185,7 +185,7 @@ export async function startSmoke(options: SmokeOptions = {}): Promise<SmokeEnv> 
       async diagnostics() {
         const sessions = stack.daemon.ctx.services.sessions
           .list()
-          .map((s) => `${s.id} ${s.kind} owner=${s.ownerUserId} root=${s.root.kind} status=${s.status}${s.endReason === undefined ? '' : ` endReason=${s.endReason}`}`);
+          .map((s) => `${s.id} ${s.kind} owner=${s.openedBy.userId} root=${s.root.kind} status=${s.status}${s.endReason === undefined ? '' : ` endReason=${s.endReason}`}`);
         const audit = await stack.audit(DIAGNOSTIC_AUDIT_ENTRIES).catch(() => []);
         const lines = daemonLog.lines();
         return [

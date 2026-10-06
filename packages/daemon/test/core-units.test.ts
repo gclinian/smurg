@@ -1,7 +1,9 @@
 // Unit tests of the small core pieces: logical-channel bookkeeping (the daemon half of the resume contract), the
 // router's per-message role check and error mapping, stubs, the event bus, backoff, the line logger's quoting.
+import { TokenBucketLimiter } from '../src/core/rates.ts';
 import { describe, expect, it } from 'vitest';
-import { SmurgError, type ClientEnvelope } from '@smurg/protocol';
+import { EDIT_TOOL_NAMES, SmurgError, isEditTool, type ClientEnvelope } from '@smurg/protocol';
+import { EDIT_TOOL_NAMES as HOOK_EDIT_TOOL_NAMES } from '../src/hooks/wire.ts';
 import { JsonlAuditLog } from '../src/core/audit.ts';
 import { TypedEventBus } from '../src/core/bus.ts';
 import type { ClientConnection, MemberRecord } from '../src/core/interfaces.ts';
@@ -67,7 +69,8 @@ describe('RouterImpl', () => {
       denied: () => denials++,
     };
     const current = { member };
-    const router = new RouterImpl({ sink, members: { active: () => current.member }, audit, log: silentLogger });
+    const rates = new TokenBucketLimiter(new ManualClock());
+    const router = new RouterImpl({ sink, members: { active: () => current.member }, audit, log: silentLogger, rates });
     const conn = { id: 'conn_1', userId: 'dev:amy' } as ClientConnection;
     const cleanup = async () => {
       await audit.close();
@@ -213,5 +216,13 @@ describe('stubs, bus, rate limits', () => {
     // Ordinary letters of any script stay as they are.
     expect(quoteForLog('/p/日本語/ü/.git')).toBe('"/p/日本語/ü/.git"');
     expect(LOG_UNSAFE_CHARACTER.test('/p/日本語/ü/.git')).toBe(false);
+  });
+});
+
+describe('one list of edit tools', () => {
+  it('the hook command (which may not load @smurg/protocol: it stays tiny) names exactly the protocol\'s edit tools', () => {
+    // The tool gate takes the agent lock for these; a permission card shows a diff for these; one list, checked here.
+    expect([...HOOK_EDIT_TOOL_NAMES]).toEqual([...EDIT_TOOL_NAMES]);
+    for (const name of HOOK_EDIT_TOOL_NAMES) expect(isEditTool(name)).toBe(true);
   });
 });

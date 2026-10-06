@@ -61,7 +61,7 @@ export function EndSessionDialog({ session, mode, onClose }: EndSessionDialogPro
       onClose={onClose}
       role="alertdialog"
       title={mode === 'terminate' ? t('terminate.title') : t('end.title')}
-      description={mode === 'terminate' ? t('terminate.body', { owner: session.ownerName, title: plainSessionTitle(session) }) : t('end.body', { title: sessionTitle(session) })}
+      description={mode === 'terminate' ? t('terminate.body', { owner: session.openedBy.displayName, title: plainSessionTitle(session) }) : t('end.body', { title: sessionTitle(session) })}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

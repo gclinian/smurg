@@ -1,5 +1,6 @@
-// The agents panel (SPEC R4, R7 "agent panel", goal 2 "every teammate sees live what each agent is changing"): a tab for EVERY
-// session of the workspace — everyone may watch — with who opened it, kind, status and where it runs; the terminal
+// The terminal panel (SPEC R4, R7): a tab for EVERY terminal session of the workspace (an agent session is a
+// conversation, protocol 4: it has no PTY and no tab here) — everyone may watch — with who opened it, kind, status
+// and where it runs; the terminal
 // (xterm.js, loaded lazily); session creation and ending. Every session runs as the host (protocol v2): the host and
 // members with agent access open sessions and type into any of them. The focused session (sessions.focus) is shared with the
 // suggestions panel below, which shows the composer to editors and the queue of suggestions to those who may type.
@@ -11,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
 import { useStore } from '../../lib/store.ts';
+import { isTerminalSession } from '../../lib/stores/sessions.ts';
 import { selectUserId } from '../../lib/stores/workspace.ts';
 import { useCapabilities, useCommandHandler, useCommands, useStores } from '../../lib/workspace/context.tsx';
 import { Badge, Banner, Button, EmptyState, Panel, Spinner } from '../../ui/index.ts';
@@ -57,7 +59,8 @@ export function AgentsPanel(_props: AgentsPanelProps) {
   const lastList = useRef<SessionInfo[]>([]);
   const known = useMemo(() => {
     if (sessionsState.status === 'ready' || sessionsState.sessions.size > 0 || sessionsState.status === 'error') {
-      const merged = new Map(sessionsState.sessions);
+      // Terminals only: a conversation with an agent is not a PTY.
+      const merged = new Map([...sessionsState.sessions].filter(([, session]) => isTerminalSession(session)));
       if (sessionsState.status !== 'ready') for (const session of lastList.current) if (!merged.has(session.id)) merged.set(session.id, session);
       return orderSessions(merged.values());
     }

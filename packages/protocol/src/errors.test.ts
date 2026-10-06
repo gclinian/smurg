@@ -10,11 +10,17 @@ import {
 } from './errors.ts';
 import { defaultErrorRef, msg, render } from './i18n/index.ts';
 import {
+  ERROR_REASONS,
   diskReportOfError,
   errorReasonOf,
   insufficientDiskError,
+  knownErrorReasonOf,
   lockOfError,
   lockedError,
+  settledError,
+  settledOfError,
+  unmergedError,
+  unmergedWorktreesOfError,
 } from './schema/error-details.ts';
 import { agentLock, disk } from './schema/message-samples.fixture.ts';
 
@@ -31,6 +37,7 @@ describe('error codes', () => {
       'insufficient_disk',
       'too_large',
       'host_only',
+      'rate_limited',
       'internal',
     ]);
     expect(isErrorCode('locked')).toBe(true);
@@ -133,5 +140,36 @@ describe('typed error details', () => {
   it('reason is read from detail.reason', () => {
     expect(errorReasonOf(new SmurgError('bad_request', 'x', { reason: 'hash-mismatch' }))).toBe('hash-mismatch');
     expect(errorReasonOf(new SmurgError('bad_request'))).toBeNull();
+  });
+
+  it('the reasons protocol 4 fixes are a closed list a client may branch on', () => {
+    expect([...ERROR_REASONS]).toEqual(['not-a-terminal', 'not-an-agent', 'ended', 'archived', 'settled', 'plan-changed', 'report-changed', 'unfinished', 'unmerged', 'not-failed', 'host-only', 'discussion', 'rate-limited']);
+    expect(knownErrorReasonOf(new SmurgError('conflict', undefined, { reason: 'plan-changed' }))).toBe('plan-changed');
+    expect(knownErrorReasonOf(new SmurgError('conflict', undefined, { reason: 'something-else' }))).toBeNull();
+    expect(knownErrorReasonOf(new SmurgError('conflict'))).toBeNull();
+  });
+
+  it('a card that was settled first: which card, how it ended and who did it, never the card itself', () => {
+    const error = settledError({ card: { kind: 'permission', id: 'pr_1' }, sessionId: 'sess_i', status: 'allowed', by: { userId: 'dev:mei', displayName: 'Mei' } }, msg('permission.notOpen'));
+    expect(error.code).toBe('conflict');
+    expect(error.text).toEqual({ id: 'permission.notOpen' });
+    expect(errorPayloadSchema.safeParse(error.toPayload()).success).toBe(true);
+    expect(settledOfError(SmurgError.fromPayload(error.toPayload()))).toEqual({ reason: 'settled', card: { kind: 'permission', id: 'pr_1' }, sessionId: 'sess_i', status: 'allowed', by: { userId: 'dev:mei', displayName: 'Mei' } });
+    expect(JSON.stringify(error.toPayload().detail)).not.toMatch(/command|pnpm|text/);
+    // A question withdrawn by a restart: nobody did it.
+    expect(settledOfError(settledError({ card: { kind: 'question', id: 'q_1' }, sessionId: 'sess_a', status: 'withdrawn' }))).toMatchObject({ card: { kind: 'question' }, status: 'withdrawn' });
+    expect(settledOfError(new SmurgError('conflict', 'x', { reason: 'settled' }))).toBeNull();
+    expect(settledOfError(new SmurgError('conflict', 'x', { reason: 'settled', card: { kind: 'report', id: 'r' }, sessionId: 's', status: 'allowed' }))).toBeNull();
+    expect(settledOfError(new SmurgError('forbidden', 'x', { reason: 'settled', card: { kind: 'question', id: 'q_1' }, sessionId: 's', status: 'answered' }))).toBeNull();
+  });
+
+  it('an archive that needs a decision names the worktrees with unmerged changes', () => {
+    const worktrees = [{ itemId: 'cart-api', worktreeId: 'wt_1', branch: 'smurg/checkout/cart-api' }];
+    const error = unmergedError(worktrees, msg('topic.archive.unmerged', { count: 1 }));
+    expect(error.code).toBe('conflict');
+    expect(error.message).toBe('1 work item has changes that were never merged. Choose whether to keep or delete them.');
+    expect(unmergedWorktreesOfError(SmurgError.fromPayload(error.toPayload()))).toEqual(worktrees);
+    expect(unmergedWorktreesOfError(new SmurgError('conflict', 'x', { reason: 'unmerged', worktrees: [{ itemId: 'Bad Id', worktreeId: 'wt_1', branch: 'b' }] }))).toBeNull();
+    expect(unmergedWorktreesOfError(new SmurgError('conflict', 'x', { reason: 'settled' }))).toBeNull();
   });
 });

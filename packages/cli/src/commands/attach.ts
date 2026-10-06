@@ -8,7 +8,7 @@
 // workspace keys, HOSTING §5.1 / §8 — or someone poses as the host) is explained and used only after the person's
 // explicit yes at a terminal or --accept-new-key (the web app asks the same question).
 import { hostname } from 'node:os';
-import { InviteLinkError, can, daemonKeyFingerprint, equalBytes, formatFingerprintForDisplay, parseInviteUrl, type SessionInfo } from '@smurg/protocol';
+import { InviteLinkError, can, collectPages, daemonKeyFingerprint, equalBytes, formatFingerprintForDisplay, parseInviteUrl, type SessionInfo, type TerminalSession } from '@smurg/protocol';
 import type { ConnectionRelay } from '@smurg/protocol/client';
 import { readPinnedDaemonKey } from '@smurg/protocol/node';
 import { booleanOption, parseArgs, stringOption } from '../cli/args.ts';
@@ -44,18 +44,23 @@ export function deviceName(host: string = hostname()): string {
   return name === '' ? 'smurg CLI' : `smurg CLI (${name})`;
 }
 
-function statusText(s: SessionInfo): Text {
+function statusText(s: TerminalSession): Text {
   if (s.status === 'exited') return m('attach.status.exited', { exitCode: s.exitCode ?? 0 });
   return m(s.status === 'starting' ? 'attach.status.starting' : 'attach.status.running');
 }
 
-export function formatSessionList(sessions: readonly SessionInfo[], me: string, lang: Locale): string {
+/** The sessions `smurg attach` works with: terminals. An agent session is a conversation, not a PTY. */
+export function terminalSessions(sessions: readonly SessionInfo[]): TerminalSession[] {
+  return sessions.filter((session): session is TerminalSession => session.kind === 'terminal');
+}
+
+export function formatSessionList(sessions: readonly TerminalSession[], me: string, lang: Locale): string {
   const tr = (text: Text): string => renderText(lang, text);
   if (sessions.length === 0) return tr(m('attach.list.empty'));
   const lines = [tr(m('attach.list.header'))];
   sessions.forEach((s, i) => {
-    const kind = tr(m(s.kind === 'agent' ? 'attach.kind.agent' : 'attach.kind.terminal'));
-    const owner = s.ownerUserId === me ? tr(m('attach.owner.you', { name: s.ownerName })) : s.ownerName;
+    const kind = tr(m('attach.kind.terminal'));
+    const owner = s.openedBy.userId === me ? tr(m('attach.owner.you', { name: s.openedBy.displayName })) : s.openedBy.displayName;
     lines.push(`${String(i + 1).padEnd(4)}  ${s.id.padEnd(32)}  ${kind.padEnd(8)}  ${owner.padEnd(12)}  ${tr(statusText(s)).padEnd(10)}  ${tr(sessionTitle(s))}`);
   });
   lines.push('', tr(m('attach.list.footer')));
@@ -63,7 +68,7 @@ export function formatSessionList(sessions: readonly SessionInfo[], me: string, 
 }
 
 /** `2`, a full id, or a unique id prefix. */
-export function pickSession(sessions: readonly SessionInfo[], wanted: string): SessionInfo {
+export function pickSession(sessions: readonly TerminalSession[], wanted: string): TerminalSession {
   if (/^\d{1,4}$/.test(wanted)) {
     const index = Number(wanted) - 1;
     const byIndex = sessions[index];
@@ -72,7 +77,7 @@ export function pickSession(sessions: readonly SessionInfo[], wanted: string): S
   const exact = sessions.find((s) => s.id === wanted);
   if (exact) return exact;
   const prefixed = sessions.filter((s) => s.id.startsWith(wanted));
-  if (prefixed.length === 1) return prefixed[0] as SessionInfo;
+  if (prefixed.length === 1) return prefixed[0] as TerminalSession;
   if (prefixed.length > 1) throw usageError(m('attach.pick.ambiguous', { wanted }));
   throw usageError(m('attach.pick.notFound', { wanted }), m('attach.pick.notFound.hint'));
 }
@@ -258,7 +263,12 @@ export async function runAttach(argv: readonly string[], ctx: CommandContext, de
   const channel = await openChannel(ctx, target, deps, booleanOption(args, 'browser') === false, booleanOption(args, 'accept-new-key') === true);
   try {
     const me = channel.welcome.member.userId;
-    const { sessions } = await channel.request('session.list', {});
+    // `session.list` follows the list rule: read every page.
+    const listed = await collectPages(async (after) => {
+      const page = await channel.request('session.list', after === undefined ? {} : { after });
+      return { items: page.sessions, hasMore: page.hasMore };
+    }, (session) => session.id);
+    const sessions = terminalSessions(listed);
     if (wanted === undefined) {
       const name = channel.welcome.workspace.name;
       say(ctx, target.kind === 'local' ? m('attach.list.workspace.local', { name, workspaceId: target.workspaceId }) : m('attach.list.workspace.relay', { name, workspaceId: target.workspaceId, relay: target.relay as string }));
@@ -268,8 +278,8 @@ export async function runAttach(argv: readonly string[], ctx: CommandContext, de
     const session = pickSession(sessions, wanted);
     const title = sessionTitle(session);
     if (session.status === 'exited') throw new CliError(m('attach.sessionExited', { title, exitCode: session.exitCode ?? 0 }));
-    const isOwner = session.ownerUserId === me;
-    say(ctx, m(isOwner ? 'attach.attaching.own' : 'attach.attaching.other', { title, owner: session.ownerName }));
+    const isOwner = session.openedBy.userId === me;
+    say(ctx, m(isOwner ? 'attach.attaching.own' : 'attach.attaching.other', { title, owner: session.openedBy.displayName }));
     if (!can(channel.welcome.member.role, 'session.drive')) say(ctx, readOnlyNotice(session));
     const outcome = await attachSession({ channel, session, terminal, io: ctx.io, lang: ctx.lang, utf8: localeIsUtf8(ctx.io.env) });
     return exitCodeOf(outcome);

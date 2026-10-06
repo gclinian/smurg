@@ -19,6 +19,7 @@ import type {
   MemberDirectory,
   PathGuard,
   PowerService,
+  RateLimiter,
   RootRegistry,
   Router,
   SettingsService,
@@ -45,6 +46,8 @@ export interface DaemonContext {
   readonly invites: InviteService;
   readonly settings: SettingsService;
   readonly power: PowerService;
+  /** Per-member token buckets (votes, comments, suggestions, mentions; an agent's notify_member). */
+  readonly rates: RateLimiter;
   /** Filled before any module's register() runs; call other services lazily (from methods), never in create(). */
   readonly services: FeatureServices;
   /** Aborted when stop() begins: long operations (merges, zips, waits) should give up. */

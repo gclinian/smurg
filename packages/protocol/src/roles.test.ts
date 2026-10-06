@@ -55,6 +55,7 @@ const ARCH_3: Record<Capability, readonly [boolean, boolean, boolean, boolean]> 
   'session.view': [true, true, true, true],
   'file.write': [true, true, true, false],
   'suggest.create': [true, true, true, false],
+  discuss: [true, true, true, false],
   'session.create': [true, true, false, false],
   'session.drive': [true, true, false, false],
   'worktree.merge.request': [true, true, false, false],
@@ -103,6 +104,12 @@ describe('capability matrix vs SPEC §8 (cell by cell)', () => {
     });
   }
 
+  // Owner's brief for 0.5.0, decision 2: everyone but viewers votes and comments on an agent's question (and may be
+  // responsible and review a result report): the capability `discuss`. It has no row in SPEC §8.
+  it.each(ROLES.map((role) => [role, role !== 'viewer'] as const))('vote and comment | %s = %s', (role, expected) => {
+    expect(can(role, 'discuss')).toBe(expected);
+  });
+
   it('R10 run-on-behalf is not a prototype capability', () => {
     expect(CAPABILITIES.some((capability) => capability.startsWith('exec.request'))).toBe(false);
   });
@@ -143,7 +150,7 @@ describe('can()', () => {
 
   it('capabilitiesOf lists the row', () => {
     expect(capabilitiesOf('viewer')).toEqual(['file.read', 'file.download', 'session.view']);
-    expect(capabilitiesOf('editor')).toEqual(['file.read', 'file.download', 'file.write', 'session.view', 'suggest.create']);
+    expect(capabilitiesOf('editor')).toEqual(['file.read', 'file.download', 'file.write', 'session.view', 'suggest.create', 'discuss']);
     expect(capabilitiesOf('agent')).toEqual([
       'file.read',
       'file.download',
@@ -152,6 +159,7 @@ describe('can()', () => {
       'session.create',
       'session.drive',
       'suggest.create',
+      'discuss',
       'worktree.merge.request',
     ]);
   });

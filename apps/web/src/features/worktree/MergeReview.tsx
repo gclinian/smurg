@@ -134,7 +134,7 @@ function MergeReview({ requestId, onClose }: { requestId: string; onClose(): voi
       const result = await stores.worktrees.approve(request.id);
       if (!alive.current) return;
       if (result.status === 'merged') {
-        toast.show({ tone: 'success', title: t('review.merged', { name: request.requestedBy.displayName }) });
+        toast.show({ tone: 'success', title: t('review.merged', { name }) });
         onClose();
         return;
       }
@@ -156,7 +156,7 @@ function MergeReview({ requestId, onClose }: { requestId: string; onClose(): voi
       const trimmed = reason.trim();
       await stores.worktrees.reject(request.id, trimmed === '' ? undefined : trimmed);
       if (!alive.current) return;
-      toast.show({ tone: 'success', title: t('review.rejected', { name: request.requestedBy.displayName }) });
+      toast.show({ tone: 'success', title: t('review.rejected', { name }) });
       onClose();
     } catch (failure) {
       if (alive.current) setError(t('review.failed', { message: describeError(failure) }));
@@ -165,7 +165,8 @@ function MergeReview({ requestId, onClose }: { requestId: string; onClose(): voi
     }
   };
 
-  const name = request?.requestedBy.displayName ?? '';
+  // A draft (the snapshot of a work item nobody asked to merge yet) has no requester.
+  const name = request?.requestedBy?.displayName ?? '';
   const selectedEntry = model?.files.find((entry) => entry.file.path === selected) ?? null;
   const nextUnopened = remaining.find((path) => fileDiffs.get(path)?.status !== 'loading');
 
@@ -319,7 +320,7 @@ function ReviewHeader({ request, branch, files, additions, deletions }: { reques
       </p>
       {request.message ? (
         <div className="worktree-review__message">
-          <span className="worktree-review__message-label">{t('review.message', { name: request.requestedBy.displayName })}</span>
+          <span className="worktree-review__message-label">{t('review.message', { name: request.requestedBy?.displayName ?? '' })}</span>
           <p>{request.message}</p>
         </div>
       ) : null}

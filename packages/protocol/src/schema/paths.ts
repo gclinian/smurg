@@ -132,7 +132,8 @@ export function isRelPathWithin(path: string, ancestor: string): boolean {
 // host: ARCHITECTURE §11 D-15). Matched at ANY depth and after foldPathName (APFS is case-insensitive by default:
 // `.Claude/settings.json` is `.claude/settings.json`).
 const HOST_ONLY_DIRS: ReadonlySet<string> = new Set(['.claude', '.git', '.smurg', '.vscode', '.idea']);
-const HOST_ONLY_FILES: ReadonlySet<string> = new Set(['.mcp.json', '.envrc']);
+// `CLAUDE.md` / `CLAUDE.local.md` at any depth: Claude Code loads them as instructions for agents that run as the host.
+const HOST_ONLY_FILES: ReadonlySet<string> = new Set(['.mcp.json', '.envrc', 'claude.md', 'claude.local.md']);
 
 // Code points HFS+ ignores when it compares names (git's is_hfs_dotgit list): `.g‌it` is `.git` there.
 const HFS_IGNORABLE = /[\u200c-\u200f\u202a-\u202e\u206a-\u206f\ufeff]/g;
@@ -150,7 +151,8 @@ export function foldPathName(name: string): string {
 
 /**
  * Whether only the host may write `path` through `file.*`, `doc.*` or uploads (ARCHITECTURE §5.2): anything inside
- * `.claude/`, `.git/`, `.smurg/`, `.vscode/`, `.idea/`, and any `.mcp.json` or `.envrc`. This matches more than the
+ * `.claude/`, `.git/`, `.smurg/`, `.vscode/`, `.idea/`, and any `.mcp.json`, `.envrc`, `CLAUDE.md` or
+ * `CLAUDE.local.md`. This matches more than the
  * architecture's root-anchored list on purpose (nested `.claude/` directories, every spelling a case-insensitive file
  * system folds together, see foldPathName): a false "host-only" costs a member one refused write, a false "not
  * host-only" can run code on the host. The daemon checks the resolved on-disk path as well; this lexical test is not
@@ -195,6 +197,90 @@ export function isHostPrivatePath(path: string): boolean {
   return HOST_PERSONAL_SUFFIXES.some(
     (suffix) => suffix.length <= segments.length && suffix.every((name, i) => segments[segments.length - suffix.length + i] === name),
   );
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Claude Code's own configuration, and the rules an agent session starts with (ARCHITECTURE §7.6 "Profiles")
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Directories and files Claude Code (and git) load configuration from, at any depth. No agent session writes them. */
+export const CLAUDE_CONFIG_DIR_NAMES: readonly string[] = Object.freeze(['.claude', '.git']);
+export const CLAUDE_CONFIG_FILE_NAMES: readonly string[] = Object.freeze(['.mcp.json']);
+/** The three project-level Claude Code files of a root whose content the host confirms (the trust gate). */
+export const PROJECT_SETTINGS_FILES: readonly string[] = Object.freeze(['.claude/settings.json', '.claude/settings.local.json', '.mcp.json']);
+
+const CLAUDE_CONFIG_DIRS_FOLDED: ReadonlySet<string> = new Set(CLAUDE_CONFIG_DIR_NAMES.map(foldPathName));
+const CLAUDE_CONFIG_FILES_FOLDED: ReadonlySet<string> = new Set(CLAUDE_CONFIG_FILE_NAMES.map(foldPathName));
+
+/**
+ * Whether `path` is Claude Code's own configuration (`.claude/**`, `.mcp.json`, `.git/**`, at any depth, under every
+ * spelling a case-insensitive file system folds onto them): the tool gate refuses every agent's edit of it.
+ */
+export function isClaudeConfigPath(path: string): boolean {
+  const segments = relPathSegments(path).map(foldPathName);
+  if (segments.some((segment) => CLAUDE_CONFIG_DIRS_FOLDED.has(segment))) return true;
+  const last = segments.at(-1);
+  return last !== undefined && CLAUDE_CONFIG_FILES_FOLDED.has(last);
+}
+
+function atRootAndBelow(pattern: string): string[] {
+  return [pattern, `**/${pattern}`];
+}
+
+/**
+ * Patterns, relative to a session's root, that every agent session is denied to READ: the host-private names. Generated
+ * from the lists above so they cannot drift from isHostPrivatePath. The daemon turns each into a rule with the root's
+ * absolute form (`Read(//<realpath>/<pattern>)`); such a rule also hides the file from Grep and refuses shell commands
+ * that name it.
+ */
+export const AGENT_READ_DENY_PATTERNS: readonly string[] = Object.freeze([
+  ...HOST_PRIVATE_FILE_NAMES.flatMap(atRootAndBelow),
+  ...HOST_PRIVATE_DIR_NAMES.flatMap((dir) => atRootAndBelow(`${dir}/**`)),
+  ...HOST_PERSONAL_FILES.flatMap(atRootAndBelow),
+]);
+
+/** Patterns, relative to a session's root, that every agent session is denied to EDIT: Claude Code's configuration. */
+export const AGENT_EDIT_DENY_PATTERNS: readonly string[] = Object.freeze([
+  ...CLAUDE_CONFIG_DIR_NAMES.flatMap((dir) => atRootAndBelow(`${dir}/**`)),
+  ...CLAUDE_CONFIG_FILE_NAMES.flatMap(atRootAndBelow),
+]);
+
+// ---------------------------------------------------------------------------------------------------------------
+// A topic's files (ARCHITECTURE §5.10): specs/<slug>/SPEC.md, PLAN.md, reports/<item id>.md
+// ---------------------------------------------------------------------------------------------------------------
+
+export const SPECS_DIR = 'specs';
+export const SPEC_FILE_NAME = 'SPEC.md';
+export const PLAN_FILE_NAME = 'PLAN.md';
+export const REPORTS_DIR_NAME = 'reports';
+
+/** `specs/<slug>`. The slug and item id are patterns the schemas check (topicSlugSchema, itemIdSchema). */
+export function topicDirPath(slug: string): string {
+  return `${SPECS_DIR}/${slug}`;
+}
+export function topicSpecPath(slug: string): string {
+  return `${SPECS_DIR}/${slug}/${SPEC_FILE_NAME}`;
+}
+export function topicPlanPath(slug: string): string {
+  return `${SPECS_DIR}/${slug}/${PLAN_FILE_NAME}`;
+}
+export function topicReportPath(slug: string, itemId: string): string {
+  return `${SPECS_DIR}/${slug}/${REPORTS_DIR_NAME}/${itemId}.md`;
+}
+
+/** Which of a topic's two shared files `path` is, comparing names as a case-insensitive file system would. */
+export function topicFileKind(path: string, slug: string): 'spec' | 'plan' | null {
+  const folded = relPathSegments(path).map(foldPathName).join('/');
+  if (folded === relPathSegments(topicSpecPath(slug)).map(foldPathName).join('/')) return 'spec';
+  if (folded === relPathSegments(topicPlanPath(slug)).map(foldPathName).join('/')) return 'plan';
+  return null;
+}
+
+/** Whether `path` is `specs/<slug>` itself or lies below it (folded like topicFileKind). */
+export function isInTopicDir(path: string, slug: string): boolean {
+  const folded = relPathSegments(path).map(foldPathName);
+  const dir = relPathSegments(topicDirPath(slug)).map(foldPathName);
+  return dir.every((segment, index) => folded[index] === segment);
 }
 
 /** Whether a path segment names the daemon's `.smurg` directory under any spelling (see foldPathName). */

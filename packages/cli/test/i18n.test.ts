@@ -80,7 +80,7 @@ const SAMPLES: readonly Sample[] = [
 ];
 
 /** zh-TW texts that are the same as the English ones on purpose (a URL-free name, a unit, a table cell). */
-const IDENTICAL_IN_BOTH: readonly MessageId[] = ['arg.session', 'attach.kind.agent', 'attach.note', 'uninstall.plan.item', 'update.progress.unknown'];
+const IDENTICAL_IN_BOTH: readonly MessageId[] = ['arg.session', 'attach.note', 'uninstall.plan.item', 'update.progress.unknown'];
 
 describe('the CLI catalog (src/i18n)', () => {
   it('has the same ids in both languages', () => {

@@ -19,6 +19,9 @@ import { SYSTEM_PRINCIPAL } from '../src/core/permissions.ts';
 import { IdentityVerifier, jwksKeySource } from '../src/net/identity.ts';
 import { MEMORY_RELAY_ORIGIN, TestIdentityIssuer } from '../src/testing/memory-relay.ts';
 import { createTestDaemon, waitFor, type TestDaemon } from '../src/testing/index.ts';
+import { ROLES } from '@smurg/protocol';
+import { roleChangeLoses } from '../src/admin/teardown.ts';
+import { PENDING_MODULES, PENDING_SERVICES, RELEASE_GATE, RELEASE_MODULES } from './fixtures/pending-v050.ts';
 
 let t: TestDaemon | null = null;
 
@@ -32,9 +35,10 @@ function fakeSessions(calls: string[]): FeatureModule {
     name: 'fake-sessions',
     create: () => ({
       sessions: {
-        killAllForUser: async (userId: string, reason: string) => {
+        teardownUser: async (userId: string, change: string, to?: string) => {
           await new Promise((resolve) => setTimeout(resolve, 20));
-          calls.push(`kill:${userId}:${reason}`);
+          calls.push(`teardown:${userId}:${change}${to === undefined ? '' : `:${to}`}`);
+          return { ended: [], handedOver: [], cleared: [] };
         },
       } as unknown as FeatureServices['sessions'],
     }),
@@ -49,7 +53,7 @@ describe('per-member teardown', () => {
     const host = await t.connectHost();
     await t.connect({ userId: 'dev:rita', role: 'agent' });
     await host.conn.request('admin.member.kick', { userId: 'dev:rita' });
-    expect(calls).toEqual(['kill:dev:rita:kicked']);
+    expect(calls).toEqual(['teardown:dev:rita:kicked']);
   });
 
   it('a kick from any other path still ends the sessions', async () => {
@@ -58,23 +62,36 @@ describe('per-member teardown', () => {
     await t.connect({ userId: 'dev:rita', role: 'agent' });
     t.ctx.members.kick('dev:rita', SYSTEM_PRINCIPAL);
     await waitFor(() => calls.length === 1, { what: 'teardown' });
-    expect(calls).toEqual(['kill:dev:rita:kicked']);
+    expect(calls).toEqual(['teardown:dev:rita:kicked']);
   });
 
-  it('leaving ends the sessions; a demotion ends them only when the new role cannot open sessions (below Agent access)', async () => {
+  it('leaving runs the teardown; a role change runs it only when it took session.create, session.drive or discuss away', async () => {
     const calls: string[] = [];
     t = await createTestDaemon({ modules: [fakeSessions(calls)] });
     const host = await t.connectHost();
     const rita = await t.connect({ userId: 'dev:rita', role: 'agent' });
     await t.connect({ userId: 'dev:eddie', role: 'editor' });
-    await host.conn.request('admin.member.setRole', { userId: 'dev:eddie', role: 'viewer' });
+    await t.connect({ userId: 'dev:vera', role: 'viewer' });
+    // A promotion takes nothing away.
+    await host.conn.request('admin.member.setRole', { userId: 'dev:vera', role: 'editor' });
+    await host.conn.request('admin.member.setRole', { userId: 'dev:vera', role: 'agent' });
     expect(calls).toEqual([]);
+    // Editor → Viewer loses `discuss` (their votes, being responsible); Agent access → Editor loses the sessions.
+    await host.conn.request('admin.member.setRole', { userId: 'dev:eddie', role: 'viewer' });
+    expect(calls).toEqual(['teardown:dev:eddie:role-changed:viewer']);
+    calls.length = 0;
     await host.conn.request('admin.member.setRole', { userId: 'dev:rita', role: 'editor' });
-    expect(calls).toEqual(['kill:dev:rita:role-changed']);
+    expect(calls).toEqual(['teardown:dev:rita:role-changed:editor']);
     calls.length = 0;
     await waitFor(() => rita.conn.getState().kind === 'online');
     await rita.conn.request('channel.leave', {});
-    expect(calls).toEqual(['kill:dev:rita:left']);
+    expect(calls).toEqual(['teardown:dev:rita:left']);
+  });
+
+  it('roleChangeLoses: exactly the changes that take one of the three capabilities away', () => {
+    const losing: string[] = [];
+    for (const from of ROLES) for (const to of ROLES) if (roleChangeLoses(from, to)) losing.push(`${from}>${to}`);
+    expect(losing.sort()).toEqual(['agent>editor', 'agent>viewer', 'editor>viewer', 'host>editor', 'host>viewer'].sort());
   });
 });
 
@@ -118,8 +135,9 @@ describe('composition', () => {
 });
 
 describe('DEFAULT_FEATURE_MODULES', () => {
-  // The order is explained next to the list in src/daemon.ts: providers first, the control socket last.
-  const AREAS = ['locks', 'hooks', 'files', 'docs', 'worktree', 'sessions', 'suggest', 'local'];
+  // The order is explained next to the list in src/daemon.ts: providers first, the control socket last. While the
+  // release is being built, the modules of fixtures/pending-v050.ts are not in the list yet.
+  const AREAS = RELEASE_MODULES.filter((name) => PENDING_MODULES[name] === undefined);
 
   it('lists every feature module exactly once, in dependency order', () => {
     const names = DEFAULT_FEATURE_MODULES.map((module) => module.name);
@@ -135,11 +153,20 @@ describe('DEFAULT_FEATURE_MODULES', () => {
     const t = await createTestDaemon();
     try {
       const stubs = FEATURE_SERVICE_NAMES.filter((name) => isStubService(t.ctx.services[name]));
-      expect(stubs).toEqual([]);
+      // Exactly the slots the pending list names (none for the release): a module that drops out fails here, and so
+      // does a module that arrives without its row being removed.
+      expect(stubs).toEqual(FEATURE_SERVICE_NAMES.filter((name) => PENDING_SERVICES[name] !== undefined));
     } finally {
       await t.cleanup();
     }
   }, 60_000);
+});
+
+describe('the release gate', () => {
+  it.runIf(RELEASE_GATE)('nothing of the daemon is pending: every module is composed and every service slot is real', () => {
+    expect(Object.keys(PENDING_MODULES)).toEqual([]);
+    expect(Object.keys(PENDING_SERVICES)).toEqual([]);
+  });
 });
 
 describe('entry points Claude Code runs inside sessions', () => {
@@ -182,6 +209,25 @@ describe('entry points Claude Code runs inside sessions', () => {
       "const h = await import('./dynamic.ts');",
     ].join('\n');
     expect(runtimeImports(source).sort()).toEqual(['./dynamic.ts', './kept-by-verbatim.ts', './multi-line.ts', './re-export.ts', './side-effect.ts', 'node:net']);
+  });
+});
+
+describe('the in-memory fakes are test-only', () => {
+  const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url));
+
+  it('@smurg/daemon/fakes is src/core/fakes/index.ts and exports createFakes, fakesModule and fakesOf', async () => {
+    const manifest = JSON.parse(await readFile(join(PACKAGE_DIR, 'package.json'), 'utf8')) as { exports: Record<string, string> };
+    expect(manifest.exports['./fakes']).toBe('./src/core/fakes/index.ts');
+    const loaded = (await import(join(PACKAGE_DIR, 'src/core/fakes/index.ts'))) as Record<string, unknown>;
+    for (const name of ['createFakes', 'createFakeEnv', 'fakesModule', 'fakesOf', 'fakePrincipal', 'buildAgentSession']) expect(typeof loaded[name], name).toBe('function');
+  });
+
+  it('what the host runs never loads them: not the daemon, not the public index, not a session entry point', async () => {
+    for (const entry of ['src/daemon.ts', 'src/index.ts', 'src/hooks/hook-cli.ts', 'src/mcp/coord-server.ts']) {
+      const { files } = await runtimeImportClosure(join(PACKAGE_DIR, entry));
+      const reached = [...files].map((path) => path.slice(PACKAGE_DIR.length)).filter((path) => path.startsWith('src/core/fakes/') || path.startsWith('src/testing/'));
+      expect(reached, entry).toEqual([]);
+    }
   });
 });
 

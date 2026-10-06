@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { waitFor } from '@smurg/daemon/testing';
-import type { SessionInfo } from '@smurg/protocol';
+import type { TerminalSession } from '@smurg/protocol';
 import { LocalWorkspaceChannel } from '../src/channel/local-channel.ts';
 import { CLI_MAIN, isolatedEnv, makeDirs, startDaemonProc, type DaemonProc, type Dirs } from './helpers.ts';
 import { SecondViewer, drained, localTerminal, viewportOf, type LocalTerminal } from './viewer.ts';
@@ -24,7 +24,7 @@ interface Stack {
   readonly daemon: DaemonProc;
   readonly workspaceId: string;
   readonly host: LocalWorkspaceChannel;
-  readonly session: SessionInfo;
+  readonly session: TerminalSession;
 }
 
 async function stack(): Promise<Stack> {
@@ -36,7 +36,7 @@ async function stack(): Promise<Stack> {
   cleanups.push(() => daemon.stop());
   const host = await LocalWorkspaceChannel.open(daemon.ctlPath, { deviceName: 'test host' });
   cleanups.push(() => host.close());
-  const session = daemon.session as SessionInfo;
+  const session = daemon.session as TerminalSession;
   return { dirs, daemon, workspaceId, host, session };
 }
 
@@ -92,7 +92,7 @@ describe('smurg attach in a real terminal (control socket, host)', () => {
     if (before) expect(cooked(before)).toBe(true);
     await typeAndSee(local, 'echo hello-$((40+2))\r', 'hello-42');
     // The owner's CLI drives the PTY size (resize policy `owner`).
-    await waitFor(async () => (await s.host.request('session.list', {})).sessions.some((x) => x.id === s.session.id && x.cols === 100 && x.rows === 30), { what: 'the PTY at 100x30' });
+    await waitFor(async () => (await s.host.request('session.list', {})).sessions.some((x) => x.id === s.session.id && x.kind === 'terminal' && x.cols === 100 && x.rows === 30), { what: 'the PTY at 100x30' });
     // ^C goes to the REMOTE shell (isig is off locally): sleep is interrupted, attach stays alive.
     let mark = local.text.length;
     local.outer.write('sleep 30\r');
@@ -102,7 +102,7 @@ describe('smurg attach in a real terminal (control socket, host)', () => {
     await waitFor(() => local.since(mark).includes('after-interrupt-2'), { timeoutMs: 15_000, what: 'the interrupted sleep' });
     // SIGWINCH: the window grows, the PTY follows.
     local.resize(120, 40);
-    await waitFor(async () => (await s.host.request('session.list', {})).sessions.some((x) => x.id === s.session.id && x.cols === 120 && x.rows === 40), { what: 'the PTY at 120x40' });
+    await waitFor(async () => (await s.host.request('session.list', {})).sessions.some((x) => x.id === s.session.id && x.kind === 'terminal' && x.cols === 120 && x.rows === 40), { what: 'the PTY at 120x40' });
     await typeAndSee(local, 'stty size\r', '40 120');
     // A remote TUI switches modes in the local terminal...
     await typeAndSee(local, `printf '\\033[?1049h\\033[?2004h\\033[?1004h\\033[?1002h\\033[?1006h\\033[?25lALT-%s' SCREEN\r`, 'ALT-SCREEN');

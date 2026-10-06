@@ -6,7 +6,7 @@
 //    rendered by a headless xterm that answers queries like a real terminal would.
 import xtermHeadless from '@xterm/headless';
 import * as pty from 'node-pty';
-import type { SessionInfo } from '@smurg/protocol';
+import type { TerminalSession } from '@smurg/protocol';
 import type { WorkspaceChannel } from '../src/channel/channel.ts';
 
 const { Terminal } = xtermHeadless;
@@ -41,7 +41,7 @@ export class SecondViewer {
   private expected = 0;
   private readonly off: (() => void)[] = [];
 
-  constructor(channel: WorkspaceChannel, session: SessionInfo) {
+  constructor(channel: WorkspaceChannel, session: TerminalSession) {
     this.channel = channel;
     this.sessionId = session.id;
     this.term = new Terminal({ cols: session.cols, rows: session.rows, scrollback: 5000, allowProposedApi: true });

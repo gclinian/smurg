@@ -18,6 +18,7 @@ import type {
   SessionLaunchFiles,
   WorktreeHandle,
   WorktreeManager,
+  LaunchProfile,
 } from '../../src/core/interfaces.ts';
 import { toDisposable } from '../../src/core/lifecycle.ts';
 import type { DaemonContext } from '../../src/core/context.ts';
@@ -49,15 +50,20 @@ export class FakeHooks implements HookServer {
     if (this.ctx) void removeSessionFiles(this.ctx.config.stateDir, this.ctx.config.workspaceId, sessionId);
   }
 
+  reassignSession(sessionId: string, ownerUserId: string): void {
+    const registration = this.registered.get(sessionId);
+    if (registration) this.registered.set(sessionId, { ...registration, ownerUserId });
+  }
+
   /** The hooks module's own writer (settings-writer.ts), fed what HookServerImpl feeds it: one source of truth. */
-  async writeSessionFiles(sessionId: string): Promise<SessionLaunchFiles> {
+  async writeSessionFiles(sessionId: string, launch: LaunchProfile): Promise<SessionLaunchFiles> {
     const ctx = this.ctx;
     const registration = this.registered.get(sessionId);
     if (!ctx || !registration) throw new Error(`FakeHooks: session ${sessionId} is not registered`);
     const command = ctx.config.sessions.selfCommand;
     if (command === null) throw new Error('FakeHooks: no selfCommand');
     if (!ctx.roots.get(registration.root)) throw new Error('FakeHooks: unknown root');
-    return writeSessionFiles({ stateDir: ctx.config.stateDir, workspaceId: ctx.config.workspaceId, sessionId, settings: { command } });
+    return writeSessionFiles({ stateDir: ctx.config.stateDir, workspaceId: ctx.config.workspaceId, sessionId, settings: { command }, rolePrompt: launch.rolePrompt });
   }
 
   async removeSessionFiles(sessionId: string): Promise<void> {

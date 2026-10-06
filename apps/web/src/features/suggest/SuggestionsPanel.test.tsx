@@ -10,14 +10,14 @@ import { renderInWorkspace } from '../../testing/services.tsx';
 import { SuggestionsPanel } from './index.tsx';
 
 
-const hostSession = makeSession({ id: 'sess_host', ownerUserId: HOST_USER, ownerName: 'Ian', title: 'Claude' });
-const amySession = makeSession({ id: 'sess_amy', ownerUserId: 'dev:amy', ownerName: 'Amy', title: 'my Claude', createdAt: 2 });
+const hostSession = makeSession({ id: 'sess_host', openedBy: { userId: HOST_USER, displayName: 'Ian' }, title: 'Claude' });
+const amySession = makeSession({ id: 'sess_amy', openedBy: { userId: 'dev:amy', displayName: 'Amy' }, title: 'my Claude', createdAt: 2 });
 
 async function renderPanel(role: Role, options: { sessions?: SessionInfo[]; suggestions?: Suggestion[]; focus?: string } = {}) {
   const result = renderInWorkspace(<SuggestionsPanel />, { role });
   await act(async () => {
-    result.conn.respond('session.list', { sessions: options.sessions ?? [hostSession] });
-    result.conn.respond('suggest.list', { suggestions: options.suggestions ?? [] });
+    result.conn.respond('session.list', { sessions: options.sessions ?? [hostSession], hasMore: false });
+    result.conn.respond('suggest.list', { suggestions: options.suggestions ?? [], hasMore: false });
   });
   await act(async () => {
     result.stores.sessions.focus(options.focus ?? 'sess_host');

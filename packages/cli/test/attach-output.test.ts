@@ -2,21 +2,21 @@
 // never written half-way (the old 50 ms idle flush wrote a held OSC 52 prefix, whose terminator then arrived as plain
 // text), and a fresh snapshot starts with a fresh filter (an unfinished sequence of the old stream swallows nothing).
 import { describe, expect, it } from 'vitest';
-import type { SessionInfo } from '@smurg/protocol';
+import type { TerminalSession } from '@smurg/protocol';
 import type { ChannelEnd, WorkspaceChannel } from '../src/channel/channel.ts';
 import { attachSession } from '../src/attach/attach-session.ts';
 import { fakeTerminal } from './helpers.ts';
 
 const enc = (s: string): Uint8Array => new TextEncoder().encode(s);
 
-function fakeChannel(session: SessionInfo) {
+function fakeChannel(session: TerminalSession) {
   const handlers = new Map<string, Set<(payload: unknown) => void>>();
   const restart = new Set<() => void>();
   const ended = new Set<(end: ChannelEnd) => void>();
   let attaches = 0;
   const channel = {
     kind: 'local',
-    welcome: { member: { userId: session.ownerUserId } },
+    welcome: { member: { userId: session.openedBy.userId } },
     request: async (type: string) => {
       if (type !== 'session.attach') throw new Error(`unexpected ${type}`);
       attaches += 1;
@@ -52,7 +52,7 @@ function fakeChannel(session: SessionInfo) {
   };
 }
 
-const session = { id: 'sess_filter_1', kind: 'terminal', ownerUserId: 'dev:me', ownerName: 'me', title: 't', status: 'running', cols: 80, rows: 24 } as unknown as SessionInfo;
+const session: TerminalSession = { id: 'sess_filter_1', kind: 'terminal', openedBy: { userId: 'dev:me', displayName: 'me' }, title: 't', root: { kind: 'main' }, status: 'running', cols: 80, rows: 24, attached: 0, createdAt: 1 };
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('attachSession output', () => {

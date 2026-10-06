@@ -68,7 +68,9 @@ describe('new session: where it runs (R9)', () => {
     const base = { kind: 'agent' as const, title: '' };
     for (const role of ['host', 'agent'] as const) {
       const opts = options(role, { worktrees: [makeWorktree({ id: 'wt_9', kept: true })] });
-      expect(buildCreatePayload(opts, { ...base, where: 'main' }, size)).toEqual({ kind: 'agent', workspace: { mode: 'main' }, cols: 100, rows: 30 });
+      // An agent session is a conversation: no terminal size. A terminal carries the viewer's best guess.
+      expect(buildCreatePayload(opts, { ...base, where: 'main' }, size)).toEqual({ kind: 'agent', workspace: { mode: 'main' } });
+      expect(buildCreatePayload(opts, { kind: 'terminal', title: '', where: 'main' }, size)).toEqual({ kind: 'terminal', workspace: { mode: 'main' }, cols: 100, rows: 30 });
       expect(buildCreatePayload(opts, { ...base, where: 'worktree:new' }, size).workspace).toEqual({ mode: 'worktree' });
       expect(buildCreatePayload(opts, { ...base, where: 'worktree:wt_9' }, size).workspace).toEqual({ mode: 'worktree', worktreeId: 'wt_9' });
     }
@@ -81,9 +83,14 @@ describe('new session: where it runs (R9)', () => {
     expect(buildCreatePayload(options('agent'), { kind: 'agent', where: 'main', title: '  fix the login page ' }, size)).toEqual({
       kind: 'agent',
       workspace: { mode: 'main' },
+      title: 'fix the login page',
+    });
+    expect(buildCreatePayload(options('agent'), { kind: 'terminal', where: 'main', title: ' build ' }, size)).toEqual({
+      kind: 'terminal',
+      workspace: { mode: 'main' },
       cols: 80,
       rows: 24,
-      title: 'fix the login page',
+      title: 'build',
     });
     const blank = buildCreatePayload(options('agent'), { kind: 'terminal', where: 'main', title: '   ' }, size);
     expect(blank).not.toHaveProperty('title');

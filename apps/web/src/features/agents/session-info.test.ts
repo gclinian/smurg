@@ -27,16 +27,17 @@ describe('statusLabel of an ended session', () => {
 describe('who opened a session', () => {
   it('the tab names the session, then who opened it: the typed title, or the kind of an untitled session', () => {
     // The host sends no default title (protocol 3): an untitled session is named after its kind.
-    expect(tabLabel({ kind: 'agent', ownerName: 'Amy' })).toBe('Claude (Amy)');
-    expect(tabLabel({ kind: 'terminal', ownerName: 'Amy' })).toBe('Terminal (Amy)');
-    expect(tabLabel({ kind: 'agent', title: 'Fix the login page', ownerName: 'Ian' })).toBe('Fix the login page (Ian)');
+    expect(tabLabel({ kind: 'agent', openedBy: { displayName: 'Amy' } })).toBe('Claude (Amy)');
+    expect(tabLabel({ kind: 'terminal', openedBy: { displayName: 'Amy' } })).toBe('Terminal (Amy)');
+    expect(tabLabel({ kind: 'agent', title: 'Fix the login page', openedBy: { displayName: 'Ian' } })).toBe('Fix the login page (Ian)');
   });
 
   it('the summary says "By Amy", or "By you" for one\'s own; the details row names the person, or "You"', () => {
-    expect(openedByLabel({ ownerName: 'Amy', ownerUserId: 'dev:amy' }, 'dev:ian')).toBe('By Amy');
-    expect(openedByLabel({ ownerName: 'Amy', ownerUserId: 'dev:amy' }, 'dev:amy')).toBe('By you');
-    expect(openerName({ ownerName: 'Amy', ownerUserId: 'dev:amy' }, 'dev:ian')).toBe('Amy');
-    expect(openerName({ ownerName: 'Amy', ownerUserId: 'dev:amy' }, 'dev:amy')).toBe('You');
+    const amy = { openedBy: { userId: 'dev:amy', displayName: 'Amy' } };
+    expect(openedByLabel(amy, 'dev:ian')).toBe('By Amy');
+    expect(openedByLabel(amy, 'dev:amy')).toBe('By you');
+    expect(openerName(amy, 'dev:ian')).toBe('Amy');
+    expect(openerName(amy, 'dev:amy')).toBe('You');
   });
 
   it('there are two kinds: an agent and a terminal (no login process)', () => {

@@ -95,7 +95,7 @@ export function Composer({ session, draft, onChange, focusToken, onFocused }: Co
     <form className="suggest-composer" onSubmit={(event) => void submit(event)} aria-describedby={hintId}>
       <TextArea
         ref={area}
-        label={t('composer.label', { owner: session.ownerName, title: plainSessionTitle(session) })}
+        label={t('composer.label', { owner: session.openedBy.displayName, title: plainSessionTitle(session) })}
         placeholder={t('composer.placeholder')}
         rows={4}
         value={draft.text}

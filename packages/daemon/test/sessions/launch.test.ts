@@ -1,7 +1,8 @@
-// Who may do what with sessions (ARCHITECTURE §3, §5.5, §11 D-15), how sessions are launched (§7.6): every session
-// runs like the host's own whoever opened it, the member who opened it is its owner (attribution), the Claude Code
-// version only warns, login detection, the end of the sessions a removed member opened, and stop().
-import { readFile, readdir, stat } from 'node:fs/promises';
+// Who may do what with TERMINAL sessions (ARCHITECTURE §3, §5.5, §11 D-15) and how they are launched (§7.6): every
+// session runs like the host's own whoever opened it, the member who opened it is named in `openedBy`, the end of the
+// terminals a removed member opened, and stop(). An agent session is a Claude Code conversation (AgentSessions): its
+// launch, version floor and login state are tested with the agent runtime.
+import { readFile, stat } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -31,16 +32,6 @@ async function exists(path: string): Promise<boolean> {
   );
 }
 
-async function argvOf(logDir: string): Promise<string[][]> {
-  const names = (await readdir(logDir)).filter((name) => name.startsWith('argv.'));
-  return Promise.all(names.map(async (name) => (await readFile(join(logDir, name), 'utf8')).split('\n').filter(Boolean)));
-}
-
-async function envNamesOf(logDir: string): Promise<string[][]> {
-  const names = (await readdir(logDir)).filter((name) => name.startsWith('envnames.'));
-  return Promise.all(names.map(async (name) => (await readFile(join(logDir, name), 'utf8')).split('\n').filter(Boolean)));
-}
-
 async function audit(s: SessionStack): Promise<AuditEntry[]> {
   return s.t.ctx.audit.query({ limit: 200 });
 }
@@ -54,7 +45,7 @@ async function outcomeOf(request: Promise<unknown>): Promise<string> {
 }
 
 const terminal = { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24 } as const;
-const agent = { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24 } as const;
+const agent = { kind: 'agent', workspace: { mode: 'main' } } as const;
 
 describe('who may create and drive sessions (ARCHITECTURE §11 D-15)', { timeout: 60_000 }, () => {
   it('a viewer cannot create sessions; an editor cannot either (refused and audited)', async () => {
@@ -77,8 +68,8 @@ describe('who may create and drive sessions (ARCHITECTURE §11 D-15)', { timeout
     const vic = await s.t.connect({ userId: 'dev:vic', role: 'viewer' });
     const hostSession = (await host.conn.request('session.create', terminal)).session;
     const carolSession = (await carol.conn.request('session.create', terminal)).session;
-    expect(hostSession.ownerUserId).toBe(TEST_HOST_USER);
-    expect(carolSession).toMatchObject({ ownerUserId: 'dev:carol', ownerName: 'Carol' });
+    expect(hostSession.openedBy.userId).toBe(TEST_HOST_USER);
+    expect(carolSession).toMatchObject({ kind: 'terminal', openedBy: { userId: 'dev:carol', displayName: 'Carol' } });
     const hostView = new TestViewer(host.conn, hostSession.id);
     const carolView = new TestViewer(carol.conn, carolSession.id);
     viewers.push(hostView, carolView);
@@ -102,7 +93,8 @@ describe('who may create and drive sessions (ARCHITECTURE §11 D-15)', { timeout
       typeInto(client.conn, hostSession.id, `echo TYPED-BY-${role.toUpperCase()}-IN-HOST\r`);
       typeInto(client.conn, carolSession.id, `echo TYPED-BY-${role.toUpperCase()}-IN-CAROL\r`);
       const other = role === 'host' ? carolSession : hostSession;
-      expect(await outcomeOf(client.conn.request('session.loginStatus', { sessionId: other.id })), `${role} session.loginStatus`).toBe(expected[role].loginStatus ? 'ok' : 'forbidden');
+      // A terminal has no Claude login to check: a member who may drive sessions is told so, the others are refused.
+      expect(await outcomeOf(client.conn.request('session.loginStatus', { sessionId: other.id })), `${role} session.loginStatus`).toBe(expected[role].loginStatus ? 'bad_request' : 'forbidden');
       // Ending or resizing a session someone else opened: only its owner (the host terminates through the console).
       expect(await outcomeOf(client.conn.request('session.end', { sessionId: other.id })), `${role} session.end`).toBe('forbidden');
     }
@@ -165,83 +157,20 @@ describe('who may create and drive sessions (ARCHITECTURE §11 D-15)', { timeout
   });
 });
 
-describe('agent sessions (ARCHITECTURE §7.6)', { timeout: 60_000 }, () => {
-  it('the host\'s agent: claude --settings --mcp-config (no permission flags), hooks registered, the session settings', async () => {
+describe('agent sessions are conversations, not PTYs (ARCHITECTURE §5.5)', { timeout: 60_000 }, () => {
+  it('session.create { kind: "agent" } goes to the agent runtime (AgentSessions); without it the request is answered "not implemented" and no PTY starts', async () => {
     const s = await stack();
     const host = await s.t.connectHost();
-    const { session } = await host.conn.request('session.create', agent);
-    expect(session).toMatchObject({ kind: 'agent', ownerName: 'Host' });
-    // Nobody typed a title: none is sent (each client builds the default in the viewer's language).
-    expect(session.title).toBeUndefined();
-    // A title the opener typed is kept as it is (a person's words are never translated or replaced).
-    const { session: named } = await host.conn.request('session.create', { ...terminal, title: 'release notes' });
-    expect(named.title).toBe('release notes');
-    expect(s.t.ctx.services.sessions.list().map((info) => info.title)).toEqual([undefined, 'release notes']);
-    await waitFor(async () => (await argvOf(s.fakeClaude.logDir)).length === 1, 'claude to start');
-    const [argv] = await argvOf(s.fakeClaude.logDir);
-    expect(argv?.slice(0, 4)).toEqual(['--settings', expect.stringMatching(/sessions\/[0-9a-f]{24}\/[0-9a-f]+\/settings\.json$/), '--mcp-config', expect.stringMatching(/mcp\.json$/)]);
-    expect(argv).toHaveLength(4);
-    expect(argv?.join(' ')).not.toMatch(/dangerously|permission-mode|strict-mcp-config/);
-    const settings = JSON.parse(await readFile(argv?.[1] as string, 'utf8'));
-    expect(settings.permissions.defaultMode).toBe('default');
-    expect(settings.hooks.PreToolUse[0].hooks[0]).toEqual({ type: 'command', command: '/usr/bin/true', args: ['hook'], timeout: 10 });
-    expect((await stat(argv?.[1] as string)).mode & 0o777).toBe(0o600);
-    expect(s.fakes.hooks.registered.get(session.id)).toEqual({ sessionId: session.id, ownerUserId: TEST_HOST_USER, agentName: 'Claude (Host)', root: { kind: 'main' } });
-    const [envNames] = await envNamesOf(s.fakeClaude.logDir);
-    expect(envNames).toEqual(expect.arrayContaining(['SMURG_SESSION_TOKEN', 'SMURG_HOOK_SOCKET', 'SMURG_SESSION_ID']));
-    expect(s.fakes.presence.agents.has(session.id)).toBe(true);
-    expect(s.sessions.agentActor(session.id)).toEqual({ kind: 'agent', sessionId: session.id, ownerUserId: TEST_HOST_USER, displayName: 'Claude (Host)' });
-
-    await host.conn.request('session.end', { sessionId: session.id });
-    expect(s.fakes.hooks.unregistered).toEqual([session.id]);
-    expect(s.fakes.locks.released).toEqual([{ sessionId: session.id, reason: 'session-ended' }]);
-    expect(s.fakes.presence.removed).toEqual([session.id]);
-    expect(await exists(argv?.[1] as string)).toBe(false); // the daemon-owned settings dir went with the session
-  });
-
-  it('an agent an Agent access member opens is launched exactly like the host\'s, and is attributed to her: `Claude (Carol)`, its hook registration, presence and locks carry her user id', async () => {
-    const s = await stack();
-    const host = await s.t.connectHost();
-    const carol = await s.t.connect({ userId: 'dev:carol', displayName: 'Carol', role: 'agent' });
-    const hostAgent = (await host.conn.request('session.create', agent)).session;
-    await waitFor(async () => (await argvOf(s.fakeClaude.logDir)).length === 1, 'the host\'s claude to start');
-    const { session } = await carol.conn.request('session.create', agent);
-    expect(session).toMatchObject({ kind: 'agent', ownerUserId: 'dev:carol', ownerName: 'Carol', root: { kind: 'main' } });
-    expect(session.title).toBeUndefined();
-    await waitFor(async () => (await argvOf(s.fakeClaude.logDir)).length === 2, 'Carol\'s claude to start');
-    const argvs = await argvOf(s.fakeClaude.logDir);
-    const settingsOf = async (argv: string[] | undefined): Promise<unknown> => JSON.parse(await readFile(argv?.[1] as string, 'utf8'));
-    // Same flags, same settings (only the per-session paths differ).
-    for (const argv of argvs) expect(argv.filter((arg) => arg.startsWith('--'))).toEqual(['--settings', '--mcp-config']);
-    expect(await settingsOf(argvs[0])).toEqual(await settingsOf(argvs[1]));
-    const envNames = await envNamesOf(s.fakeClaude.logDir);
-    expect(envNames[0]?.slice().sort()).toEqual(envNames[1]?.slice().sort());
-    expect(envNames[1]).not.toContain('CLAUDE_CONFIG_DIR');
-    expect(s.fakes.hooks.registered.get(session.id)).toEqual({ sessionId: session.id, ownerUserId: 'dev:carol', agentName: 'Claude (Carol)', root: { kind: 'main' } });
-    expect(s.fakes.presence.agents.get(session.id)).toMatchObject({ ownerUserId: 'dev:carol', displayName: 'Claude (Carol)' });
-    expect(s.sessions.agentActor(session.id)).toEqual({ kind: 'agent', sessionId: session.id, ownerUserId: 'dev:carol', displayName: 'Claude (Carol)' });
-    expect(s.sessions.agentActor(hostAgent.id)).toMatchObject({ kind: 'agent', ownerUserId: TEST_HOST_USER });
-  });
-
-  it('login state: `claude auth status` in the session\'s environment (the host\'s Claude login); the TUI never decides it', async () => {
-    const loggedOut = await stack();
-    const carol = await loggedOut.t.connect({ userId: 'dev:carol', role: 'agent' });
-    const { session } = await carol.conn.request('session.create', agent);
-    await expect(carol.conn.request('session.loginStatus', { sessionId: session.id })).resolves.toEqual({ login: 'logged-out' });
-    await waitFor(() => loggedOut.sessions.get(session.id)?.login === 'logged-out', 'the login state in SessionInfo');
-
-    // The host's environment carries their own login (the stand-in claude reads ANTHROPIC_API_KEY): every session,
-    // whoever opened it, is logged in with it.
-    const loggedIn = await stack({ hostEnv: (home) => ({ PATH: '/usr/bin:/bin', HOME: home, USER: 'host', LANG: 'en_US.UTF-8', ANTHROPIC_API_KEY: 'sk-ant-api03-host-own-test-key' }) });
-    const host = await loggedIn.t.connectHost();
-    const dana = await loggedIn.t.connect({ userId: 'dev:dana', role: 'agent' });
-    const danaAgent = (await dana.conn.request('session.create', agent)).session;
-    await expect(dana.conn.request('session.loginStatus', { sessionId: danaAgent.id })).resolves.toEqual({ login: 'logged-in' });
-    await expect(host.conn.request('session.loginStatus', { sessionId: danaAgent.id })).resolves.toEqual({ login: 'logged-in' });
+    await expect(host.conn.request('session.create', agent)).rejects.toMatchObject({ code: 'internal', detail: { reason: 'not-implemented', service: 'AgentSessions' } });
+    await expect(host.conn.request('session.create', { ...agent, firstMessage: 'hello' })).rejects.toMatchObject({ code: 'internal' });
+    expect(s.sessions.list()).toEqual([]);
+    expect(s.fakes.hooks.registered.size).toBe(0);
+    // The old shape (a terminal size on an agent session) is not protocol 4: refused before any handler.
+    await expect(host.conn.request('session.create', { ...agent, cols: 80, rows: 24 } as never)).rejects.toMatchObject({ code: 'bad_request' });
   });
 });
 
-describe('worktree sessions and accepted suggestions', { timeout: 60_000 }, () => {
+describe('worktree sessions', { timeout: 60_000 }, () => {
   it('worktree mode: the session\'s root and cwd are the worktree, and only session.end {keepWorktree: false} removes it', async () => {
     const s = await stack();
     const carol = await s.t.connect({ userId: 'dev:carol', role: 'agent' });
@@ -266,64 +195,8 @@ describe('worktree sessions and accepted suggestions', { timeout: 60_000 }, () =
     await host.conn.request('admin.session.terminate', { sessionId: third.id });
     expect(s.fakes.worktrees.released.at(-1)).toEqual({ worktreeId, sessionId: third.id, keep: true });
   });
-
-  it('pasteSuggestion (the only path of suggestion text into a PTY) needs session.drive (the host, Agent access: any session) and pastes like a terminal', async () => {
-    const s = await stack();
-    const host = await s.t.connectHost();
-    await s.t.connect({ userId: 'dev:amy', role: 'editor' });
-    await s.t.connect({ userId: 'dev:carol', role: 'agent' });
-    const { session } = await host.conn.request('session.create', terminal);
-    const view = new TestViewer(host.conn, session.id);
-    viewers.push(view);
-    await view.attach({ cols: 80, rows: 24 });
-    const amyPrincipal = s.t.ctx.members.principalOf('dev:amy');
-    expect(() => s.sessions.pasteSuggestion(session.id, 'echo NOPE', amyPrincipal as never)).toThrow();
-    // Carol may decide suggestions on the host's session.
-    s.sessions.pasteSuggestion(session.id, 'echo CAROL-$((1+2))', s.t.ctx.members.principalOf('dev:carol') as never);
-    await waitFor(() => view.received.includes('CAROL-3'), 'the paste of an Agent access member');
-    const hostPrincipal = s.t.ctx.members.principalOf(TEST_HOST_USER);
-    s.sessions.pasteSuggestion(session.id, 'echo PASTED-$((2+3))', hostPrincipal as never);
-    await waitFor(() => view.received.includes('PASTED-5'), 'the pasted command to run');
-    expect(view.received).not.toContain('NOPE');
-    // A program that enabled bracketed paste gets the paste wrapped (cat -v shows the markers).
-    typeInto(host.conn, session.id, "printf '\\033[?2004h'; cat -v\r");
-    await waitFor(() => s.sessions.get(session.id) !== null && view.received.includes('2004h'), 'bracketed paste on');
-    // No pause here: the paste itself waits until the daemon's mirror has parsed the mode switch (PtySession.paste).
-    s.sessions.pasteSuggestion(session.id, 'line one\nline two', hostPrincipal as never);
-    await waitFor(() => view.received.includes('^[[200~line one'), 'the bracketed paste');
-  });
 });
 
-describe('Claude Code version policy (ARCHITECTURE §7.6)', { timeout: 60_000 }, () => {
-  it('below the minimum: every agent starts (it is the host\'s own CLI) and its opener is warned', async () => {
-    const s = await stack({ claudeVersion: '2.1.100' });
-    const carol = await s.t.connect({ userId: 'dev:carol', role: 'agent' });
-    await expect(carol.conn.request('session.create', agent)).resolves.toMatchObject({ session: { status: 'running' } });
-    const host = await s.t.connectHost();
-    await expect(host.conn.request('session.create', agent)).resolves.toMatchObject({ session: { status: 'running' } });
-    expect(s.fakes.activity.notifications).toEqual([
-      { userId: 'dev:carol', msg: { id: 'notify.claudeVersionTooOld', params: { version: '2.1.100', minVersion: expect.any(String) } }, fallback: expect.stringMatching(/^Note: Claude Code 2\.1\.100 is older than /) },
-      { userId: TEST_HOST_USER, msg: { id: 'notify.claudeVersionTooOld', params: { version: '2.1.100', minVersion: expect.any(String) } }, fallback: expect.stringMatching(/^Note: Claude Code 2\.1\.100 is older than /) },
-    ]);
-  });
-
-  it('warns — never refuses — above the verified range', async () => {
-    const s = await stack({ claudeVersion: '2.1.999' });
-    const carol = await s.t.connect({ userId: 'dev:carol', role: 'agent' });
-    await expect(carol.conn.request('session.create', agent)).resolves.toMatchObject({ session: { status: 'running' } });
-    // A daemon-written notification: a message reference plus its English rendering, never a finished sentence in one language.
-    expect(s.fakes.activity.notifications).toEqual([
-      {
-        userId: 'dev:carol',
-        msg: { id: 'notify.claudeVersionUnverified', params: { version: '2.1.999', verified: expect.any(Array) } },
-        fallback: expect.stringMatching(/^Note: Claude Code 2\.1\.999 has not been verified with smurg yet \(verified: /),
-      },
-    ]);
-  });
-});
-
-// ARCHITECTURE §11 D-15: a member who is removed, leaves or is set below Agent access loses the sessions they opened
-// (they run as the host's OS user), each audited as session.terminate by the system with the reason.
 describe('the sessions a member opened end when the member goes', { timeout: 60_000 }, () => {
   async function opened(s: SessionStack): Promise<{ host: TestClient; carol: TestClient; dave: TestClient; ids: { host: string; carol: string[]; dave: string } }> {
     const host = await s.t.connectHost();
@@ -331,7 +204,7 @@ describe('the sessions a member opened end when the member goes', { timeout: 60_
     const dave = await s.t.connect({ userId: 'dev:dave', displayName: 'Dave', role: 'agent' });
     const ids = {
       host: (await host.conn.request('session.create', terminal)).session.id,
-      carol: [(await carol.conn.request('session.create', terminal)).session.id, (await carol.conn.request('session.create', agent)).session.id],
+      carol: [(await carol.conn.request('session.create', terminal)).session.id, (await carol.conn.request('session.create', terminal)).session.id],
       dave: (await dave.conn.request('session.create', terminal)).session.id,
     };
     return { host, carol, dave, ids };
@@ -355,7 +228,7 @@ describe('the sessions a member opened end when the member goes', { timeout: 60_
     expect(s.sessions.get(ids.dave)?.status).toBe('running');
     const ended = terminations(await audit(s));
     expect(ended.map((e) => e.target).sort()).toEqual([...ids.carol].sort());
-    for (const entry of ended) expect(entry).toMatchObject({ actor: { kind: 'system' }, outcome: 'ok', detail: { ownerUserId: 'dev:carol', reason: 'kicked' } });
+    for (const entry of ended) expect(entry).toMatchObject({ actor: { kind: 'system' }, outcome: 'ok', detail: { openedBy: 'dev:carol', kind: 'terminal', reason: 'kicked' } });
   });
 
   it('set to editor or viewer: hers end (role-changed), audited; a change that keeps Agent access, or editor → viewer, ends nothing', async () => {

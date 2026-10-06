@@ -88,7 +88,7 @@ export function SuggestionsPanel(_props: SuggestionsPanelProps) {
     () =>
       [...sessions.values()]
         .filter((session) => session.status !== 'exited')
-        .sort((a, b) => Number(b.ownerUserId === userId) - Number(a.ownerUserId === userId) || a.createdAt - b.createdAt),
+        .sort((a, b) => Number(b.openedBy.userId === userId) - Number(a.openedBy.userId === userId) || a.createdAt - b.createdAt),
     [sessions, userId],
   );
 

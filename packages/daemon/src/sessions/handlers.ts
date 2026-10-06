@@ -2,6 +2,7 @@
 // checked the capability of the caller's CURRENT role: `session.drive` (the host, Agent access) types into any session,
 // so an editor's or viewer's keystrokes never reach a PTY (they use suggestions, R6). What only the session's owner
 // (the member who opened it) may do is checked here with req.requireOwner (audited authz.denied).
+import { takeListPage } from '@smurg/protocol';
 import type { DaemonContext } from '../core/context.ts';
 import type { RequestContext, Router } from '../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../core/lifecycle.ts';
@@ -18,8 +19,13 @@ export function registerSessionHandlers(router: Router, ctx: DaemonContext, sess
 
   // [session.create]: the session runs like the host's own; the caller becomes its owner.
   stack.add(router.handle('session.create', async (payload, req) => ({ session: await sessions.create(payload, req.conn, req.principal) })));
-  // [session.view]: every session.
-  stack.add(router.handle('session.list', () => ({ sessions: sessions.list() })));
+  // [session.view]: every session (with `topicId`: every agent session of that topic), by THE list rule.
+  stack.add(
+    router.handle('session.list', (payload) => {
+      const page = takeListPage(sessions.list(payload.topicId === undefined ? {} : { topicId: payload.topicId }), payload.after, (session) => session.id);
+      return { sessions: page.items, hasMore: page.hasMore };
+    }),
+  );
   // [session.drive]: any session.
   stack.add(router.handle('session.loginStatus', async (payload, req) => ({ login: await sessions.loginStatus(payload.sessionId, req.principal) })));
   // [session.view]: the viewer goes live only after the .ok went out (no gap, no duplicate).

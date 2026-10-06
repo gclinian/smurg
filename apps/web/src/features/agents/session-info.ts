@@ -2,14 +2,15 @@
 // worktree"), plus the explanation of a failed session request. Every session runs as the host (protocol v2):
 // the person shown is the one who OPENED it.
 import { errorReasonOf, isSmurgError, type LoginState, type SessionInfo, type WorktreeInfo } from '@smurg/protocol';
+import type { TitledSession } from '../../lib/stores/sessions.ts';
 import { describeError } from '../../lib/errors.ts';
 import { plainSessionTitle } from '../../lib/stores/sessions.ts';
 import { worktreeLabel } from '../../lib/stores/worktrees.ts';
 import { t } from './strings.ts';
 
 /** "Claude (Amy)": the name, then who opened it, once. */
-export function tabLabel(session: Pick<SessionInfo, 'kind' | 'title' | 'ownerName'>): string {
-  return t('tab.label', { title: plainSessionTitle(session), owner: session.ownerName });
+export function tabLabel(session: TitledSession): string {
+  return t('tab.label', { title: plainSessionTitle(session), owner: session.openedBy.displayName });
 }
 
 export function kindLabel(session: Pick<SessionInfo, 'kind'>): string {
@@ -21,13 +22,20 @@ export function kindLabel(session: Pick<SessionInfo, 'kind'>): string {
   }
 }
 
-export function statusLabel(session: Pick<SessionInfo, 'status' | 'exitCode' | 'endReason' | 'endedBy'>): string {
+/** What the status line reads of a session: a terminal's exit code when it has one. */
+export interface StatusSession {
+  readonly status: SessionInfo['status'];
+  readonly exitCode?: number | undefined;
+  readonly endReason?: SessionInfo['endReason'];
+  readonly endedBy?: SessionInfo['endedBy'];
+}
+
+export function statusLabel(session: StatusSession): string {
   switch (session.status) {
     case 'starting':
       return t('status.starting');
-    case 'running':
-      return t('status.running');
     case 'exited':
+    case 'ended':
       // A session the host terminated (or that ended because the person who opened it was removed,
       // left, lost the right to open sessions, or the host stopped sharing) must not read like a normal exit.
       switch (session.endReason) {
@@ -44,6 +52,8 @@ export function statusLabel(session: Pick<SessionInfo, 'status' | 'exitCode' | '
         default:
           return session.exitCode === undefined ? t('status.exited') : t('status.exitedCode', { code: session.exitCode });
       }
+    default:
+      return t('status.running');
   }
 }
 
@@ -51,7 +61,7 @@ export function statusLabel(session: Pick<SessionInfo, 'status' | 'exitCode' | '
  * "Main workspace" or "Amy's worktree (add tests)" (not the branch id; `branchOf` gives it for a tooltip). The
  * id only when the worktree is not known to this client.
  */
-export function whereLabel(session: Pick<SessionInfo, 'kind' | 'root' | 'title' | 'ownerName'>, worktrees: ReadonlyMap<string, WorktreeInfo>, selfUserId: string | null = null): string {
+export function whereLabel(session: TitledSession & Pick<SessionInfo, 'root'>, worktrees: ReadonlyMap<string, WorktreeInfo>, selfUserId: string | null = null): string {
   if (session.root.kind === 'main') return t('where.main');
   const worktree = worktrees.get(session.root.worktreeId);
   return worktree ? worktreeLabel(worktree, { selfUserId, name: plainSessionTitle(session) }) : t('where.worktree', { branch: session.root.worktreeId });
@@ -63,13 +73,13 @@ export function branchOf(session: Pick<SessionInfo, 'root'>, worktrees: Readonly
 }
 
 /** The summary line's short form: "By Amy", or "By you" for the member's own. */
-export function openedByLabel(session: Pick<SessionInfo, 'ownerName' | 'ownerUserId'>, selfUserId: string | null): string {
-  return session.ownerUserId === selfUserId ? t('owner.you') : t('owner.other', { name: session.ownerName });
+export function openedByLabel(session: Pick<SessionInfo, 'openedBy'>, selfUserId: string | null): string {
+  return session.openedBy.userId === selfUserId ? t('owner.you') : t('owner.other', { name: session.openedBy.displayName });
 }
 
 /** The value of the details row "Opened by": the person's name, or "You". */
-export function openerName(session: Pick<SessionInfo, 'ownerName' | 'ownerUserId'>, selfUserId: string | null): string {
-  return session.ownerUserId === selfUserId ? t('owner.self') : session.ownerName;
+export function openerName(session: Pick<SessionInfo, 'openedBy'>, selfUserId: string | null): string {
+  return session.openedBy.userId === selfUserId ? t('owner.self') : session.openedBy.displayName;
 }
 
 /** What a re-check of the login says, against the session.login value it was made for. */
@@ -80,8 +90,13 @@ export interface LoginCheck {
 }
 
 /** What the panel shows: the latest re-check when the daemon has not reported anything newer since. */
-export function effectiveLogin(session: Pick<SessionInfo, 'login'>, check: LoginCheck | null): LoginState {
+export function effectiveLogin(session: { readonly login: LoginState }, check: LoginCheck | null): LoginState {
   return check !== null && check.against === session.login ? check.login : session.login;
+}
+
+/** The Claude login a session reports: an agent session's; a terminal has none. */
+export function loginOf(session: SessionInfo): LoginState {
+  return session.kind === 'agent' ? session.login : 'unknown';
 }
 
 /** What to do about the session module's refusals (`detail.reason`; the daemon's message says what happened). */

@@ -65,7 +65,7 @@ function answerEmpty(conn: FakeConnection): void {
     'admin.member.list': { members: [] },
     'admin.invite.list': { invites: [] },
     'admin.settings.get': {
-      settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], diskReserveBytes: 0, diskReservePercent: 5 },
+      settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], diskReserveBytes: 0, diskReservePercent: 5, maxLiveAgents: 8, escalateAfterMs: 600_000, agentMcp: false },
     },
     'admin.audit.query': { entries: [] },
   };
@@ -82,7 +82,7 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     admit();
     for (const type of BASE_LOADS) expect(conn.requestsOf(type), type).toHaveLength(1);
     for (const type of ADMIN_LOADS) expect(conn.requestsOf(type), type).toHaveLength(0);
-    conn.respond('session.list', { sessions: [makeSession()] });
+    conn.respond('session.list', { sessions: [makeSession()], hasMore: false });
     conn.respond('file.tree', { entries: [makeEntry('README.md'), makeEntry('src', 'dir')], truncated: false });
     await flush();
     expect(stores.sessions.getState().status).toBe('ready');
@@ -106,8 +106,8 @@ describe('workspace stores: initial load, live updates, full resync', () => {
   it('a NON-resumed admission resets every store and reloads a fresh snapshot', async () => {
     const { conn, stores, admit } = setup();
     admit();
-    conn.respond('session.list', { sessions: [makeSession({ id: 'old' })] });
-    conn.respond('suggest.list', { suggestions: [makeSuggestion()] });
+    conn.respond('session.list', { sessions: [makeSession({ id: 'old' })], hasMore: false });
+    conn.respond('suggest.list', { suggestions: [makeSuggestion()], hasMore: false });
     conn.respond('lock.list', { locks: [makeHumanLock('a.txt')] });
     answerEmpty(conn);
     await flush();
@@ -123,7 +123,7 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     expect(stores.suggestions.getState().suggestions.size).toBe(0);
     for (const type of BASE_LOADS) expect(conn.requestsOf(type), type).toHaveLength(2);
     // … and filled from the new snapshot.
-    conn.respond('session.list', { sessions: [makeSession({ id: 'new' })] });
+    conn.respond('session.list', { sessions: [makeSession({ id: 'new' })], hasMore: false });
     await flush();
     expect([...stores.sessions.getState().sessions.keys()]).toEqual(['new']);
   });
@@ -136,7 +136,7 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     // request with connection-lost, and even a late answer would be dropped by the generation check.
     admit({ resumed: false, channelId: 'ch_2' });
     expect(stale.status).toBe('rejected');
-    conn.respond('session.list', { sessions: [makeSession({ id: 'fresh' })] });
+    conn.respond('session.list', { sessions: [makeSession({ id: 'fresh' })], hasMore: false });
     await flush();
     expect([...stores.sessions.getState().sessions.keys()]).toEqual(['fresh']);
   });
@@ -312,9 +312,10 @@ describe('workspace stores: initial load, live updates, full resync', () => {
   it('suggestions: the owner sees what waits for them', async () => {
     const { conn, stores, admit } = setup({ role: 'host' });
     admit();
-    conn.respond('session.list', { sessions: [makeSession({ id: 'mine', ownerUserId: 'dev:host' }), makeSession({ id: 'theirs', ownerUserId: 'dev:bob' })] });
+    conn.respond('session.list', { sessions: [makeSession({ id: 'mine', openedBy: { userId: 'dev:host', displayName: 'Ian' } }), makeSession({ id: 'theirs', openedBy: { userId: 'dev:bob', displayName: 'Ian' } })], hasMore: false });
     conn.respond('suggest.list', {
       suggestions: [makeSuggestion({ id: 'a', sessionId: 'mine' }), makeSuggestion({ id: 'b', sessionId: 'theirs' }), makeSuggestion({ id: 'c', sessionId: 'mine', status: 'accepted' })],
+      hasMore: false,
     });
     await flush();
     const pending = selectPendingForOwner(stores.suggestions.getState(), stores.sessions.getState().sessions, 'dev:host');

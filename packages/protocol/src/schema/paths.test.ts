@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { PATH_SEGMENT_MAX_UNITS, REL_PATH_MAX_CHARS } from './limits.ts';
 import {
-  MAIN_ROOT,
-  type RelPathProblem,
+  AGENT_EDIT_DENY_PATTERNS,
+  AGENT_READ_DENY_PATTERNS,
   baseNameOfRelPath,
   checkRelPath,
   entryPathSchema,
@@ -10,20 +10,30 @@ import {
   fileRefKey,
   fileRefSchema,
   foldPathName,
+  isClaudeConfigPath,
   isHiddenTempName,
   isHostOnlyPath,
   isHostPrivatePath,
+  isInTopicDir,
   isRelPathWithin,
   isSmurgDirName,
   isValidRelPath,
   joinRelPath,
+  MAIN_ROOT,
   parentRelPath,
   parseFileRefKey,
   pathSegmentSchema,
+  PROJECT_SETTINGS_FILES,
   relPathSchema,
   relPathSegments,
   rootRefEquals,
   rootRefKey,
+  topicDirPath,
+  topicFileKind,
+  topicPlanPath,
+  topicReportPath,
+  topicSpecPath,
+  type RelPathProblem,
   worktreeRoot,
 } from './paths.ts';
 
@@ -191,11 +201,16 @@ describe('host-only paths (ARCHITECTURE §5.2)', () => {
     'app/.envrc',
     '.vscode/tasks.json',
     '.idea/workspace.xml',
+    // Claude Code loads these as instructions for agents that run as the host (protocol 4): only the host writes them.
+    'CLAUDE.md',
+    'docs/claude.md',
+    'packages/web/CLAUDE.local.md',
+    'Claude.MD',
   ])('%s is host-only', (path) => {
     expect(isHostOnlyPath(path)).toBe(true);
   });
 
-  it.each(['', 'src/app.ts', 'CLAUDE.md', 'docs/claude.md', '.github/workflows/ci.yml', '.gitignore', 'a.mcp.json', '.envrc.example'])(
+  it.each(['', 'src/app.ts', 'CLAUDE.md.bak', 'docs/claude.md/notes.txt', 'MY-CLAUDE.md', '.github/workflows/ci.yml', '.gitignore', 'a.mcp.json', '.envrc.example'])(
     '%s is not host-only',
     (path) => {
       expect(isHostOnlyPath(path)).toBe(false);
@@ -266,5 +281,80 @@ describe('hidden temp files', () => {
   });
   it.each(['app.ts', 'notes.tmp', 'x.tmp.12.abc', '.smurg-0123456789ab.tmp', 'app.ts.smurg-0123456789ab.tmp'])('%s is shown', (name) => {
     expect(isHiddenTempName(name)).toBe(false);
+  });
+});
+
+describe("Claude Code's own configuration (the tool gate's row G3)", () => {
+  it.each(['.claude/settings.json', '.claude/hooks/x.sh', 'packages/web/.claude/commands/a.md', '.mcp.json', 'sub/.mcp.json', '.git/hooks/pre-commit', 'vendor/lib/.git/config', '.Claude/settings.json', '.MCP.json'])(
+    '%s is configuration no agent session writes',
+    (path) => {
+      expect(isClaudeConfigPath(path)).toBe(true);
+      expect(isHostOnlyPath(path)).toBe(true);
+    },
+  );
+
+  it.each(['', 'src/app.ts', 'CLAUDE.md', '.envrc', '.vscode/tasks.json', '.gitignore', 'claude/settings.json', 'a.mcp.json'])('%s is not', (path) => {
+    expect(isClaudeConfigPath(path)).toBe(false);
+  });
+
+  it('the three project-level files the host confirms', () => {
+    expect([...PROJECT_SETTINGS_FILES]).toEqual(['.claude/settings.json', '.claude/settings.local.json', '.mcp.json']);
+    for (const path of PROJECT_SETTINGS_FILES) expect(isClaudeConfigPath(path)).toBe(true);
+  });
+});
+
+describe('the rules every agent session starts with are generated from the path lists', () => {
+  it('read rules for the host-private names, at the root and below', () => {
+    expect([...AGENT_READ_DENY_PATTERNS]).toEqual([
+      '.envrc',
+      '**/.envrc',
+      '.git/**',
+      '**/.git/**',
+      '.claude/settings.local.json',
+      '**/.claude/settings.local.json',
+      'CLAUDE.local.md',
+      '**/CLAUDE.local.md',
+    ]);
+  });
+
+  it("edit rules for Claude Code's configuration, at the root and below", () => {
+    expect([...AGENT_EDIT_DENY_PATTERNS]).toEqual(['.claude/**', '**/.claude/**', '.git/**', '**/.git/**', '.mcp.json', '**/.mcp.json']);
+  });
+
+  it('every read pattern names a host-private path and every edit pattern a configuration path (no drift)', () => {
+    const sample = (pattern: string): string => pattern.replace('**/', 'deep/dir/').replace('/**', '/x/y');
+    for (const pattern of AGENT_READ_DENY_PATTERNS) expect(isHostPrivatePath(sample(pattern)), pattern).toBe(true);
+    for (const pattern of AGENT_EDIT_DENY_PATTERNS) expect(isClaudeConfigPath(sample(pattern)), pattern).toBe(true);
+    expect(Object.isFrozen(AGENT_READ_DENY_PATTERNS)).toBe(true);
+    expect(Object.isFrozen(AGENT_EDIT_DENY_PATTERNS)).toBe(true);
+  });
+
+  it('no pattern holds a character a rule cannot carry', () => {
+    for (const pattern of [...AGENT_READ_DENY_PATTERNS, ...AGENT_EDIT_DENY_PATTERNS]) expect(pattern).toMatch(/^[A-Za-z0-9._*/-]+$/);
+  });
+});
+
+describe("a topic's files", () => {
+  it('live in specs/<slug>', () => {
+    expect(topicDirPath('checkout')).toBe('specs/checkout');
+    expect(topicSpecPath('checkout')).toBe('specs/checkout/SPEC.md');
+    expect(topicPlanPath('checkout')).toBe('specs/checkout/PLAN.md');
+    expect(topicReportPath('checkout', 'cart-api')).toBe('specs/checkout/reports/cart-api.md');
+  });
+
+  it('are recognised under every spelling a case-insensitive file system folds together', () => {
+    expect(topicFileKind('specs/checkout/SPEC.md', 'checkout')).toBe('spec');
+    expect(topicFileKind('specs/checkout/PLAN.md', 'checkout')).toBe('plan');
+    expect(topicFileKind('Specs/Checkout/spec.md', 'checkout')).toBe('spec');
+    expect(topicFileKind('specs/checkout/plan.MD', 'checkout')).toBe('plan');
+    expect(topicFileKind('specs/other/SPEC.md', 'checkout')).toBeNull();
+    expect(topicFileKind('specs/checkout/reports/cart-api.md', 'checkout')).toBeNull();
+    expect(topicFileKind('specs/checkout/CLAUDE.md', 'checkout')).toBeNull();
+    expect(topicFileKind('src/specs/checkout/SPEC.md', 'checkout')).toBeNull();
+  });
+
+  it('isInTopicDir: the folder itself and everything below it, nothing beside it', () => {
+    for (const path of ['specs/checkout', 'specs/checkout/SPEC.md', 'specs/checkout/reports/cart-api.md', 'SPECS/Checkout/notes.md']) expect(isInTopicDir(path, 'checkout'), path).toBe(true);
+    for (const path of ['specs', 'specs/checkout-2/SPEC.md', 'specs/other/SPEC.md', 'src/specs/checkout/x', '']) expect(isInTopicDir(path, 'checkout'), path).toBe(false);
   });
 });

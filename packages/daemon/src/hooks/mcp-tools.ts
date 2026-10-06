@@ -231,10 +231,10 @@ function listSessions(tc: McpToolContext, args: unknown): JsonObject {
     sessions: sessions.slice(0, SESSION_LIST_MAX).map((session) => ({
       id: session.id,
       kind: session.kind,
-      owner: session.ownerName,
-      ownerUserId: session.ownerUserId,
+      owner: session.openedBy.displayName,
+      ownerUserId: session.openedBy.userId,
       // A session nobody named gets the English default: what an agent reads is fixed English.
-      title: session.title ?? defaultSessionTitle(session.kind, session.ownerName),
+      title: session.title ?? defaultSessionTitle(session.kind, session.openedBy.displayName),
       status: session.status,
       root: session.root.kind === 'main' ? 'main' : `worktree:${session.root.worktreeId}`,
       isYou: session.id === sessionId,

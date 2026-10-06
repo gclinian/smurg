@@ -6,7 +6,7 @@
 //   console.log(daemon.hostInviteUrl);
 //   await daemon.stop();                  // channel.closed{stopped} → relay links closed → modules stopped (reverse)
 //                                         // → handlers disposed → keep-awake released → logs flushed
-import { homedir } from 'node:os';
+import { homedir, totalmem } from 'node:os';
 import { join } from 'node:path';
 import { SmurgError, daemonKeyFingerprint, formatFingerprintForDisplay, shortTextSchema, type ChannelPurpose, type NoiseSuite, type Welcome, type WorkspaceInfo } from '@smurg/protocol';
 import { ensurePrivateDirectory, loadOrCreateDaemonIdentity, nodeCryptoSuite } from '@smurg/protocol/node';
@@ -25,6 +25,7 @@ import { suggestModule } from './suggest/module.ts';
 import { worktreeModule } from './worktree/module.ts';
 import daemonPackage from '../package.json' with { type: 'json' };
 import { JsonlAuditLog } from './core/audit.ts';
+import { AuditTextStore } from './core/audit-text.ts';
 import { TypedEventBus } from './core/bus.ts';
 import { resolveConfig, type DaemonConfig, type DaemonConfigInput } from './core/config.ts';
 import type { DaemonContext, FeatureModule } from './core/context.ts';
@@ -44,9 +45,10 @@ import {
 import { DisposableStack, systemClock, type Clock } from './core/lifecycle.ts';
 import { createLineLogger, type Logger } from './core/logger.ts';
 import { SYSTEM_ACTOR } from './core/permissions.ts';
+import { TokenBucketLimiter } from './core/rates.ts';
 import { RouterImpl } from './core/router.ts';
 import { FileStateStore, StateFileError } from './core/state-store.ts';
-import { createStubService } from './core/stubs.ts';
+import { createStubService, isStubService } from './core/stubs.ts';
 import { STATE_DOCUMENT, initialWorkspaceState, workspaceStateSchema } from './core/workspace-state.ts';
 import { ChannelServer } from './net/channel-server.ts';
 import { wsHostSocketFactory, type HostSocketFactory } from './net/host-socket.ts';
@@ -165,6 +167,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
   if (platform !== 'darwin' && platform !== 'linux') throw new Error(`smurg hosts run on macOS and Linux only (this is ${platform})`);
   const config = resolveConfig({
     ...options.config,
+    memoryBytes: options.config.memoryBytes ?? totalmem(),
     sessions: { ...options.config.sessions, hostHome: options.config.sessions?.hostHome ?? options.homeDir ?? homedir() },
   });
   const clock = options.clock ?? systemClock;
@@ -186,12 +189,22 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     identity = await loadOrCreateDaemonIdentity(config.workspaceStateDir);
     state = await store.coreDocument(STATE_DOCUMENT, workspaceStateSchema, () => initialWorkspaceState(config.workspaceId, config.defaultSettings));
     if (state.get().workspaceId !== config.workspaceId) throw new StateFileError(join(config.workspaceStateDir, 'state.json'), 'state file belongs to another workspace');
+    // Full texts (messages, suggestions, commands, notes) rotate in their own files, never the core log.
+    const auditTexts = await AuditTextStore.open(join(config.workspaceStateDir, 'audit-text.jsonl'), {
+      clock,
+      log: log.child({ module: 'audit' }),
+      maxBytes: config.limits.auditTextMaxBytes,
+    });
     audit = await JsonlAuditLog.open(join(config.workspaceStateDir, 'audit.jsonl'), {
       clock,
       log: log.child({ module: 'audit' }),
       pageMax: config.limits.auditPageMax,
       maxBytes: config.limits.auditMaxBytes,
       deniedPerActorPerMinute: config.limits.auditDeniedPerActorPerMinute,
+      texts: auditTexts,
+    }).catch(async (err: unknown) => {
+      await auditTexts.close();
+      throw err;
     });
   } catch (err) {
     // The host is sent to the log for the reason (review F3): say which file and why. StateFileError / KeyFileError
@@ -208,7 +221,16 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     // A state document the disk refuses (and its recovery) reaches the host's terminal through the bus.
     const stateHealth = store.onHealthChange((event) => bus.emit('state.write', event));
     const roots = await RootRegistryImpl.create(share.realPath, state, clock);
-    const paths = new PathGuardImpl({ roots, audit, platform });
+    // The service slots exist before PathGuard does: it asks the trust gate (once its module is composed) which files
+    // of a root are host-only for writes right now.
+    const services = {} as { -readonly [K in FeatureServiceName]: FeatureServices[K] };
+    for (const name of FEATURE_SERVICE_NAMES) (services as Record<FeatureServiceName, unknown>)[name] = createStubService(name);
+    const paths = new PathGuardImpl({
+      roots,
+      audit,
+      platform,
+      protectedPaths: (root) => (isStubService(services.projectTrust) ? new Set<string>() : services.projectTrust.protectedPaths(root)),
+    });
     const members = new MemberDirectoryImpl({ state, audit, bus, clock, log: log.child({ module: 'members' }), hostUserId: config.hostUserId, hostName: config.hostName });
     members.ensureHost();
     const hub = new HubImpl({
@@ -228,7 +250,8 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     // "Last seen" is the last moment a member was CONNECTED: the end of a connection counts, not only its start
     // (admission), so the console's "last seen" of a member who stayed connected for days is not their first connect.
     const lastSeen = bus.on('conn.closed', ({ conn }) => members.touch(conn.userId, conn.deviceId, clock.now()));
-    const router = new RouterImpl({ sink: hub, members, audit, log: log.child({ module: 'router' }) });
+    const rates = new TokenBucketLimiter(clock);
+    const router = new RouterImpl({ sink: hub, members, audit, log: log.child({ module: 'router' }), rates });
     hub.setRouter(router);
     const settings = new SettingsServiceImpl({
       state,
@@ -260,8 +283,6 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     const fingerprint = formatFingerprintForDisplay(daemonKeyFingerprint(identity.keyPair.publicKey));
     const workspace: WorkspaceDescriptor = Object.freeze({ info: Object.freeze(info), shareRealPath: share.realPath, daemonPublicKey: identity.keyPair.publicKey.slice(), fingerprint });
 
-    const services = {} as { -readonly [K in FeatureServiceName]: FeatureServices[K] };
-    for (const name of FEATURE_SERVICE_NAMES) (services as Record<FeatureServiceName, unknown>)[name] = createStubService(name);
     const stopping = new AbortController();
     // Bound to the Daemon object below (it exists before any module can call these).
     let daemonRef: Daemon | null = null;
@@ -286,6 +307,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       invites,
       settings,
       power,
+      rates,
       services,
       stopping: stopping.signal,
       lifecycle,
@@ -485,6 +507,39 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       };
     };
 
+    /** What `smurg status` shows about agents, from the modules that are composed (a stub contributes nothing). */
+    const agentStatus = (): Pick<DaemonStatus, 'agents' | 'topics' | 'projectSettings' | 'hostRules'> => {
+      const out: { -readonly [K in 'agents' | 'topics' | 'projectSettings' | 'hostRules']?: DaemonStatus[K] } = {};
+      try {
+        if (!isStubService(services.agents)) {
+          const counts = { running: 0, waiting: 0, stalled: 0, idle: 0 };
+          for (const session of services.agents.list()) {
+            if (session.status === 'running' || session.status === 'starting') counts.running += 1;
+            else if (session.status === 'waiting-answer' || session.status === 'waiting-permission') counts.waiting += 1;
+            else if (session.status === 'stalled' || session.status === 'failed') counts.stalled += 1;
+            else if (session.status === 'idle' || session.status === 'done') counts.idle += 1;
+          }
+          out.agents = counts;
+        }
+        if (!isStubService(services.topics)) {
+          const topics: { plan: { paused: boolean } }[] = [];
+          for (let after: string | undefined; ; ) {
+            const page = services.topics.list(after === undefined ? {} : { after });
+            topics.push(...page.topics);
+            const last = page.topics.at(-1);
+            if (!page.hasMore || last === undefined) break;
+            after = last.id;
+          }
+          out.topics = { total: topics.length, paused: topics.filter((topic) => topic.plan.paused).length };
+        }
+        if (!isStubService(services.projectTrust)) out.projectSettings = services.projectTrust.state(roots.main.ref);
+        if (!isStubService(services.hostRules)) out.hostRules = { count: services.hostRules.applied().length };
+      } catch (err) {
+        log.error('agent status unavailable', { error: err instanceof Error ? err.name : 'unknown' });
+      }
+      return out;
+    };
+
     const daemon: Daemon = {
       ctx,
       config,
@@ -533,6 +588,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
           relayUrl: config.relayUrl,
           switches: { attributeBashEdits: config.activity.attributeBashEdits },
           isGitRepo: workspace.info.isGitRepo,
+          ...agentStatus(),
         };
       },
     };

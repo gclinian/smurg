@@ -95,6 +95,7 @@ export function toMergeRequest(record: StoredMerge): MergeRequest {
     requestedBy: { ...record.requestedBy },
     commit: record.commit,
     status: record.status,
+    reviewed: false,
     createdAt: record.createdAt,
     ...(record.message !== undefined ? { message: record.message } : {}),
     ...(record.conflictFiles !== undefined ? { conflictFiles: [...record.conflictFiles] } : {}),

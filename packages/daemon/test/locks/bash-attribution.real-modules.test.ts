@@ -8,6 +8,8 @@ import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type ActivityEvent, type ConflictRecord } from '@smurg/protocol';
+import { FAKE_SERVICE_NAMES, buildHookRegistration, fakesModule } from '../../src/core/fakes/index.ts';
+import { DEFAULT_FEATURE_MODULES } from '../../src/daemon.ts';
 import { createTempDir, createTestDaemon, removeTempDir, waitFor, type TestDaemon } from '../../src/testing/index.ts';
 import { DocClient, destroyDocClients } from '../docs/helpers.ts';
 
@@ -35,10 +37,17 @@ async function setup(): Promise<{ readonly t: TestDaemon; readonly sessionId: st
   const claude = join(scratch, 'bin', 'claude');
   await writeFile(claude, '#!/bin/sh\ncase "$1" in --version) echo "2.1.283 (Claude Code)"; exit 0 ;; esac\nif [ "$1" = auth ]; then echo \'{"loggedIn":true,"authMethod":"api_key"}\'; exit 0; fi\nexec cat\n');
   await chmod(claude, 0o755);
-  t = await createTestDaemon({ project: { files: { [PATH]: ORIGINAL } }, sessions: { claudePath: claude, selfCommand: { file: '/usr/bin/true', args: [] } } });
+  // The production composition, with the agent runtime (AgentSessions) faked: the session exists and is listed, and
+  // is registered with the real hook server as the runtime registers it.
+  t = await createTestDaemon({
+    project: { files: { [PATH]: ORIGINAL } },
+    sessions: { claudePath: claude, selfCommand: { file: '/usr/bin/true', args: [] } },
+    modules: [fakesModule({ except: FAKE_SERVICE_NAMES.filter((name) => name !== 'agents') }), ...DEFAULT_FEATURE_MODULES],
+  });
   const host = await t.connectHost();
-  const { session } = await host.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, cols: 80, rows: 24 });
-  return { t, sessionId: session.id, hostUserId: session.ownerUserId };
+  const { session } = await host.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' } });
+  t.ctx.services.hooks.registerSession(buildHookRegistration({ sessionId: session.id, ownerUserId: session.openedBy.userId, agentName: 'Claude (Host)', root: MAIN_ROOT }));
+  return { t, sessionId: session.id, hostUserId: session.openedBy.userId };
 }
 
 async function amyTypesAndAnotherProcessWrites(d: TestDaemon): Promise<{ readonly conflicts: ConflictRecord[]; readonly activity: ActivityEvent[] }> {

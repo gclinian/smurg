@@ -68,6 +68,10 @@ export const errors = {
     en: () => 'Only the host can do this.',
     'zh-TW': () => '只有主人可以執行這個動作',
   }),
+  'error.default.rateLimited': message({}, {
+    en: () => 'You are doing this too often. Wait a moment and try again.',
+    'zh-TW': () => '操作太頻繁，請稍候再試',
+  }),
   'error.default.internal': message({}, {
     en: () => 'Something went wrong on the host.',
     'zh-TW': () => '主人端發生內部錯誤',

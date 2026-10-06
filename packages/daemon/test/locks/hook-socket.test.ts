@@ -2,6 +2,7 @@
 // in the ARCHITECTURE §7.7 wire format (newline-delimited JSON, the session token from registerSession), exactly as
 // `smurg hook` sends them for Claude Code. Only the contract is used here (HookServer.registerSession, the socket
 // protocol), not the hooks module's internals.
+import { buildHookRegistration } from '../../src/core/fakes/build.ts';
 import { createConnection } from 'node:net';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -64,7 +65,7 @@ async function setup(): Promise<{ readonly d: TestDaemon; readonly ian: Agent; r
   await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
   const hooks = d.ctx.services.hooks;
   const agent = (sessionId: string, ownerUserId: string, name: string): Agent => {
-    const { token } = hooks.registerSession({ sessionId, ownerUserId, agentName: `Claude (${name})`, root: MAIN_ROOT });
+    const { token } = hooks.registerSession(buildHookRegistration({ sessionId, ownerUserId, agentName: `Claude (${name})`, root: MAIN_ROOT }));
     return {
       sessionId,
       hook: async (hookInput) => {

@@ -52,7 +52,8 @@ describe('new session dialog: what the role allows', () => {
     expect(dialog.textContent).not.toMatch(/sandbox|API key|subscription|temporary/i);
     expect(within(dialog).queryByRole('checkbox')).toBeNull();
     await submit();
-    expect(conn.lastRequest('session.create')?.payload).toEqual({ kind: 'agent', workspace: { mode: 'main' }, cols: 100, rows: 30 });
+    // An agent session is a conversation (protocol 4): its request carries no terminal size.
+    expect(conn.lastRequest('session.create')?.payload).toEqual({ kind: 'agent', workspace: { mode: 'main' } });
   });
 
   it('an editor and a viewer cannot open sessions and are told why (no way to submit)', () => {
@@ -86,7 +87,7 @@ describe('new session dialog: where it runs (R9)', () => {
     fireEvent.click(screen.getByRole('radio', { name: /A new worktree of my own/ }));
     await submit();
     expect(conn.lastRequest('session.create')?.payload.workspace).toEqual({ mode: 'worktree' });
-    const created = makeSession({ id: 'sess_wt', ownerUserId: 'dev:amy', ownerName: 'Amy', root: worktreeRoot('wt_new') });
+    const created = makeSession({ id: 'sess_wt', openedBy: { userId: 'dev:amy', displayName: 'Amy' }, root: worktreeRoot('wt_new') });
     await act(async () => {
       conn.respond('session.create', { session: created });
     });
@@ -121,7 +122,7 @@ describe('new session dialog: refusals in plain words', () => {
 });
 
 describe('ending a session (R9.4: when a session ends, ask whether to keep the worktree)', () => {
-  const inWorktree = makeSession({ id: 'sess_wt', ownerUserId: 'dev:amy', ownerName: 'Amy', root: worktreeRoot('wt_1'), title: 'Fix the login page' });
+  const inWorktree = makeSession({ id: 'sess_wt', openedBy: { userId: 'dev:amy', displayName: 'Amy' }, root: worktreeRoot('wt_1'), title: 'Fix the login page' });
 
   it('asks whether to keep the worktree, and sends the answer explicitly', async () => {
     const { conn } = renderInWorkspace(<EndSessionDialog session={inWorktree} mode="end" onClose={() => {}} />, { role: 'agent' });
@@ -142,7 +143,7 @@ describe('ending a session (R9.4: when a session ends, ask whether to keep the w
   });
 
   it('a session in the main workspace has no worktree question', async () => {
-    const main = makeSession({ id: 'sess_main', ownerUserId: 'dev:amy', ownerName: 'Amy' });
+    const main = makeSession({ id: 'sess_main', openedBy: { userId: 'dev:amy', displayName: 'Amy' } });
     const { conn } = renderInWorkspace(<EndSessionDialog session={main} mode="end" onClose={() => {}} />, { role: 'agent' });
     expect(screen.queryByText('Keep the worktree of this session?')).toBeNull();
     await act(async () => {

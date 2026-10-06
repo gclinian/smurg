@@ -6,21 +6,41 @@ import {
   AGENT_LOCK_TTL_MS,
   CLIENT_OFFLINE_THRESHOLD_MS,
   DEFAULT_CHUNK_SIZE,
+  DELTA_COALESCE_MS,
   DISK_RESERVE_BYTES_DEFAULT,
   DISK_RESERVE_PERCENT_DEFAULT,
+  ESCALATE_AFTER_MS_DEFAULT,
+  ESCALATE_OFFLINE_MS,
+  EVENTS_BATCH_MS,
   HANDSHAKE_DEADLINE_MS,
   HUMAN_LOCK_IDLE_MS,
+  INBOX_NOTES_PER_MEMBER_MAX,
   MAX_FAILED_HANDSHAKES_PER_CONN,
+  MAX_LIVE_AGENTS_RANGE,
   PONG_WATCHDOG_MS,
   PRESENCE_HEARTBEAT_INTERVAL_MS,
   RELAY_PING_INTERVAL_MS,
+  REPORT_ESCALATION_FACTOR,
   hostSettingsSchema,
   type HostSettings,
 } from '@smurg/protocol';
 import { isWorkspaceId } from '@smurg/protocol/relay';
 import { runPathsFor, type RunPaths } from './sockets.ts';
 
-export function defaultHostSettings(): HostSettings {
+const GiB = 1024 * 1024 * 1024;
+const MiB = 1024 * 1024;
+
+/**
+ * How many work-item agents the scheduler keeps alive at once on a computer with `memoryBytes` of RAM:
+ * `min(8, max(2, floor(GiB / 3)))` (a fresh agent is about 260 MB with its MCP process, 420–600 MB after 300 turns).
+ */
+export function defaultMaxLiveAgents(memoryBytes: number): number {
+  const gib = Number.isFinite(memoryBytes) && memoryBytes > 0 ? memoryBytes / GiB : 8;
+  return Math.min(8, Math.max(MAX_LIVE_AGENTS_RANGE.min, Math.floor(gib / 3)));
+}
+
+/** `memoryBytes`: the host's RAM (createDaemon passes os.totalmem(); nothing here reads the machine). */
+export function defaultHostSettings(memoryBytes = 24 * GiB): HostSettings {
   return hostSettingsSchema.parse({
     humanLockIdleMs: HUMAN_LOCK_IDLE_MS,
     agentLockTimeoutMs: AGENT_LOCK_TTL_MS,
@@ -28,6 +48,9 @@ export function defaultHostSettings(): HostSettings {
     sharedDirs: [],
     diskReserveBytes: DISK_RESERVE_BYTES_DEFAULT,
     diskReservePercent: DISK_RESERVE_PERCENT_DEFAULT,
+    maxLiveAgents: defaultMaxLiveAgents(memoryBytes),
+    escalateAfterMs: ESCALATE_AFTER_MS_DEFAULT,
+    agentMcp: false,
   });
 }
 
@@ -103,6 +126,55 @@ export interface LimitsConfig {
   readonly auditDeniedPerActorPerMinute: number;
   /** audit.jsonl is rotated (audit.1.jsonl, audit.2.jsonl, 0600) when it would grow beyond this. */
   readonly auditMaxBytes: number;
+  /** One file of the audit log's full-text store (audit-text.jsonl and two rotated ones). */
+  readonly auditTextMaxBytes: number;
+}
+
+/**
+ * Agent sessions (ARCHITECTURE §7.6 "Limits"). `maxLiveAgents`, the one limit the host changes, is a host setting.
+ */
+export interface AgentsConfig {
+  /** Every `claude` child of this daemon; beyond it the longest-idle session is parked first. */
+  readonly maxAgentProcesses: number;
+  /** Agent session records that are not ended, per workspace. */
+  readonly maxAgentSessions: number;
+  /** An idle session gives up its process after this long… */
+  readonly parkAfterMs: number;
+  /** …or at once when its resident memory is above this after a turn. */
+  readonly parkAboveRssBytes: number;
+  /** `initialize` must be answered within this, else the session is `failed`. */
+  readonly initTimeoutMs: number;
+  /** After interrupt + closed stdin: how long to wait for exit 0 before the kill. */
+  readonly endGraceMs: number;
+  /** Consecutive start failures after which only the host may retry. */
+  readonly startFailuresHostOnly: number;
+  /** `claude auth status` runs at most this often per daemon. */
+  readonly loginCheckIntervalMs: number;
+  /** Bytes of a child's stderr kept for the log. */
+  readonly stderrTailBytes: number;
+  /** Text deltas of one block are coalesced for this long; event batches are closed after this long. */
+  readonly deltaCoalesceMs: number;
+  readonly eventsBatchMs: number;
+  /** Transcripts: a segment file, one session's log, the workspace budget, how long an ended free session's log is kept. */
+  readonly transcriptSegmentBytes: number;
+  readonly transcriptMaxSessionBytes: number;
+  readonly transcriptMaxBytes: number;
+  readonly freeSessionRetentionMs: number;
+  /** The serialized transcript writer flushes after this long or this many bytes. */
+  readonly transcriptFlushMs: number;
+  readonly transcriptFlushBytes: number;
+  /** A report escalates after this many times the host's `escalateAfterMs`; a person offline this long escalates at once. */
+  readonly reportEscalationFactor: number;
+  readonly escalateOfflineMs: number;
+  /**
+   * How often a module looks again at what waits for a person (questions, permission requests, reports; who went
+   * offline). Every such rule compares stored times with `ctx.clock.now()` and is re-checked on a REAL timer of this
+   * period (and on the events that can change the answer), so a test sets it to a few milliseconds and moves the
+   * clock; nothing schedules one timer per waiting thing.
+   */
+  readonly escalationSweepMs: number;
+  /** Stored notes (mentions, results) per member. */
+  readonly inboxNotesPerMember: number;
 }
 
 /**
@@ -159,6 +231,30 @@ export const DEFAULT_ACTIVITY_CONFIG: ActivityConfig = Object.freeze({ attribute
  */
 export const CLAUDE_VERIFIED_VERSIONS: readonly string[] = Object.freeze(['2.1.220', '2.1.283']);
 
+export const DEFAULT_AGENTS_CONFIG: AgentsConfig = Object.freeze({
+  maxAgentProcesses: 32,
+  maxAgentSessions: 200,
+  parkAfterMs: 10 * 60_000,
+  parkAboveRssBytes: 400 * MiB,
+  initTimeoutMs: 30_000,
+  endGraceMs: 5_000,
+  startFailuresHostOnly: 3,
+  loginCheckIntervalMs: 60_000,
+  stderrTailBytes: 16 * 1024,
+  deltaCoalesceMs: DELTA_COALESCE_MS,
+  eventsBatchMs: EVENTS_BATCH_MS,
+  transcriptSegmentBytes: 8 * MiB,
+  transcriptMaxSessionBytes: 256 * MiB,
+  transcriptMaxBytes: 2 * GiB,
+  freeSessionRetentionMs: 30 * 24 * 3600_000,
+  transcriptFlushMs: 50,
+  transcriptFlushBytes: 64 * 1024,
+  reportEscalationFactor: REPORT_ESCALATION_FACTOR,
+  escalateOfflineMs: ESCALATE_OFFLINE_MS,
+  escalationSweepMs: 5_000,
+  inboxNotesPerMember: INBOX_NOTES_PER_MEMBER_MAX,
+});
+
 /** The oldest verified version: an older `claude` starts with a warning. */
 export const CLAUDE_MIN_VERSION = '2.1.220';
 
@@ -195,6 +291,7 @@ export interface DaemonConfig {
   readonly timing: TimingConfig;
   readonly limits: LimitsConfig;
   readonly sessions: SessionLaunchConfig;
+  readonly agents: AgentsConfig;
   readonly activity: ActivityConfig;
 }
 
@@ -214,7 +311,10 @@ export interface DaemonConfigInput {
   readonly timing?: Partial<TimingConfig>;
   readonly limits?: Partial<LimitsConfig>;
   readonly sessions?: Partial<SessionLaunchConfig>;
+  readonly agents?: Partial<AgentsConfig>;
   readonly activity?: Partial<ActivityConfig>;
+  /** The host's RAM, for the default of the host setting `maxLiveAgents` (createDaemon passes os.totalmem()). */
+  readonly memoryBytes?: number;
 }
 
 export const DEFAULT_TIMING: TimingConfig = Object.freeze({
@@ -251,6 +351,7 @@ export const DEFAULT_LIMITS: LimitsConfig = Object.freeze({
   auditPageMax: 500,
   auditDeniedPerActorPerMinute: 120,
   auditMaxBytes: 32 * 1024 * 1024,
+  auditTextMaxBytes: 32 * 1024 * 1024,
 });
 
 function positive(name: string, value: number): number {
@@ -294,9 +395,11 @@ export function resolveConfig(input: DaemonConfigInput): DaemonConfig {
     } else positive(`timing.${key}`, value);
   }
   for (const [key, value] of Object.entries(limits)) positive(`limits.${key}`, value);
-  const defaultSettings = hostSettingsSchema.parse({ ...defaultHostSettings(), ...input.defaultSettings });
+  const defaultSettings = hostSettingsSchema.parse({ ...defaultHostSettings(input.memoryBytes), ...input.defaultSettings });
   const runDir = resolve(input.runDir ?? join(stateDir, 'run'));
   const sessions = resolveSessions(input.sessions ?? {});
+  const agents: AgentsConfig = { ...DEFAULT_AGENTS_CONFIG, ...input.agents };
+  for (const [key, value] of Object.entries(agents)) positive(`agents.${key}`, value);
   const activity = resolveActivity(input.activity ?? {});
   return Object.freeze({
     stateDir,
@@ -316,6 +419,7 @@ export function resolveConfig(input: DaemonConfigInput): DaemonConfig {
     timing: Object.freeze(timing),
     limits: Object.freeze(limits),
     sessions,
+    agents: Object.freeze(agents),
     activity,
   });
 }

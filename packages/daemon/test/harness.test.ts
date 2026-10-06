@@ -27,6 +27,32 @@ describe('test harness', () => {
     expect(members.find((m) => m.userId === 'dev:amy')?.devices).toHaveLength(1);
   });
 
+  it('time in tests: the runtime\'s timers are options, the clock is moved by hand, and a module looks again on a short real timer', async () => {
+    // What a module that waits does (escalation of a question, a permission request, a report): it stores WHEN, compares
+    // with ctx.clock.now() and looks again every config.agents.escalationSweepMs. A test makes the sweep short and moves the clock.
+    t = await createTestDaemon({ modules: [], agents: { escalationSweepMs: 5, escalateOfflineMs: 2_000, parkAfterMs: 1_000 } });
+    expect(t.ctx.config.agents).toMatchObject({ escalationSweepMs: 5, escalateOfflineMs: 2_000, parkAfterMs: 1_000, maxAgentSessions: 200 });
+    const since = t.ctx.clock.now();
+    const after = t.ctx.settings.get().escalateAfterMs;
+    expect(after).toBe(5 * 60_000); // a host setting: at least a minute, so a test never waits for it
+    let escalated = false;
+    const sweep = setInterval(() => {
+      if (t !== null && t.ctx.clock.now() - since >= after) escalated = true;
+    }, t.ctx.config.agents.escalationSweepMs);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(escalated).toBe(false);
+      t.advanceClock(after);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(escalated).toBe(true);
+    } finally {
+      clearInterval(sweep);
+    }
+    await t.cleanup();
+    t = await createTestDaemon({ modules: [] });
+    expect(t.ctx.config.agents.escalationSweepMs).toBe(5_000);
+  });
+
   it('can share a git-initialised temp project (isolated git config) and reports it in the Welcome', async () => {
     t = await createTestDaemon({ project: { files: { 'src/a.ts': 'export {};\n' }, git: true } });
     const amy = await t.connect({ userId: 'dev:amy' });

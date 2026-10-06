@@ -2,6 +2,7 @@
 // real Yjs clients, the agent is the real `smurg hook` entry (node + packages/cli/src/main.ts, exactly what Claude
 // Code runs) talking to the real hook socket, and the agent's edit is a real write on disk that the real watcher and
 // the docs module pick up. Nothing between two modules is faked.
+import { buildHookRegistration } from '../../src/core/fakes/build.ts';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -40,7 +41,7 @@ describe('docs + locks + hooks (real modules, real hook entry)', { timeout: 120_
     await waitFor(() => amyDoc.synced && hostDoc.synced && amyDoc.text.toString() === ORIGINAL, { what: 'both editors synced' });
 
     // The agent session Ian (a Agent access member) opened: registered with the real hook server, as the sessions module does.
-    const agent = d.ctx.services.hooks.registerSession({ sessionId: 'ses_integration_ian', ownerUserId: 'dev:ian', agentName: 'Claude (Ian)', root: MAIN_ROOT });
+    const agent = d.ctx.services.hooks.registerSession(buildHookRegistration({ sessionId: 'ses_integration_ian', ownerUserId: 'dev:ian', agentName: 'Claude (Ian)', root: MAIN_ROOT }));
 
     // 1. Amy types her first character: the human lock is hers.
     amyDoc.text.insert(0, '// amy\n');

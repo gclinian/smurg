@@ -13,12 +13,12 @@ const GiB = 1024 * MiB;
 // ---------------------------------------------------------------------------------------------------------------
 
 /**
- * Version of the encrypted application protocol, sent in `ClientHello.protocolVersion` (ARCHITECTURE §4.2). 2 since
- * the guest sandbox was removed and the role `agent` ("Agent access") replaced `runner` (ARCHITECTURE §11 D-15): roles,
- * SessionInfo, session.create and the settings changed shape. A daemon answers another version with the verdict
- * `version`.
+ * Version of the encrypted application protocol, sent in `ClientHello.protocolVersion` (ARCHITECTURE §4.2, §4.3).
+ * 4 since agent sessions are conversations (smurg 0.5.0): `SessionInfo` is a union of terminal and agent sessions,
+ * and topics, plans, result reports, questions, permission requests and the inbox joined the catalog. A daemon
+ * answers another version with the verdict `version`; there is no compatibility code.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** Leading bytes of every Noise prologue: `"smurg-noise/1" ‖ 0x00 ‖ u8 len(workspaceId) ‖ workspaceId ‖ …`. */
 export const NOISE_PROLOGUE_TAG = 'smurg-noise/1';

@@ -15,6 +15,8 @@ import {
   userIdSchema,
   workspaceIdSchema,
   type HostSettings,
+  topicSlugSchema,
+  itemIdSchema,
 } from '@smurg/protocol';
 
 export const STATE_DOCUMENT = 'state';
@@ -74,6 +76,8 @@ export const worktreeRootRecordSchema = z.strictObject({
   ownerUserId: userIdSchema,
   sharedLinks: z.array(sharedLinkRecordSchema).max(64),
   registeredAt: epochMsSchema,
+  /** An item worktree: nobody writes `specs/<topicSlug>/` in it through smurg (PathGuard). */
+  item: z.strictObject({ topicId: opaqueIdSchema, topicSlug: topicSlugSchema, itemId: itemIdSchema }).optional(),
 });
 
 export const workspaceStateSchema = z.strictObject({

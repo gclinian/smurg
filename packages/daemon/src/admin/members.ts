@@ -5,7 +5,7 @@
 // channel.closed{kicked} and a relay peer.kick, and member.kicked is emitted. A kicked member can only come back
 // through an invite created AFTER the kick, with a NEW device key: an old multi-use link cannot undo a kick.
 import { createHash } from 'node:crypto';
-import { SmurgError, isGuestRole, toHex, type DeviceInfo, type GuestRole, type Member, type MemberWithDevices } from '@smurg/protocol';
+import { SmurgError, isGuestRole, toHex, type DeviceInfo, type GuestRole, type Member, type MemberWithDevices, type RoutingMember, type UserRef } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import type { AuditLog, ClientKind, DeviceRecord, EventBus, Hub, MemberDirectory, MemberRecord, PersistentDocument, Principal, UserId } from '../core/interfaces.ts';
 import { toDisposable, type Clock, type Disposable } from '../core/lifecycle.ts';
@@ -130,9 +130,18 @@ export class MemberDirectoryImpl implements MemberDirectory {
     return member ? userPrincipal(member) : null;
   }
 
-  agentPrincipal(sessionId: string, ownerUserId: UserId): Principal | null {
+  agentPrincipal(sessionId: string, ownerUserId: UserId, options: { readonly agentName?: string; readonly pathRights: 'member' | 'host' }): Principal | null {
     const owner = this.active(ownerUserId);
-    return owner ? agentPrincipalFor(sessionId, owner) : null;
+    return owner ? agentPrincipalFor(sessionId, owner, options) : null;
+  }
+
+  routing(): RoutingMember[] {
+    return this.list().map((member) => ({ userId: member.userId, role: member.role }));
+  }
+
+  userRef(userId: UserId): UserRef | null {
+    const member = this.get(userId);
+    return member ? { userId: member.userId, displayName: member.displayName } : null;
   }
 
   device(deviceId: string): DeviceRecord | null {

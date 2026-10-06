@@ -1,0 +1,162 @@
+/* Files feature (tree, badges, drop target, context menu). Tokens only: see src/ui/tokens.css. */
+.files-panel {
+  min-height: 0;
+}
+.files-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding-bottom: var(--space-6);
+}
+.files-body[data-drop-target='root'] {
+  outline: 2px dashed var(--color-accent);
+  outline-offset: -4px;
+  background: var(--color-accent-soft);
+}
+.files-root {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  overflow: hidden;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.files-status {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-6);
+}
+.files-tree {
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+
+/* ---- one row ---- */
+.files-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+  padding-inline-end: var(--space-4);
+  color: var(--color-text);
+  font-size: var(--text-md);
+  cursor: pointer;
+  user-select: none;
+}
+.files-row:hover {
+  background: var(--color-surface-3);
+}
+.files-row[aria-selected='true'] {
+  background: var(--color-accent-soft);
+}
+.files-row[aria-current='true'] .files-row__name {
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+}
+.files-row:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.files-row[data-drop-target] {
+  outline: 2px dashed var(--color-accent);
+  outline-offset: -2px;
+  background: var(--color-accent-soft);
+}
+.files-row--status {
+  color: var(--color-text-subtle);
+  font-size: var(--text-sm);
+  cursor: default;
+}
+.files-row--status:hover {
+  background: transparent;
+}
+.files-row--error {
+  color: var(--color-danger);
+}
+.files-row__twisty {
+  display: inline-flex;
+  flex: none;
+  width: 12px;
+  color: var(--color-text-subtle);
+}
+.files-row__icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text-muted);
+}
+/* The name is what a row must show: badges give up their text first (down to their icon, the full sentence stays in
+   the title and aria-description), and only then is the name cut. */
+.files-row__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- badges ---- */
+.files-badge {
+  display: inline-flex;
+  flex: 0 1000 auto;
+  min-width: 12px;
+  overflow: hidden;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 11em;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.files-badge > svg,
+.files-badge > .files-badge__dot {
+  flex: none;
+}
+.files-badge__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.files-badge--agent-lock {
+  color: var(--color-warning);
+}
+.files-badge--human-lock {
+  color: var(--color-info);
+}
+.files-badge__dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--radius-full);
+  background: var(--color-success);
+}
+
+/* ---- drag and drop ---- */
+.files-drop-hint {
+  position: sticky;
+  bottom: 0;
+  margin: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  pointer-events: none;
+}
+
+.files-context-menu {
+  z-index: var(--z-popover);
+}
+
+.files-dialog__warning {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-soft);
+  color: var(--color-text);
+  font-size: var(--text-md);
+}

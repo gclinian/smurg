@@ -11,11 +11,14 @@ import type { Locale } from '../locale/index.ts';
 import { createCatalog, type MessageRef, type ParamsArgOf } from './define.ts';
 import { activity } from './messages/activity.ts';
 import { client } from './messages/client.ts';
+import { conversation } from './messages/conversation.ts';
 import { errors } from './messages/errors.ts';
 import { files } from './messages/files.ts';
+import { inbox } from './messages/inbox.ts';
 import { notify } from './messages/notify.ts';
 import { roles } from './messages/roles.ts';
 import { sessions } from './messages/sessions.ts';
+import { topics } from './messages/topics.ts';
 import { worktrees } from './messages/worktrees.ts';
 
 export {
@@ -50,9 +53,21 @@ export { ADMIN_CHANGES, type AdminChange } from './messages/errors.ts';
 export { GIT_STEPS, type GitStep } from './messages/worktrees.ts';
 
 /** The message files, by area (tests: no id is defined in two files). */
-export const MESSAGE_GROUPS = { errors, files, sessions, worktrees, activity, notify, client, roles } as const;
+export const MESSAGE_GROUPS = { errors, files, sessions, conversation, topics, inbox, worktrees, activity, notify, client, roles } as const;
 
-export const MESSAGES = { ...errors, ...files, ...sessions, ...worktrees, ...activity, ...notify, ...client, ...roles } as const;
+export const MESSAGES = {
+  ...errors,
+  ...files,
+  ...sessions,
+  ...conversation,
+  ...topics,
+  ...inbox,
+  ...worktrees,
+  ...activity,
+  ...notify,
+  ...client,
+  ...roles,
+} as const;
 export type MessageId = keyof typeof MESSAGES;
 /** `msg()`'s rest arguments for message `I`. */
 export type ParamsArg<I extends MessageId> = ParamsArgOf<(typeof MESSAGES)[I]>;
@@ -110,6 +125,24 @@ export function roleRef(role: string): MessageRef | undefined {
 /** The label of `role` in `locale`; an unknown role is shown as given (never blank). */
 export function roleLabel(locale: Locale, role: string): string {
   return render(locale, roleRef(role)) ?? String(role);
+}
+
+/** A permission mode as a label: `permissionMode.askCommands` / `permissionMode.askAll`. `undefined` for anything else. */
+export function permissionModeRef(mode: string): MessageRef | undefined {
+  const id = typeof mode === 'string' ? `permissionMode.${camelCase(mode)}` : '';
+  return isMessageId(id) && id.startsWith('permissionMode.') ? { id } : undefined;
+}
+
+/** How a work item ended: `report.outcome.complete` / `.partial` / `.blocked`. `undefined` for anything else. */
+export function reportOutcomeRef(outcome: string): MessageRef | undefined {
+  const id = typeof outcome === 'string' ? `report.outcome.${camelCase(outcome)}` : '';
+  return isMessageId(id) && id.startsWith('report.outcome.') ? { id } : undefined;
+}
+
+/** The short wording of an attention subject: `attention.itemStalled`, … `undefined` for anything else. */
+export function attentionRef(subject: string): MessageRef | undefined {
+  const id = typeof subject === 'string' ? `attention.${camelCase(subject)}` : '';
+  return isMessageId(id) && id.startsWith('attention.') ? { id } : undefined;
 }
 
 /**

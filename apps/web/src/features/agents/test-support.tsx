@@ -133,7 +133,7 @@ export async function renderWithSessions(
     });
   }
   await act(async () => {
-    result.conn.respond('session.list', { sessions: options.sessions });
+    result.conn.respond('session.list', { sessions: options.sessions, hasMore: false });
   });
   return { ...result, recording };
 }

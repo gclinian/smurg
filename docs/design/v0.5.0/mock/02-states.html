@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en" data-theme="dark" class="sheet">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>smurg: states of the conversation column</title>
+<!-- The app's real styles, copied unchanged by src/build.mjs: tokens, base, shared components, the shell. -->
+<link rel="stylesheet" href="app-tokens.css">
+<link rel="stylesheet" href="app-base.css">
+<link rel="stylesheet" href="app-components.css">
+<link rel="stylesheet" href="app-app.css">
+<link rel="stylesheet" href="app-files.css">
+<link rel="stylesheet" href="app-editor.css">
+<!-- New in v0.5.0 (this mock). -->
+<link rel="stylesheet" href="mock.css">
+</head>
+<body >
+<div id="root">
+<div class="sheet-page">
+  <header><h1>smurg v0.5.0: states of the conversation column</h1><p>A specification sheet, not a screen: every state of the cards, the composer and the session header that the screens do not show at once. Each cell is the real markup of the mock at the width of a 3-column layout. The roles are those of smurg: Host (Ian), Agent access (Mei, Ken), Editor (Amy), Viewer (Leo).</p></header>
+
+  <section class="sheet-sec"><h2>1. Status of a session, and the kinds of inbox items</h2>
+    <ul class="sheet-legend"><li><span class="st st--running" title="Running"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Running"><title>Running</title><path d="M8 1.75a6.25 6.25 0 1 1-6.25 6.25"/><path d="M8 1.75a6.25 6.25 0 0 0-6.25 6.25" opacity="0.28"/></svg></span>Running</li><li><span class="st st--question" title="Waiting for an answer"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Waiting for an answer"><title>Waiting for an answer</title><circle cx="8" cy="8" r="6.25"/><path d="M6.25 6.4a1.8 1.8 0 1 1 2.7 1.55c-.6.35-.95.75-.95 1.3M8 11.4v.01"/></svg></span>Waiting for an answer</li><li><span class="st st--permission" title="Waiting for permission"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Waiting for permission"><title>Waiting for permission</title><path d="M8 1.75 13.25 3.5v4c0 3.2-2.2 5.6-5.25 6.75C4.95 13.1 2.75 10.7 2.75 7.5v-4z"/><path d="M8 5.25v3M8 10.5v.01"/></svg></span>Waiting for permission</li><li><span class="st st--stalled" title="Stopped without a report"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Stopped without a report"><title>Stopped without a report</title><path d="M7.13 2.5a1 1 0 0 1 1.74 0l5.4 9.5a1 1 0 0 1-.87 1.5H2.6a1 1 0 0 1-.87-1.5z"/><path d="M8 6.25v3M8 11.25v.01"/></svg></span>Stopped without a report</li><li><span class="st st--idle" title="Idle"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Idle"><title>Idle</title><circle cx="8" cy="8" r="4.5"/></svg></span>Idle</li><li><span class="st st--done" title="Done"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Done"><title>Done</title><circle cx="8" cy="8" r="6.25"/><path d="M5.25 8.25 7.25 10.25 10.75 6"/></svg></span>Done</li><li><span class="st st--failed" title="Failed"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Failed"><title>Failed</title><circle cx="8" cy="8" r="6.25"/><path d="M5.9 5.9l4.2 4.2M10.1 5.9l-4.2 4.2"/></svg></span>Failed</li><li><span class="st st--blocked" title="Waiting for another item"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Waiting for another item"><title>Waiting for another item</title><circle cx="8" cy="8" r="6.25"/><path d="M8 4.5V8l2.25 1.5"/></svg></span>Waiting for another item</li><li><span class="st st--todo" title="Not started"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Not started"><title>Not started</title><circle cx="8" cy="8" r="5.25" stroke-dasharray="2.2 2.4"/></svg></span>Not started</li><li><span class="st st--ended" title="Ended"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Ended"><title>Ended</title><rect x="4" y="4" width="8" height="8" rx="1.25"/></svg></span>Ended</li></ul>
+    <ul class="sheet-legend"><li><span class="kind kind--question" title="Question"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Question"><title>Question</title><circle cx="8" cy="8" r="6.25"/><path d="M6.25 6.4a1.8 1.8 0 1 1 2.7 1.55c-.6.35-.95.75-.95 1.3M8 11.4v.01"/></svg></span>Question</li><li><span class="kind kind--vote" title="Open vote"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Open vote"><title>Open vote</title><path d="M3 8.5 6.25 11.75 13 4.75"/></svg></span>Open vote</li><li><span class="kind kind--permission" title="Permission request"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Permission request"><title>Permission request</title><path d="M8 1.75 13.25 3.5v4c0 3.2-2.2 5.6-5.25 6.75C4.95 13.1 2.75 10.7 2.75 7.5v-4z"/><path d="M8 5.25v3M8 10.5v.01"/></svg></span>Permission request</li><li><span class="kind kind--attention" title="Stopped: needs someone"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Stopped: needs someone"><title>Stopped: needs someone</title><path d="M7.13 2.5a1 1 0 0 1 1.74 0l5.4 9.5a1 1 0 0 1-.87 1.5H2.6a1 1 0 0 1-.87-1.5z"/><path d="M8 6.25v3M8 11.25v.01"/></svg></span>Stopped: needs someone</li><li><span class="kind kind--suggestion" title="Suggestion"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Suggestion"><title>Suggestion</title><path d="M5.75 11.25c0-1.2-2-2.4-2-5a4.25 4.25 0 0 1 8.5 0c0 2.6-2 3.8-2 5z"/><path d="M6.25 13.75h3.5"/></svg></span>Suggestion</li><li><span class="kind kind--report" title="Report to review"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Report to review"><title>Report to review</title><path d="M3.75 1.75h5.5l3 3v9.5h-8.5z"/><path d="M9.25 1.75v3h3M5.75 9.6l1.5 1.5 3-3.1"/></svg></span>Report to review</li><li><span class="kind kind--merge" title="Merge request"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Merge request"><title>Merge request</title><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="10.5" r="1.5"/><path d="M4.5 5v6M4.5 5c0 3 3 5.5 5.5 5.5"/></svg></span>Merge request</li><li><span class="kind kind--mention" title="Mention"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Mention"><title>Mention</title><circle cx="8" cy="8" r="2.5"/><path d="M10.5 5.5v3.4a1.6 1.6 0 0 0 3.25 0V8a5.75 5.75 0 1 0-2.4 4.65"/></svg></span>Mention</li><li><span class="kind kind--result" title="What happened to your suggestion"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="What happened to your suggestion"><title>What happened to your suggestion</title><path d="M2.25 3.75a1 1 0 0 1 1-1h9.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H7l-3 2.5v-2.5h-.75a1 1 0 0 1-1-1z"/><path d="M5.25 6h5.5M5.25 8.25h3.5"/></svg></span>What happened to your suggestion</li></ul>
+  </section>
+
+  <section class="sheet-sec"><h2>2. Question card</h2>
+    <div class="sheet-grid">
+      <div class="sheet-cell"><h3>Responsible person: one option leads</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--question q" id="sq1" data-q data-people="4" aria-labelledby="sq1-h">
+    <template data-me><span class="ui-avatar ui-avatar--xs" style="background-color:#4363d8;color:#fff" role="img" aria-label="Ian" title="Ian">IA</span></template>
+    <header class="card__head"><span class="kind kind--question" title="Question"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Question"><title>Question</title><circle cx="8" cy="8" r="6.25"/><path d="M6.25 6.4a1.8 1.8 0 1 1 2.7 1.55c-.6.35-.95.75-.95 1.3M8 11.4v.01"/></svg></span><h3 class="card__label" id="sq1-h">Question from Claude</h3><span class="card__state"></span></header>
+    <div class="card__body">
+      <p class="q__text">Where should the cart total be computed?</p>
+      <div class="q__opts" role="radiogroup" aria-label="Your vote">
+      <label class="q-opt">
+        <input type="radio" name="sq1" checked>
+        <span><span class="q-opt__label">On the server<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span><span class="q-opt__desc">One source of truth. Every change of the cart needs a request.</span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"><span data-mine class="ui-avatar ui-avatar--xs" style="background-color:#4363d8;color:#fff" role="img" aria-label="Ian" title="Ian">IA</span><span class="ui-avatar ui-avatar--xs" style="background-color:#e6194b;color:#fff" role="img" aria-label="Mei" title="Mei">ME</span></span><span class="q-opt__count">2</span></span>
+        
+        <span class="q-opt__bar"></span>
+      </label>
+      <label class="q-opt">
+        <input type="radio" name="sq1">
+        <span><span class="q-opt__label">In the browser, checked again at checkout<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span><span class="q-opt__desc">Instant updates. Two implementations to keep the same.</span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"><span class="ui-avatar ui-avatar--xs" style="background-color:#2e8b3e;color:#fff" role="img" aria-label="Ken" title="Ken">KE</span></span><span class="q-opt__count">1</span></span>
+        
+        <span class="q-opt__bar"></span>
+      </label>
+      <label class="q-opt">
+        <input type="radio" name="sq1">
+        <span><span class="q-opt__label">Other<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"><span class="ui-avatar ui-avatar--xs" style="background-color:#d2691e;color:#fff" role="img" aria-label="Amy" title="Amy">AM</span></span><span class="q-opt__count">1</span></span>
+        <span class="q-opt__texts"><span class="q-quote"><span class="ui-avatar ui-avatar--xs" style="background-color:#d2691e;color:#fff" role="img" aria-label="Amy" title="Amy">AM</span><span>Server, cached per cart version</span></span><input class="ui-input" type="text" aria-label="Your own answer" placeholder="Write your own answer"></span>
+        <span class="q-opt__bar"></span>
+      </label>
+      </div>
+    </div>
+    <details class="thread" open>
+      <summary><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2.25 3.75a1 1 0 0 1 1-1h9.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H7l-3 2.5v-2.5h-.75a1 1 0 0 1-1-1z"/><path d="M5.25 6h5.5M5.25 8.25h3.5"/></svg>1 comment</summary>
+      <div class="thread__list">
+        <div class="thread__item"><span class="ui-avatar ui-avatar--sm" style="background-color:#2e8b3e;color:#fff" role="img" aria-label="Ken" title="Ken">KE</span><div><b>Ken</b> <time>13:48</time> <button type="button" class="ui-link-button thread__tonote" data-todo>Add to the note</button><div>B feels faster, but I am fine with A if we debounce.</div></div></div>
+        <input class="ui-input thread__input" type="text" aria-label="Add a comment" placeholder="Add a comment. Type @ to mention someone">
+        <p class="thread__note"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.25v4M8 4.75v.01"/></svg>Comments are for the team. Claude does not read them.</p>
+      </div>
+    </details>
+    <footer class="card__foot">
+      <p class="card__who">You decide: you are responsible for this session. <span class="q__tie" hidden>The vote is tied. Choose the answer yourself.</span><span class="q__none" hidden>Nobody has voted yet. You can still choose and submit.</span></p>
+      <div class="q__submit">
+        <label for="sq1-answer" title="Clicking an option sets your vote and this answer. Choose here to submit a different one.">Answer to submit</label>
+        <select id="sq1-answer" class="ui-input ui-select">
+          <option value="" data-label="">Choose an answer</option>
+          <option value="0" data-label="On the server">On the server</option><option value="1" data-label="In the browser, checked again at checkout">In the browser, checked again at checkout</option><option value="2" data-label="Other: Server, cached per cart version">Other: Server, cached per cart version</option>
+        </select>
+        <button type="button" class="ui-button ui-button--md ui-button--primary" data-q-submit>Submit answer</button>
+      </div>
+      <input class="ui-input q__note" type="text" aria-label="Note for Claude (optional)" placeholder="Note for Claude (optional). Only this note and the answer reach Claude">
+      <p class="card__who q__advice">Your click on an option sets your vote and the answer. You can submit now: votes are advice. <button type="button" class="ui-link-button" data-todo>Remind those who have not voted</button></p>
+    </footer>
+  </section></div><p>Votes are live. "Answer to submit" is prefilled with the leading option; the responsible person may choose another one.</p></div>
+      <div class="sheet-cell"><h3>Responsible person: a tie</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--question q" id="sq2" data-q data-people="4" aria-labelledby="sq2-h">
+    <template data-me><span class="ui-avatar ui-avatar--xs" style="background-color:#4363d8;color:#fff" role="img" aria-label="Ian" title="Ian">IA</span></template>
+    <header class="card__head"><span class="kind kind--question" title="Question"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Question"><title>Question</title><circle cx="8" cy="8" r="6.25"/><path d="M6.25 6.4a1.8 1.8 0 1 1 2.7 1.55c-.6.35-.95.75-.95 1.3M8 11.4v.01"/></svg></span><h3 class="card__label" id="sq2-h">Question from Claude</h3><span class="card__state"></span></header>
+    <div class="card__body">
+      <p class="q__text">Where should the cart total be computed?</p>
+      <div class="q__opts" role="radiogroup" aria-label="Your vote">
+      <label class="q-opt">
+        <input type="radio" name="sq2" checked>
+        <span><span class="q-opt__label">On the server<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span><span class="q-opt__desc">One source of truth. Every change of the cart needs a request.</span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"><span data-mine class="ui-avatar ui-avatar--xs" style="background-color:#4363d8;color:#fff" role="img" aria-label="Ian" title="Ian">IA</span><span class="ui-avatar ui-avatar--xs" style="background-color:#e6194b;color:#fff" role="img" aria-label="Mei" title="Mei">ME</span></span><span class="q-opt__count">2</span></span>
+        
+        <span class="q-opt__bar"></span>
+      </label>
+      <label class="q-opt">
+        <input type="radio" name="sq2">
+        <span><span class="q-opt__label">In the browser, checked again at checkout<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span><span class="q-opt__desc">Instant updates. Two implementations to keep the same.</span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"><span class="ui-avatar ui-avatar--xs" style="background-color:#2e8b3e;color:#fff" role="img" aria-label="Ken" title="Ken">KE</span><span class="ui-avatar ui-avatar--xs" style="background-color:#d2691e;color:#fff" role="img" aria-label="Amy" title="Amy">AM</span></span><span class="q-opt__count">2</span></span>
+        
+        <span class="q-opt__bar"></span>
+      </label>
+      <label class="q-opt">
+        <input type="radio" name="sq2">
+        <span><span class="q-opt__label">Other<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"></span><span class="q-opt__count">0</span></span>
+        <span class="q-opt__texts"><input class="ui-input" type="text" aria-label="Your own answer" placeholder="Write your own answer"></span>
+        <span class="q-opt__bar"></span>
+      </label>
+      </div>
+    </div>
+    <details class="thread">
+      <summary><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2.25 3.75a1 1 0 0 1 1-1h9.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H7l-3 2.5v-2.5h-.75a1 1 0 0 1-1-1z"/><path d="M5.25 6h5.5M5.25 8.25h3.5"/></svg>1 comment</summary>
+      <div class="thread__list">
+        <div class="thread__item"><span class="ui-avatar ui-avatar--sm" style="background-color:#2e8b3e;color:#fff" role="img" aria-label="Ken" title="Ken">KE</span><div><b>Ken</b> <time>13:48</time> <button type="button" class="ui-link-button thread__tonote" data-todo>Add to the note</button><div>B feels faster, but I am fine with A if we debounce.</div></div></div>
+        <input class="ui-input thread__input" type="text" aria-label="Add a comment" placeholder="Add a comment. Type @ to mention someone">
+        <p class="thread__note"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.25v4M8 4.75v.01"/></svg>Comments are for the team. Claude does not read them.</p>
+      </div>
+    </details>
+    <footer class="card__foot">
+      <p class="card__who">You decide: you are responsible for this session. <span class="q__tie" hidden>The vote is tied. Choose the answer yourself.</span><span class="q__none" hidden>Nobody has voted yet. You can still choose and submit.</span></p>
+      <div class="q__submit">
+        <label for="sq2-answer" title="Clicking an option sets your vote and this answer. Choose here to submit a different one.">Answer to submit</label>
+        <select id="sq2-answer" class="ui-input ui-select">
+          <option value="" data-label="">Choose an answer</option>
+          <option value="0" data-label="On the server">On the server</option><option value="1" data-label="In the browser, checked again at checkout">In the browser, checked again at checkout</option><option value="2" data-label="Other">Other</option>
+        </select>
+        <button type="button" class="ui-button ui-button--md ui-button--primary" data-q-submit>Submit answer</button>
+      </div>
+      <input class="ui-input q__note" type="text" aria-label="Note for Claude (optional)" placeholder="Note for Claude (optional). Only this note and the answer reach Claude">
+      <p class="card__who q__advice">Your click on an option sets your vote and the answer. You can submit now: votes are advice. <button type="button" class="ui-link-button" data-todo>Remind those who have not voted</button></p>
+    </footer>
+  </section></div><p>No option leads: nothing is prefilled, "Submit answer" is disabled until the responsible person chooses.</p></div>
+      <div class="sheet-cell"><h3>Responsible person: nobody has voted yet</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--question q" id="sq3" data-q data-people="4" aria-labelledby="sq3-h">
+    <template data-me><span class="ui-avatar ui-avatar--xs" style="background-color:#4363d8;color:#fff" role="img" aria-label="Ian" title="Ian">IA</span></template>
+    <header class="card__head"><span class="kind kind--question" title="Question"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Question"><title>Question</title><circle cx="8" cy="8" r="6.25"/><path d="M6.25 6.4a1.8 1.8 0 1 1 2.7 1.55c-.6.35-.95.75-.95 1.3M8 11.4v.01"/></svg></span><h3 class="card__label" id="sq3-h">Question from Claude</h3><span class="card__state"></span></header>
+    <div class="card__body">
+      <p class="q__text">Where should the cart total be computed?</p>
+      <div class="q__opts" role="radiogroup" aria-label="Your vote">
+      <label class="q-opt">
+        <input type="radio" name="sq3">
+        <span><span class="q-opt__label">On the server<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span><span class="q-opt__desc">One source of truth. Every change of the cart needs a request.</span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"></span><span class="q-opt__count">0</span></span>
+        
+        <span class="q-opt__bar"></span>
+      </label>
+      <label class="q-opt">
+        <input type="radio" name="sq3">
+        <span><span class="q-opt__label">In the browser, checked again at checkout<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span><span class="q-opt__desc">Instant updates. Two implementations to keep the same.</span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"></span><span class="q-opt__count">0</span></span>
+        
+        <span class="q-opt__bar"></span>
+      </label>
+      <label class="q-opt">
+        <input type="radio" name="sq3">
+        <span><span class="q-opt__label">Other<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"></span><span class="q-opt__count">0</span></span>
+        <span class="q-opt__texts"><input class="ui-input" type="text" aria-label="Your own answer" placeholder="Write your own answer"></span>
+        <span class="q-opt__bar"></span>
+      </label>
+      </div>
+    </div>
+    <details class="thread">
+      <summary><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2.25 3.75a1 1 0 0 1 1-1h9.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H7l-3 2.5v-2.5h-.75a1 1 0 0 1-1-1z"/><path d="M5.25 6h5.5M5.25 8.25h3.5"/></svg>1 comment</summary>
+      <div class="thread__list">
+        <div class="thread__item"><span class="ui-avatar ui-avatar--sm" style="background-color:#2e8b3e;color:#fff" role="img" aria-label="Ken" title="Ken">KE</span><div><b>Ken</b> <time>13:48</time> <button type="button" class="ui-link-button thread__tonote" data-todo>Add to the note</button><div>B feels faster, but I am fine with A if we debounce.</div></div></div>
+        <input class="ui-input thread__input" type="text" aria-label="Add a comment" placeholder="Add a comment. Type @ to mention someone">
+        <p class="thread__note"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.25v4M8 4.75v.01"/></svg>Comments are for the team. Claude does not read them.</p>
+      </div>
+    </details>
+    <footer class="card__foot">
+      <p class="card__who">You decide: you are responsible for this session. <span class="q__tie" hidden>The vote is tied. Choose the answer yourself.</span><span class="q__none" hidden>Nobody has voted yet. You can still choose and submit.</span></p>
+      <div class="q__submit">
+        <label for="sq3-answer" title="Clicking an option sets your vote and this answer. Choose here to submit a different one.">Answer to submit</label>
+        <select id="sq3-answer" class="ui-input ui-select">
+          <option value="" data-label="">Choose an answer</option>
+          <option value="0" data-label="On the server">On the server</option><option value="1" data-label="In the browser, checked again at checkout">In the browser, checked again at checkout</option><option value="2" data-label="Other">Other</option>
+        </select>
+        <button type="button" class="ui-button ui-button--md ui-button--primary" data-q-submit>Submit answer</button>
+      </div>
+      <input class="ui-input q__note" type="text" aria-label="Note for Claude (optional)" placeholder="Note for Claude (optional). Only this note and the answer reach Claude">
+      <p class="card__who q__advice">Your click on an option sets your vote and the answer. You can submit now: votes are advice. <button type="button" class="ui-link-button" data-todo>Remind those who have not voted</button></p>
+    </footer>
+  </section></div><p>Submitting without votes is allowed: the choice is the responsible person's. Nothing is prefilled.</p></div>
+      <div class="sheet-cell"><h3>Another member (Agent access or Editor)</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--question q" id="sq4" data-q data-people="4" aria-labelledby="sq4-h">
+    <template data-me><span class="ui-avatar ui-avatar--xs" style="background-color:#e6194b;color:#fff" role="img" aria-label="Mei" title="Mei">ME</span></template>
+    <header class="card__head"><span class="kind kind--question" title="Question"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Question"><title>Question</title><circle cx="8" cy="8" r="6.25"/><path d="M6.25 6.4a1.8 1.8 0 1 1 2.7 1.55c-.6.35-.95.75-.95 1.3M8 11.4v.01"/></svg></span><h3 class="card__label" id="sq4-h">Question from Claude</h3><span class="card__state"></span></header>
+    <div class="card__body">
+      <p class="q__text">Where should the cart total be computed?</p>
+      <div class="q__opts" role="radiogroup" aria-label="Your vote">
+      <label class="q-opt">
+        <input type="radio" name="sq4" checked>
+        <span><span class="q-opt__label">On the server<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span><span class="q-opt__desc">One source of truth. Every change of the cart needs a request.</span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"><span class="ui-avatar ui-avatar--xs" style="background-color:#4363d8;color:#fff" role="img" aria-label="Ian" title="Ian">IA</span><span data-mine class="ui-avatar ui-avatar--xs" style="background-color:#e6194b;color:#fff" role="img" aria-label="Mei" title="Mei">ME</span></span><span class="q-opt__count">2</span></span>
+        
+        <span class="q-opt__bar"></span>
+      </label>
+      <label class="q-opt">
+        <input type="radio" name="sq4">
+        <span><span class="q-opt__label">In the browser, checked again at checkout<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span><span class="q-opt__desc">Instant updates. Two implementations to keep the same.</span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"><span class="ui-avatar ui-avatar--xs" style="background-color:#2e8b3e;color:#fff" role="img" aria-label="Ken" title="Ken">KE</span></span><span class="q-opt__count">1</span></span>
+        
+        <span class="q-opt__bar"></span>
+      </label>
+      <label class="q-opt">
+        <input type="radio" name="sq4">
+        <span><span class="q-opt__label">Other<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"></span><span class="q-opt__count">0</span></span>
+        <span class="q-opt__texts"><input class="ui-input" type="text" aria-label="Your own answer" placeholder="Write your own answer"></span>
+        <span class="q-opt__bar"></span>
+      </label>
+      </div>
+    </div>
+    <details class="thread">
+      <summary><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2.25 3.75a1 1 0 0 1 1-1h9.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H7l-3 2.5v-2.5h-.75a1 1 0 0 1-1-1z"/><path d="M5.25 6h5.5M5.25 8.25h3.5"/></svg>1 comment</summary>
+      <div class="thread__list">
+        <div class="thread__item"><span class="ui-avatar ui-avatar--sm" style="background-color:#2e8b3e;color:#fff" role="img" aria-label="Ken" title="Ken">KE</span><div><b>Ken</b> <time>13:48</time><div>B feels faster, but I am fine with A if we debounce.</div></div></div>
+        <input class="ui-input thread__input" type="text" aria-label="Add a comment" placeholder="Add a comment. Type @ to mention someone">
+        <p class="thread__note"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.25v4M8 4.75v.01"/></svg>Comments are for the team. Claude does not read them.</p>
+      </div>
+    </details>
+    <footer class="card__foot"><p class="card__who">Ian decides (responsible for this session). Your vote and comments are visible to everyone.</p></footer>
+  </section></div><p>Votes and comments; cannot submit. The footer says who decides.</p></div>
+      <div class="sheet-cell"><h3>"Other" chosen, with one's own text (Editor)</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--question q" id="sq5" data-q data-people="4" aria-labelledby="sq5-h">
+    <template data-me><span class="ui-avatar ui-avatar--xs" style="background-color:#d2691e;color:#fff" role="img" aria-label="Amy" title="Amy">AM</span></template>
+    <header class="card__head"><span class="kind kind--question" title="Question"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Question"><title>Question</title><circle cx="8" cy="8" r="6.25"/><path d="M6.25 6.4a1.8 1.8 0 1 1 2.7 1.55c-.6.35-.95.75-.95 1.3M8 11.4v.01"/></svg></span><h3 class="card__label" id="sq5-h">Question from Claude</h3><span class="card__state"></span></header>
+    <div class="card__body">
+      <p class="q__text">Where should the cart total be computed?</p>
+      <div class="q__opts" role="radiogroup" aria-label="Your vote">
+      <label class="q-opt">
+        <input type="radio" name="sq5">
+        <span><span class="q-opt__label">On the server<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span><span class="q-opt__desc">One source of truth. Every change of the cart needs a request.</span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"><span class="ui-avatar ui-avatar--xs" style="background-color:#4363d8;color:#fff" role="img" aria-label="Ian" title="Ian">IA</span><span class="ui-avatar ui-avatar--xs" style="background-color:#e6194b;color:#fff" role="img" aria-label="Mei" title="Mei">ME</span></span><span class="q-opt__count">2</span></span>
+        
+        <span class="q-opt__bar"></span>
+      </label>
+      <label class="q-opt">
+        <input type="radio" name="sq5">
+        <span><span class="q-opt__label">In the browser, checked again at checkout<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span><span class="q-opt__desc">Instant updates. Two implementations to keep the same.</span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"><span class="ui-avatar ui-avatar--xs" style="background-color:#2e8b3e;color:#fff" role="img" aria-label="Ken" title="Ken">KE</span></span><span class="q-opt__count">1</span></span>
+        
+        <span class="q-opt__bar"></span>
+      </label>
+      <label class="q-opt">
+        <input type="radio" name="sq5" checked>
+        <span><span class="q-opt__label">Other<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"><span data-mine class="ui-avatar ui-avatar--xs" style="background-color:#d2691e;color:#fff" role="img" aria-label="Amy" title="Amy">AM</span></span><span class="q-opt__count">1</span></span>
+        <span class="q-opt__texts"><span class="q-quote"><span class="ui-avatar ui-avatar--xs" style="background-color:#d2691e;color:#fff" role="img" aria-label="Amy" title="Amy">AM</span><span>Server, cached per cart version</span></span><input class="ui-input" type="text" aria-label="Your own answer" placeholder="Write your own answer" value="Server, cached per cart version"></span>
+        <span class="q-opt__bar"></span>
+      </label>
+      </div>
+    </div>
+    <details class="thread">
+      <summary><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2.25 3.75a1 1 0 0 1 1-1h9.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H7l-3 2.5v-2.5h-.75a1 1 0 0 1-1-1z"/><path d="M5.25 6h5.5M5.25 8.25h3.5"/></svg>1 comment</summary>
+      <div class="thread__list">
+        <div class="thread__item"><span class="ui-avatar ui-avatar--sm" style="background-color:#2e8b3e;color:#fff" role="img" aria-label="Ken" title="Ken">KE</span><div><b>Ken</b> <time>13:48</time><div>B feels faster, but I am fine with A if we debounce.</div></div></div>
+        <input class="ui-input thread__input" type="text" aria-label="Add a comment" placeholder="Add a comment. Type @ to mention someone">
+        <p class="thread__note"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.25v4M8 4.75v.01"/></svg>Comments are for the team. Claude does not read them.</p>
+      </div>
+    </details>
+    <footer class="card__foot"><p class="card__who">Ian decides (responsible for this session). Your vote and comments are visible to everyone.</p></footer>
+  </section></div><p>Every "Other" text is listed with its author. If "Other" is submitted, the responsible person picks or edits the text that is sent.</p></div>
+      <div class="sheet-cell"><h3>Viewer</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--question q" id="sq6" data-q data-people="4" data-readonly aria-labelledby="sq6-h">
+    <template data-me><span class="ui-avatar ui-avatar--xs" style="background-color:#a03cc8;color:#fff" role="img" aria-label="Leo" title="Leo">LE</span></template>
+    <header class="card__head"><span class="kind kind--question" title="Question"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Question"><title>Question</title><circle cx="8" cy="8" r="6.25"/><path d="M6.25 6.4a1.8 1.8 0 1 1 2.7 1.55c-.6.35-.95.75-.95 1.3M8 11.4v.01"/></svg></span><h3 class="card__label" id="sq6-h">Question from Claude</h3><span class="card__state"></span></header>
+    <div class="card__body">
+      <p class="q__text">Where should the cart total be computed?</p>
+      <div class="q__opts" role="radiogroup" aria-label="Your vote">
+      <label class="q-opt">
+        <input type="radio" name="sq6" disabled>
+        <span><span class="q-opt__label">On the server<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span><span class="q-opt__desc">One source of truth. Every change of the cart needs a request.</span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"><span class="ui-avatar ui-avatar--xs" style="background-color:#4363d8;color:#fff" role="img" aria-label="Ian" title="Ian">IA</span><span class="ui-avatar ui-avatar--xs" style="background-color:#e6194b;color:#fff" role="img" aria-label="Mei" title="Mei">ME</span></span><span class="q-opt__count">2</span></span>
+        
+        <span class="q-opt__bar"></span>
+      </label>
+      <label class="q-opt">
+        <input type="radio" name="sq6" disabled>
+        <span><span class="q-opt__label">In the browser, checked again at checkout<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span><span class="q-opt__desc">Instant updates. Two implementations to keep the same.</span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"><span class="ui-avatar ui-avatar--xs" style="background-color:#2e8b3e;color:#fff" role="img" aria-label="Ken" title="Ken">KE</span></span><span class="q-opt__count">1</span></span>
+        
+        <span class="q-opt__bar"></span>
+      </label>
+      <label class="q-opt">
+        <input type="radio" name="sq6" disabled>
+        <span><span class="q-opt__label">Other<span class="q-opt__lead" hidden><span class="ui-badge ui-badge--info">Leading</span></span></span></span>
+        <span class="q-opt__votes"><span class="ui-avatar-stack"></span><span class="q-opt__count">0</span></span>
+        <span class="q-opt__texts"></span>
+        <span class="q-opt__bar"></span>
+      </label>
+      </div>
+    </div>
+    <details class="thread" open>
+      <summary><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M2.25 3.75a1 1 0 0 1 1-1h9.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H7l-3 2.5v-2.5h-.75a1 1 0 0 1-1-1z"/><path d="M5.25 6h5.5M5.25 8.25h3.5"/></svg>1 comment</summary>
+      <div class="thread__list">
+        <div class="thread__item"><span class="ui-avatar ui-avatar--sm" style="background-color:#2e8b3e;color:#fff" role="img" aria-label="Ken" title="Ken">KE</span><div><b>Ken</b> <time>13:48</time><div>B feels faster, but I am fine with A if we debounce.</div></div></div>
+        
+        <p class="thread__note"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.25v4M8 4.75v.01"/></svg>Comments are for the team. Claude does not read them.</p>
+      </div>
+    </details>
+    <footer class="card__foot"><p class="card__who">You are watching. Viewers do not vote. Ian decides.</p></footer>
+  </section></div><p>Reads the votes and the comments. No radio buttons, no comment box.</p></div>
+      <div class="sheet-cell"><h3>Answered</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--settled"><div class="card__settled"><span class="kind kind--question" title="Question"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Question"><title>Question</title><circle cx="8" cy="8" r="6.25"/><path d="M6.25 6.4a1.8 1.8 0 1 1 2.7 1.55c-.6.35-.95.75-.95 1.3M8 11.4v.01"/></svg></span><span><strong>Where should the cart total be computed?</strong> Answered: <strong>On the server</strong> · 2 votes to 1 · submitted by Ian, 13:53</span></div></section></div><p>The card folds to one line for everyone. Expanding it shows the votes and comments again (read-only).</p></div>
+      <div class="sheet-cell"><h3>Withdrawn</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--settled"><div class="card__settled"><span class="kind kind--question" title="Question"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Question"><title>Question</title><circle cx="8" cy="8" r="6.25"/><path d="M6.25 6.4a1.8 1.8 0 1 1 2.7 1.55c-.6.35-.95.75-.95 1.3M8 11.4v.01"/></svg></span><span><strong>Where should the cart total be computed?</strong> Not answered: the session was stopped by Ian at 13:53</span></div></section></div><p>The session ended, or the agent was stopped, before anyone submitted.</p></div>
+    </div>
+  </section>
+
+  <section class="sheet-sec"><h2>3. Permission card</h2>
+    <div class="sheet-grid">
+      <div class="sheet-cell"><h3>Responsible person with agent access (Mei)</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--permission" id="sp1" aria-labelledby="sp1-h">
+    <header class="card__head"><span class="kind kind--permission" title="Permission request"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Permission request"><title>Permission request</title><path d="M8 1.75 13.25 3.5v4c0 3.2-2.2 5.6-5.25 6.75C4.95 13.1 2.75 10.7 2.75 7.5v-4z"/><path d="M8 5.25v3M8 10.5v.01"/></svg></span><h3 class="card__label" id="sp1-h">Claude asks for permission to run a command</h3><span class="card__state">waiting 40 s</span></header>
+    <div class="card__body">
+      <pre class="perm__cmd"><code>pnpm test --filter checkout</code></pre>
+      <p class="perm__facts"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5" r="1.5"/><path d="M4.5 5v6M11.5 6.5c0 3-7 2.5-7 4.5"/></svg><span>In the worktree <span class="mono">smurg/checkout-redesign/payment-form</span></span></p>
+      
+    </div>
+    <footer class="card__foot">
+      <div class="card__actions">
+        <button type="button" class="ui-button ui-button--md ui-button--primary" data-perm="once">Allow once</button>
+        <button type="button" class="ui-button ui-button--md ui-button--secondary" data-perm="always">Always allow this kind</button>
+        <button type="button" class="ui-button ui-button--md ui-button--ghost" data-perm="deny">Deny</button>
+      </div>
+      <p class="perm__rule">"This kind" is: commands that start with <code>pnpm test</code>. It also covers the same command after Claude changes the files it runs.</p>
+      <div class="perm__scope" role="radiogroup" aria-label="Where &quot;always&quot; applies"><label><input type="radio" name="sp1-scope" checked> in this session</label><label><input type="radio" name="sp1-scope"> in every session of this topic</label></div>
+      <p class="card__who">It is in your inbox: you are responsible. The host and members with agent access can answer too.</p>
+    </footer>
+  </section></div><p>Three answers. "Always allow this kind" names the kind, what it also covers, and asks where it applies: this session, or every session of the topic.</p></div>
+      <div class="sheet-cell"><h3>A kind that cannot be always allowed</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--permission" id="sp1b" aria-labelledby="sp1b-h">
+    <header class="card__head"><span class="kind kind--permission" title="Permission request"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Permission request"><title>Permission request</title><path d="M8 1.75 13.25 3.5v4c0 3.2-2.2 5.6-5.25 6.75C4.95 13.1 2.75 10.7 2.75 7.5v-4z"/><path d="M8 5.25v3M8 10.5v.01"/></svg></span><h3 class="card__label" id="sp1b-h">Claude asks for permission to run a command</h3><span class="card__state">waiting 40 s</span></header>
+    <div class="card__body">
+      <pre class="perm__cmd"><code>pnpm add @stripe/stripe-js @stripe/react-stripe-js</code></pre>
+      <p class="perm__facts"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5" r="1.5"/><path d="M4.5 5v6M11.5 6.5c0 3-7 2.5-7 4.5"/></svg><span>In the worktree <span class="mono">smurg/checkout-redesign/payment-form</span></span></p>
+      
+    </div>
+    <footer class="card__foot">
+      <div class="card__actions">
+        <button type="button" class="ui-button ui-button--md ui-button--primary" data-perm="once">Allow once</button>
+        
+        <button type="button" class="ui-button ui-button--md ui-button--ghost" data-perm="deny">Deny</button>
+      </div>
+      <p class="perm__rule"><code>pnpm add</code> downloads and runs code: it cannot be always allowed.</p>
+      <p class="card__who">It is in your inbox: you are responsible. The host and members with agent access can answer too.</p>
+    </footer>
+  </section></div><p>Package installers and runners, shells and interpreters: the card says why.</p></div>
+      <div class="sheet-cell"><h3>Host or another member with agent access (Ian)</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--permission" id="sp2" aria-labelledby="sp2-h">
+    <header class="card__head"><span class="kind kind--permission" title="Permission request"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Permission request"><title>Permission request</title><path d="M8 1.75 13.25 3.5v4c0 3.2-2.2 5.6-5.25 6.75C4.95 13.1 2.75 10.7 2.75 7.5v-4z"/><path d="M8 5.25v3M8 10.5v.01"/></svg></span><h3 class="card__label" id="sp2-h">Claude asks for permission to run a command</h3><span class="card__state">waiting 40 s</span></header>
+    <div class="card__body">
+      <pre class="perm__cmd"><code>pnpm test --filter checkout</code></pre>
+      <p class="perm__facts"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5" r="1.5"/><path d="M4.5 5v6M11.5 6.5c0 3-7 2.5-7 4.5"/></svg><span>In the worktree <span class="mono">smurg/checkout-redesign/payment-form</span></span></p>
+      
+    </div>
+    <footer class="card__foot">
+      <div class="card__actions">
+        <button type="button" class="ui-button ui-button--md ui-button--primary" data-perm="once">Allow once</button>
+        <button type="button" class="ui-button ui-button--md ui-button--secondary" data-perm="always">Always allow this kind</button>
+        <button type="button" class="ui-button ui-button--md ui-button--ghost" data-perm="deny">Deny</button>
+      </div>
+      <p class="perm__rule">"This kind" is: commands that start with <code>pnpm test</code>. It also covers the same command after Claude changes the files it runs.</p>
+      <div class="perm__scope" role="radiogroup" aria-label="Where &quot;always&quot; applies"><label><input type="radio" name="sp2-scope" checked> in this session</label><label><input type="radio" name="sp2-scope"> in every session of this topic</label></div>
+      <p class="card__who">It is in Mei's inbox (responsible). You can answer too: the host and members with agent access may.</p>
+    </footer>
+  </section></div><p>May answer too; the footer says whose inbox it is in.</p></div>
+      <div class="sheet-cell"><h3>Editor or Viewer</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--permission" id="sp3" aria-labelledby="sp3-h">
+    <header class="card__head"><span class="kind kind--permission" title="Permission request"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Permission request"><title>Permission request</title><path d="M8 1.75 13.25 3.5v4c0 3.2-2.2 5.6-5.25 6.75C4.95 13.1 2.75 10.7 2.75 7.5v-4z"/><path d="M8 5.25v3M8 10.5v.01"/></svg></span><h3 class="card__label" id="sp3-h">Claude asks for permission to run a command</h3><span class="card__state">waiting 40 s</span></header>
+    <div class="card__body">
+      <pre class="perm__cmd"><code>pnpm test --filter checkout</code></pre>
+      <p class="perm__facts"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5" r="1.5"/><path d="M4.5 5v6M11.5 6.5c0 3-7 2.5-7 4.5"/></svg><span>In the worktree <span class="mono">smurg/checkout-redesign/payment-form</span></span></p>
+      
+    </div>
+    <footer class="card__foot"><p class="card__who">Waiting for Mei (responsible), the host or a member with agent access. Your role cannot allow commands.</p></footer>
+  </section></div><p>The command is shown; there are no buttons, and the footer says who can answer.</p></div>
+      <div class="sheet-cell"><h3>Allowed once</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--settled"><div class="card__settled"><span class="kind kind--permission" title="Permission request"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Permission request"><title>Permission request</title><path d="M8 1.75 13.25 3.5v4c0 3.2-2.2 5.6-5.25 6.75C4.95 13.1 2.75 10.7 2.75 7.5v-4z"/><path d="M8 5.25v3M8 10.5v.01"/></svg></span><span><span class="mono">pnpm test --filter checkout</span> · <strong>Allowed once</strong> by Mei, 13:55</span></div></section></div></div>
+      <div class="sheet-cell"><h3>Always allowed</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--settled"><div class="card__settled"><span class="kind kind--permission" title="Permission request"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Permission request"><title>Permission request</title><path d="M8 1.75 13.25 3.5v4c0 3.2-2.2 5.6-5.25 6.75C4.95 13.1 2.75 10.7 2.75 7.5v-4z"/><path d="M8 5.25v3M8 10.5v.01"/></svg></span><span><span class="mono">pnpm test --filter checkout</span> · <strong>Allowed, and always for <span class="mono">pnpm test</span></strong> in every session of this topic, by Mei, 13:55</span></div></section></div><p>The rule is listed under the session's permission mode, where it can be removed.</p></div>
+      <div class="sheet-cell"><h3>Denied</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--settled"><div class="card__settled"><span class="kind kind--permission" title="Permission request"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Permission request"><title>Permission request</title><path d="M8 1.75 13.25 3.5v4c0 3.2-2.2 5.6-5.25 6.75C4.95 13.1 2.75 10.7 2.75 7.5v-4z"/><path d="M8 5.25v3M8 10.5v.01"/></svg></span><span><span class="mono">pnpm test --filter checkout</span> · <strong>Denied</strong> by Mei, 13:55: "Run only the payment form tests."</span></div></section></div><p>The person who denies can say what to do instead; the agent reads it.</p></div>
+    </div>
+  </section>
+
+  <section class="sheet-sec"><h2>4. Suggestion (an Editor's message)</h2>
+    <div class="sheet-grid">
+      <div class="sheet-cell"><h3>Responsible person, host or agent access</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--suggestion" id="ss1" aria-labelledby="ss1-h">
+    <header class="card__head"><span class="kind kind--suggestion" title="Suggestion"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Suggestion"><title>Suggestion</title><path d="M5.75 11.25c0-1.2-2-2.4-2-5a4.25 4.25 0 0 1 8.5 0c0 2.6-2 3.8-2 5z"/><path d="M6.25 13.75h3.5"/></svg></span><h3 class="card__label" id="ss1-h">Suggestion from Amy</h3><span class="card__state">13:51</span></header>
+    <div class="card__body"><p class="sug__text">Also return the currency code with the total, so the page does not guess it.</p></div>
+    <footer class="card__foot"><div class="card__actions">
+        <button type="button" class="ui-button ui-button--sm ui-button--primary" data-sug="accept">Accept</button>
+        <button type="button" class="ui-button ui-button--sm ui-button--secondary" data-todo>Edit and accept</button>
+        <button type="button" class="ui-button ui-button--sm ui-button--ghost" data-sug="reject">Reject</button>
+      </div><p class="card__who">It reaches the agent only when someone accepts it.</p></footer>
+  </section></div></div>
+      <div class="sheet-cell"><h3>Its author (Amy)</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--suggestion" id="ss2" aria-labelledby="ss2-h">
+    <header class="card__head"><span class="kind kind--suggestion" title="Suggestion"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Suggestion"><title>Suggestion</title><path d="M5.75 11.25c0-1.2-2-2.4-2-5a4.25 4.25 0 0 1 8.5 0c0 2.6-2 3.8-2 5z"/><path d="M6.25 13.75h3.5"/></svg></span><h3 class="card__label" id="ss2-h">Suggestion from Amy</h3><span class="card__state">13:51</span></header>
+    <div class="card__body"><p class="sug__text">Also return the currency code with the total, so the page does not guess it.</p></div>
+    <footer class="card__foot"><div class="card__actions"><button type="button" class="ui-button ui-button--sm ui-button--secondary" data-todo>Edit</button><button type="button" class="ui-button ui-button--sm ui-button--ghost" data-sug="withdraw">Withdraw</button></div><p class="card__who">Waiting for Ian (responsible). The host and members with agent access can accept it too.</p></footer>
+  </section></div></div>
+      <div class="sheet-cell"><h3>Everyone else</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--suggestion" id="ss3" aria-labelledby="ss3-h">
+    <header class="card__head"><span class="kind kind--suggestion" title="Suggestion"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Suggestion"><title>Suggestion</title><path d="M5.75 11.25c0-1.2-2-2.4-2-5a4.25 4.25 0 0 1 8.5 0c0 2.6-2 3.8-2 5z"/><path d="M6.25 13.75h3.5"/></svg></span><h3 class="card__label" id="ss3-h">Suggestion from Amy</h3><span class="card__state">13:51</span></header>
+    <div class="card__body"><p class="sug__text">Also return the currency code with the total, so the page does not guess it.</p></div>
+    <footer class="card__foot"><p class="card__who">Waiting for Ian (responsible).</p></footer>
+  </section></div></div>
+      <div class="sheet-cell"><h3>Accepted</h3><div class="sheet-frame sheet-frame--pad"><article class="msg">
+    <span class="ui-avatar ui-avatar--md" style="background-color:#d2691e;color:#fff" role="img" aria-label="Amy" title="Amy">AM</span>
+    <div><div class="msg__head"><span class="msg__name">Amy</span><span>Editor</span><time>13:51</time><span class="msg__via">suggestion, accepted by Ian</span></div>
+    <div class="msg__bubble">Also return the currency code with the total, so the page does not guess it.</div></div>
+  </article></div><p>It becomes a message of its author in the conversation.</p></div>
+      <div class="sheet-cell"><h3>Accepted with edits</h3><div class="sheet-frame sheet-frame--pad"><article class="msg">
+    <span class="ui-avatar ui-avatar--md" style="background-color:#d2691e;color:#fff" role="img" aria-label="Amy" title="Amy">AM</span>
+    <div><div class="msg__head"><span class="msg__name">Amy</span><span>Editor</span><time>13:51</time><span class="msg__via">suggestion, edited and accepted by Ian</span></div>
+    <div class="msg__bubble">Also return the ISO 4217 currency code with the total.</div></div>
+  </article></div></div>
+      <div class="sheet-cell"><h3>Rejected</h3><div class="sheet-frame sheet-frame--pad"><section class="card card--settled"><div class="card__settled"><span class="kind kind--suggestion" title="Suggestion"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Suggestion"><title>Suggestion</title><path d="M5.75 11.25c0-1.2-2-2.4-2-5a4.25 4.25 0 0 1 8.5 0c0 2.6-2 3.8-2 5z"/><path d="M6.25 13.75h3.5"/></svg></span><span>Suggestion from Amy · <strong>Rejected</strong> by Ian, 13:54: "The page already knows the currency."</span></div></section></div><p>Stays as one line; the reason is the rejecting person's own words.</p></div>
+    </div>
+  </section>
+
+  <section class="sheet-sec"><h2>5. Tool actions</h2>
+    <div class="sheet-grid">
+      <div class="sheet-cell"><h3>Collapsed (the default)</h3><div class="sheet-frame sheet-frame--pad"><div class="tools"><details class="tool"><summary><span class="tool__icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M3.75 1.75h5.5l3 3v9.5h-8.5z"/><path d="M9.25 1.75v3h3M5.75 8.25h4.5M5.75 10.75h4.5"/></svg></span><span class="tool__verb">Read</span><span class="tool__target">4 files in src/cart</span><span class="tool__meta"></span><span class="tool__chev"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span></summary></details><details class="tool"><summary><span class="tool__icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M10.5 2.75 13.25 5.5 5.75 13H3v-2.75z"/></svg></span><span class="tool__verb">Edited</span><span class="tool__target">src/cart/total.ts</span><span class="tool__meta"><span class="tool__adds">+38</span><span class="tool__dels">−6</span></span><span class="tool__chev"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span></summary></details><details class="tool"><summary><span class="tool__icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.25"/><path d="M4.5 6.25 6.75 8.5 4.5 10.75M8.5 10.75h3"/></svg></span><span class="tool__verb">Ran</span><span class="tool__target">pnpm test cart</span><span class="tool__meta">14 passed · 9 s</span><span class="tool__chev"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span></summary></details><details class="tool"><summary><span class="tool__icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="7" cy="7" r="4.25"/><path d="M10.25 10.25 13.5 13.5"/></svg></span><span class="tool__verb">Searched</span><span class="tool__target">"cartTotal" in src/</span><span class="tool__meta">7 matches</span><span class="tool__chev"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span></summary></details></div></div><p>One line each: what, on what, the result.</p></div>
+      <div class="sheet-cell"><h3>A file edit, expanded</h3><div class="sheet-frame sheet-frame--pad"><details class="tool" open><summary><span class="tool__icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M10.5 2.75 13.25 5.5 5.75 13H3v-2.75z"/></svg></span><span class="tool__verb">Edited</span><span class="tool__target">src/orders/pay.ts</span><span class="tool__meta"><span class="tool__adds">+3</span><span class="tool__dels">−1</span></span><span class="tool__chev"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span></summary><div class="tool__body"><pre class="diff"><span class="diff__line diff__line--hunk"><span class="diff__num"></span><span class="diff__text"> @@ src/orders/pay.ts</span></span><span class="diff__line"><span class="diff__num">41</span><span class="diff__text">    const order = await markPaid(orderId, charge.id);</span></span><span class="diff__line diff__line--del"><span class="diff__num">42</span><span class="diff__text">-   return order;</span></span><span class="diff__line diff__line--add"><span class="diff__num">42</span><span class="diff__text">+   await queue.add('receipt-email', { orderId: order.id });</span></span><span class="diff__line diff__line--add"><span class="diff__num">43</span><span class="diff__text">+   return order;</span></span></pre></div><div class="tool__actions"><button type="button" class="ui-button ui-button--sm ui-button--ghost" ><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M5.25 4.5 1.75 8l3.5 3.5M10.75 4.5 14.25 8l-3.5 3.5M9.25 3 6.75 13"/></svg>Open in editor</button></div></details></div><p>"Open in editor" switches to code mode with the file open in the session's worktree.</p></div>
+      <div class="sheet-cell"><h3>A command that failed, expanded</h3><div class="sheet-frame sheet-frame--pad"><details class="tool" open><summary><span class="tool__icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.25"/><path d="M4.5 6.25 6.75 8.5 4.5 10.75M8.5 10.75h3"/></svg></span><span class="tool__verb">Ran</span><span class="tool__target">pnpm tsx scripts/seed.ts</span><span class="tool__meta"><span class="tool__fail">exit 1 · 2 s</span></span><span class="tool__chev"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span></summary><div class="tool__body"><pre class="out">Error: DATABASE_URL is not set
+    at connect (scripts/seed.ts:12:11)</pre></div></details></div><p>A failed action is red in the line itself, also when collapsed.</p></div>
+      <div class="sheet-cell"><h3>A command that is running</h3><div class="sheet-frame sheet-frame--pad"><div class="tools"><details class="tool"><summary><span class="tool__icon"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.25"/><path d="M4.5 6.25 6.75 8.5 4.5 10.75M8.5 10.75h3"/></svg></span><span class="tool__verb">Running</span><span class="tool__target">pnpm test orders</span><span class="tool__meta">12 s <span class="st st--running" title="Running"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Running"><title>Running</title><path d="M8 1.75a6.25 6.25 0 1 1-6.25 6.25"/><path d="M8 1.75a6.25 6.25 0 0 0-6.25 6.25" opacity="0.28"/></svg></span></span><span class="tool__chev"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg></span></summary></details></div></div></div>
+      <div class="sheet-cell"><h3>Text that is streaming</h3><div class="sheet-frame sheet-frame--pad"><article class="agent"><div class="agent__head"><span class="ui-avatar ui-avatar--md ui-avatar--agent" style="background-color:#4a6fa8;color:#fff" role="img" aria-label="Claude"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><rect x="2.75" y="5.25" width="10.5" height="8" rx="2"/><path d="M8 2.25v3M6 9.25v.01M10 9.25v.01M6.25 11.5h3.5"/></svg></span><span class="agent__name">Claude</span><time>13:52</time></div>
+    <div class="agent__text"><p>Then the test is wrong, not the page: a refunded order was paid once. I am changing the test to expect the link for paid and refunded orders, and<span class="caret" aria-hidden="true"></span></p></div>
+  </article></div><p>A caret at the end; the bar above the composer says "Claude is writing".</p></div>
+    </div>
+  </section>
+
+  <section class="sheet-sec"><h2>6. Composer and the bar above it</h2>
+    <div class="sheet-grid">
+      <div class="sheet-cell"><h3>Host / Agent access</h3><div class="sheet-frame"><div class="conv-status" role="status"><span class="st st--idle" title="Idle"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Idle"><title>Idle</title><circle cx="8" cy="8" r="4.5"/></svg></span><span class="conv-status__text">Claude is idle.</span></div><div class="composer">
+    
+    <div class="composer__box"><textarea class="composer__input" rows="1" aria-label="Message Claude" placeholder="Message Claude"></textarea><button type="button" class="ui-icon-button ui-icon-button--md ui-button--primary" aria-label="Send" title="Send" data-todo><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M14 2 7.25 8.75M14 2 9.75 14l-2.5-5.25L2 6.25z"/></svg></button></div>
+    <div class="composer__hint"><span>Enter to send · Shift+Enter for a new line</span></div>
+  </div></div><p>A message goes straight to the agent.</p></div>
+      <div class="sheet-cell"><h3>Host / Agent access, while the agent works</h3><div class="sheet-frame"><div class="conv-status" role="status"><span class="st st--running" title="Running"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Running"><title>Running</title><path d="M8 1.75a6.25 6.25 0 1 1-6.25 6.25"/><path d="M8 1.75a6.25 6.25 0 0 0-6.25 6.25" opacity="0.28"/></svg></span><span class="conv-status__text">Claude is working · 48 s</span></div><div class="composer">
+    
+    <div class="composer__box"><textarea class="composer__input" rows="1" aria-label="Message Claude" placeholder="Message Claude"></textarea><button type="button" class="ui-icon-button ui-icon-button--md ui-button--primary" aria-label="Send" title="Send" data-todo><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M14 2 7.25 8.75M14 2 9.75 14l-2.5-5.25L2 6.25z"/></svg></button></div>
+    <div class="composer__hint"><span>Claude reads it at its next step · Enter to send</span></div>
+  </div></div><p>The message is read at the agent's next step. Stop is in the session header; it has no keyboard shortcut on purpose.</p></div>
+      <div class="sheet-cell"><h3>Editor</h3><div class="sheet-frame"><div class="conv-status conv-status--wait" role="status"><span class="st st--question" title="Waiting for an answer"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Waiting for an answer"><title>Waiting for an answer</title><circle cx="8" cy="8" r="6.25"/><path d="M6.25 6.4a1.8 1.8 0 1 1 2.7 1.55c-.6.35-.95.75-.95 1.3M8 11.4v.01"/></svg></span><span class="conv-status__text">Claude is waiting for an answer · 6 min</span></div><div class="composer">
+    
+    <div class="composer__box"><textarea class="composer__input" rows="1" aria-label="Suggest to Claude" placeholder="Suggest to Claude"></textarea><button type="button" class="ui-button ui-button--md ui-button--primary" data-todo><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M5.75 11.25c0-1.2-2-2.4-2-5a4.25 4.25 0 0 1 8.5 0c0 2.6-2 3.8-2 5z"/><path d="M6.25 13.75h3.5"/></svg>Send suggestion</button></div>
+    <div class="composer__hint"><span>Goes to Ian as a suggestion. It reaches the agent only when accepted.</span><span>Editor</span></div>
+  </div></div><p>The same box sends a suggestion, and says where it goes.</p></div>
+      <div class="sheet-cell"><h3>Viewer</h3><div class="sheet-frame"><div class="composer composer--off"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M1.5 8S3.75 3.5 8 3.5 14.5 8 14.5 8 12.25 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="1.9"/></svg><span>As a viewer you can watch this session. You cannot send messages, make suggestions or vote.</span></div></div><p>No box: one line says why.</p></div>
+      <div class="sheet-cell"><h3>The session has ended</h3><div class="sheet-frame"><div class="composer composer--off"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="8" cy="8" r="6.25"/><path d="M8 7.25v4M8 4.75v.01"/></svg><span>This session has ended. It takes no more messages.</span></div></div></div>
+      <div class="sheet-cell"><h3>Waiting for permission</h3><div class="sheet-frame"><div class="conv-status conv-status--wait" role="status"><span class="st st--permission" title="Waiting for permission"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" role="img" aria-label="Waiting for permission"><title>Waiting for permission</title><path d="M8 1.75 13.25 3.5v4c0 3.2-2.2 5.6-5.25 6.75C4.95 13.1 2.75 10.7 2.75 7.5v-4z"/><path d="M8 5.25v3M8 10.5v.01"/></svg></span><span class="conv-status__text">Claude is waiting for permission · 40 s</span></div><div class="composer">
+    
+    <div class="composer__box"><textarea class="composer__input" rows="1" aria-label="Message Claude" placeholder="Message Claude"></textarea><button type="button" class="ui-icon-button ui-icon-button--md ui-button--primary" aria-label="Send" title="Send" data-todo><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M14 2 7.25 8.75M14 2 9.75 14l-2.5-5.25L2 6.25z"/></svg></button></div>
+    <div class="composer__hint"><span>Enter to send · Shift+Enter for a new line</span></div>
+  </div></div></div>
+    </div>
+  </section>
+
+  <section class="sheet-sec"><h2>7. Session header strip</h2>
+    <div class="sheet-grid">
+      <div class="sheet-cell"><h3>Running (a member who may stop it)</h3><div class="sheet-frame"><div class="col-meta"><div class="col-meta__chips"><span class="menu-anchor"><button type="button" class="chip chip--who" title="Responsible: Ken. Change who is responsible" aria-label="Responsible: Ken. Change who is responsible" data-menu aria-haspopup="menu" aria-expanded="false"><span class="ui-avatar ui-avatar--xs" style="background-color:#2e8b3e;color:#fff" role="img" aria-label="Ken" title="Ken">KE</span><span class="chip__text">Responsible: Ken</span></button></span><button type="button" class="chip chip--collapsible" title="Worktree smurg/checkout-redesign/order-history: browse its files in code mode" aria-label="Worktree smurg/checkout-redesign/order-history: browse its files in code mode" data-todo><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5" r="1.5"/><path d="M4.5 5v6M11.5 6.5c0 3-7 2.5-7 4.5"/></svg><span class="chip__text">smurg/checkout-redesign/order-history</span></button><button type="button" class="chip chip--collapsible" title="Permission mode: Asks before commands" aria-label="Permission mode: Asks before commands" data-todo><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 1.75 13.25 3.5v4c0 3.2-2.2 5.6-5.25 6.75C4.95 13.1 2.75 10.7 2.75 7.5v-4z"/></svg><span class="chip__text">Asks before commands</span></button></div><div class="col-meta__actions"><button type="button" class="ui-button ui-button--sm ui-button--secondary" data-todo title="Stop what the agent is doing now. The session stays open."><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.25"/></svg>Stop</button></div></div></div><p>Responsible, worktree, permission mode; Stop. "End session" is in the column's More actions menu.</p></div>
+      <div class="sheet-cell"><h3>The topic's discussion session</h3><div class="sheet-frame"><div class="col-meta"><div class="col-meta__chips"><span class="menu-anchor"><button type="button" class="chip" title="Responsible: nobody. Change who is responsible" aria-label="Responsible: nobody. Change who is responsible" data-menu aria-haspopup="menu" aria-expanded="false"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="6" cy="5.5" r="2.25"/><path d="M1.75 13.5c.5-2.2 2.1-3.4 4.25-3.4s3.75 1.2 4.25 3.4"/><path d="M10.5 3.5a2.25 2.25 0 0 1 0 4.25M11.5 10.2c1.4.4 2.4 1.5 2.75 3.3"/></svg><span class="chip__text">Responsible: nobody</span></button></span><span class="chip chip--static chip--collapsible" title="Works in the shared main workspace" aria-label="Works in the shared main workspace" ><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M1.75 4.25a1 1 0 0 1 1-1h3.4l1.5 1.5h5.6a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H2.75a1 1 0 0 1-1-1z"/></svg><span class="chip__text">Main workspace</span></span><span class="chip chip--static chip--collapsible" title="Permission mode: Reads code, writes the spec and the plan" aria-label="Permission mode: Reads code, writes the spec and the plan" ><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.25"/><path d="M5.25 7V5a2.75 2.75 0 0 1 5.5 0v2"/></svg><span class="chip__text">Reads code, writes the spec and the plan</span></span></div><div class="col-meta__actions"></div></div></div><p>Nobody is assigned; the permission mode is fixed.</p></div>
+      <div class="sheet-cell"><h3>Editor or Viewer</h3><div class="sheet-frame"><div class="col-meta"><div class="col-meta__chips"><span class="menu-anchor"><span class="chip chip--static chip--who" title="Responsible: Ian" aria-label="Responsible: Ian" ><span class="ui-avatar ui-avatar--xs" style="background-color:#4363d8;color:#fff" role="img" aria-label="Ian" title="Ian">IA</span><span class="chip__text">Responsible: Ian</span></span></span><button type="button" class="chip chip--collapsible" title="Worktree smurg/checkout-redesign/cart-api: browse its files in code mode" aria-label="Worktree smurg/checkout-redesign/cart-api: browse its files in code mode" data-todo><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5" r="1.5"/><path d="M4.5 5v6M11.5 6.5c0 3-7 2.5-7 4.5"/></svg><span class="chip__text">smurg/checkout-redesign/cart-api</span></button><span class="chip chip--static chip--collapsible" title="Permission mode: Asks before commands" aria-label="Permission mode: Asks before commands" ><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M8 1.75 13.25 3.5v4c0 3.2-2.2 5.6-5.25 6.75C4.95 13.1 2.75 10.7 2.75 7.5v-4z"/></svg><span class="chip__text">Asks before commands</span></span></div><div class="col-meta__actions"></div></div></div><p>The same facts, nothing to press.</p></div>
+    </div>
+  </section>
+</div>
+</div>
+
+<script src="mock.js"></script>
+</body>
+</html>

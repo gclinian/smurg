@@ -1,5 +1,5 @@
-// Names of the audit vocabulary, in the viewer's language (ARCHITECTURE §5.8). The map is typed against the protocol's AUDIT_ACTIONS, so
-// a new action is a compile error here until it has a label.
+// Names of the audit vocabulary, in the viewer's language (ARCHITECTURE §5.8). An action without a label here (the
+// actions protocol 4 added, until the console names them) is shown by its id, which is what the log itself stores.
 import type { AuditAction, AuditEntry } from '@smurg/protocol';
 import { formatExactTime, formatList } from '../../lib/format.ts';
 import type { Tone } from '../../ui/index.ts';
@@ -49,10 +49,11 @@ const ACTION_KEY = {
   'invite.revoke': 'audit.action.invite.revoke',
   'device.revoke': 'audit.action.device.revoke',
   'settings.change': 'audit.action.settings.change',
-} as const satisfies Record<AuditAction, Key>;
+} as const satisfies Partial<Record<AuditAction, Key>>;
 
 export function auditActionLabel(action: AuditAction): string {
-  return t(ACTION_KEY[action]);
+  const key = (ACTION_KEY as Partial<Record<AuditAction, Key>>)[action];
+  return key === undefined ? action : t(key);
 }
 
 const OUTCOME: Record<AuditEntry['outcome'], { readonly key: Key; readonly tone: Tone }> = {

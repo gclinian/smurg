@@ -48,7 +48,8 @@ export function filesInstanceOf(ctx: DaemonContext): FilesInstance | null {
 }
 
 function agentActor(ctx: DaemonContext, sessionId: string, ownerUserId: string): Actor | null {
-  return ctx.members.agentPrincipal(sessionId, ownerUserId)?.actor ?? null;
+  // Only the actor (who to attribute a change to) is read here; no right is taken from this principal.
+  return ctx.members.agentPrincipal(sessionId, ownerUserId, { pathRights: 'member' })?.actor ?? null;
 }
 
 export function createFilesModule(options: FilesModuleOptions = {}): FeatureModule {

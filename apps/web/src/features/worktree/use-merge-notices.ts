@@ -20,7 +20,7 @@ export function useMergeResultNotices(userId: string | null): void {
       for (const request of stores.worktrees.getState().mergeRequests.values()) {
         const previous = lastSeen.get(request.id);
         lastSeen.set(request.id, request.status);
-        if (!announce || previous !== 'pending' || request.requestedBy.userId !== userId || request.status === 'pending') continue;
+        if (!announce || previous !== 'pending' || request.requestedBy?.userId !== userId || request.status === 'pending') continue;
         switch (request.status) {
           case 'merged':
             toast.show({ tone: 'success', title: t('notice.merged'), ...(request.message ? { description: request.message } : {}) });

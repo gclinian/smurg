@@ -3,7 +3,7 @@
 // suggest feature puts them in front of it: the agent only sees text), and the code is cleaned for the terminal: it
 // ends up in a PTY as a bracketed paste, where ESC or a C1 control could end the paste early and turn the rest into
 // keystrokes (the protocol refuses them anyway), and bidi overrides could make it read differently than it runs.
-import { SUGGESTION_TEXT_MAX_CHARS, type FileRef, type SessionInfo } from '@smurg/protocol';
+import { SUGGESTION_TEXT_MAX_CHARS, isSessionOver, type FileRef, type SessionInfo } from '@smurg/protocol';
 import type { Capabilities } from '../../lib/capabilities.ts';
 import type { CommandMap } from '../../lib/commands.ts';
 
@@ -97,10 +97,10 @@ export interface SessionTargets {
  * `session.drive`; suggestions need `suggest.create` and never target one's own session (the daemon's rule).
  */
 export function sessionTargets(sessions: readonly SessionInfo[], userId: string | null, caps: Pick<Capabilities, 'can' | 'canDrive'>): SessionTargets {
-  const running = sessions.filter((session) => session.kind === 'agent' && session.status !== 'exited');
+  const running = sessions.filter((session) => session.kind === 'agent' && !isSessionOver(session));
   if (userId === null) return { own: [], others: [] };
   if (caps.canDrive) return { own: running, others: [] };
-  return { own: [], others: caps.can('suggest.create') ? running.filter((session) => session.ownerUserId !== userId) : [] };
+  return { own: [], others: caps.can('suggest.create') ? running.filter((session) => session.openedBy.userId !== userId) : [] };
 }
 
 /** Whether the "Send to agent" action is offered at all for this role. */

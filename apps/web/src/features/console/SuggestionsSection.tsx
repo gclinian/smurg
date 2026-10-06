@@ -37,7 +37,7 @@ export function SuggestionsSection({ now }: { now: number }) {
               <li key={suggestion.id} className="console-suggestion">
                 <p className="console-suggestion__target">
                   {session
-                    ? t('suggestions.target', { author: suggestion.author.displayName, owner: session.ownerName, title: sessionTitle(session) })
+                    ? t('suggestions.target', { author: suggestion.author.displayName, owner: session.openedBy.displayName, title: sessionTitle(session) })
                     : t('suggestions.unknownSession', { author: suggestion.author.displayName })}
                   <span className="console-muted">{formatRelativeTime(suggestion.createdAt, now)}</span>
                 </p>

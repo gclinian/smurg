@@ -4,6 +4,7 @@
 //   settings.
 // The shell renders this for the host only; the page checks again and explains itself to anyone else (hiding is
 // cosmetic: the daemon refuses admin.* from every other role).
+import { isSessionOver } from '@smurg/protocol';
 import type { ReactNode } from 'react';
 import { formatRole } from '../../lib/format.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
@@ -60,7 +61,7 @@ function ConsoleBody() {
   const now = useNow();
   const admin = useStore(stores.admin, (state) => ({ status: state.status, error: state.error, loaded: state.settings !== null }), shallowEqual);
   const memberCount = useStore(stores.admin, (state) => state.members.length);
-  const sessionCount = useStore(stores.sessions, (state) => selectSessionList(state).filter((session) => session.status !== 'exited').length);
+  const sessionCount = useStore(stores.sessions, (state) => selectSessionList(state).filter((session) => !isSessionOver(session)).length);
   const pendingSuggestions = useStore(stores.suggestions, (state) => [...state.suggestions.values()].filter((s) => s.status === 'pending').length);
 
   const nav: { id: SectionId; label: string }[] = [

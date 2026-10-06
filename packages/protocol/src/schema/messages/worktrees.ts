@@ -44,10 +44,15 @@ export const mergeDiffFileSchema = z.strictObject({
   deletions: indexSchema,
   oldPath: resultPathSchema.optional(),
   binary: z.boolean().optional(),
+  /** A file on a host-private path: listed, its diff withheld from everyone but the host. */
+  hidden: z.literal(true).optional(),
 });
 
 export const worktreeMergeDiffPayloadSchema = z.strictObject({ requestId: opaqueIdSchema });
 /**
+ * `file.read`: every member reads a request's changes (a result report shows them). The diff is made from git objects,
+ * past PathGuard, so for anyone but the host a file on a host-private path is listed `hidden` and its diff is
+ * withheld, in the whole-diff text as well; the text passes `mask()`.
  * The complete diff the host reviews (R9). `truncated` (addition): the unified diff was cut at MERGE_DIFF_MAX_BYTES
  * (msgpack's string limit); `files` is still complete up to MERGE_FILES_MAX.
  */
@@ -69,6 +74,8 @@ export const worktreeMergeFileDiffResultSchema = z.strictObject({
   diff: largeTextSchema(MERGE_DIFF_MAX_BYTES),
   truncated: z.boolean(),
   binary: z.boolean(),
+  /** A host-private path and the caller is not the host: `diff` is empty. */
+  hidden: z.literal(true).optional(),
 });
 
 export const worktreeMergeApprovePayloadSchema = z.strictObject({ requestId: opaqueIdSchema });

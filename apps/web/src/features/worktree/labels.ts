@@ -6,7 +6,9 @@ import { t } from './strings.ts';
 
 export type MergeRequestStatus = MergeRequest['status'];
 
+// A `draft` (protocol 4: the snapshot of a work item, not yet asked to merge) reads as waiting, like `pending`.
 const STATUS_LABEL: Record<MergeRequestStatus, () => string> = {
+  draft: () => t('status.pending'),
   pending: () => t('status.pending'),
   merged: () => t('status.merged'),
   rejected: () => t('status.rejected'),
@@ -14,6 +16,7 @@ const STATUS_LABEL: Record<MergeRequestStatus, () => string> = {
 };
 
 const STATUS_TONE: Record<MergeRequestStatus, Tone> = {
+  draft: 'info',
   pending: 'info',
   merged: 'success',
   rejected: 'neutral',
