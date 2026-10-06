@@ -1,15 +1,14 @@
 // TEST ONLY. In-memory fakes of the services protocol 4 added or changed (ARCHITECTURE §7.2), so every daemon package
 // builds and tests against the contracts of core/interfaces.ts without the other packages:
 //
-//   // a unit test without a daemon
-//   const env = createFakeEnv();
-//   const fakes = createFakes(env);
+//   // THE way to build and test a module: a real test daemon with YOUR module and fakes for everything else
+//   const t = await createTestDaemon({ modules: [locksModule, fakesModule({ except: ['conversation'], handlers: true }), conversationModule] });
+//   const fakes = fakesOf(t.ctx);
 //   fakes.agents.raise(session.id, request);            // drive what Claude Code would do
 //   expect(fakes.inbox.mentions).toHaveLength(1);       // read what your module asked of the others
 //
-//   // a real test daemon with YOUR module and fakes for everything else (THE way to build and test a module)
-//   const t = await createTestDaemon({ modules: [locksModule, fakesModule({ except: ['conversation'], handlers: true }), conversationModule] });
-//   const fakes = fakesOf(t.ctx);
+//   // the fakes ALONE, without a daemon (their own contract test, pure logic over them); never a module's context
+//   const fakes = createFakes(createFakeEnv());
 //
 // A fake holds the state the real service holds, emits the same bus events and appends the same system lines; it does
 // not apply the rules of another package (who may submit, how a plan parses). Never import this from production code.

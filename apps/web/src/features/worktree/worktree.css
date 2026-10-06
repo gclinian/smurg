@@ -382,3 +382,81 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* The changed files of a result report (ChangedFiles.tsx): one row per file, its diff unfolds under it. */
+.worktree-files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.worktree-files__item {
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-1);
+  min-width: 0;
+}
+.worktree-files__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-1);
+}
+.worktree-files__toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.worktree-files__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.worktree-files__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.worktree-files__byhand {
+  flex: none;
+  color: var(--color-warning-text, var(--color-warning));
+  font-size: var(--text-xs);
+}
+.worktree-files__counts {
+  flex: none;
+  display: inline-flex;
+  gap: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.worktree-files__panel {
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: var(--border-width) solid var(--color-border);
+}
+.worktree-files__panel[hidden] {
+  display: none;
+}
+.worktree-files__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-3);
+}
+.worktree-files__note {
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}

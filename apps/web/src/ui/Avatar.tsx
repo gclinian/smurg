@@ -9,7 +9,8 @@ export interface AvatarProps {
   name: string;
   /** The member's colour from the daemon (#RRGGBB); anything else falls back to a neutral grey. */
   color?: string;
-  size?: 'sm' | 'md' | 'lg';
+  /** `xs` (16 px): inside a row or a stack. */
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   status?: AvatarStatus;
   className?: string;
   /** Default: an image with the name (and status) as its accessible name. `decorative` hides it (a name is next to it). */
@@ -47,7 +48,7 @@ export function Avatar({ name, color, size = 'md', status, className, decorative
       {...(decorative ? { 'aria-hidden': true } : { role: 'img', 'aria-label': label })}
       data-status={status}
     >
-      {status === 'agent' ? <IconAgent size={size === 'sm' ? 12 : 14} /> : <span className="ui-avatar__initials">{initialsOf(name)}</span>}
+      {status === 'agent' ? <IconAgent size={size === 'xs' ? 10 : size === 'sm' ? 12 : 14} /> : <span className="ui-avatar__initials">{initialsOf(name)}</span>}
       {status === 'online' ? <span className="ui-avatar__dot" /> : null}
     </span>
   );

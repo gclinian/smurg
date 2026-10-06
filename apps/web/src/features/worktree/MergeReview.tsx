@@ -3,8 +3,11 @@
 // The host sees the COMPLETE change list with additions / deletions and each file's diff. When worktree.merge.diff was
 // cut (1 MiB) the files it could not show completely are marked "Open separately" and fetched one by one with
 // worktree.merge.fileDiff; "Merge into the main workspace" stays disabled until every one of them was opened (diff-model.ts decides
-// which, failing closed). The worktree owner may open the same view read-only (the daemon allows owner or host).
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+// which, failing closed). Every member may open the same view read-only (the daemon withholds host-private files).
+//
+// Two frames around the same review: a dialog (the host console's list, "Merge…" on a result report) and the body of
+// a "Changes" column of the sessions view (a merge request without a report: DESIGN §5.4).
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { MergeRequest } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
 import { formatRelativeTime } from '../../lib/format.ts';
@@ -12,16 +15,15 @@ import { useStore } from '../../lib/store.ts';
 import { useCan, useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
 import { Badge, Banner, Button, Dialog, Input, Spinner, useToast } from '../../ui/index.ts';
-import { buildReviewModel, hasInvisible, parseDiffLines, revealInvisible, shortCommit, unopenedPaths, type MergeDiff, type MergeFileDiff, type ReviewFile } from './diff-model.ts';
+import { shortCommit, type ReviewFile } from './diff-model.ts';
+import { FileDiffView } from './FileDiff.tsx';
 import { fileStatusLabel, isDecidable, requestStatusLabel } from './labels.ts';
 import { ConflictDetails } from './MergeRequestItem.tsx';
 import { t } from './strings.ts';
 import { reasonProblem } from './text-check.ts';
+import { useRequestDiff } from './use-request-diff.ts';
 
-type Load<T> = { readonly status: 'loading' } | { readonly status: 'ready'; readonly value: T } | { readonly status: 'error'; readonly message: string };
-
-/** Lines of one file's diff rendered at first; "Show more" adds this many again (a 1 MiB diff is ~30,000 lines). */
-export const DIFF_LINES_STEP = 2_000;
+export { DIFF_LINES_STEP } from './FileDiff.tsx';
 
 export interface MergeReviewDialogProps {
   /** The request to review; null renders nothing. */
@@ -35,25 +37,34 @@ export function MergeReviewDialog({ requestId, onClose }: MergeReviewDialogProps
   return <MergeReview key={requestId} requestId={requestId} onClose={onClose} />;
 }
 
+export interface MergeReviewPanelProps {
+  readonly requestId: string;
+  /** Wraps the scrolling part and the decision bar (a column gives its own layout classes). */
+  readonly frame: (parts: { readonly body: ReactNode; readonly footer: ReactNode | null }) => ReactNode;
+}
+
+/** The same review without a dialog around it: the body of a "Changes" column. */
+export function MergeReviewPanel({ requestId, frame }: MergeReviewPanelProps) {
+  return <MergeReview key={requestId} requestId={requestId} frame={frame} />;
+}
+
 type Mode = 'idle' | 'confirm-approve' | 'reject';
 
-function MergeReview({ requestId, onClose }: { requestId: string; onClose(): void }) {
+function MergeReview({ requestId, onClose, frame }: { requestId: string; onClose?: () => void; frame?: MergeReviewPanelProps['frame'] }) {
   const stores = useStores();
   const toast = useToast();
   const hintId = useId();
   const canDecide = useCan('worktree.merge.decide');
   const request = useStore(stores.worktrees, (state) => state.mergeRequests.get(requestId) ?? null);
   const worktree = useStore(stores.worktrees, (state) => (request ? (state.worktrees.get(request.worktreeId) ?? null) : null));
-  const [attempt, setAttempt] = useState(0);
-  const [load, setLoad] = useState<Load<MergeDiff>>({ status: 'loading' });
-  const [fileDiffs, setFileDiffs] = useState<ReadonlyMap<string, Load<MergeFileDiff>>>(new Map());
+  const { load, model, fileDiffs, opened, remaining, open, fetchFile, reload } = useRequestDiff(requestId);
   const [selected, setSelected] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>('idle');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
-  const requested = useRef(new Set<string>());
+  const close = onClose ?? (() => {});
 
   useEffect(() => {
     alive.current = true;
@@ -62,51 +73,9 @@ function MergeReview({ requestId, onClose }: { requestId: string; onClose(): voi
     };
   }, []);
 
-  useEffect(() => {
-    let current = true;
-    setLoad({ status: 'loading' });
-    stores.worktrees.diff(requestId).then(
-      (value) => {
-        if (current) setLoad({ status: 'ready', value });
-      },
-      (failure: unknown) => {
-        if (current) setLoad({ status: 'error', message: describeError(failure) });
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, [stores.worktrees, requestId, attempt]);
-
-  const model = useMemo(() => (load.status === 'ready' ? buildReviewModel(load.value) : null), [load]);
-
-  const fetchFile = (path: string): void => {
-    requested.current.add(path);
-    setFileDiffs((previous) => new Map(previous).set(path, { status: 'loading' }));
-    const settle = (next: Load<MergeFileDiff>): void => {
-      if (alive.current) setFileDiffs((previous) => new Map(previous).set(path, next));
-    };
-    stores.worktrees.fileDiff(requestId, path).then(
-      (value) => {
-        // Only the file that was asked for counts as opened (fail closed on a mismatched answer).
-        if (value.path === path) {
-          settle({ status: 'ready', value });
-          return;
-        }
-        requested.current.delete(path);
-        settle({ status: 'error', message: tApp('error.generic') });
-      },
-      (failure: unknown) => {
-        requested.current.delete(path);
-        settle({ status: 'error', message: describeError(failure) });
-      },
-    );
-  };
-
   const select = (entry: ReviewFile): void => {
-    const path = entry.file.path;
-    setSelected(path);
-    if (entry.section === null && !requested.current.has(path)) fetchFile(path);
+    setSelected(entry.file.path);
+    open(entry);
   };
 
   // Show the first file as soon as the list is there.
@@ -116,12 +85,6 @@ function MergeReview({ requestId, onClose }: { requestId: string; onClose(): voi
     // `select` is stable enough: it only reads refs and setters.
   }, [model]);
 
-  const opened = useMemo(() => {
-    const set = new Set<string>();
-    for (const [path, state] of fileDiffs) if (state.status === 'ready') set.add(path);
-    return set;
-  }, [fileDiffs]);
-  const remaining = model ? unopenedPaths(model, opened) : [];
   const decidable = canDecide && request !== null && isDecidable(request.status);
   const blocked = model === null || remaining.length > 0;
 
@@ -134,8 +97,8 @@ function MergeReview({ requestId, onClose }: { requestId: string; onClose(): voi
       const result = await stores.worktrees.approve(request.id);
       if (!alive.current) return;
       if (result.status === 'merged') {
-        toast.show({ tone: 'success', title: t('review.merged', { name }) });
-        onClose();
+        toast.show({ tone: 'success', title: name === '' ? t('review.mergedDraft') : t('review.merged', { name }) });
+        close();
         return;
       }
       if (result.status === 'conflict') toast.show({ tone: 'warning', title: t('review.conflict') });
@@ -156,8 +119,9 @@ function MergeReview({ requestId, onClose }: { requestId: string; onClose(): voi
       const trimmed = reason.trim();
       await stores.worktrees.reject(request.id, trimmed === '' ? undefined : trimmed);
       if (!alive.current) return;
-      toast.show({ tone: 'success', title: t('review.rejected', { name }) });
-      onClose();
+      toast.show({ tone: 'success', title: name === '' ? t('review.rejectedDraft') : t('review.rejected', { name }) });
+      setMode('idle');
+      close();
     } catch (failure) {
       if (alive.current) setError(t('review.failed', { message: describeError(failure) }));
     } finally {
@@ -170,10 +134,13 @@ function MergeReview({ requestId, onClose }: { requestId: string; onClose(): voi
   const selectedEntry = model?.files.find((entry) => entry.file.path === selected) ?? null;
   const nextUnopened = remaining.find((path) => fileDiffs.get(path)?.status !== 'loading');
 
-  const footer = !decidable ? (
+  const closeButton = onClose ? (
     <Button variant="ghost" onClick={onClose}>
       {tApp('common.close')}
     </Button>
+  ) : null;
+  const footer = !decidable ? (
+    closeButton
   ) : mode === 'confirm-approve' && request ? (
     <div className="worktree-review__decision">
       <p className="worktree-review__decision-text">{t('review.confirmApprove', { commit: shortCommit(request.commit), count: model?.files.length ?? 0 })}</p>
@@ -189,7 +156,7 @@ function MergeReview({ requestId, onClose }: { requestId: string; onClose(): voi
   ) : mode === 'reject' ? (
     <div className="worktree-review__decision">
       <Input
-        label={t('review.rejectReason', { name })}
+        label={name === '' ? t('review.rejectReasonDraft') : t('review.rejectReason', { name })}
         value={reason}
         onChange={(event) => setReason(event.currentTarget.value)}
         error={reasonError ?? undefined}
@@ -206,9 +173,7 @@ function MergeReview({ requestId, onClose }: { requestId: string; onClose(): voi
     </div>
   ) : (
     <div className="worktree-review__decision-actions">
-      <Button variant="ghost" onClick={onClose}>
-        {tApp('common.close')}
-      </Button>
+      {closeButton}
       <Button variant="danger" onClick={() => setMode('reject')}>
         {t('review.reject')}
       </Button>
@@ -218,92 +183,91 @@ function MergeReview({ requestId, onClose }: { requestId: string; onClose(): voi
     </div>
   );
 
+  const title = name !== '' ? (canDecide ? t('review.title', { name }) : t('review.titleReadOnly', { name })) : t('review.titleDraft', { branch: worktree?.branch ?? t('item.worktreeGone') });
+  const body = (
+    <div className="worktree-review">
+      {request ? <ReviewHeader request={request} branch={worktree?.branch ?? null} files={model?.files.length ?? null} additions={model?.totalAdditions ?? 0} deletions={model?.totalDeletions ?? 0} /> : null}
+      {request && !isDecidable(request.status) ? (
+        <Banner tone="info" live="none">
+          {t('review.decided', { status: requestStatusLabel(request.status) })}
+        </Banner>
+      ) : null}
+      {request?.status === 'conflict' ? <ConflictDetails request={request} viewerIsHost={canDecide} /> : null}
+      {load.status === 'loading' ? (
+        <p className="worktree-review__loading">
+          <Spinner size={14} decorative /> {t('review.loading')}
+        </p>
+      ) : null}
+      {load.status === 'error' ? (
+        <Banner tone="danger" live="alert" actions={<Button size="sm" onClick={reload}>{t('review.reload')}</Button>}>
+          {t('review.loadFailed', { message: load.message })}
+        </Banner>
+      ) : null}
+      {model && load.status === 'ready' ? (
+        <>
+          {load.value.truncated ? (
+            <Banner tone="warning" live="none">
+              {t('review.truncated')}
+            </Banner>
+          ) : null}
+          {model.mustOpen.length > 0 ? (
+            <div className="worktree-review__progress" id={hintId}>
+              <span>{remaining.length > 0 ? t('review.remaining', { count: remaining.length }) : t('review.allOpened')}</span>
+              {remaining.length > 0 && nextUnopened !== undefined ? (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    const entry = model.files.find((candidate) => candidate.file.path === nextUnopened);
+                    if (entry) select(entry);
+                  }}
+                >
+                  {t('review.openNext')}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {model.files.length === 0 ? (
+            <p className="worktree-review__empty">{t('review.noFiles')}</p>
+          ) : (
+            <div className="worktree-review__split">
+              <nav className="worktree-review__files" aria-label={t('review.files')}>
+                <ul>
+                  {model.files.map((entry) => (
+                    <li key={entry.file.path}>
+                      <FileButton
+                        entry={entry}
+                        selected={entry.file.path === selected}
+                        mustOpen={entry.section === null}
+                        opened={opened.has(entry.file.path)}
+                        onSelect={() => select(entry)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+              <div className="worktree-review__diff">
+                {selectedEntry ? (
+                  <FileDiffView key={selectedEntry.file.path} entry={selectedEntry} fetched={fileDiffs.get(selectedEntry.file.path)} onRetry={() => fetchFile(selectedEntry.file.path)} />
+                ) : (
+                  <p className="worktree-review__empty">{t('review.selectFile')}</p>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      ) : null}
+      {error ? (
+        <Banner tone="danger" live="alert">
+          {error}
+        </Banner>
+      ) : null}
+    </div>
+  );
+
+  if (frame) return <>{frame({ body, footer })}</>;
   return (
-    <Dialog
-      open
-      onClose={onClose}
-      size="lg"
-      className="worktree-review-dialog"
-      title={canDecide ? t('review.title', { name }) : t('review.titleReadOnly', { name })}
-      footer={footer}
-    >
-      <div className="worktree-review">
-        {request ? <ReviewHeader request={request} branch={worktree?.branch ?? null} files={model?.files.length ?? null} additions={model?.totalAdditions ?? 0} deletions={model?.totalDeletions ?? 0} /> : null}
-        {request && !isDecidable(request.status) ? (
-          <Banner tone="info" live="none">
-            {t('review.decided', { status: requestStatusLabel(request.status) })}
-          </Banner>
-        ) : null}
-        {request?.status === 'conflict' ? <ConflictDetails request={request} viewerIsHost={canDecide} /> : null}
-        {load.status === 'loading' ? (
-          <p className="worktree-review__loading">
-            <Spinner size={14} decorative /> {t('review.loading')}
-          </p>
-        ) : null}
-        {load.status === 'error' ? (
-          <Banner tone="danger" live="alert" actions={<Button size="sm" onClick={() => setAttempt((n) => n + 1)}>{t('review.reload')}</Button>}>
-            {t('review.loadFailed', { message: load.message })}
-          </Banner>
-        ) : null}
-        {model && load.status === 'ready' ? (
-          <>
-            {load.value.truncated ? (
-              <Banner tone="warning" live="none">
-                {t('review.truncated')}
-              </Banner>
-            ) : null}
-            {model.mustOpen.length > 0 ? (
-              <div className="worktree-review__progress" id={hintId}>
-                <span>{remaining.length > 0 ? t('review.remaining', { count: remaining.length }) : t('review.allOpened')}</span>
-                {remaining.length > 0 && nextUnopened !== undefined ? (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      const entry = model.files.find((candidate) => candidate.file.path === nextUnopened);
-                      if (entry) select(entry);
-                    }}
-                  >
-                    {t('review.openNext')}
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
-            {model.files.length === 0 ? (
-              <p className="worktree-review__empty">{t('review.noFiles')}</p>
-            ) : (
-              <div className="worktree-review__split">
-                <nav className="worktree-review__files" aria-label={t('review.files')}>
-                  <ul>
-                    {model.files.map((entry) => (
-                      <li key={entry.file.path}>
-                        <FileButton
-                          entry={entry}
-                          selected={entry.file.path === selected}
-                          mustOpen={entry.section === null}
-                          opened={opened.has(entry.file.path)}
-                          onSelect={() => select(entry)}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                </nav>
-                <div className="worktree-review__diff">
-                  {selectedEntry ? (
-                    <FileDiffView key={selectedEntry.file.path} entry={selectedEntry} fetched={fileDiffs.get(selectedEntry.file.path)} onRetry={() => fetchFile(selectedEntry.file.path)} />
-                  ) : (
-                    <p className="worktree-review__empty">{t('review.selectFile')}</p>
-                  )}
-                </div>
-              </div>
-            )}
-          </>
-        ) : null}
-        {error ? (
-          <Banner tone="danger" live="alert">
-            {error}
-          </Banner>
-        ) : null}
-      </div>
+    <Dialog open onClose={close} size="lg" className="worktree-review-dialog" title={title} footer={footer}>
+      {body}
     </Dialog>
   );
 }
@@ -320,7 +284,7 @@ function ReviewHeader({ request, branch, files, additions, deletions }: { reques
       </p>
       {request.message ? (
         <div className="worktree-review__message">
-          <span className="worktree-review__message-label">{t('review.message', { name: request.requestedBy?.displayName ?? '' })}</span>
+          <span className="worktree-review__message-label">{request.requestedBy ? t('review.message', { name: request.requestedBy.displayName }) : t('review.messageDraft')}</span>
           <p>{request.message}</p>
         </div>
       ) : null}
@@ -350,79 +314,5 @@ function FileButton({ entry, selected, mustOpen, opened, onSelect }: { entry: Re
         {mustOpen ? <Badge tone={opened ? 'success' : 'warning'}>{opened ? t('review.opened') : t('review.mustOpen')}</Badge> : null}
       </span>
     </button>
-  );
-}
-
-function FileDiffView({ entry, fetched, onRetry }: { entry: ReviewFile; fetched: Load<MergeFileDiff> | undefined; onRetry(): void }) {
-  const path = entry.file.path;
-  const [limit, setLimit] = useState(DIFF_LINES_STEP);
-  const source: { text: string; truncated: boolean; binary: boolean } | null =
-    entry.section !== null
-      ? { text: entry.section, truncated: false, binary: entry.file.binary === true }
-      : fetched?.status === 'ready'
-        ? { text: fetched.value.diff, truncated: fetched.value.truncated, binary: fetched.value.binary || entry.file.binary === true }
-        : null;
-  const lines = useMemo(() => (source ? parseDiffLines(source.text) : []), [source?.text]);
-  const hidden = useMemo(() => lines.some((line) => hasInvisible(line.text)), [lines]);
-
-  if (!source) {
-    if (fetched?.status === 'error') {
-      return (
-        <Banner tone="danger" live="alert" actions={<Button size="sm" onClick={onRetry}>{tApp('common.retry')}</Button>}>
-          {t('review.fileFailed', { path, message: fetched.message })}
-        </Banner>
-      );
-    }
-    return (
-      <p className="worktree-review__loading">
-        <Spinner size={14} decorative /> {t('review.fileLoading', { path })}
-      </p>
-    );
-  }
-  const hasHunks = lines.some((line) => line.kind === 'hunk');
-  const shown = lines.slice(0, limit);
-  return (
-    <section className="worktree-diff" aria-label={t('review.diffLabel', { path })}>
-      {source.truncated ? (
-        <Banner tone="warning" live="none">
-          {t('review.fileTruncated')}
-        </Banner>
-      ) : null}
-      {hidden ? (
-        <Banner tone="warning" live="none">
-          {t('review.hiddenChars')}
-        </Banner>
-      ) : null}
-      {source.binary ? <p className="worktree-diff__note">{t('review.binary')}</p> : !hasHunks ? <p className="worktree-diff__note">{t('review.noTextChange')}</p> : null}
-      <pre className="worktree-diff__code">
-        {shown.map((line, index) => (
-          <span key={index} className={`worktree-diff__line worktree-diff__line--${line.kind}`}>
-            <span className="worktree-diff__num" aria-hidden="true">
-              {line.oldLine ?? ''}
-            </span>
-            <span className="worktree-diff__num" aria-hidden="true">
-              {line.newLine ?? ''}
-            </span>
-            <span className="worktree-diff__text">
-              {revealInvisible(line.text).map((piece, at) =>
-                piece.codePoint !== undefined ? (
-                  <span key={at} className="worktree-diff__hidden" title={t('review.hiddenChar', { code: piece.codePoint })}>
-                    {`⟨${piece.codePoint}⟩`}
-                  </span>
-                ) : (
-                  piece.text
-                ),
-              )}
-            </span>
-            {'\n'}
-          </span>
-        ))}
-      </pre>
-      {lines.length > limit ? (
-        <Button size="sm" onClick={() => setLimit((n) => n + DIFF_LINES_STEP)}>
-          {t('review.showMore', { count: lines.length - limit })}
-        </Button>
-      ) : null}
-    </section>
   );
 }

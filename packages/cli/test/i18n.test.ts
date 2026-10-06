@@ -18,7 +18,30 @@ const IDS = Object.keys(en) as MessageId[];
 const CJK = /[　-〿㐀-鿿＀-￯]/;
 
 /** Parameters by name: what kind of value each one is (everything else is a string). */
-const NUMBERS = new Set(['count', 'minutes', 'exitCode', 'status', 'amount', 'maxUses', 'seconds', 'cols', 'rows', 'bytes', 'kb', 'percent', 'connections', 'onlineMembers', 'min', 'max', 'total']);
+const NUMBERS = new Set([
+  'count',
+  'minutes',
+  'exitCode',
+  'status',
+  'amount',
+  'maxUses',
+  'seconds',
+  'cols',
+  'rows',
+  'bytes',
+  'kb',
+  'percent',
+  'connections',
+  'onlineMembers',
+  'min',
+  'max',
+  'total',
+  'paused',
+  'running',
+  'waiting',
+  'stalled',
+  'idle',
+]);
 const LISTS = new Set(['ids', 'others', 'markers', 'names', 'cacheRoots', 'removed', 'rest', 'left']);
 const BOOLEANS = new Set(['stopping', 'builtIn', 'several', 'bashAttribution']);
 /** Parameters a message may be rendered without. */
@@ -27,12 +50,17 @@ const OPTIONAL: Readonly<Record<string, readonly string[]>> = {
   'host.folder.containsHome.hint': ['example'],
   'host.invite.heading': ['maxUses', 'role'],
   'host.summary': ['hostUrl'],
-  'status.workspace': ['folder', 'relay', 'fingerprint', 'bashAttribution', 'pid'],
+  'status.workspace': ['folder', 'relay', 'fingerprint', 'bashAttribution', 'agents', 'topics', 'projectSettings', 'hostRules', 'pid'],
+  'status.claude': ['version'],
+  'attach.agents.browser': ['url'],
   'uninstall.stopFailed': ['reason'],
 };
 const UNIONS: Readonly<Record<string, readonly string[]>> = {
   action: ['claim', 'login', 'dev-login', 'verify'],
   unit: ['day', 'hour', 'minute', 'second'],
+  verdict: ['verified', 'unverified', 'too-old', 'unknown'],
+  login: ['logged-in', 'logged-out', 'unknown'],
+  trust: ['used', 'ignored', 'none'],
 };
 const SUBJECTS: Readonly<Record<string, readonly string[]>> = {
   'relay.badUrl': ['flag', 'web-origin', 'env', 'credentials', 'built-in', 'invite'],
@@ -134,6 +162,13 @@ describe('the CLI catalog (src/i18n)', () => {
     expect(renderText('en', m('stop.timeout', { seconds: 1 }))).toBe('smurg host did not stop within 1 second');
     expect(renderText('en', m('stop.timeout', { seconds: 30 }))).toBe('smurg host did not stop within 30 seconds');
     expect(renderText('en', m('login.open', { page: 'P', code: 'ABCD-EFGH', minutes: 1 }))).toContain('(valid for 1 minute)');
+    // The line at a stop (DESIGN v0.5.0 §6) and the host's own rules in `smurg status`.
+    expect(renderText('en', m('host.agentsPaused', { count: 3 }))).toBe('3 agent sessions are paused. They continue when you share this folder again.');
+    expect(renderText('en', m('host.agentsPaused', { count: 1 }))).toBe('1 agent session is paused. It continues when you share this folder again.');
+    expect(renderText('zh-TW', m('host.agentsPaused', { count: 3 }))).toBe('3 個 agent session 已暫停，下次分享這個資料夾時會繼續。');
+    expect(renderText('en', m('status.hostRules', { count: 1 }))).toBe('1 applies to agent sessions (agents run what it allows without asking)');
+    expect(renderText('en', m('status.hostRules', { count: 12 }))).toBe('12 apply to agent sessions (agents run what they allow without asking)');
+    expect(renderText('en', m('status.hostRules', { count: 0 }))).toBe('none apply to agent sessions');
   });
 
   it('every id is used somewhere in src (no dead messages), and src has no text outside the catalog', async () => {

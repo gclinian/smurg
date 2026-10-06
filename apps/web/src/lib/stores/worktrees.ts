@@ -1,6 +1,11 @@
 // Worktrees and merge requests (SPEC R9, ARCHITECTURE §5.7). A "worktree" is a shared clone at
 // .smurg/worktrees/<id> (§11 D-2); its files are a root of their own (RootRef kind 'worktree'). Live through
 // worktree.updated, worktree.removed and worktree.merge.updated.
+//
+// Drafts are REPLACED, not updated: every new version of a result report is a new request (a new id), and the
+// worktree's earlier `draft` and `conflict` requests go without an event of their own. So a new draft drops them
+// here, and a removed worktree takes its drafts along. Requests somebody asked for (`pending`, `merged`, `rejected`)
+// stay.
 import type { MergeRequest, ResultOf, SessionInfo, WorktreeInfo } from '@smurg/protocol';
 import { tStores } from '../../strings/stores.ts';
 import { formatDateTime } from '../format.ts';
@@ -50,7 +55,15 @@ export function createWorktreesArea(): { store: WorktreesStore; lifecycle: AreaL
     return ctx;
   };
   const upsertRequest = (request: MergeRequest): MergeRequest => {
-    state.setState((previous) => ({ ...previous, mergeRequests: mapWith(previous.mergeRequests, request.id, request) }));
+    state.setState((previous) => {
+      const next = mapWith(previous.mergeRequests, request.id, request);
+      if (request.status === 'draft') {
+        for (const other of previous.mergeRequests.values()) {
+          if (other.id !== request.id && other.worktreeId === request.worktreeId && (other.status === 'draft' || other.status === 'conflict')) next.delete(other.id);
+        }
+      }
+      return { ...previous, mergeRequests: next };
+    });
     return request;
   };
 
@@ -97,7 +110,11 @@ export function createWorktreesArea(): { store: WorktreesStore; lifecycle: AreaL
           state.setState((previous) => ({ ...previous, worktrees: mapWith(previous.worktrees, worktree.id, worktree) })),
         ),
         c.conn.on('worktree.removed', ({ worktreeId }) =>
-          state.setState((previous) => ({ ...previous, worktrees: mapWithout(previous.worktrees, worktreeId) })),
+          state.setState((previous) => ({
+            ...previous,
+            worktrees: mapWithout(previous.worktrees, worktreeId),
+            mergeRequests: new Map([...previous.mergeRequests].filter(([, request]) => !(request.worktreeId === worktreeId && request.status === 'draft'))),
+          })),
         ),
         c.conn.on('worktree.merge.updated', ({ request }) => upsertRequest(request)),
       ];

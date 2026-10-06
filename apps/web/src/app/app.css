@@ -356,6 +356,25 @@
 .app-topbar__actions a.ui-button {
   text-decoration: none;
 }
+.app-topbar__console[aria-current='page'] {
+  background: var(--color-surface-3);
+}
+/* The mode switch: "Sessions | Code mode". */
+.app-topbar__mode {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+}
+/* Below 1100 px the top bar drops what is only a convenience: the host's name, and the words of the console link
+   (its icon and its name stay). */
+@media (max-width: 1100px) {
+  .app-hide-narrow {
+    display: none !important;
+  }
+  .app-topbar {
+    gap: var(--space-4);
+  }
+}
 
 .app-status-pill {
   display: inline-flex;
@@ -420,13 +439,128 @@
 }
 
 /* ---------------------------------------------------------------- workbench */
+.app-shell,
 .app-workbench,
+.app-sessions,
 .app-console {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
 }
+/* The two views of a workspace: both are mounted, one is shown (WorkspaceShell.tsx). */
+.app-shell__views {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.app-shell__view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.app-shell__view[hidden] {
+  display: none;
+}
+.app-shell__loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---- the sessions view */
+.app-sessions__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.app-sessions__main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+}
+.app-sessions__main:focus-visible {
+  box-shadow: inset var(--focus-ring);
+}
+/* The right side while no column is open. */
+.app-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-5);
+  padding: var(--space-9) var(--space-6);
+  overflow: auto;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+.app-empty__title {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-semibold);
+}
+.app-empty__text {
+  max-width: 44em;
+  margin: 0;
+  font-size: var(--text-md);
+}
+.app-empty__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.app-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  width: min(820px, 100%);
+  margin: var(--space-3) 0;
+  padding: 0;
+  list-style: none;
+  text-align: start;
+}
+.app-steps li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-1);
+  font-size: var(--text-sm);
+}
+.app-steps__n {
+  color: var(--color-accent);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+}
+.app-steps__t {
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+@media (max-width: 900px) {
+  .app-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---- code mode */
 .app-banners {
   display: flex;
   flex-direction: column;
@@ -467,6 +601,32 @@
 .app-editor-region:focus-visible {
   box-shadow: inset var(--focus-ring);
 }
+.app-editor-region__editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* "Opened from 1 · Cart API · Back to the session": where "Open in editor" came from. */
+.app-code-origin {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 30px;
+  padding: 0 var(--space-3) 0 var(--space-5);
+  border-bottom: var(--border-width) solid var(--color-border);
+  background: var(--color-surface-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  flex: none;
+}
+.app-code-origin__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .app-drawer {
   display: flex;
   flex-direction: column;
@@ -474,12 +634,6 @@
   min-height: 0;
   background: var(--color-surface-1);
   border-top: var(--border-width) solid var(--color-border);
-}
-.app-slot-error {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 .app-console__main {
   flex: 1;

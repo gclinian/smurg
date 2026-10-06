@@ -4,7 +4,7 @@
 // The clients (hook-cli.ts, ../mcp/coord-server.ts) do not load this file: they must start without zod (wire.ts).
 import { NOTIFY_TEXT_MAX_CHARS, displayNameSchema, multilineTextSchema, userIdSchema } from '@smurg/protocol';
 import { z } from 'zod';
-import { MCP_TOOL_NAMES, REQUEST_ID_PATTERN, WAIT_FOR_LOCK_MAX_SECONDS } from './wire.ts';
+import { HOOK_VIA_BASH_ACTIVITY, MCP_TOOL_NAMES, REQUEST_ID_PATTERN, WAIT_FOR_LOCK_MAX_SECONDS } from './wire.ts';
 
 /** Absolute or relative file paths from Claude Code; PATH_MAX-sized with room for Linux's 4,095 bytes. */
 const MAX_PATH_CHARS = 4_096;
@@ -30,6 +30,9 @@ export const hookInputSchema = z.object({
     .object({
       file_path: pathString.optional(),
       notebook_path: pathString.optional(),
+      /** A search's directory; a Glob's pattern. */
+      path: pathString.optional(),
+      pattern: pathString.optional(),
     })
     .optional(),
   file_path: pathString.optional(),
@@ -45,6 +48,8 @@ const hookRequestSchema = z.strictObject({
   token: tokenSchema,
   op: z.literal('hook'),
   hookInput: hookInputSchema,
+  /** Set by the Bash activity hook: its events open and close a Bash window and are never answered with a decision. */
+  via: z.literal(HOOK_VIA_BASH_ACTIVITY).optional(),
 });
 
 const mcpRequestSchema = z.strictObject({

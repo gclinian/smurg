@@ -17,6 +17,7 @@
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import { toDisposable } from '../core/lifecycle.ts';
 import { ControlServer, type ControlServerLimits } from './control-server.ts';
+import { namedWebOrigin } from './protocol.ts';
 
 export interface LocalControlModuleOptions {
   /**
@@ -58,6 +59,7 @@ export function createLocalControlModule(options: LocalControlModuleOptions = {}
         path: ctx.config.runPaths.ctl,
         pidPath: ctx.config.runPaths.pid,
         hostUserId: ctx.config.hostUserId,
+        webOrigin: namedWebOrigin(ctx.config.webOrigin),
         lifecycle: ctx.lifecycle,
         log: ctx.log.child({ module: 'control' }),
         ...(requestStop ? { requestStop: (reason: string) => requestStop(ctx, reason) } : {}),

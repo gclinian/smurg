@@ -4,21 +4,25 @@ This guide is for **teammates**: someone shared a project folder with smurg and 
 need to have used smurg or Claude Code before. The host (the person who shares the folder) should read the
 [host guide](HOSTING.md). This guide in [繁體中文](zh-TW/JOINING.md).
 
-Three things to know first:
+Four things to know first:
 
 - **Every file is on the host's computer.** What you see and change in the browser is the file on the host's
   computer; saving is automatic.
-- **Claude Code** is an AI coding assistant that works in a terminal (called an **agent** below): you tell it what to
-  do in plain sentences, and it reads files, changes code and runs commands. In smurg every agent runs on the host's
-  computer, as the host, and everyone in the workspace sees what it is doing, live.
+- **Claude Code** is an AI coding assistant (called an **agent** below): you tell it what to do in plain sentences,
+  and it reads files, changes code and runs commands. In smurg every agent runs on the host's computer, as the host,
+  with the host's Claude account, and everyone in the workspace sees what it is doing, live.
+- **Work is organized in topics.** A topic is one feature or task. Everyone discusses it with an agent that asks
+  the team multiple-choice questions and writes a spec; the agent turns the spec into a plan of work items; one
+  agent per work item does the work; people read each result report and mark it reviewed (§6).
 - The connection between you and the host's computer is **end-to-end encrypted**: the server in between (the relay)
-  cannot see file contents, terminal output or commands (it knows which account you logged in with and the IP address
-  you connect from).
+  cannot see file contents, conversations, terminal output or commands (it knows which account you logged in with and
+  the IP address you connect from).
 
 Contents: [1. Join](#1-join-with-an-invite-link) · [2. Roles](#2-roles-what-you-can-do) ·
-[3. Edit together](#3-edit-files-together) · [4. Lock notices](#4-what-the-lock-notices-mean) ·
-[5. Watch agents and send suggestions](#5-watch-agents-and-send-suggestions) ·
-[6. Open agent sessions (Agent access)](#6-open-agent-sessions-agent-access) ·
+[3. The main screen](#3-the-main-screen-inbox-sessions-and-columns) ·
+[4. Code mode](#4-code-mode-edit-files-together) ·
+[5. Talk to agents](#5-talk-to-agents-messages-suggestions-questions-and-votes) ·
+[6. Topics](#6-topics-from-discussion-to-reviewed-result) ·
 [7. Worktrees and merge requests](#7-worktrees-and-merge-requests) · [8. Host offline](#8-what-host-offline-means) ·
 [9. Leaving](#9-leaving-a-workspace-what-ends) · [10. From a terminal (CLI)](#10-joining-from-a-terminal-cli-optional)
 
@@ -32,32 +36,36 @@ repost the link in a group or in public, and do not copy only the part before th
 
 1. Open the link in a browser (Chrome on a computer is the safest choice; Safari and Firefox have not been tested
    yet).
-2. Log in: choose "**Log in with Google**" and use your Google account (another relay may also offer "Log in with
-   GitHub"; whoever runs the relay decides which buttons appear). smurg uses the login only to know who you are and
-   gets no access to your code; you do **not** need a Claude account or an API key. The relay knows which account
-   you use and the IP address you connect from ([host guide](HOSTING.md) §2.1).
+2. Log in: choose "**Log in with Google**" and use your Google account (another relay may also offer
+   "Log in with GitHub"; whoever runs the relay decides which buttons appear). smurg uses the login only to know who
+   you are and gets no access to your code; you do **not** need a Claude account or an API key. The relay knows which
+   account you use and the IP address you connect from ([host guide](HOSTING.md) §2.1).
 3. The page asks "Join this workspace?" and lists the workspace ID and your identity. If this is the link the host
    gave you, choose "**Join**". After you join, the host sees your name, your account
    and your device's name.
-4. You are in the workspace: files on the left, the editor in the middle, agents and suggestions on the right, and
-   "Activity", "Conflicts", "Transfers" and "Merge requests" at the bottom. The top bar shows who the host is, the
-   connection state ("Connected") and your role.
+4. You are in the workspace. On the left are your inbox and the list of sessions, grouped by topic; on the right is
+   room for up to four columns side by side: an agent's conversation, a spec, a plan, a result report (§3). The top
+   bar shows who the host is, the connection state ("Connected"), your role, and a switch between "Sessions" (this
+   screen) and "Code mode" (the file tree and the editor, §4).
 
 The interface comes in English and Traditional Chinese: it starts in your browser's language, and the language menu
 on the page switches it (the login and join pages have it too). Everyone sees the language they chose; this guide
-quotes the English interface. Agent names (such as `Claude (Amy)`) and text that other people typed are never
-translated.
+quotes the English interface. Agent names (such as `Claude (Amy)`), the names of topics and work items, and text
+that other people or agents wrote are never translated.
 
 Afterwards you open the workspace directly ("Recent workspaces" on the home page) and no longer need the invite
 link: this browser remembers the key of the host's computer. A private window does not; once you close it, you need
 a new invite link to join again.
 
+Once you have joined, you can read everything in the workspace, including every conversation with an agent that
+took place before you came.
+
 **Should you check the key fingerprint?** While sharing, the host can run `smurg status` on their computer to see
 the daemon key fingerprint. The first time you join, you can ask the host to read it to you over another channel (in
-person, on the phone). If you see "**Security warning: connection refused**" or "The host computer's key has
-changed", **do not go on yet**: someone may be posing as the host. It may also be that the host replaced the
-workspace's keys (for example, shared again after taking Agent access back from a teammate, or reinstalled smurg).
-Ask the host over another channel (in person, on the phone):
+person, on the phone). If you see "**Security warning: connection refused**" or
+"The host computer's key has changed", **do not go on yet**: someone may be posing as the host. It may also be that
+the host replaced the workspace's keys (for example, shared again after taking Agent access back from a teammate, or
+reinstalled smurg). Ask the host over another channel (in person, on the phone):
 
 - The host says they did **not** replace anything: do not continue, choose "Cancel", and tell the host.
 - The host says they did: ask for a new invite link, and ask them to read out the new daemon key fingerprint that
@@ -83,35 +91,103 @@ The host chooses your role with the invite link and can change it later in the h
 
 | | Viewer | Editor | Agent access |
 |---|:-:|:-:|:-:|
-| See files, download files or folders, watch every agent and terminal, read the activity feed | ✅ | ✅ | ✅ |
-| Edit, create, rename, delete and upload files | ❌ | ✅ | ✅ |
-| Send suggestions to a session | ❌ | ✅ | ✅ |
-| Open agents or terminals on the host's computer (**they run as the host**) | ❌ | ❌ | ✅ |
-| Type into **any** session; accept or reject the suggestions any session receives | ❌ | ❌ | ✅ |
-| Work in a worktree and ask the host to merge it | ❌ | ❌ | ✅ |
+| See files, download files or folders, read every conversation, spec, plan and result report, watch every terminal | ✅ | ✅ | ✅ |
+| Be mentioned by other members (it shows in your inbox) | ✅ | ✅ | ✅ |
+| Edit, create, rename, delete and upload files; edit a topic's spec and plan | ❌ | ✅ | ✅ |
+| Vote and comment on an agent's questions; mention people | ❌ | ✅ | ✅ |
+| Send suggestions to an agent (it gets them only when someone with agent access accepts) | ❌ | ✅ | ✅ |
+| Be the responsible person of a session or a work item; review a result report | ❌ | ✅ | ✅ |
+| Start a topic, ask for the plan, start work items, open agent sessions and terminals (**they run as the host**) | ❌ | ❌ | ✅ |
+| Send messages to any agent, stop it, answer an agent's question in your own words | ❌ | ❌ | ✅ |
+| Allow or deny what an agent asks to run; accept or reject suggestions | ❌ | ❌ | ✅ |
+| Type into **any** terminal session | ❌ | ❌ | ✅ |
+| Ask the host to merge a worktree | ❌ | ❌ | ✅ |
 
-Only the host can: invite members, change roles, remove members, read the audit log, force a file lock open and merge
-a worktree.
+Only the host can: invite members, change roles, remove members, read the audit log, force a file lock open, merge
+a worktree, allow a request that reaches beyond the project, confirm the folder's Claude Code settings, and delete a
+topic.
 
-**What Agent access means**: the sessions you open run on the host's computer **as the host**, with no sandbox: the
-agent uses the host's Claude Code login (the usage and the cost are the host's), can run any command and can read the
-files on the host's computer. That is why a host gives this role only to people they fully trust. You do not need
-your own Claude account or API key, and you cannot use one.
+**What Agent access means**: the agents you start and the terminals you open run on the host's computer **as the
+host**, with no sandbox: an agent uses the host's Claude Code login (the usage and the cost are the host's), and
+what you allow it to run can do whatever the host's account can do. That is why a host gives this role only to
+people they fully trust. You do not need your own Claude account or API key, and you cannot use one.
 
 Some files teammates **cannot see**: every `.git` folder, `.envrc`, smurg's own `.smurg/`, and the host's personal
 Claude Code settings (`.claude/settings.local.json`, `CLAUDE.local.md`). Some files teammates **can see but not
-change** (the file tree marks them "Only the host can change this file"): `.claude/` and `.mcp.json` (the host's
-Claude Code reads them), `.vscode/`, `.idea/`. Apart from these, every member sees every file in the folder
-(including configuration files such as `.env`). These limits apply to what people do in the web app and the CLI:
-agents and terminals, which run as the host, are not bound by them.
+change** (the file tree marks them "Only the host can change this file"): `.claude/`, `.mcp.json` and every
+`CLAUDE.md` (the host's Claude Code reads them as settings and instructions), `.vscode/`, `.idea/`. Apart from
+these, every member sees every file in the folder (including configuration files such as `.env`). These limits
+apply to what people do in the web app and the CLI. Agents are kept from the hidden files too, but a command that
+someone allows, and any terminal, runs as the host and is not bound by them.
 
-## 3. Edit files together
+## 3. The main screen: inbox, sessions and columns
+
+The screen you arrive at is the sessions view (the "Sessions" side of the switch in the top bar).
+
+**The inbox** (top left) holds what waits for you, in two groups:
+
+- "Agents are waiting": an agent, or a whole plan, is stopped until someone acts. These are an agent's question you
+  decide, a vote that is open, a permission request you may answer, and work that stopped and needs someone (an
+  agent that stopped without its report, a work item that failed or did not start, a plan paused after a restart).
+- "For you to look at": suggestions for sessions you look after, result reports for you to review, changes ready to
+  merge (the host), mentions of you, and what became of your own suggestions.
+
+The inbox shows two counts, how many items are waiting and how many are to look at; the same counts are in the
+browser tab's title and, while you are in code mode, on the "Sessions" side of the switch. What you should know
+about it:
+
+- **An item is a thing that waits, not a message.** It leaves when the thing is settled, whoever settles it, for
+  everyone at the same moment. You cannot dismiss it (only a mention, and the note about your own suggestion, can
+  be dismissed). Opening an item only takes its bold away.
+- **Whose inbox**: an agent's question goes to the person who decides it (§5.3); a permission request and a
+  suggestion to the session's responsible person when that person may answer them, otherwise to the host and every
+  member with agent access; a result report to whoever reviews it (§6). When the person who must act does not
+  (5 minutes by default, or they are offline), the item also appears for the host and the members with agent
+  access, who can act in that person's place.
+- A Viewer gets only mentions: "Nothing is waiting for you. As a viewer you get only mentions here."
+- A new item in "Agents are waiting" also shows a short notice with "Open" when its session is not on your screen.
+
+**The session list** (below the inbox) is grouped by topic. A topic's rows are fixed: "Discussion" (the session
+everyone shares), "Spec", "Plan", then one row per work item once the plan exists. Sessions that belong to no topic
+are in the group "No topic"; a terminal session has a terminal icon. Above the list, "New" starts a topic, a single
+agent session or a terminal (Agent access and the host), and a filter shows "All", "Mine" or "Waiting". A row in bold
+means something happened there since you last had it on screen.
+
+Each session shows what it is doing:
+
+| Status | What it means |
+|---|---|
+| "Running" | The agent is working. |
+| "Waiting for an answer" | The agent asked a question and waits for the answer. A person must act. |
+| "Waiting for permission" | The agent asked to run something and waits. A person must act. |
+| "Stopped without a report" | A work item's agent stopped before it wrote its result report. A person must look. |
+| "Idle" | The agent finished its turn and waits for the next message. A discussion is in this state most of the time. |
+| "Done" | The work item is finished and its result report is written. |
+| "Failed" | The agent's process ended with an error. It can be tried again. |
+| "Ended" | The session was ended on purpose. Its conversation stays readable. |
+
+**Columns** (the right side) are your own view; nobody else sees what you have open.
+
+- Click a row or an inbox item to open it as a column. "Open to the side" (the button on the row, Shift+click or
+  Shift+Enter) adds a column next to the one you are reading instead of replacing it.
+- Up to four columns fit side by side, with dividers you can drag. A fifth is refused:
+  "Four columns are open. Close one first."
+- "Pin column" keeps a column from being replaced; the plan of a topic that is being carried out is pinned by itself.
+- Closing a column never ends a session.
+- The left side folds: the inbox and the session list each collapse, and the whole left column can shrink to a
+  narrow strip that still shows the two counts.
+
+## 4. Code mode: edit files together
+
+"Code mode" in the top bar switches to the file tree and the editor; "Sessions" switches back. Both sides keep
+their state: the columns you had open are still there when you return. While you are in code mode, the inbox counts
+stay visible on the switch.
 
 - **Click a file** in the file tree on the left to open it in the editor; **right-click** a file or folder to create,
   rename, delete or download (a folder is packed into a zip). The buttons above the file tree create a file or a
   folder, or upload.
 - **Everyone can type at the same time**; each person's cursor has its own color and name. An agent that changes a
-  file shows up as `Claude (the person who opened it)`, for example `Claude (Amy)`.
+  file shows up under its own name, for example `Claude (Cart API)` for the agent of a work item named Cart API.
 - **There is no save button**: a moment after you stop typing, the file is saved to the host's computer (the editor
   says "Saved automatically"). If it keeps saying "Not saved yet: waiting for the host's computer", the connection
   usually has a problem.
@@ -120,16 +196,21 @@ agents and terminals, which run as the host, are not bound by them.
   it starts, with the reason. Progress is under "Transfers" at the bottom.
 - Files that are too large (over 5 MB), binary or not UTF-8 cannot be opened in the editor; download them and open
   them with your own program.
-- **Select some code** in the editor and choose "Send to agent" to send it to someone else's agent as a suggestion,
-  or to paste it into your own agent (see §5).
-- "Activity" lists, live, who (or which agent) created, changed, deleted or uploaded which file; click an entry to
-  open the file. The file tree also marks files "Recently changed by …". Changes shown as "**Outside program**" are
-  ones smurg cannot attribute to anyone (the host changed the file with another program, for example).
+- **A session beside the editor**: the right side of code mode shows one agent session of your choice, the same
+  conversation as in the sessions view. A file that an agent read or changed has "Open in editor" in the
+  conversation; it brings you here with that file open, and "Back to the session" returns.
+- **Select some code** in the editor and choose "Send to agent" to put it into a message for an agent, with the file
+  name and the line numbers (a suggestion when your role is Editor, see §5).
+- "Activity" at the bottom lists, live, who (or which agent) created, changed, deleted or uploaded which file; click
+  an entry to open the file. The file tree also marks files "Recently changed by …". Changes shown as
+  "**Outside program**" are ones smurg cannot attribute to anyone (the host changed the file with another program,
+  for example). "Terminal" at the bottom holds the plain terminal sessions (§5.5).
+- "Viewing" above the file tree switches between the main workspace and the worktrees (§7).
 
-## 4. What the lock notices mean
+### 4.1 What the lock notices mean
 
 smurg uses file locks so that people and agents do not overwrite each other. You see these notices above the editor
-or in the file tree:
+or in the file tree; they also appear when you edit a spec or a plan in a column:
 
 | Notice | What it means | What you can do |
 |---|---|---|
@@ -137,137 +218,259 @@ or in the file tree:
 | "You and Amy are editing this file (a shared edit lock), …" / "This file is being edited by Amy, …" | Several people share one edit lock; agents cannot change the file for now. | As above. |
 | "Claude (Amy) is editing; you cannot type for now" | This agent is changing the file: the editor is **read-only** for the moment, and other agents cannot change it either. | Wait: when it is done (60 seconds at most by default), you can type again. What you type in the meantime is not accepted. |
 | "Claude (Amy) editing" and "Editing: Amy" in the file tree | The two locks above. | |
-| "This file is read-only for you" | Your role cannot edit, or it is a shared folder inside a worktree (read-only). | |
+| "This file is read-only for you" | Your role cannot edit, it is a file only the host may change, or it is a folder that is read-only inside a worktree (a shared folder, or a topic's `specs/` folder in a work item's worktree). | |
 | "This file was deleted by …" / "This file was moved to …" | Someone deleted or moved the file you have open; this tab can no longer save. | "Create again from this content" or "Open the new location". |
 
-**Conflicts**: an agent can also change a file without the file lock, with a terminal command (for example `sed`, a
-formatter, `git checkout`). If it changes a place someone is editing, smurg **keeps what the person is typing**, puts
-the agent's version in the "**Conflicts**" panel at the bottom and tells both sides. In the conflicts panel you
-compare the two versions side by side and choose "Keep the text being edited", or "Apply this version…" to replace
-the whole file with the other side's complete version.
+**Conflicts**: a program can also change a file without the file lock (the host's own editor, or a command an agent
+was allowed to run, such as `sed`, a formatter or `git checkout`). If it changes a place someone is editing, smurg
+**keeps what the person is typing**, puts the other version in the "**Conflicts**" panel at the bottom of code mode
+and tells both sides. In the conflicts panel you compare the two versions side by side and choose
+"Keep the text being edited", or "Apply this version…" to replace the whole file with the other side's complete
+version. Open conflicts show as a count on "Code mode" in the top bar.
 
-## 5. Watch agents and send suggestions
+## 5. Talk to agents: messages, suggestions, questions and votes
 
-- The **agent** area on the right has a tab for every session (for example, "Claude (Amy)" is an agent Amy opened, and
-  "Terminal (Ian)" is a terminal the host Ian opened). Click a tab to watch it live, including
-  what happened before you opened it.
-- Members with the Viewer or Editor role can **only watch a session, not type** (it is marked "Watch only"). To get an
-  agent to do something, send a **suggestion**: write your idea in the "Suggestions" box under the session (for
-  example, "add tests for this function first") and choose "Send suggestion" (or press Ctrl + Enter). Members with
-  agent access can type into any session directly (§6).
-- A suggestion first waits in a list: the host and every member with agent access see "Suggestions waiting for your
-  decision" under the session and can "Accept", "Edit and accept" or "Reject" it (with a reason, if they like); the
-  text goes into the session only when someone accepts it. smurg never accepts by itself.
-- You are told the result ("Your suggestion was accepted", "Your suggestion was rejected" and so on, with the reason
-  if one was given). "My suggestions" shows the state of each one; a suggestion nobody has handled yet can be edited
-  or withdrawn ("Edit", "Withdraw").
-- Select code in the editor → "Send to agent" → send it as a suggestion to a session: the selected code is attached
-  to the suggestion with the file name and the line numbers.
-- The Viewer role can watch but cannot send suggestions.
-- An agent can also notify you through smurg (for example, "Claude (Amy) notified you"); it appears under
-  "Activity".
+An agent session is a conversation, and everyone reads all of it, including what happened before they opened it.
+You see people's messages with their name and role, the agent's answers, and one line for each thing the agent
+did ("Read", "Edited", "Created", "Ran", "Searched"), which you can open to see the change or the output. Things
+that wait for people are cards in the conversation: questions, permission requests, suggestions.
 
-## 6. Open agent sessions (Agent access)
+Above the conversation a strip shows who is responsible for the session ("Responsible: Ian", or
+"Responsible: nobody"), where the agent works (the main workspace or a worktree) and what it may do without asking
+(for example "Asks before commands"; a topic's discussion shows "Reads code, writes only the spec and the plan").
+The line above the message box always says what the session is waiting for.
 
-Only the **Agent access** role can open sessions on the host's computer and type into any session. The sessions you
-open run on the host's computer **as the host**: with the host's operating-system account and the host's Claude Code
-login, and no sandbox. So you **do not need to log in to Claude**, and you need no API key.
+### 5.1 Messages (host and Agent access)
 
-**Open a session**: "New session" at the top right of the agent area → choose a kind:
+- Write in the box ("Message Claude") and press Enter; Shift+Enter makes a new line. While the agent works, it
+  reads your message at its next step. Type `@` to mention a member.
+- The agent is told who wrote each message (your name and role). Everything smurg itself tells an agent is in
+  English, whatever language you use; you can write to the agent in any language.
+- "Stop" ends what the agent is doing now; the session stays open. Ending a session for good is in the column's
+  menu ("End session…"); a topic's discussion cannot be ended, only restarted (§6).
+- Claude Code's own slash commands are not available: a message that starts with `/` is read as text.
+- **Remember**: an agent works on the host's computer with the host's account and spends the host's Claude usage.
+  Ask it only for what the host agreed to, and never paste a password or an API key into a conversation: every
+  member reads it.
 
-- "Agent (Claude Code)": runs Claude Code in a terminal.
-- "Plain terminal": a shell, for running tests, builds and other commands.
+### 5.2 Suggestions (Editor)
 
-Then choose where it works: "Shared main workspace" (changes the files everyone sees, protected by file locks), "A
-new worktree of my own" or "Continue in the worktree I kept" (see §7), and choose "Open". The dialog reminds you:
-"This session runs on the host's computer, and the agent uses the host's Claude account."  When Claude Code cannot be found
-on the host's computer, an agent session cannot start and the page says why: tell the host.
+- As an Editor you use the same box; it says "Suggest to Claude" and its button is "Send suggestion". The line
+  under it says who will get it, for example "Goes to Ian as a suggestion. It reaches the agent only when accepted."
+- Your suggestion appears as a card in the conversation ("Suggestion from Amy") and in the inbox of the session's
+  responsible person, or of the host and the members with agent access. They choose "Accept", "Edit and accept" or
+  "Reject" (with a reason, if they like). "It reaches the agent only when someone accepts it." smurg never accepts
+  by itself.
+- When it is accepted, it becomes your message in the conversation, marked "suggestion, accepted by Ian", and the
+  agent reads exactly the text that was shown. When it is rejected, or accepted after an edit, the card says so and
+  you get a note in your inbox.
+- Until someone decides, you can change it ("Edit") or take it back ("Withdraw"). You can have 20 suggestions
+  waiting in one session.
+- Characters that cannot be seen are removed from what you write before it is stored and shown
+  ("Hidden characters were removed"): what a person accepts is exactly what the agent gets.
+- The same goes for the other boxes that send text to an agent, such as "Ask the agent to revise" on a spec and the
+  box under a result report: an Editor's text there is a suggestion too.
+- Suggestions go to agent sessions only, not to terminals. A Viewer cannot send suggestions:
+  "As a viewer you can watch this session. You cannot send messages, make suggestions or vote."
 
-**Using Claude Code**: click the terminal, type what you want it to do in plain sentences and press Enter. The screen
-keeps updating while it works; Esc interrupts it and `/exit` ends it. Before it changes a file or runs a command it
-may ask for permission: choose with the arrow keys and press Enter. **Everyone in the workspace sees** the session's
-screen: never paste a password or an API key into a session.
+### 5.3 Questions and votes
 
-**Typing into someone else's session**: you can also type directly into a session the host or another teammate
-opened; everyone's input goes to the same terminal. When someone is typing, wait a moment, or send a suggestion.
+Agents are told to bring decisions to the team as multiple-choice questions. A question is a card,
+"Question from Claude", and the agent waits until it is answered.
 
-**Remember**: everything you do in a session is done with the host's computer and the host's account. Agents spend the
-host's Claude quota, commands run with the host's permissions and can read the files on the host's computer. Do only
-what the host agreed to, and do not read files that have nothing to do with the project. When an agent shows that
-Claude is not logged in (for example "Not logged in"), tell the host to log in; do **not** `/login` with your own
-account in the session: that would store your credentials on the host's computer, and every agent would use them
-from then on. The message "The host's Claude Code is not logged in, so this agent cannot work for now." means exactly
-this.
+- **Everyone but Viewers votes** ("Your vote"). You see each other's choices live and can change yours until the
+  answer is submitted. The option with the most votes is marked "Leading". "Other" lets you vote for an answer in
+  your own words.
+- **Comments** go under the options; `@name` mentions someone. "Comments are for the team. Claude does not read them."
+- **One person decides**, and the card says who: the session's responsible person; when nobody is assigned, the
+  person who opened the session or pressed Start (for a topic's discussion: whoever created the topic); the host if
+  that person is gone. The votes are advice: the person who decides clicks an option and presses "Submit answer",
+  also against the vote ("You can submit now; votes are advice."). With a tie nothing is prefilled:
+  "The vote is tied. Choose the answer yourself."
+- **What the agent receives**: the answer and how the vote went. Not the comments, and not other people's own
+  answers. A person who decides and has agent access can add a "Note for Claude (optional)", and can copy a comment
+  into it with "Add to the note". An Editor who decides chooses among the agent's options; an answer in their own
+  words needs someone with agent access ("Ask them to submit").
+- While a question is open in a session nobody is assigned to (every topic's discussion is one), it is in the inbox
+  of everyone who has not voted yet. The person who decides, and the host, can press
+  "Remind those who have not voted".
+- **When the person who decides does not answer** for the waiting time (5 minutes by default), or is offline, the
+  host and the members with agent access can submit in their place ("Submit for Ian"); the conversation records it.
+  The host can always submit.
+- An agent can ask several questions in one card; each has its own votes, and one button submits them all. An
+  answered question folds to one line with the answer, so a discussion's decisions read as a list.
 
-**Attach from your own terminal**: a session's "Attach from your own terminal" lists the `smurg attach` commands
-(§10).
+### 5.4 Permission requests
+
+Outside its own worktree, and for almost every command, an agent must ask first. The card
+("Claude asks for permission to run a command") shows the whole command and where it would run.
+
+- The host and members with agent access answer: "Allow once", "Always allow this kind" or "Deny" (with a line that
+  tells the agent what to do instead, if they like). Editors and Viewers see the request and who it waits for.
+- If you may answer: read the command first. What you allow runs on the host's computer as the host.
+  "Always allow this kind" is offered only for narrow kinds of commands, "in this session" or
+  "in every session of this topic"; it also covers the same command after the agent changed the files it runs.
+- Some requests say "Only the host can allow this: it reaches beyond the shared project."
+- The first answer wins; the card then says who allowed or denied it.
+
+### 5.5 Terminal sessions
+
+A plain terminal is a shell on the host's computer, for running tests, builds and other commands by hand. Members
+with agent access open one with "New" in the session list ("Terminal") and can type into any terminal session;
+everyone else can only watch it (it is marked "Watch only"). A terminal opens as a column like any session, and in
+code mode under "Terminal" at the bottom. Everything typed there runs as the host: never paste a password into it.
+"Attach from your own terminal" lists the `smurg attach` commands for it (§10).
+
+## 6. Topics: from discussion to reviewed result
+
+A topic takes one feature or task from the first conversation to work that someone has read and understood. Each
+step is a row of the topic in the session list.
+
+1. **New topic** (host and Agent access): "New topic" asks for a name and, if you like, what you want to build. It
+   says what it does: "Start discussion" opens an agent on the host's computer, with the host's Claude account,
+   that may read the code and write only the topic's folder (`specs/<folder>/` in the project).
+2. **Discussion**: one session per topic that everyone shares. Everyone talks with the agent (Editors through
+   suggestions, §5.2); the agent asks its questions as cards and everyone votes (§5.3). When the team has said
+   enough, a member with agent access can choose "Write the spec now".
+3. **Spec**: the agent writes `SPEC.md` in the topic's folder and says so in the discussion ("Open spec"). In the
+   spec column you read it, or switch to editing and type in it together with the others (file locks as in §4.1:
+   while someone types, the agent waits its turn). "Ask the agent to revise" sends what you want changed to the
+   discussion, where everyone sees it and the agent may ask a new question first.
+4. **Plan**: "Generate plan" (host and Agent access) makes the agent write `PLAN.md`: a list of **work items**, each
+   with a title, a description and the items it must wait for. smurg checks the format; if it cannot read the work
+   items, the plan says which line is wrong. When the spec changes later, the plan says so and offers "Update plan".
+5. **Who is responsible**: the agent suggests who looks after which work item among the members with agent access
+   who are present, and smurg fills in what it leaves open; "Suggest again" computes it anew. People change it item
+   by item, or choose "No one assigned: everyone watches". The responsible person of an item gets its agent's
+   questions, permission requests and result report in their inbox. Being responsible gives no extra rights: an
+   Editor who is responsible decides questions among the agent's options and reviews the report, while commands
+   are still allowed by members with agent access.
+6. **Start** (host and Agent access): before anything runs, a dialog lists what Start will do: which items start
+   now and which wait for others, who is responsible, who edited the spec and the plan by hand since the last
+   Start, and that smurg commits the two files to the host's repository. Starting needs the shared folder to be a
+   git repository.
+7. **Execution**: every started work item is an agent session of its own, in its own worktree (§7), and shows up
+   as a row of the topic. Its agent edits files in its worktree without asking and asks before commands (§5.4). The
+   plan column stays the overview: what runs, what waits for a person, what waits for a merge. An item that waits
+   for others starts by itself when those are merged, and only while the spec and the plan are still the ones that
+   were confirmed at Start; if they changed, it waits for someone to look at the change and choose "Start again".
+8. **Result report**: when a work item is done, its agent writes a report with fixed sections: "What was done",
+   "Why it was done this way", "How it was verified" (each check either passed or not verified),
+   "What to watch out for" and "Changes" (every changed file, with its diff). A report also says how the work
+   ended: "Complete", "Partial" or "Blocked". Under it you can ask about the result or say what to change
+   ("Ask about this result, or tell Claude what to change"); the question goes to the item's session and the answer
+   shows in both places.
+9. **Review**: "I've reviewed this" is for the item's responsible person; when nobody is assigned, anyone but a
+   Viewer can press it, once, for all. It means: I read the report and understand the change. If the agent changes
+   the report afterwards, it asks for a review again.
+10. **Merge**: reviewing does not merge. A reviewed item's changes go to the host's inbox by themselves
+    ("Reviewed, ready to merge"), and the host merges them into the main workspace after reading the diff (§7).
+11. **Topic complete**: when every work item is reviewed, the topic is "Complete". "Archive topic" puts it away;
+    its files stay in the project and its conversations stay readable ("Show archived topics").
+
+When something stops, it shows, and someone gets it in their inbox:
+
+- "Stopped without a report": an agent ended its turn without its report, although smurg asked it once more.
+  "Continue" asks it to go on.
+- "Failed": the agent's process ended with an error. "Try again" continues the same conversation.
+- The host's Claude account ran out of usage, or Claude Code on the host's computer is logged out: the sessions
+  say so and wait; only the host can fix it.
+- After the host's smurg was restarted, nothing runs by itself (§8).
+- A discussion that has grown long offers "Start a fresh conversation": a new discussion that starts from the spec
+  and the plan as they are. The earlier one stays in the list as "Earlier discussion".
+
+How well an agent follows this flow depends on the model. smurg checks the plan and the report format itself and
+asks the agent to correct them, and it puts stopped work into an inbox; but the flow of this version was tested
+with a scripted stand-in for the model, not with a real Claude account, so expect rough edges and tell the host
+when a step does not work.
 
 ## 7. Worktrees and merge requests
 
-When the folder the host shares is a git repository, you can open a session in "**A new worktree of my own**": smurg creates a
-separate working copy for you on the host's computer (on its own branch), and the agent changes files there without
-disturbing everyone's main workspace. A worktree is only a place to work, not a restriction: an agent in it runs as
-the host all the same.
+A worktree is a separate working copy of the project on the host's computer, on its own branch. Agents change files
+there without disturbing the main workspace that everyone shares. A worktree is only a place to work, not a
+restriction: what runs in it runs as the host all the same.
 
-- "Viewing" above the file tree switches between the main workspace and any worktree. Everyone can edit directly in
-  a worktree too (with file locks, as usual).
-- The **shared folders** the host named (for example a `data/` that is not in git) are linked into the worktree: in
-  the web app they are read-only there; when an agent in the worktree writes into such a folder, it changes the one
-  copy in the main workspace.
-- When you end a session it asks "Keep the worktree of this session?": after "Keep the worktree" you can open a
-  session in it again with "Continue in the worktree I kept"; "Delete the worktree" deletes it together with the
-  changes not merged yet, and that cannot be undone.
-- **When you are done, ask the host to merge**: switch the file tree to that worktree and choose "Ask the host to
-  merge" (or "Request merge" under "Merge requests"); you can add a message. Members with agent access can make the
-  request for any worktree. smurg turns all the current changes in the worktree into one commit; what you change
-  afterwards needs a new request.
-- The host sees the full diff and then chooses "Merge into the main workspace" or "Reject" (a rejected worktree stays as
-  it is, and you are told the reason). When it conflicts with the main workspace, the merge stops, the main
-  workspace is unchanged and the host decides what to do. You are told the result, and it also appears in everyone's
-  "Activity".
-- There is no way yet to bring later changes of the main workspace into your worktree.
+- **Every work item has its own worktree**; smurg creates it at Start and removes it when the item is merged and
+  reviewed. A single agent session without a topic can work in a worktree too, or in the main workspace.
+- "Viewing" above the file tree in code mode switches between the main workspace and any worktree. Everyone who may
+  edit can edit code in a worktree too (with file locks, as usual); the result report then says which files were
+  also edited by hand, and by whom. Inside a work item's worktree the topic's `specs/` folder is read-only for
+  everyone: it holds the spec and the plan the agent started from, and the agent's report.
+- The **shared folders** the host named (for example a `data/` that is not in git) are linked into every worktree:
+  in the web app they are read-only there; when an agent in the worktree writes into such a folder, it changes the
+  one copy in the main workspace.
+- **You read a work item's changes in its result report**: every file with its diff, as one change. A file that
+  teammates cannot see (§2) is listed there without its content.
+- **Merging is the host's decision.** A reviewed report's changes are in the host's inbox by themselves. For work
+  that nobody reviewed, or for the worktree of a session without a topic, a member with agent access chooses
+  "Request merge". The host reads the full diff and then chooses "Merge into the main workspace" or "Reject" (a
+  rejected worktree stays as it is, and the reason is shown).
+- **When a merge conflicts** with the main workspace, it stops and the main workspace is unchanged. The host or a
+  member with agent access can then choose "Ask the agent to resolve": smurg brings the main workspace's changes
+  into the item's worktree, the item's agent resolves the conflicting places and writes a new version of its
+  report, and the merge is offered again.
+- When you end an agent session without a topic that worked in a worktree, you are asked whether to keep its
+  worktree; deleting it deletes the changes that were not merged, and that cannot be undone.
 
 ## 8. What "Host offline" means
 
 The host's `smurg host` is not running, the host's computer went to sleep (the laptop's lid was closed, for example),
 or the host's network is down. Once the host goes offline, everyone sees "Host offline" within 10 seconds.
 
-- Every file and session is on the host's computer, so until the host is back **changes to files are not saved and
-  agents cannot be used**.
+- Everything is on the host's computer, so until the host is back **changes to files are not saved, nothing can be
+  sent to an agent, and votes and answers cannot be given**. Everything stays readable. Agents that were waiting
+  for a person keep waiting on the host's computer.
 - When the host is back, the page **reconnects by itself**; you do not have to reload. What you typed in the editor
   while offline is not lost and is sent after the reconnect. You have to decide in one case only: the host's computer
   loaded the file again (the host's smurg restarted, for example) and its content differs from your version in a way
-  that cannot be merged automatically. The page then says "You have changes that were not saved to the host's
-  computer" and lets you choose "Replace with my version", "Copy my version" or "Discard my version".
-- When the host's computer is awake and only you lost the connection, the sessions keep running on the host's
+  that cannot be merged automatically. The page then says
+  "You have changes that were not saved to the host's computer" and lets you choose "Replace with my version",
+  "Copy my version" or "Discard my version".
+- When the host's computer is awake and only you lost the connection, the agents keep working on the host's
   computer; after you reconnect you see everything that happened.
-- "The host stopped sharing this workspace" means the host ran `smurg stop`: every session has ended. When the host
-  shares again, the page reconnects by itself.
+- "The host stopped sharing this workspace" means the host ran `smurg stop`: terminal sessions have ended, and
+  agent sessions are paused. When the host shares again, the page reconnects by itself.
+- **After the host's smurg was restarted**, every conversation is readable and every agent is idle, but nothing
+  runs by itself: plans are paused ("smurg was restarted on the host's computer."), and the host or a member with
+  agent access chooses "Continue all". A question that was open is asked again when its session continues.
 - "Server unreachable" is something else: a network problem between you and the relay.
 
 ## 9. Leaving a workspace: what ends
 
 "**Leave**" at the top right → confirm with "Leave".
 
-**What ends** (within seconds): every session you opened (agents and terminals).
+**What ends** (within seconds): the terminal sessions you opened, and the agent sessions you opened that belong to
+no topic.
+
+**What passes to the host**: the sessions of topics that you created or started. They keep running, now looked
+after by the host, so a plan does not stop because you left. Questions you would have decided are decided by the
+next person in line or by the host.
+
+**What is removed with you**: your votes on questions that are still open, your messages that an agent has not read
+yet, the kinds of commands you always allowed, and a permission mode you loosened. Work items you started that have
+not begun yet do not start until someone starts them again.
 
 **What is not deleted**:
 
 - Your **membership**: you are still in the host's member list and can open the workspace again later with the same
   browser. Only the host can remove you completely.
-- The files you changed or created in the shared folder: they are part of the host's project.
-- Your worktrees (including changes not merged yet): the host can remove them.
-- Your suggestions, the activity feed and the audit log on the host's computer.
+- The files you changed or created in the shared folder, and everything in a topic's folder: they are part of the
+  host's project.
+- The conversations you took part in, the activity feed and the audit log on the host's computer.
 
-**Closing the tab or losing the connection** is not leaving: the sessions you opened keep running on the host's
-computer. When the host removes you from the workspace, or changes your role to Editor or Viewer, the sessions you
-opened end too.
+**Closing the tab or losing the connection** is not leaving: nothing ends, and what waits for you keeps waiting
+(after a while the host and the members with agent access can answer in your place).
+
+When the host changes your role so that you can no longer use agents, the same things end, pass to the host and
+are removed (your votes stay while you may still vote). When the host removes you from the workspace, the topic
+sessions you started are also stopped before they pass to the host, and your suggestions that nobody decided are
+closed.
 
 ## 10. Joining from a terminal (CLI, optional)
 
-If you would rather not watch sessions in a browser, the `smurg` command attaches a session to a terminal on your own
-computer (macOS or Linux). Install it first with one line (it is the same program the host uses; see the
-[host guide](HOSTING.md) §1):
+The `smurg` command can attach a **terminal session** of the workspace to a terminal on your own computer (macOS or
+Linux). Agent sessions are conversations and open in the browser only; the command lists them. Install it first
+with one line (it is the same program the host uses; see the [host guide](HOSTING.md) §1):
 
 ```sh
 curl -fsSL https://smurg.ai/install.sh | sh
@@ -309,13 +512,19 @@ only if you yourself just ran smurg in a terminal; if someone else gave you the 
 After joining:
 
 ```sh
-smurg attach                  # lists the sessions in the workspace (number, kind, owner, state)
-smurg attach 2                # attaches session 2 to this terminal; Ctrl-] detaches (the session keeps running)
+smurg attach                  # lists the terminal sessions (number, owner, state), then the agent sessions with topic and status
+smurg attach 2                # attaches terminal session 2 to this terminal; Ctrl-] detaches (the session keeps running)
 ```
 
-Members with agent access can type into any session; other roles can only watch (smurg says "Read-only: …" first). When
-the host goes offline, `smurg attach` tells you within seconds. To protect your terminal, a session's output is
-filtered before it is shown: terminal queries, clipboard access (OSC 52) and other control sequences smurg does not
-know are never sent to your terminal (someone else's agent could be tricked into printing them).
+Under the terminals, the list shows the agent sessions ("Agent sessions (conversations):") with their status and
+topic, and the address where they open in the browser. Naming an agent session to `smurg attach` only prints that
+it is a conversation, not a terminal.
 
-The CLI cannot open sessions or send suggestions, and it has no "Leave": use the web app for those.
+Members with agent access can type into any terminal session; other roles can only watch (smurg says
+"Read-only: …" first). When the host goes offline, `smurg attach` tells you within seconds. To protect your
+terminal, a session's output is filtered before it is shown: terminal queries, clipboard access (OSC 52) and other
+control sequences smurg does not know are never sent to your terminal (a program in someone else's session could
+be tricked into printing them).
+
+The CLI cannot open sessions, message agents, vote or send suggestions, and it has no "Leave": use the web app for
+those.

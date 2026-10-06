@@ -1,16 +1,19 @@
-// `smurg attach`: one session in the person's own terminal (SPEC R4; ARCHITECTURE §7.6 "PTY"; pty-packaging.md §6.4,
-// V6, V8). The terminal goes into raw mode; the daemon's snapshot is painted after a reset, then live output follows
-// by absolute byte offset (no gap, no duplicate); keystrokes and SIGWINCH go to the session only when this person OWNS
-// it (everyone else is read-only with a notice: suggestions are the way to steer someone else's agent, R6); Ctrl-]
-// detaches (also in its kitty / CSI-u form). The output goes through an allow-list filter (./output-filter.ts): no
-// query, OSC 52, DCS, APC or other unknown sequence reaches the local terminal (the daemon's mirror answers queries). The local terminal is restored on EVERY way out: detach, the session's exit (whose exit
-// code becomes ours), a lost connection, a signal, an exception, process exit.
-import { EXEC_INPUT_MAX_BYTES, can, type SessionInfo, type TerminalSession } from '@smurg/protocol';
+// `smurg attach`: one TERMINAL session in the person's own terminal (SPEC R4; ARCHITECTURE §7.6 "PTY";
+// pty-packaging.md §6.4, V6, V8). An agent session is a conversation without a PTY and is never attached here
+// (../commands/attach.ts says where it opens). The terminal goes into raw mode; the daemon's snapshot is painted after
+// a reset, then live output follows by absolute byte offset (no gap, no duplicate); keystrokes go to the session when
+// this person's role may type into sessions (`session.drive`: the host and members with agent access; everyone else is
+// read-only with a notice) and SIGWINCH resizes it only for who opened it; Ctrl-] detaches (also in its kitty / CSI-u
+// form). The output goes through an allow-list filter (./output-filter.ts): no query, OSC 52, DCS, APC or other
+// unknown sequence reaches the local terminal (the daemon's mirror answers queries). The local terminal is restored on
+// EVERY way out: detach, the session's exit (whose exit code becomes ours), a lost connection, a signal, an exception,
+// process exit.
+import { EXEC_INPUT_MAX_BYTES, can, sessionTitleRef, type SessionInfo, type TerminalSession } from '@smurg/protocol';
 import type { WorkspaceChannel } from '../channel/channel.ts';
 import type { ChannelEnd } from '../channel/channel.ts';
 import { errorText } from '../cli/errors.ts';
 import type { AttachTerminal, CliIo, CliSignal } from '../cli/io.ts';
-import { msg, renderEnglish } from '@smurg/protocol/i18n';
+import { renderEnglish } from '@smurg/protocol/i18n';
 import { m, renderText, wireText, type Locale, type Text } from '../i18n/index.ts';
 import { OutputFilter } from './output-filter.ts';
 
@@ -320,11 +323,13 @@ export function readOnlyNotice(session: Pick<SessionInfo, 'openedBy'>): Text {
 }
 
 /**
- * A session's title: the one its opener typed, else the default for its kind and owner (the wire carries no default
- * title: each client words it in its own language, from the wire catalog, so the web app and the CLI say the same).
+ * A session's title: the one a person gave it, else its name by what it is (`sessionTitleRef` of @smurg/protocol: a
+ * terminal and a free agent session by who opened them, a topic's discussion, a work item by its number and title).
+ * The wire carries no default title: each client words it in its own language, from the wire catalog, so the web app
+ * and the CLI say the same.
  */
-export function sessionTitle(session: Pick<SessionInfo, 'kind' | 'openedBy'> & { readonly title?: string | undefined }): Text {
+export function sessionTitle(session: SessionInfo): Text {
   if (session.title !== undefined && session.title !== '') return session.title;
-  const ref = msg(session.kind === 'agent' ? 'session.title.agent' : 'session.title.terminal', { owner: session.openedBy.displayName });
+  const ref = sessionTitleRef(session);
   return wireText(ref, renderEnglish(ref));
 }

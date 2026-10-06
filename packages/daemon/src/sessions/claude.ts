@@ -2,7 +2,8 @@
 //  - resolved from config.sessions.claudePath or the host's PATH, then realpath'd (sessions exec it by that path);
 //  - its `--version` is read asynchronously with an isolated, credential-free environment (never the host's
 //    configuration) and cached by file identity, then judged by claudeVersionVerdict();
-//  - `claude auth status --json` decides the login state; TUI strings are hints only.
+//  - `claude auth status --json` decides the login state before a start; in a session the stream itself says when the
+//    login is gone (agent/normalise.ts).
 import { constants as fsConstants } from 'node:fs';
 import { access, mkdtemp, realpath, rm, stat } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
@@ -116,41 +117,4 @@ export function parseAuthStatus(result: { readonly code: number | null; readonly
   if (result.code === 0 && loggedIn === true) return 'logged-in';
   if (loggedIn === false) return 'logged-out';
   return 'unknown';
-}
-
-/**
- * Hints in the TUI output that the login state may have changed (claude-hooks.md §1.6, gotcha 12): matched with every
- * whitespace removed because Ink positions text with cursor moves. Version-specific; they only trigger a re-check with
- * `claude auth status --json`, they never decide the state.
- */
-export const LOGIN_HINTS: readonly string[] = Object.freeze([
-  'Loginsuccessful',
-  'Selectloginmethod',
-  'Notloggedin',
-  'Pastecodehereifprompted',
-  'OAutherror',
-  'Loginexpired',
-  'OAuthtokenrevoked',
-  'Successfullyloggedout',
-]);
-
-/** Streaming detector: feeds output, reports once per hint burst. Bounded memory (keeps a short tail). */
-export class LoginHintDetector {
-  private tail = '';
-  private readonly decoder = new TextDecoder('utf-8', { fatal: false });
-
-  /** True when this chunk (with the tail of the previous ones) contains a hint. */
-  push(chunk: Uint8Array): boolean {
-    // Strip escape sequences and whitespace; keep printable text only.
-    const text = this.decoder
-      .decode(chunk, { stream: true })
-      // eslint-disable-next-line no-control-regex
-      .replace(/\x1b\[[0-9;?<>=!]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]/g, '')
-      .replace(/\s+/g, '');
-    const window = this.tail + text;
-    const hit = LOGIN_HINTS.some((hint) => window.includes(hint));
-    // A hint is reported once: it must not fire again for the next chunks while it is still in the tail.
-    this.tail = hit ? '' : window.slice(-64);
-    return hit;
-  }
 }

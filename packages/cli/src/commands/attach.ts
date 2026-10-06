@@ -4,14 +4,30 @@
 // The invite link carries its secret after `#`: it is read from a prompt (`--invite -`, not echoed) or SMURG_INVITE,
 // so it stays out of argv (`ps`) and shell history; a link given on the command line still works, with a warning.
 // Without a session it lists the sessions; with one it takes over the terminal (attach/attach-session.ts).
+// `smurg attach` is a terminal for TERMINAL sessions. An agent session is a conversation (no PTY): the list shows it
+// with its topic, status and title and says where conversations open (the workspace's address in the web app), and
+// naming one as the session to attach is refused with that sentence (exit 2). No terminal client for conversations.
 // An invite whose daemon key differs from the key this device pinned for the workspace (the host started over with new
 // workspace keys, HOSTING §5.1 / §8 — or someone poses as the host) is explained and used only after the person's
 // explicit yes at a terminal or --accept-new-key (the web app asks the same question).
 import { hostname } from 'node:os';
-import { InviteLinkError, can, collectPages, daemonKeyFingerprint, equalBytes, formatFingerprintForDisplay, parseInviteUrl, type SessionInfo, type TerminalSession } from '@smurg/protocol';
+import {
+  InviteLinkError,
+  can,
+  collectPages,
+  daemonKeyFingerprint,
+  equalBytes,
+  formatFingerprintForDisplay,
+  parseInviteUrl,
+  type AgentSession,
+  type AgentStatus,
+  type SessionInfo,
+  type TerminalSession,
+} from '@smurg/protocol';
 import type { ConnectionRelay } from '@smurg/protocol/client';
 import { readPinnedDaemonKey } from '@smurg/protocol/node';
 import { booleanOption, parseArgs, stringOption } from '../cli/args.ts';
+import { clipColumn, padColumn } from '../cli/columns.ts';
 import { CliError, usageError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
 import type { WorkspaceChannel } from '../channel/channel.ts';
@@ -20,12 +36,12 @@ import { LocalWorkspaceChannel } from '../channel/local-channel.ts';
 import { RelayWorkspaceChannel } from '../channel/relay-channel.ts';
 import { ensureSession } from '../relay/login.ts';
 import { DEFAULT_RELAY_URL } from '../relay/default-relay.ts';
-import { builtInRelayNotice, pickRelay, relayApi, relayOriginOf } from '../relay/relay.ts';
+import { builtInRelayNotice, pickRelay, relayApi, relayOriginOf, workspaceAddress } from '../relay/relay.ts';
 import { loadCredentials, sessionFor } from '../state/credentials.ts';
-import { loadWorkspaces, rememberJoined } from '../state/workspaces.ts';
+import { loadWorkspaces, rememberJoined, type JoinedWorkspace } from '../state/workspaces.ts';
 import { attachSession, readOnlyNotice, sessionTitle, signalExitCode, type AttachOutcome } from '../attach/attach-session.ts';
 import { localeIsUtf8 } from '../attach/output-filter.ts';
-import { m, renderText, type Locale, type Text } from '../i18n/index.ts';
+import { m, renderText, type Locale, type MessageId, type Text } from '../i18n/index.ts';
 import { say, tr, type CommandContext } from './context.ts';
 
 /** `smurg attach --help`; the --relay default depends on the built-in relay (../relay/default-relay.ts). */
@@ -49,35 +65,106 @@ function statusText(s: TerminalSession): Text {
   return m(s.status === 'starting' ? 'attach.status.starting' : 'attach.status.running');
 }
 
-/** The sessions `smurg attach` works with: terminals. An agent session is a conversation, not a PTY. */
+/** An agent session's status in the list (the words of the web app's session list, docs/GLOSSARY.md). */
+const AGENT_STATUS: Readonly<Record<AgentStatus, MessageId>> = {
+  starting: 'attach.status.starting',
+  running: 'attach.status.running',
+  'waiting-answer': 'attach.agent.waitingAnswer',
+  'waiting-permission': 'attach.agent.waitingPermission',
+  idle: 'attach.agent.idle',
+  stalled: 'attach.agent.stalled',
+  done: 'attach.agent.done',
+  failed: 'attach.agent.failed',
+  ended: 'attach.agent.ended',
+};
+
+/** The sessions `smurg attach` attaches to: terminals. An agent session is a conversation, not a PTY. */
 export function terminalSessions(sessions: readonly SessionInfo[]): TerminalSession[] {
   return sessions.filter((session): session is TerminalSession => session.kind === 'terminal');
 }
 
-export function formatSessionList(sessions: readonly TerminalSession[], me: string, lang: Locale): string {
+/** The agent sessions, a topic's sessions together (topics in the order they first appear), free sessions last. */
+export function agentSessions(sessions: readonly SessionInfo[]): AgentSession[] {
+  const agents = sessions.filter((session): session is AgentSession => session.kind === 'agent');
+  const topics = new Map<string, number>();
+  for (const session of agents) if (session.topicId !== undefined && !topics.has(session.topicId)) topics.set(session.topicId, topics.size);
+  const rank = (session: AgentSession): number => (session.topicId === undefined ? topics.size : (topics.get(session.topicId) as number));
+  return [...agents].sort((a, b) => rank(a) - rank(b));
+}
+
+/** The line that says where agent conversations open; `webUrl` is the workspace's address there (null: not known). */
+export function browserSentence(webUrl: string | null): Text {
+  return m('attach.agents.browser', webUrl === null ? {} : { url: webUrl });
+}
+
+/** Column widths (terminal cells) of the two tables; the headers of both catalogs are spaced to them. */
+const COLUMNS = Object.freeze({ number: 4, id: 32, kind: 8, owner: 12, status: 10, agentStatus: 24, topic: 24 });
+
+/**
+ * What `smurg attach` prints without a session: the terminals, numbered (a number picks one), then the agent sessions
+ * with status, topic and title, then how to attach and where conversations open.
+ */
+export function formatSessionList(sessions: readonly SessionInfo[], me: string, lang: Locale, webUrl: string | null = null): string {
   const tr = (text: Text): string => renderText(lang, text);
-  if (sessions.length === 0) return tr(m('attach.list.empty'));
-  const lines = [tr(m('attach.list.header'))];
-  sessions.forEach((s, i) => {
-    const kind = tr(m('attach.kind.terminal'));
-    const owner = s.openedBy.userId === me ? tr(m('attach.owner.you', { name: s.openedBy.displayName })) : s.openedBy.displayName;
-    lines.push(`${String(i + 1).padEnd(4)}  ${s.id.padEnd(32)}  ${kind.padEnd(8)}  ${owner.padEnd(12)}  ${tr(statusText(s)).padEnd(10)}  ${tr(sessionTitle(s))}`);
-  });
-  lines.push('', tr(m('attach.list.footer')));
+  const row = (cells: readonly (readonly [string, number])[], last: string): string => `${cells.map(([text, width]) => padColumn(text, width)).join('  ')}  ${last}`;
+  const terminals = terminalSessions(sessions);
+  const agents = agentSessions(sessions);
+  if (terminals.length === 0 && agents.length === 0) return tr(m('attach.list.empty'));
+  const lines: string[] = [];
+  if (terminals.length === 0) lines.push(tr(m('attach.list.noTerminals')));
+  else {
+    lines.push(tr(m('attach.list.header')));
+    terminals.forEach((s, i) => {
+      const owner = s.openedBy.userId === me ? tr(m('attach.owner.you', { name: s.openedBy.displayName })) : s.openedBy.displayName;
+      lines.push(
+        row(
+          [
+            [String(i + 1), COLUMNS.number],
+            [s.id, COLUMNS.id],
+            [tr(m('attach.kind.terminal')), COLUMNS.kind],
+            [owner, COLUMNS.owner],
+            [tr(statusText(s)), COLUMNS.status],
+          ],
+          tr(sessionTitle(s)),
+        ),
+      );
+    });
+  }
+  if (agents.length > 0) {
+    lines.push('', tr(m('attach.agents.heading')), tr(m('attach.agents.header')));
+    for (const s of agents) {
+      const topic = s.topicName ?? tr(m('attach.agents.noTopic'));
+      lines.push(
+        row(
+          [
+            [s.id, COLUMNS.id],
+            [tr({ id: AGENT_STATUS[s.status] }), COLUMNS.agentStatus],
+            [clipColumn(topic, COLUMNS.topic), COLUMNS.topic],
+          ],
+          tr(sessionTitle(s)),
+        ),
+      );
+    }
+  }
+  lines.push('');
+  if (terminals.length > 0) lines.push(tr(m('attach.list.footer')));
+  if (agents.length > 0) lines.push(tr(browserSentence(webUrl)));
   return lines.join('\n');
 }
 
-/** `2`, a full id, or a unique id prefix. */
-export function pickSession(sessions: readonly TerminalSession[], wanted: string): TerminalSession {
+/**
+ * `2` (a terminal's number in the list), a full id, or a unique id prefix. The id may be an agent session's: the caller
+ * says where conversations open instead of attaching.
+ */
+export function pickSession(sessions: readonly SessionInfo[], wanted: string): SessionInfo {
   if (/^\d{1,4}$/.test(wanted)) {
-    const index = Number(wanted) - 1;
-    const byIndex = sessions[index];
+    const byIndex = terminalSessions(sessions)[Number(wanted) - 1];
     if (byIndex) return byIndex;
   }
   const exact = sessions.find((s) => s.id === wanted);
   if (exact) return exact;
   const prefixed = sessions.filter((s) => s.id.startsWith(wanted));
-  if (prefixed.length === 1) return prefixed[0] as TerminalSession;
+  if (prefixed.length === 1) return prefixed[0] as SessionInfo;
   if (prefixed.length > 1) throw usageError(m('attach.pick.ambiguous', { wanted }));
   throw usageError(m('attach.pick.notFound', { wanted }), m('attach.pick.notFound.hint'));
 }
@@ -88,6 +175,12 @@ interface Target {
   readonly ctlPath?: string;
   readonly relay?: string;
   readonly invite?: { readonly fingerprint: Uint8Array; readonly secret: Uint8Array };
+  /**
+   * The origin of the workspace's web app, where agent conversations open: what the local daemon names (null: it has
+   * none, no relay); for a join through the relay the invite link's origin, else the one remembered from the first
+   * join, else the relay itself (which serves the web app).
+   */
+  readonly webOrigin: string | null;
 }
 
 async function resolveTarget(ctx: CommandContext, flags: { workspace?: string; invite?: string; relay?: string }): Promise<Target> {
@@ -103,30 +196,32 @@ async function resolveTarget(ctx: CommandContext, flags: { workspace?: string; i
     if (flags.workspace !== undefined && flags.workspace !== parsed.workspaceId) throw usageError(m('attach.invite.otherWorkspace'));
     // The invite's origin is the web origin, which is the relay in production (the relay serves the web app).
     const relay = flags.relay !== undefined ? relayOriginOf(flags.relay) : relayOriginOf(parsed.origin, 'invite');
-    return { kind: 'relay', workspaceId: parsed.workspaceId, relay, invite: { fingerprint: parsed.fingerprint, secret: parsed.secret } };
+    return { kind: 'relay', workspaceId: parsed.workspaceId, relay, invite: { fingerprint: parsed.fingerprint, secret: parsed.secret }, webOrigin: parsed.origin };
   }
+  const relayTarget = (workspaceId: string, relay: string, joined: JoinedWorkspace | undefined): Target => ({ kind: 'relay', workspaceId, relay, webOrigin: joined?.web ?? relay });
   const hinted = await hintedWorkspace(ctx.paths, flags.workspace, ctx.io.cwd);
   if (hinted !== null) {
     const ctlPath = ctlPathFor(ctx.paths, hinted);
-    if (await daemonAt(ctlPath)) return { kind: 'local', workspaceId: hinted, ctlPath };
+    const local = await daemonAt(ctlPath);
+    if (local) return { kind: 'local', workspaceId: hinted, ctlPath, webOrigin: local.webOrigin };
     const joined = (await loadWorkspaces(ctx.paths)).joined.find((j) => j.workspaceId === hinted);
-    if (flags.relay !== undefined) return { kind: 'relay', workspaceId: hinted, relay: relayOriginOf(flags.relay) };
-    if (joined !== undefined) return { kind: 'relay', workspaceId: hinted, relay: joined.relay };
+    if (flags.relay !== undefined) return relayTarget(hinted, relayOriginOf(flags.relay), joined);
+    if (joined !== undefined) return relayTarget(hinted, joined.relay, joined);
     // Neither the flag nor a remembered join: SMURG_RELAY_URL, the last login, or the built-in relay.
     const chosen = pickRelay(undefined, ctx.io, credentials);
     if (chosen.source === 'built-in') say(ctx, builtInRelayNotice(chosen.origin));
-    return { kind: 'relay', workspaceId: hinted, relay: chosen.origin };
+    return relayTarget(hinted, chosen.origin, undefined);
   }
   const running = await runningDaemons(ctx.paths);
   if (running.length === 1) {
     const only = running[0] as (typeof running)[number];
-    return { kind: 'local', workspaceId: only.status.workspaceId, ctlPath: only.ctlPath };
+    return { kind: 'local', workspaceId: only.status.workspaceId, ctlPath: only.ctlPath, webOrigin: only.webOrigin };
   }
   if (running.length > 1) throw usageError(m('attach.several'), m('attach.several.hint', { ids: running.map((d) => d.status.workspaceId) }));
   const joined = (await loadWorkspaces(ctx.paths)).joined;
   if (joined.length === 1) {
     const only = joined[0] as (typeof joined)[number];
-    return { kind: 'relay', workspaceId: only.workspaceId, relay: flags.relay !== undefined ? relayOriginOf(flags.relay) : only.relay };
+    return relayTarget(only.workspaceId, flags.relay !== undefined ? relayOriginOf(flags.relay) : only.relay, only);
   }
   throw usageError(m('attach.noTarget'), m('attach.noTarget.hint'));
 }
@@ -190,7 +285,9 @@ async function openChannel(ctx: CommandContext, target: Target, deps: AttachDeps
     ...(preferInvite ? { preferInvite: true } : {}),
     deviceName: deviceName(),
   });
-  await rememberJoined(ctx.paths, { workspaceId: target.workspaceId, relay: origin, name: channel.welcome.workspace.name, joinedAt: ctx.io.now() });
+  // The web app's origin is remembered only when it is not the relay itself (a development setup: Vite in front).
+  const web = target.webOrigin !== null && target.webOrigin !== origin ? { web: target.webOrigin } : {};
+  await rememberJoined(ctx.paths, { workspaceId: target.workspaceId, relay: origin, name: channel.welcome.workspace.name, joinedAt: ctx.io.now(), ...web });
   return channel;
 }
 
@@ -268,15 +365,17 @@ export async function runAttach(argv: readonly string[], ctx: CommandContext, de
       const page = await channel.request('session.list', after === undefined ? {} : { after });
       return { items: page.sessions, hasMore: page.hasMore };
     }, (session) => session.id);
-    const sessions = terminalSessions(listed);
+    const webUrl = target.webOrigin === null ? null : workspaceAddress(target.webOrigin, target.workspaceId);
     if (wanted === undefined) {
       const name = channel.welcome.workspace.name;
       say(ctx, target.kind === 'local' ? m('attach.list.workspace.local', { name, workspaceId: target.workspaceId }) : m('attach.list.workspace.relay', { name, workspaceId: target.workspaceId, relay: target.relay as string }));
-      say(ctx, formatSessionList(sessions, me, ctx.lang));
+      say(ctx, formatSessionList(listed, me, ctx.lang, webUrl));
       return EXIT.ok;
     }
-    const session = pickSession(sessions, wanted);
+    const session = pickSession(listed, wanted);
     const title = sessionTitle(session);
+    // A conversation has no PTY to attach to: say where it opens (the same sentence as under the list).
+    if (session.kind === 'agent') throw usageError(m('attach.agents.notTerminal', { title }), browserSentence(webUrl));
     if (session.status === 'exited') throw new CliError(m('attach.sessionExited', { title, exitCode: session.exitCode ?? 0 }));
     const isOwner = session.openedBy.userId === me;
     say(ctx, m(isOwner ? 'attach.attaching.own' : 'attach.attaching.other', { title, owner: session.openedBy.displayName }));

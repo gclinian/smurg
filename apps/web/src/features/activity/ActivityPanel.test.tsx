@@ -3,7 +3,7 @@ import { msg } from '@smurg/protocol/i18n';
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { CommandMap } from '../../lib/commands.ts';
-import { HOST_USER, makeActivity, makeWorktree } from '../../testing/fixtures.ts';
+import { HOST_USER, makeActivity, makeAgentSession, makeWorktree } from '../../testing/fixtures.ts';
 import { renderInWorkspace } from '../../testing/services.tsx';
 import { ActivityPanel } from './index.tsx';
 
@@ -28,6 +28,34 @@ function renderFeed(options: { role?: Role; events?: ActivityEvent[] } = {}) {
   const items = () => screen.queryAllByRole('listitem');
   return { ...view, dispatched, settle, items, answer: (events: ActivityEvent[]) => view.conn.respond('activity.list', { events }) };
 }
+
+describe('ActivityPanel: from a change to the session that made it (code mode)', () => {
+  it("an agent's entry offers \"Show the session\": that agent's conversation becomes the session column beside the editor", async () => {
+    const view = renderFeed();
+    view.conn.handle('session.list', () => ({ sessions: [makeAgentSession({ id: 'sess_1' })], hasMore: false }));
+    await act(async () => {
+      await view.stores.sessions.reload();
+    });
+    view.answer([
+      makeActivity({ id: 'act_3', at: Date.now() - 1_000, actor: AGENT, kind: 'agent.edit', file: { root: MAIN_ROOT, path: 'src/app.ts' } }),
+      // An agent whose session the list no longer has, a person, and an outside program: nothing to show.
+      makeActivity({ id: 'act_2', at: Date.now() - 2_000, actor: AMY_AGENT, kind: 'agent.edit', file: { root: MAIN_ROOT, path: 'src/util.ts' } }),
+      makeActivity({ id: 'act_1', at: Date.now() - 3_000, actor: BOB, kind: 'human.edit', file: { root: MAIN_ROOT, path: 'README.md' } }),
+    ]);
+    await view.settle();
+    const [mine, gone, person] = view.items();
+    expect(within(gone!).queryByRole('button', { name: /^Show the session/ })).toBeNull();
+    expect(within(person!).queryByRole('button', { name: /^Show the session/ })).toBeNull();
+    expect(view.stores.columns.getState().code.sessionId).toBeNull();
+
+    fireEvent.click(within(mine!).getByRole('button', { name: 'Show the session of Claude (Ian) beside the editor' }));
+    expect(view.stores.columns.getState().code.sessionId).toBe('sess_1');
+    expect(view.dispatched.showPanel).toEqual([{ panel: 'session' }]);
+    // The file of the entry still opens in the editor.
+    fireEvent.click(within(mine!).getByRole('button', { name: 'Open src/app.ts' }));
+    expect(view.dispatched.openFile).toEqual([{ file: { root: MAIN_ROOT, path: 'src/app.ts' } }]);
+  });
+});
 
 describe('ActivityPanel: the live activity feed', () => {
   it('every change by an agent appears in the activity feed, naming the agent and whose it is — the web feed, live and newest first', async () => {

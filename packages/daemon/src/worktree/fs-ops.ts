@@ -246,3 +246,199 @@ export async function sweepRemovals(worktreesDir: string): Promise<number> {
   }
   return removed;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Single files below a root the daemon does not control the content of (a worktree, the shared folder). Path-based
+// checks that bracket the operation, like stage-commit.ts: never through a symbolic link.
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Whether every directory from `root` down `segments` is a real directory (no symlink on the way). */
+async function plainDirsBelow(root: string, segments: readonly string[]): Promise<boolean> {
+  let at = root;
+  for (const segment of segments) {
+    at = join(at, segment);
+    const st = await lstatOrNull(at);
+    if (st === null || !st.isDirectory()) return false;
+  }
+  return true;
+}
+
+/**
+ * Removes whatever is at `<root>/<rel>` (a file or a link is unlinked, never followed; a directory is removed with
+ * its content). `absent`: nothing was there. `blocked`: a directory on the way is missing its plain form (a symlink,
+ * a file): nothing was touched, because the name then means a place outside `root`.
+ */
+export async function removeEntryBelow(root: string, rel: string): Promise<'removed' | 'absent' | 'blocked'> {
+  const segments = relPathSegments(rel);
+  if (segments.length === 0) return 'blocked';
+  const parents = segments.slice(0, -1);
+  let at = root;
+  for (const segment of parents) {
+    at = join(at, segment);
+    const st = await lstatOrNull(at);
+    if (st === null) return 'absent';
+    if (!st.isDirectory()) return 'blocked';
+  }
+  const full = join(root, ...segments);
+  const st = await lstatOrNull(full);
+  if (st === null) return 'absent';
+  if (st.isDirectory()) await removeTree(full);
+  else await unlink(full);
+  return 'removed';
+}
+
+/**
+ * What is at `<root>/<rel>`: a regular `file` reached through plain directories only; `missing` (nothing is there, and
+ * nothing on the way is a link); or `other`: a link, a folder, something behind a link. Only the first is read by
+ * the daemon, only the first two are safe to name to git.
+ */
+export async function plainFileKind(root: string, rel: string): Promise<'file' | 'missing' | 'other'> {
+  const segments = relPathSegments(rel);
+  if (segments.length === 0) return 'other';
+  if (await plainDirsBelow(root, segments.slice(0, -1))) {
+    const st = await lstatOrNull(join(root, ...segments));
+    if (st === null) return 'missing';
+    return st.isFile() ? 'file' : 'other';
+  }
+  return (await missingBelow(root, segments)) ? 'missing' : 'other';
+}
+
+/**
+ * The bytes of the regular file at `<root>/<rel>`, read without following a link. null: no regular file is there (it
+ * is missing, a link, a directory, or a directory on the way is not a plain one). `too-large`: more than `maxBytes`.
+ */
+export async function readPlainFileBelow(root: string, rel: string, maxBytes: number): Promise<Buffer | null | 'too-large'> {
+  const segments = relPathSegments(rel);
+  if (segments.length === 0 || !(await plainDirsBelow(root, segments.slice(0, -1)))) return null;
+  const full = join(root, ...segments);
+  const before = await lstatOrNull(full);
+  if (before === null || !before.isFile()) return null;
+  if (before.size > maxBytes) return 'too-large';
+  let handle;
+  try {
+    handle = await open(full, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+  } catch {
+    return null;
+  }
+  try {
+    const st = await handle.stat();
+    if (!st.isFile() || st.dev !== before.dev || st.ino !== before.ino) return null;
+    if (st.size > maxBytes) return 'too-large';
+    const bytes = await handle.readFile();
+    return bytes.length > maxBytes ? 'too-large' : bytes;
+  } finally {
+    await handle.close();
+  }
+}
+
+const LESS_THAN = 0x3c;
+const GREATER_THAN = 0x3e;
+const MARKER_SIZE = 7;
+
+/** `head`: the first bytes of a line (at most MARKER_SIZE + 1, no line feed). git's `<<<<<<< x` / `>>>>>>> x`. */
+function isConflictMarkerLine(head: Uint8Array): boolean {
+  if (head.length < MARKER_SIZE) return false;
+  const char = head[0];
+  if (char !== LESS_THAN && char !== GREATER_THAN) return false;
+  for (let i = 1; i < MARKER_SIZE; i++) if (head[i] !== char) return false;
+  if (head.length === MARKER_SIZE) return true;
+  const next = head[MARKER_SIZE];
+  return next === 0x20 || next === 0x09 || next === 0x0d;
+}
+
+/** Whether a line of the open file starts with a conflict marker. Streams: a file of any size, constant memory. */
+async function hasConflictMarkerLine(handle: Awaited<ReturnType<typeof open>>): Promise<boolean> {
+  const chunk = Buffer.allocUnsafe(256 * 1024);
+  const head = new Uint8Array(MARKER_SIZE + 1);
+  let headLength = 0;
+  // The rest of a line whose start already cannot be a marker.
+  let skipping = false;
+  for (;;) {
+    const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+    if (bytesRead === 0) break;
+    let at = 0;
+    while (at < bytesRead) {
+      if (skipping) {
+        const lineFeed = chunk.indexOf(0x0a, at);
+        if (lineFeed === -1 || lineFeed >= bytesRead) break;
+        at = lineFeed + 1;
+        skipping = false;
+        headLength = 0;
+        continue;
+      }
+      const byte = chunk[at] as number;
+      at += 1;
+      if (byte === 0x0a) {
+        if (isConflictMarkerLine(head.subarray(0, headLength))) return true;
+        headLength = 0;
+        continue;
+      }
+      if (headLength === 0 && byte !== LESS_THAN && byte !== GREATER_THAN) {
+        skipping = true;
+        continue;
+      }
+      head[headLength] = byte;
+      headLength += 1;
+      if (headLength === head.length) {
+        if (isConflictMarkerLine(head)) return true;
+        skipping = true;
+      }
+    }
+  }
+  return !skipping && isConflictMarkerLine(head.subarray(0, headLength));
+}
+
+/**
+ * The files among `paths` (relative to `root`) that still have a line starting with `<<<<<<<` or `>>>>>>>`: what git
+ * leaves in a file it could not merge. A path that is gone, or is no regular file any more, has none (the conflict
+ * was resolved by removing it). A file that cannot be read safely counts as unresolved (fail closed).
+ */
+export async function filesWithConflictMarkers(root: string, paths: readonly string[]): Promise<string[]> {
+  const found: string[] = [];
+  for (const path of paths) {
+    const segments = relPathSegments(path);
+    if (segments.length === 0) continue;
+    const parents = segments.slice(0, -1);
+    const full = join(root, ...segments);
+    const st = (await plainDirsBelow(root, parents)) ? await lstatOrNull(full) : null;
+    if (st === null) {
+      // Gone altogether is resolved; a parent that became a link is not something the daemon reads through.
+      if (!(await missingBelow(root, segments))) found.push(path);
+      continue;
+    }
+    if (!st.isFile()) continue;
+    let handle;
+    try {
+      handle = await open(full, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+    } catch (err) {
+      if (errnoCode(err) !== 'ENOENT') found.push(path);
+      continue;
+    }
+    try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || opened.dev !== st.dev || opened.ino !== st.ino || (await hasConflictMarkerLine(handle))) found.push(path);
+    } catch {
+      found.push(path);
+    } finally {
+      await handle.close();
+    }
+  }
+  return found;
+}
+
+/**
+ * Whether nothing can be at `<root>/<segments>`: an entry on the way is missing, or is a file (nothing lies below a
+ * file). false when a symbolic link is on the way: what the name means then is not for the daemon to find out.
+ */
+async function missingBelow(root: string, segments: readonly string[]): Promise<boolean> {
+  let at = root;
+  for (let i = 0; i < segments.length; i++) {
+    at = join(at, segments[i] as string);
+    const st = await lstatOrNull(at);
+    if (st === null) return true;
+    if (i === segments.length - 1) return false;
+    if (st.isSymbolicLink()) return false;
+    if (!st.isDirectory()) return true;
+  }
+  return false;
+}

@@ -1,16 +1,17 @@
-// The fail-closed / fail-open split of the two hooks (ARCHITECTURE §7.7, §11 D-13), proven with the REAL `claude`
-// against the mock Anthropic API (ARCHITECTURE §0 rule 2: dummy key, 127.0.0.1, isolated HOME / CLAUDE_CONFIG_DIR).
-// For each way the daemon can be unavailable to a session —
+// Row G1 of the tool gate (ARCHITECTURE §7.7; DESIGN §2.10), proven with the REAL `claude` against the mock Anthropic
+// API (ARCHITECTURE §0 rule 2: dummy key, 127.0.0.1, isolated HOME / CLAUDE_CONFIG_DIR). For each way the daemon can be
+// unavailable to a session —
 //   * stopped: the session's own daemon was stopped after the session was registered (it removes its socket),
 //   * crashed: a socket file is left with nothing listening (a daemon that died without cleaning up),
 //   * missing: nothing at the socket path,
 //   * garbage: a socket that answers something that is not the protocol,
-//   * slow: a socket that accepts and never answers (the hooks' own deadlines decide) —
-// one scripted Claude Code run tries every edit tool (Edit, Write, MultiEdit, NotebookEdit) and one Bash command:
-// the LOCK hook must deny every edit (the files stay byte-identical, the model is told the daemon is unreachable),
-// and the Bash ACTIVITY hook must let the shell command run (its file appears, its result is not an error) within
-// its own 1 s deadline. Skipped LOUDLY without a verified `claude`; SMURG_TEST_CLAUDE_BIN selects another binary
-// (both verified versions were run: see docs/ACCEPTANCE.md).
+//   * slow: a socket that accepts and never answers (the hook's own deadline decides) —
+// one scripted Claude Code run tries reads, every edit tool (Edit, Write, MultiEdit, NotebookEdit) and one Bash
+// command that an allow rule AND `acceptEdits` would let through: `smurg hook`, registered for every tool, must deny
+// ALL of them (the files stay byte-identical, the shell command does not run, the model is told smurg is not
+// reachable). An orphaned agent, or one whose daemon hangs, does nothing. The Bash ACTIVITY hook beside it still fails
+// open: it never decides anything. Skipped LOUDLY without a verified `claude`; SMURG_TEST_CLAUDE_BIN selects another
+// binary.
 import { buildLaunchProfile } from '../../src/core/fakes/build.ts';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -35,7 +36,7 @@ const NOTEBOOK = `${JSON.stringify({ cells: [{ cell_type: 'code', id: 'c1', meta
 const FILES: Readonly<Record<string, string>> = { 'edit.txt': 'edit me\n', 'write.txt': 'write me\n', 'multi.txt': 'multi me\n', 'nb.ipynb': NOTEBOOK };
 const EDIT_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'] as const;
 
-describe.skipIf(claude === null)(`the lock hook fails closed and the Bash activity hook fails open when the daemon is unavailable (${V}, mock API)`, () => {
+describe.skipIf(claude === null)(`the tool gate fails closed for every tool when the daemon is unavailable (${V}, mock API)`, () => {
   let env: ClaudeDaemon;
   let stopped: ClaudeDaemon | undefined;
   const servers: Server[] = [];
@@ -88,8 +89,8 @@ describe.skipIf(claude === null)(`the lock hook fails closed and the Bash activi
     const session = registerAgent(env.hooks, IAN);
     const files = await env.hooks.writeSessionFiles(session.sessionId, buildLaunchProfile());
     const settings = JSON.parse(await readFile(files.settingsPath, 'utf8')) as { hooks: Record<string, { matcher?: string; hooks: { args?: string[] }[] }[]> };
-    // Both hooks are registered: the lock hook for the edit tools, the Bash activity hook for Bash.
-    expect(settings.hooks['PreToolUse']?.map((group) => group.matcher)).toEqual(['Edit|Write|MultiEdit|NotebookEdit', 'Bash']);
+    // Both hooks are registered: the gate for EVERY tool, the Bash activity hook for Bash.
+    expect(settings.hooks['PreToolUse']?.map((group) => group.matcher)).toEqual(['*', 'Bash']);
     expect(settings.hooks['PreToolUse']?.[0]?.hooks[0]?.args?.at(-1)).toBe('hook');
     expect(settings.hooks['PreToolUse']?.[1]?.hooks[0]?.args?.slice(-2)).toEqual(['hook', 'bash-activity']);
     const isolated = await env.isolatedDir(label);
@@ -99,7 +100,8 @@ describe.skipIf(claude === null)(`the lock hook fails closed and the Bash activi
       const result = await runClaude(claude as NonNullable<typeof claude>, {
         cwd: env.root,
         env: isolatedEnv(isolated, mock.url, { ...session.env, SMURG_HOOK_SOCKET: socket, ...(token !== undefined ? { SMURG_SESSION_TOKEN: token } : {}) }),
-        args: ['-p', 'run the scripted tools', '--output-format', 'json', '--no-session-persistence', '--permission-mode', 'acceptEdits', '--allowedTools', 'Bash', ...files.claudeArgs],
+        // `acceptEdits` and an allow rule for Bash: everything here would run without a question if the gate let it.
+        args: ['-p', 'run the scripted tools', '--output-format', 'json', '--no-session-persistence', ...files.claudeArgs, '--permission-mode', 'acceptEdits', '--allowedTools', 'Bash'],
         timeoutMs: 150_000,
       });
       expect(result.timedOut).toBe(false);
@@ -111,10 +113,9 @@ describe.skipIf(claude === null)(`the lock hook fails closed and the Bash activi
       }
       const offered = mock.requests.find((r) => r.kind === 'messages' && r.isMain)?.toolNames ?? [];
       console.log(`[claude-failmodes ${claude?.version}] ${label}: exit ${result.code} in ${result.ms} ms; ${[...results].map(([n, r]) => `${n}:${r.isError ? 'error' : 'ok'}`).join(' ')}`);
-      // The files: every edit tool was stopped; the shell command ran.
+      // The files: every edit tool was stopped, and the shell command did not run.
       for (const [rel, content] of Object.entries(FILES)) expect(await readFile(path(rel), 'utf8'), `${label}: ${rel}`).toBe(content);
-      expect(existsSync(marker), `${label}: the Bash command ran`).toBe(true);
-      expect(await readFile(marker, 'utf8')).toBe('the shell command ran\n');
+      expect(existsSync(marker), `${label}: the Bash command did not run`).toBe(false);
       return { results, offered, mock };
     } finally {
       await mock.close();
@@ -122,60 +123,68 @@ describe.skipIf(claude === null)(`the lock hook fails closed and the Bash activi
     }
   }
 
-  function expectSplit(label: string, run: Awaited<ReturnType<typeof runWith>>, detail: RegExp): void {
+  function expectAllDenied(label: string, run: Awaited<ReturnType<typeof runWith>>, detail: RegExp): void {
     for (const tool of EDIT_TOOLS) {
       const r = run.results.get(tool);
       expect(r, `${label}: a result for ${tool}`).toBeDefined();
       expect(r?.isError, `${label}: ${tool} refused`).toBe(true);
-      if (run.offered.includes(tool)) {
-        expect(r?.text, `${label}: ${tool} was denied by the lock hook`).toContain('smurg daemon unreachable');
+      if (run.offered.includes(tool) && !(r?.text ?? '').includes('<tool_use_error>')) {
+        expect(r?.text, `${label}: ${tool} was denied by the gate`).toContain('smurg is not reachable on the host');
         expect(r?.text).toMatch(detail);
+      } else if (run.offered.includes(tool)) {
+        // Claude Code's own check came first (NotebookEdit wants the notebook read before, and the read was denied):
+        // the tool did not run either, which the unchanged files show.
+        console.log(`[claude-failmodes ${claude?.version}] ${label}: ${tool} was refused by Claude Code itself (${r?.text.slice(0, 80)})`);
       } else {
         // A tool this Claude Code version does not have cannot be run at all (MultiEdit is gone from newer versions).
         console.log(`[claude-failmodes ${claude?.version}] ${label}: ${tool} is not a tool of this version (${r?.text.slice(0, 80)})`);
       }
     }
-    const bash = run.results.get('Bash');
-    expect(bash?.isError, `${label}: Bash ran (${bash?.text.slice(0, 120)})`).toBe(false);
-    expect(bash?.text ?? '').not.toContain('smurg');
+    // Not only edits: the reads and the shell command are refused by the same hook, with the same sentence.
+    for (const tool of ['Read0', 'Bash']) {
+      const r = run.results.get(tool);
+      expect(r?.isError, `${label}: ${tool} refused (${r?.text.slice(0, 120)})`).toBe(true);
+      expect(r?.text, `${label}: ${tool}`).toContain('smurg is not reachable on the host');
+      expect(r?.text).toContain('Nothing can run until it is back');
+    }
   }
 
-  it(`stopped: the session's daemon was stopped — every edit tool denied, the Bash command runs (${V})`, async () => {
+  it(`stopped: the session's daemon was stopped — every tool denied: reads, edits and the Bash command (${V})`, async () => {
     stopped = await startClaudeDaemon({});
     stopped.daemon.ctx.members.admitMember({ userId: HOST.userId, displayName: HOST.name, role: 'host', at: Date.now() });
     const orphan = registerAgent(stopped.hooks, IAN);
     const socket = orphan.env['SMURG_HOOK_SOCKET'] as string;
     await stopped.daemon.stop();
     console.log(`[claude-failmodes] the stopped daemon's socket path ${existsSync(socket) ? 'still exists' : 'is gone'}`);
-    expectSplit('stopped', await runWith('stopped', socket, orphan.token), /connect|ENOENT|ECONNREFUSED/);
+    expectAllDenied('stopped', await runWith('stopped', socket, orphan.token), /connect|ENOENT|ECONNREFUSED/);
   }, 240_000);
 
-  it(`crashed: a stale socket file with nothing listening — every edit tool denied, the Bash command runs (${V})`, async () => {
+  it(`crashed: a stale socket file with nothing listening — every tool denied: reads, edits and the Bash command (${V})`, async () => {
     const socket = join(env.runDir, 'stale.sock');
     // perl creates a listening socket and exits without removing it: what a daemon killed with SIGKILL leaves behind.
     await new Promise<void>((resolve, reject) =>
       execFile('/usr/bin/perl', ['-MIO::Socket::UNIX', '-MSocket', '-e', 'IO::Socket::UNIX->new(Type => SOCK_STREAM, Local => $ARGV[0], Listen => 1) or die "$!"', socket], (err) => (err ? reject(err) : resolve())),
     );
     expect(existsSync(socket)).toBe(true);
-    expectSplit('crashed', await runWith('crashed', socket), /ECONNREFUSED|connect/);
+    expectAllDenied('crashed', await runWith('crashed', socket), /ECONNREFUSED|connect/);
   }, 240_000);
 
-  it(`missing: nothing at the socket path — every edit tool denied, the Bash command runs (${V})`, async () => {
-    expectSplit('missing', await runWith('missing', join(env.runDir, 'nothing-here.sock')), /connect|ENOENT/);
+  it(`missing: nothing at the socket path — every tool denied: reads, edits and the Bash command (${V})`, async () => {
+    expectAllDenied('missing', await runWith('missing', join(env.runDir, 'nothing-here.sock')), /connect|ENOENT/);
   }, 240_000);
 
-  it(`garbage: the socket answers nonsense — every edit tool denied, the Bash command runs (${V})`, async () => {
+  it(`garbage: the socket answers nonsense — every tool denied: reads, edits and the Bash command (${V})`, async () => {
     const socket = await fakeSocket('garbage.sock', (s) => s.end('{"surprise": true\n'));
-    expectSplit('garbage', await runWith('garbage', socket), /malformed|not JSON/);
+    expectAllDenied('garbage', await runWith('garbage', socket), /malformed|not JSON/);
   }, 240_000);
 
-  it(`slow: the socket never answers — every edit tool denied at the lock hook's 5 s deadline (before Claude Code's own hook timeout lets it through), the Bash command runs after at most the Bash hook's 1 s deadline (${V})`, async () => {
+  it(`slow: the socket never answers — every tool denied at the hook's 5 s deadline (before Claude Code's own hook timeout lets it through) (${V})`, async () => {
     const socket = await fakeSocket('slow.sock', () => {
       // never answers
     });
     const started = Date.now();
     const run = await runWith('slow', socket);
-    expectSplit('slow', run, /timeout/);
+    expectAllDenied('slow', run, /timeout/);
     console.log(`[claude-failmodes ${claude?.version}] slow: the whole run took ${Date.now() - started} ms`);
   }, 300_000);
 });

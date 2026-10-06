@@ -1,5 +1,5 @@
-// Names of the audit vocabulary, in the viewer's language (ARCHITECTURE §5.8). An action without a label here (the
-// actions protocol 4 added, until the console names them) is shown by its id, which is what the log itself stores.
+// Names of the audit vocabulary, in the viewer's language (ARCHITECTURE §5.8). Every action of the protocol has a
+// label: a new action without one is a compile error here (`satisfies Record<AuditAction, Key>`).
 import type { AuditAction, AuditEntry } from '@smurg/protocol';
 import { formatExactTime, formatList } from '../../lib/format.ts';
 import type { Tone } from '../../ui/index.ts';
@@ -32,6 +32,45 @@ const ACTION_KEY = {
   'session.create': 'audit.action.session.create',
   'session.end': 'audit.action.session.end',
   'session.terminate': 'audit.action.session.terminate',
+  'session.message': 'audit.action.session.message',
+  'smurg.message': 'audit.action.smurg.message',
+  'session.interrupt': 'audit.action.session.interrupt',
+  'session.retry': 'audit.action.session.retry',
+  'session.restart': 'audit.action.session.restart',
+  'session.responsible': 'audit.action.session.responsible',
+  'session.mode': 'audit.action.session.mode',
+  'session.rule.remove': 'audit.action.session.rule.remove',
+  'session.handover': 'audit.action.session.handover',
+  'responsible.fallback': 'audit.action.responsible.fallback',
+  'question.submit': 'audit.action.question.submit',
+  'question.remind': 'audit.action.question.remind',
+  'permission.decide': 'audit.action.permission.decide',
+  'permission.auto': 'audit.action.permission.auto',
+  'permission.auto-deny': 'audit.action.permission.auto-deny',
+  'agent.command': 'audit.action.agent.command',
+  'topic.create': 'audit.action.topic.create',
+  'topic.rename': 'audit.action.topic.rename',
+  'topic.archive': 'audit.action.topic.archive',
+  'topic.delete': 'audit.action.topic.delete',
+  'topic.discussion.restart': 'audit.action.topic.discussion.restart',
+  'topic.spec.request': 'audit.action.topic.spec.request',
+  'topic.rule.add': 'audit.action.topic.rule.add',
+  'topic.rule.remove': 'audit.action.topic.rule.remove',
+  'plan.generate': 'audit.action.plan.generate',
+  'plan.start': 'audit.action.plan.start',
+  'plan.resume': 'audit.action.plan.resume',
+  'plan.assign': 'audit.action.plan.assign',
+  'plan.mode': 'audit.action.plan.mode',
+  'plan.item.retry': 'audit.action.plan.item.retry',
+  'plan.item.continue': 'audit.action.plan.item.continue',
+  'plan.item.resolve': 'audit.action.plan.item.resolve',
+  'scheduler.start': 'audit.action.scheduler.start',
+  'scheduler.disarm': 'audit.action.scheduler.disarm',
+  'report.register': 'audit.action.report.register',
+  'report.review': 'audit.action.report.review',
+  'spec.commit': 'audit.action.spec.commit',
+  'claude-config.decide': 'audit.action.claude-config.decide',
+  'transcript.redact': 'audit.action.transcript.redact',
   'suggest.create': 'audit.action.suggest.create',
   'suggest.edit': 'audit.action.suggest.edit',
   'suggest.accept': 'audit.action.suggest.accept',
@@ -49,11 +88,10 @@ const ACTION_KEY = {
   'invite.revoke': 'audit.action.invite.revoke',
   'device.revoke': 'audit.action.device.revoke',
   'settings.change': 'audit.action.settings.change',
-} as const satisfies Partial<Record<AuditAction, Key>>;
+} as const satisfies Record<AuditAction, Key>;
 
 export function auditActionLabel(action: AuditAction): string {
-  const key = (ACTION_KEY as Partial<Record<AuditAction, Key>>)[action];
-  return key === undefined ? action : t(key);
+  return t(ACTION_KEY[action]);
 }
 
 const OUTCOME: Record<AuditEntry['outcome'], { readonly key: Key; readonly tone: Tone }> = {
@@ -96,6 +134,12 @@ const DETAIL_LABEL_KEYS: Readonly<Record<string, string>> = {
   source: 'audit.detail.source',
   branch: 'audit.detail.branch',
   message: 'audit.detail.message',
+  command: 'audit.detail.command',
+  tool: 'audit.detail.tool',
+  rule: 'audit.detail.rule',
+  decision: 'audit.detail.decision',
+  mode: 'audit.detail.mode',
+  purpose: 'audit.detail.purpose',
 };
 
 const SUGGESTION_OUTCOME_KEYS: Readonly<Record<string, string>> = {

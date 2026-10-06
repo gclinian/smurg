@@ -1,5 +1,6 @@
 // The platform's zh-TW suite: a browser that starts in Traditional Chinese gets the landing page, the join page, the
-// workbench shell and the connection screens in zh-TW, with <html lang="zh-Hant-TW">.
+// workspace shell (the top bar with the mode switch, the sessions view around its columns) and the connection screens
+// in zh-TW, with <html lang="zh-Hant-TW">.
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { PENDING_INVITE_KEY_PREFIX } from '../boot/capture-invite.ts';
@@ -32,7 +33,7 @@ describe('the app in zh-TW', () => {
     expect(within(confirm).getByRole('button', { name: '不要加入' })).toBeTruthy();
   });
 
-  it('workbench: the top bar, the role from the wire catalogue, the drawer tabs and the host-offline banner', async () => {
+  it('workspace: the top bar with the mode switch, the role from the wire catalogue, the sessions view and the host-offline banner', async () => {
     const services = createTestServices({ path: `/w/${WORKSPACE_ID}` });
     render(<App services={services} />);
     await waitFor(() => expect(services.connections).toHaveLength(1), { timeout: 15_000 });
@@ -44,7 +45,14 @@ describe('the app in zh-TW', () => {
     expect(within(topbar).getByText('可使用 agent')).toBeTruthy();
     expect(within(topbar).getByRole('status').textContent).toContain('已連線');
     expect(within(topbar).getByRole('button', { name: '離開' })).toBeTruthy();
-    expect(screen.getByRole('tab', { name: '合併請求' })).toBeTruthy();
+    // The mode switch: the sessions view is the main screen; code mode is behind the switch.
+    const mode = within(topbar).getByRole('group', { name: '模式' });
+    expect(within(mode).getByRole('link', { name: 'session' }).getAttribute('aria-current')).toBe('page');
+    expect(within(mode).getByRole('link', { name: '手寫 code 模式' }).getAttribute('aria-current')).toBeNull();
+    expect(within(topbar).getByRole('button', { name: '顯示或隱藏收件夾與 session 清單' })).toBeTruthy();
+    expect(screen.getByRole('complementary', { name: '收件夾與 session' })).toBeTruthy();
+    expect(screen.getByRole('main', { name: '開啟的欄' })).toBeTruthy();
+    expect(document.title).toBe('class-project · smurg');
     act(() => conn.emit('presence.state', { members: [presenceOf(makeMember({ userId: 'dev:bob', displayName: 'Bob', role: 'viewer' }))], agents: [] }));
     expect(within(screen.getByRole('group', { name: '線上成員' })).getByRole('img', { name: 'Bob · 旁觀' })).toBeTruthy();
 

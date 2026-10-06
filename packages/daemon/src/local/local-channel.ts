@@ -20,6 +20,13 @@ export const LOCAL_CHANNEL_VIA = 'control-socket';
  * forced lock releases, session.create / session.end, suggestions, files, documents, channel.leave — is refused with
  * `forbidden` {reason: 'control-socket'} and audited (router, before the capability check).
  *
+ * Protocol 4 added nothing to this list, on purpose (DESIGN v0.5.0 §6, §7 S19): messages to agents, votes and
+ * answers, permission decisions, topics, plans, reviews, the inbox, the trust decision for project settings, the
+ * host's own rules and redaction are refused here like everything else. Agents run as the host's OS account; through
+ * this socket none of them (and nobody who drives one) answers the host's permission cards in the host's name.
+ * `session.list` names agent sessions too (what every member sees), and `session.attach` of one is refused by its
+ * handler: a conversation has no PTY, `smurg attach` says where it opens.
+ *
  * Why: the socket's 0600 mode authenticates the host's OS ACCOUNT, not the host. Every session runs as that account
  * (ARCHITECTURE §11 D-15), so a Agent access member reaches `~/.smurg/run/<short>.ctl` from any session she drives
  * and would be admitted as the host. Restricted to the attach (and to receiving what the attach consumes,
@@ -53,6 +60,10 @@ export function localChannelAllows(type: string): boolean {
  * `admin.audit.entry` (the live audit log of every member), `activity.notify` / `activity.event`, `presence.state`,
  * `channel.memberUpdated`, suggestions, merges, documents or files reach whoever holds the host's OS account through
  * the socket. Same reasoning as LOCAL_CHANNEL_TYPES: fail closed in one place, not per module.
+ * Protocol 4 added nothing here either: no conversation (`session.events`, `session.delta`), no card
+ * (`question.*`, `permission.updated`, `suggest.updated`), no topic, plan, report or inbox message and no
+ * `session.host`; `session.state` is the one message that may now describe an agent session (its status and names,
+ * as `session.list` does).
  */
 export const LOCAL_CHANNEL_RECEIVES: readonly DaemonMessageType[] = Object.freeze([
   'exec.output',

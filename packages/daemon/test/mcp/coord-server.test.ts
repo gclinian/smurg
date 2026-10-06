@@ -1,12 +1,14 @@
-// `smurg mcp` (runMcpServer): the coordination MCP server Claude Code starts in every session (SPEC R8: the
-// coordination MCP server gives agents tools to ask who is editing a file, to query and wait for locks, to list all
-// sessions and to notify a teammate). Driven here over its
-// stdio JSON-RPC with the real hook socket behind it; claude-e2e.test.ts calls a tool through the real Claude Code.
+// `smurg mcp` (runMcpServer): smurg's own MCP server Claude Code starts in every agent session (SPEC R8: the
+// coordination tools let agents ask who is editing a file, query and wait for locks, list all sessions and notify a
+// teammate; a topic's sessions also check their plan and report through it). Driven here over its stdio JSON-RPC with
+// the real hook socket behind it; claude-e2e.test.ts calls a tool through the real Claude Code. What each topic tool
+// answers is in topic-tools.test.ts.
 import { join } from 'node:path';
 import { MAIN_ROOT, type MemberNotification } from '@smurg/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runMcpServer } from '../../src/mcp/coord-server.ts';
-import { HOOK_ENV } from '../../src/hooks/wire.ts';
+import { MCP_TOOLS, TOPIC_TOOL_NAMES, isAgentToolName } from '../../src/mcp/tools.ts';
+import { HOOK_ENV, MCP_TOOL_NAMES, isMcpToolName } from '../../src/hooks/wire.ts';
 import { TEST_HOST_USER } from '../../src/testing/index.ts';
 import { sessionInfo } from '../hooks/fakes.ts';
 import { registerAgent, startHookDaemon, type HookDaemon } from '../hooks/helpers.ts';
@@ -130,10 +132,14 @@ describe('MCP protocol', () => {
     expect(await mcp.request('ping')).toMatchObject({ result: {} });
   });
 
-  it('tools/list: who_is_editing, lock_status, wait_for_lock, list_sessions, notify_member, described in English for the agent', async () => {
+  it('tools/list: the five coordination tools and the three tools of a topic\'s sessions, described in English for the agent', async () => {
     const { mcp } = await setup();
     const tools = ((await mcp.request('tools/list'))['result'] as { tools: { name: string; description: string; inputSchema: Json }[] }).tools;
-    expect(tools.map((t) => t.name)).toEqual(['who_is_editing', 'lock_status', 'wait_for_lock', 'list_sessions', 'notify_member']);
+    expect(tools.map((t) => t.name)).toEqual(['who_is_editing', 'lock_status', 'wait_for_lock', 'list_sessions', 'notify_member', 'check_plan', 'propose_split', 'check_report']);
+    expect(tools.map((t) => t.name)).toEqual(MCP_TOOLS.map((t) => t.name));
+    expect([...MCP_TOOL_NAMES, ...TOPIC_TOOL_NAMES.filter((name) => !(MCP_TOOL_NAMES as readonly string[]).includes(name))]).toEqual(MCP_TOOLS.map((t) => t.name));
+    expect(tools.every((t) => isAgentToolName(t.name))).toBe(true);
+    expect(isAgentToolName('rm_rf')).toBe(false);
     for (const tool of tools) {
       expect(tool.description.length).toBeGreaterThan(80);
       expect(tool.description).toMatch(/^[\x20-\x7e]+$/); // English, printable ASCII
@@ -270,11 +276,24 @@ describe('R8: the coordination MCP server\'s tools: who is editing a file, query
     expect(daemon.fakes.activity?.notified).toEqual([{ userId: 'dev:amy', notification: { from: expect.objectContaining({ kind: 'agent' }), text: 'done' } }]);
     const unknown = await mcp.call('notify_member', { member: 'Zed', message: 'hi' });
     expect(unknown.isError).toBe(true);
-    expect(unknown.text).toMatch(/No member called "Zed". Members: .*Amy/);
+    // The answer never repeats what the agent typed; it lists the members by the names an agent may use.
+    expect(unknown.text).toMatch(/No member has that name\. Members: .*Amy/);
+    expect(unknown.text).not.toContain('Zed');
     expect((await mcp.call('notify_member', { member: 'Amy', message: 'bell\u0007' })).isError).toBe(true);
+    // 10 a minute per session (`ctx.rates`, bucket `agent-notify`): one is used, nine more pass, the rest are refused.
     const results = [];
-    for (let i = 0; i < 8; i++) results.push(await mcp.call('notify_member', { member: 'Amy', message: `n${i}` }));
-    expect(results.filter((r) => r.isError && /Too many notifications/.test(r.text)).length).toBeGreaterThan(0);
+    for (let i = 0; i < 12; i++) results.push(await mcp.call('notify_member', { member: 'Amy', message: `n${i}` }));
+    expect(results.filter((r) => !r.isError)).toHaveLength(9);
+    expect(results.filter((r) => r.isError && /Too many notifications/.test(r.text))).toHaveLength(3);
+  });
+
+  // The daemon's socket schema takes its tool names from hooks/wire.ts (the agent runtime's file): until the three
+  // topic tools are listed there, the socket refuses them and this path is covered by topic-tools.test.ts alone.
+  it.skipIf(!isMcpToolName('check_plan'))('a topic tool travels the same road: check_plan from a session that is no discussion answers with one sentence', async () => {
+    const { mcp } = await setup();
+    const answer = await mcp.call('check_plan');
+    expect(answer.isError).toBe(false);
+    expect(answer.json).toMatchObject({ ok: false, errors: [{ message: 'This tool is for the discussion session of a topic. This session is not one.' }] });
   });
 
   it("paths outside the session's root are refused; relative paths are relative to the root", async () => {

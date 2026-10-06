@@ -229,7 +229,7 @@ export const DEFAULT_ACTIVITY_CONFIG: ActivityConfig = Object.freeze({ attribute
  * The session settings are written to work on each of them (ARCHITECTURE §7.6 "Claude Code version"). Adding one
  * means re-running that spike (mock Anthropic API only) on it.
  */
-export const CLAUDE_VERIFIED_VERSIONS: readonly string[] = Object.freeze(['2.1.220', '2.1.283']);
+export const CLAUDE_VERIFIED_VERSIONS: readonly string[] = Object.freeze(['2.1.288']);
 
 export const DEFAULT_AGENTS_CONFIG: AgentsConfig = Object.freeze({
   maxAgentProcesses: 32,
@@ -256,7 +256,7 @@ export const DEFAULT_AGENTS_CONFIG: AgentsConfig = Object.freeze({
 });
 
 /** The oldest verified version: an older `claude` starts with a warning. */
-export const CLAUDE_MIN_VERSION = '2.1.220';
+export const CLAUDE_MIN_VERSION = '2.1.288';
 
 export interface DaemonConfig {
   /** `~/.smurg` in production; a temp directory in tests. Created with mode 0700. */

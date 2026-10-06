@@ -10,13 +10,19 @@ const CJK = new RegExp('[\\u3000-\\u303f\\u3100-\\u312f\\u3400-\\u9fff\\uf900-\\
 const PLACEHOLDER = /\{([A-Za-z][A-Za-z0-9_]*)\}/g;
 
 const APP_WIDE = ['app', 'conn', 'join', 'stores', 'ui', 'workbench'];
-const FEATURES = ['activity', 'agents', 'console', 'editor', 'files', 'suggest', 'transfer', 'worktree'];
+/**
+ * The feature namespaces: every `features/<feature>/strings.ts`, found by convention. A feature's namespace is its
+ * folder's name, so adding or deleting a feature folder needs no edit here.
+ */
+const FEATURES = FEATURE_STRING_MODULES.map((path) => path.split('/').at(-2) as string).sort();
+/** The folders of the shell itself: they exist in every build. */
+const SHELL_FEATURES = ['columns', 'sidebar'];
 
 /**
  * zh-TW values that are legitimately free of Chinese characters: proper names, loanwords the zh-TW text keeps in Latin
  * letters (docs/GLOSSARY.md), addresses, and templates made of placeholders and punctuation only.
  */
-const SAME_IN_BOTH = new Set(['smurg', 'agent', 'worktree', 'agent session', 'session', 'Claude']);
+const SAME_IN_BOTH = new Set(['smurg', 'agent', 'worktree', 'agent session', 'session', 'spec', 'Claude']);
 const isAddress = (value: string): boolean => /^https:\/\/[^\s]+$/.test(value);
 
 const placeholdersOf = (template: string): string[] => [...new Set([...template.matchAll(PLACEHOLDER)].map((m) => m[1] as string))].sort();
@@ -45,10 +51,14 @@ describe('string catalogue: registration', () => {
     expect(() => defineStrings('test-empty', { a: '' }, { a: '一' })).toThrow();
   });
 
-  it('discovers every feature namespace by convention (features/*/strings.ts)', () => {
-    expect(FEATURE_STRING_MODULES.map((path) => path.split('/').at(-2)).sort()).toEqual(FEATURES);
+  it('discovers every feature namespace by convention (features/*/strings.ts): the namespace is the folder\'s name', () => {
+    expect(new Set(FEATURES).size).toBe(FEATURES.length);
+    for (const feature of SHELL_FEATURES) expect(FEATURES).toContain(feature);
     const namespaces = registeredNamespaces();
     for (const ns of [...APP_WIDE, ...FEATURES]) expect(namespaces).toContain(ns);
+    // Nothing registers a namespace from anywhere else: a feature folder named differently from its namespace would
+    // escape the unused-key check below.
+    expect(namespaces.filter((ns) => !isTestKey(`${ns}.`)).sort()).toEqual([...APP_WIDE, ...FEATURES].sort());
   });
 
 });

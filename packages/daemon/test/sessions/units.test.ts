@@ -2,7 +2,7 @@
 // ARCHITECTURE §11 D-15), kill-tree selection guards (ARCHITECTURE §0 rule 1), login parsing.
 import xtermHeadless from '@xterm/headless';
 import { describe, expect, it } from 'vitest';
-import { LoginHintDetector, parseAuthStatus } from '../../src/sessions/claude.ts';
+import { parseAuthStatus } from '../../src/sessions/claude.ts';
 import { buildHostEnv } from '../../src/sessions/host-env.ts';
 import { envEntryPidsFromPs, identityOf, isSafePgid, killTree, parseProcessTable, releaseStoppedProcesses, rememberDescendants, selectTargets, stoppedProcesses, type ProcessInspector, type ProcessRow } from '../../src/sessions/kill-tree.ts';
 import { RawTail } from '../../src/sessions/raw-tail.ts';
@@ -431,12 +431,5 @@ describe('login state', () => {
     expect(parseAuthStatus({ code: 0, stdout: 'garbage', timedOut: false })).toBe('unknown');
     expect(parseAuthStatus({ code: null, stdout: '', timedOut: true })).toBe('unknown');
     expect(parseAuthStatus({ code: 1, stdout: '{"loggedIn":true}', timedOut: false })).toBe('unknown');
-  });
-
-  it('TUI hints are matched without whitespace and escape sequences, once per occurrence', () => {
-    const detector = new LoginHintDetector();
-    expect(detector.push(enc('\x1b[1mLogin\x1b[0m \x1b[2Gsucc'))).toBe(false);
-    expect(detector.push(enc('essful'))).toBe(true);
-    expect(detector.push(enc('more output'))).toBe(false);
   });
 });

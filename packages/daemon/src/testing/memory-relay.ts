@@ -273,6 +273,17 @@ export class MemoryRelay {
     queueMicrotask(() => host.shutdown(code, reason));
   }
 
+  /**
+   * What the host's socket of that tunnel reports as not yet sent (`bufferedAmount`): a slow link, for the hub's
+   * volatile skip. Returns false when that tunnel has no host socket.
+   */
+  setHostBuffered(kind: RelayTunnelKind, bytes: number): boolean {
+    const host = this.hosts.get(kind);
+    if (!host) return false;
+    host.bufferedAmount = bytes;
+    return true;
+  }
+
   /** A raw text frame to the host socket (malformed control frames, replays). */
   sendToHost(kind: RelayTunnelKind, text: string): void {
     this.hosts.get(kind)?.deliver(text);

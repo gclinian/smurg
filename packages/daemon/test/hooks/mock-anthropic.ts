@@ -15,7 +15,7 @@ export interface RecordedRequest {
   readonly kind: 'messages' | 'count_tokens' | 'other';
   readonly method: string;
   readonly url: string;
-  /** Requests of the main conversation carry the Edit / Write tools; side requests (titles, …) do not. */
+  /** Requests of the main conversation carry tools (Read, Edit, Write, Bash, AskUserQuestion); side requests (titles, …) do not. */
   readonly isMain: boolean;
   readonly assistantTurns: number;
   readonly toolNames: readonly string[];
@@ -99,7 +99,9 @@ export async function startMockAnthropic(steps: readonly MockStep[]): Promise<Mo
       if (req.method === 'POST' && url.startsWith('/v1/messages')) {
         const tools = Array.isArray(body['tools']) ? (body['tools'] as Json[]) : [];
         const toolNames = tools.map((tool) => String(tool['name']));
-        const isMain = toolNames.includes('Edit') || toolNames.includes('Write');
+        // The main conversation is the one that is offered tools (a session without Edit / Write, were there one, is
+        // still it); side requests (titles, summaries) carry none of these.
+        const isMain = ['Edit', 'Write', 'Read', 'Bash', 'AskUserQuestion'].some((name) => toolNames.includes(name));
         const messages = Array.isArray(body['messages']) ? (body['messages'] as Json[]) : [];
         const assistantTurns = messages.filter((m) => m['role'] === 'assistant').length;
         const lastUser = [...messages].reverse().find((m) => m['role'] === 'user') ?? null;

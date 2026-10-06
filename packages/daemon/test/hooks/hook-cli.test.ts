@@ -163,7 +163,7 @@ describe('runHookCli fails closed', () => {
     for (const env of [{ [HOOK_ENV.socket]: join(runDir, 'missing.sock'), [HOOK_ENV.token]: 't' }, { [HOOK_ENV.token]: 't' }, { [HOOK_ENV.socket]: notSocket, [HOOK_ENV.token]: 't' }]) {
       const c = io(claudePreToolUse('/tmp/proj/a.txt'), env);
       expect(await runHookCli(c.io)).toBe(0);
-      expect(parsedDeny(c.stdout())).toMatch(/^smurg daemon unreachable \(.+\)\. The edit was blocked so that it cannot overwrite a teammate's changes\. Try again later\.$/);
+      expect(parsedDeny(c.stdout())).toMatch(/^smurg is not reachable on the host \(.+\)\. Nothing can run until it is back\.$/);
     }
   });
 
@@ -183,7 +183,7 @@ describe('runHookCli fails closed', () => {
       });
       const c = io(claudePreToolUse('/tmp/proj/a.txt'), { [HOOK_ENV.socket]: socket, [HOOK_ENV.token]: 't' });
       expect(await runHookCli(c.io)).toBe(0);
-      expect(parsedDeny(c.stdout())).toMatch(/daemon unreachable/);
+      expect(parsedDeny(c.stdout())).toMatch(/smurg is not reachable on the host/);
     }
   });
 
@@ -194,14 +194,14 @@ describe('runHookCli fails closed', () => {
     const quick = io(claudePreToolUse('/tmp/proj/a.txt'), { [HOOK_ENV.socket]: socket, [HOOK_ENV.token]: 't', SMURG_HOOK_DEADLINE_MS: '300' });
     let started = Date.now();
     expect(await runHookCli(quick.io)).toBe(0);
-    expect(parsedDeny(quick.stdout())).toMatch(/daemon unreachable \(timeout/);
+    expect(parsedDeny(quick.stdout())).toMatch(/smurg is not reachable on the host \(timeout/);
     expect(Date.now() - started).toBeLessThan(3_000);
     // A larger value is ignored: the default 5 s deadline applies.
     const slow = io(claudePreToolUse('/tmp/proj/a.txt'), { [HOOK_ENV.socket]: socket, [HOOK_ENV.token]: 't', SMURG_HOOK_DEADLINE_MS: '60000' });
     started = Date.now();
     expect(await runHookCli(slow.io)).toBe(0);
     const elapsed = Date.now() - started;
-    expect(parsedDeny(slow.stdout())).toMatch(/daemon unreachable \(timeout/);
+    expect(parsedDeny(slow.stdout())).toMatch(/smurg is not reachable on the host \(timeout/);
     expect(elapsed).toBeGreaterThanOrEqual(4_500);
     expect(elapsed).toBeLessThan(9_000);
   }, 20_000);
@@ -209,7 +209,7 @@ describe('runHookCli fails closed', () => {
   it('unreadable hook input is denied (unknown event counts as PreToolUse); a stdin that never ends is denied at the deadline', async () => {
     const garbage = io('{"hook_event_name":"PreToolUse","tool_input":', { [HOOK_ENV.socket]: join(runDir, 'x.sock') });
     expect(await runHookCli(garbage.io)).toBe(0);
-    expect(parsedDeny(garbage.stdout())).toMatch(/daemon unreachable/);
+    expect(parsedDeny(garbage.stdout())).toMatch(/smurg is not reachable on the host/);
     const notJson = io('%%%', {});
     expect(await runHookCli(notJson.io)).toBe(0);
     expect(parsedDeny(notJson.stdout())).not.toBeNull();
@@ -409,7 +409,7 @@ describe('two hooks, two behaviours (D-13): the lock hook fails closed, the Bash
     expect(bash).toMatchObject({ code: 0, stdout: '', stderr: '' });
     const lock = await run(['hook'], claudePreToolUse('/tmp/proj/a.txt'), down);
     expect(lock.code).toBe(0);
-    expect(parsedDeny(lock.stdout)).toMatch(/daemon unreachable/);
+    expect(parsedDeny(lock.stdout)).toMatch(/smurg is not reachable on the host/);
     // Cost of one Bash hook invocation against a live daemon (each Bash tool call runs it twice: Pre and Post).
     const socket = await fakeDaemon((line, s) => s.end(`${JSON.stringify({ id: (JSON.parse(line) as { id: string }).id, hookOutput: null })}\n`));
     const times: number[] = [];

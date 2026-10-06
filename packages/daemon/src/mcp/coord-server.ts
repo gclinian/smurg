@@ -1,7 +1,8 @@
-// `smurg mcp`: the coordination MCP server (stdio, server name `smurg`) Claude Code starts in every session through
-// the session's --mcp-config (ARCHITECTURE §7.6, §7.7; SPEC R8). It only proxies tool calls — who_is_editing,
-// lock_status, wait_for_lock, list_sessions, notify_member — to $SMURG_HOOK_SOCKET with $SMURG_SESSION_TOKEN
-// (op 'mcp'); the daemon decides everything (src/hooks/mcp-tools.ts).
+// `smurg mcp`: smurg's own MCP server (stdio, server name `smurg`) Claude Code starts in every agent session through
+// the session's --mcp-config (ARCHITECTURE §7.6, §7.7; SPEC R8). It only proxies tool calls (the coordination tools
+// who_is_editing, lock_status, wait_for_lock, list_sessions, notify_member; and for a topic's sessions check_plan,
+// propose_split, check_report) to $SMURG_HOOK_SOCKET with $SMURG_SESSION_TOKEN (op 'mcp'); the daemon decides
+// everything (src/hooks/mcp-tools.ts), also which kind of session may use which tool.
 //
 // It must start FAST and never imports the daemon (src/daemon.ts, src/index.ts, `@smurg/daemon`), zod or anything
 // heavy (node-pty, yjs). The CLI loads it through the package export `@smurg/daemon/mcp`
@@ -18,10 +19,9 @@ import {
   WAIT_FOR_LOCK_DEFAULT_SECONDS,
   WAIT_FOR_LOCK_MAX_SECONDS,
   isJsonObject,
-  isMcpToolName,
   type JsonObject,
 } from '../hooks/wire.ts';
-import { MCP_TOOLS } from './tools.ts';
+import { MCP_TOOLS, isAgentToolName } from './tools.ts';
 
 /** What the server talks to; injectable for tests, the process's own streams and environment by default. */
 export interface McpServerIo {
@@ -49,7 +49,8 @@ const MCP_CALL_DEADLINE_MS = 15_000;
 
 const INSTRUCTIONS =
   'smurg shares this workspace with teammates and their agents. smurg blocks your Edit/Write/NotebookEdit on a file that a teammate is typing in or another agent is modifying; ' +
-  'the error names who holds it. Then work on another file first, or use wait_for_lock. who_is_editing, lock_status and list_sessions show who works where; notify_member asks a person to act.';
+  'the error names who holds it. Then work on another file first, or use wait_for_lock. who_is_editing, lock_status and list_sessions show who works where; notify_member asks a person to act. ' +
+  "In a topic's sessions, check_plan and check_report check the file you wrote before you stop, and propose_split proposes who is responsible for which work item.";
 
 type JsonRpcId = string | number;
 
@@ -183,7 +184,7 @@ class McpStdioServer {
 
   private async callTool(id: JsonRpcId, params: JsonObject): Promise<void> {
     const name = params['name'];
-    if (!isMcpToolName(name)) {
+    if (!isAgentToolName(name)) {
       this.write({ jsonrpc: '2.0', id, error: { code: JSONRPC.invalidParams, message: `Unknown tool: ${String(name).slice(0, 64)}` } });
       return;
     }

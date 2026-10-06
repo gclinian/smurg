@@ -1,0 +1,972 @@
+/* A conversation column (UX §4, §5; the mock's conv- msg- tool- q- perm- sug- composer- pieces). The frame, the
+   strip's layout (.col-meta), the scroll part (.col-scroll) and the measure (.col-measure) are features/columns';
+   cards and chips are ui/'s. Everything here is prefixed conv-. */
+
+/* ---------------------------------------------------------------- the strip */
+.conv-strip__who {
+  flex-shrink: 0;
+}
+.conv-strip .ui-button--sm {
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- the list */
+.conv-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.conv {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-5) var(--space-5) var(--space-6);
+  overflow-anchor: none;
+}
+.conv:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.conv__inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+/* A row off screen costs no layout; its last rendered height is remembered (auto), 72 px until it was ever shown. */
+.conv-row {
+  min-width: 0;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+  scroll-margin: var(--space-6);
+}
+/* A card keeps its sticky footer and its focus ring: it is never skipped. */
+.conv-row[data-kind='card'] {
+  content-visibility: visible;
+}
+.conv-row[data-flash],
+.conv-row > [data-flash] {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-md);
+}
+.conv__loading,
+.conv__earlier,
+.conv__start,
+.conv__thinking {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.conv__thinking {
+  justify-content: flex-start;
+  font-size: var(--text-sm);
+}
+.conv-new {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  box-shadow: var(--shadow-popover);
+}
+.conv-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.conv-link:disabled {
+  color: var(--color-text-subtle);
+  cursor: default;
+}
+.conv-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* ---------------------------------------------------------------- lines */
+.conv-sys {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.conv-sys::before,
+.conv-sys::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+.conv-sys > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+.conv-sys--problem {
+  color: var(--color-danger);
+}
+.conv-notice__hint {
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------- people's messages */
+.conv-msg {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  column-gap: var(--space-4);
+}
+.conv-msg__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+  line-height: var(--leading-tight);
+}
+.conv-msg__name {
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.conv-msg__bubble {
+  display: inline-block;
+  max-width: 100%;
+  margin-top: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+  overflow-wrap: anywhere;
+}
+.conv-msg--me .conv-msg__bubble {
+  border-color: transparent;
+  background: var(--color-accent-soft);
+}
+.conv-msg[data-delivery='cancelled'] .conv-msg__bubble {
+  opacity: 0.6;
+}
+.conv-smurg {
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.conv-smurg > summary {
+  display: flex;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+.conv-smurg__text {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 2px solid var(--color-border-strong);
+  color: var(--color-text-muted);
+  font-family: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- the agent */
+.conv-agent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.conv-agent__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.conv-agent__name {
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.conv-agent__text {
+  overflow-wrap: anywhere;
+}
+.conv-agent__note {
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.conv-caret {
+  display: inline-block;
+  width: 7px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--color-accent);
+  animation: conv-caret-blink 1s steps(2, start) infinite;
+}
+@keyframes conv-caret-blink {
+  to {
+    visibility: hidden;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .conv-caret {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------- tool lines */
+.conv-tool {
+  min-width: 0;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-1);
+  font-size: var(--text-sm);
+}
+.conv-tool > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 28px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  list-style: none;
+}
+.conv-tool > summary::-webkit-details-marker {
+  display: none;
+}
+.conv-tool > summary:hover {
+  background: var(--color-surface-3);
+}
+.conv-tool > summary:focus-visible {
+  box-shadow: none;
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.conv-tool__icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text-subtle);
+}
+.conv-tool__verb {
+  flex: none;
+  color: var(--color-text-muted);
+}
+.conv-tool__target {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text);
+}
+.conv-tool__target--plain {
+  font-family: inherit;
+  font-size: inherit;
+}
+.conv-tool__meta {
+  display: inline-flex;
+  gap: var(--space-3);
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-subtle);
+}
+.conv-tool__adds {
+  color: var(--color-success);
+}
+.conv-tool__dels,
+.conv-tool__fail {
+  color: var(--color-danger);
+}
+.conv-tool__chev {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text-subtle);
+  transition: transform var(--duration-fast) var(--ease);
+}
+.conv-tool[open] > summary .conv-tool__chev {
+  transform: rotate(90deg);
+}
+.conv-tool__body,
+.conv-tool__children,
+.conv-tool__actions {
+  border-top: var(--border-width) solid var(--color-border);
+}
+.conv-tool__children {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6);
+}
+.conv-tool__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+}
+.conv-tool__note {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.conv-tool__list {
+  margin: 0;
+  padding: var(--space-2) 0;
+  list-style: none;
+}
+.conv-tool__list li {
+  padding: 2px var(--space-4) 2px 30px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.conv-tool__out {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  max-height: 220px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  white-space: pre;
+}
+.conv-diff {
+  margin: 0;
+  padding: var(--space-2) 0;
+  max-height: 260px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+.conv-diff__line {
+  display: grid;
+  grid-template-columns: 3.4em minmax(0, 1fr);
+  min-width: max-content;
+}
+.conv-diff__num {
+  padding: 0 var(--space-3);
+  text-align: end;
+  color: var(--color-text-subtle);
+  user-select: none;
+}
+.conv-diff__text {
+  padding: 0 var(--space-4) 0 var(--space-2);
+  white-space: pre;
+}
+.conv-diff__line--add {
+  background: var(--color-success-soft);
+}
+.conv-diff__line--del {
+  background: var(--color-danger-soft);
+}
+.conv-diff__line--hunk,
+.conv-diff__line--meta {
+  background: var(--color-info-soft);
+  color: var(--color-text-muted);
+}
+
+/* ---------------------------------------------------------------- cards */
+.conv-card {
+  scroll-margin: var(--space-6);
+}
+.conv-card .ui-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.conv-card .ui-card__foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.conv-card__who {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.conv-card__who strong {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+.conv-card__who--warn {
+  color: var(--color-warning);
+}
+.conv-card__problem {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+.conv-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+/* The answer and Submit stay in view while a long question scrolls (DESIGN §5.12 item 13). */
+.conv-card--question:not(.ui-card--settled) > .ui-card__foot {
+  position: sticky;
+  bottom: calc(var(--space-6) * -1);
+  z-index: 1;
+  background: var(--color-surface-1);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+/* a question */
+.conv-q__part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.conv-q__partno {
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.conv-q__text {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  overflow-wrap: anywhere;
+}
+.conv-q__opts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.conv-q-opt {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  column-gap: var(--space-4);
+  align-items: start;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  cursor: pointer;
+  overflow: hidden;
+}
+.conv-q-opt:hover {
+  border-color: var(--color-border-strong);
+}
+.conv-q-opt--mine {
+  border-color: var(--color-accent);
+}
+.conv-q-opt:has(input:focus-visible) {
+  box-shadow: var(--focus-ring);
+}
+.conv-q-opt input[type='radio'],
+.conv-q-opt input[type='checkbox'] {
+  margin: 2px 0 0;
+  accent-color: var(--color-accent-solid);
+}
+.conv-q-opt--read {
+  grid-template-columns: minmax(0, 1fr) auto;
+  cursor: default;
+}
+.conv-q-opt > :not(.conv-q-opt__bar) {
+  position: relative;
+}
+.conv-q-opt__label {
+  display: block;
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+.conv-q-opt__lead {
+  margin-left: var(--space-3);
+}
+.conv-q-opt__desc {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.conv-q-opt__votes {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: 1px;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+/* The share of the votes: a fill behind the option, as in a poll. */
+.conv-q-opt__bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--color-accent-soft);
+  pointer-events: none;
+  transition: width var(--duration-normal) var(--ease);
+}
+.conv-q-opt__texts {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.conv-q-opt--read .conv-q-opt__texts {
+  grid-column: 1 / -1;
+}
+.conv-q-opt__texts:empty {
+  display: none;
+}
+.conv-q-quote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.conv-q__other {
+  display: flex;
+  gap: var(--space-3);
+}
+.conv-q__other > .ui-input {
+  flex: 1;
+  min-width: 0;
+}
+.conv-q__submit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+}
+.conv-q__answer {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.conv-q__answer-label {
+  color: var(--color-text-muted);
+}
+.conv-q__note {
+  width: 100%;
+  resize: vertical;
+}
+.conv-q__tie {
+  color: var(--color-warning);
+}
+.conv-q__advice {
+  font-size: var(--text-xs);
+}
+.conv-q__settled {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.conv-q__settled-q {
+  color: var(--color-text-muted);
+}
+.conv-q__more > summary {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.conv-q__more[open] > summary {
+  margin-bottom: var(--space-3);
+}
+.conv-thread {
+  border-top: var(--border-width) solid var(--color-border);
+  margin: 0 calc(var(--space-5) * -1) calc(var(--space-4) * -1);
+}
+.conv-thread > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 28px;
+  padding: 0 var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  list-style: none;
+}
+.conv-thread > summary::-webkit-details-marker {
+  display: none;
+}
+.conv-thread__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-5) var(--space-4);
+}
+.conv-thread__item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+.conv-thread__item b {
+  font-weight: var(--weight-semibold);
+}
+.conv-thread__item time {
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.conv-thread__text {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.conv-thread__tonote {
+  margin-left: var(--space-3);
+  font-size: var(--text-xs);
+}
+.conv-thread__box {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+.conv-thread__box > .conv-mention {
+  flex: 1;
+  min-width: 0;
+}
+.conv-thread__note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+
+/* a permission request */
+.conv-perm__cmd {
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  max-height: 16em;
+  overflow: auto;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.conv-perm__path {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.conv-perm__facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.conv-perm__facts > svg {
+  flex: none;
+}
+.conv-perm__rule {
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.conv-perm__scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.conv-perm__scope label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* a suggestion */
+.conv-sug__text {
+  padding: var(--space-2) var(--space-5);
+  border-left: 2px solid var(--color-border-strong);
+  overflow-wrap: anywhere;
+}
+.conv-sug__edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* a next step */
+.conv-next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.conv-next:not([data-latest]) {
+  padding: 0;
+  border: 0;
+}
+.conv-next__icon {
+  display: inline-flex;
+  flex: none;
+}
+.conv-next__text {
+  flex: 1 1 220px;
+  min-width: 0;
+  line-height: 1.5;
+  color: var(--color-text);
+}
+.conv-next__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* ---------------------------------------------------------------- the status bar */
+.conv-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 30px;
+  padding: var(--space-2) max(var(--space-3), calc((100% - var(--col-measure)) / 2)) var(--space-2) max(var(--space-5), calc((100% - var(--col-measure)) / 2));
+  border-top: var(--border-width) solid var(--color-border);
+  background: var(--color-surface-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  flex: none;
+}
+.conv-status__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conv-status--wait {
+  color: var(--color-warning);
+}
+
+/* ---------------------------------------------------------------- the composer */
+.conv-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) max(var(--space-4), calc((100% - var(--col-measure)) / 2)) var(--space-3) max(var(--space-5), calc((100% - var(--col-measure)) / 2));
+  background: var(--color-surface-1);
+  flex: none;
+}
+.conv-composer__box {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-5);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+}
+/* Only the focused column's composer has the accent border (DESIGN §5.12 item 11). */
+.conv-composer--focused .conv-composer__box:focus-within {
+  border-color: var(--color-focus);
+  box-shadow: var(--focus-ring);
+}
+.conv-composer__box > .conv-mention {
+  flex: 1;
+  min-width: 0;
+}
+.conv-mention {
+  position: relative;
+  display: flex;
+}
+.conv-mention__input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  max-height: 160px;
+  overflow-y: auto;
+  font: inherit;
+  line-height: var(--leading-normal);
+}
+.conv-composer__input {
+  min-height: 24px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.conv-composer__input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.conv-composer__input::placeholder {
+  color: var(--color-text-subtle);
+}
+.conv-mention__list {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + var(--space-2));
+  z-index: 5;
+  min-width: 14em;
+  max-width: 100%;
+  margin: 0;
+  padding: var(--space-2);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  box-shadow: var(--shadow-popover);
+  list-style: none;
+}
+.conv-mention__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.conv-mention__option[aria-selected='true'] {
+  background: var(--color-accent-soft);
+}
+.conv-composer__hint {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.conv-composer__said {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.conv-composer--off {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding-top: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-top: var(--border-width) solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.conv-composer--off > svg {
+  flex: none;
+  margin-top: 2px;
+}
+.conv-composer__quote {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 2px var(--space-2) 2px var(--space-4);
+  border-left: 2px solid var(--color-accent);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.conv-composer__quote > .conv-link {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- dialogs */
+.conv-mode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.conv-mode__choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.conv-mode__choice > legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+  font-weight: var(--weight-semibold);
+}
+.conv-mode__heading {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.conv-mode__rules {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.conv-mode__rules > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+.conv-mode__rules code {
+  flex: 1 1 12em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.conv-end__keep {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space-3);
+  align-items: baseline;
+}
+.conv-end__hint {
+  grid-column: 2;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* ---------------------------------------------------------------- narrow columns */
+@container column (max-width: 430px) {
+  .conv {
+    padding-inline: var(--space-4);
+  }
+  .conv-composer__hint > span + span {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------- the host's "Remove this entry"
+   Shown when the pointer or the keyboard is in the row; always reachable with Tab. */
+.conv-redact {
+  margin-left: auto;
+  opacity: 0;
+}
+.conv-row:hover .conv-redact,
+.conv-row:focus-within .conv-redact,
+.conv-redact:focus-visible {
+  opacity: 1;
+}
+.conv-agent__text > .conv-redact {
+  float: right;
+}

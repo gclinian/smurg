@@ -10,6 +10,11 @@ export type UrlSubject = 'flag' | 'web-origin' | 'env' | 'credentials' | 'built-
 /** A private file or directory of the state dir (state/private-file.ts stateProblem). */
 export type StateSubject = 'credentials' | 'workspaces' | 'logs' | 'daemon-key' | 'device-key';
 export type DurationUnit = 'day' | 'hour' | 'minute' | 'second';
+/** What the daemon found out about Claude Code on the host (`smurg status`; DaemonStatus.claude of @smurg/daemon). */
+export type ClaudeVerdict = 'verified' | 'unverified' | 'too-old' | 'unknown';
+export type ClaudeLogin = 'logged-in' | 'logged-out' | 'unknown';
+/** The trust state of the shared folder's Claude Code project settings (`smurg status`). */
+export type ProjectSettings = 'used' | 'ignored' | 'none';
 
 const STATE_SUBJECT: Readonly<Record<StateSubject, string>> = {
   credentials: 'The login file (credentials.json)',
@@ -42,6 +47,25 @@ const RELAY_FAILED: Readonly<Record<RelayAction, string>> = {
   verify: 'Checking the login failed',
 };
 
+const CLAUDE_VERDICT: Readonly<Record<ClaudeVerdict, string>> = {
+  verified: 'verified with this smurg',
+  unverified: 'not verified with this smurg yet; agent sessions run with a warning',
+  'too-old': 'too old for agent sessions; update Claude Code',
+  unknown: 'smurg could not read its version',
+};
+
+const CLAUDE_LOGIN: Readonly<Record<ClaudeLogin, string>> = {
+  'logged-in': 'logged in',
+  'logged-out': 'not logged in (run claude in a terminal and log in)',
+  unknown: 'login not checked yet',
+};
+
+const PROJECT_SETTINGS: Readonly<Record<ProjectSettings, string>> = {
+  used: 'confirmed (agents use them)',
+  ignored: 'not confirmed (agents run without them; confirm them in the web app)',
+  none: 'none in this folder',
+};
+
 const duration = (amount: number, unit: DurationUnit): string => `${amount} ${plural(amount, unit, `${unit}s`)}`;
 
 const UNCHANGED = 'smurg was not changed.';
@@ -58,8 +82,8 @@ export const en = {
 Usage: smurg <command> [options]
 
   host <folder>        Share a project folder on this computer and print the invite links (runs in the foreground)
-  attach [session]     Attach an agent session to this terminal (lists the sessions when none is given)
-  stop                 Stop sharing (disconnects everyone and ends every session)
+  attach [session]     Attach a terminal session to this terminal (lists the sessions when none is given)
+  stop                 Stop sharing (disconnects everyone, ends terminal sessions, pauses agent sessions)
   status               Show the workspaces being shared
   login                Log in to the relay (the public relay uses Google)
   logout               Log out of the relay
@@ -213,8 +237,10 @@ Docs: https://smurg.ai/docs/
   // ---- attach
   'usage.attach': (p: { relayDefault: string }) => `Usage: smurg attach [session] [--workspace ID] [--invite -|LINK] [--relay URL] [--no-browser] [--accept-new-key]
 
-  Attach an agent session to this terminal. Without a session, list every session.
+  Attach a terminal session to this terminal. Without a session, list every session.
   A session is its number in the list, its session ID, or the start of its ID.
+  Agent sessions are conversations: they are listed with their topic and status, and they open in the browser,
+  not in a terminal.
   When this computer is sharing the workspace (smurg host), you attach directly as the host; otherwise you join
   through the relay with this computer's device key.
   --invite -          the first time you join someone's workspace: run the command, then paste the invite link the
@@ -244,6 +270,20 @@ Docs: https://smurg.ai/docs/
   'attach.list.empty': () => 'This workspace has no sessions.',
   'attach.list.header': () => 'No.   Session ID                        Type      Owner         Status      Title',
   'attach.list.footer': () => 'Attach with smurg attach <number or session ID>.',
+  'attach.list.noTerminals': () => 'This workspace has no terminal sessions.',
+  'attach.agents.heading': () => 'Agent sessions (conversations):',
+  'attach.agents.header': () => 'Session ID                        Status                    Topic                     Title',
+  'attach.agents.noTopic': () => 'No topic',
+  'attach.agents.browser': (p: { url?: string }) =>
+    p.url === undefined ? "Agent conversations open in the browser, in this workspace's web app." : `Agent conversations open in the browser: ${p.url}`,
+  'attach.agents.notTerminal': (p: { title: string }) => `Session "${p.title}" is an agent conversation, not a terminal`,
+  'attach.agent.waitingAnswer': () => 'waiting for an answer',
+  'attach.agent.waitingPermission': () => 'waiting for permission',
+  'attach.agent.idle': () => 'idle',
+  'attach.agent.stalled': () => 'stopped without a report',
+  'attach.agent.done': () => 'done',
+  'attach.agent.failed': () => 'failed',
+  'attach.agent.ended': () => 'ended',
   'attach.list.workspace.local': (p: { name: string; workspaceId: string }) => `Workspace "${p.name}" (${p.workspaceId}, on this computer)`,
   'attach.list.workspace.relay': (p: { name: string; workspaceId: string; relay: string }) => `Workspace "${p.name}" (${p.workspaceId}, through the relay ${p.relay})`,
   'attach.pick.ambiguous': (p: { wanted: string }) => `"${p.wanted}" matches more than one session; type more of the ID`,
@@ -292,7 +332,7 @@ Docs: https://smurg.ai/docs/
   'attach.attaching.own': (p: { title: string; owner: string }) => `Attaching to session "${p.title}" (${p.owner}, your session). Press Ctrl-] to leave.`,
   'attach.attaching.other': (p: { title: string; owner: string }) => `Attaching to session "${p.title}" (opened by ${p.owner}). Press Ctrl-] to leave.`,
   'attach.readOnly': (p: { owner: string }) =>
-    `Read-only: ${p.owner} opened this session, and your role cannot type into sessions (to take part, make a suggestion in the web app). Press Ctrl-] to leave.`,
+    `Read-only: ${p.owner} opened this terminal session, and your role cannot type into terminal sessions. Press Ctrl-] to leave.`,
   'attach.title': (p: { title: string }) => `smurg: ${p.title}`,
   'attach.title.readOnly': () => 'read-only',
   'attach.title.hostOffline': () => 'the host is offline, waiting to reconnect...',
@@ -315,7 +355,8 @@ Docs: https://smurg.ai/docs/
   --role ROLE         the role of the teammates' link: agent (Agent access), editor (Editor, the default),
                       viewer (Viewer)
                       Sessions opened by a member with agent access run as you on this computer, with your Claude
-                      login, and that member can type into any session: give it only to people you trust completely
+                      login, and that member can message any agent, allow what agents ask to run and type into any
+                      terminal: give it only to people you trust completely
   --expires TIME      how long the teammates' link stays valid, for example 30m, 12h, 7d (default 7d, at most 365d)
   --max-uses N        how many times the teammates' link can be used (default: no limit)
   --name NAME         the name the workspace is shown with (default: the folder's name)
@@ -378,7 +419,7 @@ Docs: https://smurg.ai/docs/
   'host.workspaceTaken.hint': (p: { name: string; userId: string }) => `This folder was shared with another account before; you are logged in as ${p.name} (${p.userId}).`,
   'host.native': (p: { reason: string }) => `The native modules built into the smurg executable cannot be used (${p.reason})`,
   'host.native.hint': () => 'Check that the cache folder can be written (SMURG_CACHE_DIR sets it), or download smurg again.',
-  'host.stopping.wait': () => 'Stopping the share (ending sessions, cleaning up temporary folders); one moment...',
+  'host.stopping.wait': () => 'Stopping the share (ending terminals and agents, cleaning up temporary folders); one moment...',
   'host.stopping.again': () => '\nInterrupted again; leaving now (the daemon may not have stopped completely).',
   'host.stopping.signal': (p: { signal: string }) => `\nReceived ${p.signal}; stopping the share...`,
   'host.stopping.control': () => '\nAsked to stop (smurg stop); stopping the share...',
@@ -387,6 +428,8 @@ Docs: https://smurg.ai/docs/
   'host.keepAwake.notice': (p: { state: string }) => `\nWarning: keep-awake: ${p.state}. While the computer sleeps, your teammates see "Host offline".`,
   'host.keepAwake.lost': (p: { state: string }) => `\nWarning: keep-awake was lost: ${p.state}. While the computer sleeps, your teammates see "Host offline".`,
   'host.stopped': () => 'Stopped sharing.',
+  'host.agentsPaused': (p: { count: number }) =>
+    `${p.count} agent ${plural(p.count, 'session is', 'sessions are')} paused. ${plural(p.count, 'It continues', 'They continue')} when you share this folder again.`,
   'host.overlap.same': () => 'This folder is already being shared',
   'host.overlap.ancestor': (p: { folder: string }) => `A folder above this one (${p.folder}) is already being shared`,
   'host.overlap.inside': (p: { folder: string }) => `${p.folder} inside this folder is already being shared`,
@@ -427,13 +470,14 @@ Docs: https://smurg.ai/docs/
   // ---- stop / status
   'usage.stop': () => `Usage: smurg stop [--workspace ID]
 
-  Stop sharing: disconnect everyone and end every session.
+  Stop sharing: disconnect everyone and end every terminal session. Agent sessions are paused: their agents stop,
+  their conversations are kept, and they continue when you share the folder again.
   Without a workspace, stops the one shared from the current folder, or the only one being shared.
 `,
   'usage.status': () => `Usage: smurg status [--workspace ID]
 
   Show the workspaces being shared: the folder, the relay and its connections, the daemon key fingerprint,
-  keep-awake, the settings of smurg host, and where the log is.
+  keep-awake, the settings of smurg host, Claude Code and the agent sessions, and where the log is.
   What each line means: https://smurg.ai/docs/hosting/#7-status-and-stopping
 `,
   'stop.refused': (p: { reason: string }) => `smurg host refused to stop: ${p.reason}`,
@@ -462,6 +506,11 @@ Docs: https://smurg.ai/docs/
     fingerprint?: string;
     power: string;
     bashAttribution?: boolean;
+    claude: string;
+    agents?: string;
+    topics?: string;
+    projectSettings?: string;
+    hostRules?: string;
     logPath: string;
     pid?: string;
   }) =>
@@ -473,9 +522,25 @@ Docs: https://smurg.ai/docs/
       ...(p.fingerprint === undefined ? [] : [`  Daemon key fingerprint: ${p.fingerprint}`]),
       `  Keep-awake: ${p.power}`,
       ...(p.bashAttribution === undefined ? [] : [`  Notices of agents' shell commands: ${p.bashAttribution ? 'on' : 'off (--no-bash-attribution)'}`]),
+      `  Claude Code: ${p.claude}`,
+      ...(p.agents === undefined ? [] : [`  Agent sessions: ${p.agents}`]),
+      ...(p.topics === undefined ? [] : [`  Topics: ${p.topics}`]),
+      ...(p.projectSettings === undefined ? [] : [`  Claude Code project settings: ${p.projectSettings}`]),
+      ...(p.hostRules === undefined ? [] : [`  Your own Claude Code allow rules: ${p.hostRules}`]),
       `  Log: ${p.logPath}`,
       ...(p.pid === undefined ? [] : [`  Daemon process: ${p.pid}`]),
     ].join('\n'),
+  'status.claude': (p: { version?: string; verdict: ClaudeVerdict; login: ClaudeLogin }) =>
+    `${p.version === undefined ? 'version unknown' : p.version} (${CLAUDE_VERDICT[p.verdict]}), ${CLAUDE_LOGIN[p.login]}`,
+  'status.claude.notChecked': () => 'not checked yet (smurg checks it when the first agent session starts)',
+  'status.agents': (p: { running: number; waiting: number; stalled: number; idle: number }) =>
+    p.running + p.waiting + p.stalled + p.idle === 0
+      ? 'none'
+      : `${p.running} running, ${p.waiting} waiting for a person, ${p.stalled} stopped without a report or failed, ${p.idle} idle`,
+  'status.topics': (p: { total: number; paused: number }) => (p.total === 0 ? 'none' : `${p.total} (${p.paused} paused)`),
+  'status.projectSettings': (p: { trust: ProjectSettings }) => PROJECT_SETTINGS[p.trust],
+  'status.hostRules': (p: { count: number }) =>
+    p.count === 0 ? 'none apply to agent sessions' : `${p.count} ${plural(p.count, 'applies', 'apply')} to agent sessions (agents run what ${plural(p.count, 'it allows', 'they allow')} without asking)`,
 
   // ---- licenses
   'usage.licenses': () => `Usage: smurg licenses [--third-party]
@@ -565,8 +630,8 @@ Docs: https://smurg.ai/docs/
 
   Remove smurg from this computer: the executable itself, the cache (the native modules the executable unpacked)
   and the state folder ~/.smurg (logins, the device key, every workspace's keys, members and invite links, the
-  logs). It lists the paths it will remove first and acts only after you confirm; workspaces being shared are
-  stopped first (as smurg stop does).
+  conversations of agent sessions, the logs). It lists the paths it will remove first and acts only after you
+  confirm; workspaces being shared are stopped first (as smurg stop does).
   The .smurg/ folders inside project folders (worktrees and changes that are not merged yet) are not touched; they
   are only listed, for you to decide.
   --keep-data         keep the state folder; remove only the executable and the cache
@@ -579,8 +644,9 @@ Docs: https://smurg.ai/docs/
   'uninstall.size.mb': (p: { mb: string }) => ` (${p.mb} MB)`,
   'uninstall.refusal.hint': (p: { stateDir: string }) =>
     `Nothing was removed. To remove only the executable and the cache: smurg uninstall --keep-data; check what is in the state folder (${p.stateDir}) and delete it yourself, or set SMURG_HOME back to smurg's state folder and run the command again.`,
-  'uninstall.what.state': () => "state folder: logins, the device key, every workspace's keys, members and invite links, the logs",
-  'uninstall.what.stateSymlink': () => "state folder: logins, the device key, every workspace's keys, members and invite links, the logs (this is a symlink: only the link itself is removed)",
+  'uninstall.what.state': () => "state folder: logins, the device key, every workspace's keys, members and invite links, the conversations of agent sessions, the logs",
+  'uninstall.what.stateSymlink': () =>
+    "state folder: logins, the device key, every workspace's keys, members and invite links, the conversations of agent sessions, the logs (this is a symlink: only the link itself is removed)",
   'uninstall.what.cache': () => 'cache: the native modules the executable unpacked',
   'uninstall.what.executable': () => 'the executable',
   'uninstall.state.notDirectory': (p: { stateDir: string }) => `smurg's state folder is not a folder: ${p.stateDir}`,
@@ -603,7 +669,7 @@ Docs: https://smurg.ai/docs/
   'uninstall.plan.stateNote': () =>
     '  After the state folder is removed, the members and invite links of the workspaces you shared stop working, and this computer has to join the workspaces it joined again with an invite link.',
   'uninstall.plan.stops': (p: { ids: readonly string[] }) =>
-    `Workspaces being shared are stopped first (as smurg stop does: everyone is disconnected and every session ends): ${p.ids.join(', ')}`,
+    `Workspaces being shared are stopped first (as smurg stop does: everyone is disconnected, terminal sessions end and agents stop): ${p.ids.join(', ')}`,
   'uninstall.kept.heading': () => 'Not touched:',
   'uninstall.kept.state': (p: { stateDir: string }) => `  ${p.stateDir}  the state folder (--keep-data)`,
   'uninstall.kept.linkTarget': (p: { target: string }) => `  ${p.target}  the folder the state folder's symlink points to`,

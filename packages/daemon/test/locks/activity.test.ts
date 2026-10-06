@@ -218,6 +218,37 @@ describe('bus → activity + audit', () => {
     expect((await host.conn.request('activity.list', {})).events.map(labelOf)).toEqual(['visible', 'hidden']);
   });
 
+  it('EVERY recorded entry is also the bus event `activity.recorded`: who, what kind, which file, when, `via` and the path before a rename; a listener that throws loses nothing', async () => {
+    const d = await daemon();
+    const host = await d.connectHost();
+    await d.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
+    const live = recorder(host.conn, 'activity.event');
+    const seen: unknown[] = [];
+    d.ctx.bus.on('activity.recorded', (event) => seen.push(event.entry));
+    d.ctx.bus.on('activity.recorded', () => {
+      throw new Error('a listener of another module fails');
+    });
+    const amy = { kind: 'user', userId: 'dev:amy', displayName: 'Amy' } as const;
+    const agent = { kind: 'agent', sessionId: 'ses_amy', ownerUserId: 'dev:amy', displayName: 'Claude (Amy)' } as const;
+    // Entries recorded directly (the files module's rename carries the path the entry had before) …
+    const renamed = d.ctx.services.activity.record({ actor: amy, kind: 'file.rename', file: main('specs/checkout/OLD.md'), text: msg('activity.fileRename', { from: 'specs/checkout/SPEC.md', to: 'specs/checkout/OLD.md' }), renamedFrom: 'specs/checkout/SPEC.md' });
+    const bash = d.ctx.services.activity.record({ actor: agent, kind: 'agent.edit', file: main('src/app.ts'), text: msg('activity.agentBashChange', { agent: 'Claude (Amy)', path: 'src/app.ts', change: 'change' }), via: 'bash' });
+    const noFile = d.ctx.services.activity.record({ actor: { kind: 'system' }, kind: 'conflict', text: about('nothing') });
+    // … and one the feed makes itself from another bus event (a person's autosaved edit).
+    d.ctx.bus.emit('doc.human-edit', { file: main('README.md'), docId: 'doc_1', userId: 'dev:amy', channelId: 'ch_x' });
+    d.ctx.bus.emit('doc.saved', { file: main('README.md'), docId: 'doc_1', hash: 'h'.repeat(64), at: Date.now() });
+    await waitFor(() => live.length === 4, { what: 'the four entries' });
+    expect(seen).toEqual([
+      { actor: amy, kind: 'file.rename', file: main('specs/checkout/OLD.md'), at: renamed.at, renamedFrom: 'specs/checkout/SPEC.md' },
+      { actor: agent, kind: 'agent.edit', file: main('src/app.ts'), at: bash.at, via: 'bash' },
+      { actor: { kind: 'system' }, kind: 'conflict', at: noFile.at },
+      { actor: amy, kind: 'human.edit', file: main('README.md'), at: live[3]?.event.at },
+    ]);
+    // The wire's entry of the rename says where the file was, too; the failing listener cost no entry.
+    expect(live[0]?.event).toMatchObject({ kind: 'file.rename', renamedFrom: 'specs/checkout/SPEC.md', file: main('specs/checkout/OLD.md') });
+    expect((await host.conn.request('activity.list', {})).events.map((entry) => entry.kind)).toEqual(['human.edit', 'conflict', 'agent.edit', 'file.rename']);
+  });
+
   it('activity.list pages with an exact `before` cursor', async () => {
     const d = await daemon();
     const amy = await d.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'viewer' });

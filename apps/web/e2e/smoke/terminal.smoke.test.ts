@@ -1,13 +1,13 @@
-// The terminal's size in a real browser (the built app, the real relay, a daemon with every module, system Chrome at
-// 1440 × 900 with real scrollbars). What it once was: the owner of a terminal session saw an 80-column terminal
-// (626 px) in a 420 px panel, cut off at the panel's edge. Now:
-//  - the OWNER's PTY follows the panel: `stty size` typed into the session equals what the panel fits, in a narrow and
-//    in a wide panel, and no part of the terminal lies outside its visible, scrollable container;
-//  - a WATCHER renders the PTY's size: in a narrower panel the whole 80-column line is reached by scrolling (visible
-//    scrollbars), never reflowed, and "Scale to fit the width" draws all of it inside the panel.
+// A plain terminal in a real browser (the built app, the real relay, a daemon with every module, system Chrome at
+// 1440 x 900 with real scrollbars): a column of the sessions view (DESIGN §5.4 "Session (terminal)").
+//  - the OWNER's PTY follows the column: `stty size` typed into the terminal equals what the column fits, alone in the
+//    strip (wide) and beside another column (narrow), and no part of the terminal lies outside its visible, scrollable
+//    container;
+//  - a WATCHER renders the PTY's size: in a narrower column a line as long as the owner's terminal is wide is reached
+//    by scrolling (visible scrollbars), never reflowed, and "Scale to fit the width" draws all of it inside the column.
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { STEP_MS, joinAs, joinAsHost, openSession, startSmoke, systemChrome, terminalOf, typeInTerminal, type SmokeEnv } from './helpers.ts';
+import { STEP_MS, joinAs, joinAsHost, startSmoke, systemChrome, terminalOf, typeInTerminal, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
 if (chrome === null) console.warn('[web smoke] SKIPPED: no system Chrome found (playwright-core downloads no browser); install Google Chrome to run it.');
@@ -144,10 +144,31 @@ async function waitDriving(page: Page, id: string): Promise<void> {
   );
 }
 
-describe.skipIf(chrome === null)('the terminal in its panel (built app, real relay, system Chrome)', () => {
+/**
+ * Opens a plain terminal from the "New" control of the session list ("New" → "Terminal" → the dialog); resolves with
+ * its id once its terminal is live in a column.
+ */
+async function openTerminal(page: Page, title: string): Promise<string> {
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Terminal' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New terminal' });
+  await dialog.waitFor({ timeout: STEP_MS });
+  await dialog.getByLabel('Name (optional)').fill(title);
+  await dialog.getByRole('button', { name: 'Open' }).click();
+  await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
+  const session = page.getByRole('region', { name: title }).locator('.agents-session', { has: page.locator('.agents-term__viewport[data-phase="live"]') });
+  await session.first().waitFor({ timeout: STEP_MS });
+  const id = await session.first().getAttribute('data-session-id');
+  if (!id) throw new Error('no session id on the live terminal');
+  return id;
+}
+
+describe.skipIf(chrome === null)('a plain terminal as a column (built app, real relay, system Chrome)', () => {
   let env: SmokeEnv;
   let host: Page;
   let sessionId: string;
+  /** The columns of the owner's PTY at the end of the first test (alone in the strip). */
+  let ownerWide = 0;
 
   beforeAll(async () => {
     env = await startSmoke({ stack: { projectFiles: { 'README.md': '# Class project\n' } } });
@@ -157,55 +178,71 @@ describe.skipIf(chrome === null)('the terminal in its panel (built app, real rel
     await env?.stop();
   }, 60_000);
 
-  it('the owner: the PTY follows the panel — `stty size` equals what a narrow and a wide panel fit, and no part of the terminal lies outside its visible, scrollable container', async () => {
+  it('the owner: the PTY follows the column: `stty size` equals what a wide and a narrow column fit, and no part of the terminal lies outside its visible, scrollable container', async () => {
     host = await env.newPage();
     await joinAsHost(host, env);
-    sessionId = await openSession(host, 'terminal', 'shell');
+    sessionId = await openTerminal(host, 'shell');
     await waitDriving(host, sessionId);
 
-    // Narrow: the default 420 px agents panel of a 1440 × 900 window (a common setup).
+    // Wide: the only column of the strip.
+    const wide = await layoutOf(host, sessionId);
+    const wideSize = await sttySize(host, sessionId, 'WIDE');
+    expect(wideSize).toEqual({ cols: fittedCols(wide), rows: fittedRows(wide) });
+    expect(wideSize.cols).toBeGreaterThan(100);
+    expectNothingHidden(await layoutOf(host, sessionId), 'wide owner');
+
+    // Narrow: a second terminal takes the column, then "shell" is opened to the side of it (Shift+click on its row).
+    await openTerminal(host, 'other');
+    await host.getByRole('treeitem', { name: /shell/ }).first().click({ modifiers: ['Shift'] });
+    await host.waitForFunction(
+      ({ id, before }) => {
+        const d = document.querySelector<HTMLElement>(`.agents-session[data-session-id="${id}"] .agents-term__viewport`)?.dataset;
+        return !!d && d['phase'] === 'live' && Number(d['fitCols']) < before;
+      },
+      { id: sessionId, before: wideSize.cols },
+      { timeout: STEP_MS },
+    );
+    await waitDriving(host, sessionId);
     const narrow = await layoutOf(host, sessionId);
-    expect(narrow.viewport.right - narrow.viewport.left).toBeLessThanOrEqual(430);
     const narrowSize = await sttySize(host, sessionId, 'NARROW');
     expect(narrowSize).toEqual({ cols: fittedCols(narrow), rows: fittedRows(narrow) });
-    expect(narrowSize.cols).toBeLessThan(80);
+    expect(narrowSize.cols).toBeLessThan(wideSize.cols);
     expect(narrowSize).toEqual({ cols: Number(narrow.dataset['fitCols']), rows: Number(narrow.dataset['fitRows']) });
-    // A command longer than the panel is wide, and its output: wrapped by the shell inside the panel, nothing cut off.
-    await typeInTerminal(host, sessionId, `echo hello-from-host-$(printf '%060d' 0) && ls`);
+    // A command longer than the column is wide, and its output: wrapped by the shell inside the column, nothing cut off.
+    await typeInTerminal(host, sessionId, `echo hello-from-host-$(printf '%0120d' 0) && ls`);
     await host.waitForFunction(
       (id) => [...document.querySelectorAll(`.agents-session[data-session-id="${id}"] .xterm-rows > div`)].some((r) => (r.textContent ?? '').includes('README.md')),
       sessionId,
       { timeout: STEP_MS },
     );
     const afterCommand = await layoutOf(host, sessionId);
-    expect(within(afterCommand.terminal, afterCommand.visible), `the owner's terminal fits its panel: ${JSON.stringify(afterCommand)}`).toBe(true);
+    expect(within(afterCommand.terminal, afterCommand.visible), `the owner's terminal fits its column: ${JSON.stringify(afterCommand)}`).toBe(true);
     expectNothingHidden(afterCommand, 'narrow owner');
-    expect(await host.getByTestId('terminal-size-hint').count()).toBe(0);
+    expect(await host.getByRole('region', { name: 'shell' }).getByTestId('terminal-size-hint').count()).toBe(0);
 
-    // Wide: the separator of the agents panel dragged to its far end (keyboard: End).
-    await host.getByRole('separator', { name: /Agents/ }).first().focus();
-    await host.keyboard.press('End');
+    // Wide again: the other column is closed (the watcher below needs a PTY wider than its own column).
+    await host.getByRole('button', { name: 'Close column: other' }).click();
     await host.waitForFunction(
       ({ id, before }) => Number(document.querySelector<HTMLElement>(`.agents-session[data-session-id="${id}"] .agents-term__viewport`)?.dataset['fitCols']) > before,
       { id: sessionId, before: narrowSize.cols },
       { timeout: STEP_MS },
     );
     await waitDriving(host, sessionId);
-    const wide = await layoutOf(host, sessionId);
-    const wideSize = await sttySize(host, sessionId, 'WIDE');
-    expect(wideSize).toEqual({ cols: fittedCols(wide), rows: fittedRows(wide) });
-    expect(wideSize.cols).toBeGreaterThan(100);
-    expectNothingHidden(await layoutOf(host, sessionId), 'wide owner');
-    console.info(`[terminal fit] owner PTY ${narrowSize.cols}×${narrowSize.rows} in the 420 px panel, ${wideSize.cols}×${wideSize.rows} in the wide panel`);
+    expect((await sttySize(host, sessionId, 'AGAIN')).cols).toBe(wideSize.cols);
+    ownerWide = wideSize.cols;
+    console.info(`[terminal fit] owner PTY ${wideSize.cols}x${wideSize.rows} alone in the strip, ${narrowSize.cols}x${narrowSize.rows} beside another column`);
   }, 240_000);
 
-  it('a watcher: the PTY-sized terminal is never reflowed; in a narrower panel the whole 80-column line is reached by scrolling (visible scrollbars), and "Scale to fit the width" fits it', async () => {
-    // The owner's PTY is wide (the previous test). An 80-column line: L, 78 zeros, R.
-    await typeInTerminal(host, sessionId, `printf 'L%078dR\\n' 0`);
-    const line = `L${'0'.repeat(78)}R`;
-    const watcher = await env.newPage();
+  it('a watcher: the PTY-sized terminal is never reflowed; in a narrower column a line as long as the owner\'s terminal is wide is reached by scrolling (visible scrollbars), and "Scale to fit the width" fits it', async () => {
+    // The owner's PTY is wide (the previous test). A line nearly as long as it is wide: L, zeros, R.
+    const lineCols = ownerWide - 2;
+    expect(lineCols).toBeGreaterThan(100);
+    await typeInTerminal(host, sessionId, `printf 'L%0${lineCols - 2}dR\\n' 0`);
+    const line = `L${'0'.repeat(lineCols - 2)}R`;
+    // A smaller window than the owner's: the column is narrower than the owner's PTY.
+    const watcher = await env.newPage({ width: 1000, height: 800 });
     await joinAs(watcher, env, 'wendy', 'viewer');
-    await watcher.getByRole('tab', { name: /shell/ }).first().click();
+    await watcher.getByRole('treeitem', { name: /shell/ }).first().click();
     const viewport = terminalOf(watcher, sessionId);
     await viewport.and(watcher.locator('[data-phase="live"]')).waitFor({ timeout: STEP_MS });
     await watcher.waitForFunction(
@@ -215,7 +252,7 @@ describe.skipIf(chrome === null)('the terminal in its panel (built app, real rel
     );
     const ownerCols = Number((await layoutOf(host, sessionId)).dataset['cols']);
     const watched = await layoutOf(watcher, sessionId);
-    // Exactly the PTY's size (never reflowed to the panel), bigger than the panel: it scrolls, both scrollbars drawn.
+    // Exactly the PTY's size (never reflowed to the column), bigger than the column: it scrolls, its scrollbars drawn.
     expect(watched.cols).toBe(ownerCols);
     expect(watched.scrollWidth).toBeGreaterThan(watched.clientWidth);
     expect(watched.scrollbarX).toBeGreaterThan(0);
@@ -252,16 +289,16 @@ describe.skipIf(chrome === null)('the terminal in its panel (built app, real rel
     const left = await edges(0);
     expect(left.first && within(left.first, left.visible)).toBe(true);
     expect(left.last && within(left.last, left.visible)).toBe(false);
-    // Scrolled just far enough to the right: the 80th column comes into view (and the container can scroll that far).
+    // Scrolled just far enough to the right: the last column comes into view (and the container can scroll that far).
     const needed = Math.ceil((left.last?.right ?? 0) - left.visible.right) + 2;
     expect(needed).toBeLessThanOrEqual(left.max);
     const right = await edges(needed);
     expect(right.scrollLeft).toBe(needed);
-    expect(right.last && within(right.last, right.visible), `the 80th column is reached by scrolling: ${JSON.stringify(right)}`).toBe(true);
+    expect(right.last && within(right.last, right.visible), `the last column is reached by scrolling: ${JSON.stringify(right)}`).toBe(true);
     // The line was not wrapped onto two rows: first and last character on the same row.
     expect(Math.abs((right.last?.top ?? 0) - (left.first?.top ?? 0))).toBeLessThan(1);
 
-    // "Scale to fit the width": the same PTY-sized terminal, drawn smaller: all of it inside the panel, nothing reflowed.
+    // "Scale to fit the width": the same PTY-sized terminal, drawn smaller: all of it inside the column, nothing reflowed.
     await watcher.getByRole('button', { name: 'Scale to fit the width' }).click();
     await watcher.waitForFunction(
       (id) => {

@@ -33,7 +33,9 @@ The tools:
 | Publishing | `scripts/publish-downloads.sh --version X.Y.Z (--from-release \| --dist DIR) [--dry-run] [--resume] [--no-latest]`, `--check [--version X.Y.Z]`, `--set-latest X.Y.Z` (§4 step 7, §7). Every rule: `scripts/publish-downloads.ts`. | `packages/cli/test/publish-downloads.test.ts` (stand-ins for wrangler, the domain and gh; §4.4) |
 | Installer | `scripts/install.sh`: picks darwin/linux × arm64/x64 (glibc), downloads `SHA256SUMS` and then the executable from its baked download location, installs `~/.local/bin/smurg` only when the sha256 matches (https only); on macOS it removes `com.apple.quarantine` after the sha256 matched. No sudo, no system package. | `packages/cli/test/install-script.test.ts` |
 | Release workflow | `.github/workflows/release.yml` (§4 step 5). Only the release job has `permissions: contents: write`; actions are pinned to commit SHAs. A manual run is a dry run that releases nothing. | |
-| CI | `.github/workflows/ci.yml`: `pnpm check` on `macos-15` and `ubuntu-24.04` for pushes to `main`, pull requests and manual runs. Pull requests from forks get a read-only token and no secret. | |
+| CI | `.github/workflows/ci.yml`: `pnpm check` on `macos-15` and `ubuntu-24.04` for pushes to `main`, pull requests and manual runs. Pull requests from forks get a read-only token and no secret. The runners have no `claude`: every agent in CI is the scripted stand-in (`packages/daemon/src/testing/fake-claude.mjs`). | |
+| Release gate | `SMURG_RELEASE_GATE=1 pnpm check` (§4 step 1): the same gate, which then also fails while anything is still on a pending list of the release being built. | `tests/lint/pending.test.ts`, `tests/lint/acceptance-refs.test.ts`, `packages/daemon/test/composition.test.ts`, `packages/daemon/test/wire-texts.test.ts` |
+| Real Claude Code | The suite and the dry run of §4.5: the host's own kind of `claude`, version 2.1.288, against the repository's fake Anthropic API with a dummy key and its own temporary `HOME` and config directory. Never a real account. | `packages/daemon/test/hooks/claude-harness.ts` (how it is isolated), `docs/ACCEPTANCE.md` "How to run the gate" |
 | Relay deploy | `scripts/deploy-relay.sh` (§2): production build of web + relay, then `wrangler deploy` of the top level of `apps/relay/wrangler.jsonc`; `--dry-run`, `--check <url>`. | `apps/relay/test/deploy-relay.test.ts` |
 | CLI default relay | `DEFAULT_RELAY_URL` in `packages/cli/src/relay/default-relay.ts` (§3) | `packages/cli/test/default-relay.test.ts`, `apps/relay/test/config.test.ts` |
 | Release notes | `CHANGELOG.md` and `docs/zh-TW/CHANGELOG.md`: one `## [X.Y.Z] - YYYY-MM-DD` section per version, the same heading in both. Published on smurg.ai; the English section becomes the GitHub release's notes. | `apps/site/test/docs-parity.test.ts` |
@@ -209,8 +211,11 @@ Changing it is expensive (every released `smurg`, every stored login and invite 
 
 Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1.2) and a gh login.
 
-1. `main` is green in CI, `source scripts/env.sh && pnpm check` is green locally, `shellcheck -S warning scripts/*.sh`
-   and `actionlint .github/workflows/*.yml` are clean.
+1. `main` is green in CI, `source scripts/env.sh && SMURG_RELEASE_GATE=1 pnpm check` is green locally,
+   `shellcheck -S warning scripts/*.sh` and `actionlint .github/workflows/*.yml` are clean. With
+   `SMURG_RELEASE_GATE=1` the gate also refuses anything left on a pending list (`docs/ACCEPTANCE.md` "How to run the
+   gate"): a release has none. Since 0.5.0 two more things are done before the tag, by a person on their own machine,
+   because CI has no Claude Code: the real-Claude suite and the release dry run, both in §4.5.
 2. The changelogs: the section `## [X.Y.Z] - YYYY-MM-DD` in `CHANGELOG.md` and, with the same heading, in
    `docs/zh-TW/CHANGELOG.md`, written for hosts and members. Set `"version": "X.Y.Z"` in all eight `package.json`
    files. Commit, then check what the workflow's first job will check:
@@ -241,6 +246,16 @@ Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1
    of another protocol version is refused at the handshake). The web app must therefore be at least as new as the
    release before anyone can install the release. If the workflow fails and you tag a fixed commit instead, redeploy
    from that one.
+
+   **For 0.5.0 the order "redeploy first, then publish" decides whether the release works at all.** 0.5.0 speaks
+   protocol 4, and nothing of protocol 3 is kept: there is no compatibility code on either side (ARCHITECTURE
+   §4.3). Until `app.smurg.ai` serves the build of the release commit, a browser that opens the invite
+   link of a 0.5.0 host is refused at the handshake (the page says "Incompatible versions"); from the moment it
+   does, a host that still runs an older smurg is refused the same way until it updates. So: deploy from the release
+   commit, wait for "Done: …", run `--check` (it compares the live web app with this checkout's build), and only
+   then tag, build and publish (steps 4 to 7), without a pause in between. Never publish while `--check` still
+   reports another web build. Say in the release notes that hosts update before they share again
+   (`smurg update`).
 4. Tag and push the tag:
 
    ```sh
@@ -427,6 +442,67 @@ Only `127.0.0.1`, `[::1]` and `localhost` are accepted, and any `SMURG_PUBLISH_T
 and the stand-in wrangler is refused (exit 2): a rehearsal never runs the real wrangler. The first and the last line of
 the output say `REHEARSAL`. `SMURG_PUBLISH_TEST_GH` replaces gh the same way.
 
+### 4.5 Before the tag: real Claude Code and the release dry run (since 0.5.0)
+
+The gate and CI run every agent on a scripted stand-in, so two things are done by a person, on their own machine,
+before a release is tagged (§4 step 1). Neither uses a Claude account. Real Claude Code talks only to the
+repository's fake Anthropic API on 127.0.0.1 (`packages/daemon/test/hooks/mock-anthropic.ts`), with a dummy key and
+a temporary `HOME` and `CLAUDE_CONFIG_DIR` that the harness creates and removes
+(`packages/daemon/test/hooks/claude-harness.ts`). Never log a test in, never point one at the real API, never run
+one with your own `~/.claude`: nothing here may be billed or leave the machine.
+
+**The real-Claude suite.** smurg runs agent sessions on Claude Code 2.1.288 or newer and is verified on exactly
+2.1.288 (`CLAUDE_MIN_VERSION` and `CLAUDE_VERIFIED_VERSIONS` in `packages/daemon/src/core/config.ts`; ARCHITECTURE
+§11 D-23). The suite skips, loudly, on every other version, and Claude Code updates itself: a green gate on a
+machine whose `claude` has moved on has not run it. So name the binary:
+
+```sh
+cd <repo> && source scripts/env.sh
+SMURG_TEST_CLAUDE_BIN=/absolute/path/to/claude-2.1.288 \
+  pnpm --filter @smurg/daemon exec vitest run test/hooks/claude-e2e.test.ts test/hooks/claude-bash.test.ts \
+  test/hooks/claude-failmodes.test.ts test/sessions/agent-claude-real.test.ts
+```
+
+No file may print `SKIPPED`. What it proves that the stand-in cannot: that real Claude Code runs smurg's hook before
+every tool and obeys its refusal, on a host whose own settings allow everything; that a discussion agent writes only
+its topic's two files; that commands ask and "always allow" holds; that the host's private files stay out of reach
+of the search and read tools; that project settings nobody confirmed are not loaded; that a conversation is resumed
+after its process ended (`docs/ACCEPTANCE.md`: T2.1, T4.2, S4, S5, S8, S10, S16, S22, R8.1). The built app's one
+pass with real Claude Code in system Chrome (`flow.claude.smoke` of the web-smoke project: discussion, question,
+spec, plan, one work item, its report) belongs to this step too and takes its binary from the same variable.
+
+Making a newer Claude Code the verified one is a code change with a release of its own, not a release step: run
+this suite against it, then change the two constants in the same commit as whatever the suite made necessary.
+
+**The release dry run.** Nothing in it tags, pushes, publishes or deploys; those stay steps 3 to 8 of §4.
+
+1. The version: `"version": "X.Y.Z"` in all eight `package.json` files (§4 step 2), then the full gate with
+   `SMURG_RELEASE_GATE=1` on macOS and in the Ubuntu 24.04 VM. The counts go into `docs/ACCEPTANCE.md` ("How to run
+   the gate", "Linux verification").
+2. The executable for this machine: `scripts/build-sea.sh --version X.Y.Z` (it runs the smoke tests). Then, by hand,
+   with the built executable and a scratch `HOME`: `--version` (it says `protocol v4`), `licenses`, `host` on a
+   scratch folder against a local relay (`apps/relay/README.md`, "Local development") with the stand-in `claude` in
+   place of Claude Code (smurg runs the first `claude` on the host's `PATH`: for that shell only, make it
+   `packages/daemon/src/testing/fake-claude.mjs`, which does what the scenario file named by `FAKE_CLAUDE_SCENARIO`
+   says), then `status` (the lines about Claude Code, agent sessions, topics, the project settings and the host's own
+   rules) and `stop` (the line about paused agent sessions when there were any).
+3. One pass of real Claude Code 2.1.288 through the BUILT executable, against the fake API with the isolated
+   configuration described above. Since 0.5.0 Claude Code calls the executable's own `smurg hook` before every tool
+   and its own `smurg mcp` for the agent's tools, and both reach the daemon inside the same executable: this pass is
+   the only place where that chain runs as packaged. Record the hook's time per tool call in `docs/ACCEPTANCE.md`
+   ("Measured values").
+4. The release files and the install: `scripts/release-assets.sh --version X.Y.Z --dist packages/cli/dist --out <a
+   scratch directory>`, then the installer from a local file server exactly as §5 "Before publishing" does, and
+   `SMURG_INSTALL_BASE_URL=http://127.0.0.1:<port> smurg update --check` with the installed executable.
+5. The third-party notices are fresh: `node scripts/third-party-notices.ts --check` (0.5.0 added one dependency to
+   the web app, the Markdown lexer `marked`, and its notices must list it).
+6. The frames per minute of the whole flow through the local relay (the flow of the web-smoke project's flow smoke:
+   four browsers, the stand-in `claude`; the relay's test tap sees every frame). The number goes into §8.
+7. Afterwards nothing is left: no `claude`, `workerd`, Chrome or daemon that the run started is alive, and
+   `git status` shows only the intended changes.
+
+When all of it is green, go on with §4: the changelog checks of step 2, then the relay (step 3), then the tag.
+
 ## 5. Checking the one-line install on a clean machine
 
 **Before publishing**, install from a local copy of the release's files (the artifact `release-X.Y.Z`, or the
@@ -452,10 +528,13 @@ code to enter in any browser):
    `xattr -l ~/.local/bin/smurg` shows no `com.apple.quarantine`; Ubuntu: the installer asked for nothing (no sudo,
    no package) and `smurg host` printed only the two links. Do it once with the system language set to English and
    once to Traditional Chinese: the installer and the CLI answer in that language.
-5. Join from another machine's browser with another Google account: as an Editor, send a suggestion to the host's
-   agent; then, with Agent access (`smurg host --role agent`, or the console), open an agent session in a new worktree
-   and type into the host's session. The member's agent runs as the host (`whoami` in a terminal session it opens
-   says the host's user).
+5. Join from another machine's browser with another Google account: as an Editor, vote on a question of the host's
+   agent and send it a suggestion (it reaches the agent only when the host accepts it); then, with Agent access
+   (`smurg host --role agent`, or the console), send a message to the host's agent session, open a terminal session
+   and type into a terminal the host opened. A member's sessions run as the host (`whoami` in a terminal session the
+   member opens says the host's user). The agent half needs a host whose own Claude Code is logged in: the
+   maintainer's own account on the maintainer's own machine. A check without one covers the terminal half only, and
+   the record says so.
 6. Record the times, machines and anything that went wrong in `docs/ACCEPTANCE.md` (R1.1, and R9 for Ubuntu).
 
 ## 6. What is public
@@ -506,7 +585,8 @@ pnpm exec wrangler rollback <version-id> --message "why"
 A rollback restores the Worker's code and configuration, not the Durable Objects' stored data, and like a deploy it
 disconnects every socket. Cloudflare does not roll a Worker back across a Durable Object migration (fix forward
 instead). Its web app is rolled back too, and an older web app refuses the `channel.welcome` of a newer daemon (§4
-step 3): do not roll back past the version deployed for the latest release.
+step 3): do not roll back past the version deployed for the latest release. Across 0.5.0 that is absolute: the web
+app deployed before it speaks protocol 3 and refuses every 0.5.0 host at the handshake.
 
 **Stopping the relay in an emergency** (a leaked signing key, abuse): remove the custom domain from the Worker
 (dashboard → Workers & Pages → smurg-relay → Settings → Domains & Routes); put a new `RELAY_SIGNING_KEY`; then deploy
@@ -522,7 +602,20 @@ relay link drop, members see that the server cannot be reached. What uses them i
 call and WebSocket upgrade (a Worker request); each WebSocket connection, each alarm run and incoming WebSocket
 messages (Durable Object requests; the `ping` heartbeats are answered by Cloudflare itself and cost nothing); each
 alarm scheduled (a row written). The web app's files and the product page are static assets served without running a
-Worker; `downloads.smurg.ai` is R2, not a Worker. Terminal output is the largest consumer.
+Worker; `downloads.smurg.ai` is R2, not a Worker. Terminal output is the largest consumer, and since 0.5.0 so is an
+agent's streaming text: every frame the relay forwards arrived as an incoming WebSocket message.
+
+0.5.0 sizes that stream for the free plan (ARCHITECTURE §12): an agent's streaming text travels at most once per
+200 ms and its finished events in batches at most once per 100 ms, per watching browser, and streaming text goes
+only to conversations that are on screen (a hidden column gets the finished events and no streaming frames). What that comes to for a whole
+working session is measured, not estimated: the release dry run (§4.5 step 6) counts the frames per minute of the
+whole flow through a local relay, and the number is recorded here before 0.5.0 is published.
+
+- **0.5.0, frames per minute of the whole flow through the relay: recorded by the integration run** (with the number
+  of members and streaming sessions of that run, and what it means against the daily allowance of the plan in use).
+
+Whether that leaves enough room on the free plan for the shared relay, or the paid plan is taken, is the owner's
+decision; it changes no code and no configuration (below).
 
 The current numbers are on Cloudflare's pricing pages; `docs/research/relay.md` has what was measured about the
 relay's own behaviour. Watch the usage in the dashboard (Workers & Pages → smurg-relay → Metrics) after a release; a

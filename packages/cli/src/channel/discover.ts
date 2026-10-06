@@ -15,6 +15,8 @@ import { ctlRequest } from './local-channel.ts';
 export interface RunningDaemon {
   readonly ctlPath: string;
   readonly status: CtlStatus;
+  /** The origin of the web app the daemon's links point to; null: it has none (no relay). */
+  readonly webOrigin: string | null;
 }
 
 export function ctlPathFor(paths: StatePaths, workspaceId: string): string {
@@ -32,7 +34,7 @@ export async function daemonAt(ctlPath: string, timeoutMs = 3_000): Promise<Runn
   try {
     const response = await ctlRequest(ctlPath, { v: 1, op: 'status' }, timeoutMs);
     if (!response.ok || response.op !== 'status') return null;
-    return { ctlPath, status: response.status };
+    return { ctlPath, status: response.status, webOrigin: response.webOrigin ?? null };
   } catch {
     return null;
   }

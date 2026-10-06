@@ -8,9 +8,9 @@ import type { DaemonEvents } from '../../src/core/interfaces.ts';
 import { HookServerImpl } from '../../src/hooks/hook-server.ts';
 import { hooksModule } from '../../src/hooks/module.ts';
 import { HOOK_ENV, HOOK_REQUEST_MAX_BYTES } from '../../src/hooks/wire.ts';
-import { HOOK_DENY_REASONS, humanHeldReason, pathDeniedReason } from '../../src/hooks/deny-text.ts';
+import { HOOK_DENY_REASONS, gateDenyReason, humanHeldReason, pathDeniedReason } from '../../src/hooks/deny-text.ts';
 import { createTestDaemon, TEST_HOST_USER, type TestDaemon } from '../../src/testing/index.ts';
-import { denyReasonOf, hookRequest, lifecycle, post, pre, rawExchange, registerAgent, startHookDaemon, type HookDaemon } from './helpers.ts';
+import { bashActivityRequest, denyReasonOf, hookRequest, lifecycle, post, pre, rawExchange, registerAgent, startHookDaemon, type HookDaemon } from './helpers.ts';
 
 const HOST = { userId: TEST_HOST_USER, name: 'Host' };
 const IAN = { userId: 'dev:ian', name: 'Ian' };
@@ -267,20 +267,24 @@ describe('forged events (everything on the socket is a claim)', () => {
     expect(d.fakes.locks.list().map((l) => l.file)).toEqual([{ root: { kind: 'worktree', worktreeId: 'wt_one' }, path: 'a.txt' }]);
   });
 
-  it("host-only paths (.claude/**) are denied for a member's agent (it is the member who opened it) and allowed for the host's agent", async () => {
+  it("Claude Code's configuration (.claude/**) is written by no agent (G3); another host-only path (CLAUDE.md) is denied for a member's agent (G4) and locked for the host's", async () => {
     const d = await setup();
     await withAgentMember(d);
     const ians = registerAgent(d.hooks, IAN);
     const host = registerAgent(d.hooks, HOST);
     const settings = join(d.t.root, '.claude', 'settings.json');
-    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, ians.token, pre(settings)))).toBe(pathDeniedReason('host-only'));
-    expect((await hookRequest(d.hooks.socketPath, host.token, pre(settings)))['hookOutput']).toBeNull();
-    const audit = await d.t.ctx.audit.query({ limit: 20 });
-    expect(audit.find((e) => e.action === 'path.denied')?.detail).toMatchObject({ reason: 'host-only' });
+    // Claude Code's own configuration is written by NO agent session, the host's included (gate row G3).
+    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, ians.token, pre(settings)))).toBe(gateDenyReason('G3'));
+    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, host.token, pre(settings)))).toBe(gateDenyReason('G3'));
+    // Another host-only path (a CLAUDE.md: instructions for agents that run as the host): row G4 for a session
+    // without the host's rights, the lock for the host's own.
+    const memory = join(d.t.root, 'CLAUDE.md');
+    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, ians.token, pre(memory)))).toBe(gateDenyReason('G4'));
+    expect((await hookRequest(d.hooks.socketPath, host.token, pre(memory)))['hookOutput']).toBeNull();
     // A handover does not raise path rights (they are the session's, fixed when it was opened): Ian's session, now
     // owned by the host, is refused exactly as before.
     d.hooks.reassignSession(ians.sessionId, HOST.userId);
-    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, ians.token, pre(settings)))).toBe(pathDeniedReason('host-only'));
+    expect(denyReasonOf(await hookRequest(d.hooks.socketPath, ians.token, pre(memory)))).toBe(gateDenyReason('G4'));
   });
 
   it('a flood beyond the lock cap: the session never holds more than the cap and requests beyond the per-token budget are denied', async () => {
@@ -405,19 +409,19 @@ describe('Bash activity events (D-13)', () => {
     const ian = registerAgent(d.hooks, IAN);
     const other = registerAgent(d.hooks, IAN);
     const w = bashWindows(d);
-    expect((await hookRequest(d.hooks.socketPath, ian.token, bashEvent('PreToolUse', 'tu_1')))['hookOutput']).toBeNull();
-    expect((await hookRequest(d.hooks.socketPath, ian.token, bashEvent('PostToolUse', 'tu_1')))['hookOutput']).toBeNull();
+    expect((await bashActivityRequest(d.hooks.socketPath, ian.token, bashEvent('PreToolUse', 'tu_1')))['hookOutput']).toBeNull();
+    expect((await bashActivityRequest(d.hooks.socketPath, ian.token, bashEvent('PostToolUse', 'tu_1')))['hookOutput']).toBeNull();
     // Another session's tool_use_id cannot close this one's window, and a Post without its Pre does nothing.
-    await hookRequest(d.hooks.socketPath, ian.token, bashEvent('PreToolUse', 'tu_2'));
-    await hookRequest(d.hooks.socketPath, other.token, bashEvent('PostToolUse', 'tu_2'));
-    await hookRequest(d.hooks.socketPath, ian.token, bashEvent('PostToolUseFailure', 'tu_2'));
-    await hookRequest(d.hooks.socketPath, ian.token, bashEvent('PostToolUse', 'never-opened'));
+    await bashActivityRequest(d.hooks.socketPath, ian.token, bashEvent('PreToolUse', 'tu_2'));
+    await bashActivityRequest(d.hooks.socketPath, other.token, bashEvent('PostToolUse', 'tu_2'));
+    await bashActivityRequest(d.hooks.socketPath, ian.token, bashEvent('PostToolUseFailure', 'tu_2'));
+    await bashActivityRequest(d.hooks.socketPath, ian.token, bashEvent('PostToolUse', 'never-opened'));
     expect(w.events).toEqual([`start:${ian.sessionId}:nofile:granted`, `end:${ian.sessionId}:nofile:true`, `start:${ian.sessionId}:nofile:granted`, `end:${ian.sessionId}:nofile:false`]);
     // No lock is ever taken for a Bash window.
     expect(d.fakes.locks.list()).toEqual([]);
     // An unknown token gets no window and no decision the Bash hook could print (it ignores replies anyway).
     const before = w.events.length;
-    await hookRequest(d.hooks.socketPath, 'x'.repeat(43), bashEvent('PreToolUse', 'tu_3')).catch(() => ({}));
+    await bashActivityRequest(d.hooks.socketPath, 'x'.repeat(43), bashEvent('PreToolUse', 'tu_3')).catch(() => ({}));
     expect(w.events.length).toBe(before);
   });
 
@@ -429,8 +433,8 @@ describe('Bash activity events (D-13)', () => {
     const w = bashWindows(d);
     for (const [event, count] of [[lifecycle('Stop'), 2], [lifecycle('UserPromptSubmit'), 1], [lifecycle('SessionEnd'), 1]] as const) {
       w.events.length = 0;
-      for (let i = 0; i < count; i++) await hookRequest(d.hooks.socketPath, ian.token, bashEvent('PreToolUse', `tu_${event['hook_event_name']}_${i}`));
-      await hookRequest(d.hooks.socketPath, other.token, bashEvent('PreToolUse', `tu_other_${event['hook_event_name']}`));
+      for (let i = 0; i < count; i++) await bashActivityRequest(d.hooks.socketPath, ian.token, bashEvent('PreToolUse', `tu_${event['hook_event_name']}_${i}`));
+      await bashActivityRequest(d.hooks.socketPath, other.token, bashEvent('PreToolUse', `tu_other_${event['hook_event_name']}`));
       await hookRequest(d.hooks.socketPath, ian.token, event);
       expect(w.events.filter((e) => e.startsWith('end:'))).toEqual(Array.from({ length: count }, () => `end:${ian.sessionId}:nofile:false`));
     }
@@ -444,13 +448,13 @@ describe('Bash activity events (D-13)', () => {
     await withAgentMember(d);
     const ian = registerAgent(d.hooks, IAN);
     const w = bashWindows(d);
-    for (let i = 0; i < 20; i++) await hookRequest(d.hooks.socketPath, ian.token, bashEvent('PreToolUse', `open_${i}`));
+    for (let i = 0; i < 20; i++) await bashActivityRequest(d.hooks.socketPath, ian.token, bashEvent('PreToolUse', `open_${i}`));
     expect(w.events.filter((e) => e.startsWith('start:'))).toHaveLength(8);
     w.events.length = 0;
     // Pairs that open and close: beyond the burst nothing more is recorded.
     for (let i = 0; i < 60; i++) {
-      await hookRequest(d.hooks.socketPath, ian.token, bashEvent('PostToolUse', `open_${i % 8}`));
-      await hookRequest(d.hooks.socketPath, ian.token, bashEvent('PreToolUse', `open_${i % 8}`));
+      await bashActivityRequest(d.hooks.socketPath, ian.token, bashEvent('PostToolUse', `open_${i % 8}`));
+      await bashActivityRequest(d.hooks.socketPath, ian.token, bashEvent('PreToolUse', `open_${i % 8}`));
     }
     expect(w.events.length).toBeLessThan(60);
     expect(w.events.length).toBeGreaterThan(0);

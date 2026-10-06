@@ -1,16 +1,15 @@
 // ARCHITECTURE §11 D-13 with the production composition (DEFAULT_FEATURE_MODULES: the real lock manager, file watcher,
-// docs and sessions modules): a Bash window of an agent session (the events the hooks module emits for the Bash
-// activity hook) and a write made by another process. The activity feed names the agent, and the R8 fallback's
+// docs and sessions modules, with the stand-in `claude` as the host's Claude Code): a Bash window of an agent session
+// (the events the hooks module emits for the Bash activity hook) and a write made by another process. The activity feed names the agent, and the R8 fallback's
 // conflict record takes the same author ("the conflict record's source uses the same rule"); without a window both
 // stay "an outside program" / system. The hook → bus path itself: test/hooks/hook-server.test.ts; the real claude:
 // test/hooks/claude-e2e.test.ts.
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type ActivityEvent, type ConflictRecord } from '@smurg/protocol';
-import { FAKE_SERVICE_NAMES, buildHookRegistration, fakesModule } from '../../src/core/fakes/index.ts';
 import { DEFAULT_FEATURE_MODULES } from '../../src/daemon.ts';
-import { createTempDir, createTestDaemon, removeTempDir, waitFor, type TestDaemon } from '../../src/testing/index.ts';
+import { createTempDir, createTestDaemon, installFakeClaude, removeTempDir, waitFor, type TestDaemon } from '../../src/testing/index.ts';
 import { DocClient, destroyDocClients } from '../docs/helpers.ts';
 
 let t: TestDaemon | null = null;
@@ -33,20 +32,17 @@ const ORIGINAL = ['export function main() {', '  const greeting = "hello";', '  
 
 async function setup(): Promise<{ readonly t: TestDaemon; readonly sessionId: string; readonly hostUserId: string }> {
   scratch = await createTempDir('bash-attribution');
-  await mkdir(join(scratch, 'bin'), { recursive: true });
-  const claude = join(scratch, 'bin', 'claude');
-  await writeFile(claude, '#!/bin/sh\ncase "$1" in --version) echo "2.1.283 (Claude Code)"; exit 0 ;; esac\nif [ "$1" = auth ]; then echo \'{"loggedIn":true,"authMethod":"api_key"}\'; exit 0; fi\nexec cat\n');
-  await chmod(claude, 0o755);
-  // The production composition, with the agent runtime (AgentSessions) faked: the session exists and is listed, and
-  // is registered with the real hook server as the runtime registers it.
+  const claude = await installFakeClaude(scratch);
+  // The production composition: the agent session is a real one of the agent runtime (its process is the stand-in),
+  // registered with the real hook server by its start.
   t = await createTestDaemon({
     project: { files: { [PATH]: ORIGINAL } },
-    sessions: { claudePath: claude, selfCommand: { file: '/usr/bin/true', args: [] } },
-    modules: [fakesModule({ except: FAKE_SERVICE_NAMES.filter((name) => name !== 'agents') }), ...DEFAULT_FEATURE_MODULES],
+    sessions: { claudePath: claude.path, selfCommand: { file: '/usr/bin/true', args: [] } },
+    modules: DEFAULT_FEATURE_MODULES,
   });
   const host = await t.connectHost();
   const { session } = await host.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' } });
-  t.ctx.services.hooks.registerSession(buildHookRegistration({ sessionId: session.id, ownerUserId: session.openedBy.userId, agentName: 'Claude (Host)', root: MAIN_ROOT }));
+  await waitFor(() => t?.ctx.services.agents.get(session.id)?.status === 'idle', { timeoutMs: 15_000, what: 'the agent session to start' });
   return { t, sessionId: session.id, hostUserId: session.openedBy.userId };
 }
 

@@ -21,6 +21,11 @@ export interface JoinedWorkspace {
   readonly relay: string;
   readonly name: string | null;
   readonly joinedAt: number;
+  /**
+   * The origin of the workspace's web app when it is not the relay itself (the invite link pointed elsewhere: a
+   * development setup). `smurg attach` names the workspace's address there for agent conversations.
+   */
+  readonly web?: string;
 }
 
 export interface WorkspaceBook {
@@ -47,9 +52,22 @@ export async function loadWorkspaces(paths: StatePaths): Promise<WorkspaceBook> 
     const relay = stringField(item, 'relay', 2048);
     const joinedAt = numberField(item, 'joinedAt');
     const name = typeof item['name'] === 'string' ? item['name'].slice(0, 256) : null;
-    if (workspaceId && isWorkspaceId(workspaceId) && relay && joinedAt !== null) joined.push({ workspaceId, relay, name, joinedAt });
+    const web = originField(item, 'web');
+    if (workspaceId && isWorkspaceId(workspaceId) && relay && joinedAt !== null) joined.push({ workspaceId, relay, name, joinedAt, ...(web ? { web } : {}) });
   }
   return { shared, joined };
+}
+
+/** An http(s) origin exactly as `URL.origin` spells it (it is shown to the person as part of an address), else null. */
+function originField(record: Record<string, unknown>, key: string): string | null {
+  const text = stringField(record, key, 2048);
+  if (text === null) return null;
+  try {
+    const url = new URL(text);
+    return (url.protocol === 'https:' || url.protocol === 'http:') && url.origin === text ? text : null;
+  } catch {
+    return null;
+  }
 }
 
 async function save(paths: StatePaths, book: WorkspaceBook): Promise<void> {

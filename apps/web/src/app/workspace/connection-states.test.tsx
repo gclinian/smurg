@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from '../App.tsx';
 import { createTestServices, type TestServices } from '../../testing/services.tsx';
-import { WORKSPACE_ID, makeMember, makeSession, makeWelcome, presenceOf } from '../../testing/fixtures.ts';
+import { WORKSPACE_ID, makeMember, makeWelcome, presenceOf } from '../../testing/fixtures.ts';
 import type { FakeConnection } from '../../testing/fake-connection.ts';
 
 async function openWorkspace(path = `/w/${WORKSPACE_ID}`): Promise<{ services: TestServices; conn: FakeConnection }> {
@@ -16,13 +16,6 @@ async function openWorkspace(path = `/w/${WORKSPACE_ID}`): Promise<{ services: T
   // The workspace page never opens with an invite: only a pinned key (device mode) can be used here.
   expect(options.invite ?? null).toBeNull();
   return { services, conn };
-}
-
-/** The panel a feature renders into its workbench slot (`<section class="ui-panel files-panel">` …). */
-function panel(feature: 'files' | 'agents' | 'suggest'): HTMLElement {
-  const found = document.querySelector<HTMLElement>(`section.ui-panel.${feature}-panel`);
-  if (found === null) throw new Error(`the ${feature} panel is not on the page`);
-  return found;
 }
 
 async function openAdmitted(role: Parameters<typeof makeWelcome>[0] = {}) {
@@ -41,17 +34,15 @@ describe('connection states in the UI', () => {
     expect(screen.getByText("Verifying the identity of the host's computer.")).toBeTruthy();
   });
 
-  it('online: the workbench with every slot, the status pill and the member avatars', async () => {
+  it('online: the sessions view with its two landmarks, the status pill and the member avatars', async () => {
     const { conn } = await openAdmitted({ role: 'editor' });
     const topbar = screen.getByRole('banner', { name: 'Workspace' });
     expect(within(topbar).getByRole('status').textContent).toContain('Connected');
     expect(within(topbar).getByText('Editor')).toBeTruthy();
-    // The feature panels are found by their slot, not by their title (the features own those words).
-    expect(panel('files')).toBeTruthy();
-    expect(screen.getByRole('main', { name: 'Editor' })).toBeTruthy();
-    expect(panel('agents')).toBeTruthy();
-    expect(panel('suggest')).toBeTruthy();
-    expect(screen.getByRole('tablist', { name: 'Activity and transfers' })).toBeTruthy();
+    // The main screen is the sessions view: the left column and the columns (UX §1).
+    expect(screen.getByRole('complementary', { name: 'Inbox and sessions' })).toBeTruthy();
+    expect(screen.getByRole('main', { name: 'Open columns' })).toBeTruthy();
+    expect(within(topbar).getByRole('link', { name: 'Sessions' }).getAttribute('aria-current')).toBe('page');
     act(() => conn.emit('presence.state', { members: [presenceOf(makeMember()), presenceOf(makeMember({ userId: 'dev:bob', displayName: 'Bob', color: '#ef4444' }))], agents: [] }));
     const people = screen.getByRole('group', { name: 'Online members' });
     expect(within(people).getByRole('img', { name: 'Bob (online)' })).toBeTruthy();
@@ -65,9 +56,11 @@ describe('connection states in the UI', () => {
     const banner = await screen.findByTestId('host-offline-banner');
     expect(banner.closest('[role="alert"]')?.textContent).toContain('Host offline');
     expect(screen.getByRole('banner', { name: 'Workspace' }).textContent).toContain('Host offline');
-    // Not frozen: the workbench is still there and interactive.
-    await userEvent.click(screen.getByRole('tab', { name: 'Conflicts' }));
-    expect(screen.getByRole('tab', { name: 'Conflicts' }).getAttribute('aria-selected')).toBe('true');
+    // Not frozen: the sessions view is still there and interactive.
+    const inbox = screen.getByRole('button', { name: 'Inbox' });
+    expect(inbox.getAttribute('aria-expanded')).toBe('true');
+    await userEvent.click(inbox);
+    expect(inbox.getAttribute('aria-expanded')).toBe('false');
     expect((screen.getByRole('button', { name: 'Leave' }) as HTMLButtonElement).disabled).toBe(false);
     // Back when the host is back.
     act(() => conn.admit(makeWelcome(), { resumed: true }));
@@ -171,7 +164,10 @@ describe('connection states in the UI', () => {
     const { services, conn } = await openAdmitted();
     await userEvent.click(screen.getByRole('button', { name: 'Leave' }));
     const dialog = await screen.findByRole('alertdialog', { name: 'Leave this workspace?' });
-    expect(dialog.textContent).toContain('The sessions you opened in this workspace will end.');
+    // What ends, what passes to the host, what is removed (DESIGN §3.9, §5.7).
+    expect(dialog.textContent).toContain('The terminals and the sessions without a topic that you opened end.');
+    expect(dialog.textContent).toContain('The topic sessions you started (discussions and work items) pass to the host and keep running.');
+    expect(dialog.textContent).toContain('What you put in place is removed');
     // There is no guest login on the host's computer any more (protocol v2).
     expect(dialog.textContent).not.toMatch(/Claude (login|sign-in|credentials)/i);
     conn.handle('channel.leave', () => ({}));
@@ -187,25 +183,6 @@ describe('connection states in the UI', () => {
     expect(services.router.getState().pathname).toBe(`/w/${WORKSPACE_ID}/console`);
     expect(await screen.findByRole('main', { name: 'Host console' })).toBeTruthy();
     expect(services.connections).toHaveLength(1);
-  });
-
-  it('the terminal gets the room by default: drawer collapsed, suggestions collapsible, the agents column can take the editor’s place', async () => {
-    const { conn } = await openAdmitted({ role: 'host' });
-    const drawerToggle = screen.getByRole('button', { name: 'Expand Activity and transfers' });
-    expect(drawerToggle.getAttribute('aria-expanded')).toBe('false');
-
-    const suggestions = panel('suggest');
-    await userEvent.click(within(suggestions).getByRole('button', { name: 'Collapse suggestions (more room for the terminal)' }));
-    expect(within(suggestions).getByRole('button', { name: 'Expand suggestions' }).getAttribute('aria-expanded')).toBe('false');
-    expect((suggestions.closest('.ui-split__pane') as HTMLElement).style.height).toBe('33px');
-
-    act(() => conn.emit('session.state', { session: makeSession({ id: 'sess_host', openedBy: { userId: 'dev:host', displayName: 'Ian' } }) }));
-    const editorPane = screen.getByRole('main', { name: 'Editor' }).closest('.ui-split__pane') as HTMLElement;
-    expect(editorPane.hidden).toBe(false);
-    await userEvent.click(await screen.findByRole('button', { name: 'Maximize the agents panel (it takes the place of the editor)' }));
-    expect(editorPane.hidden).toBe(true);
-    await userEvent.click(screen.getByRole('button', { name: 'Restore the size of the agents panel' }));
-    expect(editorPane.hidden).toBe(false);
   });
 
   it('a guest opening the console gets an explanation, not the console', async () => {

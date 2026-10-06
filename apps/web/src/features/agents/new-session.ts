@@ -1,6 +1,6 @@
-// What the "New session" dialog offers, per role (ARCHITECTURE §3, §5.5) — pure, so it is tested without React.
-// Protocol v2 (owner decision 2026-10-01): every session runs as the HOST — the host's computer, the host's Claude
-// account, no sandbox — whoever opens it:
+// What the "New session" / "New terminal" dialog offers, per role (ARCHITECTURE §3, §5.5): pure, so it is tested
+// without React. Every session runs as the HOST (the host's computer, the host's Claude account, no sandbox),
+// whoever opens it:
 //   host, agent access → may open one (session.create), in the main workspace or a worktree;
 //   editor / viewer → no session; the dialog says why.
 // Worktrees (R9) need a git repository; a kept worktree of one's own can be continued (R9.4). The daemon enforces all
@@ -65,6 +65,8 @@ export interface NewSessionForm {
   readonly kind: SessionKind;
   readonly where: WhereChoice;
   readonly title: string;
+  /** An agent session: what it should do first (optional; a terminal has none). */
+  readonly firstMessage?: string;
 }
 
 /** The session.create payload for `form` (the size is the viewer's best guess; the owner's viewport corrects it). */
@@ -80,8 +82,12 @@ export function buildCreatePayload(
     workspace = id === 'new' ? { mode: 'worktree' } : { mode: 'worktree', worktreeId: id };
   }
   const title = form.title.trim();
-  // An agent session is a conversation (protocol 4): it has no PTY size.
-  if (form.kind === 'agent') return { kind: 'agent', workspace, ...(title !== '' ? { title } : {}) };
+  // An agent session is a conversation (protocol 4): it has no PTY size. Its first message, when there is one, is
+  // sent as the member wrote it (the daemon cleans it); a blank one is none.
+  if (form.kind === 'agent') {
+    const first = form.firstMessage ?? '';
+    return { kind: 'agent', workspace, ...(title !== '' ? { title } : {}), ...(first.trim() !== '' ? { firstMessage: first } : {}) };
+  }
   return {
     kind: 'terminal',
     workspace,

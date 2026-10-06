@@ -180,7 +180,7 @@ describe('smurg uninstall', () => {
     expect(io.err()).toBe('');
     expect(code).toBe(0);
     expect(prompts).toEqual([PROMPT]);
-    const what = "state folder: logins, the device key, every workspace's keys, members and invite links, the logs";
+    const what = "state folder: logins, the device key, every workspace's keys, members and invite links, the conversations of agent sessions, the logs";
     const plan = io.out().slice(0, io.out().indexOf('\n\nRemoved:'));
     expect(plan.split('\n')).toEqual([
       'smurg uninstall will remove:',
@@ -300,7 +300,7 @@ describe('smurg uninstall', () => {
     // Not stopped by a cancelled run.
     const cancelled = await uninstall(s, [], { answer: 'n' });
     expect(cancelled.code).toBe(1);
-    expect(cancelled.io.out()).toMatch(/Workspaces being shared are stopped first \(as smurg stop does: everyone is disconnected and every session ends\): ws_uninstall_running[ab], ws_uninstall_running[ab]\n/);
+    expect(cancelled.io.out()).toMatch(/Workspaces being shared are stopped first \(as smurg stop does: everyone is disconnected, terminal sessions end and agents stop\): ws_uninstall_running[ab], ws_uninstall_running[ab]\n/);
     expect(a.status().stopped).toBe(false);
     expect(b.status().stopped).toBe(false);
 
@@ -446,7 +446,7 @@ describe('smurg uninstall', () => {
     await symlink(real, link);
     const viaLink = await uninstall(linked, ['--yes'], { env: { ...linked.env, SMURG_HOME: link } });
     expect(viaLink.code).toBe(0);
-    expect(viaLink.io.out()).toContain(`  ${link}  state folder: logins, the device key, every workspace's keys, members and invite links, the logs (this is a symlink: only the link itself is removed)`);
+    expect(viaLink.io.out()).toContain(`  ${link}  state folder: logins, the device key, every workspace's keys, members and invite links, the conversations of agent sessions, the logs (this is a symlink: only the link itself is removed)`);
     expect(viaLink.io.out()).toContain(`  ${real}  the folder the state folder's symlink points to`);
     expect(await exists(link)).toBe(false);
     expect(await readFile(join(real, 'credentials.json'), 'utf8')).toBe('{}');

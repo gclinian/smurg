@@ -25,6 +25,9 @@ describe('settings validation', () => {
       agentLockTimeoutSec: '60',
       diskReserveGb: '5',
       diskReservePercent: '5',
+      maxLiveAgents: '8',
+      escalateAfterMin: '10',
+      agentMcp: false,
     });
     const parsed = parseSettingsDraft(draft(), SETTINGS);
     expect(parsed.errors).toEqual({});
@@ -55,7 +58,36 @@ describe('settings validation', () => {
   });
 
   it('has no setting of a guest sandbox (protocol v2: there is none)', () => {
-    expect(Object.keys(draftFromSettings(SETTINGS)).sort()).toEqual(['agentLockTimeoutSec', 'diskReserveGb', 'diskReservePercent', 'humanLockIdleSec', 'sharedDirs']);
+    expect(Object.keys(draftFromSettings(SETTINGS)).sort()).toEqual([
+      'agentLockTimeoutSec',
+      'agentMcp',
+      'diskReserveGb',
+      'diskReservePercent',
+      'escalateAfterMin',
+      'humanLockIdleSec',
+      'maxLiveAgents',
+      'sharedDirs',
+    ]);
+  });
+
+  it('the three agent settings: a whole number of work items, the waiting time in minutes, and the MCP switch', () => {
+    const parsed = parseSettingsDraft(draft({ maxLiveAgents: '12', escalateAfterMin: '2.5', agentMcp: true }), SETTINGS);
+    expect(parsed.errors).toEqual({});
+    expect(parsed.patch).toEqual({ maxLiveAgents: 12, escalateAfterMs: 150_000, agentMcp: true });
+    // The bounds of the protocol: 2 to 32 work items, 1 to 60 minutes.
+    for (const bad of ['1', '33', '2.5', 'many', '-4']) {
+      expect(parseSettingsDraft(draft({ maxLiveAgents: bad }), SETTINGS).errors.maxLiveAgents, bad).toBe('Enter a whole number from 2 to 32.');
+    }
+    expect(parseSettingsDraft(draft({ maxLiveAgents: '' }), SETTINGS).errors.maxLiveAgents).toBe('Enter a value.');
+    for (const ok of ['2', '32']) expect(parseSettingsDraft(draft({ maxLiveAgents: ok }), SETTINGS).patch).toEqual({ maxLiveAgents: Number(ok) });
+    expect(parseSettingsDraft(draft({ escalateAfterMin: '0.5' }), SETTINGS).errors.escalateAfterMin).toBe('Enter a number from 1 to 60.');
+    expect(parseSettingsDraft(draft({ escalateAfterMin: '61' }), SETTINGS).errors.escalateAfterMin).toBe('Enter a number from 1 to 60.');
+    expect(parseSettingsDraft(draft({ escalateAfterMin: '1' }), SETTINGS).patch).toEqual({ escalateAfterMs: 60_000 });
+    expect(parseSettingsDraft(draft({ escalateAfterMin: '60' }), SETTINGS).patch).toEqual({ escalateAfterMs: 3_600_000 });
+    // Switching the MCP servers back off is a change too; leaving the switch alone is not.
+    const on = { ...SETTINGS, agentMcp: true };
+    expect(parseSettingsDraft({ ...draftFromSettings(on), agentMcp: false }, on).patch).toEqual({ agentMcp: false });
+    expect(hasChanges(parseSettingsDraft(draftFromSettings(on), on))).toBe(false);
   });
 
   it('checks the ranges of the lock timings and the disk reserve', () => {

@@ -111,4 +111,22 @@ describe('files + locks + docs (real modules)', { timeout: 120_000 }, () => {
     await waitFor(() => hostDoc.text.toString() === new TextDecoder().decode(uploaded), { timeoutMs: 15_000, what: 'the upload in the open editor' });
     d.ctx.services.hooks.unregisterSession('ses_integration_files');
   });
+
+  it('a rename made through file.rename is ONE activity entry that says where the file was: on the wire and as the bus event `activity.recorded` (what the topics and worktree modules read hand edits from)', async () => {
+    t = await createTestDaemon({ project: { files: { 'specs/checkout/SPEC.md': '# Checkout\n', 'README.md': '# shop\n' } } });
+    const d = t;
+    const amy = await d.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
+    const recorded: { kind: string; file?: FileRef; renamedFrom?: string; actor: unknown }[] = [];
+    d.ctx.bus.on('activity.recorded', (event) => recorded.push(event.entry));
+    await amy.conn.request('file.rename', { root: MAIN_ROOT, from: 'specs/checkout/SPEC.md', to: 'specs/checkout/OLD.md' });
+    await amy.conn.request('file.create', { file: main('specs/checkout/notes.md'), kind: 'file' });
+    await waitFor(() => recorded.some((entry) => entry.kind === 'file.create'), { what: 'both entries' });
+    expect(recorded.filter((entry) => entry.kind === 'file.rename')).toEqual([
+      { actor: { kind: 'user', userId: 'dev:amy', displayName: 'Amy' }, kind: 'file.rename', file: main('specs/checkout/OLD.md'), at: expect.any(Number), renamedFrom: 'specs/checkout/SPEC.md' },
+    ]);
+    // An entry that is no rename has no such field.
+    expect(recorded.find((entry) => entry.kind === 'file.create')).not.toHaveProperty('renamedFrom');
+    const listed = (await amy.conn.request('activity.list', {})).events;
+    expect(listed.find((entry) => entry.kind === 'file.rename')).toMatchObject({ file: main('specs/checkout/OLD.md'), renamedFrom: 'specs/checkout/SPEC.md', actor: { kind: 'user', userId: 'dev:amy' } });
+  });
 });

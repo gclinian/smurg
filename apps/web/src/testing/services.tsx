@@ -4,8 +4,16 @@
 //   const { conn, stores } = renderInWorkspace(<FilesPanel />, { role: 'editor' });
 //   conn.respond('file.tree', { entries: [makeEntry('README.md')], truncated: false });
 //   expect(await screen.findByText('README.md')).toBeTruthy();
+//
+// A component that is the body of a column renders inside one (features/columns):
+//
+//   renderInColumn(<ConversationColumn sessionId="s1" />, { target: { kind: 'session', sessionId: 's1' } });
+//
+// and a test of the shell with its own column kinds passes `slots` (what features/*/slots.tsx would register):
+//
+//   renderInWorkspace(<ColumnStrip shown empty={null} />, { slots: [{ feature: 'test', columns: { plan: FakePlan } }] });
 import { render, type RenderResult } from '@testing-library/react';
-import type { ReactElement, ReactNode } from 'react';
+import { useMemo, type ReactElement, type ReactNode } from 'react';
 import { createMemoryPinStore, type RelayUser } from '@smurg/protocol/client';
 import type { Role } from '@smurg/protocol';
 import { App } from '../app/App.tsx';
@@ -15,8 +23,10 @@ import { createRecentWorkspaces, createThemeController } from '../lib/preference
 import type { LoginOptions, RelayAuthClient } from '../lib/relay/auth.ts';
 import { createMemoryRouter, type Router } from '../lib/router.ts';
 import type { Scheduler } from '../lib/stores/base.ts';
+import { createSlotRegistry, type FeatureSlots } from '../lib/slots.ts';
 import { createWorkspaceManager, type WorkspaceManager } from '../lib/workspace/manager.ts';
 import { WorkspaceProvider } from '../lib/workspace/context.tsx';
+import { SlotRegistryProvider } from '../lib/workspace/slots.tsx';
 import { createWorkspaceSession, type WorkspaceSession } from '../lib/workspace/session.ts';
 import { ToastProvider } from '../ui/index.ts';
 import { FakeConnection } from './fake-connection.ts';
@@ -143,24 +153,34 @@ export interface WorkspaceTestContext {
   readonly session: WorkspaceSession;
   readonly stores: WorkspaceSession['stores'];
   readonly services: TestServices;
+  /** What the features registered, for this test (default: nothing). */
+  readonly slots: readonly FeatureSlots[];
 }
 
 /**
  * A session on a FakeConnection, admitted with `role` unless `admit: false`. Requests the stores send on admission
  * stay pending until the test answers them (conn.respond / conn.handle).
  */
-export function createTestWorkspace(options: { role?: Role; admit?: boolean; conn?: FakeConnection; scheduler?: Scheduler; services?: TestServices } = {}): WorkspaceTestContext {
+export function createTestWorkspace(
+  options: { role?: Role; admit?: boolean; conn?: FakeConnection; scheduler?: Scheduler; services?: TestServices; slots?: readonly FeatureSlots[]; userId?: string; displayName?: string } = {},
+): WorkspaceTestContext {
   const conn = options.conn ?? new FakeConnection();
+  // The columns store keeps the member's view in localStorage, which setup.ts clears after every test.
   const session = createWorkspaceSession(WORKSPACE_ID, conn, options.scheduler ? { scheduler: options.scheduler } : {});
-  if (options.admit !== false) conn.admit(makeWelcome({ role: options.role ?? 'editor' }));
-  return { conn, session, stores: session.stores, services: options.services ?? createTestServices() };
+  if (options.admit !== false) {
+    conn.admit(makeWelcome({ role: options.role ?? 'editor', ...(options.userId === undefined ? {} : { userId: options.userId }), ...(options.displayName === undefined ? {} : { displayName: options.displayName }) }));
+  }
+  return { conn, session, stores: session.stores, services: options.services ?? createTestServices(), slots: options.slots ?? [] };
 }
 
 export function WorkspaceTestProviders({ context, children }: { context: WorkspaceTestContext; children: ReactNode }) {
+  const registry = useMemo(() => createSlotRegistry(context.slots), [context.slots]);
   return (
     <AppServicesProvider services={context.services}>
       <ToastProvider>
-        <WorkspaceProvider session={context.session}>{children}</WorkspaceProvider>
+        <WorkspaceProvider session={context.session}>
+          <SlotRegistryProvider registry={registry}>{children}</SlotRegistryProvider>
+        </WorkspaceProvider>
       </ToastProvider>
     </AppServicesProvider>
   );

@@ -6,7 +6,8 @@
 // validates every request with the zod schemas in schemas.ts; the helpers here only build requests and outputs.
 //
 // Wire format: newline-delimited JSON over the Unix socket config.runPaths.hook, one JSON object per line.
-//   { id, token, op: 'hook', hookInput }        → { id, hookOutput: object | null }      null ⇒ print nothing
+//   { id, token, op: 'hook', hookInput [, via] } → { id, hookOutput: object | null }     null ⇒ print nothing
+//       (`via: 'bash-activity'`: the request comes from the Bash ACTIVITY hook: never a decision, see below)
 //   { id, token, op: 'mcp', tool, args }        → { id, ok: true, result } | { id, ok: false, error: { code, message } }
 //   anything the daemon cannot parse            → { id: string | null, error: { code, message } } and the socket closes
 // A reply without `hookOutput` (or `ok`) is malformed: the hook fails closed on it.
@@ -37,7 +38,9 @@ export const HOOK_SERVER_DECISION_MS = 4_000;
 // ---------------------------------------------------------------------------------------------------------------------
 // The two hook behaviours (ARCHITECTURE §7.7). They are separate code paths in hook-cli.ts, chosen by the argument the
 // DAEMON writes after `hook` in the session settings (never by anything a session sends):
-//   `smurg hook`                 the LOCK hook of the edit tools: fails CLOSED (any error during PreToolUse ⇒ deny);
+//   `smurg hook`                 THE TOOL GATE: registered for PreToolUse of EVERY tool (matcher `*`), it asks the
+//                                daemon and prints its decision; for the edit tools the daemon also takes the agent
+//                                lock. Fails CLOSED (any error during PreToolUse ⇒ deny, whatever the tool);
 //   `smurg hook bash-activity`   the Bash ACTIVITY hook (§11 D-13): only reports "this session started / finished a
 //                                shell command", never takes a lock, never returns a decision, fails OPEN.
 // ---------------------------------------------------------------------------------------------------------------------
@@ -56,6 +59,11 @@ export const EDIT_TOOL_NAMES: readonly string[] = Object.freeze(['Edit', 'Write'
 /** Exact-name matcher for the edit tools (claude-hooks.md §1.3). */
 export const EDIT_TOOL_MATCHER = EDIT_TOOL_NAMES.join('|');
 
+/** Matcher of the tool gate: every tool, the MCP tools and AskUserQuestion included. */
+export const GATE_MATCHER = '*';
+/** `via` of a hook request the Bash activity hook sends (the daemon then never answers with a decision). */
+export const HOOK_VIA_BASH_ACTIVITY = 'bash-activity';
+
 /** Hook events the session settings register (ARCHITECTURE §7.6). */
 export const HOOK_EVENT_NAMES = Object.freeze([
   'PreToolUse',
@@ -72,7 +80,8 @@ export type HookEventName = (typeof HOOK_EVENT_NAMES)[number];
 
 /** The coordination MCP server's name: its tools appear to the model as `mcp__smurg__<tool>`. */
 export const MCP_SERVER_NAME = 'smurg';
-export const MCP_TOOL_NAMES = Object.freeze(['who_is_editing', 'lock_status', 'wait_for_lock', 'list_sessions', 'notify_member'] as const);
+/** The five coordination tools and the three topic tools (plan and report checks; answered by hooks/mcp-tools.ts). */
+export const MCP_TOOL_NAMES = Object.freeze(['who_is_editing', 'lock_status', 'wait_for_lock', 'list_sessions', 'notify_member', 'check_plan', 'propose_split', 'check_report'] as const);
 export type McpToolName = (typeof MCP_TOOL_NAMES)[number];
 
 export function isMcpToolName(value: unknown): value is McpToolName {
@@ -99,6 +108,7 @@ export interface HookRequest {
   readonly token: string;
   readonly op: 'hook';
   readonly hookInput: JsonObject;
+  readonly via?: typeof HOOK_VIA_BASH_ACTIVITY;
 }
 
 export interface McpRequest {
@@ -145,8 +155,10 @@ function pathString(value: unknown): string | undefined {
 }
 
 /**
- * What the daemon needs from the hook input Claude Code wrote to stdin. Everything else stays in the hook process:
- * file contents (`tool_input.content`, `new_string`, `tool_response`), prompts, transcripts. That keeps the request
+ * What the daemon needs from the hook input Claude Code wrote to stdin: the event, the tool, and the paths the call
+ * names (an edit's or a Read's `file_path`, a search's `path` and a Glob's `pattern`: the gate decides by them).
+ * Everything else stays in the hook process: commands, URLs, questions, file contents (`tool_input.content`,
+ * `new_string`, `tool_response`), prompts, transcripts. That keeps the request
  * line small whatever the tool wrote, and content never reaches the daemon. The daemon treats all of it as a claim.
  */
 export function projectHookInput(raw: unknown): JsonObject {
@@ -168,6 +180,13 @@ export function projectHookInput(raw: unknown): JsonObject {
     const notebookPath = pathString(toolInput['notebook_path']);
     if (filePath !== undefined) projected['file_path'] = filePath;
     if (notebookPath !== undefined) projected['notebook_path'] = notebookPath;
+    // A search's directory and a Glob's pattern (which may be an absolute path): never shortened, like a path.
+    const searchPath = pathString(toolInput['path']);
+    if (searchPath !== undefined) projected['path'] = searchPath;
+    if (input['tool_name'] === 'Glob') {
+      const pattern = pathString(toolInput['pattern']);
+      if (pattern !== undefined) projected['pattern'] = pattern;
+    }
     out['tool_input'] = projected;
   }
   // FileChanged
@@ -194,8 +213,8 @@ export function sniffHookEventName(rawText: string): string | null {
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * The only decision smurg ever returns (claude-hooks.md §3.4). There is deliberately no "allow" builder: "allow" would
- * skip the owner's permission prompt, so a granted lock returns no output at all.
+ * The only decision smurg ever returns (claude-hooks.md §3.4). There is deliberately no "allow" builder: the gate
+ * never allows (allowing stays with Claude Code's rules and with people), so a passed call returns no output at all.
  */
 export function preToolUseDeny(reason: string): JsonObject {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };

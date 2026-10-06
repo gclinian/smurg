@@ -6,9 +6,9 @@ import { t } from './strings.ts';
 
 export type MergeRequestStatus = MergeRequest['status'];
 
-// A `draft` (protocol 4: the snapshot of a work item, not yet asked to merge) reads as waiting, like `pending`.
+// A `draft` is the snapshot behind a result report: nobody asked to merge it yet (the host may merge it directly).
 const STATUS_LABEL: Record<MergeRequestStatus, () => string> = {
-  draft: () => t('status.pending'),
+  draft: () => t('status.draft'),
   pending: () => t('status.pending'),
   merged: () => t('status.merged'),
   rejected: () => t('status.rejected'),
@@ -16,24 +16,28 @@ const STATUS_LABEL: Record<MergeRequestStatus, () => string> = {
 };
 
 const STATUS_TONE: Record<MergeRequestStatus, Tone> = {
-  draft: 'info',
+  draft: 'neutral',
   pending: 'info',
   merged: 'success',
   rejected: 'neutral',
   conflict: 'warning',
 };
 
-export function requestStatusLabel(status: MergeRequestStatus): string {
-  return STATUS_LABEL[status]();
+/** `reviewed`: the request's result report was reviewed (a reviewed draft is ready for the host to merge). */
+export function requestStatusLabel(status: MergeRequestStatus, reviewed = false): string {
+  return status === 'draft' && reviewed ? t('status.draftReviewed') : STATUS_LABEL[status]();
 }
 
-export function requestStatusTone(status: MergeRequestStatus): Tone {
-  return STATUS_TONE[status];
+export function requestStatusTone(status: MergeRequestStatus, reviewed = false): Tone {
+  return status === 'draft' && reviewed ? 'info' : STATUS_TONE[status];
 }
 
-/** Whether the host can still decide (approve / reject): pending, or a merge that stopped on a conflict. */
+/**
+ * Whether the host can still decide (approve / reject): a pending request, a merge that stopped on a conflict, and a
+ * draft (the host may merge the changes of a result report without anyone asking).
+ */
 export function isDecidable(status: MergeRequestStatus): boolean {
-  return status === 'pending' || status === 'conflict';
+  return status === 'pending' || status === 'conflict' || status === 'draft';
 }
 
 const FILE_STATUS_LABEL: Record<MergeDiffFile['status'], () => string> = {

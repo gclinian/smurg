@@ -1,6 +1,6 @@
 // `suggestions.json` (ARCHITECTURE §7.1): every suggestion the daemon still keeps, pending ones first of all, so the
 // queue survives a daemon restart. The text is validated with the protocol's suggestion schema on load and on every
-// update (StateStore): a file edited to carry control characters stops the daemon instead of reaching a PTY.
+// update (StateStore): a file edited to carry control characters stops the daemon instead of reaching an agent.
 import { z } from 'zod';
 import { epochMsSchema, suggestionSchema, userIdSchema, type Suggestion } from '@smurg/protocol';
 
@@ -8,7 +8,7 @@ export const SUGGESTIONS_DOCUMENT = 'suggestions';
 export const SUGGESTIONS_VERSION = 1;
 
 export const storedSuggestionSchema = suggestionSchema.extend({
-  /** Owner of the target session when the suggestion was made (sessions do not outlive the daemon). */
+  /** Who had opened the target session when the suggestion was made (the audit entries name them). */
   sessionOwnerUserId: userIdSchema,
   /** When the author last changed the text (suggest.edit): a plain accept right after it is ambiguous. */
   editedAt: epochMsSchema.optional(),

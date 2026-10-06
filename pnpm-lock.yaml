@@ -93,6 +93,9 @@ importers:
       lib0:
         specifier: 0.2.118
         version: 0.2.118
+      marked:
+        specifier: 14.0.0
+        version: 14.0.0
       monaco-editor:
         specifier: 0.57.0
         version: 0.57.0

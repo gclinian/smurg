@@ -221,7 +221,7 @@ describe('R11 host console', () => {
       // (tests/lint/pending-v050.ts).
       const withAgentActions = !isPendingPart('e2e:r11.console#agent-actions');
       const AGENT_ACTIONS: readonly AuditAction[] = [
-        'session.message', 'smurg.message', 'session.interrupt', 'session.retry', 'session.responsible', 'session.mode', 'session.rule.remove', 'session.handover', 'responsible.fallback',
+        'session.message', 'smurg.message', 'session.interrupt', 'session.retry', 'session.restart', 'session.responsible', 'session.mode', 'session.rule.remove', 'session.handover', 'responsible.fallback',
         'question.submit', 'question.remind', 'permission.decide', 'permission.auto', 'permission.auto-deny', 'agent.command',
         'topic.create', 'topic.rename', 'topic.archive', 'topic.delete', 'topic.discussion.restart', 'topic.spec.request', 'topic.rule.add', 'topic.rule.remove',
         'plan.generate', 'plan.start', 'plan.resume', 'plan.assign', 'plan.mode', 'plan.item.retry', 'plan.item.continue', 'plan.item.resolve', 'scheduler.start', 'scheduler.disarm',

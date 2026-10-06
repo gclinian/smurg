@@ -53,6 +53,11 @@ export function hookRequest(socketPath: string, token: string, hookInput: JsonOb
   return requestDaemon(socketPath, { id: nextId(), token, op: 'hook', hookInput }, { deadlineMs: 15_000 });
 }
 
+/** A request of the Bash ACTIVITY hook (`smurg hook bash-activity`): it carries `via` and is never answered with a decision. */
+export function bashActivityRequest(socketPath: string, token: string, hookInput: JsonObject): Promise<JsonObject> {
+  return requestDaemon(socketPath, { id: nextId(), token, op: 'hook', hookInput, via: 'bash-activity' }, { deadlineMs: 15_000 });
+}
+
 export function mcpRequest(socketPath: string, token: string, tool: string, args: JsonObject = {}, deadlineMs = 15_000): Promise<JsonObject> {
   return requestDaemon(socketPath, { id: nextId(), token, op: 'mcp', tool, args }, { deadlineMs });
 }

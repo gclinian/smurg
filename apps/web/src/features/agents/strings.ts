@@ -6,30 +6,21 @@ import { zhTW } from './strings.zh-TW.ts';
 export const t = defineStrings(
   'agents',
   {
-    title: 'Agents',
-    'tabs.label': 'Session tabs',
+    title: 'Terminal',
+    'tabs.label': 'Terminals',
     'tab.label': '{title} ({owner})',
-    'tab.pending': { one: '{count} suggestion is waiting for you', other: '{count} suggestions are waiting for you' },
-    // An ended session's tab is closed in one's own panel only (ARCHITECTURE §9); a running session has no such control.
-    'tab.close': 'Close {title}',
-    'tab.closeHint': 'Press Delete to close this ended tab',
-    'empty.title': 'No sessions yet',
-    'empty.canCreate': 'Open an agent session or a terminal. Everyone in the workspace sees what it does as it happens.',
-    'empty.cannotCreate': 'Once the host or a member with agent access opens a session, you can watch it here as it happens.',
-    // Every tab that is left was closed by this person (ended sessions the host's computer still keeps).
-    'empty.hidden': { one: '{count} ended session is hidden because you closed its tab.', other: '{count} ended sessions are hidden because you closed their tabs.' },
-    'empty.showHidden': 'Show ended sessions',
-    loading: 'Loading sessions…',
-    loadError: 'Could not load the session list: {message}',
+    'empty.title': 'No terminals yet',
+    'empty.canCreate': 'Open a terminal to run tests, builds and other commands. Everyone in the workspace sees what it does as it happens.',
+    'empty.cannotCreate': 'Once the host or a member with agent access opens a terminal, you can watch it here as it happens.',
+    loading: 'Loading terminals…',
+    loadError: 'Could not load the terminals: {message}',
     'notice.pausedKeepAlive': 'The terminal of this tab is paused to save memory. It reconnects when you select the tab.',
 
-    'action.new': 'New session',
+    'action.new': 'New terminal',
     'action.end': 'End session',
     // The same button's visible text in the one-line session bar (a 420 px panel); its name stays "End session".
     'action.endShort': 'End',
     'action.terminate': 'Terminate',
-    'action.closeTab': 'Close tab',
-    'action.closeTabHint': 'Removes this ended session from your own panel only. Other members still see it.',
     'action.scale': 'Scale to fit the width',
     'action.unscale': 'Show at original size',
     'action.retry': 'Reconnect the terminal',
@@ -47,12 +38,8 @@ export const t = defineStrings(
     'attach.detachNote': 'Press Ctrl-] to detach. The session keeps running.',
     'attach.copy': 'Copy command',
     'attach.close': 'Done',
-    'action.maximize': 'Maximize the agents panel (it takes the place of the editor)',
-    'action.restoreWidth': 'Restore the size of the agents panel',
     'terminal.watchOnly': 'Watch only',
 
-    'kind.agent': 'Agent (Claude Code)',
-    'kind.terminal': 'Terminal',
     'status.starting': 'Starting',
     'status.running': 'Running',
     'status.exited': 'Ended',
@@ -68,7 +55,6 @@ export const t = defineStrings(
     // One row of the details list: the label and its separator (the value follows).
     'info.term': '{label}:',
     'info.owner': 'Opened by',
-    'info.kind': 'Kind',
     'info.status': 'Status',
     'info.where': 'Location',
     'info.runsAs': 'Runs on',
@@ -87,14 +73,13 @@ export const t = defineStrings(
     'terminal.loadFailed': 'Could not load the terminal. Reload the page.',
     'terminal.attachFailed': 'Could not connect to the terminal: {message}',
     'terminal.readOnly':
-      '{owner} opened this session; you can only watch. To have it do something, make a suggestion below: the host or a member with agent access decides whether to accept it.',
-    'terminal.readOnlyViewer': '{owner} opened this session; you can only watch.',
+      '{owner} opened this terminal; you can only watch. The host and members with agent access can type into it.',
     'terminal.exited': 'This session has ended. The terminal is read-only.',
     // The daemon keeps an ended session for a while only (ARCHITECTURE §7.6): a tab that stayed open longer says so.
-    'terminal.gone': "This session ended a while ago, and the host's computer no longer keeps its terminal output. You can close this tab.",
+    'terminal.gone': "This session ended a while ago, and the host's computer no longer keeps its terminal output. You can close it.",
     'terminal.floorHint': 'Panel smaller than {cols} × {rows}: the terminal scrolls',
     'terminal.floorHintFull':
-      'Claude Code needs at least {cols} columns × {rows} rows. This panel is smaller, so the terminal stays at {cols} × {rows} and scrolls in both directions. Enlarge the agents panel to see all of it.',
+      'This terminal needs at least {cols} columns × {rows} rows. The panel is smaller, so the terminal stays at {cols} × {rows} and scrolls in both directions. Make the panel larger to see all of it.',
     'terminal.overflowHint': 'Actual size {cols} × {rows}: scroll or scale',
     'terminal.overflowHintFull':
       'The terminal is shown at the actual size of the session ({cols} columns × {rows} rows), which is larger than this panel. Scroll in both directions, or use "Scale to fit the width" to draw it smaller (the content is not rearranged).',
@@ -102,10 +87,6 @@ export const t = defineStrings(
     'link.failed': 'Could not open {path}: {message}',
 
     'new.title': 'New session',
-    'new.kind': 'Kind',
-    'new.kind.agentHint': 'Runs Claude Code in a terminal.',
-    'new.kind.terminal': 'Plain terminal',
-    'new.kind.terminalHint': 'A shell, for running tests, builds and other commands.',
     'new.where': 'Where to work',
     'new.where.main': 'Shared main workspace',
     'new.where.mainHint': 'Changes the files everyone sees (file locks protect them).',
@@ -117,13 +98,20 @@ export const t = defineStrings(
     'new.runsAs.host': 'This session runs on your computer, and the agent uses your Claude account.',
     'new.runsAs.member': "This session runs on the host's computer, and the agent uses the host's Claude account.",
     'new.name': 'Name (optional)',
-    'new.nameHint': 'Shown on the tab, for example "Fix the login page".',
+    'new.nameHint': 'Shown in the session list, for example "Fix the login page".',
     'new.role.editor':
-      'As an editor you cannot open a session. You can watch every session and make suggestions to it. If you need to open an agent, ask the host to give you agent access.',
+      'As an editor you cannot open a session. You can watch every session, and what you write to an agent reaches it as a suggestion. If you need to open one, ask the host to give you agent access.',
     'new.role.viewer': 'As a viewer you can only watch sessions. You cannot open one or make suggestions.',
     'new.role.unknown': 'You are not connected to the workspace yet, so you cannot open a session right now.',
     'new.submit': 'Open',
     'new.created': 'Opened {title}',
+
+    'new.title.terminal': 'New terminal',
+    'new.runsAs.terminal': "This terminal runs on the host's computer, as the host.",
+    'new.first': 'What should Claude do first? (optional)',
+    'new.firstHint': 'Sent as your first message. Without one the session waits for a message.',
+    'menu.end': 'End session…',
+    'menu.terminate': 'Terminate…',
 
     'error.create': 'Could not open the session',
     'error.forbidden': 'Your role does not allow this.',
@@ -145,14 +133,6 @@ export const t = defineStrings(
     'terminate.body': 'Terminate "{title}", opened by {owner}? All of its processes stop at once.',
     'terminate.confirm': 'Terminate',
 
-    // A logged-out agent: every session uses the host's Claude login, so only the host can fix it.
-    'login.notice.host': 'Your Claude Code is not logged in. Click the terminal, type /login and follow the steps on screen.',
-    'login.notice.member': "The host's Claude Code is not logged in, so this agent cannot work for now. Ask the host to log in (type /login in the terminal).",
-    'login.check': 'Check login',
-    'login.recheck': 'Check login again',
-    'login.result.loggedIn': 'Logged in to Claude.',
-    'login.result.loggedOut': 'Not logged in yet.',
-    'login.result.unknown': 'Could not tell whether Claude is logged in.',
   },
   zhTW,
 );

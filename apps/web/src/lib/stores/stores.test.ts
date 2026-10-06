@@ -22,7 +22,6 @@ import { createManualScheduler } from '../../testing/services.tsx';
 import { createWorkspaceStores } from './index.ts';
 import { FILE_REFRESH_DELAY_MS, selectDir, selectEntry } from './files.ts';
 import { isDocEditable, selectActiveDoc } from './docs.ts';
-import { selectPendingForOwner } from './suggestions.ts';
 
 /** Requests every non-admin store sends on a fresh channel. */
 const BASE_LOADS: readonly InteractiveRequestType[] = [
@@ -30,6 +29,9 @@ const BASE_LOADS: readonly InteractiveRequestType[] = [
   'lock.list',
   'session.list',
   'suggest.list',
+  'topic.list',
+  'inbox.list',
+  'session.host.get',
   'activity.list',
   'doc.conflict.list',
   'worktree.list',
@@ -56,8 +58,11 @@ function answerEmpty(conn: FakeConnection): void {
   const answers: Partial<Record<InteractiveRequestType, unknown>> = {
     'file.tree': { entries: [], truncated: false },
     'lock.list': { locks: [] },
-    'session.list': { sessions: [] },
-    'suggest.list': { suggestions: [] },
+    'session.list': { sessions: [], hasMore: false },
+    'suggest.list': { suggestions: [], hasMore: false },
+    'topic.list': { topics: [], hasMore: false },
+    'inbox.list': { items: [], hasMore: false },
+    'session.host.get': { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none' },
     'activity.list': { events: [] },
     'doc.conflict.list': { conflicts: [] },
     'worktree.list': { worktrees: [] },
@@ -168,6 +173,39 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     expect(stores.locks.getState().locks.size).toBe(0);
     conn.emit('worktree.removed', { worktreeId: 'wt_1' });
     expect(stores.worktrees.getState().worktrees.size).toBe(0);
+  });
+
+  it('merge request drafts are replaced, not updated: a new draft drops the worktree\'s earlier draft and conflict; a removed worktree takes its drafts', async () => {
+    const { conn, stores, admit } = setup();
+    admit();
+    answerEmpty(conn);
+    await flush();
+    const ids = (): string[] => [...stores.worktrees.getState().mergeRequests.keys()].sort();
+    conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_draft1', worktreeId: 'wt_1', status: 'draft', requestedBy: undefined }) });
+    conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_conflict', worktreeId: 'wt_1', status: 'conflict' }) });
+    conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_asked', worktreeId: 'wt_1', status: 'pending' }) });
+    conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_other', worktreeId: 'wt_2', status: 'draft', requestedBy: undefined }) });
+    expect(ids()).toEqual(['mr_asked', 'mr_conflict', 'mr_draft1', 'mr_other']);
+    // A new version of the report: a new request id for the same worktree.
+    conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_draft2', worktreeId: 'wt_1', status: 'draft', requestedBy: undefined }) });
+    expect(ids()).toEqual(['mr_asked', 'mr_draft2', 'mr_other']);
+    // The same draft again (its `reviewed` changed) replaces nothing else.
+    conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_draft2', worktreeId: 'wt_1', status: 'draft', requestedBy: undefined, reviewed: true }) });
+    expect(ids()).toEqual(['mr_asked', 'mr_draft2', 'mr_other']);
+    conn.emit('worktree.removed', { worktreeId: 'wt_1' });
+    expect(ids()).toEqual(['mr_asked', 'mr_other']);
+  });
+
+  it('a resumed admission tells the stores that hold what is never replayed (onResumed)', async () => {
+    const { conn, admit } = setup();
+    admit();
+    answerEmpty(conn);
+    await flush();
+    const before = conn.requests.length;
+    conn.hostOffline('silence');
+    // Nothing is watched, so nothing is asked again; the hook itself must not throw or load.
+    admit({ resumed: true });
+    expect(conn.requests.length).toBe(before);
   });
 
   it('a failed load is kept as an error sentence and reported', async () => {
@@ -318,8 +356,8 @@ describe('workspace stores: initial load, live updates, full resync', () => {
       hasMore: false,
     });
     await flush();
-    const pending = selectPendingForOwner(stores.suggestions.getState(), stores.sessions.getState().sessions, 'dev:host');
-    expect(pending.map((s) => s.id)).toEqual(['a']);
+    const pending = [...stores.suggestions.getState().suggestions.values()].filter((s) => s.status === 'pending');
+    expect(pending.map((s) => s.id).sort()).toEqual(['a', 'b']);
     const accepting = stores.suggestions.accept('a', 'an edited suggestion');
     expect(conn.lastRequest('suggest.accept')?.payload).toEqual({ suggestionId: 'a', text: 'an edited suggestion' });
     conn.respond('suggest.accept', { suggestion: makeSuggestion({ id: 'a', sessionId: 'mine', status: 'accepted-modified', finalText: 'an edited suggestion' }) });
@@ -361,10 +399,10 @@ describe('workspace stores: initial load, live updates, full resync', () => {
 
   it('dispose() detaches every listener', () => {
     const { conn, dispose } = setup();
-    expect(conn.listenerCount('session.state')).toBe(1);
+    const events = ['session.state', 'file.changed', 'topic.updated', 'topic.removed', 'plan.updated', 'report.updated', 'inbox.changed', 'session.host', 'worktree.merge.updated'] as const;
+    for (const event of events) expect(conn.listenerCount(event), event).toBeGreaterThanOrEqual(1);
     dispose();
-    expect(conn.listenerCount('session.state')).toBe(0);
-    expect(conn.listenerCount('file.changed')).toBe(0);
+    for (const event of events) expect(conn.listenerCount(event), event).toBe(0);
   });
 });
 

@@ -13,6 +13,8 @@ export const zhTW = {
   'feed.deletedFile': '{path}（已刪除）',
   'feed.inWorktree': '{path}（worktree：{name}）',
   'feed.showConflicts': '查看衝突',
+  'feed.showSession': '顯示這個 session',
+  'feed.showSessionOf': '在編輯器旁邊顯示 {agent} 的 session',
   'filter.label': '篩選活動',
   'filter.all': '全部活動',
   'filter.agents': 'agent 的修改',

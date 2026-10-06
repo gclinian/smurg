@@ -20,7 +20,7 @@ describe('command bus', () => {
 
   it('rejects a command nobody handles', async () => {
     const bus = createCommandBus();
-    await expect(bus.dispatch('focusSession', { sessionId: 's1' })).rejects.toBeInstanceOf(NoCommandHandlerError);
+    await expect(bus.dispatch('newTopic', {})).rejects.toBeInstanceOf(NoCommandHandlerError);
   });
 
   it('a newer handler replaces the older one; the older dispose does not remove the newer', async () => {
@@ -55,6 +55,42 @@ describe('command bus', () => {
     const bus = createCommandBus();
     bus.handle('startUpload', () => Promise.reject(new Error('disk full')));
     await expect(bus.dispatch('startUpload', { root: MAIN_ROOT, targetDir: '', source: { kind: 'files', files: [] } })).rejects.toThrow('disk full');
+  });
+
+  it('whenHandled resolves once a command has a handler: at once when it has one, else when one registers', async () => {
+    const bus = createCommandBus();
+    let resolved = false;
+    const waiting = bus.whenHandled('openFile').then(() => {
+      resolved = true;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    // Another command's handler does not wake it.
+    bus.handle('download', () => {});
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    const seen: CommandMap['openFile'][] = [];
+    bus.handle('openFile', (payload) => void seen.push(payload));
+    await waiting;
+    expect(resolved).toBe(true);
+    // The pattern of openInCodeMode: wait for the editor, then ask it.
+    await bus.whenHandled('openFile');
+    await bus.dispatch('openFile', { file, line: 3 });
+    expect(seen).toEqual([{ file, line: 3 }]);
+  });
+
+  it('the commands of the shell are typed: a column target, a mode, a place in code mode', async () => {
+    const bus = createCommandBus();
+    const seen: unknown[] = [];
+    bus.handle('openColumn', (payload) => void seen.push(payload));
+    bus.handle('setMode', (payload) => void seen.push(payload));
+    bus.handle('openInCodeMode', (payload) => void seen.push(payload));
+    bus.handle('newSession', (payload) => void seen.push(payload));
+    await bus.dispatch('openColumn', { target: { kind: 'report', topicId: 't1', itemId: 'cart-api' }, side: true, anchor: { cardId: 'q_1' } });
+    await bus.dispatch('setMode', { mode: 'code' });
+    await bus.dispatch('openInCodeMode', { root: MAIN_ROOT, file: 'src/app.ts', line: 12, sessionId: 's1' });
+    await bus.dispatch('newSession', { kind: 'terminal' });
+    expect(seen).toHaveLength(4);
   });
 
   it('hooks: a feature registers a handler, another dispatches, unmount unregisters', async () => {

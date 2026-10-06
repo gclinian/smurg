@@ -847,3 +847,492 @@
   color: var(--color-text-subtle);
   padding: var(--space-8) !important;
 }
+
+/* ================================================================ the sessions view (v0.5.0) */
+
+/* ---------------------------------------------------------------- avatar: the smallest size, and a stack */
+.ui-avatar--xs {
+  width: 16px;
+  height: 16px;
+  font-size: 8px;
+  letter-spacing: -0.02em;
+}
+.ui-avatar-stack {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+.ui-avatar-stack > .ui-avatar + .ui-avatar {
+  margin-left: -3px;
+  box-shadow: 0 0 0 1.5px var(--color-surface-1);
+}
+.ui-avatar-stack__more {
+  margin-left: var(--space-2);
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+
+/* ---------------------------------------------------------------- segmented: one of a few */
+.ui-segmented {
+  display: inline-flex;
+  flex: none;
+  padding: 2px;
+  gap: 2px;
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+}
+.ui-segmented__option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 22px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ui-segmented--sm .ui-segmented__option {
+  height: 20px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+}
+.ui-segmented__option:hover {
+  color: var(--color-text);
+}
+.ui-segmented__option[aria-checked='true'],
+.ui-segmented__option[aria-current='page'] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+.ui-segmented__option:disabled,
+.ui-segmented__option[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+/* A count on a segment: amber for what an agent is stopped on, neutral for the rest. */
+.ui-count {
+  display: inline-block;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-3);
+  color: var(--color-text);
+  font-size: 10px;
+  font-weight: var(--weight-semibold);
+  line-height: 16px;
+  text-align: center;
+}
+.ui-count--waiting {
+  background: var(--color-warning);
+  color: var(--color-bg);
+}
+
+/* ---------------------------------------------------------------- collapsible section */
+.ui-collapsible {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.ui-collapsible__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--panel-header-height);
+  padding: 0 var(--space-3) 0 var(--space-2);
+  flex: none;
+}
+.ui-collapsible__heading {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font: inherit;
+}
+.ui-collapsible__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  text-align: start;
+}
+.ui-collapsible__toggle:hover {
+  color: var(--color-text);
+}
+.ui-collapsible__toggle > svg {
+  flex: none;
+  transition: transform var(--duration-fast) var(--ease);
+}
+.ui-collapsible__toggle[aria-expanded='false'] > svg {
+  transform: rotate(-90deg);
+}
+.ui-collapsible__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ui-collapsible__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+}
+/* position: relative: visually hidden text inside scrolls and is clipped with the body. */
+.ui-collapsible__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-collapsible__toggle > svg {
+    transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------- status glyph and kind icon */
+/* A status glyph: shape AND colour, never colour alone. */
+.ui-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+.ui-status--running {
+  color: var(--color-info);
+}
+.ui-status--running svg {
+  animation: ui-spin 1.1s linear infinite;
+}
+.ui-status--question,
+.ui-status--permission,
+.ui-status--stalled {
+  color: var(--color-warning);
+}
+.ui-status--done {
+  color: var(--color-success);
+}
+.ui-status--failed {
+  color: var(--color-danger);
+}
+.ui-status--idle,
+.ui-status--blocked,
+.ui-status--todo,
+.ui-status--ended {
+  color: var(--color-text-subtle);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-status--running svg {
+    animation: none;
+  }
+}
+/* The icon of an inbox item kind / a card kind: a tinted square. */
+.ui-kind {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-3);
+  color: var(--color-text-muted);
+}
+.ui-kind--question,
+.ui-kind--suggestion,
+.ui-kind--merge {
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+.ui-kind--permission,
+.ui-kind--vote,
+.ui-kind--attention {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+.ui-kind--report {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+/* ---------------------------------------------------------------- chip */
+.ui-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 22px;
+  padding: 0 var(--space-4) 0 var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ui-chip:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+.ui-chip--static {
+  cursor: default;
+}
+.ui-chip--static:hover {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+.ui-chip > svg,
+.ui-chip > .ui-avatar {
+  flex: none;
+}
+.ui-chip__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* In a column narrower than 620 px a collapsible chip is its icon (the words are its name and tooltip). */
+@container column (max-width: 620px) {
+  .ui-chip--collapsible {
+    flex-shrink: 0;
+    padding: 0 var(--space-3);
+  }
+  .ui-chip--collapsible > .ui-chip__text {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------- card */
+.ui-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: var(--border-width) solid var(--color-border);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-1);
+  scroll-margin: var(--space-6);
+}
+.ui-card--info {
+  border-left-color: var(--color-info);
+}
+.ui-card--warning {
+  border-left-color: var(--color-warning);
+}
+.ui-card--success {
+  border-left-color: var(--color-success);
+}
+.ui-card--danger {
+  border-left-color: var(--color-danger);
+}
+.ui-card--settled {
+  border-left-color: var(--color-border-strong);
+  background: transparent;
+}
+.ui-card:focus,
+.ui-card:focus-visible {
+  box-shadow: none;
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+/* Where an inbox item led: outlined for a moment. */
+.ui-card[data-flash] {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.ui-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: 34px;
+  padding: var(--space-3) var(--space-5);
+}
+.ui-card__icon {
+  display: inline-flex;
+  flex: none;
+}
+.ui-card__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
+}
+.ui-card__meta {
+  flex: none;
+  color: var(--color-text-subtle);
+  font-size: var(--text-sm);
+}
+.ui-card__body {
+  padding: 0 var(--space-5) var(--space-5);
+}
+.ui-card__foot {
+  padding: var(--space-4) var(--space-5);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+/* ---------------------------------------------------------------- tree */
+.ui-tree {
+  display: flex;
+  flex-direction: column;
+}
+.ui-tree__item {
+  outline: none;
+}
+.ui-tree__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 28px;
+  padding: 0 var(--space-3) 0 var(--space-4);
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
+}
+.ui-tree__group .ui-tree__row {
+  padding-left: 26px;
+}
+.ui-tree__row:hover {
+  background: var(--color-surface-3);
+}
+.ui-tree__item[aria-selected='true'] > .ui-tree__row {
+  background: var(--color-accent-soft);
+}
+.ui-tree__item:focus-visible > .ui-tree__row {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+
+/* ---------------------------------------------------------------- column strip */
+.ui-columns-frame {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+/* A column is never narrower than its minimum: when the open columns do not fit, the strip scrolls sideways one
+   column at a time and the edge buttons say how many are out of view on each side. */
+.ui-columns {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  background: var(--color-bg);
+}
+.ui-columns[data-overflow] {
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+.ui-columns[data-dragging] {
+  scroll-snap-type: none;
+}
+.ui-columns--empty {
+  overflow: auto;
+}
+.ui-columns__slot {
+  display: flex;
+  min-height: 0;
+  scroll-snap-align: start;
+}
+.ui-columns__column {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* The columns ignore the pointer while a separator is dragged (no hover, no selection under the drag). */
+.ui-columns[data-dragging] .ui-columns__column {
+  pointer-events: none;
+}
+.ui-columns__separator {
+  flex: none;
+  position: relative;
+  z-index: var(--z-separator);
+  width: 1px;
+  background: var(--color-border);
+  cursor: col-resize;
+  touch-action: none;
+}
+.ui-columns__separator::after {
+  content: '';
+  position: absolute;
+  inset: 0 -3px;
+}
+.ui-columns__separator:hover,
+.ui-columns__separator[data-dragging],
+.ui-columns__separator:focus-visible {
+  background: var(--color-accent);
+}
+.ui-columns__separator:focus-visible {
+  box-shadow: none;
+  outline: 2px solid var(--color-focus);
+  outline-offset: 0;
+}
+.ui-columns__more {
+  position: absolute;
+  top: 50%;
+  z-index: var(--z-drawer);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 28px;
+  padding: 0 var(--space-4);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-2);
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+/* Attached to the edge it points over. */
+.ui-columns__more--left {
+  left: 0;
+  border-left: 0;
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+}
+.ui-columns__more--right {
+  right: 0;
+  border-right: 0;
+  border-radius: var(--radius-full) 0 0 var(--radius-full);
+}
+
+/* ---------------------------------------------------------------- a slot that crashed (Boundary.tsx) */
+.ui-slot-error {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

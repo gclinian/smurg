@@ -4,7 +4,8 @@
 //   1. bind(): register event listeners on the connection, BEFORE it starts (events may arrive with the Welcome);
 //   2. every non-resumed Welcome (always the first one): reset() then load(): drop what came from the old logical
 //      channel and fetch a fresh snapshot (ARCHITECTURE §4 "Resume": resumed = false ⇒ full resync);
-//   3. a resumed Welcome changes nothing: the daemon replays the missed events;
+//   3. a resumed Welcome changes nothing: the daemon replays the missed events. A store that also holds what is
+//      never replayed (the conversations store: streaming deltas are volatile) is told through onResumed();
 //   4. a role change (new Welcome or channel.memberUpdated) calls onRoleChange().
 //
 // Ordering: the channel is ordered, so an event that arrives before a list response is already reflected in it, and a
@@ -46,6 +47,10 @@ export type AreaName =
   | 'docs'
   | 'sessions'
   | 'suggestions'
+  | 'topics'
+  | 'inbox'
+  | 'conversations'
+  | 'host'
   | 'activity'
   | 'conflicts'
   | 'worktrees'
@@ -70,6 +75,8 @@ export interface AreaLifecycle {
   bind(ctx: StoreContext): () => void;
   reset(): void;
   load(): Promise<void>;
+  /** A resumed Welcome: the logical channel survived, sequenced events are replayed, volatile ones are not. */
+  onResumed?(): void;
   onRoleChange?(role: Role, previous: Role | null): void;
   dispose?(): void;
 }

@@ -1,4 +1,5 @@
-/* The agents panel (session tabs, terminal, dialogs). Tokens from src/ui/tokens.css. */
+/* Plain terminals: the Terminal tab of code mode's drawer, a terminal's column in the sessions view, the dialogs.
+   Tokens from src/ui/tokens.css. */
 
 .agents-panel .ui-panel__body {
   display: flex;
@@ -30,46 +31,6 @@
 .agents-tabs > .ui-tabs__panel[hidden] {
   display: none;
 }
-/* One tab and, for an ended session, its close button (SessionTabs.tsx): the pair carries the selection underline. */
-.agents-tab-item {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  border-bottom: 2px solid transparent;
-}
-.agents-tab-item--selected {
-  border-bottom-color: var(--color-accent);
-}
-.agents-tab-item > .ui-tab {
-  height: calc(var(--panel-header-height) - 2px);
-  border-bottom: none;
-}
-.agents-tab-item--closable > .ui-tab {
-  padding-right: var(--space-2);
-}
-.agents-tab__close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 20px;
-  height: 20px;
-  margin-right: var(--space-2);
-  padding: 0;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-subtle);
-  cursor: pointer;
-}
-.agents-tab__close:hover {
-  background: var(--color-surface-3);
-  color: var(--color-text);
-}
-.agents-tab__close:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--color-focus);
-  color: var(--color-text);
-}
 .agents-tab {
   display: inline-flex;
   align-items: center;
@@ -93,6 +54,18 @@
 }
 .agents-tab[data-status='starting'] .agents-tab__dot {
   background: var(--color-info);
+}
+
+/* ---------------------------------------------------------------- a terminal as a column
+   The column's body gives exactly one child the room that is left (features/columns: .col-body). A terminal needs 80
+   columns: narrower than that, its own viewport scrolls sideways inside the column. */
+.agents-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ---------------------------------------------------------------- one session */
@@ -402,17 +375,4 @@
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
-}
-
-/* Every tab was closed by this person while ended sessions still exist: one quiet line with the way back. */
-.agents-hidden {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0 var(--space-4) var(--space-4);
-  font-size: var(--text-sm);
-  color: var(--color-text-subtle);
 }

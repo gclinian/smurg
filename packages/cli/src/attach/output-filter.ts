@@ -1,8 +1,8 @@
 // The output filter of `smurg attach` (ARCHITECTURE §7.6 "PTY"; pty-packaging.md V6): session output is written by
-// someone else's process (a guest's agent, possibly prompt-injected), and it goes to the attaching person's REAL
-// terminal. That terminal must never answer a query into the session (device attributes, DECRQSS, cursor reports, …),
-// never receive OSC 52 (clipboard write / read), DCS (incl. tmux / screen passthrough), APC / PM / SOS, window
-// operations or anything else this filter does not know to be harmless.
+// someone else's process (a teammate's shell and whatever runs in it, possibly a prompt-injected agent), and it goes
+// to the attaching person's REAL terminal. That terminal must never answer a query into the session (device
+// attributes, DECRQSS, cursor reports, …), never receive OSC 52 (clipboard write / read), DCS (incl. tmux / screen
+// passthrough), APC / PM / SOS, window operations or anything else this filter does not know to be harmless.
 //
 // An ALLOW-LIST, not a deny-list (security review SEC-E-01). A VT parser state machine (the DEC/xterm
 // model: ESC, CSI, OSC, DCS, SOS/PM/APC strings, CAN/SUB aborts, ESC inside a string ends it) runs over the decoded

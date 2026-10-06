@@ -1,9 +1,9 @@
-// Merge requests (SPEC R9: the worktree owner asks for a merge, the host sees the full diff and merges after confirming). Shown as the
-// workbench's "Merge requests" drawer tab and inside the host console:
+// Merge requests (SPEC R9: the worktree owner asks for a merge, the host sees the full diff and merges after confirming). Shown inside
+// the host console (in the sessions view a request is an inbox item that opens its result report or a Changes column):
 //  - worktree owners (agent access, host) see their worktrees with "Request merge";
 //  - everyone sees the requests and their status; the requester reads the outcome (merged, rejected with the reason,
 //    conflict with the files);
-//  - the host opens "Review" (MergeReview.tsx); members with agent access may open the same diff read-only (any request).
+//  - the host opens "Review" (MergeReview.tsx); every member may open the same diff read-only.
 import { useState } from 'react';
 import type { WorktreeInfo } from '@smurg/protocol';
 import { useStore } from '../../lib/store.ts';
@@ -30,6 +30,8 @@ export function MergeRequestsSection({ headingLevel = 3 }: MergeRequestsSectionP
   const userId = useStore(stores.workspace, selectUserId);
   const isHost = useCan('worktree.merge.decide');
   const canRequest = useCan('worktree.merge.request');
+  // worktree.merge.diff is every member's (file.read).
+  const canView = useCan('file.read');
   const now = useNow();
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [requesting, setRequesting] = useState<WorktreeInfo | null>(null);
@@ -37,7 +39,10 @@ export function MergeRequestsSection({ headingLevel = 3 }: MergeRequestsSectionP
 
   const requests = selectMergeRequestList(state);
   // The queue reads oldest first; history newest first.
-  const open = requests.filter((request) => isDecidable(request.status)).reverse();
+  // A draft is the snapshot behind a result report: once its report was reviewed it waits for the host like a request.
+  const waits = (request: (typeof requests)[number]): boolean => isDecidable(request.status) && (request.status !== 'draft' || request.reviewed);
+  const open = requests.filter(waits).reverse();
+  const drafts = requests.filter((request) => request.status === 'draft' && !request.reviewed);
   const decided = requests.filter((request) => !isDecidable(request.status));
   const mine = canRequest && userId !== null ? selectWorktreeList(state).filter((worktree) => worktree.ownerUserId === userId) : [];
   const pendingFor = (worktreeId: string): boolean => requests.some((request) => request.worktreeId === worktreeId && request.status === 'pending');
@@ -49,7 +54,7 @@ export function MergeRequestsSection({ headingLevel = 3 }: MergeRequestsSectionP
       worktree={state.worktrees.get(request.worktreeId) ?? null}
       userId={userId}
       isHost={isHost}
-      canView={canRequest}
+      canView={canView}
       now={now}
       onOpen={setReviewing}
     />
@@ -93,6 +98,12 @@ export function MergeRequestsSection({ headingLevel = 3 }: MergeRequestsSectionP
         <section className="worktree-requests__group" aria-label={t('list.pendingTitle', { count: open.length })}>
           <Heading className="worktree-requests__heading">{t('list.pendingTitle', { count: open.length })}</Heading>
           <ul className="worktree-requests__list">{open.map(item)}</ul>
+        </section>
+      ) : null}
+      {drafts.length > 0 ? (
+        <section className="worktree-requests__group" aria-label={t('list.draftsTitle')}>
+          <Heading className="worktree-requests__heading">{t('list.draftsTitle')}</Heading>
+          <ul className="worktree-requests__list">{drafts.map(item)}</ul>
         </section>
       ) : null}
       {decided.length > 0 ? (

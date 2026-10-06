@@ -5,6 +5,69 @@ Every released version's changes are recorded here (the format follows
 [Semantic Versioning](https://semver.org/)). A version's section is also its release notes; a version without a
 section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.md).
 
+## [Unreleased]
+
+- **Topics: a team takes a feature from a discussion to reviewed work.** The main screen is now built around
+  topics (a feature or a task); the [guide for teammates](docs/JOINING.md) §6 walks through one.
+  - Discussion: everyone talks with one shared agent. The agent asks the team multiple-choice questions; the host,
+    members with agent access and Editors vote and comment and see each other's choices live, and the session's
+    responsible person (when nobody is assigned: whoever opened it) submits the answer. Viewers watch.
+  - Spec and plan: the agent writes `specs/<topic>/SPEC.md` and `PLAN.md` in the project. People edit both together
+    in the browser or ask the agent to revise them. The plan is a list of work items; the agent suggests who is
+    responsible for which, and people change it or choose "No one assigned: everyone watches".
+  - Execution: Start opens one agent session per work item, each in its own git worktree, and commits the spec and
+    the plan to the host's repository first (the dialog says so before). An item that depends on others starts by
+    itself when those are merged, and only from the spec and the plan that were confirmed at Start.
+  - Result reports: a finished item has a report with fixed sections (what was done, why, how it was verified, what
+    to watch out for) and its diff. The responsible person asks follow-ups and presses "I've reviewed this"; the
+    reviewed changes then wait in the host's inbox, and the host merges. A topic is complete when every item is
+    reviewed.
+- **Agent sessions are conversations, not terminals.** smurg now runs Claude Code as a structured conversation:
+  messages, what the agent's tools did, questions and permission requests are shown as a conversation with cards,
+  and everyone reads all of it, including members who join later. Plain terminal sessions stay for people who need
+  a shell. No longer there: typing into an agent's terminal, Claude Code's slash commands and `/login` inside a
+  session, and attaching an agent to your own terminal (`smurg attach` attaches terminal sessions and lists the
+  agent sessions with their topic and status).
+- **An inbox for every member**: the questions you decide, votes that are open, permission requests, work that
+  stopped and needs someone, suggestions, result reports to review, changes ready to merge, and mentions (`@name`).
+  An item leaves when the thing is settled. When the person who must act does not answer (5 minutes by default; a
+  host setting), the item also reaches the host and the members with agent access, who can answer in their place.
+- **The sessions view and code mode.** The inbox and the session list, grouped by topic, are on the left; on the
+  right up to four columns stand side by side (a conversation, a spec, a plan, a result report). The file tree, the
+  editor, the activity feed and the terminals are now "Code mode", behind a switch in the top bar; both sides keep
+  their state.
+- **Agents ask before they run commands.** A work item's agent edits files in its own worktree without asking and
+  asks before commands; only the host and members with agent access can allow a request, once or always for that
+  kind of command, in one session or in every session of a topic. smurg's own check runs before every tool call of
+  an agent, whatever Claude Code's settings allow: a discussion agent can only read the project and write its
+  topic's spec and plan. See the [host guide](docs/HOSTING.md) §5.2.
+- **Suggestions go to agent sessions**, no longer to terminals. An Editor's message is a card in the conversation
+  and reaches the agent only when the host or a member with agent access accepts it, as exactly the text that was
+  shown. Editors can now also vote, comment, be responsible for a session or a work item and review its report.
+- **Your own Claude Code on the host's side** ([host guide](docs/HOSTING.md) §5.3): the allow rules of the host's own
+  Claude Code settings apply to agent sessions, and the host is told once which; the host's MCP servers are off for
+  agents unless the host switches them on; a shared folder's Claude Code project settings are used only after the
+  host has confirmed what they do; `CLAUDE.md` can be changed through smurg only by the host.
+- **Whose Claude account**: agents still use the host's Claude Code login for everyone. The host guide (§4) now says
+  which kind of account fits a group, and the host is told once when a personal subscription is used while other
+  members are present.
+- **Agent sessions survive a restart.** `smurg stop` ends terminal sessions and pauses agent sessions; their
+  conversations are kept on the host's computer (in `~/.smurg`, removed by `smurg uninstall`). After `smurg host`
+  starts again nothing runs by itself: every plan is paused until the host or a member with agent access chooses
+  "Continue all". `smurg status` now also shows Claude Code's version and login, the agent sessions, the topics,
+  and whether the folder's Claude Code project settings are confirmed.
+- **Requirements**: agent sessions need Claude Code 2.1.288 or later on the host's computer (an older one is
+  refused); carrying out work items needs the shared folder to be a git repository with at least one commit, and git
+  2.42 or later.
+- **This version does not read what an earlier one wrote.** The host, the web app (the relay's version) and every
+  `smurg attach` must run this version: the protocol between them changed (version 4), and a different version is
+  refused when it connects. A workspace's state from an earlier version (members, invite links, sessions) is not
+  converted: `smurg host` says so and names the folder to move aside ([host guide](docs/HOSTING.md) §8). If you run
+  your own relay, deploy it again from this version before you update.
+- **What was verified**: the topics flow was tested with a scripted stand-in for the model, and real Claude Code
+  only against a fake API; no real Claude account was used. How a real model behaves in the flow may need tuning in
+  later versions ([host guide](docs/HOSTING.md) §10.8).
+
 ## [0.4.0] - 2026-10-02
 
 - **English first, Traditional Chinese second.** Everything smurg shows now exists in both languages, and English is

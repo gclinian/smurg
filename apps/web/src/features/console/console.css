@@ -330,3 +330,226 @@
   font-size: var(--text-sm);
   white-space: pre-wrap;
 }
+
+/* ---------------------------------------------------------------- the host's account, disk space (sessions) */
+.console-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.console-facts:empty {
+  display: none;
+}
+.console-facts p {
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------- a tick with its sentence */
+.console-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+.console-check input {
+  flex: none;
+  margin: 3px 0 0;
+  accent-color: var(--color-accent-solid);
+}
+
+/* ---------------------------------------------------------------- settings: the agents group */
+.console-settings__group {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.console-settings__switch {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.console-settings__consequence {
+  margin: 0;
+  padding-left: calc(var(--space-3) + 16px);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.console-settings__consequence--on {
+  color: var(--color-warning-text);
+}
+
+/* ---------------------------------------------------------------- Claude Code project settings (the trust gate) */
+.console-trust-roots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.console-trust-roots:empty {
+  display: none;
+}
+.console-trust-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.console-trust-root__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.console-trust {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.console-trust p {
+  margin: 0;
+}
+.console-trust__state {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+.console-trust__state--waiting {
+  color: var(--color-warning-text);
+}
+.console-trust__files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.console-trust__file {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.console-trust__file-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+.console-trust__file-title code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.console-trust__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.console-trust__group-title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-muted);
+}
+.console-trust__list {
+  margin: 0;
+  padding-left: var(--space-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+/* A command, a rule, a variable: never cut, it wraps. */
+.console-trust__list--mono li {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.console-trust__flag {
+  margin-left: var(--space-3);
+  font-family: var(--font-sans);
+}
+.console-trust__raw summary {
+  cursor: pointer;
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+}
+.console-trust__raw pre {
+  margin: var(--space-2) 0 0;
+  max-height: 20rem;
+  overflow: auto;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.console-trust__acks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-4) var(--space-5);
+  border: var(--border-width) solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-soft);
+}
+.console-trust__acks legend {
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+.console-trust__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-4);
+}
+.console-trust__actions > .console-muted {
+  margin-right: auto;
+}
+
+/* ---------------------------------------------------------------- the host's own Claude Code rules */
+.console-host-rules {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.console-host-rules p {
+  margin: 0;
+}
+.console-host-rules__found {
+  font-weight: var(--weight-medium);
+}
+.console-host-rules__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.console-host-rules__source {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-muted);
+}
+.console-host-rules__group .console-trust__list {
+  max-height: 20rem;
+  overflow: auto;
+}

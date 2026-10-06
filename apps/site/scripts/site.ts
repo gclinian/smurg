@@ -88,13 +88,13 @@ export const DOC_PAGES: readonly DocPage[] = [
       source: 'docs/HOSTING.md',
       path: '/docs/hosting/',
       label: 'Host guide',
-      summary: 'Share a folder from your own computer with smurg host: installing, logging in, what to read before you share, the Agent access role, keeping the computer awake and troubleshooting.',
+      summary: 'Share a folder from your own computer with smurg host: installing, logging in, what to read before you share, the Agent access role, what agents may do and how your own Claude Code settings count, troubleshooting, and what a topic asks of the host.',
     },
     'zh-TW': {
       source: 'docs/zh-TW/HOSTING.md',
       path: '/zh-TW/docs/hosting/',
       label: '主人指南',
-      summary: '在自己的電腦上用 smurg host 分享資料夾：安裝、登入、分享前必讀、「可使用 agent」角色、防止睡眠與疑難排解。',
+      summary: '在自己的電腦上用 smurg host 分享資料夾：安裝、登入、分享前必讀、「可使用 agent」角色、agent 能做什麼與你自己的 Claude Code 設定、疑難排解，以及主題裡主人要做的事。',
     },
   },
   {
@@ -102,13 +102,13 @@ export const DOC_PAGES: readonly DocPage[] = [
       source: 'docs/JOINING.md',
       path: '/docs/joining/',
       label: 'Guide for teammates',
-      summary: 'Join a workspace someone shared with an invite link: roles, editing together, watching agents and sending suggestions, agent sessions, worktrees and leaving.',
+      summary: 'Join a workspace someone shared with an invite link: roles, the inbox and the columns, talking to agents, votes and suggestions, a topic from discussion to reviewed result, editing together, worktrees and leaving.',
     },
     'zh-TW': {
       source: 'docs/zh-TW/JOINING.md',
       path: '/zh-TW/docs/joining/',
       label: '組員指南',
-      summary: '用邀請連結加入別人分享的工作區：角色、一起編輯、看 agent 與提出建議、agent session、worktree 與離開。',
+      summary: '用邀請連結加入別人分享的工作區：角色、收件夾與欄、和 agent 對話、投票與建議、主題從討論到看過結果、一起編輯、worktree 與離開。',
     },
   },
   {

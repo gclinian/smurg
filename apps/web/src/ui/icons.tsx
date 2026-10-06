@@ -332,3 +332,134 @@ export const IconSend: IconComponent = (p) => (
     <path d="M14 2 7.25 8.75M14 2 9.75 14l-2.5-5.25L2 6.25z" />
   </Svg>
 );
+
+// ---- the sessions view (v0.5.0): the inbox, session statuses, topics, plans and reports ----
+export const IconInbox: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M2.25 9.25 4 3.25h8l1.75 6v3a1 1 0 0 1-1 1h-9.5a1 1 0 0 1-1-1z" />
+    <path d="M2.25 9.25h3.5l.75 1.5h3l.75-1.5h3.5" />
+  </Svg>
+);
+export const IconQuestion: IconComponent = (p) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="6.25" />
+    <path d="M6.25 6.4a1.8 1.8 0 1 1 2.7 1.55c-.6.35-.95.75-.95 1.3M8 11.4v.01" />
+  </Svg>
+);
+export const IconAt: IconComponent = (p) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="2.5" />
+    <path d="M10.5 5.5v3.4a1.6 1.6 0 0 0 3.25 0V8a5.75 5.75 0 1 0-2.4 4.65" />
+  </Svg>
+);
+export const IconOpenSide: IconComponent = (p) => (
+  <Svg {...p}>
+    <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.25" />
+    <path d="M7 2.75v10.5M10.6 6.4v3.2M9 8h3.2" />
+  </Svg>
+);
+export const IconCode: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M5.25 4.5 1.75 8l3.5 3.5M10.75 4.5 14.25 8l-3.5 3.5M9.25 3 6.75 13" />
+  </Svg>
+);
+export const IconSessions: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M2.25 3.75a1 1 0 0 1 1-1h9.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H7l-3 2.5v-2.5h-.75a1 1 0 0 1-1-1z" />
+  </Svg>
+);
+export const IconReport: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M3.75 1.75h5.5l3 3v9.5h-8.5z" />
+    <path d="M9.25 1.75v3h3M5.75 9.6l1.5 1.5 3-3.1" />
+  </Svg>
+);
+export const IconPlan: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M2.25 4.1l.9.9 1.6-1.9M2.25 8.35l.9.9 1.6-1.9M2.5 12.5h2M7.5 4h6.25M7.5 8.25h6.25M7.5 12.5h6.25" />
+  </Svg>
+);
+export const IconStop: IconComponent = (p) => (
+  <Svg {...p}>
+    <rect x="4" y="4" width="8" height="8" rx="1.25" />
+  </Svg>
+);
+export const IconComment: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M2.25 3.75a1 1 0 0 1 1-1h9.5a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H7l-3 2.5v-2.5h-.75a1 1 0 0 1-1-1z" />
+    <path d="M5.25 6h5.5M5.25 8.25h3.5" />
+  </Svg>
+);
+export const IconCheckCircle: IconComponent = (p) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="6.25" />
+    <path d="M5.25 8.25 7.25 10.25 10.75 6" />
+  </Svg>
+);
+export const IconXCircle: IconComponent = (p) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="6.25" />
+    <path d="M5.9 5.9l4.2 4.2M10.1 5.9l-4.2 4.2" />
+  </Svg>
+);
+export const IconClock: IconComponent = (p) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="6.25" />
+    <path d="M8 4.5V8l2.25 1.5" />
+  </Svg>
+);
+export const IconCircle: IconComponent = (p) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="4.5" />
+  </Svg>
+);
+export const IconCircleDashed: IconComponent = (p) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.25" strokeDasharray="2.2 2.4" />
+  </Svg>
+);
+/** An open arc: the running glyph (it turns; still with reduced motion). */
+export const IconArc: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M8 1.75a6.25 6.25 0 1 1-6.25 6.25" />
+    <path d="M8 1.75a6.25 6.25 0 0 0-6.25 6.25" opacity="0.28" />
+  </Svg>
+);
+/** An hourglass that ran out: an agent stopped without a report. */
+export const IconHourglassStop: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M4.25 2.25h7.5M4.25 13.75h7.5M5 2.25c0 3 3 3.75 3 5.75s-3 2.75-3 5.75M11 2.25c0 3-3 3.75-3 5.75s3 2.75 3 5.75" />
+    <path d="M6.5 12.25h3" />
+  </Svg>
+);
+export const IconPlay: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M5.25 3.25v9.5L12.5 8z" />
+  </Svg>
+);
+export const IconArrowLeft: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M13 8H3.5M7 4 3 8l4 4" />
+  </Svg>
+);
+export const IconHistory: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M2.75 8a5.25 5.25 0 1 0 1.6-3.75" />
+    <path d="M2.5 2.5v2.75h2.75M8 5.25V8l2 1.25" />
+  </Svg>
+);
+export const IconWand: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M2.75 13.25 10 6M11.5 2.25v2M10.5 3.25h2M13 7.25v1.5M12.25 8h1.5M6.25 2.5v1.5M5.5 3.25H7" />
+  </Svg>
+);
+export const IconEquals: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M3.5 6h9M3.5 10h9" />
+  </Svg>
+);
+export const IconPin: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M6 2.25h4l-.6 4 2.35 2.5H4.25L6.6 6.25zM8 8.75v5" />
+  </Svg>
+);

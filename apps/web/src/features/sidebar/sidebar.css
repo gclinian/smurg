@@ -1,0 +1,360 @@
+/* The left column of the sessions view: the inbox above the session list (UX §3), or a rail of three buttons. */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-surface-1);
+}
+.sidebar-sections {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-sections[hidden],
+.sidebar-rail[hidden] {
+  display: none;
+}
+.sidebar-section + .sidebar-section {
+  border-top: var(--border-width) solid var(--color-border);
+}
+/* The inbox is as tall as its items, up to 46 % of the column; beyond that it scrolls by itself. */
+.sidebar-section--inbox {
+  flex: 0 1 auto;
+  max-height: 46%;
+}
+.sidebar-section--sessions {
+  flex: 1 1 0;
+}
+.sidebar-section.ui-collapsible--collapsed {
+  flex: none;
+}
+.sidebar-section .ui-collapsible__body {
+  padding-bottom: var(--space-3);
+}
+.sidebar-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  color: var(--color-text-subtle);
+  font-size: var(--text-sm);
+}
+.sidebar-filter {
+  display: flex;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+}
+.sidebar-archived {
+  display: block;
+  margin: var(--space-3) var(--space-5) 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-subtle);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.sidebar-archived:hover {
+  color: var(--color-text);
+}
+.sidebar-banner {
+  border-radius: 0;
+}
+
+/* ---- the rail */
+.sidebar-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+}
+.sidebar-rail__button {
+  position: relative;
+  display: inline-flex;
+}
+.sidebar-rail__count {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent-solid);
+  color: var(--color-accent-contrast);
+  font-size: 9px;
+  font-weight: var(--weight-semibold);
+  line-height: 15px;
+  text-align: center;
+  pointer-events: none;
+}
+.sidebar-rail__count--waiting {
+  background: var(--color-warning);
+  color: var(--color-bg);
+}
+
+/* ---- the two counts */
+.inbox-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+}
+
+/* ---- inbox */
+.inbox__group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3) var(--space-5) var(--space-1);
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.03em;
+}
+.inbox__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inbox-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+}
+.inbox-item:hover {
+  background: var(--color-surface-3);
+}
+.inbox-item[data-current] {
+  background: var(--color-accent-soft);
+}
+.inbox-item__main {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  column-gap: var(--space-4);
+  align-items: start;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-5);
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.inbox-item__main--static {
+  cursor: default;
+}
+.inbox-item__main:focus-visible {
+  box-shadow: none;
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+}
+.inbox-item__text {
+  min-width: 0;
+}
+.inbox-item__title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-md);
+  line-height: var(--leading-tight);
+}
+.inbox-item__title--mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.inbox-item[data-unread] .inbox-item__title {
+  font-weight: var(--weight-semibold);
+}
+/* Unread: bold with a dot. */
+.inbox-item[data-unread]::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 14px;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+}
+.inbox-item__where {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+  color: var(--color-text-subtle);
+  font-size: var(--text-sm);
+  line-height: var(--leading-tight);
+}
+.inbox-item__age {
+  padding-top: 2px;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.inbox-item__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  padding: var(--space-3) var(--space-3) 0 0;
+}
+.inbox-preview {
+  width: min(560px, 100%);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-1);
+  text-align: start;
+  overflow: hidden;
+}
+.inbox-preview__title {
+  margin: 0;
+  padding: var(--space-4) var(--space-5) var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+/* ---- topics and session rows (inside ui/Tree) */
+.topic + .topic {
+  margin-top: var(--space-2);
+}
+.topic > .ui-tree__row {
+  gap: var(--space-3);
+  padding-left: var(--space-4);
+  font-weight: var(--weight-semibold);
+}
+.topic--muted > .ui-tree__row {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+.topic__twisty {
+  flex: none;
+  transition: transform var(--duration-fast) var(--ease);
+}
+.topic[aria-expanded='false'] > .ui-tree__row > .topic__twisty {
+  transform: rotate(-90deg);
+}
+.topic__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topic__phase {
+  flex: none;
+  font-weight: var(--weight-normal);
+}
+.topic__wait {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-warning);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  white-space: nowrap;
+}
+.topic__more,
+.srow__side {
+  display: none;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+}
+.topic__more:hover,
+.srow__side:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+.ui-tree__row:hover > .topic__more,
+.ui-tree__row:hover > .srow__side {
+  display: inline-flex;
+}
+.ui-tree__row:hover > .srow__who {
+  display: none;
+}
+/* Open in a column: a bar on the left. In the focused column: the selection fill as well (ui-tree). */
+.srow > .ui-tree__row[data-open-in]::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--color-accent);
+}
+.srow__icon {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+.srow__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Bold: something a reader cares about happened since this browser showed it. */
+.srow > .ui-tree__row[data-unread] > .srow__title {
+  font-weight: var(--weight-semibold);
+}
+.srow--quiet > .ui-tree__row > .srow__title,
+.srow--quiet > .ui-tree__row > .srow__icon {
+  color: var(--color-text-subtle);
+}
+.srow__meta {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.srow__who {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text-subtle);
+}
+.srow__report {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-subtle);
+}
+.srow__report--waiting {
+  color: var(--color-success);
+}
+.srow__report:hover {
+  background: var(--color-surface-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .topic__twisty {
+    transition: none;
+  }
+}

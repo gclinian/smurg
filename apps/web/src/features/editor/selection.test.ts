@@ -50,24 +50,24 @@ describe('selection → agent text (R6: code selected in the editor goes, with o
     expect(buildSelectionPayload(FILE, { startLine: 1, startColumn: 1, endLine: 1, endColumn: 70_001 }, huge, 's')).toEqual({ ok: false, problem: 'too-large' });
   });
 
-  it('targets: the host and members with agent access type into every running agent session; an editor suggests to other people’s; never terminals or ended sessions', () => {
+  it('targets: the host and members with agent access message every running agent session; an editor suggests to every one; never terminals or ended sessions', () => {
     const sessions = [
-      makeAgentSession({ id: 'mine', openedBy: { userId: 'dev:amy', displayName: 'Amy' } }),
-      makeSession({ id: 'mine-terminal', openedBy: { userId: 'dev:amy', displayName: 'Amy' } }),
+      makeAgentSession({ id: 'free', openedBy: { userId: 'dev:mei', displayName: 'Mei' } }),
+      makeSession({ id: 'terminal', openedBy: { userId: 'dev:amy', displayName: 'Amy' } }),
       makeAgentSession({ id: 'ian', openedBy: { userId: 'dev:host', displayName: 'Ian' } }),
       makeAgentSession({ id: 'ian-old', openedBy: { userId: 'dev:host', displayName: 'Ian' }, status: 'ended', endReason: 'ended' }),
     ];
     for (const role of ['agent', 'host'] as const) {
-      const driver = sessionTargets(sessions, 'dev:amy', capabilitiesForRole(role));
-      expect(driver.own.map((s) => s.id), role).toEqual(['mine', 'ian']);
+      const driver = sessionTargets(sessions, capabilitiesForRole(role));
+      expect(driver.own.map((s) => s.id), role).toEqual(['free', 'ian']);
       expect(driver.others, role).toEqual([]);
     }
-    // An editor cannot type but can suggest (never to a session of their own).
-    const editor = sessionTargets(sessions, 'dev:amy', capabilitiesForRole('editor'));
+    // An editor cannot message an agent but can suggest, to any running agent session (protocol 4).
+    const editor = sessionTargets(sessions, capabilitiesForRole('editor'));
     expect(editor.own).toEqual([]);
-    expect(editor.others.map((s) => s.id)).toEqual(['ian']);
+    expect(editor.others.map((s) => s.id)).toEqual(['free', 'ian']);
     // A viewer can do neither: the action is not offered at all.
-    const viewer = sessionTargets(sessions, 'dev:amy', capabilitiesForRole('viewer'));
+    const viewer = sessionTargets(sessions, capabilitiesForRole('viewer'));
     expect(viewer).toEqual({ own: [], others: [] });
     expect(canSendToAgent(capabilitiesForRole('viewer'))).toBe(false);
     expect(canSendToAgent(capabilitiesForRole('editor'))).toBe(true);

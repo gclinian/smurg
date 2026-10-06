@@ -1,26 +1,52 @@
-// What an AGENT reads when smurg refuses an edit: the PreToolUse deny reasons (Claude Code shows them to the model
+// What an AGENT reads when smurg refuses a tool call: the PreToolUse deny reasons (Claude Code shows them to the model
 // after `PreToolUse:<Tool> hook error: `, claude-hooks.md §3.4). Fixed English, whatever language the members use:
 // the reader is the model, and one session has one transcript. Each text stands on its own, says what happened and
-// what the agent should do, and has its own wording (it is not the sentence a member sees plus a suffix).
+// what the agent should do instead, and has its own wording (it is not the sentence a member sees plus a suffix).
+// People are named through `agentSafeName` only (the caller's job): a display name is free text from an identity
+// provider.
 //
 // This file imports NOTHING: `smurg hook` (hook-cli.ts) loads it on every hook invocation and must start fast.
 
 /** How many holder names a deny reason lists before it says "and N more". */
 const NAMES_LISTED = 5;
 
-/** Refusals of the hook server itself (before or instead of a lock decision). */
+/** Refusals of the hook server itself (before or instead of a decision of the gate). */
 export const HOOK_DENY_REASONS = Object.freeze({
-  unknownSession:
-    "smurg cannot tell which session this is (the session ended, or it is not registered with the workspace). The edit was blocked so that it cannot overwrite a teammate's changes.",
-  ownerGone: 'The member who opened this session is no longer in the workspace. The edit was blocked.',
+  unknownSession: 'smurg cannot tell which session this is (the session ended, or it is not registered with the workspace). Nothing can run in it.',
+  ownerGone: 'The member this session runs for is no longer in the workspace. The call was blocked.',
   noTarget: 'smurg cannot tell which file this edit targets. The edit was blocked.',
   outsideRoot: "Only files inside this session's workspace can be edited, and the target is outside it. The edit was blocked.",
   otherRoot: "Only files inside this session's own workspace (or worktree) can be edited, and the target belongs to another one. The edit was blocked.",
   locksUnavailable: "smurg cannot check the file lock right now. The edit was blocked so that it cannot overwrite a teammate's changes. Try again later.",
-  timeout: "smurg could not check the file lock in time. The edit was blocked so that it cannot overwrite a teammate's changes. Try again later.",
-  rateLimited: 'smurg received too many requests from this session in a short time. The edit was blocked for now. Wait a few seconds, then try again.',
-  badRequest: 'smurg could not read the request for this edit. The edit was blocked.',
+  timeout: 'smurg could not decide about this call in time, so it was blocked. Try again later.',
+  rateLimited: 'smurg received too many requests from this session in a short time. The call was blocked for now. Wait a few seconds, then try again.',
+  badRequest: 'smurg could not read the request for this call. It was blocked.',
 });
+
+/** The rows of the tool gate that deny (hooks/tool-gate.ts). */
+export type GateDenyRow = 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7';
+
+const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const TOOL = /^[A-Za-z0-9_.-]{1,64}$/;
+
+/** One sentence per row of the gate, saying what the session may do instead. `slug` and `tool` are used only when they are plain. */
+export function gateDenyReason(row: GateDenyRow, facts: { readonly tool?: string; readonly slug?: string } = {}): string {
+  const folder = facts.slug !== undefined && SLUG.test(facts.slug) ? `specs/${facts.slug}/` : "its topic's folder";
+  switch (row) {
+    case 'G2':
+      return `This session does not have ${facts.tool !== undefined && TOOL.test(facts.tool) ? `the tool ${facts.tool}` : 'this tool'}. Use the tools you were given.`;
+    case 'G3':
+      return "No agent session writes Claude Code's own configuration (.claude, .mcp.json, .git) or a script the project's settings run. Leave the file as it is and say what should change: the host changes it in their own editor.";
+    case 'G4':
+      return 'Only the host may change this path, and this session does not run with the host\'s rights. Leave the file as it is and say what should change.';
+    case 'G5':
+      return "A discussion session reads only files inside the shared project, and never the host's private files. Read a file of the project instead.";
+    case 'G6':
+      return `A discussion session writes only SPEC.md and PLAN.md in ${folder}. Put what you want to record into one of them.`;
+    case 'G7':
+      return "A work item's session does not change its topic's SPEC.md or PLAN.md. Describe what should change in your result report instead.";
+  }
+}
 
 function listNames(names: readonly string[]): string {
   if (names.length <= NAMES_LISTED) return names.join(', ');
@@ -77,11 +103,11 @@ export function pathCheckFailedReason(code: string): string {
 // ---- the `smurg hook` process itself ------------------------------------------------------------------------------
 
 /**
- * The hook cannot get an answer from the daemon. `detail` is a short technical reason; "smurg daemon unreachable"
- * keeps the text greppable.
+ * The hook cannot get an answer from the daemon (row G1 of the gate): nothing runs, whatever the tool, and whatever
+ * rule would have let it. `detail` is a short technical reason; "smurg is not reachable" keeps the text greppable.
  */
 export function daemonUnreachableReason(detail: string): string {
   // eslint-disable-next-line no-control-regex
   const clean = detail.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 200);
-  return `smurg daemon unreachable (${clean}). The edit was blocked so that it cannot overwrite a teammate's changes. Try again later.`;
+  return `smurg is not reachable on the host (${clean}). Nothing can run until it is back.`;
 }

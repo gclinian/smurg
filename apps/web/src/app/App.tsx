@@ -1,4 +1,4 @@
-// The application: services, toasts and the four routes of ARCHITECTURE §9. The workspace route is a lazy chunk.
+// The application: services, toasts and the routes of ARCHITECTURE §9. The workspace route is a lazy chunk.
 //
 // Language switch: the route tree is keyed by the locale, so choosing another language re-mounts every page in it
 // without a reload. Services, stores and the connection live outside React and are untouched (terminals re-attach as
@@ -38,10 +38,18 @@ function Routes() {
     case 'join':
       return <JoinPage key={route.workspaceId} workspaceId={route.workspaceId} />;
     case 'workspace':
+    case 'code':
     case 'console':
+      // One element for the three views of a workspace: switching between the sessions view and code mode keeps
+      // both mounted (the shell hides one), and the connection is the same in all three.
       return (
         <Suspense fallback={<ConnectingScreen view={describeConnection({ kind: 'idle' })} title={tWorkbench('connecting.title')} />}>
-          <WorkspaceRoute key={route.workspaceId} workspaceId={route.workspaceId} view={route.name === 'console' ? 'console' : 'workbench'} />
+          <WorkspaceRoute
+            key={route.workspaceId}
+            workspaceId={route.workspaceId}
+            view={route.name === 'workspace' ? 'sessions' : route.name}
+            {...(route.name === 'console' && route.section !== undefined ? { section: route.section } : {})}
+          />
         </Suspense>
       );
     case 'not-found':

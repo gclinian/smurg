@@ -12,6 +12,10 @@
 //
 // The verification is itself a sequence of path-based checks (Node has no openat / O_BENEATH): an attacker would have
 // to win the race against git AND against this re-read, whose checks bracket the open. Documented as residual risk.
+//
+// A commit may have a SECOND PARENT (ARCHITECTURE §5.7 "A conflict"): after the daemon merged the main workspace's
+// HEAD into the working tree without committing (update-from-main.ts), the next commit records that HEAD as its
+// second parent, so git knows the two histories are joined and the host's trial merge no longer reports the conflict.
 import { createHash, randomBytes } from 'node:crypto';
 import { constants as fsConstants, type Stats } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, open, readdir, readlink, realpath, rename, rm, utimes } from 'node:fs/promises';
@@ -44,6 +48,11 @@ export interface StageCommitInput {
    * their own request anyway.
    */
   readonly verify: boolean;
+  /**
+   * A commit of the main repository that was merged into the working tree (the clone reads it through its
+   * alternates). The commit then has two parents and is made even when the tree equals the branch head's.
+   */
+  readonly secondParent?: string;
   readonly limits?: Partial<StageCommitLimits>;
 }
 
@@ -272,6 +281,8 @@ export async function stageCommit(input: StageCommitInput): Promise<StageCommitR
   const timeoutMs = limits.timeoutMs;
   const head = firstLine(requireOk(await git.run({ gitDir, args: ['rev-parse', '--verify', `refs/heads/${input.branch}^{commit}`], readOnly: true, timeoutMs }), 'readCommit'));
   if (!OID.test(head)) throw new SmurgError('internal', msg('git.stepFailed', { step: 'readCommit' }), { reason: 'git-output-unparsable' });
+  const secondParent = input.secondParent;
+  if (secondParent !== undefined && !OID.test(secondParent)) throw new TypeError('secondParent must be an object id');
 
   const stage = await mkdtemp(join(input.stagingRoot, 'c-'));
   try {
@@ -296,13 +307,21 @@ export async function stageCommit(input: StageCommitInput): Promise<StageCommitR
 
     requireOk(await git.run({ gitDir, workTree, store, args: ['add', '--all'], timeoutMs }), 'stage');
     const staged = await git.run({ gitDir, workTree, store, args: ['diff', '--cached', '--quiet', '--no-ext-diff', head], timeoutMs });
-    if (staged.code === 0) return { commit: head, created: false };
-    if (staged.code !== 1) requireOk(staged, 'checkChanges');
+    // With a second parent the commit is made whatever the tree: it is what joins the two histories.
+    if (staged.code === 0 && secondParent === undefined) return { commit: head, created: false };
+    if (staged.code !== 0 && staged.code !== 1) requireOk(staged, 'checkChanges');
     const tree = firstLine(requireOk(await git.run({ gitDir, store, args: ['write-tree'], timeoutMs }), 'commit'));
     const message = input.message.endsWith('\n') ? input.message : `${input.message}\n`;
     const commit = firstLine(
       requireOk(
-        await git.run({ gitDir, store, identity: input.identity, input: message, args: ['commit-tree', '--no-gpg-sign', tree, '-p', head, '-F', '-'], timeoutMs }),
+        await git.run({
+          gitDir,
+          store,
+          identity: input.identity,
+          input: message,
+          args: ['commit-tree', '--no-gpg-sign', tree, '-p', head, ...(secondParent !== undefined ? ['-p', secondParent] : []), '-F', '-'],
+          timeoutMs,
+        }),
         'commit',
       ),
     );

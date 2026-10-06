@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createConnection, type Socket } from 'node:net';
 import { decodeEnvelope, encodeEnvelope, type AnyEnvelope } from '@smurg/protocol';
 import { createDaemon, type Daemon } from '../../src/daemon.ts';
+import type { LimitsConfig } from '../../src/core/config.ts';
 import type { FeatureModule } from '../../src/core/context.ts';
 import { silentLogger } from '../../src/core/logger.ts';
 import type { LocalControlModule } from '../../src/local/module.ts';
@@ -110,6 +111,10 @@ export async function startLocalDaemon(options: {
   /** Reuse another daemon's run dir (two daemons for one workspace). */
   readonly runDir?: string;
   readonly start?: boolean;
+  /** config.webOrigin: where the daemon's links point (without it and without a relay there is no web app to name). */
+  readonly webOrigin?: string;
+  /** config.limits (a test that is refused more often than a connection's denial budget allows raises it). */
+  readonly limits?: Partial<LimitsConfig>;
 }): Promise<LocalDaemon> {
   const base = await createTempDir('local');
   const ownRunDir = options.runDir === undefined;
@@ -124,7 +129,7 @@ export async function startLocalDaemon(options: {
   let daemon: Daemon;
   try {
     daemon = await createDaemon({
-      config: { stateDir, runDir, shareDir: root, workspaceId, hostUserId: LOCAL_HOST_USER, hostName: 'Host', relayUrl: null, keepAwake: false },
+      config: { stateDir, runDir, shareDir: root, workspaceId, hostUserId: LOCAL_HOST_USER, hostName: 'Host', relayUrl: null, keepAwake: false, ...(options.webOrigin === undefined ? {} : { webOrigin: options.webOrigin }), ...(options.limits === undefined ? {} : { limits: options.limits }) },
       modules: options.modules,
       log: silentLogger,
       homeDir: join(base, 'home'),

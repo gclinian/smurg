@@ -1,12 +1,16 @@
 // Turns workspace events into toasts: a role change ("Your role is now ..."), a full resync after a reconnect,
-// background store failures, and notifications for this member: an agent's own words (the coordination MCP tool
-// notify_member, never translated) or a notice the host wrote (a message reference, shown in the viewer's language).
+// background store failures, notifications for this member: an agent's own words (the coordination MCP tool
+// notify_member, never translated) or a notice the host wrote (a message reference, shown in the viewer's language),
+// and what a change of a topic tells everyone (a topic was started, its spec draft or plan is ready, it is complete:
+// DESIGN §5.12 item 17), with "Open".
 import { useEffect, useRef } from 'react';
-import type { MemberNotification } from '@smurg/protocol';
+import type { ColumnTarget, MemberNotification } from '@smurg/protocol';
 import { renderWireText } from '../../lib/errors.ts';
 import { formatActor, formatRole } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
-import { useStores } from '../../lib/workspace/context.tsx';
+import { selectTopic, type TopicNotice } from '../../lib/stores/topics.ts';
+import { selectUserId } from '../../lib/stores/workspace.ts';
+import { useCommand, useStores } from '../../lib/workspace/context.tsx';
 import { tConn } from '../../strings/connection.ts';
 import { tStores } from '../../strings/stores.ts';
 import { tWorkbench } from '../../strings/workbench.ts';
@@ -19,6 +23,8 @@ export function useWorkspaceNotices(): void {
   const generation = useStore(stores.workspace, (state) => state.generation);
   const errors = useStore(stores.errors);
   const notifications = useStore(stores.activity, (state) => state.notifications);
+  const topicNotices = useStore(stores.topics, (state) => state.notices);
+  const openColumn = useCommand('openColumn');
 
   const seenRoleChange = useRef(roleChange);
   useEffect(() => {
@@ -51,6 +57,30 @@ export function useWorkspaceNotices(): void {
       toast.show({ tone: 'info', title: tWorkbench('notify.title', { name: formatActor(notification.from) }), description: notificationText(notification), duration: 0 });
     }
   }, [notifications, toast]);
+
+  const seenTopicNotice = useRef(topicNotices.at(-1)?.id ?? 0);
+  useEffect(() => {
+    for (const notice of topicNotices) {
+      if (notice.id <= seenTopicNotice.current) continue;
+      seenTopicNotice.current = notice.id;
+      const topic = selectTopic(stores.topics.getState(), notice.topicId);
+      // The member who started a topic is looking at it already.
+      if (notice.kind === 'started' && topic?.createdBy.userId === selectUserId(stores.workspace.getState())) continue;
+      const target = topicNoticeTarget(notice, topic?.discussionSessionId);
+      toast.show({
+        tone: notice.kind === 'complete' ? 'success' : 'info',
+        title: tWorkbench(`notice.${notice.kind}`, { name: notice.name }),
+        action: { label: tWorkbench('notice.open'), onClick: () => void openColumn({ target, from: 'inbox' }).catch(() => {}) },
+      });
+    }
+  }, [topicNotices, toast, stores, openColumn]);
+}
+
+/** What "Open" on a topic's notice shows: its discussion for a new topic, its spec for a draft, else its plan. */
+export function topicNoticeTarget(notice: Pick<TopicNotice, 'kind' | 'topicId'>, discussionSessionId: string | undefined): ColumnTarget {
+  if (notice.kind === 'started') return discussionSessionId === undefined ? { kind: 'spec', topicId: notice.topicId } : { kind: 'session', sessionId: discussionSessionId };
+  if (notice.kind === 'spec-ready') return { kind: 'spec', topicId: notice.topicId };
+  return { kind: 'plan', topicId: notice.topicId };
 }
 
 /** An agent's own words as they are; a notice the host wrote in the viewer's language (English as the fallback). */

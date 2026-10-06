@@ -15,7 +15,7 @@ export interface MergeRequestItemProps {
   readonly userId: string | null;
   /** The viewer decides merges (the host). */
   readonly isHost: boolean;
-  /** The viewer may read the diff (worktree.merge.request: the host and agent access, any request). */
+  /** The viewer may read the diff (file.read: every member; host-private files are withheld by the daemon). */
   readonly canView: boolean;
   readonly now: number;
   /** Opens the review (the host) or the read-only diff (the requester). */
@@ -23,16 +23,15 @@ export interface MergeRequestItemProps {
 }
 
 export function MergeRequestItem({ request, worktree, userId, isHost, canView, now, onOpen }: MergeRequestItemProps) {
-  // A draft (the snapshot of a work item nobody asked to merge yet) has no requester: it is named after its worktree's owner.
-  const name = request.requestedBy?.displayName ?? worktree?.ownerName ?? '';
+  // A draft (the snapshot behind a result report, which nobody asked to merge yet) has no requester.
+  const title = request.requestedBy ? t('item.title', { name: request.requestedBy.displayName }) : t('item.titleDraft');
   const mine = userId !== null && (request.requestedBy?.userId === userId || worktree?.ownerUserId === userId);
-  // worktree.merge.diff needs worktree.merge.request (the host and agent access, for any request).
   const canOpen = isHost || canView;
   return (
     <li className="worktree-mr" data-status={request.status}>
       <div className="worktree-mr__head">
-        <Badge tone={requestStatusTone(request.status)}>{requestStatusLabel(request.status)}</Badge>
-        <span className="worktree-mr__title">{t('item.title', { name })}</span>
+        <Badge tone={requestStatusTone(request.status, request.reviewed)}>{requestStatusLabel(request.status, request.reviewed)}</Badge>
+        <span className="worktree-mr__title">{title}</span>
         {canOpen ? (
           <Button size="sm" variant={isHost && isDecidable(request.status) ? 'primary' : 'secondary'} className="worktree-mr__open" onClick={() => onOpen(request.id)}>
             {isHost && isDecidable(request.status) ? t('action.review') : t('action.viewDiff')}
@@ -52,6 +51,8 @@ export function MergeRequestItem({ request, worktree, userId, isHost, canView, n
 
 function StatusDetail({ request, mine, isHost, now }: { request: MergeRequest; mine: boolean; isHost: boolean; now: number }) {
   switch (request.status) {
+    case 'draft':
+      return null;
     case 'pending':
       return mine && !isHost ? <p className="worktree-mr__detail">{t('detail.pendingRequester')}</p> : null;
     case 'merged':

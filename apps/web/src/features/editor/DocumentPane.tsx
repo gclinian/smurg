@@ -1,6 +1,10 @@
 // One open document: its header (path, who else is here, autosave state, "Send to agent"), the notices the view-model
 // asks for (agent lock, human edit lock with "Let the agent go first", a rejected change, mixed line endings) and the Monaco
 // view — or, for a file the editor refuses, the reason and a download offer.
+//
+// Shown as the panel of an editor tab (EditorArea), or on its own inside a column of the sessions view (a topic's
+// SPEC.md or PLAN.md: StandaloneDocument in standalone.tsx). On its own it has no tab to close and no other tab to
+// move to, so `tabId` / `panelId` / `onClose` are absent and the pane is a labelled group.
 import { baseNameOfRelPath, type FileRef, type LockInfo } from '@smurg/protocol';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { describeError } from '../../lib/errors.ts';
@@ -39,12 +43,14 @@ export interface DocumentPaneProps {
   readonly doc: OpenDoc;
   readonly session: DocSession | undefined;
   readonly active: boolean;
-  readonly tabId: string;
-  readonly panelId: string;
+  /** The tab this pane is the panel of; absent when the pane stands on its own (a column). */
+  readonly tabId?: string;
+  readonly panelId?: string;
   readonly rootLabel: string;
   readonly reveal: RevealRequest | null;
   onRevealed(seq: number): void;
-  onClose(): void;
+  /** Closes the tab; absent when the pane stands on its own (its column closes it). */
+  onClose?(): void;
   /** Opens the document again (after a refusal); records a new failure on the session. */
   onReopen(): void;
 }
@@ -124,8 +130,9 @@ export function DocumentPane({ doc, session, active, tabId, panelId, rootLabel, 
       />
     ) : null;
 
+  const frame = tabId === undefined ? { role: 'group', 'aria-label': t('doc.editorLabel', { path: doc.file.path }) } : { role: 'tabpanel', id: panelId, 'aria-labelledby': tabId };
   return (
-    <div role="tabpanel" id={panelId} aria-labelledby={tabId} hidden={!active} className="editor-doc" data-doc-key={doc.key}>
+    <div {...frame} hidden={!active} className="editor-doc" data-doc-key={doc.key}>
       <header className="editor-doc__header">
         <div className="editor-doc__path" title={doc.file.path}>
           <span className="editor-doc__root">{rootLabel}</span>
@@ -142,7 +149,7 @@ export function DocumentPane({ doc, session, active, tabId, panelId, rootLabel, 
           ) : null}
         </div>
       </header>
-      {doc.removed !== null ? <RemovedNotice doc={doc} removed={doc.removed} session={session} userId={userId} /> : null}
+      {doc.removed !== null ? <RemovedNotice doc={doc} removed={doc.removed} session={session} userId={userId} onClose={onClose} onReopen={onReopen} /> : null}
       <DocNotices doc={doc} view={view} lock={liveLock === undefined ? doc.lock : liveLock} session={sessionState} onRelease={() => releaseLock(doc.file)} />
       {session && sessionState?.recovery ? <RecoveryNotice session={session} recovery={sessionState.recovery} canApply={!view.readOnly} /> : null}
       <div className="editor-doc__body">{body}</div>
@@ -330,7 +337,22 @@ function DocNotices({ doc, view, lock, session, onRelease }: { doc: OpenDoc; vie
 }
 
 /** The open file was deleted or moved away: read-only, with what can still be done with the text. */
-function RemovedNotice({ doc, removed, session, userId }: { doc: OpenDoc; removed: DocRemoval; session: DocSession | undefined; userId: string | null }) {
+function RemovedNotice({
+  doc,
+  removed,
+  session,
+  userId,
+  onClose,
+  onReopen,
+}: {
+  doc: OpenDoc;
+  removed: DocRemoval;
+  session: DocSession | undefined;
+  userId: string | null;
+  /** Absent: the pane stands on its own (a column): no tab to close, and the file belongs at this path. */
+  onClose: (() => void) | undefined;
+  onReopen(): void;
+}) {
   const stores = useStores();
   const commands = useCommands();
   const toast = useToast();
@@ -354,6 +376,13 @@ function RemovedNotice({ doc, removed, session, userId }: { doc: OpenDoc; remove
       await stores.files.create(doc.file, 'file');
       await stores.files.write(doc.file, encodeDocText(session.ytext.toString(), doc.meta));
       toast.show({ tone: 'success', title: t('removed.recreated', { name }) });
+      if (onClose === undefined) {
+        // On its own in a column: the column keeps the document; the watcher's 'add' clears the mark, and a doc.open
+        // the daemon refused meanwhile is asked again.
+        onReopen();
+        setBusy(false);
+        return;
+      }
       // A fresh doc.open: the daemon's old room refused edits once the file was gone.
       stores.docs.close(doc.key);
       await reopenSoon(
@@ -374,23 +403,25 @@ function RemovedNotice({ doc, removed, session, userId }: { doc: OpenDoc; remove
         className="editor-doc__removed"
         actions={
           <>
-            {removed.movedTo !== null ? (
+            {removed.movedTo !== null && onClose !== undefined ? (
               <Button size="sm" variant="primary" onClick={openMoved}>
                 {t('removed.openMoved')}
               </Button>
             ) : null}
-            {session && mayWrite && removed.movedTo === null ? (
+            {session && mayWrite && (removed.movedTo === null || onClose === undefined) ? (
               <Button size="sm" loading={busy} disabled={!synced} onClick={() => void recreate()}>
                 {t('removed.recreate')}
               </Button>
             ) : null}
-            <Button size="sm" variant="ghost" onClick={() => stores.docs.close(doc.key)}>
-              {t('removed.close')}
-            </Button>
+            {onClose !== undefined ? (
+              <Button size="sm" variant="ghost" onClick={onClose}>
+                {t('removed.close')}
+              </Button>
+            ) : null}
           </>
         }
       >
-        {removed.movedTo !== null ? t('removed.detailMoved') : t('removed.detail')}
+        {onClose === undefined ? t('removed.detailStandalone') : removed.movedTo !== null ? t('removed.detailMoved') : t('removed.detail')}
       </Banner>
     </div>
   );
@@ -454,7 +485,7 @@ function RecoveryNotice({ session, recovery, canApply }: { session: DocSession; 
   );
 }
 
-function RefusedFile({ doc, failure, onClose, onReopen }: { doc: OpenDoc; failure: DocSessionState['openFailure']; onClose(): void; onReopen(): void }) {
+function RefusedFile({ doc, failure, onClose, onReopen }: { doc: OpenDoc; failure: DocSessionState['openFailure']; onClose: (() => void) | undefined; onReopen(): void }) {
   const commands = useCommands();
   const toast = useToast();
   const refusal = classifyOpenFailure(failure);
@@ -480,9 +511,11 @@ function RefusedFile({ doc, failure, onClose, onReopen }: { doc: OpenDoc; failur
             {t('refused.retry')}
           </Button>
         ) : null}
-        <Button variant="ghost" onClick={onClose}>
-          {t('refused.close')}
-        </Button>
+        {onClose !== undefined ? (
+          <Button variant="ghost" onClick={onClose}>
+            {t('refused.close')}
+          </Button>
+        ) : null}
       </div>
     </div>
   );

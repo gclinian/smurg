@@ -1,134 +1,75 @@
-// The workbench of /w/:workspaceId (ARCHITECTURE §9): top bar, then
+// Code mode (/w/:workspaceId/code; DESIGN §5.6, UX §8): the workbench for hand-coding, behind the mode switch.
 //
 //   ┌──────────┬─────────────────────────┬───────────────┐
-//   │ worktree │                         │  agents       │
-//   │ files    │  editor (tabs)          ├───────────────┤
-//   │          │                         │  suggestions  │
+//   │ worktree │                         │  one session  │
+//   │ files    │  editor (tabs)          │  column       │
 //   ├──────────┴─────────────────────────┴───────────────┤
-//   │ activity · conflicts · transfers · merge requests  │  (bottom drawer)
+//   │ activity · conflicts · transfers · terminal        │  (bottom drawer)
 //   └────────────────────────────────────────────────────┘
 //
-// Every slot is a feature's component (src/features/<feature>/index.tsx) inside its own error boundary. The layout
-// never passes data down: features read the stores. Panes are resizable (keyboard too) and remembered per browser.
-import { useMemo, useState } from 'react';
+// Every slot is a feature's component inside its own error boundary; the layout never passes data down: features read
+// the stores. The right pane is ONE session column, the same body as in the sessions view, with a selector for which
+// session (features/columns SideColumn). Panes are resizable (keyboard too) and remembered per browser.
+//
+// This module is a lazy chunk (WorkspaceShell loads it when code mode is first shown): Monaco and xterm come with it,
+// never with the sessions view.
 import { useStore } from '../../lib/store.ts';
 import { selectOpenConflicts } from '../../lib/stores/conflicts.ts';
+import { selectSession, sessionTitle } from '../../lib/stores/sessions.ts';
 import { selectActiveTransfers } from '../../lib/stores/transfers.ts';
-import { selectPendingMergeRequests } from '../../lib/stores/worktrees.ts';
 import type { PanelId } from '../../lib/commands.ts';
-import { useCommandHandler, useConnectionState, useStores } from '../../lib/workspace/context.tsx';
-import { browserLocalStorage, readJson, writeJson } from '../../lib/preferences.ts';
-import { WorkbenchLayoutContext, type WorkbenchLayout } from '../../lib/workspace/layout.tsx';
-import { tConn } from '../../strings/connection.ts';
+import { useCommand, useCommandHandler, useStores } from '../../lib/workspace/context.tsx';
 import { tUi } from '../../strings/ui.ts';
 import { tWorkbench } from '../../strings/workbench.ts';
-import { Badge, Banner, IconButton, SplitPane, Tabs } from '../../ui/index.ts';
-import { IconChevronDown, IconChevronUp } from '../../ui/icons.tsx';
+import { Badge, Button, IconButton, SlotBoundary, SplitPane, Tabs } from '../../ui/index.ts';
+import { IconArrowLeft, IconChevronDown, IconChevronUp } from '../../ui/icons.tsx';
 import { ActivityPanel, ConflictsPanel } from '../../features/activity/index.tsx';
-import { AgentsPanel } from '../../features/agents/index.tsx';
+import { TerminalPanel } from '../../features/agents/index.tsx';
+import { SideColumn } from '../../features/columns/index.tsx';
 import { EditorArea } from '../../features/editor/index.tsx';
 import { FilesPanel } from '../../features/files/index.tsx';
-import { SuggestionsPanel } from '../../features/suggest/index.tsx';
 import { TransfersPanel } from '../../features/transfer/index.tsx';
-import { MergeRequestsPanel, WorktreeSwitcher } from '../../features/worktree/index.tsx';
-import { ConnectionBanner } from '../connection/indicators.tsx';
-import { useAppServices } from '../services.tsx';
-import { MIN_AGENTS_PX, MIN_EDITOR_PX, MIN_MAIN_PX, MIN_TERMINAL_PX, minRightOfFiles } from './layout-limits.ts';
-import { SlotBoundary } from './SlotBoundary.tsx';
-import { TopBar, type LayoutToggles } from './TopBar.tsx';
-import { useWorkspaceNotices } from './useWorkspaceNotices.ts';
+import { WorktreeSwitcher } from '../../features/worktree/index.tsx';
+import { MIN_EDITOR_PX, MIN_MAIN_PX, MIN_SIDE_PX, minRightOfFiles } from './layout-limits.ts';
+import type { DrawerTab, ShellLayout } from './layout.ts';
 
-type DrawerTab = 'activity' | 'conflicts' | 'transfers' | 'merge-requests';
-
-interface LayoutState {
-  readonly sidebar: boolean;
-  readonly right: boolean;
-  readonly drawer: boolean;
-  readonly drawerTab: DrawerTab;
-  /** The suggestions pane under the terminal is expanded. */
-  readonly suggestions: boolean;
-  /** The agents column takes the editor's place (a terminal needs width and height). */
-  readonly agentsWide: boolean;
-}
-
-const LAYOUT_KEY = 'smurg.layout';
-/**
- * The terminal gets most of the right column by default (at 1280×800 it once had 6 rows): the bottom drawer
- * starts collapsed (it opens itself for conflicts, transfers and merge requests through showPanel) and the
- * suggestions pane is smaller, collapsible to its header.
- */
-const DEFAULT_LAYOUT: LayoutState = { sidebar: true, right: true, drawer: false, drawerTab: 'activity', suggestions: true, agentsWide: false };
-const DRAWER_TABS: readonly DrawerTab[] = ['activity', 'conflicts', 'transfers', 'merge-requests'];
 /** The collapsed drawer keeps its header (the tab strip) visible. */
 const DRAWER_HEADER_PX = 33;
-/** A collapsed suggestions pane keeps its panel header (title, count and the expand button). */
-const PANEL_HEADER_PX = 33;
-function readLayout(): LayoutState {
-  const stored = readJson(browserLocalStorage(), LAYOUT_KEY);
-  if (typeof stored !== 'object' || stored === null) return DEFAULT_LAYOUT;
-  const s = stored as Partial<Record<keyof LayoutState, unknown>>;
-  return {
-    sidebar: typeof s.sidebar === 'boolean' ? s.sidebar : DEFAULT_LAYOUT.sidebar,
-    right: typeof s.right === 'boolean' ? s.right : DEFAULT_LAYOUT.right,
-    drawer: typeof s.drawer === 'boolean' ? s.drawer : DEFAULT_LAYOUT.drawer,
-    drawerTab: DRAWER_TABS.includes(s.drawerTab as DrawerTab) ? (s.drawerTab as DrawerTab) : DEFAULT_LAYOUT.drawerTab,
-    suggestions: typeof s.suggestions === 'boolean' ? s.suggestions : DEFAULT_LAYOUT.suggestions,
-    agentsWide: typeof s.agentsWide === 'boolean' ? s.agentsWide : DEFAULT_LAYOUT.agentsWide,
-  };
+
+export interface WorkbenchProps {
+  /** Code mode is the mode on screen. */
+  shown: boolean;
+  layout: ShellLayout;
+  setLayout(update: (previous: ShellLayout) => ShellLayout): void;
 }
 
-export function Workbench() {
+export default function Workbench({ shown, layout, setLayout }: WorkbenchProps) {
   const stores = useStores();
-  const state = useConnectionState();
-  const { keyStorage } = useAppServices();
-  const persistentKeys = useStore(keyStorage, (s) => s.persistent);
-  const [layout, setLayoutState] = useState<LayoutState>(readLayout);
-  const setLayout = (update: (previous: LayoutState) => LayoutState): void => {
-    setLayoutState((previous) => {
-      const next = update(previous);
-      writeJson(browserLocalStorage(), LAYOUT_KEY, next);
-      return next;
-    });
-  };
-  useWorkspaceNotices();
+  const openColumn = useCommand('openColumn');
+  const setMode = useCommand('setMode');
 
   const openConflicts = useStore(stores.conflicts, (s) => selectOpenConflicts(s).length);
   const activeTransfers = useStore(stores.transfers, (s) => selectActiveTransfers(s).length);
-  const pendingMerges = useStore(stores.worktrees, (s) => selectPendingMergeRequests(s).length);
+  const origin = useStore(stores.columns, (s) => s.code.origin);
+  const originSession = useStore(stores.sessions, (s) => (origin?.sessionId === undefined ? undefined : selectSession(s, origin.sessionId)));
 
   useCommandHandler('showPanel', ({ panel }: { panel: PanelId }) => {
     setLayout((previous) => {
       switch (panel) {
         case 'files':
-          return { ...previous, sidebar: true };
-        case 'agents':
-          return { ...previous, right: true };
-        case 'suggestions':
-          return { ...previous, right: true, suggestions: true };
+          return { ...previous, files: true };
+        case 'session':
+          return { ...previous, side: true };
         case 'activity':
         case 'conflicts':
         case 'transfers':
-        case 'merge-requests':
+        case 'terminal':
           return { ...previous, drawer: true, drawerTab: panel };
         case 'editor':
-          return { ...previous, agentsWide: false };
+          return previous;
       }
     });
   });
-
-  const toggles: LayoutToggles = {
-    ...layout,
-    toggle: (which) => setLayout((previous) => ({ ...previous, [which]: !previous[which] })),
-  };
-  const workbenchLayout = useMemo<WorkbenchLayout>(
-    () => ({
-      suggestions: layout.suggestions,
-      agentsWide: layout.agentsWide,
-      toggle: (which) => setLayout((previous) => ({ ...previous, [which]: !previous[which], ...(which === 'agentsWide' ? { right: true } : {}) })),
-    }),
-    // setLayout only closes over the (stable) state setter.
-    [layout.suggestions, layout.agentsWide],
-  );
 
   const count = (n: number, tone: 'neutral' | 'warning' | 'info' = 'neutral') => (n > 0 ? <Badge tone={tone}>{n}</Badge> : undefined);
 
@@ -151,61 +92,50 @@ export function Workbench() {
           />
         }
         items={[
-        { id: 'activity', label: tWorkbench('tab.activity'), panel: <SlotBoundary name={tWorkbench('tab.activity')}><ActivityPanel /></SlotBoundary> },
-        {
-          id: 'conflicts',
-          label: tWorkbench('tab.conflicts'),
-          badge: count(openConflicts, 'warning'),
-          panel: <SlotBoundary name={tWorkbench('tab.conflicts')}><ConflictsPanel /></SlotBoundary>,
-        },
-        {
-          id: 'transfers',
-          label: tWorkbench('tab.transfers'),
-          badge: count(activeTransfers, 'info'),
-          panel: <SlotBoundary name={tWorkbench('tab.transfers')}><TransfersPanel /></SlotBoundary>,
-        },
-        {
-          id: 'merge-requests',
-          label: tWorkbench('tab.mergeRequests'),
-          badge: count(pendingMerges, 'info'),
-          panel: <SlotBoundary name={tWorkbench('tab.mergeRequests')}><MergeRequestsPanel /></SlotBoundary>,
-        },
+          { id: 'activity', label: tWorkbench('tab.activity'), panel: <SlotBoundary name={tWorkbench('tab.activity')}><ActivityPanel /></SlotBoundary> },
+          {
+            id: 'conflicts',
+            label: tWorkbench('tab.conflicts'),
+            badge: count(openConflicts, 'warning'),
+            panel: <SlotBoundary name={tWorkbench('tab.conflicts')}><ConflictsPanel /></SlotBoundary>,
+          },
+          {
+            id: 'transfers',
+            label: tWorkbench('tab.transfers'),
+            badge: count(activeTransfers, 'info'),
+            panel: <SlotBoundary name={tWorkbench('tab.transfers')}><TransfersPanel /></SlotBoundary>,
+          },
+          { id: 'terminal', label: tWorkbench('tab.terminal'), panel: <SlotBoundary name={tWorkbench('tab.terminal')}><TerminalPanel /></SlotBoundary> },
         ]}
       />
     </section>
   );
 
+  /** Back to where "Open in editor" came from: the sessions view, with that session's column in front. */
+  const back = (): void => {
+    const sessionId = origin?.sessionId;
+    stores.columns.setCodeOrigin(null);
+    // Opening a column switches to the sessions view by itself.
+    const done = sessionId !== undefined ? openColumn({ target: { kind: 'session', sessionId } }) : setMode({ mode: 'sessions' });
+    done.catch(() => {});
+  };
+
   const center = (
     <main id="workbench-main" className="app-editor-region" aria-label={tWorkbench('region.editor')} tabIndex={-1}>
-      <SlotBoundary name={tWorkbench('region.editor')}>
-        <EditorArea />
-      </SlotBoundary>
+      {origin !== null ? (
+        <div className="app-code-origin" data-code-origin="">
+          <span className="app-code-origin__text">{originSession ? tWorkbench('code.origin', { session: sessionTitle(originSession) }) : tWorkbench('code.origin.plain')}</span>
+          <Button size="sm" variant="ghost" icon={<IconArrowLeft />} onClick={back}>
+            {tWorkbench('code.back')}
+          </Button>
+        </div>
+      ) : null}
+      <div className="app-editor-region__editor">
+        <SlotBoundary name={tWorkbench('region.editor')}>
+          <EditorArea />
+        </SlotBoundary>
+      </div>
     </main>
-  );
-
-  const right = (
-    <SplitPane
-      orientation="vertical"
-      fixed="end"
-      defaultSize={200}
-      minSize={96}
-      maxSize={900}
-      minOtherSize={MIN_TERMINAL_PX}
-      storageKey="suggestions"
-      label={tWorkbench('region.suggestions')}
-      collapsed={!layout.suggestions}
-      collapsedSize={PANEL_HEADER_PX}
-      start={
-        <SlotBoundary name={tWorkbench('region.agents')}>
-          <AgentsPanel />
-        </SlotBoundary>
-      }
-      end={
-        <SlotBoundary name={tWorkbench('region.suggestions')}>
-          <SuggestionsPanel />
-        </SlotBoundary>
-      }
-    />
   );
 
   const sidebar = (
@@ -222,20 +152,10 @@ export function Workbench() {
   );
 
   return (
-    <WorkbenchLayoutContext.Provider value={workbenchLayout}>
-    <div className="app-workbench" data-connection-state={state.kind}>
+    <div className="app-workbench">
       <a className="ui-skip-link" href="#workbench-main">
         {tWorkbench('skip')}
       </a>
-      <TopBar view="workbench" layout={toggles} />
-      <div className="app-banners">
-        <ConnectionBanner state={state} />
-        {persistentKeys === false ? (
-          <Banner tone="warning" live="none">
-            {tConn('banner.memoryKeys')}
-          </Banner>
-        ) : null}
-      </div>
       <div className="app-workbench__body">
         <SplitPane
           orientation="vertical"
@@ -258,22 +178,21 @@ export function Workbench() {
               minOtherSize={minRightOfFiles(layout)}
               storageKey="sidebar"
               label={tWorkbench('region.files')}
-              collapsed={!layout.sidebar}
+              collapsed={!layout.files}
               start={sidebar}
               end={
                 <SplitPane
                   orientation="horizontal"
                   fixed="end"
                   defaultSize={420}
-                  minSize={MIN_AGENTS_PX}
+                  minSize={MIN_SIDE_PX}
                   maxSize={1100}
                   minOtherSize={MIN_EDITOR_PX}
-                  storageKey="right"
-                  label={tWorkbench('region.agents')}
-                  collapsed={!layout.right}
-                  maximized={layout.agentsWide}
+                  storageKey="side"
+                  label={tWorkbench('region.session')}
+                  collapsed={!layout.side}
                   start={center}
-                  end={right}
+                  end={<SideColumn shown={shown} />}
                 />
               }
             />
@@ -282,6 +201,5 @@ export function Workbench() {
         />
       </div>
     </div>
-    </WorkbenchLayoutContext.Provider>
   );
 }

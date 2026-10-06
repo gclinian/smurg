@@ -1,11 +1,11 @@
 // `smurg attach` through its module with an injected io, against an in-process daemon found through SMURG_HOME's run
-// dir (as in production): the session list, picking a session by number / id prefix, and the zh-TW refusals with their
-// exit codes (no terminal, unknown session, ended session, nothing to attach to, a malformed invite).
+// dir (as in production): the session list, picking a session by number / id prefix, and the refusals with their
+// exit codes (no terminal, unknown session, ended session, nothing to attach to, a malformed invite). Terminals only:
+// agent sessions in the list and as the session to attach are in attach-agents.test.ts.
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_FEATURE_MODULES, createDaemon, silentLogger, type Daemon } from '@smurg/daemon';
 import { waitFor } from '@smurg/daemon/testing';
 import { runCli } from '../src/cli/run.ts';
-import type { SessionInfo } from '@smurg/protocol';
 import { attachUsage, formatSessionList, terminalSessions } from '../src/commands/attach.ts';
 import { renderText } from '../src/i18n/index.ts';
 import { LocalWorkspaceChannel } from '../src/channel/local-channel.ts';
@@ -125,34 +125,19 @@ describe('smurg attach (arguments, list, refusals)', () => {
     expect(ended.err()).toContain('has already exited (exit code 3)');
   });
 
-  it('lists every terminal under the member who opened it (they all run as the host, §11 D-15), the own ones marked; agent sessions are conversations and are not listed', () => {
+  it('lists every terminal under the member who opened it (they all run as the host, §11 D-15), the own ones marked', () => {
     const base = { kind: 'terminal' as const, root: { kind: 'main' as const }, status: 'running' as const, cols: 80, rows: 24, createdAt: 1, attached: 0 };
     const amy = { ...base, id: 'ses_amy_term', openedBy: { userId: 'dev:amy', displayName: 'Amy' } };
     const host = { ...base, id: 'ses_host_term', openedBy: { userId: 'dev:host', displayName: 'Host' }, title: 'build' };
-    const agent: SessionInfo = {
-      kind: 'agent',
-      id: 'ses_amy_agent',
-      purpose: 'free',
-      openedBy: { userId: 'dev:amy', displayName: 'Amy' },
-      responsible: null,
-      root: { kind: 'main' },
-      status: 'idle',
-      permissionMode: 'ask-all',
-      modeFixed: false,
-      ruleCount: 0,
-      login: 'unknown',
-      projectSettings: 'none',
-      noteworthyAt: 1,
-      lastSeq: 0,
-      lastActivityAt: 1,
-      createdAt: 1,
-    };
-    expect(terminalSessions([amy, agent, host]).map((session) => session.id)).toEqual(['ses_amy_term', 'ses_host_term']);
-    const text = formatSessionList(terminalSessions([amy, agent, host]), 'dev:amy', 'en');
+    const exited = { ...base, id: 'ses_host_done', openedBy: { userId: 'dev:host', displayName: 'Host' }, status: 'exited' as const, exitCode: 3 };
+    expect(terminalSessions([amy, host, exited]).map((session) => session.id)).toEqual(['ses_amy_term', 'ses_host_term', 'ses_host_done']);
+    const text = formatSessionList([amy, host, exited], 'dev:amy', 'en');
     expect(text).toMatch(/1\s+ses_amy_term\s+terminal\s+Amy \(you\)\s+running\s+Terminal \(Amy\)/);
     expect(text).toMatch(/2\s+ses_host_term\s+terminal\s+Host\s+running\s+build/);
+    expect(text).toMatch(/3\s+ses_host_done\s+terminal\s+Host\s+exited \(3\)\s+Terminal \(Host\)/);
     expect(text).not.toContain('Host (you)');
-    expect(text).not.toContain('ses_amy_agent');
+    // Nothing about conversations while the workspace has no agent session (test/attach-agents.test.ts has those).
+    expect(text).not.toContain('Agent');
   });
 
   it('with nothing to attach to (no local host, never joined) or a malformed invite: exit 2 with what to do', async () => {

@@ -1,7 +1,12 @@
 // Members (SPEC R2, R11 "online members shown live", "remove any member with one click"): online state, role, devices and what everyone is doing;
 // change a role with a select, kick with one click and a confirmation that says exactly what will happen. Choosing
-// "Agent access" first shows the risk (RoleRiskDialog) and applies only after the host confirms; losing it ends the
-// sessions the member opened (the daemon does), which is confirmed too.
+// "Agent access" first shows the risk (RoleRiskDialog) and applies only after the host confirms.
+//
+// What goes with a member (DESIGN §3.9; the daemon does all of it, these dialogs only say it before the host
+// confirms): a kick ends their terminals and sessions without a topic, passes their topic sessions to the host
+// STOPPED, and removes what they put in place (always-allowed kinds, work items they started that have not begun, a
+// loosened permission mode, queued messages, votes, being responsible). Losing agent access does the same except
+// that the topic sessions keep running for the host; becoming a viewer takes the votes and the responsibility.
 import { useState } from 'react';
 import { GUEST_ROLES, can, isSessionOver, type GuestRole, type MemberWithDevices, type PresenceMember, type SessionInfo } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -20,6 +25,28 @@ interface MemberRow {
   readonly member: MemberWithDevices;
   readonly presence: PresenceMember | undefined;
   readonly running: readonly SessionInfo[];
+  readonly stake: MemberStake;
+}
+
+/** What a member has running or is counted on for, right now: the numbers the kick and role dialogs name. */
+export interface MemberStake {
+  /** Live terminals and sessions without a topic they opened: these end. */
+  readonly ending: number;
+  /** Live sessions of a topic (discussions, work items) they started: these pass to the host. */
+  readonly passing: number;
+  /** Live agent sessions they are responsible for. */
+  readonly responsibleFor: number;
+}
+
+export function memberStake(userId: string, sessions: readonly SessionInfo[]): MemberStake {
+  const live = sessions.filter((session) => !isSessionOver(session));
+  const opened = live.filter((session) => session.openedBy.userId === userId);
+  const ofTopic = (session: SessionInfo): boolean => session.kind === 'agent' && session.purpose !== 'free';
+  return {
+    ending: opened.filter((session) => !ofTopic(session)).length,
+    passing: opened.filter(ofTopic).length,
+    responsibleFor: live.filter((session) => session.kind === 'agent' && session.responsible?.userId === userId).length,
+  };
 }
 
 const ROLE_ORDER = { host: 0, agent: 1, editor: 2, viewer: 3 } as const;
@@ -36,9 +63,14 @@ function sortRows(rows: MemberRow[]): MemberRow[] {
   );
 }
 
-/** Whether moving `from` → `to` takes away the right to open sessions (the daemon then ends the ones they opened). */
-function losesSessions(from: MemberWithDevices['role'], to: GuestRole): boolean {
-  return can(from, 'session.create') && !can(to, 'session.create');
+/** Whether moving `from` → `to` takes away agent access (the daemon then ends or hands over what they started). */
+export function losesAgentAccess(from: MemberWithDevices['role'], to: GuestRole): boolean {
+  return can(from, 'session.drive') && !can(to, 'session.drive');
+}
+
+/** Whether moving `from` → `to` takes away voting and being responsible (a viewer only watches). */
+export function losesDiscuss(from: MemberWithDevices['role'], to: GuestRole): boolean {
+  return can(from, 'discuss') && !can(to, 'discuss');
 }
 
 export function MembersSection({ now }: { now: number }) {
@@ -50,7 +82,7 @@ export function MembersSection({ now }: { now: number }) {
   const selfId = useStore(stores.workspace, selectUserId);
   const [busy, setBusy] = useState<string | null>(null);
   const [kicking, setKicking] = useState<MemberWithDevices | null>(null);
-  const [demoting, setDemoting] = useState<{ member: MemberWithDevices; role: GuestRole; count: number } | null>(null);
+  const [demoting, setDemoting] = useState<{ member: MemberWithDevices; role: GuestRole; stake: MemberStake } | null>(null);
   /** A member about to get agent access: nothing is sent before the host confirms the risk. */
   const [granting, setGranting] = useState<{ member: MemberWithDevices; role: GuestRole } | null>(null);
 
@@ -59,6 +91,7 @@ export function MembersSection({ now }: { now: number }) {
       member,
       presence: presence.find((p) => p.userId === member.userId),
       running: sessions.filter((session) => session.openedBy.userId === member.userId && !isSessionOver(session)),
+      stake: memberStake(member.userId, sessions),
     })),
   );
 
@@ -80,8 +113,9 @@ export function MembersSection({ now }: { now: number }) {
       setGranting({ member: row.member, role });
       return;
     }
-    if (losesSessions(row.member.role, role) && row.running.length > 0) {
-      setDemoting({ member: row.member, role, count: row.running.length });
+    // Taking something away is confirmed with what goes; giving more (viewer → editor) applies at once.
+    if (losesAgentAccess(row.member.role, role) || losesDiscuss(row.member.role, role)) {
+      setDemoting({ member: row.member, role, stake: row.stake });
       return;
     }
     void applyRole(row.member, role);
@@ -216,13 +250,12 @@ export function MembersSection({ now }: { now: number }) {
           void applyRole(granting.member, granting.role);
         }}
       />
-      <KickDialog member={kicking} sessions={kicking ? rows.find((row) => row.member.userId === kicking.userId)?.running.length ?? 0 : 0} onClose={() => setKicking(null)} />
+      <KickDialog member={kicking} stake={kicking ? memberStake(kicking.userId, sessions) : NO_STAKE} onClose={() => setKicking(null)} />
       <Dialog
         open={demoting !== null}
         role="alertdialog"
         onClose={() => setDemoting(null)}
-        title={demoting ? t('demote.title', { name: demoting.member.displayName }) : ''}
-        description={demoting ? t('demote.body', { name: demoting.member.displayName, count: demoting.count, role: formatRole(demoting.role) }) : undefined}
+        title={demoting ? t('demote.title', { name: demoting.member.displayName, role: formatRole(demoting.role) }) : ''}
         footer={
           <>
             <Button variant="ghost" onClick={() => setDemoting(null)}>
@@ -240,18 +273,44 @@ export function MembersSection({ now }: { now: number }) {
             </Button>
           </>
         }
-      />
+      >
+        {demoting ? <DemoteBody member={demoting.member} role={demoting.role} stake={demoting.stake} /> : null}
+      </Dialog>
     </>
   );
 }
 
-/** One click on "Remove" opens this; it names every consequence (SPEC R2) before the irreversible request. */
-function KickDialog({ member, sessions, onClose }: { member: MemberWithDevices | null; sessions: number; onClose(): void }) {
-  if (!member) return null;
-  return <KickConfirm key={member.userId} member={member} sessions={sessions} onClose={onClose} />;
+const NO_STAKE: MemberStake = Object.freeze({ ending: 0, passing: 0, responsibleFor: 0 });
+
+/** What a role change takes away, named before the host confirms (DESIGN §3.9). */
+function DemoteBody({ member, role, stake }: { member: MemberWithDevices; role: GuestRole; stake: MemberStake }) {
+  const name = member.displayName;
+  const agentAccess = losesAgentAccess(member.role, role);
+  const discuss = losesDiscuss(member.role, role);
+  return (
+    <div className="console-kick">
+      <p>{t('kick.lead')}</p>
+      <ul>
+        {agentAccess ? (
+          <>
+            <li>{t('demote.sessions', { name, count: stake.ending })}</li>
+            <li>{t('demote.topicSessions', { name, count: stake.passing })}</li>
+            <li>{t('demote.removed', { name })}</li>
+          </>
+        ) : null}
+        {discuss ? <li>{stake.responsibleFor > 0 ? t('demote.viewer', { name, count: stake.responsibleFor }) : t('demote.viewerNone', { name })}</li> : null}
+      </ul>
+    </div>
+  );
 }
 
-function KickConfirm({ member, sessions, onClose }: { member: MemberWithDevices; sessions: number; onClose(): void }) {
+/** One click on "Remove" opens this; it names every consequence (SPEC R2) before the irreversible request. */
+function KickDialog({ member, stake, onClose }: { member: MemberWithDevices | null; stake: MemberStake; onClose(): void }) {
+  if (!member) return null;
+  return <KickConfirm key={member.userId} member={member} stake={stake} onClose={onClose} />;
+}
+
+function KickConfirm({ member, stake, onClose }: { member: MemberWithDevices; stake: MemberStake; onClose(): void }) {
   const stores = useStores();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
@@ -291,7 +350,10 @@ function KickConfirm({ member, sessions, onClose }: { member: MemberWithDevices;
       <div className="console-kick">
         <p>{t('kick.lead')}</p>
         <ul>
-          <li>{t('kick.sessions', { name, count: sessions })}</li>
+          <li>{t('kick.sessions', { name, count: stake.ending })}</li>
+          <li>{t('kick.topicSessions', { name, count: stake.passing })}</li>
+          <li>{t('kick.removed', { name })}</li>
+          {stake.responsibleFor > 0 ? <li>{t('kick.responsible', { name, count: stake.responsibleFor })}</li> : null}
           <li>{t('kick.keys', { name })}</li>
         </ul>
         <p className="console-kick__final">{t('kick.irreversible', { name })}</p>

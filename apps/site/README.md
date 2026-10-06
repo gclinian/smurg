@@ -134,9 +134,13 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
 - No inline `<script>`, `<style>`, `style="…"` or `on…=` handlers: the CSP blocks them. Colours and type live in
   `public/style.css` (the page's tokens follow `apps/web/src/ui/tokens.css`; the workspace picture in the hero has
   its own, the app's). Rules for Chinese typography use `html:lang(zh-Hant)`.
-- The workspace picture under the install line (`.mock`) is drawn after `apps/web/src/app/workspace/Workbench.tsx`
-  with the app's own labels in the page's language; agent names are written `Claude (Amy)` in both. It is hidden
-  below 720 px. Keep its labels equal to the app's strings when the app changes them.
+- The workspace picture under the install line (`.mock`) is drawn after the web app's sessions view
+  (`apps/web/src/app/workspace/SessionsView.tsx`: the inbox and the session list on the left, a discussion with a
+  question card, the plan and a result report as columns), with the app's own labels in the page's language. Text that
+  a person or an agent would have written (a topic's name, a question, a message, a report's sentences) is in an
+  element with the class `m-said`, and a command in a `pre.m-term`; everything else in it is a label of a catalog, and
+  the quote lint (`tests/lint/docs-quotes.test.ts`) holds it to that. It is hidden below 720 px and shows one, two or
+  three columns as the window widens. Keep its labels equal to the app's strings when the app changes them.
 - A new file in `public/` is served without running the Worker; `test/site.test.ts` lists the expected files (update
   it on purpose). Only SVG images; `public/` stays under 160 KB, and every page with what it loads under 150 KB.
 - A new redirect goes into `src/routes.ts`, and its path into `run_worker_first` in `wrangler.jsonc` (the test fails

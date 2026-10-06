@@ -42,6 +42,15 @@ describe('smurg in zh-TW', () => {
       expect(help.out().startsWith(firstLine), command).toBe(true);
       expect(help.out(), command).not.toMatch(/Usage:/);
     }
+    // What v0.5.0 changed: attach is for terminal sessions, a stop pauses agent sessions.
+    expect(io.out()).toContain('  attach [session]     把終端機 session 接到這個終端機（不指定時列出 session）\n');
+    expect(io.out()).toContain('  stop                 停止分享（中斷所有連線、結束終端機 session、暫停 agent session）\n');
+    const attach = terminal({ LANG: 'zh_TW.UTF-8' });
+    await runCli(['attach', '--help'], attach);
+    expect(attach.out()).toContain('  agent session 是對話：列表會顯示它的主題和狀態，要在瀏覽器開啟，不是在終端機裡。\n');
+    const stop = terminal({ LANG: 'zh_TW.UTF-8' });
+    await runCli(['stop', '--help'], stop);
+    expect(stop.out()).toContain('agent session 會暫停：agent 停止執行，對話會保留，\n  下次分享這個資料夾時繼續。\n');
     const host = terminal({ LANG: 'zh_TW.UTF-8' });
     await runCli(['host', '--help'], host);
     expect(host.out()).toContain('分享前必讀：https://smurg.ai/zh-TW/docs/hosting/#4-分享前必讀\n');

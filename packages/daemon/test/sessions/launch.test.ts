@@ -157,19 +157,6 @@ describe('who may create and drive sessions (ARCHITECTURE §11 D-15)', { timeout
   });
 });
 
-describe('agent sessions are conversations, not PTYs (ARCHITECTURE §5.5)', { timeout: 60_000 }, () => {
-  it('session.create { kind: "agent" } goes to the agent runtime (AgentSessions); without it the request is answered "not implemented" and no PTY starts', async () => {
-    const s = await stack();
-    const host = await s.t.connectHost();
-    await expect(host.conn.request('session.create', agent)).rejects.toMatchObject({ code: 'internal', detail: { reason: 'not-implemented', service: 'AgentSessions' } });
-    await expect(host.conn.request('session.create', { ...agent, firstMessage: 'hello' })).rejects.toMatchObject({ code: 'internal' });
-    expect(s.sessions.list()).toEqual([]);
-    expect(s.fakes.hooks.registered.size).toBe(0);
-    // The old shape (a terminal size on an agent session) is not protocol 4: refused before any handler.
-    await expect(host.conn.request('session.create', { ...agent, cols: 80, rows: 24 } as never)).rejects.toMatchObject({ code: 'bad_request' });
-  });
-});
-
 describe('worktree sessions', { timeout: 60_000 }, () => {
   it('worktree mode: the session\'s root and cwd are the worktree, and only session.end {keepWorktree: false} removes it', async () => {
     const s = await stack();

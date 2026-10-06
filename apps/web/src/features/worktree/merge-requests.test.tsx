@@ -6,7 +6,8 @@ import { FakeConnection } from '../../testing/fake-connection.ts';
 import { T0, makeMergeRequest, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
 import type { MergeDiff } from './diff-model.ts';
-import { MergeRequestsPanel } from './index.tsx';
+import { MergeRequestsSection } from './index.tsx';
+import MergeNotices from './MergeNotices.tsx';
 
 const section = (path: string, body = '@@ -1 +1 @@\n-old\n+new\n'): string => `diff --git a/${path} b/${path}\nindex 1111111..2222222 100644\n--- a/${path}\n+++ b/${path}\n${body}`;
 
@@ -47,7 +48,8 @@ function setup({ role, userId, displayName, worktrees = [makeWorktree()], reques
   conn.admit(makeWelcome({ role, ...(userId ? { userId } : {}), ...(displayName ? { displayName } : {}) }));
   const result = render(
     <WorkspaceTestProviders context={context}>
-      <MergeRequestsPanel />
+      <MergeRequestsSection />
+      <MergeNotices />
     </WorkspaceTestProviders>,
   );
   return { ...result, ...context, conn };
@@ -67,7 +69,7 @@ async function openReview(conn: FakeConnection, diff: MergeDiff, button = 'Revie
   return dialog;
 }
 
-describe('MergeRequestsPanel: the host reviews the complete diff (SPEC R9)', () => {
+describe('merge requests: the host reviews the complete diff (SPEC R9)', () => {
   it('shows the complete file list with additions / deletions and each file’s diff, then merges after a confirmation', async () => {
     const { conn } = setup({ role: 'host' });
     expect(await screen.findByText('Merge request from Amy')).toBeTruthy();
@@ -230,7 +232,7 @@ describe('MergeRequestsPanel: the host reviews the complete diff (SPEC R9)', () 
   });
 });
 
-describe('MergeRequestsPanel: the requester', () => {
+describe('merge requests: the requester', () => {
   it('status visible to requester: pending, then the host’s rejection with its reason, live', async () => {
     const { conn } = setup({ role: 'agent' });
     expect(await screen.findByText('Waiting for the host')).toBeTruthy();
@@ -273,14 +275,15 @@ describe('MergeRequestsPanel: the requester', () => {
     expect(within(dialog).getByRole('region', { name: 'Diff of src/app.ts' })).toBeTruthy();
   });
 
-  it('another member with agent access may read the diff too (read-only); an editor may not open it', async () => {
+  it('every member may read the diff (read-only): another member with agent access, and an editor', async () => {
     const other = setup({ role: 'agent', userId: 'dev:bob', displayName: 'Bob' });
     const dialog = await openReview(other.conn, COMPLETE, 'View diff');
     expect(within(dialog).queryByRole('button', { name: 'Merge into the main workspace' })).toBeNull();
     other.unmount();
-    setup({ role: 'editor', userId: 'dev:cat', displayName: 'Cat' });
+    const editor = setup({ role: 'editor', userId: 'dev:cat', displayName: 'Cat' });
     expect(await screen.findByText('Merge request from Amy')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'View diff' })).toBeNull();
+    const view = await openReview(editor.conn, COMPLETE, 'View diff');
+    expect(within(view).queryByRole('button', { name: 'Reject' })).toBeNull();
   });
 
   it('requests a merge of their worktree with a message', async () => {
@@ -311,12 +314,54 @@ describe('MergeRequestsPanel: the requester', () => {
     expect(screen.getByRole('dialog')).toBeTruthy();
   });
 
-  it('another member sees the list but cannot open the diff or request a merge', async () => {
+  it('another member sees the list and may read the diff, but cannot decide or request a merge', async () => {
     setup({ role: 'editor', userId: 'dev:bob', displayName: 'Bob' });
     expect(await screen.findByText('Merge request from Amy')).toBeTruthy();
     await flush();
-    expect(screen.queryByRole('button', { name: 'View diff' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'View diff' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Review' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Request merge' })).toBeNull();
+  });
+});
+
+describe('merge requests: the draft behind a result report', () => {
+  const draft = (overrides: Partial<MergeRequest> = {}): MergeRequest => {
+    const { requestedBy: _nobody, ...rest } = makeMergeRequest({ status: 'draft', topicId: 'tp_1', itemId: 'cart-api', ...overrides });
+    return rest;
+  };
+
+  it('a draft nobody reviewed is listed apart; a reviewed one waits for the host like a request', async () => {
+    setup({ role: 'host', requests: [draft({ id: 'mr_a' }), draft({ id: 'mr_b', worktreeId: 'wt_2', reviewed: true })] });
+    const waiting = await screen.findByRole('region', { name: 'Waiting for review (1)' });
+    expect(within(waiting).getByText('Reviewed, ready to merge')).toBeTruthy();
+    expect(within(waiting).getByText('Changes of a work item')).toBeTruthy();
+    const drafts = screen.getByRole('region', { name: 'Work items nobody reviewed yet' });
+    expect(within(drafts).getByText('Not requested yet')).toBeTruthy();
+  });
+
+  it('the host may merge a draft directly: the review names the branch, not a requester', async () => {
+    const { conn } = setup({ role: 'host', requests: [draft()] });
+    fireEvent.click(await screen.findByRole('button', { name: 'Review' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Changes on smurg/amy/wt_1' });
+    await act(async () => {
+      conn.respond('worktree.merge.diff', COMPLETE);
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Merge into the main workspace' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm merge' }));
+    expect(conn.lastRequest('worktree.merge.approve')?.payload).toEqual({ requestId: 'mr_1' });
+    await act(async () => {
+      conn.respond('worktree.merge.approve', { request: makeMergeRequest({ status: 'merged', decidedAt: T0 + 9 }) });
+    });
+    expect(await screen.findByText('The changes were merged into the main workspace.')).toBeTruthy();
+  });
+
+  it('a file on a host-private path is listed, and its diff is withheld from anyone but the host', async () => {
+    const { conn } = setup({ role: 'editor', userId: 'dev:cat', displayName: 'Cat' });
+    fireEvent.click(await screen.findByRole('button', { name: 'View diff' }));
+    const dialog = await screen.findByRole('dialog');
+    await act(async () => {
+      conn.respond('worktree.merge.diff', { diff: '', truncated: false, files: [{ path: 'CLAUDE.md', status: 'modified', additions: 0, deletions: 0, hidden: true }] });
+    });
+    expect(within(dialog).getByText('This file is on a path only the host may read. Its changes are not shown to you.')).toBeTruthy();
   });
 });

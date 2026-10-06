@@ -1,10 +1,10 @@
-import { SmurgError, type InviteInfo } from '@smurg/protocol';
+import { AUDIT_ACTIONS, SmurgError, type InviteInfo } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AUDIT_PAGE_SIZE } from '../../lib/stores/admin.ts';
 import { T0 } from '../../testing/fixtures.ts';
-import { auditDetailRows } from './audit-labels.ts';
+import { auditActionLabel, auditDetailRows } from './audit-labels.ts';
 import { GIB } from './settings-form.ts';
 import { DAY, SETTINGS, containsString, defaultFixture, makeAudit, renderConsole } from './test-support.tsx';
 
@@ -27,7 +27,12 @@ describe('host console: invites', () => {
     const roles = within(invites).getByLabelText('Role') as HTMLSelectElement;
     expect([...roles.options].map((option) => option.textContent)).toEqual(['Agent access', 'Editor', 'Viewer']);
     fireEvent.change(roles, { target: { value: 'agent' } });
-    expect(within(invites).getByText('Can open agents and terminals (they run on your computer with your Claude account) and type into any session.')).toBeTruthy();
+    expect(
+      within(invites).getByText('Can start topics, agents and terminals (they run on your computer with your Claude account), message any agent, answer its permission requests and accept suggestions.'),
+    ).toBeTruthy();
+    // Before a link exists the host reads what a new member gets to see (DESIGN §2.4, S9).
+    const HISTORY = 'A new member can read every earlier conversation of this workspace, the ones of archived topics included.';
+    expect(within(invites).getByText(HISTORY)).toBeTruthy();
     fireEvent.change(within(invites).getByLabelText('Expires after'), { target: { value: '1d' } });
     fireEvent.change(within(invites).getByLabelText('Number of uses'), { target: { value: '3' } });
     fireEvent.click(within(invites).getByRole('button', { name: 'Create invite link' }));
@@ -50,6 +55,8 @@ describe('host console: invites', () => {
     expect(within(dialog).getByText('Role: Agent access. Expires in 1 day. Can be used 3 times.')).toBeTruthy();
     expect(within(dialog).getByText(/^The link contains the secret for joining the workspace\. Send it only over a private channel/)).toBeTruthy();
     expect(within(dialog).getByText(/^This link is shown only this once/)).toBeTruthy();
+    // … and again next to the link they are about to send.
+    expect(within(dialog).getByText(HISTORY)).toBeTruthy();
     await act(async () => {
       fireEvent.click(within(dialog).getByRole('button', { name: 'Copy invite link' }));
     });
@@ -165,6 +172,36 @@ describe('host console: audit log', () => {
     expect(rows.find((row) => row.key === 'text')?.block).toBe(true);
   });
 
+  it('every action of the audit vocabulary has a name of its own (a new action without one does not compile)', () => {
+    const english = AUDIT_ACTIONS.map((action) => auditActionLabel(action));
+    for (const [index, action] of AUDIT_ACTIONS.entries()) {
+      expect(english[index], action).not.toBe(action);
+      expect(english[index], action).not.toMatch(/^console\.|^audit\./);
+    }
+    // No two actions read the same: the log must tell them apart.
+    expect(new Set(english).size).toBe(AUDIT_ACTIONS.length);
+    expect(auditActionLabel('session.restart')).toBe("Restarted a session's agent");
+    expect(auditActionLabel('transcript.redact')).toBe('Removed a conversation entry');
+    expect(auditActionLabel('claude-config.decide')).toBe('Decided on Claude Code project settings');
+    expect(auditActionLabel('permission.auto-deny')).toBe('Tool call refused by smurg');
+  });
+
+  it('the entries of the new model show with their names and their details', async () => {
+    const fixture = defaultFixture();
+    fixture.audit = [
+      makeAudit(1, { action: 'permission.decide', target: 'perm_1', actor: { kind: 'user', userId: 'dev:host', displayName: 'Ian' }, detail: { tool: 'Bash', decision: 'allow', command: 'pnpm test', rule: 'Bash(pnpm test *)' } }),
+      makeAudit(2, { action: 'session.handover', target: 'sess_item', actor: { kind: 'system' }, detail: { from: 'Amy', to: 'Ian', reason: 'kicked' } }),
+    ];
+    renderConsole({ fixture });
+    const audit = await section('Audit log');
+    const handover = (await within(audit).findByText('Session passed to the host')).closest('tr') as HTMLElement;
+    expect(within(handover).getByText('smurg')).toBeTruthy();
+    const decide = within(audit).getByText('Answered a permission request').closest('tr') as HTMLElement;
+    const detail = within(decide).getByLabelText('Details of this entry');
+    expect([...detail.querySelectorAll('dt')].map((term) => term.textContent)).toEqual(['Tool', 'Decision', 'Command', 'Always-allowed kind']);
+    expect([...detail.querySelectorAll('dd')].map((value) => value.textContent)).toEqual(['Bash', 'allow', 'pnpm test', 'Bash(pnpm test *)']);
+  });
+
   it('audit paging: loads older pages with admin.audit.query {before}', async () => {
     const fixture = defaultFixture();
     fixture.audit = Array.from({ length: AUDIT_PAGE_SIZE + 20 }, (_, i) => makeAudit(i + 1));
@@ -229,6 +266,46 @@ describe('host console: settings', () => {
     expect(screen.getByText('Settings saved and applied.')).toBeTruthy();
     expect(shared.value).toBe('data\ncheckpoints');
     expect(save.disabled).toBe(true);
+  });
+
+  it('the agent settings: how many work items run at once, the waiting time before others are asked, and the MCP switch with what it means', async () => {
+    const view = renderConsole();
+    const settings = await section('Settings');
+    const live = (await within(settings).findByLabelText('Work items running at the same time')) as HTMLInputElement;
+    expect(within(settings).getByRole('heading', { level: 3, name: 'Agents' })).toBeTruthy();
+    expect(live.value).toBe('8');
+    expect(within(settings).getByText('How many work items smurg keeps running at once on your computer (2 to 32). The others wait for a free agent. A message from a person always gets an agent.')).toBeTruthy();
+    const wait = within(settings).getByLabelText('Waiting time before others are asked (minutes)') as HTMLInputElement;
+    expect(wait.value).toBe('10');
+    expect(
+      within(settings).getByText('A question or a permission request that has waited this long also reaches you and the members with agent access. A result report does after 6 times as long. Default: 5 minutes.'),
+    ).toBeTruthy();
+    // Off unless the host turns it on, with the consequence in words (DESIGN §2.11).
+    const mcp = within(settings).getByRole('checkbox', { name: "Agents may use my own and this project's MCP servers" }) as HTMLInputElement;
+    expect(mcp.checked).toBe(false);
+    expect(mcp.getAttribute('aria-describedby')).toBe(within(settings).getByText(/^Off: agents get only the tools of smurg\. On: an agent that any member with agent access drives can call those servers/).id);
+
+    fireEvent.change(live, { target: { value: '4' } });
+    fireEvent.change(wait, { target: { value: '3' } });
+    fireEvent.click(mcp);
+    fireEvent.click(within(settings).getByRole('button', { name: 'Save settings' }));
+    expect(view.conn.lastRequest('admin.settings.set')?.payload).toEqual({ maxLiveAgents: 4, escalateAfterMs: 180_000, agentMcp: true });
+    await act(async () => {
+      view.conn.respond('admin.settings.set', { settings: { ...SETTINGS, maxLiveAgents: 4, escalateAfterMs: 180_000, agentMcp: true } });
+    });
+    expect(screen.getByText('Settings saved and applied.')).toBeTruthy();
+    expect(mcp.checked).toBe(true);
+    expect((within(settings).getByRole('button', { name: 'Save settings' }) as HTMLButtonElement).disabled).toBe(true);
+
+    // Out of range: said under the field, nothing sent; Reset puts the saved values back.
+    fireEvent.change(live, { target: { value: '64' } });
+    fireEvent.click(mcp);
+    expect(within(settings).getByText('Enter a whole number from 2 to 32.')).toBeTruthy();
+    expect((within(settings).getByRole('button', { name: 'Save settings' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(settings).getByRole('button', { name: 'Reset' }));
+    expect(live.value).toBe('4');
+    expect(mcp.checked).toBe(true);
+    expect(view.conn.requestsOf('admin.settings.set')).toHaveLength(1);
   });
 
   it('settings validation: every invalid field says why and nothing is sent', async () => {

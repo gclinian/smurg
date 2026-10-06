@@ -128,6 +128,19 @@ describe('smurg hook / smurg mcp start fast (they run inside every Claude Code s
     expect(Math.min(...mcp)).toBeLessThan(STARTUP_BOUND_MS);
   });
 
+  // DESIGN v0.5.0 §2.10 (G1), §6: `smurg hook` is Claude Code's PreToolUse hook for EVERY tool (the tool gate), and
+  // a daemon that cannot be reached refuses each of them, so nothing of an orphaned agent runs unattended.
+  it('smurg hook fails closed for every tool when the daemon is not reachable: a shell command, a read, a fetch, a subagent, a question, an MCP tool, a tool nobody knows yet', async () => {
+    dirs = await makeDirs();
+    const env = isolatedEnv(dirs);
+    for (const tool of ['Bash', 'Read', 'Grep', 'Write', 'WebFetch', 'Task', 'AskUserQuestion', 'mcp__smurg__check_plan', 'ToolOfTomorrow']) {
+      const input = JSON.stringify({ session_id: 'test', hook_event_name: 'PreToolUse', tool_name: tool, tool_input: { command: 'ls', file_path: '/tmp/x.txt', url: 'https://example.com' }, cwd: '/tmp' });
+      const result = await timed(['hook'], input, env);
+      expect(result.code, tool).toBe(0);
+      expect(JSON.parse(result.stdout), tool).toMatchObject({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny' } });
+    }
+  });
+
   it.each([
     ['hook', PRE_TOOL_USE, /\/daemon\/src\/hooks\/hook-cli\.ts$/],
     ['mcp', MCP_INITIALIZE, /\/daemon\/src\/mcp\/coord-server\.ts$/],

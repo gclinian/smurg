@@ -3,14 +3,17 @@
 // kept even while this area is not mounted); Monaco is loaded lazily through engine.ts → lib/lazy.ts.
 //
 // Handles the `openFile` command (file tree, activity feed, clickable paths in agent output).
+//
+// A document that only a column of the sessions view holds (a topic's SPEC.md in its spec column: doc-holds.ts) is in
+// the same registry but is not a tab here until someone opens it in the editor too.
 import { fileRefKey } from '@smurg/protocol';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { shallowEqual, useStore } from '../../lib/store.ts';
-import { selectOpenDocs } from '../../lib/stores/docs.ts';
 import { selectWorktreeList, worktreeLabel } from '../../lib/stores/worktrees.ts';
 import { useCommandHandler, useStores } from '../../lib/workspace/context.tsx';
 import { EmptyState } from '../../ui/index.ts';
 import { IconFileText } from '../../ui/icons.tsx';
+import { docHoldsFor, selectEditorDocs } from './doc-holds.ts';
 import { docSessionsFor } from './doc-session.ts';
 import { DocumentPane } from './DocumentPane.tsx';
 import type { RevealRequest } from './DocumentView.tsx';
@@ -23,7 +26,8 @@ export type EditorAreaProps = Record<never, never>;
 export function EditorArea(_props: EditorAreaProps) {
   const stores = useStores();
   const registry = useMemo(() => docSessionsFor({ docs: stores.docs, connection: stores.connection }), [stores]);
-  const docs = useStore(stores.docs, selectOpenDocs, shallowEqual);
+  const columnOnly = useStore(useMemo(() => docHoldsFor(stores.docs), [stores]));
+  const docs = useStore(stores.docs, (state) => selectEditorDocs(state, columnOnly), shallowEqual);
   const activeKey = useStore(stores.docs, (state) => state.activeKey);
   const worktrees = useStore(stores.worktrees, selectWorktreeList, shallowEqual);
   const [reveal, setReveal] = useState<RevealRequest | null>(null);

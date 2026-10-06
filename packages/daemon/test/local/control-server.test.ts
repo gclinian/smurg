@@ -1,18 +1,34 @@
 // The daemon's control socket (ARCHITECTURE §7.1 run/<short>.ctl, §8): file modes, the status / stop / attach ops,
 // envelopes both ways on an attach, stale sockets, a second daemon refused, stop answering before stopping, bounded
-// frames and connections, and one client never stalling another.
+// frames and connections, and one client never stalling another. Protocol 4: the status carries what `smurg status`
+// shows about agents, and the answer names the web app's origin (where `smurg attach` says conversations open).
 import { createServer } from 'node:net';
 import { lstat, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { LOCAL_CHANNEL_TYPES } from '../../src/local/local-channel.ts';
 import type { FeatureModule } from '../../src/core/context.ts';
+import { buildAgentSession, buildInboxItem, buildTopic, fakesModule, fakesOf } from '../../src/core/fakes/index.ts';
 import { LOCAL_DEVICE_ID, type DaemonLifecycle, type DaemonStatus, type LocalAttachInput, type LocalAttachment } from '../../src/core/interfaces.ts';
 import { toDisposable } from '../../src/core/lifecycle.ts';
 import { silentLogger } from '../../src/core/logger.ts';
 import { ControlServer, ControlSocketError, probeControlSocket } from '../../src/local/control-server.ts';
 import { createLocalControlModule, localControlModule } from '../../src/local/module.ts';
-import { CTL_CONTROL_MAX_BYTES, CTL_FRAME_KIND, CTL_STOP_REASON, CtlProtocolError, encodeCtlFrame, parseCtlRequest } from '../../src/local/protocol.ts';
+import {
+  CTL_CONTROL_MAX_BYTES,
+  CTL_FRAME_KIND,
+  CTL_STOP_REASON,
+  CTL_WEB_ORIGIN_MAX_CHARS,
+  CtlProtocolError,
+  ctlResponseSchema,
+  daemonStatusSchema,
+  encodeCtlControl,
+  encodeCtlFrame,
+  namedWebOrigin,
+  parseCtlRequest,
+} from '../../src/local/protocol.ts';
 import { createTempRunDir, removeTempRunDir, waitFor } from '../../src/testing/index.ts';
+import { NOTIFY_SAMPLES, REQUEST_SAMPLES } from '../fixtures/request-samples.ts';
 import { LOCAL_HOST_USER, connectRaw, startLocalDaemon, type LocalDaemon, type RawCtlClient } from './helpers.ts';
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -70,14 +86,14 @@ const fakeStatus = (workspaceId: string): DaemonStatus => ({
   isGitRepo: false,
 });
 
-function fakeLifecycle(workspaceId = 'ws_fake_lifecycle01'): DaemonLifecycle & { stops: string[] } {
+function fakeLifecycle(workspaceId = 'ws_fake_lifecycle01', more: Partial<DaemonStatus> = {}): DaemonLifecycle & { stops: string[] } {
   const stops: string[] = [];
   return {
     stops,
     stop: async (reason?: string) => {
       stops.push(reason ?? '');
     },
-    status: () => fakeStatus(workspaceId),
+    status: () => ({ ...fakeStatus(workspaceId), ...more }),
     attachLocal: (_input: LocalAttachInput): LocalAttachment => {
       throw new Error('not in this fake');
     },
@@ -168,6 +184,82 @@ describe('ops', () => {
     const response = await c.response();
     expect(response).toMatchObject({ ok: true, op: 'status', status: { workspaceId: d.workspaceId, started: true, stopped: false } });
     await c.waitClosed();
+  });
+
+  it('status carries what `smurg status` shows about agents: Claude Code as last checked, the sessions by state, topics, project settings, the host\'s own rules', async () => {
+    const dir = await runDir();
+    const path = join(dir, 'abcdefghijkl.ctl');
+    const agents: Partial<DaemonStatus> = {
+      claude: { version: '2.1.288', verdict: 'verified', login: 'logged-in' },
+      agents: { running: 2, waiting: 1, stalled: 0, idle: 3 },
+      topics: { total: 4, paused: 1 },
+      projectSettings: 'ignored',
+      hostRules: { count: 12 },
+    };
+    await server(path, { lifecycle: fakeLifecycle('ws_fake_lifecycle01', agents) });
+    const c = await client(path);
+    c.request({ v: 1, op: 'status' });
+    expect(await c.response()).toMatchObject({ ok: true, op: 'status', status: { workspaceId: 'ws_fake_lifecycle01', ...agents } });
+    // Claude Code whose version could not be read, and a daemon that says nothing about agents (no module, no check yet).
+    const unknown = join(dir, 'bbbbbbbbbbbb.ctl');
+    await server(unknown, { lifecycle: fakeLifecycle('ws_fake_lifecycle02', { claude: { version: null, verdict: 'unknown', login: 'unknown' } }) });
+    const u = await client(unknown);
+    u.request({ v: 1, op: 'status' });
+    expect(await u.response()).toMatchObject({ ok: true, status: { claude: { version: null, verdict: 'unknown', login: 'unknown' } } });
+    const d = await daemonWith({ modules: [localControlModule] });
+    const plain = await client(d.ctlPath);
+    plain.request({ v: 1, op: 'status' });
+    const response = await plain.response();
+    expect(response.ok && response.op === 'status' ? Object.keys(response.status).filter((key) => ['claude', 'agents', 'topics', 'projectSettings', 'hostRules'].includes(key)) : null).toEqual([]);
+  });
+
+  it('the status schema is strict about the agent fields: an unknown verdict, login or trust state, a negative count or an extra key is refused', () => {
+    const base = fakeStatus('ws_fake_lifecycle01');
+    const ok = { ...base, claude: { version: '2.1.288', verdict: 'too-old', login: 'logged-out' }, agents: { running: 0, waiting: 0, stalled: 0, idle: 0 }, topics: { total: 0, paused: 0 }, projectSettings: 'none', hostRules: { count: 0 } };
+    expect(daemonStatusSchema.safeParse(ok).success).toBe(true);
+    for (const bad of [
+      { ...ok, claude: { ...ok.claude, verdict: 'fine' } },
+      { ...ok, claude: { ...ok.claude, login: 'maybe' } },
+      { ...ok, claude: { ...ok.claude, version: 'x'.repeat(65) } },
+      { ...ok, claude: { ...ok.claude, path: '/usr/local/bin/claude' } },
+      { ...ok, agents: { ...ok.agents, running: -1 } },
+      { ...ok, agents: { running: 1 } },
+      { ...ok, topics: { total: 1.5, paused: 0 } },
+      { ...ok, projectSettings: 'trusted' },
+      { ...ok, hostRules: { count: 1, rules: ['Bash(rm:*)'] } },
+      { ...ok, account: { state: 'ok' } },
+    ]) {
+      expect(daemonStatusSchema.safeParse(bad).success, JSON.stringify(bad).slice(-80)).toBe(false);
+    }
+    // The control server never sends what the schema refuses: the encoder throws instead.
+    expect(() => encodeCtlControl({ ok: true, op: 'status', status: { ...base, hostRules: { count: 1, rules: [] } } } as never)).toThrow(CtlProtocolError);
+  });
+
+  it('the status answer names the web app\'s origin (config.webOrigin) for `smurg attach`; a daemon without a relay names none', async () => {
+    const withWeb = await daemonWith({ modules: [createLocalControlModule()], webOrigin: 'https://app.example' });
+    const a = await client(withWeb.ctlPath);
+    a.request({ v: 1, op: 'status' });
+    expect(await a.response()).toMatchObject({ ok: true, op: 'status', webOrigin: 'https://app.example', status: { workspaceId: withWeb.workspaceId } });
+    // No relay and no web origin: resolveConfig's placeholder (a name under .invalid) is never handed to a person.
+    const without = await daemonWith({ modules: [createLocalControlModule()] });
+    expect(new URL(without.daemon.config.webOrigin).hostname.endsWith('.invalid')).toBe(true);
+    const b = await client(without.ctlPath);
+    b.request({ v: 1, op: 'status' });
+    const response = await b.response();
+    expect(response).toMatchObject({ ok: true, op: 'status' });
+    expect('webOrigin' in response).toBe(false);
+    // The rule itself.
+    expect(namedWebOrigin('https://app.smurg.ai')).toBe('https://app.smurg.ai');
+    expect(namedWebOrigin('http://localhost:5173/')).toBe('http://localhost:5173');
+    expect(namedWebOrigin('https://relay.smurg.test')).toBe('https://relay.smurg.test');
+    for (const none of ['https://smurg.invalid', 'https://invalid', 'https://a.b.INVALID', 'javascript:alert(1)', 'file:///etc/passwd', 'not a url', '']) expect(namedWebOrigin(none), none).toBeNull();
+    expect(namedWebOrigin(`https://${'a'.repeat(63)}.${'b'.repeat(63)}.example`)?.length).toBeLessThanOrEqual(CTL_WEB_ORIGIN_MAX_CHARS);
+    // A response may carry it only as a short, non-empty string, and only with a status.
+    const status = fakeStatus('ws_fake_lifecycle01');
+    expect(ctlResponseSchema.safeParse({ ok: true, op: 'status', status, webOrigin: 'https://app.example' }).success).toBe(true);
+    expect(ctlResponseSchema.safeParse({ ok: true, op: 'status', status, webOrigin: '' }).success).toBe(false);
+    expect(ctlResponseSchema.safeParse({ ok: true, op: 'status', status, webOrigin: `https://${'a'.repeat(CTL_WEB_ORIGIN_MAX_CHARS)}` }).success).toBe(false);
+    expect(ctlResponseSchema.safeParse({ ok: true, op: 'stop', webOrigin: 'https://app.example' }).success).toBe(false);
   });
 
   it('attach carries envelopes both ways on a logical channel of the host (requests, answers, events, acks), audited as local', async () => {
@@ -333,6 +425,119 @@ describe('ops', () => {
     c.request({ v: 1, op: 'attach', deviceName: 'x' });
     expect(await c.response()).toMatchObject({ ok: false, error: { code: 'internal' } });
     await c.waitClosed();
+  });
+});
+
+// DESIGN v0.5.0 §6, §7 S19: the socket's mode authenticates the host's OS ACCOUNT, and every agent runs as that account.
+// So nothing protocol 4 added is reachable through it: whoever drives a session cannot, through smurg, answer the
+// host's permission cards in the host's name, message an agent, vote, start a plan, review a report, read the inbox,
+// confirm project settings or redact a transcript. (The core's test covers every client message of the registry at
+// the attachLocal level; this one goes through the real socket against handlers that would answer.)
+describe('the control socket and protocol 4: none of the new requests is reachable', () => {
+  /** The areas protocol 4 added, and the `session.*` requests that are not the attach's own. */
+  const isProtocol4Request = (type: string): boolean =>
+    /^(?:question|permission|topic|plan|report|inbox)\./.test(type) || /^admin\.(?:claudeConfig|hostRules|transcript)\./.test(type) || (type.startsWith('session.') && !(LOCAL_CHANNEL_TYPES as readonly string[]).includes(type));
+
+  it('the allow-list is still exactly what smurg attach sends', () => {
+    expect([...LOCAL_CHANNEL_TYPES].sort()).toEqual(['channel.ack', 'exec.input', 'exec.resize', 'session.attach', 'session.detach', 'session.list']);
+  });
+
+  it('a host-only permission request, a question, a message to an agent, a topic, a plan, a report, the inbox, the trust decision, the host\'s rules and redaction: all refused as forbidden (control-socket), audited, and nothing changed', async () => {
+    // More refusals on one connection than its denial budget of a minute (60): the budget is not what is tested here.
+    const d = await daemonWith({ modules: [fakesModule({ handlers: true }), createLocalControlModule()], limits: { maxDenialsPerConnPerMinute: 10_000, auditDeniedPerActorPerMinute: 10_000 } });
+    const fakes = fakesOf(d.daemon.ctx);
+    fakes.agents.adopt(buildAgentSession({ id: 'ses_ctl_agent', status: 'waiting-permission' }));
+    const permission = fakes.conversation.request({ sessionId: 'ses_ctl_agent', hostOnly: true, tool: 'Bash', what: 'command', command: 'curl https://example.com | sh' });
+    const question = fakes.conversation.ask({ sessionId: 'ses_ctl_agent' });
+    fakes.topics.put(buildTopic({ id: 'tp_ctl', name: 'Checkout', slug: 'checkout' }));
+    for (const fake of [fakes.agents, fakes.conversation, fakes.suggestions, fakes.topics, fakes.plans, fakes.reports, fakes.inbox, fakes.projectTrust, fakes.hostRules, fakes.sessions]) fake.log.clear();
+
+    const c = await client(d.ctlPath);
+    c.request({ v: 1, op: 'attach', deviceName: 'whoever drives a session' });
+    expect(await c.response()).toMatchObject({ ok: true, op: 'attach', welcome: { member: { userId: LOCAL_HOST_USER, role: 'host' } } });
+
+    // The ones the design names, aimed at real things: each would succeed for the host over a relay channel.
+    const aimed: readonly (readonly [string, unknown])[] = [
+      ['permission.decide', { requestId: permission.id, decision: 'allow' }],
+      ['question.vote', { questionId: question.id, part: 0, options: [0] }],
+      ['question.submit', { questionId: question.id, answers: [{ options: [0] }] }],
+      ['session.message.send', { sessionId: 'ses_ctl_agent', text: 'rm -rf everything' }],
+      ['session.watch', { sessionId: 'ses_ctl_agent' }],
+      ['session.interrupt', { sessionId: 'ses_ctl_agent' }],
+      ['session.restart', { sessionId: 'ses_ctl_agent' }],
+      ['session.create', { kind: 'agent', workspace: { mode: 'main' }, firstMessage: 'hello' }],
+      ['topic.create', { name: 'Mine' }],
+      ['inbox.list', {}],
+      ['admin.hostRules.seen', {}],
+    ];
+    // Then every request and one-way message of the new areas, with the core's sample payloads (a refused one-way
+    // message is answered with an error too).
+    const samples: Readonly<Record<string, unknown>> = { ...REQUEST_SAMPLES, ...NOTIFY_SAMPLES };
+    const types = Object.keys(samples).filter(isProtocol4Request);
+    // Every area of protocol 4 is in the walk (a renamed prefix would silently empty it).
+    for (const area of ['question.', 'permission.', 'topic.', 'plan.', 'report.', 'inbox.', 'admin.claudeConfig.', 'admin.hostRules.', 'admin.transcript.', 'session.message.', 'session.watch', 'session.unwatch']) {
+      expect(types.some((type) => type.startsWith(area)), area).toBe(true);
+    }
+    expect(types.length).toBeGreaterThan(50);
+    const attempts: (readonly [string, unknown])[] = [...aimed, ...types.map((type) => [type, samples[type]] as const)];
+    const problems: string[] = [];
+    for (const [type, payload] of attempts) {
+      const answer = await c.call(type, payload);
+      const refusal = answer.payload as { code?: string; detail?: { reason?: string } };
+      if (answer.type !== 'error' || refusal.code !== 'forbidden' || refusal.detail?.reason !== 'control-socket') problems.push(`${type}: ${answer.type} ${JSON.stringify(answer.payload).slice(0, 120)}`);
+    }
+    expect(problems).toEqual([]);
+
+    // Nothing reached a service: no call was recorded, and the cards are as they were.
+    for (const [name, fake] of Object.entries({ agents: fakes.agents, conversation: fakes.conversation, suggestions: fakes.suggestions, topics: fakes.topics, plans: fakes.plans, reports: fakes.reports, inbox: fakes.inbox, projectTrust: fakes.projectTrust, hostRules: fakes.hostRules, sessions: fakes.sessions })) {
+      expect(fake.log.calls, name).toEqual([]);
+    }
+    expect(fakes.conversation.permission(permission.id, true)).toMatchObject({ status: 'open', hostOnly: true });
+    expect(fakes.conversation.question(question.id)).toMatchObject({ status: 'open', votes: [] });
+    expect(fakes.agents.sentTo('ses_ctl_agent')).toEqual([]);
+    expect(fakes.hostRules.seen).toBe(false);
+
+    // Every refusal is in the audit log as the host's, marked as coming through the socket.
+    await d.daemon.ctx.audit.flush();
+    const denied = (await d.daemon.ctx.audit.query({ limit: 500 })).filter((entry) => entry.action === 'authz.denied');
+    expect(denied).toHaveLength(attempts.length);
+    for (const entry of denied) expect(entry.detail).toMatchObject({ reason: 'control-socket', via: 'control-socket' });
+    expect(new Set(denied.map((entry) => entry.target))).toEqual(new Set(attempts.map(([type]) => type)));
+
+    // What the attach itself needs still works on the same channel, and it lists the agent session.
+    const list = await c.call('session.list', {});
+    expect(list).toMatchObject({ type: 'session.list.ok', payload: { sessions: [{ id: 'ses_ctl_agent', kind: 'agent' }], hasMore: false } });
+    const attach = await c.call('session.attach', { sessionId: 'ses_ctl_agent' });
+    expect(attach.type).toBe('error'); // a conversation has no PTY: the attach's own request reaches its handler and is refused there
+    expect((attach.payload as { detail?: { reason?: string } }).detail?.reason).not.toBe('control-socket');
+  });
+
+  it('receives nothing of the new traffic either: no card, conversation event, topic, plan, inbox or account message reaches the socket, connected or not', async () => {
+    const d = await daemonWith({ modules: [fakesModule({ handlers: true }), createLocalControlModule()] });
+    const fakes = fakesOf(d.daemon.ctx);
+    const c = await client(d.ctlPath);
+    c.request({ v: 1, op: 'attach', deviceName: 'smurg CLI' });
+    expect(await c.response()).toMatchObject({ ok: true, op: 'attach' });
+    // What the daemon sends to everyone, to the host, and to a session's watchers while this channel is attached.
+    fakes.agents.adopt(buildAgentSession({ id: 'ses_ctl_agent', status: 'running' }));
+    const channel = d.daemon.ctx.hub.connections({ userId: LOCAL_HOST_USER })[0];
+    expect(channel).toBeDefined();
+    if (channel) fakes.agents.addWatcher(channel, 'ses_ctl_agent'); // even made a watcher behind the router's back
+    fakes.agents.startTurn('ses_ctl_agent');
+    fakes.agents.say('ses_ctl_agent', 'a text for every watcher');
+    fakes.conversation.request({ sessionId: 'ses_ctl_agent', hostOnly: true, command: 'cat ~/.ssh/id_ed25519', path: '/Users/host/.ssh/id_ed25519' });
+    fakes.conversation.ask({ sessionId: 'ses_ctl_agent' });
+    fakes.topics.put(buildTopic({ id: 'tp_ctl', name: 'Checkout', slug: 'checkout' }));
+    fakes.inbox.setItems(LOCAL_HOST_USER, [buildInboxItem('permission')]);
+    fakes.agents.setAccount({ state: 'usage-limit', sessions: 1 });
+    // The fakes did send all of it to this session's watchers (the local channel is one): the hub is what stops it.
+    expect(fakes.agents.watchers('ses_ctl_agent')).toEqual([LOCAL_HOST_USER]);
+    expect(new Set(fakes.agents.toWatchersLog.map((sent) => sent.type))).toEqual(new Set(['session.events', 'permission.updated', 'question.updated']));
+    // A request of the attach's own after all of it: everything sent before its answer has arrived by then.
+    expect(await c.call('session.list', {})).toMatchObject({ type: 'session.list.ok' });
+    const unasked = c.envelopes.map((envelope) => envelope.type).filter((type) => !type.endsWith('.ok'));
+    expect(unasked.filter((type) => !['session.state', 'presence.heartbeat', 'channel.ack', 'exec.output', 'exec.resize'].includes(type))).toEqual([]);
+    for (const never of ['session.events', 'session.delta', 'permission.updated', 'question.updated', 'topic.updated', 'inbox.changed', 'session.host']) expect(unasked, never).not.toContain(never);
   });
 });
 

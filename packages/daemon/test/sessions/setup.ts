@@ -1,19 +1,21 @@
-// TEST ONLY: a daemon with the real sessions module (test seams: fake claude, controlled host environment, /bin/sh)
+// TEST ONLY: a daemon with the real sessions module (test seams: the stand-in claude, controlled host environment, /bin/sh)
 // and fakes of the services it calls (helpers.ts). Every client is a real SDK Connection through the in-memory relay.
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createSessionsModule } from '../../src/sessions/module.ts';
 import type { SessionManagerImpl, SessionsModuleOptions } from '../../src/sessions/session-manager.ts';
-import { createTestDaemon, registerTestDir, type TestDaemon } from '../../src/testing/index.ts';
+import { createTestDaemon, installFakeClaude, registerTestDir, type FakeClaude, type FakeClaudeScenario, type TestDaemon, type TestDaemonOptions } from '../../src/testing/index.ts';
 import type { FeatureModule } from '../../src/core/context.ts';
 import type { SessionLaunchConfig } from '../../src/core/config.ts';
-import { createFakes, fakeServicesModule, writeFakeClaude, type Fakes } from './helpers.ts';
+import { createFakes, fakeServicesModule, type Fakes } from './helpers.ts';
 
 export interface SessionStack {
   readonly t: TestDaemon;
   readonly fakes: Fakes;
   readonly sessions: SessionManagerImpl;
-  readonly fakeClaude: { path: string; logDir: string };
+  /** The stand-in `claude` (src/testing/fake-claude.mjs): `setScenario` scripts what the agents do. */
+  readonly fakeClaude: FakeClaude;
+  readonly scratch: string;
   /** A fake home for the sessions (never the developer's): every session runs like the host's own (§11 D-15). */
   readonly hostHome: string;
   cleanup(): Promise<void>;
@@ -21,6 +23,10 @@ export interface SessionStack {
 
 export interface SessionStackOptions {
   readonly claudeVersion?: string;
+  /** What the stand-in claude does (default: every message is answered "ok"). */
+  readonly scenario?: FakeClaudeScenario;
+  /** More of createTestDaemon (agents: the runtime's limits and timers; settings; stateDir). */
+  readonly daemon?: Pick<TestDaemonOptions, 'agents' | 'settings' | 'stateDir' | 'root' | 'clock' | 'workspaceId' | 'log'>;
   readonly module?: Partial<SessionsModuleOptions>;
   /** Host environment of the sessions; default: a small controlled one (never process.env with real secrets). */
   readonly hostEnv?: (home: string) => Readonly<Record<string, string | undefined>>;
@@ -41,7 +47,7 @@ export async function startSessionStack(options: SessionStackOptions = {}): Prom
   registerTestDir(scratch);
   const hostHome = join(scratch, 'host-home');
   await mkdir(hostHome, { recursive: true });
-  const fakeClaude = await writeFakeClaude(scratch, options.claudeVersion ?? '2.1.283');
+  const fakeClaude = await installFakeClaude(scratch, { ...(options.claudeVersion === undefined ? {} : { version: options.claudeVersion }), ...options.scenario });
   const hostEnv =
     options.hostEnv?.(hostHome) ??
     Object.freeze({
@@ -51,6 +57,7 @@ export async function startSessionStack(options: SessionStackOptions = {}): Prom
       LANG: 'en_US.UTF-8',
       SHELL: '/bin/sh',
       BASH_SILENCE_DEPRECATION_WARNING: '1',
+      ...fakeClaude.env,
     });
   const sessionsModule = createSessionsModule({
     hostEnv: () => hostEnv,
@@ -59,6 +66,7 @@ export async function startSessionStack(options: SessionStackOptions = {}): Prom
     ...options.module,
   });
   const t = await createTestDaemon({
+    ...options.daemon,
     modules: [...(options.fakes === false ? [] : [fakeServicesModule(fakes)]), ...(options.extraModules ?? []), sessionsModule],
     // The hooks writer (HookServer.writeSessionFiles) reads the self command from the daemon's configuration.
     sessions: { selfCommand: { file: '/usr/bin/true', args: [] }, hostHome, ...options.daemonSessions },
@@ -70,6 +78,7 @@ export async function startSessionStack(options: SessionStackOptions = {}): Prom
     fakes,
     sessions,
     fakeClaude,
+    scratch,
     hostHome,
     cleanup: async () => {
       await t.cleanup();

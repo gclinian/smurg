@@ -1,7 +1,7 @@
-// How a session is described in the panel: who opened it, kind, status, where it runs (SPEC R11 "status, owner, its
-// worktree"), plus the explanation of a failed session request. Every session runs as the host (protocol v2):
-// the person shown is the one who OPENED it.
-import { errorReasonOf, isSmurgError, type LoginState, type SessionInfo, type WorktreeInfo } from '@smurg/protocol';
+// How a terminal is described: who opened it, its status, where it runs (SPEC R11 "status, owner, its worktree"),
+// plus the explanation of a failed session request. Every session runs as the host: the person shown is the one
+// who OPENED it.
+import { errorReasonOf, isSmurgError, type SessionInfo, type WorktreeInfo } from '@smurg/protocol';
 import type { TitledSession } from '../../lib/stores/sessions.ts';
 import { describeError } from '../../lib/errors.ts';
 import { plainSessionTitle } from '../../lib/stores/sessions.ts';
@@ -11,15 +11,6 @@ import { t } from './strings.ts';
 /** "Claude (Amy)": the name, then who opened it, once. */
 export function tabLabel(session: TitledSession): string {
   return t('tab.label', { title: plainSessionTitle(session), owner: session.openedBy.displayName });
-}
-
-export function kindLabel(session: Pick<SessionInfo, 'kind'>): string {
-  switch (session.kind) {
-    case 'agent':
-      return t('kind.agent');
-    case 'terminal':
-      return t('kind.terminal');
-  }
 }
 
 /** What the status line reads of a session: a terminal's exit code when it has one. */
@@ -80,23 +71,6 @@ export function openedByLabel(session: Pick<SessionInfo, 'openedBy'>, selfUserId
 /** The value of the details row "Opened by": the person's name, or "You". */
 export function openerName(session: Pick<SessionInfo, 'openedBy'>, selfUserId: string | null): string {
   return session.openedBy.userId === selfUserId ? t('owner.self') : session.openedBy.displayName;
-}
-
-/** What a re-check of the login says, against the session.login value it was made for. */
-export interface LoginCheck {
-  readonly login: LoginState;
-  /** The session.login value the check was made against (a newer value from the daemon wins). */
-  readonly against: LoginState;
-}
-
-/** What the panel shows: the latest re-check when the daemon has not reported anything newer since. */
-export function effectiveLogin(session: { readonly login: LoginState }, check: LoginCheck | null): LoginState {
-  return check !== null && check.against === session.login ? check.login : session.login;
-}
-
-/** The Claude login a session reports: an agent session's; a terminal has none. */
-export function loginOf(session: SessionInfo): LoginState {
-  return session.kind === 'agent' ? session.login : 'unknown';
 }
 
 /** What to do about the session module's refusals (`detail.reason`; the daemon's message says what happened). */

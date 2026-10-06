@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryStorage } from '../testing/services.tsx';
 import { createRecentWorkspaces, createThemeController } from './preferences.ts';
 import { cssString, presenceCss, safeColor } from './presence-css.ts';
-import { compareText, formatBytes, formatDateTime, formatDuration, formatExactTime, formatList, formatNumber, formatRelativeTime, formatRole, formatTime } from './format.ts';
+import { compareText, formatAge, formatAnd, formatBytes, formatDateTime, formatDuration, formatExactTime, formatList, formatNumber, formatRelativeTime, formatRole, formatTime } from './format.ts';
 import { describeDevice } from './connection/browser-deps.ts';
 import { describeError, renderWireText } from './errors.ts';
 import { ClientRequestError, RelayApiError } from '@smurg/protocol/client';
@@ -164,5 +164,29 @@ describe('formatting and errors', () => {
     expect(renderWireText({ id: 'role.nobody' }, 'fallback')).toBe('fallback');
     expect(renderWireText(undefined, 'fallback')).toBe('fallback');
     expect(renderWireText({ id: 'error.default.locked', params: { extra: ['a'] } }, 'fallback')).toBe('This file is locked right now.');
+  });
+});
+
+describe('short ages and lists (the inbox, the plan)', () => {
+  it('formatAge: how long ago in the least room, in whole units, never negative', () => {
+    const now = 1_780_000_000_000;
+    expect(formatAge(now - 40_000, now)).toBe('40 sec');
+    expect(formatAge(now - 59_999, now)).toBe('59 sec');
+    expect(formatAge(now - 6 * 60_000 - 30_000, now)).toBe('6 min');
+    expect(formatAge(now - 2 * 3_600_000, now)).toBe('2 hr');
+    expect(formatAge(now - 3 * 86_400_000, now)).toBe('3 days');
+    expect(formatAge(now + 5_000, now)).toBe('0 sec');
+    applyLocale('zh-TW');
+    expect(formatAge(now - 6 * 60_000, now)).toMatch(/^6\s?分鐘$/);
+    applyLocale('en');
+  });
+
+  it('formatAnd: a few things that all apply, as a sentence says them', () => {
+    expect(formatAnd(['5'])).toBe('5');
+    expect(formatAnd(['5', '6'])).toBe('5 and 6');
+    expect(formatAnd(['4', '5', '6'])).toBe('4, 5, and 6');
+    applyLocale('zh-TW');
+    expect(formatAnd(['5', '6'])).toBe('5和6');
+    applyLocale('en');
   });
 });

@@ -1,13 +1,14 @@
-// "Send to agent" (SPEC R6): select code → straight into an agent session (the host and agent access: any session), or, for
-// an editor, as a suggestion to one. The editor only builds the text (file path + line range + code) and dispatches the
-// command; the suggest feature owns the suggestion flow (and the paste).
+// "Send to agent" (SPEC R6): select code → a message to an agent session (the host and agent access: any session), or,
+// for an editor, a suggestion to one. The editor only builds the payload (file, line range, code) and dispatches the
+// command; the conversation feature sends it. A session is named by its title and, when it has one, its topic.
 import type { FileRef } from '@smurg/protocol';
 import { useImperativeHandle, useRef, type Ref, type RefObject } from 'react';
 import { NoCommandHandlerError } from '../../lib/commands.ts';
 import { describeError } from '../../lib/errors.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
-import { plainSessionTitle, selectSessionList, sessionTitle } from '../../lib/stores/sessions.ts';
-import { useCapabilities, useCommands, useMember, useStores } from '../../lib/workspace/context.tsx';
+import type { SessionInfo } from '@smurg/protocol';
+import { selectSessionList, sessionTitle } from '../../lib/stores/sessions.ts';
+import { useCapabilities, useCommands, useStores } from '../../lib/workspace/context.tsx';
 import { Menu, useToast, type MenuItem } from '../../ui/index.ts';
 import { IconAgent, IconEdit, IconLightbulb, IconSend } from '../../ui/icons.tsx';
 import type { EditorHandle } from './engine.ts';
@@ -36,7 +37,6 @@ export function SendToAgentMenu({ file, hasSelection, editorRef, ref }: SendToAg
   const commands = useCommands();
   const toast = useToast();
   const caps = useCapabilities();
-  const member = useMember();
   const sessions = useStore(stores.sessions, selectSessionList, shallowEqual);
   const anchor = useRef<HTMLSpanElement>(null);
 
@@ -62,27 +62,28 @@ export function SendToAgentMenu({ file, hasSelection, editorRef, ref }: SendToAg
     });
   };
 
-  const targets = sessionTargets(sessions, member?.userId ?? null, caps);
+  const targets = sessionTargets(sessions, caps);
+  /** "Checkout · 2 · Payment form": two sessions of different topics can have the same title. */
+  const nameOf = (session: SessionInfo): string => (session.kind === 'agent' && session.topicName !== undefined ? t('send.inTopic', { topic: session.topicName, title: sessionTitle(session) }) : sessionTitle(session));
   const items: MenuItem[] = hasSelection
     ? [
         ...targets.own.map((session) => ({
           id: `own:${session.id}`,
-          label: t('send.toOwn', { title: sessionTitle(session) }),
+          label: t('send.toOwn', { title: nameOf(session) }),
           icon: <IconAgent />,
           onSelect: () => send(session.id),
         })),
-        // Someone else's session: one click sends the suggestion (SPEC R6), or it goes into the
-        // composer to add a note first.
+        // An editor: one click sends the suggestion (SPEC R6), or it goes into the composer to add a note first.
         ...targets.others.flatMap((session) => [
           {
             id: `other:${session.id}`,
-            label: t('send.toOther', { owner: session.openedBy.displayName, title: plainSessionTitle(session) }),
+            label: t('send.toOther', { title: nameOf(session) }),
             icon: <IconLightbulb />,
             onSelect: () => send(session.id, 'send'),
           },
           {
             id: `draft:${session.id}`,
-            label: t('send.toOtherDraft', { owner: session.openedBy.displayName, title: plainSessionTitle(session) }),
+            label: t('send.toOtherDraft', { title: nameOf(session) }),
             icon: <IconEdit />,
             onSelect: () => send(session.id, 'draft'),
           },

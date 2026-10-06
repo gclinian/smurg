@@ -1,9 +1,16 @@
 // The host settings form as pure functions: HostSettings ⇄ what the host types, validated with the protocol's own
 // schemas and ranges (the daemon validates again; this is for immediate, specific feedback). Only changed fields are
 // sent: admin.settings.set takes a Partial<HostSettings>.
+//
+// The three agent settings of protocol 4 (DESIGN §3.12): how many work items run at once (`maxLiveAgents`), how
+// long a question or a permission request waits before it also reaches the others who may settle it
+// (`escalateAfterMs`, typed in minutes), and whether agents may use the host's own and the project's MCP servers
+// (`agentMcp`, a switch: off unless the host turns it on).
 import {
   AGENT_LOCK_TIMEOUT_MS_RANGE,
+  ESCALATE_AFTER_MS_RANGE,
   HUMAN_LOCK_IDLE_MS_RANGE,
+  MAX_LIVE_AGENTS_RANGE,
   SHARED_DIRS_MAX,
   entryPathSchema,
   type HostSettings,
@@ -23,10 +30,17 @@ export interface SettingsDraft {
   readonly agentLockTimeoutSec: string;
   readonly diskReserveGb: string;
   readonly diskReservePercent: string;
+  readonly maxLiveAgents: string;
+  readonly escalateAfterMin: string;
+  /** A switch, not typed text. */
+  readonly agentMcp: boolean;
 }
 
-export type SettingsField = keyof SettingsDraft;
+/** The fields the host types (everything but the switch). */
+export type SettingsField = Exclude<keyof SettingsDraft, 'agentMcp'>;
 export type SettingsErrors = Partial<Record<SettingsField, string>>;
+
+const MINUTE = 60_000;
 
 export interface ParsedSettings {
   /** Only the fields that differ from the current settings. */
@@ -46,6 +60,9 @@ export function draftFromSettings(settings: HostSettings): SettingsDraft {
     agentLockTimeoutSec: formatNumber(settings.agentLockTimeoutMs / 1000),
     diskReserveGb: formatNumber(settings.diskReserveBytes / GIB),
     diskReservePercent: formatNumber(settings.diskReservePercent),
+    maxLiveAgents: String(settings.maxLiveAgents),
+    escalateAfterMin: formatNumber(settings.escalateAfterMs / MINUTE),
+    agentMcp: settings.agentMcp,
   };
 }
 
@@ -80,6 +97,16 @@ function parseNumber(text: string, min: number, max: number): { value: number } 
   if (!NUMBER.test(trimmed)) return { error: t('settings.error.number') };
   const value = Number(trimmed);
   if (!Number.isFinite(value) || value < min || value > max) return { error: t('settings.error.range', { min, max }) };
+  return { value };
+}
+
+/** A whole number within [min, max], or the problem. */
+function parseInteger(text: string, min: number, max: number): { value: number } | { error: string } {
+  const trimmed = text.trim();
+  if (trimmed === '') return { error: t('settings.error.required') };
+  if (!/^\d+$/.test(trimmed)) return { error: t('settings.error.integer', { min, max }) };
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value) || value < min || value > max) return { error: t('settings.error.integer', { min, max }) };
   return { value };
 }
 
@@ -127,6 +154,19 @@ export function parseSettingsDraft(draft: SettingsDraft, current: HostSettings):
   const reservePercent = parseNumber(draft.diskReservePercent, 0, 100);
   if ('error' in reservePercent) errors.diskReservePercent = reservePercent.error;
   else if (formatNumber(reservePercent.value) !== formatNumber(current.diskReservePercent)) patch.diskReservePercent = reservePercent.value;
+
+  const liveAgents = parseInteger(draft.maxLiveAgents, MAX_LIVE_AGENTS_RANGE.min, MAX_LIVE_AGENTS_RANGE.max);
+  if ('error' in liveAgents) errors.maxLiveAgents = liveAgents.error;
+  else if (liveAgents.value !== current.maxLiveAgents) patch.maxLiveAgents = liveAgents.value;
+
+  const escalate = parseNumber(draft.escalateAfterMin, ESCALATE_AFTER_MS_RANGE.min / MINUTE, ESCALATE_AFTER_MS_RANGE.max / MINUTE);
+  if ('error' in escalate) errors.escalateAfterMin = escalate.error;
+  else {
+    const ms = Math.round(escalate.value * MINUTE);
+    if (ms !== current.escalateAfterMs) patch.escalateAfterMs = ms;
+  }
+
+  if (draft.agentMcp !== current.agentMcp) patch.agentMcp = draft.agentMcp;
 
   return { patch, errors };
 }

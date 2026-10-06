@@ -1,8 +1,9 @@
-// "Send to agent" (SPEC R6): an editor selection becomes text for an agent session — a direct paste for those who may type
-// into sessions (the host and agent access, any session: `session.drive`), a suggestion for editors. The command carries the file and the line range with the code (the
-// suggest feature puts them in front of it: the agent only sees text), and the code is cleaned for the terminal: it
-// ends up in a PTY as a bracketed paste, where ESC or a C1 control could end the paste early and turn the rest into
-// keystrokes (the protocol refuses them anyway), and bidi overrides could make it read differently than it runs.
+// "Send to agent" (SPEC R6): an editor selection becomes text for an agent session: a message from those who may
+// message agents (the host and agent access, any session: `session.drive`), a suggestion from an editor. With
+// protocol 4 that is `session.message.send` / `suggest.create` with `origin: 'selection'`; the conversation feature
+// handles the command and sends it. The command carries the file and the line range with the code (the handler puts
+// them in front of it: the agent only reads text). The code is cleaned first: control characters could end up in a
+// shell command the agent copies, and bidi overrides could make it read differently than it runs.
 import { SUGGESTION_TEXT_MAX_CHARS, isSessionOver, type FileRef, type SessionInfo } from '@smurg/protocol';
 import type { Capabilities } from '../../lib/capabilities.ts';
 import type { CommandMap } from '../../lib/commands.ts';
@@ -51,7 +52,7 @@ function fenceFor(code: string): string {
 
 /**
  * The line above the quoted code: `path:12-20` (one line: `path:12`), with ` (worktree <id>)` for a file of a
- * worktree. Fixed, in no language: an agent reads it in the terminal and the host's audit log stores it.
+ * worktree. Fixed, in no language: an agent reads it and the host's audit log stores it.
  */
 export function selectionHeader(input: { file: FileRef; startLine: number; endLine: number }): string {
   const range = input.startLine === input.endLine ? `${input.startLine}` : `${input.startLine}-${input.endLine}`;
@@ -70,12 +71,12 @@ export type SelectionPayload =
   | { readonly ok: false; readonly problem: 'empty' | 'too-large' };
 
 /**
- * The command payload for a selection; `sessionId` undefined lets the suggest feature ask which session.
+ * The command payload for a selection; `sessionId` undefined lets the handler ask which session.
  *
- * The file and the line range travel as their own fields and `text` is the selected code itself (cleaned for a
- * terminal): the suggest feature, which handles the command, quotes it under `<path>:<range>` in a fence for a
- * suggestion and pastes it into one's own session. Pre-quoting here would quote it twice. The size bound is taken on
- * the quoted form (formatSelectionForAgent), which is what a suggestion ends up carrying.
+ * The file and the line range travel as their own fields and `text` is the selected code itself (cleaned): the
+ * conversation feature, which handles the command, quotes it under `<path>:<range>` in a fence. Pre-quoting here
+ * would quote it twice. The size bound is taken on the quoted form (formatSelectionForAgent), which is what the
+ * message or suggestion ends up carrying.
  */
 export function buildSelectionPayload(file: FileRef, selection: EditorSelection | null, selectedText: string, sessionId?: string): SelectionPayload {
   if (selection === null || isEmptySelection(selection) || selectedText.trim() === '') return { ok: false, problem: 'empty' };
@@ -86,21 +87,21 @@ export function buildSelectionPayload(file: FileRef, selection: EditorSelection 
 }
 
 export interface SessionTargets {
-  /** Running agent sessions the member types into (the host and agent access: every one): the selection goes straight in. */
+  /** Running agent sessions the member messages directly (the host and agent access: every one). */
   readonly own: readonly SessionInfo[];
-  /** Running agent sessions the member may only suggest to (an editor: other people's): someone who may type decides. */
+  /** Running agent sessions the member may only suggest to (an editor: every one); someone with agent access decides. */
   readonly others: readonly SessionInfo[];
 }
 
 /**
- * Where a selection may go. Terminals are never offered: pasted code would run as shell commands. Typing needs
- * `session.drive`; suggestions need `suggest.create` and never target one's own session (the daemon's rule).
+ * Where a selection may go. Terminals are never offered: pasted code would run as shell commands. A message needs
+ * `session.drive`; a suggestion needs `suggest.create`. (Protocol 4 has no "never to one's own session" rule: an
+ * editor opens no sessions.)
  */
-export function sessionTargets(sessions: readonly SessionInfo[], userId: string | null, caps: Pick<Capabilities, 'can' | 'canDrive'>): SessionTargets {
+export function sessionTargets(sessions: readonly SessionInfo[], caps: Pick<Capabilities, 'can' | 'canDrive'>): SessionTargets {
   const running = sessions.filter((session) => session.kind === 'agent' && !isSessionOver(session));
-  if (userId === null) return { own: [], others: [] };
   if (caps.canDrive) return { own: running, others: [] };
-  return { own: [], others: caps.can('suggest.create') ? running.filter((session) => session.openedBy.userId !== userId) : [] };
+  return { own: [], others: caps.can('suggest.create') ? running : [] };
 }
 
 /** Whether the "Send to agent" action is offered at all for this role. */

@@ -5,7 +5,9 @@
 //   kind 0x01 CONTROL   UTF-8 JSON, at most CTL_CONTROL_MAX_BYTES: one request from the client, one response
 //   kind 0x02 ENVELOPE  one msgpack Envelope (at most MAX_APP_MESSAGE), both ways, only after a successful attach
 // The client's first frame is a CONTROL request; the daemon answers with exactly one CONTROL response.
-//   status → { ok, op: 'status', status } and the daemon closes the socket;
+//   status → { ok, op: 'status', status, webOrigin? } and the daemon closes the socket; `status` is the DaemonStatus,
+//            `webOrigin` the origin of the web app the daemon's links point to (an agent session is a conversation:
+//            `smurg attach` names the workspace's address there), absent when there is none (no relay);
 //   stop   → { ok, op: 'stop' }, the daemon closes the socket and stops (channels get channel.closed{stopped}); the
 //            request names no reason: the daemon's stop reason is always CTL_STOP_REASON (verification F-2);
 //   attach → { ok, op: 'attach', welcome }, then ENVELOPE frames until either side closes. The connection is a
@@ -15,7 +17,7 @@
 // Anything else (unknown kind, oversized frame, invalid JSON, a second request) ends the connection.
 // There is no Noise: the socket is 0600 inside the 0700 run dir, so only the host's OS account can connect.
 import { z } from 'zod';
-import { MAX_APP_MESSAGE, errorPayloadSchema, opaqueIdSchema, seqSchema, shortTextSchema, welcomeSchema } from '@smurg/protocol';
+import { MAX_APP_MESSAGE, errorPayloadSchema, loginStateSchema, opaqueIdSchema, projectSettingsStateSchema, seqSchema, shortTextSchema, welcomeSchema } from '@smurg/protocol';
 import type { DaemonStatus } from '../core/interfaces.ts';
 
 export const CTL_PROTOCOL_VERSION = 1;
@@ -82,13 +84,51 @@ export const daemonStatusSchema = z.strictObject({
   relayUrl: z.string().max(2_048).nullable().optional(),
   switches: z.strictObject({ attributeBashEdits: z.boolean() }).optional(),
   isGitRepo: z.boolean().optional(),
+  // What `smurg status` shows about agents (protocol 4). Each is absent while the daemon has nothing to say about it:
+  // `claude` before the daemon's first check of Claude Code (the first agent session), the others while their module
+  // is not composed.
+  claude: z
+    .strictObject({
+      /** As `claude --version` printed it; null: it printed no version the daemon could read. */
+      version: z.string().max(64).nullable(),
+      verdict: z.enum(['verified', 'unverified', 'too-old', 'unknown']),
+      login: loginStateSchema,
+    })
+    .optional(),
+  /** Agent sessions that have not ended. `stalled`: stopped without a report, or failed. */
+  agents: z.strictObject({ running: count, waiting: count, stalled: count, idle: count }).optional(),
+  topics: z.strictObject({ total: count, paused: count }).optional(),
+  /** The trust state of the shared folder's project-level Claude Code settings. */
+  projectSettings: projectSettingsStateSchema.optional(),
+  /** How many of the host's own Claude Code allow rules apply to agent sessions. */
+  hostRules: z.strictObject({ count }).optional(),
 });
 
 /** A status as the control socket carries it (the fields added after 0.1.0 may be missing: an older daemon). */
 export type CtlStatus = z.infer<typeof daemonStatusSchema>;
 
+/** Longest `webOrigin` of a status response. */
+export const CTL_WEB_ORIGIN_MAX_CHARS = 2_048;
+
+/**
+ * The origin of the web app as a status response names it (config.webOrigin), or null when there is none to name: a
+ * daemon without a relay has the placeholder origin of resolveConfig (a name under `.invalid`, which never resolves:
+ * RFC 2606), and nothing but an http(s) origin is ever handed to a person to open.
+ */
+export function namedWebOrigin(webOrigin: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(webOrigin);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  if (url.hostname === 'invalid' || url.hostname.endsWith('.invalid')) return null;
+  return url.origin.length <= CTL_WEB_ORIGIN_MAX_CHARS ? url.origin : null;
+}
+
 export const ctlResponseSchema = z.union([
-  z.strictObject({ ok: z.literal(true), op: z.literal('status'), status: daemonStatusSchema }),
+  z.strictObject({ ok: z.literal(true), op: z.literal('status'), status: daemonStatusSchema, webOrigin: z.string().min(1).max(CTL_WEB_ORIGIN_MAX_CHARS).optional() }),
   z.strictObject({ ok: z.literal(true), op: z.literal('stop') }),
   z.strictObject({ ok: z.literal(true), op: z.literal('attach'), welcome: welcomeSchema }),
   z.strictObject({ ok: z.literal(false), error: errorPayloadSchema }),

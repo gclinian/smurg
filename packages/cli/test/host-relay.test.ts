@@ -23,10 +23,12 @@ import {
   type PowerService,
   type PowerStatus,
 } from '@smurg/daemon';
+import { buildAgentSession, fakesModule, fakesOf } from '@smurg/daemon/fakes';
 import { MemoryRelay, TestIdentityIssuer, waitFor } from '@smurg/daemon/testing';
 import { toHex, utf8Encode } from '@smurg/protocol';
 import xtermHeadless from '@xterm/headless';
 import { runCli } from '../src/cli/run.ts';
+import { formatFailure } from '../src/cli/errors.ts';
 import { runAttach } from '../src/commands/attach.ts';
 import { commandContext } from '../src/commands/context.ts';
 import { renderText } from '../src/i18n/index.ts';
@@ -34,7 +36,7 @@ import { hostUsage, inviteHeading, runHost } from '../src/commands/host.ts';
 import { LocalWorkspaceChannel } from '../src/channel/local-channel.ts';
 import { statePaths } from '../src/state/paths.ts';
 import { loadCredentials, saveSession } from '../src/state/credentials.ts';
-import { rememberSharedFolder } from '../src/state/workspaces.ts';
+import { loadWorkspaces, rememberSharedFolder } from '../src/state/workspaces.ts';
 import type { UpdateNoticeDeps } from '../src/update/notice.ts';
 import { startDownloads } from './downloads-server.ts';
 import { browserOpening, startFakeRelay, type FakeRelay } from './fake-relay.ts';
@@ -315,6 +317,30 @@ describe('smurg host', () => {
     expect(await g.done).toBe(0);
   });
 
+  it('a stop says how many agent sessions are paused, after "Stopped sharing." (their conversations stay); nothing more when there are none (DESIGN v0.5.0 §6)', async () => {
+    // Ctrl-C: the count is taken as the stop begins, before the agent module stops.
+    const h = await startHost([], [fakesModule()], undefined, { loggedIn: true });
+    const agents = fakesOf(h.daemon.ctx).agents;
+    for (const [index, status] of (['running', 'waiting-permission', 'idle', 'ended'] as const).entries()) agents.adopt(buildAgentSession({ id: `ses_host_agent_${index}`, status, createdAt: index + 1 }));
+    h.io.signal('SIGINT');
+    expect(await h.done).toBe(0);
+    expect(h.io.out().endsWith('\nReceived SIGINT; stopping the share...\nStopped sharing.\n3 agent sessions are paused. They continue when you share this folder again.\n')).toBe(true);
+    // `smurg stop` from another terminal: both terminals say it.
+    const g = await startHost([], [fakesModule()], undefined, { loggedIn: true, env: { SMURG_LANG: 'zh-TW' } });
+    fakesOf(g.daemon.ctx).agents.adopt(buildAgentSession({ id: 'ses_host_agent_only', status: 'idle' }));
+    const stopper = testIo({ env: { HOME: g.dirs.home, SMURG_HOME: g.dirs.stateDir } });
+    expect(await runCli(['stop'], stopper)).toBe(0);
+    expect(stopper.out().endsWith('Stopped sharing.\n1 agent session is paused. It continues when you share this folder again.\n')).toBe(true);
+    expect(await g.done).toBe(0);
+    expect(g.io.out().endsWith('\n收到停止要求（smurg stop），正在停止分享…\n已停止分享。\n1 個 agent session 已暫停，下次分享這個資料夾時會繼續。\n')).toBe(true);
+    // No agent session (or none that has not ended): the stop ends as it always did.
+    const none = await startHost([], [fakesModule()], undefined, { loggedIn: true });
+    fakesOf(none.daemon.ctx).agents.adopt(buildAgentSession({ id: 'ses_host_agent_ended', status: 'ended' }));
+    none.io.signal('SIGINT');
+    expect(await none.done).toBe(0);
+    expect(none.io.out().endsWith('\nReceived SIGINT; stopping the share...\nStopped sharing.\n')).toBe(true);
+  });
+
   // Verification F-2 (2026-10-02): any process of the host's OS account reaches the control socket (every session of
   // a member with agent access). It used to choose the daemon's stop reason, and this command took 'start-failed' /
   // 'summary-failed' for its own stops: the daemon stopped while the host's terminal still said to press Ctrl-C.
@@ -581,7 +607,9 @@ describe('smurg attach through the relay (guest, CLI device key)', () => {
     await waitFor(() => terminal.text().includes('hello from the host'), { what: 'the snapshot on the guest terminal', timeoutMs: 15_000 });
     expect(terminal.rawMode).toBe(true);
     expect(guest.out()).toContain('Attaching to session "Terminal (Ian)" (opened by Ian). Press Ctrl-] to leave.');
-    expect(guest.out()).toContain('Read-only: Ian opened this session, and your role cannot type into sessions');
+    expect(guest.out()).toContain('Read-only: Ian opened this terminal session, and your role cannot type into terminal sessions. Press Ctrl-] to leave.');
+    // Suggestions are for agent sessions (protocol 4): the notice of a terminal no longer points at them.
+    expect(guest.out()).not.toContain('suggestion');
     expect(terminal.text()).toContain('smurg: Terminal (Ian) - read-only'); // the window title says it too
     terminal.type('rm -rf important\r');
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -611,6 +639,54 @@ describe('smurg attach through the relay (guest, CLI device key)', () => {
     expect(await runAttach([], commandContext(later), { relayFor })).toBe(0);
     expect(later.out()).toContain(session.id);
     expect(h.daemon.ctx.members.devicesOf('dev:amy')).toHaveLength(1);
+  });
+
+  it('agent sessions through the relay: listed with the workspace\'s address in the web app (the invite link\'s origin, remembered for later joins) and refused as the session to attach (exit 2)', async () => {
+    // A development setup: the links point at the web app's own origin, the relay is elsewhere.
+    const h = await startHost(['--role', 'editor', '--web-origin', 'http://localhost:5173']);
+    h.echo.addAgent(buildAgentSession({ id: 'ses_relay_talk', purpose: 'discussion', topicId: 'tp_checkout', topicName: 'Checkout', status: 'waiting-answer', modeFixed: true }));
+    const guestDirs = await makeDirs();
+    cleanups.push(() => guestDirs.cleanup());
+    const guestEnv = { HOME: guestDirs.home, SMURG_HOME: guestDirs.stateDir };
+    const relayFor = async (): Promise<ReturnType<MemoryRelay['apiFor']>> => h.memory.apiFor({ userId: 'dev:amy', displayName: 'Amy' }, h.issuer);
+    const address = `http://localhost:5173/w/${h.workspaceId}`;
+    const sentence = `Agent conversations open in the browser: ${address}`;
+
+    const first = testIo({ env: guestEnv });
+    expect(await runAttach(['--invite', h.links.invite, '--relay', h.relay.origin], commandContext(first), { relayFor })).toBe(0);
+    expect(first.out()).toContain('This workspace has no terminal sessions.\n');
+    expect(first.out()).toMatch(/\nses_relay_talk\s+waiting for an answer\s+Checkout\s+Discussion\n/);
+    expect(first.out().endsWith(`\n${sentence}\n`)).toBe(true);
+    expect(first.out()).not.toContain('Attach with smurg attach');
+    // The web app's origin is remembered with the join, because it is not the relay.
+    expect((await loadWorkspaces(statePaths(guestEnv))).joined).toMatchObject([{ workspaceId: h.workspaceId, relay: h.relay.origin, web: 'http://localhost:5173' }]);
+
+    // Later, without the invite (the pinned key): the same address; naming the conversation as the session is refused.
+    const later = testIo({ env: guestEnv });
+    expect(await runAttach([], commandContext(later), { relayFor })).toBe(0);
+    expect(later.out().endsWith(`\n${sentence}\n`)).toBe(true);
+    const terminal = fakeTerminal();
+    const refused = await runAttach(['ses_relay', '--workspace', h.workspaceId], commandContext(testIo({ env: guestEnv, terminal })), { relayFor }).then(
+      () => null,
+      (err: unknown) => formatFailure(err, 'en'),
+    );
+    expect(refused).toEqual({ text: `smurg: Session "Discussion" is an agent conversation, not a terminal\n  ${sentence}\n`, exitCode: 2 });
+    expect(terminal.rawModeHistory).toEqual([]);
+
+    // The usual setup: the relay serves the web app, so the address is the relay's and nothing more is remembered.
+    const g = await startHost(['--role', 'viewer']);
+    g.echo.addAgent(buildAgentSession({ id: 'ses_relay_free', openedBy: { userId: g.relay.loginAs.userId, displayName: g.relay.loginAs.displayName }, status: 'idle' }));
+    const otherDirs = await makeDirs();
+    cleanups.push(() => otherDirs.cleanup());
+    const otherEnv = { HOME: otherDirs.home, SMURG_HOME: otherDirs.stateDir };
+    const viewer = testIo({ env: otherEnv });
+    const viewerRelay = async (): Promise<ReturnType<MemoryRelay['apiFor']>> => g.memory.apiFor({ userId: 'dev:vic', displayName: 'Vic' }, g.issuer);
+    expect(await runAttach(['--invite', g.links.invite], commandContext(viewer), { relayFor: viewerRelay })).toBe(0);
+    expect(viewer.out()).toMatch(/\nses_relay_free\s+idle\s+No topic\s+Claude \(Ian\)\n/);
+    expect(viewer.out().endsWith(`\nAgent conversations open in the browser: ${g.relay.origin}/w/${g.workspaceId}\n`)).toBe(true);
+    const joined = (await loadWorkspaces(statePaths(otherEnv))).joined;
+    expect(joined).toHaveLength(1);
+    expect(joined[0]).not.toHaveProperty('web');
   });
 
   it('a member with agent access types into a session the host opened (session.drive, §11 D-15): no read-only notice, the keys arrive; only the owner drives its size', async () => {

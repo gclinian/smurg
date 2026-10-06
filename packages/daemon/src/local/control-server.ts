@@ -78,6 +78,11 @@ export interface ControlServerOptions {
   readonly pidPath?: string;
   /** The only user a local attach is for (config.hostUserId); attachLocal re-checks it. */
   readonly hostUserId: string;
+  /**
+   * The origin of the web app (./protocol.ts namedWebOrigin), sent with every `status` answer: an agent session is a
+   * conversation, and `smurg attach` tells the person where the workspace opens. null: there is none to name.
+   */
+  readonly webOrigin?: string | null;
   readonly lifecycle: DaemonLifecycle;
   readonly log: Logger;
   /**
@@ -204,7 +209,7 @@ class ControlConnection {
           this.respondAndEnd({ ok: false, error: toErrorPayload(err) });
           return;
         }
-        this.respondAndEnd({ ok: true, op: 'status', status });
+        this.respondAndEnd({ ok: true, op: 'status', status, ...(server.webOrigin === null ? {} : { webOrigin: server.webOrigin }) });
         return;
       }
       case 'stop': {
@@ -341,6 +346,7 @@ function toErrorPayload(err: unknown): ErrorPayload {
 export class ControlServer {
   readonly path: string;
   readonly hostUserId: string;
+  readonly webOrigin: string | null;
   readonly lifecycle: DaemonLifecycle;
   readonly log: Logger;
   readonly limits: ControlServerLimits;
@@ -356,6 +362,7 @@ export class ControlServer {
   constructor(options: ControlServerOptions) {
     this.path = options.path;
     this.hostUserId = options.hostUserId;
+    this.webOrigin = options.webOrigin ?? null;
     this.lifecycle = options.lifecycle;
     this.log = options.log;
     this.limits = Object.freeze({ ...DEFAULT_CONTROL_LIMITS, ...options.limits });

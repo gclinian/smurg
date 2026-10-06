@@ -2,7 +2,23 @@
 // unified diff (cut at a file boundary when it exceeds the message limit), one file's diff on demand, and the policy
 // every merge request not made by the host must pass. All of it runs on the MAIN repository, on fixed object ids; nothing here
 // reads the worktree's files, so a symlink in a worktree is only ever a git object here, never followed.
-import { MERGE_DIFF_MAX_BYTES, MERGE_FILES_MAX, SmurgError, isHostOnlyPath, isSmurgDirName, relPathSegments, truncateToUtf8Bytes, type ResultInputOf } from '@smurg/protocol';
+//
+// Every member reads these diffs (protocol 4: a result report shows its changes). They are made from git objects, past
+// PathGuard, so two things PathGuard and the conversation do elsewhere are done here: a file on a host-private path is
+// withheld from everyone but the host (listed as hidden, absent from the diff text), and every diff text passes mask().
+import {
+  MERGE_DIFF_MAX_BYTES,
+  MERGE_FILES_MAX,
+  SmurgError,
+  isHostOnlyPath,
+  isHostPrivatePath,
+  isSmurgDirName,
+  mask,
+  relPathSegments,
+  topicFileKind,
+  truncateToUtf8Bytes,
+  type ResultInputOf,
+} from '@smurg/protocol';
 import { msg, type GitStep } from '@smurg/protocol/i18n';
 import { firstLine, listedPaths, requireOk, type GitRunner } from './git.ts';
 import { cutAtFileBoundary, diffText, parseNumstat, parseRawDiff, type GitPath, type RawDiffEntry } from './git-parse.ts';
@@ -105,6 +121,65 @@ export async function unifiedDiff(repo: MainRepo, base: string, commit: string, 
   return fitDiff(result.stdout, result.truncated);
 }
 
+/**
+ * Whether a file of a request is withheld from everyone but the host: it lies on a host-private path (`.envrc`,
+ * `.claude/settings.local.json`, `CLAUDE.local.md`, inside a `.git`) under its new or its old name. PathGuard keeps
+ * such a file from every other member through file.*; a diff made from git objects must not hand it out instead.
+ */
+export function isWithheldFile(file: MergeDiffFile): boolean {
+  return isHostPrivatePath(file.path) || (file.oldPath !== undefined && isHostPrivatePath(file.oldPath));
+}
+
+/** How a withheld file is listed: its name and status, no counts, `hidden`. */
+export function withheldEntry(file: MergeDiffFile): MergeDiffFile {
+  return { path: file.path, status: file.status, additions: 0, deletions: 0, ...(file.oldPath !== undefined ? { oldPath: file.oldPath } : {}), hidden: true };
+}
+
+const GROUP_MAX_PATHS = 200;
+const GROUP_MAX_PATH_BYTES = 96 * 1024;
+
+/** `files` as pathspec groups one git command line can carry; both names of a rename stay in one group. */
+function pathGroups(files: readonly ReviewFile[]): string[][] {
+  const groups: string[][] = [];
+  let group: string[] = [];
+  let bytes = 0;
+  for (const file of files) {
+    const names = file.oldPath ? [file.oldPath.raw, file.path.raw] : [file.path.raw];
+    const size = names.reduce((sum, name) => sum + Buffer.byteLength(name) + 1, 0);
+    if (group.length > 0 && (group.length + names.length > GROUP_MAX_PATHS || bytes + size > GROUP_MAX_PATH_BYTES)) {
+      groups.push(group);
+      group = [];
+      bytes = 0;
+    }
+    group.push(...names);
+    bytes += size;
+  }
+  if (group.length > 0) groups.push(group);
+  return groups;
+}
+
+/**
+ * The unified diff of exactly `files` (the list of a request minus what is withheld from this reader), in the list's
+ * order, cut like unifiedDiff. Each file is named to git as a literal path after `--` (GIT_LITERAL_PATHSPECS), so
+ * nothing outside the list can appear, whatever a file is called.
+ */
+export async function unifiedDiffOfFiles(repo: MainRepo, base: string, commit: string, files: readonly ReviewFile[], timeoutMs: number): Promise<{ diff: string; truncated: boolean }> {
+  const parts: Buffer[] = [];
+  let total = 0;
+  let truncated = false;
+  for (const group of pathGroups(files)) {
+    const result = await repo.git.run({ gitDir: repo.gitDir, args: [...DIFF_ARGS, base, commit, '--', ...group], readOnly: true, maxStdoutBytes: MERGE_DIFF_MAX_BYTES + 1 - total, timeoutMs });
+    if (!result.truncated) requireOk(result, 'diff');
+    parts.push(result.stdout);
+    total += result.stdout.length;
+    if (result.truncated || total > MERGE_DIFF_MAX_BYTES) {
+      truncated = true;
+      break;
+    }
+  }
+  return fitDiff(Buffer.concat(parts), truncated);
+}
+
 /** One file of the list (a rename shows both names), cut at MERGE_DIFF_MAX_BYTES. */
 export async function singleFileDiff(repo: MainRepo, base: string, commit: string, file: ReviewFile, timeoutMs: number): Promise<{ diff: string; truncated: boolean }> {
   const paths = file.oldPath ? [file.oldPath.raw, file.path.raw] : [file.path.raw];
@@ -122,9 +197,17 @@ function fitDiff(bytes: Buffer, truncatedByGit: boolean): { diff: string; trunca
 }
 
 function finishText(bytes: Uint8Array, truncated: boolean): { diff: string; truncated: boolean } {
-  const text = diffText(bytes);
-  // Invalid bytes become U+FFFD (3 bytes each): the text can outgrow the byte limit it was cut at.
-  const fitted = truncateToUtf8Bytes(text, MERGE_DIFF_MAX_BYTES);
+  return maskedDiffText(bytes, MERGE_DIFF_MAX_BYTES, truncated);
+}
+
+/**
+ * Diff bytes as the text a message carries: decoded, through mask() (what looks like a credential never leaves in a
+ * diff), then fitted to `maxBytes`. Invalid bytes become U+FFFD (3 bytes each) and a masked value can be longer than
+ * what it replaces, so the text can outgrow the byte limit it was cut at: it is cut again, and says so.
+ */
+export function maskedDiffText(bytes: Uint8Array, maxBytes: number, truncated: boolean): { diff: string; truncated: boolean } {
+  const text = mask(diffText(bytes));
+  const fitted = truncateToUtf8Bytes(text, maxBytes);
   return { diff: fitted, truncated: truncated || fitted.length !== text.length };
 }
 
@@ -203,25 +286,42 @@ async function symlinkTargets(repo: MainRepo, files: readonly ReviewFile[], time
 }
 
 export interface PolicyViolation {
-  readonly reason: 'daemon-dir' | 'host-only-paths' | 'unsafe-symlink';
+  readonly reason: 'daemon-dir' | 'host-only-paths' | 'spec-files' | 'unsafe-symlink';
   readonly paths: string[];
+}
+
+export interface MergePolicyOptions {
+  /** A request the host made (and reviews and merges): only the daemon's own directory is refused. */
+  readonly requesterIsHost: boolean;
+  /** The changes of a work item of this topic: they may not touch the topic's SPEC.md or PLAN.md. */
+  readonly topicSlug?: string;
+  readonly timeoutMs: number;
 }
 
 /**
  * What a merge request may not carry into the main workspace (fail closed):
  *  - anything under `<share>/.smurg` (the daemon's directory: other worktrees, partial uploads) — for everyone;
- *  - host-only paths of ARCHITECTURE §5.2 (`.claude/`, `.mcp.json`, `.envrc`, `.vscode/`, …, at any depth) unless
- *    the requester is the host: the host's unsandboxed agent loads them, so a merge must not do what file.* refuses;
+ *  - host-only paths of ARCHITECTURE §5.2 (`.claude/`, `.mcp.json`, `.envrc`, `.vscode/`, `CLAUDE.md`, …, at any
+ *    depth) unless the requester is the host: the host's unsandboxed agent loads them, so a merge must not do what
+ *    file.* refuses;
+ *  - a work item's changes to its topic's `SPEC.md` or `PLAN.md`, unless the requester is the host: every other item
+ *    starts from exactly the two files a member confirmed in the Start dialog (ARCHITECTURE §5.10), and no execution
+ *    agent edits them;
  *  - symlinks that point outside the repository, unless the requester is the host.
  */
-export async function checkMergePolicy(repo: MainRepo, files: readonly ReviewFile[], requesterIsHost: boolean, timeoutMs: number): Promise<PolicyViolation | null> {
+export async function checkMergePolicy(repo: MainRepo, files: readonly ReviewFile[], options: MergePolicyOptions): Promise<PolicyViolation | null> {
   const names = (entry: ReviewFile): string[] => [entry.file.path, ...(entry.file.oldPath !== undefined ? [entry.file.oldPath] : [])];
   const daemonDir = files.flatMap(names).filter((path) => isSmurgDirName(relPathSegments(path)[0] ?? ''));
   if (daemonDir.length > 0) return { reason: 'daemon-dir', paths: daemonDir };
-  if (requesterIsHost) return null;
+  if (options.requesterIsHost) return null;
   const hostOnly = files.flatMap(names).filter((path) => isHostOnlyPath(path));
   if (hostOnly.length > 0) return { reason: 'host-only-paths', paths: hostOnly };
-  const targets = await symlinkTargets(repo, files, timeoutMs);
+  const topicSlug = options.topicSlug;
+  if (topicSlug !== undefined) {
+    const specFiles = files.flatMap(names).filter((path) => topicFileKind(path, topicSlug) !== null);
+    if (specFiles.length > 0) return { reason: 'spec-files', paths: specFiles };
+  }
+  const targets = await symlinkTargets(repo, files, options.timeoutMs);
   const unsafe = [...targets.entries()].filter(([path, target]) => target === null || symlinkEscapes(path, target)).map(([path]) => path);
   if (unsafe.length > 0) return { reason: 'unsafe-symlink', paths: unsafe };
   return null;
@@ -235,6 +335,8 @@ export function policyError(violation: PolicyViolation): SmurgError {
       return new SmurgError('host_only', msg('merge.containsSmurgDir', { paths }), { reason: 'daemon-dir', paths: sample, count: violation.paths.length });
     case 'host-only-paths':
       return new SmurgError('host_only', msg('merge.containsHostOnly', { paths }), { reason: 'host-only-paths', paths: sample, count: violation.paths.length });
+    case 'spec-files':
+      return new SmurgError('host_only', msg('report.changes.specFiles'), { reason: 'spec-files', paths: sample, count: violation.paths.length });
     case 'unsafe-symlink':
       return new SmurgError('conflict', msg('merge.unsafeSymlinks', { paths }), { reason: 'unsafe-symlink', paths: sample, count: violation.paths.length });
   }

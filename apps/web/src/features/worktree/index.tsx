@@ -1,29 +1,19 @@
-// The worktree feature's workbench slots (SPEC R9, ARCHITECTURE §5.7): <WorktreeSwitcher /> at the top of the left
-// sidebar (main workspace or any worktree, with owner and branch) and <MergeRequestsPanel /> as the "Merge requests" tab of
-// the bottom drawer (request a merge, review the complete diff, approve or reject). The host console shows the same
-// MergeRequestsSection.
-import { useMember } from '../../lib/workspace/context.tsx';
-import { MergeRequestsSection } from './MergeRequests.tsx';
+// The worktree feature (SPEC R9, ARCHITECTURE §5.7): <WorktreeSwitcher /> at the top of code mode's file sidebar (main
+// workspace or any worktree, with owner and branch); <MergeRequestsSection /> for the host console (request a merge,
+// review the complete diff, approve or reject); and the review pieces the sessions view mounts: a result report's
+// changed files (<ChangedFiles />), the host's "Merge…" (<MergeReviewDialog />) and the body of a Changes column
+// (<MergeReviewPanel />). In the sessions view a merge request is an inbox item, not a panel.
 import { WorktreeSwitcherView } from './Switcher.tsx';
-import { useMergeResultNotices } from './use-merge-notices.ts';
 import './worktree.css';
 
+export { ChangedFiles, type ChangedFilesProps } from './ChangedFiles.tsx';
 export { MergeRequestsSection, type MergeRequestsSectionProps } from './MergeRequests.tsx';
+export { MergeReviewDialog, MergeReviewPanel, type MergeReviewDialogProps, type MergeReviewPanelProps } from './MergeReview.tsx';
+export { RequestMergeDialog, type RequestMergeDialogProps } from './RequestMergeDialog.tsx';
+export { isDecidable, requestStatusLabel, requestStatusTone } from './labels.ts';
 
 export type WorktreeSwitcherProps = Record<never, never>;
 
 export function WorktreeSwitcher(_props: WorktreeSwitcherProps) {
   return <WorktreeSwitcherView />;
-}
-
-export type MergeRequestsPanelProps = Record<never, never>;
-
-export function MergeRequestsPanel(_props: MergeRequestsPanelProps) {
-  // The panel stays mounted in the workbench's drawer: the requester hears the host's decision wherever they are.
-  useMergeResultNotices(useMember()?.userId ?? null);
-  return (
-    <div className="worktree-panel">
-      <MergeRequestsSection />
-    </div>
-  );
 }

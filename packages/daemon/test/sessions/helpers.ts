@@ -1,8 +1,8 @@
-// TEST ONLY: fakes of the services the sessions module calls (hooks, locks, presence, activity, worktrees),
-// a fake `claude` executable, and a terminal VIEWER built like a real client (a headless xterm with the full set of
+// TEST ONLY: fakes of the services the sessions module calls (hooks, locks, presence, activity, worktrees) and a
+// terminal VIEWER built like a real client (a headless xterm with the full set of
 // query swallow-handlers, pty-packaging.md §6.2) that follows session.attach + exec.output + exec.resize.
 import { randomBytes } from 'node:crypto';
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import xtermHeadless from '@xterm/headless';
 import type { MemberNotification } from '@smurg/protocol';
@@ -35,6 +35,9 @@ export class FakeHooks implements HookServer {
   readonly socketPath = '/tmp/smurg-fake.hook';
   readonly registered = new Map<string, HookSessionRegistration>();
   readonly unregistered: string[] = [];
+  /** The launch profile of each process start, newest last. */
+  readonly profiles: { sessionId: string; profile: LaunchProfile }[] = [];
+  readonly reassigned: { sessionId: string; ownerUserId: string }[] = [];
   /** Set by fakeServicesModule: the launch files are written by the hooks module's real writer into this daemon. */
   ctx: DaemonContext | null = null;
 
@@ -51,6 +54,7 @@ export class FakeHooks implements HookServer {
   }
 
   reassignSession(sessionId: string, ownerUserId: string): void {
+    this.reassigned.push({ sessionId, ownerUserId });
     const registration = this.registered.get(sessionId);
     if (registration) this.registered.set(sessionId, { ...registration, ownerUserId });
   }
@@ -63,7 +67,8 @@ export class FakeHooks implements HookServer {
     const command = ctx.config.sessions.selfCommand;
     if (command === null) throw new Error('FakeHooks: no selfCommand');
     if (!ctx.roots.get(registration.root)) throw new Error('FakeHooks: unknown root');
-    return writeSessionFiles({ stateDir: ctx.config.stateDir, workspaceId: ctx.config.workspaceId, sessionId, settings: { command }, rolePrompt: launch.rolePrompt });
+    this.profiles.push({ sessionId, profile: launch });
+    return writeSessionFiles({ stateDir: ctx.config.stateDir, workspaceId: ctx.config.workspaceId, sessionId, settings: { command, profile: launch }, rolePrompt: launch.rolePrompt });
   }
 
   async removeSessionFiles(sessionId: string): Promise<void> {
@@ -131,6 +136,15 @@ export class FakeWorktrees {
   async releaseFromSession(worktreeId: string, sessionId: string, options: { readonly keep: boolean }): Promise<void> {
     this.released.push({ worktreeId, sessionId, keep: options.keep });
   }
+
+  get(worktreeId: string): { branch: string } | null {
+    return this.acquired.some((entry) => entry.worktreeId === worktreeId) ? { branch: `smurg/x/${worktreeId}` } : null;
+  }
+
+  readonly owners: { worktreeId: string; ownerUserId: string | null }[] = [];
+  async setOwner(worktreeId: string, owner: { userId: string | null }): Promise<void> {
+    this.owners.push({ worktreeId, ownerUserId: owner.userId });
+  }
 }
 
 export interface Fakes {
@@ -162,36 +176,6 @@ export function fakeServicesModule(fakes: Fakes): FeatureModule {
     },
     register: () => toDisposable(() => {}),
   };
-}
-
-/**
- * A fake `claude`: `--version` prints `version`, `auth status --json` reports logged in iff ANTHROPIC_API_KEY is set
- * (in the host environment the session got), `auth logout` is logged, anything else records its argv and waits (cat).
- */
-export async function writeFakeClaude(dir: string, version: string): Promise<{ path: string; logDir: string }> {
-  const logDir = join(dir, 'fake-claude-log');
-  await mkdir(logDir, { recursive: true });
-  const path = join(dir, 'claude');
-  const script = `#!/bin/sh
-LOG='${logDir}'
-case "$1" in
-  --version) echo "${version} (Claude Code)"; exit 0 ;;
-  auth)
-    if [ "$2" = "status" ]; then
-      if [ -n "$ANTHROPIC_API_KEY" ]; then echo '{"loggedIn":true,"authMethod":"api_key"}'; exit 0; fi
-      echo '{"loggedIn":false,"authMethod":"none"}'; exit 1
-    fi
-    if [ "$2" = "logout" ]; then echo logout >> "$LOG/logout.log"; exit 0; fi
-    exit 2 ;;
-esac
-{ for a in "$@"; do printf '%s\\n' "$a"; done; } > "$LOG/argv.$$"
-{ for v in ANTHROPIC_API_KEY SMURG_SESSION_TOKEN SMURG_HOOK_SOCKET SMURG_SESSION_ID CLAUDECODE CLAUDE_CODE_SAFE_MODE HOME CLAUDE_CONFIG_DIR; do eval "[ -n \\"\\\${$v+x}\\" ] && echo $v"; done; } > "$LOG/envnames.$$"
-printf 'FAKE-CLAUDE-READY %s\\n' "$$"
-exec cat
-`;
-  await writeFile(path, script);
-  await chmod(path, 0o755);
-  return { path, logDir };
 }
 
 // ---------------------------------------------------------------------------------------------------------------

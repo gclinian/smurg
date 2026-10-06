@@ -1,37 +1,49 @@
-// A small History-API router for the four routes of ARCHITECTURE §9. No framework: routes are a closed union, so a
+// A small History-API router for the routes of ARCHITECTURE §9. No framework: routes are a closed union, so a
 // component switches on `route.name` and TypeScript checks every case.
 //
-//   /                          landing + login
-//   /join/:workspaceId         invite acceptance (the fragment was already captured by boot/capture-invite.ts)
-//   /w/:workspaceId            workspace
-//   /w/:workspaceId/console    host console
+//   /                                    landing + login
+//   /join/:workspaceId                   invite acceptance (the fragment was already captured by boot/capture-invite.ts)
+//   /w/:workspaceId                      workspace: the sessions view (the main screen)
+//   /w/:workspaceId/code                 workspace: code mode (files, editor, terminal)
+//   /w/:workspaceId/console              host console
+//   /w/:workspaceId/console/:section     host console at one of its sections (what an inbox item of the host opens)
+//
+// The mode of a workspace is a route (DESIGN AD-12): a reload and the back button keep it.
+import { CONSOLE_SECTIONS, type ConsoleSection } from '@smurg/protocol';
 import { isWorkspaceId } from '@smurg/protocol/relay';
 import { createStore, type ReadableStore } from './store.ts';
 
 export type Route =
   | { readonly name: 'landing' }
   | { readonly name: 'join'; readonly workspaceId: string }
+  /** The sessions view. */
   | { readonly name: 'workspace'; readonly workspaceId: string }
-  | { readonly name: 'console'; readonly workspaceId: string }
+  /** Code mode. */
+  | { readonly name: 'code'; readonly workspaceId: string }
+  | { readonly name: 'console'; readonly workspaceId: string; readonly section?: ConsoleSection }
   | { readonly name: 'not-found'; readonly pathname: string };
 
 const JOIN = /^\/join\/([^/]+)\/?$/;
 const WORKSPACE = /^\/w\/([^/]+)\/?$/;
-const CONSOLE = /^\/w\/([^/]+)\/console\/?$/;
+const CODE = /^\/w\/([^/]+)\/code\/?$/;
+const CONSOLE = /^\/w\/([^/]+)\/console(?:\/([^/]+))?\/?$/;
 
-/** Strict: an invalid workspace id is not-found, never "repaired". */
+/** Strict: an invalid workspace id or an unknown console section is not-found, never "repaired". */
 export function parseRoute(pathname: string): Route {
   if (pathname === '/' || pathname === '') return { name: 'landing' };
   for (const [pattern, name] of [
     [JOIN, 'join'],
     [WORKSPACE, 'workspace'],
+    [CODE, 'code'],
     [CONSOLE, 'console'],
   ] as const) {
     const match = pattern.exec(pathname);
-    if (match) {
-      const workspaceId = match[1] as string;
-      return isWorkspaceId(workspaceId) ? { name, workspaceId } : { name: 'not-found', pathname };
-    }
+    if (!match) continue;
+    const workspaceId = match[1] as string;
+    if (!isWorkspaceId(workspaceId)) return { name: 'not-found', pathname };
+    if (name !== 'console' || match[2] === undefined) return { name, workspaceId };
+    const section = CONSOLE_SECTIONS.find((known) => known === match[2]);
+    return section === undefined ? { name: 'not-found', pathname } : { name, workspaceId, section };
   }
   return { name: 'not-found', pathname };
 }
@@ -44,8 +56,10 @@ export function routePath(route: Exclude<Route, { name: 'not-found' }>): string 
       return `/join/${route.workspaceId}`;
     case 'workspace':
       return `/w/${route.workspaceId}`;
+    case 'code':
+      return `/w/${route.workspaceId}/code`;
     case 'console':
-      return `/w/${route.workspaceId}/console`;
+      return route.section === undefined ? `/w/${route.workspaceId}/console` : `/w/${route.workspaceId}/console/${route.section}`;
   }
 }
 

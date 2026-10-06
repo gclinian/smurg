@@ -5,50 +5,76 @@ English | [繁體中文](README.zh-TW.md)
 [![CI](https://github.com/gclinian/smurg/actions/workflows/ci.yml/badge.svg)](https://github.com/gclinian/smurg/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-smurg is a real-time workspace for several people and several agents: you run `smurg host` on your own computer to
-share a project folder, your teammates open the invite link you send them, and you all edit the files together in a
-browser. Everyone also sees, live, what every Claude Code session is doing and can send it suggestions; teammates you
-fully trust (the Agent access role) can open agents on your computer too. The files and the agents stay on your
-computer, and the relay that forwards the data in between sees only end-to-end encrypted data. Product page:
-https://smurg.ai; documentation: https://smurg.ai/docs/; web app (the shared relay): https://app.smurg.ai.
+smurg is a real-time workspace for a team and its coding agents: you run `smurg host` on your own computer to share a
+project folder, your teammates open the invite link you send them, and you work on it together in a browser. The team
+discusses a topic with a Claude Code agent that asks multiple-choice questions, the agent writes a spec and a plan,
+one agent per work item carries the plan out, and people read each result report and mark it reviewed. The files and
+the agents stay on your computer, and the relay that forwards the data in between sees only end-to-end encrypted
+data. Product page: https://smurg.ai; documentation: https://smurg.ai/docs/; web app (the shared relay):
+https://app.smurg.ai.
 
-> **Status: prototype.** Developed and tested on macOS (Apple silicon); for other platforms and real accounts, see
-> "Not verified yet, and known limits" below. You are welcome to try it, but do not share a folder that holds
+> **Status: prototype.** Developed and tested on macOS (Apple silicon). The topics flow was verified against a
+> scripted stand-in for the model, not with a real Claude account: how a real model behaves in it may need tuning
+> (see "Not verified yet, and known limits" below). You are welcome to try it, but do not share a folder that holds
 > passwords, keys or personal data ([`docs/HOSTING.md`](docs/HOSTING.md) §4).
 
 ## What it can do
 
-- The host shares a folder with one command, which prints an invite link; teammates join with the link as a Viewer,
-  an Editor or with Agent access.
-- A file tree and an editor in the browser: several people edit together in real time, with automatic saving;
-  drag-and-drop uploads (resumable after a dropped connection), and downloads of a file or a whole folder (zip).
-- Real Claude Code on the host's computer. The host and teammates with agent access can open agent and terminal
-  sessions and type into any session; these sessions all run **as the host** (the host's Claude Code login, the
-  host's computer, no sandbox), so this role is only for people the host fully trusts
-  ([`docs/HOSTING.md`](docs/HOSTING.md) §5.1). Everyone sees every session live and can attach one to their own
-  terminal with `smurg attach`.
-- File locks for people and for agents: an agent cannot change a file someone is typing in, and a file an agent is
-  changing is read-only in the editor for the moment. Where the two overlap, what the person typed is kept and the
-  other side's version goes to the conflicts panel. The activity feed says who, or which agent, made each change.
-- Editors send suggestions to agents; the person who opened the session, the host or a teammate with agent access
-  accepts them, edits and accepts them, or rejects them.
-- An agent can work in its own git worktree; when it is done, the host reads the full diff before merging. A new
-  session runs in the main workspace or in a new worktree.
-- The host console: members, roles, invite links, sessions and the audit log; one click removes a member or ends a
-  session.
-- When the host's computer sleeps or goes offline, everyone sees "Host offline" within seconds.
-- The interface is in English and Traditional Chinese; everyone sees their own language
-  ([`docs/HOSTING.md`](docs/HOSTING.md) §1).
+- **Share a folder with one command.** The host gets an invite link; teammates join in a browser as a Viewer, an
+  Editor or with Agent access. Everyone sees their own language (English or Traditional Chinese).
+- **Topics: from a discussion to reviewed work.** A topic is a feature or a task.
+  - *Discuss*: everyone talks with one shared agent. It asks the team multiple-choice questions; everyone but Viewers
+    votes and comments, seeing each other's choices live, and the session's responsible person submits the answer.
+  - *Spec*: the agent writes `specs/<topic>/SPEC.md`. People edit it together in the browser or ask the agent to
+    revise it.
+  - *Plan*: the agent turns the spec into `PLAN.md`, a list of work items with their dependencies, and suggests who
+    is responsible for which item. People change the assignment, or choose that nobody is assigned and everyone
+    watches.
+  - *Execute*: Start opens one agent session per work item, each in its own git worktree. Agents edit there without
+    asking and ask before commands; a member with agent access allows a command once, or always for that kind.
+  - *Review*: each finished item has a result report (what was done, why, how it was verified, what to watch out
+    for, the diff). The responsible person asks follow-ups and presses "I've reviewed this"; the host merges.
+- **An inbox per person**: the questions you decide, open votes, permission requests, work that stopped, suggestions,
+  reports to review, merges, mentions. An item leaves when the thing is settled. What waits too long also reaches
+  the others who may settle it.
+- **Several things side by side**: up to four columns (a conversation, a spec, a plan, a result report), with the
+  inbox and the topic-grouped session list on the left.
+- **Roles that hold**: the host and members with agent access message agents directly; an Editor's message is a
+  suggestion that reaches the agent only when someone with agent access accepts it; Viewers watch. Sessions run **as
+  the host** (the host's Claude Code login, the host's computer, no sandbox), so Agent access is only for people the
+  host fully trusts ([`docs/HOSTING.md`](docs/HOSTING.md) §5.1).
+- **Code mode**, behind a switch: a file tree and a shared editor (several people type at once, saving is
+  automatic), uploads and downloads, plain terminal sessions (also from your own terminal with `smurg attach`), file
+  locks between people and agents, a conflicts panel, and an activity feed that says who, or which agent, made each
+  change.
+- **The host stays in charge**: only the host merges; the host console has members, roles, invite links, sessions,
+  settings and the audit log; agent sessions survive a restart of smurg as idle conversations, and nothing runs
+  again until someone continues it. When the host's computer sleeps or goes offline, everyone sees "Host offline"
+  within seconds.
 
 ## Not verified yet, and known limits
 
-- **Agent access has no isolation at all**: the sessions a teammate with this role opens run as the host on the
-  host's computer; they can run any command, read the host's home folder and use the host's Claude account (the cost
-  is the host's). smurg does not limit any of this: give the role only to people you fully trust
+- **The topics flow has not run with a real model.** Every test used a scripted stand-in for the model, and real
+  Claude Code only against a fake API; the developers used no real Claude account. Whether a real model asks its
+  questions as cards, writes the plan and the report in the checked format and proposes a sensible split is not
+  verified. smurg checks those formats itself, asks the agent to fix them and puts stopped work into an inbox
+  ([`docs/HOSTING.md`](docs/HOSTING.md) §10.8).
+- **Agent access has no isolation at all**: a teammate with this role can open a terminal and allow whatever an agent
+  asks to run, as the host on the host's computer; they can run any command, read the host's home folder and use
+  the host's Claude account (the cost is the host's). Give the role only to people you fully trust
   ([`docs/HOSTING.md`](docs/HOSTING.md) §5.1; [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §11 D-15, §12).
-- **Linux hosts**: every test (including Ctrl-C and resizing in a terminal) passes on Ubuntu 24.04 (an arm64 virtual
-  machine and x64 on GitHub Actions), but nobody has really hosted on Linux yet: real Claude Code has not run there,
-  and the installer has not run on a fresh Linux computer. Teammates can use any operating system (a browser).
+- **Whose Claude account**: every agent uses the host's Claude Code login, also when it works for a teammate.
+  Anthropic's terms do not allow making a personal subscription available to other people; for a group, the host
+  should log Claude Code in with an API key, a Team or Enterprise plan, or a cloud provider
+  ([`docs/HOSTING.md`](docs/HOSTING.md) §4).
+- **Every member reads every conversation**, including members who join later, and whatever an agent reads it may
+  repeat. Masking of well-known key formats is best effort.
+- **Requirements**: agent sessions need Claude Code 2.1.288 or later on the host's computer (an older one is
+  refused); carrying out work items needs the shared folder to be a git repository (git 2.42 or later). The host's
+  own Claude Code allow rules apply to agent sessions; the host is told once which.
+- **Linux hosts**: every test passes on Ubuntu 24.04 (an arm64 virtual machine and x64 on GitHub Actions), but nobody
+  has really hosted on Linux yet: real Claude Code has not run there, and the installer has not run on a fresh Linux
+  computer. Teammates can use any operating system (a browser).
 - **The macOS executables have no Apple Developer ID signature** (only an ad-hoc signature). Install with the line
   below: it checks the sha256 first, then removes macOS's quarantine flag. Only the Apple silicon executable is
   tested on the development machine; the Intel Mac and Linux executables are built by GitHub Actions on their own
@@ -56,8 +82,8 @@ https://smurg.ai; documentation: https://smurg.ai/docs/; web app (the shared rel
 - **The shared relay runs on Cloudflare's free plan**: everyone shares one daily quota, and when it is used up nobody
   can connect until 00:00 UTC ([`docs/HOSTING.md`](docs/HOSTING.md) §2). To avoid this limit, run your own relay
   ([`apps/relay/README.md`](apps/relay/README.md)).
-- Hosts need macOS or Linux (Windows is not supported). The features of the "launch" phase are not built yet, for
-  example the host running a teammate's command for them, and filters for the audit log.
+- Hosts need macOS or Linux (Windows is not supported). Not built: a terminal client for agent conversations
+  (`smurg attach` attaches terminal sessions only), comments on a section of a spec, cost or token figures.
 - Other known limits: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §12; the current state of every acceptance
   criterion: [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md).
 
@@ -76,10 +102,12 @@ matches that version's `SHA256SUMS`**. When `~/.local/bin` is not in your `PATH`
 shell's startup file (on macOS it is not there by default). It is the same on every platform: no `sudo`, no system
 packages. Details: [`docs/HOSTING.md`](docs/HOSTING.md) §1.
 
-- To run Claude Code in sessions, this computer also needs the `claude` command (2.1.220 or later), already logged
-  in: every agent session uses that login. Worktrees need the folder to be a git repository.
-- Update: `smurg update` (run `smurg stop` first while sharing). Uninstall: `smurg uninstall` lists and removes the
-  executable `~/.local/bin/smurg`, `~/.smurg` (logins, keys, workspace state) and the cache directory (macOS:
+- To run agents, this computer also needs the `claude` command (Claude Code 2.1.288 or later), already logged in:
+  every agent session uses that login. Carrying out work items needs the folder to be a git repository with at
+  least one commit.
+- Update: `smurg update` (run `smurg stop` first while sharing; read the changelog first: this version does not read
+  the workspace state of an earlier one). Uninstall: `smurg uninstall` lists and removes the executable
+  `~/.local/bin/smurg`, `~/.smurg` (logins, keys, workspace state, conversations) and the cache directory (macOS:
   `~/Library/Caches/smurg`; Linux: `~/.cache/smurg`); it never touches the `.smurg/` folder inside a project
   ([`docs/HOSTING.md`](docs/HOSTING.md) §9).
 
@@ -101,8 +129,10 @@ smurg host ~/projects/my-app     # share the folder; runs in the foreground, Ctr
    makes it an Agent access link: read [`docs/HOSTING.md`](docs/HOSTING.md) §5.1 first).
 3. Send the invite link to your teammates in a **private message**: the part after `#` is the secret, so never post
    it in public.
+4. Open your own link and choose "New topic": name the feature or task, and the discussion with the agent starts.
 
-Read [`docs/HOSTING.md`](docs/HOSTING.md) before you share (above all §4, "Before you share").
+Read [`docs/HOSTING.md`](docs/HOSTING.md) before you share (above all §4, "Before you share", and §5 on what agents
+may do on your computer).
 
 ## Quick start: teammates
 
@@ -110,25 +140,27 @@ Read [`docs/HOSTING.md`](docs/HOSTING.md) before you share (above all §4, "Befo
    have not been tested yet).
 2. Choose "Log in with Google". smurg uses the login only to know who you are and gets no access to your code; you do not
    need a Claude account.
-3. Check the workspace and who you are logged in as, then join.
+3. Check the workspace and who you are logged in as, then join. Your inbox on the left shows what waits for you: a
+   vote, a question to decide, a report to review.
 
-The full guide, written for people who have never used smurg or Claude Code (roles, editing together, file locks,
-suggestions, agent sessions, worktrees, leaving): [`docs/JOINING.md`](docs/JOINING.md). To watch sessions in your
-own terminal: install smurg as under "Install", run `smurg attach --invite -` and paste the invite link (JOINING
-§10).
+The full guide, written for people who have never used smurg or Claude Code (roles, the inbox and the columns,
+talking to agents, votes, topics from discussion to reviewed result, editing together, worktrees, leaving):
+[`docs/JOINING.md`](docs/JOINING.md). To attach a terminal session to your own terminal: install smurg as under
+"Install", run `smurg attach --invite -` and paste the invite link (JOINING §10).
 
 ## Documentation
 
 | Document | What is in it |
 |---|---|
-| [`docs/HOSTING.md`](docs/HOSTING.md) ([繁體中文](docs/zh-TW/HOSTING.md)) | Host guide: installing, logging in, the shared relay and your own, sharing, what to know before you share, the Agent access role and its risk, stopping, troubleshooting, updating and uninstalling |
-| [`docs/JOINING.md`](docs/JOINING.md) ([繁體中文](docs/zh-TW/JOINING.md)) | Guide for teammates, also for people new to smurg and Claude Code |
+| [`docs/HOSTING.md`](docs/HOSTING.md) ([繁體中文](docs/zh-TW/HOSTING.md)) | Host guide: installing, logging in, the shared relay and your own, sharing, what to know before you share, the Agent access role and its risk, what agents may do and your own Claude Code settings, stopping, troubleshooting, updating and uninstalling, topics from the host's side |
+| [`docs/JOINING.md`](docs/JOINING.md) ([繁體中文](docs/zh-TW/JOINING.md)) | Guide for teammates, also for people new to smurg and Claude Code: roles, the inbox, talking to agents, topics from discussion to reviewed result |
 | [`CHANGELOG.md`](CHANGELOG.md) ([繁體中文](docs/zh-TW/CHANGELOG.md)) | What changed in each version |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | The contracts between the packages (read the rules in §0 before you write code), where smurg deliberately differs from SPEC (§11), known limits (§12) |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | The terms smurg uses, in English and Traditional Chinese, and the style of its texts |
 | [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md) | Every acceptance criterion, its automated tests and its state |
 | [`docs/RELEASING.md`](docs/RELEASING.md) | For maintainers: deploying the shared relay, releasing a version, deploying smurg.ai, rolling back |
 | [`SPEC.md`](SPEC.md), [`docs/research/`](docs/research/) | The original requirements (Traditional Chinese); the technical checks done before the code was written |
+| [`docs/design/v0.5.0/`](docs/design/v0.5.0/) | The design of the topics flow as it was written: the owner's brief and decisions, the design, the interface and its mock |
 | [`apps/relay/README.md`](apps/relay/README.md) | The relay: routes, configuration, deploying it, running your own |
 | [`apps/site/README.md`](apps/site/README.md) | smurg.ai: content, redirects and deploying |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md) | How to contribute; how to report a vulnerability |
@@ -152,7 +184,8 @@ The rest is for developers.
 
 You need macOS or Linux, [Node.js](https://nodejs.org/) 22 LTS (22.18 or later) or 24 LTS, and git. nvm is the
 easiest way to install Node (`nvm install 22`); Node 25 is outside vitest's supported range and is not supported. To
-run Claude Code in sessions you also need the `claude` command (2.1.220 or later).
+run real agents you also need the `claude` command (2.1.288 or later); the tests and the local stack do not need it
+(they use a stand-in, see "Checks and common commands").
 
 ```sh
 git clone https://github.com/gclinian/smurg.git && cd smurg
@@ -178,12 +211,12 @@ Traditional Chinese counterpart; the terms are in [`docs/GLOSSARY.md`](docs/GLOS
 
 ```
 apps/
-  web/         React + Vite front end (Monaco, Yjs, xterm.js)
+  web/         React + Vite front end (the sessions view and code mode; Monaco, Yjs, xterm.js)
   relay/       Cloudflare Worker + Durable Objects (WorkspaceDO, TransferDO); it also serves the front end (app.smurg.ai)
   site/        the product page smurg.ai (static pages, plus a small Worker for redirects such as /install.sh)
 packages/
   protocol/    message schemas (zod), constants, roles, the Noise encrypted channel, the relay's control frames and routes, the shared message catalog
-  daemon/      the host's daemon (files, documents, file locks, PTY sessions, worktrees, hooks)
+  daemon/      the host's daemon (files, documents, file locks, terminal and agent sessions, conversations, topics, inbox, worktrees, hooks)
   cli/         the `smurg` command
 tests/
   e2e/         acceptance tests across packages (a real relay + daemon + headless clients)
@@ -207,7 +240,10 @@ pnpm dev:web                                # the front end's dev server http://
 node packages/cli/src/main.ts --version     # runs the CLI straight from source
 ```
 
-The tests never reach a network beyond 127.0.0.1 and never use a real account or credential.
+The tests never reach a network beyond 127.0.0.1 and never use a real account or credential. Agent sessions in the
+tests are driven by a stand-in for `claude` that follows a scripted scenario
+(`packages/daemon/src/testing/fake-claude.mjs`); the tests that run the real `claude` binary do so only against the
+repository's fake Anthropic API with a dummy key and an isolated configuration folder.
 
 **The gate**: `source scripts/env.sh && pnpm check`; do not change `TMPDIR`, and run only one at a time. The number
 of test files and tests a green run shows, how long it takes and the environments it was verified in are in
@@ -249,14 +285,14 @@ What it does, in order:
    then `smurg attach --invite - --relay http://localhost:8787` (paste the invite link when it asks). The invite link
    points at the web origin (:5173) while the CLI has to connect to the relay directly (:8787): logins are recorded
    per address, so without `--relay` the CLI asks for a separate login to :5173 and suggests `--relay`.
-4. On Ctrl-C: first lets `smurg host` stop properly (drops every connection, ends the sessions), then stops the web
-   server and the relay. Every child runs in its own process group, and the script only signals the process groups
+4. On Ctrl-C: first lets `smurg host` stop properly (drops every connection, ends the terminal sessions, pauses the
+   agent sessions), then stops the web server and the relay. Every child runs in its own process group, and the script only signals the process groups
    it started and recorded itself.
 
 `<dir>` defaults to `$TMPDIR/smurg-dev-stack`. `smurg` uses a fake `HOME` (`<dir>/home`) and its own `SMURG_HOME`
 there, so it never touches your `~/.smurg`, `~/.claude` or shell startup files; when the path of `SMURG_HOME` is too
 long for a Unix socket (104 bytes on macOS), it uses `/tmp/smurg-dev-<uid>-<hash>` instead. Before it ends, the
-script prints the command that attaches the host to a session on this computer
+script prints the command that attaches the host to a terminal session on this computer
 (`HOME=… SMURG_HOME=… node packages/cli/src/main.ts attach`).
 
 ### Keeping smurg from opening a browser
@@ -277,7 +313,7 @@ command.
 | Command | What it does |
 |---|---|
 | `smurg host <folder>` | Shares a folder (in the foreground) and prints two links: yours and the teammates' |
-| `smurg attach [session]` | Attaches a session to this terminal (lists the sessions when you name none); Ctrl-] detaches |
+| `smurg attach [session]` | Attaches a terminal session to this terminal (lists every session when you name none); Ctrl-] detaches |
 | `smurg status` / `smurg stop` | Shows or stops the workspaces this computer is sharing |
 | `smurg login` / `smurg logout` | Signs in to a relay with a code, or forgets the login |
 | `smurg update` | Updates the installed executable to the newest version (`--check` only checks) |

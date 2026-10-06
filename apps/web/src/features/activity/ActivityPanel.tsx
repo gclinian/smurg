@@ -2,6 +2,10 @@
 // who (a member, "Claude (owner)", or an outside process) did what to which file. Clicking a file opens it in the editor
 // (openFile command); a conflict entry leads to the conflict panel. Notifications an agent sent to this member with
 // the coordination tool "notify a member" are shown above the feed until dismissed.
+//
+// Code mode (DESIGN §5.6): an agent's entry offers "Show the session", which puts that agent's conversation into the
+// one session column beside the editor (the columns store's `code.sessionId`, then the `showPanel` command), so "who
+// changed this, and why" is one click from the change.
 import type { ActivityEvent, FileRef, MemberNotification } from '@smurg/protocol';
 import { useState } from 'react';
 import { NoCommandHandlerError, type CommandMap, type CommandName } from '../../lib/commands.ts';
@@ -18,13 +22,15 @@ import { t } from './strings.ts';
 import { useNow } from './use-now.ts';
 
 export function ActivityFeed() {
-  const { activity, worktrees } = useStores();
+  const { activity, worktrees, sessions, columns } = useStores();
   const commands = useCommands();
   const toast = useToast();
   const events = useStore(activity, selectActivityEvents);
   const notifications = useStore(activity, selectNotifications);
   const status = useStore(activity, (state) => ({ status: state.status, error: state.error, hasMore: state.hasMore, loadingOlder: state.loadingOlder }), shallowEqual);
   const worktreeList = useStore(worktrees, selectWorktreeList, shallowEqual);
+  // The agent sessions the list still has: only their conversations can be shown beside the editor.
+  const agentSessions = useStore(sessions, (state) => new Set([...state.sessions.values()].filter((session) => session.kind === 'agent').map((session) => session.id)), sameSet);
   const [filter, setFilter] = useState<FeedFilter>('all');
   const now = useNow(30_000);
 
@@ -32,6 +38,11 @@ export function ActivityFeed() {
     commands.dispatch(name, payload).catch((error: unknown) => {
       if (!(error instanceof NoCommandHandlerError)) toast.show({ tone: 'danger', title: describeError(error) });
     });
+  };
+
+  const showSession = (sessionId: string): void => {
+    columns.setCodeSession(sessionId);
+    dispatch('showPanel', { panel: 'session' });
   };
 
   const fileLabel = (file: FileRef): string => {
@@ -61,16 +72,20 @@ export function ActivityFeed() {
   } else {
     body = (
       <ol className="activity-feed" aria-label={t('feed.label')}>
-        {shown.map((event) => (
-          <FeedItem
-            key={event.id}
-            event={event}
-            now={now}
-            fileLabel={fileLabel}
-            onOpen={(file) => dispatch('openFile', { file })}
-            onShowConflicts={() => dispatch('showPanel', { panel: 'conflicts' })}
-          />
-        ))}
+        {shown.map((event) => {
+          const agentSessionId = event.actor.kind === 'agent' && agentSessions.has(event.actor.sessionId) ? event.actor.sessionId : null;
+          return (
+            <FeedItem
+              key={event.id}
+              event={event}
+              now={now}
+              fileLabel={fileLabel}
+              onOpen={(file) => dispatch('openFile', { file })}
+              onShowConflicts={() => dispatch('showPanel', { panel: 'conflicts' })}
+              {...(agentSessionId === null ? {} : { onShowSession: () => showSession(agentSessionId) })}
+            />
+          );
+        })}
       </ol>
     );
   }
@@ -110,6 +125,12 @@ export function ActivityFeed() {
   );
 }
 
+function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const value of a) if (!b.has(value)) return false;
+  return true;
+}
+
 function ActorIcon({ event }: { event: ActivityEvent }) {
   if (event.actor.kind === 'agent') return <IconAgent size={14} />;
   if (event.actor.kind === 'user') return <IconUser size={14} />;
@@ -122,9 +143,11 @@ interface FeedItemProps {
   fileLabel(file: FileRef): string;
   onOpen(file: FileRef): void;
   onShowConflicts(): void;
+  /** An agent's entry whose session the list still has: shows that session beside the editor. */
+  onShowSession?(): void;
 }
 
-function FeedItem({ event, now, fileLabel, onOpen, onShowConflicts }: FeedItemProps) {
+function FeedItem({ event, now, fileLabel, onOpen, onShowConflicts, onShowSession }: FeedItemProps) {
   const file = event.file;
   return (
     <li className={cx('activity-item', `activity-item--${event.actor.kind}`)} data-kind={event.kind}>
@@ -149,7 +172,7 @@ function FeedItem({ event, now, fileLabel, onOpen, onShowConflicts }: FeedItemPr
         {/* The host's sentence, in the viewer's language (the wire reference); its English `summary` when this build
             does not know the message. */}
         <p className="activity-item__summary">{renderWireText(event.text, event.summary)}</p>
-        {file !== undefined || event.kind === 'conflict' ? (
+        {file !== undefined || event.kind === 'conflict' || onShowSession !== undefined ? (
           <div className="activity-item__links">
             {file !== undefined && canOpenFileOf(event) ? (
               <button type="button" className="activity-item__file" aria-label={t('feed.openFile', { path: fileLabel(file) })} onClick={() => onOpen(file)}>
@@ -162,6 +185,11 @@ function FeedItem({ event, now, fileLabel, onOpen, onShowConflicts }: FeedItemPr
             {event.kind === 'conflict' ? (
               <Button size="sm" variant="ghost" onClick={onShowConflicts}>
                 {t('feed.showConflicts')}
+              </Button>
+            ) : null}
+            {onShowSession !== undefined ? (
+              <Button size="sm" variant="ghost" aria-label={t('feed.showSessionOf', { agent: actorLabel(event.actor) })} onClick={onShowSession}>
+                {t('feed.showSession')}
               </Button>
             ) : null}
           </div>

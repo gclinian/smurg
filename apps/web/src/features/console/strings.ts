@@ -1,7 +1,8 @@
 import { defineStrings } from '../../strings/catalog.ts';
 import { zhTW } from './strings.zh-TW.ts';
 
-// Namespace of the host console feature (members, sessions, suggestions, invites, merge requests, audit log, settings).
+// Namespace of the host console feature (members, sessions, suggestions, invites, merge requests, the Claude Code
+// project settings and the host's own rules, the removal of a conversation entry, audit log, settings).
 // English defines the keys; strings.zh-TW.ts holds the same keys in Traditional Chinese. Role names are never spelled
 // out here as labels: `{role}` is filled from the wire catalog (roleLabel); running text says "agent access".
 export const t = defineStrings(
@@ -9,7 +10,7 @@ export const t = defineStrings(
   {
     // ---- page
     'page.title': 'Host console',
-    'page.lead': 'See what every member and every agent is doing, end a session or remove a member with one click, and manage invites, merge requests and settings.',
+    'page.lead': 'See what every member and every agent is doing, end a session or remove a member with one click, and manage invites, merge requests, Claude Code settings and the settings of smurg.',
     'page.notHost.title': 'Only the host can use the console',
     'page.notHost.body': 'The host console is where the host invites members, changes roles, removes members and reads the audit log. Your role is {role}.',
     'nav.label': 'Console sections',
@@ -18,6 +19,8 @@ export const t = defineStrings(
     'nav.suggestions': 'Pending suggestions',
     'nav.merges': 'Merge requests',
     'nav.invites': 'Invite links',
+    'nav.claudeConfig': 'Claude Code project settings',
+    'nav.hostRules': 'My own Claude Code rules',
     'nav.audit': 'Audit log',
     'nav.settings': 'Settings',
     'load.loading': 'Loading the console…',
@@ -31,7 +34,12 @@ export const t = defineStrings(
     'security.agentRole': 'Give agent access only to people you fully trust. Make everyone else an editor or a viewer.',
     'security.injection':
       'A file a guest writes into the project can carry instructions for an agent (prompt injection). Read a file that a guest changed before you let your agent read it.',
-    'security.prompts': 'Keep the permission prompts of Claude Code on: do not use a mode that skips them, and read what the agent wants to do before you allow it.',
+    'security.prompts':
+      'Read what an agent asks permission for before you allow it, and think twice before you always allow a kind of command. The allow rules of your own Claude Code settings apply to agents here too: this page lists them.',
+    'security.account':
+      'Agents here use your Claude Code login. A personal Pro or Max subscription is for your own use: when other people work with agents here, use an API key or a Team or Enterprise plan.',
+    'security.conversations':
+      'Every member can read every conversation, also the ones of archived topics and the ones from before they joined, and an agent may repeat what it reads. As the host you can remove a single entry from a conversation, or delete an archived topic with everything in it.',
     'security.invites': 'An invite link contains the secret for joining. Send it only over a private channel to the person you invite, and revoke the links you no longer need.',
 
     // ---- members
@@ -64,14 +72,25 @@ export const t = defineStrings(
     'members.empty': 'No other members yet. Create an invite link to bring your teammates in.',
     'members.roleChanged': 'The role of {name} is now {role}. They reconnect automatically with the new permissions.',
     'members.roleFailed': 'Could not change the role of {name}: {message}',
-    'members.hint': 'After a role change the member reconnects automatically with the new permissions. A member who loses agent access also loses the sessions they opened: those sessions end.',
+    'members.hint':
+      'After a role change the member reconnects automatically with the new permissions. Taking agent access away also takes what the member started: their terminals and sessions without a topic end, and their topic sessions pass to you.',
 
     // ---- kick confirmation
     'kick.title': 'Remove {name}?',
     'kick.lead': 'As soon as you confirm:',
     'kick.sessions': {
-      one: 'Every session {name} opened ends at once ({count} session right now).',
-      other: 'Every session {name} opened ends at once ({count} sessions right now).',
+      one: 'Every terminal and every session without a topic that {name} opened ends at once ({count} session right now).',
+      other: 'Every terminal and every session without a topic that {name} opened ends at once ({count} sessions right now).',
+    },
+    'kick.topicSessions': {
+      one: "The topic sessions {name} started (discussions and work items) are stopped and pass to you: the agent's turn is interrupted, and its open questions and permission requests are withdrawn ({count} session right now).",
+      other: "The topic sessions {name} started (discussions and work items) are stopped and pass to you: the agent's turn is interrupted, and its open questions and permission requests are withdrawn ({count} sessions right now).",
+    },
+    'kick.removed':
+      'What {name} put in place is removed: the kinds of commands they always allowed, the work items they started that have not begun, a permission mode they loosened, their messages that still wait for an agent, and their votes on open questions.',
+    'kick.responsible': {
+      one: '{name} is no longer responsible for anything ({count} session right now): its questions are then decided by whoever started it, or by you.',
+      other: '{name} is no longer responsible for anything ({count} sessions right now): their questions are then decided by whoever started them, or by you.',
     },
     'kick.keys': 'The keys of all devices of {name} are revoked. Their old devices and old invite links can no longer connect.',
     'kick.irreversible': 'This cannot be undone. To let {name} back in, create a new invite link.',
@@ -79,12 +98,23 @@ export const t = defineStrings(
     'kick.done': '{name} was removed.',
     'kick.failed': 'Could not remove {name}: {message}',
 
-    // ---- demotion that ends sessions
-    'demote.title': 'Change the role of {name}?',
-    'demote.body': {
-      one: '{name} has {count} session open. With the role {role} they can no longer use agents: this session will end.',
-      other: '{name} has {count} sessions open. With the role {role} they can no longer use agents: these sessions will end.',
+    // ---- a role change that takes something away (DESIGN §3.9)
+    'demote.title': 'Change the role of {name} to {role}?',
+    'demote.sessions': {
+      one: 'The terminals and the sessions without a topic that {name} opened end ({count} session right now).',
+      other: 'The terminals and the sessions without a topic that {name} opened end ({count} sessions right now).',
     },
+    'demote.topicSessions': {
+      one: 'The topic sessions {name} started (discussions and work items) pass to you and keep running ({count} session right now).',
+      other: 'The topic sessions {name} started (discussions and work items) pass to you and keep running ({count} sessions right now).',
+    },
+    'demote.removed':
+      'What {name} put in place is removed: the kinds of commands they always allowed, the work items they started that have not begun, a permission mode they loosened, and their messages that still wait for an agent.',
+    'demote.viewer': {
+      one: 'A viewer only watches: the votes of {name} leave open questions, and {name} is no longer responsible for anything ({count} session right now).',
+      other: 'A viewer only watches: the votes of {name} leave open questions, and {name} is no longer responsible for anything ({count} sessions right now).',
+    },
+    'demote.viewerNone': 'A viewer only watches: the votes of {name} leave open questions, and {name} can no longer be responsible for a session.',
     'demote.confirm': 'Change role',
 
     // ---- agent access: the risk, confirmed before an invite or a role change applies
@@ -99,20 +129,27 @@ export const t = defineStrings(
     'sessions.title': 'All sessions ({count})',
     'sessions.caption': 'All sessions',
     'sessions.col.title': 'Name',
-    'sessions.col.owner': 'Opened by',
+    'sessions.col.topic': 'Topic',
+    'sessions.col.purpose': 'Kind',
     'sessions.col.status': 'Status',
+    'sessions.col.responsible': 'Responsible',
+    'sessions.col.owner': 'Opened by',
     'sessions.col.where': 'Location',
-    'sessions.col.viewers': 'Watching',
     'sessions.col.actions': 'Actions',
-    'sessions.kind.agent': 'agent',
-    'sessions.kind.terminal': 'terminal',
+    'sessions.topic.none': 'No topic',
+    'sessions.purpose.discussion': 'Discussion',
+    'sessions.purpose.item': 'Work item',
+    'sessions.purpose.itemAttempt': 'Work item (attempt {attempt})',
+    'sessions.purpose.free': 'Agent session',
+    'sessions.purpose.terminal': 'Terminal',
+    'sessions.responsible.nobody': 'Nobody',
     'sessions.status.starting': 'Starting',
     'sessions.status.running': 'Running',
     'sessions.status.exited': 'Ended',
     'sessions.status.exitedCode': 'Ended (exit code {code})',
     'sessions.where.main': 'Main workspace',
     'sessions.where.worktreeGone': 'A removed worktree',
-    'sessions.viewers': { one: '{count} connection', other: '{count} connections' },
+    'sessions.viewers': { one: '{count} connection watching', other: '{count} connections watching' },
     'sessions.agentFile': 'Working on {path}',
     'sessions.terminate': 'Terminate',
     'sessions.terminateLabel': 'Terminate "{title}", opened by {owner}',
@@ -122,11 +159,30 @@ export const t = defineStrings(
     'sessions.loadFailed': 'Could not load the sessions: {message}',
     'sessions.showExited': 'Show ended sessions ({count})',
     'sessions.hideExited': 'Hide ended sessions',
+    'sessions.confirm.title': 'Terminate "{title}"?',
+    'sessions.confirm.discussion':
+      'This is the discussion of the topic "{topic}". Once it is terminated, nobody can ask the agent to revise the spec or to write the plan until someone restarts the discussion. The spec, the plan and the work items stay.',
+    'sessions.confirm.item':
+      'This session works on an item of the topic "{topic}". Once it is terminated the item stops. Its worktree and what the agent changed so far stay, and the item can be tried again from the plan.',
+
+    // ---- the host's Claude account and the disk space of the conversations (above the sessions table)
+    'account.title': 'Your Claude account',
+    'account.ok': 'Your Claude account: no problem reported.',
+    'account.noticeDismiss': 'Got it',
+    'account.loggedOut': 'Claude Code is not logged in on your computer. Run claude in your own terminal and log in.',
+    'account.usageLimit': 'Your Claude account has reached a usage limit.',
+    'account.usageLimitUntil': 'Your Claude account has reached a usage limit. It resets at {time}.',
+    'account.sessionsWait': { one: '{count} agent session waits for it.', other: '{count} agent sessions wait for it.' },
+    'storage.title': 'Disk space of the conversations',
+    'storage.full': 'The stored conversations use more disk space than smurg keeps for them. Nothing is removed by itself: delete archived topics you no longer need.',
 
     // ---- pending suggestions (read-only)
     'suggestions.title': 'Pending suggestions ({count})',
-    'suggestions.lead': 'This list is read-only. Accept or reject a suggestion in the workspace, under Suggestions (the host and members with agent access can).',
-    'suggestions.target': '{author} → {title}, opened by {owner}',
+    'suggestions.lead': "This list is read-only. A suggestion reaches the agent only when you or a member with agent access accepts it, on its card in the session's conversation.",
+    'suggestions.target': '{author} → {title}',
+    'suggestions.targetTopic': '{author} → {topic} › {title}',
+    'suggestions.open': 'Open',
+    'suggestions.openLabel': 'Open the suggestion of {author} in its session',
     'suggestions.unknownSession': '{author} → a session that no longer exists',
     'suggestions.source': 'With {path}, lines {start}–{end}',
     'suggestions.sourceLine': 'With {path}, line {start}',
@@ -145,9 +201,11 @@ export const t = defineStrings(
     'invites.maxUses': 'Number of uses',
     'invites.maxUsesHint': 'Leave empty for no limit until the link expires.',
     'invites.maxUsesInvalid': 'Enter a whole number from 1 to {max}, or leave it empty.',
-    'invites.roleHint.agent': 'Can open agents and terminals (they run on your computer with your Claude account) and type into any session.',
-    'invites.roleHint.editor': 'Can edit files and make suggestions to sessions, but cannot open an agent or type into a session.',
+    'invites.roleHint.agent':
+      'Can start topics, agents and terminals (they run on your computer with your Claude account), message any agent, answer its permission requests and accept suggestions.',
+    'invites.roleHint.editor': "Can edit files, vote on an agent's questions and write suggestions for agents, but cannot start an agent or message one directly.",
     'invites.roleHint.viewer': 'Can only browse files and watch sessions.',
+    'invites.history': 'A new member can read every earlier conversation of this workspace, the ones of archived topics included.',
     'invites.createFailed': 'Could not create the invite link: {message}',
     'invites.link.title': 'Invite link created',
     'invites.link.once': 'This link is shown only this once. If you lose it, revoke it and create a new one.',
@@ -183,6 +241,61 @@ export const t = defineStrings(
     // ---- merge requests
     'merges.title': 'Merge requests',
 
+    // ---- Claude Code project settings: the trust gate (DESIGN §2.9)
+    'claudeConfig.title': 'Claude Code project settings',
+    'claudeConfig.lead':
+      "A folder can carry its own Claude Code settings (.claude/settings.json, .claude/settings.local.json, .mcp.json). Agent sessions load them only after you confirmed exactly that content. Until then they run without them and without the project's CLAUDE.md.",
+    'claudeConfig.loading': 'Reading the project settings…',
+    'claudeConfig.loadFailed': 'Could not read the project settings: {message}',
+    'claudeConfig.root.waiting': 'Waits for you',
+    'claudeConfig.state.undecided': 'You have not decided about this content yet. Agent sessions in this folder run without these settings.',
+    'claudeConfig.state.used': 'Agent sessions in this folder use these settings.',
+    'claudeConfig.state.ignored': "Agent sessions in this folder run without these settings and without the project's CLAUDE.md.",
+    'claudeConfig.state.none': 'This folder has no Claude Code project settings.',
+    'claudeConfig.warning': 'The commands below run as you, on your computer, whenever an agent works in this folder. Anyone who can edit files in this folder can change the scripts they call.',
+    'claudeConfig.file.trusted': 'In use',
+    'claudeConfig.file.ignored': 'Not used',
+    'claudeConfig.file.changed': 'Changed since you decided',
+    'claudeConfig.file.new': 'Not decided',
+    'claudeConfig.file.nothing': 'This file runs no command, changes no permission and sets no variable.',
+    'claudeConfig.file.show': 'Show {path}',
+    'claudeConfig.group.runs': 'Runs commands',
+    'claudeConfig.group.permissions': 'Changes permissions',
+    'claudeConfig.group.env': 'Sets environment variables',
+    'claudeConfig.group.other': 'Other settings',
+    'claudeConfig.group.scripts': 'Scripts these commands call (while the settings are in use, only you can change them through smurg)',
+    'claudeConfig.env.flagged': 'can send your login to another server',
+    'claudeConfig.ack.legend': 'Before you use them, tick what you have read',
+    'claudeConfig.ack.credentials': 'These settings can send my Claude login to another server (a marked variable, or a command that supplies the API key).',
+    'claudeConfig.ack.allowsTools': 'These settings let agents run commands, edit files or call MCP tools without asking.',
+    'claudeConfig.applies': "A decision applies the next time a session's agent starts.",
+    'claudeConfig.trust': 'Use them',
+    'claudeConfig.ignore': 'Run without them',
+    'claudeConfig.decideFailed': 'Could not save the decision: {message}',
+
+    // ---- the host's own Claude Code allow rules: information only (OWNER-DECISIONS Q7)
+    'hostRules.title': 'My own Claude Code rules',
+    'hostRules.loading': 'Reading your rules…',
+    'hostRules.loadFailed': 'Could not read your rules: {message}',
+    'hostRules.none': 'No allow rules of your own Claude Code settings were found. The list fills in when an agent session starts.',
+    'hostRules.explain':
+      'Every agent session here runs as you, with your Claude Code settings: what the rules below allow runs without a permission request, whoever sent the agent its message. smurg adds nothing to them and removes nothing. What a discussion agent may do stays limited by smurg, whatever the rules say.',
+    'hostRules.change': 'To change them, edit your Claude Code settings on your computer. A session follows the change the next time its agent starts.',
+    'hostRules.source.user': 'Your user settings (~/.claude/settings.json)',
+    'hostRules.source.project': "The project's settings (.claude/settings.json)",
+    'hostRules.source.local': "The project's local settings (.claude/settings.local.json)",
+    'hostRules.source.managed': 'Managed settings (set by an administrator)',
+
+    // ---- removing one entry of a conversation (admin.transcript.redact)
+    'redact.title': 'Remove this entry?',
+    'redact.where': 'In {title}',
+    'redact.replaced': 'Everyone sees "{text}" in its place. The conversation stored on your computer is changed too.',
+    'redact.memory': 'Claude Code keeps its own record of the conversation: the agent may still know what the entry said.',
+    'redact.irreversible': 'This cannot be undone.',
+    'redact.confirm': 'Remove entry',
+    'redact.done': 'The entry was removed.',
+    'redact.failed': 'Could not remove the entry: {message}',
+
     // ---- audit log
     'audit.title': 'Audit log',
     'audit.lead': 'Newest first; new entries appear as they happen. The audit log is stored only on your computer.',
@@ -212,6 +325,12 @@ export const t = defineStrings(
     'audit.detail.source': 'Attached code',
     'audit.detail.branch': 'Branch',
     'audit.detail.message': 'Message',
+    'audit.detail.command': 'Command',
+    'audit.detail.tool': 'Tool',
+    'audit.detail.rule': 'Always-allowed kind',
+    'audit.detail.decision': 'Decision',
+    'audit.detail.mode': 'Mode',
+    'audit.detail.purpose': 'Purpose',
     'audit.outcome.ok': 'OK',
     'audit.outcome.denied': 'Denied',
     'audit.outcome.error': 'Error',
@@ -245,6 +364,45 @@ export const t = defineStrings(
     'audit.action.session.create': 'Opened a session',
     'audit.action.session.end': 'Ended a session',
     'audit.action.session.terminate': 'Terminated a session',
+    'audit.action.session.message': 'Sent a message to an agent',
+    'audit.action.smurg.message': 'smurg sent a message to an agent',
+    'audit.action.session.interrupt': 'Stopped an agent',
+    'audit.action.session.retry': 'Started a failed session again',
+    'audit.action.session.restart': "Restarted a session's agent",
+    'audit.action.session.responsible': 'Changed who is responsible',
+    'audit.action.session.mode': 'Changed a permission mode',
+    'audit.action.session.rule.remove': 'Removed an always-allowed kind',
+    'audit.action.session.handover': 'Session passed to the host',
+    'audit.action.responsible.fallback': 'Responsibility fell back',
+    'audit.action.question.submit': 'Submitted an answer',
+    'audit.action.question.remind': 'Reminded those who had not voted',
+    'audit.action.permission.decide': 'Answered a permission request',
+    'audit.action.permission.auto': 'Permission request answered automatically',
+    'audit.action.permission.auto-deny': 'Tool call refused by smurg',
+    'audit.action.agent.command': 'Agent ran a command',
+    'audit.action.topic.create': 'Created a topic',
+    'audit.action.topic.rename': 'Renamed a topic',
+    'audit.action.topic.archive': 'Archived or restored a topic',
+    'audit.action.topic.delete': 'Deleted a topic',
+    'audit.action.topic.discussion.restart': 'Restarted a discussion',
+    'audit.action.topic.spec.request': 'Asked for the spec',
+    'audit.action.topic.rule.add': 'Added an always-allowed kind to a topic',
+    'audit.action.topic.rule.remove': 'Removed an always-allowed kind from a topic',
+    'audit.action.plan.generate': 'Asked for the plan',
+    'audit.action.plan.start': 'Started work items',
+    'audit.action.plan.resume': 'Continued a paused plan',
+    'audit.action.plan.assign': 'Changed who is responsible for work items',
+    'audit.action.plan.mode': 'Changed how a plan is assigned',
+    'audit.action.plan.item.retry': 'Tried a work item again',
+    'audit.action.plan.item.continue': 'Asked an agent to continue',
+    'audit.action.plan.item.resolve': 'Asked an agent to resolve a merge conflict',
+    'audit.action.scheduler.start': 'smurg started a work item',
+    'audit.action.scheduler.disarm': 'smurg did not start a work item',
+    'audit.action.report.register': 'Result report registered',
+    'audit.action.report.review': 'Reviewed a result report',
+    'audit.action.spec.commit': 'Committed the spec and the plan',
+    'audit.action.claude-config.decide': 'Decided on Claude Code project settings',
+    'audit.action.transcript.redact': 'Removed a conversation entry',
     'audit.action.suggest.create': 'Made a suggestion',
     'audit.action.suggest.edit': 'Edited a suggestion',
     'audit.action.suggest.accept': 'Accepted a suggestion',
@@ -277,6 +435,15 @@ export const t = defineStrings(
     'settings.diskReserveGb': 'Disk space to keep free (GB)',
     'settings.diskReservePercent': 'Disk space to keep free (%)',
     'settings.diskHint': 'Before an upload starts, the daemon checks that the larger of the two stays free afterwards, and refuses the upload if not. Default: 5 GB or 5%.',
+    'settings.agents': 'Agents',
+    'settings.maxLiveAgents': 'Work items running at the same time',
+    'settings.maxLiveAgentsHint': 'How many work items smurg keeps running at once on your computer ({min} to {max}). The others wait for a free agent. A message from a person always gets an agent.',
+    'settings.escalateAfter': 'Waiting time before others are asked (minutes)',
+    'settings.escalateAfterHint':
+      'A question or a permission request that has waited this long also reaches you and the members with agent access. A result report does after {factor} times as long. Default: {minutes} minutes.',
+    'settings.agentMcp': "Agents may use my own and this project's MCP servers",
+    'settings.agentMcpHint':
+      "Off: agents get only the tools of smurg. On: an agent that any member with agent access drives can call those servers (mail, drive, chat and the like), and their answers show to every member. A discussion agent never gets them. The project's servers also need your confirmation under Claude Code project settings.",
     'settings.save': 'Save settings',
     'settings.reset': 'Reset',
     'settings.saved': 'Settings saved and applied.',
@@ -286,6 +453,7 @@ export const t = defineStrings(
     'settings.error.number': 'Enter a number.',
     'settings.error.min': 'Enter a number of {min} or more.',
     'settings.error.range': 'Enter a number from {min} to {max}.',
+    'settings.error.integer': 'Enter a whole number from {min} to {max}.',
     'settings.error.dir': '"{value}" is not a valid folder path: use a path relative to the shared folder, without a leading / and without . or .. segments.',
     'settings.error.duplicate': '"{value}" is listed twice.',
     'settings.error.tooMany': 'At most {max}.',

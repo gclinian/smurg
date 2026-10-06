@@ -1,11 +1,9 @@
-// SessionManager (R4, R2 kick, R11; ARCHITECTURE §5.5, §7.6, §11 D-3 / D-15). The registry of sessions of both kinds
-// and the runner of TERMINAL sessions: launch, fan-out to attached viewers, input from every member who may drive
-// sessions, opener-only resize, ending (killTree).
-//
-// Protocol 4 state of this file (smurg 0.5.0, foundation): terminals work as before. An AGENT session is a Claude Code
-// conversation in structured mode (ctx.services.agents, AgentSessions): create / list / get / end / terminate
-// delegate to it, and until the agent runtime module provides that service its stub answers "not implemented". The
-// PTY agent session of 0.4.0 is gone (no terminal-style agent, ARCHITECTURE §11 D-16).
+// SessionManager (R4, R2 kick, R11; ARCHITECTURE §5.5, §7.6, §11 D-3 / D-15). The REGISTRY of sessions of both kinds:
+// ids, limits, live.json (the processes a run that died hard left behind), ending, what happens when a member goes.
+// A TERMINAL is a PTY and is run here (launch, fan-out to attached viewers, input from every member who may drive
+// sessions, opener-only resize, killTree). An AGENT session is a Claude Code conversation in structured mode: the
+// agent runtime (agent/agent-sessions.ts, the service `agents`) runs it; the registry opens free ones
+// (`session.create { kind: 'agent' }`), lists, ends and hands them over.
 //
 // Every session runs like the host's own (§11 D-15): the host's OS user, unsandboxed, the host's environment and HOME,
 // whoever opened it (`session.create`: the host and Agent access). The member who opened a terminal ends it with
@@ -21,9 +19,11 @@ import {
   LIST_MAX_ITEMS,
   SmurgError,
   can,
+  defaultPermissionMode,
+  lineEvent,
   mayEndSession,
   rootRefKey,
-  titleFromFirstMessage,
+  worktreeRoot,
   type Actor,
   type AgentSession,
   type LoginState,
@@ -39,13 +39,14 @@ import {
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { SessionLaunchConfig } from '../core/config.ts';
 import type { DaemonContext } from '../core/context.ts';
-import { AuthorizationError, notImplemented } from '../core/errors.ts';
+import { AuthorizationError } from '../core/errors.ts';
 import type { AgentSessions, ClientConnection, MemberChange, MemberRecord, PersistentDocument, Principal, SessionAttachStart, SessionManager, UserId, UserTeardown } from '../core/interfaces.ts';
 import { SYSTEM_ACTOR, principalCan } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
+import type { AgentSessionsImpl } from './agent/agent-sessions.ts';
+import { freeRolePrompt } from './agent/prompts.ts';
 import { buildHostEnv } from './host-env.ts';
 import { killTree, rememberDescendants, systemProcessInspector, type KillTreeResult, type KnownProcess, type ProcessInspector, type ProcessRow } from './kill-tree.ts';
-import { removeSessionFiles } from './launch-files.ts';
 import { runProcess, runningHelperPids, type ProcessRunner } from './process-run.ts';
 import { PtySession, type PtyExit, type ViewerSink } from './pty-session.ts';
 
@@ -92,8 +93,8 @@ interface Managed {
   readonly root: RootRef;
   readonly worktreeId: string | null;
   readonly createdAt: number;
-  /** Only a title the opener typed. Clients build the default from the opener's name, in the viewer's language. */
-  readonly title: string | undefined;
+  /** Only a title a person gave (typed at creation, or `session.rename`). Clients build the default from the opener's name. */
+  title: string | undefined;
   readonly pty: PtySession;
   status: TerminalStatus;
   exitCode: number | undefined;
@@ -172,6 +173,10 @@ export class SessionManagerImpl implements SessionManager {
   private tracking = false;
   private stopping = false;
   private started = false;
+  /** The agent runtime of this module (null: another module provides `agents`, e.g. a fake). */
+  private agentRuntime: AgentSessionsImpl | null = null;
+  /** Descendants and the last persisted identity list of each running agent child. */
+  private readonly agentProcs = new Map<string, { known: Map<number, KnownProcess>; persisted: string }>();
 
   constructor(ctx: DaemonContext, options: SessionsModuleOptions = {}) {
     this.ctx = ctx;
@@ -180,6 +185,52 @@ export class SessionManagerImpl implements SessionManager {
     this.launchConfig = { ...ctx.config.sessions, ...options.launch };
     this.inspector = options.inspector ?? systemProcessInspector();
     this.runner = options.runner ?? runProcess;
+  }
+
+  /** The module's own agent runtime: the registry reaches its internals (an id it chose, its children, the login check). */
+  attachAgents(agents: AgentSessionsImpl): void {
+    this.agentRuntime = agents;
+  }
+
+  /** What the agent runtime needs from the registry: the launch seams, live.json, the other sessions' children. */
+  agentDeps(): {
+    readonly hostEnv: () => Readonly<Record<string, string | undefined>>;
+    readonly launch: SessionLaunchConfig;
+    readonly inspector: ProcessInspector;
+    readonly runner: ProcessRunner;
+    readonly killDeadlineMs: number;
+    readonly maxPidsPerSession: number;
+    readonly authStatusTimeoutMs: number;
+    readonly live: { add(sessionId: string): void; remove(sessionId: string): void };
+    readonly foreignChildren: () => ReadonlySet<number>;
+  } {
+    return {
+      hostEnv: () => this.hostEnv(),
+      launch: this.launchConfig,
+      inspector: this.inspector,
+      runner: this.runner,
+      killDeadlineMs: this.limits.killDeadlineMs,
+      maxPidsPerSession: this.limits.maxPidsPerSession,
+      authStatusTimeoutMs: this.limits.authStatusTimeoutMs,
+      live: {
+        add: (sessionId) => {
+          this.liveDoc?.update((draft) => {
+            if (!draft.live.includes(sessionId)) draft.live.push(sessionId);
+          });
+          this.agentProcs.set(sessionId, { known: new Map(), persisted: '' });
+          this.ensureDescendantTracking();
+        },
+        remove: (sessionId) => {
+          this.agentProcs.delete(sessionId);
+          if (this.liveDoc?.get().live.includes(sessionId) === true) this.forgetLive(sessionId);
+        },
+      },
+      foreignChildren: () => {
+        const out = new Set<number>();
+        for (const m of this.sessions.values()) if (m.pty.running) out.add(m.pty.pid);
+        return out;
+      },
+    };
   }
 
   // =================================================================================================================
@@ -233,7 +284,7 @@ export class SessionManagerImpl implements SessionManager {
     this.stopping = true;
     if (this.trackTimer !== undefined) clearInterval(this.trackTimer);
     this.trackTimer = undefined;
-    await Promise.all([...this.sessions.values()].map((m) => this.finish(m, 'stopped', true)));
+    await Promise.all([...[...this.sessions.values()].map((m) => this.finish(m, 'stopped', true)), this.agentRuntime?.stopAll() ?? Promise.resolve()]);
     for (const m of this.sessions.values()) {
       if (m.retentionTimer !== undefined) clearTimeout(m.retentionTimer);
       m.pty.dispose();
@@ -267,9 +318,18 @@ export class SessionManagerImpl implements SessionManager {
     return m ? this.info(m) : (this.agents()?.get(sessionId) ?? null);
   }
 
-  /** A terminal has no agent; an agent session's actor is the agent runtime's to name (it knows the session's label). */
-  agentActor(_sessionId: string): Actor | null {
-    return null;
+  /** A terminal has no agent; an agent session's actor is named by the agent runtime (`Claude (<label>)`). */
+  agentActor(sessionId: string): Actor | null {
+    return this.agentRuntime?.actorOf(sessionId) ?? null;
+  }
+
+  /** `session.rename` of a terminal (an agent session's title is AgentSessions.setTitle). */
+  renameTerminal(sessionId: string, title: string): TerminalSession | null {
+    const m = this.sessions.get(sessionId);
+    if (!m) return null;
+    m.title = title;
+    this.publish(m, 'updated');
+    return this.info(m);
   }
 
   /** Pid of the PTY child while it runs (tests, diagnostics). */
@@ -339,36 +399,60 @@ export class SessionManagerImpl implements SessionManager {
 
   /**
    * A free agent session (no topic): the caller is `openedBy`, nobody is responsible. In the main workspace it asks
-   * before edits and commands; in a worktree of its own before commands. The stub of AgentSessions answers
-   * "not implemented" until the agent runtime module is composed.
+   * before edits and commands; in a worktree of its own before commands (`defaultPermissionMode`). Its conversation
+   * opens with the line `conversation.started.free`. Audited `session.create`.
    */
   private async createFree(input: Extract<PayloadOf<'session.create'>, { kind: 'agent' }>, principal: Principal): Promise<AgentSession> {
     const ctx = this.ctx;
     const firstMessage = input.firstMessage;
     let workspace: { mode: 'main' } | { mode: 'worktree'; worktreeId: string } = { mode: 'main' };
     let release: (() => Promise<void>) | null = null;
-    const sessionKey = `free_${randomBytes(8).toString('hex')}`;
+    // The registry chooses the id, so the worktree is acquired FOR this session (and released by its end).
+    const id = `ses_${randomBytes(16).toString('hex')}`;
     if (input.workspace.mode === 'worktree') {
-      const handle = await ctx.services.worktrees.acquireForSession({ owner: principal, sessionId: sessionKey, ...(input.workspace.worktreeId !== undefined ? { worktreeId: input.workspace.worktreeId } : {}) });
+      const handle = await ctx.services.worktrees.acquireForSession({ owner: principal, sessionId: id, ...(input.workspace.worktreeId !== undefined ? { worktreeId: input.workspace.worktreeId } : {}) });
       workspace = { mode: 'worktree', worktreeId: handle.worktree.id };
-      release = () => ctx.services.worktrees.releaseFromSession(handle.worktree.id, sessionKey, { keep: true });
+      release = () => ctx.services.worktrees.releaseFromSession(handle.worktree.id, id, { keep: true });
     }
+    const root: RootRef = workspace.mode === 'main' ? { kind: 'main' } : worktreeRoot(workspace.worktreeId);
+    const mode = defaultPermissionMode('free', root);
+    const name = principal.actor.kind === 'user' ? principal.actor.displayName : 'Host';
+    const startInput = {
+      purpose: 'free' as const,
+      openedBy: principal,
+      responsible: null,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      workspace,
+      mode,
+      rolePrompt: ({ smurgTag }: { readonly smurgTag: string }) => freeRolePrompt(smurgTag),
+      opening: msg('conversation.started.free', { name }),
+      ...(firstMessage === undefined ? {} : { firstMessage: { kind: 'person' as const, from: principal, text: firstMessage, cleaned: false, origin: 'composer' as const } }),
+    };
+    let session: AgentSession;
     try {
-      return await ctx.services.agents.start({
-        purpose: 'free',
-        openedBy: principal,
-        responsible: null,
-        ...(input.title !== undefined ? { title: input.title } : firstMessage !== undefined ? { title: titleFromFirstMessage(firstMessage) } : {}),
-        workspace,
-        mode: workspace.mode === 'main' ? 'ask-all' : 'ask-commands',
-        // The agent runtime owns the role prompts; a free session's is its four fixed sentences.
-        rolePrompt: () => '',
-        ...(firstMessage === undefined ? {} : { firstMessage: { kind: 'person' as const, from: principal, text: firstMessage, cleaned: false, origin: 'composer' as const } }),
-      });
+      session = this.agentRuntime !== null ? await this.agentRuntime.start(startInput, { id }) : await ctx.services.agents.start(startInput);
     } catch (err) {
       await release?.().catch(() => {});
       throw err;
     }
+    const trust = isStubService(ctx.services.projectTrust) ? null : ctx.services.projectTrust;
+    ctx.audit.record({
+      actor: principal.actor,
+      action: 'session.create',
+      outcome: 'ok',
+      target: session.id,
+      detail: {
+        sessionId: session.id,
+        kind: 'agent',
+        purpose: 'free',
+        root: rootRefKey(root),
+        mode,
+        ...(workspace.mode === 'worktree' ? { worktreeId: workspace.worktreeId } : {}),
+        projectSettings: { state: trust?.state(root) ?? 'none', files: trust?.hashes(root) ?? [] },
+        hostRules: isStubService(ctx.services.hostRules) ? 0 : ctx.services.hostRules.applied().length,
+      },
+    });
+    return session;
   }
 
   private inFlight(): number {
@@ -616,12 +700,13 @@ export class SessionManagerImpl implements SessionManager {
   // Login
   // =================================================================================================================
 
-  /** Agent sessions only; the check itself (`claude auth status --json`) is the agent runtime's. */
+  /** Agent sessions only: `claude auth status --json` in the session's environment ("Check login again"). */
   async loginStatus(sessionId: string, principal: Principal): Promise<LoginState> {
     this.requireDriver(principal);
     if (this.sessions.has(sessionId)) throw sessionError('bad_request', msg('session.notAgent'), 'not-an-agent');
-    if (!this.agents()?.get(sessionId)) throw sessionError('not_found', msg('session.notFound'), 'unknown-session');
-    throw notImplemented('session.loginStatus');
+    const session = this.agents()?.get(sessionId) ?? null;
+    if (!session) throw sessionError('not_found', msg('session.notFound'), 'unknown-session');
+    return this.agentRuntime !== null ? this.agentRuntime.loginState(true) : session.login;
   }
 
   // =================================================================================================================
@@ -675,30 +760,82 @@ export class SessionManagerImpl implements SessionManager {
   }
 
   /**
-   * A member was kicked, left, or lost a role (ARCHITECTURE §3 "When a member goes"). Foundation state: the
-   * TERMINALS they opened end when they may no longer open sessions, each audited `session.terminate` by the system;
-   * a creation in flight for them is abandoned (userEpochs). What happens to their agent sessions (free sessions end,
-   * topic sessions pass to the host, they are cleared as responsible person and fallback decider) is the agent
-   * runtime's part of this method.
+   * A member was kicked, left, or lost a role (ARCHITECTURE §3 "When a member goes"). Per session:
+   *  - their terminals and free agent sessions END when they may no longer open sessions (kicked, left, below Agent
+   *    access), each audited `session.terminate` by the system; a creation in flight for them is abandoned;
+   *  - their topic sessions PASS TO THE HOST (the owner whose locks the agent's are; `pathRights` is never raised),
+   *    stopped first when they were kicked; a work item's worktree passes with it;
+   *  - wherever they are the responsible person or the fallback decider, that is cleared for good (kicked, left, or
+   *    now a Viewer): one line `conversation.responsible.fallback` per session, audit `responsible.fallback`.
    */
   async teardownUser(userId: UserId, change: MemberChange, to?: Role): Promise<UserTeardown> {
-    const maySessions = change === 'role-changed' && to !== undefined && can(to, 'session.create');
-    if (maySessions) return { ended: [], handedOver: [], cleared: [] };
-    this.userEpochs.set(userId, (this.userEpochs.get(userId) ?? 0) + 1);
-    const mine = [...this.sessions.values()].filter((m) => m.ownerUserId === userId && m.status !== 'exited' && m.ending === null);
-    await Promise.all(
-      mine.map(async (m) => {
-        await this.finish(m, change, true);
-        this.ctx.audit.record({
-          actor: SYSTEM_ACTOR,
-          action: 'session.terminate',
-          outcome: 'ok',
-          target: m.id,
-          detail: { sessionId: m.id, openedBy: m.ownerUserId, kind: 'terminal', reason: change },
-        });
-      }),
-    );
-    return { ended: mine.map((m) => m.id), handedOver: [], cleared: [] };
+    const losesSessions = change !== 'role-changed' || to === undefined || !can(to, 'session.create');
+    const losesDiscuss = change !== 'role-changed' || to === undefined || !can(to, 'discuss');
+    const ended: string[] = [];
+    const handedOver: { sessionId: string; topicId: string; stopped: boolean }[] = [];
+    const agents = this.agents();
+    const ctx = this.ctx;
+    const name = ctx.members.userRef(userId)?.displayName ?? userId.slice(userId.indexOf(':') + 1);
+    if (losesSessions) {
+      this.userEpochs.set(userId, (this.userEpochs.get(userId) ?? 0) + 1);
+      const mine = [...this.sessions.values()].filter((m) => m.ownerUserId === userId && m.status !== 'exited' && m.ending === null);
+      await Promise.all(
+        mine.map(async (m) => {
+          await this.finish(m, change, true);
+          ctx.audit.record({ actor: SYSTEM_ACTOR, action: 'session.terminate', outcome: 'ok', target: m.id, detail: { sessionId: m.id, openedBy: m.ownerUserId, kind: 'terminal', reason: change } });
+        }),
+      );
+      ended.push(...mine.map((m) => m.id));
+      if (agents !== null) {
+        const host = ctx.members.hostUserId();
+        const hostPrincipal = ctx.members.principalOf(host);
+        // Every agent session they own (archived topics included): free ones end, topic sessions pass to the host.
+        const owned = this.ownedAgentSessions(agents, userId);
+        for (const session of owned) {
+          const facts = agents.facts(session.id);
+          if (session.status === 'ended' || facts === null) continue;
+          if (session.topicId === undefined) {
+            if (session.openedBy.userId !== userId) continue;
+            await agents.end(session.id, { by: SYSTEM_ACTOR, reason: change, keepWorktree: true });
+            ctx.audit.record({ actor: SYSTEM_ACTOR, action: 'session.terminate', outcome: 'ok', target: session.id, detail: { sessionId: session.id, openedBy: userId, kind: 'agent', purpose: 'free', reason: change } });
+            ended.push(session.id);
+            continue;
+          }
+          if (facts.ownerUserId !== userId) continue; // handed over before
+          if (change === 'kicked') await agents.interrupt(session.id, SYSTEM_ACTOR);
+          agents.setOwner(session.id, host, SYSTEM_ACTOR);
+          if (session.purpose === 'item' && facts.worktreeId !== undefined && hostPrincipal !== null && !isStubService(ctx.services.worktrees)) {
+            await ctx.services.worktrees.setOwner(facts.worktreeId, hostPrincipal).catch((err: unknown) => this.logError('the worktree of a handed-over session did not change its owner', err));
+          }
+          agents.append(session.id, lineEvent(change === 'kicked' ? msg('conversation.owner.handover.kicked', { name }) : msg('conversation.owner.handover', { name })));
+          handedOver.push({ sessionId: session.id, topicId: session.topicId, stopped: change === 'kicked' });
+        }
+      }
+    }
+    const cleared = new Set<string>();
+    if (losesDiscuss && agents !== null) {
+      for (const sessionId of agents.clearFallbackDecider(userId)) cleared.add(sessionId);
+      for (const session of this.everyAgentSession(agents)) {
+        if (session.responsible?.userId !== userId) continue;
+        agents.setResponsible(session.id, null, SYSTEM_ACTOR);
+        cleared.add(session.id);
+      }
+      for (const sessionId of cleared) {
+        if (agents.get(sessionId)?.status === 'ended') continue;
+        agents.append(sessionId, lineEvent(msg('conversation.responsible.fallback', { name })));
+        ctx.audit.record({ actor: SYSTEM_ACTOR, action: 'responsible.fallback', outcome: 'ok', target: sessionId, detail: { sessionId, from: userId, reason: change } });
+      }
+    }
+    return { ended, handedOver, cleared: [...cleared] };
+  }
+
+  /** Every agent session, those of archived topics included (`list()` leaves them out). */
+  private everyAgentSession(agents: AgentSessions): AgentSession[] {
+    return this.agentRuntime !== null ? this.agentRuntime.everySession() : agents.list();
+  }
+
+  private ownedAgentSessions(agents: AgentSessions, userId: UserId): AgentSession[] {
+    return this.everyAgentSession(agents).filter((session) => session.openedBy.userId === userId || agents.facts(session.id)?.ownerUserId === userId);
   }
 
   /** Idempotent: the first reason wins; every caller waits for the same teardown. */
@@ -750,6 +887,7 @@ export class SessionManagerImpl implements SessionManager {
   private foreignChildren(m: Managed): Set<number> {
     const out = new Set<number>(runningHelperPids());
     for (const other of this.sessions.values()) if (other !== m && other.pty.running) out.add(other.pty.pid);
+    for (const pid of this.agentRuntime?.childPids() ?? []) out.add(pid);
     return out;
   }
 
@@ -764,7 +902,9 @@ export class SessionManagerImpl implements SessionManager {
   private async trackDescendants(): Promise<void> {
     if (this.tracking) return;
     const running = [...this.sessions.values()].filter((m) => m.pty.running && m.ending === null);
-    if (running.length === 0) {
+    const agentChildren = this.agentRuntime?.liveChildren() ?? [];
+    // An agent session with launch files but no child yet is about to have one: the scan goes on.
+    if (running.length === 0 && this.agentProcs.size === 0) {
       if (this.trackTimer !== undefined) clearInterval(this.trackTimer);
       this.trackTimer = undefined;
       return;
@@ -788,6 +928,22 @@ export class SessionManagerImpl implements SessionManager {
         }
         m.known = next;
         this.persistProcs(m, byPid.get(m.pty.pid) ?? null);
+      }
+      // Agent children: the same record, so a run that dies hard leaves nothing of theirs behind either.
+      for (const child of agentChildren) {
+        const state = this.agentProcs.get(child.id);
+        if (state === undefined) continue;
+        const next = new Map<number, KnownProcess>();
+        for (const [pid, was] of state.known) {
+          const row = byPid.get(pid);
+          if (row && row.start === was.start && row.command === was.command) next.set(pid, was);
+        }
+        for (const [pid, known] of rememberDescendants(rows, child.pid, process.pid, uid, this.limits.maxPidsPerSession)) {
+          if (next.size >= this.limits.maxPidsPerSession) break;
+          next.set(pid, known);
+        }
+        state.known = next;
+        this.persistAgentProcs(child.id, state, byPid.get(child.pid) ?? null);
       }
     } catch (err) {
       this.logError('descendant scan failed', err);
@@ -859,6 +1015,26 @@ export class SessionManagerImpl implements SessionManager {
       });
     } catch (err) {
       this.logError('live session processes not recorded', err);
+    }
+  }
+
+  private persistAgentProcs(id: string, state: { known: Map<number, KnownProcess>; persisted: string }, root: ProcessRow | null): void {
+    if (!this.liveDoc || !this.liveDoc.get().live.includes(id)) return;
+    const entries: { pid: number; id: string }[] = [];
+    if (root?.start !== undefined && root.command !== undefined && root.ppid === process.pid) entries.push({ pid: root.pid, id: identityDigest(root.start, root.command) });
+    for (const [pid, known] of state.known) {
+      if (entries.length >= this.limits.maxPidsPerSession) break;
+      entries.push({ pid, id: identityDigest(known.start, known.command) });
+    }
+    const key = entries.map((entry) => `${entry.pid}:${entry.id}`).join(',');
+    if (key === state.persisted) return;
+    state.persisted = key;
+    try {
+      this.liveDoc.update((draft) => {
+        draft.procs = { ...(draft.procs ?? {}), [id]: entries.slice(0, 512) };
+      });
+    } catch (err) {
+      this.logError('live agent processes not recorded', err);
     }
   }
 

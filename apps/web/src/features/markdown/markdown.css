@@ -1,0 +1,211 @@
+/* Rendered Markdown (features/markdown): agent text and messages in a conversation, the spec's Read view, a report's
+   sections. Only element styles under .md-body; the place that shows it decides the measure and the padding. */
+.md-body {
+  min-width: 0;
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+.md-body > :first-child {
+  margin-top: 0;
+}
+.md-body > :last-child {
+  margin-bottom: 0;
+}
+.md-body p,
+.md-body ul,
+.md-body ol,
+.md-body blockquote,
+.md-body pre,
+.md-body .md-table,
+.md-body hr {
+  margin: var(--space-4) 0 0;
+}
+.md-body .md-h {
+  margin: var(--space-6) 0 0;
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+.md-body .md-h--1 {
+  font-size: var(--text-xl);
+}
+.md-body .md-h--2 {
+  font-size: var(--text-lg);
+}
+.md-body .md-h--3,
+.md-body .md-h--4 {
+  font-size: var(--text-md);
+}
+.md-body ul,
+.md-body ol {
+  padding-left: 1.5em;
+}
+.md-body li > ul,
+.md-body li > ol {
+  margin-top: var(--space-2);
+}
+.md-body li + li {
+  margin-top: var(--space-2);
+}
+.md-body li > p:first-child {
+  margin-top: 0;
+}
+.md-body .md-task {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: var(--space-3);
+  margin-left: -1.5em;
+  list-style: none;
+}
+.md-body .md-task > input {
+  margin: 3px 0 0;
+  accent-color: var(--color-accent-solid);
+}
+.md-body blockquote {
+  padding: var(--space-1) var(--space-5);
+  border-left: 2px solid var(--color-border-strong);
+  color: var(--color-text-muted);
+}
+.md-body hr {
+  height: 1px;
+  border: 0;
+  background: var(--color-border);
+}
+.md-body .md-code,
+.md-body .md-pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.md-body .md-code {
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-3);
+}
+.md-body .md-pre {
+  max-height: 420px;
+  padding: var(--space-4) var(--space-5);
+  overflow: auto;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  line-height: 1.5;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.md-body .md-pre:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+.md-body .md-raw {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+}
+.md-body .md-table {
+  overflow-x: auto;
+}
+.md-body table {
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.md-body th,
+.md-body td {
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  text-align: start;
+  vertical-align: top;
+}
+.md-body th {
+  background: var(--color-surface-2);
+  font-weight: var(--weight-semibold);
+}
+.md-body .md-link {
+  position: relative;
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md-body .md-link--image::before {
+  content: '';
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-right: 0.3em;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+/* The address of a link under the keyboard focus (a pointer gets the native tooltip of `title`). */
+.md-body .md-link:focus-visible::after {
+  content: attr(data-address);
+  position: absolute;
+  z-index: 3;
+  top: 100%;
+  left: 0;
+  width: max-content;
+  max-width: min(60ch, 80vw);
+  margin-top: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-normal);
+  overflow-wrap: anywhere;
+  white-space: normal;
+  pointer-events: none;
+}
+.md-body .md-path {
+  display: inline;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  text-align: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.md-body .md-path:hover {
+  text-decoration-style: solid;
+}
+.md-body .md-mention {
+  padding: 0 3px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+}
+.md-body .md-image {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+/* A text that is still being written ends with a caret, inside its last block. */
+.md-body--streaming:empty::after,
+.md-body--streaming > :last-child:not(ul, ol, pre, blockquote, .md-table)::after,
+.md-body--streaming > :is(ul, ol):last-child > li:last-child::after,
+.md-body--streaming > pre:last-child > code::after,
+.md-body--streaming > blockquote:last-child > :last-child::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--color-accent);
+  animation: md-caret 1s steps(2, start) infinite;
+}
+@keyframes md-caret {
+  to {
+    visibility: hidden;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .md-body--streaming::after,
+  .md-body--streaming *::after {
+    animation: none;
+  }
+}

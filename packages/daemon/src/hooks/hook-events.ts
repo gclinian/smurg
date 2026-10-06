@@ -3,16 +3,19 @@
 // CLAIM of a process inside that session (its agent can read its own token and forge events for its own session):
 //  * a file path counts only after realpath (PathGuard.toFileRef) and only inside the session's root, and a lock is
 //    requested only after PathGuard.resolve(forWrite) with the agent's principal accepted it;
-//  * PreToolUse never returns "allow" (that would skip the owner's permission prompt): a granted lock returns no
-//    output at all, a refusal a JSON deny whose reason (fixed English, deny-text.ts) names the holder;
+//  * PreToolUse is THE TOOL GATE (tool-gate.ts): it is asked for every tool. It never returns "allow" (allowing stays
+//    with Claude Code's rules and with people): a passed call and a granted lock return no output at all, a refusal
+//    a JSON deny whose reason is fixed English (deny-text.ts);
 //  * every failure while deciding a PreToolUse is a deny (fail closed).
 import { isAbsolute, resolve as resolvePath, basename } from 'node:path';
 import { SmurgError, fileRefKey, rootRefEquals, rootRefKey, type FileRef } from '@smurg/protocol';
 import type { DaemonContext } from '../core/context.ts';
 import { isPathDeniedError } from '../core/errors.ts';
 import type { AgentLockResult, HookSessionRegistration, Principal } from '../core/interfaces.ts';
-import { HOOK_DENY_REASONS, pathCheckFailedReason, pathDeniedReason } from './deny-text.ts';
+import { isStubService } from '../core/stubs.ts';
+import { HOOK_DENY_REASONS, gateDenyReason, pathCheckFailedReason, pathDeniedReason } from './deny-text.ts';
 import type { HookInput } from './schemas.ts';
+import { gateDecision, type GateTarget } from './tool-gate.ts';
 import { BASH_TOOL_NAME, EDIT_TOOL_NAMES, preToolUseDeny, type JsonObject } from './wire.ts';
 
 /** Per-session state the event handlers keep (owned by the HookServer's session entry). */
@@ -22,6 +25,8 @@ export interface HookSessionState {
   readonly held: Map<string, FileRef>;
   /** Bash commands of this session that started and have not finished (tool_use_id → start time), §11 D-13. */
   readonly bashOpen: Map<string, number>;
+  /** Tools outside the session's list that the gate refused (logged once per session and tool). */
+  readonly unknownTools: Set<string>;
 }
 
 /** Bash commands one session may have open at once (Claude Code runs a few tool calls in parallel at most). */
@@ -140,13 +145,39 @@ function releaseHeld(ctx: DaemonContext, state: HookSessionState, keepKey: strin
   }
 }
 
+/** The gate refused: the deny for the model, `agent.tool.gate` for the audit (coalesced by the conversation module). */
+function gateDeny(ctx: DaemonContext, state: HookSessionState, tool: string, row: 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7', path: string | undefined): PreToolUseOutcome {
+  const session = state.registration;
+  if (row === 'G2' && !state.unknownTools.has(tool) && state.unknownTools.size < 64) {
+    state.unknownTools.add(tool);
+    ctx.log.info('agent.tool.unknown: a tool outside the session\'s list was refused', { session: session.sessionId, tool: tool.slice(0, 64) });
+  }
+  ctx.bus.emit('agent.tool.gate', { sessionId: session.sessionId, tool: tool.slice(0, 64), row, ...(path === undefined ? {} : { path }) });
+  return deny(gateDenyReason(row, { tool, ...(session.topic === undefined ? {} : { slug: session.topic.slug }) }));
+}
+
+const READ_TOOLS: readonly string[] = ['Read', 'Glob', 'Grep'];
+
+/**
+ * THE TOOL GATE's daemon side (tool-gate.ts has the table): for every tool call of the session. Rows G2–G7 deny;
+ * an edit that passes them takes the agent lock exactly as before (G8); everything else gets no decision (G9).
+ */
 export async function handlePreToolUse(ctx: DaemonContext, state: HookSessionState, principal: Principal, input: HookInput): Promise<PreToolUseOutcome> {
   const session = state.registration;
-  const tool = input.tool_name;
-  // The matcher only sends the edit tools; anything else takes no lock and gets no decision (normal permissions).
-  if (!isEditTool(tool)) return { output: null, granted: null };
-  const raw = targetOf(input);
-  const located = await locateInSessionRoot(ctx, session, raw, input.cwd);
+  const tool = input.tool_name ?? '';
+  const editing = isEditTool(tool);
+  const protectedPaths = isStubService(ctx.services.projectTrust) ? new Set<string>() : ctx.services.projectTrust.protectedPaths(session.root);
+  const raw = editing ? targetOf(input) : (input.tool_input?.file_path ?? input.tool_input?.path);
+  // Only an edit, and a discussion's reads, are decided by where they point.
+  const needsPath = editing || (session.purpose === 'discussion' && READ_TOOLS.includes(tool));
+  const located: LocateResult = needsPath ? await locateInSessionRoot(ctx, session, raw, input.cwd) : { ok: false, why: 'no-target' };
+  const target: GateTarget = located.ok ? { kind: 'in', path: located.ref.path } : located.why === 'no-target' || (located.why === 'relative' && raw === undefined) ? { kind: 'none' } : { kind: 'outside' };
+  const decision = gateDecision(session, protectedPaths, tool, target, input.tool_input?.pattern);
+  if (decision.kind === 'deny') {
+    if (editing) releaseHeld(ctx, state, null);
+    return gateDeny(ctx, state, tool, decision.row, decision.path);
+  }
+  if (decision.kind === 'pass' || !editing) return { output: null, granted: null };
   if (!located.ok) {
     releaseHeld(ctx, state, null);
     if (located.why === 'no-target' || located.why === 'relative') return deny(HOOK_DENY_REASONS.noTarget);

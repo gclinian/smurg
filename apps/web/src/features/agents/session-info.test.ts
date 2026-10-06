@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { SmurgError } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
-import { describeSessionError, effectiveLogin, kindLabel, openedByLabel, openerName, statusLabel, tabLabel } from './session-info.ts';
+import { describeSessionError, openedByLabel, openerName, statusLabel, tabLabel } from './session-info.ts';
 
 
 describe('statusLabel of an ended session', () => {
@@ -38,17 +38,6 @@ describe('who opened a session', () => {
     expect(openedByLabel(amy, 'dev:amy')).toBe('By you');
     expect(openerName(amy, 'dev:ian')).toBe('Amy');
     expect(openerName(amy, 'dev:amy')).toBe('You');
-  });
-
-  it('there are two kinds: an agent and a terminal (no login process)', () => {
-    expect(kindLabel({ kind: 'agent' })).toBe('Agent (Claude Code)');
-    expect(kindLabel({ kind: 'terminal' })).toBe('Terminal');
-  });
-
-  it('a re-check of the login counts only until the daemon reports something newer', () => {
-    expect(effectiveLogin({ login: 'unknown' }, { login: 'logged-in', against: 'unknown' })).toBe('logged-in');
-    expect(effectiveLogin({ login: 'logged-out' }, { login: 'logged-in', against: 'unknown' })).toBe('logged-out');
-    expect(effectiveLogin({ login: 'logged-out' }, null)).toBe('logged-out');
   });
 });
 

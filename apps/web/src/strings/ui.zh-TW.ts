@@ -13,6 +13,11 @@ export const zhTW = {
   'avatar.agent': '{name}（agent）',
   'avatar.more': '還有 {count} 位',
   'table.empty': '沒有資料',
+  'boundary.error': '「{name}」無法顯示',
+  'boundary.errorBody': '頁面的這個部分發生錯誤。連線和其他部分不受影響。',
+  'boundary.retry': '重新顯示',
+  'columns.resize': '拖曳或用方向鍵調整「{name}」的寬度',
+  'columns.more': '還有 {count} 欄',
   'copy.done': '已複製',
   'copy.failed': '無法複製，請手動選取文字',
 } as const;

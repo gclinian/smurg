@@ -1,9 +1,11 @@
-// Host settings (admin.settings.get / set): shared read-only folders for worktrees (D12), lock timings (R8) and the disk
-// reserve (R7). Validated as the host types (settings-form.ts), applied at once by the daemon, and live: the form
+// Host settings (admin.settings.get / set): shared read-only folders for worktrees (D12), lock timings (R8), the disk
+// reserve (R7) and the three agent settings of v0.5.0 (how many work items run at once, how long a question waits
+// before others are asked, and whether agents may use the host's own MCP servers: DESIGN §2.11, §3.9, §3.12).
+// Validated as the host types (settings-form.ts), applied at once by the daemon, and live: the form
 // follows the current settings while it has no unsaved edits, and re-reads them when they change elsewhere (another
 // device of the host: channel.settingsUpdated).
-import { useEffect, useRef, useState } from 'react';
-import type { HostSettings } from '@smurg/protocol';
+import { useEffect, useId, useRef, useState } from 'react';
+import { ESCALATE_AFTER_MS_DEFAULT, MAX_LIVE_AGENTS_RANGE, REPORT_ESCALATION_FACTOR, type HostSettings } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectSettings } from '../../lib/stores/workspace.ts';
@@ -50,6 +52,7 @@ function SettingsForm({ settings }: { settings: HostSettings }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const saving = useRef(false);
+  const mcpHint = useId();
   useExternalSettingsChanges(saving);
 
   const shown = draft ?? draftFromSettings(settings);
@@ -60,6 +63,10 @@ function SettingsForm({ settings }: { settings: HostSettings }) {
   const edit = (field: SettingsField, value: string): void => {
     setError(null);
     setDraft({ ...shown, [field]: value });
+  };
+  const setAgentMcp = (on: boolean): void => {
+    setError(null);
+    setDraft({ ...shown, agentMcp: on });
   };
 
   const save = async (): Promise<void> => {
@@ -130,6 +137,34 @@ function SettingsForm({ settings }: { settings: HostSettings }) {
           error={parsed.errors.diskReservePercent}
           onChange={(event) => edit('diskReservePercent', event.currentTarget.value)}
         />
+      </div>
+      <h3 className="console-settings__group">{t('settings.agents')}</h3>
+      <div className="console-settings__grid">
+        <Input
+          label={t('settings.maxLiveAgents')}
+          hint={t('settings.maxLiveAgentsHint', { min: MAX_LIVE_AGENTS_RANGE.min, max: MAX_LIVE_AGENTS_RANGE.max })}
+          inputMode="numeric"
+          value={shown.maxLiveAgents}
+          error={parsed.errors.maxLiveAgents}
+          onChange={(event) => edit('maxLiveAgents', event.currentTarget.value)}
+        />
+        <Input
+          label={t('settings.escalateAfter')}
+          hint={t('settings.escalateAfterHint', { factor: REPORT_ESCALATION_FACTOR, minutes: ESCALATE_AFTER_MS_DEFAULT / 60_000 })}
+          inputMode="decimal"
+          value={shown.escalateAfterMin}
+          error={parsed.errors.escalateAfterMin}
+          onChange={(event) => edit('escalateAfterMin', event.currentTarget.value)}
+        />
+        <div className="console-settings__switch">
+          <label className="console-check">
+            <input type="checkbox" checked={shown.agentMcp} aria-describedby={mcpHint} onChange={(event) => setAgentMcp(event.currentTarget.checked)} />
+            <span>{t('settings.agentMcp')}</span>
+          </label>
+          <p id={mcpHint} className={shown.agentMcp ? 'console-settings__consequence console-settings__consequence--on' : 'console-settings__consequence'}>
+            {t('settings.agentMcpHint')}
+          </p>
+        </div>
       </div>
       {invalid > 0 ? (
         <p className="console-settings__status" role="status">

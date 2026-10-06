@@ -23,7 +23,8 @@
 //     after the links are printed, at most 2 s, silent on every failure; never in an automated run or with
 //     SMURG_NO_UPDATE_CHECK=1);
 //  8. stops gracefully on Ctrl-C / SIGTERM / SIGHUP or `smurg stop` (another Ctrl-C within 2 s is ignored, a later one
-//     leaves at once).
+//     leaves at once). A stop ends the terminals and the agents' processes; agent sessions stay (their conversations
+//     are on disk) and come back idle at the next start, so the last line says how many are paused when there are any.
 import { createWriteStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
@@ -64,6 +65,7 @@ import { homeDirOf, hostLogPath, workspaceStateDir } from '../state/paths.ts';
 import { stateProblem } from '../state/private-file.ts';
 import { loadWorkspaces, newWorkspaceId, rememberSharedFolder, sharedFolderFor, type WorkspaceBook } from '../state/workspaces.ts';
 import { NativeExtractionError, ensureSeaNative } from '../sea/native.ts';
+import { agentsPausedNotice } from '../cli/agents-text.ts';
 import { powerState } from '../cli/power-text.ts';
 import { updateNotice, type UpdateNoticeDeps } from '../update/notice.ts';
 import { m, roleText, type MessageId, type Text } from '../i18n/index.ts';
@@ -438,7 +440,10 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   let selfStop = false;
   let starting = true;
   const announceControlStop = (): void => say(ctx, m('host.stopping.control'));
+  // The agent sessions as the stop begins (the event comes before any module stops): what the last line counts.
+  let agentsAtStop: ReturnType<Daemon['status']>['agents'];
   const stoppingListener = daemon.ctx.bus.on('daemon.stopping', () => {
+    agentsAtStop = daemon.status().agents;
     if (stopping !== null || selfStop) return;
     stopping = { source: 'control', reason: 'control' };
     stopStartedAt = io.now();
@@ -504,6 +509,8 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   else await power.released; // daemon.stop() is already running (started from the control socket); keep-awake is its last step
   await cleanup();
   say(ctx, m('host.stopped'));
+  const paused = agentsPausedNotice(agentsAtStop);
+  if (paused !== null) say(ctx, paused);
   return EXIT.ok;
 }
 

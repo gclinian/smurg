@@ -1,0 +1,197 @@
+/* One column of the sessions view (and the session column of code mode): the frame around what a feature shows. */
+.col {
+  --col-measure: 800px;
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  /* Bodies and chips adapt to the column's own width: @container column (max-width: 620px) / (max-width: 430px). */
+  container: column / inline-size;
+}
+.col-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 36px;
+  padding: 0 var(--space-2) 0 var(--space-5);
+  border-bottom: var(--border-width) solid var(--color-border);
+  background: var(--color-surface-1);
+  flex: none;
+  box-shadow: inset 0 2px 0 transparent;
+}
+/* The column that has the focus: where a click on the left opens, where "open to the side" adds its neighbour. */
+.col[data-focused] > .col-head {
+  box-shadow: inset 0 2px 0 var(--color-accent);
+}
+.col-head__icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text-muted);
+}
+.col-head__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+.col-head__sub {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-subtle);
+  font-size: var(--text-sm);
+}
+.col-head__extra {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.col-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex: none;
+  margin-left: auto;
+}
+.col-head__pin[aria-pressed='true'] {
+  color: var(--color-accent);
+}
+/* Below 430 px a column drops the topic's name; a discussion keeps the topic's name and drops the word instead, so
+   two discussion columns can be told apart. */
+@container column (max-width: 430px) {
+  .col:not([data-discussion]) .col-head__sub {
+    display: none;
+  }
+  .col[data-discussion] .col-head__title-text {
+    display: none;
+  }
+  .col[data-discussion] .col-head__sub {
+    color: var(--color-text);
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+  }
+  .col-hide-narrow {
+    display: none !important;
+  }
+}
+/* position: relative on every scroll container of a column: an absolutely positioned descendant (visually hidden
+   text, a menu) must scroll and be clipped with it, or it makes the whole page taller than the window. */
+.col-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.col-note {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-6);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+.col-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------- the parts of a column's body
+   A feature's column component lays itself out with these (it renders them inside the frame's .col-body):
+
+     <div class="col-meta">     a strip of chips under the header (who is responsible, the worktree, the mode)
+     <div class="col-toolbar">  a strip of controls under the header (Read | Edit, a path, buttons)
+     <div class="col-scroll">   the part that scrolls; position: relative, so visually hidden text and menus inside
+                                scroll and are clipped with it (they would otherwise make the page taller than the window)
+       <div class="col-measure">  keeps a readable measure (800 px) in the middle of a wide column
+     <div class="col-foot">     what stays at the bottom (a composer, a status line, "I've reviewed this")           */
+.col-meta,
+.col-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 34px;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-5);
+  border-bottom: var(--border-width) solid var(--color-border);
+  background: var(--color-surface-1);
+  flex: none;
+}
+.col-toolbar {
+  flex-wrap: wrap;
+}
+.col-meta__chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.col-meta__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+.col-toolbar__grow {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  overflow: hidden;
+  color: var(--color-text-subtle);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.col-toolbar__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.col-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.col-measure {
+  width: 100%;
+  max-width: var(--col-measure);
+  margin: 0 auto;
+}
+.col-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-top: var(--border-width) solid var(--color-border);
+  background: var(--color-surface-1);
+  flex: none;
+}
+.col-foot__text {
+  flex: 1 1 12em;
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}

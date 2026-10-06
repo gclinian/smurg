@@ -445,8 +445,9 @@ describe('the two home pages', () => {
   it('show no version number and no statement about the app’s language being Chinese only', () => {
     for (const path of Object.values(HOME_PAGES)) {
       const text = page(path).elements.find((el) => el.tag === 'body')?.text() ?? '';
-      // (2.1.220 is the Claude Code version the host needs, not smurg's.)
-      expect(text.replaceAll('2.1.220', ''), path).not.toMatch(/\bv?\d+\.\d+\.\d+\b/);
+      // (2.1.288 is the Claude Code version the host needs, not smurg's.)
+      expect(text, path).toContain('2.1.288');
+      expect(text.replaceAll('2.1.288', ''), path).not.toMatch(/\bv?\d+\.\d+\.\d+\b/);
       expect(text, path).not.toMatch(/Traditional Chinese for now|English is coming/);
     }
     const texts = page(HOME_PAGES.en).elements.map((el) => el.text());
@@ -484,6 +485,27 @@ describe('the two home pages', () => {
     expect(hrefs(answer(relay as string))).toEqual([RELAY_README]);
   });
 
+  it.each(Object.entries(HOME_PAGES))('%s: says what was verified, whose Claude account does the work, and what agents may do by themselves', (lang, path) => {
+    const text = page(path).elements.find((el) => el.tag === 'body')?.text() ?? '';
+    if (lang === 'en') {
+      // The flow was verified against a scripted stand-in, not a real model (OWNER-DECISIONS: no real-account testing).
+      expect(text).toContain('tested with a scripted stand-in for the model, not with a real Claude account');
+      expect(text).toContain('Has this been tested with real Claude?');
+      // Whose account, and the terms (OWNER-DECISIONS Q6); the host's own rules apply (Q7).
+      expect(text).toContain('Anthropic’s terms don’t allow making a personal subscription available to other people');
+      expect(text).toContain('your own Claude Code settings already allow');
+      expect(text).toContain('asks before commands');
+      expect(text).toMatch(/git repository/);
+    } else {
+      expect(text).toContain('用照劇本回應的模型替身測試的，沒有用真正的 Claude 帳號');
+      expect(text).toContain('這套流程用真正的 Claude 測試過嗎？');
+      expect(text).toContain('Anthropic 的條款不允許把個人訂閱提供給其他人使用');
+      expect(text).toContain('你自己的 Claude Code 設定已經允許的');
+      expect(text).toContain('執行指令前會先問');
+      expect(text).toContain('git 儲存庫');
+    }
+  });
+
   it.each(Object.values(HOME_PAGES))('%s: claims no sandbox for teammates, and says what the Agent access role means and that it runs as the host', (path) => {
     const text = page(path).elements.find((el) => el.tag === 'body')?.text() ?? '';
     const titles = page(path).byTag('title').map((t) => t.text()).join('\n');
@@ -516,9 +538,19 @@ describe('the two home pages', () => {
     const labels = p.elements.filter((el) => el.parents.includes(app as El) && el.children().length === 0).map((el) => el.text());
     if (lang === 'en') for (const label of labels) expect(label, label).not.toMatch(cjk);
     else expect(labels.filter((label) => cjk.test(label)).length).toBeGreaterThan(15);
-    // Agent names are language-neutral (docs/GLOSSARY.md): `Claude (Amy)`, never with full-width parentheses.
-    expect(app?.text()).toContain('Claude (Amy)');
-    expect(app?.text()).not.toMatch(/Claude（(?:Amy|Ian)）/);
+    // The picture is the sessions view: the mode switch, the inbox and the session list on the left, then the columns.
+    const texts = p.elements.filter((el) => el.parents.includes(app as El) && el.children().length === 0).map((el) => el.text());
+    for (const label of lang === 'en' ? ['Sessions', 'Code mode', 'Agents are waiting', 'For you to look at', 'Question from Claude', 'Submit answer', 'Who is responsible', "I've reviewed this"] : ['手寫 code 模式', 'agent 在等你', '等你看的', 'Claude 的選擇題', '送出答案', '誰負責', '我已看過']) {
+      expect(texts, label).toContain(label);
+    }
+    // In a conversation the agent is `Claude` in both languages (docs/GLOSSARY.md), never with full-width parentheses.
+    expect(texts).toContain('Claude');
+    expect(app?.text()).not.toMatch(/Claude（/);
+    // What a person or an agent wrote (not a label of the app) is marked, so the quote lint can tell the two apart;
+    // a command is a `pre.m-term`.
+    const said = p.elements.filter((el) => el.parents.includes(app as El) && (el.attr('class') ?? '').split(' ').includes('m-said'));
+    expect(said.length).toBeGreaterThan(15);
+    for (const el of said) expect(el.children(), el.text()).toEqual([]);
     const address = p.elements.find((el) => el.attr('class') === 'm-url')?.text() ?? '';
     // packages/protocol WORKSPACE_ID_PATTERN: 16 to 64 of [A-Za-z0-9_-].
     expect(address).toMatch(/^app\.smurg\.ai\/w\/[A-Za-z0-9_-]{16,64}$/);
@@ -608,9 +640,23 @@ describe('the generated pages', () => {
       expect(hosting, phrase).toContain(phrase);
     }
     expect(text('en', 1)).toContain('as the host');
+    // The sections the `smurg` command's help links by their heading (packages/cli/src/i18n: usage.host, usage.status,
+    // usage.uninstall, usage.attach), and the ones 0.5.0 added.
+    for (const id of ['7-status-and-stopping', '9-updating-and-removing', '10-topics-from-the-hosts-side']) expect(hosting, id).toContain(`id="${id}"`);
+    for (const id of ['10-joining-from-a-terminal-cli-optional', '6-topics-from-discussion-to-reviewed-result']) expect(text('en', 1), id).toContain(`id="${id}"`);
+    // What 0.5.0 must say to a host: the Claude Code floor, git for work items, whose account, the host's own rules,
+    // and that the flow was verified against a scripted stand-in.
+    for (const phrase of ['2.1.288 or later', 'git 2.42 or later', 'Your own allow rules apply', 'a Team or Enterprise plan', 'scripted stand-in for the model', 'No real Claude account was used']) {
+      expect(hosting, phrase).toContain(phrase);
+    }
     const zh = text('zh-TW', 0);
     expect(zh).toContain('id="5-可使用-agent角色與-agent-的-shell-指令"');
     for (const phrase of ['在你的電腦上執行任何指令', '讀取你的家目錄', '使用你的 Claude 帳號', '只把這個角色給你完全信任的人', '用量和費用都算在你身上', '--role agent', '你可以自己架設 relay']) {
+      expect(zh, phrase).toContain(phrase);
+    }
+    for (const id of ['7-狀態與停止', '9-更新與移除']) expect(zh, id).toContain(`id="${id}"`);
+    expect(text('zh-TW', 1)).toContain('id="10-用終端機cli加入選用"');
+    for (const phrase of ['2.1.288 以上', '你自己的允許規則也有效', 'Team 或 Enterprise 方案', '照劇本回應的', '沒有使用任何真正的 Claude 帳號']) {
       expect(zh, phrase).toContain(phrase);
     }
     expect(text('zh-TW', 1)).toContain('以主人的身分');

@@ -11,12 +11,21 @@
 //
 // R6.3: every step is audited with the author, the content (`text` / `finalText` are kept whole through
 // AuditInput.fullText), the outcome and the time.
+//
+// A suggestion is a CARD of the session's conversation (a `card` event where it appeared; the entity in
+// session.watch / history / cards.get and in `suggest.updated`): every member who can read the conversation reads it.
+// `suggest.updated` goes to the watchers of the session, to the author and to the members whose inbox holds it
+// (routing.ts `suggestionRecipients`). What the author learns of a decision: the card's new state, and for a
+// rejection or an edited accept a stored `result` in their inbox (InboxService.addResult).
 import {
   LIST_MAX_ITEMS,
+  SUGGESTIONS_PENDING_PER_AUTHOR_MAX,
   SmurgError,
   can,
   SUGGESTION_TEXT_MAX_CHARS,
   agentTextWithin,
+  settledError,
+  suggestionRecipients,
   suggestionSourceSchema,
   suggestionTextSchema,
   type PayloadOf,
@@ -28,6 +37,7 @@ import {
   type AgentSession,
   type CardRef,
   type MessageOrigin,
+  type SessionEndReason,
 } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
@@ -36,6 +46,8 @@ import type { MemberRecord, PersistentDocument, Principal, SuggestionService, Us
 import { DisposableStack, newId, type Disposable } from '../core/lifecycle.ts';
 import { SYSTEM_ACTOR, principalCan } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
+// The one mention rule of every request that carries `mentions` (a pure helper of the conversation module).
+import { clipExcerpt, keptMentions, storeMentions, takeMentionTokens } from '../conversation/mentions.ts';
 import {
   SUGGESTIONS_DOCUMENT,
   initialSuggestionsDocument,
@@ -46,6 +58,9 @@ import {
 } from './store.ts';
 
 export interface SuggestionLimits {
+  /** Pending suggestions of one author in one session (`suggest.tooManyPending`); the wire's constant. */
+  readonly maxPendingPerAuthorAndSession: number;
+  /** Pending suggestions of one author in all sessions together. */
   readonly maxPendingPerAuthor: number;
   readonly maxPendingPerSession: number;
   readonly maxPendingTotal: number;
@@ -61,7 +76,8 @@ export interface SuggestionLimits {
 }
 
 export const DEFAULT_SUGGESTION_LIMITS: SuggestionLimits = Object.freeze({
-  maxPendingPerAuthor: 20,
+  maxPendingPerAuthorAndSession: SUGGESTIONS_PENDING_PER_AUTHOR_MAX,
+  maxPendingPerAuthor: 100,
   maxPendingPerSession: 50,
   maxPendingTotal: 200,
   maxPendingChars: 1_048_576,
@@ -76,15 +92,25 @@ export interface SuggestionModuleOptions {
 }
 
 /**
- * suggest.accept names the suggestion, not the text the owner reviewed, and the author may edit a pending
- * suggestion at any time. An accept that carries `text` pastes exactly that text (what the owner saw or typed); an
+ * suggest.accept names the suggestion, not the text the member reviewed, and the author may edit a pending
+ * suggestion at any time. An accept that carries `text` sends exactly that text (what the member saw or typed); an
  * accept WITHOUT text within this long after an edit is refused (`conflict` / `suggestion-changed`): it may have been
- * clicked on the previous version, and the new one would be typed into the owner's session unseen.
+ * clicked on the previous version, and the new one would reach the agent unseen.
  */
 export const ACCEPT_AFTER_EDIT_MS = 10_000;
 
 const NOT_FOUND = (): SmurgError => new SmurgError('not_found', msg('suggest.notFound'), { reason: 'unknown-suggestion' });
-const NOT_PENDING = (status: string): SmurgError => new SmurgError('conflict', msg('suggest.notPending'), { reason: 'not-pending', status });
+/** The refusal every late edit, withdrawal, accept and reject gets: which card, how it ended, who did it (never the card). */
+const NOT_PENDING = (item: Pick<StoredSuggestion, 'id' | 'sessionId' | 'status' | 'decidedBy'>): SmurgError =>
+  settledError(
+    { card: { kind: 'suggestion', id: item.id }, sessionId: item.sessionId, status: item.status === 'pending' ? 'accepted' : item.status, ...(item.decidedBy === undefined ? {} : { by: item.decidedBy }) },
+    msg('suggest.notPending'),
+  );
+
+/** Why the daemon closes the pending suggestions of a session that ended. */
+function closedReasonOf(reason: SessionEndReason): 'session-ended' | 'topic-archived' {
+  return reason === 'archived' ? 'topic-archived' : 'session-ended';
+}
 
 function textChars(stored: StoredSuggestion): number {
   return stored.text.length + (stored.finalText?.length ?? 0);
@@ -137,13 +163,26 @@ export class SuggestionServiceImpl implements SuggestionService {
     await this.doc?.flush().catch(() => {});
   }
 
-  /** Bus wiring: sessions that end, members who are kicked or lose the right to suggest. */
+  /** Bus wiring: sessions that end, topics that are archived or deleted, members who are kicked or lose the right to suggest. */
   attach(): Disposable {
     const stack = new DisposableStack();
     const bus = this.ctx.bus;
     stack.add(
       bus.on('session.exited', (event) => {
-        for (const item of this.stored()) if (item.status === 'pending' && item.sessionId === event.session.id) this.closeBySystem(item.id, 'rejected', 'session-ended');
+        // Archiving a topic ends its sessions with the reason `archived`: the card then says so.
+        const reason = closedReasonOf(event.reason);
+        for (const item of this.stored()) if (item.status === 'pending' && item.sessionId === event.session.id) this.closeBySystem(item.id, 'rejected', reason);
+      }),
+    );
+    stack.add(
+      bus.on('topic.removed', (event) => {
+        // The topic was deleted: the suggestions of its sessions go with their conversations (before the transcripts do).
+        const gone = new Set(event.sessionIds);
+        if (this.doc === null || !this.stored().some((item) => gone.has(item.sessionId))) return;
+        this.doc.update((draft) => {
+          draft.suggestions = draft.suggestions.filter((item) => !gone.has(item.sessionId));
+        });
+        void this.persist();
       }),
     );
     stack.add(
@@ -180,6 +219,9 @@ export class SuggestionServiceImpl implements SuggestionService {
     // agent-session: suggestions go to agent sessions, the author's own included (what matters is who may drive).
     const session = this.requireRunningSession(input.sessionId);
     this.checkPendingBudget({ authorUserId: author.userId, sessionId: session.id, addChars: text.length, removeChars: 0 });
+    // mentions-checked: only active members the text names count; one `mention` token each, before anything is stored.
+    const mentioned = keptMentions(this.ctx, text, input.mentions, author.userId);
+    takeMentionTokens(this.ctx, author.userId, mentioned.length);
     const stored: StoredSuggestion = {
       id: newId('sug'),
       sessionId: session.id,
@@ -189,7 +231,7 @@ export class SuggestionServiceImpl implements SuggestionService {
       origin: input.origin ?? (source !== undefined ? 'selection' : 'composer'),
       ...(input.topicId !== undefined ? { topicId: input.topicId } : session.topicId !== undefined ? { topicId: session.topicId } : {}),
       ...(input.itemId !== undefined ? { itemId: input.itemId } : session.itemId !== undefined ? { itemId: session.itemId } : {}),
-      ...(input.mentions !== undefined && input.mentions.length > 0 ? { mentions: [...input.mentions] } : {}),
+      ...(mentioned.length > 0 ? { mentions: mentioned.map((member) => member.userId) } : {}),
       ...(source !== undefined ? { source } : {}),
       status: 'pending',
       createdAt: this.ctx.clock.now(),
@@ -212,11 +254,17 @@ export class SuggestionServiceImpl implements SuggestionService {
         authorName: author.displayName,
         text,
         createdAt: stored.createdAt,
+        origin: stored.origin,
+        ...(stored.topicId !== undefined ? { topicId: stored.topicId } : {}),
+        ...(stored.itemId !== undefined ? { itemId: stored.itemId } : {}),
         ...(source !== undefined ? { source: { root: source.file.root, path: source.file.path, startLine: source.startLine, endLine: source.endLine } } : {}),
       },
       fullText: ['text'],
     });
+    // Where the card appeared in the conversation, then the card itself.
+    this.appendCard(stored);
     this.publish(stored, null);
+    storeMentions(this.ctx, { from: principal, kept: mentioned, target: { kind: 'session', sessionId: stored.sessionId }, anchor: { cardId: stored.id }, text });
     await this.persist();
     return toSuggestion(stored);
   }
@@ -224,7 +272,7 @@ export class SuggestionServiceImpl implements SuggestionService {
   async edit(input: PayloadOf<'suggest.edit'>, principal: Principal): Promise<Suggestion> {
     const stored = this.requireStored(input.suggestionId);
     this.requireAuthor(stored, principal);
-    if (stored.status !== 'pending') throw NOT_PENDING(stored.status);
+    if (stored.status !== 'pending') throw NOT_PENDING(stored);
     if (!principalCan(principal, 'suggest.create')) throw new AuthorizationError(undefined, { reason: 'capability' });
     const { text, cleaned } = cleanText(input.text);
     this.checkPendingBudget({ authorUserId: stored.author.userId, sessionId: stored.sessionId, addChars: text.length, removeChars: stored.text.length, editing: true });
@@ -251,7 +299,7 @@ export class SuggestionServiceImpl implements SuggestionService {
   async withdraw(input: PayloadOf<'suggest.withdraw'>, principal: Principal): Promise<Suggestion> {
     const stored = this.requireStored(input.suggestionId);
     this.requireAuthor(stored, principal);
-    if (stored.status !== 'pending') throw NOT_PENDING(stored.status);
+    if (stored.status !== 'pending') throw NOT_PENDING(stored);
     const updated = this.update(stored.id, (draft) => {
       draft.status = 'withdrawn';
       draft.resolvedAt = this.ctx.clock.now();
@@ -266,9 +314,9 @@ export class SuggestionServiceImpl implements SuggestionService {
     const stored = this.requireStored(input.suggestionId);
     // session.drive (any session), and only while the suggestion is pending.
     this.requireDriver(principal);
-    if (stored.status !== 'pending') throw NOT_PENDING(stored.status);
+    if (stored.status !== 'pending') throw NOT_PENDING(stored);
     this.requireRunningSession(stored.sessionId);
-    // `text` is what the member saw (or typed): exactly that is pasted. Equal to the current text, it is a plain accept.
+    // `text` is what the member saw (or typed): exactly that is sent. Equal to the current text, it is a plain accept.
     const accepted = input.text === undefined ? { text: stored.text, cleaned: false } : cleanText(input.text);
     const modified = accepted.text !== stored.text;
     if (input.text === undefined && stored.editedAt !== undefined && this.ctx.clock.now() - stored.editedAt < this.acceptAfterEditMs) {
@@ -282,7 +330,7 @@ export class SuggestionServiceImpl implements SuggestionService {
       throw new SmurgError('conflict', msg('suggest.changed'), { reason: 'suggestion-changed', suggestionId: stored.id, editedAt: stored.editedAt });
     }
     const finalText = accepted.text;
-    if (this.accepting.has(stored.id)) throw NOT_PENDING('accepted');
+    if (this.accepting.has(stored.id)) throw NOT_PENDING(stored);
     this.accepting.add(stored.id);
     // THE ONLY PATH OF SUGGESTION TEXT TO AN AGENT: a message of its author, under a header that names who accepted it.
     try {
@@ -303,7 +351,7 @@ export class SuggestionServiceImpl implements SuggestionService {
           action: 'suggest.accept',
           outcome: 'error',
           target: stored.id,
-          detail: { suggestionId: stored.id, sessionId: stored.sessionId, reason: err instanceof SmurgError ? String(err.detail?.['reason'] ?? err.code) : 'paste-failed' },
+          detail: { suggestionId: stored.id, sessionId: stored.sessionId, reason: err instanceof SmurgError ? String(err.detail?.['reason'] ?? err.code) : 'send-failed' },
         });
       }
       throw err;
@@ -317,6 +365,7 @@ export class SuggestionServiceImpl implements SuggestionService {
     });
     this.auditOutcome(principal.actor, 'suggest.accept', updated, {});
     this.publish(updated, stored);
+    if (modified) this.tellAuthor(updated, principal, 'accepted-edited');
     await this.persist();
     return toSuggestion(updated);
   }
@@ -324,7 +373,7 @@ export class SuggestionServiceImpl implements SuggestionService {
   async reject(input: PayloadOf<'suggest.reject'>, principal: Principal): Promise<Suggestion> {
     const stored = this.requireStored(input.suggestionId);
     this.requireDriver(principal);
-    if (stored.status !== 'pending') throw NOT_PENDING(stored.status);
+    if (stored.status !== 'pending') throw NOT_PENDING(stored);
     const updated = this.update(stored.id, (draft) => {
       draft.status = 'rejected';
       draft.resolvedAt = this.ctx.clock.now();
@@ -333,20 +382,20 @@ export class SuggestionServiceImpl implements SuggestionService {
     });
     this.auditOutcome(principal.actor, 'suggest.reject', updated, {});
     this.publish(updated, stored);
+    this.tellAuthor(updated, principal, 'rejected');
     await this.persist();
     return toSuggestion(updated);
   }
 
   /**
-   * The caller's own suggestions; every suggestion for a member who may decide them (session.drive). Newest first;
-   * one page of THE list rule after `input.after`.
+   * Every suggestion the daemon keeps (of one session with `sessionId`): a suggestion is a card of its session's
+   * conversation, which every member holding `session.view` reads. Newest first; one page of THE list rule after
+   * `input.after`.
    */
   list(input: PayloadOf<'suggest.list'>, principal: Principal): ResultInputOf<'suggest.list'> {
-    const driver = principal.userId !== null && principalCan(principal, 'session.drive');
-    const userId = principal.userId;
+    if (!principalCan(principal, 'session.view')) throw new AuthorizationError(undefined, { reason: 'capability' });
     const all = this.stored()
       .filter((item) => input.sessionId === undefined || item.sessionId === input.sessionId)
-      .filter((item) => driver || (userId !== null && item.author.userId === userId))
       .sort((a, b) => b.createdAt - a.createdAt)
       .map(toSuggestion);
     const page = takeListPage(all, input.after, (item) => item.id);
@@ -371,8 +420,8 @@ export class SuggestionServiceImpl implements SuggestionService {
   // Internals
   // =================================================================================================================
 
-  /** A suggestion closed by the daemon itself (its session ended, its author was kicked or demoted). */
-  private closeBySystem(id: string, status: 'rejected' | 'withdrawn', reason: 'session-ended' | 'author-kicked' | 'author-demoted'): void {
+  /** A suggestion closed by the daemon itself (its session ended, its topic was archived, its author was kicked or demoted). */
+  private closeBySystem(id: string, status: 'rejected' | 'withdrawn', reason: NonNullable<StoredSuggestion['closedReason']>): void {
     const before = this.stored().find((item) => item.id === id);
     if (!before || before.status !== 'pending') return;
     const updated = this.update(id, (draft) => {
@@ -399,6 +448,8 @@ export class SuggestionServiceImpl implements SuggestionService {
         authorUserId: item.author.userId,
         authorName: item.author.displayName,
         outcome: item.status,
+        ...(item.topicId !== undefined ? { topicId: item.topicId } : {}),
+        ...(item.itemId !== undefined ? { itemId: item.itemId } : {}),
         text: item.text,
         ...(item.finalText !== undefined ? { finalText: item.finalText } : {}),
         ...(item.rejectReason !== undefined ? { rejectReason: item.rejectReason } : {}),
@@ -411,20 +462,58 @@ export class SuggestionServiceImpl implements SuggestionService {
   }
 
   /**
-   * suggest.updated to the author and to every member who may decide it (session.drive: the host, Agent access;
-   * recipients:suggestion-parties).
+   * suggest.updated (recipients:suggestion-parties): to the members who watch the session, to the author, and to the
+   * members whose inbox holds it (routing.ts: the responsible person when they may drive, else the host and every
+   * member with agent access). One message per channel of each of them.
    */
   private publish(item: StoredSuggestion, previous: StoredSuggestion | null): void {
     const suggestion = toSuggestion(item);
     this.ctx.bus.emit('suggestion.changed', { suggestion, previous: previous ? toSuggestion(previous) : null });
-    const parties = new Set<UserId>([item.author.userId, this.ctx.members.hostUserId()]);
-    for (const member of this.ctx.members.list()) if (member.status === 'active' && can(member.role, 'session.drive')) parties.add(member.userId);
+    const parties = new Set<UserId>([item.author.userId]);
+    const agents = this.ctx.services.agents;
+    let responsible: UserId | null = null;
+    if (!isStubService(agents)) {
+      try {
+        for (const userId of agents.watchers(item.sessionId)) parties.add(userId);
+        responsible = agents.get(item.sessionId)?.responsible?.userId ?? null;
+      } catch {
+        // The session is gone: the author and the members who may decide still learn of it.
+      }
+    }
+    for (const userId of suggestionRecipients({ responsible }, this.ctx.members.routing())) parties.add(userId);
     for (const userId of parties) this.ctx.hub.sendToUser(userId, 'suggest.updated', { suggestion });
+  }
+
+  /** The `card` event: where the suggestion appeared in its session's conversation. */
+  private appendCard(item: StoredSuggestion): void {
+    try {
+      this.ctx.services.agents.append(item.sessionId, { kind: 'card', card: 'suggestion', id: item.id });
+    } catch (err) {
+      this.ctx.log.error('the card event of a suggestion was not appended', { module: 'suggest', error: err instanceof Error ? err.name : 'unknown' });
+    }
+  }
+
+  /**
+   * A person decided against the author's text as it was (rejected, or accepted after an edit): a stored result in
+   * the author's inbox. A plain accept needs none (the card says it), and nobody tells themselves.
+   */
+  private tellAuthor(item: StoredSuggestion, by: Principal, outcome: 'rejected' | 'accepted-edited'): void {
+    if (isStubService(this.ctx.services.inbox) || by.userId === item.author.userId) return;
+    try {
+      this.ctx.services.inbox.addResult({ userId: item.author.userId, from: by.actor, suggestionId: item.id, sessionId: item.sessionId, outcome, excerpt: clipExcerpt(item.text) });
+    } catch (err) {
+      this.ctx.log.error('storing the result of a suggestion failed', { module: 'suggest', error: err instanceof Error ? err.name : 'unknown' });
+    }
   }
 
   private checkPendingBudget(input: { readonly authorUserId: UserId; readonly sessionId: string; readonly addChars: number; readonly removeChars: number; readonly editing?: boolean }): void {
     const pending = this.stored().filter((item) => item.status === 'pending');
     const extra = input.editing ? 0 : 1;
+    // suggestion-limit: what one author may have waiting in one session.
+    const mineHere = pending.filter((item) => item.author.userId === input.authorUserId && item.sessionId === input.sessionId).length;
+    if (mineHere + extra > this.limits.maxPendingPerAuthorAndSession) {
+      throw new SmurgError('too_large', msg('suggest.tooManyPending', { max: this.limits.maxPendingPerAuthorAndSession }), { reason: 'too-many-pending' });
+    }
     if (pending.length + extra > this.limits.maxPendingTotal) throw this.queueFull('queue');
     if (pending.filter((item) => item.author.userId === input.authorUserId).length + extra > this.limits.maxPendingPerAuthor) throw this.queueFull('author');
     if (pending.filter((item) => item.sessionId === input.sessionId).length + extra > this.limits.maxPendingPerSession) throw this.queueFull('session');
@@ -475,12 +564,18 @@ export class SuggestionServiceImpl implements SuggestionService {
     }
   }
 
-  /** An agent session that has not ended (`suggest.terminal` for a terminal: its opener types into it). */
+  /**
+   * session-open: an agent session (`suggest.terminal` for a terminal: its opener types into it) that has not ended
+   * (`conflict`, reason `ended`) and whose topic is not archived (`archived`).
+   */
   private requireRunningSession(sessionId: string): AgentSession {
     const session = this.ctx.services.sessions.get(sessionId);
     if (!session) throw new SmurgError('not_found', msg('session.notFound'), { reason: 'unknown-session' });
     if (session.kind !== 'agent') throw new SmurgError('bad_request', msg('suggest.terminal'), { reason: 'not-an-agent' });
-    if (isSessionOver(session)) throw new SmurgError('conflict', msg('suggest.sessionEnded'), { reason: 'session-ended' });
+    const topics = this.ctx.services.topics;
+    const archived = session.endReason === 'archived' || (session.topicId !== undefined && !isStubService(topics) && topics.get(session.topicId)?.archived === true);
+    if (archived) throw new SmurgError('conflict', msg('topic.archived'), { reason: 'archived' });
+    if (isSessionOver(session)) throw new SmurgError('conflict', msg('suggest.sessionEnded'), { reason: 'ended' });
     return session;
   }
 
@@ -518,7 +613,7 @@ export class SuggestionServiceImpl implements SuggestionService {
   /**
    * Writes suggestions.json. Every change is audited and published BEFORE this runs, and a failed write is logged, not
    * thrown: the in-memory document stays authoritative (the next change rewrites the whole file), and an accepted
-   * suggestion is already in the PTY, which no error could undo.
+   * suggestion is already with the agent, which no error could undo.
    */
   private async persist(): Promise<void> {
     try {

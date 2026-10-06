@@ -5,6 +5,7 @@ import {
   checkRelPath,
   foldPathName,
   isHostOnlyPath,
+  isInTopicDir,
   isRelPathWithin,
   joinRelPath,
   parentRelPath,
@@ -113,12 +114,24 @@ export interface WriteContext {
   /** The role has file.write. */
   readonly canWrite: boolean;
   readonly isHost: boolean;
+  /**
+   * The root shown is a work item's worktree: the folder name (slug) of its topic. `specs/<slug>/` there is what the
+   * agent was started from and where it writes its report: nobody changes it through smurg, the host included
+   * (DESIGN §3.11; the daemon's PathGuard refuses).
+   */
+  readonly itemSlug?: string | undefined;
+}
+
+/** Whether `path` lies in the topic folder of the work item whose worktree is shown (read-only for everyone). */
+export function isItemSpecPath(path: string, itemSlug: string | undefined): boolean {
+  return itemSlug !== undefined && path !== '' && isInTopicDir(path, itemSlug);
 }
 
 /** Whether the member may change this entry (rename, delete, write into it): not for viewers, read-only entries or host-only paths. */
 export function isEntryWritable(entry: FileEntry | null, path: string, ctx: WriteContext): boolean {
   if (!ctx.canWrite) return false;
   if (entry?.readOnly) return false;
+  if (isItemSpecPath(path, ctx.itemSlug)) return false;
   // `.claude/`, `.git/`, `.mcp.json`, … : only the host may write them (ARCHITECTURE §5.2).
   if (!ctx.isHost && path !== '' && isHostOnlyPath(path)) return false;
   return true;
@@ -126,7 +139,7 @@ export function isEntryWritable(entry: FileEntry | null, path: string, ctx: Writ
 
 // ---- badges
 
-export type BadgeKind = 'agent-lock' | 'human-lock' | 'recent' | 'read-only' | 'host-only';
+export type BadgeKind = 'agent-lock' | 'human-lock' | 'recent' | 'read-only' | 'host-only' | 'item-spec';
 
 export interface EntryBadge {
   readonly kind: BadgeKind;
@@ -145,6 +158,8 @@ export interface BadgeContext {
   readonly now: number;
   readonly selfUserId: string | null;
   readonly isHost: boolean;
+  /** See WriteContext.itemSlug. */
+  readonly itemSlug?: string | undefined;
 }
 
 export function actorName(actor: Actor): string {
@@ -169,9 +184,11 @@ export function entryBadges(entry: FileEntry, ctx: BadgeContext): EntryBadge[] {
     const shown = by.kind === 'user' && by.userId === ctx.selfUserId ? t('badge.you') : name;
     badges.push({ kind: 'recent', text: shown, label: t('badge.recentLabel', { name, time: formatRelativeTime(entry.mtime, ctx.now) }) });
   }
-  // Host-only first: the daemon also reports those paths (.git, .claude, …) as readOnly to guests, and calling them a
-  // shared folder told students something false.
-  if (!ctx.isHost && isHostOnlyPath(entry.path)) badges.push({ kind: 'host-only', text: '', label: t('badge.hostOnlyLabel') });
+  // A work item's own copy of the spec and the plan first (the daemon reports what is inside as readOnly too, and it
+  // is no shared folder); then host-only: the daemon also reports those paths (.git, .claude, …) as readOnly to
+  // guests, and calling them a shared folder told students something false.
+  if (isItemSpecPath(entry.path, ctx.itemSlug)) badges.push({ kind: 'item-spec', text: '', label: t('badge.itemSpecLabel') });
+  else if (!ctx.isHost && isHostOnlyPath(entry.path)) badges.push({ kind: 'host-only', text: '', label: t('badge.hostOnlyLabel') });
   else if (entry.readOnly) badges.push({ kind: 'read-only', text: '', label: t('badge.readOnlyLabel') });
   return badges;
 }
@@ -184,7 +201,7 @@ export type NameCheck = { readonly ok: true; readonly path: string } | { readonl
  * Validates a new file or folder name typed into `parent` (create or rename). `siblings` are the names already there
  * (a case-insensitive match counts: the host's disk may well be APFS); `current` is the entry being renamed.
  */
-export function checkNewName(name: string, parent: string, siblings: readonly string[], options: { isHost: boolean; current?: string }): NameCheck {
+export function checkNewName(name: string, parent: string, siblings: readonly string[], options: { isHost: boolean; current?: string; itemSlug?: string | undefined }): NameCheck {
   if (name.trim() === '') return { ok: false, message: t('name.empty') };
   if (name.includes('/')) return { ok: false, message: t('name.slash') };
   if (name === '.' || name === '..') return { ok: false, message: t('name.dots') };
@@ -211,6 +228,7 @@ export function checkNewName(name: string, parent: string, siblings: readonly st
   if (siblings.some((sibling) => foldPathName(sibling) === folded && foldPathName(sibling) !== currentFolded)) return { ok: false, message: t('name.exists') };
   if (options.current !== undefined && name === options.current) return { ok: false, message: t('name.unchanged') };
   if (!options.isHost && isHostOnlyPath(path)) return { ok: false, message: t('name.hostOnly') };
+  if (isItemSpecPath(path, options.itemSlug)) return { ok: false, message: t('name.itemSpec') };
   return { ok: true, path };
 }
 

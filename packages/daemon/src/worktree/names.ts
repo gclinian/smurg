@@ -1,5 +1,6 @@
 // Names the worktree module gives to things on disk and in git. Pure functions.
 import { randomBytes } from 'node:crypto';
+import { ITEM_ID_PATTERN, TOPIC_SLUG_PATTERN } from '@smurg/protocol';
 import type { GitIdentity } from './git.ts';
 import { MERGE_ID_PATTERN, WORKTREE_ID_PATTERN } from './store.ts';
 
@@ -43,6 +44,16 @@ export function worktreeBranch(ownerUserId: string, worktreeId: string): string 
   const branch = `smurg/${ownerSlug(ownerUserId)}/${worktreeId}`;
   if (!BRANCH_PATTERN.test(branch) || branch.includes('..') || /\.lock(\/|$)/.test(branch)) throw new Error('unsafe branch name');
   return branch;
+}
+
+/**
+ * `smurg/<topic slug>/<item id>`: the branch of a work item's worktree (ARCHITECTURE §5.10). Both parts are the
+ * protocol's patterns (lowercase letters, digits and hyphens, starting with a letter or digit), which are valid ref
+ * components as they are; anything else is refused, never repaired.
+ */
+export function itemBranch(topicSlug: string, itemId: string): string {
+  if (!TOPIC_SLUG_PATTERN.test(topicSlug) || !ITEM_ID_PATTERN.test(itemId)) throw new Error('unsafe branch name');
+  return `smurg/${topicSlug}/${itemId}`;
 }
 
 export function mergeRef(requestId: string): string {

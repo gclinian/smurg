@@ -1,6 +1,6 @@
 // The CLI's own messages in Traditional Chinese (zh-TW): the same ids and parameters as en.ts (checked by type and by
 // test/i18n.test.ts). The wording is the one smurg has always used; it changes only where a sentence became false.
-import type { DurationUnit, RelayAction, StateSubject, UrlSubject, en } from './en.ts';
+import type { ClaudeLogin, ClaudeVerdict, DurationUnit, ProjectSettings, RelayAction, StateSubject, UrlSubject, en } from './en.ts';
 
 const STATE_SUBJECT: Readonly<Record<StateSubject, string>> = {
   credentials: '登入資料檔（credentials.json）',
@@ -28,6 +28,25 @@ const RELAY_ACTION: Readonly<Record<RelayAction, string>> = {
 
 const UNIT: Readonly<Record<DurationUnit, string>> = { day: '天', hour: '小時', minute: '分鐘', second: '秒' };
 
+const CLAUDE_VERDICT: Readonly<Record<ClaudeVerdict, string>> = {
+  verified: '這個 smurg 驗證過的版本',
+  unverified: '這個 smurg 還沒驗證過的版本，agent session 執行時會附上警告',
+  'too-old': '版本太舊，不能執行 agent session，請更新 Claude Code',
+  unknown: 'smurg 讀不到它的版本',
+};
+
+const CLAUDE_LOGIN: Readonly<Record<ClaudeLogin, string>> = {
+  'logged-in': '已登入',
+  'logged-out': '尚未登入（請在終端機執行 claude 並登入）',
+  unknown: '尚未確認登入狀態',
+};
+
+const PROJECT_SETTINGS: Readonly<Record<ProjectSettings, string>> = {
+  used: '已確認（agent 會使用）',
+  ignored: '尚未確認（agent 不會載入；請在網頁上確認）',
+  none: '這個資料夾沒有',
+};
+
 const UNCHANGED = 'smurg 沒有被更動。';
 
 export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
@@ -42,8 +61,8 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
 用法：smurg <指令> [選項]
 
   host <資料夾>        分享這台電腦上的專案資料夾，產生邀請連結（在前景執行）
-  attach [session]     把 agent session 接到這個終端機（不指定時列出 session）
-  stop                 停止分享（中斷所有連線、結束所有 session）
+  attach [session]     把終端機 session 接到這個終端機（不指定時列出 session）
+  stop                 停止分享（中斷所有連線、結束終端機 session、暫停 agent session）
   status               顯示正在分享的工作區
   login                登入 relay（公用 relay 用 Google）
   logout               登出 relay
@@ -193,8 +212,9 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   // ---- attach
   'usage.attach': (p) => `用法：smurg attach [session] [--workspace 工作區ID] [--invite -|邀請連結] [--relay 網址] [--no-browser] [--accept-new-key]
 
-  把 agent session 接到這個終端機。不指定 session 時列出所有 session。
+  把終端機 session 接到這個終端機。不指定 session 時列出所有 session。
   session 可以是列表中的編號、session ID 或 ID 的開頭。
+  agent session 是對話：列表會顯示它的主題和狀態，要在瀏覽器開啟，不是在終端機裡。
   這台電腦正在分享該工作區時（smurg host），直接以主人身分接上；否則透過 relay 以這台電腦的裝置金鑰加入。
   --invite -          第一次加入別人的工作區：執行後貼上主人給的邀請連結（不會顯示在畫面上）。
                       也可以把連結放在環境變數 SMURG_INVITE。只有第一次需要，之後用 --workspace 即可。
@@ -219,6 +239,19 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'attach.list.empty': () => '這個工作區目前沒有 session。',
   'attach.list.header': () => '編號  session ID                        類型      擁有者        狀態        標題',
   'attach.list.footer': () => '用 smurg attach <編號或 session ID> 接上。',
+  'attach.list.noTerminals': () => '這個工作區目前沒有終端機 session。',
+  'attach.agents.heading': () => 'agent session（對話）：',
+  'attach.agents.header': () => 'session ID                        狀態                      主題                      標題',
+  'attach.agents.noTopic': () => '未分主題',
+  'attach.agents.browser': (p) => (p.url === undefined ? 'agent 對話要在瀏覽器開啟：請開啟這個工作區的網頁。' : `agent 對話要在瀏覽器開啟：${p.url}`),
+  'attach.agents.notTerminal': (p) => `session「${p.title}」是 agent 對話，不是終端機`,
+  'attach.agent.waitingAnswer': () => '等待回答',
+  'attach.agent.waitingPermission': () => '等待許可',
+  'attach.agent.idle': () => '待命',
+  'attach.agent.stalled': () => '沒寫報告就停下了',
+  'attach.agent.done': () => '完成',
+  'attach.agent.failed': () => '失敗',
+  'attach.agent.ended': () => '已結束',
   'attach.list.workspace.local': (p) => `工作區「${p.name}」（${p.workspaceId}，本機）`,
   'attach.list.workspace.relay': (p) => `工作區「${p.name}」（${p.workspaceId}，透過 relay ${p.relay}）`,
   'attach.pick.ambiguous': (p) => `「${p.wanted}」符合多個 session，請輸入更長的 ID`,
@@ -265,7 +298,7 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'attach.sessionExited': (p) => `session「${p.title}」已經結束（結束代碼 ${p.exitCode}）`,
   'attach.attaching.own': (p) => `接上 session「${p.title}」（${p.owner}，你的 session）。按 Ctrl-] 離開。`,
   'attach.attaching.other': (p) => `接上 session「${p.title}」（${p.owner} 開的）。按 Ctrl-] 離開。`,
-  'attach.readOnly': (p) => `唯讀模式：這個 session 是 ${p.owner} 開的，你的角色不能在 session 裡輸入（想參與可以在網頁上提出建議）。按 Ctrl-] 離開。`,
+  'attach.readOnly': (p) => `唯讀模式：這個終端機 session 是 ${p.owner} 開的，你的角色不能在終端機 session 裡輸入。按 Ctrl-] 離開。`,
   'attach.title': (p) => `smurg：${p.title}`,
   'attach.title.readOnly': () => '唯讀',
   'attach.title.hostOffline': () => '主人已離線，等待重新連線…',
@@ -286,7 +319,7 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   --relay 網址        relay 的網址（${p.relayDefault}）
   --role 角色         給組員的連結的角色：agent（可使用 agent）、editor（可編輯，預設）、viewer（旁觀）
                       可使用 agent 的組員開的 session 以你的身分在這台電腦上執行、用你的 Claude 登入，
-                      也能在任何 session 裡輸入：只給你完全信任的人
+                      他也能傳訊息給任何 agent、允許 agent 要求執行的指令、在任何終端機裡輸入：只給你完全信任的人
   --expires 期限      給組員的連結的有效期限，例如 30m、12h、7d（預設 7d，最長 365d）
   --max-uses 次數     給組員的連結可以使用的次數（預設不限）
   --name 名稱         工作區顯示的名稱（預設：資料夾名稱）
@@ -347,7 +380,7 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'host.workspaceTaken.hint': (p) => `這個資料夾之前是用別的帳號分享的；目前登入的是 ${p.name}（${p.userId}）。`,
   'host.native': (p) => `smurg 執行檔內建的原生模組無法使用（${p.reason}）`,
   'host.native.hint': () => '請確認快取目錄可以寫入（可用 SMURG_CACHE_DIR 指定），或重新下載 smurg。',
-  'host.stopping.wait': () => '正在停止分享（結束 session、清理暫存目錄），請稍候…',
+  'host.stopping.wait': () => '正在停止分享（結束終端機與 agent、清理暫存目錄），請稍候…',
   'host.stopping.again': () => '\n再次收到中斷訊號，立即結束（daemon 可能沒有完整停止）。',
   'host.stopping.signal': (p) => `\n收到 ${p.signal}，正在停止分享…`,
   'host.stopping.control': () => '\n收到停止要求（smurg stop），正在停止分享…',
@@ -356,6 +389,7 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'host.keepAwake.notice': (p) => `\n⚠ 防止睡眠：${p.state}。電腦睡眠時組員會看到「主人已離線」。`,
   'host.keepAwake.lost': (p) => `\n⚠ 防止睡眠已失效：${p.state}。電腦睡眠時組員會看到「主人已離線」。`,
   'host.stopped': () => '已停止分享。',
+  'host.agentsPaused': (p) => `${p.count} 個 agent session 已暫停，下次分享這個資料夾時會繼續。`,
   'host.overlap.same': () => '這個資料夾已經在分享中',
   'host.overlap.ancestor': (p) => `這個資料夾的上層資料夾（${p.folder}）已經在分享中`,
   'host.overlap.inside': (p) => `這個資料夾裡的 ${p.folder} 已經在分享中`,
@@ -392,12 +426,14 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   // ---- stop / status
   'usage.stop': () => `用法：smurg stop [--workspace 工作區ID]
 
-  停止分享：中斷所有連線、結束所有 session。
+  停止分享：中斷所有連線、結束所有終端機 session。agent session 會暫停：agent 停止執行，對話會保留，
+  下次分享這個資料夾時繼續。
   不指定工作區時，停止目前資料夾所分享的工作區，或唯一一個正在分享的工作區。
 `,
   'usage.status': () => `用法：smurg status [--workspace 工作區ID]
 
-  顯示正在分享的工作區狀態：資料夾、relay 與連線、daemon 金鑰指紋、防止睡眠、smurg host 的設定、紀錄檔的位置。
+  顯示正在分享的工作區狀態：資料夾、relay 與連線、daemon 金鑰指紋、防止睡眠、smurg host 的設定、
+  Claude Code 與 agent session、紀錄檔的位置。
   各項的意思：https://smurg.ai/zh-TW/docs/hosting/#7-狀態與停止
 `,
   'stop.refused': (p) => `smurg host 拒絕停止：${p.reason}`,
@@ -422,9 +458,21 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
       ...(p.fingerprint === undefined ? [] : [`  daemon 金鑰指紋：${p.fingerprint}`]),
       `  防止睡眠：${p.power}`,
       ...(p.bashAttribution === undefined ? [] : [`  agent 的 shell 指令通知：${p.bashAttribution ? '開啟' : '已關閉（--no-bash-attribution）'}`]),
+      `  Claude Code：${p.claude}`,
+      ...(p.agents === undefined ? [] : [`  agent session：${p.agents}`]),
+      ...(p.topics === undefined ? [] : [`  主題：${p.topics}`]),
+      ...(p.projectSettings === undefined ? [] : [`  Claude Code 專案設定：${p.projectSettings}`]),
+      ...(p.hostRules === undefined ? [] : [`  你自己的 Claude Code 允許規則：${p.hostRules}`]),
       `  紀錄檔：${p.logPath}`,
       ...(p.pid === undefined ? [] : [`  daemon 行程：${p.pid}`]),
     ].join('\n'),
+  'status.claude': (p) => `${p.version === undefined ? '版本不明' : p.version}（${CLAUDE_VERDICT[p.verdict]}），${CLAUDE_LOGIN[p.login]}`,
+  'status.claude.notChecked': () => '尚未檢查（第一個 agent session 啟動時 smurg 會檢查）',
+  'status.agents': (p) =>
+    p.running + p.waiting + p.stalled + p.idle === 0 ? '沒有' : `${p.running} 個執行中、${p.waiting} 個在等人回應、${p.stalled} 個沒寫報告就停下或失敗、${p.idle} 個待命`,
+  'status.topics': (p) => (p.total === 0 ? '沒有' : `${p.total} 個（${p.paused} 個已暫停）`),
+  'status.projectSettings': (p) => PROJECT_SETTINGS[p.trust],
+  'status.hostRules': (p) => (p.count === 0 ? '沒有規則套用到 agent session' : `${p.count} 條套用到 agent session（agent 不經詢問就執行這些規則允許的指令）`),
 
   // ---- licenses
   'usage.licenses': () => `用法：smurg licenses [--third-party]
@@ -508,7 +556,7 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'usage.uninstall': () => `用法：smurg uninstall [--keep-data] [--yes]
 
   從這台電腦移除 smurg：執行檔本身、快取（執行檔解壓縮出來的原生模組），以及狀態目錄 ~/.smurg
-  （登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、紀錄檔）。先列出會移除的路徑，確認之後才動手；
+  （登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、agent session 的對話、紀錄檔）。先列出會移除的路徑，確認之後才動手；
   正在分享的工作區會先停止（和 smurg stop 一樣）。
   專案資料夾裡的 .smurg/（worktree 和還沒合併的修改）不會動，只會列出來讓你自己決定。
   --keep-data         保留狀態目錄，只移除執行檔和快取
@@ -521,8 +569,8 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'uninstall.size.mb': (p) => `（${p.mb} MB）`,
   'uninstall.refusal.hint': (p) =>
     `沒有移除任何東西。要只移除執行檔和快取：smurg uninstall --keep-data；狀態目錄（${p.stateDir}）請確認內容後自己刪除，或把 SMURG_HOME 改回 smurg 的狀態目錄再執行一次。`,
-  'uninstall.what.state': () => '狀態目錄：登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、紀錄檔',
-  'uninstall.what.stateSymlink': () => '狀態目錄：登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、紀錄檔（這是一個 symlink：只移除連結本身）',
+  'uninstall.what.state': () => '狀態目錄：登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、agent session 的對話、紀錄檔',
+  'uninstall.what.stateSymlink': () => '狀態目錄：登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、agent session 的對話、紀錄檔（這是一個 symlink：只移除連結本身）',
   'uninstall.what.cache': () => '快取：執行檔解壓縮出來的原生模組',
   'uninstall.what.executable': () => '執行檔',
   'uninstall.state.notDirectory': (p) => `smurg 的狀態目錄不是資料夾：${p.stateDir}`,
@@ -542,7 +590,7 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'uninstall.plan.heading': () => 'smurg uninstall 會移除：',
   'uninstall.plan.item': (p) => `  ${p.path}${p.size}  ${p.what}`,
   'uninstall.plan.stateNote': () => '  移除狀態目錄之後，分享過的工作區的成員與邀請連結都不再有效，這台電腦加入過的工作區也要重新用邀請連結加入。',
-  'uninstall.plan.stops': (p) => `會先停止正在分享的工作區（和 smurg stop 一樣：中斷所有連線、結束所有 session）：${p.ids.join('、')}`,
+  'uninstall.plan.stops': (p) => `會先停止正在分享的工作區（和 smurg stop 一樣：中斷所有連線、結束終端機 session、停止 agent）：${p.ids.join('、')}`,
   'uninstall.kept.heading': () => '不會動：',
   'uninstall.kept.state': (p) => `  ${p.stateDir}  狀態目錄（--keep-data）`,
   'uninstall.kept.linkTarget': (p) => `  ${p.target}  狀態目錄的 symlink 指向的資料夾`,

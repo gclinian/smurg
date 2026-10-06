@@ -4,7 +4,7 @@ import { MAIN_ROOT } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { act, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { HOST_USER, makeActivity, makeConflict } from '../../testing/fixtures.ts';
+import { HOST_USER, makeActivity, makeAgentSession, makeConflict } from '../../testing/fixtures.ts';
 import { useTestLocale } from '../../testing/locale.ts';
 import { renderInWorkspace } from '../../testing/services.tsx';
 import { ActivityPanel, ConflictsPanel } from './index.tsx';
@@ -46,6 +46,22 @@ describe('activity feed in zh-TW', () => {
     expect(within(region).getByText('smurg 通知你')).toBeTruthy();
     expect(within(region).getByText(/^注意：Claude Code 2\.0\.1 低於 smurg 驗證過的最低版本 2\.1\.0/)).toBeTruthy();
     expect(within(region).getByRole('button', { name: '知道了' })).toBeTruthy();
+  });
+});
+
+describe('activity feed in zh-TW: from a change to its session', () => {
+  it("an agent's entry offers its session in Traditional Chinese", async () => {
+    const view = renderInWorkspace(<ActivityPanel />, { role: 'editor' });
+    view.conn.handle('session.list', () => ({ sessions: [makeAgentSession({ id: 'sess_1' })], hasMore: false }));
+    await act(async () => {
+      await view.stores.sessions.reload();
+    });
+    view.conn.respond('activity.list', {
+      events: [makeActivity({ id: 'a_1', at: Date.now(), actor: { kind: 'agent', sessionId: 'sess_1', ownerUserId: HOST_USER, displayName: 'Claude (Ian)' }, kind: 'agent.edit', file: { root: MAIN_ROOT, path: 'src/app.ts' } })],
+    });
+    await settle();
+    const button = screen.getByRole('button', { name: '在編輯器旁邊顯示 Claude (Ian) 的 session' });
+    expect(button.textContent).toBe('顯示這個 session');
   });
 });
 

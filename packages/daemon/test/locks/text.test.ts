@@ -53,7 +53,7 @@ describe('locks texts', () => {
     expect(humanHeldReason(['A', 'B', 'C', 'D', 'E', 'F', 'G'])).toBe('This file is being edited by A, B, C, D, E and 2 more. Work on other files first, or try again later.');
     expect(agentHeldReason('Claude (Ian)')).toBe('Claude (Ian) is changing this file. Work on other files first, or try again later.');
     expect(daemonUnreachableReason('connect: ENOENT\u0007\n')).toBe(
-      "smurg daemon unreachable (connect: ENOENT  ). The edit was blocked so that it cannot overwrite a teammate's changes. Try again later.",
+      'smurg is not reachable on the host (connect: ENOENT  ). Nothing can run until it is back.',
     );
     const all = [
       ...Object.values(HOOK_DENY_REASONS),

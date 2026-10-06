@@ -19,6 +19,8 @@ export const t = defineStrings(
     'feed.deletedFile': '{path} (deleted)',
     'feed.inWorktree': '{path} (worktree: {name})',
     'feed.showConflicts': 'View conflicts',
+    'feed.showSession': 'Show the session',
+    'feed.showSessionOf': 'Show the session of {agent} beside the editor',
     'filter.label': 'Filter activity',
     'filter.all': 'All activity',
     'filter.agents': 'Changes by agents',

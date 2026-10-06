@@ -6,8 +6,9 @@
 //  * every line is bounded (HOOK_REQUEST_MAX_BYTES) and validated (schemas.ts) before anything else;
 //  * requests are rate-limited per token, connections and requests in flight are capped, idle connections dropped;
 //  * paths go through PathGuard and must lie in the session's root (hook-events.ts);
-//  * a PreToolUse is always answered within HOOK_SERVER_DECISION_MS, with a deny when anything is uncertain;
-//  * a Bash PreToolUse / PostToolUse (the Bash ACTIVITY hook, §11 D-13) is never a decision: it opens / closes the
+//  * a PreToolUse is THE TOOL GATE (tool-gate.ts, hook-events.ts): it arrives for every tool and is always answered
+//    within HOOK_SERVER_DECISION_MS, with a deny when anything is uncertain;
+//  * a request of the Bash ACTIVITY hook (`via: 'bash-activity'`, §11 D-13) is never a decision: it opens / closes the
 //    session's Bash window (rate-limited separately, ignored when config.activity.attributeBashEdits is off) and is
 //    answered with null, whatever happens.
 // Events of one session are handled in arrival order (a Post event must not overtake the Pre it belongs to).
@@ -49,6 +50,7 @@ import {
 } from './settings-writer.ts';
 import {
   HOOK_ENV,
+  HOOK_VIA_BASH_ACTIVITY,
   HOOK_REQUEST_MAX_BYTES,
   HOOK_RESPONSE_MAX_BYTES,
   HOOK_SERVER_DECISION_MS,
@@ -62,9 +64,6 @@ export interface HookServerLimits {
   readonly requestsPerMinute: number;
   /** Burst allowance of the per-token bucket. */
   readonly requestBurst: number;
-  /** notify_member calls per session per minute (and burst). */
-  readonly notifyPerMinute: number;
-  readonly notifyBurst: number;
   /** MCP calls in progress at once per session (wait_for_lock holds one for its whole wait). */
   readonly mcpInFlightPerSession: number;
   /** Open connections to the socket (all sessions together). */
@@ -86,8 +85,6 @@ export interface HookServerLimits {
 export const DEFAULT_HOOK_SERVER_LIMITS: HookServerLimits = Object.freeze({
   requestsPerMinute: 600,
   requestBurst: 120,
-  notifyPerMinute: 10,
-  notifyBurst: 5,
   mcpInFlightPerSession: 4,
   maxConnections: 128,
   inFlightPerConnection: 4,
@@ -100,7 +97,6 @@ export const DEFAULT_HOOK_SERVER_LIMITS: HookServerLimits = Object.freeze({
 interface SessionEntry extends HookSessionState {
   readonly tokenHash: string;
   readonly bucket: TokenBucket;
-  readonly notifyBucket: TokenBucket;
   readonly bashBucket: TokenBucket;
   /** Aborted on unregister: ends this session's waits. */
   readonly abort: AbortController;
@@ -162,9 +158,9 @@ export class HookServerImpl implements HookServer {
       registration: Object.freeze({ ...session, root }),
       held: new Map<string, FileRef>(),
       bashOpen: new Map<string, number>(),
+      unknownTools: new Set<string>(),
       tokenHash: hashToken(token),
       bucket: new TokenBucket({ perMinute: this.limits.requestsPerMinute, burst: this.limits.requestBurst, clock: this.ctx.clock }),
-      notifyBucket: new TokenBucket({ perMinute: this.limits.notifyPerMinute, burst: this.limits.notifyBurst, clock: this.ctx.clock }),
       bashBucket: new TokenBucket({ perMinute: this.limits.bashEventsPerMinute, burst: this.limits.bashEventsBurst, clock: this.ctx.clock }),
       abort: new AbortController(),
       queue: Promise.resolve(),
@@ -206,10 +202,6 @@ export class HookServerImpl implements HookServer {
   // Session launch files (ARCHITECTURE §7.6), for the session manager
   // -------------------------------------------------------------------------------------------------------------------
 
-  /**
-   * Writes settings.json + mcp.json of a REGISTERED session and returns their paths and the flags for `claude`. Refuses
-   * (fail closed) without config.sessions.selfCommand: a session whose hooks cannot run must not start.
-   */
   /** Handover: whose locks the agent's are. `pathRights` is never touched. */
   reassignSession(sessionId: string, ownerUserId: UserId): void {
     const entry = this.byId.get(sessionId);
@@ -217,6 +209,11 @@ export class HookServerImpl implements HookServer {
     (entry as { registration: HookSessionRegistration }).registration = Object.freeze({ ...entry.registration, ownerUserId });
   }
 
+  /**
+   * Writes settings.json, mcp.json and role.md of a REGISTERED session from its launch profile and returns their paths
+   * and the profile flags for `claude`. Refuses (fail closed) without config.sessions.selfCommand: a session whose
+   * gate cannot run must not start.
+   */
   async writeSessionFiles(sessionId: string, launch: LaunchProfile): Promise<SessionFiles> {
     const entry = this.byId.get(sessionId);
     if (!entry) throw new SmurgError('internal', undefined, { reason: 'hook-session-not-registered' });
@@ -225,11 +222,13 @@ export class HookServerImpl implements HookServer {
     const reg = entry.registration;
     const root = await this.ctx.paths.resolve({ root: reg.root, path: '' }, { principal: SYSTEM_PRINCIPAL, allowRoot: true, mustExist: true });
     const fileChangedNames = await watchableTopLevelNames(root.realPath);
+    // Unregistered meanwhile (the session ended while its start was prepared): its files were removed, nothing is written.
+    if (this.byId.get(sessionId) !== entry) throw new SmurgError('internal', undefined, { reason: 'hook-session-not-registered' });
     return writeSessionFiles({
       stateDir: this.ctx.config.stateDir,
       workspaceId: this.ctx.config.workspaceId,
       sessionId,
-      settings: { command, fileChangedNames, bashActivity: this.ctx.config.activity.attributeBashEdits },
+      settings: { command, fileChangedNames, bashActivity: this.ctx.config.activity.attributeBashEdits, profile: launch },
       rolePrompt: launch.rolePrompt,
     });
   }
@@ -436,7 +435,7 @@ export class HookServerImpl implements HookServer {
       return;
     }
     if (request.op === 'hook') {
-      const output = await this.enqueueHook(entry, request.hookInput);
+      const output = await this.enqueueHook(entry, request.hookInput, request.via === HOOK_VIA_BASH_ACTIVITY);
       this.send(conn, { id: request.id, hookOutput: output });
       return;
     }
@@ -452,7 +451,7 @@ export class HookServerImpl implements HookServer {
     entry.mcpInFlight += 1;
     const signal = AbortSignal.any([conn.abort.signal, entry.abort.signal, this.ctx.stopping]);
     try {
-      const result = await runMcpTool({ ctx: this.ctx, state: entry, principal, signal, notifyBucket: entry.notifyBucket }, request.tool, request.args);
+      const result = await runMcpTool({ ctx: this.ctx, state: entry, principal, signal }, request.tool, request.args);
       this.send(conn, { id: request.id, ok: true, result });
     } catch (err) {
       if (err instanceof McpToolError) {
@@ -467,8 +466,11 @@ export class HookServerImpl implements HookServer {
   }
 
   /** Hook events of one session run in order; a PreToolUse is decided within HOOK_SERVER_DECISION_MS or denied. */
-  private enqueueHook(entry: SessionEntry, input: HookInput): Promise<JsonObject | null> {
-    if (isBashActivityEvent(input)) return this.enqueueBash(entry, input);
+  private enqueueHook(entry: SessionEntry, input: HookInput, bashActivity: boolean): Promise<JsonObject | null> {
+    // The Bash activity hook's own requests, and a Bash result (only that hook is registered for it): never a decision.
+    if (isBashActivityEvent(input) && (bashActivity || input.hook_event_name !== 'PreToolUse')) return this.enqueueBash(entry, input);
+    // Anything else that claims to come from the activity hook is not one of its events: no decision, nothing done.
+    if (bashActivity) return Promise.resolve(null);
     const isPre = input.hook_event_name === 'PreToolUse';
     const run = async (): Promise<PreToolUseOutcome> => {
       // A token of a session that was unregistered while this request waited no longer counts.

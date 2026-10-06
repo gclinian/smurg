@@ -20,7 +20,7 @@ export interface WorkspaceSession {
 
 /** Wires stores and the command bus to `connection` and starts it. */
 export function createWorkspaceSession(workspaceId: string, connection: WorkspaceConnection, options: CreateStoresOptions = {}): WorkspaceSession {
-  const { stores, dispose: disposeStores } = createWorkspaceStores(connection, options);
+  const { stores, dispose: disposeStores } = createWorkspaceStores(connection, { workspaceId, ...options });
   const commands = createCommandBus();
   let disposed = false;
   const dispose = (): void => {

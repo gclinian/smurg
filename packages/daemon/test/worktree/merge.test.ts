@@ -169,13 +169,14 @@ describe('R9 merge review', { timeout: 60_000 }, () => {
       if (file.path === 'new-name.txt') expect(one.diff).toContain('rename from old-name.txt');
     }
     expect(hugeTruncated).toBe(true);
-    // Whoever may request a merge may review it (§11 D-15): the requester, any Agent access member; an editor may not.
+    // Every member reads a request's changes (`file.read`: a result report shows them): the requester, an editor, a viewer.
     await amy.conn.request('worktree.merge.diff', { requestId: request.id });
-    const carl = await s.connect('dev:carl', 'agent');
-    await expect(carl.conn.request('worktree.merge.fileDiff', { requestId: request.id, path: 'src/app.ts' })).resolves.toMatchObject({ path: 'src/app.ts' });
     const bob = await s.connect('dev:bob', 'editor');
-    expect(await settleError(bob.conn.request('worktree.merge.diff', { requestId: request.id }))).toMatchObject({ code: 'forbidden' });
-    expect(await settleError(bob.conn.request('worktree.merge.fileDiff', { requestId: request.id, path: 'src/app.ts' }))).toMatchObject({ code: 'forbidden' });
+    await expect(bob.conn.request('worktree.merge.fileDiff', { requestId: request.id, path: 'src/app.ts' })).resolves.toMatchObject({ path: 'src/app.ts', binary: false });
+    const vera = await s.connect('dev:vera', 'viewer');
+    const seenByViewer = await vera.conn.request('worktree.merge.diff', { requestId: request.id });
+    expect(seenByViewer.files).toEqual(review.files);
+    expect(seenByViewer.diff).toBe(review.diff);
     // Only paths of the request's file list: anything else is refused, whatever it names.
     for (const path of ['package.json', 'src', '*', 'src/*.ts']) {
       expect(await settleError(s.host.conn.request('worktree.merge.fileDiff', { requestId: request.id, path }))).toMatchObject({ code: 'bad_request', reason: 'path-not-in-diff' });
@@ -302,9 +303,11 @@ describe('R9 merge decisions', { timeout: 60_000 }, () => {
     expect(await settleError(amy.conn.request('worktree.merge.approve', { requestId: request.id }))).toMatchObject({ code: 'forbidden' });
     expect(await settleError(amy.conn.request('worktree.merge.reject', { requestId: request.id }))).toMatchObject({ code: 'forbidden' });
     expect(await settleError(viewer.conn.request('worktree.merge.approve', { requestId: request.id }))).toMatchObject({ code: 'forbidden' });
-    // Everyone may see that the request exists (not its diff).
+    // Everyone sees that the request exists, and its changes; deciding stays the host's.
     expect((await viewer.conn.request('worktree.merge.list', {})).requests[0]?.status).toBe('pending');
-    expect(await settleError(viewer.conn.request('worktree.merge.diff', { requestId: request.id }))).toMatchObject({ code: 'forbidden' });
+    expect((await viewer.conn.request('worktree.merge.diff', { requestId: request.id })).files.map((file) => file.path)).toEqual(['x.txt']);
+    const denied = (await s.t.ctx.audit.query({ limit: 100 })).filter((entry) => entry.action === 'authz.denied');
+    expect(denied.map((entry) => entry.target).sort()).toEqual(['worktree.merge.approve', 'worktree.merge.approve', 'worktree.merge.reject']);
     expect(await lstat(join(s.t.root, 'x.txt')).catch(() => null)).toBeNull();
   });
 

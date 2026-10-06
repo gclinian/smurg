@@ -1,12 +1,14 @@
 // `smurg hook`: the command hooks Claude Code runs inside every session (ARCHITECTURE §7.6, §7.7). Two behaviours,
 // two separate code paths, chosen by the argument the daemon wrote after `hook` in the session settings:
 //
-// 1. `smurg hook` — THE LOCK HOOK (runLockHook). It reads the hook JSON from stdin, asks the daemon over
+// 1. `smurg hook` — THE TOOL GATE's command (runLockHook; for the edit tools the daemon also takes the agent lock).
+//    Registered for PreToolUse of EVERY tool, it reads the hook JSON from stdin, asks the daemon over
 //    $SMURG_HOOK_SOCKET with $SMURG_SESSION_TOKEN, prints the daemon's answer (or nothing) and exits 0.
 //    FAIL CLOSED BY ITSELF. Claude Code lets the tool run when a hook times out, crashes, exits 1, prints unparseable
 //    JSON or cannot start (claude-hooks.md §1.2, E1–E5). So on ANY failure during PreToolUse — no socket, refused,
 //    deadline, malformed reply, unreadable input — it prints an explicit JSON deny that names the unreachable daemon
-//    and returns 0. Its own deadline (HOOK_CLI_DEADLINE_MS, 5 s) is shorter than the configured hook timeout (10 s).
+//    and returns 0, WHATEVER THE TOOL (row G1 of the gate): a command of an orphaned agent, or of an agent whose
+//    daemon hangs, does not run, even when a remembered rule, a host rule or `acceptEdits` would have let it. Its own deadline (HOOK_CLI_DEADLINE_MS, 5 s) is shorter than the configured hook timeout (10 s).
 //    Other events fail quietly: nothing on stdout (UserPromptSubmit / SessionStart stdout would become model context).
 //
 // 2. `smurg hook bash-activity` — THE BASH ACTIVITY HOOK (runBashActivityHook, §11 D-13). It only tells the daemon
@@ -33,6 +35,7 @@ import {
   HOOK_ENV,
   HOOK_REQUEST_MAX_BYTES,
   HOOK_STDIN_MAX_BYTES,
+  HOOK_VIA_BASH_ACTIVITY,
   isJsonObject,
   preToolUseDeny,
   projectHookInput,
@@ -170,11 +173,11 @@ export async function runLockHook(io: HookCliIo): Promise<number> {
     return 0;
   } catch (err) {
     const detail = describeError(err);
-    // Unknown event (unreadable input) counts as PreToolUse: denying something that was not an edit is harmless,
-    // letting an edit through is not.
+    // Unknown event (unreadable input) counts as PreToolUse: denying something that was not a tool call is harmless,
+    // letting one through is not.
     if (eventName === null || eventName === 'PreToolUse') {
       await writeAll(io.stdout, JSON.stringify(preToolUseDeny(daemonUnreachableReason(detail))));
-      io.stderr.write(`smurg hook: ${detail}; edit denied\n`);
+      io.stderr.write(`smurg hook: ${detail}; the call was denied\n`);
     } else {
       io.stderr.write(`smurg hook: ${detail}\n`);
     }
@@ -208,7 +211,7 @@ export async function runBashActivityHook(io: HookCliIo): Promise<number> {
   }
   if (event !== 'PreToolUse' && event !== 'PostToolUse' && event !== 'PostToolUseFailure') return 0;
   try {
-    const request: JsonObject = { id: randomBytes(12).toString('base64url'), token: io.env[HOOK_ENV.token] ?? '', op: 'hook', hookInput };
+    const request: JsonObject = { id: randomBytes(12).toString('base64url'), token: io.env[HOOK_ENV.token] ?? '', op: 'hook', hookInput, via: HOOK_VIA_BASH_ACTIVITY };
     if (Buffer.byteLength(JSON.stringify(request), 'utf8') >= HOOK_REQUEST_MAX_BYTES) return 0;
     // The reply is not even looked at: nothing the daemon says can turn this into a decision.
     await requestDaemon(io.env[HOOK_ENV.socket] ?? '', request, { deadlineMs: Math.max(1, deadlineAt - Date.now()) });

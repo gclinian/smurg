@@ -91,7 +91,8 @@ describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthr
       const result = await runClaude(claude as NonNullable<typeof claude>, {
         cwd: env.root,
         env: isolatedEnv(isolated, mock.url, { ...session.env, ...options.extraEnv }),
-        args: ['-p', 'do the scripted edits', '--output-format', 'json', '--no-session-persistence', ...permission, ...args],
+        // The profile's own flags first; the run's permission mode after them (the last one counts).
+        args: ['-p', 'do the scripted edits', '--output-format', 'json', '--no-session-persistence', ...args, ...permission],
         timeoutMs: 120_000,
       });
       // What the session still holds when claude has exited, BEFORE unregistering (which releases everything).
@@ -193,7 +194,7 @@ describe.skipIf(claude === null)(`Claude Code hooks end to end (${V}, mock Anthr
       expect(await read('locked.txt')).toBe(LOCKED);
       const denied = toolResult(mock, 3);
       expect(denied.isError).toBe(true);
-      expect(denied.text).toContain('smurg daemon unreachable');
+      expect(denied.text).toContain('smurg is not reachable on the host');
       expect(denied.text).toMatch(detail);
       return result;
     }

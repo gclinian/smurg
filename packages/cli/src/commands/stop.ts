@@ -1,13 +1,17 @@
 // `smurg stop [--workspace W]` and `smurg status [--workspace W]`: through the daemon's control socket (ARCHITECTURE
-// §8). stop asks the daemon to stop (it closes every channel with `stopped` and ends the sessions), then waits until
-// its socket is gone. status shows what `smurg host` no longer prints at the start (owner decision 2026-10-01): the
-// relay, the daemon key fingerprint, keep-awake, the switch of ARCHITECTURE §11 D-13 as the daemon runs with it, and
-// where the log is.
+// §8). stop asks the daemon to stop (it closes every channel with `stopped`, ends the terminals and the agents'
+// processes; agent sessions stay and come back idle at the next `smurg host`), waits until its socket is gone, and
+// says how many agent sessions are paused. status shows what `smurg host` no longer prints at the start (owner
+// decision 2026-10-01): the relay, the daemon key fingerprint, keep-awake, the switch of ARCHITECTURE §11 D-13 as the
+// daemon runs with it, where the log is; and what the daemon knows about agents: Claude Code on this computer (from
+// its last check), the agent sessions by state, the topics and how many are paused, whether the folder's Claude Code
+// project settings are confirmed, and how many of the host's own allow rules apply to agent sessions.
 import { readFile } from 'node:fs/promises';
 import { runPathsFor } from '@smurg/daemon';
 import { parseArgs, stringOption } from '../cli/args.ts';
 import { CliError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
+import { agentsPausedNotice, claudeState } from '../cli/agents-text.ts';
 import { powerState } from '../cli/power-text.ts';
 import { ctlRequest } from '../channel/local-channel.ts';
 import { daemonAt, findRunningDaemon, hintedWorkspace, runningDaemons, ctlPathFor, type RunningDaemon } from '../channel/discover.ts';
@@ -45,6 +49,9 @@ export async function runStop(argv: readonly string[], ctx: CommandContext): Pro
   say(ctx, m('stop.stopping', { workspaceId: daemon.status.workspaceId }));
   await waitUntilStopped(ctx, daemon);
   say(ctx, m('host.stopped'));
+  // The agent sessions the daemon had when it was asked: their agents ended with it, the conversations stay.
+  const paused = agentsPausedNotice(daemon.status.agents);
+  if (paused !== null) say(ctx, paused);
   return EXIT.ok;
 }
 
@@ -93,6 +100,12 @@ async function describe(ctx: CommandContext, daemon: RunningDaemon): Promise<Tex
     power: powerState(status.power),
     // The switch of `smurg host` (ARCHITECTURE §11 D-13) as the daemon runs with it; docs/HOSTING.md explains it.
     ...(status.switches !== undefined ? { bashAttribution: status.switches.attributeBashEdits } : {}),
+    // Agents (each line only when the daemon says something about it; Claude Code always: "not checked yet").
+    claude: claudeState(status.claude),
+    ...(status.agents !== undefined ? { agents: m('status.agents', status.agents) } : {}),
+    ...(status.topics !== undefined ? { topics: m('status.topics', status.topics) } : {}),
+    ...(status.projectSettings !== undefined ? { projectSettings: m('status.projectSettings', { trust: status.projectSettings }) } : {}),
+    ...(status.hostRules !== undefined ? { hostRules: m('status.hostRules', status.hostRules) } : {}),
     logPath: hostLogPath(ctx.paths, status.workspaceId),
     ...(pid ? { pid } : {}),
   });

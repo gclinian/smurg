@@ -4,22 +4,32 @@
 //   conn.start();
 //
 // On every non-resumed Welcome (always the first) each store resets and loads a fresh snapshot; on a resumed one the
-// daemon replays what was missed and nothing reloads. A role change (Welcome or channel.memberUpdated) is forwarded
-// to the stores that depend on the role (admin, docs).
+// daemon replays what was missed and nothing reloads (a store with `onResumed` is told: volatile messages are not
+// replayed). A role change (Welcome or channel.memberUpdated) is forwarded to the stores that depend on the role
+// (admin, docs).
+//
+// `columns` is the one store the connection does not feed: the member's own view of the sessions view, kept in this
+// browser per workspace (stores/columns.ts).
 import type { ConnectionState } from '@smurg/protocol/client';
 import { createStore, readonly, type ReadableStore } from '../store.ts';
 import { describeError, isNotImplemented } from '../errors.ts';
 import type { WorkspaceConnection } from '../connection/types.ts';
+import { browserLocalStorage, type PreferenceStorage } from '../preferences.ts';
 import { realScheduler, type AreaLifecycle, type AreaName, type Scheduler, type StoreContext } from './base.ts';
 import { createActivityArea, type ActivityStore } from './activity.ts';
 import { createAdminArea, type AdminStore } from './admin.ts';
+import { createColumnsStore, type ColumnsStore } from './columns.ts';
 import { createConflictsArea, type ConflictsStore } from './conflicts.ts';
+import { createConversationsArea, type ConversationsStore } from './conversations.ts';
 import { createDocsArea, type DocsStore } from './docs.ts';
 import { createFilesArea, type FilesStore } from './files.ts';
+import { createHostArea, type HostStore } from './host.ts';
+import { createInboxArea, type InboxStore } from './inbox.ts';
 import { createLocksArea, type LocksStore } from './locks.ts';
 import { createPresenceArea, type PresenceStore } from './presence.ts';
 import { createSessionsArea, type SessionsStore } from './sessions.ts';
 import { createSuggestionsArea, type SuggestionsStore } from './suggestions.ts';
+import { createTopicsArea, type TopicsStore } from './topics.ts';
 import { createTransfersArea, type TransfersStore } from './transfers.ts';
 import { createWorkspaceArea, type WorkspaceStore } from './workspace.ts';
 import { createWorktreesArea, type WorktreesStore } from './worktrees.ts';
@@ -42,6 +52,13 @@ export interface WorkspaceStores {
   readonly docs: DocsStore;
   readonly sessions: SessionsStore;
   readonly suggestions: SuggestionsStore;
+  readonly topics: TopicsStore;
+  readonly inbox: InboxStore;
+  readonly conversations: ConversationsStore;
+  /** The host's account state and the main folder's project-settings state (session.host). */
+  readonly host: HostStore;
+  /** The member's own view: open columns, what was seen, the session list's folds. Not fed by the connection. */
+  readonly columns: ColumnsStore;
   readonly activity: ActivityStore;
   readonly conflicts: ConflictsStore;
   readonly worktrees: WorktreesStore;
@@ -55,6 +72,10 @@ export interface CreateStoresOptions {
   readonly scheduler?: Scheduler;
   /** Also told about every background failure (logging). */
   readonly onError?: (area: AreaName, error: unknown) => void;
+  /** The workspace the stores belong to: the key of what the columns store remembers. Default: nothing is remembered. */
+  readonly workspaceId?: string;
+  /** Where the columns store keeps the member's view. Default: this browser's localStorage. */
+  readonly storage?: PreferenceStorage | null;
 }
 
 const MAX_ERRORS = 20;
@@ -79,6 +100,15 @@ export function createWorkspaceStores(conn: WorkspaceConnection, options: Create
   const docs = createDocsArea(presence.store);
   const sessions = createSessionsArea();
   const suggestions = createSuggestionsArea();
+  const topics = createTopicsArea();
+  const inbox = createInboxArea();
+  const conversations = createConversationsArea();
+  const host = createHostArea();
+  const columns = createColumnsStore({
+    workspaceId: options.workspaceId ?? '',
+    storage: options.workspaceId === undefined ? null : options.storage === undefined ? browserLocalStorage() : options.storage,
+    now: () => scheduler.now(),
+  });
   const activity = createActivityArea();
   const conflicts = createConflictsArea();
   const worktrees = createWorktreesArea();
@@ -92,6 +122,10 @@ export function createWorkspaceStores(conn: WorkspaceConnection, options: Create
     ['docs', docs.lifecycle],
     ['sessions', sessions.lifecycle],
     ['suggestions', suggestions.lifecycle],
+    ['topics', topics.lifecycle],
+    ['inbox', inbox.lifecycle],
+    ['conversations', conversations.lifecycle],
+    ['host', host.lifecycle],
     ['activity', activity.lifecycle],
     ['conflicts', conflicts.lifecycle],
     ['worktrees', worktrees.lifecycle],
@@ -137,8 +171,15 @@ export function createWorkspaceStores(conn: WorkspaceConnection, options: Create
         for (const [area, lifecycle] of areas) {
           lifecycle.load().catch((error: unknown) => reportError(area, error));
         }
-      } else if (change) {
-        roleChanged(change.to, change.from);
+      } else {
+        for (const [area, lifecycle] of areas) {
+          try {
+            lifecycle.onResumed?.();
+          } catch (error) {
+            reportError(area, error);
+          }
+        }
+        if (change) roleChanged(change.to, change.from);
       }
     }),
   );
@@ -152,6 +193,11 @@ export function createWorkspaceStores(conn: WorkspaceConnection, options: Create
     docs: docs.store,
     sessions: sessions.store,
     suggestions: suggestions.store,
+    topics: topics.store,
+    inbox: inbox.store,
+    conversations: conversations.store,
+    host: host.store,
+    columns,
     activity: activity.store,
     conflicts: conflicts.store,
     worktrees: worktrees.store,
@@ -172,13 +218,18 @@ export function createWorkspaceStores(conn: WorkspaceConnection, options: Create
 export type { AreaName, LoadStatus, Loadable, Scheduler } from './base.ts';
 export * from './activity.ts';
 export * from './admin.ts';
+export * from './columns.ts';
 export * from './conflicts.ts';
+export * from './conversations.ts';
 export * from './docs.ts';
 export * from './files.ts';
+export * from './host.ts';
+export * from './inbox.ts';
 export * from './locks.ts';
 export * from './presence.ts';
 export * from './sessions.ts';
 export * from './suggestions.ts';
+export * from './topics.ts';
 export * from './transfers.ts';
 export * from './workspace.ts';
 export * from './worktrees.ts';

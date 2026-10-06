@@ -17,6 +17,11 @@ interface Formatters {
   readonly seconds: Intl.NumberFormat;
   readonly minutes: Intl.NumberFormat;
   readonly hours: Intl.NumberFormat;
+  readonly shortSeconds: Intl.NumberFormat;
+  readonly shortMinutes: Intl.NumberFormat;
+  readonly shortHours: Intl.NumberFormat;
+  readonly shortDays: Intl.NumberFormat;
+  readonly conjunction: Intl.ListFormat;
   readonly collator: Intl.Collator;
 }
 
@@ -29,6 +34,8 @@ export function formatters(locale: Locale = getLocale()): Formatters {
     const tag = intlTag(locale);
     const unit = (name: 'second' | 'minute' | 'hour'): Intl.NumberFormat =>
       new Intl.NumberFormat(tag, { style: 'unit', unit: name, unitDisplay: 'long', maximumFractionDigits: 0 });
+    const short = (name: 'second' | 'minute' | 'hour' | 'day'): Intl.NumberFormat =>
+      new Intl.NumberFormat(tag, { style: 'unit', unit: name, unitDisplay: 'short', maximumFractionDigits: 0 });
     made = {
       // English spells the month ("May 29, 2026, 04:26"): 5/29/26 reads as two different days around the world.
       dateTime: new Intl.DateTimeFormat(tag, { dateStyle: locale === 'en' ? 'medium' : 'short', timeStyle: 'short', hour12: false }),
@@ -40,6 +47,11 @@ export function formatters(locale: Locale = getLocale()): Formatters {
       seconds: unit('second'),
       minutes: unit('minute'),
       hours: unit('hour'),
+      shortSeconds: short('second'),
+      shortMinutes: short('minute'),
+      shortHours: short('hour'),
+      shortDays: short('day'),
+      conjunction: new Intl.ListFormat(tag, { style: 'long', type: 'conjunction' }),
       collator: new Intl.Collator(tag, { numeric: true, sensitivity: 'base' }),
     };
     cache.set(locale, made);
@@ -95,6 +107,21 @@ export function formatDuration(seconds: number): string {
   return f.hours.format(Math.ceil(minutes / 60));
 }
 
+/**
+ * How long ago, in the least room: "40 sec", "6 min", "2 hr", "3 days" (an inbox row, a waiting line). Never
+ * negative; whole units, rounded down, so "6 min" means at least six minutes.
+ */
+export function formatAge(at: number, now: number = Date.now()): string {
+  const f = formatters();
+  const seconds = Math.max(0, Math.floor((now - at) / 1000));
+  if (seconds < 60) return f.shortSeconds.format(seconds);
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return f.shortMinutes.format(minutes);
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return f.shortHours.format(hours);
+  return f.shortDays.format(Math.floor(hours / 24));
+}
+
 const UNITS = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
 
 /** Binary units, as the host's disk check reports them (5 GB = 5 × 2^30 bytes). */
@@ -114,6 +141,11 @@ export function formatBytes(bytes: number): string {
 /** Names, paths and other items in one line, joined the way the language does (the wire catalogue's rule). */
 export function formatList(items: readonly string[]): string {
   return joinList(getLocale(), items);
+}
+
+/** A few things that all apply, as a sentence says them: "5 and 6", "4, 5, and 6" (work item numbers, names). */
+export function formatAnd(items: readonly string[]): string {
+  return formatters().conjunction.format(items);
 }
 
 /** Order of two names as the viewer's language sorts them; digits compare as numbers ("file2" before "file10"). */

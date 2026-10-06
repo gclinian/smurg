@@ -2,6 +2,9 @@
 // remaining uses, revoke. An invite with agent access is created only after the host confirmed the risk
 // (RoleRiskDialog): whoever uses it runs anything on the host's computer, with the host's Claude account.
 //
+// A new member reads every earlier conversation of the workspace, archived topics included (DESIGN §2.4 "Who reads
+// them", §7 S9): the form says so before a link exists, and the dialog with the link says it again.
+//
 // The link carries the one-time secret (ARCHITECTURE §4.1). It is shown ONCE, in the dialog right after creation, and
 // lives only in that dialog's React state: the admin store never keeps it (it returns it from createInvite), nothing
 // logs it, and closing the dialog drops it. Losing it means revoking the invite and creating a new one.
@@ -168,6 +171,7 @@ export function InvitesSection({ now }: { now: number }) {
           </Button>
         </div>
       </form>
+      <p className="console-hint">{t('invites.history')}</p>
       {createError ? (
         <Banner tone="danger" live="alert">
           {createError}
@@ -225,6 +229,7 @@ function InviteLinkDialog({ created, onClose }: { created: CreatedLink | null; o
         <Banner tone="warning" live="none" icon={<IconKey />}>
           {t('invites.link.secret')}
         </Banner>
+        <p className="console-hint">{t('invites.history')}</p>
         <p className="console-hint">{t('invites.link.once')}</p>
       </div>
     </Dialog>

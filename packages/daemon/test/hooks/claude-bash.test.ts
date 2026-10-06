@@ -57,7 +57,7 @@ describe.skipIf(claude === null)(`D-13: an agent's Bash edit in the main workspa
     sessions.push(buildAgentSession({ id: sessionId, openedBy: { userId: 'dev:ian', displayName: 'Ian' }, title: 'Claude (Ian)', status: 'running', createdAt: Date.now() }));
     const files = await hooks.writeSessionFiles(sessionId, buildLaunchProfile());
     const settings = JSON.parse(await readFile(files.settingsPath, 'utf8')) as { hooks: Record<string, { matcher?: string }[]> };
-    expect(settings.hooks['PreToolUse']?.map((group) => group.matcher)).toEqual(['Edit|Write|MultiEdit|NotebookEdit', 'Bash']);
+    expect(settings.hooks['PreToolUse']?.map((group) => group.matcher)).toEqual(['*', 'Bash']);
     const isolated = join(t.root, '..', `claude-run-${Date.now()}`);
     for (const sub of ['home', 'cfg', 'tmp']) await mkdir(join(isolated, sub), { recursive: true, mode: 0o700 });
     await seedClaudeTrust({ cfgDir: join(isolated, 'cfg'), cwd: t.root });

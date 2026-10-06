@@ -333,6 +333,9 @@ describe.skipIf(CHROME === null)('transfers in a real browser (Worker + IndexedD
 
   it('the app: a file picked in the files panel is uploaded through the Worker, shown in the transfers panel, and a second upload of the same name asks first', async () => {
     const content = Buffer.from(pattern(5 * MiB + 7));
+    // The file tree and the drawer with its Transfers tab are code mode (DESIGN §5.6): the page opens on the sessions view.
+    await page.getByRole('link', { name: /^Code mode/ }).click();
+    await page.waitForURL(`${env.webOrigin}/w/${env.stack.workspaceId}/code`, { timeout: 60_000 });
     await page.getByRole('tab', { name: 'Transfers' }).click();
     const input = page.locator('input[type=file][multiple][hidden]').first();
     await input.setInputFiles({ name: 'report.bin', mimeType: 'application/octet-stream', buffer: content });

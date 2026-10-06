@@ -13,18 +13,20 @@ export interface NameDialogProps {
   readonly mode: NameDialogMode;
   readonly siblings: readonly string[];
   readonly isHost: boolean;
+  /** The tree shows a work item's worktree: its topic's folder name (tree-model.ts WriteContext.itemSlug). */
+  readonly itemSlug?: string | undefined;
   onSubmit(path: string): Promise<void>;
   onClose(): void;
 }
 
-export function NameDialog({ mode, siblings, isHost, onSubmit, onClose }: NameDialogProps) {
+export function NameDialog({ mode, siblings, isHost, itemSlug, onSubmit, onClose }: NameDialogProps) {
   const current = mode.kind === 'rename' ? mode.entry.name : undefined;
   const parent = mode.kind === 'rename' ? mode.entry.path.slice(0, Math.max(0, mode.entry.path.length - mode.entry.name.length - 1)) : mode.parent;
   const [name, setName] = useState(current ?? '');
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const check = checkNewName(name, parent, siblings, current === undefined ? { isHost } : { isHost, current });
+  const check = checkNewName(name, parent, siblings, current === undefined ? { isHost, itemSlug } : { isHost, current, itemSlug });
   const title =
     mode.kind === 'rename'
       ? t('dialog.renameTitle', { name: mode.entry.name })

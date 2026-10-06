@@ -1,7 +1,8 @@
-// "New session" (SPEC R4, R9): kind, where (shared main workspace / my worktree: a new one or one of my kept ones),
-// what the role allows, and the daemon's refusal in plain words. Shown to the host and to members with agent access;
-// one line says where the session runs: on the host's computer, with the host's Claude account (protocol v2, owner
-// decision 2026-10-01: no guest sandbox, no guest login).
+// "New session" and "New terminal" (the "New" control of the session list; the Terminal drawer of code mode): where
+// to work (the shared main workspace / a worktree of my own: a new one or one I kept), a name, for an agent session
+// what it should do first; what the role allows, and the daemon's refusal in plain words. One line says where the
+// session runs: on the host's computer, and an agent with the host's Claude account. An agent session opened here
+// has no topic; a topic's sessions are opened by the topic (features/topics).
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
 import { shallowEqual, useStore } from '../../lib/store.ts';
@@ -10,29 +11,24 @@ import { selectRole, selectUserId, selectWorkspaceInfo } from '../../lib/stores/
 import { selectWorktreeList } from '../../lib/stores/worktrees.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
-import { Banner, Button, Dialog, Input, useToast } from '../../ui/index.ts';
+import { MESSAGE_TEXT_MAX_CHARS } from '@smurg/protocol';
+import { Banner, Button, Dialog, Input, TextArea, useToast } from '../../ui/index.ts';
 import { IconInfo } from '../../ui/icons.tsx';
-import {
-  DEFAULT_TERMINAL_SIZE,
-  buildCreatePayload,
-  effectiveWhere,
-  newSessionOptions,
-  type NewSessionForm,
-  type SessionKind,
-  type WhereChoice,
-} from './new-session.ts';
-import { describeSessionError, kindLabel, type SessionErrorView } from './session-info.ts';
+import { DEFAULT_TERMINAL_SIZE, buildCreatePayload, effectiveWhere, newSessionOptions, type NewSessionForm, type SessionKind, type WhereChoice } from './new-session.ts';
+import { describeSessionError, type SessionErrorView } from './session-info.ts';
 import { t } from './strings.ts';
 
-const INITIAL_FORM: NewSessionForm = { kind: 'agent', where: 'main', title: '' };
+const INITIAL_FORM: Omit<NewSessionForm, 'kind'> = { where: 'main', title: '', firstMessage: '' };
 
 export interface NewSessionDialogProps {
+  /** What is opened: a conversation with an agent, or a plain terminal. */
+  readonly kind: SessionKind;
   readonly open: boolean;
   onClose(): void;
   onCreated(session: SessionInfo): void;
 }
 
-export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogProps) {
+export function NewSessionDialog({ kind, open, onClose, onCreated }: NewSessionDialogProps) {
   const stores = useStores();
   const toast = useToast();
   const formId = useId();
@@ -46,7 +42,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
     [role, userId, workspace, worktreeList, sessionMap],
   );
 
-  const [form, setForm] = useState<NewSessionForm>(INITIAL_FORM);
+  const [form, setForm] = useState(INITIAL_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<SessionErrorView | null>(null);
 
@@ -62,7 +58,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
   // The form starts at "Shared main workspace" (and so does a choice that is gone).
   const where: WhereChoice = effectiveWhere(options, form.where);
 
-  const update = (patch: Partial<NewSessionForm>): void => setForm((previous) => ({ ...previous, ...patch }));
+  const update = (patch: Partial<typeof INITIAL_FORM>): void => setForm((previous) => ({ ...previous, ...patch }));
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
@@ -70,7 +66,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
     setSubmitting(true);
     setError(null);
     try {
-      const session = await stores.sessions.create(buildCreatePayload(options, { ...form, where }, DEFAULT_TERMINAL_SIZE));
+      const session = await stores.sessions.create(buildCreatePayload(options, { ...form, kind, where }, DEFAULT_TERMINAL_SIZE));
       setForm(INITIAL_FORM);
       toast.show({ tone: 'success', title: t('new.created', { title: sessionTitle(session) }) });
       onCreated(session);
@@ -83,16 +79,6 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
 
   const blockedText =
     options.blockedBy === 'role-editor' ? t('new.role.editor') : options.blockedBy === 'role-viewer' ? t('new.role.viewer') : t('new.role.unknown');
-
-  const kindOption = (kind: SessionKind, hint: string) => (
-    <label className="agents-choice">
-      <input type="radio" name={`${formId}-kind`} value={kind} checked={form.kind === kind} onChange={() => update({ kind })} />
-      <span className="agents-choice__text">
-        <span className="agents-choice__label">{kind === 'agent' ? kindLabel({ kind }) : t('new.kind.terminal')}</span>
-        <span className="agents-choice__hint">{hint}</span>
-      </span>
-    </label>
-  );
 
   const whereOption = (value: WhereChoice, label: string, hint: string | null, disabled: boolean) => (
     <label className="agents-choice" data-disabled={disabled || undefined}>
@@ -108,7 +94,7 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
     <Dialog
       open={open}
       onClose={onClose}
-      title={t('new.title')}
+      title={kind === 'agent' ? t('new.title') : t('new.title.terminal')}
       size="md"
       footer={
         options.canCreate ? (
@@ -134,14 +120,8 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
           {/* One short line: whoever opens it, a session runs on the host's computer with the host's Claude account. */}
           <p className="agents-form__runs-as" data-testid="new-session-runs-as">
             <IconInfo size={14} />
-            <span>{role === 'host' ? t('new.runsAs.host') : t('new.runsAs.member')}</span>
+            <span>{kind === 'terminal' ? t('new.runsAs.terminal') : role === 'host' ? t('new.runsAs.host') : t('new.runsAs.member')}</span>
           </p>
-
-          <fieldset className="agents-fieldset">
-            <legend>{t('new.kind')}</legend>
-            {kindOption('agent', t('new.kind.agentHint'))}
-            {kindOption('terminal', t('new.kind.terminalHint'))}
-          </fieldset>
 
           <fieldset className="agents-fieldset">
             <legend>{t('new.where')}</legend>
@@ -154,6 +134,16 @@ export function NewSessionDialog({ open, onClose, onCreated }: NewSessionDialogP
           </fieldset>
 
           <Input label={t('new.name')} hint={t('new.nameHint')} maxLength={256} value={form.title} onChange={(event) => update({ title: event.currentTarget.value })} />
+          {kind === 'agent' ? (
+            <TextArea
+              label={t('new.first')}
+              hint={t('new.firstHint')}
+              rows={3}
+              maxLength={MESSAGE_TEXT_MAX_CHARS}
+              value={form.firstMessage}
+              onChange={(event) => update({ firstMessage: event.currentTarget.value })}
+            />
+          ) : null}
 
           {error ? (
             <Banner tone="danger" live="alert" title={error.title}>

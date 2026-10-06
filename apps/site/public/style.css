@@ -416,10 +416,12 @@ html:lang(zh-Hant) .lede {
 }
 
 /* ---- the workspace mock under the install line ----
- * An illustration of the web app's workbench (apps/web/src/app/workspace/Workbench.tsx), not a screenshot. Its colours
- * are the app's own (apps/web/src/ui/tokens.css, Monaco's vs / vs-dark token colours, the daemon's member and agent
- * colours), so they are set here instead of coming from the page's tokens. It is a picture (role="img"): nothing in
- * it is interactive. Hidden below 720 px, where its labels would be cut off. */
+ * An illustration of the web app's sessions view (apps/web/src/app/workspace/SessionsView.tsx): the inbox and the
+ * session list on the left, columns on the right. Not a screenshot. Its colours are the app's own
+ * (apps/web/src/ui/tokens.css, the daemon's member colours), so they are set here instead of coming from the page's
+ * tokens. It is a picture (role="img"): nothing in it is interactive. Text that a person or an agent wrote (not a
+ * label of the app) carries the class m-said; commands are pre.m-term. Hidden below 720 px, where its labels would
+ * be cut off. */
 .mock-figure {
   display: none;
   margin: clamp(2.5rem, 5vw, 3.5rem) 0 0;
@@ -452,23 +454,16 @@ html:lang(zh-Hant) .lede {
   --m-accent-soft: rgb(29 78 216 / 0.1);
   --m-success: #166534;
   --m-success-soft: rgb(21 128 61 / 0.1);
+  --m-warning: #b45309;
   --m-warning-soft: #fff7e0;
   --m-warning-text: #7c2d12;
   --m-code-bg: #ffffff;
   --m-code-fg: #1b1f27;
-  --m-line-no: #687385;
-  --m-line-hl: #f5f6f8;
   --m-shadow: 0 1px 2px rgb(15 17 21 / 0.06), 0 18px 48px rgb(15 17 21 / 0.1);
-  --tok-kw: #0000ff;
-  --tok-str: #a31515;
-  --tok-type: #267f99;
-  --tok-fn: #795e26;
-  --tok-var: #001080;
   --ian: #4363d8;
   --amy: #e6194b;
   --ben: #2e8b3e;
-  --claude-amy: #9333ea;
-  --claude-ian: #d97706;
+  --claude: #9333ea;
   border: 1px solid var(--m-border-strong);
   border-radius: 10px;
   background: var(--m-bg);
@@ -494,23 +489,27 @@ html:lang(zh-Hant) .lede {
     --m-accent-soft: rgb(124 176 255 / 0.14);
     --m-success: #4ade80;
     --m-success-soft: rgb(74 222 128 / 0.12);
+    --m-warning: #fbbf24;
     --m-warning-soft: rgb(251 191 36 / 0.12);
     --m-warning-text: #fde68a;
     --m-code-bg: #0f1115;
     --m-code-fg: #e6e9ef;
-    --m-line-no: #7d879a;
-    --m-line-hl: #151821;
     --m-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 18px 48px rgb(0 0 0 / 0.45);
-    --tok-kw: #569cd6;
-    --tok-str: #ce9178;
-    --tok-type: #4ec9b0;
-    --tok-fn: #dcdcaa;
-    --tok-var: #9cdcfe;
   }
 }
 
 .mock * {
   white-space: nowrap;
+}
+
+/* running text inside the picture (a message, a question, a report's paragraph) */
+.mock .m-wrap {
+  white-space: normal;
+}
+
+.mock p {
+  max-width: none;
+  margin: 0;
 }
 
 .m-app {
@@ -621,10 +620,12 @@ html:lang(zh-Hant) .lede {
 
 .m-avs {
   display: flex;
+  flex: none;
 }
 
 .mock .av {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
   width: 22px;
@@ -661,23 +662,15 @@ html:lang(zh-Hant) .lede {
   color: #000000;
 }
 
-.av-agent {
-  background: var(--claude-amy);
-  color: #ffffff;
-}
-
-.av-claude-ian {
-  background: var(--claude-ian);
-  color: #000000;
-}
-
-.mock .av-agent,
-.mock .av-claude-ian {
+.mock .av-agent {
   border-radius: 6px;
+  background: var(--claude);
+  color: #ffffff;
 }
 
 .m-btn {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 4px;
   height: 24px;
@@ -694,39 +687,76 @@ html:lang(zh-Hant) .lede {
   color: #ffffff;
 }
 
-/* 720 to 1023 px: the editor and the agents; from 1024 px also the file tree and the suggestion box. */
+/* a pair of segments: the mode switch, the session filter, the two ways to assign */
+.m-seg {
+  display: inline-flex;
+  min-width: 0;
+  border: 1px solid var(--m-border-strong);
+  border-radius: 4px;
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.m-seg span {
+  padding: 2px 8px;
+  color: var(--m-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.m-seg span + span {
+  border-left: 1px solid var(--m-border-strong);
+}
+
+.m-seg .on {
+  flex: none;
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+  font-weight: 600;
+}
+
+/* 720 to 1023 px: the left column and the conversation; from 1024 px the plan; from 1200 px the result report. */
 .m-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-columns: 208px minmax(0, 1fr);
   gap: 1px;
   background: var(--m-border);
 }
 
-.m-files,
-.m-editor,
-.m-agents {
+.m-left,
+.m-col {
   display: flex;
   flex-direction: column;
   min-width: 0;
   background: var(--m-s1);
 }
 
-.m-files,
-.m-suggest {
+.m-col-plan,
+.m-col-rep {
   display: none;
 }
 
 @media (min-width: 1024px) {
   .m-body {
-    grid-template-columns: 196px minmax(0, 1fr) minmax(0, 0.82fr);
+    grid-template-columns: 208px minmax(0, 1.15fr) minmax(0, 1fr);
   }
 
-  .m-files,
-  .m-suggest {
+  .m-col-plan {
     display: flex;
   }
 }
 
+@media (min-width: 1200px) {
+  .m-body {
+    grid-template-columns: 208px minmax(0, 1.15fr) minmax(0, 0.95fr) minmax(0, 1fr);
+  }
+
+  .m-col-rep {
+    display: flex;
+  }
+}
+
+/* a panel heading: Inbox, Sessions */
 .m-ph {
   display: flex;
   align-items: center;
@@ -745,335 +775,466 @@ html:lang(zh-Hant) .lede {
   font-weight: 400;
 }
 
-.m-switch {
-  margin: 8px 10px 4px;
-  padding: 3px 8px;
+.m-left > .m-ph ~ .m-ph {
+  border-top: 1px solid var(--m-border);
+}
+
+/* a count, a number inside a sentence, a diff's plus and minus */
+.m-count {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--m-s3);
+  color: var(--m-muted);
+  font-size: 10px;
+  font-style: normal;
+  line-height: 15px;
+}
+
+.m-count-wait {
+  background: var(--m-warning-soft);
+  color: var(--m-warning-text);
+}
+
+.m-n {
+  padding: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.m-diff {
+  margin-left: auto;
+  background: none;
+  color: var(--m-success);
+  font-family: var(--font-mono);
+}
+
+.m-grp {
+  padding: 7px 10px 2px;
+  color: var(--m-subtle);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.m-row,
+.m-topic {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 24px;
+  padding: 3px 10px;
+  overflow: hidden;
+}
+
+.m-row > span,
+.m-rt > span,
+.m-ch > span,
+.m-item > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.m-row.on {
+  background: var(--m-accent-soft);
+  box-shadow: inset 2px 0 0 var(--m-accent-solid);
+}
+
+.m-row .av,
+.m-item .av {
+  width: 18px;
+  height: 18px;
+  margin-left: auto;
+  border-width: 0;
+  font-size: 8px;
+}
+
+.m-rt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.m-rt > :first-child {
+  font-weight: 600;
+}
+
+.m-sub {
+  color: var(--m-subtle);
+  font-size: 10.5px;
+}
+
+.m-row > .m-sub {
+  margin-left: auto;
+}
+
+.m-topic {
+  padding-top: 6px;
+  font-weight: 600;
+}
+
+.m-filter {
+  padding: 6px 10px 2px;
+}
+
+/* the kind of an inbox item or a card */
+.m-k {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: var(--m-warning-soft);
+  color: var(--m-warning-text);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.m-k-look {
+  background: var(--m-accent-soft);
+  color: var(--m-accent);
+}
+
+/* what a session is doing: a shape and a colour each */
+.m-g {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--m-subtle);
+  border-radius: 50%;
+}
+
+.m-g-ask,
+.m-g-perm {
+  border-color: var(--m-warning);
+  background: var(--m-warning);
+}
+
+.m-g-perm {
+  border-radius: 2px;
+}
+
+.m-g-done {
+  border-color: var(--m-success);
+  background: var(--m-success);
+}
+
+.m-g-todo {
+  border-style: dashed;
+}
+
+.m-g-doc,
+.m-g-term {
+  border-radius: 2px;
+}
+
+.m-badge {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--m-s3);
+  color: var(--m-muted);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.m-badge-ok {
+  background: var(--m-success-soft);
+  color: var(--m-success);
+}
+
+.m-badge-warn {
+  background: var(--m-warning-soft);
+  color: var(--m-warning-text);
+}
+
+/* a column: its header, the strip under it, its content */
+.m-ch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--m-border);
+  background: var(--m-s3);
+}
+
+.m-ch.on {
+  box-shadow: inset 0 2px 0 var(--m-accent-solid);
+}
+
+.m-ct {
+  flex: none;
+  font-weight: 600;
+}
+
+.m-strip {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--m-border);
+  overflow: hidden;
+}
+
+.m-chip {
+  flex: none;
+  padding: 0 7px;
+  border: 1px solid var(--m-border);
+  border-radius: 999px;
+  color: var(--m-muted);
+  font-size: 10.5px;
+  line-height: 17px;
+}
+
+.m-chip:last-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.m-conv,
+.m-plan,
+.m-rep {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow: hidden;
+}
+
+.m-msg {
+  display: flex;
+  gap: 8px;
+}
+
+.m-msg > div {
+  min-width: 0;
+}
+
+.m-who {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.m-who span {
+  color: var(--m-subtle);
+  font-size: 10.5px;
+}
+
+.m-tool {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-left: 30px;
+  padding: 2px 8px;
   border: 1px solid var(--m-border);
   border-radius: 4px;
   color: var(--m-muted);
   font-size: 11px;
 }
 
-.m-tree {
-  margin: 0;
-  padding: 4px 0;
-  list-style: none;
+.mock code {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: 11px var(--font-mono);
 }
 
-.m-tree li {
+.m-card {
   display: flex;
-  align-items: center;
-  gap: 5px;
-  height: 23px;
-  padding: 0 8px 0 10px;
-  overflow: hidden;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--m-warning);
+  border-radius: 6px;
 }
 
-.m-tree .d1 {
-  padding-left: 24px;
-}
-
-.m-tree .ic {
-  color: var(--m-subtle);
-}
-
-.m-tree .on {
-  background: var(--m-accent-soft);
-}
-
-.m-tag {
-  margin-left: auto;
-  padding: 0 5px;
-  border-radius: 3px;
-  font-size: 10px;
-  line-height: 16px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.m-tag-human {
-  background: var(--m-warning-soft);
-  color: var(--m-warning-text);
-}
-
-.m-tag-agent {
-  background: var(--m-accent-soft);
-  color: var(--m-accent);
-}
-
-.m-tabs {
-  display: flex;
-  height: 30px;
-  border-bottom: 1px solid var(--m-border);
-  background: var(--m-s3);
-  overflow: hidden;
-}
-
-.m-tabs span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 12px;
-  border-right: 1px solid var(--m-border);
-  color: var(--m-muted);
-}
-
-.m-tabs .on {
-  background: var(--m-s1);
-  color: var(--m-text);
-  box-shadow: inset 0 2px 0 var(--m-accent-solid);
-}
-
-.m-count {
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--m-accent-solid);
-  color: #ffffff;
-  font-size: 10px;
-  font-style: normal;
-  line-height: 15px;
-}
-
-.m-banner {
+.m-cardh {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
-  border-bottom: 1px solid var(--m-border);
-  background: var(--m-warning-soft);
-  color: var(--m-warning-text);
-  font-size: 11px;
-  overflow: hidden;
+  font-weight: 600;
 }
 
-.m-banner-info {
-  background: var(--m-accent-soft);
-  color: var(--m-text);
+.m-cardh .m-sub {
+  margin-left: auto;
+  font-weight: 400;
 }
 
-.m-code,
-.m-term {
-  flex: 1;
-  margin: 0;
-  padding: 8px 0;
-  background: var(--m-code-bg);
-  color: var(--m-code-fg);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  line-height: 19px;
-  overflow: hidden;
+.m-q {
+  font-size: 12.5px;
 }
 
-/* keep the indentation (`.mock *` would collapse it) */
-.m-code,
-.m-term,
-.m-code *,
-.m-term * {
-  white-space: pre;
-}
-
-.m-code > span,
-.m-term > span {
-  display: block;
-}
-
-.m-code > span {
-  padding-right: 8px;
-}
-
-.m-ln {
-  display: inline-block;
-  width: 34px;
-  padding-right: 12px;
-  color: var(--m-line-no);
-  font-style: normal;
-  text-align: right;
-}
-
-.m-hl {
-  background: var(--m-line-hl);
-}
-
-.tk-k {
-  color: var(--tok-kw);
-}
-
-.tk-s {
-  color: var(--tok-str);
-}
-
-.tk-t {
-  color: var(--tok-type);
-}
-
-.tk-f {
-  color: var(--tok-fn);
-}
-
-.tk-v {
-  color: var(--tok-var);
-}
-
-/* remote cursors, drawn the way y-monaco draws them in the app */
-.m-cur {
-  position: relative;
-  display: inline-block;
-  width: 0;
-  height: 19px;
-  vertical-align: top;
-}
-
-.m-cur::before {
-  content: '';
-  position: absolute;
-  left: -1px;
-  top: 1px;
-  bottom: 1px;
-  border-left: 2px solid var(--c);
-}
-
-.m-cur b {
-  position: absolute;
-  left: -1px;
-  bottom: 17px;
-  padding: 0 4px;
-  border-radius: 2px;
-  background: var(--c);
-  color: #000000;
-  font: 600 10px/15px var(--font-sans);
-}
-
-.m-cur-amy {
-  --c: var(--amy);
-}
-
-.m-cur-ben {
-  --c: var(--ben);
-}
-
-.m-sel-ben {
-  background: color-mix(in srgb, var(--ben) 25%, transparent);
-}
-
-.m-status {
+.m-opt {
   display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 3px 10px;
-  border-top: 1px solid var(--m-border);
-  background: var(--m-s1);
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--m-border);
+  border-radius: 4px;
+}
+
+.m-opt.on {
+  border-color: var(--m-accent-solid);
+  background: var(--m-accent-soft);
+}
+
+.m-opt .m-avs {
+  margin-left: auto;
+}
+
+.m-opt .av {
+  width: 18px;
+  height: 18px;
+  font-size: 8px;
+}
+
+.m-lead {
+  color: var(--m-accent);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.m-note {
   color: var(--m-subtle);
   font-size: 10.5px;
 }
 
-.m-term {
+.m-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--m-border);
+  color: var(--m-muted);
+  font-size: 10.5px;
+}
+
+.m-foot .m-btn {
+  margin-left: auto;
+}
+
+.m-col > .m-foot {
   padding: 8px 10px;
 }
 
-.m-term > span {
+.m-status {
+  padding: 3px 10px;
+  border-top: 1px solid var(--m-border);
+  background: var(--m-warning-soft);
+  color: var(--m-warning-text);
+  font-size: 10.5px;
+}
+
+.m-input {
+  margin: 8px 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--m-border-strong);
+  border-radius: 4px;
+  color: var(--m-subtle);
+  font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.m-dim,
-.m-prompt {
+.m-col > .m-input:not(:last-child) {
+  margin-bottom: 0;
+}
+
+/* the plan */
+.m-sum {
+  display: flex;
+  gap: 12px;
+  color: var(--m-muted);
+  font-size: 11px;
+}
+
+.m-sec {
+  margin-top: 2px;
+  color: var(--m-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.m-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 7px;
+  padding: 6px 8px;
+  border: 1px solid var(--m-border);
+  border-radius: 6px;
+}
+
+.m-item .av {
+  margin-left: 0;
+}
+
+.m-item .m-badge {
+  grid-column: 2 / 4;
+  justify-self: start;
+  margin-left: 0;
+}
+
+.m-no {
+  flex: none;
   color: var(--m-subtle);
+  font-weight: 600;
+}
+
+/* a command, wherever it shows */
+.m-term {
+  margin: 0;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--m-s3);
+  color: var(--m-code-fg);
+  font: 11px/17px var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.m-rules,
+.m-check,
+.m-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.m-check > :first-child {
+  flex: none;
+  font-weight: 600;
+}
+
+.m-check > :last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .m-ok {
   color: var(--m-success);
 }
 
-.m-tool {
-  font-weight: 700;
+.m-warn {
+  color: var(--m-warning-text);
 }
 
-/* a block cursor; it does not blink (nothing on this page moves) */
-.m-caret {
-  display: inline-block;
-  width: 7px;
-  height: 14px;
-  vertical-align: -2px;
-  background: var(--m-code-fg);
-}
-
-.m-suggest {
-  flex-direction: column;
-  gap: 6px;
-  padding: 0 0 8px;
-  border-top: 1px solid var(--m-border);
-}
-
-.m-suggest .m-ph {
-  border-bottom: 0;
-}
-
-.m-input {
-  margin: 0 10px;
-  padding: 6px 8px;
-  border: 1px solid var(--m-border-strong);
-  border-radius: 4px;
-  color: var(--m-subtle);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.m-suggest .m-btn {
-  align-self: flex-end;
-  margin-right: 10px;
-}
-
-.m-drawer {
-  border-top: 1px solid var(--m-border);
-  background: var(--m-s1);
-}
-
-.m-feed {
-  margin: 0;
-  padding: 4px 0;
-  list-style: none;
-}
-
-.m-feed li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 26px;
-  padding: 0 12px;
-  overflow: hidden;
-}
-
-.mock .m-feed .av {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  border: 0;
-  font-size: 8px;
-}
-
-.mock .m-feed .av .ic {
-  width: 11px;
-  height: 11px;
-}
-
-.m-what {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.m-via {
-  padding: 0 5px;
-  border-radius: 3px;
-  background: var(--m-s3);
-  color: var(--m-muted);
-  font-size: 10px;
-}
-
-.m-ago {
-  margin-left: auto;
-  padding-left: 8px;
-  color: var(--m-subtle);
-  font-size: 11px;
+.m-watch {
+  padding: 4px 8px;
+  border-left: 2px solid var(--m-warning);
+  background: var(--m-warning-soft);
+  color: var(--m-warning-text);
 }
 
 /* ---- sections ---- */

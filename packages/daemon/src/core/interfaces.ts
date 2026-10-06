@@ -103,7 +103,9 @@ export type ChannelClosedReason = (typeof CHANNEL_CLOSED_REASONS)[number];
 /**
  * Who is acting, as the daemon sees it. Built by the daemon, never from a payload:
  *  - a member's request: kind 'user', role = their CURRENT role;
- *  - an agent (hook / MCP socket): kind 'agent', userId/role of the session OWNER, actor `Claude (owner)`;
+ *  - an agent (hook / MCP socket): kind 'agent', userId of the session's OWNER, actor `Claude (<label>)`; the role is
+ *    the owner's, except that a session with `pathRights: 'member'` never has the role `host` (MemberDirectory
+ *    .agentPrincipal: a handover to the host raises nothing);
  *  - the daemon itself (watcher, timers, stop): kind 'system', userId/role null.
  */
 export interface Principal {
@@ -1139,10 +1141,11 @@ export interface PresenceService {
  * with their own audit entry (they know the actor directly).
  */
 export interface ActivityFeed {
-  /** `via: 'bash'`: an agent.edit attributed through the agent's shell-command window (§11 D-13). */
   /**
-   * `text`: the sentence as a message reference (`activity.*` of `@smurg/protocol/i18n`, parameters already clipped);
-   * the feed stores it with its English rendering as `summary`. `renamedFrom`: on a rename, the previous path.
+   * `via: 'bash'`: an agent.edit attributed through the agent's shell-command window (§11 D-13). `text`: the sentence
+   * as a message reference (`activity.*` of `@smurg/protocol/i18n`, parameters already clipped); the feed stores it
+   * with its English rendering as `summary`. `renamedFrom`: on a rename, the previous path, relative to `file.root`.
+   * Every recorded entry is also emitted on the bus as `activity.recorded` (with `renamedFrom`).
    */
   record(input: {
     readonly actor: Actor;

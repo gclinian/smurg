@@ -27,6 +27,7 @@ import { describeError } from '../../lib/errors.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { selectActiveDoc } from '../../lib/stores/docs.ts';
 import { selectActiveRoot, selectDir } from '../../lib/stores/files.ts';
+import { selectTopic } from '../../lib/stores/topics.ts';
 import { selectWorktreeList, worktreeLabel } from '../../lib/stores/worktrees.ts';
 import { useCapabilities, useCommandHandler, useCommands, useMember, useStores } from '../../lib/workspace/context.tsx';
 import { Banner, Button, EmptyState, IconButton, Menu, Panel, Spinner, useToast, type MenuItem } from '../../ui/index.ts';
@@ -50,6 +51,7 @@ import {
   IconUnlock,
   IconUpload,
 } from '../../ui/icons.tsx';
+import { ChangedBySession } from './ChangedBySession.tsx';
 import { ContextMenu } from './ContextMenu.tsx';
 import { DeleteDialog, NameDialog, type NameDialogMode } from './dialogs.tsx';
 import { ForceReleaseDialog, useCanForceRelease } from './ForceReleaseDialog.tsx';
@@ -85,7 +87,10 @@ export function FilesPanel(_props: FilesPanelProps) {
   const worktrees = useStore(stores.worktrees, selectWorktreeList, shallowEqual);
   const sessionsById = useStore(stores.sessions, (state) => state.sessions);
   const now = useNow(60_000);
-  const writeCtx = useMemo(() => ({ canWrite: caps.can('file.write'), isHost: caps.isHost }), [caps]);
+  // A work item's worktree: `specs/<its topic's folder>/` is read-only there for everyone (DESIGN §3.11, §5.6).
+  const itemTopicId = root.kind === 'worktree' ? worktrees.find((worktree) => worktree.id === root.worktreeId && worktree.itemId !== undefined)?.topicId : undefined;
+  const itemSlug = useStore(stores.topics, (state) => (itemTopicId === undefined ? undefined : selectTopic(state, itemTopicId)?.slug));
+  const writeCtx = useMemo(() => ({ canWrite: caps.can('file.write'), isHost: caps.isHost, itemSlug }), [caps, itemSlug]);
 
   const [expandedByRoot, setExpandedByRoot] = useState<ReadonlyMap<string, ReadonlySet<string>>>(new Map());
   const expanded = expandedByRoot.get(rootKey) ?? NO_EXPANDED;
@@ -467,7 +472,7 @@ export function FilesPanel(_props: FilesPanelProps) {
               focused={row.path === effectiveFocus}
               active={activeDoc !== undefined && fileRefKey(activeDoc.file) === fileRefKey({ root, path: row.path })}
               dropTarget={dropTarget === row.path}
-              badges={entryBadges(row.entry, { lock: liveLockOf(row.path), now, selfUserId: member?.userId ?? null, isHost: caps.isHost })}
+              badges={entryBadges(row.entry, { lock: liveLockOf(row.path), now, selfUserId: member?.userId ?? null, isHost: caps.isHost, itemSlug })}
               onFocus={() => setFocusedPath(row.path)}
               onClick={() => {
                 setFocusedPath(row.path);
@@ -491,6 +496,7 @@ export function FilesPanel(_props: FilesPanelProps) {
 
   return (
     <Panel title={t('title')} icon={<IconFolder />} actions={actions} className="files-panel">
+      <ChangedBySession root={root} activeFile={activeDoc?.file} onOpen={(file) => dispatch('openFile', { file })} />
       <div
         className="files-body"
         data-drop-target={dropTarget === '' ? 'root' : undefined}
@@ -562,6 +568,7 @@ export function FilesPanel(_props: FilesPanelProps) {
           mode={dialog.mode}
           siblings={siblingsOf(dialog.mode.kind === 'rename' ? (ancestorsOf(dialog.mode.entry.path).at(-1) ?? '') : dialog.mode.parent)}
           isHost={caps.isHost}
+          itemSlug={itemSlug}
           onSubmit={(path) => (dialog.mode.kind === 'rename' ? renameEntry(dialog.mode.entry, path) : createEntry(dialog.mode, path))}
           onClose={() => setDialog(null)}
         />
@@ -641,7 +648,7 @@ function TreeItem({ id, row, entry, focused, active, dropTarget, badges, onFocus
             <IconAgent size={12} />
           ) : badge.kind === 'human-lock' ? (
             <IconLock size={12} />
-          ) : badge.kind === 'read-only' || badge.kind === 'host-only' ? (
+          ) : badge.kind === 'read-only' || badge.kind === 'host-only' || badge.kind === 'item-spec' ? (
             <IconEye size={12} />
           ) : (
             <span className="files-badge__dot" />

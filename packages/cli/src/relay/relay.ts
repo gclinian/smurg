@@ -23,6 +23,15 @@ export function relayOriginOf(text: string, subject: UrlSubject = 'flag'): strin
   }
 }
 
+/**
+ * The address of a workspace in the web app (its sessions view): what `smurg attach` names as the place where agent
+ * conversations open. `webOrigin` is an origin this CLI or the daemon already validated (relayOriginOf, an invite
+ * link's origin, the daemon's own).
+ */
+export function workspaceAddress(webOrigin: string, workspaceId: string): string {
+  return `${webOrigin}/w/${workspaceId}`;
+}
+
 /** Where the relay of a command came from. */
 export type RelaySource = 'flag' | 'env' | 'login' | 'built-in';
 

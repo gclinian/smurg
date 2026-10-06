@@ -223,7 +223,7 @@ describe('EditorArea: tabs, lazy editor, collaborative binding', () => {
       sent.push(payload);
     });
     act(() => {
-      view.conn.emit('session.state', { session: makeAgentSession({ id: 'sess_ian', openedBy: { userId: 'dev:host', displayName: 'Ian' }, title: 'Claude' }) });
+      view.conn.emit('session.state', { session: makeAgentSession({ id: 'sess_ian', purpose: 'item', topicId: 'tp_1', topicName: 'Checkout', itemId: 'payment-form', attempt: 1, item: { number: 2, title: 'Payment form' }, title: undefined, openedBy: { userId: 'dev:host', displayName: 'Ian' } }) });
       view.conn.emit('session.state', { session: makeSession({ id: 'sess_term', kind: 'terminal', openedBy: { userId: 'dev:host', displayName: 'Ian' }, title: 'zsh' }) });
     });
     await view.open();
@@ -235,10 +235,11 @@ describe('EditorArea: tabs, lazy editor, collaborative binding', () => {
     // Terminals are never offered (pasted code would run as shell commands).
     expect(within(menu).queryByText(/zsh/)).toBeNull();
     // One click sends it as a suggestion (SPEC R6: one click); the draft is the second choice.
-    expect(within(menu).getByRole('menuitem', { name: 'Draft a suggestion to "Claude", opened by Ian' })).toBeTruthy();
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Send as a suggestion to "Claude", opened by Ian' }));
+    // A session is named by its topic and its title, so two items of different topics can be told apart.
+    expect(within(menu).getByRole('menuitem', { name: 'Draft a suggestion to "Checkout · 2 · Payment form"' })).toBeTruthy();
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Send as a suggestion to "Checkout · 2 · Payment form"' }));
     await waitFor(() => expect(sent).toHaveLength(1));
-    // The file and line range with the selected code; the suggest feature quotes it under the path.
+    // The file and line range with the selected code; the handler (the conversation feature) quotes it under the path.
     expect(sent[0]).toEqual({ file: FILE, startLine: 2, endLine: 2, sessionId: 'sess_ian', text: 'console.log(greeting)', mode: 'send' });
     // The editor's context menu offers the same action.
     expect(editor?.actions.get('smurg.sendToAgent')?.needsSelection).toBe(true);

@@ -239,6 +239,22 @@ export class ActivityFeedImpl implements ActivityFeed {
     if (!parsed.success) throw new SmurgError('internal', undefined, { reason: 'invalid-activity' });
     const event = parsed.data;
     this.file.append(event);
+    // EVERY recorded entry is also a bus event: the topics module reads hand edits of SPEC.md / PLAN.md from it (a
+    // rename away from or into the path included), the worktree module which changed files a person touched.
+    try {
+      this.bus?.emit('activity.recorded', {
+        entry: {
+          actor: event.actor,
+          kind: event.kind,
+          ...(event.file ? { file: { root: event.file.root, path: event.file.path } } : {}),
+          at: event.at,
+          ...(input.via !== undefined ? { via: input.via } : {}),
+          ...(input.renamedFrom !== undefined ? { renamedFrom: input.renamedFrom } : {}),
+        },
+      });
+    } catch {
+      // a listener's failure never loses the entry
+    }
     if (event.file) {
       const key = lockKeyOf(event.file);
       if (event.kind === 'file.delete') this.lastModified.delete(key);

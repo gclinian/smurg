@@ -1,9 +1,24 @@
-// The coordination MCP server's tools (SPEC R8, the coordination MCP server): what the agent sees in `tools/list`. The daemon
+// The tools of smurg's own MCP server (ARCHITECTURE §7.7; SPEC R8): what the agent sees in `tools/list`. The daemon
 // decides every answer (src/hooks/mcp-tools.ts); these definitions only describe the calls. Descriptions are English
 // and written for the agent: when to use the tool, what the answer means, what to do next.
 //
+// Two groups: the coordination tools every agent session has (who_is_editing, lock_status, wait_for_lock,
+// list_sessions, notify_member) and the tools of a topic's sessions (check_plan and propose_split for the discussion
+// session, check_report for a work item's session). Every session lists all of them: a tool called from the wrong
+// kind of session answers with one sentence saying so (the daemon knows the session from its token).
+//
 // Loaded by the `smurg mcp` entry point: no imports beyond the dependency-free wire constants (fast start).
 import { NOTIFY_MESSAGE_MAX_CHARS, WAIT_FOR_LOCK_DEFAULT_SECONDS, WAIT_FOR_LOCK_MAX_SECONDS, type JsonObject, type McpToolName } from '../hooks/wire.ts';
+
+/** The tools of a topic's sessions (the agent validates its own plan and report in-band before its turn ends). */
+export const TOPIC_TOOL_NAMES = Object.freeze(['check_plan', 'propose_split', 'check_report'] as const);
+export type TopicToolName = (typeof TOPIC_TOOL_NAMES)[number];
+/** Every tool of the `smurg` MCP server. */
+export type AgentToolName = McpToolName | TopicToolName;
+
+/** propose_split: most pairs in one call (a plan has at most 40 work items) and the longest reason. */
+export const PROPOSE_SPLIT_ITEMS_MAX = 40;
+export const PROPOSE_SPLIT_REASON_MAX_CHARS = 500;
 
 /** One entry of `tools/list` (MCP 2025-06-18 Tool). */
 export interface ToolDefinition {
@@ -19,7 +34,7 @@ const FILE_PATH = {
   description: 'The file, as an absolute path or relative to the workspace root (the session\'s working directory).',
 };
 
-export const MCP_TOOLS: readonly (ToolDefinition & { readonly name: McpToolName })[] = Object.freeze([
+export const MCP_TOOLS: readonly (ToolDefinition & { readonly name: AgentToolName })[] = Object.freeze([
   {
     name: 'who_is_editing',
     title: 'Who is editing a file',
@@ -84,4 +99,59 @@ export const MCP_TOOLS: readonly (ToolDefinition & { readonly name: McpToolName 
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   },
+  {
+    name: 'check_plan',
+    title: 'Check the plan file',
+    description:
+      "For the discussion session of a topic. Checks the work item block of the topic's PLAN.md as smurg reads it. " +
+      'Answers ok=true with the number of work items and any warnings, or ok=false with errors, each with the line of the file and what is wrong there. ' +
+      'Call it after every change of PLAN.md and fix what it reports until it answers ok: smurg can only use a plan that passes.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'propose_split',
+    title: 'Propose who is responsible for which work item',
+    description:
+      'For the discussion session of a topic, after check_plan answered ok. Proposes who is responsible for which work item: ' +
+      'items is a list of { id, person }, id being the id of a work item in PLAN.md and person one of the names smurg gave you as "People who can be responsible right now"; reason is one sentence saying why. ' +
+      'smurg keeps the pairs it can match and splits the remaining items evenly; people can change it afterwards. The answer says how many pairs were assigned and how many named an unknown person.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        items: {
+          type: 'array',
+          maxItems: PROPOSE_SPLIT_ITEMS_MAX,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'The id of a work item, as in its "- id:" line.' },
+              person: { type: 'string', description: 'One of the names smurg listed as people who can be responsible.' },
+            },
+            required: ['id', 'person'],
+            additionalProperties: false,
+          },
+        },
+        reason: { type: 'string', maxLength: PROPOSE_SPLIT_REASON_MAX_CHARS, description: 'One sentence: why this split.' },
+      },
+      required: ['items'],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'check_report',
+    title: 'Check the result report',
+    description:
+      "For the session of a work item. Checks the result report of your work item (specs/<topic>/reports/<item id>.md in your checkout) against the fixed format. " +
+      'Answers ok=true, or ok=false with errors, each with the line of the file and what is wrong there. ' +
+      'smurg registers a report only after this tool answered ok for exactly the content the file has when you stop: call it again after every change of the report.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
 ]);
+
+/** Whether `value` names a tool of the `smurg` MCP server. */
+export function isAgentToolName(value: unknown): value is AgentToolName {
+  return typeof value === 'string' && MCP_TOOLS.some((tool) => tool.name === value);
+}
