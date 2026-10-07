@@ -97,8 +97,11 @@ export function browserSentence(webUrl: string | null): Text {
   return m('attach.agents.browser', webUrl === null ? {} : { url: webUrl });
 }
 
-/** Column widths (terminal cells) of the two tables; the headers of both catalogs are spaced to them. */
-const COLUMNS = Object.freeze({ number: 4, id: 32, kind: 8, owner: 12, status: 10, agentStatus: 24, topic: 24 });
+/**
+ * Column widths (terminal cells) of the two tables; the headers of both catalogs are spaced to them. `id` is the length
+ * of a session id (`ses_` and 32 hex digits): narrower, every row would stand four cells to the right of its header.
+ */
+const COLUMNS = Object.freeze({ number: 4, id: 36, kind: 8, owner: 12, status: 10, agentStatus: 24, topic: 24 });
 
 /**
  * What `smurg attach` prints without a session: the terminals, numbered (a number picks one), then the agent sessions

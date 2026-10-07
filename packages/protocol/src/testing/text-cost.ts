@@ -158,6 +158,43 @@ export function costOf(run: () => void, cheapEnough: number, rounds = 3): number
   return best;
 }
 
+/** A fixed piece of work of the kinds the measured functions do: strings built, searched and cut, a map filled. */
+function referenceWork(): number {
+  const seen = new Map<string, number>();
+  let total = 0;
+  for (let index = 0; index < 600_000; index += 1) {
+    const text = `item-${index % 977} of ${index}`;
+    const at = text.indexOf(' of ');
+    total += Number(text.slice(at + 4)) + text.slice(5, at).length;
+    seen.set(text.slice(0, 8), index);
+    total += text.split(' ').length;
+  }
+  return total + seen.size;
+}
+/** What `referenceWork` took, in processor time, on the machine the absolute bounds were measured on (Apple M3, node 22). */
+const REFERENCE_WORK_MS = 140;
+let slowness: number | undefined;
+
+/**
+ * How many times slower than that machine this one is; never less than 1. An ABSOLUTE bound of a cost test ("this
+ * text may take its budget and so much more", "this line is read within so many milliseconds") is multiplied by it:
+ * a continuous-integration runner is several times slower, and a bound only the fast machine keeps says nothing
+ * about the function. A bound on how the cost GROWS (sixteen times the text, at most sixty-four times the cost)
+ * needs none. Measured once in a process: the cheapest of four runs.
+ */
+export function machineSlowness(): number {
+  if (slowness === undefined) {
+    let best = Number.POSITIVE_INFINITY;
+    for (let round = 0; round < 4; round += 1) {
+      const started = cpuMs();
+      referenceWork();
+      best = Math.min(best, cpuMs() - started);
+    }
+    slowness = Math.max(1, best / REFERENCE_WORK_MS);
+  }
+  return slowness;
+}
+
 /** Below this, sixteen times the text may cost anything: the numbers are noise. */
 export const NOISE_MS = 40;
 export const TIMES = 16;

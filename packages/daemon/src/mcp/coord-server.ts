@@ -22,6 +22,7 @@ import {
   type JsonObject,
 } from '../hooks/wire.ts';
 import { MCP_TOOLS, isAgentToolName } from './tools.ts';
+import daemonPackage from '../../package.json' with { type: 'json' };
 
 /** What the server talks to; injectable for tests, the process's own streams and environment by default. */
 export interface McpServerIo {
@@ -41,7 +42,8 @@ function processIo(): McpServerIo {
 
 /** MCP revisions whose tools subset this server implements; a client asking for another one gets the newest. */
 export const MCP_PROTOCOL_VERSIONS: readonly string[] = Object.freeze(['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']);
-const SERVER_VERSION = '0.0.0';
+/** The version this server reports to Claude Code: the daemon's own. */
+const SERVER_VERSION: string = daemonPackage.version;
 /** Longest JSON-RPC line read from Claude Code. */
 const MCP_LINE_MAX_BYTES = 4 * 1024 * 1024;
 /** Deadline of the calls that do not wait. */

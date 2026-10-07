@@ -10,6 +10,7 @@
 // size, and fails when twice the text costs much more than twice the time. It also keeps the list of the source files
 // that hold a regular expression: a new one has to be looked at here before the list is changed.
 import { msg } from '@smurg/protocol/i18n';
+import { machineSlowness } from '@smurg/protocol/testing';
 import { act, render, waitFor } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -132,6 +133,13 @@ const cpuMs = (): number => {
   const used = process.cpuUsage();
   return (used.user + used.system) / 1_000;
 };
+
+/**
+ * An ABSOLUTE bound, in milliseconds of processor time, on this machine: the bounds below were measured on a fast
+ * one, and a continuous-integration runner is several times slower (it took 746 ms where 519 were allowed, with
+ * nothing wrong). A bound on how the cost GROWS needs none of this.
+ */
+const here = (ms: number): number => ms * machineSlowness();
 
 /** The cheapest of up to `rounds` runs, in milliseconds of processor time. One that is cheap enough is measured once. */
 function cost(run: () => void, cheapEnough: number, rounds = 3): number {
@@ -285,7 +293,7 @@ describe('what a text costs the page that shows it (review R4-03)', () => {
     };
     // And no text, at the size of a long message, takes more than its own budget, one pause, and the render of what
     // the lexer made of it.
-    const atMost = (chars: number): number => parseBudgetMs(chars) + PAUSE_MAX_MS + 250;
+    const atMost = (chars: number): number => here(parseBudgetMs(chars) + PAUSE_MAX_MS + 250);
     for (const [subject, mount] of Object.entries(MOUNTS)) expectProportional(subject, hostileTexts(mount.fronts), 8_192, first(mount), atMost);
   }, 600_000);
 
@@ -304,7 +312,7 @@ describe('what a text costs the page that shows it (review R4-03)', () => {
         forgetParses();
         renderToStaticMarkup(<Markdown text={spec} />);
       }, 0);
-      expect(took, JSON.stringify(pair)).toBeLessThan(parseBudgetMs(spec.length) + PAUSE_MAX_MS + 250);
+      expect(took, JSON.stringify(pair)).toBeLessThan(here(parseBudgetMs(spec.length) + PAUSE_MAX_MS + 250));
       expect(renderToStaticMarkup(<Markdown text={links(1)} />)).toContain(' (<a class="md-link" href="https://example.com/0"');
       // Words that ARE read (as long as words are read): a message full of such links, and sixteen messages.
       const short = `x${pair.repeat((LABEL_MAX_CHARS - 2) / 2)}`;
@@ -328,7 +336,7 @@ describe('what a text costs the page that shows it (review R4-03)', () => {
     const started = cpuMs();
     expect(specSections(`# Spec\n\n${line}\n\ntext`).map((section) => section.heading)).toEqual([null, `a${' '.repeat(64_000)}b`]);
     expect(specOpenQuestions(`## Open questions${' '.repeat(64_000)}#${' '.repeat(64_000)}x\n- one`)).toBe(0);
-    expect(cpuMs() - started).toBeLessThan(200);
+    expect(cpuMs() - started).toBeLessThan(here(200));
     // And what they said before, they say now.
     expect(specSections('intro\n\n## One ##\na\n\n```\n## not a heading\n```\n##  Two  \nb').map((section) => section.heading)).toEqual([null, 'One', 'Two']);
     expect(specSections('## a ## b\n## c##\n## #\n##\n## ').map((section) => section.heading)).toEqual(['a ## b', 'c##', '', '']);
@@ -356,7 +364,7 @@ describe('the lexer\u2019s budget is the budget of a text and of a mount (review
     );
     // The mount: the budget of the one text (0.3 s for 1 MiB), one pause, and the render of 62 sections. What was
     // parsed is formatted, the section the budget ran out on is shown as written, and the sections after it wait.
-    expect(cpuMs() - started).toBeLessThan(budget + 600);
+    expect(cpuMs() - started).toBeLessThan(here(budget + 600));
     expect(view.container.querySelectorAll('section')).toHaveLength(62);
     expect(view.container.querySelectorAll('.md-note')).toHaveLength(1);
     expect(view.container.querySelectorAll('.md-plain[data-why="later"]').length).toBeGreaterThan(40);
@@ -365,13 +373,13 @@ describe('the lexer\u2019s budget is the budget of a text and of a mount (review
     await waitFor(() => expect(view.container.querySelectorAll('.md-plain[data-why="later"]')).toHaveLength(0), { timeout: 20_000 });
     expect(view.container.querySelectorAll('.md-note')).toHaveLength(1);
     expect([...view.container.querySelectorAll('.md-plain')].map((node) => node.textContent).join('\n')).toBe(whole);
-    expect(cpuMs() - started).toBeLessThan(2 * budget + 1_200);
+    expect(cpuMs() - started).toBeLessThan(here(2 * budget + 1_200));
     view.unmount();
     let clock = 0;
     const again = cpuMs();
     expect(lexMarkdownPieces(sections, whole, { now: () => (clock += 1) })[61]).toMatchObject([{ type: 'plain', reason: 'time', quiet: true }]);
     expect(clock).toBe(0);
-    expect(cpuMs() - again).toBeLessThan(100);
+    expect(cpuMs() - again).toBeLessThan(here(100));
   }, 60_000);
 
   it('a text that somebody types in while it is over its budget spends the budget twice at most, and each time one more piece is remembered', () => {
@@ -392,7 +400,7 @@ describe('the lexer\u2019s budget is the budget of a text and of a mount (review
         if (lex.ranOut(whole)) ranOut += 1;
         waiting.forEach((piece, index) => (shown[pieces.indexOf(piece)] = kindOf(second[index])));
       }
-      expect(cpuMs() - started, `${ranOut} budgets`).toBeLessThan(2 * (parseBudgetMs(whole.length) + PAUSE_MAX_MS) + 300);
+      expect(cpuMs() - started, `${ranOut} budgets`).toBeLessThan(here(2 * (parseBudgetMs(whole.length) + PAUSE_MAX_MS) + 300));
       return { ranOut, shown };
     };
     expect(show(sections).ranOut).toBe(2);
@@ -565,12 +573,12 @@ describe('the lexer\u2019s budget is the budget of a text and of a mount (review
     const text = Array.from({ length: 13 }, (_, index) => paragraph(index)).join('\n\n');
     const started = cpuMs();
     const first = renderToStaticMarkup(<Markdown text={text} />);
-    expect(cpuMs() - started).toBeLessThan(parseBudgetMs(text.length) + PAUSE_MAX_MS + 250);
+    expect(cpuMs() - started).toBeLessThan(here(parseBudgetMs(text.length) + PAUSE_MAX_MS + 250));
     expect(first).toContain('md-note');
     // Remembered by what it says, not by where it stands: another mount, other options, no parse.
     const again = cpuMs();
     expect(renderToStaticMarkup(<Markdown text={text} breaks headingBase={4} />)).toContain('md-note');
-    expect(cpuMs() - again).toBeLessThan(60);
+    expect(cpuMs() - again).toBeLessThan(here(60));
     // A clock of our own: the first step already counts, and so does the step after which nothing follows.
     let slowStart = 0;
     expect(lexMarkdown('A short text with *one* mark.', { now: () => (slowStart += 1_000) })).toMatchObject([{ type: 'plain', reason: 'time' }]);
@@ -645,7 +653,7 @@ describe('the lexer\u2019s budget is the budget of a text and of a mount (review
     const bodies = [...view.container.querySelectorAll('.md-body')];
     const waiting = (): number[] => bodies.flatMap((body, index) => (body.querySelector('.md-plain[data-why="later"]') === null ? [] : [index]));
     // The mount parsed nothing: every text is shown as written, whole, without a note.
-    expect(cpuMs() - started).toBeLessThan(250);
+    expect(cpuMs() - started).toBeLessThan(here(250));
     expect(waiting()).toHaveLength(40);
     expect(view.container.querySelectorAll('.md-note')).toHaveLength(0);
     expect(bodies[7]?.textContent).toBe(message(7));
@@ -812,7 +820,7 @@ describe('what costs the square of a run of combining marks', () => {
     const marks = (n: number): string => `x${'\u0301\u0316'.repeat(n / 2)}`;
     const started = cpuMs();
     expect(compareText(marks(64_000), `${marks(64_000)}a`)).toBeLessThan(0);
-    expect(cpuMs() - started).toBeLessThan(200);
+    expect(cpuMs() - started).toBeLessThan(here(200));
   });
 });
 

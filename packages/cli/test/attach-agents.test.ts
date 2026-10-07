@@ -59,17 +59,17 @@ describe('smurg attach: the session list with agent sessions', () => {
     expect(agentSessions(ALL).map((s) => s.id)).toEqual(['ses_checkout_talk', 'ses_checkout_item2', 'ses_search_talk', 'ses_free_amy', 'ses_free_named']);
     expect(formatSessionList(ALL, 'dev:amy', 'en', WEB)).toBe(
       [
-        'No.   Session ID                        Type      Owner         Status      Title',
-        '1     ses_term_build                    terminal  Host          running     build',
-        '2     ses_term_amy                      terminal  Amy (you)     running     Terminal (Amy)',
+        'No.   Session ID                            Type      Owner         Status      Title',
+        '1     ses_term_build                        terminal  Host          running     build',
+        '2     ses_term_amy                          terminal  Amy (you)     running     Terminal (Amy)',
         '',
         'Agent sessions (conversations):',
-        'Session ID                        Status                    Topic                     Title',
-        'ses_checkout_talk                 waiting for an answer     Checkout                  Discussion',
-        'ses_checkout_item2                stopped without a report  Checkout                  2 · Payment form',
-        'ses_search_talk                   idle                      Search                    Discussion',
-        'ses_free_amy                      idle                      No topic                  Claude (Amy)',
-        'ses_free_named                    running                   No topic                  Try the cache',
+        'Session ID                            Status                    Topic                     Title',
+        'ses_checkout_talk                     waiting for an answer     Checkout                  Discussion',
+        'ses_checkout_item2                    stopped without a report  Checkout                  2 · Payment form',
+        'ses_search_talk                       idle                      Search                    Discussion',
+        'ses_free_amy                          idle                      No topic                  Claude (Amy)',
+        'ses_free_named                        running                   No topic                  Try the cache',
         '',
         'Attach with smurg attach <number or session ID>.',
         `Agent conversations open in the browser: ${WEB}`,
@@ -91,7 +91,7 @@ describe('smurg attach: the session list with agent sessions', () => {
     ];
     for (const [status, english, chinese] of statuses) {
       const session: AgentSession = { ...free, status };
-      expect(formatSessionList([session], 'dev:host', 'en'), status).toContain(`ses_free_amy                      ${english.padEnd(24)}  No topic`);
+      expect(formatSessionList([session], 'dev:host', 'en'), status).toContain(`ses_free_amy                          ${english.padEnd(24)}  No topic`);
       expect(formatSessionList([session], 'dev:host', 'zh-TW'), status).toContain(`  ${chinese}`);
     }
   });
@@ -119,6 +119,28 @@ describe('smurg attach: the session list with agent sessions', () => {
     expect(workspaceAddress('http://localhost:5173', 'ws_abc')).toBe('http://localhost:5173/w/ws_abc');
   });
 
+  it('a real session id (`ses_` and 32 hex digits) fills its column exactly: each cell of a row starts under its header, in both tables and both languages', () => {
+    // The ids the daemon makes are 36 characters; a narrower id column put every row four cells to the right of its header.
+    const realTerminal = buildTerminalSession({ id: `ses_${'0123456789abcdef'.repeat(2)}`, openedBy: HOST, title: 'build', cols: 80, rows: 24, createdAt: 1 });
+    const realAgent = buildAgentSession({ id: `ses_${'fedcba9876543210'.repeat(2)}`, purpose: 'discussion', topicId: 'tp_checkout', topicName: 'Checkout', status: 'idle', modeFixed: true, createdAt: 2 });
+    expect(realTerminal.id).toHaveLength(36);
+    for (const lang of ['en', 'zh-TW'] as const) {
+      const tr = (id: Parameters<typeof renderText>[1]): string => renderText(lang, id);
+      const lines = formatSessionList([realTerminal, realAgent], 'dev:amy', lang, WEB).split('\n');
+      const terminalHeader = lines[0] as string;
+      const terminalRow = lines[1] as string;
+      const terminalLabels = lang === 'en' ? ['No.', 'Session ID', 'Type', 'Owner', 'Status', 'Title'] : ['編號', 'session ID', '類型', '擁有者', '狀態', '標題'];
+      const terminalCells = ['1', realTerminal.id, tr({ id: 'attach.kind.terminal' }), 'Host', tr({ id: 'attach.status.running' }), 'build'];
+      expect(terminalCells.map((cell) => cellOf(terminalRow, cell)), lang).toEqual(terminalLabels.map((label) => cellOf(terminalHeader, label)));
+      const agentHeader = lines.find((line) => line.startsWith(lang === 'en' ? 'Session ID' : 'session ID')) as string;
+      const agentRow = lines.find((line) => line.startsWith(realAgent.id)) as string;
+      const agentLabels = lang === 'en' ? ['Session ID', 'Status', 'Topic'] : ['session ID', '狀態', '主題'];
+      const agentCells = [realAgent.id, tr({ id: 'attach.agent.idle' }), 'Checkout'];
+      expect(agentCells.map((cell) => cellOf(agentRow, cell)), lang).toEqual(agentLabels.map((label) => cellOf(agentHeader, label)));
+      expect(displayWidth(agentRow.slice(0, agentRow.lastIndexOf(lang === 'en' ? 'Discussion' : '討論'))), lang).toBe(cellOf(agentHeader, lang === 'en' ? 'Title' : '標題'));
+    }
+  });
+
   it('in zh-TW every column of both tables starts under its header, counted in terminal cells; a long or Chinese topic name is clipped to its column', () => {
     const longTopic = buildAgentSession({ id: 'ses_long_topic', purpose: 'discussion', topicId: 'tp_long', topicName: '重新設計結帳流程與購物車的所有頁面', status: 'waiting-permission', modeFixed: true, createdAt: 8 });
     const chineseTitle = buildAgentSession({ id: 'ses_free_title', openedBy: AMY, title: '試試快取', status: 'done', createdAt: 9 });
@@ -129,24 +151,24 @@ describe('smurg attach: the session list with agent sessions', () => {
       const own = lines[2] as string;
       // No. | Session ID | Type | Owner | Status | Title
       const ownTitle = lang === 'en' ? 'Terminal (Amy)' : '終端機（Amy）';
-      const terminalStarts = [0, 6, 40, 50, 64, 76];
+      const terminalStarts = [0, 6, 44, 54, 68, 80];
       const terminalLabels = lang === 'en' ? ['No.', 'Session ID', 'Type', 'Owner', 'Status', 'Title'] : ['編號', 'session ID', '類型', '擁有者', '狀態', '標題'];
       expect(terminalLabels.map((label) => cellOf(terminalHeader, label)), lang).toEqual(terminalStarts);
       const ownCells = ['2', 'ses_term_amy', tr({ id: 'attach.kind.terminal' }), tr({ id: 'attach.owner.you', params: { name: 'Amy' } }), tr({ id: 'attach.status.running' }), ownTitle];
       expect(ownCells.map((cell) => cellOf(own, cell)), lang).toEqual(terminalStarts);
       // Session ID | Status | Topic | Title
       const agentHeader = lines.find((line) => line.startsWith(lang === 'en' ? 'Session ID' : 'session ID')) as string;
-      const agentStarts = [0, 34, 60, 86];
+      const agentStarts = [0, 38, 64, 90];
       const agentLabels = lang === 'en' ? ['Session ID', 'Status', 'Topic', 'Title'] : ['session ID', '狀態', '主題', '標題'];
       expect(agentLabels.map((label) => cellOf(agentHeader, label)), lang).toEqual(agentStarts);
       const long = lines.find((line) => line.startsWith('ses_long_topic')) as string;
       const longCells = ['ses_long_topic', tr({ id: 'attach.agent.waitingPermission' }), '重新設計結帳流程與購...'];
       expect(longCells.map((cell) => cellOf(long, cell)), lang).toEqual(agentStarts.slice(0, 3));
       // The title (the wire catalog's name of a discussion) starts in the last column although the topic was clipped.
-      expect(displayWidth(long.slice(0, long.lastIndexOf(lang === 'en' ? 'Discussion' : '討論'))), lang).toBe(86);
+      expect(displayWidth(long.slice(0, long.lastIndexOf(lang === 'en' ? 'Discussion' : '討論'))), lang).toBe(90);
       expect(long).not.toContain('所有頁面');
       const titled = lines.find((line) => line.startsWith('ses_free_title')) as string;
-      expect(cellOf(titled, '試試快取'), lang).toBe(86);
+      expect(cellOf(titled, '試試快取'), lang).toBe(90);
     }
   });
 
@@ -194,8 +216,8 @@ describe('smurg attach against a workspace with agent sessions (the control sock
     const hostName = host.welcome?.member.displayName as string;
     expect(io.out()).toContain('on this computer');
     expect(io.out()).toMatch(new RegExp(`\\n1     ${shell.id}\\s+terminal  ${hostName} \\(you\\)\\s+running     build\\n`));
-    expect(io.out()).toContain('\nAgent sessions (conversations):\nSession ID                        Status                    Topic                     Title\n');
-    expect(io.out()).toContain(`\nses_checkout_talk                 waiting for an answer     Checkout                  Discussion\n`);
+    expect(io.out()).toContain('\nAgent sessions (conversations):\nSession ID                            Status                    Topic                     Title\n');
+    expect(io.out()).toContain(`\nses_checkout_talk                     waiting for an answer     Checkout                  Discussion\n`);
     expect(io.out()).toMatch(new RegExp(`\\n${claude.id}\\s+\\S.*  No topic                  Claude \\(${hostName}\\)\\n`));
     expect(io.out().endsWith(`\nAttach with smurg attach <number or session ID>.\nAgent conversations open in the browser: ${address}\n`)).toBe(true);
     const zh = testIo({ env: { ...l.env, SMURG_LANG: 'zh-TW' } });

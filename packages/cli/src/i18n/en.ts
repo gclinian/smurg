@@ -268,11 +268,11 @@ Docs: https://smurg.ai/docs/
   'attach.kind.terminal': () => 'terminal',
   'attach.owner.you': (p: { name: string }) => `${p.name} (you)`,
   'attach.list.empty': () => 'This workspace has no sessions.',
-  'attach.list.header': () => 'No.   Session ID                        Type      Owner         Status      Title',
+  'attach.list.header': () => 'No.   Session ID                            Type      Owner         Status      Title',
   'attach.list.footer': () => 'Attach with smurg attach <number or session ID>.',
   'attach.list.noTerminals': () => 'This workspace has no terminal sessions.',
   'attach.agents.heading': () => 'Agent sessions (conversations):',
-  'attach.agents.header': () => 'Session ID                        Status                    Topic                     Title',
+  'attach.agents.header': () => 'Session ID                            Status                    Topic                     Title',
   'attach.agents.noTopic': () => 'No topic',
   'attach.agents.browser': (p: { url?: string }) =>
     p.url === undefined ? "Agent conversations open in the browser, in this workspace's web app." : `Agent conversations open in the browser: ${p.url}`,

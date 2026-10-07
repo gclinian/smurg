@@ -12,7 +12,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MARK_RUN_MAX } from '@smurg/protocol';
-import { AT_MOST_TIMES, LARGE_CHARS, NOISE_MS, costOf, countInSources, cpuMs, disproportionate, isSourceName, type Look } from '@smurg/protocol/testing';
+import { AT_MOST_TIMES, LARGE_CHARS, NOISE_MS, costOf, countInSources, cpuMs, disproportionate, isSourceName, machineSlowness, type Look } from '@smurg/protocol/testing';
 import { describe, expect, it } from 'vitest';
 import { deniedByPerson } from '../src/conversation/agent-sentences.ts';
 import { applyEdit, changeDiff, replacementsDiff } from '../src/conversation/change-diff.ts';
@@ -249,14 +249,14 @@ describe('lines that held the daemon for seconds (N1, the sweep)', () => {
     // A line is cut at line feeds; U+2028, U+2029 and a lone CR stay in it. `(.*)$` failed there and tried the blanks again from every blank.
     for (const stop of ['\u2028', '\u2029']) {
       const tail = `${' '.repeat(128_000)}x${stop}y`;
-      expect(took(() => void parsePlan(plan(`### 2.${tail}`))), 'plan heading').toBeLessThan(150);
-      expect(took(() => void parseReport(report(`- outcome:${tail}`), 'cart-api')), 'report outcome').toBeLessThan(150);
-      expect(took(() => void parseReport(report(`- [x]${tail}`), 'cart-api')), 'report check').toBeLessThan(150);
-      expect(took(() => void parseReport(report(`- [ ] deploy: not verified:${tail}`), 'cart-api')), 'report not verified').toBeLessThan(150);
+      expect(took(() => void parsePlan(plan(`### 2.${tail}`))), 'plan heading').toBeLessThan(150 * machineSlowness());
+      expect(took(() => void parseReport(report(`- outcome:${tail}`), 'cart-api')), 'report outcome').toBeLessThan(150 * machineSlowness());
+      expect(took(() => void parseReport(report(`- [x]${tail}`), 'cart-api')), 'report check').toBeLessThan(150 * machineSlowness());
+      expect(took(() => void parseReport(report(`- [ ] deploy: not verified:${tail}`), 'cart-api')), 'report not verified').toBeLessThan(150 * machineSlowness());
     }
     for (const stop of ['\u2028', '\u2029', '\r']) {
       const header = `---\nname:${' '.repeat(128_000)}x${stop}y\nhooks:\n  - command:${' '.repeat(128_000)}x${stop}y\n---\nbody\n`;
-      expect(took(() => void headerEffectsOf('.claude/agents/a.md', header)), 'header').toBeLessThan(150);
+      expect(took(() => void headerEffectsOf('.claude/agents/a.md', header)), 'header').toBeLessThan(150 * machineSlowness());
     }
     // Such a line was no heading before and is none now; a heading without one reads as before.
     expect(parsePlan(`${PLAN_MARKER_START}\n### 1. A\u2028B\n- id: a\n${PLAN_MARKER_END}`)).toMatchObject({ ok: false });
@@ -266,7 +266,7 @@ describe('lines that held the daemon for seconds (N1, the sweep)', () => {
   it('a settings command of thirty wrappers in front of one very long word is not read once for every wrapper (the square of the word)', () => {
     for (const size of [64_000, 256_000]) {
       const line = `${'env '.repeat(30)}${'a'.repeat(size)}`;
-      expect(took(() => void cannotFollow([line])), String(size)).toBeLessThan(400);
+      expect(took(() => void cannotFollow([line])), String(size)).toBeLessThan(400 * machineSlowness());
     }
     // What people write is followed as before, long arguments included.
     expect(cannotFollow([`env CI=1 nice node scripts/build.mjs --banner=${'x'.repeat(4_000)}`])).toBe(false);

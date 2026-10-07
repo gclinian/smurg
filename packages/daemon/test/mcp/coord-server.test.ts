@@ -12,6 +12,7 @@ import { HOOK_ENV, MCP_TOOL_NAMES, isMcpToolName } from '../../src/hooks/wire.ts
 import { TEST_HOST_USER } from '../../src/testing/index.ts';
 import { sessionInfo } from '../hooks/fakes.ts';
 import { registerAgent, startHookDaemon, type HookDaemon } from '../hooks/helpers.ts';
+import daemonPackage from '../../package.json' with { type: 'json' };
 
 const HOST = { userId: TEST_HOST_USER, name: 'Host' };
 const main = (path: string) => ({ root: MAIN_ROOT, path });
@@ -126,7 +127,7 @@ describe('MCP protocol', () => {
   it('initialize: a stdio server named "smurg" with tools only; the protocol version is negotiated', async () => {
     const { mcp } = await setup();
     const known = await mcp.request('initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '0' } });
-    expect(known['result']).toMatchObject({ protocolVersion: '2025-03-26', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'smurg' } });
+    expect(known['result']).toMatchObject({ protocolVersion: '2025-03-26', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'smurg', version: daemonPackage.version } });
     const unknown = await mcp.request('initialize', { protocolVersion: '1999-01-01', capabilities: {}, clientInfo: { name: 't', version: '0' } });
     expect((unknown['result'] as Json)['protocolVersion']).toBe('2025-11-25');
     expect(await mcp.request('ping')).toMatchObject({ result: {} });
