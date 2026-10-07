@@ -166,8 +166,7 @@ function Plan({ topic }: { topic: Topic }) {
                 </>
               }
             >
-              {topic.plan.error === undefined ? null : renderWireText(topic.plan.error.text, topic.plan.error.fallback)}
-              {plan ? <> {t('plan.invalid.last')}</> : null}
+              {joinSentences([topic.plan.error === undefined ? null : renderWireText(topic.plan.error.text, topic.plan.error.fallback), plan ? t('plan.invalid.last') : null])}
             </Banner>
           ) : null}
           {topic.plan.stale && topic.plan.exists && !topic.plan.generating ? (

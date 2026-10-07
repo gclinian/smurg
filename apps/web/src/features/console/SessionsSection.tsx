@@ -11,8 +11,7 @@
 // present (OWNER-DECISIONS Q6; `notice.personalSubscription` through activity.notify): it arrives as a toast, and
 // stays here in the daemon's own words until the host says "Got it".
 import { useState } from 'react';
-import { isSessionOver, type AgentSession, type SessionInfo } from '@smurg/protocol';
-import { agentAtWork } from '../../lib/agent-work.ts';
+import { isAgentAtWork, isSessionOver, type AgentSession, type SessionInfo } from '@smurg/protocol';
 import { describeError, renderWireText } from '../../lib/errors.ts';
 import { formatDateTime, formatRelativeTime } from '../../lib/format.ts';
 import { sessionGlyph, statusLabel } from '../../lib/session-status.ts';
@@ -158,9 +157,9 @@ export function SessionsSection({ now }: { now: number }) {
       id: 'title',
       header: t('sessions.col.title'),
       cell: (session) => {
-        // The file the agent works on right now (presence.state). Presence keeps an agent's last file while its session
-        // lives, so the line is shown only while the agent is at work: not under "Idle", "Done" or "Stopped".
-        const file = session.kind === 'agent' && agentAtWork(session.status) ? agents.find((agent) => agent.sessionId === session.id)?.activeFile : undefined;
+        // The file the agent works on right now (presence.state carries one only while the agent is at work). The
+        // session's own status decides as well: the line never stands under "Idle", "Done" or "Stopped".
+        const file = session.kind === 'agent' && isAgentAtWork(session.status) ? agents.find((agent) => agent.sessionId === session.id)?.activeFile : undefined;
         return (
           <span className="console-session">
             <span className="console-session__title">{sessionTitle(session)}</span>

@@ -8,6 +8,7 @@
 //   then for the host "Merge…" (the complete diff review), for a member with agent access "Request merge" while
 //   nobody reviewed.
 import {
+  isSessionOver,
   isSmurgError,
   knownErrorReasonOf,
   mayReview,
@@ -23,6 +24,7 @@ import { formatAnd, joinSentences } from '../../lib/format.ts';
 import { ColumnHeaderExtra } from '../../lib/columns/context.tsx';
 import { describeError, renderWireText } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
+import { selectSession } from '../../lib/stores/sessions.ts';
 import { selectPlan, selectReport } from '../../lib/stores/topics.ts';
 import { useCan, useCommand, useMember, useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
@@ -106,8 +108,15 @@ function Report({ topic, report, item }: { topic: Topic; report: ReportInfo; ite
   const worktree = useStore(stores.worktrees, (state) => (item?.worktreeId === undefined ? undefined : state.worktrees.get(item.worktreeId)));
   const request = useStore(stores.worktrees, (state) => (report.changes === undefined ? undefined : state.mergeRequests.get(report.changes.requestId)));
   const merged = item !== undefined ? isMerged(item) : request?.status === 'merged';
-  // Merged and reviewed: the item is finished and its session has ended (`report.closed`).
-  const closed = merged && report.state === 'reviewed';
+  // Finished: merged, reviewed, AND its session has ended. That is the daemon's rule for `report.closed`. A merged
+  // and reviewed item keeps its session and its worktree while the worktree holds changes no merge carried (a newer
+  // draft, the work of a follow-up): it still answers, and the report must not say that its session has ended.
+  // What the wire says about the session decides: the item names none, or the session list holds it as ended (or,
+  // once the list is read, does not hold it at all).
+  const sessionsRead = useStore(stores.sessions, (state) => state.status === 'ready');
+  const itemSession = useStore(stores.sessions, (state) => (item?.sessionId === undefined ? undefined : selectSession(state, item.sessionId)));
+  const sessionEnded = item !== undefined && (item.sessionId === undefined || (itemSession === undefined ? sessionsRead : isSessionOver(itemSession)));
+  const closed = merged && report.state === 'reviewed' && sessionEnded;
   const live = !topic.archived;
   const changes = report.changes;
   // The report on screen is the newest word about its own state (the plan's copy of the summary follows a moment later).

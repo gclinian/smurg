@@ -83,6 +83,45 @@ describe('columns store: opening', () => {
   });
 });
 
+describe('columns store: another thing in the place of an open column', () => {
+  it('the column keeps its place, its width, its pin and the focus it has; its anchor goes, the new one may bring its own', () => {
+    const store = make();
+    store.open(session('a'));
+    store.open(report('t1', 'cart'), { side: true, anchor: { cardId: 'c1' } });
+    store.open(session('b'), { side: true });
+    store.setWeights([1, 2, 1]);
+    store.setPinned(columnId(report('t1', 'cart')), true);
+    const changes: ColumnRef = { kind: 'changes', requestId: 'mr_1' };
+    expect(store.replace(columnId(report('t1', 'cart')), changes, { anchor: { seq: 7 } })).toEqual({ outcome: 'replaced', id: 'changes:mr_1', replacedId: 'report:t1:cart' });
+    expect(ids(store)).toEqual(['session:a', 'changes:mr_1', 'session:b']);
+    expect(store.getState().columns[1]).toMatchObject({ target: changes, weight: 2, pinned: true });
+    // The focus was on the third column and stays there; nothing is asked to be revealed.
+    expect(store.getState().focusedId).toBe('session:b');
+    expect(store.getState().anchors.has('report:t1:cart')).toBe(false);
+    expect(store.getState().anchors.get('changes:mr_1')).toMatchObject({ seq: 7 });
+    // The focused column keeps the focus under its new id.
+    store.focus('changes:mr_1');
+    store.replace('changes:mr_1', spec('t1'));
+    expect(store.getState().focusedId).toBe('spec:t1');
+  });
+
+  it('a column that is no longer open is not brought back; a thing that is open elsewhere takes the focus and the column closes', () => {
+    const store = make();
+    store.open(session('a'));
+    expect(store.replace('report:t1:cart', plan('t1'))).toBeNull();
+    expect(ids(store)).toEqual(['session:a']);
+    store.open(report('t1', 'cart'), { side: true });
+    store.open(plan('t1'), { side: true });
+    store.focus('report:t1:cart');
+    expect(store.replace('report:t1:cart', plan('t1'))).toEqual({ outcome: 'focused', id: 'plan:t1' });
+    expect(ids(store)).toEqual(['session:a', 'plan:t1']);
+    expect(store.getState().focusedId).toBe('plan:t1');
+    // Itself in its own place: nothing changes.
+    expect(store.replace('plan:t1', plan('t1'))).toEqual({ outcome: 'focused', id: 'plan:t1' });
+    expect(ids(store)).toEqual(['session:a', 'plan:t1']);
+  });
+});
+
 describe('columns store: the pin (DESIGN §5.12 item 24)', () => {
   it('a pinned column is never replaced: a row click opens beside it while there is room', () => {
     const store = make();

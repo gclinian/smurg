@@ -109,16 +109,7 @@ describe('the inbox', () => {
   });
 
   it("a merge row of a work item opens its result report when the report is about that request; any other request opens Changes", async () => {
-    const view = await mountSidebar({
-      inbox: [
-        buildInboxItem('merge', { at: ago(5) }),
-        buildInboxItem('merge', { key: 'merge:mr_2', target: { kind: 'changes', requestId: 'mr_2' }, ready: false, conflict: true, itemId: 'receipt', item: { number: 3, title: 'Receipt email' }, at: ago(4) }),
-        buildInboxItem('merge', { key: 'merge:mr_3', target: { kind: 'changes', requestId: 'mr_3' }, ready: false, from: { kind: 'user', ...MEI }, itemId: 'pay', item: { number: 2, title: 'Payment form' }, at: ago(3) }),
-        buildInboxItem('merge', { key: 'merge:mr_4', target: { kind: 'changes', requestId: 'mr_4' }, ready: false, from: { kind: 'user', ...MEI }, topicId: undefined, itemId: undefined, item: undefined, at: ago(2) }),
-        // Mei edited a file by hand in the item's worktree after the report and asked to merge: a NEW request.
-        buildInboxItem('merge', { key: 'merge:mr_5', target: { kind: 'changes', requestId: 'mr_5' }, ready: false, from: { kind: 'user', ...MEI }, at: ago(1) }),
-      ],
-    });
+    const view = await mountSidebar();
     const changes = (requestId: string) => ({ requestId, files: 1, additions: 1, deletions: 0, byHand: [] });
     view.conn.handle('report.get', ({ itemId }) => {
       // "Cart API" was reviewed (its report names mr_1); "Receipt email" stopped on a conflict before anyone reviewed it.
@@ -127,11 +118,26 @@ describe('the inbox', () => {
       // "Payment form" has no report yet.
       throw new SmurgError('not_found');
     });
+    await act(async () => {
+      view.conn.emit('inbox.changed', {
+        upsert: [
+          buildInboxItem('merge', { at: ago(5) }),
+          buildInboxItem('merge', { key: 'merge:mr_2', target: { kind: 'changes', requestId: 'mr_2' }, ready: false, conflict: true, itemId: 'receipt', item: { number: 3, title: 'Receipt email' }, at: ago(4) }),
+          buildInboxItem('merge', { key: 'merge:mr_3', target: { kind: 'changes', requestId: 'mr_3' }, ready: false, from: { kind: 'user', ...MEI }, itemId: 'pay', item: { number: 2, title: 'Payment form' }, at: ago(3) }),
+          buildInboxItem('merge', { key: 'merge:mr_4', target: { kind: 'changes', requestId: 'mr_4' }, ready: false, from: { kind: 'user', ...MEI }, topicId: undefined, itemId: undefined, item: undefined, at: ago(2) }),
+          // Mei edited a file by hand in the item's worktree after the report and asked to merge: a NEW request.
+          buildInboxItem('merge', { key: 'merge:mr_5', target: { kind: 'changes', requestId: 'mr_5' }, ready: false, from: { kind: 'user', ...MEI }, at: ago(1) }),
+        ],
+        remove: [],
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    // The rows asked about their items' reports when they appeared: each item once, a free session's worktree never.
+    const askedAbout = (): string[] => view.conn.requestsOf('report.get').map((request) => request.payload.itemId).sort();
+    expect(askedAbout()).toEqual(['cart-api', 'pay', 'receipt']);
+    // So a click opens at once, without a request of its own.
     const open = async (key: string): Promise<void> => {
       await userEvent.click(within(document.querySelector(`[data-inbox-key="${key}"]`) as HTMLElement).getAllByRole('button')[0] as HTMLElement);
-      await act(async () => {
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      });
     };
     // Reviewed and ready: the report, where the host reads the outcome and merges.
     await open('merge:mr_1');
@@ -149,36 +155,56 @@ describe('the inbox', () => {
     await open('merge:mr_5');
     expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'changes', requestId: 'mr_5' }, from: 'inbox' });
     expect(view.opened).toHaveBeenCalledTimes(5);
-    // The report of an item is read once, not per click.
+    // An item's report is asked about once, not at every click: also the item that has none.
     await open('merge:mr_1');
-    expect(view.conn.requestsOf('report.get').filter((request) => request.payload.itemId === 'cart-api')).toHaveLength(1);
+    await open('merge:mr_3');
+    await open('merge:mr_3');
+    expect(askedAbout()).toEqual(['cart-api', 'pay', 'receipt']);
     // The row that leads to the report is the current one while the focused column shows it.
     act(() => void view.stores.columns.open({ kind: 'report', topicId: 'tp_1', itemId: 'cart-api' }));
     const current = (key: string): boolean => (document.querySelector(`[data-inbox-key="${key}"]`) as HTMLElement).hasAttribute('data-current');
     expect(['merge:mr_1', 'merge:mr_2', 'merge:mr_3', 'merge:mr_4', 'merge:mr_5'].map(current)).toEqual([true, false, false, false, false]);
   });
 
-  it('a click on a merge row waits for the report that says where it leads; a report that cannot be read opens the changes the item names', async () => {
+  it('a click on a merge row whose report is not here yet shows a column at once, and it settles on the report or on the changes (review R6-01, third round)', async () => {
     const view = await mountSidebar();
-    const answers: (() => void)[] = [];
-    view.conn.handle('report.get', ({ itemId }) =>
-      itemId === 'filters'
-        ? new Promise((resolve) => answers.push(() => resolve({ report: buildReport({ topicId: 'tp_2', itemId: 'filters', changes: { requestId: 'mr_9', files: 1, additions: 1, deletions: 0, byHand: [] } }) })))
-        : Promise.reject(new SmurgError('internal', 'The report could not be read.')),
-    );
-    const conflict = buildInboxItem('merge', { key: 'merge:mr_9', target: { kind: 'changes', requestId: 'mr_9' }, ready: false, conflict: true, topicId: 'tp_2', itemId: 'filters', item: { number: 1, title: 'Filters' } });
-    const unreadable = buildInboxItem('merge', { key: 'merge:mr_8', target: { kind: 'changes', requestId: 'mr_8' }, ready: false, conflict: true, topicId: 'tp_2', itemId: 'sorting', item: { number: 2, title: 'Sorting' } });
-    act(() => view.conn.emit('inbox.changed', { upsert: [conflict, unreadable], remove: [] }));
+    const answers = new Map<string, { resolve(value: unknown): void; reject(error: unknown): void }>();
+    view.conn.handle('report.get', ({ itemId }) => new Promise((resolve, reject) => answers.set(itemId, { resolve, reject })));
+    const row = (requestId: string, itemId: string, number: number, title: string) =>
+      buildInboxItem('merge', { key: `merge:${requestId}`, target: { kind: 'changes', requestId }, ready: false, conflict: true, topicId: 'tp_2', itemId, item: { number, title } });
+    act(() => view.conn.emit('inbox.changed', { upsert: [row('mr_9', 'filters', 1, 'Filters'), row('mr_8', 'sorting', 2, 'Sorting'), row('mr_7', 'paging', 3, 'Paging')], remove: [] }));
+    const report = (itemId: string) => ({ kind: 'report', topicId: 'tp_2', itemId }) as const;
+    const settle = async (run: () => void): Promise<void> => {
+      await act(async () => {
+        run();
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+    };
+
+    // The answer is still on its way: the report's column opens with the click (it says that it is loading).
     await userEvent.click(within(inboxSection()).getByRole('button', { name: /Merge request: 1 · Filters/ }));
-    expect(view.opened).not.toHaveBeenCalled();
-    await act(async () => {
-      for (const answer of answers) answer();
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    });
     expect(view.opened).toHaveBeenCalledTimes(1);
-    expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'report', topicId: 'tp_2', itemId: 'filters' }, from: 'inbox' });
+    expect(view.opened).toHaveBeenLastCalledWith({ target: report('filters'), from: 'inbox' });
+    // The report is about this row's request: the column is where the row leads, nothing else happens.
+    await settle(() => answers.get('filters')?.resolve({ report: buildReport({ topicId: 'tp_2', itemId: 'filters', changes: { requestId: 'mr_9', files: 1, additions: 1, deletions: 0, byHand: [] } }) }));
+    expect(view.opened).toHaveBeenCalledTimes(1);
+
+    // A report that cannot be read: the changes the row names take the column's place.
     await userEvent.click(within(inboxSection()).getByRole('button', { name: /Merge request: 2 · Sorting/ }));
-    await waitFor(() => expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'changes', requestId: 'mr_8' }, from: 'inbox' }));
+    expect(view.opened).toHaveBeenLastCalledWith({ target: report('sorting'), from: 'inbox' });
+    await settle(() => answers.get('sorting')?.reject(new SmurgError('internal', 'The report could not be read.')));
+    expect(view.opened).toHaveBeenCalledTimes(3);
+    expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'changes', requestId: 'mr_8' }, inPlaceOf: report('sorting') });
+
+    // A report about ANOTHER request (this one was made after it), and its column was open before the click: that
+    // column is somebody's reading and stays; the changes open like any inbox item.
+    act(() => void view.stores.columns.open(report('paging')));
+    fireEvent.click(within(inboxSection()).getByRole('button', { name: /Merge request: 3 · Paging/ }), { shiftKey: true });
+    expect(view.opened).toHaveBeenLastCalledWith({ target: report('paging'), from: 'inbox', side: true });
+    await settle(() => answers.get('paging')?.resolve({ report: buildReport({ topicId: 'tp_2', itemId: 'paging', changes: { requestId: 'mr_1', files: 1, additions: 1, deletions: 0, byHand: [] } }) }));
+    expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'changes', requestId: 'mr_7' }, from: 'inbox', side: true });
+    // Each report was asked about once: by the row when it appeared.
+    expect(view.conn.requestsOf('report.get').map((request) => request.payload.itemId).sort()).toEqual(['filters', 'paging', 'sorting']);
   });
 
   it('a row about an item that stopped asks for the plan that says why, and says it', async () => {

@@ -339,6 +339,56 @@ describe('topics store: reports', () => {
     expect(selectReport(stores.topics.getState(), 'tp_1', 'cart-api')?.version).toBe(2);
   });
 
+  it('knowReport asks about a report once: loaded, on its way or known to be missing, it asks nothing more (review R6-01)', async () => {
+    const { conn, stores, flush } = await ready();
+    const key = reportKey('tp_1', 'cart-api');
+    // Two askers while the answer is on its way: one request. It never rejects.
+    const first = stores.topics.knowReport('tp_1', 'cart-api');
+    const second = stores.topics.knowReport('tp_1', 'cart-api');
+    expect(conn.requestsOf('report.get')).toHaveLength(1);
+    conn.fail('report.get', new SmurgError('not_found', 'There is no report yet.', { reason: 'no-report' }));
+    await Promise.all([first, second]);
+    expect(stores.topics.getState().noReport.has(key)).toBe(true);
+    // "There is none" is remembered: no request for the next one who wants to know.
+    await stores.topics.knowReport('tp_1', 'cart-api');
+    expect(conn.requestsOf('report.get')).toHaveLength(1);
+    // Until the item gets a report: a summary on the wire, or a plan whose item carries one.
+    conn.emit('report.updated', { topicId: 'tp_1', itemId: 'cart-api', report: buildReportSummary() });
+    expect(stores.topics.getState().noReport.has(key)).toBe(false);
+    const third = stores.topics.knowReport('tp_1', 'cart-api');
+    expect(conn.requestsOf('report.get')).toHaveLength(2);
+    conn.respond('report.get', { report: buildReport() });
+    await third;
+    await stores.topics.knowReport('tp_1', 'cart-api');
+    expect(conn.requestsOf('report.get')).toHaveLength(2);
+
+    // Another item: missing, then its plan says it has a report.
+    const other = stores.topics.knowReport('tp_1', 'pay');
+    conn.fail('report.get', new SmurgError('not_found'));
+    await other;
+    expect(stores.topics.getState().noReport.has(reportKey('tp_1', 'pay'))).toBe(true);
+    conn.emit('plan.updated', { plan: buildPlan({ items: [buildWorkItem({ id: 'pay', number: 2, state: 'done', report: buildReportSummary() })] }) });
+    expect(stores.topics.getState().noReport.has(reportKey('tp_1', 'pay'))).toBe(false);
+
+    // A report that could not be read for another reason is not "there is none": the next one asks again.
+    const failing = stores.topics.knowReport('tp_1', 'receipt');
+    conn.fail('report.get', new SmurgError('internal'));
+    await failing;
+    expect(stores.topics.getState().noReport.has(reportKey('tp_1', 'receipt'))).toBe(false);
+    void stores.topics.knowReport('tp_1', 'receipt');
+    expect(conn.pendingOf('report.get')).toHaveLength(1);
+    // A removed topic takes what was known of its reports along.
+    conn.emit('plan.updated', { plan: buildPlan({ items: [] }) });
+    const gone = stores.topics.knowReport('tp_1', 'gone');
+    conn.respond('report.get', { report: buildReport({ itemId: 'receipt' }) });
+    conn.fail('report.get', new SmurgError('not_found'));
+    await gone;
+    await flush();
+    expect(stores.topics.getState().noReport.size).toBe(1);
+    conn.emit('topic.removed', { topicId: 'tp_1' });
+    expect(stores.topics.getState().noReport.size).toBe(0);
+  });
+
   it('a summary of a report that is not loaded changes only the plan', async () => {
     const { conn, stores } = await ready();
     conn.emit('report.updated', { topicId: 'tp_1', itemId: 'cart-api', report: buildReportSummary() });

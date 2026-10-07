@@ -50,9 +50,10 @@ export function useAgentSession(sessionId: string): AgentSession | null {
  * into asking:
  *   - a name the reader's role can never open (path-links.ts mayAskAbout) is not a candidate at all;
  *   - every lookup goes through the connection's gate (path-links.ts pathGateOf), shared with the other conversations
- *     and the terminals of the page: one request at a time until the host has answered one, a few at a time after
- *     that, and a refusal ends the asking for a while. What the lexical rule cannot know (a path through a file, a
- *     hard link, a link that leads to a private file) costs one refused request, not one per mention;
+ *     and the terminals of the page: one request is out until the host has answered one, a few at a time after
+ *     that. What the lexical rule cannot know (a path through a file, a hard link) the daemon answers like a name
+ *     that is not there; what it refuses (a name through a link that leads out of the workspace) costs that one
+ *     request, the path is never asked about again, and the gate counts such refusals per minute;
  *   - the Markdown renderer adds a bound per text.
  */
 function usePaths(sessionId: string, root: RootRef | null): MarkdownPaths | undefined {

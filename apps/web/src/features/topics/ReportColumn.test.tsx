@@ -1,8 +1,8 @@
 // The result report column (DESIGN §5.4, §5.12 item 22): the sections under the catalogue's headings, the changes,
 // the follow-up box, "I've reviewed this" by role, and what happens to the change afterwards.
-import { SmurgError, type MergeRequest, type PlanInfo, type ReportInfo, type Role, type Topic, type WorktreeInfo } from '@smurg/protocol';
+import { SmurgError, type MergeRequest, type PlanInfo, type ReportInfo, type Role, type SessionInfo, type Topic, type WorktreeInfo } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
-import { buildMergeRequest, buildPlan, buildReport, buildReportSummary, buildSuggestion, buildTopic, buildWorkItem, buildWorktree } from '@smurg/protocol/testing';
+import { buildAgentSession, buildMergeRequest, buildPlan, buildReport, buildReportSummary, buildSuggestion, buildTopic, buildWorkItem, buildWorktree } from '@smurg/protocol/testing';
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderInColumn } from '../../testing/columns.tsx';
@@ -37,9 +37,9 @@ const planWith = (overrides: Parameters<typeof buildWorkItem>[0] = {}): PlanInfo
 
 afterEach(() => clearAskDrafts());
 
-async function setup(options: { role?: Role; report?: ReportInfo; plan?: PlanInfo; requests?: MergeRequest[]; topic?: Topic } = {}) {
+async function setup(options: { role?: Role; report?: ReportInfo; plan?: PlanInfo; requests?: MergeRequest[]; topic?: Topic; sessions?: SessionInfo[] } = {}) {
   const topic = options.topic ?? TOPIC;
-  const world = { role: options.role ?? ('host' as Role), topics: [topic], plans: { tp_1: options.plan ?? planWith() }, worktrees: [WORKTREE], requests: options.requests ?? [draft()] };
+  const world = { role: options.role ?? ('host' as Role), topics: [topic], plans: { tp_1: options.plan ?? planWith() }, worktrees: [WORKTREE], requests: options.requests ?? [draft()], sessions: options.sessions ?? [] };
   const conn = topicConnection(world);
   conn.handle('report.get', () => ({ report: options.report ?? REPORT }));
   conn.handle('worktree.merge.diff', () => ({ diff: '', truncated: false, files: [{ path: 'src/cart.ts', status: 'modified', additions: 30, deletions: 4 }] }));
@@ -307,6 +307,29 @@ describe('the report column: after the review', () => {
     expect(screen.getByText('This item is merged and its session has ended. Ask in the discussion.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Open the discussion' }));
     expect(openColumn).toHaveBeenCalledWith({ target: { kind: 'session', sessionId: 'sess_d' }, side: true });
+  });
+
+  it('merged and reviewed while its session is still there: the report does not say that the session has ended, and it can be asked', async () => {
+    // The item's worktree holds changes no merge carried (a newer draft, a follow-up's work): smurg keeps the item's
+    // session and worktree, and answers a follow-up (the daemon's rule of review R2-04).
+    const session = buildAgentSession({ id: 'sess_i', purpose: 'item', topicId: 'tp_1', topicName: 'Checkout', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, status: 'idle' });
+    const { conn } = await setup({
+      role: 'agent',
+      report: reviewed,
+      plan: planWith({ state: 'reviewed', merge: { requestId: 'mr_1', status: 'merged', ready: false } }),
+      requests: [draft({ status: 'merged', reviewed: true, requestedBy: IAN, decidedAt: new Date().setHours(14, 40, 0, 0) })],
+      sessions: [session],
+    });
+    expect(screen.getByText('Reviewed by Ian at 14:31. Merged into the main workspace at 14:40.')).toBeTruthy();
+    expect(screen.queryByText('This item is merged and its session has ended. Ask in the discussion.')).toBeNull();
+    const box = screen.getByRole('textbox', { name: 'Ask about this result, or tell Claude what to change' });
+    fireEvent.change(box, { target: { value: 'Does the newer draft keep the rounding?' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(conn.lastRequest('report.followUp')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api', text: 'Does the newer draft keep the rounding?' });
+    // The rest is merged too: smurg ends the session, and now the report says so.
+    act(() => conn.emit('session.state', { session: { ...session, status: 'ended' } }));
+    expect(screen.getByText('This item is merged and its session has ended. Ask in the discussion.')).toBeTruthy();
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 
   it('an archived topic is read-only', async () => {

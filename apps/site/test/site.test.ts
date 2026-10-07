@@ -79,8 +79,8 @@ describe('the built site', () => {
         .elements.filter((el) => (el.tag === 'link' && ['stylesheet', 'icon'].includes(el.attr('rel') ?? '')) || el.tag === 'script')
         .map((el) => (el.attr('href') ?? el.attr('src') ?? '').slice(1));
       const bytes = size(path) + loaded.reduce((sum, file) => sum + size(file), 0);
-      // The host guide is the longest page (0.5.0: about 83 KB in English); with the stylesheet it stays well under the 150 KB below.
-      expect(size(path), `${path} itself`).toBeLessThan(96 * 1024);
+      // The host guide is the longest page (0.5.0: about 95 KB in English); with the stylesheet it stays under the 150 KB below.
+      expect(size(path), `${path} itself`).toBeLessThan(104 * 1024);
       expect(bytes, `${path} with ${loaded.join(', ')}`).toBeLessThan(150 * 1024);
     }
     // The notices are text, not a page: generous, but bounded.

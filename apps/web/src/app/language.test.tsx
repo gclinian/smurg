@@ -3,7 +3,7 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LOCALE_STORAGE_KEY } from '@smurg/protocol/locale';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { PENDING_INVITE_KEY_PREFIX } from '../boot/capture-invite.ts';
 import { getLocale, localeCookieValue } from '../lib/locale.ts';
 import { WORKSPACE_ID, makeInvite, makeWelcome } from '../testing/fixtures.ts';
@@ -21,6 +21,19 @@ function open(path: string, options: Parameters<typeof createTestServices>[0] = 
   render(<App services={services} />);
   return services;
 }
+
+// The workspace page loads its shell and every feature's dialogs lazily. A test may end before such an import has
+// finished; testing/setup.ts waits for it after every test. Without that the import finishes after this file's last
+// test, in a worker that is closing, and what React or jsdom then says is cut off with the worker ("Closing rpc while
+// onUserConsoleLog was pending": the whole unit project exited 1 with every test green, once in a few runs).
+afterAll(async () => {
+  const late: string[] = [];
+  const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => void late.push(String(args[0]).slice(0, 80)));
+  await vi.dynamicImportSettled();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  spy.mockRestore();
+  expect(late).toEqual([]);
+});
 
 describe('language menu', () => {
   it('lists the two languages, each in itself with its own lang attribute, and marks the current one', async () => {

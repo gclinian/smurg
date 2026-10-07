@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { SmurgError, type ConversationEvent, type Role } from '@smurg/protocol';
 import { buildEvent } from '@smurg/protocol/testing';
 import { makeEntry } from '../../testing/fixtures.ts';
+import { REFUSALS_PER_MINUTE } from '../agents/path-links.ts';
 import { openConversation, settle } from './test-support.tsx';
 
 const PRIVATE = ['.envrc', 'CLAUDE.local.md', '.git/hooks/pre-commit', '.git/config', '.claude/settings.local.json', 'packages/api/.envrc', '.smurg/state.json', '.GIT/config'];
@@ -66,42 +67,62 @@ describe('paths in a conversation: what a reader asks the host', () => {
     expect([...document.querySelectorAll('.md-path')].map((node) => node.textContent)).toEqual(['src/cart.ts', 'src/a.ts', 'src/b.ts', 'src/c.ts', 'src/e.ts']);
   });
 
-  it('a refused path is never asked about again, and nothing is asked for a while after a refusal', async () => {
-    const view = await openConversation({ role: 'editor', events: answer(2, 'Look at src/cart.ts, src/linked.ts and src/gone.ts.') });
+  it('a refused path is never asked about again, and the other paths of the page stay links (review R4-04, third round)', async () => {
+    const view = await openConversation({ role: 'editor', events: answer(2, 'Look at src/cart.ts, data/out.csv and src/gone.ts.') });
     await settle();
     act(() => view.conn.respond('file.stat', { entry: makeEntry('src/cart.ts') }));
     await settle();
-    expect(view.conn.requestsOf('file.stat').map((request) => request.payload.path)).toEqual(['src/cart.ts', 'src/linked.ts', 'src/gone.ts']);
+    expect(view.conn.requestsOf('file.stat').map((request) => request.payload.path)).toEqual(['src/cart.ts', 'data/out.csv', 'src/gone.ts']);
     act(() => {
-      // A hard link, a link that leads to a private file: names nobody can know to be refused before asking.
+      // A name through a link that leads out of the workspace: nobody can know it to be refused before asking.
       view.conn.fail('file.stat', new SmurgError('path_denied'));
       view.conn.fail('file.stat', new SmurgError('not_found'));
     });
     await settle();
     expect([...document.querySelectorAll('.md-path')].map((node) => node.textContent)).toEqual(['src/cart.ts']);
 
-    // More text arrives right after the refusal: its paths stay text, nothing is asked.
-    act(() => view.conn.emit('session.events', { sessionId: 'sess_a', events: [text(3, 'And src/linked.ts again, with src/other.ts.')] }));
+    // More text arrives right after the refusal: the refused path stays text, and the other one is asked and opens.
+    act(() => view.conn.emit('session.events', { sessionId: 'sess_a', events: [text(3, 'And data/out.csv again, with src/other.ts.')] }));
     await settle();
-    expect(view.conn.requestsOf('file.stat')).toHaveLength(3);
+    expect(view.conn.requestsOf('file.stat').map((request) => request.payload.path)).toEqual(['src/cart.ts', 'data/out.csv', 'src/gone.ts', 'src/other.ts']);
+    act(() => view.conn.respond('file.stat', { entry: makeEntry('src/other.ts') }));
+    await settle();
+    expect([...document.querySelectorAll('.md-path')].map((node) => node.textContent)).toEqual(['src/cart.ts', 'src/other.ts']);
   });
 
-  it('names the host refuses for a reason no spelling shows cost a reader one refused request, not one per name (review R4-04, second round)', async () => {
-    // A path THROUGH a file is refused for everyone, the host included; a hard-linked file for everyone but the host.
-    const through = (file: string, count: number): string => Array.from({ length: count }, (_, index) => `${file}/a${index + 1}`).join(' ');
+  it('names the host refuses for a reason no spelling shows cost a reader a handful of refused requests, never one per name (review R4-04)', async () => {
+    // Names through a folder that is a link out of the workspace are refused for everyone, the host included.
+    const through = (folder: string, count: number): string => Array.from({ length: count }, (_, index) => `${folder}/a${index + 1}`).join(' ');
     for (const role of ['editor', 'host'] as const) {
-      const view = await openConversation({ role, events: [...answer(2, through('README.md', 32)), text(3, through('package.json', 32))] });
+      const view = await openConversation({ role, events: [...answer(2, through('data', 32)), text(3, through('vendor', 32))] });
       await settle();
-      // Two texts of 32 such names on one screen: one request is out, the other 63 wait for what the host says.
-      expect(view.conn.requestsOf('file.stat').map((request) => request.payload.path), role).toEqual(['README.md/a1']);
-      act(() => view.conn.fail('file.stat', new SmurgError('path_denied')));
+      // Two texts of 32 such names on one screen: one request is out at a time, and the host refuses each.
+      for (let refused = 0; refused < REFUSALS_PER_MINUTE + 4; refused += 1) {
+        if (view.conn.requestsOf('file.stat').length === refused) break;
+        expect(view.conn.requestsOf('file.stat'), role).toHaveLength(refused + 1);
+        act(() => view.conn.fail('file.stat', new SmurgError('path_denied')));
+        await settle();
+      }
+      // 64 names: REFUSALS_PER_MINUTE requests. The names that waited are text, and so is what arrives right after.
+      expect(view.conn.requestsOf('file.stat'), role).toHaveLength(REFUSALS_PER_MINUTE);
+      act(() => view.conn.emit('session.events', { sessionId: 'sess_a', events: [text(4, 'See src/cart.ts and data/x.')] }));
       await settle();
-      // The refusal is the answer for every name that waited, and for text that arrives right after it.
-      act(() => view.conn.emit('session.events', { sessionId: 'sess_a', events: [text(4, 'See src/cart.ts and docs/README.md/x.')] }));
-      await settle();
-      expect(view.conn.requestsOf('file.stat'), role).toHaveLength(1);
+      expect(view.conn.requestsOf('file.stat'), role).toHaveLength(REFUSALS_PER_MINUTE);
       expect(document.querySelector('.md-path')).toBeNull();
       view.unmount();
     }
+  });
+
+  it('names the host has nothing to say about (a private file, a hard link, a path through a file) are not refusals: every link of the page works', async () => {
+    // The daemon answers these like a name that is not there, without recording or counting them.
+    const names = Array.from({ length: 12 }, (_, index) => `README.md/a${index + 1}`).join(' ');
+    const view = await openConversation({ role: 'editor', events: [...answer(2, names), text(3, 'See src/cart.ts.')] });
+    view.conn.handle('file.stat', (ref) => {
+      if (ref.path === 'src/cart.ts') return { entry: makeEntry('src/cart.ts') };
+      throw new SmurgError('not_found');
+    });
+    for (let round = 0; round < 12; round += 1) await settle();
+    expect(view.conn.requestsOf('file.stat')).toHaveLength(13);
+    expect([...document.querySelectorAll('.md-path')].map((node) => node.textContent)).toEqual(['src/cart.ts']);
   });
 });

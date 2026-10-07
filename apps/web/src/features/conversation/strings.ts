@@ -242,6 +242,9 @@ export const t = defineStrings(
     'perm.where.main': 'In the main workspace',
     'perm.where.worktree': 'In the worktree {branch}',
     'perm.reason': "Claude Code's reason: {reason}",
+    'perm.gate.writes-settings-script':
+      "smurg asks because this command changes a place where this folder's Claude Code project settings keep a script they run (the script itself, or a folder that holds it). Those scripts run as the host.",
+    'perm.gate.may-reach-settings-script': "smurg asks because this folder's Claude Code project settings run scripts, and smurg cannot tell whether this command leaves them alone.",
     'perm.more': { one: '{count} line: scroll this box to read all of it.', other: '{count} lines: scroll this box to read all of them.' },
     'perm.readFirst': 'Allow is available once you have scrolled to the end of what is asked.',
     'perm.allow': 'Allow once',

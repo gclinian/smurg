@@ -253,7 +253,9 @@ conflicts, because a conflict can hold a person's unsaved text.
 session column and drawer) is per browser: `localStorage['smurg.layout']` (`layout.ts`). Which columns are open, their
 order, widths and pins, what was seen, the session list's folds and filter, and the session beside the editor in code
 mode are per browser AND workspace: `localStorage['smurg.columns.<workspace id>']` (the `columns` store). None of it
-is sent anywhere: a member's view is their own.
+is sent anywhere: a member's view is their own. The unsent text of a composer is kept per browser and workspace as
+well (`localStorage['smurg.drafts.<workspace id>']`), and it is the one thing here that is deleted when a person's
+access to the workspace ends, because it can quote project code ("A conversation column", Drafts).
 
 ## Connection layer and connection states
 
@@ -663,8 +665,13 @@ export default function PlanColumn({ topicId }: ColumnBodyProps['plan']) {
 }
 ```
 
-- **Do not draw a title.** The frame's `h2` is the region's name ("1 · Cart API", "Plan", "Result report: 3 · Receipt
-  email"). Titles come from `lib/columns/describe.ts`, one wording with the session list.
+- **Do not draw a title.** The frame's `h2` is the column's title ("1 · Cart API", "Plan", "Result report: 3 · Receipt
+  email"). Titles come from `lib/columns/describe.ts`, one wording with the session list. The region's accessible
+  name is `columnName(description)` (`features/columns/ColumnFrame.tsx`): the title, and for a column whose title
+  is the same word in every topic or may repeat between topics (a discussion, the spec, the plan, a result report)
+  the title with its topic, "Plan · Checkout redesign". The header's buttons ("Close column: Plan · Checkout
+  redesign"), the divider behind the column and the title's tooltip carry the same name, so two plans side by side
+  can be told apart; the title on screen is unchanged.
 - `column.visible`: the column's view is the one on screen and the column is not scrolled out of the strip. Hidden
   columns stay mounted and current; a conversation watches with `live: column.visible`, so a hidden column costs the
   relay no streaming frames.
@@ -679,7 +686,7 @@ export default function PlanColumn({ topicId }: ColumnBodyProps['plan']) {
 - The same body is mounted in code mode's side column (`place: 'code'`) through the same registry.
 
 | Column | Built from | What it shows (contract: DESIGN §5.4, §5.12) |
- |
+|---|---|---|
 | Session (agent) | `features/conversation` | Next section. Header strip: who is responsible (a menu), the worktree (opens code mode on that root), the permission mode with the kinds that are always allowed (each removable) and the sentence about the host's own Claude Code rules, Stop. "End session" is in "More actions", absent for a discussion |
 | Session (terminal) | `features/agents` | 0.4.0's terminal with its fit rules. It attaches while the column is on screen and detaches when it is hidden. It needs 80 columns, so below its minimum it scrolls sideways inside the column. The same terminals are the tabs of code mode's "Terminal" drawer tab |
 | Spec | `features/topics` + the editor's document pane | Read: the Markdown renderer on the document's text, with who changed it last. Edit: the collaborative editor on `specs/<slug>/SPEC.md` (cursors, the lock banner, the deleted-file state). The box that asks the agent to revise; "Generate plan", which opens the plan beside it; at the foot the discussion's status line; the empty state before a spec exists |
@@ -702,14 +709,29 @@ contract they are built to (DESIGN §5.5 and §5.12 items 10 to 17).
   mounts the newest items plus what was paged in; leaving the top for the end drops the paged-in items again.
 - **Folding.** The store folds events into the short list React renders, as they arrive: a person's message with its
   delivery state; a message smurg sent by itself (one line); the consecutive text blocks of one turn between tools;
-  a tool call with its result (consecutive reads become one line; a subagent's events nest under its task); a card
-  (a pointer to the entity in the store: question, permission request, suggestion); a next-step card; lines and
-  notices. Items keep their identity between folds while nothing in them changed, so a memoised row does not render
-  again.
+  a tool call with its result (consecutive reads become one line; a subagent's events would nest under its task, and
+  no session of 0.5.0 starts a subagent); a card (a pointer to the entity in the store: question, permission
+  request, suggestion); a next-step card; lines and notices. Items keep their identity between folds while nothing
+  in them changed, so a memoised row does not render again.
+- **A row that cannot be drawn costs one row.** Every row has its own error boundary (`RowBoundary` in `rows.tsx`):
+  a row that throws while rendering is the line "This entry cannot be shown." (`row.failed`) with the host's "Remove
+  this entry", and the other entries, the waiting cards and the composer stay. The row is drawn again when its item
+  is replaced (the entry was removed, a card was settled).
 - **Cards are entities.** A question with its votes and comments, a permission request and a suggestion change
   after they appeared; the log only says where the card is. Vote and comment changes arrive as small
   `question.changed` messages, never as the whole question. Focus lands on a card, never on one of its buttons, and
-  never on Allow. A permission card shows the command whole, an edit's diff, any other tool's whole input.
+  never on Allow.
+- **What a person approves is what they see.** A permission card shows the command whole, an edit's diff, any other
+  tool's whole input, each part in a box of its own that scrolls when the part is long; nothing scrolls sideways
+  (the command wraps, and in this card the diff wraps too, where a tool line's diff scrolls). While a box does not
+  show all of its part, the line under it says how many lines the part has ("{count} lines: scroll this box to read
+  all of them.", `perm.more`), and "Allow once" and "Always allow this kind" stay disabled until every such box was
+  scrolled to its end ("Allow is available once you have scrolled to the end of what is asked.", `perm.readFirst`);
+  a box that was at its end once stays read, and "Deny" is never held back. A suggestion card shows the stored text
+  CHARACTER FOR CHARACTER (`PlainText` of `features/markdown`, never as Markdown): "Accept" sends exactly that text.
+  The daemon sends a card's command, address and input with every character nobody can see written out as
+  `<U+202E>` (`docs/ARCHITECTURE.md` §5.9); `showControls` (`text.ts`) still marks such characters in what is sent
+  as it is, a diff among it.
 - **Streaming without re-rendering.** `session.delta` carries text at most once per 200 ms. The store keeps it
   outside its state (`streamText`, `onStream`): the row appends to a DOM text node, and React state changes only when
   the finished `text` event arrives. Deltas are volatile: they are never replayed, which is why every open session is
@@ -723,18 +745,76 @@ contract they are built to (DESIGN §5.5 and §5.12 items 10 to 17).
   8.06 ms at the worst.
 - **Markdown** (`features/markdown`, as built): the tokens of `marked`'s lexer rendered to React elements by smurg's
   own renderer. No HTML string is ever injected; raw HTML in the text shows as text; links are `http`, `https` and
-  `mailto` only, open in a new tab with `rel="noopener noreferrer"` and show their address; **images are not
-  loaded** (an image is a link with its alt text: a remote image in agent text would make every viewer's browser
-  contact a third party); code blocks are plain monospace; a path that resolves in the session's root is a button
-  that opens the file; a member named with `@` is marked. A streaming block is parsed at most every 200 ms, and only
-  its unstable tail again. The same renderer shows the spec's Read view and a report's sections.
+  `mailto` only, open in a new tab with `rel="noopener noreferrer"` and show their address on hover and on keyboard
+  focus; **images are not loaded** (an image is a link with its alt text: a remote image in agent text would make
+  every viewer's browser contact a third party); code blocks are plain monospace; a path that resolves in the
+  session's root is a button that opens the file; a member named with `@` is marked. A streaming block is parsed at
+  most every 200 ms, and only its unstable tail again. The same renderer shows the spec's Read view and a report's
+  sections.
+  - **The lexer runs inside bounds** (`lex.ts`, the one place the app hands text to `marked`). The text of a member
+    or an agent is rendered in every member's browser, so it must neither throw out of the render (a crashed column
+    takes its composer and its open cards along) nor hold the page's only thread. A text over `MARKDOWN_MAX_CHARS`
+    (1 MiB); one paragraph, cell or heading over `MARKDOWN_MAX_INLINE_CHARS` (16 KiB); quotes, lists or marks nested
+    deeper than `MARKDOWN_MAX_DEPTH` (32); more than `MARKDOWN_MAX_STEPS` (50,000) steps of the lexer; or a parse
+    over its time budget (`parseBudgetMs`: 40 ms plus 1 ms per 4 KiB of text; the longest single step is not
+    counted, up to `PAUSE_MAX_MS`, 200 ms, because one step that stood still is a pause of the machine) is NOT
+    formatted. It is one token of type `plain`: the text as it was written, under the note "Shown as it was written:
+    this text is too long or too deeply nested to format." (`plain.note`). Whatever the lexer throws is caught the
+    same way. A text that ran out of time or steps is remembered by a hash of its characters (the newest
+    `REMEMBERED_MAX`, 1,024) and shown as written wherever it is mounted again. The page has a share too: the parses
+    a mount waits for take at most `URGENT_PARSE_MS` (200 ms) in any `URGENT_WINDOW_MS` (1 s); a text that comes
+    after the share is spent is shown as written for the moment and parsed again in a transition. A text that is
+    parsed in pieces (a `SPEC.md` cut at its headings) has the one budget of the whole text. The lexer's expressions
+    are compiled by a text of smurg's own before the first parse, so a short text is never shown as written because
+    it came first.
+  - **Nothing of a text is hidden.** What Markdown keeps out of sight is put on the page: a reference definition is
+    printed as its line (and still resolves `[text][1]`); a destination that is not a link stays in the text as it
+    was written; a link's or an image's title is printed after it; the whole line after a code fence stands above
+    the code; a link without text shows its address; a link that contains an image is shown as written; and a link
+    or an image whose words name another place than it leads to is drawn as its words followed by the destination
+    as the link (`github.com (https://evil.example/)`, "Image: github.com/logo.png (https://…)"). Words are read as
+    a place (`links.ts`, `namesAnotherPlace`) when they are an address (`https://…`, `www.…`, a mail address, a
+    number address), a host with a path under any ending (`smurg.sh/install`), or a bare host under one of about
+    fifty well-known endings (`.com`, `.org`, `.io`, `.dev`, `.tw` …). Characters that only look like ASCII are read
+    as what they look like (NFKC: full-width letters, a one-dot leader; a Chinese full stop between two labels of
+    other scripts is the dot). No list of look-alike letters is complete, so a dotted name with ANY letter from
+    outside ASCII is never taken at its word: a link whose words hold one always has its destination written out,
+    even when it leads to the very name it shows (a browser opens the name's `xn--` form). Chinese, Japanese and
+    Korean characters around a Latin name are the sentence it stands in, not part of the name. A bare two-part word
+    under any other ending is not read as a place (no spelling tells `github.lol` from `README.md` or
+    `event.target`): such a link keeps its destination behind hover and keyboard focus, like every ordinary link. A numeric character reference never becomes a character nobody
+    can see (`&#x202E;`, `&#8203;` and `&#27;` stay as typed: `entities.ts`).
+  - **A render has no time budget**, so whatever looks at a piece of text while rendering is a single pass over its
+    characters: no regular expression that is tried again from every character of a long run.
+  - **Path lookups are bounded.** A path is looked up when its element comes on screen, and at most
+    `MAX_PATH_LOOKUPS` (32) different paths of one text are asked about, each once. Every lookup of a conversation
+    and of a terminal goes through ONE gate per connection (`features/agents/path-links.ts`, `pathGateOf`): a name
+    the reader's role can never open (a host-private name, the daemon's `.smurg`) is not asked about
+    (`mayAskAbout`); one request is out until the host has answered one without refusing, and again after every
+    refusal, else at most `MAX_LOOKUPS_IN_FLIGHT` (4); a refused path is never asked about again, while the names
+    that wait are still asked (one refused name turns no other link of the page off); and a page collects at most
+    `REFUSALS_PER_MINUTE` (8) refusals in any `REFUSAL_WINDOW_MS` (60 s): when that many have come back, everything
+    that waits is answered without a request and nothing is asked until the oldest of them is that old. So a text
+    can cost its reader a handful of refused requests, never one per name: the daemon records a refusal (a name
+    through a link that leads out of the workspace, too many requests) under the asker's name and closes a
+    connection that collects 60 in a minute. A lookup of a place the reader may not look at (a host-private file, a
+    hard-linked file, a path through a file) answers "not found" and is neither recorded nor counted
+    (`docs/ARCHITECTURE.md` §5.2).
 - **Next-step cards.** Their text and buttons are the web's, from facts, never the model's prose: after the spec
   draft "Generate plan" for members with agent access and who can do it for the others; after the plan "Open plan";
   after a report "Open report" and who reviews it.
 - **Composer.** `session.message.send` for the host and members with agent access; `suggest.create` for an Editor
   (the same box, with the line that says where the suggestion goes); no box for a Viewer. Enter sends, never while an
-  input method is composing (`event.isComposing`). `@` opens the member picker and fills `mentions`. Unsent text is
-  kept per session in this browser. The placeholder names the session.
+  input method is composing (`event.isComposing`). `@` opens the member picker and fills `mentions`. The placeholder
+  names the session.
+- **Drafts.** Unsent text is kept per session in this browser (`features/conversation/drafts.ts`,
+  `localStorage['smurg.drafts.<workspace id>']`, at most `DRAFTS_MAX`, 50, sessions). A draft can quote project code
+  ("Send to agent" puts a selection into it), so unlike a pane's width it must not stay in the browser of someone
+  whose access has ended. It is deleted (`lib/workspace/drafts-storage.ts`) when the daemon removed the member or
+  revoked the device, or finds the browser logged in as another account, whatever page shows the workspace at that
+  moment; on "Leave"; on "Log out", for every workspace of this browser; and when a workspace is taken off the list
+  of recent ones. A page that still shows the workspace stops writing at the same moment. A closed page, a host that
+  is away, an expired login or an outdated client delete nothing.
 - **Accessibility.** The conversation is a `log` region with `aria-live="off"`; the status bar above the composer is
   the `status` that speaks; streaming text is not announced delta by delta; every card is a `section` with an `h3`.
 
@@ -755,8 +835,14 @@ three changes.
 - The right pane is ONE session column: the same body as in the sessions view, with a selector for which session
   (remembered per browser and workspace).
 - The drawer's tabs are Activity, Conflicts, Transfers and Terminal (plain terminals). There is no "Merge requests"
-  tab: a merge request is an inbox item and a report or Changes column. The Terminal tab has no header bar of its
-  own: the drawer is 220 px tall until someone drags it, and "New terminal" sits at the end of the terminals' tabs.
+  tab: a merge request is an inbox item and a report or Changes column. A merge row of the host's inbox opens the
+  item's RESULT REPORT when that report is about the row's request (`inboxTarget` in `features/sidebar/inbox-rows.ts`:
+  the report's `changes.requestId` is the row's): the outcome, the checks and "Merge…" are there, and after a
+  conflict "Ask the agent to resolve" in the report's foot. Any other request opens the Changes column of that
+  request: a free session's worktree, a work item nobody reported on, an archived topic, and a request somebody
+  made after the report (a hand edit in the item's worktree, then "Request merge"). The Terminal tab has no header
+  bar of its own: the drawer is 220 px tall until someone drags it, and "New terminal" sits at the end of the
+  terminals' tabs.
 - The suggestions panel is gone.
 
 `openInCodeMode { root, file?, line?, sessionId? }` switches the route, sets the file tree's root, opens the file and
@@ -1048,13 +1134,16 @@ screen is built to.
   showed. Toasts for everyone on a change of phase come from the `topics` store's `notices`; they are not inbox items.
 - **Session names**: `title` is only what a person typed (or the first words of a free session's first message).
   Without one, `sessionTitle()` renders the wire catalog's reference: `Terminal (Ian)`, `Claude (Ian)` for a free
-  agent session, `Discussion`, `2 · Payment form` for a work item. An agent's display name in locks, presence and
-  the activity feed follows its session (`Claude (Checkout)`, `Claude (Cart API)`, `Claude (Ian)`) and is never
-  translated; the browser's device name is `Chrome (macOS)`, or `Browser` when the user agent says nothing.
+  agent session, `Discussion`, `2 · Payment form` for a work item. An agent's display name in locks, presence, its
+  caret in a document and the activity feed follows its session (`Claude (Cart API)` for a work item, `Claude
+  (Checkout)` for a topic's discussion, `Claude (Ian)` for a free session: `agentSessionName` of `@smurg/protocol`)
+  and is never translated. In `presence.state` an agent has an `activeFile` only while it is at work (starting,
+  running, or waiting inside a turn for an answer or a permission). The browser's device name is `Chrome (macOS)`,
+  or `Browser` when the user agent says nothing.
 - **Permission modes** of an agent session are two: asks before commands, or asks before edits and commands. A
   session's header shows the mode, the kinds that are always allowed (in this session, or in every session of its
   topic) and, for the host and members with agent access, which of the host's own Claude Code allow rules apply:
-  agents run what those rules allow without asking, and the host is told once which ones they are.
+  agents run what those rules allow without asking, and the host is told about each of them once.
 - **The host's side that everyone may know** (`host` store): whether the host's Claude Code is logged in or has
   reached a usage limit, and whether the main folder's Claude Code project settings are used. Until the host has
   confirmed those settings, sessions run without them and say so; the confirmation dialog is the console feature's
@@ -1155,7 +1244,11 @@ The smokes that came from 0.4.0, as they are in the new shell:
 The smokes 0.5.0 added, one per feature, each against the stand-in `claude`: `columns.smoke` (the dividers of the
 strip under a real mouse) and `sidebar.smoke` (the shell), `terminal.smoke` (a terminal as a column),
 `conversation.smoke` and `conversation.perf.smoke` (the budget of "A conversation column"), `topics.smoke`,
-`console.smoke`. Three cross the features:
+`console.smoke`. `conversation.smoke.test.ts` has five tests: a session without a topic with its first message, a
+tool line and a permission request; a question with votes in every browser; an Editor's message as a suggestion;
+Stop; and `conversation.smoke.test.ts` › "what a person approves is what they see: every character of a suggestion,
+the end of a long command, an edit that does not leave its box sideways; a text that cannot be formatted leaves the
+column standing". Three cross the features:
 
 | File | What it walks through |
 |---|---|

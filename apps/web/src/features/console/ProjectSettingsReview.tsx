@@ -2,9 +2,10 @@
 // never shows Claude Code's own trust dialog, so this is the place where the host sees, before any agent session
 // loads them: every command the files run, every permission rule, every environment variable (the ones that can send
 // the host's login elsewhere, and the ones that change which programs run, are marked), the scripts those commands
-// call, and the raw files one click away. When a list is not everything the content does (an entry left out or cut
-// short), the file says so in plain words and "Use them" needs one more tick. The entry `.claude` is not a file: it is
-// everything else Claude Code loads from that folder (agents, skills, commands, rules), confirmed with the files.
+// call (a path where no file is yet is marked), and the raw files one click away. When a list is not everything the
+// content does (an entry left out or cut short, a command whose files smurg cannot follow), the file says so in plain
+// words and "Use them" needs one more tick. The entry `.claude` is not a file: it is everything else Claude Code
+// loads from that folder (agents, skills, commands, rules), confirmed with the files.
 //
 // "Use them" trusts exactly the contents on screen (path + hash): it is possible only after the ticks the contents
 // need. "Run without them" starts sessions with the user's own settings only. The daemon refuses a decision about a
@@ -61,16 +62,43 @@ function Group({ title, entries, mono = true }: { title: string; entries: readon
   );
 }
 
-/** The lists above are not everything: how many entries are left out, how many are cut short, and what to do. */
-function Cut({ cut, loaded }: { cut: NonNullable<ClaudeConfigFile['cut']>; loaded: boolean }) {
+/**
+ * The lists below are not everything: how many entries are left out, how many are cut short, how many commands reach
+ * their files in a way smurg cannot follow (so the scripts listed are not all they run), and what to do.
+ */
+function NotEverything({ cut, unfollowed, loaded }: { cut: ClaudeConfigFile['cut']; unfollowed: number; loaded: boolean }) {
   return (
     <Banner tone="warning" live="none" icon={<IconShieldAlert />}>
       {joinSentences([
-        cut.omitted > 0 ? t('claudeConfig.cut.omitted', { count: cut.omitted }) : null,
-        cut.shortened > 0 ? t('claudeConfig.cut.shortened', { count: cut.shortened }) : null,
+        cut !== undefined && cut.omitted > 0 ? t('claudeConfig.cut.omitted', { count: cut.omitted }) : null,
+        cut !== undefined && cut.shortened > 0 ? t('claudeConfig.cut.shortened', { count: cut.shortened }) : null,
+        unfollowed > 0 ? t('claudeConfig.unfollowed', { count: unfollowed }) : null,
         t(loaded ? 'claudeConfig.cut.readFiles' : 'claudeConfig.cut.readFile'),
       ])}
     </Banner>
+  );
+}
+
+/** The scripts the commands call. A path where no file is yet is marked: it is guarded, and a file there asks again. */
+function Scripts({ scripts }: { scripts: ClaudeConfigFile['scripts'] }) {
+  if (scripts.length === 0) return null;
+  return (
+    <div className="console-trust__group">
+      <h5 className="console-trust__group-title">{t('claudeConfig.group.scripts')}</h5>
+      <ul className="console-trust__list console-trust__list--mono">
+        {scripts.map((script) => (
+          <li key={script.path}>
+            {script.path}
+            {script.absent === true ? (
+              <Badge tone="warning" className="console-trust__flag">
+                {t('claudeConfig.script.absent')}
+              </Badge>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {scripts.some((script) => script.absent === true) ? <p className="console-muted">{t('claudeConfig.scripts.absentNote')}</p> : null}
+    </div>
   );
 }
 
@@ -86,7 +114,7 @@ function FileView({ file }: { file: ClaudeConfigFile }) {
         <Badge tone={standing.tone}>{t(standing.key)}</Badge>
       </h4>
       {loaded ? <p className="console-muted">{t('claudeConfig.loaded.lead')}</p> : null}
-      {file.cut ? <Cut cut={file.cut} loaded={loaded} /> : null}
+      {file.cut !== undefined || (file.unfollowed ?? 0) > 0 ? <NotEverything cut={file.cut} unfollowed={file.unfollowed ?? 0} loaded={loaded} /> : null}
       <Group title={t('claudeConfig.group.runs')} entries={file.runs} />
       <Group title={t('claudeConfig.group.permissions')} entries={file.permissions} />
       {file.env.length > 0 ? (
@@ -112,7 +140,7 @@ function FileView({ file }: { file: ClaudeConfigFile }) {
         </div>
       ) : null}
       <Group title={t(loaded ? 'claudeConfig.group.loaded' : 'claudeConfig.group.other')} entries={file.otherKeys} />
-      <Group title={t('claudeConfig.group.scripts')} entries={file.scripts.map((script) => script.path)} />
+      <Scripts scripts={file.scripts} />
       {nothing ? <p className="console-muted">{t('claudeConfig.file.nothing')}</p> : null}
       <details className="console-trust__raw">
         <summary>{loaded ? t('claudeConfig.loaded.show') : t('claudeConfig.file.show', { path: file.path })}</summary>

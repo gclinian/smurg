@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import ConsoleOverlays from './ConsoleOverlays.tsx';
 import { consoleDialogs } from './dialogs.ts';
 import { slots } from './slots.tsx';
-import { DISCUSSION, defaultFixture, hash, makeConfigFile, renderWithConsoleData, settle, topicFixture } from './test-support.tsx';
+import { DISCUSSION, FREE, defaultFixture, hash, makeConfigFile, renderWithConsoleData, settle, topicFixture } from './test-support.tsx';
 
 const MAIN = { kind: 'main' } as const;
 const WT = { kind: 'worktree', worktreeId: 'wt_1' } as const;
@@ -162,6 +162,12 @@ describe('console dialogs: removing one entry of a conversation', () => {
     // The sentence that will stand in its place is the daemon's own.
     expect(within(dialog).getByText('Everyone sees "The host removed this entry." in its place. The conversation stored on your computer is changed too.')).toBeTruthy();
     expect(within(dialog).getByText('Claude Code keeps its own record of the conversation: the agent may still know what the entry said.')).toBeTruthy();
+    // What else keeps a copy, and what removes it (review R1-05): this session belongs to a topic.
+    expect(
+      within(dialog).getByText(
+        'Only this entry is removed. Questions, permission requests, suggestions, inbox items and follow-up questions on a report keep what they hold of it until the topic is deleted. The audit log keeps the full text of what was sent to agents.',
+      ),
+    ).toBeTruthy();
     expect(within(dialog).getByText('This cannot be undone.')).toBeTruthy();
     // The safe answer has the focus.
     expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Cancel' }));
@@ -177,6 +183,19 @@ describe('console dialogs: removing one entry of a conversation', () => {
     expect(consoleDialogs(view.stores).getState()).toBeNull();
   });
 
+  it('in a session without a topic it says that nothing removes the other copies', async () => {
+    const view = renderWithConsoleData(<ConsoleOverlays />, { fixture: topicFixture() });
+    await waitFor(() => expect(view.stores.sessions.getState().sessions.has(FREE.id)).toBe(true));
+    act(() => consoleDialogs(view.stores).open({ kind: 'redact', sessionId: FREE.id, seq: 3 }));
+    const dialog = screen.getByRole('alertdialog', { name: 'Remove this entry?' });
+    expect(
+      within(dialog).getByText(
+        'Only this entry is removed. Questions, permission requests, suggestions and inbox items keep what they hold of it, and the audit log keeps the full text of what was sent to agents. This session belongs to no topic: nothing removes those.',
+      ),
+    ).toBeTruthy();
+    expect(within(dialog).queryByText(/until the topic is deleted/)).toBeNull();
+  });
+
   it('Cancel sends nothing; a refusal is shown in the dialog and the entry can be tried again', async () => {
     const view = renderWithConsoleData(<ConsoleOverlays />, { fixture: topicFixture() });
     act(() => consoleDialogs(view.stores).open({ kind: 'redact', sessionId: 'sess_disc', seq: 5 }));
@@ -186,8 +205,9 @@ describe('console dialogs: removing one entry of a conversation', () => {
 
     act(() => consoleDialogs(view.stores).open({ kind: 'redact', sessionId: 'sess_gone', seq: 5 }));
     const dialog = screen.getByRole('alertdialog', { name: 'Remove this entry?' });
-    // A session the list no longer has: the dialog simply does not name it.
+    // A session the list no longer has: the dialog simply does not name it, and says nothing about a topic.
     expect(within(dialog).queryByText(/^In /)).toBeNull();
+    expect(within(dialog).getByText('Only this entry is removed. Questions, permission requests, suggestions, inbox items and the audit log keep what they hold of it.')).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Remove entry' }));
     await act(async () => {
       view.conn.fail('admin.transcript.redact', new SmurgError('not_found', msg('session.notFound'), { reason: 'unknown-session' }));

@@ -10,6 +10,7 @@ import { formatAge, formatDateTime } from '../../lib/format.ts';
 import { kindLabel } from '../../lib/session-status.ts';
 import type { InboxRowView } from '../../lib/slots.ts';
 import { useStore } from '../../lib/store.ts';
+import { isColumnOpen } from '../../lib/stores/columns.ts';
 import { selectInboxGroups } from '../../lib/stores/inbox.ts';
 import { selectAccount } from '../../lib/stores/host.ts';
 import { selectUserId } from '../../lib/stores/workspace.ts';
@@ -18,7 +19,7 @@ import { useSlotEnv, useSlots } from '../../lib/workspace/slots.tsx';
 import { useNow } from '../../lib/use-now.ts';
 import { Button, IconButton, KindIcon, cx, useToast } from '../../ui/index.ts';
 import { IconCheck, IconClose } from '../../ui/icons.tsx';
-import { describeInboxItem, inboxTarget, isDismissable, plansToLoad, reportNeededFor, type InboxRowContext } from './inbox-rows.ts';
+import { describeInboxItem, inboxTarget, isDismissable, plansToLoad, reportNeededFor, reportsToLoad, type InboxRowContext } from './inbox-rows.ts';
 import { t } from './strings.ts';
 
 export interface InboxRow {
@@ -44,6 +45,22 @@ export function useInboxRows(): { waiting: InboxRow[]; look: InboxRow[]; now: nu
   useEffect(() => {
     for (const topicId of neededPlans === '' ? [] : neededPlans.split('\n')) stores.topics.ensurePlan(topicId);
   }, [neededPlans, stores.topics]);
+  // Where a work item's merge row leads is in the item's result report: the rows ask about it when they appear, each
+  // item once, so that a click finds the answer there.
+  const neededReports = reportsToLoad(inbox.items.values(), topics)
+    .map((report) => `${report.topicId}\n${report.itemId}`)
+    .join('\n\n');
+  const askedReports = useRef(new Set<string>());
+  useEffect(() => {
+    for (const pair of neededReports === '' ? [] : neededReports.split('\n\n')) {
+      // Once per item: a report the host could not read just now is asked about again by the click, not by every
+      // change of the list.
+      if (askedReports.current.has(pair)) continue;
+      askedReports.current.add(pair);
+      const [topicId, itemId] = pair.split('\n') as [string, string];
+      void stores.topics.knowReport(topicId, itemId);
+    }
+  }, [neededReports, stores.topics]);
   return useMemo(() => {
     const ctx: InboxRowContext = { sessions, topics, selfUserId, account, now, stores: { topics: stores.topics, sessions: stores.sessions } };
     const groups = selectInboxGroups(inbox, selfUserId);
@@ -59,16 +76,30 @@ export function useOpenInboxItem(): (item: InboxItem, side: boolean) => void {
   const toast = useToast();
   return (item, side) => {
     stores.inbox.seen([item.key]);
-    const open = (): void => {
-      openColumn({ target: inboxTarget(item, stores.topics.getState()), from: 'inbox', ...(side ? { side: true } : {}), ...(item.anchor === undefined ? {} : { anchor: item.anchor }) }).catch((error: unknown) =>
-        toast.show({ tone: 'warning', title: t('inbox.failed', { reason: describeError(error) }) }),
-      );
-    };
-    // Where a work item's merge row leads is in the item's result report (which request its "Merge…" opens): the
-    // click reads it first. A report that does not exist or cannot be read leaves the target the item names.
+    const failed = (error: unknown): void => void toast.show({ tone: 'warning', title: t('inbox.failed', { reason: describeError(error) }) });
+    const how = { from: 'inbox' as const, ...(side ? { side: true } : {}) };
+    const anchor = item.anchor === undefined ? {} : { anchor: item.anchor };
     const missing = reportNeededFor(item, stores.topics.getState());
-    if (missing === null) open();
-    else void stores.topics.loadReport(missing.topicId, missing.itemId).then(open, open);
+    if (missing === null) {
+      openColumn({ target: inboxTarget(item, stores.topics.getState()), ...how, ...anchor }).catch(failed);
+      return;
+    }
+    // Where a work item's merge row leads is in the item's result report (which request its "Merge…" opens), and
+    // the answer is not here yet (the row is new, the page has just connected). A click shows something at once: the
+    // report's column, which says that it is loading. When the answer is there the column is where the row leads if
+    // the report is about this row's request. If it is not (a request made after the report, a report that cannot
+    // be read, an item nobody reported on), the Changes column the row names takes its place.
+    const waiting = { kind: 'report', ...missing } as const;
+    // A report column that was open before the click is somebody's reading: it is never turned into something else.
+    const ours = !isColumnOpen(stores.columns.getState(), waiting);
+    const known = stores.topics.knowReport(missing.topicId, missing.itemId);
+    openColumn({ target: waiting, ...how, ...anchor })
+      .then(async () => {
+        await known;
+        const target = inboxTarget(item, stores.topics.getState());
+        if (target.kind !== 'report') await openColumn(ours ? { target, inPlaceOf: waiting, ...anchor } : { target, ...how, ...anchor });
+      })
+      .catch(failed);
   };
 }
 

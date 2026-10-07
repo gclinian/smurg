@@ -167,10 +167,27 @@ const QUOTES: readonly Quote[] = [
   // Owner decision Q6: the host guide says plainly that a personal subscription is for the host's own use, in the
   // words of the console's security note, and quotes the one-time notice.
   webQuote('console.security.account', ['HOSTING']),
+  webQuote('topics.new.info.subscription', ['HOSTING']),
   { what: 'wire notice.personalSubscription', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.personalSubscription') },
   // The one review of a folder's Claude Code project settings (the console's; also inside the New topic dialog).
   webQuote('console.claudeConfig.choice.title', ['HOSTING']),
   webQuote('console.claudeConfig.choice.ignore', ['HOSTING']),
+  webQuote('console.claudeConfig.trust', ['HOSTING']),
+  webQuote('console.claudeConfig.loaded.title', ['HOSTING']),
+  webQuote('console.claudeConfig.ack.incomplete', ['HOSTING']),
+  webQuote('console.claudeConfig.group.other', ['HOSTING']),
+  // What a person must have read before allowing, and what a teammate is told about a folder only the host may move.
+  webQuote('conversation.perm.readFirst', ['HOSTING', 'JOINING']),
+  { what: 'wire path.hostOnly', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'path.hostOnly') },
+  // The rows of the troubleshooting table and of §10 that the review fixes added.
+  { what: 'wire report.changes.failed', guides: ['HOSTING'], render: (locale) => wire(locale, 'report.changes.failed') },
+  { what: 'wire session.folderNotNameable', guides: ['HOSTING'], render: (locale) => wire(locale, 'session.folderNotNameable') },
+  webQuote('topics.badge.stalled.error', ['HOSTING']),
+  webQuote('topics.badge.reviewedWaitsMerge', ['HOSTING']),
+  webQuote('topics.review.merge', ['HOSTING']),
+  webQuote('conversation.message.delivery.queued', ['JOINING']),
+  { what: 'wire conversation.interrupted.restart', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.interrupted.restart') },
+  { what: 'wire conversation.owner.handover.kicked', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.owner.handover.kicked', { name: 'Amy' }) },
   webQuote('console.hostRules.title', ['HOSTING']),
   cliQuote('status.hostRules', { count: 0 }, ['HOSTING']),
   webQuote('console.audit.action.agent.command', ['HOSTING']),

@@ -252,7 +252,7 @@ export function peopleUsing(presence: PresenceState, locks: LocksState, root: Ro
     }
   }
   for (const member of presence.members) if (member.userId !== selfUserId && member.online && within(member.activeFile)) add(member.displayName);
-  // An agent counts while it works on the file, not for the file it touched last (lib/agent-work.ts).
+  // An agent counts while it works on the file (lib/agent-work.ts).
   for (const agent of presence.agents) if (within(currentFileOf(agent))) add(agent.displayName);
   return names;
 }

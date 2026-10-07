@@ -204,6 +204,22 @@ describe('the workspace shell: commands', () => {
     expect(within(screen.getByTestId('body-session:s_cart')).getByRole('button', { name: 'anchor q_1' })).toBeTruthy();
   });
 
+  it('openColumn with `inPlaceOf` shows a thing in the place of a column that is open, and opens nothing when that column is gone (review R6-01)', async () => {
+    const { dispatch, stores } = await open();
+    await dispatch('openColumn', { target: { kind: 'session', sessionId: 's_cart' } });
+    await dispatch('openColumn', { target: { kind: 'report', topicId: 't1', itemId: 'cart-api' }, from: 'inbox' });
+    await dispatch('openColumn', { target: { kind: 'session', sessionId: 's_free' }, side: true });
+    const ids = (): string[] => stores.columns.getState().columns.map((column) => column.id);
+    expect(ids()).toEqual(['session:s_cart', 'report:t1:cart-api', 'session:s_free']);
+    // The column in the middle becomes the changes; the focus stays where the person put it meanwhile.
+    await dispatch('openColumn', { target: { kind: 'changes', requestId: 'mr_1' }, inPlaceOf: { kind: 'report', topicId: 't1', itemId: 'cart-api' } });
+    expect(ids()).toEqual(['session:s_cart', 'changes:mr_1', 'session:s_free']);
+    expect(stores.columns.getState().focusedId).toBe('session:s_free');
+    // The column was closed before the answer came: nothing opens.
+    await dispatch('openColumn', { target: { kind: 'changes', requestId: 'mr_2' }, inPlaceOf: { kind: 'report', topicId: 't1', itemId: 'receipt' } });
+    expect(ids()).toEqual(['session:s_cart', 'changes:mr_1', 'session:s_free']);
+  });
+
   it('the plan of a topic that is executing is pinned when it is opened; another plan is not', async () => {
     const spec = buildTopic({ id: 't2', name: 'Search filters', phase: 'spec' });
     const { dispatch, stores } = await open({ topics: [TOPIC, spec] });

@@ -234,6 +234,8 @@ export const zhTW = {
   'perm.where.main': '在主工作區',
   'perm.where.worktree': '在 worktree {branch}',
   'perm.reason': 'Claude Code 的理由：{reason}',
+  'perm.gate.writes-settings-script': 'smurg 會先問，是因為這個指令會更動這個資料夾的 Claude Code 專案設定所執行的腳本所在的位置（腳本本身，或放腳本的資料夾）。這些腳本會以主人的身分執行。',
+  'perm.gate.may-reach-settings-script': 'smurg 會先問，是因為這個資料夾的 Claude Code 專案設定會執行腳本，而 smurg 無法確定這個指令不會動到它們。',
   'perm.more': '共 {count} 行：請捲動這個方框，把內容全部看完。',
   'perm.readFirst': '把要求的內容捲到最後，才能按「允許」。',
   'perm.allow': '允許一次',

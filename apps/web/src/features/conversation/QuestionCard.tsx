@@ -491,12 +491,27 @@ export const QuestionCard = memo(function QuestionCard({ questionId }: { questio
   const submitLabel = decider !== null && !isDecider ? t('q.submitFor', { name: decider.displayName }) : question.parts.length > 1 ? t('q.submitAll') : t('q.submit');
   const previous = previousText(question);
 
+  // Sentences of one line: each is set apart from the one before it the way the language does it (gapAfter).
+  const decides = decideSentence(question, facts, selfId, canSubmit, canDiscuss, now);
+  const tieText = canSubmit && tied ? t('q.tie') : null;
+  const nobodyText = canSubmit && !anyVotes ? t('q.nobodyVoted') : null;
+
   const footer = (
     <>
       <p className="conv-card__who">
-        {decideSentence(question, facts, selfId, canSubmit, canDiscuss, now)}
-        {canSubmit && tied ? <span className="conv-q__tie"> {t('q.tie')}</span> : null}
-        {canSubmit && !anyVotes ? <span> {t('q.nobodyVoted')}</span> : null}
+        {decides}
+        {tieText !== null ? (
+          <span className="conv-q__tie">
+            {gapAfter(decides)}
+            {tieText}
+          </span>
+        ) : null}
+        {nobodyText !== null ? (
+          <span>
+            {gapAfter(tieText ?? decides)}
+            {nobodyText}
+          </span>
+        ) : null}
       </p>
       {!canSubmit && decider !== null && canDiscuss && !escalated ? (
         <p className="conv-card__who">{question.deciderSeenAt === undefined ? t('q.notSeen', { name: decider.displayName }) : t('q.seen', { name: decider.displayName })}</p>

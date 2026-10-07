@@ -116,6 +116,12 @@ describe('permission card: those who may answer', () => {
     expect(within(other.card).getByLabelText('What mcp__db__query was given').textContent).toBe('{\n  "sql": "select 1"\n}');
     other.unmount();
 
+    // The daemon writes every character nobody can see out as <U+XXXX> before it sends a command or an input
+    // (protocol `visibleText`): the card prints that as it comes.
+    const sent = await openPermission({ command: 'echo safe<U+202E><U+001B>[2K' }, { role: 'host' });
+    expect(sent.card.querySelector('.conv-perm__cmd')?.textContent).toBe('echo safe<U+202E><U+001B>[2K');
+    sent.unmount();
+    // A diff is sent as it is, and a character that arrives raw anywhere on the card is still made visible here.
     const hidden = await openPermission({ command: `echo safe${String.fromCharCode(0x202e)}${String.fromCharCode(0x1b)}[2K` }, { role: 'host' });
     expect(hidden.card.querySelector('.conv-perm__cmd')?.textContent).toBe(`echo safe${String.fromCharCode(0x27e6)}U+202E${String.fromCharCode(0x27e7)}${String.fromCharCode(0x241b)}[2K`);
   });
@@ -136,6 +142,30 @@ describe('permission card: those who may answer', () => {
     });
     await settle();
     expect(view.card.textContent).toContain('Mei already allowed this.');
+  });
+});
+
+describe('permission card: a request smurg\u2019s own gate asked for (review R3-03)', () => {
+  // The daemon sends the gate's English sentence as `reason` and says which gate it was: the card says it itself.
+  const WRITES = "smurg asks because this command changes a place where this folder's Claude Code project settings keep a script they run (the script itself, or a folder that holds it). Those scripts run as the host.";
+  const UNSURE = "smurg asks because this folder's Claude Code project settings run scripts, and smurg cannot tell whether this command leaves them alone.";
+
+  it('says why smurg asks, in its own words instead of "Claude Code\u2019s reason"', async () => {
+    const writes = await openPermission({ command: 'mv scripts scripts.old', gate: 'writes-settings-script', reason: WRITES, hostOnly: true, noAlways: 'host-only' }, { role: 'host' });
+    expect(writes.card.querySelector('.conv-card__who--gate')?.textContent).toBe(WRITES);
+    expect(writes.card.textContent).not.toContain("Claude Code's reason");
+    expect(writes.card.textContent?.split(WRITES)).toHaveLength(2);
+    writes.unmount();
+
+    const unsure = await openPermission({ command: 'make build', gate: 'may-reach-settings-script', reason: UNSURE }, { role: 'agent', session: { responsible: MEI } });
+    expect(unsure.card.querySelector('.conv-card__who--gate')?.textContent).toBe(UNSURE);
+    expect(unsure.card.textContent).not.toContain("Claude Code's reason");
+    unsure.unmount();
+
+    // Without a gate the reason is Claude Code's, as before.
+    const plain = await openPermission({ command: 'pnpm test', reason: 'It runs the tests.' }, { role: 'host' });
+    expect(plain.card.querySelector('.conv-card__who--gate')).toBeNull();
+    expect(plain.card.textContent).toContain("Claude Code's reason: It runs the tests.");
   });
 });
 

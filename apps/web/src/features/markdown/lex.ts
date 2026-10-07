@@ -342,7 +342,9 @@ export function waitsForTime(tokens: readonly Token[]): boolean {
  * The tokens of each of `pieces`, which together are the one text `whole` (a SPEC.md cut at its `##` headings so that
  * each section can be asked about): ONE budget of time and steps for all of them, the one of `whole`, and one memory.
  * When the text runs out of either, every piece is shown as written (the note above the first) and the text is
- * remembered. A piece that is too deep or holds too long a paragraph is shown as written by itself. Never throws.
+ * remembered, with the piece it ran out on. A piece that is too deep or holds too long a paragraph is shown as
+ * written by itself. A caller that knows some pieces from before hands over the others only (Markdown.tsx). Never
+ * throws.
  */
 export function lexMarkdownPieces(pieces: readonly string[], whole: string, options: LexOptions = {}): Token[][] {
   const breaks = options.breaks === true;
@@ -350,6 +352,13 @@ export function lexMarkdownPieces(pieces: readonly string[], whole: string, opti
   if (whole.length > MARKDOWN_MAX_CHARS) return all('size');
   const known = recall(whole);
   if (known !== undefined) return all(known);
+  // A piece on which this text, as it was before a change elsewhere in it, ran out: the text still holds it.
+  if (pieces.length > 1) {
+    for (const piece of pieces) {
+      const before = recall(piece);
+      if (before !== undefined) return all(before);
+    }
+  }
   const now = options.now ?? (() => performance.now());
   if (options.urgent === true && !shareLeft(now())) return all('later');
   warmUp();
@@ -371,6 +380,9 @@ export function lexMarkdownPieces(pieces: readonly string[], whole: string, opti
   if (options.urgent === true) share.spent += budget.elapsed();
   if (ended === null) return out;
   remember(whole, ended);
+  // The piece it ran out on, too: the next change of the text elsewhere (a keystroke in another section) makes a new
+  // whole text, which would otherwise spend the budget again on the same piece.
+  if (pieces.length > 1) remember(pieces[out.length] as string, ended);
   return all(ended);
 }
 

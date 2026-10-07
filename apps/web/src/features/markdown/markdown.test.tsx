@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { findPathCandidates, mayAskAbout, normalizeSessionPath } from '../agents/path-links.ts';
 import { decodeEntities } from './entities.ts';
 import { MAX_PATH_LOOKUPS, Markdown, PlainText, STREAM_PARSE_MS, StreamingMarkdown, findMentions, safeHref, type MarkdownPaths, type PathMatch } from './index.ts';
-import { MARKDOWN_MAX_CHARS, MARKDOWN_MAX_INLINE_CHARS, UNTIMED_STEPS, lexMarkdown, parseBudgetMs } from './lex.ts';
+import { MARKDOWN_MAX_CHARS, MARKDOWN_MAX_INLINE_CHARS, PAUSE_MAX_MS, lexMarkdown, parseBudgetMs } from './lex.ts';
 import { namesAnotherPlace } from './links.ts';
 import { parseStreaming } from './Markdown.tsx';
 import { stableLength } from './stream.ts';
@@ -285,6 +285,57 @@ describe('Markdown: nothing of the text is hidden (review R4-01, R4-05)', () => 
   });
 });
 
+describe('Markdown: a word that only LOOKS like the address of another place (review R4-05, third round)', () => {
+  // Written with escapes on purpose: the letters below cannot be told from Latin ones on a screen, which is the point.
+  const CYRILLIC_O = '\u043e';
+  const CYRILLIC_ES = '\u0441';
+  const APPLE = '\u0430\u0440\u0440\u04cf\u0435'; // five Cyrillic letters that read "apple"
+  const elsewhere = 'https://evil.example/login';
+
+  it('a dotted word with a letter from outside ASCII is never taken at its word: the destination is written out', () => {
+    for (const words of [
+      `github.c${CYRILLIC_O}m`,
+      `github.${CYRILLIC_ES}om`,
+      `${APPLE}.com`,
+      `Sign in at github.c${CYRILLIC_O}m now`,
+      `(github.c${CYRILLIC_O}m)`,
+      `www.g${CYRILLIC_O}${CYRILLIC_O}gle.com/accounts`,
+      `https://github.c${CYRILLIC_O}m/login`,
+      '\u043f\u0440\u0438\u043c\u0435\u0440.com', // an address written in Cyrillic
+      'b\u00fccher.de',
+      'g\u03bf\u03bfgle.com', // Greek omicrons
+      'gi\u0307thub.com', // a combining dot
+      'r\u00e9sum\u00e9.pdf',
+    ]) {
+      expect(namesAnotherPlace(words, elsewhere), words).toBe(true);
+    }
+    // Also when the link leads to the very name that is written: what a browser opens is the ASCII form of that
+    // name, and that is what the reader is shown.
+    expect(namesAnotherPlace(`github.c${CYRILLIC_O}m`, 'https://github.xn--cm-fmc/')).toBe(true);
+    expect(namesAnotherPlace('b\u00fccher.de', 'https://xn--bcher-kva.de/')).toBe(true);
+    const root = html(`[github.c${CYRILLIC_O}m](${elsewhere}) ![${APPLE}.com](https://evil.example/x.png)`);
+    expect(root.textContent).toBe(`github.c${CYRILLIC_O}m (${elsewhere}) Image: ${APPLE}.com (https://evil.example/x.png)`);
+    expect([...root.querySelectorAll('a')].map((a) => a.textContent)).toEqual([elsewhere, 'https://evil.example/x.png']);
+  });
+
+  it('a full stop that only looks like a dot is read as the dot of an address when letters stand on both sides', () => {
+    for (const dot of ['\u3002', '\uff61', '\uff0e', '\u2024']) {
+      expect(namesAnotherPlace(`github${dot}com`, elsewhere), `github${dot}com`).toBe(true);
+      expect(namesAnotherPlace(`Sign in at github${dot}com/login`, elsewhere), dot).toBe(true);
+      expect(namesAnotherPlace(`github${dot}c${CYRILLIC_O}m`, elsewhere), dot).toBe(true);
+      // The same word on a link that leads there is not a difference.
+      expect(namesAnotherPlace(`github${dot}com`, 'https://github.com/'), dot).toBe(false);
+    }
+  });
+
+  it('words with letters from outside ASCII and no dot between letters are words', () => {
+    for (const words of ['caf\u00e9', 'na\u00efve idea', 'r\u00e9sum\u00e9', `${APPLE}`, 'se\u00f1or.', '\u00e9t\u00e9, hiver.', 'M\u00fcnchen (Bayern).', '\u03b1 + \u03b2', '\u00e9...', '...\u00e9', '\u00e9. A', '\u{1F600}.com']) {
+      expect(namesAnotherPlace(words, elsewhere), words).toBe(false);
+    }
+    expect(html(`[caf\u00e9 menu](${elsewhere})`).querySelector('a')?.textContent).toBe('caf\u00e9 menu');
+  });
+});
+
 describe('Markdown: a text cannot crash or freeze the page (review R4-03)', () => {
   const NOTE = 'Shown as it was written: this text is too long or too deeply nested to format.';
   const plainOf = (root: HTMLElement): string | undefined => root.querySelector('.md-plain')?.textContent ?? undefined;
@@ -326,16 +377,18 @@ describe('Markdown: a text cannot crash or freeze the page (review R4-03)', () =
     // Every step costs a little more than the budget allows in total: too slow.
     let slow = 0;
     expect(lexMarkdown(`${text}\n\nslow`, { now: () => (slow += budget / 20) })).toMatchObject([{ type: 'plain', reason: 'time' }]);
-    // One step stands still for a minute (a suspended tab) and the rest is quick: the text is formatted.
+    // One step stands still (a collection, a busy moment) and the rest is quick: the text is formatted.
     let calls = 0;
-    const paused = lexMarkdown(`${text}\n\npaused`, { now: () => (++calls < 150 ? calls * 0.01 : 60_000 + calls * 0.01) });
+    const paused = lexMarkdown(`${text}\n\npaused`, { now: () => (++calls < 150 ? calls * 0.01 : PAUSE_MAX_MS + calls * 0.01) });
     expect(calls).toBeGreaterThan(200);
     expect(paused[0]?.type).toBe('paragraph');
-    // The first steps are not timed at all: the first parse of a page pays for compiling the lexer, not for its text.
+    // A text cannot buy more than that with one step of its own: a step far longer than a pause counts.
+    calls = 0;
+    expect(lexMarkdown(`${text}\n\none long step`, { now: () => (++calls < 150 ? calls * 0.01 : 60_000 + calls * 0.01) })).toMatchObject([{ type: 'plain', reason: 'time' }]);
+    // The first parse of a page pays for compiling the lexer before any text's clock is read: a short text that
+    // comes first is formatted, with a clock that only moves a little per step.
     let early = 0;
-    const cold = lexMarkdown('A short text with *one* mark.', { now: () => (early += 1_000) });
-    expect(early).toBeLessThanOrEqual(UNTIMED_STEPS * 1_000);
-    expect(cold[0]?.type).toBe('paragraph');
+    expect(lexMarkdown('A short text with *one* mark.', { now: () => (early += 1) })[0]?.type).toBe('paragraph');
   });
 
   it('does not parse a text beyond the size limit, a paragraph beyond the size of a paragraph, or one that would become too many elements', () => {

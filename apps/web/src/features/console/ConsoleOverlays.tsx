@@ -112,6 +112,8 @@ function RedactDialog({ dialog, onClose }: { dialog: DialogOf<'redact'>; onClose
         <ul>
           <li>{t('redact.replaced', { text: renderWireText(REDACTED, renderEnglish(REDACTED)) })}</li>
           <li>{t('redact.memory')}</li>
+          {/* What else holds the entry's words and what removes that: only a topic can be deleted (review R1-05). */}
+          <li>{t(session === undefined ? 'redact.copies' : session.kind === 'agent' && session.topicId !== undefined ? 'redact.copies.topic' : 'redact.copies.free')}</li>
         </ul>
         <p className="console-kick__final">{t('redact.irreversible')}</p>
         {error ? (

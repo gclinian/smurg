@@ -115,10 +115,15 @@ people they fully trust. You do not need your own Claude account or API key, and
 Some files teammates **cannot see**: every `.git` folder, `.envrc`, smurg's own `.smurg/`, and the host's personal
 Claude Code settings (`.claude/settings.local.json`, `CLAUDE.local.md`). Some files teammates **can see but not
 change** (the file tree marks them "Only the host can change this file"): `.claude/`, `.mcp.json` and every
-`CLAUDE.md` (the host's Claude Code reads them as settings and instructions), `.vscode/`, `.idea/`. Apart from
-these, every member sees every file in the folder (including configuration files such as `.env`). These limits
-apply to what people do in the web app and the CLI. Agents are kept from the hidden files too, but a command that
-someone allows, and any terminal, runs as the host and is not bound by them.
+`CLAUDE.md` (the host's Claude Code reads them as settings and instructions), `.vscode/`, `.idea/`. While the host
+uses the folder's Claude Code settings, teammates cannot change the scripts those settings run either; the file
+tree does not mark these, and the change is refused. A folder that holds a file only the host may change, or a
+hidden one, at any depth cannot be renamed or deleted by teammates: that would move the file with it. It can be a
+folder you do not expect, such as `node_modules` when a package in it ships a `CLAUDE.md` or a `.vscode` folder.
+You are told "Only the host can change this path."; ask the host to do it.
+Apart from these, every member sees every file in the folder (including configuration files such as `.env`).
+These limits apply to what people do in the web app and the CLI. Agents are kept from the hidden files too, but a
+command that someone allows, and any terminal, runs as the host and is not bound by them.
 
 ## 3. The main screen: inbox, sessions and columns
 
@@ -252,8 +257,14 @@ The line above the message box says what the agent is doing or what it waits for
   English, whatever language you use; you can write to the agent in any language.
 - "Stop" ends what the agent is doing now; the session stays open. Ending a session for good is in the column's
   menu ("End session…"), for the host and for the member with agent access who opened the session or is
-  responsible for it; a topic's discussion cannot be ended, only restarted (§6).
-- Claude Code's own slash commands are not available: a message that starts with `/` is read as text.
+  responsible for it; it also ends what the agent's commands left running (a dev server, a watcher). A topic's
+  discussion cannot be ended, only restarted (§6).
+- A message reaches the agent as you wrote it. Claude Code's own slash commands are not available: a message that
+  starts with `/` is read as text. `@path` is not replaced by the file's content either: to show the agent a file,
+  name its path, and it reads the file with its own tools (and asks when that needs permission). Agents start no
+  subagents in this version.
+- A text you have not sent yet stays in the box. It is kept in this browser, per session, until you send it, leave
+  the workspace, log out or are removed.
 - **Remember**: an agent works on the host's computer with the host's account and spends the host's Claude usage.
   Ask it only for what the host agreed to, and never paste a password or an API key into a conversation: every
   member reads it.
@@ -316,10 +327,17 @@ Outside its own worktree, and for almost every command, an agent must ask first.
 
 - The host and members with agent access answer: "Allow once", "Always allow this kind" or "Deny" (with a line that
   tells the agent what to do instead, if they like). Editors and Viewers see the request and who it waits for.
-- If you may answer: read the command first. What you allow runs on the host's computer as the host.
-  "Always allow this kind" is offered only for narrow kinds of commands, "in this session" or
-  "in every session of this topic"; it also covers the same command after the agent changed the files it runs.
+- If you may answer: read the command first. What you allow runs on the host's computer as the host. Nothing of a
+  request is hidden: a character nobody can see is written out as a mark, and a long command or diff stands in a
+  box that scrolls. The card says how many lines such a box has, and you can allow only after you scrolled it to
+  its end: "Allow is available once you have scrolled to the end of what is asked."
+- "Always allow this kind" is offered only for narrow kinds of commands, "in this session" or
+  "in every session of this topic"; it also covers the same command after the agent changed the files it runs. It
+  is not offered for a command made of several (`pnpm test && git push`): a kind names one command.
 - Some requests say "Only the host can allow this: it reaches beyond the shared project."
+- In a folder whose Claude Code settings run scripts, smurg itself asks before an agent's shell command that could
+  change one of those scripts, also inside the agent's own worktree and whatever is always allowed. The card gives
+  smurg's reason; when the command writes where such a script is, only the host can allow it.
 - The first answer wins; the card then says who allowed or denied it.
 
 ### 5.5 Terminal sessions
@@ -369,7 +387,7 @@ step is a row of the topic in the session list.
    "What to watch out for" and "Changes" (every changed file, with its diff). A report also says how the work
    ended: "Complete", "Partial" or "Blocked". Under it you can ask about the result or say what to change
    ("Ask about this result, or tell Claude what to change"); the question goes to the item's session and the answer
-   shows in both places. After the item is merged the box is gone:
+   shows in both places. When the item is finished (merged and reviewed), the box is gone:
    "This item is merged and its session has ended. Ask in the discussion."
 9. **Review**: "I've reviewed this" is for the item's responsible person; when nobody is assigned, anyone but a
    Viewer can press it, once, for all. It means: I read the report and understand the change. A report that says
@@ -383,7 +401,10 @@ step is a row of the topic in the session list.
 When something stops, it shows, and someone gets it in their inbox:
 
 - "Stopped without a report": an agent ended its turn without its report, although smurg asked it once more.
-  "Continue" asks it to go on.
+  "Continue" asks it to go on. The plan and the inbox say so when the reason was another one: a person stopped
+  the agent, smurg was restarted, or an error. One such error is that smurg could not record the item's changes
+  with the report (someone kept typing in the worktree, for example); the conversation says so, and the report
+  appears when the agent's next turn ends.
 - "Failed": the agent's process ended with an error. "Try again" continues the same conversation. After three
   failed starts in a row only the host can try again.
 - The host's Claude account ran out of usage, or Claude Code on the host's computer is logged out: the sessions
@@ -404,11 +425,14 @@ there without disturbing the main workspace that everyone shares. A worktree is 
 restriction: what runs in it runs as the host all the same.
 
 - **Every work item has its own worktree**; smurg creates it when the item starts (for an item that waits for
-  others: once those are merged) and removes it when the item is merged and reviewed. A single agent session
-  without a topic can work in a worktree too, or in the main workspace.
+  others: once those are merged) and removes it when the item is merged and reviewed, once nothing unmerged is
+  left in it. While the worktree still holds changes that no merge carried (a follow-up after the merge, edits
+  made after the last report), the item keeps its session and its worktree. A single agent session without a
+  topic can work in a worktree too, or in the main workspace.
 - "Viewing" above the file tree in code mode switches between the main workspace and any worktree. Everyone who may
   edit can edit code in a worktree too (with file locks, as usual); the result report then says which files were
-  also edited by hand, and by whom. Inside a work item's worktree the topic's `specs/` folder is read-only for
+  also edited by hand, and by whom (renaming, moving or deleting a folder counts for every changed file below
+  it). Inside a work item's worktree the topic's `specs/` folder is read-only for
   everyone: it holds the spec and the plan the agent started from, and the agent's report.
 - The **shared folders** the host named (for example a `data/` that is not in git) are linked into every worktree:
   in the web app they are read-only there; when an agent in the worktree writes into such a folder, it changes the
@@ -448,7 +472,8 @@ or the host's network is down. Once the host goes offline, everyone sees "Host o
   agent sessions are paused. When the host shares again, the page reconnects by itself.
 - **After the host's smurg was restarted**, every conversation is readable and every agent is idle, but nothing
   runs by itself: plans are paused ("smurg was restarted on the host's computer."), and the host or a member with
-  agent access chooses "Continue all". A question that was open is asked again when its session continues.
+  agent access chooses "Continue all". A question that was open is asked again when its session continues, and a
+  message that was still waiting for its agent ("Claude reads it when it starts again") is delivered then.
 - "Server unreachable" is something else: a network problem between you and the relay.
 
 ## 9. Leaving a workspace: what ends
@@ -456,7 +481,8 @@ or the host's network is down. Once the host goes offline, everyone sees "Host o
 "**Leave**" at the top right → confirm with "Leave".
 
 **What ends** (within seconds): the terminal sessions you opened, and the agent sessions you opened that belong to
-no topic.
+no topic. The worktrees of those sessions are kept, with their changes, and stay yours: you find them when you
+open the workspace again.
 
 **What passes to the host**: the sessions of topics that you created or started. They keep running, now looked
 after by the host, so a plan does not stop because you left. Questions you would have decided are decided by the
@@ -478,9 +504,9 @@ not begun yet do not start until someone starts them again.
 (after a while the host and the members with agent access can answer in your place).
 
 When the host changes your role so that you can no longer use agents, the same things end, pass to the host and
-are removed (your votes stay while you may still vote). When the host removes you from the workspace, the topic
-sessions you started are also stopped before they pass to the host, and your suggestions that nobody decided are
-closed.
+are removed (your votes stay while you may still vote), and the worktrees you had kept pass to the host too: you
+can no longer remove them. When the host removes you from the workspace, the same happens, the topic sessions you
+started are stopped before they pass to the host, and your suggestions that nobody decided are closed.
 
 ## 10. Joining from a terminal (CLI, optional)
 

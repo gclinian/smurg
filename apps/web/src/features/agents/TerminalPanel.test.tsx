@@ -10,6 +10,7 @@ import { SmurgError, worktreeRoot, type TerminalSession } from '@smurg/protocol'
 import type { ILink } from '@xterm/xterm';
 import { HOST_USER, makeEntry, makeSession, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
 import { TerminalPanel } from './index.tsx';
+import { REFUSALS_PER_MINUTE } from './path-links.ts';
 import { bytes, flushTerm, nextRequest, recordingViewerFactory, renderWithSessions, terminalText } from './test-support.tsx';
 
 
@@ -414,8 +415,9 @@ describe('terminal panel: what a pointer over the output asks the host (review R
     conn.handle('file.stat', (ref) => {
       stats.push(ref.path);
       if (ref.path === 'src/app.ts') return { entry: makeEntry('src/app.ts') };
-      // A path through a file is refused for everyone; the host's own private files are simply not there in this tree.
-      throw new SmurgError(ref.path.startsWith('README.md/') ? 'path_denied' : 'not_found');
+      // A name through a link that leads out of the workspace is refused for everyone; everything else the host has
+      // nothing to say about (a private file, a path through a file) is simply not there.
+      throw new SmurgError(ref.path.startsWith('data/') ? 'path_denied' : 'not_found');
     });
     await nextRequest(conn, 'session.attach');
     await act(async () => {
@@ -434,10 +436,12 @@ describe('terminal panel: what a pointer over the output asks the host (review R
     expect(await hover('host', line)).toEqual({ stats: ['.envrc', '.git/config', 'CLAUDE.local.md', '.smurg/audit.log', 'src/app.ts'], links: ['src/app.ts'] });
   });
 
-  it('a line of names the host refuses costs one refused request, not one per name', async () => {
-    const names = Array.from({ length: 12 }, (_, index) => `README.md/a${index + 1}`).join(' ');
-    expect(await hover('editor', names)).toEqual({ stats: ['README.md/a1'], links: [] });
-    expect(await hover('host', names)).toEqual({ stats: ['README.md/a1'], links: [] });
+  it('a line of names the host refuses costs a handful of refused requests, not one per name, and a refused name turns no other link off', async () => {
+    const names = Array.from({ length: 12 }, (_, index) => `data/a${index + 1}`);
+    const refused = { stats: names.slice(0, REFUSALS_PER_MINUTE), links: [] };
+    expect(await hover('editor', names.join(' '))).toEqual(refused);
+    expect(await hover('host', names.join(' '))).toEqual(refused);
+    expect(await hover('editor', 'data/a1 src/app.ts README.md/x')).toEqual({ stats: ['data/a1', 'src/app.ts', 'README.md/x'], links: ['src/app.ts'] });
   });
 });
 

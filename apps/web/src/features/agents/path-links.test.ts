@@ -4,8 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { Terminal } from '@xterm/xterm';
 import type { ILink } from '@xterm/xterm';
 import { MAIN_ROOT, SmurgError, worktreeRoot, type FileEntry, type FileRef } from '@smurg/protocol';
+import { ClientRequestError } from '@smurg/protocol/client';
 import { makeEntry } from '../../testing/fixtures.ts';
-import { MAX_LOOKUPS_IN_FLIGHT, REFUSAL_QUIET_MS, createPathExistence, createPathGate, createPathLinkProvider, findPathCandidates, mayAskAbout, normalizeSessionPath, pathGateOf, resolveCandidate } from './path-links.ts';
+import { MAX_LOOKUPS_IN_FLIGHT, REFUSALS_PER_MINUTE, REFUSAL_WINDOW_MS, createPathExistence, createPathGate, createPathLinkProvider, findPathCandidates, mayAskAbout, normalizeSessionPath, pathGateOf, resolveCandidate } from './path-links.ts';
 
 
 const paths = (line: string) => findPathCandidates(line).map((c) => (c.line === undefined ? c.path : `${c.path}@${c.line}${c.column === undefined ? '' : `:${c.column}`}`));
@@ -159,7 +160,7 @@ describe('which paths a viewer may ask the host about at all', () => {
   });
 });
 
-describe("the gate every lookup of a path in someone's text goes through (review R4-04, second round)", () => {
+describe("the gate every lookup of a path in someone's text goes through (review R4-04)", () => {
   const MEMBER = { isHost: false };
   const ref = (path: string): FileRef => ({ root: MAIN_ROOT, path });
 
@@ -208,45 +209,65 @@ describe("the gate every lookup of a path in someone's text goes through (review
     expect(await Promise.all(all)).toEqual(Array.from({ length: 12 }, (_, index) => `src/f${index}.ts`));
   });
 
-  it('a refusal answers everything that waited, is remembered for that path, and nothing is asked for a while', async () => {
+  it('a refused name costs its one request and turns no other link off: the names that waited are asked next (third round)', async () => {
     const h = host();
-    const all = Array.from({ length: 40 }, (_, index) => h.ask(`README.md/a${index}`));
-    expect(h.asked).toEqual(['README.md/a0']);
+    // `data` is a link that leads out of the workspace: a name through it is refused, and no spelling shows it.
+    const all = [h.ask('data/a.csv'), h.ask('src/app.ts'), h.ask('src/b.ts')];
+    expect(h.asked).toEqual(['data/a.csv']);
     await h.answer('path_denied');
-    expect(await Promise.all(all)).toEqual(Array.from({ length: 40 }, () => 'no'));
-    expect(h.asked).toEqual(['README.md/a0']);
-    // During the quiet time nothing is asked, whatever the path.
-    h.advance(REFUSAL_QUIET_MS - 1);
-    expect(await h.ask('src/app.ts')).toBe('no');
-    expect(h.asked).toHaveLength(1);
-    // Afterwards it starts with one request again, and never with the refused path.
-    h.advance(2);
-    expect(await h.ask('README.md/a0')).toBe('no');
-    const later = [h.ask('src/app.ts'), h.ask('src/b.ts'), h.ask('src/c.ts')];
-    expect(h.asked).toEqual(['README.md/a0', 'src/app.ts']);
+    // No quiet time: the next name is asked at once, one request wide again until the host answers without refusing.
+    expect(h.asked).toEqual(['data/a.csv', 'src/app.ts']);
     await h.answer();
-    expect(h.asked).toEqual(['README.md/a0', 'src/app.ts', 'src/b.ts', 'src/c.ts']);
+    expect(h.asked).toEqual(['data/a.csv', 'src/app.ts', 'src/b.ts']);
+    await h.answer();
+    expect(await Promise.all(all)).toEqual(['no', 'src/app.ts', 'src/b.ts']);
+    // The refused path is never asked about again.
+    expect(await h.ask('data/a.csv')).toBe('no');
+    expect(h.asked).toHaveLength(3);
+  });
+
+  it('refusals are counted: after REFUSALS_PER_MINUTE of them nothing is asked until the oldest is a minute old', async () => {
+    const h = host();
+    const all = Array.from({ length: 40 }, (_, index) => h.ask(`data/a${index}.csv`));
+    for (let refused = 0; refused < REFUSALS_PER_MINUTE; refused += 1) {
+      expect(h.inFlight()).toBe(1);
+      await h.answer('path_denied');
+      h.advance(1_000);
+    }
+    // 40 names through that folder: a handful of requests, and the names that waited are answered without one.
+    expect(h.asked).toHaveLength(REFUSALS_PER_MINUTE);
+    expect(h.inFlight()).toBe(0);
+    expect(await Promise.all(all)).toEqual(Array.from({ length: 40 }, () => 'no'));
+    expect(await h.ask('src/app.ts')).toBe('no');
+    expect(h.asked).toHaveLength(REFUSALS_PER_MINUTE);
+    // A minute after the first of them one more name may be asked, and a host that answers it opens the gate again.
+    h.advance(REFUSAL_WINDOW_MS - REFUSALS_PER_MINUTE * 1_000);
+    const later = [h.ask('src/app.ts'), h.ask('src/b.ts'), h.ask('src/c.ts')];
+    expect(h.asked).toHaveLength(REFUSALS_PER_MINUTE + 1);
+    await h.answer();
+    expect(h.inFlight()).toBe(2);
     await h.answer();
     await h.answer('not_found');
     expect(await Promise.all(later)).toEqual(['src/app.ts', 'src/b.ts', 'no']);
   });
 
-  it('refusals that were already on their way are counted once: the gate is one request wide again after any of them', async () => {
+  it('refusals that were already on their way are counted too: the gate is one request wide again after any of them', async () => {
     const h = host();
     const first = h.ask('src/a.ts');
     await h.answer();
     expect(await first).toBe('src/a.ts');
-    const burst = Array.from({ length: 10 }, (_, index) => h.ask(`node_modules/pkg/f${index}.js`));
+    const burst = Array.from({ length: 30 }, (_, index) => h.ask(`data/f${index}.js`));
     expect(h.inFlight()).toBe(MAX_LOOKUPS_IN_FLIGHT);
     await h.answer('path_denied');
-    // The three that were out with it come back refused too; none of the six that waited is asked.
-    while (h.inFlight() > 0) await h.answer('path_denied');
-    expect(await Promise.all(burst)).toEqual(Array.from({ length: 10 }, () => 'no'));
+    // The three that were out with it come back refused too; meanwhile none of the names that wait is sent.
     expect(h.asked).toHaveLength(1 + MAX_LOOKUPS_IN_FLIGHT);
-    h.advance(REFUSAL_QUIET_MS + 1);
-    void h.ask('src/x.ts');
-    void h.ask('src/y.ts');
+    while (h.inFlight() > 1) await h.answer('path_denied');
+    await h.answer('path_denied');
+    // Then one at a time, up to the count.
     expect(h.inFlight()).toBe(1);
+    while (h.inFlight() > 0) await h.answer('path_denied');
+    expect(h.asked).toHaveLength(1 + REFUSALS_PER_MINUTE);
+    expect(await Promise.all(burst)).toEqual(Array.from({ length: 30 }, () => 'no'));
   });
 
   it("never asks about a name the viewer's role cannot open, and keeps one gate per connection", async () => {
@@ -259,6 +280,47 @@ describe("the gate every lookup of a path in someone's text goes through (review
     const files = { stat: async (file: FileRef) => makeEntry(file.path) };
     expect(pathGateOf(files)).toBe(pathGateOf(files));
     expect(pathGateOf({ stat: files.stat })).not.toBe(pathGateOf(files));
+  });
+
+  it('a request this side gave up on is no answer of the host: the gate stays one request wide', async () => {
+    const pending: { reject(error: unknown): void; resolve(entry: FileEntry): void }[] = [];
+    const gate = createPathGate({ stat: () => new Promise<FileEntry>((resolve, reject) => pending.push({ resolve, reject })), now: () => 0 });
+    const asks = ['src/a.ts', 'src/b.ts', 'src/c.ts'].map((path) => gate.stat(ref(path), MEMBER).catch(() => null));
+    expect(pending).toHaveLength(1);
+    pending[0]!.reject(new ClientRequestError('timeout'));
+    for (let round = 0; round < 8; round += 1) await Promise.resolve();
+    expect(pending).toHaveLength(2);
+    pending[1]!.resolve(makeEntry('src/b.ts'));
+    for (let round = 0; round < 8; round += 1) await Promise.resolve();
+    expect(pending).toHaveLength(3);
+    pending[2]!.resolve(makeEntry('src/c.ts'));
+    expect((await Promise.all(asks)).map((entry) => entry?.path ?? null)).toEqual([null, 'src/b.ts', 'src/c.ts']);
+  });
+
+  it('a lookup that was not sent is not remembered as "no such file": the path is asked the next time', async () => {
+    let refuse = true;
+    const asked: string[] = [];
+    let now = 0;
+    const gate = createPathGate({
+      stat: async (file) => {
+        asked.push(file.path);
+        if (refuse) throw new SmurgError('path_denied');
+        return makeEntry(file.path);
+      },
+      now: () => now,
+    });
+    const existence = createPathExistence({ lookup: () => undefined, stat: (file) => gate.stat(file, MEMBER), now: () => now });
+    for (let index = 0; index < REFUSALS_PER_MINUTE; index += 1) expect(await existence.check(ref(`data/a${index}`))).toBeNull();
+    // The count is reached: this one is not sent …
+    expect(await existence.check(ref('src/app.ts'))).toBeNull();
+    expect(asked).toHaveLength(REFUSALS_PER_MINUTE);
+    // … and a minute later it is asked, although less than the 30 s of a remembered answer have passed since it "failed".
+    now += REFUSAL_WINDOW_MS;
+    refuse = false;
+    expect(await existence.check(ref('src/app.ts'))).toBe('file');
+    // A refused path stays "not a link" without another request.
+    expect(await existence.check(ref('data/a0'))).toBeNull();
+    expect(asked).toHaveLength(REFUSALS_PER_MINUTE + 1);
   });
 
   it('"there is no such file" is an answer, not a refusal: what waited is asked next', async () => {

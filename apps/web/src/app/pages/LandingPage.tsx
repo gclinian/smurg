@@ -157,7 +157,7 @@ export function LandingPage() {
 }
 
 function SignedIn({ user, onLoggedOut }: { user: RelayUser; onLoggedOut(): void }) {
-  const { auth } = useAppServices();
+  const { auth, manager } = useAppServices();
   const [busy, setBusy] = useState(false);
   return (
     <div className="app-landing__signed-in">
@@ -167,12 +167,18 @@ function SignedIn({ user, onLoggedOut }: { user: RelayUser; onLoggedOut(): void 
         loading={busy}
         onClick={() => {
           setBusy(true);
-          // Unsent texts can quote project code: what this browser kept of them goes with the login, of every
-          // workspace and whether or not the relay can be reached.
-          forgetAllDrafts();
           auth
             .logout()
-            .catch(() => {})
+            .then(
+              () => {
+                // Unsent texts can quote project code: what this browser kept of them goes with the login, of every
+                // workspace. Only now: a logout that failed leaves the person logged in, with their texts. And no
+                // workspace session of this page outlives the login (one is held for a while after its page closed).
+                forgetAllDrafts();
+                manager.closeAll();
+              },
+              () => {},
+            )
             .finally(() => {
               setBusy(false);
               onLoggedOut();

@@ -265,11 +265,17 @@ export const t = defineStrings(
     'claudeConfig.group.other': 'Other settings',
     'claudeConfig.group.scripts': 'Scripts these commands call (while the settings are in use, only you can change them through smurg)',
     'claudeConfig.group.loaded': 'Files it loads',
+    'claudeConfig.script.absent': 'named, not there yet',
+    'claudeConfig.scripts.absentNote': 'A path a command names where no file is yet is guarded like the others, and a file that appears there asks you again.',
     'claudeConfig.env.flagged': 'can send your login to another server',
     'claudeConfig.env.programs': 'changes which programs run',
     // What a list leaves out is said, never hidden: these three stand together above the lists of one file.
     'claudeConfig.cut.omitted': { one: '{count} more entry is not listed below.', other: '{count} more entries are not listed below.' },
     'claudeConfig.cut.shortened': { one: '{count} entry below is cut short.', other: '{count} entries below are cut short.' },
+    'claudeConfig.unfollowed': {
+      one: 'smurg cannot follow which files {count} of these commands runs: only the scripts listed are guarded.',
+      other: 'smurg cannot follow which files {count} of these commands run: only the scripts listed are guarded.',
+    },
     'claudeConfig.cut.readFile': 'Read the file itself (at the bottom) before you decide.',
     'claudeConfig.cut.readFiles': 'Read the files themselves on your computer before you decide.',
     // Not a file: the rest of what Claude Code loads from the folder's .claude/ (agents, skills, commands, rules).
@@ -306,6 +312,11 @@ export const t = defineStrings(
     'redact.where': 'In {title}',
     'redact.replaced': 'Everyone sees "{text}" in its place. The conversation stored on your computer is changed too.',
     'redact.memory': 'Claude Code keeps its own record of the conversation: the agent may still know what the entry said.',
+    'redact.copies': 'Only this entry is removed. Questions, permission requests, suggestions, inbox items and the audit log keep what they hold of it.',
+    'redact.copies.topic':
+      'Only this entry is removed. Questions, permission requests, suggestions, inbox items and follow-up questions on a report keep what they hold of it until the topic is deleted. The audit log keeps the full text of what was sent to agents.',
+    'redact.copies.free':
+      'Only this entry is removed. Questions, permission requests, suggestions and inbox items keep what they hold of it, and the audit log keeps the full text of what was sent to agents. This session belongs to no topic: nothing removes those.',
     'redact.irreversible': 'This cannot be undone.',
     'redact.confirm': 'Remove entry',
     'redact.done': 'The entry was removed.',

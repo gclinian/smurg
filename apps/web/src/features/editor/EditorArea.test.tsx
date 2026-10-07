@@ -76,21 +76,22 @@ describe('EditorArea: tabs, lazy editor, collaborative binding', () => {
     await view.open();
     await waitFor(() => expect(view.fake.bindings).toHaveLength(1));
     // The discussion's agent wrote into the file: the daemon puts its caret into the document under the name of its
-    // topic, in the colour of its entry in the presence list (which names it after the person who opened it).
+    // topic, the name and the colour of its entry in the presence list.
     const agentClient = 4_242;
     const caret = new awarenessProtocol.Awareness(new Y.Doc());
     caret.clientID = agentClient;
     // Twice: a state is taken from another client only with a clock above the one already known (none: 0).
     for (let round = 0; round < 2; round += 1) caret.setLocalState({ user: { name: 'Claude (Checkout)', color: '#f59e0b', kind: 'agent', userId: 'dev:host' }, selection: { anchor: {}, head: {} } });
     act(() => awarenessProtocol.applyAwarenessUpdate(room.awareness, awarenessProtocol.encodeAwarenessUpdate(caret, [agentClient]), 'the daemon'));
-    const agent = (status: 'running' | 'idle' | 'done') => ({ sessionId: 'sess_d', ownerUserId: 'dev:mei', displayName: 'Claude (Mei)', color: '#f59e0b', status, activeFile: FILE });
+    // The list carries the agent's file only while it is at work.
+    const agent = (status: 'running' | 'idle' | 'done') => ({ sessionId: 'sess_d', ownerUserId: 'dev:mei', displayName: 'Claude (Checkout)', color: '#f59e0b', status, ...(status === 'running' ? { activeFile: FILE } : {}) });
     act(() => view.conn.emit('presence.state', { members: [], agents: [agent('running')] }));
     await view.settle();
     const names = (): string[] => [...document.querySelectorAll('.editor-doc__participants li')].map((entry) => entry.getAttribute('title') ?? '');
     const style = (): string => document.head.querySelector('style[data-smurg-presence]')?.textContent ?? '';
     expect(names()).toEqual(['Claude (Checkout)']);
     expect(style()).toContain(`yRemoteSelectionHead-${agentClient}`);
-    // Its turn ends. Nothing changes in the document's awareness states: only the presence list says so.
+    // Its turn ends. The presence list says so first; the caret is still in the document's awareness states for a moment.
     act(() => view.conn.emit('presence.state', { members: [], agents: [agent('idle')] }));
     expect(names()).toEqual([]);
     expect(style()).not.toContain(`yRemoteSelectionHead-${agentClient}`);

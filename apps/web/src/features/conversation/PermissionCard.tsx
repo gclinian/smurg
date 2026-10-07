@@ -358,7 +358,13 @@ export const PermissionCard = memo(function PermissionCard({ requestId }: { requ
     >
       <Asked request={request} onUnread={reportUnread} />
       {where}
-      {request.reason !== undefined ? <p className="conv-card__who">{t('perm.reason', { reason: request.reason })}</p> : null}
+      {request.gate !== undefined ? (
+        // smurg's own gate asked for this card: the card says why in the reader's language. The daemon's `reason` is
+        // the same sentence in English (it reaches Claude Code as a hook's reason) and is not shown beside it.
+        <p className="conv-card__who conv-card__who--gate">{t(`perm.gate.${request.gate}`)}</p>
+      ) : request.reason !== undefined ? (
+        <p className="conv-card__who">{t('perm.reason', { reason: request.reason })}</p>
+      ) : null}
     </Card>
   );
 });

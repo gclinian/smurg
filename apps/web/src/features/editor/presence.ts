@@ -2,8 +2,7 @@
 // name, a colour and a cursor; an agent is named "Claude (Ian)" by the daemon. Every `user` field is written by the
 // daemon (a peer cannot choose its name), but names still end up in generated CSS and in the DOM, so they are treated
 // as untrusted text: escaped in CSS (lib/presence-css.ts), rendered as React text (never HTML).
-import type { PresenceAgent } from '@smurg/protocol';
-import { agentAtWork } from '../../lib/agent-work.ts';
+import { isAgentAtWork, type PresenceAgent } from '@smurg/protocol';
 import { compareText } from '../../lib/format.ts';
 import { presenceCss, safeColor } from '../../lib/presence-css.ts';
 
@@ -34,16 +33,16 @@ function userOf(state: Readonly<Record<string, unknown>> | null | undefined): Ra
 const colorKey = (color: unknown): string | null => (typeof color === 'string' && color !== '' ? color.toLowerCase() : null);
 
 /**
- * The awareness states without the agents that do not work right now. The host's smurg leaves an agent's caret in a
- * document for as long as its session lives; an agent that is idle, done or stopped is not "also in this file", and
- * its caret is not drawn.
+ * The awareness states without the agents that do not work right now. An agent that is idle, done or stopped is not
+ * "also in this file" and its caret is not drawn. The host's smurg takes an agent's caret out of the document when its
+ * turn ends; this covers the moment in which the presence list already says that it rests and the caret is still
+ * there.
  *
  * An agent's state does not name its session, so it is matched to the host's presence list by its COLOUR: the daemon
- * gives every agent session its own and paints the caret with the colour of that session's presence entry. Nothing
- * else of the two agrees for a topic's sessions: the list names an agent after the person who opened the session
- * ("Claude (Mei)"), the caret after its work item or topic ("Claude (Checkout)"), and the owner the caret carries is
- * not always that person. The state goes only when every agent of that colour is at rest; one the list does not know
- * (the list has not arrived yet) stays.
+ * gives every agent session its own and paints the caret with the colour of that session's presence entry. The name
+ * is the same on both sides too (`Claude (<item | topic | who opened it>)`), but two sessions may share one: two
+ * sessions of one person are both "Claude (Ian)". The state goes only when every agent of that colour is at rest;
+ * one the list does not know (the list has not arrived yet) stays.
  */
 export function agentsAtWorkOnly(states: AwarenessStates, agents: readonly PresenceAgent[]): AwarenessStates {
   const kept = new Map<number, Readonly<Record<string, unknown>> | null | undefined>();
@@ -52,7 +51,7 @@ export function agentsAtWorkOnly(states: AwarenessStates, agents: readonly Prese
     if (user?.kind === 'agent') {
       const color = colorKey(user.color);
       const same = color === null ? [] : agents.filter((agent) => colorKey(agent.color) === color);
-      if (same.length > 0 && !same.some((agent) => agentAtWork(agent.status))) continue;
+      if (same.length > 0 && !same.some((agent) => isAgentAtWork(agent.status))) continue;
     }
     kept.set(clientId, state);
   }

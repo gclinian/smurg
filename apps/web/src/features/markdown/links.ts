@@ -154,6 +154,165 @@ function placeOf(written: string): Place | null {
   return placeOfBareWord(word);
 }
 
+// ---- names that only look like an address
+//
+// `github.c\u043em` with a Cyrillic "o" reads as github.com and is another name; so does a name written entirely in
+// look-alike letters, and so does `github\u3002com` with a Chinese full stop for the dot (a browser takes that full stop
+// for a dot too). No list of look-alike letters is complete, so the rule does not try: a dotted name with ANY letter
+// from outside ASCII is never taken at its word (review R4-05, third round). What a browser opens for such a name is
+// its ASCII form (`xn--…`), so even a link that leads to the very name it shows gets its destination written out.
+//
+// Chinese, Japanese and Korean are written without spaces, so their characters around a Latin name are the sentence
+// the name stands in, not part of the name (`\u8acb\u5230github.com\u767b\u5165`): a label ends where the writing changes
+// between those scripts and everything else. And their full stop is a full stop wherever one of their characters
+// stands beside it.
+
+/** What a label of a name can be made of, in any script: letters, marks, digits. */
+const NAME_CHAR = /[\p{L}\p{M}\p{N}]/u;
+/** The scripts written without spaces between words. */
+const SPACELESS = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Bopomofo}]/u;
+const IDEOGRAPHIC_FULL_STOP = '\u3002';
+
+/** 0: not part of a label; 1: an ASCII label character; 2: a letter from outside ASCII; 3: a character of a script written without spaces. */
+type LabelKind = 0 | 1 | 2 | 3;
+
+function labelKind(char: string): LabelKind {
+  if (char.length === 1 && char.charCodeAt(0) < 0x80) {
+    const unit = char.toLowerCase().charCodeAt(0);
+    return isLabelChar(unit) ? 1 : 0;
+  }
+  if (SPACELESS.test(char)) return 3;
+  return NAME_CHAR.test(char) ? 2 : 0;
+}
+
+/** The character (one or two UTF-16 units) that ends just before `index`, or '' at the start. */
+function charBefore(text: string, index: number): string {
+  if (index <= 0) return '';
+  const low = text.charCodeAt(index - 1);
+  if (low >= 0xdc00 && low <= 0xdfff && index >= 2) {
+    const high = text.charCodeAt(index - 2);
+    if (high >= 0xd800 && high <= 0xdbff) return text.slice(index - 2, index);
+  }
+  return text[index - 1] as string;
+}
+
+/** The character that starts at `index`, or '' at the end. */
+function charAt(text: string, index: number): string {
+  if (index >= text.length) return '';
+  return String.fromCodePoint(text.codePointAt(index) as number);
+}
+
+/** Labels of the two writings never run into each other: 1 and 2 are one writing, 3 is the other. */
+const sameWriting = (a: LabelKind, b: LabelKind): boolean => a !== 0 && b !== 0 && (a === 3) === (b === 3);
+
+/**
+ * `text` with every Chinese full stop that stands between two label characters of other scripts turned into the dot
+ * it is read as there (`github\u3002com`). Beside a Chinese, Japanese or Korean character it ends a sentence and stays.
+ */
+function foldFullStops(text: string): string {
+  let at = text.indexOf(IDEOGRAPHIC_FULL_STOP);
+  if (at === -1) return text;
+  const pieces: string[] = [];
+  let from = 0;
+  while (at !== -1) {
+    const before = labelKind(charBefore(text, at));
+    const after = labelKind(charAt(text, at + 1));
+    if ((before === 1 || before === 2) && (after === 1 || after === 2)) {
+      pieces.push(text.slice(from, at), '.');
+      from = at + 1;
+    }
+    at = text.indexOf(IDEOGRAPHIC_FULL_STOP, at + 1);
+  }
+  if (from === 0) return text;
+  pieces.push(text.slice(from));
+  return pieces.join('');
+}
+
+/**
+ * Whether `text` holds a dotted name with a letter from outside ASCII in one of the two labels at a dot: a name that
+ * cannot be taken at its word. One pass: each dot looks at the label on either side of it, and a label ends at the
+ * next dot.
+ */
+function holdsForeignName(text: string): boolean {
+  let dot = text.indexOf('.');
+  while (dot !== -1) {
+    let foreign = false;
+    // The label before the dot.
+    let start = dot;
+    let first: LabelKind = 0;
+    for (;;) {
+      const char = charBefore(text, start);
+      const kind = char === '' ? 0 : labelKind(char);
+      if (first === 0) first = kind;
+      if (!sameWriting(first, kind)) break;
+      if (kind !== 1) foreign = true;
+      start -= char.length;
+    }
+    if (start < dot) {
+      // The label after it.
+      let end = dot + 1;
+      first = 0;
+      for (;;) {
+        const char = charAt(text, end);
+        const kind = char === '' ? 0 : labelKind(char);
+        if (first === 0) first = kind;
+        if (!sameWriting(first, kind)) break;
+        if (kind !== 1) foreign = true;
+        end += char.length;
+      }
+      if (end > dot + 1 && foreign) return true;
+    }
+    dot = text.indexOf('.', dot + 1);
+  }
+  return false;
+}
+
+/** A combining mark: what `normalize` has to put in order, one run of them at a time. */
+const MARK = /\p{M}/u;
+/** More marks than this on one letter are not part of any name. */
+const MARKS_MAX = 8;
+
+/**
+ * `text` with every run of combining marks cut to MARKS_MAX of them. The browser's own `normalize` puts the marks of
+ * one run in order by comparing them with each other, which costs the square of the run: 32,000 marks of two kinds
+ * in turn took 0.3 s, a megabyte of them minutes, for every link that holds them and at every mount (review R4-03,
+ * third round). No name has such a run, and whether a word names a place does not depend on its hundredth accent.
+ */
+function withFewMarks(text: string): string {
+  const pieces: string[] = [];
+  let from = 0;
+  let marks = 0;
+  let index = 0;
+  while (index < text.length) {
+    const unit = text.charCodeAt(index);
+    if (unit < 0x300) {
+      marks = 0;
+      index += 1;
+      continue;
+    }
+    const char = charAt(text, index);
+    if (!MARK.test(char)) marks = 0;
+    else {
+      marks += 1;
+      if (marks > MARKS_MAX) {
+        // The mark is left out: what stands before it is kept, the next piece begins after it.
+        if (index > from) pieces.push(text.slice(from, index));
+        from = index + char.length;
+      }
+    }
+    index += char.length;
+  }
+  if (from === 0) return text;
+  pieces.push(text.slice(from));
+  return pieces.join('');
+}
+
+/** Whether `text` has a character from outside ASCII at all (most links' words have none: nothing above runs for them). */
+function hasNonAscii(text: string): boolean {
+  for (let index = 0; index < text.length; index += 1) if (text.charCodeAt(index) > 0x7f) return true;
+  return false;
+}
+
 /** What may stand in front of an address in a sentence, and after it. */
 const OPENS = '("\'<[';
 const CLOSES = ')"\'>].,;:!?';
@@ -165,7 +324,8 @@ const isWordUnit = (unit: number): boolean => unit >= 0x21 && unit <= 0x7e;
  * `[https://github.com/…](https://evil.example/login)`, `[Sign in at github.com](https://evil.example)`,
  * `[amy@example.com](mailto:eve@evil.example)`, `![github.com/logo.png](https://evil.example/x.png)`.
  * `href` is an address safeHref() accepted. `www.` in front of a host is not a difference. Characters that only look
- * like ASCII (full-width letters, a one-dot leader for the dot) are read as what they look like.
+ * like ASCII (full-width letters, a one-dot leader or a Chinese full stop for the dot) are read as what they look
+ * like, and a dotted name with a letter from outside ASCII is always "another place" (see above).
  *
  * Linear in the length of the text: see the note at the top of this part.
  */
@@ -178,7 +338,11 @@ export function namesAnotherPlace(text: string, href: string): boolean {
     // A mail address that does not decode names nothing a text could agree with.
     destination = UNCLEAR;
   }
-  const read = text.normalize('NFKC');
+  // Pure ASCII is what it is. Anything else is read as what it looks like (full-width letters, a one-dot leader).
+  const normal = hasNonAscii(text) ? withFewMarks(text).normalize('NFKC') : text;
+  const foreign = hasNonAscii(normal);
+  const read = foreign ? foldFullStops(normal) : normal;
+  if (foreign && holdsForeignName(read)) return true;
   let index = 0;
   while (index < read.length) {
     if (!isWordUnit(read.charCodeAt(index))) {

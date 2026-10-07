@@ -215,6 +215,51 @@ describe('host console: Claude Code project settings', () => {
     expect(acksNeeded({ root: MAIN, state: 'ignored', files: [SETTINGS, CUT, RISKY] })).toEqual(['credentials', 'allows-tools', 'incomplete']);
   });
 
+  it('a script a command names where no file is yet is marked, and commands whose files smurg cannot follow are counted above the lists (review R3-02)', async () => {
+    const BLIND = makeConfigFile({
+      runs: ['hook Stop: sh "$SCRIPT"', '^ smurg cannot follow which files the command above runs', 'hook PreToolUse: ./scripts/new.sh', 'hook PostToolUse: ./scripts/lint.sh --fix', 'hook Stop: eval "$CMD"', '^ smurg cannot follow which files the command above runs'],
+      scripts: [
+        { path: 'scripts/lint.sh', hash: hash('b') },
+        { path: 'scripts/new.sh', hash: hash('0'), absent: true },
+      ],
+      needsAck: ['incomplete'],
+      unfollowed: 2,
+    });
+    const fixture = defaultFixture();
+    fixture.claudeConfig = [{ root: MAIN, state: 'ignored', files: [BLIND, makeConfigFile({ path: '.mcp.json', hash: hash('c'), runs: ['"$TOOL" --check'], scripts: [], needsAck: ['incomplete'], unfollowed: 1, cut: { omitted: 2, shortened: 0 } })] }];
+    renderConsole({ fixture });
+    const claude = await section();
+    const settings = (await within(claude).findByText('.claude/settings.json', { selector: 'h4 code' })).closest('li') as HTMLElement;
+    // Above the lists, like what a list leaves out: the scripts listed are not everything these commands run.
+    const notice = within(settings).getByText('smurg cannot follow which files 2 of these commands run: only the scripts listed are guarded. Read the file itself (at the bottom) before you decide.');
+    expect(notice.compareDocumentPosition(within(settings).getByText('Runs commands')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // One banner says both when a list is cut too; one command reads as one.
+    const mcp = (within(claude).getByText('.mcp.json', { selector: 'h4 code' }).closest('li') as HTMLElement).querySelector('[class*="banner"]') as HTMLElement;
+    expect(mcp.textContent).toBe('2 more entries are not listed below. smurg cannot follow which files 1 of these commands runs: only the scripts listed are guarded. Read the file itself (at the bottom) before you decide.');
+    // The path where no file is yet: marked, the other one is not; and what that means is said once.
+    const scripts = within(settings).getByText(/^Scripts these commands call/).parentElement as HTMLElement;
+    const rows = [...scripts.querySelectorAll('li')];
+    expect(rows.map((row) => row.textContent)).toEqual(['scripts/lint.sh', 'scripts/new.shnamed, not there yet']);
+    expect(within(rows[1] as HTMLElement).getByText('named, not there yet')).toBeTruthy();
+    expect(within(scripts).getByText('A path a command names where no file is yet is guarded like the others, and a file that appears there asks you again.')).toBeTruthy();
+    // A file whose scripts are all there says nothing of the kind.
+    expect(within(within(claude).getByText('.mcp.json', { selector: 'h4 code' }).closest('li') as HTMLElement).queryByText(/no file is yet/)).toBeNull();
+    // "Use them" waits for the tick, as for any list that is not everything.
+    expect((within(claude).getByRole('button', { name: 'Use them' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('settings that cannot be confirmed say where the reason stands, in the daemon\u2019s sentence', async () => {
+    const fixture = defaultFixture();
+    fixture.claudeConfig = [{ root: MAIN, state: 'ignored', files: [SETTINGS] }];
+    const view = renderConsole({ fixture });
+    const claude = await section();
+    fireEvent.click(await within(claude).findByRole('button', { name: 'Use them' }));
+    await act(async () => {
+      view.conn.fail('admin.claudeConfig.decide', new SmurgError('conflict', msg('claudeConfig.cannotConfirm'), { reason: 'unverifiable' }));
+    });
+    expect(await within(claude).findByText('Could not save the decision: These Claude Code project settings cannot be used as they are. The reason stands at the top of "Other settings".')).toBeTruthy();
+  });
+
   it('everything else Claude Code loads from .claude/ is one more entry: named for what it is, its files listed, confirmed with the settings files', async () => {
     const LOADED = makeConfigFile({
       path: '.claude',

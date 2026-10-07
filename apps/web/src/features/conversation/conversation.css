@@ -801,28 +801,34 @@
   font-size: var(--text-sm);
   flex: none;
 }
-/* The state, how long it has lasted, and what else stops the session: one line, cut at the column's edge. The two
-   sentences are live regions and stay in the tree while empty; the age between them is not one (StatusBar.tsx). */
+/* The state with how long it has lasted, and what else stops the session (the host's account, an action that was
+   refused). Nothing of either is ever cut (review R6-05: two items that shrink alike drew "Claude is i…" in front of
+   "The host's Cl…", and one that gives way first vanished, taking a fraction of a pixel from the state on its way):
+     - the state is never squeezed by what follows it. The second sentence stands beside it when both fit, and on a
+       line of its own when they do not (a flex line that wraps holds only what fits, so nothing on it shrinks);
+     - on its own line the second sentence wraps like text: the reason nothing moves stays readable in the narrowest
+       column;
+     - a column too narrow for the state itself wraps the state's words; the age stays beside its last line. */
 .conv-status__line {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
+  column-gap: var(--space-3);
   flex: 1;
   min-width: 0;
 }
-.conv-status__text,
-.conv-status__more {
+.conv-status__state {
+  display: flex;
+  align-items: baseline;
+  align-items: last baseline;
+  flex: 0 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: 100%;
 }
-/* What is cut in a narrow column is the END of the line: the second sentence gives way first, down to nothing, and
-   only then the state itself (two items that shrink alike cut "Claude is i…" in front of "The host's Cl…"). */
 .conv-status__text {
   flex: 0 1 auto;
-}
-.conv-status__more {
-  flex: 0 1000 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .conv-status__age {
   flex: none;
@@ -830,12 +836,12 @@
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-/* The gap in front of the second sentence is part of what gives way: a margin would stay when the sentence itself is
-   squeezed to nothing, and take its width from the state. */
-.conv-status__more:not(:empty)::before {
-  content: '';
-  display: inline-block;
-  width: var(--space-3);
+/* Both sentences are live regions and stay in the tree while empty (StatusBar.tsx); the age between them is not one.
+   The gap in front of the second sentence is the line's column gap: there is none when it stands on a line of its own. */
+.conv-status__more {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .conv-status--wait {
   color: var(--color-warning);

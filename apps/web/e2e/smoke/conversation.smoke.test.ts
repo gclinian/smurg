@@ -129,33 +129,68 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
   };
 
   /**
-   * A second sentence in the status bar of a narrow column (the host's account is why nothing moves): what gives way is
-   * that sentence, never the state in front of it. Measured on a copy of the page's bar, 330 px wide.
+   * A second sentence in the status bar (the host's account is why nothing moves), in columns of four widths: the
+   * state in front of it is never squeezed, not by a fraction of a pixel (Chrome draws "…" for that), and the second
+   * sentence is never cut either: it stands beside the state or on a line of its own, inside the bar. Measured on a
+   * copy of the page's bar in a box of each width (the bar's padding is a share of the box it stands in).
    */
-  const stateStaysWhole = async (page: Page, second: string): Promise<void> => {
-    const widths = await column(page)
-      .locator('.conv-status')
-      .evaluate((bar, sentence) => {
-        const copy = bar.cloneNode(true) as HTMLElement;
-        // As wide as a narrow column, with the padding the bar has there (its own is a share of the column it stands in).
-        copy.style.width = '330px';
-        copy.style.boxSizing = 'border-box';
-        copy.style.paddingInline = '12px';
-        copy.style.alignSelf = 'flex-start';
-        bar.after(copy);
-        const state = copy.querySelector('.conv-status__text') as HTMLElement;
-        const more = copy.querySelector('.conv-status__more') as HTMLElement;
-        const alone = state.clientWidth;
-        more.textContent = sentence;
-        const result = { alone, beside: state.clientWidth, age: copy.querySelector('.conv-status__age') !== null, moreNeeds: more.scrollWidth, moreHas: more.clientWidth };
-        copy.remove();
-        return result;
-      }, second);
-    expect(widths.age).toBe(true);
-    expect(widths.alone).toBeGreaterThan(0);
-    // The state keeps every pixel it had without the second sentence, and the second sentence is what is cut.
-    expect(widths.beside).toBe(widths.alone);
-    expect(widths.moreHas).toBeLessThan(widths.moreNeeds);
+  const bothSentencesWhole = async (page: Page, second: string): Promise<void> => {
+    for (const width of [320, 380, 420, 560]) {
+      const seen = await column(page)
+        .locator('.conv-status')
+        .evaluate(
+          (bar, { sentence, width }) => {
+            const box = document.createElement('div');
+            box.style.cssText = `position:absolute;left:0;top:0;width:${width}px;display:flex;flex-direction:column`;
+            const copy = bar.cloneNode(true) as HTMLElement;
+            box.append(copy);
+            (bar.parentElement as HTMLElement).append(box);
+            const state = copy.querySelector('.conv-status__text') as HTMLElement;
+            const age = copy.querySelector('.conv-status__age') as HTMLElement | null;
+            const more = copy.querySelector('.conv-status__more') as HTMLElement;
+            /** The width the words need, to a fraction of a pixel. */
+            const words = (node: HTMLElement): number => {
+              const range = document.createRange();
+              range.selectNodeContents(node);
+              return range.getBoundingClientRect().width;
+            };
+            const alone = state.getBoundingClientRect().width;
+            more.textContent = sentence;
+            const stateBox = state.getBoundingClientRect();
+            const moreBox = more.getBoundingClientRect();
+            const barBox = copy.getBoundingClientRect();
+            const result = {
+              barWidth: barBox.width,
+              stateNeeds: words(state),
+              stateAlone: alone,
+              stateHas: stateBox.width,
+              stateScroll: state.scrollWidth,
+              stateClient: state.clientWidth,
+              ageBesideState: age !== null && Math.abs(age.getBoundingClientRect().bottom - stateBox.bottom) < 4 && age.getBoundingClientRect().left >= stateBox.right - 0.5,
+              moreScroll: more.scrollWidth,
+              moreClient: more.clientWidth,
+              moreInsideBar: moreBox.left >= barBox.left - 0.01 && moreBox.right <= barBox.right + 0.01 && moreBox.top >= barBox.top - 0.01 && moreBox.bottom <= barBox.bottom + 0.01,
+              moreShown: moreBox.width > 0 && moreBox.height > 0,
+              besideOrBelow: moreBox.left >= stateBox.right - 0.5 || moreBox.top >= stateBox.bottom - 1,
+            };
+            box.remove();
+            return result;
+          },
+          { sentence: second, width },
+        );
+      const at = `${second} at ${width} px: ${JSON.stringify(seen)}`;
+      expect(seen.barWidth, at).toBe(width);
+      // The state: its whole text is on screen, and the second sentence took nothing from it.
+      expect(seen.stateScroll, at).toBe(seen.stateClient);
+      expect(seen.stateHas, at).toBeGreaterThanOrEqual(seen.stateNeeds - 0.01);
+      expect(seen.stateHas, at).toBe(seen.stateAlone);
+      expect(seen.ageBesideState, at).toBe(true);
+      // The second sentence: whole, inside the bar, beside the state or on a line of its own.
+      expect(seen.moreShown, at).toBe(true);
+      expect(seen.moreScroll, at).toBe(seen.moreClient);
+      expect(seen.moreInsideBar, at).toBe(true);
+      expect(seen.besideOrBelow, at).toBe(true);
+    }
   };
 
   it('a session without a topic: the first message reaches the agent; its text, tool line and permission request show for everyone, and those who may answer do', async () => {
@@ -179,7 +214,7 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
     expect(await request.locator('.conv-perm__cmd').textContent()).toBe('pnpm test cart');
     await request.getByRole('button', { name: 'Allow once' }).waitFor({ timeout: STEP_MS });
     await column(host).getByRole('status').filter({ hasText: 'Claude is waiting for permission' }).waitFor({ timeout: STEP_MS });
-    await stateStaysWhole(host, "The host's Claude account reached a usage limit.");
+    await bothSentencesWhole(host, "The host's Claude account reached a usage limit.");
     // "Always allow this kind" names the kind in words.
     await request.getByText(/commands that start with pnpm test/).waitFor({ timeout: STEP_MS });
 
@@ -193,7 +228,7 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
     await openFromList(mei);
     const meiRequest = column(mei).getByRole('region', { name: 'Claude 請求許可執行指令' });
     await column(mei).getByRole('status').filter({ hasText: 'Claude 正在等待許可' }).waitFor({ timeout: STEP_MS });
-    await stateStaysWhole(mei, '主人的 Claude 帳號已達用量上限。');
+    await bothSentencesWhole(mei, '主人的 Claude 帳號已達用量上限。');
     await meiRequest.getByRole('button', { name: '允許一次' }).click();
     await column(host).getByText(/Allowed once by mei/i).waitFor({ timeout: STEP_MS });
     await column(amy).getByText(/Allowed once by mei/i).waitFor({ timeout: STEP_MS });

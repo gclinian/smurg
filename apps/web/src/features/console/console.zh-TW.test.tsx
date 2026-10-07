@@ -148,11 +148,41 @@ describe('host console in zh-TW', () => {
     expect(within(settings).getByRole('checkbox', { name: 'agent 可以使用我自己的和這個專案的 MCP 伺服器' })).toBeTruthy();
 
     const view = renderWithConsoleData(<ConsoleOverlays />, { fixture: topicFixture() });
+    await waitFor(() => expect(view.stores.sessions.getState().sessions.has('sess_disc')).toBe(true));
     act(() => consoleDialogs(view.stores).open({ kind: 'redact', sessionId: 'sess_disc', seq: 9 }));
     const dialog = screen.getByRole('alertdialog', { name: '移除這則內容？' });
     // What will stand in its place is the daemon's sentence, in Chinese.
     expect(within(dialog).getByText('所有人會在原處看到「主人已移除這則內容」。儲存在你電腦上的對話紀錄也會一併修改。')).toBeTruthy();
+    // What else keeps a copy, and what removes it.
+    expect(within(dialog).getByText('只會移除這一則。選擇題、權限請求、建議、收件夾項目和報告的追問各自留著的那一份，要刪除主題才會一併移除。操作紀錄會保留傳給 agent 的完整文字。')).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: '移除內容' })).toBeTruthy();
+  });
+
+  it('the project settings: a script that is named but not there yet, and commands whose files smurg cannot follow', async () => {
+    const fixture = defaultFixture();
+    fixture.claudeConfig = [
+      {
+        root: { kind: 'main' },
+        state: 'ignored',
+        files: [
+          makeConfigFile({
+            runs: ['hook Stop: sh "$SCRIPT"', '^ smurg cannot follow which files the command above runs'],
+            scripts: [
+              { path: 'scripts/lint.sh', hash: 'b'.repeat(64) },
+              { path: 'scripts/new.sh', hash: '0'.repeat(64), absent: true },
+            ],
+            needsAck: ['incomplete'],
+            unfollowed: 1,
+          }),
+        ],
+      },
+    ];
+    renderConsole({ fixture, section: 'claude-config' });
+    const claude = (await screen.findByRole('heading', { level: 2, name: 'Claude Code 專案設定' })).closest('section') as HTMLElement;
+    expect(await within(claude).findByText('smurg 無法得知這些指令裡有 1 個會執行哪些檔案：只有列出的腳本受到保護。決定之前，請先讀檔案本身（在最下面）。')).toBeTruthy();
+    const marked = within(claude).getByText('有提到，但檔案還不存在').closest('li') as HTMLElement;
+    expect(marked.textContent).toBe('scripts/new.sh有提到，但檔案還不存在');
+    expect(within(claude).getByText('指令提到但還沒有檔案的路徑，和其他腳本一樣受到保護；之後有檔案出現在那裡，會再問你一次。')).toBeTruthy();
   });
 
   it('every action of the audit vocabulary has a Chinese name of its own', () => {

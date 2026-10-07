@@ -53,6 +53,16 @@ describe('the topic screens in zh-TW', () => {
     expect(screen.getByText('把金額計算集中到單一模組。')).toBeTruthy();
   });
 
+  it('a plan smurg cannot read: what is wrong, then what is shown below, without a gap after full-width punctuation (review R2-C)', async () => {
+    const broken: Topic = { ...TOPIC, plan: { ...TOPIC.plan, valid: false, error: { text: msg('plan.error.noBlock'), fallback: 'PLAN.md has no work item block (the two smurg:plan marker lines).' } } };
+    const world = { role: 'agent' as const, topics: [broken], plans: { tp_1: PLAN } };
+    const conn = topicConnection(world);
+    renderInColumn(<PlanColumn topicId="tp_1" />, { target: { kind: 'plan', topicId: 'tp_1' }, conn, admit: false });
+    admitAs(conn, world);
+    await settle();
+    expect(screen.getByText(/下面是 smurg 最後一次讀得懂的計畫。/).textContent).toContain('PLAN.md 裡沒有工作項目區塊（兩行 smurg:plan 標記）下面是 smurg 最後一次讀得懂的計畫。檔案修正之前，任何項目都不能開始。');
+  });
+
   it('badges and lists', () => {
     expect(formatAnd(['Ian', 'Mei', 'Amy'])).toBe('Ian、Mei 和 Amy');
     expect(itemBadge(buildWorkItem({ state: 'stalled', stalledBy: 'agent' }), PLAN).text).toBe('沒寫報告就停下了');

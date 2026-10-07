@@ -59,7 +59,17 @@ export interface CommandMap {
    * A console section navigates to the host console. Switches to the sessions view when code mode is shown.
    * Handler: the workspace shell.
    */
-  openColumn: { readonly target: ColumnTarget; readonly side?: boolean; readonly from?: 'row' | 'inbox'; readonly anchor?: ColumnAnchor };
+  openColumn: {
+    readonly target: ColumnTarget;
+    readonly side?: boolean;
+    readonly from?: 'row' | 'inbox';
+    readonly anchor?: ColumnAnchor;
+    /**
+     * Show `target` in the place of the column that shows this thing (which the same caller opened a moment ago,
+     * before it knew where it leads). When that column is no longer open, nothing is opened: the person went on.
+     */
+    readonly inPlaceOf?: ColumnTarget;
+  };
   /** Switch between the sessions view and code mode (a route change: both stay mounted). Handler: the workspace shell. */
   setMode: { readonly mode: WorkspaceMode };
   /**

@@ -56,7 +56,8 @@ https://app.smurg.ai.
 ## Not verified yet, and known limits
 
 - **The topics flow has not run with a real model.** Every test used a scripted stand-in for the model, and real
-  Claude Code only against a fake API; the developers used no real Claude account. Whether a real model asks its
+  Claude Code (2.1.288) only against a fake API, never against the real model; the developers used no real Claude
+  account. Whether a real model asks its
   questions as cards, writes the plan and the report in the checked format and proposes a sensible split is not
   verified. smurg checks those formats itself, asks the agent to fix them and puts stopped work into an inbox
   ([`docs/HOSTING.md`](docs/HOSTING.md) §10.8).
@@ -69,7 +70,13 @@ https://app.smurg.ai.
   available to other people. For a group, the host should log Claude Code in with an API key, a Team or Enterprise
   plan, or a cloud provider; smurg says so and does not stop the host ([`docs/HOSTING.md`](docs/HOSTING.md) §4).
 - **Every member reads every conversation**, including members who join later, and whatever an agent reads it may
-  repeat. Masking of well-known key formats is best effort.
+  repeat. Masking of well-known key formats is best effort, and so is removing an entry of a conversation: cards,
+  inbox excerpts and the audit log keep their own copy ([`docs/HOSTING.md`](docs/HOSTING.md) §5.4).
+- **What agents do not do, and what smurg does not see**: agents start no subagents in this version, and `@path`
+  in a message is not replaced by the file. In a folder whose Claude Code project settings run scripts, smurg asks
+  a person before an agent's shell command that names such a script or its folder; a program that names none of
+  them (a build, a script that rewrites another) is not seen before it runs, so hook scripts belong in
+  `.claude/hooks/` ([`docs/HOSTING.md`](docs/HOSTING.md) §5.2, §5.3).
 - **Requirements**: agent sessions need Claude Code 2.1.288 or later on the host's computer (an older one is
   refused); carrying out work items needs the shared folder to be a git repository (git 2.42 or later). The host's
   own Claude Code allow rules apply to agent sessions; the host is told once which.

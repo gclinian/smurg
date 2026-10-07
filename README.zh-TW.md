@@ -41,8 +41,8 @@ https://smurg.ai/zh-TW/docs/；網頁版（公用 relay）：https://app.smurg.a
 
 ## 還沒驗證的、已知的限制
 
-- **主題的流程還沒有用真正的模型跑過。** 每一項測試用的都是照劇本回應的模型替身，真正的 Claude Code 也只對著假的 API
-  執行過；開發者沒有使用任何真正的 Claude 帳號。真正的模型會不會用卡片提出選擇題、會不會用 smurg 檢查的格式寫計畫和
+- **主題的流程還沒有用真正的模型跑過。** 每一項測試用的都是照劇本回應的模型替身，真正的 Claude Code（2.1.288）也只對著
+  假的 API 執行過，從來沒有對著真正的模型執行；開發者沒有使用任何真正的 Claude 帳號。真正的模型會不會用卡片提出選擇題、會不會用 smurg 檢查的格式寫計畫和
   報告、提出的分工合不合理，都還沒有驗證。smurg 會自己檢查這些格式、請 agent 修正，並把停下來的工作放進收件夾
   （[主人指南](docs/zh-TW/HOSTING.md) §10.8）。
 - **「可使用 agent」沒有任何隔離**：這個角色的組員可以開終端機，也可以允許 agent 請求執行的任何事，都是以主人的身分在
@@ -52,7 +52,11 @@ https://smurg.ai/zh-TW/docs/；網頁版（公用 relay）：https://app.smurg.a
   Max）只供主人自己使用：Anthropic 的條款不允許把它提供給其他人使用。多人使用時，主人應該讓 Claude Code 改用 API 金鑰、
   Team 或 Enterprise 方案，或雲端供應商登入；smurg 會提醒，但不會阻止主人（[主人指南](docs/zh-TW/HOSTING.md) §4）。
 - **每個成員都讀得到每一段對話**，之後才加入的成員也一樣；agent 讀到的任何東西，它都可能說出來。常見金鑰格式的遮蔽只是
-  盡力而為。
+  盡力而為，移除對話裡的一則內容也是：卡片、收件夾摘錄和操作紀錄都留有自己的副本（[主人指南](docs/zh-TW/HOSTING.md) §5.4）。
+- **agent 不會做的事，以及 smurg 看不到的事**：這個版本的 agent 不會啟動 subagent，訊息裡的 `@路徑` 也不會被換成檔案。
+  資料夾的 Claude Code 專案設定會執行腳本時，agent 的 shell 指令只要提到這樣的腳本或它的資料夾，smurg 就會先問人；完全
+  沒提到它們的程式（建置、會改寫另一個腳本的腳本），在執行之前是看不到的，所以 hook 的腳本請放在 `.claude/hooks/`
+  （[主人指南](docs/zh-TW/HOSTING.md) §5.2、§5.3）。
 - **需求**：agent session 需要主人的電腦上有 Claude Code 2.1.288 以上（版本太舊會被拒絕）；執行工作項目需要分享的資料夾
   是 git 儲存庫（git 2.42 以上）。主人自己的 Claude Code 允許規則對 agent session 也有效；smurg 會告訴主人一次是哪些。
 - **Linux 主人**：全部測試在 Ubuntu 24.04 上通過（arm64 虛擬機，以及 GitHub Actions 的 x64），但還沒有人真的在 Linux 上

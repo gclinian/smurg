@@ -101,6 +101,12 @@ export type OpenColumnResult =
 
 export interface ColumnsStore extends ReadableStore<ColumnsState> {
   open(target: ColumnRef, options?: OpenColumnOptions): OpenColumnResult;
+  /**
+   * Shows another thing in the place of the open column `id`: the column keeps its place, its width, its pin and the
+   * focus it has (nothing is revealed: the person is already looking at it). When the thing is open elsewhere, that
+   * column gets the focus and this one closes. Null when `id` is not open any more: nothing is brought back.
+   */
+  replace(id: string, target: ColumnRef, options?: Pick<OpenColumnOptions, 'anchor'>): OpenColumnResult | null;
   /** Closes a column. Returns the id of the column that has the focus afterwards (right neighbour, else left), or null. */
   close(id: string): string | null;
   closeOthers(id: string): void;
@@ -319,6 +325,30 @@ export function createColumnsStore(options: CreateColumnsOptions): ColumnsStore 
         anchors: withAnchor(withoutAnchor(previous.anchors, replaced.id), id, openOptions.anchor),
       }));
       return { outcome: 'replaced', id, replacedId: replaced.id };
+    },
+
+    replace(id, target, replaceOptions = {}) {
+      const current = state.getState();
+      if (!current.columns.some((column) => column.id === id)) return null;
+      const nextId = columnId(target);
+      if (nextId === id) return { outcome: 'focused', id };
+      if (current.columns.some((column) => column.id === nextId)) {
+        update((previous) => ({
+          ...previous,
+          columns: previous.columns.filter((column) => column.id !== id),
+          focusedId: nextId,
+          reveal: revealOf(nextId),
+          anchors: withAnchor(withoutAnchor(previous.anchors, id), nextId, replaceOptions.anchor),
+        }));
+        return { outcome: 'focused', id: nextId };
+      }
+      update((previous) => ({
+        ...previous,
+        columns: previous.columns.map((existing) => (existing.id === id ? { ...existing, id: nextId, target } : existing)),
+        focusedId: previous.focusedId === id ? nextId : previous.focusedId,
+        anchors: withAnchor(withoutAnchor(previous.anchors, id), nextId, replaceOptions.anchor),
+      }));
+      return { outcome: 'replaced', id: nextId, replacedId: id };
     },
 
     close(id) {

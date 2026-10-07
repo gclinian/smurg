@@ -125,6 +125,63 @@ describe('drafts', () => {
     expect(loose.get('s1').text).toBe('x');
   });
 
+  it('a store that was open while the drafts were deleted elsewhere does not write them back (review R2-D, third round)', () => {
+    const storage = new MemoryStorage();
+    const KEY = 'smurg.drafts.ws_1';
+    // Two tabs show the same workspace; each holds the drafts in its memory.
+    const first = createDraftsStore('ws_1', storage);
+    first.setText('s1', 'const key = 1;');
+    first.setText('s2', 'Another');
+    const second = createDraftsStore('ws_1', storage);
+    expect(second.get('s1').text).toBe('const key = 1;');
+    // The person logs out in a third tab (or leaves the workspace there, or takes it off the list).
+    forgetAllDrafts(storage);
+    expect(storage.getItem(KEY)).toBeNull();
+    // A keystroke in either tab: nothing of what was deleted comes back, not the draft being typed in either.
+    first.setText('s1', 'const key = 1; // more');
+    second.setText('s2', 'Another word');
+    second.clear('s1');
+    expect(storage.getItem(KEY)).toBeNull();
+    // The page that still shows keeps what is on it for as long as it shows.
+    expect(first.get('s1').text).toBe('const key = 1; // more');
+    expect(second.get('s2').text).toBe('Another word');
+
+    // The same after "Leave" or a removal in another tab (one workspace's drafts).
+    const third = createDraftsStore('ws_3', storage);
+    third.setText('s1', 'kept until the person left');
+    forgetDrafts('ws_3', storage);
+    third.setText('s1', 'kept until the person left, and typed on');
+    expect(storage.getItem('smurg.drafts.ws_3')).toBeNull();
+    // Also when somebody else wrote there in between (the person joined again in a new tab).
+    const rejoined = createDraftsStore('ws_3', storage);
+    rejoined.setText('s9', 'A new thought');
+    third.setText('s1', 'still typing in the old tab');
+    expect(storage.getItem('smurg.drafts.ws_3')).toBe(JSON.stringify([['s9', { text: 'A new thought', source: null }]]));
+    // A store that is opened after the deletion keeps drafts as always.
+    rejoined.setText('s9', 'A new thought, longer');
+    expect(createDraftsStore('ws_3', storage).get('s9').text).toBe('A new thought, longer');
+  });
+
+  it('a deletion of another workspace\u2019s drafts changes nothing for this one, and a store with nothing to write back goes on', () => {
+    const storage = new MemoryStorage();
+    const mine = createDraftsStore('ws_1', storage);
+    mine.setText('s1', 'Half a thought');
+    const empty = createDraftsStore('ws_2', storage);
+    forgetDrafts('ws_9', storage);
+    mine.setText('s1', 'Half a thought, finished');
+    expect(createDraftsStore('ws_1', storage).get('s1').text).toBe('Half a thought, finished');
+    // Everything was deleted while this store held nothing: what is typed from now on is new, and kept.
+    forgetAllDrafts(storage);
+    empty.setText('s1', 'Typed after the logout and a new login');
+    expect(createDraftsStore('ws_2', storage).get('s1').text).toBe('Typed after the logout and a new login');
+    // Without a storage (a private window) nothing throws and nothing is kept.
+    const loose = createDraftsStore('ws_1', null);
+    loose.setText('s1', 'x');
+    forgetAllDrafts(null);
+    forgetDrafts('ws_1', null);
+    expect(loose.get('s1').text).toBe('x');
+  });
+
   it('a member who is removed, whose device is revoked or whose browser belongs to another account now leaves no draft in this browser', () => {
     const KEY = 'smurg.drafts.ws_1';
     /** A workspace session as drafts see it: its connection's state, which a test moves by hand. */

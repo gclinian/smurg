@@ -13,7 +13,7 @@ import { formatActor, formatAge, formatAnd, formatNumber } from '../../lib/forma
 import { kindLabel } from '../../lib/session-status.ts';
 import type { InboxRowAction, InboxRowView } from '../../lib/slots.ts';
 import { selectSession, sessionTitle, type SessionsState, type SessionsStore } from '../../lib/stores/sessions.ts';
-import { selectPlan, selectReport, selectTopic, type TopicsState, type TopicsStore } from '../../lib/stores/topics.ts';
+import { reportKey, selectPlan, selectReport, selectTopic, type TopicsState, type TopicsStore } from '../../lib/stores/topics.ts';
 import { t } from './strings.ts';
 
 export interface InboxRowContext {
@@ -213,7 +213,9 @@ function itemOfMergeRow(item: InboxItem, topics: TopicsState): { topicId: string
  * work item nobody reported on, and a request somebody made after the report (a hand edit in the item's worktree and
  * "Request merge" give a new request, while the report still names its own draft).
  *
- * The report must be in the store to know (`reportNeededFor`); until it is, the row leads where the item says.
+ * The report must be in the store to know (`reportNeededFor`); until it is, the row leads where the item says. The
+ * inbox asks about it when the row appears; a click that comes before the answer shows the report's column, and the
+ * Changes column takes its place when the answer says so (InboxList.tsx `useOpenInboxItem`).
  */
 export function inboxTarget(item: InboxItem, topics: TopicsState): ColumnTarget {
   const about = itemOfMergeRow(item, topics);
@@ -222,10 +224,27 @@ export function inboxTarget(item: InboxItem, topics: TopicsState): ColumnTarget 
   return report?.changes?.requestId === item.target.requestId ? { kind: 'report', ...about } : item.target;
 }
 
-/** The report `inboxTarget` needs and the store does not hold: it is read before the row is followed. Null: nothing to read. */
+/**
+ * The report `inboxTarget` needs and the store knows nothing of yet. Null: nothing to read (the report is loaded, or
+ * the host said that the item has none).
+ */
 export function reportNeededFor(item: InboxItem, topics: TopicsState): { topicId: string; itemId: string } | null {
   const about = itemOfMergeRow(item, topics);
-  return about !== null && selectReport(topics, about.topicId, about.itemId) === undefined ? about : null;
+  if (about === null || topics.noReport.has(reportKey(about.topicId, about.itemId))) return null;
+  return selectReport(topics, about.topicId, about.itemId) === undefined ? about : null;
+}
+
+/**
+ * The reports the rows of an inbox need, each once: asked about when the rows appear (`knowReport`), so that a click
+ * on a merge row opens the right column at once instead of waiting for an answer.
+ */
+export function reportsToLoad(items: Iterable<InboxItem>, topics: TopicsState): { topicId: string; itemId: string }[] {
+  const wanted = new Map<string, { topicId: string; itemId: string }>();
+  for (const item of items) {
+    const needed = reportNeededFor(item, topics);
+    if (needed !== null) wanted.set(reportKey(needed.topicId, needed.itemId), needed);
+  }
+  return [...wanted.values()];
 }
 
 /** The topics whose plans the rows read and the store does not hold yet: why an item stopped. */

@@ -16,7 +16,7 @@
 import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Token } from 'marked';
 import { cx } from '../../ui/cx.ts';
-import { lexMarkdown, lexMarkdownPieces, waitsForTime } from './lex.ts';
+import { lexMarkdown, lexMarkdownPieces, waitsForTime, type PlainToken } from './lex.ts';
 import type { MarkdownPaths, PathTarget } from './paths.ts';
 import { MdBlock, markMentions, type RenderContext } from './render.tsx';
 import { stableLength } from './stream.ts';
@@ -89,16 +89,36 @@ export function PlainText({ text, mentions, className }: PlainTextProps) {
   return <div className={cx('md-plain', className)}>{mentions === undefined ? text : markMentions(text, mentions)}</div>;
 }
 
+/** Whether `tokens` are a piece that must be parsed again: shown as written only for the moment, or because its text ran out of time. */
+function parsedForNow(tokens: readonly Token[]): boolean {
+  const only = tokens.length === 1 ? (tokens[0] as unknown as PlainToken) : null;
+  return only !== null && only.type === 'plain' && (only.reason === 'later' || only.reason === 'time');
+}
+
 /**
  * The tokens of the pieces of one text (lexMarkdownPieces: one budget, one memory). Parsed while rendering, as part of
  * the mount; when the page's share of parse time is spent the pieces are shown as written and parsed again in a
  * transition, in which React lets go of the thread between one component and the next.
+ *
+ * A piece that is the same as at the last render keeps its tokens: it is not parsed again, and its blocks are not
+ * drawn again (render.tsx MdBlock goes by the token). A keystroke in a long SPEC.md changes the whole text and ONE
+ * of its sections.
  */
 function usePieces(pieces: readonly string[], whole: string, breaks: boolean): readonly (readonly Token[])[] {
   /** The text this component parses outside the page's share (it was told to wait once). */
   const [late, setLate] = useState<string | null>(null);
-  const tokens = useMemo(() => lexMarkdownPieces(pieces, whole, { breaks, urgent: late !== whole }), [pieces, whole, breaks, late]);
-  const waits = tokens.length > 0 && waitsForTime(tokens[0] as Token[]);
+  /** The pieces of the last render with what they were parsed into. */
+  const kept = useRef<{ readonly breaks: boolean; readonly tokens: ReadonlyMap<string, readonly Token[]> } | null>(null);
+  const tokens = useMemo(() => {
+    const before = kept.current !== null && kept.current.breaks === breaks ? kept.current.tokens : null;
+    const fresh = [...new Set(pieces.filter((piece) => before?.has(piece) !== true))];
+    const lexed = fresh.length === 0 ? [] : lexMarkdownPieces(fresh, whole, { breaks, urgent: late !== whole });
+    const now = new Map<string, readonly Token[]>(fresh.map((piece, index) => [piece, lexed[index] as Token[]]));
+    const all = pieces.map((piece) => before?.get(piece) ?? (now.get(piece) as readonly Token[]));
+    kept.current = { breaks, tokens: new Map(pieces.flatMap((piece, index) => (parsedForNow(all[index] as readonly Token[]) ? [] : [[piece, all[index] as readonly Token[]] as const]))) };
+    return all;
+  }, [pieces, whole, breaks, late]);
+  const waits = tokens.some((piece) => waitsForTime(piece));
   useEffect(() => {
     if (waits) startTransition(() => setLate(whole));
   }, [waits, whole]);

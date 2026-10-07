@@ -156,10 +156,13 @@ export function StatusBar({ session, onShowCard }: StatusBarProps) {
     <div className={cx('conv-status', (wait || accountLine !== null) && 'conv-status--wait', session.status === 'ended' && 'ui-visually-hidden')} data-status={session.status}>
       {glyph !== null ? <StatusGlyph status={glyph} label={statusLabel(glyph)} /> : null}
       <span className="conv-status__line">
-        <span className="conv-status__text" role="status">
-          {text}
+        {/* The state and its age are one piece (conversation.css): what follows never takes width from them. */}
+        <span className="conv-status__state">
+          <span className="conv-status__text" role="status">
+            {text}
+          </span>{' '}
+          {since !== undefined ? <span className="conv-status__age">{t('status.age', { age: formatAge(since, now) })}</span> : null}
         </span>{' '}
-        {since !== undefined ? <span className="conv-status__age">{t('status.age', { age: formatAge(since, now) })}</span> : null}{' '}
         <span className="conv-status__more" role="status">
           {joinSentences([accountLine, action.error === null ? null : t('actionFailed', { message: action.error })])}
         </span>

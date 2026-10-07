@@ -460,14 +460,17 @@ machine whose `claude` has moved on has not run it. So name the binary:
 cd <repo> && source scripts/env.sh
 SMURG_TEST_CLAUDE_BIN=/absolute/path/to/claude-2.1.288 \
   pnpm --filter @smurg/daemon exec vitest run test/hooks/claude-e2e.test.ts test/hooks/claude-bash.test.ts \
-  test/hooks/claude-failmodes.test.ts test/sessions/agent-claude-real.test.ts
+  test/hooks/claude-failmodes.test.ts test/sessions/agent-claude-real.test.ts test/sessions/trust-claude-real.test.ts
 ```
 
-No file may print `SKIPPED`. What it proves that the stand-in cannot: that real Claude Code runs smurg's hook before
-every tool and obeys its refusal, on a host whose own settings allow everything; that a discussion agent writes only
-its topic's two files; that commands ask and "always allow" holds; that the host's private files stay out of reach
-of the search and read tools; that project settings nobody confirmed are not loaded; that a conversation is resumed
-after its process ended (`docs/ACCEPTANCE.md`: T2.1, T4.2, S4, S5, S8, S10, S16, S22, R8.1). The built app's one
+No file may print `SKIPPED` (five files, 35 tests). What it proves that the stand-in cannot: that real Claude Code
+runs smurg's hook before every tool and obeys its refusal, on a host whose own settings allow everything; that a
+discussion agent writes only its topic's two files; that commands ask and "always allow" holds; that the host's
+private files stay out of reach of the search and read tools; that project settings nobody confirmed are not
+loaded; that the hook's question about a shell command near a confirmed hook script stands above the edit mode and
+above the host's own allow rules; that no subagent starts; that an `@path` in a message stays text; that a
+conversation is resumed after its process ended (`docs/ACCEPTANCE.md`: T2.1, T4.2, S4, S5, S6, S8, S10, S12, S15,
+S16, S22, R8.1). The built app's one
 pass with real Claude Code in system Chrome belongs to this step too and takes its binary from the same variable
 (`flow.claude.smoke` of the web-smoke project: a session without a topic, its first message, a tool, a command that
 a member with agent access allows and that really runs, a question and its answer). It runs only when the variable

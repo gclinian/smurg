@@ -71,10 +71,15 @@ export function WorkspaceShell({ mode }: WorkspaceShellProps) {
 
   useCommandHandler('setMode', ({ mode: next }) => goTo(next));
 
-  useCommandHandler('openColumn', ({ target, side, from, anchor }) => {
+  useCommandHandler('openColumn', ({ target, side, from, anchor, inPlaceOf }) => {
     if (!isColumnRef(target)) {
       // A section of the host console is a page of its own.
       router.navigate(routePath({ name: 'console', workspaceId, section: target.section }));
+      return;
+    }
+    if (inPlaceOf !== undefined) {
+      // The column stays where it is and shows the other thing; a column that was closed meanwhile is not brought back.
+      if (isColumnRef(inPlaceOf)) stores.columns.replace(columnId(inPlaceOf), target, anchor === undefined ? {} : { anchor });
       return;
     }
     // The plan of a topic that is executing is pinned by default (DESIGN §5.12 item 24).

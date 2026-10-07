@@ -16,6 +16,7 @@
 // is put into the store before the promise resolves.
 import {
   collectPages,
+  isSmurgError,
   type PayloadInputOf,
   type PlanInfo,
   type PlanMode,
@@ -49,6 +50,11 @@ export interface TopicsState extends Loadable {
   readonly planStatus: ReadonlyMap<string, LoadStatus>;
   /** By reportKey(topicId, itemId). */
   readonly reports: ReadonlyMap<string, ReportInfo>;
+  /**
+   * The reportKeys of work items the host has no report of ("there is none" was its answer): nobody asks again until
+   * the item gets one (a summary on the wire, a plan whose item carries one).
+   */
+  readonly noReport: ReadonlySet<string>;
   /** Oldest first, at most TOPIC_NOTICES_MAX. */
   readonly notices: readonly TopicNotice[];
 }
@@ -101,6 +107,12 @@ export interface TopicsStore extends ReadableStore<TopicsState> {
   // ---- reports
   /** Fetches the whole report and keeps it current (also across a resync). */
   loadReport(topicId: string, itemId: string): Promise<ReportInfo>;
+  /**
+   * Makes sure the store knows about a work item's report: reads it unless it is loaded, on its way, or known to be
+   * missing. For whoever only needs to know what the report says (where an inbox row leads), asked once however
+   * often it is called. Resolves when the store knows as much as the host said; never rejects.
+   */
+  knowReport(topicId: string, itemId: string): Promise<void>;
   followUp(input: PayloadInputOf<'report.followUp'>): Promise<ResultOf<'report.followUp'>>;
   review(input: PayloadInputOf<'report.review'>): Promise<ReportSummary>;
 
@@ -117,6 +129,7 @@ export const INITIAL_TOPICS_STATE: TopicsState = Object.freeze({
   plans: new Map(),
   planStatus: new Map(),
   reports: new Map(),
+  noReport: new Set<string>(),
   notices: [],
 });
 
@@ -209,8 +222,21 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
     return topic;
   };
 
+  /** `noReport` without the keys `gone` says to drop (the same set when none of them is in it). */
+  const withoutNoReport = (noReport: ReadonlySet<string>, gone: (key: string) => boolean): ReadonlySet<string> => {
+    if (![...noReport].some(gone)) return noReport;
+    return new Set([...noReport].filter((key) => !gone(key)));
+  };
+
   const setPlan = (topicId: string, plan: PlanInfo | null): PlanInfo | null => {
-    state.setState((previous) => ({ ...previous, plans: mapWith(previous.plans, topicId, plan), planStatus: mapWith(previous.planStatus, topicId, 'ready') }));
+    // An item that carries a report summary has a report now, whatever was known before.
+    const reported = new Set((plan?.items ?? []).filter((item) => item.report !== undefined).map((item) => reportKey(topicId, item.id)));
+    state.setState((previous) => ({
+      ...previous,
+      plans: mapWith(previous.plans, topicId, plan),
+      planStatus: mapWith(previous.planStatus, topicId, 'ready'),
+      noReport: withoutNoReport(previous.noReport, (key) => reported.has(key)),
+    }));
     return plan;
   };
   const putPlan = (plan: PlanInfo): PlanInfo => setPlan(plan.topicId, plan) as PlanInfo;
@@ -240,10 +266,23 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
     if (flying && options.fresh !== true) return flying;
     const flight = c.conn
       .request('report.get', { topicId, itemId })
-      .then(({ report }) => {
-        if (c.generation() === generation) state.setState((previous) => ({ ...previous, reports: mapWith(previous.reports, reportKey(topicId, itemId), report) }));
-        return report;
-      })
+      .then(
+        ({ report }) => {
+          if (c.generation() === generation) {
+            const key = reportKey(topicId, itemId);
+            state.setState((previous) => ({ ...previous, reports: mapWith(previous.reports, key, report), noReport: withoutNoReport(previous.noReport, (known) => known === key) }));
+          }
+          return report;
+        },
+        (error: unknown) => {
+          // "There is no report" is an answer: it is kept, so that the next one who wants to know does not ask.
+          if (c.generation() === generation && isSmurgError(error) && error.code === 'not_found') {
+            const key = reportKey(topicId, itemId);
+            state.setState((previous) => (previous.noReport.has(key) || previous.reports.has(key) ? previous : { ...previous, noReport: new Set([...previous.noReport, key]) }));
+          }
+          throw error;
+        },
+      )
       .finally(() => {
         if (reportFlights.get(flightKey) === flight) reportFlights.delete(flightKey);
       });
@@ -256,6 +295,7 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
     const key = reportKey(topicId, itemId);
     const loaded = state.getState().reports.get(key);
     state.setState((previous) => {
+      const noReport = withoutNoReport(previous.noReport, (known) => known === key);
       const plan = previous.plans.get(topicId);
       const plans =
         plan && plan.items.some((item) => item.id === itemId)
@@ -263,7 +303,7 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
           : previous.plans;
       const report = previous.reports.get(key);
       const reports = report ? mapWith(previous.reports, key, { ...report, ...summary }) : previous.reports;
-      return { ...previous, plans, reports };
+      return { ...previous, plans, reports, noReport };
     });
     // The whole report is read again when its version moved on (new sections, new changes), and when the summary says
     // nothing new at all: then the news is in what a summary does not carry, a follow-up asked from the report or the
@@ -388,6 +428,15 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
       wantedReports.set(reportKey(topicId, itemId), { topicId, itemId });
       return fetchReport(topicId, itemId);
     },
+    knowReport(topicId, itemId) {
+      const key = reportKey(topicId, itemId);
+      const known = state.getState();
+      if (ctx === null || known.reports.has(key) || known.noReport.has(key)) return Promise.resolve();
+      return fetchReport(topicId, itemId).then(
+        () => {},
+        () => {},
+      );
+    },
     followUp(input) {
       return context().conn.request('report.followUp', input);
     },
@@ -418,6 +467,7 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
             plans: mapWithout(previous.plans, topicId),
             planStatus: mapWithout(previous.planStatus, topicId),
             reports: new Map([...previous.reports].filter(([key]) => !key.startsWith(`${topicId}/`))),
+            noReport: withoutNoReport(previous.noReport, (key) => key.startsWith(`${topicId}/`)),
           }));
         }),
         c.conn.on('plan.updated', ({ plan }) => {

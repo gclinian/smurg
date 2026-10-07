@@ -1,12 +1,13 @@
 # Claude Code as a structured conversation (stream-json, the control protocol, permissions, hooks)
 
 > **What this is.** The research record behind smurg 0.5.0's agent sessions (`docs/ARCHITECTURE.md` §7.6, §7.7,
-> §11 D-16 to D-23). It collects the verified facts of four rounds of experiments made on 2026-10-05 and 2026-10-06:
-> the runtime task (how to run Claude Code without a terminal), the design task, the three reviews of the design, and
-> the checks the agent runtime's own work package added. Like the other reports in this folder it is the authority
-> for *verified facts*; where it and `ARCHITECTURE.md` disagree about what smurg does, `ARCHITECTURE.md` wins. Two
-> things below were verified and then NOT used, by the owner's decision: mirroring the host's own allow rules as
-> ask rules (§5.3), and a terminal-style agent as a fallback (§10).
+> §11 D-16 to D-23). It collects the verified facts of five rounds of experiments made from 2026-10-05 to
+> 2026-10-07: the runtime task (how to run Claude Code without a terminal), the design task, the three reviews of the
+> design, the checks the agent runtime's own work package added, and the checks made when the finished release was
+> reviewed. Like the other reports in this folder it is the authority for *verified facts*; where it and
+> `ARCHITECTURE.md` disagree about what smurg does, `ARCHITECTURE.md` wins. Two things below were verified and then
+> NOT used, by the owner's decision: mirroring the host's own allow rules as ask rules (§5.3), and a terminal-style
+> agent as a fallback (§10).
 
 Target: **Claude Code 2.1.288** (macOS arm64). Most experiments were also run on 2.1.220, some on 2.1.201; where
 versions differ the text says so. smurg's floor for agent sessions is 2.1.288 (§5.4 says why).
@@ -28,15 +29,18 @@ offsets, and every request the binary sent to the fake API) were kept with the r
 part of the repository. What the repository keeps is their durable form:
 
 - `packages/daemon/test/sessions/fixtures/claude-2.1.288.stdout.jsonl`: stdout lines recorded from 2.1.288 (paths
-  scrubbed), replayed by `test/sessions/agent-replay.test.ts`;
-- `packages/daemon/test/sessions/agent-claude-real.test.ts` and `test/hooks/claude-e2e.test.ts`,
-  `claude-bash.test.ts`, `claude-failmodes.test.ts`: the decisive experiments as tests, run whenever a verified
-  binary is on the machine, with the same isolation (`test/hooks/claude-harness.ts`, `mock-anthropic.ts`);
+  scrubbed), and `claude-2.1.288.control.jsonl`: its answers to the control requests smurg sends (`initialize` with
+  each kind of login, `list_permission_rules`), both replayed by `test/sessions/agent-replay.test.ts`;
+- `packages/daemon/test/sessions/agent-claude-real.test.ts`, `test/sessions/trust-claude-real.test.ts` and
+  `test/hooks/claude-e2e.test.ts`, `claude-bash.test.ts`, `claude-failmodes.test.ts`: the decisive experiments as
+  tests, run whenever a verified binary is on the machine, with the same isolation (`test/hooks/claude-harness.ts`,
+  `mock-anthropic.ts`);
 - `packages/daemon/src/testing/fake-claude.mjs`: a stand-in that speaks the protocol described here, for every test
   that needs no real binary.
 
 The experiment names in brackets below (`exp1` … `exp16` the runtime task, `D1` … `D6` the design task, `f1` … `f11`
-the feasibility review, `R1` … `R3` the revision, `P1` the runtime package) identify those runs.
+the feasibility review, `R1` … `R3` the revision, `P1` the runtime package, `P2` the review of the release) identify
+those runs.
 
 ---
 
@@ -74,7 +78,7 @@ One JSON object per line, in both directions [exp1, exp2; the same on 2.1.201, 2
 
 ```
 {type:'control_request', request_id, request:{subtype:'initialize' [, hooks, appendSystemPrompt, agents …]}}
-{type:'user', message:{role:'user', content:[{type:'text',text} | {type:'image',source}]}, parent_tool_use_id:null, uuid [, priority:'now']}
+{type:'user', message:{role:'user', content:[{type:'text',text} | {type:'image',source}]}, parent_tool_use_id:null, uuid [, priority:'now'] [, client_composed:true]}
 {type:'control_response', response:{subtype:'success', request_id:<the CLI's>, response:
      {behavior:'allow', updatedInput [, updatedPermissions]} | {behavior:'deny', message [, interrupt:true]}}}
 {type:'control_request', request_id, request:{subtype:'interrupt' | 'set_permission_mode',mode | 'set_model',model
@@ -103,11 +107,13 @@ Facts smurg's runtime relies on, each as observed:
 | Fact | Evidence |
 |---|---|
 | `initialize` is answered within 250–430 ms, also with six sessions starting at once; its answer carries `account` (`tokenSource`, `apiKeySource`, `apiProvider`, and for a claude.ai-style login `subscriptionType`) | exp8, exp9, P1 |
-| `list_permission_rules` answers `{ state: { rules: [{ behavior, source, rule }] } }` with `source` one of `userSettings`, `projectSettings`, `localSettings`, `policySettings`, `flagSettings`, …; `get_settings` shows the effective settings and each source | exp15, P1 |
+| The three shapes of `account`: with an API key `{ tokenSource: 'none', apiKeySource: 'ANTHROPIC_API_KEY', apiProvider: 'firstParty' }`; with a claude.ai-style login `{ subscriptionType: 'Claude Max', apiProvider: 'firstParty' }` (no `tokenSource`; `init.apiKeySource` is `none`); with no credential `{ tokenSource: 'none', apiProvider: 'firstParty' }`. `subscriptionType` is a display name: `Claude Pro`, `Claude Max`, `Claude Team`, `Claude Enterprise`, `Claude API`, or `Claude <the plan's own name>` | exp9, P2; `fixtures/claude-2.1.288.control.jsonl` |
+| `list_permission_rules` answers `{ state: { rules: [{ behavior, source, rule, description, editability }], workspaceDirectories, originalCwd, managedOnly } }` with `source` one of `userSettings`, `projectSettings`, `localSettings`, `policySettings`, `flagSettings`, …, in the order allow, ask, deny; with `--setting-sources user` it lists no project and no local rules; `get_settings` shows the effective settings and each source | exp15, P1, P2 |
 | `set_permission_mode` works in the middle of a session; `--model` and `set_model` too (smurg uses neither) | exp6, exp7 |
 | Thinking arrives as `thinking_delta` stream events and a thinking block; images in user messages pass through | exp14, exp8 |
 | `--max-turns` ends a turn with `error_max_turns` and the process stays; `--max-budget-usd` with `error_max_budget_usd` | exp7 |
 | A subagent's messages carry `parent_tool_use_id` (seen for a subagent's Read and its text, with `--forward-subagent-text`) | exp14 |
+| The subagent tool has two names: `init.tools` lists it as `Task`, and its `PreToolUse` hook input names it `Agent`. A `can_use_tool` raised inside a subagent carries `agent_id` | P2 |
 
 ## 3. Input, stop, and the life of a process
 
@@ -118,6 +124,8 @@ Facts smurg's runtime relies on, each as observed:
 | A real stop is the control request `interrupt`: a `result` within about 20 ms (`error_during_execution`, `aborted_streaming` or `aborted_tools`); the process stays and takes the next message; a pending permission request is withdrawn with `control_cancel_request` | exp4 |
 | End of stdin: the CLI finishes the current turn, then exits 0 (a pending permission fails with "Tool permission stream closed" and the model gets one more request). `SIGINT`: the turn is aborted, exit 0. `SIGTERM`: exit 143, no `result` | exp4, exp5 |
 | **A message that starts with `/` is run as a slash command locally**: `/context` alone made 0 API requests. ANY prefix stops that: a header line, a leading space, a leading newline each made 1 API request and the model saw the text | exp4, D2 |
+| **An `@path` in a user message is expanded by Claude Code itself**, as for text typed at its own prompt: the file's content is in the API request with NO tool call, so no `PreToolUse` hook, no permission request and no card, also for a file outside the project (a file of the host's home was read that way; a `Read` deny rule is honoured). With `client_composed: true` on the user line the message is delivered as written: the model saw `@inside.txt` as text and none of the files, in a message, in the note of an answer and in the text of a denial. The field also keeps a message from being run as a slash command. smurg sets it on every message it writes | P2; `agent-claude-real.test.ts` |
+| The known side effect of `client_composed`, from Claude Code's own description of the field (not measured here): the context it attaches at the start of a turn (nested `CLAUDE.md` and rules files, skill and tool listings, reminders) arrives after the turn's first tool call instead of with the prompt | Claude Code's documentation of the field |
 | `--session-id <uuid>` works; Claude Code's own transcript is at `$CLAUDE_CONFIG_DIR/projects/<cwd with every non-alphanumeric character as ->/<id>.jsonl` (for a host: `~/.claude/projects/…`), flushed about 100 ms after each entry | exp5, exp5b |
 | `--resume <uuid>` in a new process restores the conversation (an unfinished tool call gets a synthetic "interrupted" result on 2.1.288); nothing happens until a message is sent; resuming from another working directory works on 2.1.288 | exp5 |
 | `--resume` of an id that never had a turn, or that Claude Code no longer keeps: exit 1, stderr "No conversation found with session ID: …". `--session-id` of an id that HAS a conversation: exit 1, "Session ID … is already in use". So the flag must follow what is known about the conversation, and both refusals must be handled | f2 (F2), P1 |
@@ -148,10 +156,14 @@ Facts smurg's runtime relies on, each as observed:
 | In `acceptEdits` the shell cannot write Claude Code's project configuration unasked: `mkdir -p .claude`, a redirect, `cp`, `mv`, `tee` into `.claude/**`, a redirect or `cp` onto `.mcp.json`, a write into `.git/hooks` and a write outside the worktree all raised a request (reason type `safetyCheck` or `subcommandResults`). **`echo x > CLAUDE.md` ran without one** | D5 |
 | `bypassPermissions` is refused by `disableBypassPermissionsMode` (it falls back to `default`); `plan`: edits ask even with allow rules | exp6 |
 | A request carries `permission_suggestions` (`addRules` `Bash(<prefix> *)` with destination `localSettings`, `addDirectories`, `setMode acceptEdits`), `blocked_path`, and `decision_reason` with its type | exp6 |
+| A COMPOUND command carries one suggested rule per sub-command that needs permission (`mkdir -p .git/hooks && echo x > …` suggests `mkdir -p .git/hooks` and `echo x *`), and its `decision_reason` has the type `subcommandResults` where a single command has `safetyCheck`. A suggestion says which rule a click would add, not that the rule covers everything the request runs (`pnpm test && curl … \| sh` suggests `pnpm test *` first) | P2 |
+| A `PreToolUse` hook of the host's own settings that rewrites a tool's input (`updatedInput`): the `tool_use` block keeps the model's input, and `can_use_tool` carries the REWRITTEN one, which is what an `allow` lets run | P2; `agent-claude-real.test.ts` |
 | "Always allow": answering with `updatedPermissions` at destination `session` makes the rule hold for the running process (`Bash(npm test *)` verified; after `Bash(npm run *)`, `npm run lint -- --fix` ran without a request). Destination `localSettings` WRITES `<project>/.claude/settings.local.json`: never echo Claude Code's own suggestion | exp6c, D4 |
 | `--tools Read,Glob,Grep,Edit,Write,AskUserQuestion` gives exactly those tools (Bash: "No such tool available"); **the tools of the `--mcp-config` server are still offered** (`init.tools` lists `mcp__smurg__…`) and run without a request when `permissions.allow` holds `mcp__smurg` | exp6, D1 |
 | Under `--tools` with the fifteen names of the design, `init.tools` of 2.1.288 is `Task, AskUserQuestion, Bash, Edit, Glob, Grep, NotebookEdit, Read, TaskStop, WebFetch, WebSearch, Write`: that version has no `MultiEdit`, `BashOutput`, `KillShell` or `TodoWrite`; `TaskStop` is its name for stopping a background command | P1 |
+| **A subagent runs with what its DEFINITION says, not with the session's mode.** With a definition in the project's `.claude/agents/*.md` (or the host's `~/.claude/agents`) that sets `permissionMode: acceptEdits`, the subagent's edits and file commands ran without a request in a session started in `default`; the hook input's `permission_mode` follows the definition; `bypassPermissions` in a definition is not honoured. A definition can also carry hooks and MCP servers of its own. A gate that lists `Task` refuses every subagent, because the hook names the tool `Agent`. smurg therefore leaves `Task` out of `--tools`: Claude Code then does not offer it, and a call of it answers "No such tool available" and starts nothing | P2; `agent-claude-real.test.ts` |
 | Deny rules bind in every mode. An `Edit(…)` deny rule also refuses SHELL writes onto the named file (`echo >`, `cp`, `sed -i`, `rm`, `mv`); a refused edit says "File is in a directory that is denied by your permission settings." | D4, f2 (F3) |
+| Such a rule refuses only a command that SPELLS the file. With an `Edit` deny rule for `scripts/lint.sh`, in `acceptEdits`: `printf x > scripts/lint.sh`, `cp x scripts/lint.sh` and `mv x scripts/lint.sh` were denied with nobody asked; `cp x/lint.sh scripts/` (the folder as the destination) and `mv scripts scripts.old` followed by `mv other scripts` ran unasked and replaced the file; and copying the file ELSEWHERE was refused as well. A rule on the folder refuses the swap, and with it every edit and file command below the folder. This is why smurg guards the scripts of project settings with its hook and not with rules (§5.2) | P2 |
 | `Read` deny rules for `.git/**` leave an agent's own `git status`, `git diff` and `git log` alone (no request in `acceptEdits`), and refuse `cat .git/HEAD` and `cat .envrc` | P1 |
 
 ### 5.2 The host's own settings answer first; a hook answers before them
@@ -165,6 +177,7 @@ This is the finding the tool gate (`ARCHITECTURE.md` §7.7, §11 D-21) exists fo
 | **ONE `PreToolUse` hook with the matcher `*` (and with no matcher) runs for EVERY tool**: Read, Grep, Glob, Write, Bash, `mcp__smurg__*`, AskUserQuestion. On a host whose own settings allow Read, Edit, Write, Bash, Grep, Glob, WebFetch and an MCP server, with a user-scope MCP server planted, a hook deciding by the kind of session held the discussion profile: refused, with nothing reaching the permission flow, were a Write to `src/`, a Write of `specs/<slug>/CLAUDE.md`, a Read and a Glob in the host's home and a Read of `.envrc`; allowed were a Write of `specs/<slug>/SPEC.md`, the smurg MCP tool and AskUserQuestion (which reached the permission host and was answered). Both versions | R1 |
 | **With the hook answering as when the daemon is unreachable (a deny for everything), nothing ran in `acceptEdits`**: `echo x > f`, `ls` and Write were all refused. That is the liveness check: a remembered rule, a host rule or `acceptEdits` does not let an orphaned agent run a tool | R1 |
 | Claude Code lets a tool run when a hook times out, crashes, exits 1 or is missing: a hook that must hold has to fail closed by itself (print a deny, exit 0) | `claude-hooks.md` §1.2; `claude-failmodes.test.ts` |
+| **A `PreToolUse` hook that answers `ask` makes Claude Code send a permission request whatever its mode and its allow rules would have done by themselves**: `acceptEdits` gives way (the file commands it runs by itself, `cp`, `mv`, `rm`, `sed`, a redirect), and so does a matching allow rule of the host's own settings (`Bash(cp:*)` and its kind for `cp`, `mv`, `tee`, `ln`, `rm`, `sed`, `printf`). A deny rule still refuses first. The hook's `permissionDecisionReason` comes back on the request as `decision_reason` with the type `hook`. In a worktree in `acceptEdits`, with such allow rules, fifteen routes onto a script (a redirect, `cp`, `mv`, `tee`, `sed -i`, `ln`, `rm`, a folder above it moved away and another moved in, a path with `..`, another case, through a link, after a `cd`) each raised a request with the hook's reason and, refused, left the script as it was, while seven ordinary commands beside it ran unasked (two of them only because of those rules). This is row G10 of the tool gate (`ARCHITECTURE.md` §7.7) | exp15, P2; `trust-claude-real.test.ts` |
 | The session settings smurg writes (`disableAllHooks: false`, the `env` neutralizers, `crossSessionInbound: "refuse"`, a deny for `ListAgents`, `disableBypassPermissionsMode`) start normally on both versions; SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, Stop and SessionEnd all fire in structured mode as they did in the terminal UI | exp7, D6 |
 | Hook CALLBACKS registered in `initialize` (`{ hooks: { PreToolUse: [{ matcher, hookCallbackIds }] } }`) arrive as `control_request` / `hook_callback` and are answered on the pipe, with no process per tool call. smurg does not use them: a callback dies with the daemon, and the gate must refuse when the daemon is gone | exp7, exp15 |
 
@@ -174,9 +187,10 @@ This is the finding the tool gate (`ARCHITECTURE.md` §7.7, §11 D-21) exists fo
 |---|---|
 | A rule in the `--settings` file's `permissions.allow` (`Bash(echo remembered *)`) runs without a request, like a flag rule: a remembered rule can be written there at the next start | R2 |
 | The host allows `Bash(touch *)`; the SAME string in the session's `permissions.ask` makes it ask, while `ls` and `cat` still do not ask and `curl` asks. So "mirror the host's allow rules as ask rules" works. **Not used**: the owner decided that the host's own rules apply (`OWNER-DECISIONS.md` Q7) | R2, exp15 |
-| Other ways to force a prompt that were verified and are not used: a `PreToolUse` hook answering `ask` (it also asks for `ls`); `--setting-sources project,local` (drops the host's user settings and the user `CLAUDE.md`) | exp15 |
+| A `PreToolUse` hook answering `ask` for EVERY call also asks for `ls`: smurg's gate answers `ask` only for the shell commands §5.2 describes (a command that may change a script of project settings in use), never as a way to mirror the host's rules. Another way to force a prompt that was verified and is not used: `--setting-sources project,local` (drops the host's user settings and the user `CLAUDE.md`) | exp15 |
 | **How a file rule must be written in a settings file that is not in the project.** Written `/specs/x/SPEC.md` it matches NOTHING of the project: the allow did not approve (a request reached the permission host), the deny rules denied nothing, and Grep showed `.envrc`. Written relative to the working directory (`specs/x/SPEC.md`, `./…`) or absolute (`//<root>/…`) it works: the allow approved the write, the read rules refused Read, hid both `.envrc` files from Grep and refused `cat .envrc`, and the edit rule refused `echo x >> specs/x/PLAN.md` | R3 |
 | As FLAGS, `--allowedTools "Edit(/specs/<slug>/**)"` is anchored at the working directory and approved writes there, and `--disallowedTools "Edit(/specs/<slug>/SPEC.md)"` refused them. smurg uses neither flag: every rule is one string in the settings file, in the absolute form | D3, D4 |
+| **Characters of the folder's own path inside such a rule.** `(` and `)` work as they are, balanced or not. `[` and `]` written as they are open a character class and make EVERY rule of that folder match nothing (the deny rules were gone silently: `.envrc` was read); escaped with a backslash they work. `*`, `{`, `}` and `!` match themselves as they are; an escaped `?` breaks the rule, an unescaped one matches itself. A session in a folder named `Dropbox (Acme) [wip]` started, its read rules hid the private files and a discussion's two files were written without a request. smurg writes no rule for a folder whose path holds a backslash or a control character: it starts no agent session there | P2; `agent-claude-real.test.ts` |
 
 ### 5.4 The version difference that makes 2.1.288 the floor
 
@@ -189,9 +203,11 @@ list once it is denied (`SendMessage` stays, the messaging socket still exists) 
 
 ## 6. Summary of how smurg writes rules
 
-From §5: the mode is always passed; the tool list is always passed and is explicit; every file rule has the form
-`<Tool>(//<realpath of the session's root>/<pattern>)`; Claude Code's own `localSettings` suggestion is never
-echoed; a hook, not a rule, carries whatever must hold on every host.
+From §5: the mode is always passed; the tool list is always passed, is explicit and holds no `Task`; every file rule
+has the form `<Tool>(//<realpath of the session's root>/<pattern>)`, with the brackets of the root's path escaped;
+Claude Code's own `localSettings` suggestion is never echoed, and a rule is offered for "always allow" only when a
+request suggests exactly one; a hook, not a rule, carries whatever must hold on every host, a deny for what never
+runs and an `ask` for what a person must see first.
 
 ## 7. Project settings, trust, and the host's other things
 
@@ -209,6 +225,7 @@ echoed; a hook, not a rule, carries whatever must hold on every host.
 |---|---|
 | A structured session uses whatever the host's Claude Code uses, with the same precedence: an API key goes out as `x-api-key`; a (fake) claude.ai login as `Authorization` with the OAuth beta header, `initialize.account.subscriptionType` and `rate_limit_event` lines. No extra setup | exp9 |
 | Not logged in: `claude auth status --json` exits 1 with `{ loggedIn: false }`; in a session `init.apiKeySource` is `none`, a synthetic assistant message says "Not logged in · Please run /login", the `result` has `is_error` and `terminal_reason: api_error`, and no API request is made | exp9 |
+| `claude auth status --json` answers from the settings of the folder it is RUN in: in a folder whose `.claude/settings.json` has an `apiKeyHelper` it says `loggedIn: true` with `authMethod: api_key_helper`, from another folder `loggedIn: false`, with no credential in either case. The helper is not run, and neither is a `SessionStart` hook. `--setting-sources user` is accepted only BEFORE the subcommand (`claude --setting-sources user auth status --json`); after it the answer is "unknown option". So smurg asks from its own directory until the host has confirmed the folder's settings | P2; `trust-claude-real.test.ts` |
 | A rejected key: `system/api_retry` with `error_status: 401` and `error: 'authentication_failed'`, up to 10 retries with back-off | exp9 |
 | **The API sees structured mode as `claude-cli/<version> (external, sdk-cli)` with `cc_entrypoint=sdk-cli`; the interactive terminal UI (0.4.0's agent sessions) as `(external, cli)` / `cc_entrypoint=cli`** | exp12 |
 
@@ -263,8 +280,10 @@ A terminal-style agent session (the PTY of 0.4.0, which the API sees as `cli`) w
   prompt tells it, calls `check_plan`, `propose_split` and `check_report`, keeps item ids when it updates a plan,
   writes the report in the fixed format, stops after refused tools, and resolves conflict markers well. Every
   "model" in these experiments was a script.
-- A permission request raised INSIDE a subagent (the SDK's types give `can_use_tool` an optional `agent_id` for it;
-  `AskUserQuestion` is documented as unavailable in subagents).
+- What a subagent's definition brings besides its permission mode: its own hooks and MCP servers were not run, and
+  `AskUserQuestion` is documented as unavailable in subagents. smurg starts no subagents (§5.1).
+- The side effect of `client_composed` on when a turn's attached context arrives (§3): taken from Claude Code's own
+  description of the field.
 - MCP elicitation.
 - A real `claude` on Linux: every run was on macOS arm64.
 - The packaged executable's hook under a real model's tool rate (the 20–30 ms were measured one call at a time, on
@@ -283,8 +302,9 @@ With a verified `claude` on PATH (or `SMURG_TEST_CLAUDE_BIN=/absolute/path/to/cl
 
 ```
 cd <repo> && source scripts/env.sh
-cd packages/daemon && pnpm exec vitest run test/sessions/agent-claude-real.test.ts test/hooks/claude-e2e.test.ts \
-    test/hooks/claude-bash.test.ts test/hooks/claude-failmodes.test.ts
+cd packages/daemon && pnpm exec vitest run test/sessions/agent-claude-real.test.ts \
+    test/sessions/trust-claude-real.test.ts test/hooks/claude-e2e.test.ts test/hooks/claude-bash.test.ts \
+    test/hooks/claude-failmodes.test.ts
 ```
 
 The suites start the real binary against `test/hooks/mock-anthropic.ts` with a dummy key and a temporary `HOME` /

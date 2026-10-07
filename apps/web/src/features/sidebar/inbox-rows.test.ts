@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { applyLocale } from '../../lib/locale.ts';
 import { INITIAL_SESSIONS_STATE, type SessionsState } from '../../lib/stores/sessions.ts';
 import { INITIAL_TOPICS_STATE, type TopicsState } from '../../lib/stores/topics.ts';
-import { describeInboxItem, inboxTarget, isDismissable, plansToLoad, reportNeededFor, whereOf, type InboxRowContext } from './inbox-rows.ts';
+import { describeInboxItem, inboxTarget, isDismissable, plansToLoad, reportNeededFor, reportsToLoad, whereOf, type InboxRowContext } from './inbox-rows.ts';
 
 const NOW = 1_727_000_600_000;
 const IAN = { userId: 'dev:host', displayName: 'Ian' };
@@ -95,6 +95,20 @@ describe('where an inbox row leads', () => {
     expect(reportNeededFor(conflict, withReport())).toBeNull();
     expect(reportNeededFor(buildInboxItem('merge', { ready: false, topicId: undefined, itemId: undefined, item: undefined }), context().topics)).toBeNull();
     expect(reportNeededFor(conflict, { ...context().topics, topics: new Map() })).toBeNull();
+    // An item the host has no report of was asked about once: nothing is left to read, the row leads to its changes.
+    const none: TopicsState = { ...context().topics, noReport: new Set(['tp_1/cart-api']) };
+    expect(reportNeededFor(conflict, none)).toBeNull();
+    expect(inboxTarget(conflict, none)).toEqual(changes);
+  });
+
+  it('lists the reports the rows of an inbox need, each once', () => {
+    const other = buildInboxItem('merge', { key: 'merge:mr_2', target: { kind: 'changes', requestId: 'mr_2' }, itemId: 'pay', item: { number: 2, title: 'Payment form' } });
+    const free = buildInboxItem('merge', { key: 'merge:mr_4', target: { kind: 'changes', requestId: 'mr_4' }, ready: false, topicId: undefined, itemId: undefined, item: undefined });
+    expect(reportsToLoad([conflict, asked, other, free, buildInboxItem('question')], context().topics)).toEqual([
+      { topicId: 'tp_1', itemId: 'cart-api' },
+      { topicId: 'tp_1', itemId: 'pay' },
+    ]);
+    expect(reportsToLoad([conflict, other], withReport())).toEqual([{ topicId: 'tp_1', itemId: 'pay' }]);
   });
 });
 

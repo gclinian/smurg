@@ -5,12 +5,14 @@
 // A draft can hold project code (a quoted selection), so it is not a convenience like a pane's width: it must not
 // stay in the browser of someone whose access to the workspace has ended. Where it is deleted from the storage is
 // lib/workspace/drafts-storage.ts (removal, a revoked device, another account's browser, leaving, logging out). Here
-// the store of a page that is still showing stops writing at the same moment (draftsOf watches the connection).
+// the store of a page that is still showing stops writing at the same moment (draftsOf watches the connection), and
+// a store whose drafts were deleted by ANOTHER page of this browser (a second tab that logged out or left) never
+// writes them back: it looks at the storage's mark before every write.
 import { MESSAGE_TEXT_MAX_CHARS, fileRefSchema, type FileRef } from '@smurg/protocol';
 import type { WorkspaceConnection } from '../../lib/connection/types.ts';
-import { browserLocalStorage, readJson, writeJson, type PreferenceStorage } from '../../lib/preferences.ts';
+import { browserLocalStorage, readJson, type PreferenceStorage } from '../../lib/preferences.ts';
 import { createStore, type ReadableStore } from '../../lib/store.ts';
-import { accessEnded, draftsStorageKey, forgetDrafts } from '../../lib/workspace/drafts-storage.ts';
+import { accessEnded, draftsStorageKey, forgetDrafts, forgottenMark } from '../../lib/workspace/drafts-storage.ts';
 
 /** The code selection a draft was made from (it travels with a suggestion as its `source`). */
 export interface DraftSource {
@@ -67,13 +69,40 @@ function parse(value: unknown): Map<string, Draft> {
 }
 
 export function createDraftsStore(workspaceId: string | null, storage: PreferenceStorage | null = browserLocalStorage()): DraftsStore {
-  let key = workspaceId === null ? null : draftsStorageKey(workspaceId);
+  let key = workspaceId === null || storage === null ? null : draftsStorageKey(workspaceId);
+  const raw = (): string | null => {
+    try {
+      return key === null ? null : (storage?.getItem(key) ?? null);
+    } catch {
+      return null;
+    }
+  };
   const state = createStore<ReadonlyMap<string, Draft>>(key === null ? new Map() : parse(readJson(storage, key)));
-  const save = (drafts: ReadonlyMap<string, Draft>): void => {
+  /** The storage's mark of deletions and this workspace's entry, as this store last saw them. */
+  let mark = forgottenMark(storage);
+  let written = raw();
+  const save = (drafts: ReadonlyMap<string, Draft>, held: boolean): void => {
     if (key === null) return;
+    // Drafts were deleted somewhere in this browser since this store last looked. If the entry of this workspace is
+    // still what this store wrote, the deletion was another workspace's. If not, it was this one's (and somebody may
+    // have written there since): what this page holds is the page's only from now on, and nothing is written back.
+    const now = forgottenMark(storage);
+    if (now !== mark) {
+      if (held && raw() !== written) {
+        key = null;
+        return;
+      }
+      mark = now;
+    }
     // Newest last; the oldest go when there are too many.
     const entries = [...drafts].slice(-DRAFTS_MAX).map(([sessionId, draft]) => [sessionId, { text: draft.text, source: draft.source }] as const);
-    writeJson(storage, key, entries);
+    try {
+      const text = JSON.stringify(entries);
+      storage?.setItem(key, text);
+      written = text;
+    } catch {
+      // Quota or blocked storage: a convenience is lost, nothing else.
+    }
   };
   const put = (sessionId: string, change: (draft: Draft) => Draft): void => {
     const previous = state.getState();
@@ -84,7 +113,8 @@ export function createDraftsStore(workspaceId: string | null, storage: Preferenc
     next.delete(sessionId);
     if (after.text !== '' || after.source !== null || after.focusToken !== 0) next.set(sessionId, after);
     state.setState(next);
-    save(next);
+    // `held`: this store had something before this change that a deletion elsewhere would have been about.
+    save(next, previous.size > 0);
   };
   return {
     getState: state.getState,

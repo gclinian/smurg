@@ -109,17 +109,22 @@ describe('remote cursors: names and colours for people AND agents', () => {
     expect(css).toContain('.yRemoteSelectionHead-5{border-left-style:dashed}');
     expect(css).toContain('yRemoteSelectionHead-1');
 
-    // On the real stack the two names differ for every topic session: the presence list says "Claude (<who opened
-    // it>)", the caret "Claude (<the item or the topic>)". The colour is the one thing both take from one place.
+    // A topic's sessions: the presence list and the caret name an agent alike, after its work item or its topic
+    // (`Claude (Checkout)`, protocol `agentSessionName`). The colour is what tells two sessions apart, in any case
+    // of its letters.
     const topic = new Map<number, Record<string, unknown>>([
       [1, human('Amy', 'dev:amy')],
       [4, { user: { name: 'Claude (Checkout)', color: '#F59E0B', kind: 'agent', userId: 'dev:mei' }, selection: { anchor: {}, head: {} } }],
       [5, { user: { name: 'Claude (Cart API)', color: '#22c55e', kind: 'agent', userId: 'dev:host' }, selection: { anchor: {}, head: {} } }],
     ]);
+    const topicPresence = (first: PresenceAgent['status'], second: PresenceAgent['status']): PresenceAgent[] => [
+      { sessionId: 's_1', ownerUserId: 'dev:mei', displayName: 'Claude (Checkout)', color: '#f59e0b', status: first },
+      { sessionId: 's_2', ownerUserId: 'dev:host', displayName: 'Claude (Cart API)', color: '#22c55e', status: second },
+    ];
     const shownOf = (agents: readonly PresenceAgent[]): number[] => participantsOf(agentsAtWorkOnly(topic, agents), 9, 'dev:me').map((p) => p.clientId);
-    expect(shownOf(presence('idle', 'running'))).toEqual([1, 5]);
-    expect(shownOf(presence('running', 'done'))).toEqual([1, 4]);
-    expect(shownOf(presence('idle', 'done'))).toEqual([1]);
+    expect(shownOf(topicPresence('idle', 'running'))).toEqual([1, 5]);
+    expect(shownOf(topicPresence('running', 'done'))).toEqual([1, 4]);
+    expect(shownOf(topicPresence('idle', 'done'))).toEqual([1]);
 
     // An agent the presence list does not know (the list has not arrived, another colour) is left as it is.
     expect(shown([])).toEqual([1, 4, 5]);

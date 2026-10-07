@@ -8,7 +8,7 @@
 import { Component, memo, useCallback, type ErrorInfo, type ReactNode } from 'react';
 import type { ConversationEventOf } from '@smurg/protocol';
 import { renderWireText } from '../../lib/errors.ts';
-import { formatRole, formatTime } from '../../lib/format.ts';
+import { formatRole, formatTime, gapAfter } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { trimEndOf } from '../../lib/trim.ts';
 import type { AgentPiece, LineItem, MessageItem, NoticeItem, RenderItem, SmurgItem, StreamingItem, TextItem, TurnEndItem } from '../../lib/stores/conversations.ts';
@@ -254,11 +254,23 @@ const NoticeRow = memo(function NoticeRow({ item }: { item: NoticeItem }) {
       </>
     );
   }
+  // Sentences of one line: each is set apart from the one before it the way the language does it (gapAfter).
+  const notice = renderWireText(event.text, event.fallback);
   return (
     <Banner tone={event.level === 'error' ? 'danger' : event.level} live="none" className="conv-notice" actions={button ?? undefined}>
-      {renderWireText(event.text, event.fallback)}
-      {hint !== null ? <span className="conv-notice__hint"> {hint}</span> : null}
-      {action.error !== null ? <span className="conv-notice__hint"> {t('actionFailed', { message: action.error })}</span> : null}
+      {notice}
+      {hint !== null ? (
+        <span className="conv-notice__hint">
+          {gapAfter(notice)}
+          {hint}
+        </span>
+      ) : null}
+      {action.error !== null ? (
+        <span className="conv-notice__hint">
+          {gapAfter(hint ?? notice)}
+          {t('actionFailed', { message: action.error })}
+        </span>
+      ) : null}
     </Banner>
   );
 });

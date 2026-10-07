@@ -9,6 +9,7 @@
 // The same logic finds the paths in a conversation's text (features/conversation/env.tsx). Every lookup of either
 // goes through the connection's gate (see "the gate" below): reading must not turn into a stream of refused requests.
 import { isHostPrivatePath, isSmurgDirName, isSmurgError, isValidRelPath, rootRefKey, type FileEntry, type FileRef, type RootRef } from '@smurg/protocol';
+import { isClientRequestError } from '@smurg/protocol/client';
 import type { IBufferRange, ILink, ILinkProvider, Terminal } from '@xterm/xterm';
 import { trimEndOf } from '../../lib/trim.ts';
 
@@ -116,23 +117,31 @@ export function mayAskAbout(path: string, viewer: { readonly isHost: boolean }):
 // ---- the gate
 //
 // A path in text someone else wrote (an agent's answer, a member's message, terminal output) is on the screen of
-// everyone who reads it, and looking it up is a request of THAT reader to the host. The daemon refuses some names for
-// reasons no spelling shows (a path through a file, a hard-linked file, a link that leads to a private file), writes
-// each refusal into the audit log under the asker's name and closes a connection that collects 60 of them in a
-// minute. So every such lookup of a page goes through ONE gate per connection, and a text can cost its reader one
-// refused request, never one per name:
+// everyone who reads it, and looking it up is a request of THAT reader to the host. The daemon answers a name the
+// reader may not look at (the host's private files, a hard-linked file, a path through a file) like a name that is
+// not there, and counts nothing. What it still REFUSES (a name through a link that leads out of the workspace, too
+// many requests) it writes into the audit log under the asker's name, and it closes a connection that collects 60
+// refusals in a minute. So every such lookup of a page goes through ONE gate per connection, and a text can cost its
+// reader a handful of refused requests, never one per name:
 //   - a name the reader's role can never open (mayAskAbout) is not asked about;
 //   - at most MAX_LOOKUPS_IN_FLIGHT requests are out at a time, and only ONE until the host has answered one without
-//     refusing: what the host says to the first decides whether the names that wait are asked at all;
-//   - a refusal answers everything that waits, the refused path is never asked about again, and nothing is asked
-//     for REFUSAL_QUIET_MS.
+//     refusing, and again after every refusal;
+//   - a refused path is never asked about again. The names that wait are still asked: one refused name turns no
+//     other link of the page off;
+//   - at most REFUSALS_PER_MINUTE refusals in any REFUSAL_WINDOW_MS. When that many have come back, everything that
+//     waits is answered without a request, and nothing is asked until the oldest of them is that old. (With the
+//     requests that were out when the last one came back: at most REFUSALS_PER_MINUTE + MAX_LOOKUPS_IN_FLIGHT - 1.)
 
 /** Lookups that may be on their way to the host at one time, once the host has answered one without refusing. */
 export const MAX_LOOKUPS_IN_FLIGHT = 4;
-/** After a refused lookup nothing is asked for this long. */
-export const REFUSAL_QUIET_MS = 60_000;
+/** Refused lookups a page may collect … */
+export const REFUSALS_PER_MINUTE = 8;
+/** … in any stretch of this length: far below what closes a connection, with room for other refusals of the same reader. */
+export const REFUSAL_WINDOW_MS = 60_000;
 /** The error codes the daemon counts as a refusal (and audits under the asker's name): not "there is no such file". */
 const REFUSALS: ReadonlySet<string> = new Set(['path_denied', 'forbidden', 'host_only', 'unauthorized', 'rate_limited']);
+/** How many refused paths are remembered (the oldest are forgotten first). */
+const REFUSED_PATHS_MAX = 4_096;
 
 /** A lookup the gate did not send: the path stays text. */
 export class PathNotAskedError extends Error {
@@ -165,9 +174,21 @@ export function createPathGate(options: PathGateOptions): PathGate {
   let inFlight = 0;
   /** How many requests may be out: one until an answer that is not a refusal, one again after every refusal. */
   let width = 1;
-  let quietUntil = 0;
+  /** When each refusal of the last REFUSAL_WINDOW_MS came back, oldest first. */
+  const refusals: number[] = [];
+
+  /** Whether the refusals of the last minute leave room for another request. */
+  const mayAsk = (): boolean => {
+    const now = options.now();
+    while (refusals.length > 0 && now - (refusals[0] as number) >= REFUSAL_WINDOW_MS) refusals.shift();
+    return refusals.length < REFUSALS_PER_MINUTE;
+  };
 
   const send = (): void => {
+    if (line.length > 0 && !mayAsk()) {
+      for (const waiting of line.splice(0)) waiting.reject(new PathNotAskedError());
+      return;
+    }
     while (inFlight < width && line.length > 0) {
       const next = line.shift() as Waiting;
       inFlight += 1;
@@ -181,12 +202,13 @@ export function createPathGate(options: PathGateOptions): PathGate {
         (error: unknown) => {
           inFlight -= 1;
           if (isSmurgError(error) && REFUSALS.has(error.code)) {
+            if (refused.size >= REFUSED_PATHS_MAX) refused.delete(refused.values().next().value as string);
             refused.add(keyOf(next.ref));
-            quietUntil = options.now() + REFUSAL_QUIET_MS;
+            refusals.push(options.now());
             width = 1;
-            for (const waiting of line.splice(0)) waiting.reject(new PathNotAskedError());
-          } else if (isSmurgError(error)) {
-            // The host answered ("there is no such file"): the names that wait may be asked.
+          } else if (isSmurgError(error) && !isClientRequestError(error)) {
+            // The host answered ("there is no such file"): the names that wait may be asked. A request that this
+            // side gave up on (no answer in time, the connection went away) is no answer of the host.
             width = MAX_LOOKUPS_IN_FLIGHT;
           }
           next.reject(error);
@@ -198,7 +220,7 @@ export function createPathGate(options: PathGateOptions): PathGate {
 
   return {
     stat(ref, viewer) {
-      if (!mayAskAbout(ref.path, viewer) || refused.has(keyOf(ref)) || options.now() < quietUntil) return Promise.reject(new PathNotAskedError());
+      if (!mayAskAbout(ref.path, viewer) || refused.has(keyOf(ref)) || !mayAsk()) return Promise.reject(new PathNotAskedError());
       return new Promise<FileEntry>((resolve, reject) => {
         line.push({ ref, resolve, reject });
         send();
@@ -258,17 +280,20 @@ export function createPathExistence(options: PathExistenceOptions): PathExistenc
       if (cached && options.now() - cached.at < ttl) return Promise.resolve(cached.kind);
       const running = inflight.get(key);
       if (running) return running;
-      const promise = options
-        .stat(ref)
-        .then(
-          (entry) => kindOf(entry),
-          () => null,
-        )
-        .then((kind) => {
+      const promise = options.stat(ref).then(
+        (entry) => {
+          const kind = kindOf(entry);
           cache.set(key, { kind, at: options.now() });
           inflight.delete(key);
           return kind;
-        });
+        },
+        (error: unknown) => {
+          // A lookup the gate did not send says nothing about the path: it is asked again the next time.
+          if (!(error instanceof PathNotAskedError)) cache.set(key, { kind: null, at: options.now() });
+          inflight.delete(key);
+          return null;
+        },
+      );
       inflight.set(key, promise);
       return promise;
     },
