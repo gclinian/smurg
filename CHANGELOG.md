@@ -5,7 +5,7 @@ Every released version's changes are recorded here (the format follows
 [Semantic Versioning](https://semver.org/)). A version's section is also its release notes; a version without a
 section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.md).
 
-## [Unreleased]
+## [0.5.0] - 2026-10-07
 
 - **Topics: a team takes a feature from a discussion to reviewed work.** The main screen is now built around
   topics (a feature or a task); the [guide for teammates](docs/JOINING.md) §6 walks through one.
@@ -83,7 +83,11 @@ section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.m
   an agent's shell commands sees what a command names; a program that names none of the scripts (a build, a
   script that rewrites another) is not seen before it runs, so keep hook scripts in `.claude/hooks/`. Removing an
   entry of a conversation does not remove the cards, the inbox excerpts and the audit entries that hold the same
-  text.
+  text. A link in what an agent or a member wrote shows where it leads when you rest the pointer on it or reach it
+  with the keyboard; smurg writes the destination out beside the words when they name another place, but it does
+  not recognize every look-alike (a name under a less common ending such as `amazon.in`), so look before you
+  follow a link ([guide for teammates](docs/JOINING.md) §5). A text that takes too long to format is shown as it
+  was written. One upload can have at most 10,000 folders.
 
 ## [0.4.0] - 2026-10-02
 

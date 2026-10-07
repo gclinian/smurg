@@ -57,6 +57,9 @@ https://smurg.ai/zh-TW/docs/；網頁版（公用 relay）：https://app.smurg.a
   資料夾的 Claude Code 專案設定會執行腳本時，agent 的 shell 指令只要提到這樣的腳本或它的資料夾，smurg 就會先問人；完全
   沒提到它們的程式（建置、會改寫另一個腳本的腳本），在執行之前是看不到的，所以 hook 的腳本請放在 `.claude/hooks/`
   （[主人指南](docs/zh-TW/HOSTING.md) §5.2、§5.3）。
+- **agent 或成員寫的連結**，要把滑鼠停在上面、或用鍵盤移到它上面，才看得到它連到哪裡。連結的文字寫的是另一個地方時，
+  smurg 會把目的地直接寫在文字旁邊，但不是每一種長得很像的寫法它都認得出來（例如 `amazon.in` 這種結尾比較少見的名稱）：
+  點連結之前請先看它的目的地（[組員指南](docs/zh-TW/JOINING.md) §5）。
 - **需求**：agent session 需要主人的電腦上有 Claude Code 2.1.288 以上（版本太舊會被拒絕）；執行工作項目需要分享的資料夾
   是 git 儲存庫（git 2.42 以上）。主人自己的 Claude Code 允許規則對 agent session 也有效；smurg 會告訴主人一次是哪些。
 - **Linux 主人**：全部測試在 Ubuntu 24.04 上通過（arm64 虛擬機，以及 GitHub Actions 的 x64），但還沒有人真的在 Linux 上

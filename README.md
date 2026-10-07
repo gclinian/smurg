@@ -77,6 +77,10 @@ https://app.smurg.ai.
   a person before an agent's shell command that names such a script or its folder; a program that names none of
   them (a build, a script that rewrites another) is not seen before it runs, so hook scripts belong in
   `.claude/hooks/` ([`docs/HOSTING.md`](docs/HOSTING.md) §5.2, §5.3).
+- **A link in what an agent or a member wrote** shows where it leads when you rest the pointer on it or reach it
+  with the keyboard. smurg writes the destination out beside the words when they name another place, but it does
+  not recognize every look-alike (a name under a less common ending such as `amazon.in`): look before you follow
+  a link ([`docs/JOINING.md`](docs/JOINING.md) §5).
 - **Requirements**: agent sessions need Claude Code 2.1.288 or later on the host's computer (an older one is
   refused); carrying out work items needs the shared folder to be a git repository (git 2.42 or later). The host's
   own Claude Code allow rules apply to agent sessions; the host is told once which.

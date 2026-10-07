@@ -176,6 +176,12 @@ const QUOTES: readonly Quote[] = [
   webQuote('console.claudeConfig.loaded.title', ['HOSTING']),
   webQuote('console.claudeConfig.ack.incomplete', ['HOSTING']),
   webQuote('console.claudeConfig.group.other', ['HOSTING']),
+  // What the review says about a path where no file is yet, and about commands whose files it cannot follow.
+  webQuote('console.claudeConfig.script.absent', ['HOSTING']),
+  webQuote('console.claudeConfig.unfollowed', ['HOSTING'], { count: 2 }),
+  // smurg's own two sentences on a permission card its tool gate asked for (the web's words in the reader's language).
+  webQuote('conversation.perm.gate.writes-settings-script', ['HOSTING']),
+  webQuote('conversation.perm.gate.may-reach-settings-script', ['HOSTING']),
   // What a person must have read before allowing, and what a teammate is told about a folder only the host may move.
   webQuote('conversation.perm.readFirst', ['HOSTING', 'JOINING']),
   { what: 'wire path.hostOnly', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'path.hostOnly') },
@@ -186,6 +192,10 @@ const QUOTES: readonly Quote[] = [
   webQuote('topics.badge.reviewedWaitsMerge', ['HOSTING']),
   webQuote('topics.review.merge', ['HOSTING']),
   webQuote('conversation.message.delivery.queued', ['JOINING']),
+  // What a teammate is told about a text that is shown as written, removed characters and an upload that is too large.
+  webQuote('markdown.plain.note', ['JOINING']),
+  webQuote('conversation.message.cleaned', ['JOINING']),
+  { what: 'wire upload.tooManyFolders', guides: ['JOINING'], render: (locale) => wire(locale, 'upload.tooManyFolders', { max: 10_000 }), part: { en: 'Upload it in parts.', 'zh-TW': '請分批上傳' } },
   { what: 'wire conversation.interrupted.restart', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.interrupted.restart') },
   { what: 'wire conversation.owner.handover.kicked', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.owner.handover.kicked', { name: 'Amy' }) },
   webQuote('console.hostRules.title', ['HOSTING']),
@@ -207,6 +217,12 @@ const QUOTES: readonly Quote[] = [
   { what: 'wire notice.rateLimit', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.rateLimit') },
   { what: 'wire plan.start.noGit', guides: ['HOSTING'], render: (locale) => wire(locale, 'plan.start.noGit') },
   { what: 'wire notice.unattended', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.unattended') },
+  // The other sentences of a conversation that the host guide quotes whole (their zh-TW forms end in a full stop or do not, as the catalog has them).
+  { what: 'wire notice.authRejected', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.authRejected') },
+  { what: 'wire notice.compacted', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.compacted') },
+  { what: 'wire notice.transcriptTrimmed', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.transcriptTrimmed') },
+  { what: 'wire session.claude.initTimeout', guides: ['HOSTING'], render: (locale) => wire(locale, 'session.claude.initTimeout') },
+  { what: 'wire session.resume.lost', guides: ['HOSTING'], render: (locale) => wire(locale, 'session.resume.lost') },
   { what: 'wire conversation.redacted', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.redacted') },
   { what: 'wire conversation.owner.handover', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.owner.handover', { name: 'Amy' }) },
   cliQuote('host.agentsPaused', { count: 3 }, ['HOSTING']),

@@ -57,6 +57,14 @@ Three things to keep in mind when you touch agents:
 - A change to what agents are told (the role prompts), or to the plan and report formats, cannot be verified with
   the stand-in alone. Say in the pull request what you could not check with a real model.
 
+And one when you touch anything that reads text a member or an agent wrote (a message, a name, a path, a spec, a
+plan, a report, a shell command, the output of a tool): what it costs must be in proportion to the text. Each
+package has a test that walks such functions with hostile texts at two sizes and keeps a list, per source file, of
+its regular expressions, sorts and normalisations (`test/text-cost.test.ts` in `packages/protocol`,
+`packages/daemon` and `packages/cli`; `apps/web/test/text-cost.test.tsx`). A new one fails that test until the
+list follows: look at what it costs on a long run of one character first. A text whose length someone else chose
+is normalised only through `normalized` of `packages/protocol/src/normalize.ts`.
+
 ## Language
 
 - English is the default language of everything: code, comments, tests, commit messages, docs. Traditional Chinese

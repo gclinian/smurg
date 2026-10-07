@@ -1,6 +1,6 @@
 // The one line `smurg host` adds under its two links when a newer version is published (owner decision 2026-10-02):
 //
-//   Version 0.4.1 is available (this is 0.4.0): stop sharing, then run smurg update
+//   Version 0.5.1 is available (this is 0.5.0): stop sharing, then run smurg update
 //
 // It is looked up in the background after the links are printed and never delays or breaks the start: one request for
 // <downloads>/latest/VERSION with a short timeout, and NOTHING is said when it fails, when this is the newest version,

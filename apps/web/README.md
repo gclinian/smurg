@@ -255,7 +255,10 @@ order, widths and pins, what was seen, the session list's folds and filter, and 
 mode are per browser AND workspace: `localStorage['smurg.columns.<workspace id>']` (the `columns` store). None of it
 is sent anywhere: a member's view is their own. The unsent text of a composer is kept per browser and workspace as
 well (`localStorage['smurg.drafts.<workspace id>']`), and it is the one thing here that is deleted when a person's
-access to the workspace ends, because it can quote project code ("A conversation column", Drafts).
+access to the workspace ends, because it can quote project code ("A conversation column", Drafts). A deletion
+leaves a mark behind, so that another tab does not write the texts back: for one workspace
+`localStorage['smurg.drafts-forgotten.<workspace id>']`, after a logout `localStorage['smurg.drafts-forgotten']`
+(random values; the second names no workspace).
 
 ## Connection layer and connection states
 
@@ -550,7 +553,7 @@ observers.
 | `startUpload` | `{ root, targetDir, source: UploadSource }` | transfer |
 | `download` | `{ file, zip? }` | transfer |
 | `showPanel` | `{ panel: 'files' \| 'editor' \| 'session' \| 'activity' \| 'conflicts' \| 'transfers' \| 'terminal' }` | code mode's layout (`Workbench.tsx`) |
-| `redactEvent` | `{ sessionId, seq }` | console: the host's confirmation before ONE event of a conversation is replaced by "The host removed this entry." (`admin.transcript.redact`). Dispatched by a conversation's "Remove this entry…" |
+| `redactEvent` | `{ sessionId, seq }` | console: the host's confirmation before ONE event of a conversation is replaced by "The host removed this entry." (`admin.transcript.redact`). Dispatched by a conversation's "Remove this entry…". The dialog has three lines: what everyone sees in the entry's place; that Claude Code keeps its own record (`redact.memory`); and what else keeps the entry's words: questions, permission requests, suggestions, inbox items, a report's follow-up questions and the audit log's full text, until the topic is deleted (`redact.copies.topic`), or, for a session without a topic, that nothing removes those (`redact.copies.free`; `redact.copies` while the page does not know the session) |
 | `reviewProjectSettings` | `{ root? }` | console: the host's review of the Claude Code project settings of that root, or of every root that has such files. Dispatched by the notice of a session that runs without them |
 | `showHostRules` | `{}` | console: which of the host's own Claude Code allow rules apply to agents here. Dispatched by the permission dialog of a session |
 
@@ -691,7 +694,7 @@ export default function PlanColumn({ topicId }: ColumnBodyProps['plan']) {
 | Session (terminal) | `features/agents` | 0.4.0's terminal with its fit rules. It attaches while the column is on screen and detaches when it is hidden. It needs 80 columns, so below its minimum it scrolls sideways inside the column. The same terminals are the tabs of code mode's "Terminal" drawer tab |
 | Spec | `features/topics` + the editor's document pane | Read: the Markdown renderer on the document's text, with who changed it last. Edit: the collaborative editor on `specs/<slug>/SPEC.md` (cursors, the lock banner, the deleted-file state). The box that asks the agent to revise; "Generate plan", which opens the plan beside it; at the foot the discussion's status line; the empty state before a spec exists |
 | Plan | `features/topics` | The work items of `PlanInfo` with their state, sizes and dependencies; who is responsible, with "Assigned" and "No one assigned: everyone watches"; the agent's proposed split and "Suggest again"; the kinds allowed in the topic; what waits for whom; the paused banner. Start opens the Start dialog (`plan.preflight`, then `plan.start`). The file itself: the editor on `PLAN.md` |
-| Report | `features/topics` + the worktree feature's diff review | The outcome, the sections under headings from the web catalog (the file's own headings are fixed English), the checks, the changes with "edited by hand" per file, follow-ups, "I've reviewed this", then "Merge" for the host |
+| Report | `features/topics` + the worktree feature's diff review | The outcome, the sections under headings from the web catalog (the file's own headings are fixed English), the checks, the changes with "edited by hand" per file, follow-ups, "I've reviewed this", then "Merge" for the host. At the foot the follow-up box; it gives way to "This item is merged and its session has ended. Ask in the discussion." (`report.closed`) only when the item is merged, reviewed AND its session has ended: while smurg keeps the session (the worktree holds changes no merge carried) the box stays |
 | Changes | the worktree feature's diff review | A merge request without a report (a free session's worktree) |
 
 ## A conversation column
@@ -731,7 +734,11 @@ contract they are built to (DESIGN §5.5 and §5.12 items 10 to 17).
   CHARACTER FOR CHARACTER (`PlainText` of `features/markdown`, never as Markdown): "Accept" sends exactly that text.
   The daemon sends a card's command, address and input with every character nobody can see written out as
   `<U+202E>` (`docs/ARCHITECTURE.md` §5.9); `showControls` (`text.ts`) still marks such characters in what is sent
-  as it is, a diff among it.
+  as it is, a diff among it. Under what is asked the card prints why: "Claude Code's reason: …" with Claude
+  Code's own English reason (`perm.reason`), or, for a request that smurg's own tool gate asked for
+  (`request.gate`, ARCHITECTURE §7.7 G10), the web's sentence for that gate in the reader's language
+  (`perm.gate.writes-settings-script`, `perm.gate.may-reach-settings-script`). Their English texts are the
+  daemon's two sentences word for word; the daemon's `reason` is not printed beside them.
 - **Streaming without re-rendering.** `session.delta` carries text at most once per 200 ms. The store keeps it
   outside its state (`streamText`, `onStream`): the row appends to a DOM text node, and React state changes only when
   the finished `text` event arrives. Deltas are volatile: they are never replayed, which is why every open session is
@@ -765,20 +772,30 @@ contract they are built to (DESIGN §5.5 and §5.12 items 10 to 17).
     this text is too long or too deeply nested to format." (`plain.note`). Whatever the lexer throws is caught the
     same way. What ran out of time or steps is remembered by a hash of its characters (the newest
     `REMEMBERED_MAX`, 1,024) and shown as written wherever it is mounted again, at the cost of the hash. What is
-    remembered is the PIECE the budget ran out on: a message is one piece, a `SPEC.md` is cut at its headings and has
-    the one budget of the whole text. Every text that holds that piece shows it as written and formats the rest; a
-    text that no longer holds it is formatted whole. The pieces behind the one it ran out on wait and get the budget
-    once more; a text in pieces that runs out a second time is over as a whole (one note, remembered as a whole), so
-    a text costs two budgets at most. The page has a share too: the parses a mount waits for take at most
-    `URGENT_PARSE_MS` (200 ms) and `URGENT_PARSE_STEPS` (50,000 steps: texts that are parsed in no time and are tens
-    of thousands of elements to build) in any `URGENT_WINDOW_MS` (1 s). A text that comes after the share is spent is
-    shown as written for the moment, without a note, and formatted when the browser has nothing more urgent to do
-    (`idle.ts`): one slice of `SLICE_MS` (30 ms) at a time, at least one text a slice, what is on screen first and
-    the newest first, each slice a task of its own (a background-priority task; a timer where a browser has none).
-    Not a React transition, which renders everything that is left in one piece once it is five seconds old, and not
-    `requestIdleCallback`, which Chrome does not call while the pointer rests on a button whose menu was just closed.
-    The lexer's expressions are compiled by a text of smurg's own before the first parse, so a short text is never
-    shown as written because it came first.
+    remembered is the PIECE the budget ran out on: a message is one piece, a `SPEC.md` is cut at its `##` headings
+    (the spec column, `<MarkdownPieces>`) and has the one budget of the whole text. Every text that holds that
+    piece shows it as written and formats the rest; a text that no longer holds it is formatted whole. The pieces
+    behind the one it ran out on wait and get the budget once more; a text in pieces that runs out a second time is
+    over as a whole (one note, remembered as a whole), so a text costs two budgets at most. The page has a share
+    too: the parses a mount waits for take at most `URGENT_PARSE_MS` (200 ms) and `URGENT_PARSE_STEPS` (50,000
+    steps: texts that are parsed in no time and are tens of thousands of elements to build) in any
+    `URGENT_WINDOW_MS` (1 s). A text that comes after the share is spent is shown as written for the moment,
+    without a note, and formatted when the browser has nothing more urgent to do (`idle.ts`): one slice of
+    `SLICE_MS` (30 ms) at a time, at least one text a slice, what is on screen first and the newest first, each
+    slice a task of its own (a background-priority task; a timer where a browser has none). Not a React transition,
+    which renders everything that is left in one piece once it is five seconds old, and not `requestIdleCallback`,
+    which Chrome does not call while the pointer rests on a button whose menu was just closed. The lexer's
+    expressions are compiled by a text of smurg's own before the first parse, so a short text is never shown as
+    written because it came first.
+  - **What the two budgets leave open.** "Two budgets at most" is said of one text, and a text that changed is a
+    new text. Typing in a `SPEC.md` that is over its time budget can cost up to two budgets a keystroke until every
+    slow section is remembered: the Read view stays mounted behind the Edit view and parses what is typed, each
+    spent budget leaves one more piece remembered, and the same text again costs its hash. And what waits behind
+    the piece a text ran out on comes back as ONE task of up to the text's whole budget, not in slices: a slice
+    never cuts one text, and to the queue a spec is one text. Measured on a 990 KiB spec of 62 hostile sections:
+    two tasks of 0.42 s for each of the first 26 keystrokes. A spec of ordinary sections does not come near its
+    budget (it is about ten times what `marked` needs for ordinary text). The perf smoke's "no task over 200 ms"
+    is pinned for messages, each its own piece.
   - **Nothing of a text is hidden.** What Markdown keeps out of sight is put on the page: a reference definition is
     printed as its line (and still resolves `[text][1]`); a destination that is not a link stays in the text as it
     was written; a link's or an image's title is printed after it; the whole line after a code fence stands above
@@ -799,10 +816,35 @@ contract they are built to (DESIGN §5.5 and §5.12 items 10 to 17).
     unless a dot of the name is followed by what a host ends in or by letters from outside ASCII. Chinese, Japanese
     and Korean characters around a Latin name are the sentence it stands in, not part of the name. Words longer than
     `LABEL_MAX_CHARS` (1,024 units) are written out with the destination unread, and an address whose host part is
-    longer than a host name can be (253 characters and a port) is not a link. A bare two-part word
-    under any other ending is not read as a place (no spelling tells `github.lol` from `README.md` or
-    `event.target`): such a link keeps its destination behind hover and keyboard focus, like every ordinary link. A numeric character reference never becomes a character nobody
-    can see (`&#x202E;`, `&#8203;` and `&#27;` stay as typed: `entities.ts`).
+    longer than a host name can be (253 characters and a port, `lib/web-address.ts`) is not a link. A bare two-part
+    word under any other ending is not read as a place (no spelling tells `github.lol` from `README.md` or
+    `event.target`): such a link keeps its destination behind hover and keyboard focus, like every ordinary link.
+    A numeric character reference never becomes a character nobody can see (`&#x202E;`, `&#8203;` and `&#27;` stay
+    as typed: `entities.ts`).
+  - **Which look-alikes are still an ordinary link.** Nothing more is read as a place than the bullet above says
+    (whether more should be, or every link should show its host, is an open question for the owner;
+    `docs/ARCHITECTURE.md` §12 has the same list). A link is drawn as an ordinary link, with its real destination
+    behind hover and keyboard focus only, when
+    - the "dot" is a character that looks like one and that NFKC does not turn into one: `github<U+0660>com` (the
+      Arabic-Indic digit zero), U+A4F8, U+06D4, U+0702, the raised dots U+00B7, U+2219, U+22C5, U+30FB, U+2027.
+      (Read as the dot: `.`, U+FF0E, U+2024, U+FE52, and U+3002 / U+FF61 between two letters of scripts written
+      with spaces.);
+    - a character that a browser draws with almost no width and that is NOT in Unicode's default ignorable list
+      stands between a name and its dot: U+FFFC, the hair space U+200A (which NFKC reads as a space), and U+007F
+      in a `SPEC.md` (the daemon takes it out of a message and of an agent's text).
+      `[github<U+FFFC>.com](https://evil.example/login)` is two words that name nothing to `namesAnotherPlace`,
+      and no test covers it;
+    - the name is written backwards behind a right-to-left override (`<U+202E>moc.buhtig`): the daemon removes
+      the override from a message and from an agent's text, so this can stand only in a `SPEC.md` or another
+      document the daemon does not clean;
+    - it is a bare ASCII word under an unlisted ending (`amazon.in`, `bbc.it`, `github.lol`). The same word with a
+      look-alike letter IS written out, unless it is also the name of the file the link leads to:
+      `[<U+0430>mazon.in](https://evil.example/<U+0430>mazon.in)` (the Cyrillic letter that looks like a Latin "a")
+      is an ordinary link, a file name under an unlisted ending, because the owner of a destination writes its
+      path.
+
+    To the safe side the rule errs as well: "le café.Ensuite" (no space after the full stop, a letter from outside
+    ASCII beside it) is written out with the destination although it names no place.
   - **A render has no time budget**, so whatever looks at a piece of text while rendering is a single pass over its
     characters: no regular expression that is tried again from every character of a long run, and no call of
     `normalize`, of a collator (`localeCompare`, `Intl.Collator`) or of the address parser (`new URL`) on a text
@@ -835,9 +877,30 @@ contract they are built to (DESIGN §5.5 and §5.12 items 10 to 17).
   ("Send to agent" puts a selection into it), so unlike a pane's width it must not stay in the browser of someone
   whose access has ended. It is deleted (`lib/workspace/drafts-storage.ts`) when the daemon removed the member or
   revoked the device, or finds the browser logged in as another account, whatever page shows the workspace at that
-  moment; on "Leave"; on "Log out", for every workspace of this browser; and when a workspace is taken off the list
-  of recent ones. A page that still shows the workspace stops writing at the same moment. A closed page, a host that
-  is away, an expired login or an outdated client delete nothing.
+  moment; on "Leave"; on "Log out", for every workspace of this browser, once the logout has succeeded (a failed
+  logout leaves the person logged in, with their texts; a successful one also closes every workspace session the
+  page still held); and when a workspace is taken off the list of recent ones. A page that still shows the
+  workspace stops writing at the same moment. A closed page, a host that is away, an expired login or an outdated
+  client delete nothing.
+  Deleted stays deleted: another tab that still shows the workspace holds its drafts in memory and would write its
+  whole map at the next keystroke. So a deletion also changes a MARK in localStorage, and a store looks at the
+  marks before every write (`forgottenMarks`): `smurg.drafts-forgotten.<workspace id>` for one workspace's
+  deletion (a removal, a revoked device, another account's browser, "Leave", taking it off the list),
+  `smurg.drafts-forgotten` for a logout,
+  which takes the workspaces' marks away with the drafts. A mark is a random value: it names no time, and the
+  browser's one names no workspace. A store whose workspace's mark or the browser's mark changed, or whose own
+  entry is gone from the storage (a full storage takes a deletion and not its mark), writes nothing from then on;
+  a deletion of ANOTHER workspace's drafts changes neither, so two tabs on one workspace go on keeping theirs.
+- **The status bar** (`StatusBar.tsx`, above the composer) never cuts a sentence. The state and its age are one
+  piece; the second sentence (the host's account, a refused action) stands beside them when both fit and on a line
+  of its own, wrapping like text, when they do not; in a column too narrow for the state its words wrap. The
+  buttons are one piece after the sentences (`.conv-status__actions`). ONE button stands beside the sentences in
+  any column. With TWO (a member with agent access while Claude Code is logged out on the host: "Show it" or "Try
+  again", and "Check login again"; an idle long discussion: "Write the spec now" and "Start a fresh conversation")
+  the line of sentences asks for 24 em, so where the buttons do not fit beside that they go to a line of their
+  own below, at the end, and the sentences have the bar's whole width; three buttons wrap there. The price: with
+  two buttons and one short sentence ("Claude is idle.") the buttons go below in columns where they would have
+  fitted beside it. `conversation.smoke.test.ts` pins 320, 380, 420 and 1,100 px in both languages.
 - **Accessibility.** The conversation is a `log` region with `aria-live="off"`; the status bar above the composer is
   the `status` that speaks; streaming text is not announced delta by delta; every card is a `section` with an `h3`.
 
@@ -863,7 +926,12 @@ three changes.
   the report's `changes.requestId` is the row's): the outcome, the checks and "Merge…" are there, and after a
   conflict "Ask the agent to resolve" in the report's foot. Any other request opens the Changes column of that
   request: a free session's worktree, a work item nobody reported on, an archived topic, and a request somebody
-  made after the report (a hand edit in the item's worktree, then "Request merge"). The Terminal tab has no header
+  made after the report (a hand edit in the item's worktree, then "Request merge"). The report must be in the
+  store to know, so the inbox asks about it when the row appears (`reportsToLoad`, `knowReport`: once per item,
+  and "there is no report" is remembered) and a click opens the right column at once. A click that comes before
+  the answer opens the report's column, which shows that it is loading; when the report turns out to be about
+  another request, or there is none, the Changes column takes its place in the same column
+  (`features/sidebar/InboxList.tsx` `useOpenInboxItem`). The Terminal tab has no header
   bar of its own: the drawer is 220 px tall until someone drags it, and "New terminal" sits at the end of the
   terminals' tabs.
 - The suggestions panel is gone.
@@ -979,7 +1047,10 @@ this is accepted. So do not cache translated text in module scope or in a store.
 locale, and the formatters are built lazily, once per locale. Keep nothing language-dependent at module level: a
 `const COLUMNS = [{ header: t('…') }]` or a `new Intl.DateTimeFormat(…)` at the top of a file keeps the language of
 page load. Make it a function. For your own `Intl.*` call `currentIntlTag()` from `src/lib/locale.ts` inside the
-function.
+function. Order names with `compareText` (the viewer's language; it cuts long runs of combining marks before the
+collator sees them) and ids or keys with `compareIds` (their UTF-16 units): never `localeCompare` or a collator
+of your own, which `test/text-cost.test.tsx` lists by file ("A conversation column", "A render has no time
+budget").
 
 **Text the host originates** does not come from the web catalog. Role labels (`Host`, `Agent access`, `Editor`,
 `Viewer`) and every text the host writes come from `@smurg/protocol/i18n`, so the web app and the CLI share one
@@ -1170,7 +1241,12 @@ screen is built to.
 - **The host's side that everyone may know** (`host` store): whether the host's Claude Code is logged in or has
   reached a usage limit, and whether the main folder's Claude Code project settings are used. Until the host has
   confirmed those settings, sessions run without them and say so; the confirmation dialog is the console feature's
-  and is also mounted in the sessions view for the host.
+  and is also mounted in the sessions view for the host. The review (`ProjectSettingsReview.tsx`) says what it
+  cannot show or guard: a script a command names where no file is yet is marked "named, not there yet"
+  (`claudeConfig.script.absent`), with one sentence under the list that such a path is guarded like the others
+  and that a file appearing there asks the host again (`claudeConfig.scripts.absentNote`); and the commands whose
+  files smurg cannot follow are counted in the warning above the lists (`claudeConfig.unfollowed`), beside what
+  the lists leave out or cut short.
 - **After a restart of the host's smurg** nothing runs by itself: conversations are readable, sessions are idle,
   every plan is paused, and the banner offers "Continue all" to members with agent access. A session whose agent
   process ended is `failed` until the next message or "Try again".
@@ -1206,7 +1282,10 @@ pnpm exec vitest run --project @smurg/web-smoke                     # in the rep
    widths, persistence); the left column (tree keys, fixed rows, filter, inbox groups and the two counts, unread);
    each card by role (decider, voter, an Editor who decides, Viewer; host-only; escalated; the note); the composer by
    role and the input-method guard; Markdown (no HTML, no image request, link schemes); the plan, Start dialog and
-   report columns by state; one zh-TW suite per feature folder.
+   report columns by state; one zh-TW suite per feature folder; and what a text costs the page that shows it
+   (`test/text-cost.test.tsx`: hostile texts at one size and at sixteen times that size through every function
+   that looks at text someone else wrote, the renderer's budgets, and the pinned lists of "A render has no time
+   budget"; `features/markdown/idle.test.ts`: the queue of texts that wait).
 2. **The built app in system Chrome** (`e2e/smoke`, a real relay, a real daemon, headless Chrome; never a person's
    own browser). A smoke that needs an agent runs the daemon with the scripted stand-in `claude` of the daemon's test
    tools (`packages/daemon/src/testing/fake-claude.mjs`, installed with `installFakeClaude`): it speaks Claude Code's

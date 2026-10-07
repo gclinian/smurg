@@ -752,7 +752,7 @@ Chunks are 4 MiB by default (1–8 MiB accepted). Flow control: end-to-end ack w
 
 | Type | Dir | Payload → result |
 |---|---|---|
-| `file.upload.plan` [file.write] | c→d | `{ root, entries: { path, kind: 'file'\|'dir', size? }[] /* ≤ 10,000; files have size, dirs not */, onConflict: 'fail'\|'overwrite'\|'rename' }` → `{ disk: DiskReport, renamed: { from, to }[] }` — folder drops; one disk check for the whole batch; creates directories (also empty ones); clients split bigger drops, and the daemon reserves planned bytes until their uploads begin or abort |
+| `file.upload.plan` [file.write] | c→d | `{ root, entries: { path, kind: 'file'\|'dir', size? }[] /* ≤ 10,000; files have size, dirs not */, onConflict: 'fail'\|'overwrite'\|'rename' }` → `{ disk: DiskReport, renamed: { from, to }[] }` — folder drops; one disk check for the whole batch; creates directories (also empty ones), at most 10,000 of them, the ones its files lie in included (`too_large`, reason `too-many-folders`); clients split bigger drops, and the daemon reserves planned bytes until their uploads begin or abort |
 | `file.upload.begin` [file.write] | c→d | `{ root, path, size, chunkSize, lastModified, uploadId?, onConflict? }` → `{ uploadId, chunkCount, have: bytes /*bitmap*/, received, resumed, disk: DiskReport }` |
 | `file.upload.hashes` [file.write] | c→d | `{ uploadId, from, count }` → `{ hashes: bytes }` — paged, 32 bytes per chunk |
 | `file.upload.chunk` [file.write] | c→d | `{ uploadId, index, hash: bytes /*SHA-256*/, data: bytes }` → `{ index }` — rejected unless this connection began/resumed the upload |
@@ -775,8 +775,12 @@ committed for 10 minutes: a `begin` with such an id from the same member (its co
 answers `conflict` / reason `committed` with `detail.entry` (the placed file), which the client treats as done. At most
 1,000 unfinished uploads per member (`conflict` / `too-many-uploads`). `file.write` / `file.create` need an existing
 parent (`not_found` / `parent-missing`); `plan` and commit create missing parents, each level resolved through
-PathGuard. Deletes are renamed into `<share>/.smurg/trash/<id>` (same volume, checked before and after) and removed
-there, so a directory swapped for a symlink mid-delete can never take files outside the share with it.
+PathGuard. One plan may have at most 10,000 FOLDERS (`UPLOAD_PLAN_MAX_ENTRIES`), counting the folders its entries
+lie in even when the plan does not list them: an entry can lie two thousand folders deep, so 10,000 entries could
+ask for millions of folders. A larger plan is refused before anything is created (`too_large`, reason
+`too-many-folders`; the text `upload.tooManyFolders` says to upload it in parts). Deletes are renamed into
+`<share>/.smurg/trash/<id>` (same volume, checked before and after) and removed there, so a directory swapped for
+a symlink mid-delete can never take files outside the share with it.
 
 ```ts
 type DiskReport = { totalBytes; availableBytes; reserveBytes; pendingBytes; requestedBytes; freeAfterBytes; ok: boolean };
@@ -1313,14 +1317,23 @@ and never clips one. The line `conversation.submittedFor` is written only when a
 (`agent-text.ts`), so what a member with agent access sees on a card is exactly the characters the agent gets:
 
 - `agentText(raw)` for every string a PERSON wrote (messages, suggestions, notes, "Other" answers, comments, a
-  denial's line): NFC; CRLF, a lone CR and Unicode's line and paragraph separators (U+2028, U+2029) become LF;
-  control characters removed except tab and newline; invisible code points removed (the emoji joiner only between
-  visible characters); and a line that looks like a header quoted with `> `. A line looks like a header when it is
-  `[…]` alone on its line, whatever blank characters stand around it (every Unicode white space, and the braille
-  blank U+2800), or when it starts with `[smurg`, whatever follows on the line. A line that merely starts with a
-  bracket (a task list, a link, pasted JSON) stays as written. A payload ARRIVES as any text but NUL
-  (`personTextSchema`); what is stored, shown and sent is `agentText(text).text`, with `cleaned: true` when
-  something a reader cannot see was removed.
+  denial's line), in this order: CRLF, a lone CR and Unicode's line and paragraph separators (U+2028, U+2029)
+  become LF; what nobody sees is removed (lone surrogates, control characters except tab and newline, the invisible
+  code points; the emoji joiner stays only between visible characters, the presentation selector only after one);
+  a run of more than `MARK_RUN_MAX` (30) combining marks on one letter is cut to its first 30; NFC, and a run that
+  is longer than 30 only then is cut again; and a line that looks like a header is quoted with `> `. A line looks
+  like a header when it is `[…]` alone on its line, whatever blank characters stand around it (every Unicode white
+  space, and the braille blank U+2800), or when it starts with `[smurg`, whatever follows on the line. A line that
+  merely starts with a bracket (a task list, a link, pasted JSON) stays as written. A payload ARRIVES as any text
+  but NUL (`personTextSchema`); what is stored, shown and sent is `agentText(text).text`, with `cleaned: true` when
+  something was removed: a character a reader cannot see, or the marks beyond the thirtieth of a run (the card
+  then says that hidden characters were removed). The function is idempotent, `agentText(agentText(x).text)`
+  changes nothing, and what it costs is in proportion to the text. The cut exists because putting a run of marks
+  in order costs the square of its length (a second of the daemon's one thread for one message of 64 KiB); no
+  word of any language has more than 30 marks on one letter, and decorative "Zalgo" text loses the marks beyond
+  the thirtieth. `normalize.ts` (`withFewMarks`, `hasLongMarkRun`, `normalized(text, form)`) is the only place of
+  `packages/protocol`, `packages/daemon` and `packages/cli` that calls `String.prototype.normalize`, apart from
+  the relay entry's one call on a device code of at most 64 characters (§10 "What a text costs").
 - `agentSafeName(displayName, userId)` for a display name as a model reads it (at most 40 letters, marks, digits,
   space, `.`, `_`, `-`).
 - `frameMessage(header, body)`: the header line in front of a body: `[Ian · Host]` for a person, `[Amy · Editor,
@@ -1362,8 +1375,9 @@ the kind of the whole request, and its card has `noAlways: 'no-suggestion'`. A r
 process does not have yet answers a waiting request of another session only when the daemon reads the request itself
 as that kind (`ruleCoversRequest`): one plain command that is the rule's words or starts with them and a space, with
 no `;`, `&`, `|`, redirect, `$`, backtick, parenthesis, brace, backslash, line break or control character anywhere
-in it; or an http(s) URL of the rule's host without a user name or password. Anything else is a card. A change of a
-topic's rules announces every session of the topic again (`session.state`, §5.5: `ruleCount`).
+in it; or an http(s) URL of the rule's host without a user name or password and of at most `URL_MAX_CHARS` (2,048)
+characters (a longer one is no URL a card carries, and reading a host name normalises it). Anything else is a
+card. A change of a topic's rules announces every session of the topic again (`session.state`, §5.5: `ruleCount`).
 
 **Rates.** The token buckets of §4.3: `vote`, `comment` and `suggestion` are taken by the Router for the requests
 that name them; `mention` by the handlers that accept `mentions` (one token per kept mention); `agent-notify` per
@@ -1857,7 +1871,8 @@ Every feature module exports a `FeatureModule` (`core/context.ts`): `create(ctx)
 implements (one provider per slot), `register(router, ctx)` adds its handlers and bus listeners and returns the
 `Disposable` that undoes them, `start` / `stop` are optional. Modules talk to each other **only** through the
 interfaces in `core/interfaces.ts` and events on `ctx.bus`; what several of them must compute the same way (who
-decides, text for agents, what may be always allowed, masking, sizes) is a pure function of `@smurg/protocol`.
+decides, text for agents, what may be always allowed, masking, sizes, normalisation at a cost in proportion to the
+text: `normalize.ts`) is a pure function of `@smurg/protocol`.
 `ctx.lifecycle` (`stop()`, `status()`, `attachLocal()`) is what only the composition root can do; the control-server
 module uses it. `ctx.config.sessions`, `ctx.config.agents` and `ctx.config.runPaths` carry the launch inputs (§7.6);
 `ctx.rates` is the per-member rate limiter (§4.3).
@@ -1974,11 +1989,19 @@ hard-link rules depend on it. An agent's principal is its session's (`MemberDire
 the host's rights on host-only paths only when the session was created with `pathRights: 'host'`, whoever owns the
 session now.
 
-Algorithm: lexical layer first — reject NUL and control characters, bidi overrides, backslashes, drive letters,
-absolute paths, empty / `.` / `..` segments and lone surrogates; normalise to NFC; enforce per-platform segment length →
-join with the root → `realpath` the deepest existing ancestor → require it to be inside `realpath(root)` →
-for the remaining non-existing tail, require plain names. A symlink whose target leaves the root is denied unless
+Algorithm: lexical layer first (`checkRelPath` of `@smurg/protocol`) — reject NUL and control characters, bidi
+overrides, backslashes, drive letters, absolute paths, empty / `.` / `..` segments, lone surrogates and a run of
+more than `MARK_RUN_MAX` (30) combining marks (problem `mark-run`); normalise to NFC; enforce per-platform segment
+length → join with the root → `realpath` the deepest existing ancestor → require it to be inside `realpath(root)`
+→ for the remaining non-existing tail, require plain names. A symlink whose target leaves the root is denied unless
 the link itself is one of the daemon-created shared-dir links recorded in `state.json` (then: read-only).
+
+A name with a run of more than 30 combining marks is no path, and it is refused, never cut: a cut name would be
+the name of another file, and normalising a longer run costs the square of its length (§5.9 "Text for agents").
+The run is counted before and after NFC and with the code points a file system ignores left out (a zero width
+joiner between two marks does not end it). So a file or folder with such a name cannot be reached through smurg:
+it is not listed, and it cannot be opened, created, renamed to or uploaded; a request that names it is refused
+like a name with a control character. Agents and terminals, which run as the host, see it like any other file.
 
 **The check is repeated before every disk read and every disk write**, not only when a document or upload is opened:
 a session can swap a parent directory for a symlink at any time, and the daemon acts for every member. Files are opened with
@@ -2270,7 +2293,8 @@ becomes a card or an answer of the daemon's own (§5.9).
   `permissions.allow` at every later start. Topic scope: stored on the topic; sessions of the topic started later
   get it in their settings file; a session that already runs gets it the first time one of its own requests carries
   exactly that rule as Claude Code's ONLY suggestion and is itself one plain command of that kind, or a URL of that
-  host (`ruleCoversRequest`, §5.9): the daemon then answers that request itself with allow and the rule. The
+  host of at most 2,048 characters (`ruleCoversRequest`, §5.9): the daemon then answers that request itself with
+  allow and the rule; for anything else a person is asked. The
   suggestion says which rule a click would add, not that the rule covers everything the request runs, so a compound
   command is never answered this way. Claude Code's own suggestion targets `localSettings`, which
   would write `.claude/settings.local.json` into the shared project: the daemon never echoes it. Removing a rule
@@ -2406,11 +2430,14 @@ uncommitted `settings.local.json` is simply absent there, so a worktree needs no
   `BASH_ENV`, `GIT_*`, `LD_*`, `DYLD_*`, `PYTHONPATH`, `NPM_CONFIG_*` and their kind: `isProgramEnvName`) is marked
   so, its value stands among the commands (`env NODE_OPTIONS: …`), and a file of the folder that value names is
   recorded as a script. For the `.claude` entry: every file by name, the list of all of them with their hashes, and
-  what their headers declare (hooks, allowed tools, a permission mode). Characters nobody can see are written out
-  (`<U+202E>`). The lists show everything or say what is missing: entries left out or cut short are counted (`cut`),
-  and "Use them" then needs the tick `incomplete` ("The lists above do not show everything. I have read the files
-  themselves."). A content that redirects credentials or allows tools needs its own tick (`acknowledged`); a
-  decision names the entries by hash and is refused when a hash is no longer the entry's.
+  what their headers declare (hooks, allowed tools, a permission mode). A header (the block between the two `---`
+  lines) is read line by line, not as YAML (`headerEffectsOf`), and it is cut into lines at every character that
+  ends a line for some reader: LF, CRLF, a lone CR, U+2028 and U+2029, so no key stands unseen behind one of them
+  and a line costs its length to read. Characters nobody can see are written out (`<U+202E>`). The lists show
+  everything or say what is missing: entries left out or cut short are counted (`cut`), and "Use them" then needs
+  the tick `incomplete` ("The lists above do not show everything. I have read the files themselves."). A content
+  that redirects credentials or allows tools needs its own tick (`acknowledged`); a decision names the entries by
+  hash and is refused when a hash is no longer the entry's.
 - **The scripts.** Every existing file of the root that a word of a command names is a script of the entry, whatever
   the program does with it (`tsc -p tsconfig.json` records `tsconfig.json`). A file is found however the command
   spells the folder: `$CLAUDE_PROJECT_DIR/x.sh`, `"${CLAUDE_PROJECT_DIR}"/x.sh`, `${CLAUDE_PROJECT_DIR:-.}/…`,
@@ -2421,16 +2448,28 @@ uncommitted `settings.local.json` is simply absent there, so a worktree needs no
   command names where NO FILE IS YET (`[ -x scripts/optional.sh ] && …`, `node dist/hooks/check.js` before a build)
   is recorded as "named, not there yet" (`scripts[].absent`): guarded and watched like a script, and the file
   appearing there is a change of the confirmed content, so a hook that runs a build output asks the host again after
-  each build that creates it. A word names a path when it is written with an anchor (`./x`, `../x`, an absolute
-  path, after `$CLAUDE_PROJECT_DIR/`), is a relative path of plain names (`scripts/optional.sh`), or is a bare file
-  name with a script's extension (`later.sh`, `tool.py`); a quoted pattern handed to a tool (`prettier --check
+  each build that creates it (the web's review marks such a script with those words and says under the list that a
+  file that appears there asks the host again: `claudeConfig.script.absent`, `claudeConfig.scripts.absentNote`). A
+  word names a path when it is written with an anchor (`./x`, `../x`, an absolute path, after
+  `$CLAUDE_PROJECT_DIR/`), is a relative path of plain names (`scripts/optional.sh`), or is a bare file name with a
+  script's extension (`later.sh`, `tool.py`); a quoted pattern handed to a tool (`prettier --check
   "$CLAUDE_PROJECT_DIR/src/**/*.ts"`) names no file. A script's name may hold `( ) [ ] { } * ?` and blanks.
-- **What smurg cannot follow.** A command whose program, or the script an interpreter is given, is a variable, a
-  substitution or a wildcard (`sh "$SCRIPT"`, `"$TOOL" --check`), an `eval`, a `cd` to such a place, or a line the
-  reader cannot take apart, runs a file smurg cannot name and so cannot guard. The review says so under that
-  command (`UNFOLLOWED_NOTE`: "^ smurg cannot follow which files the command above runs …: only the scripts listed
-  for this entry are guarded"), the entry carries `unfollowed`, and "Use them" needs the tick `incomplete`.
-  Arguments that are data (`prettier --write "$file"`) need no tick.
+- **What smurg cannot follow** (`cannotFollow`). A command whose program, or the script an interpreter is given, is
+  a variable, a substitution or a wildcard (`sh "$SCRIPT"`, `"$TOOL" --check`), an `eval` of such a text, a `cd` to
+  such a place, or a line the reader cannot take apart, runs a file smurg cannot name and so cannot guard. So does
+  a command that takes more reading than its length is worth: following has a budget per command
+  (`FOLLOW_STEPS_MIN`, 20,000 steps, plus `FOLLOW_STEPS_PER_CHAR`, 8, per character; every look at a list of words
+  costs the list's length and one more step for each 64 characters of a word, every text handed to another shell
+  or an `eval` its length), because a wrapper in front of a wrapper (`env`, `sudo`, `nice`, `timeout`, `command`,
+  `exec`, `nohup`, `xargs` …) is looked at twice and an `eval` reads everything behind it again. Sixteen wrappers
+  in a row are followed, a seventeenth is not, fewer in front of a very long word (twelve in front of a word of
+  64,000 letters), and neither is an `eval` or a `sh -c` more than three inside each other. No command people
+  write is built that way, and without the budget one such line holds the daemon for minutes. The review says
+  under a command it cannot follow that only the listed scripts are guarded (`UNFOLLOWED_NOTE`: "^ smurg cannot
+  follow which files the command above runs …: only the scripts listed for this entry are guarded"), the entry
+  carries `unfollowed` (the web's review counts these commands in the warning above the lists,
+  `claudeConfig.unfollowed`), and "Use them" needs the tick `incomplete`. Arguments that are data (`prettier
+  --write "$file"`) need no tick.
 - **Never trusted.** An entry smurg cannot vouch for is one nobody can confirm: its first line under "Other
   settings" (`otherKeys`) says why, and a decision to use it is refused with `claudeConfig.cannotConfirm`. That is:
   a settings file that is a link, larger than 256 KiB, unreadable or not text; a link or a special file below
@@ -2703,30 +2742,52 @@ and the audit around it are the hook server's (`hook-events.ts`), and so is row 
   answer) and judges them against the recorded paths (`judgePlaces`):
   - **`writes`**: a file the shell writes (`> f`, `>> f`, `&> f`) or an operand of a command that changes files
     (`FILE_COMMANDS`: `mkdir`, `touch`, `rm`, `rmdir`, `mv`, `cp`, `sed`, `ln`, `tee`, `dd`, `install`, `rsync`,
-    `chmod`, `patch`, `tar` and their kind, also behind `env`, `sudo` or `git`) is a recorded script, lies below one,
-    or is a folder above one, a wildcard that can match one included; `find <folders> … -delete / -exec` counts as
-    writing everything below those folders. The card is the HOST's to answer (`hostOnly`, `gate:
+    `chmod`, `patch`, `tar` and their kind, also behind `env`, `sudo` or `git`; the value glued to one of its
+    options counts, `--target-directory=scripts`, `-tscripts`, `of=scripts/lint.sh`) is a recorded script, lies
+    below one, or is a folder above one, a wildcard that can match one included; `find <folders> … -delete / -exec`
+    counts as writing everything below those folders. The card is the HOST's to answer (`hostOnly`, `gate:
     'writes-settings-script'`).
-  - **`unsure`**: a place that is written is a variable, a substitution or a placeholder, or is written by a
-    relative name after a change of directory smurg could not follow; the line cannot be read, names more than
-    `BASH_PLACES_MAX` (256) places, was too long to forward, or names a place that cannot be looked up; the program
-    itself is a variable or a wildcard; a program that neither only reads nor is a file command is handed a recorded
-    script or its folder by name, as a word or glued to an option (`sh scripts/lint.sh`, `curl -o scripts/lint.sh …`,
-    `git diff --output=scripts/lint.sh`), an interpreter also inside its quoted argument; a command line handed to
-    another shell (`sh -c "…"`) is read like the line itself, and one that is a variable is unknown; and git's
-    commands that take files of the working tree from elsewhere without naming them (`checkout`, `switch`, `restore`,
-    `reset`, `stash`, `merge`, `rebase`, `pull`, `cherry-pick`, `revert`, `apply`, `am`, `clean` and their kind).
-    Anyone who may allow commands answers (`gate: 'may-reach-settings-script'`).
-  - **`clear`** (no decision, G9): everything else. Programs that only read (`cat`, `grep`, `diff`, `ls`, …) may
-    name anything, a file beside a script is written as before (`echo x > scripts/other.txt`), and `git status`,
-    `diff`, `log`, `add` and `commit` are not asked about while they name no such script or folder.
+  - **`unsure`**: the gate cannot say that the command leaves the scripts alone. Anyone who may allow commands
+    answers (`gate: 'may-reach-settings-script'`). That is:
+    - a place that is written is a variable, a substitution or a placeholder, comes from somewhere else (`… |
+      xargs rm`), or is written by a relative name after a change of directory smurg could not follow (a `cd` to a
+      variable, with a wildcard or without a place, `cd -`, `pushd`, `popd`, a line that may be in more than 8
+      directories, a directory longer than 4,096 characters);
+    - the program itself is a variable or a wildcard; the line cannot be read, was too long to forward, or names a
+      place that cannot be looked up;
+    - a program that neither only reads nor is a file command NAMES a recorded script, something below one or a
+      folder above one (the root itself does not count; a wildcard that can match one does), as a word of its own
+      or as the value glued to an option (`--output=x`, `-ox`, `NAME=x`): `sh scripts/lint.sh`, `curl -o
+      scripts/lint.sh …`, `git diff --output=scripts/lint.sh`, `sort -oscripts/lint.sh`, `git add scripts`; an
+      interpreter also inside its quoted argument (`node -e "…"`);
+    - a command line handed to another shell (`sh -c "…"`, `eval`, `bash`, `su`, `watch` …) is read like the line
+      itself, once, from every directory the outer line may be in and as lost as the outer line is, so `cd "$X";
+      sh -c "rm lint.sh"` asks; one that is a variable is unknown;
+    - git's commands that take files of the working tree from elsewhere without naming them (`checkout`, `switch`,
+      `restore`, `reset`, `stash`, `merge`, `rebase`, `pull`, `cherry-pick`, `revert`, `apply`, `am`, `clean` and
+      their kind);
+    - a bound of the reading was reached, each of which ends it with `unsure` and never with `clear`, so that what
+      reading costs is in proportion to the command: more than `BASH_PLACES_MAX` (256) places, counting those of
+      the lines it hands to other shells; more than 16 changes of directory in one line; a shell inside a shell
+      more than four deep (`SCAN_DEPTH_MAX`). A wildcard that is not matched against a script's name within the
+      steps the two are worth counts as one that can match.
+  - **`clear`** (no decision, G9): everything else. Programs that only read (`READ_COMMANDS`: `cat`, `grep`,
+    `diff`, `ls`, …) may name anything, a file beside a script is written as before (`echo x >
+    scripts/other.txt`), and git's `status`, `diff`, `log`, `add` and `commit` are not asked about while no word of
+    theirs, and no value glued to one of their options, is such a script or a folder above it (`git add .` and
+    `git commit -m "fix scripts/lint.sh"` pass; `git add scripts` and `git diff --output=scripts/lint.sh` ask).
 
-  The reason on the card is one of two fixed English sentences (`BASH_ASK_REASONS` in `deny-text.ts`), which the
+  The bounds have a price: a write to a recorded script that stands five shells deep, or in a line that names
+  more than 256 places across its nested shells, reads `unsure`, which anyone who may allow commands answers, where
+  a reading to the end would say `writes`, which only the host answers.
+
+  The reason the hook gives is one of two fixed English sentences (`BASH_ASK_REASONS` in `deny-text.ts`), which the
   conversation module knows again when the request comes back (`decision_reason` of type `hook`) and turns into
-  `PermissionRequest.gate`, so a client can tell the two without reading `reason`. Measured on 2.1.288: a hook's
-  "ask" is put above `acceptEdits` and above a matching allow rule of the session, the topic or the host's own
-  settings; a deny rule still refuses first. So "always allow" does not cover a command that names such a script or
-  its folder, nor the git commands above: they ask each time. What G10 does not see is in §12.
+  `PermissionRequest.gate`, so a client can tell the two without reading `reason`: the web's card prints its own
+  sentence for the gate, in the reader's language (§9 "Cards"). Measured on 2.1.288: a hook's "ask" is put above
+  `acceptEdits` and above a matching allow rule of the session, the topic or the host's own settings; a deny rule
+  still refuses first. So "always allow" does not cover a command that names such a script or its folder, nor the
+  git commands above: they ask each time. What G10 does not see is in §12.
 - A request Claude Code sends for a command of several parts (`decision_reason` of type `subcommandResults`) that
   names `.claude`, `.git` or `.mcp.json` is a host-only card as well: the daemon cannot tell a read from a write
   there (§5.9 "Host-only requests").
@@ -2895,7 +2956,10 @@ Add the cart endpoints of SPEC "Behaviour" 1–3. Done when the cart tests pass.
 - The two marker lines, each exactly once, in this order. Inside the block an item starts at `### <digits>.
   <title>` (a title of 1–120 characters; the item's number is its position); any other heading level there is an
   error; text before the first item is ignored. A heading or a field-like line inside a fenced code block is
-  description.
+  description. The file is read in lines cut at LF, CRLF and a lone CR. Unicode's line and paragraph separators
+  (U+2028, U+2029) stay inside a line, and a line that holds one is neither an item heading (it is the error of
+  any other heading) nor a field line (it is description): an editor shows two lines there, and the parser reads
+  every line at the cost of its length.
 - Directly after the heading, field lines of the shape `- <name>: <value>` (a name of letters, digits, spaces, `_`
   and `-`, then a colon and a space): `id` (required; `[a-z0-9][a-z0-9-]{0,39}`, unique), `depends on` (ids
   separated by commas, or `none`; existing ids, not itself, no cycle), `size` (`s`, `m`, `l`; default `m`),
@@ -3002,7 +3066,8 @@ The title line; the marker line, which must name the item's own id; directly aft
 | blocked`; the four sections present, in this order, each non-empty; "Follow-ups" optional; any other `##` heading
 is an error. Under "How it was verified" at least one check line: `- [x] <text>` passed, `- [ ] <text>: not
 verified: <why>` did not and must say why; prose between the checks is allowed. Each section at most 64 KiB and
-through `mask()`.
+through `mask()`. Lines are cut as in `PLAN.md` (LF, CRLF, a lone CR), and a line that holds U+2028 or U+2029 is
+no section heading, no outcome line and no check line.
 
 A report COUNTS only when the agent's own `check_report` answered ok for exactly that content in this session:
 nobody can plant one (people cannot write that folder in an item's worktree, §7.4; a file that is there before the
@@ -3379,7 +3444,7 @@ onRoleChange`, and `onResumed` for a resumed Welcome). Role-based hiding in the 
 | Store | Fed by | Holds |
 |---|---|---|
 | `sessions` | `session.list` (every page), `session.state` | every `SessionInfo`; for terminals also the stream / attach plumbing; the requests of an agent session (`interrupt`, `retry`, `restart`, `setResponsible`, `setMode`, `rules`) |
-| `topics` | `topic.list`, `topic.updated` / `removed`, `plan.get` (per expanded or open topic), `plan.updated`, `report.updated`, `report.get` (per open report) | topics, plans, report summaries and loaded reports; every `topic.*`, `plan.*`, `report.*` request; the toasts of a phase change |
+| `topics` | `topic.list`, `topic.updated` / `removed`, `plan.get` (per expanded or open topic), `plan.updated`, `report.updated`, `report.get` (per open report, and once per work item whose merge row is in the inbox) | topics, plans, report summaries and loaded reports; every `topic.*`, `plan.*`, `report.*` request; the toasts of a phase change |
 | `inbox` | `inbox.list`, `inbox.changed` | the member's items; the two counts (waiting, the rest) for the header, the rail, the mode switch and the tab title |
 | `host` | `session.host.get`, `session.host` | the account state and the main folder's trust state, for every member |
 | `conversations` | `session.watch` / `history` / `cards.get`, `session.events`, `session.delta`, `question.changed` / `updated`, `permission.updated`, `suggest.updated` | per watched session: a WINDOW of the log folded into render items, the cards by id, the streaming text buffers, `firstSeq` / `nextSeq` |
@@ -3401,7 +3466,7 @@ the conversation loads history until it has it, focuses the CARD (never one of i
 | Session (terminal) | `features/agents` | the terminal of 0.4.0 with its fit rules ("Terminals" below) |
 | Spec | `features/topics` + `DocumentPane` | Read: the Markdown renderer on the document's text, with who last changed it (`spec.lastAgentChange`, "Show in the discussion"). Edit: `DocumentPane` on `specs/<slug>/SPEC.md` (cursors, the lock banner, the deleted-file state). The revise box → `topic.revise`; "Generate plan" → `plan.generate`; "Restart discussion" when the discussion is lost |
 | Plan | `features/topics` | Items from `PlanInfo` (state badges, sizes, dependencies, who is responsible and the split's source, "Allowed in this topic", who is waited for, the slots, warnings, the error state, the paused banner). Start opens the Start dialog (`plan.preflight` → `plan.start`). File: `DocumentPane` on `PLAN.md` |
-| Report | `features/topics` + merge review parts | the outcome, the sections under headings from the web catalog (the file's own headings are fixed English), checks, Changes from `worktree.merge.diff` / `fileDiff` of the report's draft with the files people edited by hand, follow-ups (`report.followUp`), "I've reviewed this" (`report.review` with the version on screen), then for the host "Merge", for a member with agent access "Request merge" while nobody reviewed |
+| Report | `features/topics` + merge review parts | the outcome, the sections under headings from the web catalog (the file's own headings are fixed English), checks, Changes from `worktree.merge.diff` / `fileDiff` of the report's draft with the files people edited by hand, follow-ups (`report.followUp`), "I've reviewed this" (`report.review` with the version on screen), then for the host "Merge", for a member with agent access "Request merge" while nobody reviewed. The follow-up box at the foot gives way to "This item is merged and its session has ended. Ask in the discussion." only when the item is merged, reviewed AND its session has ended; while smurg keeps the session (the worktree holds changes no merge carried, §7.8 "After the merge") the box stays |
 | Changes | merge review | a merge request without a report (a free session's worktree) |
 
 **The conversation column** (`features/conversation`, store `conversations`).
@@ -3434,18 +3499,36 @@ the conversation loads history until it has it, focuses the CARD (never one of i
   the diff wraps too). While a box does not show all of its part, a line under it says how many lines the part has
   (`perm.more`), and "Allow once" and "Always allow this kind" stay disabled until every such box was scrolled to its
   end (`perm.readFirst`); "Deny" is never held back. "Always allow" sends `allow-always` with a scope, never a rule;
-  a host-only request says that only the host can allow it. A suggestion card shows the stored text character for
-  character (`PlainText`, never as Markdown): what is on the card IS what an accept sends. Controls a role cannot use
-  are absent, with the sentence that says who can; focus lands on a card, never on Allow.
+  a host-only request says that only the host can allow it. Under what is asked the card prints Claude Code's own
+  reason ("Claude Code's reason: …", English as it came); for a request smurg's own gate asked for
+  (`PermissionRequest.gate`, §7.7 G10) it prints the web's sentence for that gate instead, in the reader's language
+  (`perm.gate.writes-settings-script`, `perm.gate.may-reach-settings-script`; in English word for word the
+  daemon's `BASH_ASK_REASONS`). A suggestion card shows the stored text character for character (`PlainText`, never
+  as Markdown): what is on the card IS what an accept sends. Controls a role cannot use are absent, with the
+  sentence that says who can; focus lands on a card, never on Allow.
 - **Next-step cards** (the `pointer` event): the text and buttons are the web's, composed from facts, never the
   model's prose ("The spec draft is ready …" [Generate plan]; "The plan is ready …" [Open plan]; [Open report]).
+- **The status bar** above the composer (`StatusBar.tsx`) never cuts a sentence. The state and its age are one
+  piece; the second sentence (the host's account, a refused action) stands beside them when both fit and on a line
+  of its own, wrapping like text, when they do not; in a column too narrow for the state its words wrap. One
+  button (the action the state calls for) stands beside the sentences in any column. With two buttons (a member
+  with agent access while Claude Code is logged out on the host: "Show it" or "Try again", and "Check login
+  again"; an idle long discussion: "Write the spec now" and "Start a fresh conversation") the line of sentences
+  asks for 24 em whatever its words are, so where two buttons do not fit beside that they go to a line of their
+  own below the sentences, at the end, and the sentences have the bar's whole width (also when the one sentence is
+  as short as "Claude is idle."); three buttons wrap on that line. Only the two sentences are live regions: the
+  age changes every second and is outside both.
 - **Composer.** `session.message.send` for members with agent access; `suggest.create` for an Editor (the same box,
   a line saying where the suggestion goes); no box for a Viewer. Enter sends, never while `event.isComposing`; `@`
   opens the member picker and fills `mentions`. Unsent text is kept per session in this browser
   (`localStorage['smurg.drafts.<workspace id>']`). A draft can quote project code, so it is deleted when this
   person's access ends: when the daemon removed the member, revoked the device or finds the browser logged in as
-  another account (whatever page shows the workspace), on "Leave", on "Log out" (every workspace of the browser)
-  and when a workspace is taken off the list of recent ones (`lib/workspace/drafts-storage.ts`).
+  another account (whatever page shows the workspace), on "Leave", on "Log out" once the logout has succeeded
+  (every workspace of the browser; a failed logout keeps them) and when a workspace is taken off the list of recent
+  ones (`lib/workspace/drafts-storage.ts`). Deleted stays deleted: a deletion also changes a mark in localStorage
+  (`smurg.drafts-forgotten.<workspace id>` for one workspace, `smurg.drafts-forgotten` for a logout; a random
+  value that holds no time), and another tab that still shows the workspace looks at both marks, and at whether
+  its own entry is still there, before it writes: it writes nothing back.
 - **Markdown** (`features/markdown`): the tokens of `marked`'s lexer rendered to React elements by smurg's own
   renderer. No HTML string is ever injected (raw HTML in the text shows as text); links are `http`, `https` and
   `mailto` only, open in a new tab with `rel="noopener noreferrer"` and show their address on hover and focus;
@@ -3457,23 +3540,60 @@ the conversation loads history until it has it, focuses the CARD (never one of i
     throw out of the render nor hold the page's one thread. A text over `MARKDOWN_MAX_CHARS` (1 MiB), a paragraph,
     cell or heading over `MARKDOWN_MAX_INLINE_CHARS` (16 KiB), nesting deeper than `MARKDOWN_MAX_DEPTH` (32), more
     than `MARKDOWN_MAX_STEPS` (50,000) steps of the lexer, or a parse over its time budget (`parseBudgetMs`: 40 ms
-    plus 1 ms per 4 KiB of text) is NOT formatted: it is shown as it was written, with the note `plain.note`.
-    Whatever the lexer throws is caught. A text that ran out of time or steps is remembered by a hash and shown as
-    written wherever it is mounted again; the parses a mount waits for share `URGENT_PARSE_MS` (200 ms) in any
-    `URGENT_WINDOW_MS` (1 s), and a text that comes after the share is spent is shown as written for the moment and
-    parsed when the page has time.
+    plus 1 ms per 4 KiB of text; every step is timed, from the first, and the longest single step is not counted,
+    up to `PAUSE_MAX_MS`, 200 ms: one step that stood still is a pause of the machine) is NOT formatted: it is shown
+    as it was written, with the note `plain.note`. Whatever the lexer throws is caught. The lexer's expressions are
+    compiled by a text of smurg's own before the first parse, so no text is shown as written because it came first.
+  - **One budget per text, two at most.** The budget of time and steps is the budget of ONE TEXT, also when the
+    text is shown in pieces: a message is one piece; the spec column cuts `SPEC.md` at its `##` headings and renders
+    it with `<MarkdownPieces>` (`lexMarkdownPieces`), and all its sections share the one budget of the whole text.
+    What is remembered when a budget runs out is the PIECE it ran out on, by a hash of its characters (the newest
+    `REMEMBERED_MAX`, 1,024): every text that holds that piece shows it as written, at the cost of the hash, and
+    formats the rest, and a text that no longer holds it is formatted whole. The pieces behind the one it ran out
+    on wait and get the budget once more; a text in pieces that runs out a second time is over as a whole: shown
+    as written under one note, remembered as a whole, and from then on it costs its hash. So a text costs two
+    budgets at most, and every budget that is spent leaves one more piece remembered. A piece that is too deep or
+    holds too long a paragraph is shown as written by itself.
+  - **The page's share, and what waits.** The parses a mount waits for take at most `URGENT_PARSE_MS` (200 ms) AND
+    `URGENT_PARSE_STEPS` (50,000 steps: texts that are parsed in no time and are tens of thousands of elements to
+    build wait like the slow ones) in any `URGENT_WINDOW_MS` (1 s). A text that comes after the share is spent is
+    shown as written for the moment, without a note, and formatted when the browser has nothing more urgent to do
+    (`idle.ts`, `formatWhenIdle`): one slice of `SLICE_MS` (30 ms) at a time, at least one text a slice, what is on
+    screen first and the newest first, each slice a background-priority task of its own (`scheduler.postTask`; a
+    timer where a browser has none). Not a React transition: React renders everything that is left in one piece
+    once a transition is five seconds old. One text is never cut, so the longest task is one slice or one text,
+    whichever is longer (the limit this leaves for a long `SPEC.md`: §12).
   - **Nothing of a text is hidden.** What Markdown keeps out of sight is put on the page: a reference definition is
     printed as its line, a destination that is not a link stays in the text as it was written, a link's or an
     image's title is printed after it, the whole line after a code fence stands above the code, a link without text
     shows its address, and a link or an image whose words name another place than it leads to is drawn as its words
-    followed by the destination as the link. Words are read as a place when they are an address (`https://…`,
-    `www.…`, a mail address, a number address), a host with a path under any ending, or a bare host under one of
-    about fifty well-known endings. Characters that only look like ASCII are read as what they look like (NFKC; a
-    Chinese full stop between two labels is the dot), and a dotted name with ANY letter from outside ASCII is never
-    taken at its word: its destination is always written out. Any other link keeps its destination behind hover
-    and keyboard focus. A numeric character reference never becomes a character nobody
-    can see (`&#x202E;` stays as typed). The lexer has a time budget and a render has none, so every look at a text
-    while rendering is a single pass over its characters.
+    followed by the destination as the link. Words are read as a place (`links.ts`, `namesAnotherPlace`) when they
+    are an address (`https://…`, `www.…`, a mail address, a number address), a host with a path under any ending,
+    or a bare host under one of about fifty well-known endings (`HOST_ENDINGS`). Characters that only look like
+    ASCII are read as what they look like (NFKC, one character at a time: full-width letters, the dots U+FF0E,
+    U+2024 and U+FE52; a Chinese full stop, U+3002 or U+FF61, between two letters of scripts written with spaces is
+    the dot). Characters a reader cannot see (Unicode's default ignorable code points: zero width joiners and
+    spaces, the word joiner, a soft hyphen, variation selectors, the tag block, a byte order mark) are not read,
+    and words that had one beside the dot of a name (`github<U+200D>.com`) are written out with the destination
+    wherever the link leads. A dotted name with ANY letter from outside ASCII is never taken at its word: its
+    destination is always written out, also when the link leads to that very name. The one exception is words that
+    are the NAME OF THE FILE the link leads to (the last part of its path, decoded, character for character, no
+    slash in it): an ordinary link whatever letters they have, unless a dot of the name is followed by what a host
+    ends in or by letters from outside ASCII. Chinese, Japanese and Korean characters around a Latin name are the
+    sentence it stands in, not part of the name. Words longer than `LABEL_MAX_CHARS` (1,024 UTF-16 units) are
+    written out with the destination, unread, and an address whose host part is longer than a host name with a
+    port (253 + 6 characters, `lib/web-address.ts`) is not a link. Any other link keeps its destination behind
+    hover and keyboard focus; which look-alikes that leaves as ordinary links is in §12. A numeric character
+    reference never becomes a character nobody can see (`&#x202E;` stays as typed).
+  - **A render has no time budget**, so every look at a text while rendering is a single pass over its characters:
+    no regular expression that is tried again from every character of a long run, and no call of `normalize`, of a
+    collator (`localeCompare`, `Intl.Collator`) or of the address parser (`new URL`) on a text whose length someone
+    else chose, because each of them puts a run of combining marks in order at the cost of the square of the run.
+    A link's words are normalised one character at a time, names in lists are ordered through the protocol's
+    `withFewMarks` (`compareText`), ids by their UTF-16 units (`compareIds`), and `new URL` is handed only an
+    address whose host part has a host's length. `apps/web/test/text-cost.test.tsx` walks hostile texts through
+    every function that looks at text someone else wrote and keeps the lists of every regular expression and of
+    every such call, by file (§10).
   - **Path lookups are bounded.** At most `MAX_PATH_LOOKUPS` (32) different paths of one text are asked about, each
     once, and only when its element comes on screen. Every lookup of a conversation or a terminal goes through ONE
     gate per connection (`features/agents/path-links.ts`, `createPathGate`): a name the reader's role can never
@@ -3487,7 +3607,12 @@ the conversation loads history until it has it, focuses the CARD (never one of i
 **The left column** (`features/sidebar`): the inbox above the session list, both collapsible. The inbox has two
 groups, "Agents are waiting" (the items with `waiting`: the ones only I can settle first, then oldest first) and
 "For you to look at" (the rest, newest first), and two counts. Rows are composed in the web catalog from the item's
-structured fields (§5.11); nothing parses an excerpt for meaning. The session list is a real `tree` grouped by
+structured fields (§5.11); nothing parses an excerpt for meaning. A merge row of a work item leads to the item's
+result report when that report is about the row's request, else to the request's Changes column (`inboxTarget`).
+The inbox asks about the report when the row appears (`report.get`, once per item; "there is no report" is
+remembered), so a click opens the right column at once; a click that comes before the answer opens the report's
+column, which shows that it is loading, and the Changes column takes its place in the same column when the answer
+says so. The session list is a real `tree` grouped by
 topic (a topic's fixed rows for its spec, plan and discussion, then its items' sessions; free sessions under "No
 topic"; terminals), with a filter (All / Mine / Waiting); a row is bold when the session's `noteworthyAt`, or a
 topic's spec or plan change, is newer than what this browser showed.
@@ -3566,7 +3691,7 @@ As built before 0.5.0 and still true (details in `apps/web/README.md`):
   `agent` invite is created or a member is set to `agent`, and asks before taking the role from a member; its kick /
   demote / leave texts name what ends, what passes to the host and what is removed (§3 "When a member goes"), and
   the invite dialog says that a new member can read every earlier conversation of the workspace. A logged-out agent
-  (the host's Claude login) shows one line in the status bar (members with agent access also get "Check login
+  (the host's Claude login) shows one sentence in the status bar (members with agent access also get "Check login
   again"). There is no login guide, login process, API key field or settings import.
 - The activity feed shows an agent's shell edit (§11 D-13) as that agent's, with a small "via a command" marker taken from
   `ActivityEvent.via === 'bash'` (never from the wording); "an outside program" appears only for the daemon's `system`
@@ -3593,6 +3718,7 @@ As built before 0.5.0 and still true (details in `apps/web/README.md`):
 |---|---|---|
 | Unit | each package `src/**/*.test.ts` | schemas, path guard, lock manager, reconcile, invites, permissions matrix, framing; in `packages/protocol` also the pure functions every package shares: who decides (`routing.test.ts`), what may be always allowed (`rules.test.ts`), text for agents (`agent-text.test.ts`), masking (`mask.test.ts`), votes, tools; `schema/registry.test.ts` (the registry against §5) and `schema/worst-case.test.ts` (no message can exceed an Envelope) |
 | Crypto vectors | `packages/protocol` | Noise test vectors, tamper/replay/wrong-PSK/wrong-key |
+| What a text costs | `test/text-cost.test.ts` in `packages/protocol`, `packages/daemon` and `packages/cli`; `apps/web/test/text-cost.test.tsx` | every function that is handed text a member or an agent wrote (a message, a suggestion, a name, a path, `SPEC.md`, `PLAN.md`, a report, a shell command, the output of a tool; in the web app everything that looks at such a text while a page renders) is walked with one list of hostile texts, runs of one character and of two in turn (blanks, punctuation, combining marks), at one size and at sixteen times that size, measured in processor time: sixteen times the text may cost about sixteen times as much, never the square of it. The walk is `packages/protocol/src/testing/text-cost.ts` (`@smurg/protocol/testing`). Each file also pins, per source file, how many regular expressions, sorts and normalisations its package holds (the web's: every regular expression and every call of `normalize`, of a collator and of `new URL`), so a new one changes a number there and is looked at first. `packages/protocol/src/normalize.ts` is the only place of the three packages that calls `normalize` (§5.9 "Text for agents") |
 | Integration | `packages/daemon/test` | daemon + in-memory transport + headless client. The core's own suites (`test/*.test.ts`: authorization over every request × every role, the control socket, composition, wire texts, audit, rates, hub fan-out, the member teardown, PathGuard's rules, the fakes) and one folder per module, each composing its REAL module with in-memory fakes of the others (`core/fakes`, §7.2) |
 | Agent runtime with the stand-in | `packages/daemon/test/sessions`, `test/hooks`, `test/conversation`, `test/topics`, `test/inbox`, `test/mcp`, `test/worktree` | the real modules against the **stand-in `claude`** (below): a session that asks, edits, waits, stops, parks, fails and resumes on cue; questions, votes and permission decisions by role; the plan format, the split, the scheduler with its pins, reports, real git; the inbox per kind × role × who is responsible; the tool gate's table; `agent-replay.test.ts` (the lines recorded from Claude Code 2.1.288 through the normaliser and the real runner, every resulting event validated against the registry) |
 | Real Claude Code, fake API | `packages/daemon/test/sessions/agent-claude-real.test.ts`, `test/sessions/trust-claude-real.test.ts`, `test/hooks/claude-e2e.test.ts`, `claude-bash.test.ts`, `claude-failmodes.test.ts` | the **real-Claude suite** (below): the real `claude` binary of the verified version against the mock Anthropic API. Skipped, loudly, on a machine without it |
@@ -3689,7 +3815,8 @@ inbox, T7 the two views, T8 restart and the second language) beside R1–R11, ea
 Harnesses: `@smurg/daemon/testing` (`createTestDaemon`: in-memory relay with a byte tap, test identity issuer, temp
 project optionally a git repo, real SDK clients; `installFakeClaude`; `createTempRunDir`, `isolatedGitEnv`, …),
 `@smurg/daemon/fakes` (`fakesModule`, `createFakes`: the modules a test does not build, §7.2),
-`@smurg/protocol/testing` (builders of every entity, shared with the web's tests) and `tests/e2e/src/harness.ts`
+`@smurg/protocol/testing` (builders of every entity, shared with the web's tests; the walk of hostile texts of
+"What a text costs") and `tests/e2e/src/harness.ts`
 (`startStack`: real relay + daemon + clients; `git: true` shares a git repository; the host gets a fake home and a short
 socket dir). `tests/e2e` also depends on yjs / y-protocols / lib0 and `@xterm/headless` + `@xterm/addon-serialize` for
 the R7.1 (two Y.Docs) and R4.1 (terminal state) acceptance tests. Roles in both harnesses are `agent`, `editor` and
@@ -3823,8 +3950,10 @@ Known limits of 0.5.0 (agent conversations, topics, the inbox). They are the ris
   a pointer, and the content (the command or diff a person was asked to allow, the question with its votes and
   comments, the suggestion's text) lives in the session's `cards.json` and in the suggestion store and stays there.
   So do the excerpts of inbox notes, a report's follow-up questions and the audit log's full texts. Deleting the
-  TOPIC removes all of these but the audit log; a free session has no such way. Do not share a folder whose files or
-  commands hold secrets.
+  TOPIC removes all of these but the audit log; a free session has no such way. The host's confirmation before an
+  entry is removed says so in a line of its own, in one wording for a topic's session and one for a session
+  without a topic (`redact.copies.topic`, `redact.copies.free`), beside the line that Claude Code keeps its own
+  record of the conversation (`redact.memory`). Do not share a folder whose files or commands hold secrets.
 - **The trust gate can cost context**: until the host confirms a folder's project settings, sessions there run
   without them and without the project's `CLAUDE.md`. `CLAUDE.md` and `CLAUDE.local.md` themselves are not part of
   what the host confirms: they are loaded as soon as the folder's state is `used` or it has no entries at all (only
@@ -3842,12 +3971,56 @@ Known limits of 0.5.0 (agent conversations, topics, the inbox). They are the ris
   a hook command names counts as such a script (`tsc -p tsconfig.json` records `tsconfig.json`), the folder that
   holds it is a guarded place for an agent's file commands (`mv x.ts src/` asks the host when a hook names
   `src/index.ts`), and "always allow" covers neither a command that names such a script or its folder nor git's
-  `checkout`, `restore`, `reset`, `stash`, `merge`, `pull` and their kind there: they ask each time.
+  `checkout`, `restore`, `reset`, `stash`, `merge`, `pull` and their kind there: they ask each time. The gate's
+  reading is bounded, and each bound asks a person instead of letting the command pass; but a write to a recorded
+  script that stands five shells deep (`sh -c "sh -c \"…\""`), or in a line that names more than 256 places
+  with the lines it hands to other shells, is then a card anyone who may allow commands can answer, where a
+  reading to the end would have asked the host alone (§7.7 G10).
 - **A folder swapped from outside smurg.** A topic's folder (`specs/<slug>`, `specs`) that a program outside smurg
   renamed or replaced is read again at once (the Start dialog pins what is there, an armed item is disarmed), but the
   Start dialog does not list "changed outside smurg" for it; a change of `SPEC.md` or `PLAN.md` itself from outside
   is listed. In a report, "edited by hand" names a person also for a file the agent wrote later below a folder that
   person moved in (§5.10).
+- **A link whose words only look like another place's address.** The web writes a link's destination out beside
+  its words when the words name another place, and nothing more is read as a place than §9 "Nothing of a text is
+  hidden" lists. A link is drawn as an ordinary link, with its real destination behind hover and keyboard focus
+  only, when
+  - the "dot" of the name is a character that looks like one and that Unicode's compatibility form does not turn
+    into one: U+0660 (the Arabic-Indic digit zero, `github<U+0660>com`), U+A4F8, U+06D4, U+0702 and the raised
+    dots U+00B7, U+2219, U+22C5, U+30FB and U+2027;
+  - a character that a browser draws with almost no width, and that is not one of Unicode's default ignorable
+    code points, stands between a name and its dot: U+FFFC and the hair space U+200A in any text
+    (`github<U+FFFC>.com`; measured in the app's fonts in headless Chrome: 0.06 px and 0.97 px), and U+007F
+    (0.13 px) in a `SPEC.md`, the daemon having taken it out of a message and of an agent's text. Such a character
+    is not taken out before the words are read, so the words are two words that name nothing;
+  - the name is written backwards behind a right-to-left override (`<U+202E>moc.buhtig`): the daemon removes the
+    override from a message and from an agent's text (§5.9), so this can stand only in a `SPEC.md` or another
+    document the daemon does not clean;
+  - the words are a bare ASCII word under an ending that is not on the list of about fifty (`amazon.in`, `bbc.it`,
+    `github.lol`): no spelling tells such a host from `README.md` or `event.target`. The same word with a
+    look-alike letter in it IS written out, unless it is also the name of the file the link leads to:
+    `[<U+0430>mazon.in](https://evil.example/<U+0430>mazon.in)`, with the Cyrillic letter that looks like a Latin
+    "a", is an ordinary link, because whoever owns a destination writes its path.
+
+  The rule errs to the safe side as well: a sentence without a space after its full stop that has a letter from
+  outside ASCII beside that stop ("le café.Ensuite") is written out with the destination although it names no
+  place. What bounds the exposure: such a link has to be written by a member or by an agent steered by what it
+  read, the destination is one hover or one Tab away, and a link opens in a new tab.
+- **A long `SPEC.md` that is slow to format.** A text costs the Markdown renderer two budgets at most (§9), but a
+  text that changed is a new text. Typing in a `SPEC.md` that is over its time budget can therefore cost up to two
+  budgets a keystroke until every slow section is remembered (the Read view stays mounted behind the Edit view and
+  parses what is typed); and what waits behind the piece a text ran out on is parsed in ONE task of up to the
+  text's whole budget, not in slices of 30 ms. Measured on a 990 KiB spec of 62 hostile sections: two tasks of
+  0.42 s for each of the first 26 keystrokes. A spec of ordinary sections does not come near its budget, which is
+  about ten times what the lexer needs for ordinary text. One such text can also read two ways for a while: a
+  column keeps the sections it formatted for an earlier version of the text and does not parse them again, while
+  a column opened afresh parses the whole text inside its budget and may show all of it as written.
+- **Bounds on text, in plain words.** A run of more than 30 combining marks on one letter is cut to 30 in every
+  text a person sends towards an agent (the card says that hidden characters were removed), and a file or folder
+  whose name holds such a run cannot be reached through smurg at all (§7.4); agents and terminals see it like any
+  other file. One upload may have at most 10,000 folders (§5.2). The daemon's own answer from a topic's "always
+  allow" rule, for a session whose process does not have the rule yet, is never given for a URL longer than 2,048
+  characters: a person is asked (§5.9; a rule a process already holds is matched by Claude Code itself).
 - **No subagents.** Agents in smurg do not start subagents: Claude Code's `Task` tool is in no session's tool list,
   and agent definitions in `.claude/agents` are not used as subagents. A subagent runs with the permission mode, the
   hooks and the MCP servers of its definition, not with what smurg set for the session (§7.6 "Profiles"). The wire's

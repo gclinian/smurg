@@ -202,9 +202,15 @@ stay visible on the switch.
   usually has a problem.
 - **Upload**: drag files or a whole folder onto the file tree on the left. Large files work too, and after a dropped
   connection the upload continues where it stopped; when the host's disk is too full, the upload is refused before
-  it starts, with the reason. Progress is under "Transfers" at the bottom.
+  it starts, with the reason. One upload can have at most 10,000 folders, counting every folder its files lie in;
+  a larger one is refused before anything is created ("Upload it in parts."). Progress is under "Transfers" at the
+  bottom.
 - Files that are too large (over 5 MB), binary or not UTF-8 cannot be opened in the editor; download them and open
   them with your own program.
+- **Names smurg does not accept.** A file or folder is not listed, and cannot be opened, created or uploaded, when
+  its name has a control character, a backslash or a character that changes the direction of the text in it, or
+  more than 30 accents stacked on one letter. No word of any language needs that many. Agents and terminals, which
+  run as the host, see such a file like any other.
 - **A session beside the editor**: the right side of code mode shows one agent session of your choice, the same
   conversation as in the sessions view. A file that an agent read or changed has "Open in editor" in the
   conversation; it brings you here with that file open, and "Back to the session" returns.
@@ -249,6 +255,36 @@ Above the conversation a strip shows who is responsible for the session ("Respon
 (for example "Asks before commands"; a topic's discussion shows "Reads code, writes only the spec and the plan").
 The line above the message box says what the agent is doing or what it waits for (for example "Claude is idle.").
 
+**Links in what an agent or a member wrote.** A link opens in a new tab, and it shows where it leads when you rest
+the pointer on it or reach it with the keyboard. Images are never loaded: an image is a link to it. When the words
+of a link name another place than the link leads to, smurg does not draw them as the link: it writes the words as
+text and the real destination after them, as the link: `github.com (https://evil.example/)`. It does the same,
+wherever the link leads, when a dotted name in the words has a letter from outside the English alphabet in it (a
+look-alike letter in a well-known name, an umlaut), or a character nobody can see beside its dot. This is a help,
+not a guarantee. smurg reads words as a place when they are an address, a name with a path behind it, or a bare
+name under one of about fifty well-known endings (`.com`, `.org`, `.io`, `.tw` …). It draws an ordinary link, with
+the destination behind the pointer and the keyboard only, for:
+
+- a bare name under any other ending (`amazon.in`, `bbc.it`, `github.lol`): no spelling tells it from a file name
+  such as `README.md`;
+- a name in which the dot is a sign that only looks like one (a raised dot, a digit zero of another script), or
+  that has a character drawn with almost no width before the dot;
+- a name written backwards behind a character that turns the direction of the text. smurg removes such a
+  character from a message, so this can only happen in a spec or another file;
+- words that are exactly the name of the file the link leads to, whatever letters they are written in (so that
+  `résumé.pdf` can link to that file). A look-alike name under a less common ending passes this way when the
+  link's own address ends in it.
+
+So before you follow a link, look at where it leads.
+
+**Text that cannot be formatted in time.** What agents and people write is shown formatted (headings, lists, code).
+A text that is too long or too deeply nested, or that takes too long to format, is shown as it was written, under
+the note "Shown as it was written: this text is too long or too deeply nested to format." A spec is formatted
+section by section: the section the time ran out on is shown as written and the rest is formatted, and when the
+time runs out a second time the whole spec is shown as written. When very many texts arrive at once, the ones
+that have to wait are shown as written for a moment, without the note, and are formatted as soon as the browser
+has time, the ones on screen first.
+
 ### 5.1 Messages (host and Agent access)
 
 - Write in the box ("Message Claude") and press Enter; Shift+Enter makes a new line. While the agent works, it
@@ -283,7 +319,9 @@ The line above the message box says what the agent is doing or what it waits for
 - Until someone decides, you can change it ("Edit") or take it back ("Withdraw"). You can have 20 suggestions
   waiting in one session.
 - Characters that cannot be seen are removed from what you write before it is stored and shown
-  ("Hidden characters were removed"): what a person accepts is exactly what the agent gets.
+  ("Hidden characters were removed"): what a person accepts is exactly what the agent gets. More than 30 accents
+  stacked on one letter are cut to the first 30 in the same way; this goes for every text a person writes in a
+  conversation (a message, a suggestion, a comment, an answer, a note).
 - The same goes for the other boxes that send text to an agent, such as "Ask the agent to revise" on a spec and the
   box under a result report: an Editor's text there is a suggestion too.
 - Suggestions go to agent sessions only, not to terminals. A Viewer cannot send suggestions:
@@ -337,7 +375,8 @@ Outside its own worktree, and for almost every command, an agent must ask first.
 - Some requests say "Only the host can allow this: it reaches beyond the shared project."
 - In a folder whose Claude Code settings run scripts, smurg itself asks before an agent's shell command that could
   change one of those scripts, also inside the agent's own worktree and whatever is always allowed. The card gives
-  smurg's reason; when the command writes where such a script is, only the host can allow it.
+  smurg's reason, in your language, where it otherwise gives Claude Code's; when the command writes where such a
+  script is, only the host can allow it.
 - The first answer wins; the card then says who allowed or denied it.
 
 ### 5.5 Terminal sessions
@@ -362,7 +401,9 @@ step is a row of the topic in the session list.
 3. **Spec**: the agent writes `SPEC.md` in the topic's folder and says so in the discussion ("Open spec"). In the
    spec column you read it, or switch to editing and type in it together with the others (file locks as in §4.1:
    while someone types, the agent waits its turn). "Ask the agent to revise" sends what you want changed to the
-   discussion, where everyone sees it and the agent may ask a new question first.
+   discussion, where everyone sees it and the agent may ask a new question first. In a very large spec with
+   sections that take too long to format (§5), the first keystrokes can each take most of a second, until every
+   such section has been set aside.
 4. **Plan**: "Generate plan" (host and Agent access) makes the agent write `PLAN.md`: a list of **work items**, each
    with a title, a description and the items it must wait for. smurg checks the format; if it cannot read the work
    items, the plan says which line is wrong. When the spec changes later, the plan says so and offers "Update plan".

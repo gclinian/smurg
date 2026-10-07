@@ -380,12 +380,12 @@ system and holds whatever your Claude Code settings allow. What it lets through 
 
 **Permission requests.** When an agent needs something it may not do by itself, a card appears in its conversation
 and in an inbox, and the agent waits. The card shows the whole command (or the whole diff of an edit, or everything
-the tool was given), where it would run and Claude Code's reason. A request that is too large to show whole is
-denied, never shortened. Nothing is left out of what is shown: a character nobody can see (an invisible or
-zero-width character, one that changes the direction of the text, a control character) is written out as a mark
-you can see, in a command for example as `<U+202E>`. A long command or diff stands in a box that scrolls; the card
-says how many lines it has, and the two buttons that allow stay disabled until every such box was scrolled to its
-end:
+the tool was given), where it would run and Claude Code's reason (smurg's own reason when it is smurg that asks,
+§5.3). A request that is too large to show whole is denied, never shortened. Nothing is left out of what is shown:
+a character nobody can see (an invisible or zero-width character, one that changes the direction of the text, a
+control character) is written out as a mark you can see, in a command for example as `<U+202E>`. A long command or
+diff stands in a box that scrolls; the card says how many lines it has, and the two buttons that allow stay
+disabled until every such box was scrolled to its end:
 "Allow is available once you have scrolled to the end of what is asked."
 
 - **Who can answer**: you and every member with agent access; Editors and Viewers see the request and cannot answer
@@ -402,7 +402,8 @@ end:
   choose where it applies: "in this session" or "in every session of this topic"
   (the kinds allowed for a topic are also listed in its plan, where they can be added and removed). A kind of a
   topic answers a waiting request of another session by itself only when that request is one plain command of the
-  kind: nothing chained, piped or redirected, no variable and no substitution in it. A kind covers the
+  kind (nothing chained, piped or redirected, no variable and no substitution in it), or a fetch from the kind's
+  host whose address is at most 2,048 characters long. A kind covers the
   same command after the agent changed the files it runs: an agent that may always run the tests can edit a test
   file and run what it wrote. A session's permission menu lists what is always allowed there, and each entry can be
   removed. An entry also goes away by itself when the member who added it is removed or loses agent access.
@@ -457,10 +458,15 @@ agent session in smurg never shows that question, so smurg asks you instead:
   example as `<U+202E>`. A fourth entry, "Everything else in .claude/", names every other file below `.claude/` and
   what those files declare by themselves (hooks, allowed tools, a permission mode).
 - **When the lists do not show everything**, the review says so. A list that is too long, or an entry that is cut
-  short, has a note above it. A command whose files smurg cannot follow has a line under it: that is a command in
-  which the program, or the script it is given, is a variable, a wildcard or a text the command builds
-  (`sh $SCRIPT`, `eval`). smurg guards only the scripts it could list, so read the files themselves before you
-  decide. Using the settings then takes one more tick:
+  short, has a note above it. A command whose files smurg cannot follow has a line under it, and the note above
+  the lists counts such commands, for example
+  `smurg cannot follow which files 2 of these commands run: only the scripts listed are guarded.`
+  That is a command in which the program, or the script it is given, is a variable, a wildcard or a text the
+  command builds (`sh $SCRIPT`, `eval`). It is also a command written as nobody writes one, which smurg does not
+  read to its end: more than sixteen wrappers in a row (`env`, `sudo`, `nice`, `timeout`, `command`, `exec`,
+  `nohup`, `xargs`; fewer when a very long word follows them), or an `eval` or `sh -c` inside another more than
+  three deep. smurg guards only the scripts it could list, so read the files themselves before you decide. Using
+  the settings then takes one more tick:
   "The lists above do not show everything. I have read the files themselves."
 - **Your choice** is "Use them" or "Run without them (agents will not read CLAUDE.md)". When the settings can send
   your login elsewhere or let agents act without asking, you first tick what you have read. Some settings cannot
@@ -476,20 +482,31 @@ agent session in smurg never shows that question, so smurg asks you instead:
 - **The scripts are yours while the settings are in use.** Through smurg only you can change the settings files
   and the scripts: no teammate, no agent's edit tools, and no merge that a teammate or a work item asks for. A path
   that a command names where no file is yet (an optional script, a build output such as `dist/hooks/check.js`) is
-  guarded in the same way: only you can create it through smurg, and the file appearing counts as a change. A hook
-  that runs a build output therefore asks you again after each build that creates it.
+  guarded in the same way: only you can create it through smurg, and the file appearing counts as a change. The
+  review marks such a path "named, not there yet". A hook that runs a build output therefore asks you again after
+  each build that creates it.
 - **Agents' shell commands near those scripts.** While the settings in use name scripts, smurg reads every shell
   command of an agent in that folder before it runs, also in a work item's worktree, where simple file commands
-  otherwise run without asking. A person is asked, with smurg's reason on the card, in the two cases below. No
-  kind that someone always allowed covers such a command, and neither do your own allow rules: it asks each time.
-  The check leaves alone a command that only reads a script (`cat`, `grep`, `diff`), one that writes a file beside
-  it, and git's `status`, `diff`, `log`, `add` and `commit` as long as they name no script and no folder of one.
+  otherwise run without asking. A command line handed to another shell (`sh -c '…'`) is read like the line
+  itself. A person is asked in the two cases below, and the card gives smurg's reason, in the reader's language,
+  where it otherwise gives Claude Code's. No kind that someone always allowed covers such a command, and neither do
+  your own allow rules: it asks each time. The check leaves alone a command that only reads a script (`cat`,
+  `grep`, `diff`), one that writes a file beside it, and any other program as long as it names no script and no
+  folder of one (`npm test`, or git's `status`, `diff`, `log`, `add` and `commit`).
   - The command writes where a script is: the script itself, anything below it, or a folder above it
-    (`> scripts/lint.sh`, `cp x/lint.sh scripts/`, `mv scripts scripts.old`). Only you can allow that.
-  - smurg cannot tell: a file command writes to a variable, a substitution or a wildcard; a program is handed a
-    script or its folder by name (`sh scripts/lint.sh`); or it is one of git's commands that bring files into the
-    working tree without naming them (`checkout`, `switch`, `restore`, `reset`, `stash`, `merge`, `rebase`, `pull`,
-    `cherry-pick`, `revert`, `apply`, `am`, `clean`). You or a member with agent access can allow that.
+    (`> scripts/lint.sh`, `cp x/lint.sh scripts/`, `mv scripts scripts.old`), also through a wildcard that can
+    match one of them (`rm scripts/*.sh`). Only you can allow that. The card says:
+    "smurg asks because this command changes a place where this folder's Claude Code project settings keep a script they run (the script itself, or a folder that holds it). Those scripts run as the host."
+  - smurg cannot tell. A file command writes to a place smurg cannot read: a variable, a substitution, names that
+    come out of another program (`xargs rm`), a relative name after a change to a directory it does not know. A
+    program is handed a script or its folder by name, as a word of its own or glued to an option
+    (`sh scripts/lint.sh`, `sort -oscripts/lint.sh`, `git diff --output=scripts/lint.sh`). It is one of git's
+    commands that bring files into the working tree without naming them (`checkout`, `switch`, `restore`, `reset`,
+    `stash`, `merge`, `rebase`, `pull`, `cherry-pick`, `revert`, `apply`, `am`, `clean`). Or the line is more than
+    smurg follows: a shell inside a shell more than four deep, more than 16 changes of directory, more than 256
+    places named. You or a member with agent access can allow that, also when a line smurg could not follow does
+    write a script. The card says:
+    "smurg asks because this folder's Claude Code project settings run scripts, and smurg cannot tell whether this command leaves them alone."
 - **What this cannot see, and what to do about it.** smurg reads what a command names. A program that names none
   of the scripts (a build such as `npm run build`, a script of the project that rewrites another) is not seen
   before it runs. It asks like any other command unless someone always allowed its kind; smurg notices the changed
@@ -534,7 +551,8 @@ yourself before you share it.
   comments, a permission request with the command or the diff it showed, and a suggestion are cards: the
   conversation only points to them, and they stay as they are. So do the excerpts in inbox items, the questions
   asked under a result report, and the audit log. Deleting the topic removes all of these except the audit log. A
-  session without a topic has no such way: its conversation is removed 30 days after the session ended.
+  session without a topic has no such way: its conversation is removed 30 days after the session ended. The
+  dialog that asks you to confirm the removal says which of the two applies to the entry.
 - **Claude Code's own record**: Claude Code keeps its own transcript of each conversation under `~/.claude/` on its
   own schedule (30 days by default); smurg never reads or deletes it. It is the agent's memory. When an agent is
   continued after Claude Code removed it, the conversation says
@@ -926,6 +944,14 @@ Limits of this version that are known:
   names none of the scripts (a build, a script that rewrites another) is not seen before it runs (§5.3).
 - Removing an entry of a conversation does not remove the cards, the inbox excerpts and the audit entries that
   hold the same text (§5.4).
+- A link in what an agent or a member wrote shows where it leads only when you rest the pointer on it or reach it
+  with the keyboard. smurg writes the destination out beside the words when the words themselves name another
+  place (`github.com (https://evil.example/)`), but it does not recognize every such case: a name under a less
+  common ending (`amazon.in`, `github.lol`) and a name with a sign in it that only looks like a dot are drawn as
+  ordinary links. Look at the destination before you follow a link (the guide for teammates, §5).
+- A spec or a message that takes too long to format is shown as it was written, in whole or in part, under a
+  note. In a very large spec of that kind the first keystrokes can each take most of a second, until every
+  section that is slow to format has been set aside.
 - When an agent session ends, or you stop sharing, smurg ends what the agent's commands left running. On macOS it
   can miss one kind of program: a background job of one of Apple's own programs (`/bin/sleep`, `/usr/bin/python3`)
   whose shell ended at once. smurg finds such a job only if its scan, every two seconds, saw it while the shell
