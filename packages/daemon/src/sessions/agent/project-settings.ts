@@ -21,8 +21,17 @@
 //    holds one of them counts, a renamed folder is reported as the folder alone). Whenever a look at the files finds
 //    a content that is not trusted (the watcher, a session start, the host opening the review, a merge) the sessions
 //    of that root that loaded the settings are parked.
-//  - While a content is trusted its scripts are host-only for writes through smurg (`protectedPaths`), and every
-//    agent session of the root is started with a deny rule for each of them (profiles.ts).
+//  - THE SCRIPTS are every file of the folder a command names, however it spells the folder (`$CLAUDE_PROJECT_DIR`,
+//    `${CLAUDE_PROJECT_DIR:-.}`, `$PWD`, a `cd` before it, a substitution in front of the path), AND every path a
+//    command names where no file is yet (`[ -x scripts/optional.sh ] && …`, a build output): such a path is recorded
+//    as "named, not there yet" (SCRIPT_ABSENT_HASH), guarded and watched like a script, and the file appearing is a
+//    change of the confirmed content. A command that reaches its files in a way smurg cannot follow (a variable
+//    as the program or as the script of an interpreter, a wildcard there, `eval`) says so in the review and needs the
+//    tick `incomplete`. A lookup that cannot be made (too many words, a path that cannot be looked at) makes the
+//    content one nobody can confirm.
+//  - While a content is trusted its scripts are host-only for writes through smurg (`protectedPaths`: at the path
+//    and below it), no agent's edit tool writes them (tool gate G3), and an agent's shell command that may change
+//    one, or a folder above one, asks a person first (tool gate G10, hooks/bash-guard.ts).
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat, readFile, readdir, realpath, stat } from 'node:fs/promises';
@@ -45,6 +54,7 @@ import {
   rootRefKey,
   takeListPage,
   truncateToUtf8Bytes,
+  visibleText,
   type ProjectSettingsState,
   type RootRef,
 } from '@smurg/protocol';
@@ -52,7 +62,7 @@ import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../../core/context.ts';
 import type { AttentionFact, PersistentDocument, Principal, ProjectTrust, Req, Res } from '../../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../../core/lifecycle.ts';
-import { isRuleNameable } from './profiles.ts';
+import { UNKNOWN_PART, programName, programWords, scanShell, type ShellWord } from '../../core/shell-scan.ts';
 
 type ClaudeConfigFile = Res<'admin.claudeConfig.get'>['roots'][number]['files'][number];
 type Ack = ClaudeConfigFile['needsAck'][number];
@@ -86,8 +96,10 @@ type Decision = z.infer<typeof decisionSchema>;
 const SETTINGS_FILE_MAX_BYTES = CLAUDE_CONFIG_TEXT_MAX_BYTES;
 /** A script larger than this is not hashed: the content that names it is never trusted. */
 const SCRIPT_MAX_BYTES = 64 * 1024 * 1024;
-/** Words of a file's commands that are looked up as files of the root. */
-const SCRIPT_CANDIDATES_MAX = 2_000;
+/** Words of a file's commands that are looked up as files of the root. A file with more is never trusted. */
+export const SCRIPT_CANDIDATES_MAX = 2_000;
+/** In place of a content hash: the path is named by a command and no file is there (yet). */
+export const SCRIPT_ABSENT_HASH = sha256('smurg: a script that is named and not there yet');
 /** The loaded entry: files below `.claude/`, and their bytes, that one look hashes. More is never trusted. */
 const LOADED_FILES_MAX = 2_000;
 const LOADED_BYTES_MAX = 64 * 1024 * 1024;
@@ -103,18 +115,8 @@ const isObject = (value: unknown): value is Json => typeof value === 'object' &&
 // What the host reads: nothing invisible, nothing cut without a count
 // ---------------------------------------------------------------------------------------------------------------------
 
-// Characters a person cannot see or that change how a line reads: C0/C1 controls (tab and line break aside), DEL,
-// Unicode's default-ignorable set (zero-width, joiners, fillers, variation selectors, the tag block), every
-// bidirectional control, and a lone surrogate (which no wire text may hold).
-const INVISIBLE =
-  /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff0-\ufff8\ud800-\udfff\u{e0000}-\u{e0fff}]/gu;
-const written = (char: string): string => `<U+${(char.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}>`;
-
-/** `text` with every such character written out as `<U+XXXX>`; in one-line text a tab and a line break too. */
-export function visibleText(text: string, oneLine = false): string {
-  const shown = text.replace(INVISIBLE, written);
-  return oneLine ? shown.replace(/[\t\n]/g, written) : shown;
-}
+// What the host reads is written by the protocol's `visibleText`: every character nobody can see as `<U+XXXX>`.
+export { visibleText };
 
 /** The first `max` UTF-16 units of `text`, never ending inside a surrogate pair. */
 function clip(text: string, max: number): string {
@@ -160,6 +162,8 @@ export interface FileEffects {
   readonly needsAck: Ack[];
   /** What the lists leave out; absent when they are everything. */
   readonly cut?: { omitted: number; shortened: number };
+  /** Commands whose files smurg cannot follow (each has UNFOLLOWED_NOTE below it); absent when there is none. */
+  readonly unfollowed?: number;
 }
 
 /** The lists of one entry of the review, bounded as the wire bounds them, counting what does not fit. */
@@ -171,6 +175,8 @@ class Lists {
   readonly commands: string[][] = [];
   omitted = 0;
   shortened = 0;
+  /** Commands that reach their files in a way smurg cannot follow. */
+  unfollowed = 0;
   credentials = false;
   allowsTools = false;
 
@@ -207,11 +213,17 @@ class Lists {
     if (line === null) return;
     this.commands.push(line);
     this.line(this.runs, `${label}: ${line.join(' ')}`);
+    if (cannotFollow(line)) {
+      // Said right below the command it is about; counted even when the list has no room for the sentence.
+      this.unfollowed += 1;
+      this.line(this.runs, UNFOLLOWED_NOTE);
+    }
   }
 
   effects(extraAcks: readonly Ack[] = []): FileEffects {
     const cut = this.omitted > 0 || this.shortened > 0;
-    const acks = new Set<Ack>([...(this.credentials ? (['credentials'] as const) : []), ...(this.allowsTools ? (['allows-tools'] as const) : []), ...extraAcks, ...(cut ? (['incomplete'] as const) : [])]);
+    const incomplete = cut || this.unfollowed > 0;
+    const acks = new Set<Ack>([...(this.credentials ? (['credentials'] as const) : []), ...(this.allowsTools ? (['allows-tools'] as const) : []), ...extraAcks, ...(incomplete ? (['incomplete'] as const) : [])]);
     return {
       runs: this.runs,
       permissions: this.permissions,
@@ -220,6 +232,7 @@ class Lists {
       commands: this.commands,
       needsAck: (['credentials', 'allows-tools', 'incomplete'] as const).filter((ack) => acks.has(ack)),
       ...(cut ? { cut: { omitted: this.omitted, shortened: this.shortened } } : {}),
+      ...(this.unfollowed > 0 ? { unfollowed: this.unfollowed } : {}),
     };
   }
 }
@@ -313,35 +326,151 @@ export function effectsOf(path: string, text: string): FileEffects {
   return lists.effects();
 }
 
-/**
- * PURE: the words of a command line as a shell would split it, far enough to find the files it names: quotes group
- * (and are removed), a backslash keeps the next character, white space and the shell's operators separate.
- */
-export function shellWords(text: string): string[] {
-  const words: string[] = [];
-  let current = '';
-  let started = false;
-  let quote: string | null = null;
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i] as string;
-    if (quote !== null) {
-      if (char === quote) quote = null;
-      else if (char === '\\' && quote === '"' && i + 1 < text.length && '"\\$`'.includes(text[i + 1] as string)) current += text[++i];
-      else current += char;
-    } else if (char === '"' || char === "'") {
-      quote = char;
-      started = true;
-    } else if (char === '\\' && i + 1 < text.length) {
-      current += text[++i];
-      started = true;
-    } else if (/[\s;&|()<>=,`]/.test(char)) {
-      if (started || current !== '') words.push(current);
-      current = '';
-      started = false;
-    } else current += char;
+/** Below a command in `runs`: smurg cannot tell which files it runs. */
+export const UNFOLLOWED_NOTE = '^ smurg cannot follow which files the command above runs (a variable, a wildcard or a text it builds names them): only the scripts listed for this entry are guarded';
+
+// Names whose value is known when a hook command runs: the folder itself, the directory the command starts in, and
+// the host's home. (A settings file that sets one of them shows it among the variables that change which programs run.)
+const KNOWN_NAMES: Readonly<Record<string, string>> = { CLAUDE_PROJECT_DIR: '/', PWD: '/', HOME: '/' };
+const SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish']);
+/** Programs whose first operand is a file they run. */
+const SCRIPT_RUNNERS: ReadonlySet<string> = new Set([...SHELLS, 'source', '.', 'node', 'deno', 'bun', 'python', 'python2', 'python3', 'ruby', 'perl', 'php', 'lua', 'osascript', 'awk', 'gawk', 'make', 'tsx', 'ts-node']);
+/** Programs that run the command that follows their own options. */
+const WRAPPERS: ReadonlySet<string> = new Set(['env', 'sudo', 'doas', 'nice', 'nohup', 'timeout', 'command', 'builtin', 'exec', 'time', 'xargs']);
+const FIND_RUNS: ReadonlySet<string> = new Set(['-exec', '-execdir', '-ok', '-okdir']);
+const ASSIGNED = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+const notKnown = (word: ShellWord): boolean => word.dynamic || word.glob || word.text.includes(UNKNOWN_PART);
+const literalWord = (text: string): ShellWord => ({ text, dynamic: /[$`]/.test(text), glob: false, prefix: text, quoted: true });
+
+/** Whether the words of ONE command name what it runs in a way nobody can follow. */
+function wordsNotFollowed(words: readonly ShellWord[], depth: number): boolean {
+  const first = words[0];
+  if (first === undefined) return false;
+  // The program itself is a variable, a substitution or a wildcard.
+  if (notKnown(first)) return true;
+  const program = programName(first);
+  const rest = words.slice(1);
+  if (program === 'cd' || program === 'pushd') return rest.some(notKnown) || rest.some((word) => word.text === '-');
+  if (program === 'popd') return true;
+  if (program === 'eval') return rest.some(notKnown) || textNotFollowed(rest.map((word) => word.text).join(' '), depth + 1);
+  if (WRAPPERS.has(program)) {
+    let at = 0;
+    while (at < rest.length && !notKnown(rest[at] as ShellWord) && (/^-/.test((rest[at] as ShellWord).text) || ASSIGNED.test((rest[at] as ShellWord).text) || /^[0-9.]+[smhd]?$/.test((rest[at] as ShellWord).text))) at += 1;
+    const inner = rest.slice(at);
+    // `xargs sh`, `xargs node`: the script comes from the input.
+    if (program === 'xargs' && inner[0] !== undefined && !notKnown(inner[0]) && SCRIPT_RUNNERS.has(programName(inner[0]))) return true;
+    if (wordsNotFollowed(inner, depth)) return true;
+    // An option of the wrapper that takes a value (`sudo -u x python3 …`): the command starts later.
+    const later = inner.findIndex((word, index) => index > 0 && !notKnown(word) && (SCRIPT_RUNNERS.has(programName(word)) || WRAPPERS.has(programName(word)) || programName(word) === 'eval'));
+    return later !== -1 && wordsNotFollowed(inner.slice(later), depth);
   }
-  if (started || current !== '') words.push(current);
-  return words;
+  if (program === 'find') {
+    const at = rest.findIndex((word) => !notKnown(word) && FIND_RUNS.has(word.text));
+    return at !== -1 && wordsNotFollowed(rest.slice(at + 1).filter((word) => word.text !== ';' && word.text !== '+'), depth);
+  }
+  if (!SCRIPT_RUNNERS.has(program)) return false;
+  const operands = rest.filter((word) => notKnown(word) || !word.text.startsWith('-'));
+  const script = operands[0];
+  // No operand: it reads its program from its input, which no settings file holds.
+  if (script === undefined) return false;
+  // `sh -c "<a command line>"`: read like the command itself.
+  if (SHELLS.has(program) && rest.some((word) => !notKnown(word) && /^-[A-Za-z]*c$/.test(word.text))) return script.text === UNKNOWN_PART || textNotFollowed(script.text, depth + 1);
+  return notKnown(script);
+}
+
+function textNotFollowed(text: string, depth: number): boolean {
+  if (depth > 3) return true;
+  const scan = scanShell(text, { variables: KNOWN_NAMES, home: '/' });
+  return scan.unparsed || scan.commands.some((command) => wordsNotFollowed(programWords(command), depth));
+}
+
+/**
+ * PURE: whether a command the content runs reaches its files in a way smurg cannot follow: the program, or the
+ * script an interpreter is given, is a variable, a substitution or a wildcard; a `cd` to such a place; `eval` of
+ * such a text; a line the reader cannot take apart. `line`: the command, and its `args` when it has a list of them
+ * (each one word, run without a shell).
+ */
+export function cannotFollow(line: readonly string[]): boolean {
+  const [command, ...args] = line;
+  if (command === undefined) return false;
+  if (args.length === 0) return textNotFollowed(command, 0);
+  const scan = scanShell(command, { variables: KNOWN_NAMES, home: '/' });
+  const head = scan.commands[0];
+  if (scan.unparsed || scan.commands.length !== 1 || head === undefined) return true;
+  return wordsNotFollowed([...programWords(head), ...args.map(literalWord)], 0);
+}
+
+const LOOSE_SPLIT = /[\s;&|()<>=,`]+/;
+const PLAIN_NAME = /^[\p{L}\p{N}._@+-]+$/u;
+const SCRIPT_EXTENSION = /\.(sh|bash|zsh|ksh|fish|js|mjs|cjs|ts|mts|cts|tsx|jsx|py|rb|pl|php|lua|ps1|awk|jar)$/i;
+
+/** A word of a command that may be a file of the root. `named`: written as a path of its own (not a piece of a word). */
+interface Candidate {
+  readonly text: string;
+  readonly named: boolean;
+}
+
+/**
+ * PURE: the words of the commands that are looked up as files, and the directories a command changes to (`cd x`):
+ * every word is looked up from each of them. `variables`: the real values of the known names. `overflow`: more
+ * words than SCRIPT_CANDIDATES_MAX (then nothing can be said about the content).
+ */
+export function scriptCandidates(commands: readonly (readonly string[])[], variables: Readonly<Record<string, string>>, home: string | undefined): { candidates: Candidate[]; dirs: string[]; overflow: boolean } {
+  const found = new Map<string, boolean>();
+  const dirs = new Set<string>();
+  let overflow = false;
+  const add = (text: string, named: boolean): void => {
+    if (text.length === 0 || text.length > 1024 || text.startsWith('-') || text.includes('\u0000') || text.includes(UNKNOWN_PART)) return;
+    const known = found.get(text);
+    if (known === undefined && found.size >= SCRIPT_CANDIDATES_MAX) overflow = true;
+    else found.set(text, known === true || named);
+  };
+  const word = (entry: ShellWord): void => {
+    // `NAME=value`, `--config=./x.js`: the value is a word of its own.
+    const texts = [entry.text, ...(entry.text.includes('=') ? [entry.text.slice(entry.text.indexOf('=') + 1)] : [])];
+    for (const text of texts) {
+      if (!entry.dynamic && !entry.glob) add(text, true);
+      // A substitution or a variable in front of a path (`$(git rev-parse --show-toplevel)/scripts/x.sh`): whatever
+      // it stands for, the rest may be a path of this folder.
+      else if (text.startsWith(`${UNKNOWN_PART}/`) && !text.slice(2).includes(UNKNOWN_PART) && !entry.glob) add(text.slice(2), true);
+      // The written pieces around it; the one right after an expansion is looked up without its leading slash.
+      text.split(UNKNOWN_PART).forEach((part, index) => part.split(LOOSE_SPLIT).forEach((piece, at) => add(index > 0 && at === 0 ? piece.replace(/^\/+/, '') : piece, false)));
+    }
+  };
+  for (const line of commands) {
+    // An `args` list is given to a shell when the command is one (`sh`, `-c`, `<a command line>`).
+    const shellArgs = SHELLS.has(programName(scanShell(line[0] ?? '').commands[0]?.words[0]));
+    line.forEach((part, index) => {
+      // Each part whole (an argument of an `args` list is one word whatever it holds), as a shell would split it, and
+      // with every quote simply dropped: a word too many is looked up and not found, a word too few is a script
+      // nobody guards.
+      add(part, index > 0);
+      const scan = index > 0 && !shellArgs ? { commands: [] } : scanShell(part, home === undefined ? { variables } : { variables, home });
+      for (const command of scan.commands) {
+        for (const entry of [...command.words, ...command.assignments, ...command.writes, ...command.reads]) word(entry);
+        const words = programWords(command);
+        const program = programName(words[0]);
+        if (program === 'cd' || program === 'pushd') for (const target of words.slice(1)) if (!notKnown(target) && !target.text.startsWith('-')) dirs.add(target.text);
+      }
+      for (const piece of part.replace(/["']/g, '').split(LOOSE_SPLIT)) add(piece.replace(/^\$\{?CLAUDE_PROJECT_DIR[^}/]*\}?\//, ''), false);
+    });
+  }
+  return { candidates: [...found].map(([text, named]) => ({ text, named })), dirs: [...dirs], overflow };
+}
+
+/**
+ * PURE: whether a word that names NO existing file is still a path the command names (and so is recorded as "named,
+ * not there yet"): written with an anchor (`./x`, `../x`, an absolute path), or a relative path of plain names, or a
+ * bare file name with a script's extension. A word such as `s/a/b/`, `application/json` in a quoted header, a
+ * regular expression or a URL is not.
+ */
+export function namesAPath(text: string): 'anchored' | 'plain' | null {
+  if (text.endsWith('/')) return null;
+  if (text.startsWith('/') || text.startsWith('./') || text.startsWith('../')) return 'anchored';
+  const segments = text.split('/');
+  if (!segments.every((segment) => PLAIN_NAME.test(segment))) return null;
+  return segments.length > 1 || SCRIPT_EXTENSION.test(text) ? 'plain' : null;
 }
 
 const HEADER_KEY = /^([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*)$/;
@@ -413,7 +542,23 @@ function hashFile(absolute: string): Promise<string | null> {
   });
 }
 
+/** `hash`: the file's content, or SCRIPT_ABSENT_HASH for a path that is named and not there. */
 type Script = { path: string; hash: string };
+
+// eslint-disable-next-line no-control-regex
+const NOT_GUARDABLE = /[\\\u0000-\u001f\u007f]/;
+
+/**
+ * Whether smurg guards a script of this name: any name a request can carry (no backslash, no control character).
+ * Brackets, wildcards and blanks are fine: PathGuard compares names, and the tool gate reads a quoted name as that
+ * name and an unquoted pattern as whatever it can match. A content that runs a file of another name is never trusted.
+ */
+export function isGuardable(path: string): boolean {
+  return path.length > 0 && !path.startsWith('/') && !NOT_GUARDABLE.test(path);
+}
+
+// A word that is a pattern for a tool (`src/**` and the like), not the name of one file.
+const PATTERN_LIKE = /[*?[\]{}]/;
 
 /** One file below `.claude/` (the loaded entry). `key`: what a decision about it is stored under. */
 interface LoadedFile {
@@ -584,7 +729,8 @@ export class ProjectTrustImpl implements ProjectTrust {
     const before = this.scans.get(key);
     this.scans.set(key, scan);
     if (before !== undefined && before.state === scan.state && before.undecided === scan.undecided) {
-      // Still in use, but other scripts are recorded now: the sessions need the deny rules of the new set.
+      // Still in use, but other scripts are recorded now (another confirmed content is back): a process that loaded
+      // the earlier content would go on running scripts nobody guards any more. The sessions start again.
       if (scan.state === 'used' && !sameSet(before.protectedPaths, scan.protectedPaths)) this.reactions?.decided(scan.root);
       return;
     }
@@ -762,58 +908,80 @@ export class ProjectTrustImpl implements ProjectTrust {
   }
 
   /**
-   * Each word of each command that names an existing file inside the root, with the file's hash: the scripts the
-   * content runs. A word is looked up with its quotes removed wherever they stand (`"$CLAUDE_PROJECT_DIR"/x.sh`) and
-   * after the variable in both spellings. The path recorded is the one the FILE SYSTEM gives the file (its stored
-   * case and normalisation; through a link, the link's path and the file it leads to), so the watch, PathGuard and
-   * the deny rules all name the file that runs. `problem`: a script that exists but cannot be recorded (then the
-   * content that names it is never trusted, instead of being trusted with a script nobody guards).
+   * The scripts the content runs: each word of each command that names an existing file inside the root, with the
+   * file's hash, and each path a command names where nothing is yet (SCRIPT_ABSENT_HASH in place of a hash). A word
+   * is looked up as scriptCandidates reads it, from the root and from every folder a command changes to. The path
+   * recorded is the one the FILE SYSTEM gives the file (its stored case and normalisation; through a link, the
+   * link's path and the file it leads to), so the watch, PathGuard and the tool gate all name the file that runs.
+   * `problem`: something that cannot be recorded or looked up (then the content that names it is never trusted,
+   * instead of being trusted with a script nobody guards).
    */
   private async scriptsOf(rootReal: string, commands: readonly string[][]): Promise<{ scripts: Script[]; problem: string | null }> {
     const out = new Map<string, string>();
-    const candidates = new Set<string>();
-    for (const line of commands) {
-      // Each part whole (an argument of an `args` list is one word whatever it holds), as a shell would split it, and
-      // with every quote simply dropped: a word too many is looked up and not found, a word too few is a script
-      // nobody guards.
-      for (const word of line.flatMap((part) => [part, ...shellWords(part), ...part.replace(/["']/g, '').split(/[\s;&|()<>=,`]+/)])) {
-        const cleaned = word.replace(/^\$\{?CLAUDE_PROJECT_DIR\}?\//, '');
-        if (cleaned.length === 0 || cleaned.length > 1024 || cleaned.startsWith('-') || cleaned.includes('\u0000')) continue;
-        if (candidates.size < SCRIPT_CANDIDATES_MAX) candidates.add(cleaned);
-      }
-    }
+    const fail = (problem: string): { scripts: Script[]; problem: string } => ({ scripts: [], problem });
+    const home = this.ctx.config.sessions.hostHome ?? undefined;
+    const read = scriptCandidates(commands, { CLAUDE_PROJECT_DIR: rootReal, PWD: '.', ...(home === undefined ? {} : { HOME: home }) }, home);
+    if (read.overflow) return fail(`its commands have more words than smurg looks up (${SCRIPT_CANDIDATES_MAX})`);
     const inRoot = (absolute: string): string | null => {
       const rel = relative(rootReal, absolute);
       return rel.length === 0 || rel.startsWith('..') || isAbsolute(rel) ? null : rel.split(sep).join('/');
     };
-    for (const candidate of candidates) {
-      const absolute = normalize(isAbsolute(candidate) ? candidate : join(rootReal, candidate));
-      const named = inRoot(absolute);
-      if (named === null) continue;
-      let real: string;
-      let size: number;
-      try {
-        real = await realpath(absolute);
-        const info = await stat(real);
-        if (!info.isFile()) continue;
-        size = info.size;
-      } catch {
-        continue; // nothing there, or not a file of the root
+    // Where a relative word may lead: the folder itself, and each folder inside it that a command changes to.
+    const bases = [rootReal];
+    for (const dir of read.dirs) {
+      const absolute = normalize(isAbsolute(dir) ? dir : join(rootReal, dir));
+      if (inRoot(absolute) !== null && !bases.includes(absolute) && bases.length < 16) bases.push(absolute);
+    }
+    const record = (path: string, hash: string): string | null => {
+      const checked = checkRelPath(path);
+      // A name no request, rule or list can carry: nobody could guard the file.
+      if (!checked.ok || !isGuardable(checked.path)) return 'it runs a file of this folder whose name smurg cannot guard (a backslash or a control character)';
+      out.set(checked.path, hash);
+      return out.size > CLAUDE_CONFIG_SCRIPTS_MAX ? `it runs more scripts of this folder than smurg keeps track of (${CLAUDE_CONFIG_SCRIPTS_MAX})` : null;
+    };
+    for (const candidate of read.candidates) {
+      for (const base of isAbsolute(candidate.text) ? [rootReal] : bases) {
+        const absolute = normalize(isAbsolute(candidate.text) ? candidate.text : join(base, candidate.text));
+        const named = inRoot(absolute);
+        if (named === null) continue;
+        let real: string;
+        let size: number;
+        try {
+          real = await realpath(absolute);
+          const info = await stat(real);
+          if (!info.isFile()) continue;
+          size = info.size;
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          // A name too long to be a file is no file, now or later.
+          if (code === 'ENAMETOOLONG') continue;
+          if (code !== 'ENOENT' && code !== 'ENOTDIR') return fail('it names a path of this folder that smurg cannot look at');
+          // Nothing there. A word that is written as a path is still what the command runs once a file appears.
+          const kind = candidate.named ? namesAPath(candidate.text) : null;
+          // (A pattern handed to a tool, such as `"$CLAUDE_PROJECT_DIR/src/*.ts"`, names no one file.)
+          if (kind === null || PATTERN_LIKE.test(candidate.text)) continue;
+          const checked = checkRelPath(named);
+          if (!checked.ok || !isGuardable(checked.path)) {
+            if (kind === 'anchored') return fail('it names a file of this folder that is not there, by a name smurg cannot guard (a backslash or a control character)');
+            continue;
+          }
+          if (PROJECT_SETTINGS_FILES.includes(checked.path)) continue;
+          const problem = record(checked.path, SCRIPT_ABSENT_HASH);
+          if (problem !== null) return fail(problem);
+          continue;
+        }
+        // As the file system spells it; a path that reaches the file through a link is recorded as well.
+        const stored = inRoot(real);
+        const paths = stored === null ? [named] : foldRelPath(stored) === foldRelPath(named) ? [stored] : [stored, named];
+        if (paths.every((path) => PROJECT_SETTINGS_FILES.includes(path))) continue;
+        if (size > SCRIPT_MAX_BYTES) return fail('it runs a file of this folder that is too large to check');
+        const hash = await hashFile(real);
+        if (hash === null) return fail('it runs a file of this folder that cannot be read');
+        for (const path of paths) {
+          const problem = record(path, hash);
+          if (problem !== null) return fail(problem);
+        }
       }
-      // As the file system spells it; a path that reaches the file through a link is recorded as well.
-      const stored = inRoot(real);
-      const paths = stored === null ? [named] : foldRelPath(stored) === foldRelPath(named) ? [stored] : [stored, named];
-      if (paths.every((path) => PROJECT_SETTINGS_FILES.includes(path))) continue;
-      if (size > SCRIPT_MAX_BYTES) return { scripts: [], problem: 'it runs a file of this folder that is too large to check' };
-      const hash = await hashFile(real);
-      if (hash === null) return { scripts: [], problem: 'it runs a file of this folder that cannot be read' };
-      for (const path of paths) {
-        const checked = checkRelPath(path);
-        // A name no request, rule or list can carry: nobody could guard the file.
-        if (!checked.ok || !isRuleNameable(checked.path)) return { scripts: [], problem: 'it runs a file of this folder whose name smurg cannot guard (brackets, wildcard or control characters)' };
-        out.set(checked.path, hash);
-      }
-      if (out.size > CLAUDE_CONFIG_SCRIPTS_MAX) return { scripts: [], problem: `it runs more scripts of this folder than smurg keeps track of (${CLAUDE_CONFIG_SCRIPTS_MAX})` };
     }
     return { scripts: [...out].map(([path, hash]) => ({ path, hash })).sort((a, b) => (a.path < b.path ? -1 : 1)), problem: null };
   }
@@ -856,9 +1024,10 @@ export class ProjectTrustImpl implements ProjectTrust {
             permissions: file.effects.permissions,
             env: file.effects.env,
             otherKeys: file.effects.otherKeys,
-            scripts: file.scripts,
+            scripts: file.scripts.map((script) => (script.hash === SCRIPT_ABSENT_HASH ? { ...script, absent: true as const } : script)),
             needsAck: file.effects.needsAck,
             ...(file.effects.cut === undefined ? {} : { cut: file.effects.cut }),
+            ...(file.effects.unfollowed === undefined ? {} : { unfollowed: file.effects.unfollowed }),
           };
         }),
       });
@@ -875,7 +1044,7 @@ export class ProjectTrustImpl implements ProjectTrust {
     for (const wanted of input.files) {
       const file = scan.files.find((entry) => entry.path === wanted.path);
       if (file === undefined || file.hash !== wanted.hash) throw new SmurgError('conflict', msg('claudeConfig.changed'), { reason: 'changed' });
-      if (file.unverifiable && input.decision === 'trust') throw new SmurgError('conflict', msg('claudeConfig.changed'), { reason: 'unverifiable' });
+      if (file.unverifiable && input.decision === 'trust') throw new SmurgError('conflict', msg('claudeConfig.cannotConfirm'), { reason: 'unverifiable' });
       chosen.push(file);
     }
     if (input.decision === 'trust') {

@@ -33,7 +33,7 @@ export const conversation = {
     'zh-TW': (p) => `${p.name} 為這個主題重新開始了討論`,
   }),
   'conversation.discussion.replaced': message({}, {
-    en: () => 'A new discussion was started for this topic. This one is closed.',
+    en: () => 'A new discussion was started for this topic. This one is closed',
     'zh-TW': () => '這個主題已經開始新的討論，這一段已結束',
   }),
   'conversation.started.free': message({ name: 'string' }, {
@@ -101,7 +101,7 @@ export const conversation = {
     'zh-TW': (p) => `${p.name} 結束了這個 session`,
   }),
   'conversation.interrupted.restart': message({}, {
-    en: () => "smurg was restarted on the host's computer. The agent's turn was interrupted.",
+    en: () => "smurg was restarted on the host's computer. The agent's turn was interrupted",
     'zh-TW': () => '主人電腦上的 smurg 重新啟動了，agent 的這一輪被中斷',
   }),
   'conversation.responsible.changed': message({ by: 'string', name: 'string' }, {
@@ -113,7 +113,7 @@ export const conversation = {
     'zh-TW': (p) => `${p.by} 將這個 session 設為不指派負責人`,
   }),
   'conversation.responsible.fallback': message({ name: 'string' }, {
-    en: (p) => `${p.name} can no longer be responsible. The host decides now.`,
+    en: (p) => `${p.name} can no longer be responsible. The host decides now`,
     'zh-TW': (p) => `${p.name} 已無法擔任負責人，改由主人決定`,
   }),
   'conversation.submittedFor': message({ by: 'string', name: 'string' }, {
@@ -121,11 +121,11 @@ export const conversation = {
     'zh-TW': (p) => `${p.by} 代為送出答案：${p.name} 不在`,
   }),
   'conversation.owner.handover': message({ name: 'string' }, {
-    en: (p) => `${p.name} left. This session now runs for the host.`,
+    en: (p) => `${p.name} left. This session now runs for the host`,
     'zh-TW': (p) => `${p.name} 已離開，這個 session 改由主人接手`,
   }),
   'conversation.owner.handover.kicked': message({ name: 'string' }, {
-    en: (p) => `${p.name} was removed. This session was stopped and now runs for the host.`,
+    en: (p) => `${p.name} was removed. This session was stopped and now runs for the host`,
     'zh-TW': (p) => `${p.name} 已被移出，這個 session 已停止，改由主人接手`,
   }),
 
@@ -135,7 +135,7 @@ export const conversation = {
     'zh-TW': (p) => `${p.by} 變更了權限模式：${MODE_PHRASES[p.mode]?.['zh-TW'] ?? p.mode}`,
   }),
   'conversation.mode.reset': message({ name: 'string' }, {
-    en: (p) => `The permission mode is back to its default: ${p.name}, who changed it, was removed or lost agent access.`,
+    en: (p) => `The permission mode is back to its default: ${p.name}, who changed it, was removed or lost agent access`,
     'zh-TW': (p) => `權限模式已恢復預設：變更它的 ${p.name} 已被移出或失去 agent 使用權`,
   }),
   'conversation.rule.added': message({ by: 'string', rule: 'string' }, {
@@ -151,11 +151,11 @@ export const conversation = {
     'zh-TW': (p) => `${p.by} 移除了一律允許的類型 ${p.rule}`,
   }),
   'conversation.rule.removed.member': message({ name: 'string', rule: 'string' }, {
-    en: (p) => `${p.rule} is no longer always allowed: ${p.name}, who allowed it, was removed or lost agent access.`,
+    en: (p) => `${p.rule} is no longer always allowed: ${p.name}, who allowed it, was removed or lost agent access`,
     'zh-TW': (p) => `${p.rule} 不再一律允許：允許它的 ${p.name} 已被移出或失去 agent 使用權`,
   }),
   'conversation.agent.restarting': message({}, {
-    en: () => 'The agent starts again with the new settings at its next message.',
+    en: () => 'The agent starts again with the new settings at its next message',
     'zh-TW': () => 'agent 會在下一則訊息時以新設定重新啟動',
   }),
   'conversation.locked.spec': message({ path: 'string', holders: 'list' }, {

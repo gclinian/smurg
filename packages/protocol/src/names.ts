@@ -1,8 +1,9 @@
 // Names that are stored and shown to everyone have ONE language-neutral spelling (docs/GLOSSARY.md): they are made
 // here, by the daemon, and never translated by a client.
+import { agentSafeName } from './agent-text.ts';
 import { renderEnglish, msg, type MessageRef } from './i18n/index.ts';
 import { RELAY_DISPLAY_NAME_MAX_CHARS } from './relay/frames.ts';
-import type { SessionInfo } from './schema/entities.ts';
+import type { AgentStatus, SessionInfo } from './schema/entities.ts';
 
 /** The text around the label: `Claude (` + `)`. */
 const AGENT_NAME_WRAPPER_CHARS = 'Claude ()'.length;
@@ -25,6 +26,25 @@ function clip(text: string, max: number): string {
  */
 export function agentDisplayName(label: string): string {
   return `Claude (${clip(label, RELAY_DISPLAY_NAME_MAX_CHARS - AGENT_NAME_WRAPPER_CHARS)})`;
+}
+
+/**
+ * THE name of one agent session, wherever the agent itself is named: `presence.state`, its caret in a document, a
+ * lock it holds, the activity feed, the audit log. One function of the session, so every place that shows the same
+ * agent shows one name and a client can match them: the work item's title, else the topic's name, else the display
+ * name of the member who opened the session, made safe for a model to read.
+ */
+export function agentSessionName(session: { readonly item?: { readonly title: string } | undefined; readonly topicName?: string | undefined; readonly openedBy: { readonly userId: string; readonly displayName: string } }): string {
+  return agentDisplayName(agentSafeName(session.item?.title ?? session.topicName ?? session.openedBy.displayName, session.openedBy.userId));
+}
+
+/**
+ * Whether an agent session is at work right now: starting, in a turn, or waiting inside one for an answer or a
+ * permission. Only then has it a "current file" and a caret in a document; between turns (`idle`, `done`, `stalled`,
+ * `failed`) the session lives on and works on nothing.
+ */
+export function isAgentAtWork(status: AgentStatus): boolean {
+  return status === 'starting' || status === 'running' || status === 'waiting-answer' || status === 'waiting-permission';
 }
 
 /**

@@ -17,6 +17,12 @@ const WAYS: readonly { readonly what: string; readonly pattern: RegExp }[] = [
   { what: "sentences joined with join(' ')", pattern: /\b(?:text|parts|sentences|lines)\.join\(' '\)/ },
   { what: "a text someone wrote, a closing tag and {' '}", pattern: /\{(?:line\.text|part\.text)\}\s*<\/span>\{' '\}/ },
   { what: 'a sentence in a variable and a space before what follows it', pattern: /\{(?:problem|accountText|failure)\} \{/ },
+  // `<span> {t('more')}</span>` or `<> {hint}</>` after a sentence: the space is inside the element, where none of the
+  // ways above looks. (`<` after a letter is a type's parameter, and `<Icon /> {text}` is a picture and its label.)
+  { what: 'an element or a fragment whose content begins with a space and an expression', pattern: /(?<![\w$])<(?:[A-Za-z][\w.]*(?:\s[^<>\n]*)?)?(?<!\/)> \{/ },
+  { what: "{' '} and then a translated text", pattern: new RegExp(String.raw`\{' '\}\{[^{}\n]*${T}`) },
+  { what: 'a translated text, a space and the element that follows it', pattern: new RegExp(String.raw`${T}[^\n]*\)\} <\/?[A-Za-z]`) },
+  { what: "texts joined with + ' ' +", pattern: new RegExp(String.raw`${T}[^\n]*\) \+ ' ' \+|\+ ' ' \+ ${T}`) },
 ];
 
 describe('sentences in one line', () => {
@@ -24,8 +30,7 @@ describe('sentences in one line', () => {
     const found: string[] = [];
     for (const [path, source] of Object.entries(SOURCES)) {
       for (const way of WAYS) {
-        const match = new RegExp(way.pattern.source, 'g').exec(source);
-        if (match !== null) found.push(`${path.replace('../', '')}:${source.slice(0, match.index).split('\n').length}: ${way.what}`);
+        for (const match of source.matchAll(new RegExp(way.pattern.source, 'g'))) found.push(`${path.replace('../', '')}:${source.slice(0, match.index).split('\n').length}: ${way.what}`);
       }
     }
     expect(found).toEqual([]);

@@ -132,6 +132,7 @@ export const worstPermission = {
   input: big(L.PERMISSION_INPUT_MAX_BYTES),
   root,
   reason: wide(L.PERMISSION_REASON_MAX_CHARS),
+  gate: 'may-reach-settings-script',
   hostOnly: true,
   alwaysRule: { tool: 'WebFetch', pattern: `domain:${'a'.repeat(L.RULE_PATTERN_MAX_CHARS - 7)}` },
   noAlways: 'fetches-code',
@@ -315,9 +316,10 @@ const configFile = {
   permissions: many(L.CLAUDE_CONFIG_LIST_MAX, () => wide(L.CLAUDE_CONFIG_ENTRY_MAX_CHARS)),
   env: many(L.CLAUDE_CONFIG_LIST_MAX, () => ({ name: wide(L.SHORT_TEXT_MAX_CHARS), flagged: true, programs: true })),
   otherKeys: many(L.CLAUDE_CONFIG_LIST_MAX, () => wide(L.SHORT_TEXT_MAX_CHARS)),
-  scripts: many(L.CLAUDE_CONFIG_SCRIPTS_MAX, () => ({ path: PATH, hash: HASH })),
+  scripts: many(L.CLAUDE_CONFIG_SCRIPTS_MAX, () => ({ path: PATH, hash: HASH, absent: true })),
   needsAck: ['credentials', 'allows-tools', 'incomplete'],
   cut: { omitted: 9e6, shortened: 9e6 },
+  unfollowed: 9e6,
 };
 export const worstConfigRoot = { root, state: 'ignored', files: many(L.CLAUDE_CONFIG_FILES_MAX, () => configFile) };
 

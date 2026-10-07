@@ -2,7 +2,7 @@
 // connections and active file, one entry per running agent session `Claude (owner)` with a stable readable colour,
 // presence.state coalesced.
 import { afterEach, describe, expect, it } from 'vitest';
-import { MAIN_ROOT, type FileRef, type PayloadOf } from '@smurg/protocol';
+import { MAIN_ROOT, agentSessionName, type AgentSession, type FileRef, type PayloadOf } from '@smurg/protocol';
 import { AGENT_COLORS, DARK_BACKGROUND, LIGHT_BACKGROUND, READABLE_MEMBER_COLORS, contrastRatio, isReadableOnBothThemes, pickAgentColor } from '../../src/locks/colors.ts';
 import type { ClientConnection } from '../../src/core/interfaces.ts';
 import { ManualClock } from '../../src/core/lifecycle.ts';
@@ -149,6 +149,60 @@ describe('presence of agents', () => {
     d.ctx.bus.emit('session.exited', { session: sessionInfo(ian, 'ended'), reason: 'ended' });
     await waitFor(() => last(states).agents.length === 1, { what: 'the exited agent to disappear' });
     expect(last(states).agents[0]?.sessionId).toBe('ses_host');
+  });
+});
+
+describe("an agent's name and its current file (WX-7, review R6-14)", () => {
+  it('the current file is the file of the turn: it goes when the agent is no longer at work (idle, done, stalled, failed), and a new turn starts without one', async () => {
+    const d = await daemon();
+    const host = await d.connectHost();
+    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
+    const states = recorder(host.conn, 'presence.state');
+    const ian = agentSession('ses_ian', 'dev:ian', 'Ian');
+    const info = (status: AgentSession['status']): AgentSession => ({ ...(sessionInfo(ian, 'running') as AgentSession), status });
+    const agent = () => last(states).agents.find((entry) => entry.sessionId === 'ses_ian');
+    d.ctx.bus.emit('session.created', { session: info('running') });
+    expect(preToolUse(d, ian, main('src/app.ts')).granted).toBe(true);
+    await waitFor(() => states.length > 0 && agent()?.activeFile?.path === 'src/app.ts', { what: 'the file of the turn' });
+    // Waiting inside the turn (a question, a permission) is still at work: the file stays.
+    for (const status of ['waiting-permission', 'waiting-answer', 'running'] as const) {
+      d.ctx.bus.emit('session.updated', { session: info(status) });
+      await waitFor(() => agent()?.status === status, { what: `the status ${status}` });
+      expect(agent()?.activeFile?.path).toBe('src/app.ts');
+    }
+    // The turn ends: the session lives on, without a current file.
+    for (const status of ['idle', 'done', 'stalled', 'failed'] as const) {
+      d.ctx.bus.emit('session.updated', { session: info('running') });
+      expect(preToolUse(d, ian, main('src/app.ts')).granted).toBe(true);
+      await waitFor(() => agent()?.status === 'running' && agent()?.activeFile?.path === 'src/app.ts', { what: 'at work again' });
+      d.ctx.bus.emit('session.updated', { session: info(status) });
+      await waitFor(() => agent()?.status === status, { what: `the status ${status}` });
+      expect(agent(), status).not.toHaveProperty('activeFile');
+      expect(d.ctx.services.presence.snapshot().agents.find((entry) => entry.sessionId === 'ses_ian'), status).not.toHaveProperty('activeFile');
+    }
+    // The next turn does not bring the old file back.
+    d.ctx.bus.emit('session.updated', { session: info('running') });
+    await waitFor(() => agent()?.status === 'running', { what: 'the next turn' });
+    expect(agent()).not.toHaveProperty('activeFile');
+  });
+
+  it('the name is one function of the session, the same as in a document and on a lock: the item\'s title, else the topic\'s name, else who opened it', async () => {
+    const d = await daemon();
+    const host = await d.connectHost();
+    await d.connect({ userId: 'dev:ian', displayName: 'Ian', role: 'agent' });
+    const states = recorder(host.conn, 'presence.state');
+    const base = sessionInfo(agentSession('ses_free', 'dev:ian', 'Ian'), 'running') as AgentSession;
+    const discussion: AgentSession = { ...base, id: 'ses_disc', purpose: 'discussion', topicId: 'tp_1', topicName: 'Checkout' };
+    const item: AgentSession = { ...base, id: 'ses_item', purpose: 'item', topicId: 'tp_1', topicName: 'Checkout', itemId: 'cart-api', attempt: 1, item: { number: 1, title: 'Cart API' } };
+    for (const session of [base, discussion, item]) d.ctx.bus.emit('session.created', { session });
+    await waitFor(() => states.length > 0 && last(states).agents.length === 3, { what: 'three agents' });
+    const names = Object.fromEntries(last(states).agents.map((entry) => [entry.sessionId, entry.displayName]));
+    expect(names).toEqual({ ses_free: 'Claude (Ian)', ses_disc: 'Claude (Checkout)', ses_item: 'Claude (Cart API)' });
+    for (const session of [base, discussion, item]) expect(names[session.id]).toBe(agentSessionName(session));
+    // The topic is renamed: the name follows the session.
+    d.ctx.bus.emit('session.updated', { session: { ...discussion, topicName: 'Checkout v2' } });
+    await waitFor(() => last(states).agents.find((entry) => entry.sessionId === 'ses_disc')?.displayName === 'Claude (Checkout v2)', { what: 'the renamed topic' });
+    expect(agentSessionName({ openedBy: { userId: 'dev:x', displayName: '\u202e' } })).toBe('Claude (member x)');
   });
 });
 

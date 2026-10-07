@@ -216,6 +216,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       pageMax: config.limits.auditPageMax,
       maxBytes: config.limits.auditMaxBytes,
       deniedPerActorPerMinute: config.limits.auditDeniedPerActorPerMinute,
+      hostUserId: config.hostUserId,
       texts: auditTexts,
     }).catch(async (err: unknown) => {
       await auditTexts.close();

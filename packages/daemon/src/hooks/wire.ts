@@ -34,6 +34,12 @@ export const HOOK_COMMAND_TIMEOUT_SECONDS = 10;
 export const HOOK_STDIN_MAX_BYTES = 32 * 1024 * 1024;
 /** The daemon answers a PreToolUse within this or denies it (so the hook never runs into its own deadline). */
 export const HOOK_SERVER_DECISION_MS = 4_000;
+/**
+ * The longest shell command (bytes of its JSON form) the gate hook forwards for the daemon to read (row G10 of the
+ * gate). A longer one is not cut (a cut command is another command): the daemon is told it was left out, and asks a
+ * person where it would have read it.
+ */
+export const HOOK_COMMAND_FORWARD_MAX_BYTES = 32 * 1024;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The two hook behaviours (ARCHITECTURE §7.7). They are separate code paths in hook-cli.ts, chosen by the argument the
@@ -157,11 +163,13 @@ function pathString(value: unknown): string | undefined {
 /**
  * What the daemon needs from the hook input Claude Code wrote to stdin: the event, the tool, and the paths the call
  * names (an edit's or a Read's `file_path`, a search's `path` and a Glob's `pattern`: the gate decides by them).
- * Everything else stays in the hook process: commands, URLs, questions, file contents (`tool_input.content`,
- * `new_string`, `tool_response`), prompts, transcripts. That keeps the request
- * line small whatever the tool wrote, and content never reaches the daemon. The daemon treats all of it as a claim.
+ * With `command` (the GATE hook only, never the Bash activity hook): the command of a Bash PreToolUse, whole or not
+ * at all (`command_omitted`), because the gate reads which files it names (hooks/bash-guard.ts).
+ * Everything else stays in the hook process: URLs, questions, file contents (`tool_input.content`, `new_string`,
+ * `tool_response`), prompts, transcripts. That keeps the request line small whatever the tool wrote, and file
+ * content never reaches the daemon through a hook. The daemon treats all of it as a claim.
  */
-export function projectHookInput(raw: unknown): JsonObject {
+export function projectHookInput(raw: unknown, options: { readonly command?: boolean } = {}): JsonObject {
   const input = isJsonObject(raw) ? raw : {};
   const out: JsonObject = {};
   const set = (key: string, value: unknown): void => {
@@ -186,6 +194,11 @@ export function projectHookInput(raw: unknown): JsonObject {
     if (input['tool_name'] === 'Glob') {
       const pattern = pathString(toolInput['pattern']);
       if (pattern !== undefined) projected['pattern'] = pattern;
+    }
+    if (options.command === true && input['tool_name'] === BASH_TOOL_NAME && input['hook_event_name'] === 'PreToolUse') {
+      const command = toolInput['command'];
+      if (typeof command === 'string' && Buffer.byteLength(JSON.stringify(command), 'utf8') <= HOOK_COMMAND_FORWARD_MAX_BYTES) projected['command'] = command;
+      else projected['command_omitted'] = true;
     }
     out['tool_input'] = projected;
   }
@@ -213,9 +226,18 @@ export function sniffHookEventName(rawText: string): string | null {
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * The only decision smurg ever returns (claude-hooks.md §3.4). There is deliberately no "allow" builder: the gate
- * never allows (allowing stays with Claude Code's rules and with people), so a passed call returns no output at all.
+ * A refusal (claude-hooks.md §3.4). There is deliberately no "allow" builder: the gate never allows (allowing stays
+ * with Claude Code's rules and with people), so a passed call returns no output at all.
  */
 export function preToolUseDeny(reason: string): JsonObject {
   return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
+}
+
+/**
+ * "Ask a person": Claude Code then sends a permission request whatever its mode and its allow rules would have done
+ * by themselves (measured with 2.1.288: `acceptEdits` and a matching `Bash(cp:*)` allow rule both give way; a deny
+ * rule still refuses first). `reason` comes back on that request as `decision_reason` with the type `hook`.
+ */
+export function preToolUseAsk(reason: string): JsonObject {
+  return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: reason } };
 }

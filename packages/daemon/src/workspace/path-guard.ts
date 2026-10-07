@@ -377,9 +377,11 @@ export class PathGuardImpl implements PathGuard {
     const itemSlug = shared === null ? root.item?.topicSlug : undefined;
     if (itemSlug !== undefined && options.principal.kind === 'user' && spellings.some((spelling) => isInTopicDir(spelling, itemSlug))) readOnly = true;
     let hostOnly = spellings.some((spelling) => isHostOnlyPath(spelling));
-    // Files the trust gate records (scripts a trusted settings file runs): host-only while that content is trusted.
+    // Files the trust gate records (scripts a trusted settings file runs, and paths its commands name where no file
+    // is yet): host-only while that content is trusted, at the path and below it (a folder put where a named file
+    // is not yet is run as that folder's entry file by some programs).
     const recorded = shared === null ? this.recordedPaths(root.ref) : new Set<string>();
-    if (!hostOnly && recorded.size > 0) hostOnly = spellings.some((spelling) => recorded.has(foldRelPath(spelling)));
+    if (!hostOnly && recorded.size > 0) hostOnly = spellings.map(foldRelPath).some((spelling) => [...recorded].some((script) => isRelPathWithin(spelling, script)));
     if (options.forWrite) {
       if (readOnly) throw new PathDeniedError('read-only', target);
       if (hostOnly && !isPrivileged) throw new PathDeniedError('host-only', target);

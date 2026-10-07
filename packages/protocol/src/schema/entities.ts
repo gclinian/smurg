@@ -609,9 +609,10 @@ export type PresenceMember = z.infer<typeof presenceMemberSchema>;
 export const presenceAgentSchema = z.strictObject({
   sessionId: opaqueIdSchema,
   ownerUserId: userIdSchema,
-  /** `Claude (<owner>)` */
+  /** `agentSessionName` of the session: `Claude (<item title | topic name | who opened it>)`, as in a document's carets. */
   displayName: displayNameSchema,
   color: colorSchema,
+  /** The file of its last granted edit in the turn that runs now; absent while it is not at work (`isAgentAtWork`). */
   activeFile: fileRefSchema.optional(),
   status: agentStatusSchema,
 });

@@ -16,6 +16,7 @@ import {
   type HostSettings,
   type HostSettingsPatch,
 } from '@smurg/protocol';
+import { trimEndOf } from '../../lib/trim.ts';
 import { t } from './strings.ts';
 
 /** Binary gigabytes, as formatBytes and the daemon's disk check count them (5 GB = 5 × 2^30 bytes). */
@@ -121,7 +122,7 @@ export function parseSettingsDraft(draft: SettingsDraft, current: HostSettings):
     SHARED_DIRS_MAX,
     (line) => {
       // "data/" is how people write a folder; the protocol wants "data".
-      const parsed = entryPathSchema.safeParse(line.replace(/\/+$/, ''));
+      const parsed = entryPathSchema.safeParse(trimEndOf(line, '/'));
       return parsed.success ? parsed.data : null;
     },
     (line) => t('settings.error.dir', { value: line }),

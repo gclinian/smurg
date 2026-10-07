@@ -319,7 +319,7 @@ describe('FakeAgentSessions', () => {
     expect(fakes.agents.facts(session.id)?.modeChangedBy).toBeUndefined();
     const log = fakes.agents.eventsOf(session.id);
     expect(log.find((event) => event.kind === 'line' && event.text.id === 'conversation.rule.removed.member')).toMatchObject({ text: { params: { name: 'Mei', rule: 'Bash(pnpm test *)' } } });
-    expect(log.find((event) => event.kind === 'line' && event.text.id === 'conversation.mode.reset')).toMatchObject({ text: { params: { name: 'Mei' } }, fallback: 'The permission mode is back to its default: Mei, who changed it, was removed or lost agent access.' });
+    expect(log.find((event) => event.kind === 'line' && event.text.id === 'conversation.mode.reset')).toMatchObject({ text: { params: { name: 'Mei' } }, fallback: 'The permission mode is back to its default: Mei, who changed it, was removed or lost agent access' });
     // A removed rule restarts the process at its next idle moment, and says so.
     expect(fakes.agents.log.of('restartProcess')).toEqual([[session.id, 'rules']]);
     expect(lines(fakes, session.id).slice(3)).toEqual(['conversation.rule.removed.member', 'conversation.agent.restarting', 'conversation.mode.reset']);

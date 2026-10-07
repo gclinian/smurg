@@ -340,7 +340,10 @@ export class DiskSync {
 
   private agentCaret(room: DocRoom, actor: Extract<Actor, { kind: 'agent' }>, caret: Record<string, unknown>): void {
     const color = this.deps.access.agentColor(actor.sessionId, actor.ownerUserId);
-    const user = awarenessUserSchema.safeParse({ name: actor.displayName, color, kind: 'agent', userId: actor.ownerUserId });
+    // The session's name as it is NOW (the one presence.state gives it), not the one a lock or a watcher's note
+    // carried from when the process started: a client matches the caret to the agent by it.
+    const name = this.deps.access.agentActor(actor.sessionId, actor.ownerUserId).displayName;
+    const user = awarenessUserSchema.safeParse({ name, color, kind: 'agent', userId: actor.ownerUserId });
     if (user.success) room.agentPresence(actor.sessionId, user.data).setCaretRelative(caret);
   }
 

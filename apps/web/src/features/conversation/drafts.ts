@@ -98,7 +98,7 @@ export function createDraftsStore(workspaceId: string | null, storage: Preferenc
     },
     append(sessionId, text, source) {
       put(sessionId, (draft) => ({
-        text: draft.text.trim() === '' ? text : `${draft.text.replace(/\s*$/u, '')}\n\n${text}`,
+        text: draft.text.trim() === '' ? text : `${draft.text.trimEnd()}\n\n${text}`,
         source: source ?? draft.source,
         focusToken: draft.focusToken + 1,
       }));

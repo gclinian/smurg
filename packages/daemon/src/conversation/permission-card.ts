@@ -3,9 +3,10 @@
 // read here: what the tool wants is `AgentRequest.view` (the ToolView of the same call), `absPath` and `edit`; the
 // raw input is only ever shown whole.
 //
-// What a person is asked to ALLOW is never altered: the command, the diff and the input are shown as they are, not
-// shortened and not masked (DESIGN §7 S6: a hidden part of a command is a part nobody approved; `mask()` is for what
-// agents and tools PRINT). Only a NUL, which no wire string can hold, becomes a visible sign.
+// What a person is asked to ALLOW is never shortened and never masked (DESIGN §7 S6: a hidden part of a command is a
+// part nobody approved; `mask()` is for what agents and tools PRINT). Nothing is removed from it either: a character
+// nobody can see is written out (`<U+202E>`; the command, URL and pattern arrive that way in the tool view, the
+// whole input is written the same way here), and a NUL, which no wire string can hold, becomes a visible sign.
 import { isAbsolute, join, relative } from 'node:path';
 import {
   PERMISSION_REASON_MAX_CHARS,
@@ -14,6 +15,7 @@ import {
   isClaudeConfigPath,
   isHostOnlyPath,
   isHostPrivatePath,
+  visibleText,
   type FileRef,
   type PermissionRequest,
 } from '@smurg/protocol';
@@ -62,7 +64,7 @@ export function shownReason(reason: string | undefined): string | undefined {
 export function shownInput(input: unknown): string | null {
   try {
     const text = JSON.stringify(input, null, 2);
-    return typeof text === 'string' ? text : null;
+    return typeof text === 'string' ? visibleText(text) : null;
   } catch {
     return null;
   }

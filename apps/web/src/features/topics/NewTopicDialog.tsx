@@ -23,6 +23,9 @@ import { t } from './strings.ts';
 /** The refusals that are about the folder: shown under its field. */
 const FOLDER_ERRORS: ReadonlySet<string> = new Set(['topic.slugTaken', 'topic.folderExists', 'topic.badSlug']);
 
+/** The folder of a file's path, with its last slash (`specs/checkout/` of `specs/checkout/SPEC.md`). */
+const folderOf = (path: string): string => path.slice(0, path.lastIndexOf('/') + 1);
+
 export function NewTopicDialog({ onClose }: { onClose(): void }) {
   const stores = useStores();
   const online = useConnectionState().kind === 'online';
@@ -134,7 +137,7 @@ export function NewTopicDialog({ onClose }: { onClose(): void }) {
           autoComplete="off"
           autoCapitalize="none"
           hint={
-            joinSentences([slug === '' ? t('new.folder.hint.empty') : t('new.folder.hint', { path: topicSpecPath(slug).replace(/[^/]+$/, '') }), numbered ? t('new.folder.hint.latin') : null])
+            joinSentences([slug === '' ? t('new.folder.hint.empty') : t('new.folder.hint', { path: folderOf(topicSpecPath(slug)) }), numbered ? t('new.folder.hint.latin') : null])
           }
           error={slugProblem ?? (failure?.folder ? failure.text : undefined)}
           onChange={(event) => {

@@ -39,6 +39,14 @@ export function commandHead(command: string, words: number): string {
   return command.trim().split(/\s+/u).slice(0, words).join(' ');
 }
 
+/**
+ * What a Bash rule's pattern says in words: `pnpm test *` allows "commands that start with pnpm test" (the star at the
+ * end is the rule's own syntax). The pattern is made from a command an agent wrote: one pass, not `/\s*\*$/`.
+ */
+export function commandsOfRule(pattern: string): string {
+  return pattern.endsWith('*') ? pattern.slice(0, -1).trimEnd() : pattern;
+}
+
 export function lineRange(startLine: number, endLine: number): string {
   return startLine === endLine ? String(startLine) : `${startLine}–${endLine}`;
 }

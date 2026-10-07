@@ -3,11 +3,13 @@
 export {
   MAX_PATH_LOOKUPS,
   Markdown,
+  MarkdownPieces,
   PlainText,
   StreamingMarkdown,
   STREAM_PARSE_MS,
   parseMarkdown,
   type MarkdownOptions,
+  type MarkdownPiecesProps,
   type MarkdownProps,
   type PlainTextProps,
   type StreamingMarkdownProps,

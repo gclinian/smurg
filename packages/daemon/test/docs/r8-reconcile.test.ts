@@ -4,9 +4,13 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MAIN_ROOT, isSmurgError, type Actor, type AuditEntry, type ConflictRecord } from '@smurg/protocol';
+import { MAIN_ROOT, isSmurgError, type Actor, type AgentSession, type AuditEntry, type ConflictRecord } from '@smurg/protocol';
+import type { FeatureModule } from '../../src/core/context.ts';
+import { buildAgentSession } from '../../src/core/fakes/build.ts';
+import type { SessionManager } from '../../src/core/interfaces.ts';
+import { toDisposable } from '../../src/core/lifecycle.ts';
 import { createDocsModule } from '../../src/docs/module.ts';
-import { createTestDaemon, waitFor, type TestClient, type TestDaemon } from '../../src/testing/index.ts';
+import { TEST_HOST_USER, createTestDaemon, waitFor, type TestClient, type TestDaemon } from '../../src/testing/index.ts';
 import { DocClient, FakeActivity, FakeLockManager, destroyDocClients, fakeLocksModule } from './helpers.ts';
 
 let t: TestDaemon | null = null;
@@ -35,10 +39,10 @@ interface Setup {
   readonly agent: Extract<Actor, { kind: 'agent' }>;
 }
 
-async function setup(): Promise<Setup> {
+async function setup(extra: readonly FeatureModule[] = []): Promise<Setup> {
   const locks = new FakeLockManager();
   const activity = new FakeActivity();
-  t = await createTestDaemon({ project: { files: { [PATH]: ORIGINAL } }, modules: [fakeLocksModule(locks, activity), createDocsModule()] });
+  t = await createTestDaemon({ project: { files: { [PATH]: ORIGINAL } }, modules: [fakeLocksModule(locks, activity), ...extra, createDocsModule()] });
   const audit: AuditEntry[] = [];
   t.ctx.audit.subscribe((entry) => audit.push(entry));
   const host = await t.connectHost();
@@ -144,6 +148,35 @@ describe('R8 consistency and file locks', { timeout: 30_000 }, () => {
     expect(s.locks.get(FILE)).toBeNull();
     // The agent shows up in the document's presence as `Claude (Host)`.
     await waitFor(() => [...s.amy.remoteStates().values()].some((st) => (st['user'] as { name?: string })?.name === 'Claude (Host)'), { what: 'agent presence' });
+  });
+
+  it("an agent's caret is the turn's: it goes when the session is no longer at work, and it carries the session's name as it is now, the name presence.state gives it (WX-7, review R6-14)", async () => {
+    // The session manager knows the session under its current name (the topic was renamed since the process, and
+    // with it the lock's name, started).
+    const NOW = 'Claude (Checkout v2)';
+    const sessions = { agentActor: (sessionId: string) => ({ kind: 'agent' as const, sessionId, ownerUserId: TEST_HOST_USER, displayName: NOW }) } as unknown as SessionManager;
+    const s = await setup([{ name: 'fake-sessions', create: () => ({ sessions }), register: () => toDisposable(() => {}) }]);
+    const agentStates = (): { name?: string }[] => [...s.amy.remoteStates().values()].map((st) => st['user'] as { name?: string; kind?: string }).filter((user) => user?.kind === 'agent');
+    const write = async (text: string): Promise<void> => {
+      expect(s.locks.requestAgent({ file: FILE, sessionId: s.agent.sessionId, ownerUserId: s.agent.ownerUserId, agentName: 'Claude (Checkout)', sessionRoot: MAIN_ROOT }).granted).toBe(true);
+      await writeFile(join(s.t.root, PATH), text);
+      s.locks.releaseAgent(s.agent.sessionId);
+      await waitFor(() => s.amy.text.toString() === text, { what: 'the agent edit to be applied' });
+    };
+    const session = (status: AgentSession['status']): AgentSession => buildAgentSession({ id: s.agent.sessionId, openedBy: { userId: TEST_HOST_USER, displayName: 'Host' }, root: MAIN_ROOT, status, createdAt: 1 });
+    await write(ORIGINAL.replace('run(a, b, c, d, e);', 'run(a, b, c, d, e); // one'));
+    await waitFor(() => agentStates().length === 1, { what: 'the agent caret' });
+    expect(agentStates()).toMatchObject([{ name: NOW }]);
+    // Still at work (it waits for a permission inside the turn): the caret stays.
+    s.t.ctx.bus.emit('session.updated', { session: session('waiting-permission') });
+    s.t.ctx.bus.emit('session.updated', { session: session('running') });
+    // Someone else's session ends its turn: not this agent's caret.
+    s.t.ctx.bus.emit('session.updated', { session: { ...session('idle'), id: 'sess_other' } });
+    await write(ORIGINAL.replace('run(a, b, c, d, e);', 'run(a, b, c, d, e); // two'));
+    expect(agentStates()).toMatchObject([{ name: NOW }]);
+    // The turn ends; the session lives on. Its caret and its name leave the document.
+    s.t.ctx.bus.emit('session.updated', { session: session('idle') });
+    await waitFor(() => agentStates().length === 0, { what: 'the caret to go with the turn' });
   });
 
   it('a file an agent is changing — a human update that still arrives is applied, then reverted everywhere, and the sender gets doc.rejected', async () => {

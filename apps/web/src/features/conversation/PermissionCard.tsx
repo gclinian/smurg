@@ -20,7 +20,7 @@ import { IconFolder, IconGitBranch } from '../../ui/icons.tsx';
 import { lateAnswerText, settledOf } from './cards.ts';
 import { useAction, useConversationEnv, useMarkSeen, useSessionFacts } from './env.tsx';
 import { t } from './strings.ts';
-import { cardDomId, commandHead, showControls } from './text.ts';
+import { cardDomId, commandHead, commandsOfRule, showControls } from './text.ts';
 import { DiffView } from './ToolCard.tsx';
 
 function titleOf(request: PermissionRequest): string {
@@ -311,7 +311,7 @@ export const PermissionCard = memo(function PermissionCard({ requestId }: { requ
           {rule !== undefined ? (
             <>
               {/* In words: the rule `pnpm test *` is "commands that start with pnpm test" (the star is the rule's own syntax). */}
-              <p className="conv-perm__rule">{rule.tool === 'Bash' ? t('perm.kind.bash', { pattern: rule.pattern.replace(/\s*\*$/u, '') }) : t('perm.kind.fetch', { host: rule.pattern.replace(/^domain:/, '') })}</p>
+              <p className="conv-perm__rule">{rule.tool === 'Bash' ? t('perm.kind.bash', { pattern: commandsOfRule(rule.pattern) }) : t('perm.kind.fetch', { host: rule.pattern.replace(/^domain:/, '') })}</p>
               {topicScope ? (
                 <div className="conv-perm__scope" role="radiogroup" aria-label={t('perm.scope')}>
                   <label>

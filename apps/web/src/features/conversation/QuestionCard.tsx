@@ -400,7 +400,7 @@ export const QuestionCard = memo(function QuestionCard({ questionId }: { questio
   }
 
   // ---- open
-  const addToNote = canSubmit && ownWords ? (text: string): void => setNote((previous) => (previous.trim() === '' ? text : `${previous.replace(/\s*$/u, '')}\n${text}`).slice(0, ANSWER_NOTE_MAX_CHARS)) : null;
+  const addToNote = canSubmit && ownWords ? (text: string): void => setNote((previous) => (previous.trim() === '' ? text : `${previous.trimEnd()}\n${text}`).slice(0, ANSWER_NOTE_MAX_CHARS)) : null;
 
   const vote = (part: number, input: { options: number[] } | { other: string }): void => {
     setLate(null);

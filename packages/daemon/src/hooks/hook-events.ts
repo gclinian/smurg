@@ -5,18 +5,21 @@
 //    requested only after PathGuard.resolve(forWrite) with the agent's principal accepted it;
 //  * PreToolUse is THE TOOL GATE (tool-gate.ts): it is asked for every tool. It never returns "allow" (allowing stays
 //    with Claude Code's rules and with people): a passed call and a granted lock return no output at all, a refusal
-//    a JSON deny whose reason is fixed English (deny-text.ts);
+//    a JSON deny whose reason is fixed English (deny-text.ts), and a shell command that may change a script the
+//    root's project settings run a JSON "ask" (bash-guard.ts: a person decides, whatever a mode or a rule allows);
 //  * every failure while deciding a PreToolUse is a deny (fail closed).
-import { isAbsolute, resolve as resolvePath, basename } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, resolve as resolvePath, basename, dirname, join, relative, sep } from 'node:path';
 import { SmurgError, fileRefKey, rootRefEquals, rootRefKey, type FileRef } from '@smurg/protocol';
 import type { DaemonContext } from '../core/context.ts';
 import { isPathDeniedError } from '../core/errors.ts';
 import type { AgentLockResult, HookSessionRegistration, Principal } from '../core/interfaces.ts';
 import { isStubService } from '../core/stubs.ts';
-import { HOOK_DENY_REASONS, gateDenyReason, pathCheckFailedReason, pathDeniedReason } from './deny-text.ts';
+import { bashPlaces, judgePlaces, type BashVerdict, type ResolvedPlace } from './bash-guard.ts';
+import { BASH_ASK_REASONS, HOOK_DENY_REASONS, gateDenyReason, pathCheckFailedReason, pathDeniedReason } from './deny-text.ts';
 import type { HookInput } from './schemas.ts';
 import { gateDecision, type GateTarget } from './tool-gate.ts';
-import { BASH_TOOL_NAME, EDIT_TOOL_NAMES, preToolUseDeny, type JsonObject } from './wire.ts';
+import { BASH_TOOL_NAME, EDIT_TOOL_NAMES, preToolUseAsk, preToolUseDeny, type JsonObject } from './wire.ts';
 
 /** Per-session state the event handlers keep (owned by the HookServer's session entry). */
 export interface HookSessionState {
@@ -158,6 +161,55 @@ function gateDeny(ctx: DaemonContext, state: HookSessionState, tool: string, row
 
 const READ_TOOLS: readonly string[] = ['Read', 'Glob', 'Grep'];
 
+/** `path` as the file system has it: the real path of the deepest part that exists, the rest as written. */
+async function onDisk(path: string): Promise<string> {
+  const rest: string[] = [];
+  let current = path;
+  for (;;) {
+    try {
+      const real = await realpath(current);
+      return rest.length === 0 ? real : join(real, ...rest.reverse());
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      // Anything but "not there": smurg cannot tell where the name leads.
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') throw err;
+    }
+    const parent = dirname(current);
+    if (parent === current) return path;
+    rest.push(basename(current));
+    current = parent;
+  }
+}
+
+/**
+ * Row G10 of the gate (bash-guard.ts): what a shell command of a session does to the scripts the root's project
+ * settings run (`recorded`, never empty here). Every place the command names is looked at as the file system has it
+ * (links resolved), so another spelling, a link and a path from outside lead to the same answer. Whatever cannot be
+ * read or looked up is `unsure`: a person is asked.
+ */
+export async function bashVerdict(ctx: DaemonContext, session: HookSessionRegistration, recorded: ReadonlySet<string>, input: HookInput): Promise<BashVerdict> {
+  const command = input.tool_input?.command;
+  const root = ctx.roots.get(session.root);
+  if (command === undefined || root === null) return 'unsure';
+  const cwd = input.cwd !== undefined && isAbsolute(input.cwd) ? input.cwd : root.realPath;
+  const reading = bashPlaces(command, cwd, ctx.config.sessions.hostHome ?? undefined);
+  const places: ResolvedPlace[] = [];
+  let unsure = reading.unsure;
+  for (const place of reading.places) {
+    let real: string;
+    try {
+      real = await onDisk(place.path);
+    } catch {
+      unsure = true;
+      continue;
+    }
+    const rel = relative(root.realPath, real);
+    const inside = rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+    places.push({ rel: inside ? rel.split(sep).join('/') : null, kind: place.kind, ...(place.open === undefined ? {} : { open: place.open }) });
+  }
+  return judgePlaces({ unsure, places }, recorded);
+}
+
 /**
  * THE TOOL GATE's daemon side (tool-gate.ts has the table): for every tool call of the session. Rows G2–G7 deny;
  * an edit that passes them takes the agent lock exactly as before (G8); everything else gets no decision (G9).
@@ -176,6 +228,11 @@ export async function handlePreToolUse(ctx: DaemonContext, state: HookSessionSta
   if (decision.kind === 'deny') {
     if (editing) releaseHeld(ctx, state, null);
     return gateDeny(ctx, state, tool, decision.row, decision.path);
+  }
+  if (tool === BASH_TOOL_NAME && protectedPaths.size > 0) {
+    // G10: never a refusal, never an allowance. A person sees the command and the reason on a permission card.
+    const verdict = await bashVerdict(ctx, session, protectedPaths, input);
+    if (verdict !== 'clear') return { output: preToolUseAsk(BASH_ASK_REASONS[verdict]), granted: null };
   }
   if (decision.kind === 'pass' || !editing) return { output: null, granted: null };
   if (!located.ok) {

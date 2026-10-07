@@ -143,8 +143,13 @@ function textRun(text: string, context: RenderContext, key: string): ReactNode {
   }
   const paths = context.paths;
   if (paths !== undefined) {
+    // Both lists are in the order of the text: one walk finds the paths that touch a mention (a look at every
+    // mention for every path would cost the product of the two in a text made of both).
+    const mentions = marks.length;
+    let next = 0;
     for (const match of paths.find(text)) {
-      if (marks.some((mark) => match.start < mark.end && mark.start < match.end)) continue;
+      while (next < mentions && (marks[next] as Mark).end <= match.start) next += 1;
+      if (next < mentions && (marks[next] as Mark).start < match.end) continue;
       marks.push({ start: match.start, end: match.end, node: (index) => <PathLink key={`${key}.${index}.${match.text}`} match={match} paths={paths} /> });
     }
   }
@@ -335,12 +340,17 @@ function renderBlock(token: Token, context: RenderContext, key: string, tight: b
       );
     case 'plain': {
       const plain = token as unknown as PlainToken;
+      // No note while the text only waits for the page to have time, and one note for a text shown in pieces.
       return (
         <Fragment key={key}>
-          <p className="md-note" data-why={plain.reason}>
-            {t('plain.note')}
+          {plain.reason === 'later' || plain.quiet === true ? null : (
+            <p className="md-note" data-why={plain.reason}>
+              {t('plain.note')}
+            </p>
+          )}
+          <p className="md-plain" {...(plain.reason === 'later' ? { 'data-why': 'later' } : {})}>
+            {plain.text}
           </p>
-          <p className="md-plain">{plain.text}</p>
         </Fragment>
       );
     }

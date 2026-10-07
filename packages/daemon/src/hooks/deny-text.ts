@@ -48,6 +48,16 @@ export function gateDenyReason(row: GateDenyRow, facts: { readonly tool?: string
   }
 }
 
+/**
+ * Why the gate asks a PERSON about a shell command (row G10, hooks/bash-guard.ts). Claude Code hands the text back
+ * on its permission request; the card shows it as the reason, and the daemon knows its own two sentences again
+ * (conversation/permissions.ts). Fixed English like every text of this file.
+ */
+export const BASH_ASK_REASONS = Object.freeze({
+  writes: "smurg asks because this command changes a place where this folder's Claude Code project settings keep a script they run (the script itself, or a folder that holds it). Those scripts run as the host.",
+  unsure: "smurg asks because this folder's Claude Code project settings run scripts, and smurg cannot tell whether this command leaves them alone.",
+});
+
 function listNames(names: readonly string[]): string {
   if (names.length <= NAMES_LISTED) return names.join(', ');
   return `${names.slice(0, NAMES_LISTED).join(', ')} and ${names.length - NAMES_LISTED} more`;

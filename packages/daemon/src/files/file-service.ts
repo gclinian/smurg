@@ -27,7 +27,7 @@ import {
 } from '@smurg/protocol';
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
-import { isPathDeniedError } from '../core/errors.ts';
+import { isPathDeniedError, type PathDeniedReason } from '../core/errors.ts';
 import type { FileIdentity, FileService, Principal, ResolveOptions, ResolvedPath } from '../core/interfaces.ts';
 import { isHostPrincipal, SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
@@ -62,6 +62,9 @@ export interface FileServiceOptions {
 }
 
 /** A bounded "this path was a directory" memory: a deleted path cannot be lstat'ed any more (unlink vs unlinkDir). */
+/** PathGuard's refusals that only say "the reader may not look there" (file.stat answers them like a missing name). */
+const NOT_THERE_FOR_THE_READER: ReadonlySet<PathDeniedReason> = new Set<PathDeniedReason>(['host-private', 'hidden', 'hard-link', 'not-directory']);
+
 export class KnownDirectories {
   private readonly keys = new Map<string, true>();
   private readonly max: number;
@@ -174,8 +177,22 @@ export class FileServiceImpl implements FileService {
     return { entries, truncated };
   }
 
+  /**
+   * "Is this name there, and what is it?" Every client feature that turns a path into a link asks it, one name at a
+   * time, for names a text happens to hold. A place the reader may not look at (the host's private files, the
+   * daemon's own folder, a file with a second hard link, a path through a file) answers like a name that is not
+   * there: it tells the reader nothing a refusal would not, it is no attempt at anything, and so it is neither
+   * recorded under their name nor counted towards the refusals that close a connection. Every other refusal (a path
+   * that leaves the folder, a link that points out) stays a refusal: recorded and counted by the router.
+   */
   async stat(ref: FileRef, principal: Principal): Promise<FileEntry> {
-    const resolved = await this.ctx.paths.resolve(ref, { principal, mustExist: true, allowRoot: true, finalSymlink: 'self' });
+    let resolved: ResolvedPath;
+    try {
+      resolved = await this.ctx.paths.resolve(ref, { principal, mustExist: true, allowRoot: true, finalSymlink: 'self', audit: false });
+    } catch (err) {
+      if (isPathDeniedError(err) && NOT_THERE_FOR_THE_READER.has(err.reason)) throw new SmurgError('not_found');
+      throw err;
+    }
     const entry = this.entryOf(resolved, principal);
     if (!entry) throw new SmurgError('not_found');
     return entry;

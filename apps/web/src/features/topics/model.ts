@@ -377,7 +377,27 @@ export interface SpecSection {
   readonly text: string;
 }
 
-const FENCE = /^(?: {0,3})(`{3,}|~{3,})/;
+// Everything below looks at SPEC.md as it is on screen: text anyone with write access (or an agent) wrote, as long as
+// a file may be, at every mount of the column and every change of the text. So each look at a line is one pass over
+// its characters. An expression such as `^## +(.*?)(?: +#+)? *$` is tried again from every space of a long run and
+// costs the square of the line's length: one line of 64,000 spaces held the column for three seconds (review R4-03).
+
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+const isBlank = (char: string | undefined): boolean => char === ' ' || char === '\t';
+
+/**
+ * The text of a `## ` heading line, or null when the line is not one: what follows `## ` without the spaces around
+ * it and without a closing run of `#` that a space sets apart (`## Payments ##`).
+ */
+function sectionHeading(line: string): string | null {
+  if (!line.startsWith('## ')) return null;
+  let end = line.length;
+  while (end > 2 && line[end - 1] === ' ') end -= 1;
+  let hashes = end;
+  while (hashes > 2 && line[hashes - 1] === '#') hashes -= 1;
+  if (hashes < end && line[hashes - 1] === ' ') end = hashes;
+  return line.slice(3, end).trim();
+}
 
 /**
  * The spec's text cut at its `##` headings, so each section can be asked about on its own ("Ask the agent to revise
@@ -393,12 +413,52 @@ export function specSections(text: string): SpecSection[] {
       if (fence === null) fence = mark;
       else if (mark[0] === fence[0] && mark.length >= fence.length) fence = null;
     }
-    const heading = fence === null ? /^## +(.*?)(?: +#+)? *$/.exec(line) : null;
-    if (heading) sections.push({ heading: (heading[1] ?? '').trim(), lines: [line] });
+    const heading = fence === null ? sectionHeading(line) : null;
+    if (heading !== null) sections.push({ heading, lines: [line] });
     else (sections[sections.length - 1] as { lines: string[] }).lines.push(line);
   }
   return sections.filter((section, index) => index > 0 || section.lines.some((line) => line.trim() !== '')).map((section) => ({ heading: section.heading, text: section.lines.join('\n') }));
 }
+
+/** How many `#` begin `line` when it is a heading line (one to six, then a space or a tab); 0 otherwise. */
+function headingDepth(line: string): number {
+  let depth = 0;
+  while (depth < line.length && line[depth] === '#') depth += 1;
+  return depth >= 1 && depth <= 6 && isBlank(line[depth]) ? depth : 0;
+}
+
+const OPEN_QUESTIONS = 'open questions';
+
+/** `## Open questions`, in any case, with an optional closing run of `#`. */
+function isOpenQuestionsHeading(line: string): boolean {
+  let at = headingDepth(line);
+  if (at === 0) return false;
+  while (isBlank(line[at])) at += 1;
+  if (line.slice(at, at + OPEN_QUESTIONS.length).toLowerCase() !== OPEN_QUESTIONS) return false;
+  at += OPEN_QUESTIONS.length;
+  while (isBlank(line[at])) at += 1;
+  while (line[at] === '#') at += 1;
+  while (isBlank(line[at])) at += 1;
+  return at === line.length;
+}
+
+/** What follows the marker of a list entry (`- `, `* `, `+ `, `1. `, `2) `), or null when `entry` is not one. */
+function afterListMarker(entry: string): string | null {
+  let at = 0;
+  if (entry[0] === '-' || entry[0] === '*' || entry[0] === '+') at = 1;
+  else {
+    while (at < entry.length && (entry[at] as string) >= '0' && (entry[at] as string) <= '9') at += 1;
+    if (at === 0 || (entry[at] !== '.' && entry[at] !== ')')) return null;
+    at += 1;
+  }
+  if (!isBlank(entry[at])) return null;
+  while (isBlank(entry[at])) at += 1;
+  return at < entry.length ? entry.slice(at) : null;
+}
+
+/** "None", "Nothing", "n/a", with or without a full stop: an entry that lists no question. */
+const SAYS_NONE: ReadonlySet<string> = new Set(['none', 'nothing', 'n/a', 'none.', 'nothing.', 'n/a.']);
+const saysNone = (words: string): boolean => words.length <= 8 && SAYS_NONE.has(words.toLowerCase());
 
 /**
  * How many open questions the spec lists under its "Open questions" heading: the rule of the daemon's Start
@@ -407,17 +467,19 @@ export function specSections(text: string): SpecSection[] {
  */
 export function specOpenQuestions(text: string): number {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
-  const start = lines.findIndex((line) => /^#{1,6}[ \t]+open questions[ \t]*#*[ \t]*$/i.test(line));
+  const start = lines.findIndex(isOpenQuestionsHeading);
   if (start === -1) return 0;
   let bullets = 0;
   let prose = 0;
-  for (const line of lines.slice(start + 1)) {
-    if (/^#{1,6}[ \t]/.test(line)) break;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index] as string;
+    if (headingDepth(line) > 0) break;
     const entry = line.trim();
     if (entry.length === 0) continue;
-    if (/^(?:[-*+]|\d+[.)])[ \t]+\S/.test(entry)) {
-      if (!/^(?:[-*+]|\d+[.)])[ \t]+(?:none|nothing|n\/a)\.?$/i.test(entry)) bullets += 1;
-    } else if (!/^(?:none|nothing|n\/a)\.?$/i.test(entry)) prose += 1;
+    const listed = afterListMarker(entry);
+    if (listed !== null) {
+      if (!saysNone(listed)) bullets += 1;
+    } else if (!saysNone(entry)) prose += 1;
   }
   return bullets > 0 ? bullets : prose > 0 ? 1 : 0;
 }

@@ -12,11 +12,14 @@
 // | G6 | discussion: an edit tool whose target is not its topic's SPEC.md or PLAN.md               | deny |
 // | G7 | work item: an edit tool on its topic's SPEC.md or PLAN.md                                 | deny |
 // | G8 | any other edit-tool call                                                                  | lock |
+// | G10| Bash, in a root whose project settings are in use and run scripts: a command that writes  | ask  |
+// |    | where one of those scripts is, or that the gate cannot follow (bash-guard.ts)             |      |
 // | G9 | everything else (Bash, WebFetch, AskUserQuestion, `mcp__smurg__*`, …)                     | pass |
 //
 // G1 (the daemon does not answer) is hook-cli's: it fails closed for every tool. The gate never says "allow":
-// allowing stays with Claude Code's rules and with people. What it cannot see is what a shell command does.
-import { SMURG_TOOL_PREFIX, foldRelPath, isClaudeConfigPath, isEditTool, isHostOnlyPath, isHostPrivatePath, topicPlanPath, topicSpecPath } from '@smurg/protocol';
+// allowing stays with Claude Code's rules and with people. G10 is decided in hook-events.ts (it looks at the file
+// system): it reads which files a shell command names; what a program does that names none, it cannot see.
+import { SMURG_TOOL_PREFIX, foldRelPath, isClaudeConfigPath, isEditTool, isHostOnlyPath, isHostPrivatePath, isRelPathWithin, topicPlanPath, topicSpecPath } from '@smurg/protocol';
 import type { GateRow, HookSessionRegistration } from '../core/interfaces.ts';
 
 /** In `HookSessionRegistration.tools`: any MCP tool is in the list (the host allowed their own servers, `agentMcp`). */
@@ -48,12 +51,16 @@ export function patternLeavesRoot(pattern: string | undefined): boolean {
 
 const deny = (row: GateRow, path?: string): GateDecision => ({ kind: 'deny', row, ...(path === undefined ? {} : { path }) });
 
-/** Whether `path` is one of the recorded files, under any spelling a case-insensitive file system folds onto it. */
+/**
+ * Whether `path` is one of the recorded files, or lies below one (a recorded path may be one where no file is yet:
+ * a folder there, with a file in it, is what some programs would run), under any spelling a case-insensitive file
+ * system folds onto it.
+ */
 function isRecorded(recorded: ReadonlySet<string>, path: string): boolean {
   if (recorded.size === 0) return false;
   if (recorded.has(path)) return true;
   const folded = foldRelPath(path);
-  for (const entry of recorded) if (foldRelPath(entry) === folded) return true;
+  for (const entry of recorded) if (isRelPathWithin(folded, foldRelPath(entry))) return true;
   return false;
 }
 

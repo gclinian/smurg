@@ -1,7 +1,7 @@
 // file.* on the interactive channel through the real router + handlers + FileService (ARCHITECTURE §5.2): tree, stat,
 // create, rename, delete, read, write — permissions per role, host-only paths, locks, temp-file hiding, audit.
 import { execFile } from 'node:child_process';
-import { chmod, lstat, mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -106,6 +106,34 @@ describe('file.tree / file.stat', () => {
     expect(readme).toMatchObject({ name: 'README.md', path: 'README.md', kind: 'file', size: 8 });
     expect(Number.isInteger(readme.mtime)).toBe(true);
     expect(await settleError(amy.conn.request('file.stat', main('nope.txt')))).toMatchObject({ code: 'not_found' });
+  });
+
+  it('a lookup that only asks whether a name is there is answered "not found" for a place the reader may not look at, without an audit entry and without counting as an attempt; a path that tries to leave the folder is still refused and recorded (review R4-04)', async () => {
+    const { ft, host, amy } = await setup();
+    const t = ft.t;
+    await mkdir(join(t.root, '.git'), { recursive: true });
+    await writeFile(join(t.root, '.git', 'config'), '[core]\n');
+    await writeFile(join(t.root, '.envrc'), 'SECRET=1\n');
+    await link(join(t.root, 'README.md'), join(t.root, 'README.hard'));
+    const closed: unknown[] = [];
+    amy.conn.on('channel.closed', (payload) => closed.push(payload));
+    // More of them than refusals a connection may collect in a minute (60): what every client that turns a path in a
+    // conversation into a link sends, one per name.
+    for (let i = 0; i < 70; i++) expect(await settleError(amy.conn.request('file.stat', main(`.git/a${i}`)))).toMatchObject({ code: 'not_found' });
+    for (const path of ['.git/config', '.envrc', '.smurg/state.json', 'README.md/x', 'README.hard', 'CLAUDE.local.md', '.claude/settings.local.json']) expect(await settleError(amy.conn.request('file.stat', main(path))), path).toMatchObject({ code: 'not_found' });
+    expect(closed).toEqual([]);
+    expect((await auditEntries(t.ctx)).filter((entry) => entry.action === 'path.denied')).toEqual([]);
+    // The reader is not told more than before: an existing private file and a missing one answer alike.
+    // The host sees what is there.
+    expect((await host.conn.request('file.stat', main('.git/config'))).entry).toMatchObject({ kind: 'file' });
+    expect((await host.conn.request('file.stat', main('README.hard'))).entry).toMatchObject({ kind: 'file' });
+    // Reading is not asking whether it is there: refused and recorded as before.
+    expect(await settleError(amy.conn.request('file.read', { file: main('.envrc') }))).toMatchObject({ code: 'path_denied' });
+    // A lookup that tries to leave the folder: refused, recorded, counted.
+    await symlink('/etc', join(t.root, 'link-out'));
+    expect(await settleError(amy.conn.request('file.stat', main('link-out/hosts')))).toMatchObject({ code: 'path_denied' });
+    const denied = (await auditEntries(t.ctx)).filter((entry) => entry.action === 'path.denied');
+    expect(denied.map((entry) => [entry.actor.kind === 'user' ? entry.actor.userId : '', entry.detail?.['reason']])).toEqual([['dev:amy', 'host-private'], ['dev:amy', 'outside-root']]);
   });
 
   it('FileEntry carries the lock and the last modifier when there are any', async () => {

@@ -569,6 +569,19 @@ describe('topic sessions: profiles, names, what the topics module tells them', {
     expect((await r.s.sessions.teardownUser('dev:noa', 'role-changed', 'viewer')).cleared).toEqual([noas.id]);
     void noa;
 
+    // Leaving is not losing a role: the Leave dialog says topic sessions pass to the host, and nothing about the
+    // worktrees a member kept. They stay hers (she comes back with the role she has; `worktree.remove` asks for that
+    // role each time). A kick or a demotion hands them to the host (review R2-08).
+    const uma = await r.s.t.connect({ userId: 'dev:uma', displayName: 'Uma', role: 'agent' });
+    const kept = await r.s.fakes.worktrees.acquireForSession({ owner: { userId: 'dev:uma' }, sessionId: 'umas-old-session' });
+    await r.s.fakes.worktrees.releaseFromSession(kept.worktree.id, 'umas-old-session', { keep: true });
+    const handedBefore = r.s.fakes.worktrees.owners.length;
+    await r.s.sessions.teardownUser('dev:uma', 'left');
+    expect(r.s.fakes.worktrees.owners.slice(handedBefore)).toEqual([]);
+    await r.s.sessions.teardownUser('dev:uma', 'role-changed', 'editor');
+    expect(r.s.fakes.worktrees.owners.slice(handedBefore)).toEqual([{ worktreeId: kept.worktree.id, ownerUserId: TEST_HOST_USER }]);
+    void uma;
+
     // Clearing a fallback decider is announced on the bus (who decides an open question follows it at once), once
     // per session it changed, and never again.
     const ada = await r.s.t.connect({ userId: 'dev:ada', displayName: 'Ada', role: 'agent' });

@@ -15,6 +15,10 @@
 // action are recorded up to a budget per minute; the rest of that minute go, whole, to audit-overflow.jsonl (rotated
 // the same way, never paged by a query), and one summary entry in the log says how many. Nothing a member did is
 // dropped, and no loop of one action can push other people's entries, or that member's other actions, out of the log.
+// The budget is for members other than the HOST (the log is the host's own record of what the host did: every
+// decision of theirs stays where the console reads it; requests on the control socket, which every agent session
+// reaches under the host's name, keep the budget), and never for the entries that say who may do what and what was
+// removed (UNBUDGETED_AUDIT_ACTIONS), whoever records them.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
@@ -229,9 +233,17 @@ export interface JsonlAuditLogOptions {
    * the minute go to the overflow file and are counted in a summary entry. 0 disables the budget.
    */
   readonly acceptedPerActionPerMinute?: number;
+  /** The host: their own accepted entries have no budget. Without it nobody is taken for the host. */
+  readonly hostUserId?: string;
   /** Where the whole text of `fullText` keys goes. Without it an entry still carries the hash, the length and the head. */
   readonly texts?: AuditTextStore;
 }
+
+/**
+ * Accepted entries that are never moved out of the log by a budget, whoever the actor is: a role change, a kick, a
+ * decision about a folder's Claude Code project settings, and the removal of a conversation entry.
+ */
+export const UNBUDGETED_AUDIT_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>(['member.role', 'member.kick', 'claude-config.decide', 'transcript.redact']);
 
 const DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
 const DEFAULT_ROTATIONS = 2;
@@ -345,6 +357,7 @@ export class JsonlAuditLog implements AuditLog {
   private readonly rotations: number;
   private readonly deniedPerActor: number;
   private readonly acceptedPerAction: number;
+  private readonly hostUserId: string | null;
   /** Where a member's `ok` entries beyond the budget go; opened with the first one. `null` inside: it could not be opened. */
   private overflow: Promise<JsonlAuditLog | null> | null = null;
   private readonly texts: AuditTextStore | null;
@@ -376,6 +389,7 @@ export class JsonlAuditLog implements AuditLog {
     this.rotations = Math.max(1, Math.floor(options.rotations ?? DEFAULT_ROTATIONS));
     this.deniedPerActor = Math.max(0, Math.floor(options.deniedPerActorPerMinute ?? DEFAULT_DENIED_PER_ACTOR_PER_MINUTE));
     this.acceptedPerAction = Math.max(0, Math.floor(options.acceptedPerActionPerMinute ?? DEFAULT_ACCEPTED_PER_ACTION_PER_MINUTE));
+    this.hostUserId = options.hostUserId ?? null;
     this.texts = options.texts ?? null;
   }
 
@@ -436,7 +450,10 @@ export class JsonlAuditLog implements AuditLog {
     }
     this.settleEnded(entry.at);
     if (entry.outcome === 'denied' && this.admitDenied(entry) !== 'record') return entry;
-    if (entry.outcome === 'ok' && entry.actor.kind === 'user') {
+    // The host's own requests on a relay channel have no budget. What arrives on the control socket under the host's
+    // name does (any agent session of a member reaches that socket: a loop there must not fill the log either).
+    const hostsOwn = entry.actor.kind === 'user' && entry.actor.userId === this.hostUserId && deniedOriginOf(entry) === undefined;
+    if (entry.outcome === 'ok' && entry.actor.kind === 'user' && !hostsOwn && !UNBUDGETED_AUDIT_ACTIONS.has(entry.action)) {
       const admitted = this.admitAccepted(entry);
       if (admitted === 'counted') this.spill(entry);
       if (admitted !== 'record') return entry;
@@ -541,8 +558,9 @@ export class JsonlAuditLog implements AuditLog {
   /**
    * The budget of a MEMBER's own accepted requests, per action and origin: the same steps as for refusals, except
    * that the entries over budget are not only counted but kept, whole, in the overflow file (`spill`). Per action, so
-   * that a loop of one kind of request leaves every other thing that member does in the log. Entries of agents and of
-   * the daemon itself have no such budget: no request of a member writes them one for one.
+   * that a loop of one kind of request leaves every other thing that member does in the log. Entries of agents, of
+   * the daemon itself and of the host have no such budget (no request of a member writes them one for one), and
+   * neither have the actions of UNBUDGETED_AUDIT_ACTIONS.
    */
   private admitAccepted(entry: AuditEntry): 'record' | 'noted' | 'counted' {
     if (this.acceptedPerAction === 0) return 'record';

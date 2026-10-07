@@ -4,7 +4,7 @@
 // per coalesceMs. Every newly opened interactive connection gets the current snapshot directly, so a client never
 // waits for the next change to learn who is here (also after a resume: queued snapshots are not replayed to
 // disconnected channels, they would be stale).
-import { LIST_MAX_ITEMS, agentDisplayName, fileRefKey, type FileRef, type PayloadInputOf, type PresenceAgent, type SessionInfo } from '@smurg/protocol';
+import { LIST_MAX_ITEMS, agentSessionName, fileRefKey, isAgentAtWork, type FileRef, type PayloadInputOf, type PresenceAgent, type SessionInfo } from '@smurg/protocol';
 import type { ClientConnection, Hub, MemberDirectory, PresenceService, UserId } from '../core/interfaces.ts';
 import type { Clock } from '../core/lifecycle.ts';
 import type { Logger } from '../core/logger.ts';
@@ -104,7 +104,12 @@ export class PresenceServiceImpl implements PresenceService {
     return this.agents.get(sessionId)?.color ?? null;
   }
 
-  /** session.created / session.updated: agent sessions appear as `Claude (owner)` while they run. */
+  /**
+   * session.created / session.updated: an agent session appears under its name (`agentSessionName`: the same name its
+   * caret has in a document) for as long as it lives. Its current file is the file of the turn that runs: when the
+   * session is no longer at work (the turn ended, it stalled or failed) the file goes, and the next turn starts
+   * without one.
+   */
   sessionChanged(session: SessionInfo): void {
     if (session.kind !== 'agent') return;
     if (session.status === 'ended') {
@@ -112,19 +117,22 @@ export class PresenceServiceImpl implements PresenceService {
       return;
     }
     const existing = this.agents.get(session.id);
-    this.setAgent({
-      sessionId: session.id,
-      ownerUserId: session.openedBy.userId,
-      displayName: agentDisplayName(session.openedBy.displayName),
-      color: existing?.color ?? pickAgentColor(session.id, this.colorsInUse(session.id)),
-      status: session.status,
-    });
+    this.putAgent(
+      {
+        sessionId: session.id,
+        ownerUserId: session.openedBy.userId,
+        displayName: agentSessionName(session),
+        color: existing?.color ?? pickAgentColor(session.id, this.colorsInUse(session.id)),
+        status: session.status,
+      },
+      isAgentAtWork(session.status) ? undefined : null,
+    );
   }
 
-  /** The agent's current file (its last granted PreToolUse); null clears it. */
+  /** The agent's current file (its last granted PreToolUse); null clears it. Not set for an agent that is not at work. */
   setAgentActiveFile(sessionId: string, file: FileRef | null): void {
     const agent = this.agents.get(sessionId);
-    if (agent) this.putAgent(agent, file);
+    if (agent) this.putAgent(agent, file !== null && !isAgentAtWork(agent.status) ? null : file);
   }
 
   connectionOpened(conn: ClientConnection): void {

@@ -250,6 +250,10 @@ export const topics = {
     en: () => 'The Claude Code project settings changed since they were confirmed.',
     'zh-TW': () => 'Claude Code 專案設定在確認之後有變動',
   }),
+  'claudeConfig.cannotConfirm': message({}, {
+    en: () => 'These Claude Code project settings cannot be used as they are. The reason stands at the top of "Other settings".',
+    'zh-TW': () => '這份 Claude Code 專案設定目前無法使用，原因寫在「其他設定」的第一行',
+  }),
   'claudeConfig.ackNeeded': message({}, {
     en: () => 'Tick what these settings do before you use them.',
     'zh-TW': () => '使用前請先勾選這些設定會做的事',

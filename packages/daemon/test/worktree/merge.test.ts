@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, MERGE_DIFF_MAX_BYTES, type MergeRequest } from '@smurg/protocol';
 import { locksModule } from '../../src/locks/module.ts';
 import { waitFor, type TestClient } from '../../src/testing/index.ts';
+import { restartDaemonWith } from './restart.ts';
 import { settleError, startWorktreeStack, type WorktreeStack } from './support.ts';
 
 let stack: WorktreeStack | null = null;
@@ -35,6 +36,43 @@ async function snapshot(s: WorktreeStack, dir: string): Promise<Record<string, s
   for (const file of files) out[`file:${file}`] = await readFile(join(dir, file), 'utf8').catch(() => '<unreadable>');
   return out;
 }
+
+describe('review refs after a restart (review R5-09 part d)', { timeout: 60_000 }, () => {
+  it('a ref no stored request names (the daemon died between fetching a commit and storing its request) is removed at the next start; the refs of stored requests, and every other ref of the repository, stay', async () => {
+    stack = await startWorktreeStack();
+    const s = stack;
+    const { amy, worktreeId, dir } = await amyWorktree(s);
+    await writeFile(join(dir, 'src', 'app.ts'), 'export const answer = 43;\n');
+    const { request } = await amy.conn.request('worktree.merge.request', { worktreeId, message: 'forty-three' });
+    const stored = `refs/smurg/merge/${request.id}`;
+    // What a death right after the fetch leaves behind: a ref under smurg's own prefix that no request names.
+    const head = (await s.git(['rev-parse', 'HEAD'])).trim();
+    const stray = `refs/smurg/merge/mr_${'a'.repeat(24)}`;
+    await s.git(['update-ref', stray, request.commit]);
+    await s.git(['update-ref', 'refs/smurg/merge/not-an-id', head]);
+    // Refs that are not smurg's review refs: the host's own.
+    await s.git(['update-ref', 'refs/heads/feature', head]);
+    await s.git(['update-ref', 'refs/smurg-other/keep', head]);
+    await s.git(['tag', 'v1', head]);
+    const refs = async (): Promise<string[]> => (await s.git(['for-each-ref', '--format=%(refname)'])).trim().split('\n').sort();
+    const before = await refs();
+    expect(before).toEqual(expect.arrayContaining([stored, stray, 'refs/smurg/merge/not-an-id']));
+    await s.t.daemon.stop();
+
+    const daemon = await restartDaemonWith(s.t);
+    try {
+      expect(await refs()).toEqual(before.filter((ref) => ref !== stray && ref !== 'refs/smurg/merge/not-an-id'));
+      expect((await s.git(['rev-parse', stored])).trim()).toBe(request.commit);
+      // The stored request is still what it was, and still decidable.
+      const manager = daemon.ctx.services.worktrees;
+      const host = daemon.ctx.members.principalOf(daemon.ctx.members.hostUserId());
+      if (host === null) throw new Error('host');
+      expect(manager.listMerges(host).map((merge) => [merge.id, merge.status])).toEqual([[request.id, 'pending']]);
+    } finally {
+      await daemon.stop();
+    }
+  });
+});
 
 describe('worktree.merge.request', { timeout: 60_000 }, () => {
   it('commits the working tree as the owner and fetches exactly that commit into refs/smurg/merge/<id>', async () => {

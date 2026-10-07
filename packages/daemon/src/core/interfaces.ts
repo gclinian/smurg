@@ -1660,8 +1660,10 @@ export interface SessionManager {
    *    item's session WorktreeManager.setOwner of its worktree; the line `conversation.owner.handover`), STOPPED
    *    first when they were kicked (AgentSessions.interrupt by the system; the line `…handover.kicked`). `pathRights`
    *    is never raised;
-   *  - every worktree they still own when `session.create` is gone (kept by the sessions that just ended, or kept
-   *    earlier) passes to the host (WorktreeManager.setOwner): `worktree.remove` is the owner's or the host's;
+   *  - after a kick or a demotion below Agent access every worktree they still own (kept by the sessions that just
+   *    ended, or kept earlier) passes to the host (WorktreeManager.setOwner). After a LEAVE those stay theirs: the
+   *    member keeps their role and comes back to them. `worktree.remove` is the host's, or the owner's while they
+   *    may open sessions (WorktreeManager.remove checks the role itself, whatever the owner record says);
    *  - wherever they are the responsible person or the fallback decider that is cleared, for good (kicked, left,
    *    or now a Viewer): AgentSessions.setResponsible(null, system) / clearFallbackDecider, ONE line
    *    `conversation.responsible.fallback` per session, audit `responsible.fallback`.

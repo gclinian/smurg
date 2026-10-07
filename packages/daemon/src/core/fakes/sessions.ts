@@ -174,8 +174,8 @@ export class FakeSessionManager implements SessionManager {
           ended.push(session.id);
         }
       }
-      // Every worktree they still own passes to the host.
-      if (userId !== host) for (const worktree of this.worktrees?.list() ?? []) if (worktree.ownerUserId === userId) await this.worktrees?.setOwner(worktree.id, hostPrincipal);
+      // Every worktree they still own passes to the host, after a kick or a demotion (a member who leaves keeps theirs).
+      if (userId !== host && change !== 'left') for (const worktree of this.worktrees?.list() ?? []) if (worktree.ownerUserId === userId) await this.worktrees?.setOwner(worktree.id, hostPrincipal);
     }
     const cleared = new Set<string>();
     if (losesDiscuss) {

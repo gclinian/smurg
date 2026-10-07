@@ -159,7 +159,7 @@ export async function runLockHook(io: HookCliIo): Promise<number> {
       throw new HookCliError('hook input is not JSON');
     }
     if (!isJsonObject(parsed)) throw new HookCliError('hook input is not a JSON object');
-    const hookInput = projectHookInput(parsed);
+    const hookInput = projectHookInput(parsed, { command: true });
     eventName = typeof hookInput['hook_event_name'] === 'string' ? hookInput['hook_event_name'] : null;
     const id = randomBytes(12).toString('base64url');
     const request: JsonObject = { id, token: io.env[HOOK_ENV.token] ?? '', op: 'hook', hookInput };

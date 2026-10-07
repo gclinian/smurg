@@ -1282,8 +1282,8 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   },
   'permission.updated': {
     payload: {
-      valid: [{ request: permission }, { request: outsidePermission }, { request: { ...outsidePermission, path: undefined } }],
-      invalid: [{ request: { ...permission, noAlways: 'because' } }, { request: { ...permission, hostOnly: undefined } }],
+      valid: [{ request: permission }, { request: outsidePermission }, { request: { ...outsidePermission, path: undefined } }, { request: { ...permission, hostOnly: true, gate: 'writes-settings-script' } }, { request: { ...permission, gate: 'may-reach-settings-script' } }],
+      invalid: [{ request: { ...permission, noAlways: 'because' } }, { request: { ...permission, hostOnly: undefined } }, { request: { ...permission, gate: 'because' } }],
     },
   },
 
@@ -1637,6 +1637,7 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
               state: 'ignored',
               files: [
                 { ...claudeConfigFile, env: [{ name: 'NODE_OPTIONS', flagged: false, programs: true }], needsAck: ['incomplete'], cut: { omitted: 3, shortened: 1 } },
+                { ...claudeConfigFile, scripts: [{ path: 'scripts/lint.sh', hash: HASH }, { path: 'scripts/optional.sh', hash: HASH, absent: true }], needsAck: ['incomplete'], unfollowed: 2 },
                 { ...claudeConfigFile, path: '.claude', text: `${HASH}  .claude/agents/reviewer.md`, runs: ['hook in .claude/agents/reviewer.md: ./scripts/check.sh'], env: [], otherKeys: ['.claude/agents/reviewer.md'], needsAck: [] },
               ],
             },
@@ -1651,6 +1652,8 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
         { roots: [{ root: MAIN, state: 'used', files: [{ ...claudeConfigFile, cut: { omitted: -1, shortened: 0 } }] }], hasMore: false },
         { roots: [{ root: MAIN, state: 'used', files: [{ ...claudeConfigFile, cut: { omitted: 1 } }] }], hasMore: false },
         { roots: [{ root: MAIN, state: 'used', files: [{ ...claudeConfigFile, needsAck: ['whole'] }] }], hasMore: false },
+        { roots: [{ root: MAIN, state: 'used', files: [{ ...claudeConfigFile, scripts: [{ path: 'scripts/optional.sh', hash: HASH, absent: false }] }] }], hasMore: false },
+        { roots: [{ root: MAIN, state: 'used', files: [{ ...claudeConfigFile, unfollowed: -1 }] }], hasMore: false },
         { roots: [{ root: MAIN, state: 'used', files: [claudeConfigFile, claudeConfigFile, claudeConfigFile, claudeConfigFile, claudeConfigFile] }], hasMore: false },
       ],
     },

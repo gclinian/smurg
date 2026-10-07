@@ -27,8 +27,10 @@ import {
   agentSafeName,
   can,
   checkRememberableRule,
+  foldRelPath,
   isEditTool,
   isHostPrivatePath,
+  isRelPathWithin,
   lineEvent,
   lockedError,
   mayAllowForTopic,
@@ -54,6 +56,7 @@ import type { AgentLockResult, AgentRequest, AgentSessionFacts, Principal, Req }
 import { newId } from '../core/lifecycle.ts';
 import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
+import { BASH_ASK_REASONS } from '../hooks/deny-text.ts';
 import { DISCUSSION_NO_TOOLS, DUPLICATE_REQUEST, HOST_EDITS_CONFIG, NOT_SHOWABLE, SESSION_GONE, TOO_LARGE_TO_SHOW, deniedByPerson } from './agent-sentences.ts';
 import type { CardsStore } from './cards-store.ts';
 import { DIFF_MAX_CHARS, changeDiff } from './change-diff.ts';
@@ -292,7 +295,14 @@ export class Permissions {
     const refs: FileRef[] = [...(view.file === undefined ? [] : [view.file]), ...named.flatMap((entry) => (entry.ref === null ? [] : [entry.ref]))];
     const outside = view.outside === true || named.some((entry) => entry.ref === null);
     const shownPath = refs[0]?.path;
-    const trustProtected = (ref: FileRef): boolean => !isStubService(this.ctx.services.projectTrust) && this.ctx.services.projectTrust.protectedPaths(ref.root).has(ref.path);
+    // A script the trust gate records (or a path it guards where no file is yet): at the path or below it, under any
+    // spelling a file system folds onto it.
+    const trustProtected = (ref: FileRef): boolean => {
+      if (isStubService(this.ctx.services.projectTrust)) return false;
+      const at = foldRelPath(ref.path);
+      for (const script of this.ctx.services.projectTrust.protectedPaths(ref.root)) if (isRelPathWithin(at, foldRelPath(script))) return true;
+      return false;
+    };
 
     // No agent session writes Claude Code's configuration: the host edits those files themselves.
     const writes = isEditTool(request.tool) || view.verb === 'edit' || view.verb === 'create' || view.verb === 'run';
@@ -312,6 +322,13 @@ export class Permissions {
       outside ||
       refs.some((ref) => isHostPathInRoot(ref) || trustProtected(ref)) ||
       named.some((entry) => isHostHomePath(entry.abs, home, this.ctx.config.stateDir));
+
+    // smurg's own gate asked (hooks/bash-guard.ts): the request carries the gate's sentence back as a hook's reason.
+    // A command that writes where a script of the project settings is, is the host's to answer, like any other
+    // request that names such a script. (A hook of the host's own that used the same words gets the same label.)
+    const gate: PermissionRequest['gate'] =
+      request.reasonType !== 'hook' ? undefined : request.reason === BASH_ASK_REASONS.writes ? 'writes-settings-script' : request.reason === BASH_ASK_REASONS.unsure ? 'may-reach-settings-script' : undefined;
+    if (gate === 'writes-settings-script') hostOnly = true;
 
     // A rule of the session's topic that this process does not have yet: what a click on "Always allow" would send.
     // Only for a request that IS of that kind as the daemon reads it (one plain command that starts with the rule's
@@ -381,6 +398,7 @@ export class Permissions {
       ...(path !== undefined && utf8Bytes(path) <= COMMAND_MAX_BYTES && !path.includes('\u0000') ? { path } : {}),
       root: session.root,
       ...(reason === undefined ? {} : { reason }),
+      ...(gate === undefined ? {} : { gate }),
       hostOnly,
       ...offerAlwaysRule(suggested, hostOnly),
     };

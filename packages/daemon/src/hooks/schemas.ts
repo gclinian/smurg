@@ -4,7 +4,7 @@
 // The clients (hook-cli.ts, ../mcp/coord-server.ts) do not load this file: they must start without zod (wire.ts).
 import { NOTIFY_TEXT_MAX_CHARS, displayNameSchema, multilineTextSchema, userIdSchema } from '@smurg/protocol';
 import { z } from 'zod';
-import { HOOK_VIA_BASH_ACTIVITY, MCP_TOOL_NAMES, REQUEST_ID_PATTERN, WAIT_FOR_LOCK_MAX_SECONDS } from './wire.ts';
+import { HOOK_COMMAND_FORWARD_MAX_BYTES, HOOK_VIA_BASH_ACTIVITY, MCP_TOOL_NAMES, REQUEST_ID_PATTERN, WAIT_FOR_LOCK_MAX_SECONDS } from './wire.ts';
 
 /** Absolute or relative file paths from Claude Code; PATH_MAX-sized with room for Linux's 4,095 bytes. */
 const MAX_PATH_CHARS = 4_096;
@@ -33,6 +33,9 @@ export const hookInputSchema = z.object({
       /** A search's directory; a Glob's pattern. */
       path: pathString.optional(),
       pattern: pathString.optional(),
+      /** A Bash PreToolUse from the gate hook: the command whole, or `command_omitted` when it was too long to forward. */
+      command: z.string().max(HOOK_COMMAND_FORWARD_MAX_BYTES).optional(),
+      command_omitted: z.boolean().optional(),
     })
     .optional(),
   file_path: pathString.optional(),

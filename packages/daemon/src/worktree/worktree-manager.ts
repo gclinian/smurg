@@ -65,7 +65,7 @@ import { GIT_MIN_VERSION, GitRunner, GitUnavailableError, findGit, firstLine, gi
 import { parseMergeTree, parseNameOnly, parseNameStatus, parseStatusPaths } from './git-parse.ts';
 import { pinnedHashes, verifyWorktreeRepo } from './integrity.ts';
 import { blobsAt, busyMarker, commitMainPaths, currentBranch, diffMainPaths } from './main-repo.ts';
-import { gitIdentity, itemBranch, mergeRef, newMergeId, newWorktreeId, worktreeBranch } from './names.ts';
+import { MERGE_REF_PREFIX, gitIdentity, itemBranch, mergeRef, newMergeId, newWorktreeId, worktreeBranch } from './names.ts';
 import {
   DEFAULT_REVIEW_LIMITS,
   checkMergePolicy,
@@ -348,6 +348,28 @@ export class WorktreeManagerImpl implements WorktreeManager {
       });
       await doc.flush();
     }
+    await this.sweepReviewRefs();
+  }
+
+  /**
+   * A request's commit is fetched into `refs/smurg/merge/<id>` of the HOST's repository before the request is stored
+   * (and the ref goes when storing fails). A daemon that died in between left a ref no request names, for ever: at
+   * the start every ref below `refs/smurg/merge/` that no stored request names is removed. Nothing else of the
+   * repository is listed or touched; when the refs cannot be listed, none is removed.
+   */
+  private async sweepReviewRefs(): Promise<void> {
+    if (!this.available.ok) return;
+    const repo = this.available.repo;
+    const prefix = MERGE_REF_PREFIX;
+    const listed = await repo.git.run({ gitDir: repo.gitDir, args: ['for-each-ref', '--format=%(refname)', prefix], readOnly: true, maxStdoutBytes: 4 * 1024 * 1024 }).catch(() => null);
+    if (listed === null || listed.code !== 0 || listed.truncated) {
+      this.ctx.log.warn('review refs could not be listed; none was swept', { module: 'worktree' });
+      return;
+    }
+    const named = new Set(this.requireDoc().get().merges.map((merge) => mergeRef(merge.id)));
+    const stray = listed.stdout.toString('utf8').split('\n').filter((ref) => ref.startsWith(prefix) && ref.length > prefix.length && !named.has(ref));
+    for (const ref of stray) await this.deleteRef(repo, ref);
+    if (stray.length > 0) this.ctx.log.info('removed review refs no merge request names', { module: 'worktree', count: stray.length });
   }
 
   // =================================================================================================================
@@ -735,8 +757,13 @@ export class WorktreeManagerImpl implements WorktreeManager {
   async remove(worktreeId: string, principal: Principal): Promise<void> {
     const record = this.record(worktreeId);
     if (!record) throw NOT_FOUND();
-    if (!isHostPrincipal(principal) && principal.userId !== record.ownerUserId) {
-      throw new AuthorizationError(msg('worktree.removeOwnerOrHost'), { reason: 'not-owner:worktree' });
+    // The host, or the member the worktree is for WHILE they may open sessions (what gave them the worktree). The
+    // owner record alone decides nothing: a member who lost agent access keeps no say over the folder, whatever a
+    // record still says (one written by an earlier version, or one a hand-over to the host did not reach).
+    if (!isHostPrincipal(principal)) {
+      const owner = principal.kind === 'user' && principal.userId !== null && principal.userId === record.ownerUserId;
+      if (!owner) throw new AuthorizationError(msg('worktree.removeOwnerOrHost'), { reason: 'not-owner:worktree' });
+      if (!principalCan(principal, 'session.create')) throw new AuthorizationError(msg('worktree.removeOwnerOrHost'), { reason: 'capability' });
     }
     await this.serial.run(`wt:${worktreeId}`, async () => {
       const current = this.record(worktreeId);

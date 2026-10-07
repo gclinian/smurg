@@ -35,7 +35,8 @@
 //   { "tool": "Write", "input": { "file_path": "…", "content": "…" }, "ask": true|false, "suggest": { "toolName": "Bash", "ruleContent": "pnpm test *" },
 //     "result": "…", "structured": { … }, "error": "…", "run": true, "id": "toolu_x", "parent": "…", "reason": "…" }
 //       a tool call: the PreToolUse hooks of the settings file run first (a deny ends the call); then a permission
-//       request when the rules of the session say so (or `ask` says so) and the stand-in waits for the answer; then
+//       request when the rules of the session say so (or `ask` says so, or a PreToolUse hook answered "ask": then
+//       whatever the rules say) and the stand-in waits for the answer; then
 //       the call is performed (Write / Edit change real files, Read reads one, Bash runs for real only with `run`,
 //       mcp__smurg__* goes to the real MCP command, AskUserQuestion always asks); then the PostToolUse hooks.
 //   { "sleep": 50 }   { "wait": "interrupt" }   { "exit": 3, "stderr": "boom" }   { "raw": { …any stdout line… } }
@@ -187,11 +188,13 @@ function runCommand(command, args, stdin, timeoutMs = 15_000) {
 
 /**
  * Runs the hooks of one event: the ones of `--settings` first, then the host's own. Returns the deny reason of a
- * PreToolUse hook (or null) and, when a PreToolUse hook answered `updatedInput`, the input the call goes on with.
+ * PreToolUse hook (or null), the reason of a PreToolUse hook that answered "ask" (or null), and, when a PreToolUse
+ * hook answered `updatedInput`, the input the call goes on with.
  */
 async function runHooks(event, tool, extra = {}) {
   const groups = [...(settings.hooks?.[event] ?? []), ...ownSettings.flatMap(([, file]) => (Array.isArray(file?.hooks?.[event]) ? file.hooks[event] : []))];
   let denied = null;
+  let asked = null;
   let updatedInput;
   for (const group of groups) {
     if (tool !== undefined && !matcherFits(group.matcher, tool)) continue;
@@ -205,13 +208,14 @@ async function runHooks(event, tool, extra = {}) {
         const parsed = JSON.parse(result.stdout);
         const specific = parsed?.hookSpecificOutput;
         if (specific?.permissionDecision === 'deny') denied = String(specific.permissionDecisionReason ?? 'denied');
+        else if (specific?.permissionDecision === 'ask') asked ??= String(specific.permissionDecisionReason ?? '');
         else if (typeof specific?.updatedInput === 'object' && specific.updatedInput !== null) updatedInput = specific.updatedInput;
       } catch {
         // no output: no decision
       }
     }
   }
-  return { denied, updatedInput };
+  return { denied, asked, updatedInput };
 }
 
 // ---- permissions (a small model of Claude Code's rules: enough for the scripted calls) --------------------------------
@@ -456,7 +460,7 @@ async function toolStep(step) {
     toolResultLine(toolUseId, `<tool_use_error>Error: No such tool available: ${tool}</tool_use_error>`, true, undefined, parent);
     return;
   }
-  const { denied, updatedInput } = await runHooks('PreToolUse', hookTool, { tool_input: input, tool_use_id: toolUseId });
+  const { denied, asked, updatedInput } = await runHooks('PreToolUse', hookTool, { tool_input: input, tool_use_id: toolUseId });
   if (denied !== null) {
     toolResultLine(toolUseId, `PreToolUse:${hookTool} hook error: ${denied}`, true, undefined, parent);
     return;
@@ -468,9 +472,12 @@ async function toolStep(step) {
     return;
   }
   let answers;
-  if (step.ask ?? needsPermission(tool, input)) {
+  // A PreToolUse hook that answered "ask": a permission request whatever the mode and the allow rules would have
+  // done by themselves, with the hook's reason and no suggestion (recorded from 2.1.288: `acceptEdits` and a matching
+  // `Bash(cp:*)` rule both give way; a deny rule, above, still refuses first).
+  if (asked !== null || (step.ask ?? needsPermission(tool, input))) {
     if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) await runHooks('PermissionRequest', tool, { tool_input: input, tool_use_id: toolUseId });
-    const response = await ask(tool, input, toolUseId, step);
+    const response = await ask(tool, input, toolUseId, asked !== null ? { reason: asked, reasonType: 'hook' } : step);
     if (response === null) return; // withdrawn (interrupt): no result
     if (response.behavior !== 'allow') {
       toolResultLine(toolUseId, tool === 'AskUserQuestion' ? String(response.message ?? 'The user declined to answer.') : `The user doesn't want to proceed with this tool use. ${response.message ?? ''}`.trim(), true, undefined, parent);

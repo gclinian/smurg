@@ -23,8 +23,7 @@ import {
   REMEMBERED_RULES_MAX,
   SMURG_TAG_ALPHABET,
   SmurgError,
-  agentDisplayName,
-  agentSafeName,
+  agentSessionName,
   agentText,
   checkRememberableRule,
   defaultPermissionMode,
@@ -391,10 +390,9 @@ export class AgentSessionsImpl implements AgentSessions {
     };
   }
 
-  /** The agent's name in locks, presence, the activity feed and the audit log. */
+  /** The agent's name in locks, presence, a document's carets, the activity feed and the audit log: one function. */
   private agentName(record: AgentRecord): string {
-    const label = record.item?.title ?? record.topic?.name ?? record.openedBy.displayName;
-    return agentDisplayName(agentSafeName(label, record.openedBy.userId));
+    return agentSessionName({ item: record.item, topicName: record.topic?.name, openedBy: record.openedBy });
   }
 
   agentActor(runner: AgentRunner): Actor {
@@ -794,7 +792,6 @@ export class AgentSessionsImpl implements AgentSessions {
         trust,
         agentMcp: ctx.settings.get().agentMcp,
         rolePrompt: runner.rolePrompt,
-        protectedPaths: [...this.deps.trust.protectedPaths(record.root)],
       });
     } catch (err) {
       // The folder's own name: said in its own sentence (Claude Code has nothing to do with it).

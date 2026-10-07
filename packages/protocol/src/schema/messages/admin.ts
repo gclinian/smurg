@@ -105,10 +105,14 @@ const claudeConfigListSchema = z.array(claudeConfigEntrySchema).max(CLAUDE_CONFI
  * variable; `flagged`: it can send the host's login to another server; `programs`: it changes which programs run or
  * what they load, and its value is listed under `runs`), `otherKeys`, and `scripts` (files inside the root the
  * commands point at: part of the trusted content, host-only for writes while it is trusted). `text`: the raw file.
- * `changed`: the content differs from the one a stored decision was made for.
+ * `changed`: the content differs from the one a stored decision was made for. A script with `absent` is a path a
+ * command names where no file is yet: it is guarded like the others, and a file appearing there asks the host again.
  *
  * `cut`: present when the lists are NOT everything the content does: `omitted` entries beyond a list's limit,
  * `shortened` entries cut at the entry limit. `needsAck` then holds `incomplete`.
+ * `unfollowed`: how many of the commands reach their files in a way smurg cannot follow (a variable or a wildcard as
+ * the program or as an interpreter's script, `eval`): `scripts` is then not everything they run, each such command
+ * has a line under it in `runs` that says so, and `needsAck` holds `incomplete` as well.
  *
  * The entry with `path` PROJECT_LOADED_ENTRY (`.claude`) is not a file: it stands for everything else Claude Code
  * loads from that folder (agents, skills, commands, rules, …), confirmed and re-asked like a file. Its `otherKeys`
@@ -125,9 +129,10 @@ export const claudeConfigFileSchema = z.strictObject({
   permissions: claudeConfigListSchema,
   env: z.array(z.strictObject({ name: lineTextSchema(SHORT_TEXT_MAX_CHARS, 1), flagged: z.boolean(), programs: z.boolean().optional() })).max(CLAUDE_CONFIG_LIST_MAX),
   otherKeys: z.array(lineTextSchema(SHORT_TEXT_MAX_CHARS, 1)).max(CLAUDE_CONFIG_LIST_MAX),
-  scripts: z.array(z.strictObject({ path: entryPathSchema, hash: sha256HexSchema })).max(CLAUDE_CONFIG_SCRIPTS_MAX),
+  scripts: z.array(z.strictObject({ path: entryPathSchema, hash: sha256HexSchema, absent: z.literal(true).optional() })).max(CLAUDE_CONFIG_SCRIPTS_MAX),
   needsAck: z.array(z.enum(CLAUDE_CONFIG_ACKS)).max(CLAUDE_CONFIG_ACKS.length),
   cut: z.strictObject({ omitted: indexSchema, shortened: indexSchema }).optional(),
+  unfollowed: indexSchema.optional(),
 });
 export type ClaudeConfigFile = z.infer<typeof claudeConfigFileSchema>;
 

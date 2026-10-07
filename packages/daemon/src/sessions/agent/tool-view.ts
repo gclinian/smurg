@@ -7,7 +7,9 @@
 //  - a `file` and a body exist only for a path inside a root that is not host-private; a path outside every root is
 //    `outside: true` with no target and no body;
 //  - a Read never has a body (file contents are never stored or sent); a search lists file names, never matched
-//    lines, and never a host-private name.
+//    lines, and never a host-private name;
+//  - what a card NAMES (the command, the URL, the pattern, a file's name) has every character nobody can see written
+//    out as `<U+XXXX>` (protocol `visibleText`): a person decides by reading it. Output and diffs are not rewritten.
 // Path resolution (PathGuard.toFileRef) is the caller's: it passes what it found as `Located`.
 import {
   COMMAND_MAX_BYTES,
@@ -23,6 +25,7 @@ import {
   mask,
   toolVerb,
   truncateToUtf8Bytes,
+  visibleText,
   type FileRef,
   type ToolResultView,
   type ToolView,
@@ -92,9 +95,14 @@ export function toolPathOf(name: string, input: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * What a tool card and a permission card name: a command, a URL, a pattern, a file's path. People decide by reading
+ * it, so every character nobody can see is written out (`<U+202E>`), never removed and never left to reorder the
+ * line. (The call itself runs with the input as the agent wrote it; `file` keeps the path that opens the file.)
+ */
 function target(text: string | undefined): { target?: string } {
   if (text === undefined || text.length === 0) return {};
-  return { target: clip(text, COMMAND_MAX_BYTES).text };
+  return { target: clip(visibleText(text), COMMAND_MAX_BYTES).text };
 }
 
 /**
@@ -267,7 +275,7 @@ export function buildToolResult(input: ToolResultInput): ToolResultView {
         const rel = input.relativePath(name);
         // Never a host-private name, never a name outside the session's root.
         if (rel === null || rel.length === 0 || isHostPrivatePath(rel)) continue;
-        if (listed.length < TOOL_SEARCH_FILES_MAX) listed.push(rel);
+        if (listed.length < TOOL_SEARCH_FILES_MAX) listed.push(visibleText(rel, true));
       }
       const count = typeof structured['numFiles'] === 'number' && Number.isFinite(structured['numFiles']) ? Math.max(0, Math.trunc(structured['numFiles'])) : names.length;
       return { ...duration, matches: count, ...(listed.length > 0 ? { body: body('list', `${listed.join('\n')}\n`, EVENT_TEXT_MAX_BYTES, names.length > listed.length) } : {}) };

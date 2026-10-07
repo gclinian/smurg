@@ -88,6 +88,32 @@ describe('ChangeAttribution', () => {
     expect(attribution.attribute(MAIN_ROOT, 'build/out/x.js')).toBeUndefined();
   });
 
+  it('of several announcements that cover a path the one made LAST is the writer: a member\'s rename of a folder after an agent\'s edit of a file in it, and the other way round (review R1-03)', () => {
+    const clock = new ManualClock();
+    const attribution = new ChangeAttribution({ clock });
+    // The agent's edit of the spec: its window is the lock's, long.
+    attribution.expect(MAIN_ROOT, 'specs/checkout/SPEC.md', agent, 60_000);
+    expect(attribution.attribute(MAIN_ROOT, 'specs/checkout/SPEC.md')).toEqual(agent);
+    // A member renames another folder onto the topic's: what the watcher reports below it from now on is hers,
+    // also the file the agent's (still open) window names.
+    clock.advance(20);
+    attribution.expect(MAIN_ROOT, 'specs/checkout', amy, 5_000, true);
+    expect(attribution.attribute(MAIN_ROOT, 'specs/checkout/SPEC.md')).toEqual(amy);
+    expect(attribution.attribute(MAIN_ROOT, 'specs/checkout/PLAN.md')).toEqual(amy);
+    // The agent edits the file again afterwards: the newest announcement again.
+    clock.advance(20);
+    attribution.expect(MAIN_ROOT, 'specs/checkout/SPEC.md', agent, 1_000);
+    expect(attribution.attribute(MAIN_ROOT, 'specs/checkout/SPEC.md')).toEqual(agent);
+    expect(attribution.attribute(MAIN_ROOT, 'specs/checkout/PLAN.md')).toEqual(amy);
+    // Her window ends: the agent's own (the longer one, kept) is what is left for its file.
+    clock.advance(5_001);
+    expect(attribution.attribute(MAIN_ROOT, 'specs/checkout/PLAN.md')).toBeUndefined();
+    expect(attribution.attribute(MAIN_ROOT, 'specs/checkout/SPEC.md')).toEqual(agent);
+    // A folder two levels up and the root itself count the same way.
+    attribution.expect(MAIN_ROOT, '', amy, 5_000, true);
+    expect(attribution.attribute(MAIN_ROOT, 'specs/checkout/SPEC.md')).toEqual(amy);
+  });
+
   it('a shorter announcement by the same actor does not cut a longer one short; the last-modified memory is bounded', () => {
     const clock = new ManualClock();
     const attribution = new ChangeAttribution({ clock, maxModified: 3 });

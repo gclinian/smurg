@@ -363,6 +363,14 @@ export type PermissionWhat = (typeof PERMISSION_WHATS)[number];
 /** Why "Always allow this kind" is not offered. */
 export const NO_ALWAYS_REASONS = ['interpreter', 'fetches-code', 'one-word', 'host-only', 'no-suggestion'] as const;
 export type NoAlwaysReason = (typeof NO_ALWAYS_REASONS)[number];
+/**
+ * smurg's own tool gate asked for the card (not Claude Code's mode or rules), about a shell command in a folder whose
+ * Claude Code project settings run scripts: `writes-settings-script`, the command changes a place where one of those
+ * scripts is (the script, or a folder that holds it); `may-reach-settings-script`, smurg cannot tell whether the
+ * command leaves them alone.
+ */
+export const PERMISSION_GATE_REASONS = ['writes-settings-script', 'may-reach-settings-script'] as const;
+export type PermissionGateReason = (typeof PERMISSION_GATE_REASONS)[number];
 export const ALWAYS_SCOPES = ['session', 'topic'] as const;
 export const alwaysScopeSchema = z.enum(ALWAYS_SCOPES);
 export type AlwaysScope = z.infer<typeof alwaysScopeSchema>;
@@ -392,8 +400,10 @@ export const permissionRequestSchema = z.strictObject({
   url: lineTextSchema(URL_MAX_CHARS).optional(),
   input: largeTextSchema(PERMISSION_INPUT_MAX_BYTES).optional(),
   root: rootRefSchema,
-  /** Claude Code's own English reason. */
+  /** Claude Code's own English reason (with `gate`: the gate's own English sentence, which `gate` stands for). */
   reason: multilineTextSchema(PERMISSION_REASON_MAX_CHARS).optional(),
+  /** Present when smurg's own tool gate asked for this card: why. A client shows its own sentence for it. */
+  gate: z.enum(PERMISSION_GATE_REASONS).optional(),
   hostOnly: z.boolean(),
   /** Present only when "Always allow this kind" is offered. */
   alwaysRule: offeredRuleSchema.optional(),

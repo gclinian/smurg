@@ -56,9 +56,12 @@ export function itemBranch(topicSlug: string, itemId: string): string {
   return `smurg/${topicSlug}/${itemId}`;
 }
 
+/** Where the commits of merge requests are kept in the host's repository: smurg's own, nothing else lives below it. */
+export const MERGE_REF_PREFIX = 'refs/smurg/merge/';
+
 export function mergeRef(requestId: string): string {
   if (!MERGE_ID_PATTERN.test(requestId)) throw new Error('unsafe merge ref');
-  return `refs/smurg/merge/${requestId}`;
+  return `${MERGE_REF_PREFIX}${requestId}`;
 }
 
 // What git strips from both ends of a name ("crud", ident.c): a name made only of these is refused ("name consists

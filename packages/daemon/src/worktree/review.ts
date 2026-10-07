@@ -12,6 +12,7 @@ import {
   SmurgError,
   foldRelPath,
   isHostOnlyPath,
+  isRelPathWithin,
   isHostPrivatePath,
   isSmurgDirName,
   mask,
@@ -321,7 +322,8 @@ export async function checkMergePolicy(repo: MainRepo, files: readonly ReviewFil
   if (daemonDir.length > 0) return { reason: 'daemon-dir', paths: daemonDir };
   if (options.requesterIsHost) return null;
   const recorded = new Set([...(options.recorded ?? [])].map(foldRelPath));
-  const hostOnly = files.flatMap(names).filter((path) => isHostOnlyPath(path) || (recorded.size > 0 && recorded.has(foldRelPath(path))));
+  // At a recorded path or below it: a recorded path may be one where no file is yet, and a folder there counts.
+  const hostOnly = files.flatMap(names).filter((path) => isHostOnlyPath(path) || (recorded.size > 0 && [...recorded].some((script) => isRelPathWithin(foldRelPath(path), script))));
   if (hostOnly.length > 0) return { reason: 'host-only-paths', paths: hostOnly };
   const topicSlug = options.topicSlug;
   if (topicSlug !== undefined) {

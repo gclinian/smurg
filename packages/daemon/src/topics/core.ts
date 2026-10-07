@@ -114,7 +114,9 @@ export class TopicsCore {
   private topicsDoc: PersistentDocument<TopicsDocument> | null = null;
   private reportsDoc: PersistentDocument<ReportsDocument> | null = null;
   /** Who last wrote a topic's spec / plan through smurg, until the next read of the file takes it (`changedBy`). */
-  private readonly pendingActors = new Map<string, Actor>();
+  /** Who wrote a topic's spec or plan since it was last read (noteWriter), with the order of the notes. */
+  private readonly pendingActors = new Map<string, { readonly actor: Actor; readonly order: number }>();
+  private notes = 0;
   private readonly lastTopics = new Map<string, Topic>();
   private readonly lastPlans = new Map<string, string>();
   private attentionSignature = '[]';
@@ -589,9 +591,13 @@ export class TopicsCore {
     }
   }
 
-  /** Someone wrote a topic's spec or plan through smurg: the next read of the file names them as `changedBy`. */
+  /**
+   * Someone wrote a topic's spec or plan through smurg: the next read of the file names them as `changedBy`. A note
+   * is about ONE write: the read that follows it uses it up, whether or not the file's content changed (a write that
+   * changed nothing must not name its writer for somebody else's later change).
+   */
   noteWriter(topicId: string, kind: 'spec' | 'plan', actor: Actor): void {
-    this.pendingActors.set(`${topicId}:${kind}`, actor);
+    this.pendingActors.set(`${topicId}:${kind}`, { actor, order: ++this.notes });
   }
 
   /** Which topic's spec or plan a file of the main workspace is. */
@@ -614,6 +620,9 @@ export class TopicsCore {
     return this.serialize(`files:${topicId}`, async () => {
       const before = this.topic(topicId);
       if (before === null) return null;
+      // Notes that arrive while the files are being read may be about writes this read does not see yet: they stay
+      // for the read their own write asks for.
+      const notedBefore = this.notes;
       const [spec, plan] = await Promise.all([this.readFile(MAIN_ROOT, topicSpecPath(before.slug)), this.readFile(MAIN_ROOT, topicPlanPath(before.slug))]);
       if (this.topic(topicId) === null) return null;
       const now = this.ctx.clock.now();
@@ -628,16 +637,18 @@ export class TopicsCore {
           specChanged = true;
           topic.spec.hash = specHash;
           topic.spec.changedAt = now;
-          topic.spec.changedBy = this.takeWriter(topicId, 'spec');
+          topic.spec.changedBy = this.writerOf(topicId, 'spec');
         }
+        this.readNotes(topicId, 'spec', notedBefore);
         topic.spec.exists = spec !== null && spec.text.trim().length > 0;
         const planHash = plan?.hash ?? EMPTY_HASH;
         if (topic.plan.hash !== planHash) {
           planChanged = true;
           topic.plan.hash = planHash;
           topic.plan.changedAt = now;
-          topic.plan.changedBy = this.takeWriter(topicId, 'plan');
+          topic.plan.changedBy = this.writerOf(topicId, 'plan');
         }
+        this.readNotes(topicId, 'plan', notedBefore);
         topic.plan.exists = plan !== null;
         if (parse === null) {
           topic.plan.valid = false;
@@ -682,11 +693,16 @@ export class TopicsCore {
     });
   }
 
-  private takeWriter(topicId: string, kind: 'spec' | 'plan'): Actor {
+  /** Who the newest note names as the writer of a file whose content changed; nobody noted: `system`. */
+  private writerOf(topicId: string, kind: 'spec' | 'plan'): Actor {
+    return this.pendingActors.get(`${topicId}:${kind}`)?.actor ?? { kind: 'system' as const };
+  }
+
+  /** A read is done: the notes that were there when it began are used up. */
+  private readNotes(topicId: string, kind: 'spec' | 'plan', notedBefore: number): void {
     const key = `${topicId}:${kind}`;
-    const actor = this.pendingActors.get(key) ?? { kind: 'system' as const };
-    this.pendingActors.delete(key);
-    return actor;
+    const pending = this.pendingActors.get(key);
+    if (pending !== undefined && pending.order <= notedBefore) this.pendingActors.delete(key);
   }
 
   /** Applies a parse to a topic's items. Returns whether an item appeared that was not there before. */

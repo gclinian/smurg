@@ -148,6 +148,25 @@ function withoutUnseen(source: string): AgentText {
   return { text, cleaned };
 }
 
+// Characters a person cannot see or that change how a line reads: C0/C1 controls (tab and line break aside), DEL,
+// Unicode's default-ignorable set (zero-width, joiners, fillers, variation selectors, the tag block), every
+// bidirectional control, and a lone surrogate (which no wire text may hold).
+const UNSEEN =
+  // eslint-disable-next-line no-control-regex
+  /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff0-\ufff8\ud800-\udfff\u{e0000}-\u{e0fff}]/gu;
+const writtenOut = (char: string): string => `<U+${(char.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}>`;
+
+/**
+ * Text a person is shown in order to DECIDE about it (a command an agent wants to run, a URL, the commands of a
+ * project's settings), with every character nobody can see written out as `<U+XXXX>`: nothing is removed from what a
+ * person is asked to approve, and nothing in it reads another way than it runs. A tab and a line break are layout
+ * and stay; in one-line text (`oneLine`) they are written out too.
+ */
+export function visibleText(text: string, oneLine = false): string {
+  const shown = text.replace(UNSEEN, writtenOut);
+  return oneLine ? shown.replace(/[\t\n]/g, writtenOut) : shown;
+}
+
 /** Whether `text` holds a character people cannot see (the Start dialog's warning about the spec and plan files). */
 export function hasInvisibleCharacters(text: string): boolean {
   return agentText(text).cleaned;

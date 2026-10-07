@@ -30,7 +30,8 @@ export function registerWorktreeHandlers(router: Router, ctx: DaemonContext, man
   // [file.read]
   stack.add(router.handle('worktree.list', () => ({ worktrees: manager.list().slice(0, LIST_MAX_ITEMS) })));
 
-  // (owner) worktree-owner-or-host; refused while a session uses it.
+  // (owner) worktree-owner-or-host, and an owner only while they may open sessions (the service refuses a member
+  // the record still names who lost agent access); refused while a session uses it.
   stack.add(
     router.handle('worktree.remove', async (payload, req) => {
       const worktree = manager.get(payload.worktreeId);

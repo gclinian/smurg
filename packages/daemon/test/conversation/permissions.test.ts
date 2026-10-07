@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { REMEMBERED_RULES_MAX, type PayloadOf, type PermissionRequest } from '@smurg/protocol';
 import { locksModule } from '../../src/locks/module.ts';
+import { BASH_ASK_REASONS } from '../../src/hooks/deny-text.ts';
 import { AMY, HOST, MEI, auditOf, bashRequest, collect, editRequest, openDiscussion, openItemSession, openSession, principalOf, quiet, refusal, startStack, waitFor, watch, type Stack } from './support.ts';
 
 const PNPM_TEST = { suggestedRule: { tool: 'Bash', pattern: 'pnpm test *' } };
@@ -278,6 +279,27 @@ describe('a permission request becomes a card', { timeout: 60_000 }, () => {
     expect(await card(s, 'plain-compound')).toMatchObject({ hostOnly: false, alwaysRule: { tool: 'Bash', pattern: 'pnpm lint *' } });
     expect(await card(s, 'ssh')).toMatchObject({ hostOnly: true, outside: true, what: 'command', command: 'cat ~/.ssh/config' });
     expect((await card(s, 'inside')).hostOnly).toBe(false);
+  });
+
+  it('R3-03 a request smurg\'s own tool gate asked for says so on the card: a command that writes where a script of the project settings is, is the host\'s to answer; one the gate could not follow is anybody\'s who may allow', async () => {
+    const s = await startStack();
+    const session = await openSession(s, MEI);
+    // What Claude Code sends after the gate's "ask": the gate's sentence as the reason, the type `hook`, no suggestion.
+    s.fakes.agents.raise(session.id, bashRequest('writes', 'cp s3/lint.sh scripts/', { reasonType: 'hook', reason: BASH_ASK_REASONS.writes }));
+    s.fakes.agents.raise(session.id, bashRequest('unsure', 'cp s3/lint.sh "$DEST"', { reasonType: 'hook', reason: BASH_ASK_REASONS.unsure }));
+    // Another hook's "ask" (the host's own hook) is an ordinary card; so is the same sentence from anything but a hook.
+    s.fakes.agents.raise(session.id, bashRequest('other-hook', 'pnpm publish', { reasonType: 'hook', reason: 'Publishing asks first.' }));
+    s.fakes.agents.raise(session.id, bashRequest('not-a-hook', 'pnpm test', { reasonType: 'rule', reason: BASH_ASK_REASONS.writes }));
+    expect(await card(s, 'writes')).toMatchObject({ status: 'open', what: 'command', command: 'cp s3/lint.sh scripts/', gate: 'writes-settings-script', hostOnly: true, noAlways: 'host-only', reason: BASH_ASK_REASONS.writes });
+    expect(await card(s, 'unsure')).toMatchObject({ status: 'open', gate: 'may-reach-settings-script', hostOnly: false, reason: BASH_ASK_REASONS.unsure });
+    expect(await card(s, 'other-hook')).not.toHaveProperty('gate');
+    expect(await card(s, 'not-a-hook')).not.toHaveProperty('gate');
+    expect((await card(s, 'other-hook')).hostOnly).toBe(false);
+    // Nothing answered them by itself, whatever the session's rules are.
+    for (const id of ['writes', 'unsure']) expect(s.fakes.agents.answerTo(session.id, id)).toBeUndefined();
+    expect(await refusal(s.mei.conn.request('permission.decide', { requestId: 'writes', decision: 'allow' }))).toMatchObject({ code: 'host_only' });
+    expect((await s.mei.conn.request('permission.decide', { requestId: 'unsure', decision: 'allow' })).request).toMatchObject({ status: 'allowed', gate: 'may-reach-settings-script' });
+    expect((await s.host.conn.request('permission.decide', { requestId: 'writes', decision: 'deny' })).request).toMatchObject({ status: 'denied', gate: 'writes-settings-script' });
   });
 
   it('S6 a request that cannot be shown whole is denied', async () => {

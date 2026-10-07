@@ -10,11 +10,13 @@
 // arrives between two parses is appended to a text node of our own, so React state does not change per delta.
 //
 // The lexer runs inside bounds (lex.ts): a text that is too long, too deep or too slow to parse is shown as it was
-// written, and nothing a text holds can throw out of a render.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+// written, and nothing a text holds can throw out of a render. A mount takes from the page's share of parse time; a
+// text that comes after the share is spent is shown as written for the moment and parsed in a transition, which lets
+// go of the thread between two texts (usePieces below).
+import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Token } from 'marked';
 import { cx } from '../../ui/cx.ts';
-import { lexMarkdown } from './lex.ts';
+import { lexMarkdown, lexMarkdownPieces, waitsForTime } from './lex.ts';
 import type { MarkdownPaths, PathTarget } from './paths.ts';
 import { MdBlock, markMentions, type RenderContext } from './render.tsx';
 import { stableLength } from './stream.ts';
@@ -87,10 +89,23 @@ export function PlainText({ text, mentions, className }: PlainTextProps) {
   return <div className={cx('md-plain', className)}>{mentions === undefined ? text : markMentions(text, mentions)}</div>;
 }
 
-export function Markdown(props: MarkdownProps) {
-  const { text, breaks = false, className } = props;
-  const context = useRenderContext(props);
-  const tokens = useMemo(() => parseMarkdown(text, breaks), [text, breaks]);
+/**
+ * The tokens of the pieces of one text (lexMarkdownPieces: one budget, one memory). Parsed while rendering, as part of
+ * the mount; when the page's share of parse time is spent the pieces are shown as written and parsed again in a
+ * transition, in which React lets go of the thread between one component and the next.
+ */
+function usePieces(pieces: readonly string[], whole: string, breaks: boolean): readonly (readonly Token[])[] {
+  /** The text this component parses outside the page's share (it was told to wait once). */
+  const [late, setLate] = useState<string | null>(null);
+  const tokens = useMemo(() => lexMarkdownPieces(pieces, whole, { breaks, urgent: late !== whole }), [pieces, whole, breaks, late]);
+  const waits = tokens.length > 0 && waitsForTime(tokens[0] as Token[]);
+  useEffect(() => {
+    if (waits) startTransition(() => setLate(whole));
+  }, [waits, whole]);
+  return tokens;
+}
+
+function Blocks({ tokens, context, className }: { tokens: readonly Token[]; context: RenderContext; className: string | undefined }) {
   return (
     <div className={cx('md-body', className)}>
       {tokens.map((token, index) => (
@@ -98,6 +113,34 @@ export function Markdown(props: MarkdownProps) {
       ))}
     </div>
   );
+}
+
+export function Markdown(props: MarkdownProps) {
+  const { text, breaks = false, className } = props;
+  const context = useRenderContext(props);
+  const pieces = useMemo(() => [text], [text]);
+  const tokens = usePieces(pieces, text, breaks);
+  return <Blocks tokens={tokens[0] ?? []} context={context} className={className} />;
+}
+
+export interface MarkdownPiecesProps extends MarkdownOptions {
+  /** The whole text. */
+  readonly text: string;
+  /** The same text cut into pieces, in order (the caller's cut: a SPEC.md at its `##` headings). */
+  readonly pieces: readonly string[];
+  /** What stands around the rendered piece `index` (its key included). */
+  readonly children: (body: ReactNode, index: number) => ReactNode;
+}
+
+/**
+ * One text shown in pieces, each with something of the caller's around it. It is still ONE text to the bounds of
+ * lex.ts: the pieces share the text's time budget and its memory, however many they are.
+ */
+export function MarkdownPieces(props: MarkdownPiecesProps) {
+  const { text, pieces, breaks = false, className, children } = props;
+  const context = useRenderContext(props);
+  const tokens = usePieces(pieces, text, breaks);
+  return <>{tokens.map((piece, index) => children(<Blocks tokens={piece} context={context} className={className} />, index))}</>;
 }
 
 export interface StreamingMarkdownProps extends MarkdownOptions {

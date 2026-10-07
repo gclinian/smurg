@@ -116,23 +116,6 @@ export interface ProfileInput {
   /** The host setting "Agents may use my own and this project's MCP servers". */
   readonly agentMcp: boolean;
   readonly rolePrompt: string;
-  /**
-   * Root-relative files the trust gate records for the root while its project settings are in use (the scripts a
-   * confirmed hook runs: ProjectTrust.protectedPaths). No agent session writes them, also not with a shell command.
-   */
-  readonly protectedPaths?: readonly string[];
-}
-
-// eslint-disable-next-line no-control-regex
-const NOT_RULE_NAMEABLE = /[()[\]{}*?\\\u0000-\u001f\u007f]/;
-
-/**
- * Whether a permission rule can name exactly this file of a root: no bracket that would end the rule or open a
- * character class, no wildcard, no backslash, no control character. The trust gate records only such scripts (a
- * content that runs another one is never trusted), so the deny rule that guards a recorded script can be written.
- */
-export function isRuleNameable(path: string): boolean {
-  return path.length > 0 && !path.startsWith('/') && !NOT_RULE_NAMEABLE.test(path);
 }
 
 /** The launch profile of one process start. Rules read back from disk are checked again: only a rememberable form is written. */
@@ -149,13 +132,10 @@ export function buildProfile(input: ProfileInput): LaunchProfile {
     if (discussion) allow.push(...files);
     else if (purpose === 'item') deny.push(...files);
   }
-  // The scripts a trusted project hook runs. The gate refuses an edit tool on them, but it cannot see what a shell
-  // command writes, and in a worktree such a command runs unasked: an Edit deny rule also refuses `> file`, `cp … file`
-  // and the like (DESIGN Appendix C R3). A recorded file no rule can name (the trust gate records none) leaves the
-  // project's settings out of this start, so nothing runs a script that nothing guards.
-  const recorded = input.protectedPaths ?? [];
-  const unguarded = recorded.some((path) => !isRuleNameable(path));
-  if (!unguarded) deny.push(...recorded.map((path) => fileRule('Edit', rootRealPath, path)));
+  // The scripts a trusted project hook runs carry no rule here: a deny rule refuses only a command that SPELLS the
+  // file (`cp x/lint.sh scripts/` and a renamed folder pass it) and refuses reading it into a copy as well. The tool
+  // gate guards them instead, for every spelling: an edit tool is refused (G3), a shell command that may change one
+  // asks a person (G10, hooks/bash-guard.ts), whatever this profile's mode and rules allow.
   if (!discussion) {
     const seen = new Set<string>();
     for (const rule of input.rules) {
@@ -176,7 +156,7 @@ export function buildProfile(input: ProfileInput): LaunchProfile {
     deny,
     // A discussion always has only smurg's own server; the others unless the host allowed theirs.
     strictMcp: discussion || !input.agentMcp,
-    settingSources: input.trust === 'ignored' || unguarded ? 'user' : 'all',
+    settingSources: input.trust === 'ignored' ? 'user' : 'all',
     rolePrompt: input.rolePrompt,
   };
 }

@@ -222,6 +222,29 @@ describe('worktree lifecycle', { timeout: 60_000 }, () => {
     }
   });
 
+  it('worktree.remove does not depend on what the owner record says: the owner must still be allowed to open sessions (review R2-08)', async () => {
+    stack = await startWorktreeStack();
+    const s = stack;
+    // A record that names a member who is an Editor now: written by an earlier version, or left by a hand-over that
+    // failed. (The teardown of a demotion hands a kept worktree to the host; this is the case where it did not.)
+    const amy = await s.connect('dev:amy', 'editor');
+    const handle = await s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_kept' });
+    const worktreeId = handle.worktree.id;
+    await s.manager.releaseFromSession(worktreeId, 'ses_kept', { keep: true });
+    expect(s.manager.get(worktreeId)).toMatchObject({ ownerUserId: 'dev:amy' });
+    expect(await settleError(amy.conn.request('worktree.remove', { worktreeId }))).toMatchObject({ code: 'forbidden', reason: 'capability' });
+    expect(s.manager.get(worktreeId)).not.toBeNull();
+    expect(await lstat(s.worktreeDir(worktreeId)).then((info) => info.isDirectory())).toBe(true);
+    const denied = (await s.t.ctx.audit.query({ limit: 50 })).filter((entry) => entry.action === 'authz.denied' && entry.target === 'worktree.remove');
+    expect(denied.map((entry) => entry.actor)).toMatchObject([{ kind: 'user', userId: 'dev:amy' }]);
+    // The service itself refuses as well (a caller that skipped the handler's check), also for a Viewer.
+    await expect(s.manager.remove(worktreeId, s.principal('dev:amy'))).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(s.manager.remove(worktreeId, { ...s.principal('dev:amy'), role: 'viewer' })).rejects.toMatchObject({ code: 'forbidden' });
+    // With agent access again she is its owner in every sense; the host always may.
+    await s.manager.remove(worktreeId, { ...s.principal('dev:amy'), role: 'agent' });
+    expect(s.manager.get(worktreeId)).toBeNull();
+  });
+
   it('worktree.remove: owner or host only; refused while a session uses it', async () => {
     stack = await startWorktreeStack();
     const s = stack;

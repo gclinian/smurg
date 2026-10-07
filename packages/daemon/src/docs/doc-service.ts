@@ -17,6 +17,7 @@ import {
   SmurgError,
   awarenessUserSchema,
   fileRefKey,
+  isAgentAtWork,
   type AwarenessUser,
   type ConflictRecord,
   type FileRef,
@@ -129,6 +130,11 @@ export class DocServiceImpl implements DocService {
         if (e.file) this.onAgentWrote(e.file, this.access.agentActor(e.sessionId, e.ownerUserId));
       }),
       bus.on('session.exited', (e) => this.clearAgentPresence(e.session.id)),
+      // An agent session lives on after its turn (an idle discussion, a work item that is done): its caret and its
+      // name in a document are the turn's, and go with it.
+      bus.on('session.updated', (e) => {
+        if (e.session.kind === 'agent' && !isAgentAtWork(e.session.status)) this.clearAgentPresence(e.session.id);
+      }),
     ];
     return toDisposable(() => {
       for (const subscription of subscriptions) subscription.dispose();

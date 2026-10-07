@@ -19,7 +19,7 @@ import { tApp } from '../../strings/app.ts';
 import { Button, Dialog, EmptyState, IconButton, Segmented, Spinner, type MenuItem } from '../../ui/index.ts';
 import { IconAgent, IconCode, IconEdit, IconEye, IconFileText, IconPlan, IconWand } from '../../ui/icons.tsx';
 import { StandaloneDocument, useDocumentText, useHeldDocument } from '../editor/standalone.tsx';
-import { Markdown } from '../markdown/index.ts';
+import { MarkdownPieces } from '../markdown/index.ts';
 import { DiscussionFoot, ReviseBox, useDiscussion, type ReviseQuote } from './Discussion.tsx';
 import { oneOrMany, specFile, specOpenQuestions, specSections } from './model.ts';
 import { Foot, LinkButton, Note, Scroll, Toolbar, ToolbarPath, formatClock, useAction, useOpenSide, useTopic } from './shared.tsx';
@@ -71,6 +71,7 @@ function Spec({ topic }: { topic: Topic }) {
   }, [canWrite, view]);
 
   const sections = useMemo(() => (text === null ? [] : specSections(text)), [text]);
+  const sectionTexts = useMemo(() => sections.map((section) => section.text), [sections]);
 
   const generate = async (): Promise<void> => {
     setConfirm(null);
@@ -196,21 +197,27 @@ function Spec({ topic }: { topic: Topic }) {
           ) : text.trim() === '' ? (
             <p className="spec__meta">{t('spec.blank')}</p>
           ) : (
-            sections.map((section, index) => (
-              <div key={index} className="spec-block">
-                {section.heading !== null && canSuggest && live ? (
-                  <span className="spec-block__actions">
-                    <IconButton
-                      size="sm"
-                      label={t('revise.section', { heading: section.heading })}
-                      icon={<IconWand />}
-                      onClick={() => setRevise({ quote: { heading: section.heading as string, text: section.text } })}
-                    />
-                  </span>
-                ) : null}
-                <Markdown text={section.text} headingBase={3} />
-              </div>
-            ))
+            // One text to the renderer's bounds, however many sections it is cut into (features/markdown lex.ts).
+            <MarkdownPieces text={text} pieces={sectionTexts} headingBase={3}>
+              {(body, index) => {
+                const section = sections[index];
+                return (
+                  <div key={index} className="spec-block">
+                    {section !== undefined && section.heading !== null && canSuggest && live ? (
+                      <span className="spec-block__actions">
+                        <IconButton
+                          size="sm"
+                          label={t('revise.section', { heading: section.heading })}
+                          icon={<IconWand />}
+                          onClick={() => setRevise({ quote: { heading: section.heading as string, text: section.text } })}
+                        />
+                      </span>
+                    ) : null}
+                    {body}
+                  </div>
+                );
+              }}
+            </MarkdownPieces>
           )}
         </article>
       </Scroll>

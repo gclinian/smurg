@@ -100,6 +100,24 @@ describe('tool views and results', () => {
     expect(safeId(undefined, 'tu')).toBe('tu_unknown');
   });
 
+  it('what a tool view carries to people (a command, a URL, a pattern, a file name) has every character nobody can see written out, never removed: `<U+202E>` (review R4-07)', () => {
+    // The finding's own case: the line of a command reads another way than it runs.
+    expect(buildToolView('Bash', { command: 'rm -rf \u202etmp/ # dliub' }, { kind: 'none' }).target).toBe('rm -rf <U+202E>tmp/ # dliub');
+    expect(buildToolView('Bash', { command: 'echo a\u200bb\u0007\u001b[31m \ufeff\u0000 \u2066x\u2069' }, { kind: 'none' }).target).toBe('echo a<U+200B>b<U+0007><U+001B>[31m <U+FEFF><U+0000> <U+2066>x<U+2069>');
+    // A line break and a tab are layout: a command of several lines stays as it was written.
+    expect(buildToolView('Bash', { command: 'cat <<EOF\n\tone\nEOF' }, { kind: 'none' }).target).toBe('cat <<EOF\n\tone\nEOF');
+    expect(buildToolView('WebFetch', { url: 'https://example.com/\u200ba\u202e' }, { kind: 'none' }).target).toBe('https://example.com/<U+200B>a<U+202E>');
+    expect(buildToolView('Grep', { pattern: 'to\u200bken' }, { kind: 'none' }).target).toBe('to<U+200B>ken');
+    // A file name: the target people read shows it; `file` stays the path that opens the file.
+    const odd = 'src/a\u200b.ts';
+    expect(buildToolView('Edit', { file_path: `/p/${odd}` }, inRoot(odd))).toEqual({ name: 'Edit', verb: 'edit', target: 'src/a<U+200B>.ts', file: file(odd) });
+    // Ordinary text of any script is untouched.
+    expect(buildToolView('Bash', { command: 'echo "caf\u00e9 \u4e2d\u6587 \u{1f600}"' }, { kind: 'none' }).target).toBe('echo "caf\u00e9 \u4e2d\u6587 \u{1f600}"');
+    // The names a search lists.
+    const listed = buildToolResult({ view: { name: 'Glob', verb: 'search', target: '**' }, ok: true, text: '', structured: { filenames: ['/p/src/a\u202e.ts', '/p/src/b.ts'], numFiles: 2 }, relativePath: (absolute) => absolute.slice(3) });
+    expect(listed.body).toEqual({ kind: 'list', text: 'src/a<U+202E>.ts\nsrc/b.ts\n', truncated: false });
+  });
+
   it('results: a diff with counts for an edit, the created text as additions, head and tail of a command output with its exit code, file NAMES of a search, never the content of a read; everything masked and bounded', () => {
     const edit = buildToolView('Edit', { file_path: '/p/a.ts' }, inRoot('a.ts'));
     const patch = [{ oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: [' keep', '-old', '+new'] }];

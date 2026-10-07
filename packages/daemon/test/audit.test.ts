@@ -4,7 +4,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type AuditEntry } from '@smurg/protocol';
-import { JsonlAuditLog, auditDetailForMessage, sanitizeAuditDetail, withAuditVia } from '../src/core/audit.ts';
+import { JsonlAuditLog, UNBUDGETED_AUDIT_ACTIONS, auditDetailForMessage, sanitizeAuditDetail, withAuditVia } from '../src/core/audit.ts';
 import { AuditTextStore, sha256Hex } from '../src/core/audit-text.ts';
 import { AUDIT_FULL_TEXT_HEAD_CHARS } from '../src/core/interfaces.ts';
 import { ManualClock } from '../src/core/lifecycle.ts';
@@ -222,6 +222,39 @@ describe('JsonlAuditLog bounds (security review F5, contract review C12)', () =>
     expect(kept[0]).toMatchObject({ actor: { userId: 'dev:amy' }, action: 'file.write', outcome: 'ok', target: 'main:src/f11.ts', detail: { size: 11 } });
     expect(kept[988]).toMatchObject({ target: 'main:src/f999.ts' });
     expect(((await stat(overflow)).mode & 0o777).toString(8)).toBe('600');
+    await log.close();
+  });
+
+  it("the member budget is not the host's: every accepted entry of the host is in the log; and a role change, a kick, a decision about project settings and a removed entry are never moved out of it, whoever records them (review DX-15)", async () => {
+    base = await createTempDir('audit');
+    const path = join(base, 'audit.jsonl');
+    const overflow = join(base, 'audit-overflow.jsonl');
+    const clock = new ManualClock(1_760_000_000_000);
+    const host = { kind: 'user', userId: 'dev:host', displayName: 'Host' } as const;
+    const log = await JsonlAuditLog.open(path, { clock, log: silentLogger, pageMax: 500, acceptedPerActionPerMinute: 10, hostUserId: 'dev:host' });
+    // The host answers 40 permission requests in a minute (a busy plan): each one is an entry of the log.
+    for (let i = 0; i < 40; i++) log.record({ actor: host, action: 'permission.decide', outcome: 'ok', target: `req_${i}`, detail: { decision: 'allow' } });
+    // The four that say who may do what and what was removed: never over a budget, for a member's entries either.
+    for (const action of UNBUDGETED_AUDIT_ACTIONS) {
+      for (let i = 0; i < 25; i++) log.record({ actor: amy, action, outcome: 'ok', target: `${action}:${i}` });
+    }
+    // A member's ordinary action is still budgeted beside them.
+    for (let i = 0; i < 25; i++) log.record({ actor: amy, action: 'file.write', outcome: 'ok', target: `main:f${i}.ts` });
+    // So is what arrives on the control socket under the host's name: every agent session reaches that socket.
+    for (let i = 0; i < 25; i++) log.record({ actor: host, action: 'invite.create', outcome: 'ok', target: `inv_${i}`, detail: { via: 'control-socket' } });
+    clock.advance(70_000);
+    log.record({ actor: SYSTEM_ACTOR, action: 'settings.change', outcome: 'ok' });
+    await log.flush();
+    const entries = await log.query({ limit: 500 });
+    expect(entries.filter((e) => e.action === 'permission.decide')).toHaveLength(40);
+    expect(entries.some((e) => e.action === 'permission.decide' && (e.detail?.['rateLimited'] === true || e.target === 'audit-rate-limit'))).toBe(false);
+    expect([...UNBUDGETED_AUDIT_ACTIONS].sort()).toEqual(['claude-config.decide', 'member.kick', 'member.role', 'transcript.redact']);
+    for (const action of UNBUDGETED_AUDIT_ACTIONS) expect(entries.filter((e) => e.action === action), action).toHaveLength(25);
+    expect(entries.filter((e) => e.action === 'file.write')).toHaveLength(10 + 1 + 1);
+    // Only the member's ordinary entries went to the overflow file.
+    const kept = (await readFile(overflow, 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line) as AuditEntry);
+    expect(entries.filter((e) => e.action === 'invite.create')).toHaveLength(10 + 1 + 1);
+    expect(kept.map((e) => e.action)).toEqual([...Array.from({ length: 14 }, () => 'file.write'), ...Array.from({ length: 14 }, () => 'invite.create')]);
     await log.close();
   });
 

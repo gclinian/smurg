@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, topicPlanPath, topicSpecPath, type FileRef } from '@smurg/protocol';
 import { fakesModule, fakesOf, recordActivity } from '../../src/core/fakes/index.ts';
+import type { FileServiceImpl } from '../../src/files/file-service.ts';
 import { filesModule } from '../../src/files/module.ts';
 import { locksModule } from '../../src/locks/module.ts';
 import { createTestDaemon, waitFor, type TestDaemon } from '../../src/testing/index.ts';
@@ -97,6 +98,36 @@ describe('S3 handEdits per write path: a folder that holds the two files', () =>
   });
 });
 
+describe('who the next read of a topic file names as its writer (review R1-03)', () => {
+  it('a note is about one write: a write that changed nothing does not name its writer for a later change nobody announced', async () => {
+    test = await setupTopics();
+    const { topic, session } = await createTopic(test);
+    const discussion = test.fakes.agents.agentActor(session.id);
+    const specPath = topicSpecPath(topic.slug);
+    const now = () => (test as TopicsTest).topic(topic.id);
+    await test.write(specPath, SPEC_TEXT);
+    recordActivity(test.t.ctx, { actor: discussion, kind: 'agent.edit', file: main(specPath), at: 100 });
+    await waitFor(() => now().spec.exists, { what: 'the spec to be read' });
+    await settle(test);
+    // The same write is reported once more (the watcher's report of it comes late): the content is as it was read.
+    recordActivity(test.t.ctx, { actor: discussion, kind: 'agent.edit', file: main(specPath), at: 101 });
+    // The files are read (here: because someone opens the Start dialog; there is no plan yet, so it is refused after
+    // the read): nothing changed, and the note has had its read.
+    await test.mei.conn.request('plan.preflight', { topicId: topic.id }).catch(() => undefined);
+    await settle(test);
+    expect(now().spec.changedBy).toMatchObject({ kind: 'agent', sessionId: session.id });
+    // A program on the host changes the file: nobody announced it, and the agent's used-up note is not its writer.
+    await test.write(specPath, `${SPEC_TEXT}\nChanged from outside.\n`);
+    await waitFor(() => now().spec.changedBy?.kind !== 'agent', { what: 'the outside change to be read as nobody\'s' });
+    expect(now().spec.changedBy).toEqual({ kind: 'system' });
+    // And a member's write after it names the member, whatever was noted before.
+    await test.write(specPath, `${SPEC_TEXT}\nAs Amy wants it.\n`);
+    recordActivity(test.t.ctx, { actor: AMY, kind: 'human.edit', file: main(specPath), at: 200 });
+    await waitFor(() => now().spec.changedBy?.kind === 'user', { what: 'the member\'s write to be read' });
+    expect(now().spec.changedBy).toMatchObject({ kind: 'user', userId: 'dev:amy' });
+  });
+});
+
 describe('S3 with the real files module: an Editor swaps the topic\'s folder in the main workspace', { timeout: 60_000 }, () => {
   it('the Start dialog names her under both files, the files are read again at once, and the spec\'s "changed by" is her', async () => {
     daemon = await createTestDaemon({
@@ -129,6 +160,13 @@ describe('S3 with the real files module: an Editor swaps the topic\'s folder in 
     await amy.conn.request('file.write', { file: main('stage/PLAN.md'), content: encode(PLAN) });
     await amy.conn.request('file.rename', { root: MAIN_ROOT, from: `specs/${topic.slug}`, to: `specs/${topic.slug}-old` });
     await amy.conn.request('file.rename', { root: MAIN_ROOT, from: 'stage', to: `specs/${topic.slug}` });
+
+    // Whatever the watcher reports about the two files from now on is hers: her rename of the folder is the newest
+    // announcement, although the agent's window for the files themselves is still open (the watcher's late report of
+    // the agent's own write, taken for a second write by the agent, named the agent as the writer of HER content).
+    const attribution = (d.ctx.services.files as FileServiceImpl).attribution;
+    expect(attribution.attribute(MAIN_ROOT, topicSpecPath(topic.slug))).toMatchObject({ kind: 'user', userId: 'dev:amy' });
+    expect(attribution.attribute(MAIN_ROOT, topicPlanPath(topic.slug))).toMatchObject({ kind: 'user', userId: 'dev:amy' });
 
     // Read again by itself (nobody opened the Start dialog), and the change is hers.
     await waitFor(() => topicNow()?.spec.changedBy?.kind === 'user', { timeoutMs: 15_000, what: 'the replaced spec to be read' });
