@@ -70,8 +70,8 @@ SMURG_RELEASE_GATE=1 pnpm check   # the same, for a release: nothing may be pend
 - **Expected result, v0.5.0** (English and zh-TW, protocol 4; `SMURG_RELEASE_GATE=1 pnpm check` on macOS):
   - 2026-10-07, macOS 26.5.1 on an Apple M3 (arm64), Node 22.22.1, `SMURG_TEST_CLAUDE_BIN` naming Claude Code
     2.1.288 (so the real-Claude suite and `flow.claude.smoke` ran too): `Test Files  400 passed | 2 skipped (402)` and
-    `Tests  8429 passed | 14 skipped (8443)`, vitest's own duration 671 s (598 s in an earlier run of the same day,
-    one test fewer), exit 0. The two skipped files are the tests of the packaged executable (`packages/cli/test/sea.test.ts`,
+    `Tests  8430 passed | 14 skipped (8444)`, vitest's own duration 676 s (598 to 683 s in six earlier runs of the
+    same day, on the commits before it), exit 0. The two skipped files are the tests of the packaged executable (`packages/cli/test/sea.test.ts`,
     `packages/cli/test/sea-update.test.ts`: opt-in with `SMURG_SEA_BINARY`; the release dry run ran them, 6 of 6). Nothing was left
     running and the working tree was unchanged afterwards.
 - **The numbers from here on are earlier ones** (v0.4.0 and before, protocol 3), kept as the record.
@@ -188,8 +188,8 @@ prompt line in the web smoke test).
   such variable and still skips there.
 - **v0.5.0, the whole gate in the VM** (2026-10-07, Ubuntu 24.04 arm64, Linux 6.8, Node 22.22.1, the release's
   commit, `SMURG_RELEASE_GATE=1` and `SMURG_TEST_CHROME` set, so the web-smoke project ran): `Test Files  392 passed |
-  10 skipped (402)` and `Tests  8386 passed | 57 skipped (8443)`, vitest's own duration 610 s (731 s in an earlier
-  run of the same day), exit 0. The ten skipped files: the five real-Claude files of the daemon, `flow.claude.smoke`,
+  10 skipped (402)` and `Tests  8387 passed | 57 skipped (8444)`, vitest's own duration 644 s (602 to 731 s in five
+  earlier runs of the same day), exit 0. The ten skipped files: the five real-Claude files of the daemon, `flow.claude.smoke`,
   the two files of the packaged executable (opt-in), and the two browser files that take only Google Chrome (the
   relay's and the web unit project's). CI's two runs of the release's commit are recorded with the release
   (`docs/RELEASING.md` §4 step 1: `main` is green on `macos-15` and `ubuntu-24.04` before the tag).
