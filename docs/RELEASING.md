@@ -212,7 +212,9 @@ Changing it is expensive (every released `smurg`, every stored login and invite 
 Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1.2) and a gh login.
 
 1. `main` is green in CI, `source scripts/env.sh && SMURG_RELEASE_GATE=1 pnpm check` is green locally,
-   `shellcheck -S warning scripts/*.sh` and `actionlint .github/workflows/*.yml` are clean. With
+   `shellcheck -S warning scripts/*.sh` and `actionlint .github/workflows/*.yml` are clean (neither tool comes with
+   `scripts/bootstrap-tools.sh` and no workflow runs them: use your own install, or the Ubuntu VM's `shellcheck`;
+   for 0.5.0 `shellcheck` was run there and `actionlint` was not run, and the workflows did not change). With
    `SMURG_RELEASE_GATE=1` the gate also refuses anything left on a pending list (`docs/ACCEPTANCE.md` "How to run the
    gate"): a release has none. Since 0.5.0 two more things are done before the tag, by a person on their own machine,
    because CI has no Claude Code: the real-Claude suite and the release dry run, both in §4.5.
@@ -492,20 +494,45 @@ this suite against it, then change the two constants in the same commit as whate
    `SMURG_RELEASE_GATE=1` on macOS and in the Ubuntu 24.04 VM. The counts go into `docs/ACCEPTANCE.md` ("How to run
    the gate", "Linux verification").
 2. The executable for this machine: `scripts/build-sea.sh --version X.Y.Z` (it runs the smoke tests). Then, by hand,
-   with the built executable and a scratch `HOME`: `--version` (it says `protocol v4`), `licenses`, `host` on a
-   scratch folder against a local relay (`apps/relay/README.md`, "Local development") with the stand-in `claude` in
-   place of Claude Code (smurg runs the first `claude` on the host's `PATH`: for that shell only, make it
-   `packages/daemon/src/testing/fake-claude.mjs`, which does what the scenario file named by `FAKE_CLAUDE_SCENARIO`
-   says), then `status` (the lines about Claude Code, agent sessions, topics, the project settings and the host's own
-   rules) and `stop` (the line about paused agent sessions when there were any).
+   with the built executable, a scratch `HOME` and a scratch `SMURG_HOME` whose path is SHORT (the control socket
+   lies in it, and a Unix socket's path has a small limit): `--version` (it says `protocol v4`), `licenses`,
+   `login --relay http://localhost:8787 --dev-user host` against a local relay (`apps/relay/README.md`, "Local
+   development"), then `host` on a scratch folder that is a git repository, with the stand-in `claude` in place of
+   Claude Code. smurg runs the first `claude` on the host's `PATH`: for that shell only, put the wrapper that
+   `installFakeClaude` writes in front (`scripts/dev-stack.sh --stand-in-claude --dir D` leaves one in
+   `D/stand-in-claude/`); it does what the scenario file named by `FAKE_CLAUDE_SCENARIO` says. The bare
+   `packages/daemon/src/testing/fake-claude.mjs` is not enough: smurg asks a `claude` for its version with a short,
+   fixed `PATH`, on which the Node of a version manager is not found, and `status` then says "version unknown". Then
+   `status` (the lines about Claude Code, agent sessions, topics, the project settings and the host's own rules; the
+   Claude Code line says "not checked yet" until the first agent session has started) and `stop` (the line about
+   paused agent sessions when there were any).
 3. One pass of real Claude Code 2.1.288 through the BUILT executable, against the fake API with the isolated
    configuration described above. Since 0.5.0 Claude Code calls the executable's own `smurg hook` before every tool
    and its own `smurg mcp` for the agent's tools, and both reach the daemon inside the same executable: this pass is
    the only place where that chain runs as packaged. Record the hook's time per tool call in `docs/ACCEPTANCE.md`
-   ("Measured values").
-4. The release files and the install: `scripts/release-assets.sh --version X.Y.Z --dist packages/cli/dist --out <a
-   scratch directory>`, then the installer from a local file server exactly as §5 "Before publishing" does, and
-   `SMURG_INSTALL_BASE_URL=http://127.0.0.1:<port> smurg update --check` with the installed executable.
+   ("Measured values"). There is no script for this pass yet; for 0.5.0 a driver written for the occasion did it,
+   and it cannot be done by typing commands. What such a driver has to do: start the fake API and build the isolated
+   environment the way `claude-harness.ts` does (the folder trusted and the dummy key approved, as its
+   `seedClaudeTrust` does); start `smurg host` ITSELF from the built executable inside that environment, with a
+   `PATH` whose first `claude` is the 2.1.288 binary; open a session with an SDK client and let the fake API answer
+   with tool calls (one that passes the gate, one that asks a person); and time every `smurg hook` process from the
+   moment it appears as a child of `claude` to its exit, watching only (it signals nothing). Check afterwards that
+   the agent's own environment named the fake API and the scratch folders. Making this an opt-in test of the
+   repository is the next step.
+4. The release files, the install and the update, from a local file server laid out like the downloads site (the
+   updater reads `<base>/latest/VERSION` and `<base>/vX.Y.Z/…`; the installer's base is ONE version's folder, so
+   the flat folder of §5 serves the installer only). With `T` a scratch directory:
+   `scripts/release-assets.sh --version X.Y.Z --dist packages/cli/dist --out "$T/site/vX.Y.Z"`, then
+   `mkdir "$T/site/latest" && printf 'X.Y.Z\n' > "$T/site/latest/VERSION"`, and a file server on `$T/site`
+   (`python3 -m http.server <port> --bind 127.0.0.1 --directory "$T/site"`; stop it afterwards). Install with
+   `sh "$T/site/vX.Y.Z/install.sh" --base-url http://127.0.0.1:<port>/vX.Y.Z --prefix "$T/try"`; then, with a
+   scratch `HOME` and `SMURG_HOME`, `SMURG_INSTALL_BASE_URL=http://127.0.0.1:<port> "$T/try/bin/smurg" update
+   --check` says `smurg X.Y.Z is the latest version.` To see an update happen, build an executable with an older
+   number (`scripts/build-sea.sh --version 0.0.1 --out "$T/old/smurg" --no-smoke`) and run its `update` with the
+   same variable: it refuses while that executable is sharing, leaves the executable alone when the download does
+   not match its checksum (change one byte of the served file to see it), and otherwise ends with `Updated smurg:
+   0.0.1 -> X.Y.Z`. Never run a release's `install.sh` without `--base-url` or `SMURG_INSTALL_BASE_URL`: its
+   built-in location is the real downloads site.
 5. The third-party notices are fresh: `node scripts/third-party-notices.ts --check` (0.5.0 added one dependency to
    the web app, the Markdown lexer `marked`, and its notices must list it).
 6. The frames per minute of the whole flow through the local relay (the flow of the web-smoke project's flow smoke:

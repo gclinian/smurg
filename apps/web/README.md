@@ -1435,11 +1435,12 @@ xterm contain is reachable from the first page load. In 0.5.0 the first thing a 
 sessions view, so the rule now guards three steps: the landing and join pages, the workspace page with the sessions
 view (no Monaco, no xterm), and only then code mode and the columns that need an editor or a terminal.
 
-The last measurement is 0.4.0's (2026-10-02, both languages): the initial load is 2 chunks, 736.1 KiB (224.5 KiB
-gzip). It contains React, the protocol (zod, the noble cryptography, msgpack), the strings and the join flow. Before
-the second language it was 628.6 KiB (194.9 KiB gzip): both language tables of the web catalog and the wire catalog
-(`@smurg/protocol/i18n`, every sentence the host can send, in both languages) load eagerly, which adds about 108 KiB
-(30 KiB gzip). The workspace chunk was 288 KiB (82 KiB gzip). The Monaco chunks are about 3.8 MiB (977 KiB gzip)
-plus the editor worker, CSS and codicon, and the xterm chunk is 352 KiB (91 KiB gzip). All of these are in
-lazy-loaded chunks. 0.5.0 adds catalog text, the stores of the sessions view and one dependency (`marked`).
-**PLACEHOLDER FOR THE GATE RUN (v0.5.0):** the sizes of 0.5.0's build (`pnpm --filter @smurg/web build` prints them) replace the numbers above.
+The last measurement is 0.5.0's (2026-10-07, both languages): the initial load is 6 chunks, 980.2 KiB (298.7 KiB
+gzip). It contains React, the protocol (zod, the noble cryptography, msgpack), the strings and the wire catalog in
+both languages, the join flow and the stores of the sessions view. The sessions view adds 144.4 KiB (41.1 KiB gzip)
+on top of it, most of it the workspace chunk (129.9 KiB, 35.7 KiB gzip). What loads only when it is needed: a
+conversation column 71.9 KiB (20.4 KiB gzip), the Markdown renderer with `marked` 57.1 KiB (19.1 KiB gzip), code
+mode's workbench 68.7 KiB (20.0 KiB gzip), the Monaco chunks about 3.8 MiB (977 KiB gzip) plus the editor worker,
+CSS and codicon, and the xterm chunk 352 KiB (91 KiB gzip). 0.4.0's initial load was 2 chunks, 736.1 KiB (224.5 KiB
+gzip), with a workspace chunk of 288 KiB (82 KiB gzip): 0.5.0 loads more at first (the catalog text of the new
+features and the stores of the sessions view) and less when the workspace opens.

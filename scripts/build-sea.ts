@@ -40,7 +40,7 @@
 //     PTY, and `smurg stop`; packages/cli/test/sea-update.test.ts lets a COPY of it in a scratch HOME update itself
 //     from a local stand-in for the downloads site and uninstall itself.
 //
-// Output: packages/cli/dist/smurg-<platform>-<arch> (about 110 MiB) and its sha256 on stdout, and next to it
+// Output: packages/cli/dist/smurg-<platform>-<arch> (about 113 MiB) and its sha256 on stdout, and next to it
 // THIRD-PARTY-NOTICES.txt (the notices it embeds, for the release: scripts/release-assets.sh). Nothing is downloaded:
 // every input is already in node_modules, and the Node binary is one that is installed.
 //
