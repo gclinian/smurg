@@ -50,6 +50,7 @@ import {
   checkRelPath,
   foldRelPath,
   folderHoldsPath,
+  parentRelPath,
   relPathSegments,
   rootRefKey,
   takeListPage,
@@ -60,7 +61,7 @@ import {
 } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../../core/context.ts';
-import type { AttentionFact, PersistentDocument, Principal, ProjectTrust, Req, Res } from '../../core/interfaces.ts';
+import type { AttentionFact, FileChange, PersistentDocument, Principal, ProjectTrust, Req, Res } from '../../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../../core/lifecycle.ts';
 import { UNKNOWN_PART, programName, programWords, scanShell, type ShellWord } from '../../core/shell-scan.ts';
 
@@ -651,7 +652,7 @@ export class ProjectTrustImpl implements ProjectTrust {
     stack.add(
       this.ctx.bus.on('file.changed', ({ root, changes }) => {
         const scan = this.scans.get(rootRefKey(root));
-        if (changes.some((change) => this.concerns(scan, change.path))) void this.refresh(root, 'files').catch(() => null);
+        if (changes.some((change) => this.concerns(scan, change.path) || this.swappedBeside(scan, change))) void this.refresh(root, 'files').catch(() => null);
       }),
     );
     stack.add(
@@ -685,6 +686,19 @@ export class ProjectTrustImpl implements ProjectTrust {
     for (const file of PROJECT_SETTINGS_FILES) if (folderHoldsPath(path, file)) return true;
     for (const script of scan?.watched ?? []) if (folderHoldsPath(path, script)) return true;
     return false;
+  }
+
+  /**
+   * A folder that appeared or went away IN a folder on the way to something the gate looks at. A folder renamed away
+   * with a new one put in its place in the same moment is sometimes reported only as the old one under its new name
+   * (Linux: the two events of the replaced name cancel each other; seen once on a continuous-integration runner,
+   * where the swap of `scripts/hooks` arrived as `scripts/hooks.away` alone). The name that is reported is then a
+   * neighbour of the folder that was replaced, never a folder above the script: so a neighbour makes the gate look too.
+   */
+  private swappedBeside(scan: RootScan | undefined, change: FileChange): boolean {
+    if (change.change !== 'addDir' && change.change !== 'unlinkDir') return false;
+    const parent = parentRelPath(change.path);
+    return parent !== null && this.concerns(scan, parent);
   }
 
   private decisions(): readonly Decision[] {
