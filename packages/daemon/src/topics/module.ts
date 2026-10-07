@@ -74,7 +74,7 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
           if (!core.started || ctx.stopping.aborted) return;
           const hit = core.bySession(event.sessionId);
           if (hit === null) return;
-          if (hit.item === null) void plans.onDiscussionTurn(event).catch(log('discussion turn not handled'));
+          if (hit.item === null) void core.serialize(`discussion:${hit.topic.id}`, () => plans.onDiscussionTurn(event)).catch(log('discussion turn not handled'));
           else void reports.onItemTurn(event).catch(log('item turn not handled'));
         }),
       );
@@ -141,6 +141,8 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       await core.open();
       const worktrees = ctx.services.worktrees;
       if (!isStubService(worktrees)) core.versioned = await worktrees.mainState().then((main) => main.isRepo, () => false);
+      // What a crash between two records left out of step (a merge the item never heard of, a session no item names).
+      await scheduler.reconcile();
       // After a restart of the host's smurg nothing runs by itself: interrupted items are stalled, plans are paused.
       await scheduler.afterRestart();
       for (const topic of core.topics()) {
@@ -152,6 +154,8 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       }
       reports.refreshReviewers();
       core.publishAttention();
+      // An item that was merged and reviewed when smurg went away, and whose session or worktree is still there.
+      await scheduler.finishPending();
       scheduler.request();
     },
     stop: async (ctx) => {
@@ -160,6 +164,9 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       try {
         parts.topics.stop();
         parts.reports.stopSweep();
+        // What is under way (the end of a turn being looked at, an item being finished) writes the records: it ends
+        // before they are flushed, so nothing is written after this module has stopped.
+        await parts.core.idle();
         await parts.core.flush();
       } catch (err) {
         ctx.log.error('topics stop failed', { module: 'topics', error: err instanceof Error ? err.name : 'unknown' });

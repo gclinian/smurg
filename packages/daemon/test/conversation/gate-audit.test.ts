@@ -15,7 +15,7 @@ describe('permission.auto-deny', { timeout: 60_000 }, () => {
     s.fakes.agents.gateDenied(discussion.id, { tool: 'Edit', row: 'G6', path: 'src/app.ts' });
     s.fakes.agents.gateDenied(other.id, { tool: 'Edit', row: 'G3', path: '/Users/ian/project/.claude/settings.json' });
     // Nothing yet: the minute is not over and no turn ended.
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    s.service.sweep();
     expect(await auditOf(s, 'permission.auto-deny')).toEqual([]);
     // The minute is over: the sweep writes one entry per session and row.
     s.t.advanceClock(60_000);

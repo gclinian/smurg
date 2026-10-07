@@ -87,7 +87,7 @@ export interface GuardContext {
  * volume (a mount point inside the share) cannot be renamed into the trash and is refused.
  */
 export async function deleteResolved(resolved: ResolvedPath, trashDir: string, guard: GuardContext): Promise<void> {
-  const options = { principal: guard.principal, forWrite: true, mustExist: true, finalSymlink: 'self' as const };
+  const options = { principal: guard.principal, forWrite: true, subtree: true, mustExist: true, finalSymlink: 'self' as const };
   const fresh = await guard.paths.revalidate(resolved, options);
   const expected = fresh.identity as FileIdentity;
   const parked = join(trashDir, newId('del'));
@@ -119,8 +119,8 @@ export async function deleteResolved(resolved: ResolvedPath, trashDir: string, g
  * the move is undone.
  */
 export async function moveResolved(from: ResolvedPath, to: ResolvedPath, guard: GuardContext): Promise<void> {
-  const fromOptions = { principal: guard.principal, forWrite: true, mustExist: true, finalSymlink: 'self' as const };
-  const toOptions = { principal: guard.principal, forWrite: true, finalSymlink: 'self' as const };
+  const fromOptions = { principal: guard.principal, forWrite: true, subtree: true, mustExist: true, finalSymlink: 'self' as const };
+  const toOptions = { principal: guard.principal, forWrite: true, subtree: true, finalSymlink: 'self' as const };
   const source = await guard.paths.revalidate(from, fromOptions);
   const target = await guard.paths.revalidate(to, toOptions);
   const identity = source.identity as FileIdentity;

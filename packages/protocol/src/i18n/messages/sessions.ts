@@ -83,6 +83,10 @@ export const sessions = {
     en: () => "This session's worktree was removed. It cannot continue.",
     'zh-TW': () => '這個 session 的 worktree 已被移除，無法繼續',
   }),
+  'session.folderNotNameable': message({}, {
+    en: () => "The path of this session's folder has a backslash or a control character in it. Claude Code's permission rules cannot name such a folder, so no agent session can be started there. The host should rename the folder.",
+    'zh-TW': () => '這個 session 的資料夾路徑含有反斜線或控制字元，Claude Code 的權限規則無法表示這樣的資料夾，所以無法在這裡啟動 agent session。請主人重新命名資料夾',
+  }),
   'session.mode.fixed': message({}, {
     en: () => "A discussion session's permissions are fixed: it reads the code and writes only the spec and the plan.",
     'zh-TW': () => '討論 session 的權限是固定的：只能讀程式碼，並且只能寫 spec 和計畫',

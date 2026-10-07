@@ -36,6 +36,22 @@ describe('string catalogue: registration', () => {
     expect(interpolate('Missing {missing}', { other: 1 })).toBe('Missing {missing}');
   });
 
+  it('sets a Latin word or a number apart from the Chinese text a placeholder stands against, and leaves Chinese values where they are (review R6-12 item 12)', () => {
+    // The house style of the zh-TW texts: "Ian 和 Mei", "3 個項目". A placeholder that may hold either a Chinese word
+    // or a name in Latin letters cannot have the space written into its template.
+    expect(interpolate('這個檔案已被{who}刪除', { who: 'Mei' })).toBe('這個檔案已被 Mei 刪除');
+    expect(interpolate('這個檔案已被{who}刪除', { who: '主人' })).toBe('這個檔案已被主人刪除');
+    expect(interpolate('{source}在 {time} 修改了這個檔案，和{humans}正在編輯的內容重疊。', { source: 'Claude (Ian)', time: '07:12', humans: 'Ian 和 Mei' })).toBe('Claude (Ian) 在 07:12 修改了這個檔案，和 Ian 和 Mei 正在編輯的內容重疊。');
+    expect(interpolate('{source}的版本', { source: 'agent「結帳」' })).toBe('agent「結帳」的版本');
+    expect(interpolate('共{count}個', { count: 3 })).toBe('共 3 個');
+    expect(interpolate('{time}提出', { time: '3 分鐘前' })).toBe('3 分鐘前提出');
+    // Nothing is added where the template has its own gap or punctuation, around an empty value, or in English.
+    expect(interpolate('角色「{role}」，{count} 個', { role: 'Editor', count: 2 })).toBe('角色「Editor」，2 個');
+    expect(interpolate('已被{who}刪除', { who: '' })).toBe('已被刪除');
+    expect(interpolate('Deleted by {who}.', { who: 'Mei' })).toBe('Deleted by Mei.');
+    expect(interpolate('已被{who}刪除', {})).toBe('已被{who}刪除');
+  });
+
   it('gives each namespace a typed translator and a global lookup', () => {
     const tt = defineStrings('test-ns', { hello: 'Hello {who}' }, { hello: '哈囉 {who}' });
     expect(tt('hello', { who: 'world' })).toBe('Hello world');

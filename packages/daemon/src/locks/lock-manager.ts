@@ -13,7 +13,7 @@
 //
 // Time: every decision compares clock.now(); one real timer (injectable) schedules the next re-check, so a lock whose
 // deadline passed is also released lazily by the next call that looks at it.
-import { SmurgError, fileRefKey, rootRefEquals, type Actor, type FileRef, type LockInfo, type RootRef } from '@smurg/protocol';
+import { SmurgError, agentDisplayName, agentSafeName, fileRefKey, rootRefEquals, type Actor, type FileRef, type LockInfo, type RootRef } from '@smurg/protocol';
 import type { AgentLockResult, AuditLog, EventBus, HumanTouchResult, LockChangeReason, LockManager, Principal, UserId } from '../core/interfaces.ts';
 import { monotonicNow, type Clock } from '../core/lifecycle.ts';
 import type { Logger } from '../core/logger.ts';
@@ -22,6 +22,14 @@ import { lockKeyOf } from './keys.ts';
 import { INVALID_TARGET_REASON, LOCK_CAP_REASON, OUTSIDE_ROOT_REASON, agentHeldReason, humanHeldReason } from '../hooks/deny-text.ts';
 import { safeDisplayName } from './text.ts';
 import { realTimers, type Timers } from './timers.ts';
+
+/**
+ * An agent's name as ANOTHER agent reads it: `Claude (<label>)` with the label through agentSafeName. The callers
+ * build the name that way; a name that arrives otherwise (a caller's fallback from a display name) is made so here.
+ */
+function agentNameForAgents(name: string, ownerUserId: UserId): string {
+  return agentDisplayName(agentSafeName(/^Claude \((.*)\)$/s.exec(name)?.[1] ?? name, ownerUserId));
+}
 
 type HumanLockInfo = Extract<LockInfo, { kind: 'human' }>;
 type AgentLockInfo = Extract<LockInfo, { kind: 'agent' }>;
@@ -325,10 +333,12 @@ export class LockManagerImpl implements LockManager {
     const entry = this.live(key, now);
     if (entry?.kind === 'human') {
       const lock = this.humanInfo(entry);
-      return { granted: false, holder: lock, reason: humanHeldReason(lock.holders.map((h) => h.displayName)) };
+      // The reason is read by a model (the PreToolUse deny, the answer to a permission request): people are named
+      // through agentSafeName there, whatever their display name holds. `holder` keeps the names people see.
+      return { granted: false, holder: lock, reason: humanHeldReason(lock.holders.map((h) => agentSafeName(h.displayName, h.userId))) };
     }
     if (entry?.kind === 'agent' && entry.sessionId !== sessionId) {
-      return { granted: false, holder: this.agentInfo(entry), reason: agentHeldReason(entry.agentName) };
+      return { granted: false, holder: this.agentInfo(entry), reason: agentHeldReason(agentNameForAgents(entry.agentName, entry.ownerUserId)) };
     }
     if (!this.takeGrant(sessionId, now)) return { granted: false, holder: null, reason: LOCK_CAP_REASON };
     const ttl = this.settings().agentLockTimeoutMs;

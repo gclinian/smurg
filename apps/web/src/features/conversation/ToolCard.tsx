@@ -73,13 +73,19 @@ export function toolVerbLabel(tool: ToolView, state: ToolLineState): string {
 /**
  * Whether `request` is the open permission request of this call. A request does not name its call; it carries the
  * same tool, and the same file, command or address (the daemon builds both from one call).
+ *
+ * `outside` means two things: on a call it says that the file it reads or writes lies outside the workspace (and
+ * nothing else of it is shown); on a request it also marks a COMMAND that names a path out there, whose call is an
+ * ordinary "run" with its command. So a command is told by its text, whatever else the card says, and `outside`
+ * decides only where neither side names a file inside the workspace or a command.
  */
 export function asksFor(request: PermissionRequest, tool: ToolView): boolean {
   if (request.status !== 'open' || request.tool !== tool.name) return false;
   if (request.file !== undefined || tool.file !== undefined) return request.file !== undefined && tool.file !== undefined && fileRefEquals(request.file, tool.file);
-  if (request.outside === true || tool.outside === true) return request.outside === tool.outside;
   const named = request.command ?? request.url;
-  return named === undefined || named === tool.target;
+  if (named !== undefined) return named === tool.target;
+  if (request.outside === true || tool.outside === true) return request.outside === true && tool.outside === true;
+  return true;
 }
 
 /** What the line names: the path, the command, the pattern; an outside path is never shown. */
@@ -268,35 +274,73 @@ export const ToolCard = memo(function ToolCard({ item, renderPiece }: ToolCardPr
   );
 });
 
-/** Two or more file reads in a row: "Read 4 files in src/cart", opening to the list. */
+/** What became of one read of a group. */
+type ReadState = 'done' | 'running' | 'waiting' | 'failed' | 'unfinished';
+
+/** The word beside a read that did not simply go through, in the list and (for the whole group) on the line. */
+const READ_WORD: Readonly<Record<Exclude<ReadState, 'done'>, 'tool.running' | 'tool.waiting' | 'tool.failed' | 'tool.unfinished'>> = {
+  running: 'tool.running',
+  waiting: 'tool.waiting',
+  failed: 'tool.failed',
+  unfinished: 'tool.unfinished',
+};
+
+/**
+ * Two or more file reads in a row: "Read 4 files in src/cart", opening to the list. The line says what became of
+ * them, like a single tool line does: "Reading … running" only while one of them really reads, "Read of … waiting"
+ * while one waits at its permission card (a read outside the workspace asks), and how many were refused or never
+ * finished. The list marks each such read.
+ */
 export const ReadsCard = memo(function ReadsCard({ item }: { item: ReadsItem }) {
   const commands = useCommands();
+  const stores = useStores();
   const { sessionId } = useConversationEnv();
   const [built, setBuilt] = useState(false);
   const running = item.tools.some((tool) => tool.running);
+  // Which of the reads without a result wait at an open permission card (only a group with such a read listens).
+  const waitingKeys = useStore(running ? stores.conversations : NO_CONVERSATIONS, (state) => {
+    const open = [...(state.conversations.get(sessionId)?.permissions.values() ?? [])].filter((request) => request.status === 'open');
+    if (open.length === 0) return '';
+    return item.tools
+      .filter((tool) => tool.running && open.some((request) => asksFor(request, tool.tool)))
+      .map((tool) => tool.key)
+      .join('\n');
+  });
+  const waits = new Set(waitingKeys === '' ? [] : waitingKeys.split('\n'));
+  const stateOf = (tool: ToolItem): ReadState => (tool.finished !== null ? (tool.finished.ok ? 'done' : 'failed') : !tool.running ? 'unfinished' : waits.has(tool.key) ? 'waiting' : 'running');
+  const states = item.tools.map(stateOf);
+  const countOf = (state: ReadState): number => states.filter((one) => one === state).length;
+  const group: ReadState = countOf('waiting') > 0 ? 'waiting' : countOf('running') > 0 ? 'running' : countOf('failed') > 0 ? 'failed' : countOf('unfinished') > 0 ? 'unfinished' : 'done';
+  // "Read" is true as soon as one of them was read; with none read, or while one waits, the line names the calls.
+  const verb = group === 'running' ? t('tool.read.running') : group === 'waiting' || countOf('done') === 0 ? t('tool.read.call') : t('tool.read');
   const paths = item.tools.map((tool) => tool.tool.file?.path ?? toolTarget(tool.tool));
   const dir = item.tools.every((tool) => tool.tool.file !== undefined) ? commonDir(paths) : null;
   const count = item.tools.length;
   return (
-    <details className="conv-tool" data-tool="Read" data-state={running ? 'running' : 'done'} onToggle={(event) => event.currentTarget.open && setBuilt(true)}>
+    <details className="conv-tool" data-tool="Read" data-state={group} onToggle={(event) => event.currentTarget.open && setBuilt(true)}>
       <summary>
         <span className="conv-tool__icon">
           <IconFileText size={14} />
         </span>
-        <span className="conv-tool__verb">{t(running ? 'tool.read.running' : 'tool.read')}</span>
+        <span className="conv-tool__verb">{verb}</span>
         <span className="conv-tool__target conv-tool__target--plain">{dir === null ? t('tool.reads', { count }) : t('tool.readsIn', { count, dir })}</span>
-        <span className="conv-tool__meta">{running ? <span>{t('tool.running')}</span> : null}</span>
+        <span className="conv-tool__meta">
+          {group === 'waiting' || group === 'running' ? <span>{t(READ_WORD[group])}</span> : null}
+          {group !== 'waiting' && group !== 'running' && countOf('failed') > 0 ? <span className="conv-tool__fail">{t('tool.reads.failed', { count: countOf('failed') })}</span> : null}
+          {group !== 'waiting' && group !== 'running' && countOf('unfinished') > 0 ? <span>{t('tool.reads.unfinished', { count: countOf('unfinished') })}</span> : null}
+        </span>
         <span className="conv-tool__chev">
           <IconChevronRight size={12} />
         </span>
       </summary>
       {built ? (
         <ul className="conv-tool__list">
-          {item.tools.map((tool) => {
+          {item.tools.map((tool, index) => {
             const file = tool.tool.file;
             const label = toolTarget(tool.tool);
+            const state = states[index] as ReadState;
             return (
-              <li key={tool.key}>
+              <li key={tool.key} data-state={state}>
                 {file !== undefined && tool.tool.outside !== true ? (
                   <button
                     type="button"
@@ -311,6 +355,7 @@ export const ReadsCard = memo(function ReadsCard({ item }: { item: ReadsItem }) 
                 ) : (
                   label
                 )}
+                {state === 'done' ? null : <span className={state === 'failed' ? 'conv-tool__fail' : undefined}>{` \u00b7 ${t(READ_WORD[state])}`}</span>}
               </li>
             );
           })}

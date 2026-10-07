@@ -13,16 +13,41 @@ import {
   displayNameSchema,
   epochMsSchema,
   itemIdSchema,
+  messageOriginSchema,
   opaqueIdSchema,
   rememberedRuleSchema,
   rootRefSchema,
   shortTextSchema,
+  smurgPurposeSchema,
   userIdSchema,
   userRefSchema,
 } from '@smurg/protocol';
 import type { PersistentDocument, StateStore } from '../../core/interfaces.ts';
 
 export const AGENT_SESSIONS_DOCUMENT = 'agent-sessions';
+
+/** Messages one record keeps for the next process; more than this many wait only as long as the daemon runs. */
+export const PENDING_MESSAGES_MAX = 200;
+/**
+ * A message no turn has taken yet (ARCHITECTURE §7.6 "Runner"): what is written to the process (header + text) and what
+ * the turn that takes it reports. Kept in the record so that it still waits after a restart of the daemon: the
+ * conversation shows it as `queued` ("Claude reads it when it starts again"), and that stays true.
+ */
+const pendingMessageSchema = z.strictObject({
+  messageId: opaqueIdSchema,
+  text: z.string().min(1).max(4 * 1024 * 1024),
+  turn: z.strictObject({
+    messageId: opaqueIdSchema,
+    kind: z.enum(['person', 'smurg']),
+    origin: messageOriginSchema.optional(),
+    from: userRefSchema.optional(),
+    by: userRefSchema.optional(),
+    purpose: smurgPurposeSchema.optional(),
+    suggestionId: opaqueIdSchema.optional(),
+  }),
+  fromUserId: userIdSchema.nullable(),
+});
+export type PendingMessage = z.infer<typeof pendingMessageSchema>;
 
 export const agentRecordSchema = z.strictObject({
   id: opaqueIdSchema,
@@ -65,6 +90,8 @@ export const agentRecordSchema = z.strictObject({
   noteworthyAt: epochMsSchema,
   lastActivityAt: epochMsSchema,
   claudeVersion: z.string().max(40).optional(),
+  /** Messages that wait for a turn, oldest first (absent: none). */
+  pending: z.array(pendingMessageSchema).max(PENDING_MESSAGES_MAX).optional(),
 });
 export type AgentRecord = z.infer<typeof agentRecordSchema>;
 

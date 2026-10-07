@@ -4,6 +4,7 @@
 import { isSmurgError, knownErrorReasonOf, type StartPreflight } from '@smurg/protocol';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { describeError } from '../../lib/errors.ts';
+import { gapAfter } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectPlan } from '../../lib/stores/topics.ts';
 import { useCan, useCommand, useMember, useStores } from '../../lib/workspace/context.tsx';
@@ -177,9 +178,10 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
                 {line.tone === 'warn' && line.id !== 'offline' ? <IconAlertTriangle size={14} /> : ICON[line.id]}
                 <div>
                   <span>
-                    {line.tone === 'danger' ? <span className="ui-visually-hidden">{t('start.blocker')} </span> : null}
+                    {line.tone === 'danger' ? <span className="ui-visually-hidden">{`${t('start.blocker')}${gapAfter(t('start.blocker'))}`}</span> : null}
                     {line.text}
-                  </span>{' '}
+                  </span>
+                  {gapAfter(line.text)}
                   {action(line)}
                   {line === changesAfter && showChanges ? <PlanChanges topicId={topicId} /> : null}
                 </div>

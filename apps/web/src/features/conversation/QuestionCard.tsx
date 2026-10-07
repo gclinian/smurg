@@ -17,7 +17,7 @@ import {
   votersOf,
   type Question,
 } from '@smurg/protocol';
-import { formatAge, formatAnd, formatTime } from '../../lib/format.ts';
+import { formatAge, formatAnd, formatTime, gapAfter } from '../../lib/format.ts';
 import { kindLabel } from '../../lib/session-status.ts';
 import { useStore } from '../../lib/store.ts';
 import type { QuestionAnswerInput } from '../../lib/stores/conversations.ts';
@@ -371,7 +371,8 @@ export const QuestionCard = memo(function QuestionCard({ questionId }: { questio
       <Card ref={ref} id={cardDomId(questionId)} title={t('q.title')} icon={icon} settled className="conv-card conv-card--question" meta={answer ? t('q.settled.tally', { count: total }) : undefined}>
         {question.parts.map((part, index) => (
           <p key={index} className="conv-q__settled">
-            <span className="conv-q__settled-q">{part.text}</span>{' '}
+            <span className="conv-q__settled-q">{part.text}</span>
+            {gapAfter(part.text)}
             {answer ? <strong>{t('q.settled.answered', { answer: answerPartText(part, answer.parts[index]) })}</strong> : null}
           </p>
         ))}
@@ -445,6 +446,7 @@ export const QuestionCard = memo(function QuestionCard({ questionId }: { questio
   };
 
   const helpers = withAgentAccess(people).filter((person) => person.userId !== selfId);
+  const whoCanWrite = t('q.editor', { names: formatAnd(helpers.map((person) => person.displayName)) });
   const askThem = (): void => {
     const mentions = helpers.map((person) => `@${person.displayName}`).join(' ');
     void action
@@ -551,11 +553,14 @@ export const QuestionCard = memo(function QuestionCard({ questionId }: { questio
             />
           ) : (
             <p className="conv-card__who">
-              {helpers.length > 0 ? t('q.editor', { names: formatAnd(helpers.map((person) => person.displayName)) }) : null}{' '}
               {helpers.length > 0 ? (
-                <button type="button" className="conv-link" disabled={action.busy} onClick={askThem}>
-                  {t('q.askSubmit')}
-                </button>
+                <>
+                  {whoCanWrite}
+                  {gapAfter(whoCanWrite)}
+                  <button type="button" className="conv-link" disabled={action.busy} onClick={askThem}>
+                    {t('q.askSubmit')}
+                  </button>
+                </>
               ) : null}
             </p>
           )}

@@ -4,6 +4,7 @@
 //
 //  - agentText(raw)                 every string a PERSON wrote (messages, suggestions, notes, "Other" answers,
 //                                   comments, a denial's line): invisible characters removed, header-like lines quoted
+//  - shownAgentText(raw)            the other direction: text an AGENT wrote, before it is stored and shown to people
 //  - agentSafeName(name, userId)    a display name as a model reads it (headers, notes, sentences, commit trailers)
 //  - frameMessage(header, body)     the header line in front of a body
 //
@@ -62,9 +63,16 @@ function isVisible(cp: number | undefined): boolean {
   return !isControl(cp) && !isInvisible(cp) && !WHITESPACE.test(String.fromCodePoint(cp));
 }
 
-/** A line that looks like a header: `[…]` alone on its line. */
-const HEADER_LIKE_LINE = /^[ \t]*\[.*\][ \t]*$/;
+/**
+ * A line that looks like a header: `[…]` alone on its line, whatever blank characters stand around it (every Unicode
+ * white space, and the braille blank, which is none but renders as one); or a line that STARTS like smurg's own
+ * header, with text behind it on the same line (the role prompts say: a line that starts with `[smurg <tag>]` is the
+ * workspace software itself). A line that merely starts with a bracket (`[x] done`, a link) is left alone.
+ */
+const HEADER_LIKE_LINE = /^[\s\u2800]*\[(?:.*\][\s\u2800]*$|\s*smurg(?![\p{L}\p{N}_]))/iu;
 const QUOTE_PREFIX = '> ';
+/** What ends a line: CRLF, CR, and Unicode's line and paragraph separators (each becomes LF). */
+const LINE_ENDS = /\r\n?|[\u2028\u2029]/g;
 
 export interface AgentText {
   /** What is stored, what the card shows and what is sent. */
@@ -75,17 +83,35 @@ export interface AgentText {
 
 /**
  * Cleans a string a person wrote before it is stored, shown and sent to an agent:
- *  - NFC; CRLF and lone CR become LF; lone surrogates are dropped;
+ *  - NFC; CRLF, lone CR and Unicode's line and paragraph separators become LF; lone surrogates are dropped;
  *  - C0 / C1 controls are removed, except tab and newline;
  *  - invisible code points are removed (see isInvisible); the emoji joiner U+200D is kept only between two visible
  *    characters, the emoji presentation selector U+FE0F only directly after a visible character;
- *  - a line that looks like a header (`[…]` alone on its line) gets `> ` in front, so no body line can pass for the
- *    header of a person or of smurg itself.
+ *  - a line that looks like a header (HEADER_LIKE_LINE) gets `> ` in front, so no body line can pass for the header
+ *    of a person or of smurg itself.
  * `cleaned` is true when a control or an invisible character was removed (not for line endings, NFC or the quoting).
  * Idempotent: `agentText(agentText(x).text)` changes nothing.
  */
 export function agentText(raw: string): AgentText {
-  const source = raw.normalize('NFC').replace(/\r\n?/g, '\n');
+  const { text: joined, cleaned } = withoutUnseen(raw.normalize('NFC').replace(LINE_ENDS, '\n'));
+  const lines = joined.split('\n');
+  const text = lines.map((line) => (HEADER_LIKE_LINE.test(line) ? QUOTE_PREFIX + line : line)).join('\n');
+  return { text, cleaned };
+}
+
+/**
+ * Text an AGENT wrote, as it is stored and shown to everyone (text blocks of a conversation): the characters a reader
+ * cannot see are removed exactly as from a person's text (controls except tab and newline, every bidirectional
+ * control, the invisible code points; an emoji's joiner and presentation selector stay). So what people read, in the
+ * order they read it, is what is there: a command an agent quotes cannot show in another order than it copies.
+ * No line is quoted (this text is not sent to an agent) and nothing is normalised.
+ */
+export function shownAgentText(raw: string): string {
+  return withoutUnseen(raw.replace(/\r\n/g, '\n')).text;
+}
+
+/** `source` without lone surrogates, controls (tab and LF stay) and invisible code points; ZWJ and VS16 where an emoji needs them. */
+function withoutUnseen(source: string): AgentText {
   const points: number[] = [];
   let cleaned = false;
   for (const char of source) {
@@ -117,10 +143,8 @@ export function agentText(raw: string): AgentText {
     if (keep) kept.push(cp);
     else cleaned = true;
   }
-  let joined = '';
-  for (const cp of kept) joined += String.fromCodePoint(cp);
-  const lines = joined.split('\n');
-  const text = lines.map((line) => (HEADER_LIKE_LINE.test(line) ? QUOTE_PREFIX + line : line)).join('\n');
+  let text = '';
+  for (const cp of kept) text += String.fromCodePoint(cp);
   return { text, cleaned };
 }
 

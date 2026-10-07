@@ -15,8 +15,8 @@ export type ClaudeConfigRoot = ResultOf<'admin.claudeConfig.get'>['roots'][numbe
 export type ClaudeConfigAck = ClaudeConfigFile['needsAck'][number];
 export type ClaudeConfigDecision = 'trust' | 'ignore';
 
-/** The order the ticks are shown in. */
-export const ACK_ORDER: readonly ClaudeConfigAck[] = ['credentials', 'allows-tools'];
+/** The order the ticks are shown in. `incomplete`: the lists on screen are not everything the content does. */
+export const ACK_ORDER: readonly ClaudeConfigAck[] = ['credentials', 'allows-tools', 'incomplete'];
 
 /** How one file stands: decided for this content, changed since a decision about another content, or never decided. */
 export type FileStanding = 'trusted' | 'ignored' | 'changed' | 'new';

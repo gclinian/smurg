@@ -31,9 +31,21 @@ export interface ToolResult {
   readonly text: string;
 }
 
+export interface MockOptions {
+  /**
+   * Which step answers a request of the main kind, when it is not the script's next one: a subagent runs its own
+   * conversation next to the main one (Claude Code starts it in the background), so the two cannot share one list.
+   * `firstUser`: the JSON of the conversation's first user message (a subagent's holds the prompt it was given).
+   * Undefined: the script's step.
+   */
+  readonly route?: (request: { readonly firstUser: string; readonly assistantTurns: number }) => MockStep | undefined;
+}
+
 export interface MockAnthropic {
   readonly url: string;
   readonly requests: readonly RecordedRequest[];
+  /** Whether `text` was anywhere in the body of any request the mock received (what the "model" could have read). */
+  saw(text: string): boolean;
   /** tool_result blocks the model received, in order, de-duplicated by tool_use_id. */
   toolResults(): ToolResult[];
   /** The tool_use id the mock gave the n-th scripted tool call (1-based across the run). */
@@ -49,8 +61,9 @@ function sse(res: ServerResponse, events: readonly (readonly [string, Json])[]):
   res.end();
 }
 
-export async function startMockAnthropic(steps: readonly MockStep[]): Promise<MockAnthropic> {
+export async function startMockAnthropic(steps: readonly MockStep[], options: MockOptions = {}): Promise<MockAnthropic> {
   const requests: RecordedRequest[] = [];
+  const bodies: string[] = [];
   let toolSeq = 0;
   const respond = (res: ServerResponse, body: Json, content: Json[]): void => {
     const stop = content.some((block) => block['type'] === 'tool_use') ? 'tool_use' : 'end_turn';
@@ -84,6 +97,7 @@ export async function startMockAnthropic(steps: readonly MockStep[]): Promise<Mo
       let body: Json = {};
       try {
         const text = Buffer.concat(chunks).toString('utf8');
+        bodies.push(text);
         body = text ? (JSON.parse(text) as Json) : {};
       } catch {
         body = {};
@@ -110,7 +124,8 @@ export async function startMockAnthropic(steps: readonly MockStep[]): Promise<Mo
           respond(res, body, [{ type: 'text', text: 'mock side response' }]);
           return;
         }
-        const step = steps[Math.min(assistantTurns, steps.length - 1)] ?? { text: 'done' };
+        const firstUser = JSON.stringify(messages.find((m) => m['role'] === 'user')?.['content'] ?? '');
+        const step = options.route?.({ firstUser, assistantTurns }) ?? steps[Math.min(assistantTurns, steps.length - 1)] ?? { text: 'done' };
         const content: Json[] =
           step.text !== undefined
             ? [{ type: 'text', text: step.text }]
@@ -128,6 +143,7 @@ export async function startMockAnthropic(steps: readonly MockStep[]): Promise<Mo
   return {
     url: `http://127.0.0.1:${port}`,
     requests,
+    saw: (text: string) => bodies.some((body) => body.includes(text)),
     toolResults(): ToolResult[] {
       const out: ToolResult[] = [];
       const seen = new Set<string>();

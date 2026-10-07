@@ -3,7 +3,7 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SmurgError } from '@smurg/protocol';
-import { buildAgentSession, buildInboxItem, buildPlan, buildReportSummary, buildTopic, buildWorkItem } from '@smurg/protocol/testing';
+import { buildAgentSession, buildInboxItem, buildPlan, buildReport, buildReportSummary, buildTopic, buildWorkItem } from '@smurg/protocol/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { InboxPreview } from './InboxList.tsx';
 import { InboxNotices, ShellBanners } from './Notices.tsx';
@@ -108,50 +108,67 @@ describe('the inbox', () => {
     expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'report', topicId: 'tp_1', itemId: 'cart-api' }, from: 'inbox', side: true });
   });
 
-  it('a merge row of a work item opens its result report; a request without a report opens Changes', async () => {
-    const plan = buildPlan({
-      items: [
-        buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', state: 'reviewed', sessionId: 'sess_a', attempt: 1, report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr_2', status: 'conflict', ready: false } }),
-        buildWorkItem({ id: 'pay', number: 2, title: 'Payment form', state: 'running', sessionId: 's_pay', attempt: 1 }),
-      ],
-    });
+  it("a merge row of a work item opens its result report when the report is about that request; any other request opens Changes", async () => {
     const view = await mountSidebar({
-      plans: { tp_1: plan },
       inbox: [
-        buildInboxItem('merge', { at: ago(4) }),
-        buildInboxItem('merge', { key: 'merge:mr_2', target: { kind: 'changes', requestId: 'mr_2' }, ready: false, conflict: true, at: ago(3) }),
-        buildInboxItem('merge', { key: 'merge:mr_3', target: { kind: 'changes', requestId: 'mr_3' }, ready: false, from: { kind: 'user', ...MEI }, itemId: 'pay', item: { number: 2, title: 'Payment form' }, at: ago(2) }),
-        buildInboxItem('merge', { key: 'merge:mr_4', target: { kind: 'changes', requestId: 'mr_4' }, ready: false, from: { kind: 'user', ...MEI }, topicId: undefined, itemId: undefined, item: undefined, at: ago(1) }),
+        buildInboxItem('merge', { at: ago(5) }),
+        buildInboxItem('merge', { key: 'merge:mr_2', target: { kind: 'changes', requestId: 'mr_2' }, ready: false, conflict: true, itemId: 'receipt', item: { number: 3, title: 'Receipt email' }, at: ago(4) }),
+        buildInboxItem('merge', { key: 'merge:mr_3', target: { kind: 'changes', requestId: 'mr_3' }, ready: false, from: { kind: 'user', ...MEI }, itemId: 'pay', item: { number: 2, title: 'Payment form' }, at: ago(3) }),
+        buildInboxItem('merge', { key: 'merge:mr_4', target: { kind: 'changes', requestId: 'mr_4' }, ready: false, from: { kind: 'user', ...MEI }, topicId: undefined, itemId: undefined, item: undefined, at: ago(2) }),
+        // Mei edited a file by hand in the item's worktree after the report and asked to merge: a NEW request.
+        buildInboxItem('merge', { key: 'merge:mr_5', target: { kind: 'changes', requestId: 'mr_5' }, ready: false, from: { kind: 'user', ...MEI }, at: ago(1) }),
       ],
     });
-    const open = async (key: string): Promise<void> => userEvent.click(within(document.querySelector(`[data-inbox-key="${key}"]`) as HTMLElement).getAllByRole('button')[0] as HTMLElement);
-    const report = { kind: 'report', topicId: 'tp_1', itemId: 'cart-api' };
+    const changes = (requestId: string) => ({ requestId, files: 1, additions: 1, deletions: 0, byHand: [] });
+    view.conn.handle('report.get', ({ itemId }) => {
+      // "Cart API" was reviewed (its report names mr_1); "Receipt email" stopped on a conflict before anyone reviewed it.
+      if (itemId === 'cart-api') return { report: buildReport({ state: 'reviewed', changes: changes('mr_1') }) };
+      if (itemId === 'receipt') return { report: buildReport({ itemId: 'receipt', changes: changes('mr_2') }) };
+      // "Payment form" has no report yet.
+      throw new SmurgError('not_found');
+    });
+    const open = async (key: string): Promise<void> => {
+      await userEvent.click(within(document.querySelector(`[data-inbox-key="${key}"]`) as HTMLElement).getAllByRole('button')[0] as HTMLElement);
+      await act(async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+    };
     // Reviewed and ready: the report, where the host reads the outcome and merges.
     await open('merge:mr_1');
-    expect(view.opened).toHaveBeenLastCalledWith({ target: report, from: 'inbox' });
-    // The merge stopped on a conflict: the report again ("Ask the agent to resolve" is there).
+    expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'report', topicId: 'tp_1', itemId: 'cart-api' }, from: 'inbox' });
+    // The merge stopped on a conflict, reviewed or not: the report again ("Ask the agent to resolve" is there).
     await open('merge:mr_2');
-    expect(view.opened).toHaveBeenLastCalledWith({ target: report, from: 'inbox' });
+    expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'report', topicId: 'tp_1', itemId: 'receipt' }, from: 'inbox' });
     // A work item nobody reported on yet, and a free session's worktree: the bare changes.
     await open('merge:mr_3');
     expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'changes', requestId: 'mr_3' }, from: 'inbox' });
     await open('merge:mr_4');
     expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'changes', requestId: 'mr_4' }, from: 'inbox' });
-    // The rows that lead to the report are the current ones while the focused column shows it.
+    // The request made after the report: its own changes, where "Merge" merges what Mei asked for. The report's
+    // "Merge…" would open the report's request (mr_1), the commit without her edit.
+    await open('merge:mr_5');
+    expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'changes', requestId: 'mr_5' }, from: 'inbox' });
+    expect(view.opened).toHaveBeenCalledTimes(5);
+    // The report of an item is read once, not per click.
+    await open('merge:mr_1');
+    expect(view.conn.requestsOf('report.get').filter((request) => request.payload.itemId === 'cart-api')).toHaveLength(1);
+    // The row that leads to the report is the current one while the focused column shows it.
     act(() => void view.stores.columns.open({ kind: 'report', topicId: 'tp_1', itemId: 'cart-api' }));
     const current = (key: string): boolean => (document.querySelector(`[data-inbox-key="${key}"]`) as HTMLElement).hasAttribute('data-current');
-    expect(['merge:mr_1', 'merge:mr_2', 'merge:mr_3', 'merge:mr_4'].map(current)).toEqual([true, true, false, false]);
+    expect(['merge:mr_1', 'merge:mr_2', 'merge:mr_3', 'merge:mr_4', 'merge:mr_5'].map(current)).toEqual([true, false, false, false, false]);
   });
 
-  it('a merge row asks for its topic\'s plan itself, and a click that comes before the plan waits for it', async () => {
-    // "Search filters" has no plan row to unfold: nothing but the inbox row asks for its plan.
+  it('a click on a merge row waits for the report that says where it leads; a report that cannot be read opens the changes the item names', async () => {
     const view = await mountSidebar();
     const answers: (() => void)[] = [];
-    const plan = buildPlan({ topicId: 'tp_2', items: [buildWorkItem({ id: 'filters', number: 1, title: 'Filters', state: 'reviewed', report: buildReportSummary({ state: 'reviewed' }) })] });
-    view.conn.handle('plan.get', () => new Promise((resolve) => answers.push(() => resolve({ plan }))));
+    view.conn.handle('report.get', ({ itemId }) =>
+      itemId === 'filters'
+        ? new Promise((resolve) => answers.push(() => resolve({ report: buildReport({ topicId: 'tp_2', itemId: 'filters', changes: { requestId: 'mr_9', files: 1, additions: 1, deletions: 0, byHand: [] } }) })))
+        : Promise.reject(new SmurgError('internal', 'The report could not be read.')),
+    );
     const conflict = buildInboxItem('merge', { key: 'merge:mr_9', target: { kind: 'changes', requestId: 'mr_9' }, ready: false, conflict: true, topicId: 'tp_2', itemId: 'filters', item: { number: 1, title: 'Filters' } });
-    act(() => view.conn.emit('inbox.changed', { upsert: [conflict], remove: [] }));
-    expect(view.conn.requestsOf('plan.get').map((request) => request.payload.topicId)).toContain('tp_2');
+    const unreadable = buildInboxItem('merge', { key: 'merge:mr_8', target: { kind: 'changes', requestId: 'mr_8' }, ready: false, conflict: true, topicId: 'tp_2', itemId: 'sorting', item: { number: 2, title: 'Sorting' } });
+    act(() => view.conn.emit('inbox.changed', { upsert: [conflict, unreadable], remove: [] }));
     await userEvent.click(within(inboxSection()).getByRole('button', { name: /Merge request: 1 · Filters/ }));
     expect(view.opened).not.toHaveBeenCalled();
     await act(async () => {
@@ -160,6 +177,8 @@ describe('the inbox', () => {
     });
     expect(view.opened).toHaveBeenCalledTimes(1);
     expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'report', topicId: 'tp_2', itemId: 'filters' }, from: 'inbox' });
+    await userEvent.click(within(inboxSection()).getByRole('button', { name: /Merge request: 2 · Sorting/ }));
+    await waitFor(() => expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'changes', requestId: 'mr_8' }, from: 'inbox' }));
   });
 
   it('a row about an item that stopped asks for the plan that says why, and says it', async () => {
@@ -169,15 +188,6 @@ describe('the inbox', () => {
     act(() => view.conn.emit('inbox.changed', { upsert: [stalled], remove: [] }));
     expect(await within(inboxSection()).findByText('1 · Filters is paused: smurg was restarted')).toBeTruthy();
     expect(view.conn.requestsOf('plan.get').map((request) => request.payload.topicId)).toContain('tp_2');
-  });
-
-  it('a merge row whose plan cannot be read opens the changes the item names', async () => {
-    const view = await mountSidebar();
-    view.conn.handle('plan.get', () => Promise.reject(new SmurgError('internal', 'The plan could not be read.')));
-    const conflict = buildInboxItem('merge', { ready: false, conflict: true, topicId: 'tp_2', itemId: 'filters', item: { number: 1, title: 'Filters' } });
-    act(() => view.conn.emit('inbox.changed', { upsert: [conflict], remove: [] }));
-    await userEvent.click(within(inboxSection()).getByRole('button', { name: /Merge request: 1 · Filters/ }));
-    await waitFor(() => expect(view.opened).toHaveBeenLastCalledWith({ target: { kind: 'changes', requestId: 'mr_1' }, from: 'inbox' }));
   });
 
   it('one tab stop for the list: Up, Down, Home and End move between rows; Shift+Enter opens to the side', async () => {
@@ -558,7 +568,7 @@ describe('a new "agents are waiting" item', () => {
 
   it('what does not stop an agent is not announced', async () => {
     const view = await mountSidebar({ ui: <InboxNotices sessionsShown /> });
-    act(() => view.conn.emit('inbox.changed', { upsert: [buildInboxItem('report')], remove: [] }));
+    act(() => view.conn.emit('inbox.changed', { upsert: [buildInboxItem('report'), buildInboxItem('merge'), buildInboxItem('merge', { key: 'merge:mr_2', ready: false, conflict: true })], remove: [] }));
     expect(document.querySelector('[data-inbox-announcer]')?.textContent).toBe('');
     expect(screen.queryByText(/An agent is waiting/)).toBeNull();
   });

@@ -8,6 +8,7 @@ import { buildEvent, buildPermission, buildPlan, buildQuestion, buildWorkItem, F
 import type { CommandMap } from '../../lib/commands.ts';
 import { MOUNT_LIMIT } from './EventList.tsx';
 import { AMY, IAN, MEI, SID, openConversation, settle, updateSession } from './test-support.tsx';
+import { asksFor } from './ToolCard.tsx';
 
 const line = (seq: number): ConversationEvent => ({ ...buildEvent('line', { seq }), text: msg('conversation.started.free', { name: 'Ian' }), fallback: 'Ian opened this session' });
 const file = (path: string) => ({ root: MAIN_ROOT, path });
@@ -87,6 +88,24 @@ describe('conversation column: the rows', () => {
     expect(within(log).getAllByText('Claude')).toHaveLength(1);
     expect(within(log).getByText("I'll add the test next to the existing ones.")).toBeTruthy();
     expect(within(log).getByText('Ian stopped the agent', { exact: false })).toBeTruthy();
+  });
+
+  it('a line of the daemon and the end of a turn read alike in front of their time: no full stop before " · " (review R6-12 item 17)', async () => {
+    const line = (seq: number, key: Parameters<typeof msg>[0], fallback: string): ConversationEvent => ({ ...buildEvent('line', { seq }), text: msg(key), fallback }) as ConversationEvent;
+    await openConversation({
+      events: [
+        line(1, 'conversation.interrupted.restart', "smurg was restarted on the host's computer. The agent's turn was interrupted."),
+        line(2, 'conversation.agent.restarting', 'The agent is starting again.'),
+        // A text this build does not know is shown as the daemon wrote it, by the same rule.
+        { ...buildEvent('line', { seq: 3 }), text: { id: 'conversation.not.known' }, fallback: 'Something else happened.  ' } as ConversationEvent,
+        buildEvent('line', { seq: 4 }),
+      ],
+    });
+    const rows = [...document.querySelectorAll('.conv-sys')].map((row) => row.textContent ?? '');
+    expect(rows).toHaveLength(4);
+    for (const row of rows) expect(row).toMatch(/[^.\u3002 ] \u00b7 \d/);
+    expect(rows[0]).toMatch(/^smurg was restarted on the host's computer\. The agent's turn was interrupted \u00b7 /);
+    expect(rows[2]).toMatch(/^Something else happened \u00b7 /);
   });
 
   it('marks an accepted suggestion, removed hidden characters, a queued message, and my own messages', async () => {
@@ -378,6 +397,33 @@ describe('conversation column: the status bar', () => {
     }
   });
 
+  it('the card and the bar of one wait count from ONE stamp: the daemon wrote two, a moment apart, on two sides of a second (review R6-02, second round)', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], now: WHOLE_SECOND + 30_300 });
+    try {
+      // The request was made 30.1 s ago and the session's own "waiting since" 29.9 s ago: 30 and 29 whole seconds.
+      const askedAt = WHOLE_SECOND + 200;
+      const view = await openConversation({
+        session: { status: 'waiting-permission', waitingSince: askedAt + 200 },
+        events: [line(1), buildEvent('card', { seq: 2, card: 'permission', id: 'pr_1' })],
+        reply: { permissions: [buildPermission({ id: 'pr_1', sessionId: SID, askedAt })] },
+      });
+      const card = document.getElementById('conv-card-pr_1') as HTMLElement;
+      const age = (): string | null | undefined => statusBar().querySelector('.conv-status__age')?.textContent;
+      for (let tick = 0; tick < 4; tick += 1) {
+        const seconds = Number(/(\d+) sec/.exec(age() ?? '')?.[1]);
+        expect(seconds).toBeGreaterThanOrEqual(30);
+        expect(card.textContent).toContain(`waiting ${seconds} sec`);
+        act(() => void vi.advanceTimersByTime(1_000));
+      }
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+    // Before the card is known (its entity has not arrived), and while no card waits: the session's own stamp.
+    await openConversation({ session: { status: 'waiting-permission', waitingSince: Date.now() - 120_000 } });
+    expect(statusBar().querySelector('.conv-status__age')?.textContent).toBe('· 2 min');
+  });
+
   it('an ended session says so once on screen: the status is spoken, the composer’s place shows the sentence', async () => {
     await openConversation({ session: { status: 'ended', endedAt: FAKE_NOW } });
     expect(spoken()[0]).toBe('This session has ended.');
@@ -451,6 +497,95 @@ describe('conversation column: the status bar', () => {
     expect(run.getAttribute('data-state')).toBe('running');
     expect(run.querySelector('summary')?.textContent).toContain('Running');
     expect(run.querySelector('.conv-tool__meta')?.textContent).toBe('running');
+  });
+
+  it('a command that reaches outside the workspace waits at its host-only card like any other: "Command cat ~/.ssh/config · waiting" (review R6-06, second round)', async () => {
+    // The card says `outside` (the path the command names lies outside every root); the call's own view never does.
+    const events = [
+      buildEvent('turn.started', { seq: 1, turnId: 't_1' }),
+      buildEvent('tool.started', { seq: 2, turnId: 't_1', toolUseId: 'tu_1', tool: { name: 'Bash', verb: 'run', target: 'cat ~/.ssh/config' } }),
+      buildEvent('card', { seq: 3, card: 'permission', id: 'pr_1' }),
+    ];
+    const request = buildPermission({ id: 'pr_1', sessionId: SID, tool: 'Bash', what: 'command', command: 'cat ~/.ssh/config', hostOnly: true, outside: true });
+    await openConversation({ role: 'agent', session: { status: 'waiting-permission', waitingSince: FAKE_NOW }, events, reply: { permissions: [request] } });
+    const run = within(screen.getByRole('log')).getAllByText('cat ~/.ssh/config')[0]?.closest('details') as HTMLDetailsElement;
+    expect(run.getAttribute('data-state')).toBe('waiting');
+    expect(run.querySelector('summary')?.textContent).toContain('Command');
+    expect(run.querySelector('.conv-tool__meta')?.textContent).toBe('waiting');
+  });
+
+  it('which open request is the request of a call: the same tool and the same file, command, address or outside path', () => {
+    const { command: _command, alwaysRule: _rule, ...bare } = buildPermission({ sessionId: SID });
+    const open = (overrides: Partial<ReturnType<typeof buildPermission>>): ReturnType<typeof buildPermission> => ({ ...bare, ...overrides });
+    const bash = { name: 'Bash', verb: 'run', target: 'cat ~/.ssh/config' } as const;
+    expect(asksFor(open({ command: 'cat ~/.ssh/config', outside: true, hostOnly: true }), bash)).toBe(true);
+    expect(asksFor(open({ command: 'cat ~/.ssh/config' }), bash)).toBe(true);
+    expect(asksFor(open({ command: 'ls ~', outside: true }), bash)).toBe(false);
+    expect(asksFor(open({ command: 'cat ~/.ssh/config', status: 'allowed' }), bash)).toBe(false);
+    // A file outside the workspace is named to nobody but the host: the card and the call both only say "outside".
+    const outsideRead = { name: 'Read', verb: 'read', outside: true } as const;
+    expect(asksFor(open({ tool: 'Read', what: 'outside', outside: true, hostOnly: true }), outsideRead)).toBe(true);
+    expect(asksFor(open({ tool: 'Read', what: 'outside', outside: true, hostOnly: true }), { name: 'Read', verb: 'read', target: 'src/a.ts', file: file('src/a.ts') })).toBe(false);
+    expect(asksFor(open({ tool: 'Read', what: 'other', file: file('src/a.ts') }), outsideRead)).toBe(false);
+    expect(asksFor(open({ tool: 'Edit', what: 'edit', file: file('src/a.ts') }), { name: 'Edit', verb: 'edit', target: 'src/a.ts', file: file('src/a.ts') })).toBe(true);
+    expect(asksFor(open({ tool: 'Edit', what: 'edit', file: file('src/b.ts') }), { name: 'Edit', verb: 'edit', target: 'src/a.ts', file: file('src/a.ts') })).toBe(false);
+    expect(asksFor(open({ tool: 'WebFetch', what: 'fetch', url: 'https://example.com/' }), { name: 'WebFetch', verb: 'fetch', target: 'https://example.com/' })).toBe(true);
+    expect(asksFor(open({ tool: 'WebFetch', what: 'fetch', url: 'https://example.com/' }), { name: 'WebFetch', verb: 'fetch', target: 'https://example.org/' })).toBe(false);
+  });
+
+  it('reads in a row say what became of them: refused, not finished, waiting (review R6-06, second round)', async () => {
+    const read = (seq: number, id: string, path: string, turnId = 't_1') => buildEvent('tool.started', { seq, turnId, toolUseId: id, tool: { name: 'Read', verb: 'read', target: path, file: file(path) } });
+    const done = (seq: number, id: string, ok: boolean, turnId = 't_1') => buildEvent('tool.finished', { seq, turnId, toolUseId: id, ok, result: {} });
+    const outside = buildEvent('tool.started', { seq: 12, turnId: 't_3', toolUseId: 'r_7', tool: { name: 'Read', verb: 'read', outside: true } });
+    const events = [
+      // One turn: two reads went through, one was refused (a host-only file).
+      buildEvent('turn.started', { seq: 1, turnId: 't_1' }),
+      read(2, 'r_1', 'src/a.ts'),
+      done(3, 'r_1', true),
+      read(4, 'r_2', 'src/b.ts'),
+      done(5, 'r_2', true),
+      read(6, 'r_3', 'src/.npmrc'),
+      done(7, 'r_3', false),
+      buildEvent('turn.finished', { seq: 8, turnId: 't_1' }),
+      // The next turn was stopped while its two reads had no result.
+      buildEvent('turn.started', { seq: 9, turnId: 't_2' }),
+      read(10, 'r_4', 'docs/a.md', 't_2'),
+      read(11, 'r_5', 'docs/b.md', 't_2'),
+      buildEvent('turn.finished', { seq: 12, turnId: 't_2', outcome: 'interrupted', stoppedBy: IAN, durationMs: 2_000 }),
+      // The turn that runs now: one read is done, one reads a file outside the workspace and waits at its card.
+      buildEvent('turn.started', { seq: 13, turnId: 't_3' }),
+      read(14, 'r_6', 'lib/a.ts', 't_3'),
+      done(15, 'r_6', true, 't_3'),
+      { ...outside, seq: 16 },
+      buildEvent('card', { seq: 17, card: 'permission', id: 'pr_1' }),
+    ];
+    const { command: _command, alwaysRule: _rule, ...bare } = buildPermission({ id: 'pr_1', sessionId: SID });
+    const request = { ...bare, tool: 'Read', what: 'outside' as const, outside: true as const, hostOnly: true };
+    const view = await openConversation({ session: { status: 'waiting-permission', waitingSince: FAKE_NOW }, events, reply: { permissions: [request] } });
+    const groups = [...screen.getByRole('log').querySelectorAll<HTMLDetailsElement>('details[data-tool="Read"]')];
+    expect(groups).toHaveLength(3);
+    const [refused, stopped, waiting] = groups as [HTMLDetailsElement, HTMLDetailsElement, HTMLDetailsElement];
+    const line = (group: HTMLDetailsElement): string => (group.querySelector('summary')?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+    expect(refused.getAttribute('data-state')).toBe('failed');
+    expect(line(refused)).toBe('Read3 files in src1 failed');
+    openDetails(refused);
+    expect([...refused.querySelectorAll('li')].map((entry) => entry.textContent)).toEqual(['src/a.ts', 'src/b.ts', 'src/.npmrc · failed']);
+
+    expect(stopped.getAttribute('data-state')).toBe('unfinished');
+    expect(line(stopped)).toBe('Read of2 files in docs2 not finished');
+    expect(line(stopped)).not.toMatch(/Reading|running/);
+
+    expect(waiting.getAttribute('data-state')).toBe('waiting');
+    expect(line(waiting)).toMatch(/^Read of2 files.*waiting$/);
+    expect(line(waiting)).not.toMatch(/Reading|running/);
+    openDetails(waiting);
+    expect([...waiting.querySelectorAll('li')].map((entry) => entry.textContent)).toEqual(['lib/a.ts', 'a file outside the workspace · waiting']);
+
+    // Allowed: it reads now.
+    act(() => view.conn.emit('permission.updated', { request: { ...request, status: 'allowed', decision: { by: IAN, at: FAKE_NOW } } }));
+    expect(waiting.getAttribute('data-state')).toBe('running');
+    expect(line(waiting)).toMatch(/^Reading2 files.*running$/);
   });
 
   it('a work item paused by a restart of smurg says so in its status bar, as its plan does', async () => {

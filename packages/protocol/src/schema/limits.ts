@@ -253,7 +253,8 @@ export const CLAUDE_CONFIG_LIST_MAX = 100;
 export const CLAUDE_CONFIG_ENTRY_MAX_CHARS = 2_000;
 export const CLAUDE_CONFIG_TEXT_MAX_BYTES = 256 * KiB;
 export const CLAUDE_CONFIG_SCRIPTS_MAX = 20;
-export const CLAUDE_CONFIG_FILES_MAX = 3;
+/** The three settings files and the entry for everything else Claude Code loads from `.claude/`. */
+export const CLAUDE_CONFIG_FILES_MAX = 4;
 
 /** Host settings (ARCHITECTURE §5.8). */
 export const MAX_LIVE_AGENTS_RANGE = { min: 2, max: 32 } as const;

@@ -26,12 +26,20 @@ export const DISCUSSION_TOOLS: readonly string[] = Object.freeze(['Read', 'Glob'
 /**
  * The tools of an execution or free session, for the verified Claude Code version (2.1.288). The design's list also
  * names `MultiEdit`, `BashOutput`, `KillShell` and `TodoWrite`: that version has none of them. Its `init.tools` under
- * `--tools` with all fifteen names lists the eleven that remain plus `TaskStop`, its own name for stopping a
+ * `--tools` with all fifteen names lists the ones that remain plus `TaskStop`, its own name for stopping a
  * background command the agent started (what `KillShell` was), which is therefore listed here in their place
  * (test/sessions/agent-claude-real.test.ts pins the list). A tool of a future Claude Code does nothing in smurg until
  * a release lists it here: the gate refuses what is not listed.
+ *
+ * NO SUBAGENTS in 0.5.0: `Task` is not listed. A subagent runs with what its DEFINITION says (the project's
+ * `.claude/agents/*.md`, the host's `~/.claude/agents`): with `permissionMode: acceptEdits` its edits and file
+ * commands run without a request in a session smurg started in `default` (seen with 2.1.288), and a definition can
+ * carry its own hooks and MCP servers, none of which the trust gate for project settings shows the host. With the
+ * verified version the gate refused every subagent anyway (its hook names the tool `Agent`, never `Task`), so the
+ * tool was only ever offered, never usable: it is not offered until those definitions are part of what the host
+ * confirms.
  */
-export const EXECUTION_TOOLS: readonly string[] = Object.freeze(['Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'TaskStop', 'WebFetch', 'WebSearch', 'Task', 'AskUserQuestion']);
+export const EXECUTION_TOOLS: readonly string[] = Object.freeze(['Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'TaskStop', 'WebFetch', 'WebSearch', 'AskUserQuestion']);
 
 /** In `HookSessionRegistration.tools`: the session may also call the host's and the project's MCP servers (`agentMcp`). */
 export const ANY_MCP_TOOL = 'mcp__*';
@@ -51,18 +59,33 @@ export const STREAM_ARGS: readonly string[] = Object.freeze([
 ]);
 
 // eslint-disable-next-line no-control-regex
-const RULE_UNSAFE = /[()\u0000-\u001f\u007f]/;
+const ROOT_UNSAFE = /[\\\u0000-\u001f\u007f]/;
+// eslint-disable-next-line no-control-regex
+const PATTERN_UNSAFE = /[()\\\u0000-\u001f\u007f]/;
+
+/** The session's folder has a path no permission rule can name (a backslash or a control character in it). */
+export class RulePathError extends TypeError {
+  constructor() {
+    super('not a folder a permission rule can name');
+    this.name = 'RulePathError';
+  }
+}
 
 /**
  * A file rule for a settings file that does NOT live in the project: written with the absolute form
  * `//<realpath of the root>/<pattern>` (DESIGN Appendix C R3: a rule written `/specs/x/SPEC.md` matches nothing there).
- * Refuses a root or pattern with `(`, `)` or a control character, so no rule text can end the rule early.
+ *
+ * The root is a folder name of the host's and is written so that Claude Code reads it as that folder (each case run
+ * against 2.1.288, test/sessions/agent-claude-real.test.ts): `(` and `)` need nothing, balanced or not; `[` and `]`
+ * are escaped (unescaped they open a character class and the rule matches NOTHING: the deny rules would be gone
+ * silently); `*`, `?`, `{`, `}` and `!` match themselves as they are (an escaped `?` matches nothing). A root with a
+ * backslash or a control character is refused (RulePathError: the start says so in its own sentence). The pattern is
+ * smurg's own: one with `(`, `)`, a backslash or a control character is a programming error.
  */
 export function fileRule(tool: 'Read' | 'Edit', rootRealPath: string, relPattern: string): string {
-  if (!rootRealPath.startsWith('/') || RULE_UNSAFE.test(rootRealPath) || RULE_UNSAFE.test(relPattern) || relPattern.startsWith('/') || relPattern.length === 0) {
-    throw new TypeError('not a path a permission rule can name');
-  }
-  return `${tool}(/${rootRealPath.replace(/\/+$/, '')}/${relPattern})`;
+  if (PATTERN_UNSAFE.test(relPattern) || relPattern.startsWith('/') || relPattern.length === 0) throw new TypeError('not a pattern a permission rule can hold');
+  if (!rootRealPath.startsWith('/') || ROOT_UNSAFE.test(rootRealPath)) throw new RulePathError();
+  return `${tool}(/${rootRealPath.replace(/\/+$/, '').replace(/[[\]]/g, '\\$&')}/${relPattern})`;
 }
 
 /** Claude Code's own mode for a session (DESIGN §2.5 table): a session rooted in the main workspace never runs in `acceptEdits`. */
@@ -93,6 +116,23 @@ export interface ProfileInput {
   /** The host setting "Agents may use my own and this project's MCP servers". */
   readonly agentMcp: boolean;
   readonly rolePrompt: string;
+  /**
+   * Root-relative files the trust gate records for the root while its project settings are in use (the scripts a
+   * confirmed hook runs: ProjectTrust.protectedPaths). No agent session writes them, also not with a shell command.
+   */
+  readonly protectedPaths?: readonly string[];
+}
+
+// eslint-disable-next-line no-control-regex
+const NOT_RULE_NAMEABLE = /[()[\]{}*?\\\u0000-\u001f\u007f]/;
+
+/**
+ * Whether a permission rule can name exactly this file of a root: no bracket that would end the rule or open a
+ * character class, no wildcard, no backslash, no control character. The trust gate records only such scripts (a
+ * content that runs another one is never trusted), so the deny rule that guards a recorded script can be written.
+ */
+export function isRuleNameable(path: string): boolean {
+  return path.length > 0 && !path.startsWith('/') && !NOT_RULE_NAMEABLE.test(path);
 }
 
 /** The launch profile of one process start. Rules read back from disk are checked again: only a rememberable form is written. */
@@ -109,6 +149,13 @@ export function buildProfile(input: ProfileInput): LaunchProfile {
     if (discussion) allow.push(...files);
     else if (purpose === 'item') deny.push(...files);
   }
+  // The scripts a trusted project hook runs. The gate refuses an edit tool on them, but it cannot see what a shell
+  // command writes, and in a worktree such a command runs unasked: an Edit deny rule also refuses `> file`, `cp … file`
+  // and the like (DESIGN Appendix C R3). A recorded file no rule can name (the trust gate records none) leaves the
+  // project's settings out of this start, so nothing runs a script that nothing guards.
+  const recorded = input.protectedPaths ?? [];
+  const unguarded = recorded.some((path) => !isRuleNameable(path));
+  if (!unguarded) deny.push(...recorded.map((path) => fileRule('Edit', rootRealPath, path)));
   if (!discussion) {
     const seen = new Set<string>();
     for (const rule of input.rules) {
@@ -129,7 +176,7 @@ export function buildProfile(input: ProfileInput): LaunchProfile {
     deny,
     // A discussion always has only smurg's own server; the others unless the host allowed theirs.
     strictMcp: discussion || !input.agentMcp,
-    settingSources: input.trust === 'ignored' ? 'user' : 'all',
+    settingSources: input.trust === 'ignored' || unguarded ? 'user' : 'all',
     rolePrompt: input.rolePrompt,
   };
 }

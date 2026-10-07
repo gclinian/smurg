@@ -93,7 +93,7 @@ describe('the topic screens in zh-TW', () => {
       '負責人：Ian 1 · Mei 1。',
       'Mei 目前離線：他負責的項目會開始，然後等他。',
       '這 1 個 session 的選擇題會由你決定。',
-      'smurg 會以你的身分，把 SPEC.md 和 PLAN.md 提交到主人資料夾的 main 分支。 資料夾裡還有、但不會提交的檔案：specs/topic-1/notes.txt。',
+      'smurg 會以你的身分，把 SPEC.md 和 PLAN.md 提交到主人資料夾的 main 分支。資料夾裡還有、但不會提交的檔案：specs/topic-1/notes.txt。',
       'SPEC.md 裡有你看不到的字元。開始之前請先看變更。',
       'spec 在這份計畫寫好之後有變動。',
       'spec 裡列了 2 個未決事項。',

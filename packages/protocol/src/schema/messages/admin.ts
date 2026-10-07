@@ -22,7 +22,7 @@ import {
   SHORT_TEXT_MAX_CHARS,
 } from '../limits.ts';
 import { entryPathSchema, rootRefSchema } from '../paths.ts';
-import { epochMsSchema, largeTextSchema, lineTextSchema, multilineTextSchema, opaqueIdSchema, sha256HexSchema, userIdSchema } from '../primitives.ts';
+import { epochMsSchema, indexSchema, largeTextSchema, lineTextSchema, multilineTextSchema, opaqueIdSchema, sha256HexSchema, userIdSchema } from '../primitives.ts';
 import { emptyPayloadSchema } from './channel.ts';
 
 // admin.* — every type requires the `admin` capability (ARCHITECTURE §5.8).
@@ -91,17 +91,29 @@ export const adminSettingsSetPayloadSchema = hostSettingsPatchSchema;
 // ---------------------------------------------------------------------------------------------------------------
 
 export const CLAUDE_CONFIG_DECISIONS = ['trust', 'ignore'] as const;
-/** What a file's content needs its own tick for before "Use them". */
-export const CLAUDE_CONFIG_ACKS = ['credentials', 'allows-tools'] as const;
+/**
+ * What a file's content needs its own tick for before "Use them". `incomplete`: the lists do not show everything the
+ * content does (see `cut`); the host confirms having read the file itself.
+ */
+export const CLAUDE_CONFIG_ACKS = ['credentials', 'allows-tools', 'incomplete'] as const;
 const claudeConfigEntrySchema = multilineTextSchema(CLAUDE_CONFIG_ENTRY_MAX_CHARS);
 const claudeConfigListSchema = z.array(claudeConfigEntrySchema).max(CLAUDE_CONFIG_LIST_MAX);
 
 /**
  * One of a root's three project-level Claude Code files (`.claude/settings.json`, `.claude/settings.local.json`,
- * `.mcp.json`) with everything it does: `runs` (each command line, whole), `permissions` (each rule), `env` (every
- * variable; `flagged`: it can send the host's login to another server), `otherKeys`, and `scripts` (files inside the
- * root the commands point at: part of the trusted content, host-only for writes while it is trusted). `text`: the raw
- * file. `changed`: the content differs from the one a stored decision was made for.
+ * `.mcp.json`) with everything it does: `runs` (each command line), `permissions` (each rule), `env` (every
+ * variable; `flagged`: it can send the host's login to another server; `programs`: it changes which programs run or
+ * what they load, and its value is listed under `runs`), `otherKeys`, and `scripts` (files inside the root the
+ * commands point at: part of the trusted content, host-only for writes while it is trusted). `text`: the raw file.
+ * `changed`: the content differs from the one a stored decision was made for.
+ *
+ * `cut`: present when the lists are NOT everything the content does: `omitted` entries beyond a list's limit,
+ * `shortened` entries cut at the entry limit. `needsAck` then holds `incomplete`.
+ *
+ * The entry with `path` PROJECT_LOADED_ENTRY (`.claude`) is not a file: it stands for everything else Claude Code
+ * loads from that folder (agents, skills, commands, rules, …), confirmed and re-asked like a file. Its `otherKeys`
+ * are the paths of those files, `text` lists every one with its hash, `hash` covers the list; `runs` and
+ * `permissions` are what the files' own headers declare (hooks, allowed tools).
  */
 export const claudeConfigFileSchema = z.strictObject({
   path: entryPathSchema,
@@ -111,10 +123,11 @@ export const claudeConfigFileSchema = z.strictObject({
   text: largeTextSchema(CLAUDE_CONFIG_TEXT_MAX_BYTES),
   runs: claudeConfigListSchema,
   permissions: claudeConfigListSchema,
-  env: z.array(z.strictObject({ name: lineTextSchema(SHORT_TEXT_MAX_CHARS, 1), flagged: z.boolean() })).max(CLAUDE_CONFIG_LIST_MAX),
+  env: z.array(z.strictObject({ name: lineTextSchema(SHORT_TEXT_MAX_CHARS, 1), flagged: z.boolean(), programs: z.boolean().optional() })).max(CLAUDE_CONFIG_LIST_MAX),
   otherKeys: z.array(lineTextSchema(SHORT_TEXT_MAX_CHARS, 1)).max(CLAUDE_CONFIG_LIST_MAX),
   scripts: z.array(z.strictObject({ path: entryPathSchema, hash: sha256HexSchema })).max(CLAUDE_CONFIG_SCRIPTS_MAX),
   needsAck: z.array(z.enum(CLAUDE_CONFIG_ACKS)).max(CLAUDE_CONFIG_ACKS.length),
+  cut: z.strictObject({ omitted: indexSchema, shortened: indexSchema }).optional(),
 });
 export type ClaudeConfigFile = z.infer<typeof claudeConfigFileSchema>;
 

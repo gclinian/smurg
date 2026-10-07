@@ -36,6 +36,8 @@ export class FakeWorktreeManager implements WorktreeManager {
   main: Awaited<ReturnType<WorktreeManager['mainState']>> = { isRepo: true, hasCommit: true, gitOk: true, branch: 'main', busy: false, free: 64 };
   /** What the next `snapshot` of a worktree answers instead of a draft (a policy refusal), once. */
   readonly refuseSnapshot = new Map<string, Extract<SnapshotResult, { ok: false }>>();
+  /** What the next `snapshot` calls of a worktree throw instead of answering, one per call (a file that changed while the tree was read, git out of time). */
+  readonly failSnapshot = new Map<string, unknown[]>();
   /** What `snapshot` reports as changed: files, additions, deletions, byHand. */
   snapshotStats: { files: number; additions: number; deletions: number; byHand: { path: string; by: UserRef[] }[] } = { files: 1, additions: 1, deletions: 0, byHand: [] };
   /** What `updateFromMain` reports as conflicted. */
@@ -63,6 +65,11 @@ export class FakeWorktreeManager implements WorktreeManager {
     this.requests.set(request.id, structuredClone(request));
     this.env.bus.emit('merge.changed', { request: structuredClone(request) });
     return request;
+  }
+
+  /** Puts a worktree the fake did not make itself (what the worktree module still has after a restart of the daemon); no event, no root. */
+  adopt(worktree: WorktreeInfo): void {
+    this.worktrees.set(worktree.id, structuredClone(worktree));
   }
 
   /** The request turned out to conflict with the main workspace. */
@@ -183,6 +190,8 @@ export class FakeWorktreeManager implements WorktreeManager {
   async snapshot(input: { readonly worktreeId: string; readonly message: string; readonly topicSlug?: string }): Promise<SnapshotResult> {
     this.log.record('snapshot', input);
     const worktree = this.needWorktree(input.worktreeId);
+    const failure = this.failSnapshot.get(worktree.id)?.shift();
+    if (failure !== undefined) throw failure;
     const refusal = this.refuseSnapshot.get(worktree.id);
     if (refusal) {
       this.refuseSnapshot.delete(worktree.id);

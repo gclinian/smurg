@@ -36,6 +36,7 @@ import {
   rootRefEquals,
   rootRefKey,
   ruleString,
+  shownAgentText,
   smurgHeader,
   suggestionHeader,
   titleFromFirstMessage,
@@ -76,16 +77,16 @@ import type {
   UserId,
   WatchStart,
 } from '../../core/interfaces.ts';
-import { newId } from '../../core/lifecycle.ts';
+import { newId, type Disposable } from '../../core/lifecycle.ts';
 import { SYSTEM_ACTOR } from '../../core/permissions.ts';
 import { isStubService } from '../../core/stubs.ts';
 import { ClaudeVersionProbe, parseAuthStatus, resolveClaude, type ClaudeBinary } from '../claude.ts';
 import { buildHostEnv } from '../host-env.ts';
-import { killTree, type ProcessInspector } from '../kill-tree.ts';
+import { killTree, type KnownProcess, type ProcessInspector } from '../kill-tree.ts';
 import { runningHelperPids, type ProcessRunner } from '../process-run.ts';
 import { AgentRunner, type LaunchPlan, type Outgoing, type RunnerHost } from './agent-runner.ts';
 import type { HostRulesImpl } from './host-rules.ts';
-import { buildProfile, checkLaunchArgs, claudeModeFor, gateToolsOf } from './profiles.ts';
+import { RulePathError, buildProfile, checkLaunchArgs, claudeModeFor, fileRule, gateToolsOf } from './profiles.ts';
 import type { ProjectTrustImpl } from './project-settings.ts';
 import { freeRolePrompt } from './prompts.ts';
 import { AgentStore, type AgentRecord } from './store.ts';
@@ -101,8 +102,11 @@ export interface AgentSessionsDeps {
   readonly authStatusTimeoutMs: number;
   readonly trust: ProjectTrustImpl;
   readonly hostRules: HostRulesImpl;
-  /** The registry's live list (live.json): an agent child is found after a hard death like a PTY child. */
-  readonly live: { add(sessionId: string): void; remove(sessionId: string): void };
+  /**
+   * The registry's live list (live.json): an agent child is found after a hard death like a PTY child. `known`: the
+   * descendants the registry's scan remembered for the session (a job the agent left behind has no parent link).
+   */
+  readonly live: { add(sessionId: string): void; remove(sessionId: string): void; known(sessionId: string): ReadonlyMap<number, KnownProcess> };
   /** Children of the daemon that belong to other sessions (the registry's PTY children). */
   readonly foreignChildren: () => ReadonlySet<number>;
 }
@@ -127,6 +131,8 @@ interface Entry {
 }
 
 const HOLD_MAX = 5_000;
+/** The key of the notice about a personal subscription login (once per workspace: HostRulesImpl keeps it). */
+const SUBSCRIPTION_NOTICE = 'subscription';
 const SESSION_ID = (): string => `ses_${randomBytes(16).toString('hex')}`;
 
 function userOf(actor: Actor): UserRef | null {
@@ -142,6 +148,8 @@ export class AgentSessionsImpl implements AgentSessions {
   readonly config: AgentsConfig;
   private readonly deps: AgentSessionsDeps;
   private readonly entries = new Map<string, Entry>();
+  /** Descendants the registry remembered for a session whose process is gone (pid → identity): ended with the session. */
+  private readonly leftBehind = new Map<string, Map<number, KnownProcess>>();
   private store: AgentStore | null = null;
   private transcriptsDir = '';
   private probe: ClaudeVersionProbe | null = null;
@@ -152,7 +160,9 @@ export class AgentSessionsImpl implements AgentSessions {
   private claudeStatus: NonNullable<DaemonStatus['claude']> | null = null;
   private loginChecked: { at: number; state: LoginState } | null = null;
   private readonly notified = new Set<string>();
-  private subscriptionSaid = false;
+  /** Notifications for the host that wait for a channel of theirs (key → the text). */
+  private readonly waitingForHost = new Map<string, MessageRef>();
+  private hostConnected: Disposable | null = null;
   private storageFull = false;
   private lastRetention = 0;
 
@@ -175,7 +185,7 @@ export class AgentSessionsImpl implements AgentSessions {
       kill: (runner) => this.kill(runner),
       delta: (runner, payload) => this.delta(runner, payload),
       account: (runner, signal) => this.accountSignal(runner, signal),
-      hostRules: (rules) => this.deps.hostRules.report(rules),
+      hostRules: (runner, rules) => this.deps.hostRules.report(rules, runner.record.root),
       personalSubscription: () => this.personalSubscription(),
       agentActor: (runner) => this.agentActor(runner),
       rootGone: (runner) => this.rootGone(runner),
@@ -213,6 +223,9 @@ export class AgentSessionsImpl implements AgentSessions {
       this.store.save(record);
     }
     this.started = true;
+    this.hostConnected = this.ctx.bus.on('conn.opened', ({ conn }) => {
+      if (conn.userId === this.ctx.members.hostUserId()) this.deliverToHost();
+    });
     this.sweepTimer = setInterval(() => void this.sweep().catch((err: unknown) => this.logError('agent sweep failed', err)), Math.max(10, this.config.escalationSweepMs));
     this.sweepTimer.unref?.();
   }
@@ -222,6 +235,8 @@ export class AgentSessionsImpl implements AgentSessions {
     this.stopping = true;
     if (this.sweepTimer !== undefined) clearInterval(this.sweepTimer);
     this.sweepTimer = undefined;
+    this.hostConnected?.dispose();
+    this.hostConnected = null;
     await Promise.all(
       [...this.entries.values()].map(async (entry) => {
         try {
@@ -595,21 +610,37 @@ export class AgentSessionsImpl implements AgentSessions {
   }
 
   personalSubscription(): void {
-    // The host alone, once per workspace run, and only when members other than the host are present.
-    if (this.subscriptionSaid) return;
+    // The host alone, ONCE PER WORKSPACE (remembered in the workspace's state once it reached them), and only when
+    // members other than the host are present.
+    if (this.deps.hostRules.wasTold(SUBSCRIPTION_NOTICE)) return;
     const host = this.ctx.members.hostUserId();
     if (!this.ctx.members.list().some((member) => member.userId !== host)) return;
-    this.subscriptionSaid = true;
-    this.notifyHost('subscription', msg('notice.personalSubscription'));
+    this.notifyHost(SUBSCRIPTION_NOTICE, msg('notice.personalSubscription'));
   }
 
+  /**
+   * One notification to the host per key and daemon run. A notification reaches only the channels a member has: while
+   * the host has none (the browser is closed) it waits here and goes out when the host connects next.
+   */
   private notifyHost(key: string, ref: MessageRef): void {
     if (this.notified.has(key) || isStubService(this.ctx.services.activity)) return;
     this.notified.add(key);
-    try {
-      this.ctx.services.activity.notify(this.ctx.members.hostUserId(), { from: SYSTEM_ACTOR, msg: ref, fallback: renderEnglish(ref) });
-    } catch (err) {
-      this.logError('a notification to the host failed', err);
+    this.waitingForHost.set(key, ref);
+    this.deliverToHost();
+  }
+
+  private deliverToHost(): void {
+    if (this.waitingForHost.size === 0 || isStubService(this.ctx.services.activity)) return;
+    const host = this.ctx.members.hostUserId();
+    if (this.ctx.hub.recipients({ userId: host, purpose: 'interactive' }).length === 0) return;
+    for (const [key, ref] of [...this.waitingForHost]) {
+      this.waitingForHost.delete(key);
+      try {
+        this.ctx.services.activity.notify(host, { from: SYSTEM_ACTOR, msg: ref, fallback: renderEnglish(ref) });
+        if (key === SUBSCRIPTION_NOTICE) this.deps.hostRules.markTold(key);
+      } catch (err) {
+        this.logError('a notification to the host failed', err);
+      }
     }
   }
 
@@ -681,7 +712,11 @@ export class AgentSessionsImpl implements AgentSessions {
     const binary = await resolveClaude(this.deps.launch.claudePath, this.deps.hostEnv()['PATH']);
     if (binary === null) return 'unknown';
     const env = buildHostEnv({ hostEnv: this.deps.hostEnv(), home: this.deps.launch.hostHome, sessionId: 'login-check' });
-    const result = await this.deps.runner(binary.realPath, ['auth', 'status', '--json'], { env, cwd: this.ctx.roots.main.realPath, timeoutMs: this.deps.authStatusTimeoutMs, maxStdoutBytes: 16 * 1024 });
+    // Claude Code answers from the settings of the folder it is run in (an `apiKeyHelper` there counts as a login,
+    // measured on 2.1.288; it is not run). The shared folder's settings count only once the host confirmed them, as
+    // for a session: until then the question is asked from the daemon's own directory, which has none.
+    const cwd = this.deps.trust.state(MAIN_ROOT) === 'used' ? this.ctx.roots.main.realPath : this.ctx.config.stateDir;
+    const result = await this.deps.runner(binary.realPath, ['auth', 'status', '--json'], { env, cwd, timeoutMs: this.deps.authStatusTimeoutMs, maxStdoutBytes: 16 * 1024 });
     const state = result.spawnError ? 'unknown' : parseAuthStatus(result);
     this.loginChecked = { at: now, state };
     if (this.claudeStatus !== null) this.claudeStatus = { ...this.claudeStatus, login: state };
@@ -741,19 +776,31 @@ export class AgentSessionsImpl implements AgentSessions {
     }
     const binary = await this.preflight();
     await this.makeRoom(runner);
+    // Until this launch knows what it loads it has loaded nothing: a look at the root's files that finds them changed
+    // (the refresh below, the watcher) parks the processes that DID load them (parkRoot), not the one starting here.
+    runner.projectSettings = 'ignored';
     await this.deps.trust.refresh(record.root).catch(() => null);
     const trust = this.deps.trust.state(record.root);
-    const profile = buildProfile({
-      purpose: record.purpose,
-      mode: record.mode,
-      root: record.root,
-      rootRealPath: root.realPath,
-      ...(record.topic === undefined ? {} : { topicSlug: record.topic.slug }),
-      rules: [...record.rules, ...this.topicRules(record.topic?.id)],
-      trust,
-      agentMcp: ctx.settings.get().agentMcp,
-      rolePrompt: runner.rolePrompt,
-    });
+    runner.projectSettings = trust;
+    let profile;
+    try {
+      profile = buildProfile({
+        purpose: record.purpose,
+        mode: record.mode,
+        root: record.root,
+        rootRealPath: root.realPath,
+        ...(record.topic === undefined ? {} : { topicSlug: record.topic.slug }),
+        rules: [...record.rules, ...this.topicRules(record.topic?.id)],
+        trust,
+        agentMcp: ctx.settings.get().agentMcp,
+        rolePrompt: runner.rolePrompt,
+        protectedPaths: [...this.deps.trust.protectedPaths(record.root)],
+      });
+    } catch (err) {
+      // The folder's own name: said in its own sentence (Claude Code has nothing to do with it).
+      if (err instanceof RulePathError) throw agentError('conflict', msg('session.folderNotNameable'), 'folder-name');
+      throw err;
+    }
     const credentials = ctx.services.hooks.registerSession({
       sessionId: record.id,
       ownerUserId: record.ownerUserId,
@@ -788,12 +835,28 @@ export class AgentSessionsImpl implements AgentSessions {
     } catch (err) {
       this.logError('unregistering a session from the hook server failed', err);
     }
+    // The registry forgets the session's descendants with its live entry: what the agent's commands left running is
+    // kept here until the session ends (parking and a failure end nothing; the End, a kick and `smurg stop` do).
+    this.rememberLeftBehind(runner.id);
     this.deps.live.remove(runner.id);
   }
 
+  private rememberLeftBehind(sessionId: string): Map<number, KnownProcess> {
+    const kept = this.leftBehind.get(sessionId) ?? new Map<number, KnownProcess>();
+    for (const [pid, known] of this.deps.live.known(sessionId)) if (kept.size < this.deps.maxPidsPerSession) kept.set(pid, known);
+    if (kept.size > 0) this.leftBehind.set(sessionId, kept);
+    return kept;
+  }
+
+  /**
+   * Ends every process of the session: the `claude` child when there still is one, and whatever its commands left
+   * running (same-uid processes whose environment carries the session's id, and the descendants the registry
+   * remembered: each is checked against its recorded start time and command before it is signalled).
+   */
   async kill(runner: AgentRunner): Promise<void> {
+    const known = this.rememberLeftBehind(runner.id);
     const result = await killTree(
-      { rootPid: () => runner.pid, envEntry: `SMURG_SESSION_ID=${runner.id}`, protect: () => this.foreignOf(runner) },
+      { rootPid: () => runner.pid, envEntry: `SMURG_SESSION_ID=${runner.id}`, known, protect: () => this.foreignOf(runner) },
       { inspector: this.deps.inspector, log: this.ctx.log.child({ module: 'kill-tree', session: runner.id }), deadlineMs: this.deps.killDeadlineMs, maxPids: this.deps.maxPidsPerSession },
     );
     if (result.outcome !== 'done') this.ctx.log.error('agent processes may remain', { session: runner.id, outcome: result.outcome, reason: result.reason ?? 'none' });
@@ -818,11 +881,30 @@ export class AgentSessionsImpl implements AgentSessions {
     if (input.purpose === 'free' && (input.topic !== undefined || input.item !== undefined)) throw new TypeError('AgentSessions.start: a free session has no topic and no item');
     if (input.purpose === 'discussion' && input.item !== undefined) throw new TypeError('AgentSessions.start: a discussion session has no item');
     if (this.stopping || !this.started || this.store === null) throw agentError('conflict', this.started ? msg('daemon.stopping') : msg('session.notStarted'), this.started ? 'stopping' : 'not-started');
+    // A person's first message is cleaned BEFORE anything exists: the title is made of it (and must be a line the
+    // record and the wire accept), and a text that is nothing once cleaned must not leave a session nobody started.
+    let first = input.firstMessage;
+    let firstWords: string | undefined;
+    if (first !== undefined && first.kind === 'person') {
+      const cleaned = agentText(first.text);
+      if (cleaned.text.trim().length === 0) throw agentError('bad_request', msg('session.text.invalid'), 'invalid-text');
+      // The title is the person's words without what nobody sees (and without the quoting a header-like line gets).
+      firstWords = shownAgentText(first.text);
+      first = { ...first, text: cleaned.text, cleaned: first.cleaned || cleaned.cleaned };
+    }
     const ctx = this.ctx;
     const alive = [...this.entries.values()].filter((entry) => entry.runner.record.state !== 'ended').length;
     if (alive >= this.config.maxAgentSessions) throw agentError('conflict', msg('session.limit.agents', { max: this.config.maxAgentSessions }), 'agent-limit');
     const root: RootRef = input.workspace.mode === 'main' ? MAIN_ROOT : worktreeRoot(input.workspace.worktreeId);
-    if (ctx.roots.get(root) === null) throw agentError('conflict', msg('session.worktreeGone'), 'worktree-removed');
+    const rootInfo = ctx.roots.get(root);
+    if (rootInfo === null) throw agentError('conflict', msg('session.worktreeGone'), 'worktree-removed');
+    // A folder no permission rule can name: refused before anything is created (every later start would fail on it).
+    try {
+      fileRule('Read', rootInfo.realPath, '.envrc');
+    } catch (err) {
+      if (err instanceof RulePathError) throw agentError('conflict', msg('session.folderNotNameable'), 'folder-name');
+      throw err;
+    }
     await this.preflight();
     await this.makeRoom(null);
     const host = ctx.members.hostUserId();
@@ -833,8 +915,7 @@ export class AgentSessionsImpl implements AgentSessions {
     const branch = worktreeId === undefined || isStubService(ctx.services.worktrees) ? undefined : (ctx.services.worktrees.get(worktreeId)?.branch ?? undefined);
     let smurgTag = '';
     for (const byte of randomBytes(4)) smurgTag += SMURG_TAG_ALPHABET[byte % SMURG_TAG_ALPHABET.length];
-    const first = input.firstMessage;
-    const title = input.title ?? (input.purpose === 'free' && first !== undefined && first.kind === 'person' ? titleFromFirstMessage(first.text) : undefined);
+    const title = input.title ?? (input.purpose === 'free' && firstWords !== undefined ? titleFromFirstMessage(firstWords) : undefined);
     const given = input.rolePrompt({ smurgTag, ...(branch === undefined ? {} : { branch }) });
     const rolePrompt = given.length > 0 ? given : freeRolePrompt(smurgTag);
     const record: AgentRecord = {
@@ -869,7 +950,14 @@ export class AgentSessionsImpl implements AgentSessions {
     await ensurePrivateDirectory(dir);
     await writeFile(join(dir, 'role.md'), rolePrompt, { mode: 0o600, flag: fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW });
     const entry = await this.adopt(record, rolePrompt);
-    this.store.save(record);
+    try {
+      this.store.save(record);
+    } catch (err) {
+      // A record the store refuses is no session: kept in memory it could not be listed, and nobody could end it.
+      this.entries.delete(id);
+      await entry.transcript.remove().catch((cause: unknown) => this.logError('removing the log of a session that was not created failed', cause));
+      throw err;
+    }
     entry.runner.projectSettings = this.deps.trust.state(root);
     const session = this.wire(entry);
     ctx.bus.emit('session.created', { session });
@@ -1088,25 +1176,39 @@ export class AgentSessionsImpl implements AgentSessions {
     if (entry.runner.status() !== before) this.touch(entry, true);
   }
 
+  /** Changes fields of a record that reach the wire as they are: a value the store refuses is not kept in memory either. */
+  private change(entry: Entry, apply: (record: AgentRecord) => void): void {
+    const record = entry.runner.record;
+    const before = { title: record.title, topic: record.topic, item: record.item };
+    apply(record);
+    try {
+      this.store?.save(record);
+    } catch (err) {
+      for (const key of ['title', 'topic', 'item'] as const) {
+        if (before[key] === undefined) delete record[key];
+        else Object.assign(record, { [key]: before[key] });
+      }
+      throw err;
+    }
+  }
+
   setTitle(sessionId: string, title: string, _by: Actor): void {
     const entry = this.need(sessionId);
-    entry.runner.record.title = title;
-    this.save(entry.runner);
+    this.change(entry, (record) => {
+      record.title = title;
+    });
     this.touch(entry, false);
   }
 
   setLabels(sessionId: string, labels: { readonly topicName?: string; readonly item?: { readonly number: number; readonly title: string } }): void {
     const entry = this.need(sessionId);
-    const record = entry.runner.record;
-    if (labels.topicName !== undefined) {
-      if (record.topic === undefined) throw new TypeError('AgentSessions.setLabels: a free session has no topic');
-      record.topic = { ...record.topic, name: labels.topicName };
-    }
-    if (labels.item !== undefined) {
-      if (record.item === undefined) throw new TypeError('AgentSessions.setLabels: not an item session');
-      record.item = { ...record.item, number: labels.item.number, title: labels.item.title };
-    }
-    this.save(entry.runner);
+    const current = entry.runner.record;
+    if (labels.topicName !== undefined && current.topic === undefined) throw new TypeError('AgentSessions.setLabels: a free session has no topic');
+    if (labels.item !== undefined && current.item === undefined) throw new TypeError('AgentSessions.setLabels: not an item session');
+    this.change(entry, (record) => {
+      if (labels.topicName !== undefined && record.topic !== undefined) record.topic = { ...record.topic, name: labels.topicName };
+      if (labels.item !== undefined && record.item !== undefined) record.item = { ...record.item, number: labels.item.number, title: labels.item.title };
+    });
     this.touch(entry, false);
   }
 
@@ -1122,6 +1224,7 @@ export class AgentSessionsImpl implements AgentSessions {
     if (person !== null) record.endedBy = person;
     this.save(entry.runner);
     await entry.runner.shutdown('end', person ?? undefined);
+    this.leftBehind.delete(sessionId);
     this.accountChange(() => {
       entry.runner.blockedBy = null;
     });
@@ -1147,7 +1250,8 @@ export class AgentSessionsImpl implements AgentSessions {
   async parkRoot(root: RootRef, _reason: 'project-settings-changed'): Promise<void> {
     for (const entry of [...this.entries.values()]) {
       const { runner } = entry;
-      if (!rootRefEquals(runner.record.root, root) || runner.record.state === 'ended' || !runner.hasProcess) continue;
+      // (A process that was started without the project's settings has loaded nothing that changed.)
+      if (!rootRefEquals(runner.record.root, root) || runner.record.state === 'ended' || !runner.hasProcess || runner.projectSettings === 'ignored') continue;
       if (runner.turnOpen || runner.openRequests > 0) await runner.interrupt(null);
       this.push(entry, noticeEvent('warning', msg('session.projectSettings.changed')), true);
       await runner.restart();
@@ -1175,6 +1279,7 @@ export class AgentSessionsImpl implements AgentSessions {
         entry.runner.record.state = 'ended';
         await entry.runner.shutdown('end', undefined).catch((err: unknown) => this.logError('stopping a forgotten session failed', err));
       }
+      this.leftBehind.delete(sessionId);
       if (entry.batchTimer !== undefined) clearTimeout(entry.batchTimer);
       this.entries.delete(sessionId);
       await entry.transcript.remove().catch((err: unknown) => this.logError('removing a conversation log failed', err));

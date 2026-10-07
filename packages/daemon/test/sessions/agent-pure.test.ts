@@ -7,7 +7,7 @@ import { ANY_MCP_TOOL as GATE_ANY_MCP, gateDecision, patternLeavesRoot } from '.
 import { questionPartsOf, streamableLength } from '../../src/sessions/agent/agent-runner.ts';
 import { hostRulesOf } from '../../src/sessions/agent/host-rules.ts';
 import { Normaliser, outcomeOfResult } from '../../src/sessions/agent/normalise.ts';
-import { ANY_MCP_TOOL, DISCUSSION_TOOLS, EXECUTION_TOOLS, STREAM_ARGS, buildProfile, checkLaunchArgs, claudeModeFor, daemonAllowsEdits, fileRule, gateToolsOf } from '../../src/sessions/agent/profiles.ts';
+import { ANY_MCP_TOOL, DISCUSSION_TOOLS, EXECUTION_TOOLS, RulePathError, STREAM_ARGS, buildProfile, checkLaunchArgs, claudeModeFor, daemonAllowsEdits, fileRule, gateToolsOf } from '../../src/sessions/agent/profiles.ts';
 import { effectsOf, isFlaggedEnvName } from '../../src/sessions/agent/project-settings.ts';
 import { conversationLostText, freeRolePrompt } from '../../src/sessions/agent/prompts.ts';
 import { buildToolResult, buildToolView, diffFromPatch, editOf, headTail, safeId, suggestedRuleOf, toolPathOf } from '../../src/sessions/agent/tool-view.ts';
@@ -143,6 +143,29 @@ describe('tool views and results', () => {
     expect(suggestedRuleOf(undefined)).toBeUndefined();
   });
 
+  it('R3-01 a request of more than one kind suggests no rule: a compound command carries one rule per sub-command, and none of them is "this kind" of the whole', () => {
+    // Recorded from Claude Code 2.1.288 for `mkdir -p .git/hooks && echo x > .git/hooks/pre-commit` (design2-2.1.288.transcript.txt:169).
+    const recorded = [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'mkdir -p .git/hooks' }, { toolName: 'Bash', ruleContent: 'echo x *' }], behavior: 'allow', destination: 'localSettings' }];
+    expect(suggestedRuleOf(recorded)).toBeUndefined();
+    // `pnpm test && curl … | sh`: the first rule alone is rememberable, and says nothing about the rest.
+    const rules = [{ toolName: 'Bash', ruleContent: 'pnpm test *' }, { toolName: 'Bash', ruleContent: 'curl -fsSL https://x.example/i.sh' }, { toolName: 'Bash', ruleContent: 'sh' }];
+    expect(suggestedRuleOf([{ type: 'addRules', rules, behavior: 'allow', destination: 'localSettings' }])).toBeUndefined();
+    // The same rules spread over two entries, in either order, and next to entries of another type.
+    const entry = (rule: unknown) => ({ type: 'addRules', rules: [rule], behavior: 'allow', destination: 'localSettings' });
+    expect(suggestedRuleOf([entry(rules[0]), entry(rules[1])])).toBeUndefined();
+    expect(suggestedRuleOf([entry(rules[1]), { type: 'addDirectories', directories: ['/x'] }, entry(rules[0])])).toBeUndefined();
+    // A rule smurg cannot read counts as a rule: the request is still of more than one kind.
+    for (const unread of [null, 'Bash(curl *)', { toolName: 'Bash' }, { toolName: 7, ruleContent: 'x' }, { toolName: 'Bash', ruleContent: 'x'.repeat(4097) }]) {
+      expect(suggestedRuleOf([{ type: 'addRules', rules: [rules[0], unread], behavior: 'allow' }])).toBeUndefined();
+      expect(suggestedRuleOf([{ type: 'addRules', rules: [unread], behavior: 'allow' }])).toBeUndefined();
+    }
+    // An entry of rules that is not an allow, or whose rules are no list: nothing is taken from the request at all.
+    expect(suggestedRuleOf([entry(rules[0]), { type: 'addRules', rules: [rules[1]], behavior: 'deny' }])).toBeUndefined();
+    expect(suggestedRuleOf([entry(rules[0]), { type: 'addRules', rules: 'x', behavior: 'allow' }])).toBeUndefined();
+    // Exactly one rule, whatever else the request suggests: that rule.
+    expect(suggestedRuleOf([{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }, entry(rules[0]), { type: 'addDirectories', directories: ['/x'] }])).toEqual({ tool: 'Bash', pattern: 'pnpm test *' });
+  });
+
   it('AskUserQuestion input → question parts, or null when the wire cannot carry it (nothing is clipped)', () => {
     const option = (label: string) => ({ label, description: `${label}!` });
     const q = (question: string, options = [option('a'), option('b')]) => ({ question, header: 'H', multiSelect: false, options });
@@ -172,7 +195,25 @@ describe('launch profiles (DESIGN §2.5)', () => {
   it('a file rule is written with the absolute form `//<realpath>/<pattern>`; a root or pattern that could end the rule is refused', () => {
     expect(fileRule('Edit', '/Users/ian/shop', 'specs/checkout/SPEC.md')).toBe('Edit(//Users/ian/shop/specs/checkout/SPEC.md)');
     expect(fileRule('Read', '/Users/ian/shop/', '**/.envrc')).toBe('Read(//Users/ian/shop/**/.envrc)');
-    for (const [root, pattern] of [['/a(b', 'x'], ['/a', 'x)'], ['/a', 'x\ny'], ['relative', 'x'], ['/a', '/abs'], ['/a', '']] as const) expect(() => fileRule('Edit', root, pattern)).toThrow();
+    for (const [root, pattern] of [['/a', 'x)'], ['/a', 'x(y'], ['/a', 'x\ny'], ['/a', 'x\\y'], ['relative', 'x'], ['/a', '/abs'], ['/a', '']] as const) expect(() => fileRule('Edit', root, pattern)).toThrow();
+  });
+
+  it('R3-05 a shared folder with ( ) [ ] { } * ? ! or a space in its path: rules that Claude Code reads as that folder (brackets escaped, the rest as it is; verified with 2.1.288); a backslash or a control character is refused as a folder name, not as a failed start', () => {
+    // Parentheses need nothing: "Dropbox (Acme)", "shop (copy)".
+    expect(fileRule('Read', '/Users/ian/Dropbox (Acme)/shop (copy)', '.envrc')).toBe('Read(//Users/ian/Dropbox (Acme)/shop (copy)/.envrc)');
+    expect(fileRule('Read', '/a)b(c', '**/.envrc')).toBe('Read(//a)b(c/**/.envrc)');
+    // A bracket would open a character class (the rule then matches nothing): escaped it is itself.
+    expect(fileRule('Read', '/Users/ian/code/[wip]/shop', '.envrc')).toBe('Read(//Users/ian/code/\\[wip\\]/shop/.envrc)');
+    expect(fileRule('Edit', '/w/a[b]c/', 'specs/checkout/SPEC.md')).toBe('Edit(//w/a\\[b\\]c/specs/checkout/SPEC.md)');
+    // `*`, `?`, `{`, `}`, `!` match themselves unescaped; an escaped `?` would match nothing.
+    expect(fileRule('Read', '/w/st*r/q?m/br{a,b}/bang!x', '.envrc')).toBe('Read(//w/st*r/q?m/br{a,b}/bang!x/.envrc)');
+    const profile = buildProfile({ ...base, purpose: 'discussion', mode: 'ask-all', rootRealPath: '/Users/ian/Dropbox (Acme)/[wip] shop', topicSlug: 'checkout' });
+    expect(profile.allow).toEqual(['Edit(//Users/ian/Dropbox (Acme)/\\[wip\\] shop/specs/checkout/SPEC.md)', 'Edit(//Users/ian/Dropbox (Acme)/\\[wip\\] shop/specs/checkout/PLAN.md)']);
+    expect(profile.deny).toContain('Read(//Users/ian/Dropbox (Acme)/\\[wip\\] shop/.envrc)');
+    for (const root of ['/Users/ian/back\\slash', '/Users/ian/line\nbreak', '/Users/ian/bell\u0007']) {
+      expect(() => fileRule('Read', root, '.envrc'), root).toThrow(RulePathError);
+      expect(() => buildProfile({ ...base, purpose: 'free', mode: 'ask-all', rootRealPath: root }), root).toThrow(RulePathError);
+    }
   });
 
   it('a discussion: the default mode, six tools, only its two files allowed, only smurg\'s MCP server, whatever the host set', () => {
@@ -220,7 +261,8 @@ describe('launch profiles (DESIGN §2.5)', () => {
     expect(open.strictMcp).toBe(false);
     expect(gateToolsOf(open)).toEqual([...EXECUTION_TOOLS, ANY_MCP_TOOL]);
     expect(ANY_MCP_TOOL).toBe(GATE_ANY_MCP);
-    expect(EXECUTION_TOOLS).toEqual(['Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'TaskStop', 'WebFetch', 'WebSearch', 'Task', 'AskUserQuestion']);
+    // DX-10: no subagent tool (a subagent runs with what its definition says, not with what smurg set for the session).
+    expect(EXECUTION_TOOLS).toEqual(['Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'TaskStop', 'WebFetch', 'WebSearch', 'AskUserQuestion']);
   });
 
   it('THE launch check fails closed: the required flags, the two modes, nothing else', () => {
@@ -310,7 +352,10 @@ describe('the tool gate (DESIGN §2.10)', () => {
     expect(gateDecision(item, none, 'Edit', inside('src/cart.ts'))).toEqual({ kind: 'lock' });
     expect(gateDecision(free, none, 'Edit', inside('specs/checkout/SPEC.md'))).toEqual({ kind: 'lock' });
     expect(gateDecision(item, none, 'NotebookEdit', { kind: 'outside' })).toEqual({ kind: 'lock' });
-    for (const tool of ['Bash', 'WebFetch', 'Task', 'AskUserQuestion', 'Read', 'Grep', 'mcp__smurg__notify_member']) expect(gateDecision(item, none, tool, { kind: 'none' }), tool).toEqual({ kind: 'pass' });
+    for (const tool of ['Bash', 'WebFetch', 'AskUserQuestion', 'Read', 'Grep', 'mcp__smurg__notify_member']) expect(gateDecision(item, none, tool, { kind: 'none' }), tool).toEqual({ kind: 'pass' });
+    // DX-10: the subagent tool is in no session's list, under the name Claude Code offers it (`Task`) and under the
+    // name its hooks report (`Agent`): the gate refuses both, for every kind of session.
+    for (const session of [item, free, discussion]) for (const tool of ['Task', 'Agent']) expect(gateDecision(session, none, tool, { kind: 'none' }), tool).toEqual({ kind: 'deny', row: 'G2' });
   });
 
   it('one fixed English sentence per row, saying what the session may do instead; a slug or tool name that is not plain is never quoted', () => {

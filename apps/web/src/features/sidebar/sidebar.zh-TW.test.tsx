@@ -111,9 +111,9 @@ describe('the left column in zh-TW', () => {
       role: 'viewer',
       topics: [paused, SEARCH],
     });
-    expect(document.querySelector('[data-banner="restart"]')?.textContent).toBe('主人電腦上的 smurg 重新啟動了。1 個主題的計畫已暫停。 主人或「可使用 agent」的成員可以讓它們繼續。');
+    expect(document.querySelector('[data-banner="restart"]')?.textContent).toBe('主人電腦上的 smurg 重新啟動了。1 個主題的計畫已暫停。主人或「可使用 agent」的成員可以讓它們繼續。');
     act(() => view.conn.emit('session.host', { account: { state: 'usage-limit', sessions: 2 }, mainProjectSettings: 'none' }));
-    expect(document.querySelector('[data-banner="account"]')?.textContent).toBe('主人的 Claude 帳號達到用量上限。agent 會等到額度重置。 2 個 session 在等。');
+    expect(document.querySelector('[data-banner="account"]')?.textContent).toBe('主人的 Claude 帳號達到用量上限。agent 會等到額度重置。2 個 session 在等。');
     act(() => view.conn.emit('inbox.changed', { upsert: [buildInboxItem('permission', { excerpt: 'pnpm lint', sessionId: 's_free', target: { kind: 'session', sessionId: 's_free' } })], remove: [] }));
     expect(document.querySelector('[data-inbox-announcer]')?.textContent).toBe('收件夾有新項目，agent 在等：pnpm lint。未分主題 › Fix flaky CI test');
     const toast = (await screen.findByText('agent 在等：pnpm lint')).closest('.ui-toast') as HTMLElement;

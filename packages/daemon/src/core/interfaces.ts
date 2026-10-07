@@ -768,6 +768,13 @@ export interface ResolveOptions {
   readonly principal: Principal;
   /** The caller will create, modify, rename or delete at this path. Refuses read-only, host-only (non-host) paths. */
   readonly forWrite?: boolean;
+  /**
+   * With `forWrite`: the caller moves, removes or puts in place the WHOLE entry with everything below it (both ends of
+   * a rename, a delete). A folder that holds a path this principal may not write is then refused like that path: the
+   * folder above an item worktree's `specs/<slug>` (people: read-only), a folder with a script the trust gate
+   * recorded or with a host-only name anywhere below it (non-host: host-only).
+   */
+  readonly subtree?: boolean;
   /** Refuse with not_found when nothing exists at the path. */
   readonly mustExist?: boolean;
   /** Accept `""` (the root itself). */
@@ -1285,9 +1292,10 @@ export interface AgentSessionFacts {
  * sentence asking the agent to word it differently: no bus event, no card. Nothing is ever clipped to make it pass
  * (the answer is keyed by the question texts and names the labels).
  *
- * `permission`: no Claude Code input shape has to be read outside the runner. `view` is the ToolView of this call,
- * exactly what the tool card of the same call shows (`verb`; `target`: the command, the URL, the path relative to the
- * root; `file`; `outside`): `permissionWhat(view)` gives `PermissionRequest.what`. `absPath`: the absolute path the
+ * `permission`: no Claude Code input shape has to be read outside the runner. `view` is the ToolView of THIS request's
+ * input, the input an allow lets run (`verb`; `target`: the command, the URL, the path relative to the root; `file`;
+ * `outside`; it is what the tool card of the same call shows unless a hook rewrote the input in between):
+ * `permissionWhat(view)` gives `PermissionRequest.what`. `absPath`: the absolute path the
  * tool names, when it names one (the host's copy of an `outside` request, the host-only check). `edit`: what an edit
  * tool would write, normalised (absent for a tool that edits no file, and for an edit the runner cannot normalise,
  * e.g. NotebookEdit: the card then shows the whole input). `input`: Claude Code's raw input, for the whole-input card
@@ -1311,7 +1319,7 @@ export type AgentRequest =
       readonly reasonType?: string;
       /** The absolute path Claude Code named as blocked, when it did. */
       readonly blockedPath?: string;
-      /** The rule Claude Code suggests (`{ tool: 'Bash', pattern: 'pnpm test *' }`). Never echoed back as it came. */
+      /** The rule Claude Code suggests (`{ tool: 'Bash', pattern: 'pnpm test *' }`), when the request suggests exactly ONE (a compound command suggests one per sub-command: then none). Never echoed back as it came. */
       readonly suggestedRule?: { readonly tool: string; readonly pattern: string };
     };
 
@@ -1652,6 +1660,8 @@ export interface SessionManager {
    *    item's session WorktreeManager.setOwner of its worktree; the line `conversation.owner.handover`), STOPPED
    *    first when they were kicked (AgentSessions.interrupt by the system; the line `…handover.kicked`). `pathRights`
    *    is never raised;
+   *  - every worktree they still own when `session.create` is gone (kept by the sessions that just ended, or kept
+   *    earlier) passes to the host (WorktreeManager.setOwner): `worktree.remove` is the owner's or the host's;
    *  - wherever they are the responsible person or the fallback decider that is cleared, for good (kicked, left,
    *    or now a Viewer): AgentSessions.setResponsible(null, system) / clearFallbackDecider, ONE line
    *    `conversation.responsible.fallback` per session, audit `responsible.fallback`.
@@ -2112,9 +2122,9 @@ export interface WorktreeManager {
     { readonly path: string; readonly diff: string; readonly truncated: boolean }[]
   >;
   /**
-   * The handover of a work item's worktree (WorktreeInfo.ownerUserId / ownerName; emits worktree.changed): called by
-   * SessionManager.teardownUser when the session in it passes to the host, so a member who lost agent access no
-   * longer owns (and may no longer remove) it.
+   * The handover of a worktree (WorktreeInfo.ownerUserId / ownerName; emits worktree.changed): called by
+   * SessionManager.teardownUser for a work item's worktree when the session in it passes to the host, and for every
+   * other worktree a member who lost agent access still owns, so they no longer own (and may no longer remove) it.
    */
   setOwner(worktreeId: string, owner: Principal): Promise<void>;
   /**

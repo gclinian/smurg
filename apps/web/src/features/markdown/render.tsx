@@ -10,11 +10,14 @@
 //   - NOTHING OF THE TEXT IS HIDDEN. What Markdown keeps out of sight is put on the page: a reference definition is
 //     printed as its line, a destination that is not a link stays in the text with its brackets, a title follows its
 //     link, the whole line after a code fence stands above the code, a link without text shows its address, and a
-//     link whose text names another place than it leads to shows where it leads. (The destination of an ordinary link
-//     is the one thing behind a hover or the keyboard focus, as §5.5 has it.) A text that cannot be formatted within
-//     the lexer's bounds (lex.ts) is shown as it was written, with a note.
+//     link or an image whose words name another place than it leads to shows where it leads. (The destination of an
+//     ordinary link is the one thing behind a hover or the keyboard focus, as §5.5 has it.) A text that cannot be
+//     formatted within the lexer's bounds (lex.ts) is shown as it was written, with a note;
+//   - the lexer has a time budget and a render has none, so whatever looks at a piece of text here costs in proportion
+//     to its length: single passes, no expression that is tried again from every character of a long run.
 import { Fragment, memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Token, Tokens } from 'marked';
+import { trimEndOf } from '../../lib/trim.ts';
 import { decodeEntities } from './entities.ts';
 import type { PlainToken } from './lex.ts';
 import { namesAnotherPlace, safeHref } from './links.ts';
@@ -269,7 +272,16 @@ function renderInline(tokens: readonly Token[] | undefined, context: RenderConte
           break;
         }
         const alt = decodeEntities(image.text).trim();
-        out.push(<ExternalLink key={key} href={href} image>{alt === '' ? t('image.noAlt') : t('image.link', { alt })}</ExternalLink>);
+        if (alt !== '' && namesAnotherPlace(alt, href)) {
+          // As for a link: words that name one place on a link to another are text, and the destination is the link.
+          out.push(
+            <span key={key}>
+              {t('image.link', { alt })} (<ExternalLink href={href} image>{href}</ExternalLink>)
+            </span>,
+          );
+        } else {
+          out.push(<ExternalLink key={key} href={href} image>{alt === '' ? t('image.noAlt') : t('image.link', { alt })}</ExternalLink>);
+        }
         out.push(titleAfter(image.title, key));
         break;
       }
@@ -318,7 +330,7 @@ function renderBlock(token: Token, context: RenderContext, key: string, tight: b
       // A reference definition, printed as the line it is (lex.ts keeps it in the token list).
       return (
         <p key={key} className="md-raw">
-          {one.raw.replace(/\n+$/, '')}
+          {trimEndOf(one.raw, '\n')}
         </p>
       );
     case 'plain': {
@@ -408,7 +420,7 @@ function renderBlock(token: Token, context: RenderContext, key: string, tight: b
       // A block of raw HTML: shown as the text that was written, never as markup.
       return (
         <p key={key} className="md-raw">
-          {(one as Tokens.HTML).raw.replace(/\n+$/, '')}
+          {trimEndOf((one as Tokens.HTML).raw, '\n')}
         </p>
       );
     default:

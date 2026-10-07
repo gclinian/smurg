@@ -109,6 +109,18 @@ describe('remote cursors: names and colours for people AND agents', () => {
     expect(css).toContain('.yRemoteSelectionHead-5{border-left-style:dashed}');
     expect(css).toContain('yRemoteSelectionHead-1');
 
+    // On the real stack the two names differ for every topic session: the presence list says "Claude (<who opened
+    // it>)", the caret "Claude (<the item or the topic>)". The colour is the one thing both take from one place.
+    const topic = new Map<number, Record<string, unknown>>([
+      [1, human('Amy', 'dev:amy')],
+      [4, { user: { name: 'Claude (Checkout)', color: '#F59E0B', kind: 'agent', userId: 'dev:mei' }, selection: { anchor: {}, head: {} } }],
+      [5, { user: { name: 'Claude (Cart API)', color: '#22c55e', kind: 'agent', userId: 'dev:host' }, selection: { anchor: {}, head: {} } }],
+    ]);
+    const shownOf = (agents: readonly PresenceAgent[]): number[] => participantsOf(agentsAtWorkOnly(topic, agents), 9, 'dev:me').map((p) => p.clientId);
+    expect(shownOf(presence('idle', 'running'))).toEqual([1, 5]);
+    expect(shownOf(presence('running', 'done'))).toEqual([1, 4]);
+    expect(shownOf(presence('idle', 'done'))).toEqual([1]);
+
     // An agent the presence list does not know (the list has not arrived, another colour) is left as it is.
     expect(shown([])).toEqual([1, 4, 5]);
     expect(shown([{ sessionId: 's_3', ownerUserId: 'dev:host', displayName: 'Claude (Ian)', color: '#000000', status: 'idle' }])).toEqual([1, 4, 5]);

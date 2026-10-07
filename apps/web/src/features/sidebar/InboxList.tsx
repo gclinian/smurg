@@ -18,7 +18,7 @@ import { useSlotEnv, useSlots } from '../../lib/workspace/slots.tsx';
 import { useNow } from '../../lib/use-now.ts';
 import { Button, IconButton, KindIcon, cx, useToast } from '../../ui/index.ts';
 import { IconCheck, IconClose } from '../../ui/icons.tsx';
-import { describeInboxItem, inboxTarget, isDismissable, planNeededFor, plansToLoad, type InboxRowContext } from './inbox-rows.ts';
+import { describeInboxItem, inboxTarget, isDismissable, plansToLoad, reportNeededFor, type InboxRowContext } from './inbox-rows.ts';
 import { t } from './strings.ts';
 
 export interface InboxRow {
@@ -39,8 +39,7 @@ export function useInboxRows(): { waiting: InboxRow[]; look: InboxRow[]; now: nu
   const selfUserId = useStore(stores.workspace, selectUserId);
   const account = useStore(stores.host, selectAccount);
   const now = useNow();
-  // Where a work item's merge request leads and why an item stopped are in the topic's plan: the rows ask for the
-  // plans they read.
+  // Why an item stopped is in the topic's plan: the rows ask for the plans they read.
   const neededPlans = plansToLoad(inbox.items.values(), topics).join('\n');
   useEffect(() => {
     for (const topicId of neededPlans === '' ? [] : neededPlans.split('\n')) stores.topics.ensurePlan(topicId);
@@ -65,11 +64,11 @@ export function useOpenInboxItem(): (item: InboxItem, side: boolean) => void {
         toast.show({ tone: 'warning', title: t('inbox.failed', { reason: describeError(error) }) }),
       );
     };
-    // Right after the page appeared the plan that says where a merge row leads may still be on its way: the click
-    // waits for it. A plan that cannot be read leaves the target the item names.
-    const missing = planNeededFor(item, stores.topics.getState());
+    // Where a work item's merge row leads is in the item's result report (which request its "Merge…" opens): the
+    // click reads it first. A report that does not exist or cannot be read leaves the target the item names.
+    const missing = reportNeededFor(item, stores.topics.getState());
     if (missing === null) open();
-    else void stores.topics.reloadPlan(missing).then(open, open);
+    else void stores.topics.loadReport(missing.topicId, missing.itemId).then(open, open);
   };
 }
 

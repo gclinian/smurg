@@ -5,8 +5,12 @@
 // host's absolute layout is none of the viewer's business); (2) it resolves against the SESSION's root (the main
 // workspace or its worktree: Claude Code prints paths relative to its cwd); and (3) it EXISTS in that tree — known from
 // a loaded file-tree listing, else asked once with file.stat (cached). Everything uncertain is "not a link".
-import { isHostPrivatePath, isSmurgDirName, isValidRelPath, rootRefKey, type FileEntry, type FileRef, type RootRef } from '@smurg/protocol';
+//
+// The same logic finds the paths in a conversation's text (features/conversation/env.tsx). Every lookup of either
+// goes through the connection's gate (see "the gate" below): reading must not turn into a stream of refused requests.
+import { isHostPrivatePath, isSmurgDirName, isSmurgError, isValidRelPath, rootRefKey, type FileEntry, type FileRef, type RootRef } from '@smurg/protocol';
 import type { IBufferRange, ILink, ILinkProvider, Terminal } from '@xterm/xterm';
+import { trimEndOf } from '../../lib/trim.ts';
 
 export interface PathCandidate {
   /** What was matched, including a `:line[:column]` suffix. */
@@ -51,7 +55,7 @@ export function findPathCandidates(line: string): PathCandidate[] {
     let end = start + match[0].length;
     if (lineNo === undefined) {
       // Sentence punctuation after a path (a path followed by a CJK full stop is handled by the character class; "src/app.ts." here).
-      const trimmed = path.replace(/\.+$/, '');
+      const trimmed = trimEndOf(path, '.');
       end -= path.length - trimmed.length;
       path = trimmed;
     }
@@ -107,6 +111,112 @@ export function resolveCandidate(root: RootRef, candidate: Pick<PathCandidate, '
 export function mayAskAbout(path: string, viewer: { readonly isHost: boolean }): boolean {
   if (viewer.isHost) return true;
   return !isHostPrivatePath(path) && !isSmurgDirName(path.split('/', 1)[0] ?? '');
+}
+
+// ---- the gate
+//
+// A path in text someone else wrote (an agent's answer, a member's message, terminal output) is on the screen of
+// everyone who reads it, and looking it up is a request of THAT reader to the host. The daemon refuses some names for
+// reasons no spelling shows (a path through a file, a hard-linked file, a link that leads to a private file), writes
+// each refusal into the audit log under the asker's name and closes a connection that collects 60 of them in a
+// minute. So every such lookup of a page goes through ONE gate per connection, and a text can cost its reader one
+// refused request, never one per name:
+//   - a name the reader's role can never open (mayAskAbout) is not asked about;
+//   - at most MAX_LOOKUPS_IN_FLIGHT requests are out at a time, and only ONE until the host has answered one without
+//     refusing: what the host says to the first decides whether the names that wait are asked at all;
+//   - a refusal answers everything that waits, the refused path is never asked about again, and nothing is asked
+//     for REFUSAL_QUIET_MS.
+
+/** Lookups that may be on their way to the host at one time, once the host has answered one without refusing. */
+export const MAX_LOOKUPS_IN_FLIGHT = 4;
+/** After a refused lookup nothing is asked for this long. */
+export const REFUSAL_QUIET_MS = 60_000;
+/** The error codes the daemon counts as a refusal (and audits under the asker's name): not "there is no such file". */
+const REFUSALS: ReadonlySet<string> = new Set(['path_denied', 'forbidden', 'host_only', 'unauthorized', 'rate_limited']);
+
+/** A lookup the gate did not send: the path stays text. */
+export class PathNotAskedError extends Error {
+  constructor() {
+    super('This path is not asked about.');
+    this.name = 'PathNotAskedError';
+  }
+}
+
+export interface PathGate {
+  /** `file.stat` for a path that some text names. Rejects without a request when the rules above say not to ask. */
+  stat(ref: FileRef, viewer: { readonly isHost: boolean }): Promise<FileEntry>;
+}
+
+export interface PathGateOptions {
+  /** file.stat (rejects when it does not exist or may not be read). */
+  stat(ref: FileRef): Promise<FileEntry>;
+  now(): number;
+}
+
+export function createPathGate(options: PathGateOptions): PathGate {
+  interface Waiting {
+    readonly ref: FileRef;
+    resolve(entry: FileEntry): void;
+    reject(error: unknown): void;
+  }
+  const keyOf = (ref: FileRef): string => `${rootRefKey(ref.root)}\u0000${ref.path}`;
+  const refused = new Set<string>();
+  const line: Waiting[] = [];
+  let inFlight = 0;
+  /** How many requests may be out: one until an answer that is not a refusal, one again after every refusal. */
+  let width = 1;
+  let quietUntil = 0;
+
+  const send = (): void => {
+    while (inFlight < width && line.length > 0) {
+      const next = line.shift() as Waiting;
+      inFlight += 1;
+      options.stat(next.ref).then(
+        (entry) => {
+          inFlight -= 1;
+          width = MAX_LOOKUPS_IN_FLIGHT;
+          next.resolve(entry);
+          send();
+        },
+        (error: unknown) => {
+          inFlight -= 1;
+          if (isSmurgError(error) && REFUSALS.has(error.code)) {
+            refused.add(keyOf(next.ref));
+            quietUntil = options.now() + REFUSAL_QUIET_MS;
+            width = 1;
+            for (const waiting of line.splice(0)) waiting.reject(new PathNotAskedError());
+          } else if (isSmurgError(error)) {
+            // The host answered ("there is no such file"): the names that wait may be asked.
+            width = MAX_LOOKUPS_IN_FLIGHT;
+          }
+          next.reject(error);
+          send();
+        },
+      );
+    }
+  };
+
+  return {
+    stat(ref, viewer) {
+      if (!mayAskAbout(ref.path, viewer) || refused.has(keyOf(ref)) || options.now() < quietUntil) return Promise.reject(new PathNotAskedError());
+      return new Promise<FileEntry>((resolve, reject) => {
+        line.push({ ref, resolve, reject });
+        send();
+      });
+    },
+  };
+}
+
+const gates = new WeakMap<object, PathGate>();
+
+/** The gate of a connection: one per files store, shared by every conversation and terminal of the page. */
+export function pathGateOf(files: { stat(ref: FileRef): Promise<FileEntry> }): PathGate {
+  let gate = gates.get(files);
+  if (gate === undefined) {
+    gate = createPathGate({ stat: (ref) => files.stat(ref), now: () => Date.now() });
+    gates.set(files, gate);
+  }
+  return gate;
 }
 
 export type LinkTargetKind = 'file' | 'dir';

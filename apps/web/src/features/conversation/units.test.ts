@@ -2,9 +2,10 @@
 import { describe, expect, it } from 'vitest';
 import { MAIN_ROOT, MENTIONS_PER_TEXT_MAX } from '@smurg/protocol';
 import type { ConnectionState } from '../../lib/connection/types.ts';
+import { forgetAllDrafts, forgetDrafts } from '../../lib/workspace/drafts-storage.ts';
 import { MemoryStorage } from '../../testing/services.tsx';
 import { diffStat, parseDiff } from './diff.ts';
-import { DRAFTS_MAX, EMPTY_DRAFT, createDraftsStore, draftsOf, forgetDrafts } from './drafts.ts';
+import { DRAFTS_MAX, EMPTY_DRAFT, createDraftsStore, draftsOf } from './drafts.ts';
 import { applyMention, matchPeople, mentionQueryAt, mentionsIn, personOf, whoDiscuss, withAgentAccess, type Person } from './people.ts';
 import { cardDomId, commandHead, commonDir, lineRange, quoteSelection, showControls } from './text.ts';
 
@@ -186,13 +187,19 @@ describe('drafts', () => {
     expect(draftsOf(late, 'ws_1').getState().size).toBe(0);
     expect(window.localStorage.getItem(KEY)).toBeNull();
 
-    // For the places that end a member's access themselves (logging out, leaving).
+    // For the places that end a member's access themselves (leaving, logging out, forgetting a workspace).
     const storage = new MemoryStorage();
     createDraftsStore('ws_2', storage).setText('s1', 'x');
     createDraftsStore('ws_3', storage).setText('s1', 'y');
+    createDraftsStore('ws_4', storage).setText('s1', 'z');
+    storage.setItem('smurg.columns.ws_3', '{}');
     forgetDrafts('ws_2', storage);
     expect(storage.getItem('smurg.drafts.ws_2')).toBeNull();
     expect(storage.getItem('smurg.drafts.ws_3')).not.toBeNull();
+    forgetAllDrafts(storage);
+    expect(storage.getItem('smurg.drafts.ws_3')).toBeNull();
+    expect(storage.getItem('smurg.drafts.ws_4')).toBeNull();
+    expect(storage.getItem('smurg.columns.ws_3')).toBe('{}');
   });
 });
 

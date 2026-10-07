@@ -5,7 +5,9 @@
 // resolve(): lexical layer → root still the registered directory → walk every component with lstat, resolving
 // symlinks with realpath and requiring every step to stay inside the root (a registered read-only shared link is the
 // one exception: its target must be exactly the recorded shared directory) → the non-existing tail is plain names →
-// host-only / hidden / read-only / special-file / hard-link rules.
+// host-only / hidden / read-only / special-file / hard-link rules. A request that moves, removes or puts in place a
+// whole entry (`subtree`: both ends of a rename, a delete) is also refused when the entry is a folder that holds a
+// path the caller may not write: a folder is everything below it.
 // openRead(): re-validate, open the symlink-free path with O_NOFOLLOW|O_NONBLOCK, fstat must be the same inode.
 // writeFileAtomic(): tmp in the checked parent (O_EXCL|O_NOFOLLOW), parent re-validated, rename / link, post-move
 // check (removes a file that landed outside), directory fsync.
@@ -15,13 +17,13 @@ import { constants as fsConstants } from 'node:fs';
 import { link, lstat, open, rename, rmdir, unlink, type FileHandle } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { MAIN_ROOT, SmurgError, checkRelPath, foldPathName, isHostOnlyPath, isHostPrivatePath, isInTopicDir, isSmurgDirName, relPathSegments, rootRefKey, type FileRef, type RootRef } from '@smurg/protocol';
+import { MAIN_ROOT, SmurgError, checkRelPath, foldRelPath, isHostOnlyPath, isHostPrivatePath, isInTopicDir, isRelPathWithin, isSmurgDirName, relPathSegments, rootRefKey, topicDirPath, type FileRef, type RootRef } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { PathDeniedError, isPathDeniedError, type PathDeniedReason } from '../core/errors.ts';
 import type { AuditLog, FileIdentity, GuardedFile, PathGuard, ResolveOptions, ResolvedPath, RootInfo, RootRegistry, SharedLink } from '../core/interfaces.ts';
 import { isHostPrincipal } from '../core/permissions.ts';
 import { syncDirectory } from '../core/state-store.ts';
-import { errnoCode, identityOf, isInside, lstatOrNull, otherSpellings, realpathOrNull, sameObject } from './fs-util.ts';
+import { errnoCode, findNameBelow, identityOf, isInside, lstatOrNull, otherSpellings, realpathOrNull, sameObject } from './fs-util.ts';
 import { checkAbsoluteLength, checkLexicalPath, describeTarget, platformLimits, type PlatformLimits } from './lexical.ts';
 
 /** Largest file readFile() loads into memory; bigger reads must stream through openRead(). */
@@ -37,6 +39,8 @@ export interface PathGuardOptions {
    * every write of a non-host, so the answer is always the trust gate's current one. Default: none.
    */
   readonly protectedPaths?: (root: RootRef) => ReadonlySet<string>;
+  /** Entries looked at below a folder that is moved or removed (default SUBTREE_SCAN_MAX_ENTRIES; tests lower it). */
+  readonly subtreeScanMaxEntries?: number;
 }
 
 function rootLabel(root: unknown): string {
@@ -62,16 +66,12 @@ function tmpNameFor(name: string): string {
   return `.${stem}.smurg-${randomBytes(6).toString('hex')}.tmp`;
 }
 
-/** A path as a case-insensitive file system would compare it (protocol foldPathName, segment by segment). */
-function foldedPath(path: string): string {
-  return relPathSegments(path).map(foldPathName).join('/');
-}
-
 export class PathGuardImpl implements PathGuard {
   private readonly roots: RootRegistry;
   private readonly audit: AuditLog;
   private readonly protectedPaths: (root: RootRef) => ReadonlySet<string>;
   private readonly limits: PlatformLimits;
+  private readonly subtreeScanMaxEntries: number | undefined;
   /**
    * The file system compares names byte-wise, not normalisation-insensitively like APFS (Linux: ext4, btrfs, xfs,
    * tmpfs): an NFC request is mapped onto the entry that spells the same name differently (fs-util otherSpellings).
@@ -82,6 +82,7 @@ export class PathGuardImpl implements PathGuard {
     this.roots = options.roots;
     this.audit = options.audit;
     this.protectedPaths = options.protectedPaths ?? (() => new Set());
+    this.subtreeScanMaxEntries = options.subtreeScanMaxEntries;
     const platform = options.platform ?? process.platform;
     this.limits = platformLimits(platform);
     this.normalisationSensitive = platform !== 'darwin';
@@ -376,14 +377,26 @@ export class PathGuardImpl implements PathGuard {
     const itemSlug = shared === null ? root.item?.topicSlug : undefined;
     if (itemSlug !== undefined && options.principal.kind === 'user' && spellings.some((spelling) => isInTopicDir(spelling, itemSlug))) readOnly = true;
     let hostOnly = spellings.some((spelling) => isHostOnlyPath(spelling));
-    if (!hostOnly && shared === null) {
-      // Files the trust gate records (scripts a trusted settings file runs): host-only while that content is trusted.
-      const recorded = this.recordedPaths(root.ref);
-      if (recorded.size > 0) hostOnly = spellings.some((spelling) => recorded.has(foldedPath(spelling)));
-    }
+    // Files the trust gate records (scripts a trusted settings file runs): host-only while that content is trusted.
+    const recorded = shared === null ? this.recordedPaths(root.ref) : new Set<string>();
+    if (!hostOnly && recorded.size > 0) hostOnly = spellings.some((spelling) => recorded.has(foldRelPath(spelling)));
     if (options.forWrite) {
       if (readOnly) throw new PathDeniedError('read-only', target);
       if (hostOnly && !isPrivileged) throw new PathDeniedError('host-only', target);
+      if (options.subtree === true) {
+        // The whole entry moves, goes, or is put in place: a write of every path it holds (or, at the destination of a
+        // rename, would hold). A folder ABOVE a path the caller may not write is refused like that path, else a
+        // rename of the parent folder replaces what a write of the file itself cannot.
+        const folders = spellings.map(foldRelPath);
+        const holds = (folded: string): boolean => folders.some((folder) => isRelPathWithin(folded, folder));
+        if (itemSlug !== undefined && options.principal.kind === 'user' && holds(foldRelPath(topicDirPath(itemSlug)))) throw new PathDeniedError('read-only', target);
+        if (!isPrivileged) {
+          for (const path of recorded) if (holds(path)) throw new PathDeniedError('host-only', target);
+          // The host-only names are host-only at ANY depth: the folder is looked through as it is on disk. A tree
+          // too large to look through, or one that cannot be listed, is refused (the host moves it).
+          if (exists && identity?.kind === 'dir' && (await findNameBelow(realPath, isHostOnlyPath, this.subtreeScanMaxEntries)) !== 'none') throw new PathDeniedError('host-only', target);
+        }
+      }
     }
     // Reads too: the host-private files (.git, .envrc, the host's personal Claude Code files) are not
     // handed to anyone but the host through file.read / download / doc.open. Decided on the request's, the resolved and
@@ -425,7 +438,7 @@ export class PathGuardImpl implements PathGuard {
     try {
       const paths = this.protectedPaths(root);
       if (paths.size === 0) return paths;
-      return new Set([...paths].map(foldedPath));
+      return new Set([...paths].map(foldRelPath));
     } catch {
       return new Set();
     }

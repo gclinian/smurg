@@ -11,18 +11,24 @@ import { msg } from '@smurg/protocol/i18n';
 import { buildPermission } from '../../src/core/fakes/build.ts';
 import type { DaemonEvents, Principal } from '../../src/core/interfaces.ts';
 import { createMemoryLogger } from '../../src/core/logger.ts';
+import { loginOfAccount } from '../../src/sessions/agent/agent-runner.ts';
 import { AgentSessionsImpl } from '../../src/sessions/agent/agent-sessions.ts';
 import type { HostRulesImpl } from '../../src/sessions/agent/host-rules.ts';
 import type { ProjectTrustImpl } from '../../src/sessions/agent/project-settings.ts';
-import { TEST_HOST_USER, createTempDir, removeTempDir, waitFor, type FakeClaudeScenario, type FakeClaudeStep, type TestClient } from '../../src/testing/index.ts';
+import { CLAUDE_ACCOUNTS, TEST_HOST_USER, createTempDir, createTempRunDir, createTestDaemon, removeTempDir, removeTempRunDir, waitFor, type FakeClaudeScenario, type FakeClaudeStep, type TestClient } from '../../src/testing/index.ts';
+import { createSessionsModule } from '../../src/sessions/module.ts';
+import { createFakes, fakeServicesModule } from './helpers.ts';
 import { startSessionStack, type SessionStack, type SessionStackOptions } from './setup.ts';
 
 let current: SessionStack | null = null;
 const dirs: string[] = [];
+/** State directories a test owns (a second daemon ran over them). */
+const runDirs: string[] = [];
 afterEach(async () => {
   await current?.cleanup();
   current = null;
   for (const dir of dirs.splice(0)) await removeTempDir(dir);
+  for (const dir of runDirs.splice(0)) await removeTempRunDir(dir);
 });
 
 const AGENT = { kind: 'agent', workspace: { mode: 'main' } } as const;
@@ -121,6 +127,52 @@ describe('messages that wait', { timeout: 60_000 }, () => {
   });
 });
 
+describe('what a message can pull in', { timeout: 60_000 }, () => {
+  it("DX-9 an `@path` in a message is text: every message is written as composed by smurg, so Claude Code expands no file mention (a first message, a later one, one of smurg's own, a suggestion's text)", async () => {
+    const r = await rig();
+    // A file of the host outside the project, and one inside it.
+    const outside = join(r.s.hostHome, 'notes.txt');
+    await writeFile(outside, 'OUTSIDE-MARKER\n');
+    await writeFile(join(r.s.t.root, 'inside.txt'), 'INSIDE-MARKER\n');
+    const text = `look at @${outside} and @inside.txt and @"${outside}"`;
+    const { session } = await r.host.conn.request('session.create', { ...AGENT, firstMessage: text });
+    await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= 7, 'the first turn');
+    await r.say(session.id, TEST_HOST_USER, `@${outside}`);
+    await r.agents.send(session.id, { kind: 'smurg', purpose: 'start-item', text: `Read @${outside} first.` });
+    await r.agents.send(session.id, { kind: 'person', from: r.principal(TEST_HOST_USER), text: `@inside.txt please`, cleaned: false, origin: 'composer', suggestion: { id: 'sg_1', acceptedBy: { userId: TEST_HOST_USER, displayName: 'Host' }, modified: false } });
+    await waitFor(async () => (await r.told()).length === 4, { timeoutMs: 15_000, what: 'four messages to reach the agent' });
+    const echoed = await r.s.fakeClaude.echoed();
+    const lines = echoed.filter((entry) => entry.kind === 'stdin' && (entry.value as { type?: string }).type === 'user').map((entry) => entry.value as { client_composed?: unknown });
+    expect(lines).toHaveLength(4);
+    expect(lines.map((line) => line.client_composed)).toEqual([true, true, true, true]);
+    // The stand-in expands a mention like the real CLI when a message is not marked: nothing was expanded.
+    expect(await r.s.fakeClaude.mentions()).toEqual([]);
+    // The text itself is untouched: people and the agent read the same characters.
+    expect((await r.told())[0]).toBe(`[Host · Host]\n${text}`);
+  });
+});
+
+describe('what an agent writes, as everyone reads it', { timeout: 60_000 }, () => {
+  it('R4-07 agent text loses bidirectional, zero-width and control characters before it is stored or streamed; a credential cannot hide from the mask behind one', async () => {
+    const cp = (...points: number[]): string => String.fromCodePoint(...points);
+    const text = `Run \`rm -rf ${cp(0x202e)}tmp/ # dliub\` and use sk-ant-${cp(0x200b)}abcdefgh12345678${cp(0x1b)}[0m. Done ${cp(0x1f468)}${cp(0x200d)}${cp(0x1f469)}.`;
+    const r = await rig([{ steps: [{ text, deltas: [text.slice(0, 20), text.slice(20)], deltaMs: 60 }] }], { daemon: { agents: { deltaCoalesceMs: 20 } } });
+    const deltas: PayloadOf<'session.delta'>[] = [];
+    r.host.conn.on('session.delta', (payload) => deltas.push(payload));
+    const { session } = await r.host.conn.request('session.create', AGENT);
+    await r.until(session.id, idle, 'the start');
+    await r.host.conn.request('session.watch', { sessionId: session.id });
+    await r.say(session.id, TEST_HOST_USER, 'go');
+    await waitFor(async () => (await r.events(session.id)).some((event) => event.kind === 'text'), { timeoutMs: 15_000, what: 'the text' });
+    const stored = (await r.events(session.id)).find((event) => event.kind === 'text');
+    expect(stored).toMatchObject({ text: `Run \`rm -rf tmp/ # dliub\` and use [masked][0m. Done ${cp(0x1f468)}${cp(0x200d)}${cp(0x1f469)}.` });
+    const streamed = deltas.map((delta) => delta.text).join('');
+    expect(streamed.length).toBeGreaterThan(0);
+    for (const unseen of [0x202e, 0x200b, 0x1b]) expect(streamed.includes(cp(unseen)), unseen.toString(16)).toBe(false);
+    expect(streamed).not.toContain('abcdefgh12345678');
+  });
+});
+
 describe('what a turn and a start can run into', { timeout: 60_000 }, () => {
   it('a turn that ends with an error: turn.finished{error} and the notice; the session stays usable', async () => {
     const r = await rig([{ match: 'break', steps: [{ text: 'Trying.' }, { result: { subtype: 'error_during_execution', is_error: true } }] }]);
@@ -183,20 +235,133 @@ describe('what a turn and a start can run into', { timeout: 60_000 }, () => {
     ]);
   });
 
-  it('a personal subscription login: the host alone is told, once per workspace, and only when someone else is a member', async () => {
-    const r = await rig([], { scenario: { account: { apiKeySource: 'none', tokenSource: 'claude.ai', subscriptionType: 'max' } } });
-    const notices = (): string[] => r.s.fakes.activity.notifications.filter((entry) => entry.msg?.id === 'notice.personalSubscription').map((entry) => entry.userId);
+  it('R5-02 a personal subscription login, as Claude Code reports it ("Claude Max"): the host alone is told, once per workspace (also after a restart), and only when someone else is a member', async () => {
+    const stateDir = await createTempRunDir();
+    runDirs.push(stateDir);
+    const r = await rig([], { scenario: { account: CLAUDE_ACCOUNTS.subscriptionMax }, daemon: { stateDir } });
+    const told = (fakes: Rig['s']['fakes']): string[] => fakes.activity.notifications.filter((entry) => entry.msg?.id === 'notice.personalSubscription').map((entry) => entry.userId);
     const alone = (await r.host.conn.request('session.create', AGENT)).session;
     await r.until(alone.id, idle, 'the first start');
     // The host by themselves: a subscription for one's own use is what it is for.
-    expect(notices()).toEqual([]);
+    expect(told(r.s.fakes)).toEqual([]);
     expect(r.agents.get(alone.id)?.login).toBe('logged-in');
     await r.s.t.connect({ userId: 'dev:mei', displayName: 'Mei', role: 'agent' });
     for (let i = 0; i < 2; i++) {
       const { session } = await r.host.conn.request('session.create', AGENT);
       await r.until(session.id, idle, `start ${i + 2}`);
     }
+    expect(told(r.s.fakes)).toEqual([TEST_HOST_USER]);
+    // The host's smurg starts again over the same workspace: the host was told once, and is not told again.
+    r.host.close();
+    await r.s.t.daemon.stop();
+    const fakes = createFakes();
+    const selfCommand = { file: '/usr/bin/true', args: [] };
+    const again = await createTestDaemon({
+      root: r.s.t.root,
+      stateDir,
+      workspaceId: r.s.t.workspaceId,
+      modules: [fakeServicesModule(fakes), createSessionsModule({ hostEnv: () => ({ PATH: '/usr/bin:/bin', HOME: r.s.hostHome, ...r.s.fakeClaude.env }), hostShell: '/bin/sh', launch: { claudePath: r.s.fakeClaude.path, selfCommand } })],
+      sessions: { selfCommand, hostHome: r.s.hostHome },
+    });
+    try {
+      const host = await again.connectHost();
+      expect(again.ctx.members.list().map((member) => member.userId)).toContain('dev:mei');
+      const { session } = await host.conn.request('session.create', AGENT);
+      await waitFor(() => again.ctx.services.agents.get(session.id)?.status === 'idle', { timeoutMs: 15_000, what: 'a start after the restart' });
+      expect(told(fakes)).toEqual([]);
+    } finally {
+      await again.cleanup();
+    }
+  });
+
+  it('R5-02 the names Claude Code has for a login: Pro and Max are personal subscriptions; Team, Enterprise and an API key are not; a host who is not connected gets the notice when they connect', async () => {
+    const said = (subscriptionType: string | undefined): boolean => loginOfAccount({ ...(subscriptionType === undefined ? CLAUDE_ACCOUNTS.apiKey : { subscriptionType, apiProvider: 'firstParty' }) }).personalSubscription;
+    expect(['Claude Max', 'Claude Pro', 'Claude Max 20x', 'max', 'pro'].map(said)).toEqual([true, true, true, true, true]);
+    expect(['Claude Team', 'Claude Enterprise', 'Claude API', 'Claude Team Max', 'Claude Promo', undefined].map(said)).toEqual([false, false, false, false, false, false]);
+    // A team login: nobody is told anything.
+    const team = await rig([], { scenario: { account: { subscriptionType: 'Claude Team', apiProvider: 'firstParty' } } });
+    await team.s.t.connect({ userId: 'dev:mei', displayName: 'Mei', role: 'agent' });
+    const first = (await team.host.conn.request('session.create', AGENT)).session;
+    await team.until(first.id, idle, 'the start');
+    expect(team.agents.get(first.id)?.login).toBe('logged-in');
+    expect(team.s.fakes.activity.notifications.filter((entry) => entry.msg?.id === 'notice.personalSubscription')).toEqual([]);
+    await team.s.cleanup();
+    current = null;
+    // A personal one while the host has no window open at all (a member started the session): it waits for the host.
+    const s = await startSessionStack({ scenario: { account: CLAUDE_ACCOUNTS.subscriptionMax } });
+    current = s;
+    const agents = s.t.ctx.services.agents as AgentSessionsImpl;
+    const mei = await s.t.connect({ userId: 'dev:mei', displayName: 'Mei', role: 'agent' });
+    expect(s.t.ctx.hub.recipients({ userId: TEST_HOST_USER, purpose: 'interactive' })).toEqual([]);
+    const { session } = await mei.conn.request('session.create', AGENT);
+    await waitFor(() => agents.get(session.id)?.status === 'idle', { timeoutMs: 15_000, what: "Mei's start" });
+    const notices = (): string[] => s.fakes.activity.notifications.filter((entry) => entry.msg?.id === 'notice.personalSubscription').map((entry) => entry.userId);
+    expect(notices()).toEqual([]);
+    await s.t.connectHost();
+    await waitFor(() => notices().length === 1, { what: "the notice at the host's next connection" });
     expect(notices()).toEqual([TEST_HOST_USER]);
+  });
+
+  it('R5-07 the login state Claude Code reports at a start, in its own shapes: no credential is logged out at once (before any turn); an API key and a subscription are logged in', async () => {
+    expect(loginOfAccount(CLAUDE_ACCOUNTS.loggedOut)).toEqual({ state: 'logged-out', personalSubscription: false });
+    expect(loginOfAccount(CLAUDE_ACCOUNTS.apiKey)).toEqual({ state: 'logged-in', personalSubscription: false });
+    expect(loginOfAccount(CLAUDE_ACCOUNTS.subscriptionMax)).toEqual({ state: 'logged-in', personalSubscription: true });
+    // A cloud provider has neither a token nor a key; a shape without `tokenSource` says nothing by itself.
+    expect(loginOfAccount({ tokenSource: 'none', apiProvider: 'bedrock' }).state).toBe('logged-in');
+    expect(loginOfAccount({ apiProvider: 'firstParty' }).state).toBe('logged-in');
+    expect(loginOfAccount({ tokenSource: 'none', apiKeySource: 'none', apiProvider: 'firstParty' }).state).toBe('logged-out');
+    // `claude auth status` still said logged in (its answer is kept for a minute) when the process starts logged out.
+    const r = await rig([], { scenario: { loggedIn: true, account: CLAUDE_ACCOUNTS.loggedOut } });
+    const { session } = await r.host.conn.request('session.create', AGENT);
+    await r.until(session.id, idle, 'the start');
+    expect(r.agents.get(session.id)).toMatchObject({ login: 'logged-out', status: 'idle', lastSeq: 1 });
+    expect(r.agents.account()).toEqual({ state: 'logged-out', sessions: 1 });
+    expect(r.agents.attention()).toMatchObject([{ subject: 'account', recipients: [TEST_HOST_USER] }]);
+  });
+
+  it('R5-05 the host is told about a rule of their own ONCE, whichever folder reports it: the main folder and a worktree see different settings files, and neither the notice nor the inbox item returns when their sessions take turns', async () => {
+    const r = await rig();
+    const rules = r.s.t.ctx.services.hostRules as HostRulesImpl;
+    const user = { rule: 'Bash(ls *)', source: 'user' as const };
+    const local = { rule: 'Bash(pnpm lint *)', source: 'local' as const };
+    const project = { rule: 'Bash(pnpm test *)', source: 'project' as const };
+    const WORKTREE = { kind: 'worktree' as const, worktreeId: 'wt_1' };
+    const found = (): number => r.s.fakes.activity.notifications.filter((entry) => entry.msg?.id === 'hostRules.found').length;
+    // The discussion in the main folder: the user's rule and the one Claude Code saved in settings.local.json.
+    rules.report([local, user], MAIN_ROOT);
+    expect(found()).toBe(1);
+    expect(rules.attention()).toMatchObject([{ subject: 'host-rules', count: 2 }]);
+    await rules.markSeen(r.principal(TEST_HOST_USER));
+    // Work items in their worktrees report the user's rule only; the discussion's process starts again after each.
+    for (let round = 0; round < 3; round++) {
+      rules.report([user], WORKTREE);
+      rules.report([local, user], MAIN_ROOT);
+    }
+    expect(found()).toBe(1);
+    expect(rules.attention()).toEqual([]);
+    // The list is the workspace's: what applies in the main folder stays listed while a worktree session started last.
+    rules.report([user], WORKTREE);
+    expect(rules.view()).toEqual({ rules: [local, user], seen: true });
+    expect(rules.applied()).toEqual(['Bash(pnpm lint *)', 'Bash(ls *)']);
+    // A rule nobody was told about: told once, with the workspace's count.
+    rules.report([local, project, user], MAIN_ROOT);
+    expect(found()).toBe(2);
+    expect(r.s.fakes.activity.notifications.filter((entry) => entry.msg?.id === 'hostRules.found').at(-1)?.msg).toMatchObject({ params: { count: 3 } });
+    expect(rules.attention()).toMatchObject([{ count: 3 }]);
+    await rules.markSeen(r.principal(TEST_HOST_USER));
+    // The main folder starts without its project settings (nobody confirmed a change): its rules leave the list, and
+    // are no news when they are back.
+    rules.report([user], MAIN_ROOT);
+    expect(rules.view()).toEqual({ rules: [user], seen: true });
+    rules.report([local, project, user], MAIN_ROOT);
+    expect(found()).toBe(2);
+    expect(rules.attention()).toEqual([]);
+    expect(rules.view().rules).toEqual([local, project, user]);
+    // The host removed every rule: nothing is listed, nothing waits.
+    rules.report([], MAIN_ROOT);
+    rules.report([], WORKTREE);
+    expect(rules.view()).toEqual({ rules: [], seen: true });
+    expect(rules.attention()).toEqual([]);
   });
 
   it('a session whose worktree is gone cannot continue: a start there is refused, and a message to a session that lost its root ends it (worktree-removed)', async () => {
@@ -299,7 +464,7 @@ describe('what a turn and a start can run into', { timeout: 60_000 }, () => {
   });
 
   it('a Claude Code that lost its login while the session runs: the notice in the conversation, the account state for everyone; "Check login again" finds it back', async () => {
-    const r = await rig([], { scenario: { account: { apiKeySource: 'none', tokenSource: 'none' } } });
+    const r = await rig([], { scenario: { account: CLAUDE_ACCOUNTS.loggedOut } });
     const session = await r.s.sessions.create({ ...AGENT, firstMessage: 'hello' }, null as never, r.principal(TEST_HOST_USER));
     await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= 7, 'the turn');
     const ids = await r.ids(session.id);

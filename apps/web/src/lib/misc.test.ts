@@ -9,6 +9,7 @@ import { ClientRequestError, RelayApiError } from '@smurg/protocol/client';
 import { SmurgError } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { applyLocale } from './locale.ts';
+import { trimEndOf } from './trim.ts';
 
 const WS = 'ws_misc_test_workspace_1';
 
@@ -195,6 +196,20 @@ describe('short ages and lists (the inbox, the plan)', () => {
     expect(formatAnd(['小明', '小華'])).toBe('小明和小華');
     expect(formatAnd(['小明', 'Mei'])).toBe('小明和 Mei');
     applyLocale('en');
+  });
+
+  it('trimEndOf cuts a run of the given characters off the end, in time linear in the text', () => {
+    expect(trimEndOf('src/app.ts...', '.')).toBe('src/app.ts');
+    expect(trimEndOf('a\n\nb\n\n', '\n')).toBe('a\n\nb');
+    expect(trimEndOf('...', '.')).toBe('');
+    expect(trimEndOf('a.b', '.')).toBe('a.b');
+    expect(trimEndOf('', '.')).toBe('');
+    // The run that is NOT at the end is what made the expression `/\.+$/` cost the square of its length.
+    const text = `a${'.'.repeat(2_000_000)}b`;
+    const started = performance.now();
+    expect(trimEndOf(text, '.')).toBe(text);
+    expect(trimEndOf(`${text}...`, '.')).toBe(text);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 
   it('joinSentences: a space between two sentences, none after a full-width full stop', () => {

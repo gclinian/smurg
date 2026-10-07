@@ -6,11 +6,15 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { MAIN_ROOT, topicPlanPath, topicReportPath, topicSpecPath, type AgentSession, type AuditEntry, type ConversationEvent, type HostSettings, type PlanInfo, type Topic } from '@smurg/protocol';
 import type { AgentsConfig } from '../../src/core/config.ts';
+import type { DaemonContext, FeatureModule } from '../../src/core/context.ts';
+import { toDisposable } from '../../src/core/lifecycle.ts';
 import { fakePrincipal, fakesModule, fakesOf, type Fakes } from '../../src/core/fakes/index.ts';
 import type { OutboundMessage, Principal } from '../../src/core/interfaces.ts';
 import { TEST_HOST_NAME, TEST_HOST_USER, createTestDaemon, waitFor, type TestClient, type TestDaemon } from '../../src/testing/index.ts';
 import { createTopicsModule, type TopicsModuleOptions } from '../../src/topics/module.ts';
 import { PLAN_MARKER_END, PLAN_MARKER_START } from '../../src/topics/plan-format.ts';
+import type { PlanServiceImpl } from '../../src/topics/plan-service.ts';
+import type { ReportServiceImpl } from '../../src/topics/report-service.ts';
 
 export const HOST: Principal = fakePrincipal(TEST_HOST_USER, 'host', TEST_HOST_NAME);
 
@@ -46,11 +50,17 @@ export interface TopicsTestOptions {
   readonly workspaceId?: string;
   /** Connect Mei and Amy as well (default true). */
   readonly members?: boolean;
+  /**
+   * Runs when the daemon starts, after the fakes exist and BEFORE the topics module starts: what the other modules
+   * already know then (after a restart: the sessions the runtime kept, the merge requests of the worktree module).
+   */
+  readonly seed?: (fakes: Fakes, ctx: DaemonContext) => void | Promise<void>;
 }
 
 export async function setupTopics(options: TopicsTestOptions = {}): Promise<TopicsTest> {
+  const seed: FeatureModule = { name: 'test-seed', register: () => toDisposable(() => {}), start: async (ctx) => options.seed?.(fakesOf(ctx), ctx) };
   const t = await createTestDaemon({
-    modules: [fakesModule({ except: ['topics', 'plans', 'reports'], handlers: true }), createTopicsModule({ fileDebounceMs: 10, ...options.topics })],
+    modules: [fakesModule({ except: ['topics', 'plans', 'reports'], handlers: true }), seed, createTopicsModule({ fileDebounceMs: 10, ...options.topics })],
     agents: { escalationSweepMs: 20, ...options.agents },
     ...(options.settings === undefined ? {} : { settings: options.settings }),
     ...(options.root === undefined ? { project: { files: { 'README.md': '# project\n', ...options.files } } } : { root: options.root }),
@@ -251,6 +261,16 @@ export function smurgSent(test: TopicsTest, sessionId: string): Extract<Outbound
 /** The catalog ids of a session's system lines and notices, in order. */
 export function lineIds(test: TopicsTest, sessionId: string): string[] {
   return test.fakes.agents.eventsOf(sessionId).flatMap((event: ConversationEvent) => (event.kind === 'line' || event.kind === 'notice' ? [event.text.id] : []));
+}
+
+/**
+ * What the topics module does in the background has come to rest: the files and turn ends under way, a whole scheduler
+ * pass, the finishing of items, and one escalation sweep of the reports. Call it before asserting that something did
+ * NOT happen (a fixed wait proves nothing on a busy machine).
+ */
+export async function settle(test: TopicsTest): Promise<void> {
+  await (test.t.ctx.services.plans as PlanServiceImpl).settle();
+  (test.t.ctx.services.reports as ReportServiceImpl).sweep();
 }
 
 export async function readMain(test: TopicsTest, path: string): Promise<string> {

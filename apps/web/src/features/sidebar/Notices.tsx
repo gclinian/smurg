@@ -7,7 +7,7 @@ import type { InboxItem } from '@smurg/protocol';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { columnId, isColumnRef } from '../../lib/columns/target.ts';
 import { describeError } from '../../lib/errors.ts';
-import { formatTime } from '../../lib/format.ts';
+import { formatTime, joinSentences } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectAccount } from '../../lib/stores/host.ts';
 import { selectPausedTopics } from '../../lib/stores/topics.ts';
@@ -15,7 +15,7 @@ import { selectClockSkew, selectUserId } from '../../lib/stores/workspace.ts';
 import { useCan, useStores } from '../../lib/workspace/context.tsx';
 import { Banner, Button, useToast } from '../../ui/index.ts';
 import { useOpenInboxItem } from './InboxList.tsx';
-import { describeInboxItem, type InboxRowContext } from './inbox-rows.ts';
+import { describeInboxItem, inboxTarget, type InboxRowContext } from './inbox-rows.ts';
 import { t } from './strings.ts';
 
 export function ShellBanners() {
@@ -62,16 +62,14 @@ export function ShellBanners() {
           }
         >
           <span data-banner="restart">
-            {pausedItems > 0 ? t('restart.items', { count: pausedItems }) : t('restart.plans', { count: paused.length })}
-            {canDrive ? null : ` ${t('restart.who')}`}
+            {joinSentences([pausedItems > 0 ? t('restart.items', { count: pausedItems }) : t('restart.plans', { count: paused.length }), canDrive ? null : t('restart.who')])}
           </span>
         </Banner>
       ) : null}
       {accountText !== null && account !== null ? (
         <Banner tone="warning" className="sidebar-banner">
           <span data-banner="account">
-            {accountText}
-            {account.sessions > 0 ? ` ${t('account.sessions', { count: account.sessions })}` : null}
+            {joinSentences([accountText, account.sessions > 0 ? t('account.sessions', { count: account.sessions }) : null])}
           </span>
         </Banner>
       ) : null}
@@ -120,7 +118,7 @@ export function InboxNotices({ sessionsShown }: InboxNoticesProps) {
       const { item } = arrival;
       const row = describe(item);
       setAnnouncement(t('inbox.announce', { title: row.title, where: row.where }));
-      const target = item.target;
+      const target = inboxTarget(item, stores.topics.getState());
       const onScreen = shown.current && isColumnRef(target) && stores.columns.getState().columns.some((column) => column.id === columnId(target));
       if (onScreen) continue;
       toast.show({
@@ -130,7 +128,7 @@ export function InboxNotices({ sessionsShown }: InboxNoticesProps) {
         action: { label: t('inbox.toast.open'), onClick: () => open.current(item, false) },
       });
     }
-  }, [arrivals, describe, stores.columns, toast]);
+  }, [arrivals, describe, stores.columns, stores.topics, toast]);
 
   return (
     <div className="ui-visually-hidden" role="status" aria-live="polite" data-inbox-announcer="">

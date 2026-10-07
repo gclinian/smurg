@@ -8,6 +8,8 @@ import {
   entryPathSchema,
   fileRefEquals,
   fileRefKey,
+  foldRelPath,
+  folderHoldsPath,
   fileRefSchema,
   foldPathName,
   isClaudeConfigPath,
@@ -356,5 +358,17 @@ describe("a topic's files", () => {
   it('isInTopicDir: the folder itself and everything below it, nothing beside it', () => {
     for (const path of ['specs/checkout', 'specs/checkout/SPEC.md', 'specs/checkout/reports/cart-api.md', 'SPECS/Checkout/notes.md']) expect(isInTopicDir(path, 'checkout'), path).toBe(true);
     for (const path of ['specs', 'specs/checkout-2/SPEC.md', 'specs/other/SPEC.md', 'src/specs/checkout/x', '']) expect(isInTopicDir(path, 'checkout'), path).toBe(false);
+  });
+
+  it('folderHoldsPath: a folder holds itself and everything below it, under every spelling a file system folds together', () => {
+    expect(foldRelPath('Scripts/Hooks/LINT.sh')).toBe('scripts/hooks/lint.sh');
+    expect(foldRelPath('')).toBe('');
+    for (const folder of ['', 'scripts', 'Scripts', 'scripts/hooks', 'SCRIPTS/Hooks', 'scripts/hooks/lint.sh', 'scripts/hooks/Lint.SH']) expect(folderHoldsPath(folder, 'scripts/hooks/lint.sh'), folder).toBe(true);
+    // A name that only starts like the folder's is another folder; a folder below the path does not hold it.
+    for (const folder of ['script', 'scripts/hook', 'scripts/hooks/lint.sh/x', 'scripts/hooks-old', 'src', 'hooks']) expect(folderHoldsPath(folder, 'scripts/hooks/lint.sh'), folder).toBe(false);
+    // The folder above a topic's folder holds it (isInTopicDir is the other direction).
+    expect(folderHoldsPath('specs', topicDirPath('checkout'))).toBe(true);
+    expect(folderHoldsPath('Specs', topicSpecPath('checkout'))).toBe(true);
+    expect(folderHoldsPath('specs/other', topicDirPath('checkout'))).toBe(false);
   });
 });

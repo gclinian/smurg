@@ -1,7 +1,7 @@
 // The composer by role (UX §4, DESIGN §5.12 item 11): a message from the host and members with agent access, a
 // suggestion from an Editor, a sentence for a viewer; Enter and the input-method guard; mentions; drafts.
 import { act, fireEvent, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SmurgError } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { buildSuggestion, FAKE_NOW } from '@smurg/protocol/testing';
@@ -41,6 +41,48 @@ describe('composer: a member with agent access', () => {
   it('a discussion is named with its topic: two discussions side by side have different boxes', async () => {
     await openConversation({ role: 'agent', session: { purpose: 'discussion', topicId: 't_1', topicName: 'Checkout redesign', modeFixed: true } });
     expect(box('Message Claude · Discussion · Checkout redesign').placeholder).toBe('Message Claude · Discussion · Checkout redesign');
+  });
+
+  it('in a narrow column a discussion\'s box shows the topic\'s name without the word "Discussion", as its header does; its name stays whole (review WX-6)', async () => {
+    // A browser reports the column's width; here the test does (jsdom lays nothing out).
+    let width = 380;
+    const observers = new Set<(entries: unknown[]) => void>();
+    class Observer {
+      private readonly report: (entries: unknown[]) => void;
+      constructor(callback: (entries: unknown[]) => void) {
+        this.report = callback;
+      }
+      observe(): void {
+        observers.add(this.report);
+      }
+      disconnect(): void {
+        observers.delete(this.report);
+      }
+      unobserve(): void {}
+    }
+    vi.stubGlobal('ResizeObserver', Observer);
+    const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => width);
+    try {
+      for (const [role, verb] of [['agent', 'Message Claude'], ['editor', 'Suggest to Claude']] as const) {
+        const view = await openConversation({ role, session: { purpose: 'discussion', topicId: 't_1', topicName: 'Checkout redesign', modeFixed: true } });
+        const field = box(`${verb} · Discussion · Checkout redesign`);
+        expect(field.placeholder, role).toBe(`${verb} · Checkout redesign`);
+        // The column is made wide: the whole name again.
+        width = 640;
+        act(() => {
+          for (const report of observers) report([]);
+        });
+        expect(field.placeholder, role).toBe(`${verb} · Discussion · Checkout redesign`);
+        width = 380;
+        view.unmount();
+      }
+      // A work item's or a free session's name has no word to drop.
+      await openConversation({ role: 'editor' });
+      expect(box('Suggest to Claude · Claude (Ian)').placeholder).toBe('Suggest to Claude · Claude (Ian)');
+    } finally {
+      clientWidth.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('"@" offers the members and fills the mentions; a text that could not be sent stays with the reason', async () => {

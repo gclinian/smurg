@@ -166,9 +166,10 @@ export function registerSessionHandlers(router: Router, ctx: DaemonContext, sess
       const session = agentSession(ctx, sessions, payload.sessionId);
       // A work item's failed session: "Try again" on the session is the plan's "Try again" (`plan.item.retry`): the
       // same session resumes AND smurg tells the agent to go on. Started again alone, the agent would sit idle with
-      // its item shown as running, and nothing would ever ask anyone.
+      // its item shown as running, and nothing would ever ask anyone. (The ITEM decides, not the session's status:
+      // after a restart of the host's smurg a session that had failed is idle, and its item still offers "Try again".)
       const plans = ctx.services.plans;
-      if (session.purpose === 'item' && session.status === 'failed' && !isStubService(plans)) {
+      if (session.purpose === 'item' && !isStubService(plans)) {
         const hit = plans.itemBySession(session.id);
         const archived = session.topicId !== undefined && !isStubService(ctx.services.topics) && ctx.services.topics.get(session.topicId)?.archived === true;
         if (hit !== null && !archived && hit.item.sessionId === session.id && hit.item.state === 'failed') {

@@ -5,6 +5,8 @@
 //
 //   checked ok here, new or changed since the last version  → a new report VERSION: the worktree is snapshotted into a
 //                                                              draft merge request, the reviewers' inbox gets it
+//                                                              (a snapshot that cannot be taken registers NOTHING: the
+//                                                              session says so, and the next completed turn tries again)
 //   checked ok, unchanged                                    → nothing
 //   exists, but this content was not checked ok              → `fix-report`, once per content, at most twice in a row
 //   missing                                                  → `nudge-report`, once
@@ -40,7 +42,7 @@ import {
 import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
-import type { FileCheck, McpToolContext, Principal, ReportService, Req, TurnMessage } from '../core/interfaces.ts';
+import type { FileCheck, McpToolContext, Principal, ReportService, Req, SnapshotResult, TurnMessage } from '../core/interfaces.ts';
 import { newId, type Disposable, toDisposable } from '../core/lifecycle.ts';
 import { SYSTEM_ACTOR } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
@@ -204,7 +206,7 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       // After `resolve-conflict` the worktree changed whatever the agent did (smurg merged the main workspace into
       // it): the snapshot is taken again, so the resolution is committed with its second parent.
       const resolved = event.messages.some((message) => message.purpose === 'resolve-conflict');
-      const unchanged = registered !== null && registered.contentHash === file.hash && registered.sessionId === event.sessionId && event.edited.length === 0 && !resolved;
+      const unchanged = registered !== null && item.snapshotOwed !== true && registered.contentHash === file.hash && registered.sessionId === event.sessionId && event.edited.length === 0 && !resolved;
       if (parse.ok && !unchanged) {
         await this.register(topic, item, event.sessionId, file, parse.report);
         return;
@@ -280,38 +282,85 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     this.core.publish(topic.id);
   }
 
-  /** A new report version: the draft merge request, the stored report, a `pointer` event, the reviewers' inbox. */
-  private async register(topic: StoredTopic, item: StoredItem, sessionId: string, file: FileContent, parsed: ParsedReport): Promise<void> {
+  /** The item's worktree as a draft merge request. A file that changed while the tree was read: that one request is simply repeated. */
+  private async snapshot(topic: StoredTopic, item: StoredItem): Promise<SnapshotResult> {
+    const worktrees = this.ctx.services.worktrees;
+    const input = { worktreeId: item.worktreeId as string, message: `smurg: work item ${item.number} (${item.id})`, topicSlug: topic.slug };
+    try {
+      return await worktrees.snapshot(input);
+    } catch (err) {
+      if (!(err instanceof SmurgError) || err.detail?.['reason'] !== 'worktree-changed' || this.ctx.stopping.aborted) throw err;
+      return worktrees.snapshot(input);
+    }
+  }
+
+  /**
+   * The snapshot could not be taken (a file kept changing, a repository inside the worktree, too many files, git ran
+   * out of time). A report without its changes would read "changed no files" and offer nothing to merge, so NO
+   * version is registered: the session says why, an item without any report needs someone ("Continue"), and the next
+   * completed turn takes the snapshot again whatever the report file says by then. Not when smurg itself is stopping
+   * (that is what ended git): the start looks at the item again.
+   */
+  private snapshotFailed(topic: StoredTopic, item: StoredItem, sessionId: string, contentHash: string, err: unknown): void {
+    this.ctx.log.error('snapshot failed', { topic: topic.id, item: item.id, error: err instanceof Error ? err.name : 'unknown' });
+    if (this.ctx.stopping.aborted) return;
+    this.core.updateItem(topic.id, item.id, (draft) => {
+      draft.snapshotOwed = true;
+    });
+    try {
+      this.ctx.services.agents.append(sessionId, noticeEvent('warning', msg('report.changes.failed')));
+    } catch (failure) {
+      this.ctx.log.debug('snapshot notice not written', { session: sessionId, error: failure instanceof Error ? failure.name : 'unknown' });
+    }
+    const reason = err instanceof SmurgError ? err.detail?.['reason'] : undefined;
+    this.ctx.audit.record({
+      actor: SYSTEM_ACTOR,
+      action: 'report.register',
+      outcome: 'error',
+      target: topic.id,
+      detail: { topicId: topic.id, itemId: item.id, contentHash, sessionId, ...(err instanceof SmurgError ? { code: err.code } : {}), ...(typeof reason === 'string' ? { reason } : {}) },
+    });
+    if (this.core.report(topic.id, item.id) === null) this.stall(topic, item, 'error');
+    else this.core.publish(topic.id);
+  }
+
+  /**
+   * A new report version: the draft merge request, the stored report, a `pointer` event, the reviewers' inbox.
+   * `false`: the worktree could not be snapshotted, and nothing was registered.
+   */
+  private async register(topic: StoredTopic, item: StoredItem, sessionId: string, file: FileContent, parsed: ParsedReport): Promise<boolean> {
     const agents = this.ctx.services.agents;
     const worktrees = this.ctx.services.worktrees;
     const root: RootRef = worktreeRoot(item.worktreeId as string);
     let changes: ReportInfo['changes'];
     let noChanges: ReportInfo['noChanges'];
     if (!isStubService(worktrees)) {
+      // The snapshot IS the report's diff: a draft merge request the reviewer reads and the host can merge.
+      let snapshot: SnapshotResult;
       try {
-        // The snapshot IS the report's diff: a draft merge request the reviewer reads and the host can merge.
-        const snapshot = await worktrees.snapshot({ worktreeId: item.worktreeId as string, message: `smurg: work item ${item.number} (${item.id})`, topicSlug: topic.slug });
-        if (snapshot.ok) {
-          changes = {
-            requestId: snapshot.request.id,
-            files: snapshot.files,
-            additions: snapshot.additions,
-            deletions: snapshot.deletions,
-            byHand: snapshot.byHand.slice(0, REPORT_BY_HAND_MAX).map((entry) => ({ path: entry.path, by: entry.by.slice(0, 20).map((user) => ({ ...user })) })),
-          };
-        } else {
-          // A refused snapshot still registers the report; people are told in the session why there is no diff.
-          noChanges = snapshot.reason;
-          const why =
-            snapshot.reason === 'host-only-paths'
-              ? msg('report.changes.hostOnly')
-              : snapshot.reason === 'spec-files'
-                ? msg('report.changes.specFiles')
-                : msg('report.changes.markers', { files: snapshot.files.slice(0, 5).map((path) => path.slice(0, 200)) });
-          agents.append(sessionId, noticeEvent('warning', why));
-        }
+        snapshot = await this.snapshot(topic, item);
       } catch (err) {
-        this.ctx.log.error('snapshot failed', { topic: topic.id, item: item.id, error: err instanceof Error ? err.name : 'unknown' });
+        this.snapshotFailed(topic, item, sessionId, file.hash, err);
+        return false;
+      }
+      if (snapshot.ok) {
+        changes = {
+          requestId: snapshot.request.id,
+          files: snapshot.files,
+          additions: snapshot.additions,
+          deletions: snapshot.deletions,
+          byHand: snapshot.byHand.slice(0, REPORT_BY_HAND_MAX).map((entry) => ({ path: entry.path, by: entry.by.slice(0, 20).map((user) => ({ ...user })) })),
+        };
+      } else {
+        // A refused snapshot still registers the report; people are told in the session why there is no diff.
+        noChanges = snapshot.reason;
+        const why =
+          snapshot.reason === 'host-only-paths'
+            ? msg('report.changes.hostOnly')
+            : snapshot.reason === 'spec-files'
+              ? msg('report.changes.specFiles')
+              : msg('report.changes.markers', { files: snapshot.files.slice(0, 5).map((path) => path.slice(0, 200)) });
+        agents.append(sessionId, noticeEvent('warning', why));
       }
     }
     const previous = this.core.report(topic.id, item.id);
@@ -354,6 +403,7 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       delete draft.stalledBy;
       delete draft.fix;
       delete draft.changesAsked;
+      delete draft.snapshotOwed;
       if (changes !== undefined) draft.merge = { requestId: changes.requestId, status: 'draft', ready: false };
     });
     try {
@@ -370,6 +420,7 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       detail: { topicId: topic.id, itemId: item.id, version, contentHash: file.hash, sessionId, outcome: parsed.outcome, ...(changes === undefined ? {} : { requestId: changes.requestId }), ...(noChanges === undefined ? {} : { noChanges }) },
     });
     this.core.publishReport(topic.id, item.id, previous === null ? null : this.core.summaryOf(previous));
+    return true;
   }
 
   /** After a restart: a session that was mid-turn may have left a report it had checked; it is registered right then. */
@@ -382,11 +433,12 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       const file = await this.core.readFile(worktreeRoot(item.worktreeId), topicReportPath(topic.slug, item.id));
       if (file === null || !item.checked.some((entry) => entry.sessionId === sessionId && entry.hash === file.hash)) return false;
       const registered = this.core.report(topicId, itemId);
-      if (registered !== null && registered.contentHash === file.hash) return true;
+      if (registered !== null && registered.contentHash === file.hash && item.snapshotOwed !== true) return true;
       const parse = parseReport(file.text, item.id);
       if (!parse.ok) return false;
+      // (a snapshot that fails here has left the item stalled or with its earlier version: nothing more to do at the start)
       await this.register(topic, item, sessionId, file, parse.report);
-      return true;
+      return this.core.report(topicId, itemId) !== null;
     });
   }
 
@@ -400,11 +452,14 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     const item = this.core.needItem(topic, input.itemId);
     const report = this.core.report(topic.id, item.id);
     if (report === null) throw new SmurgError('not_found', msg('report.none'), { reason: 'no-report' });
-    // Merged and reviewed: the item is finished and its session has ended (the sentence points to the discussion).
-    if (item.merged && report.state === 'reviewed') throw new SmurgError('conflict', msg('report.closed'), { reason: 'closed' });
     const agents = this.ctx.services.agents;
     const session = item.sessionId === undefined || isStubService(agents) ? null : agents.get(item.sessionId);
-    if (session === null || session.status === 'ended') throw new SmurgError('conflict', msg('plan.item.noSession'), { reason: 'no-session' });
+    if (session === null || session.status === 'ended') {
+      // Merged and reviewed: the item is finished and its session has ended (the sentence points to the discussion).
+      // While the session is still there the item is not finished (a newer draft waits for the host), and it answers.
+      if (item.merged && report.state === 'reviewed') throw new SmurgError('conflict', msg('report.closed'), { reason: 'closed' });
+      throw new SmurgError('conflict', msg('plan.item.noSession'), { reason: 'no-session' });
+    }
     // A message of that member when they have agent access; else a suggestion. A parked, idle or failed session resumes.
     const result = await this.ctx.services.conversation.sendAs(principal, {
       sessionId: session.id,
@@ -516,7 +571,10 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     }
     this.ctx.audit.record({ actor: principal.actor, action: 'report.review', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, itemId: item.id, version: report.version, ...(insteadOf === undefined ? {} : { insteadOf: insteadOf.userId }), ...(report.outcome === 'complete' ? {} : { acknowledgedUnfinished: true }) } });
     this.core.publishReport(topic.id, item.id, previous);
-    await this.scheduler.finishIfDone(topic.id, item.id);
+    // The review stands whatever the finishing does (the module's sweep asks again for an item that could not be finished).
+    await this.scheduler.finishIfDone(topic.id, item.id).catch((err: unknown) => {
+      this.ctx.log.error('item not finished', { topic: topic.id, item: item.id, error: err instanceof Error ? err.name : 'unknown' });
+    });
     const after = this.core.report(topic.id, item.id);
     return this.core.summaryOf(after ?? report);
   }
@@ -567,6 +625,8 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       } catch (err) {
         this.ctx.log.error('report escalation sweep failed', { error: err instanceof Error ? err.name : 'unknown' });
       }
+      // An item that is merged and reviewed but could not be finished yet (its worktree held something unmerged).
+      void this.scheduler.finishPending().catch((err: unknown) => this.ctx.log.error('finishing items failed', { error: err instanceof Error ? err.name : 'unknown' }));
     }, this.ctx.config.agents.escalationSweepMs);
     this.sweepTimer.unref();
     return toDisposable(() => this.stopSweep());

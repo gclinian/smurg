@@ -194,7 +194,7 @@ export const topics = {
   }),
   'report.notReviewer': message({ name: 'string' }, {
     en: (p) => `${p.name} reviews this report.`,
-    'zh-TW': (p) => `這份報告由 ${p.name} 檢視`,
+    'zh-TW': (p) => `這份報告由 ${p.name} 負責看`,
   }),
   'report.unfinished': message({}, {
     en: () => 'This work item is not finished. Confirm that you want to mark it reviewed anyway.',
@@ -223,6 +223,10 @@ export const topics = {
   'report.changes.markers': message({ files: 'list' }, {
     en: (p) => `The changes cannot be recorded yet: conflict markers remain in ${joinList('en', p.files)}.`,
     'zh-TW': (p) => `還不能記錄變更：${joinList('zh-TW', p.files)} 裡還有衝突標記`,
+  }),
+  'report.changes.failed': message({}, {
+    en: () => "smurg could not read this item's changes, so its report is not registered yet. It tries again when the agent's next turn ends.",
+    'zh-TW': () => 'smurg 讀不到這個項目的變更，所以報告還沒有登記。agent 的下一回合結束時會再試一次',
   }),
   'report.outcome.complete': message({}, {
     en: () => 'Complete',

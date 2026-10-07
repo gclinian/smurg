@@ -157,6 +157,77 @@ describe('R2 kicking a member', { timeout: 60_000 }, () => {
   });
 });
 
+describe('R3-04 what the commands of an AGENT session left running', { timeout: 120_000 }, () => {
+  const AGENT = { kind: 'agent', workspace: { mode: 'main' } } as const;
+  /**
+   * The agent starts a background job with its Bash tool (a dev server, a watcher), then its turn ends. The job is a
+   * `node` like a dev server is (its shell is gone at once, so it is an orphan from its first moment: the session's
+   * id in its environment is what ties it to the session). `job` is its last argument, for `pidsOf`.
+   */
+  const jobOf = (job: string): string => `serve.js ${job}`;
+  const leaves = (job: string) => ({ turns: [{ match: 'serve', steps: [{ tool: 'Bash', input: { command: `nohup '${process.execPath}' -e 'setTimeout(() => {}, 600000)' ${jobOf(job)} >/dev/null 2>&1 &` }, run: true, ask: false }, { text: 'Started.' }] }] });
+  const agentIdle = async (s: SessionStack, id: string, minSeq: number): Promise<void> => waitFor(() => s.t.ctx.services.agents.get(id)?.status === 'idle' && (s.t.ctx.services.agents.get(id)?.lastSeq ?? 0) >= minSeq, 'the turn', 15_000);
+
+  it('End: Claude Code exits by itself when its input closes; what it started is ended all the same', async () => {
+    const s = await stack();
+    const job = token('71');
+    await s.fakeClaude.setScenario(leaves(job));
+    const mei = await s.t.connect({ userId: 'dev:mei', role: 'agent' });
+    const { session } = await mei.conn.request('session.create', { ...AGENT, firstMessage: 'serve the app' });
+    await agentIdle(s, session.id, 9);
+    expect(await pidsOf(jobOf(job))).toHaveLength(1);
+    await mei.conn.request('session.end', { sessionId: session.id });
+    await waitFor(async () => (await pidsOf(jobOf(job))).length === 0, 'the job of the ended session to be gone', 5_000);
+  });
+
+  it('a kick of the member who opened it ends what her agent started, within 3 s', async () => {
+    const s = await stack();
+    const job = token('72');
+    await s.fakeClaude.setScenario(leaves(job));
+    const host = await s.t.connectHost();
+    const mei = await s.t.connect({ userId: 'dev:mei', role: 'agent' });
+    const { session } = await mei.conn.request('session.create', { ...AGENT, firstMessage: 'serve the app' });
+    await agentIdle(s, session.id, 9);
+    expect(await pidsOf(jobOf(job))).toHaveLength(1);
+    await host.conn.request('admin.member.kick', { userId: 'dev:mei' });
+    await waitFor(async () => (await pidsOf(jobOf(job))).length === 0, 'the job of the kicked member to be gone', 3_000);
+    expect(s.t.ctx.services.agents.get(session.id)?.status).toBe('ended');
+  });
+
+  it('parking leaves it running (the session goes on); the End of the parked session, which has no process of its own any more, still ends it', async () => {
+    const s = await stack();
+    const job = token('73');
+    await s.fakeClaude.setScenario(leaves(job));
+    const host = await s.t.connectHost();
+    const { session } = await host.conn.request('session.create', { ...AGENT, firstMessage: 'serve the app' });
+    await agentIdle(s, session.id, 9);
+    await sleep(2_600); // at least one descendant scan while the process runs
+    await s.t.ctx.services.agents.restartProcess(session.id, 'slot');
+    await waitFor(() => s.t.ctx.services.agents.facts(session.id)?.hasProcess === false, 'the process to be parked');
+    await sleep(500);
+    expect(await pidsOf(jobOf(job))).toHaveLength(1);
+    await host.conn.request('session.end', { sessionId: session.id });
+    await waitFor(async () => (await pidsOf(jobOf(job))).length === 0, 'the job of the ended, parked session to be gone', 5_000);
+  });
+
+  it('smurg stopping ends what the agents of this run started, of a parked session too', async () => {
+    const s = await stack();
+    const [running, parked] = [token('74'), token('75')];
+    await s.fakeClaude.setScenario({ turns: [...leaves(running).turns.map((turn) => ({ ...turn, match: 'serve one' })), ...leaves(parked).turns.map((turn) => ({ ...turn, match: 'serve two' }))] });
+    const host = await s.t.connectHost();
+    const first = (await host.conn.request('session.create', { ...AGENT, firstMessage: 'serve one' })).session;
+    const second = (await host.conn.request('session.create', { ...AGENT, firstMessage: 'serve two' })).session;
+    await agentIdle(s, first.id, 9);
+    await agentIdle(s, second.id, 9);
+    await s.t.ctx.services.agents.restartProcess(second.id, 'slot');
+    await waitFor(() => s.t.ctx.services.agents.facts(second.id)?.hasProcess === false, 'the second process to be parked');
+    expect((await Promise.all([pidsOf(jobOf(running)), pidsOf(jobOf(parked))])).map((pids) => pids.length)).toEqual([1, 1]);
+    host.close();
+    await s.t.daemon.stop();
+    await waitFor(async () => (await Promise.all([pidsOf(jobOf(running)), pidsOf(jobOf(parked))])).every((pids) => pids.length === 0), 'the jobs to be gone with the daemon', 5_000);
+  });
+});
+
 describe('R11 the host console', { timeout: 60_000 }, () => {
   it('the host can end any session from the console with one click — an Agent access member\'s session and the host\'s own, processes included', async () => {
     const s = await stack();

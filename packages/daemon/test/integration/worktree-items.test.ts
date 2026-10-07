@@ -74,6 +74,10 @@ describe('a work item\'s worktree (real locks, files, docs and worktree modules)
       expect(await refusal(member.conn.request('file.create', { file: at('specs/checkout/reports'), kind: 'dir' }))).toMatchObject({ code: 'path_denied', reason: 'read-only' });
       expect(await refusal(member.conn.request('file.rename', { root, from: 'specs/checkout/PLAN.md', to: 'specs/checkout/OLD.md' }))).toMatchObject({ code: 'path_denied' });
       expect(await refusal(member.conn.request('file.delete', { file: at('specs/checkout/SPEC.md') }))).toMatchObject({ code: 'path_denied' });
+      // Nor the folder above it: a rename of `specs` would put another SPEC.md where the agent reads its task.
+      expect(await refusal(member.conn.request('file.rename', { root, from: 'specs', to: 'specs.bak' }))).toMatchObject({ code: 'path_denied', reason: 'read-only' });
+      expect(await refusal(member.conn.request('file.rename', { root, from: 'src', to: 'specs/checkout/src' }))).toMatchObject({ code: 'path_denied', reason: 'read-only' });
+      expect(await refusal(member.conn.request('file.delete', { file: at('specs') }))).toMatchObject({ code: 'path_denied', reason: 'read-only' });
     }
     const specDoc = await DocClient.open(amy.conn, at('specs/checkout/SPEC.md'));
     expect(specDoc.opened.canEdit).toBe(false);

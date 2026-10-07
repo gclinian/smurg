@@ -8,6 +8,7 @@
 import { MESSAGE_TEXT_MAX_CHARS } from '@smurg/protocol';
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { describeError } from '../../lib/errors.ts';
+import { gapAfter } from '../../lib/format.ts';
 import { useConnectionState } from '../../lib/workspace/context.tsx';
 import { Button, IconButton } from '../../ui/index.ts';
 import { IconClose, IconSend } from '../../ui/icons.tsx';
@@ -141,7 +142,9 @@ export function AskBox({ draftKey, label, placeholder, hint, sendLabel, quote, i
       </div>
       {problem !== null ? (
         <p id={`${id}-problem`} className="topics-ask__problem" role="alert">
-          {problem} {failure !== null ? errorAction?.(failure) : null}
+          {problem}
+          {gapAfter(problem)}
+          {failure !== null ? errorAction?.(failure) : null}
         </p>
       ) : hint ? (
         <p id={`${id}-hint`} className="topics-ask__hint">

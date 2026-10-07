@@ -94,6 +94,18 @@ export class PlanServiceImpl implements PlanService {
     this.reports = reports;
   }
 
+  /**
+   * Resolves when what this module does in the background has come to rest: the reading of a topic's files and the
+   * end of a turn that are under way, one whole scheduler pass, and the finishing of merged and reviewed items. The
+   * module's tests call it before they assert that something did NOT happen, instead of waiting a fixed time.
+   */
+  async settle(): Promise<void> {
+    await this.core.idle();
+    await this.scheduler.runNow();
+    await this.scheduler.finishPending();
+    await this.core.idle();
+  }
+
   // ===================================================================================================================
   // Reading
   // ===================================================================================================================
@@ -570,9 +582,13 @@ export class PlanServiceImpl implements PlanService {
     const by = userRefOf(principal);
     const topic = this.core.needOpen(input.topicId);
     const item = this.core.needItem(topic, input.itemId);
-    if (item.state === 'failed' && this.liveSession(item) !== null) {
-      // The same session and conversation resume (AgentSessions.retry writes its line and audit entry).
-      await this.ctx.services.agents.retry(item.sessionId as string, principal);
+    const sessionId = this.liveSession(item);
+    if (item.state === 'failed' && sessionId !== null) {
+      // The same session and conversation resume. While the runtime still calls the session failed, it starts the
+      // process again (AgentSessions.retry writes its line and audit entry, and keeps "only the host" after three
+      // failed starts). After a restart of the host's smurg the session is merely idle: the message below starts it.
+      const agents = this.ctx.services.agents;
+      if (agents.get(sessionId)?.status === 'failed') await agents.retry(sessionId, principal);
       await this.scheduler.sendContinue(topic.id, item.id, by);
     } else if (item.state === 'stopped' || (item.state === 'failed' && this.liveSession(item) === null)) {
       // A new session in the same worktree, when a slot is free.

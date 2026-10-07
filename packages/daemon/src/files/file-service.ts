@@ -226,8 +226,10 @@ export class FileServiceImpl implements FileService {
     if (input.from === input.to) throw badRequest('same-path', msg('file.sameName'));
     await this.refuseDaemonOwned(fromRef, principal);
     await this.refuseDaemonOwned(toRef, principal);
-    const from = await this.ctx.paths.resolve(fromRef, { principal, forWrite: true, mustExist: true, finalSymlink: 'self' });
-    const to = await this.ctx.paths.resolve(toRef, { principal, forWrite: true, finalSymlink: 'self' });
+    // Both ends are whole entries (`subtree`): a folder is refused when it holds, or would be put above, a path this
+    // member may not write (PathGuard; fs-ops asks again right before the move).
+    const from = await this.ctx.paths.resolve(fromRef, { principal, forWrite: true, subtree: true, mustExist: true, finalSymlink: 'self' });
+    const to = await this.ctx.paths.resolve(toRef, { principal, forWrite: true, subtree: true, finalSymlink: 'self' });
     const isDir = from.identity?.kind === 'dir';
     await this.refuseIfLocked(from, isDir);
     if (to.exists) await this.refuseIfLocked(to, to.identity?.kind === 'dir');
@@ -247,7 +249,7 @@ export class FileServiceImpl implements FileService {
 
   async delete(ref: FileRef, principal: Principal): Promise<void> {
     await this.refuseDaemonOwned(ref, principal);
-    const resolved = await this.ctx.paths.resolve(ref, { principal, forWrite: true, mustExist: true, finalSymlink: 'self' });
+    const resolved = await this.ctx.paths.resolve(ref, { principal, forWrite: true, subtree: true, mustExist: true, finalSymlink: 'self' });
     const isDir = resolved.identity?.kind === 'dir';
     await this.refuseIfLocked(resolved, isDir);
     this.announce(ref, principal, isDir);

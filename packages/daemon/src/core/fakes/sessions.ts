@@ -42,11 +42,11 @@ export class FakeSessionManager implements SessionManager {
   loginState: LoginState = 'logged-in';
   private readonly env: FakeEnv;
   private readonly agents: FakeAgentSessions;
-  private readonly worktrees: Pick<WorktreeManager, 'setOwner'> | null;
+  private readonly worktrees: Pick<WorktreeManager, 'setOwner' | 'list'> | null;
   private readonly terminals = new Map<string, TerminalSession>();
 
   /** With `worktrees`, a handed-over work item's worktree passes to the host too (as the real teardown does). */
-  constructor(env: FakeEnv, agents: FakeAgentSessions, worktrees: Pick<WorktreeManager, 'setOwner'> | null = null) {
+  constructor(env: FakeEnv, agents: FakeAgentSessions, worktrees: Pick<WorktreeManager, 'setOwner' | 'list'> | null = null) {
     this.env = env;
     this.agents = agents;
     this.worktrees = worktrees;
@@ -174,6 +174,8 @@ export class FakeSessionManager implements SessionManager {
           ended.push(session.id);
         }
       }
+      // Every worktree they still own passes to the host.
+      if (userId !== host) for (const worktree of this.worktrees?.list() ?? []) if (worktree.ownerUserId === userId) await this.worktrees?.setOwner(worktree.id, hostPrincipal);
     }
     const cleared = new Set<string>();
     if (losesDiscuss) {

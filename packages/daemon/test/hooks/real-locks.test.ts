@@ -60,4 +60,16 @@ describe('hook server × the real lock manager', () => {
     await expect.poll(() => got.length).toBe(1);
     expect(got[0]).toMatchObject({ from: { kind: 'agent', sessionId: s.sessionId }, text: 'done with free.txt' });
   });
+
+  it("DX-12 notify_member carries an agent's own words to a person: they are masked like every other text of an agent", async () => {
+    const { t: d, hooks } = await setup();
+    const amy = await d.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'viewer' });
+    const got: MemberNotification[] = [];
+    amy.conn.on('activity.notify', (payload) => got.push(payload.notification));
+    const s = registerAgent(hooks, HOST);
+    const message = 'The key in .env is sk-ant-abcdefgh12345678 and the header is Authorization: Bearer abc.def.ghi-123';
+    expect(await mcpRequest(hooks.socketPath, s.token, 'notify_member', { member: 'Amy', message })).toMatchObject({ ok: true, result: { delivered: true } });
+    await expect.poll(() => got.length).toBe(1);
+    expect(got[0]?.text).toBe('The key in .env is [masked] and the header is Authorization: [masked]');
+  });
 });

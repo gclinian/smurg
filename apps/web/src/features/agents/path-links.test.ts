@@ -5,7 +5,7 @@ import { Terminal } from '@xterm/xterm';
 import type { ILink } from '@xterm/xterm';
 import { MAIN_ROOT, SmurgError, worktreeRoot, type FileEntry, type FileRef } from '@smurg/protocol';
 import { makeEntry } from '../../testing/fixtures.ts';
-import { createPathExistence, createPathLinkProvider, findPathCandidates, mayAskAbout, normalizeSessionPath, resolveCandidate } from './path-links.ts';
+import { MAX_LOOKUPS_IN_FLIGHT, REFUSAL_QUIET_MS, createPathExistence, createPathGate, createPathLinkProvider, findPathCandidates, mayAskAbout, normalizeSessionPath, pathGateOf, resolveCandidate } from './path-links.ts';
 
 
 const paths = (line: string) => findPathCandidates(line).map((c) => (c.line === undefined ? c.path : `${c.path}@${c.line}${c.column === undefined ? '' : `:${c.column}`}`));
@@ -31,6 +31,43 @@ describe('path candidates in terminal output', () => {
     // 「修改 」 is 3 UTF-16 units and 'src/a.ts:3' is 10 more.
     const [candidate] = findPathCandidates('修改 src/a.ts:3');
     expect(candidate).toMatchObject({ start: 3, end: 13, text: 'src/a.ts:3', path: 'src/a.ts', line: 3 });
+  });
+});
+
+describe('finding candidates costs in proportion to the text (review R4-03: it runs while a conversation renders)', () => {
+  /** The quickest of three runs: one pause of a busy machine is not the text's cost. */
+  const quickest = (run: () => void): number => {
+    let best = Number.POSITIVE_INFINITY;
+    for (let round = 0; round < 3; round += 1) {
+      const started = performance.now();
+      run();
+      best = Math.min(best, performance.now() - started);
+    }
+    return best;
+  };
+
+  it('a long run of dots inside a name, or any other run, does not hold the page', () => {
+    const size = 200_000;
+    for (const line of [
+      `a${'.'.repeat(size)}b`,
+      `src/a${'.'.repeat(size)}b and src/app.ts`,
+      `${'a/'.repeat(size / 2)}!`,
+      `${'../'.repeat(size / 3)}!`,
+      `${'./'.repeat(size / 2)}!`,
+      'a.'.repeat(size / 2),
+      `${'a:1:1 '.repeat(size / 6)}`,
+      '.'.repeat(size),
+      `${'a'.repeat(size)}.ts`,
+      `${'-'.repeat(size)}/a.ts`,
+    ]) {
+      expect(quickest(() => void findPathCandidates(line)), line.slice(0, 16)).toBeLessThan(250);
+    }
+  });
+
+  it('still cuts the sentence punctuation off a path, and only that', () => {
+    expect(paths('Wrote src/app.ts... and lib/a.b.ts.')).toEqual(['src/app.ts', 'lib/a.b.ts']);
+    const [candidate] = findPathCandidates('see src/app.ts...');
+    expect(candidate).toMatchObject({ start: 4, end: 14, text: 'src/app.ts' });
   });
 });
 
@@ -119,5 +156,120 @@ describe('which paths a viewer may ask the host about at all', () => {
     }
     // What a member can open is asked about as before: host-ONLY files (only the host writes them) can be read.
     for (const path of ['src/app.ts', 'README.md', '.env', '.github/workflows/ci.yml', 'CLAUDE.md', '.claude/settings.json', 'src/.smurg/x', 'gitignore/.gitignore']) expect(mayAskAbout(path, member), path).toBe(true);
+  });
+});
+
+describe("the gate every lookup of a path in someone's text goes through (review R4-04, second round)", () => {
+  const MEMBER = { isHost: false };
+  const ref = (path: string): FileRef => ({ root: MAIN_ROOT, path });
+
+  /** A host that answers when the test says so. */
+  function host() {
+    const pending: { path: string; resolve(entry: FileEntry): void; reject(error: unknown): void }[] = [];
+    const asked: string[] = [];
+    let now = 1_000;
+    const gate = createPathGate({
+      stat: (file) =>
+        new Promise<FileEntry>((resolve, reject) => {
+          asked.push(file.path);
+          pending.push({ path: file.path, resolve, reject });
+        }),
+      now: () => now,
+    });
+    const settle = async (): Promise<void> => {
+      for (let round = 0; round < 8; round += 1) await Promise.resolve();
+    };
+    return {
+      gate,
+      asked,
+      inFlight: () => pending.length,
+      advance: (ms: number) => void (now += ms),
+      async answer(code?: 'path_denied' | 'not_found' | 'rate_limited'): Promise<void> {
+        const next = pending.shift()!;
+        if (code === undefined) next.resolve(makeEntry(next.path));
+        else next.reject(new SmurgError(code));
+        await settle();
+      },
+      /** The outcome of a lookup: the entry's path, or 'no' when it was refused, missing or never asked. */
+      ask: (path: string, viewer = MEMBER): Promise<string> => gate.stat(ref(path), viewer).then((entry) => entry.path, () => 'no'),
+    };
+  }
+
+  it('asks about one path first and about at most a few at a time afterwards', async () => {
+    const h = host();
+    const all = Array.from({ length: 12 }, (_, index) => h.ask(`src/f${index}.ts`));
+    expect(h.asked).toEqual(['src/f0.ts']);
+    await h.answer();
+    expect(h.inFlight()).toBe(MAX_LOOKUPS_IN_FLIGHT);
+    await h.answer();
+    expect(h.inFlight()).toBe(MAX_LOOKUPS_IN_FLIGHT);
+    while (h.inFlight() > 0) await h.answer();
+    expect(h.asked).toHaveLength(12);
+    expect(await Promise.all(all)).toEqual(Array.from({ length: 12 }, (_, index) => `src/f${index}.ts`));
+  });
+
+  it('a refusal answers everything that waited, is remembered for that path, and nothing is asked for a while', async () => {
+    const h = host();
+    const all = Array.from({ length: 40 }, (_, index) => h.ask(`README.md/a${index}`));
+    expect(h.asked).toEqual(['README.md/a0']);
+    await h.answer('path_denied');
+    expect(await Promise.all(all)).toEqual(Array.from({ length: 40 }, () => 'no'));
+    expect(h.asked).toEqual(['README.md/a0']);
+    // During the quiet time nothing is asked, whatever the path.
+    h.advance(REFUSAL_QUIET_MS - 1);
+    expect(await h.ask('src/app.ts')).toBe('no');
+    expect(h.asked).toHaveLength(1);
+    // Afterwards it starts with one request again, and never with the refused path.
+    h.advance(2);
+    expect(await h.ask('README.md/a0')).toBe('no');
+    const later = [h.ask('src/app.ts'), h.ask('src/b.ts'), h.ask('src/c.ts')];
+    expect(h.asked).toEqual(['README.md/a0', 'src/app.ts']);
+    await h.answer();
+    expect(h.asked).toEqual(['README.md/a0', 'src/app.ts', 'src/b.ts', 'src/c.ts']);
+    await h.answer();
+    await h.answer('not_found');
+    expect(await Promise.all(later)).toEqual(['src/app.ts', 'src/b.ts', 'no']);
+  });
+
+  it('refusals that were already on their way are counted once: the gate is one request wide again after any of them', async () => {
+    const h = host();
+    const first = h.ask('src/a.ts');
+    await h.answer();
+    expect(await first).toBe('src/a.ts');
+    const burst = Array.from({ length: 10 }, (_, index) => h.ask(`node_modules/pkg/f${index}.js`));
+    expect(h.inFlight()).toBe(MAX_LOOKUPS_IN_FLIGHT);
+    await h.answer('path_denied');
+    // The three that were out with it come back refused too; none of the six that waited is asked.
+    while (h.inFlight() > 0) await h.answer('path_denied');
+    expect(await Promise.all(burst)).toEqual(Array.from({ length: 10 }, () => 'no'));
+    expect(h.asked).toHaveLength(1 + MAX_LOOKUPS_IN_FLIGHT);
+    h.advance(REFUSAL_QUIET_MS + 1);
+    void h.ask('src/x.ts');
+    void h.ask('src/y.ts');
+    expect(h.inFlight()).toBe(1);
+  });
+
+  it("never asks about a name the viewer's role cannot open, and keeps one gate per connection", async () => {
+    const h = host();
+    expect(await h.ask('.git/config')).toBe('no');
+    expect(await h.ask('.smurg/state.json')).toBe('no');
+    expect(h.asked).toEqual([]);
+    void h.ask('.git/config', { isHost: true });
+    expect(h.asked).toEqual(['.git/config']);
+    const files = { stat: async (file: FileRef) => makeEntry(file.path) };
+    expect(pathGateOf(files)).toBe(pathGateOf(files));
+    expect(pathGateOf({ stat: files.stat })).not.toBe(pathGateOf(files));
+  });
+
+  it('"there is no such file" is an answer, not a refusal: what waited is asked next', async () => {
+    const h = host();
+    const first = h.ask('src/a.ts');
+    const second = h.ask('src/b.ts');
+    expect(h.asked).toEqual(['src/a.ts']);
+    await h.answer('not_found');
+    expect(await first).toBe('no');
+    expect(h.asked).toEqual(['src/a.ts', 'src/b.ts']);
+    await h.answer();
+    expect(await second).toBe('src/b.ts');
   });
 });

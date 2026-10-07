@@ -1629,17 +1629,39 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
       valid: [
         { roots: [{ root: MAIN, state: 'ignored', files: [claudeConfigFile] }, { root: WT, state: 'none', files: [] }], hasMore: false },
         { roots: [{ root: MAIN, state: 'used', files: [{ ...claudeConfigFile, decision: 'trust', needsAck: [] }] }], hasMore: true },
+        // A summary that is not whole says so; a variable that changes which programs run; the entry for the rest of `.claude/`.
+        {
+          roots: [
+            {
+              root: MAIN,
+              state: 'ignored',
+              files: [
+                { ...claudeConfigFile, env: [{ name: 'NODE_OPTIONS', flagged: false, programs: true }], needsAck: ['incomplete'], cut: { omitted: 3, shortened: 1 } },
+                { ...claudeConfigFile, path: '.claude', text: `${HASH}  .claude/agents/reviewer.md`, runs: ['hook in .claude/agents/reviewer.md: ./scripts/check.sh'], env: [], otherKeys: ['.claude/agents/reviewer.md'], needsAck: [] },
+              ],
+            },
+          ],
+          hasMore: false,
+        },
       ],
       invalid: [
         { roots: [{ root: MAIN, state: 'ignored', files: [claudeConfigFile] }] },
         { roots: [{ root: MAIN, state: 'trusted', files: [] }], hasMore: false },
         { roots: [{ root: MAIN, state: 'used', files: [{ ...claudeConfigFile, hash: 'abc' }] }], hasMore: false },
+        { roots: [{ root: MAIN, state: 'used', files: [{ ...claudeConfigFile, cut: { omitted: -1, shortened: 0 } }] }], hasMore: false },
+        { roots: [{ root: MAIN, state: 'used', files: [{ ...claudeConfigFile, cut: { omitted: 1 } }] }], hasMore: false },
+        { roots: [{ root: MAIN, state: 'used', files: [{ ...claudeConfigFile, needsAck: ['whole'] }] }], hasMore: false },
+        { roots: [{ root: MAIN, state: 'used', files: [claudeConfigFile, claudeConfigFile, claudeConfigFile, claudeConfigFile, claudeConfigFile] }], hasMore: false },
       ],
     },
   },
   'admin.claudeConfig.decide': {
     payload: {
-      valid: [{ root: MAIN, files: [{ path: '.mcp.json', hash: HASH }], decision: 'trust', acknowledged: ['allows-tools'] }, { root: WT, files: [{ path: '.claude/settings.json', hash: HASH }], decision: 'ignore', acknowledged: [] }],
+      valid: [
+        { root: MAIN, files: [{ path: '.mcp.json', hash: HASH }], decision: 'trust', acknowledged: ['allows-tools'] },
+        { root: WT, files: [{ path: '.claude/settings.json', hash: HASH }], decision: 'ignore', acknowledged: [] },
+        { root: MAIN, files: [{ path: '.claude/settings.json', hash: HASH }, { path: '.claude/settings.local.json', hash: HASH }, { path: '.mcp.json', hash: HASH }, { path: '.claude', hash: HASH }], decision: 'trust', acknowledged: ['credentials', 'allows-tools', 'incomplete'] },
+      ],
       invalid: [{ root: MAIN, files: [], decision: 'trust', acknowledged: [] }, { root: MAIN, files: [{ path: '.mcp.json', hash: HASH }], decision: 'always', acknowledged: [] }, { root: MAIN, files: [{ path: '.mcp.json' }], decision: 'trust', acknowledged: [] }],
     },
     result: emptyOnly,

@@ -7,6 +7,7 @@
 import { SUGGESTION_TEXT_MAX_CHARS, isSessionOver, type FileRef, type SessionInfo } from '@smurg/protocol';
 import type { Capabilities } from '../../lib/capabilities.ts';
 import type { CommandMap } from '../../lib/commands.ts';
+import { trimEndOf } from '../../lib/trim.ts';
 
 /** A Monaco selection in 1-based lines and columns (what the view reports). */
 export interface EditorSelection {
@@ -61,7 +62,7 @@ export function selectionHeader(input: { file: FileRef; startLine: number; endLi
 }
 
 export function formatSelectionForAgent(input: { file: FileRef; startLine: number; endLine: number; code: string }): string {
-  const code = sanitizeForAgent(input.code).replace(/\n+$/, '');
+  const code = trimEndOf(sanitizeForAgent(input.code), '\n');
   const fence = fenceFor(code);
   return `${selectionHeader(input)}\n${fence}\n${code}\n${fence}`;
 }
@@ -81,7 +82,7 @@ export type SelectionPayload =
 export function buildSelectionPayload(file: FileRef, selection: EditorSelection | null, selectedText: string, sessionId?: string): SelectionPayload {
   if (selection === null || isEmptySelection(selection) || selectedText.trim() === '') return { ok: false, problem: 'empty' };
   const { startLine, endLine } = selectionLines(selection);
-  const code = sanitizeForAgent(selectedText).replace(/\n+$/, '');
+  const code = trimEndOf(sanitizeForAgent(selectedText), '\n');
   if (formatSelectionForAgent({ file, startLine, endLine, code }).length > SUGGESTION_TEXT_MAX_CHARS) return { ok: false, problem: 'too-large' };
   return { ok: true, payload: { file, startLine, endLine, text: code, ...(sessionId === undefined ? {} : { sessionId }) } };
 }

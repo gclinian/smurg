@@ -128,6 +128,26 @@ describe('the strings of a permission card', () => {
     expect(permissionRequestSchema.safeParse(copy).success).toBe(true);
     expect(memberCopy({ ...outside, reason: 'Needs the host' }).reason).toBe('Needs the host');
   });
+
+  it('the copy for everyone but the host never carries the old and new text of a file members may not read', () => {
+    const change = { text: '@@ -1 +1 @@\n-127.0.0.1 localhost\n+127.0.0.1 evil.example\n' };
+    // An edit outside every root: the daemon did not read the file, so each replacement stands there by itself.
+    const outside = buildPermission({ tool: 'Edit', what: 'outside', command: undefined, alwaysRule: undefined, noAlways: 'host-only', hostOnly: true, outside: true, path: '/etc/hosts', change });
+    expect(outside.change).toEqual(change);
+    expect(Object.keys(memberCopy(outside))).not.toContain('change');
+    expect(permissionRequestSchema.safeParse(memberCopy(outside)).success).toBe(true);
+    // An edit the card names no file for (a host-private target the runner did not name), and a host-private file in a root.
+    const unnamed = buildPermission({ tool: 'Edit', what: 'edit', command: undefined, alwaysRule: undefined, noAlways: 'host-only', hostOnly: true, change });
+    expect(unnamed.file).toBeUndefined();
+    expect(Object.keys(memberCopy(unnamed))).not.toContain('change');
+    const secret = buildPermission({ tool: 'Edit', what: 'edit', command: undefined, alwaysRule: undefined, noAlways: 'host-only', hostOnly: true, file: { root: { kind: 'main' }, path: '.claude/settings.local.json' }, change });
+    expect(Object.keys(memberCopy(secret))).not.toContain('change');
+    // The diff of a file members can read stays, also when only the host may allow it.
+    const readable = buildPermission({ tool: 'Edit', what: 'edit', command: undefined, alwaysRule: undefined, noAlways: 'host-only', hostOnly: true, file: { root: { kind: 'main' }, path: '.claude/settings.json' }, change });
+    expect(memberCopy(readable).change).toEqual(change);
+    const plain = buildPermission({ tool: 'Edit', what: 'edit', command: undefined, file: { root: { kind: 'main' }, path: 'src/app.ts' }, change });
+    expect(memberCopy(plain)).toEqual(plain);
+  });
 });
 
 describe('mentions and sentences', () => {

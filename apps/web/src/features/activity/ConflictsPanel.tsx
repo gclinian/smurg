@@ -8,7 +8,7 @@ import { isHostOnlyPath, isSmurgError, lockOfError, type ConflictHunk, type Conf
 import { useEffect, useId, useRef, useState } from 'react';
 import { NoCommandHandlerError } from '../../lib/commands.ts';
 import { describeError } from '../../lib/errors.ts';
-import { formatBytes, formatDateTime, formatList, formatNumber } from '../../lib/format.ts';
+import { formatBytes, formatDateTime, formatList, formatNumber, joinSentences } from '../../lib/format.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { selectConflictList } from '../../lib/stores/conflicts.ts';
 import { useCapabilities, useCommands, useStores } from '../../lib/workspace/context.tsx';
@@ -123,10 +123,10 @@ function ConflictCard({ conflict }: { conflict: ConflictRecord }) {
         </Button>
       </header>
       <p className="conflict__summary">
-        {humans === ''
-          ? t('conflict.summaryNobody', { source, time: formatDateTime(conflict.createdAt) })
-          : t('conflict.summary', { source, time: formatDateTime(conflict.createdAt), humans })}{' '}
-        {conflict.status === 'open' ? t('conflict.kept', { source }) : null}
+        {joinSentences([
+          humans === '' ? t('conflict.summaryNobody', { source, time: formatDateTime(conflict.createdAt) }) : t('conflict.summary', { source, time: formatDateTime(conflict.createdAt), humans }),
+          conflict.status === 'open' ? t('conflict.kept', { source }) : null,
+        ])}
       </p>
       {conflict.hunks.map((hunk, index) => (
         <HunkView key={index} hunk={hunk} source={source} />

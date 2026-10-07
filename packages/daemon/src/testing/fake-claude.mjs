@@ -9,10 +9,25 @@
 //                   --settings <file> --mcp-config <file> --tools <list> --permission-mode <mode> …
 //
 // The scenario (JSON; its path is in $FAKE_CLAUDE_SCENARIO, absent: every message is answered "ok"):
-//   { "version": "2.1.288", "loggedIn": true, "account": { "apiKeySource": "ANTHROPIC_API_KEY", "tokenSource": "none" },
+//   { "version": "2.1.288", "loggedIn": true,
+//     "account": { "tokenSource": "none", "apiKeySource": "ANTHROPIC_API_KEY", "apiProvider": "firstParty" },
 //     "rules": [ { "behavior": "allow", "source": "userSettings", "rule": "Bash(ls *)" } ],
 //     "extraTools": ["TaskStop"],
 //     "turns": [ { "match": "<regex on the message text>", "once": true, "steps": [ … ] } ] }
+// `account` is the WHOLE `initialize.account` object, as Claude Code 2.1.288 answers it (recorded with the real binary
+// against the fake API; fake-claude.ts CLAUDE_ACCOUNTS holds the three shapes): the default is an API key in the
+// environment; `{ "tokenSource": "none", "apiProvider": "firstParty" }` is no credential at all (`init.apiKeySource` is
+// then "none" and every turn answers "Not logged in"); `{ "subscriptionType": "Claude Max", "apiProvider":
+// "firstParty" }` is a claude.ai login (`init.apiKeySource` is "none" there too).
+// Like the real one, the stand-in also reads the HOST'S OWN settings files: `$HOME/.claude/settings.json` (source
+// userSettings; the sessions' HOME is a test's fake home), `<cwd>/.claude/settings.json` (projectSettings) and
+// `<cwd>/.claude/settings.local.json` (localSettings), the last two not with `--setting-sources user`. Their
+// `permissions` are rules of the session (and are listed by `list_permission_rules` with their source), their hooks run
+// after the ones of `--settings`; a PreToolUse hook's `updatedInput` replaces the input the permission request and the
+// call carry (the assistant's tool_use line keeps the input the "model" wrote).
+// A user message WITHOUT `client_composed: true` is treated as typed by a person: an `@path` in it that names a file
+// is expanded like the real CLI does (the file is read with no tool call); the stand-in records it as an echo entry
+// of kind `mention`.
 // A user message starts the first turn whose `match` fits (no `match`: any); a turn marked `once` is used one time per
 // conversation (remembered across --resume). Steps:
 //   { "text": "…", "deltas": ["…","…"], "parent": "<tool use id>" }   an assistant text block (streamed first)
@@ -104,6 +119,27 @@ const readJson = (path) => {
 };
 const settings = flag('--settings') ? readJson(flag('--settings')) : {};
 const mcpConfig = flag('--mcp-config') ? readJson(flag('--mcp-config')) : {};
+// The host's own settings files, in the order Claude Code names their sources. The user's file is read from the
+// session's HOME only (every harness gives the sessions a fake home), never from $CLAUDE_CONFIG_DIR: a developer who
+// has that variable set must not have their real settings read, or their real hooks run, by a test.
+const ownSettings = [
+  ['userSettings', env.HOME ? readJson(join(env.HOME, '.claude', 'settings.json')) : {}],
+  ...(flag('--setting-sources') === 'user' ? [] : [['projectSettings', readJson(join(cwd, '.claude', 'settings.json'))], ['localSettings', readJson(join(cwd, '.claude', 'settings.local.json'))]]),
+];
+/** Every rule that does not come from `--settings`: the files above, then the scenario's. */
+const hostRules = [];
+for (const [source, file] of ownSettings) {
+  for (const behavior of ['allow', 'ask', 'deny']) {
+    const list = file?.permissions?.[behavior];
+    for (const rule of Array.isArray(list) ? list : []) if (typeof rule === 'string') hostRules.push({ behavior, source, rule });
+  }
+}
+for (const rule of Array.isArray(scenario0.rules) ? scenario0.rules : []) hostRules.push(rule);
+const hostRulesOf = (behavior) => hostRules.filter((entry) => entry.behavior === behavior).map((entry) => entry.rule);
+// `initialize.account` (see the header): the whole object.
+const account = scenario0.account ?? { tokenSource: 'none', apiKeySource: 'ANTHROPIC_API_KEY', apiProvider: 'firstParty' };
+const hasKey = typeof account.apiKeySource === 'string' && account.apiKeySource !== 'none';
+const notLoggedIn = !hasKey && account.subscriptionType === undefined;
 const toolList = (flag('--tools') ?? 'Read,Glob,Grep,Edit,Write,Bash,AskUserQuestion').split(',').filter(Boolean);
 let permissionMode = flag('--permission-mode') ?? 'default';
 const sessionRules = [];
@@ -149,27 +185,33 @@ function runCommand(command, args, stdin, timeoutMs = 15_000) {
   });
 }
 
-/** Runs the hooks of one event; returns the deny reason of a PreToolUse hook, or null. */
+/**
+ * Runs the hooks of one event: the ones of `--settings` first, then the host's own. Returns the deny reason of a
+ * PreToolUse hook (or null) and, when a PreToolUse hook answered `updatedInput`, the input the call goes on with.
+ */
 async function runHooks(event, tool, extra = {}) {
-  const groups = settings.hooks?.[event] ?? [];
+  const groups = [...(settings.hooks?.[event] ?? []), ...ownSettings.flatMap(([, file]) => (Array.isArray(file?.hooks?.[event]) ? file.hooks[event] : []))];
   let denied = null;
+  let updatedInput;
   for (const group of groups) {
     if (tool !== undefined && !matcherFits(group.matcher, tool)) continue;
     for (const hook of group.hooks ?? []) {
       if (hook.type !== 'command' || typeof hook.command !== 'string') continue;
       const input = JSON.stringify({ hook_event_name: event, session_id: claudeSessionId, cwd, permission_mode: permissionMode, ...(tool === undefined ? {} : { tool_name: tool }), ...extra });
-      const result = await runCommand(hook.command, hook.args, input, (hook.timeout ?? 10) * 1000);
+      // Exec form (command + args), or a command line for the shell.
+      const result = Array.isArray(hook.args) ? await runCommand(hook.command, hook.args, input, (hook.timeout ?? 10) * 1000) : await runCommand('/bin/sh', ['-c', hook.command], input, (hook.timeout ?? 10) * 1000);
       if (event !== 'PreToolUse' || denied !== null) continue;
       try {
         const parsed = JSON.parse(result.stdout);
         const specific = parsed?.hookSpecificOutput;
         if (specific?.permissionDecision === 'deny') denied = String(specific.permissionDecisionReason ?? 'denied');
+        else if (typeof specific?.updatedInput === 'object' && specific.updatedInput !== null) updatedInput = specific.updatedInput;
       } catch {
         // no output: no decision
       }
     }
   }
-  return denied;
+  return { denied, updatedInput };
 }
 
 // ---- permissions (a small model of Claude Code's rules: enough for the scripted calls) --------------------------------
@@ -192,8 +234,43 @@ function ruleFits(rule, tool, input) {
   }
   const target = String(input.file_path ?? input.notebook_path ?? input.path ?? '');
   const absolute = pattern.startsWith('//') ? pattern.slice(1) : isAbsolute(pattern) ? join(cwd, pattern) : join(cwd, pattern);
-  const regex = new RegExp(`^${absolute.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*\//g, '(?:.*/)?').replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*')}$`);
+  let regex;
+  try {
+    regex = new RegExp(`^${pathPatternSource(absolute)}$`);
+  } catch {
+    return false;
+  }
   return regex.test(isAbsolute(target) ? target : join(cwd, target));
+}
+
+/**
+ * A rule's path pattern as Claude Code 2.1.288 reads it (each line seen with the real binary): `**` and `*` are
+ * wildcards, a character after a backslash is itself, an unescaped `[…]` is a CHARACTER CLASS (so a folder named
+ * `a[b]c` is matched only by `a\[b\]c`), `(`, `)`, `{`, `}`, `!` and `?` are themselves.
+ */
+function pathPatternSource(pattern) {
+  const literal = (char) => char.replace(/[.+^${}()|[\]\\*?/-]/g, '\\$&');
+  let source = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i];
+    if (char === '\\' && i + 1 < pattern.length) source += literal(pattern[++i]);
+    else if (pattern.startsWith('**/', i)) {
+      source += '(?:.*/)?';
+      i += 2;
+    } else if (pattern.startsWith('**', i)) {
+      source += '.*';
+      i += 1;
+    } else if (char === '*') source += '[^/]*';
+    else if (char === '[') {
+      const end = pattern.indexOf(']', i + 2);
+      if (end === -1) source += '\\[';
+      else {
+        source += `[${pattern.slice(i + 1, end).replace(/\\/g, '\\\\')}]`;
+        i = end;
+      }
+    } else source += literal(char);
+  }
+  return source;
 }
 const anyRule = (rules, tool, input) => (rules ?? []).some((rule) => ruleFits(rule, tool, input));
 const READ_ONLY = /^(ls|cat|pwd|echo|git (status|diff|log)|printf)\b/;
@@ -202,8 +279,8 @@ function needsPermission(tool, input) {
   if (tool === 'AskUserQuestion') return true;
   if (tool.startsWith('mcp__smurg')) return false;
   const all = settings.permissions ?? {};
-  if (anyRule(all.ask, tool, input)) return true;
-  if (anyRule([...(all.allow ?? []), ...sessionRules, ...(scenario0.rules ?? []).filter((r) => r.behavior === 'allow').map((r) => r.rule)], tool, input)) return false;
+  if (anyRule([...(all.ask ?? []), ...hostRulesOf('ask')], tool, input)) return true;
+  if (anyRule([...(all.allow ?? []), ...sessionRules, ...hostRulesOf('allow')], tool, input)) return false;
   if (['Read', 'Glob', 'Grep', 'TodoWrite', 'Task'].includes(tool)) return false;
   if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return permissionMode !== 'acceptEdits';
   if (tool === 'Bash') return !READ_ONLY.test(String(input.command ?? ''));
@@ -270,7 +347,7 @@ function initLine() {
     mcp_servers: Object.keys(mcpConfig.mcpServers ?? {}).map((name) => ({ name, status: 'connected' })),
     model: 'claude-fake',
     permissionMode,
-    apiKeySource: scenario0.account?.apiKeySource ?? 'ANTHROPIC_API_KEY',
+    apiKeySource: hasKey ? account.apiKeySource : 'none',
     claude_code_version: VERSION,
     uuid: randomUUID(),
   };
@@ -369,12 +446,24 @@ async function toolStep(step) {
   const toolUseId = step.id ?? `toolu_fake_${String(++toolSeq).padStart(4, '0')}`;
   const parent = step.parent ?? null;
   out({ type: 'assistant', message: { id: `msg_fake_${++messageSeq}`, type: 'message', role: 'assistant', model: 'claude-fake', content: [{ type: 'tool_use', id: toolUseId, name: tool, input }] }, parent_tool_use_id: parent, session_id: claudeSessionId, uuid: randomUUID() });
-  const denied = await runHooks('PreToolUse', tool, { tool_input: input, tool_use_id: toolUseId });
-  if (denied !== null) {
-    toolResultLine(toolUseId, `PreToolUse:${tool} hook error: ${denied}`, true, undefined, parent);
+  // Claude Code 2.1.288 offers the subagent tool as `Task` (`init.tools`, the assistant's tool_use) and names it
+  // `Agent` towards its hooks (recorded: "PreToolUse:Agent hook error: …"). Without the name in `--tools` it has no
+  // such tool. (For every OTHER tool the stand-in is deliberately more willing than the real CLI: a call of a tool
+  // that `--tools` does not name still reaches the hooks, so a test can see smurg's own gate refuse it; the real
+  // CLI answers "No such tool available" before any hook runs.)
+  const hookTool = tool === 'Task' ? 'Agent' : tool;
+  if (tool === 'Task' && ![...toolList, ...(scenario0.extraTools ?? [])].includes(tool)) {
+    toolResultLine(toolUseId, `<tool_use_error>Error: No such tool available: ${tool}</tool_use_error>`, true, undefined, parent);
     return;
   }
-  if (anyRule(settings.permissions?.deny, tool, input)) {
+  const { denied, updatedInput } = await runHooks('PreToolUse', hookTool, { tool_input: input, tool_use_id: toolUseId });
+  if (denied !== null) {
+    toolResultLine(toolUseId, `PreToolUse:${hookTool} hook error: ${denied}`, true, undefined, parent);
+    return;
+  }
+  // A hook rewrote the input: the permission request and the call carry the new one (recorded from 2.1.288).
+  if (updatedInput !== undefined) input = updatedInput;
+  if (anyRule([...(settings.permissions?.deny ?? []), ...hostRulesOf('deny')], tool, input)) {
     toolResultLine(toolUseId, `Permission to use ${tool} has been denied.`, true, undefined, parent);
     return;
   }
@@ -400,7 +489,7 @@ async function toolStep(step) {
     return;
   }
   const result = await perform(tool, input, step);
-  await runHooks(result.ok ? 'PostToolUse' : 'PostToolUseFailure', tool, { tool_input: input, tool_use_id: toolUseId });
+  await runHooks(result.ok ? 'PostToolUse' : 'PostToolUseFailure', hookTool, { tool_input: input, tool_use_id: toolUseId });
   toolResultLine(toolUseId, result.text, !result.ok, result.structured, parent);
 }
 
@@ -414,8 +503,7 @@ async function runTurn(first) {
   out(initLine());
   await runHooks('UserPromptSubmit', undefined, {});
   out({ type: 'user', message: first.message, session_id: claudeSessionId, parent_tool_use_id: null, uuid: first.uuid, isReplay: true });
-  const loggedOut = (scenario0.account?.apiKeySource ?? 'x') === 'none';
-  const steps = loggedOut ? [{ text: 'Not logged in · Please run /login', synthetic: true }, { result: { subtype: 'success', is_error: true, terminal_reason: 'api_error' } }] : stepsFor(first.text);
+  const steps = notLoggedIn ? [{ text: 'Not logged in · Please run /login', synthetic: true }, { result: { subtype: 'success', is_error: true, terminal_reason: 'api_error' } }] : stepsFor(first.text);
   let final = null;
   while (steps.length > 0 && !interrupted) {
     const step = steps.shift();
@@ -481,11 +569,17 @@ function onControl(message) {
   const respond = (response) => out({ type: 'control_response', response: { subtype: 'success', request_id: message.request_id, response } });
   switch (request.subtype) {
     case 'initialize':
-      respond({ commands: [], capabilities: ['ui_surface_v1'], account: { apiKeySource: 'ANTHROPIC_API_KEY', tokenSource: 'none', apiProvider: 'firstParty', ...(scenario0.account ?? {}) } });
+      respond({ commands: [], agents: [], models: [], account, pid: process.pid, current_permission_mode: permissionMode });
       return;
     case 'list_permission_rules':
       if (scenario0.noRuleList) out({ type: 'control_response', response: { subtype: 'error', request_id: message.request_id, error: 'Unsupported control request subtype: list_permission_rules' } });
-      else respond({ state: { rules: [...(scenario0.rules ?? []), ...(settings.permissions?.allow ?? []).map((rule) => ({ behavior: 'allow', source: 'flagSettings', rule })), ...(settings.permissions?.deny ?? []).map((rule) => ({ behavior: 'deny', source: 'flagSettings', rule }))], workspaceDirectories: [], originalCwd: cwd, managedOnly: false } });
+      else {
+        // Claude Code's own order: every allow rule, then ask, then deny; each with where it comes from and whether the
+        // session may change it (`--settings` rules are read-only).
+        const flagRules = ['allow', 'ask', 'deny'].flatMap((behavior) => (settings.permissions?.[behavior] ?? []).map((rule) => ({ behavior, source: 'flagSettings', rule })));
+        const listed = ['allow', 'ask', 'deny'].flatMap((behavior) => [...hostRules, ...flagRules].filter((entry) => entry.behavior === behavior));
+        respond({ state: { rules: listed.map((entry) => ({ behavior: entry.behavior, source: entry.source, rule: entry.rule, editability: entry.source === 'flagSettings' ? 'readonly' : 'persistent' })), workspaceDirectories: [], originalCwd: cwd, managedOnly: false } });
+      }
       return;
     case 'interrupt':
       interrupted = turnRunning;
@@ -530,6 +624,18 @@ lines.on('line', (line) => {
   } else if (message.type === 'user') {
     const content = message.message?.content;
     const text = typeof content === 'string' ? content : (content ?? []).map((part) => part.text ?? '').join('');
+    // A message a person typed (no `client_composed`): `@path` mentions of files are expanded with no tool call.
+    if (message.client_composed !== true) {
+      for (const mention of text.matchAll(/(?:^|\s)@(?:"([^"]+)"|(\S+))/g)) {
+        const named = mention[1] ?? mention[2];
+        const path = isAbsolute(named) ? named : resolve(cwd, named);
+        try {
+          echo('mention', { path, text: readFileSync(path, 'utf8').slice(0, 4096) });
+        } catch {
+          // not a file: nothing is expanded
+        }
+      }
+    }
     const entry = { uuid: message.uuid ?? randomUUID(), message: message.message, text };
     conversation.messages.push(text);
     inbox.push(entry);

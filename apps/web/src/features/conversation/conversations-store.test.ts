@@ -677,6 +677,69 @@ describe('around a Welcome, and the requests', () => {
     other();
   });
 
+  it('a card it holds as open that a later watch reply does not carry was settled while it was away: it is read again (the column stayed open through a restart)', async () => {
+    const { conn, open, lifecycle, conversation } = setup();
+    const cards = [
+      buildEvent('card', { seq: 1, card: 'question', id: 'q_1' }),
+      buildEvent('card', { seq: 2, card: 'permission', id: 'pr_1' }),
+      buildEvent('card', { seq: 3, card: 'suggestion', id: 'sg_1' }),
+      buildEvent('card', { seq: 4, card: 'permission', id: 'pr_2' }),
+      buildEvent('card', { seq: 5, card: 'permission', id: 'pr_3' }),
+      buildEvent('card', { seq: 6, card: 'question', id: 'q_old' }),
+    ];
+    await open(cards, {
+      questions: [buildQuestion(), buildQuestion({ id: 'q_old', status: 'answered' })],
+      permissions: [buildPermission(), buildPermission({ id: 'pr_2' }), buildPermission({ id: 'pr_3' })],
+      suggestions: [buildSuggestion()],
+    });
+    expect(selectOpenCards(conversation()).map((card) => card.id).sort()).toEqual(['pr_1', 'pr_2', 'pr_3', 'q_1']);
+
+    // The connection was away while the host's smurg restarted: the question was answered, one permission request
+    // and the suggestion were withdrawn. pr_2 is still open (the reply carries it), pr_3 is named in moreCards.
+    lifecycle.onResumed?.();
+    expect(conn.lastRequest('session.watch')?.payload).toEqual({ sessionId: SID, live: true, haveSeq: 6 });
+    conn.respond('session.watch', watchReply([], { firstSeq: 0, nextSeq: 7, permissions: [buildPermission({ id: 'pr_2' })], moreCards: [{ kind: 'permission', id: 'pr_3' }] }));
+    await tick();
+    // Read: every card held as open or pending that the reply neither carries nor names, and the named one. Not the
+    // card it carried, not the one that was settled before.
+    const asked = conn.requestsOf('session.cards.get').flatMap((request) => request.payload.cards.map((card) => `${card.kind}:${card.id}`));
+    expect(asked.sort()).toEqual(['permission:pr_1', 'permission:pr_3', 'question:q_1', 'suggestion:sg_1']);
+    for (const request of conn.pendingOf('session.cards.get')) {
+      const ids = new Set(request.payload.cards.map((card) => card.id));
+      request.resolve({
+        questions: ids.has('q_1') ? [buildQuestion({ status: 'answered' })] : [],
+        permissions: [...(ids.has('pr_1') ? [buildPermission({ status: 'withdrawn' })] : []), ...(ids.has('pr_3') ? [buildPermission({ id: 'pr_3' })] : [])],
+        suggestions: ids.has('sg_1') ? [buildSuggestion({ status: 'withdrawn' })] : [],
+        moreCards: [],
+      });
+    }
+    await tick();
+    expect(conversation().questions.get('q_1')?.status).toBe('answered');
+    expect(conversation().permissions.get('pr_1')?.status).toBe('withdrawn');
+    expect(conversation().suggestions.get('sg_1')?.status).toBe('withdrawn');
+    expect(selectOpenCards(conversation()).map((card) => card.id).sort()).toEqual(['pr_2', 'pr_3']);
+  });
+
+  it('the same after a full resync whose reply replaces the window, and nothing is read when every open card is carried', async () => {
+    const { conn, open, lifecycle, conversation } = setup();
+    await open([buildEvent('card', { seq: 1, card: 'permission', id: 'pr_1' }), ...lines(2, 3)], { permissions: [buildPermission()] });
+    conn.admit(makeWelcome({ role: 'host', channelId: 'ch_2' }));
+    lifecycle.reset();
+    await lifecycle.load();
+    // A reply that carries the card: nothing to read.
+    conn.respond('session.watch', watchReply([], { firstSeq: 0, nextSeq: 5, permissions: [buildPermission()] }));
+    await tick();
+    expect(conn.requestsOf('session.cards.get')).toHaveLength(0);
+    // The next one replaces the window with a newer page; the card's event is no longer in it, the card is still held.
+    lifecycle.onResumed?.();
+    conn.respond('session.watch', watchReply(lines(40, 3), { hasEarlier: true }));
+    await tick();
+    expect(conn.lastRequest('session.cards.get')?.payload).toEqual({ sessionId: SID, cards: [{ kind: 'permission', id: 'pr_1' }] });
+    conn.respond('session.cards.get', { questions: [], permissions: [buildPermission({ status: 'denied' })], suggestions: [], moreCards: [] });
+    await tick();
+    expect(selectOpenCards(conversation())).toEqual([]);
+  });
+
   it('keeps the session current from session.state', async () => {
     const { conn, open, conversation } = setup();
     await open();

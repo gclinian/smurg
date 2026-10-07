@@ -140,6 +140,8 @@ export const t = defineStrings(
     'tool.open': 'Open in editor',
     'tool.reads': { one: '{count} file', other: '{count} files' },
     'tool.readsIn': { one: '{count} file in {dir}', other: '{count} files in {dir}' },
+    'tool.reads.failed': '{count} failed',
+    'tool.reads.unfinished': '{count} not finished',
     'tool.steps': { one: '{count} step', other: '{count} steps' },
     'diff.label': 'Changes to {path}',
     'diff.labelPlain': 'Changes',

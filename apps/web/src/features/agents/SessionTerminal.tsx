@@ -29,10 +29,10 @@ import { NoCommandHandlerError } from '../../lib/commands.ts';
 import { describeError } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectDir, type FilesState } from '../../lib/stores/files.ts';
-import { useCommand, useConnection, useStores } from '../../lib/workspace/context.tsx';
+import { useCapabilities, useCommand, useConnection, useStores } from '../../lib/workspace/context.tsx';
 import { useAppServices } from '../../app/services.tsx';
 import { Banner, Button, Spinner, useToast } from '../../ui/index.ts';
-import { createPathExistence, createPathLinkProvider } from './path-links.ts';
+import { createPathExistence, createPathLinkProvider, pathGateOf } from './path-links.ts';
 import { t } from './strings.ts';
 import { TerminalFeed } from './terminal-feed.ts';
 import { OWNER_SIZE_FLOOR, OwnerResizer, PTY_SIZE_MIN, planOwnerSize, sameSize, type OwnerSizePlan, type TerminalSize } from './terminal-fit.ts';
@@ -82,6 +82,7 @@ export interface SessionTerminalProps {
 
 export function SessionTerminal({ session, isOwner, canType, active, scaled }: SessionTerminalProps) {
   const stores = useStores();
+  const { isHost } = useCapabilities();
   const conn = useConnection();
   const factory = useViewerFactory();
   const { theme } = useAppServices();
@@ -315,12 +316,15 @@ export function SessionTerminal({ session, isOwner, canType, active, scaled }: S
     viewer?.setTheme(resolvedTheme);
   }, [viewer, resolvedTheme]);
 
-  // File paths in the output: links only for paths that exist in the session's root.
+  // File paths in the output: links only for paths that exist in the session's root. What the loaded file tree does not
+  // answer is asked through the connection's gate (path-links.ts): output is text someone else produced, and a
+  // pointer resting on a line of it must not send a row of requests the host refuses.
   useEffect(() => {
     if (!viewer) return;
+    const gate = pathGateOf(stores.files);
     const existence = createPathExistence({
       lookup: (ref) => lookupLoadedEntry(stores.files.getState(), ref),
-      stat: (ref) => stores.files.stat(ref),
+      stat: (ref) => gate.stat(ref, { isHost }),
       now: () => Date.now(),
     });
     const provider = createPathLinkProvider(viewer.term, {
@@ -347,7 +351,7 @@ export function SessionTerminal({ session, isOwner, canType, active, scaled }: S
       },
     });
     return viewer.registerLinkProvider(provider);
-  }, [viewer, stores, openFile, revealFile, toast]);
+  }, [viewer, stores, isHost, openFile, revealFile, toast]);
 
   // Optional scaling for viewers: the terminal keeps the PTY's cols × rows and is only drawn smaller.
   useEffect(() => {

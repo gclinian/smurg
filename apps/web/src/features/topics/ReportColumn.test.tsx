@@ -261,6 +261,40 @@ describe('the report column: after the review', () => {
     expect(conn.lastRequest('plan.item.resolve')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
   });
 
+  it('a merge that stopped on a conflict BEFORE anyone reviewed the report says so and offers "Ask the agent to resolve" (review R6-01)', async () => {
+    const conflict = { plan: planWith({ merge: { requestId: 'mr_1', status: 'conflict', ready: false } }), requests: [draft({ status: 'conflict', conflictFiles: ['src/cart.ts'] })] };
+    // The reviewer, with agent access: the review, the conflict and the way through the agent in one foot.
+    const mei = await setup({ role: 'agent', report: { ...REPORT, reviewers: [MEI] }, ...conflict });
+    expect(document.querySelector('.col-foot__text')?.textContent).toBe('The merge stopped on a conflict. Press it when you have read the report and understand the change. It leaves your inbox, and the plan counts the item as reviewed.');
+    expect(screen.getByRole('button', { name: "I've reviewed this" })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Ask the agent to resolve' }));
+    expect(mei.conn.lastRequest('plan.item.resolve')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
+    mei.unmount();
+    // The host, who is not the reviewer here: who reviews, the conflict, the agent's way and the dialog of the request.
+    const host = await setup({ role: 'host', report: { ...REPORT, reviewers: [MEI] }, ...conflict });
+    expect(document.querySelector('.col-foot__text')?.textContent).toMatch(/^The merge stopped on a conflict\. /);
+    expect(screen.getByRole('button', { name: 'Ask the agent to resolve' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Merge…' }));
+    expect(host.dialog()).toEqual({ kind: 'merge', requestId: 'mr_1' });
+    host.unmount();
+    // A viewer reads it and has no button.
+    await setup({ role: 'viewer', report: { ...REPORT, reviewers: [MEI] }, ...conflict });
+    expect(document.querySelector('.col-foot__text')?.textContent).toMatch(/^The merge stopped on a conflict\. /);
+    expect(screen.queryByRole('button', { name: 'Ask the agent to resolve' })).toBeNull();
+  });
+
+  it('a report that became invalid after its review still gives the host the request that waits in the inbox', async () => {
+    const invalid: ReportInfo = { ...reviewed, state: 'invalid', error: { line: 7, text: msg('plan.error.noBlock'), fallback: 'x' } };
+    const { dialog, unmount } = await setup({ report: invalid, plan: planWith({ state: 'reviewed', merge: { requestId: 'mr_1', status: 'draft', ready: true } }), requests: [draft({ reviewed: true })] });
+    expect(document.querySelector('.col-foot__text')?.textContent).toBe('This report cannot be reviewed until the agent fixes it.');
+    fireEvent.click(screen.getByRole('button', { name: 'Merge…' }));
+    expect(dialog()).toEqual({ kind: 'merge', requestId: 'mr_1' });
+    unmount();
+    // Nobody else gets a button, and a merged change needs none.
+    await setup({ role: 'agent', report: invalid, plan: planWith({ state: 'reviewed', merge: { requestId: 'mr_1', status: 'draft', ready: true } }), requests: [draft({ reviewed: true })] });
+    expect(screen.queryByRole('button', { name: 'Merge…' })).toBeNull();
+  });
+
   it('merged and reviewed: the item is finished, and the box points to the discussion', async () => {
     const { openColumn } = await setup({
       role: 'agent',

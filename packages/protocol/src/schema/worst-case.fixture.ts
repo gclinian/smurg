@@ -313,10 +313,11 @@ const configFile = {
   text: big(L.CLAUDE_CONFIG_TEXT_MAX_BYTES),
   runs: many(L.CLAUDE_CONFIG_LIST_MAX, () => wide(L.CLAUDE_CONFIG_ENTRY_MAX_CHARS)),
   permissions: many(L.CLAUDE_CONFIG_LIST_MAX, () => wide(L.CLAUDE_CONFIG_ENTRY_MAX_CHARS)),
-  env: many(L.CLAUDE_CONFIG_LIST_MAX, () => ({ name: wide(L.SHORT_TEXT_MAX_CHARS), flagged: true })),
+  env: many(L.CLAUDE_CONFIG_LIST_MAX, () => ({ name: wide(L.SHORT_TEXT_MAX_CHARS), flagged: true, programs: true })),
   otherKeys: many(L.CLAUDE_CONFIG_LIST_MAX, () => wide(L.SHORT_TEXT_MAX_CHARS)),
   scripts: many(L.CLAUDE_CONFIG_SCRIPTS_MAX, () => ({ path: PATH, hash: HASH })),
-  needsAck: ['credentials', 'allows-tools'],
+  needsAck: ['credentials', 'allows-tools', 'incomplete'],
+  cut: { omitted: 9e6, shortened: 9e6 },
 };
 export const worstConfigRoot = { root, state: 'ignored', files: many(L.CLAUDE_CONFIG_FILES_MAX, () => configFile) };
 
@@ -415,7 +416,7 @@ export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
   'inbox.seen': { payload: { keys: many(L.INBOX_SEEN_KEYS_MAX, (i) => `mention:${'k'.repeat(L.INBOX_KEY_MAX_CHARS - 14)}${String(i).padStart(6, '0')}`) } },
   'inbox.dismiss': { payload: { key: `result:${'k'.repeat(L.INBOX_KEY_MAX_CHARS - 7)}` }, result: {} },
   'admin.claudeConfig.get': { payload: { after: wide(256) }, result: { roots: list(L.LIST_MAX_ITEMS, () => worstConfigRoot), hasMore: true } },
-  'admin.claudeConfig.decide': { payload: { root, files: many(L.CLAUDE_CONFIG_FILES_MAX, () => ({ path: PATH, hash: HASH })), decision: 'trust', acknowledged: ['credentials', 'allows-tools'] }, result: {} },
+  'admin.claudeConfig.decide': { payload: { root, files: many(L.CLAUDE_CONFIG_FILES_MAX, () => ({ path: PATH, hash: HASH })), decision: 'trust', acknowledged: ['credentials', 'allows-tools', 'incomplete'] }, result: {} },
   'admin.hostRules.get': { payload: {}, result: { rules: many(L.HOST_RULES_MAX, () => ({ rule: wide(L.HOST_RULE_MAX_CHARS), source: 'managed' })), seen: true } },
   'admin.hostRules.seen': { payload: {}, result: {} },
   'admin.transcript.redact': { payload: { sessionId: id('s'), seq: 9e6 }, result: {} },

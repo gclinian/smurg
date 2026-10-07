@@ -90,7 +90,16 @@ describe('host console in zh-TW', () => {
 
   it('the Claude Code project settings and the host\'s own rules', async () => {
     const fixture = defaultFixture();
-    fixture.claudeConfig = [{ root: { kind: 'main' }, state: 'ignored', files: [makeConfigFile({ env: [{ name: 'ANTHROPIC_BASE_URL', flagged: true }], needsAck: ['credentials'] })] }];
+    fixture.claudeConfig = [
+      {
+        root: { kind: 'main' },
+        state: 'ignored',
+        files: [
+          makeConfigFile({ env: [{ name: 'ANTHROPIC_BASE_URL', flagged: true }, { name: 'NODE_OPTIONS', flagged: false, programs: true }], needsAck: ['credentials', 'incomplete'], cut: { omitted: 3, shortened: 1 } }),
+          makeConfigFile({ path: '.claude', runs: [], otherKeys: ['.claude/agents/reviewer.md'], scripts: [], cut: { omitted: 2, shortened: 0 } }),
+        ],
+      },
+    ];
     fixture.hostRules = { rules: [{ rule: 'Bash(npm run *)', source: 'user' }], seen: false };
     const view = renderConsole({ fixture, section: 'host-rules' });
     const claude = (await screen.findByRole('heading', { level: 2, name: 'Claude Code 專案設定' })).closest('section') as HTMLElement;
@@ -98,9 +107,20 @@ describe('host console in zh-TW', () => {
     expect(within(claude).getByRole('heading', { level: 3, name: /^主工作區/ }).textContent).toContain('等你決定');
     expect(within(claude).getByText('會執行的指令')).toBeTruthy();
     expect(within(claude).getByText('可能把你的登入資訊送到其他伺服器')).toBeTruthy();
+    expect(within(claude).getByText('會改變執行的程式')).toBeTruthy();
+    // What a list leaves out, as one line without a gap between the sentences.
+    expect(within(claude).getByText('還有 3 項沒有列在下面。下面有 1 項沒有顯示完整。決定之前，請先讀檔案本身（在最下面）。')).toBeTruthy();
+    // The rest of what Claude Code loads from the folder.
+    const loaded = within(claude).getByText('.claude/ 裡的其他內容').closest('li') as HTMLElement;
+    expect(within(loaded).getByText('Claude Code 也會載入這個資料夾的 agent、skill、指令和規則。它們自己就能執行指令、允許工具。這些檔案只要有變動，就會再問你一次。')).toBeTruthy();
+    expect(within(loaded).getByText('還有 2 項沒有列在下面。決定之前，請先在你的電腦上讀這些檔案本身。')).toBeTruthy();
+    expect(within(within(loaded).getByText('會載入的檔案').parentElement as HTMLElement).getByText('.claude/agents/reviewer.md')).toBeTruthy();
+    expect(within(loaded).getByText('顯示每個檔案和它的 SHA-256')).toBeTruthy();
     const use = within(claude).getByRole('button', { name: '使用' }) as HTMLButtonElement;
     expect(use.disabled).toBe(true);
     fireEvent.click(within(claude).getByLabelText('這些設定可能把我的 Claude 登入資訊送到其他伺服器（有標記的變數，或提供 API 金鑰的指令）。'));
+    expect(use.disabled).toBe(true);
+    fireEvent.click(within(claude).getByLabelText('上面的清單沒有列出全部內容。我已經讀過檔案本身。'));
     expect(use.disabled).toBe(false);
     expect(within(claude).getByRole('button', { name: '不載入' })).toBeTruthy();
 

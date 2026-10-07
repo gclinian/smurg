@@ -17,8 +17,10 @@ import {
   can,
   checkRememberableRule,
   defaultPermissionMode,
+  folderHoldsPath,
   lineEvent,
   noticeEvent,
+  relPathSegments,
   ruleString,
   slugFromName,
   takeListPage,
@@ -514,17 +516,40 @@ export class TopicServiceImpl implements TopicService {
 
   /**
    * Every change of a topic's two files that was not the discussion agent's is a hand edit (since the last confirmed
-   * Start): typing in the editor, `file.write`, an upload, a rename or move into place or away, a delete, and a change
-   * no member made through smurg (`'outside'`: an outside program, another agent session).
+   * Start): typing in the editor, `file.write`, an upload, a rename or move into place or away, a delete, a member's
+   * rename or delete of a folder that holds them, and a change of a file no member made through smurg (`'outside'`:
+   * an outside program, another agent session).
    */
   onActivity(entry: { readonly actor: Actor; readonly kind: string; readonly file?: FileRef; readonly at: number; readonly renamedFrom?: string }): void {
     if (!this.core.started || entry.file === undefined || !WRITE_KINDS.has(entry.kind)) return;
-    const hits = [this.core.topicFileOf(entry.file), entry.renamedFrom === undefined ? null : this.core.topicFileOf({ root: entry.file.root, path: entry.renamedFrom })];
-    for (const hit of hits) {
-      if (hit === null || hit.topic.archived) continue;
-      this.noteWrite(hit.topic, hit.kind, entry.actor, entry.at);
-      this.scheduleRefresh(hit.topic.id);
+    for (const path of [entry.file.path, ...(entry.renamedFrom === undefined ? [] : [entry.renamedFrom])]) {
+      const file: FileRef = { root: entry.file.root, path };
+      const hit = this.core.topicFileOf(file);
+      if (hit !== null) {
+        if (hit.topic.archived) continue;
+        this.noteWrite(hit.topic, hit.kind, entry.actor, entry.at);
+        this.scheduleRefresh(hit.topic.id);
+        continue;
+      }
+      // A FOLDER that holds the two files (`specs/<slug>`, `specs`): the entry names only the folder. A member who
+      // renamed it into place or away, or deleted it, wrote both files. (A folder that was just made holds no file
+      // yet. What the WATCHER says about a folder is no hand edit: it reports one when it was made, and on some
+      // systems when a file inside it came or went, which is the agent's own write as often as anyone's; the files
+      // are read again all the same, see onFileChanged.)
+      if (entry.kind !== 'file.rename' && entry.kind !== 'file.delete') continue;
+      for (const topic of this.topicsBelow(file)) {
+        this.noteWrite(topic, 'spec', entry.actor, entry.at);
+        this.noteWrite(topic, 'plan', entry.actor, entry.at);
+        this.scheduleRefresh(topic.id);
+      }
     }
+  }
+
+  /** The topics (not archived) whose SPEC.md and PLAN.md lie below the folder `file` of the main workspace. */
+  private topicsBelow(file: FileRef): StoredTopic[] {
+    // `specs` or `specs/<slug>`: nothing longer is a folder above the two files.
+    if (file.root.kind !== 'main' || file.path === '' || relPathSegments(file.path).length > 2) return [];
+    return this.core.topics().filter((topic) => !topic.archived && folderHoldsPath(file.path, topicDirPath(topic.slug)));
   }
 
   /** One write of a topic's spec or plan: who the next read of the file names, and (unless it was the discussion agent) a hand edit. */
@@ -610,11 +635,18 @@ export class TopicServiceImpl implements TopicService {
     this.refreshTimers.clear();
   }
 
-  /** A file of the main workspace changed on disk (the watcher), or a document was saved. */
+  /**
+   * A file of the main workspace changed on disk (the watcher), or a document was saved. A folder that was renamed,
+   * replaced or removed is reported as the folder alone: the topics whose two files it holds read them again.
+   */
   onFileChanged(file: FileRef): void {
     if (!this.core.started) return;
     const hit = this.core.topicFileOf(file);
-    if (hit !== null && !hit.topic.archived) this.scheduleRefresh(hit.topic.id);
+    if (hit !== null) {
+      if (!hit.topic.archived) this.scheduleRefresh(hit.topic.id);
+      return;
+    }
+    for (const topic of this.topicsBelow(file)) this.scheduleRefresh(topic.id);
   }
 
   /**

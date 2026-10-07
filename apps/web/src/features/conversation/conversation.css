@@ -698,14 +698,14 @@
   font-size: var(--text-xs);
 }
 /* In a permission card nothing of an edit is off to the side (a tool line's diff scrolls sideways; whoever allows an
-   edit must not have to): a long line wraps, and what continues it hangs two characters in, under the line's text
-   and clear of the place where a line's number and its sign stand. */
+   edit must not have to): a long line wraps, and what continues it hangs four characters in: further than the line's
+   own text begins, and with no number and no sign in front of it. */
 .conv-card--permission .conv-diff__line {
   min-width: 0;
 }
 .conv-card--permission .conv-diff__text {
-  padding-left: calc(var(--space-2) + 2ch);
-  text-indent: -2ch;
+  padding-left: calc(var(--space-2) + 4ch);
+  text-indent: -4ch;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -816,14 +816,26 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* What is cut in a narrow column is the END of the line: the second sentence gives way first, down to nothing, and
+   only then the state itself (two items that shrink alike cut "Claude is i…" in front of "The host's Cl…"). */
+.conv-status__text {
+  flex: 0 1 auto;
+}
+.conv-status__more {
+  flex: 0 1000 auto;
+}
 .conv-status__age {
   flex: none;
   margin-inline-start: var(--space-2);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.conv-status__more:not(:empty) {
-  margin-inline-start: var(--space-3);
+/* The gap in front of the second sentence is part of what gives way: a margin would stay when the sentence itself is
+   squeezed to nothing, and take its width from the state. */
+.conv-status__more:not(:empty)::before {
+  content: '';
+  display: inline-block;
+  width: var(--space-3);
 }
 .conv-status--wait {
   color: var(--color-warning);

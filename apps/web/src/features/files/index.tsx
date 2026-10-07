@@ -86,6 +86,7 @@ export function FilesPanel(_props: FilesPanelProps) {
   const activeDoc = useStore(stores.docs, selectActiveDoc);
   const worktrees = useStore(stores.worktrees, selectWorktreeList, shallowEqual);
   const sessionsById = useStore(stores.sessions, (state) => state.sessions);
+  // Once a minute: the one age the tree prints ("recently changed … 3 minutes ago") is said to the minute.
   const now = useNow(60_000);
   // A work item's worktree: `specs/<its topic's folder>/` is read-only there for everyone (DESIGN §3.11, §5.6).
   const itemTopicId = root.kind === 'worktree' ? worktrees.find((worktree) => worktree.id === root.worktreeId && worktree.itemId !== undefined)?.topicId : undefined;

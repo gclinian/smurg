@@ -2,12 +2,15 @@
 // OWNER-DECISIONS Q7 = B). Every agent session runs as the host, so rules in the host's `~/.claude/settings.json`
 // (and in trusted project settings) APPLY: smurg does not ask for what they already allow, and never mirrors them.
 // What smurg does: at every process start the runner asks Claude Code which rules are in force
-// (`list_permission_rules`) and reports the allow rules that do not come from smurg's own settings file; the set is
-// remembered per workspace; the first time rules are found, and whenever the set changes, the host is told once
-// (an attention item and one notification: information, no decision).
+// (`list_permission_rules`) and reports the allow rules that do not come from smurg's own settings file. Which rules a
+// process sees depends on WHERE it runs: a worktree is a clone of HEAD without the host's `.claude/settings.local.json`,
+// and a root whose project settings nobody confirmed starts with the user's settings only. So the last report of each
+// kind of root is kept (the main folder, the worktrees) and the workspace's rules are their union; and the host is
+// told about a RULE once (an attention item and one notification: information, no decision), whichever root reports
+// it and however often sessions of different roots take turns.
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { HOST_RULES_MAX, HOST_RULE_MAX_CHARS, HOST_RULE_SOURCES, mask } from '@smurg/protocol';
+import { HOST_RULES_MAX, HOST_RULE_MAX_CHARS, HOST_RULE_SOURCES, mask, type RootRef } from '@smurg/protocol';
 import { msg, renderEnglish } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../../core/context.ts';
 import type { AttentionFact, HostRules, PersistentDocument, Principal, Res } from '../../core/interfaces.ts';
@@ -20,12 +23,36 @@ export interface HostRule {
   readonly source: RuleSource;
 }
 
+const ruleSchema = z.strictObject({ rule: z.string().min(1).max(HOST_RULE_MAX_CHARS), source: z.enum(HOST_RULE_SOURCES) });
+/** Rules the host was told about are remembered beyond the sets that hold them now (a rule that returns is not news). */
+const TOLD_MAX = 4 * HOST_RULES_MAX;
 const documentSchema = z.strictObject({
-  rules: z.array(z.strictObject({ rule: z.string().min(1).max(HOST_RULE_MAX_CHARS), source: z.enum(HOST_RULE_SOURCES) })).max(HOST_RULES_MAX),
+  /** The last report of a process in the main folder, and of one in a worktree. */
+  main: z.array(ruleSchema).max(HOST_RULES_MAX),
+  worktree: z.array(ruleSchema).max(HOST_RULES_MAX),
+  /** `<source>\u0000<rule>` of every rule the host was told about, oldest first. */
+  told: z.array(z.string().min(1).max(HOST_RULE_MAX_CHARS + 16)).max(TOLD_MAX),
   seen: z.boolean(),
   foundAt: z.int().min(0),
+  /** Notices the host gets once per workspace and has got (`subscription`). */
+  notices: z.array(z.string().min(1).max(64)).max(16),
 });
 type RulesDocument = z.infer<typeof documentSchema>;
+const EMPTY: RulesDocument = Object.freeze({ main: [], worktree: [], told: [], seen: true, foundAt: 0, notices: [] }) as RulesDocument;
+const keyOf = (entry: HostRule): string => `${entry.source}\u0000${entry.rule}`;
+const inOrder = (a: HostRule, b: HostRule): number => (a.source === b.source ? (a.rule < b.rule ? -1 : a.rule > b.rule ? 1 : 0) : a.source < b.source ? -1 : 1);
+
+/** The workspace's rules: what the main folder's and the worktrees' processes reported, each rule once. */
+function unionOf(doc: Pick<RulesDocument, 'main' | 'worktree'>): HostRule[] {
+  const seen = new Set<string>();
+  const out: HostRule[] = [];
+  for (const entry of [...doc.main, ...doc.worktree]) {
+    if (seen.has(keyOf(entry))) continue;
+    seen.add(keyOf(entry));
+    out.push({ rule: entry.rule, source: entry.source });
+  }
+  return out.sort(inOrder).slice(0, HOST_RULES_MAX);
+}
 
 /** Claude Code's rule sources that are the host's own (everything else is smurg's settings file, a flag or the session). */
 const SOURCES: Readonly<Record<string, RuleSource>> = Object.freeze({ userSettings: 'user', projectSettings: 'project', localSettings: 'local', policySettings: 'managed' });
@@ -54,7 +81,7 @@ export function hostRulesOf(response: unknown): HostRule[] {
     seen.add(`${mapped}\u0000${text}`);
     if (out.length < HOST_RULES_MAX) out.push({ rule: text, source: mapped });
   }
-  return out.sort((a, b) => (a.source === b.source ? (a.rule < b.rule ? -1 : a.rule > b.rule ? 1 : 0) : a.source < b.source ? -1 : 1));
+  return out.sort(inOrder);
 }
 
 function digest(rules: readonly HostRule[]): string {
@@ -70,32 +97,39 @@ export class HostRulesImpl implements HostRules {
   }
 
   async start(): Promise<void> {
-    this.doc = await this.ctx.state.document('host-rules', documentSchema, () => ({ rules: [], seen: true, foundAt: 0 }));
+    this.doc = await this.ctx.state.document('host-rules', documentSchema, () => structuredClone(EMPTY));
   }
 
   private current(): Readonly<RulesDocument> {
-    return this.doc?.get() ?? { rules: [], seen: true, foundAt: 0 };
+    return this.doc?.get() ?? EMPTY;
   }
 
-  /** What an agent process reported at its start. A changed set is stored; new rules put the host's item back. */
-  report(rules: readonly HostRule[]): void {
+  /**
+   * What an agent process reported at its start, and the root it runs in. The report replaces the set of that kind of
+   * root; only a rule the host was never told about puts the host's item back and notifies them.
+   */
+  report(rules: readonly HostRule[], root: RootRef): void {
     if (this.doc === null) return;
     const before = this.current();
-    if (digest(before.rules) === digest(rules)) return;
-    const known = new Set(before.rules.map((entry) => `${entry.source}\u0000${entry.rule}`));
-    const added = rules.some((entry) => !known.has(`${entry.source}\u0000${entry.rule}`));
+    const kind = root.kind === 'main' ? 'main' : 'worktree';
+    if (digest(before[kind]) === digest(rules)) return;
+    const told = new Set(before.told);
+    const fresh = rules.filter((entry) => !told.has(keyOf(entry)));
+    let count = 0;
     this.doc.update((draft) => {
-      draft.rules = rules.map((entry) => ({ ...entry }));
-      if (added) {
+      draft[kind] = rules.slice(0, HOST_RULES_MAX).map((entry) => ({ rule: entry.rule, source: entry.source }));
+      if (fresh.length > 0) {
+        draft.told = [...draft.told, ...fresh.map(keyOf)].slice(-TOLD_MAX);
         draft.seen = false;
         draft.foundAt = this.ctx.clock.now();
       }
-      if (rules.length === 0) draft.seen = true;
+      count = unionOf(draft).length;
+      if (count === 0) draft.seen = true;
     });
     this.ctx.bus.emit('attention.changed', { source: 'host-rules' });
-    if (added && !isStubService(this.ctx.services.activity)) {
+    if (fresh.length > 0 && !isStubService(this.ctx.services.activity)) {
       // Told once, as information: the rules apply (no decision is asked for).
-      const ref = msg('hostRules.found', { count: rules.length });
+      const ref = msg('hostRules.found', { count });
       try {
         this.ctx.services.activity.notify(this.ctx.members.hostUserId(), { from: SYSTEM_ACTOR, msg: ref, fallback: renderEnglish(ref) });
       } catch (err) {
@@ -106,7 +140,7 @@ export class HostRulesImpl implements HostRules {
 
   view(): Res<'admin.hostRules.get'> {
     const doc = this.current();
-    return { rules: doc.rules.map((entry) => ({ rule: mask(entry.rule), source: entry.source })), seen: doc.seen };
+    return { rules: unionOf(doc).map((entry) => ({ rule: mask(entry.rule), source: entry.source })), seen: doc.seen };
   }
 
   async markSeen(_by: Principal): Promise<void> {
@@ -118,12 +152,25 @@ export class HostRulesImpl implements HostRules {
   }
 
   applied(): readonly string[] {
-    return this.current().rules.map((entry) => mask(entry.rule));
+    return unionOf(this.current()).map((entry) => mask(entry.rule));
+  }
+
+  /** A notice the host gets once per workspace: whether it was delivered already, and that it now was. */
+  wasTold(notice: string): boolean {
+    return this.current().notices.includes(notice);
+  }
+
+  markTold(notice: string): void {
+    if (this.doc === null || this.wasTold(notice)) return;
+    this.doc.update((draft) => {
+      draft.notices = [...draft.notices, notice].slice(-16);
+    });
   }
 
   attention(): AttentionFact[] {
     const doc = this.current();
-    if (doc.seen || doc.rules.length === 0) return [];
+    const count = unionOf(doc).length;
+    if (doc.seen || count === 0) return [];
     return [
       {
         subject: 'host-rules',
@@ -131,7 +178,7 @@ export class HostRulesImpl implements HostRules {
         at: doc.foundAt,
         recipients: [this.ctx.members.hostUserId()],
         target: { kind: 'console', section: 'host-rules' },
-        count: doc.rules.length,
+        count,
         excerpt: '',
       },
     ];

@@ -13,8 +13,10 @@
 // ask the runtime to park the longest-idle item session (`restartProcess(…, 'slot')`).
 //
 // The same file keeps an item's state in step with its session (failed, ended, a turn started), with its merge
-// request, and finishes an item that is merged and reviewed (its session ends, its worktree goes).
+// request, and finishes an item that is merged and reviewed (its session ends, its worktree goes): never while the
+// item's worktree holds something the main workspace does not have.
 import {
+  LIST_MAX_ITEMS,
   MAIN_ROOT,
   SmurgError,
   defaultPermissionMode,
@@ -30,7 +32,7 @@ import {
 } from '@smurg/protocol';
 import { defaultErrorRef, msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
-import { SYSTEM_ACTOR, principalCan } from '../core/permissions.ts';
+import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL, principalCan } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { pausedItems } from './attention.ts';
 import type { TopicsCore } from './core.ts';
@@ -54,6 +56,8 @@ export class Scheduler {
   private reports: SchedulerReports | null = null;
   private loop: Promise<void> | null = null;
   private again = false;
+  /** `afterRestart` has run: until then no pass does anything (nothing may start before the plans are paused). */
+  private restored = false;
   /** Item sessions the scheduler asked to give up their process, until they did. */
   private readonly parking = new Set<string>();
   /** What each item session last looked like to the plans (its status and who is responsible): only a change is announced. */
@@ -102,7 +106,7 @@ export class Scheduler {
   }
 
   private async pass(): Promise<void> {
-    if (!this.core.started || this.ctx.stopping.aborted) return;
+    if (!this.core.started || !this.restored || this.ctx.stopping.aborted) return;
     const agents = this.ctx.services.agents;
     const worktrees = this.ctx.services.worktrees;
     if (isStubService(agents) || isStubService(worktrees)) return;
@@ -326,7 +330,9 @@ export class Scheduler {
       if (hit !== null && hit.item !== null && hit.item.sessionId === session.id) {
         const { topic, item } = hit;
         if (session.status === 'failed' && (item.state === 'running' || item.state === 'stalled')) this.core.setItemState(topic.id, item.id, 'failed');
-        else if (item.state === 'failed' && session.status !== 'failed' && session.status !== 'ended') this.core.setItemState(topic.id, item.id, 'running');
+        // A failed item runs again when its session is inside a turn. A session that is merely there again (idle after
+        // a restart of smurg or of its process, renamed, given to someone else) works on nothing: "Try again" stays.
+        else if (item.state === 'failed' && (session.status === 'running' || session.status === 'waiting-answer' || session.status === 'waiting-permission')) this.core.setItemState(topic.id, item.id, 'running');
         // Once a session exists IT holds who is responsible; the plan's record follows it.
         if ((session.responsible?.userId ?? null) !== (item.responsible?.userId ?? null)) {
           this.core.updateItem(topic.id, item.id, (draft) => {
@@ -401,13 +407,26 @@ export class Scheduler {
     }
   }
 
-  /** Merged and reviewed: the item is finished. Its session ends (`merged`), its worktree goes; conversation and report stay. */
-  async finishIfDone(topicId: string, itemId: string): Promise<void> {
+  /**
+   * Merged and reviewed: the item is finished. Its session ends (`merged`), its worktree goes; conversation and report
+   * stay. Removing the worktree deletes whatever it holds, so the item is finished only when the main workspace has
+   * all of it: the item's CURRENT request is the merged one (a follow-up after a merge makes a new draft, and an older
+   * request that is merged later says nothing about it), and the tree holds nothing no merge carried (a version whose
+   * snapshot was refused, edits made after the report). Until then everything stays as it is and `finishPending`
+   * asks again. One at a time per item: two callers never end the same session twice.
+   */
+  finishIfDone(topicId: string, itemId: string): Promise<void> {
+    return this.core.serialize(`finish:${topicId}:${itemId}`, () => this.finish(topicId, itemId));
+  }
+
+  private async finish(topicId: string, itemId: string): Promise<void> {
     const topic = this.core.topic(topicId);
     const item = topic === null ? null : this.core.item(topic, itemId);
-    if (topic === null || item === null || !item.merged || this.reports?.isReviewed(topicId, itemId) !== true) return;
+    if (topic === null || item === null || topic.archived || !item.merged || this.reports?.isReviewed(topicId, itemId) !== true) return;
+    if (item.merge !== undefined && item.merge.status !== 'merged') return;
     const agents = this.ctx.services.agents;
     const worktrees = this.ctx.services.worktrees;
+    if (item.worktreeId !== undefined && !isStubService(worktrees) && worktrees.get(item.worktreeId) !== null && this.holdsUnmerged(topicId, item.worktreeId)) return;
     if (item.sessionId !== undefined && !isStubService(agents)) {
       const session = agents.get(item.sessionId);
       if (session !== null && session.status !== 'ended') await agents.end(item.sessionId, { by: SYSTEM_ACTOR, reason: 'merged', keepWorktree: true });
@@ -426,9 +445,103 @@ export class Scheduler {
     this.core.publish(topicId);
   }
 
+  /** Whether an item's worktree holds changes that never reached the main workspace. A question that cannot be answered counts as yes. */
+  private holdsUnmerged(topicId: string, worktreeId: string): boolean {
+    try {
+      return this.ctx.services.worktrees.unmerged(topicId).some((worktree) => worktree.id === worktreeId);
+    } catch (err) {
+      this.ctx.log.warn('item worktree could not be asked about unmerged work; it stays', { worktree: worktreeId, error: err instanceof Error ? err.name : 'unknown' });
+      return true;
+    }
+  }
+
+  /**
+   * Asks again for every item that is merged and still has its session or its worktree: what held it back may be gone
+   * (the new draft was merged, the tree was looked at and holds nothing more), or the finishing itself failed half-way
+   * or never ran (a crash between the merge and the end of the session). Called when smurg starts and on the module's
+   * sweep; it costs a look at the records, nothing else.
+   */
+  async finishPending(): Promise<void> {
+    if (!this.core.started || this.ctx.stopping.aborted) return;
+    const agents = this.ctx.services.agents;
+    for (const topic of this.core.topics()) {
+      if (topic.archived) continue;
+      for (const item of topic.items) {
+        if (!item.merged) continue;
+        const session = item.sessionId === undefined || isStubService(agents) ? null : agents.get(item.sessionId);
+        if (item.worktreeId === undefined && (session === null || session.status === 'ended')) continue;
+        await this.finishIfDone(topic.id, item.id).catch((err: unknown) => {
+          this.ctx.log.error('item not finished', { topic: topic.id, item: item.id, error: err instanceof Error ? err.name : 'unknown' });
+        });
+      }
+    }
+  }
+
   // ===================================================================================================================
   // After a restart of the host's smurg
   // ===================================================================================================================
+
+  /**
+   * What a hard death of the daemon (kill -9, power) between two of its records left out of step, put right when
+   * smurg starts: worktrees.json, the agent sessions' records and topics.json are written one after the other.
+   *   - A merge request of an item that the worktree module has and the item has not heard of: a merged one makes
+   *     the item merged (what depends on it may start); the item's own request takes the state the request has now;
+   *     a draft that is gone gives way to the worktree's newest open request, or to none.
+   *   - An item session the runtime has and no item names (the death came between its start and the item's record):
+   *     it is ended. The item is still armed and starts a session of its own when it may.
+   * An item that is merged and reviewed and still has its session or worktree is finished by `finishPending`.
+   */
+  async reconcile(): Promise<void> {
+    const worktrees = this.ctx.services.worktrees;
+    const agents = this.ctx.services.agents;
+    if (!isStubService(worktrees)) {
+      let requests: MergeRequest[] = [];
+      try {
+        requests = worktrees.listMerges(SYSTEM_PRINCIPAL);
+      } catch (err) {
+        this.ctx.log.warn('merge requests not read at the start', { error: err instanceof Error ? err.name : 'unknown' });
+      }
+      const ofItem = (topicId: string, itemId: string): MergeRequest[] => requests.filter((request) => request.topicId === topicId && request.itemId === itemId).sort((a, b) => b.createdAt - a.createdAt);
+      for (const listed of this.core.topics()) {
+        if (listed.archived) continue;
+        for (const stored of listed.items) {
+          const mine = ofItem(listed.id, stored.id);
+          const merged = mine.find((request) => request.status === 'merged');
+          if (merged !== undefined && !stored.merged) this.onMerge(merged);
+          const item = this.core.item(this.core.need(listed.id), stored.id);
+          if (item === null || item.merge === undefined) continue;
+          const pointer = item.merge;
+          const current = mine.find((request) => request.id === pointer.requestId);
+          if (current !== undefined) {
+            if (current.status !== pointer.status || pointer.ready !== (current.status === 'draft' && current.reviewed)) this.onMerge(current);
+            continue;
+          }
+          // (a full page is not every request: what is not in it may still exist)
+          if ((pointer.status !== 'draft' && pointer.status !== 'conflict') || requests.length >= LIST_MAX_ITEMS) continue;
+          // The request the item points to went with a newer snapshot (or with its worktree).
+          const open = mine.find((request) => request.status === 'draft' || request.status === 'pending');
+          if (open !== undefined) this.onMerge(open);
+          else {
+            this.core.updateItem(listed.id, stored.id, (draft) => {
+              delete draft.merge;
+            });
+            this.core.publish(listed.id);
+          }
+        }
+      }
+    }
+    if (!isStubService(agents)) {
+      for (const session of agents.list()) {
+        if (session.purpose !== 'item' || session.status === 'ended' || this.core.bySession(session.id) !== null) continue;
+        this.ctx.log.warn('an item session no work item names is ended', { session: session.id });
+        try {
+          await agents.end(session.id, { by: SYSTEM_ACTOR, reason: 'ended', keepWorktree: true });
+        } catch (err) {
+          this.ctx.log.warn('item session not ended', { session: session.id, error: err instanceof Error ? err.name : 'unknown' });
+        }
+      }
+    }
+  }
 
   /**
    * Nothing runs by itself after a restart. Sessions that were mid-turn are `stalled` (`restart`), unless the report
@@ -461,5 +574,6 @@ export class Scheduler {
         });
       }
     }
+    this.restored = true;
   }
 }

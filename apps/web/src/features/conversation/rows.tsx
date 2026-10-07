@@ -10,6 +10,7 @@ import type { ConversationEventOf } from '@smurg/protocol';
 import { renderWireText } from '../../lib/errors.ts';
 import { formatRole, formatTime } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
+import { trimEndOf } from '../../lib/trim.ts';
 import type { AgentPiece, LineItem, MessageItem, NoticeItem, RenderItem, SmurgItem, StreamingItem, TextItem, TurnEndItem } from '../../lib/stores/conversations.ts';
 import { selectSession } from '../../lib/stores/sessions.ts';
 import { useCapabilities, useStores } from '../../lib/workspace/context.tsx';
@@ -181,11 +182,20 @@ const renderNested = (piece: AgentPiece): ReactNode => renderPiece(piece, true);
 
 // ---- lines, notices, the end of a turn
 
+/**
+ * What a line says, as it stands in front of " · 07:12": without the full stop a sentence ends with. Some of the
+ * daemon's line texts are sentences ("smurg was restarted on the host's computer. The agent's turn was interrupted.")
+ * and some are not ("The agent was stopped"); in the list they are rows of one kind and read the same.
+ */
+export function lineText(text: string): string {
+  return trimEndOf(text.trimEnd(), '.\u3002');
+}
+
 const LineRow = memo(function LineRow({ item }: { item: LineItem }) {
   return (
     <p className="conv-sys">
       <span>
-        {renderWireText(item.event.text, item.event.fallback)} {'·'} <Time at={item.event.at} />
+        {lineText(renderWireText(item.event.text, item.event.fallback))} {'·'} <Time at={item.event.at} />
       </span>
     </p>
   );

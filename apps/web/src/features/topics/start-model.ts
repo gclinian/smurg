@@ -3,7 +3,7 @@
 // agents may do, and what stops the start. The dialog (StartDialog.tsx) adds the icons and the two inline actions.
 import type { PlanInfo, StartPreflight, UserRef } from '@smurg/protocol';
 import { renderWireText } from '../../lib/errors.ts';
-import { formatAnd, formatList } from '../../lib/format.ts';
+import { formatAnd, formatList, joinSentences } from '../../lib/format.ts';
 import { handEditsLine, itemNames, oneOrMany } from './model.ts';
 import { t } from './strings.ts';
 
@@ -98,7 +98,7 @@ export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'item
           : t('start.commit', { branch: commit.branch, name: commit.as.displayName }),
     ];
     if (commit.alsoInFolder.length > 0) parts.push(t('start.commit.also', { files: formatList([...commit.alsoInFolder]) }));
-    push('commit', parts.join(' '));
+    push('commit', joinSentences(parts));
   }
 
   if (preflight.handEdits.spec.length + preflight.handEdits.plan.length > 0) push('handEdits', t('start.handEdits', { who: handEditsLine(preflight.handEdits) }), 'warn');

@@ -1,7 +1,10 @@
 // What ONE root's Claude Code project settings do, and the host's two answers (DESIGN §2.9, AD-13). Structured mode
 // never shows Claude Code's own trust dialog, so this is the place where the host sees, before any agent session
 // loads them: every command the files run, every permission rule, every environment variable (the ones that can send
-// the host's login elsewhere are marked), the scripts those commands call, and the raw files one click away.
+// the host's login elsewhere, and the ones that change which programs run, are marked), the scripts those commands
+// call, and the raw files one click away. When a list is not everything the content does (an entry left out or cut
+// short), the file says so in plain words and "Use them" needs one more tick. The entry `.claude` is not a file: it is
+// everything else Claude Code loads from that folder (agents, skills, commands, rules), confirmed with the files.
 //
 // "Use them" trusts exactly the contents on screen (path + hash): it is possible only after the ticks the contents
 // need. "Run without them" starts sessions with the user's own settings only. The daemon refuses a decision about a
@@ -13,8 +16,9 @@
 //     submit (the New topic dialog of features/topics: the host decides before the first session starts, DESIGN
 //     §5.12 item 18). The cautious answer is the form's default.
 import { useId, useState } from 'react';
-import type { ClaudeConfigFile } from '@smurg/protocol';
+import { PROJECT_LOADED_ENTRY, type ClaudeConfigFile } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
+import { joinSentences } from '../../lib/format.ts';
 import { Badge, Banner, Button, type Tone } from '../../ui/index.ts';
 import { IconShieldAlert } from '../../ui/icons.tsx';
 import { acksNeeded, canTrust, fileStanding, needsDecision, type ClaudeConfigAck, type ClaudeConfigChoice, type ClaudeConfigDecision, type ClaudeConfigRoot, type FileStanding } from './claude-config.ts';
@@ -33,6 +37,7 @@ const STANDING: Readonly<Record<FileStanding, { readonly key: Key; readonly tone
 const ACK_LABEL: Readonly<Record<ClaudeConfigAck, Key>> = {
   credentials: 'claudeConfig.ack.credentials',
   'allows-tools': 'claudeConfig.ack.allowsTools',
+  incomplete: 'claudeConfig.ack.incomplete',
 };
 
 const STATE_LINE: Readonly<Record<ClaudeConfigRoot['state'], Key>> = {
@@ -56,15 +61,32 @@ function Group({ title, entries, mono = true }: { title: string; entries: readon
   );
 }
 
+/** The lists above are not everything: how many entries are left out, how many are cut short, and what to do. */
+function Cut({ cut, loaded }: { cut: NonNullable<ClaudeConfigFile['cut']>; loaded: boolean }) {
+  return (
+    <Banner tone="warning" live="none" icon={<IconShieldAlert />}>
+      {joinSentences([
+        cut.omitted > 0 ? t('claudeConfig.cut.omitted', { count: cut.omitted }) : null,
+        cut.shortened > 0 ? t('claudeConfig.cut.shortened', { count: cut.shortened }) : null,
+        t(loaded ? 'claudeConfig.cut.readFiles' : 'claudeConfig.cut.readFile'),
+      ])}
+    </Banner>
+  );
+}
+
 function FileView({ file }: { file: ClaudeConfigFile }) {
   const standing = STANDING[fileStanding(file)];
+  // Not a file: everything else Claude Code loads from `.claude/`. Its "other keys" are the paths of those files.
+  const loaded = file.path === PROJECT_LOADED_ENTRY;
   const nothing = file.runs.length === 0 && file.permissions.length === 0 && file.env.length === 0 && file.otherKeys.length === 0;
   return (
     <li className="console-trust__file">
       <h4 className="console-trust__file-title">
-        <code>{file.path}</code>
+        {loaded ? <span>{t('claudeConfig.loaded.title')}</span> : <code>{file.path}</code>}
         <Badge tone={standing.tone}>{t(standing.key)}</Badge>
       </h4>
+      {loaded ? <p className="console-muted">{t('claudeConfig.loaded.lead')}</p> : null}
+      {file.cut ? <Cut cut={file.cut} loaded={loaded} /> : null}
       <Group title={t('claudeConfig.group.runs')} entries={file.runs} />
       <Group title={t('claudeConfig.group.permissions')} entries={file.permissions} />
       {file.env.length > 0 ? (
@@ -79,16 +101,21 @@ function FileView({ file }: { file: ClaudeConfigFile }) {
                     {t('claudeConfig.env.flagged')}
                   </Badge>
                 ) : null}
+                {variable.programs ? (
+                  <Badge tone="danger" className="console-trust__flag">
+                    {t('claudeConfig.env.programs')}
+                  </Badge>
+                ) : null}
               </li>
             ))}
           </ul>
         </div>
       ) : null}
-      <Group title={t('claudeConfig.group.other')} entries={file.otherKeys} />
+      <Group title={t(loaded ? 'claudeConfig.group.loaded' : 'claudeConfig.group.other')} entries={file.otherKeys} />
       <Group title={t('claudeConfig.group.scripts')} entries={file.scripts.map((script) => script.path)} />
       {nothing ? <p className="console-muted">{t('claudeConfig.file.nothing')}</p> : null}
       <details className="console-trust__raw">
-        <summary>{t('claudeConfig.file.show', { path: file.path })}</summary>
+        <summary>{loaded ? t('claudeConfig.loaded.show') : t('claudeConfig.file.show', { path: file.path })}</summary>
         <pre tabIndex={0}>{file.text}</pre>
       </details>
     </li>

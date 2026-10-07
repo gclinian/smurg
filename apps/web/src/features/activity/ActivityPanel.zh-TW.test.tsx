@@ -85,7 +85,8 @@ describe('conflict panel in zh-TW', () => {
     await settle();
     const card = screen.getByRole('article', { name: 'src/app.ts' });
     expect(within(card).getByText('待處理')).toBeTruthy();
-    expect(card.textContent).toContain('和Amy、Bob正在編輯的內容重疊');
+    // Latin names stand apart from the Chinese text around them, and the two sentences follow each other without a gap.
+    expect(card.textContent).toContain('和 Amy、Bob 正在編輯的內容重疊。檔案裡保留的是編輯中的內容；Claude (Ian) 的版本列在右側。');
     expect(within(card).getByRole('table', { name: '第 12 行起' })).toBeTruthy();
     expect(within(card).getByRole('button', { name: '保留編輯中的內容' })).toBeTruthy();
   });

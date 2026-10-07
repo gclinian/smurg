@@ -25,6 +25,7 @@ import {
   lineEvent,
   questionPartsSchema,
   rootRefEquals,
+  shownAgentText,
   truncateToUtf8Bytes,
   type Actor,
   type AgentStatus,
@@ -48,9 +49,9 @@ import { newId } from '../../core/lifecycle.ts';
 import { ClaudeProcess, ControlError, type ClaudeExit } from './claude-process.ts';
 import { hostRulesOf, type HostRule } from './host-rules.ts';
 import { Normaliser, type RunnerEvent } from './normalise.ts';
-import { STREAM_ARGS } from './profiles.ts';
+import { STREAM_ARGS, claudeModeFor } from './profiles.ts';
 import { conversationLostText, QUESTION_REFUSED_TEXT, REQUEST_WITHDRAWN_TEXT } from './prompts.ts';
-import type { AgentRecord } from './store.ts';
+import { PENDING_MESSAGES_MAX, type AgentRecord } from './store.ts';
 import { buildToolResult, buildToolView, clip, editOf, safeId, suggestedRuleOf, toolName, toolPathOf, type Located } from './tool-view.ts';
 
 /** Everything one spawn needs; built by the service (hook registration, profile, launch files, the launch check). */
@@ -88,11 +89,13 @@ export interface RunnerHost {
   prepareLaunch(runner: AgentRunner): Promise<LaunchPlan>;
   /** The process is gone: its hook token and launch files go. */
   releaseLaunch(runner: AgentRunner): void;
+  /** Ends the session's processes: its `claude` child (when it has one) and what its commands left running. */
   kill(runner: AgentRunner): Promise<void>;
   /** A `session.delta` to the live watchers; the number of channels reached, or -1 when nobody watches live. */
   delta(runner: AgentRunner, payload: Omit<PayloadInputOf<'session.delta'>, 'sessionId'>): number;
   account(runner: AgentRunner, signal: { readonly kind: 'ok' } | { readonly kind: 'logged-out' } | { readonly kind: 'usage-limit'; readonly resetsAt?: number }): void;
-  hostRules(rules: readonly HostRule[]): void;
+  /** The host's own allow rules this runner's process reported at its start (they depend on the root it runs in). */
+  hostRules(runner: AgentRunner, rules: readonly HostRule[]): void;
   /** `initialize` reported a personal subscription login. */
   personalSubscription(): void;
   agentActor(runner: AgentRunner): Actor;
@@ -175,6 +178,8 @@ export class AgentRunner {
   private queue: Outgoing[] = [];
   /** Written to the process and not completed yet (uuid → message; `started`: a turn took it). */
   private readonly written = new Map<string, Outgoing & { started: boolean; state: string }>();
+  /** The message ids of `record.pending` as it was saved last. */
+  private pendingKey = '';
   private readonly open = new Map<string, OpenRequest>();
   private turn: Turn | null = null;
   /** Messages a turn took before its `init` arrived. */
@@ -188,6 +193,9 @@ export class AgentRunner {
   private sawInit = false;
   private resultsThisProcess = 0;
   private unparsedLogged = false;
+  private rewrittenLogged = false;
+  /** A process of this session ran in this run of the daemon (its commands may have left something running). */
+  private hadProcess = false;
   private planTools: readonly string[] = [];
   private readonly unknownTools = new Set<string>();
   private rateNoticeSaid = false;
@@ -199,6 +207,9 @@ export class AgentRunner {
     this.record = record;
     this.rolePrompt = rolePrompt;
     this.idleSince = host.ctx.clock.now();
+    // What waited when the daemon went away still waits: the next start of the process delivers it, in order.
+    this.queue = (record.pending ?? []).map((entry) => ({ uuid: randomUUID(), messageId: entry.messageId, text: entry.text, turn: entry.turn, fromUserId: entry.fromUserId }));
+    this.pendingKey = this.queue.map((entry) => entry.messageId).join(',');
   }
 
   get id(): string {
@@ -252,7 +263,7 @@ export class AgentRunner {
     return [...this.blocks.values()].slice(-STREAMING_BLOCKS_MAX).map((block) => ({
       turnId: block.turnId,
       blockId: block.blockId,
-      text: clip(mask(block.text.slice(0, streamableLength(block.text))), EVENT_TEXT_MAX_BYTES).text,
+      text: clip(shownText(block.text.slice(0, streamableLength(block.text))), EVENT_TEXT_MAX_BYTES).text,
       ...(block.parent === undefined ? {} : { parentToolUseId: block.parent }),
     }));
   }
@@ -263,16 +274,40 @@ export class AgentRunner {
   send(message: Outgoing): boolean {
     if (this.phase === 'ready' && this.proc !== null && this.queue.length === 0) {
       this.write(message);
+      this.rememberPending();
       return false;
     }
     this.queue.push(message);
+    this.rememberPending();
     void this.launch();
     return true;
   }
 
+  /**
+   * Keeps what no turn has taken yet in the record (written to a process that has not started it, then what waits
+   * for a process), so a stop or a death of the daemon loses none of it. Saved only when the list changed.
+   */
+  private rememberPending(): void {
+    const waiting: Outgoing[] = [...[...this.written.values()].filter((sent) => !sent.started), ...this.queue].slice(0, PENDING_MESSAGES_MAX);
+    const key = waiting.map((entry) => entry.messageId).join(',');
+    if (key === this.pendingKey) return;
+    this.pendingKey = key;
+    if (waiting.length === 0) delete this.record.pending;
+    else this.record.pending = waiting.map((entry) => ({ messageId: entry.messageId, text: entry.text, turn: { ...entry.turn }, fromUserId: entry.fromUserId }));
+    this.host.save(this);
+  }
+
+  /**
+   * Every message is written with `client_composed: true`: smurg composed it (a header line, then text that may be
+   * another member's), so Claude Code must deliver it as written. Without the field the CLI treats the text as typed
+   * at its own prompt and expands every `@path` in it: the file's content goes to the model with no tool call (no
+   * PreToolUse hook, so the gate never sees it; no permission request, so no card and no host-only check), also for a
+   * file outside the project (verified with 2.1.288: test/sessions/agent-claude-real.test.ts). It also keeps the CLI
+   * from running a message as a slash command, whatever its first character.
+   */
   private write(message: Outgoing): void {
     this.written.set(message.uuid, { ...message, started: false, state: 'written' });
-    this.proc?.write({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: message.text }] }, parent_tool_use_id: null, uuid: message.uuid });
+    this.proc?.write({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: message.text }] }, parent_tool_use_id: null, uuid: message.uuid, client_composed: true });
   }
 
   /** Drops that member's messages that no process has yet; returns their ids. */
@@ -281,6 +316,7 @@ export class AgentRunner {
     if (mine.length === 0) return [];
     this.queue = this.queue.filter((entry) => !mine.includes(entry));
     for (const entry of mine) this.host.append(this, { kind: 'delivery', messageId: entry.messageId, state: 'cancelled' });
+    this.rememberPending();
     return mine.map((entry) => entry.messageId);
   }
 
@@ -341,6 +377,7 @@ export class AgentRunner {
       onOversizedLine: () => host.ctx.log.warn('a line of the agent was too long and was dropped', { session: this.id }),
     });
     this.proc = proc;
+    this.hadProcess = true;
     void proc.exited.then((exit) => this.onExit(proc, exit, plan));
     let init: unknown;
     try {
@@ -357,15 +394,13 @@ export class AgentRunner {
     if (this.proc !== proc) return;
     const account = typeof init === 'object' && init !== null ? (init as Record<string, unknown>)['account'] : null;
     if (typeof account === 'object' && account !== null) {
-      const facts = account as Record<string, unknown>;
-      if (facts['apiKeySource'] === 'none' && (facts['tokenSource'] === undefined || facts['tokenSource'] === 'none')) this.setLogin('logged-out');
-      else this.setLogin('logged-in');
-      const subscription = facts['subscriptionType'];
-      if (typeof subscription === 'string' && /^(pro|max|free)/i.test(subscription)) host.personalSubscription();
+      const login = loginOfAccount(account as Record<string, unknown>);
+      this.setLogin(login.state);
+      if (login.personalSubscription) host.personalSubscription();
     }
     // The host's own allow rules (they apply; the host is told once). A version without the request: nothing is reported.
     try {
-      host.hostRules(hostRulesOf(await proc.control({ subtype: 'list_permission_rules' }, CONTROL_MS)));
+      host.hostRules(this, hostRulesOf(await proc.control({ subtype: 'list_permission_rules' }, CONTROL_MS)));
     } catch {
       // not available on this version: fine
     }
@@ -506,6 +541,7 @@ export class AgentRunner {
     this.host.append(this, { kind: 'smurg', messageId, purpose: 'conversation-lost', text });
     ctx.audit.record({ actor: { kind: 'system' }, action: 'smurg.message', outcome: 'ok', target: this.id, detail: { sessionId: this.id, messageId, purpose: 'conversation-lost' } });
     this.queue.unshift({ uuid: randomUUID(), messageId, text: `[smurg ${this.record.smurgTag}]\n${text}`, turn: { messageId, kind: 'smurg', purpose: 'conversation-lost' }, fromUserId: null });
+    this.rememberPending();
     this.host.append(this, { kind: 'delivery', messageId, state: 'queued' });
     this.launchSoon();
   }
@@ -579,7 +615,7 @@ export class AgentRunner {
 
   /**
    * Ends the process for good (`end`) or for a daemon stop (`stop`: the record stays as it is). Interrupt, close stdin,
-   * wait for exit 0, then the kill.
+   * wait for exit 0, then the kill (always: see below).
    */
   async shutdown(why: 'end' | 'stop', by: UserRef | undefined): Promise<void> {
     this.stopping = why === 'stop';
@@ -592,10 +628,14 @@ export class AgentRunner {
     if (proc !== null && proc.running) {
       if (this.turn !== null && this.phase === 'ready') await proc.control({ subtype: 'interrupt' }, 2_000).catch(() => {});
       proc.endInput();
-      if ((await proc.waitExit(this.host.config.endGraceMs)) === null) {
-        await this.host.kill(this);
-        await proc.waitExit(2_000);
-      }
+      await proc.waitExit(this.host.config.endGraceMs);
+    }
+    // ALWAYS the kill, also when Claude Code went by itself (it does, as soon as its input closes) and when the
+    // session has no process any more (parked): what its commands left running (a dev server, a watcher) ends with
+    // the session, as a terminal's does. A daemon stop does it for the sessions that had a process in this run.
+    if (why === 'end' || this.hadProcess) {
+      await this.host.kill(this);
+      if (proc !== null && proc.running) await proc.waitExit(2_000);
     }
     await launching?.catch(() => {});
     await this.lines;
@@ -617,6 +657,8 @@ export class AgentRunner {
       this.queue = [];
       this.written.clear();
     }
+    // A daemon stop keeps what waits (the record has it); an end keeps nothing.
+    this.rememberPending();
   }
 
   // ---- requests -----------------------------------------------------------------------------------------------------
@@ -762,6 +804,7 @@ export class AgentRunner {
         else {
           this.delivery(sent, event.state);
           this.written.delete(event.uuid);
+          this.rememberPending();
           if (this.parkable) host.idle(this);
         }
         return;
@@ -793,7 +836,7 @@ export class AgentRunner {
           return;
         }
         if (event.text.length === 0) return;
-        const cut = clip(mask(event.text), EVENT_TEXT_MAX_BYTES);
+        const cut = clip(shownText(event.text), EVENT_TEXT_MAX_BYTES);
         const parent = event.parentToolUseId === undefined ? undefined : safeId(event.parentToolUseId, 'tu');
         host.append(this, { kind: 'text', turnId: turn.id, blockId, text: cut.text, ...(event.aborted ? { aborted: true as const } : {}), ...(cut.truncated ? { truncated: true as const } : {}), ...(parent === undefined ? {} : { parentToolUseId: parent }) });
         if (parent === undefined) turn.finalText = cut.text;
@@ -865,9 +908,16 @@ export class AgentRunner {
     }
   }
 
-  /** Only smurg changes the mode: a difference is logged. */
+  /**
+   * Only smurg changes the mode. A mode Claude Code reports that is not the one this session has (and is looser than
+   * `default`) does not stand: it is set back, and logged. (A change smurg itself asked for is reported as the
+   * session's mode; `default` where the session may have `acceptEdits` only asks more.)
+   */
   private checkMode(claudeMode: string): void {
-    if (claudeMode !== 'default' && claudeMode !== 'acceptEdits') this.host.ctx.log.warn('an agent runs in a permission mode smurg did not set', { session: this.id, mode: claudeMode.slice(0, 40) });
+    const expected = claudeModeFor(this.record.purpose, this.record.mode, this.record.root);
+    if (claudeMode === expected || claudeMode === 'default') return;
+    this.host.ctx.log.warn('an agent runs in a permission mode smurg did not set; it is set back', { session: this.id, mode: claudeMode.slice(0, 40), expected });
+    void this.setClaudeMode(expected);
   }
 
   private delivery(sent: { messageId: string; state: string }, state: 'queued' | 'started' | 'completed' | 'cancelled'): void {
@@ -880,6 +930,7 @@ export class AgentRunner {
   private taken(sent: Outgoing & { started: boolean; state: string }): void {
     if (sent.started) return;
     sent.started = true;
+    this.rememberPending();
     this.delivery(sent, 'started');
     if (this.turn !== null) this.turn.messages.push(sent.turn);
     else this.nextTurnMessages.push(sent.turn);
@@ -945,7 +996,7 @@ export class AgentRunner {
       more = true;
     }
     for (const block of this.blocks.values()) {
-      const shown = mask(block.text.slice(0, streamableLength(block.text)));
+      const shown = shownText(block.text.slice(0, streamableLength(block.text)));
       if (block.sent >= shown.length) continue;
       const piece = truncateToUtf8Bytes(shown.slice(block.sent), DELTA_TEXT_MAX_BYTES);
       if (piece.length === 0) continue;
@@ -1041,8 +1092,16 @@ export class AgentRunner {
     }
     const { located, absPath, created } = await this.locate(name, event.input);
     if (this.proc !== proc) return;
-    // The SAME view the tool card of this call shows.
-    const view = this.tools.get(event.toolUseId)?.view ?? buildToolView(name, event.input, located, { created });
+    // The view of THIS request's input: it is the input the answer allows (`updatedInput` in decide()), so it is what
+    // the card shows and what the audit entry records. The tool card of the same call was built from the assistant's
+    // tool_use block; the two differ when something between them rewrote the input (a PreToolUse hook of the host's
+    // own or of the project's confirmed settings may).
+    const view = buildToolView(name, event.input, located, { created });
+    const shown = this.tools.get(event.toolUseId)?.view;
+    if (shown !== undefined && (shown.target !== view.target || shown.verb !== view.verb || shown.outside !== view.outside) && !this.rewrittenLogged) {
+      this.rewrittenLogged = true;
+      host.ctx.log.warn('a permission request asks for another input than the tool call of the agent showed; the card shows the request', { session: this.id, tool: name.slice(0, 64) });
+    }
     const edit = editOf(name, event.input);
     const suggestedRule = suggestedRuleOf(event.suggestions);
     const request: AgentRequest = {
@@ -1140,6 +1199,34 @@ export class AgentRunner {
     }
     if (this.parkable) this.host.idle(this);
   }
+}
+
+/**
+ * What `initialize.account` says about the host's login. Claude Code's own shapes (recorded from 2.1.288):
+ *   an API key        { tokenSource: 'none', apiKeySource: 'ANTHROPIC_API_KEY', apiProvider: 'firstParty' }
+ *   a claude.ai login { subscriptionType: 'Claude Max', apiProvider: 'firstParty' }
+ *   no credential     { tokenSource: 'none', apiProvider: 'firstParty' }
+ * Logged out is only the last one: Anthropic's own API, no token, no key, no subscription (a cloud provider has
+ * neither a token nor a key and is logged in; a missing `tokenSource` alone says nothing: a subscription has none).
+ * `subscriptionType` is a display name: `Claude Pro`, `Claude Max`, `Claude Team`, `Claude Enterprise`, `Claude API`,
+ * or `Claude <the plan's own name>`. A personal subscription is one that names Pro or Max and neither Team nor
+ * Enterprise (OWNER-DECISIONS Q6: the host is told once that it is for their own use).
+ */
+export function loginOfAccount(account: Readonly<Record<string, unknown>>): { readonly state: 'logged-in' | 'logged-out'; readonly personalSubscription: boolean } {
+  const subscription = typeof account['subscriptionType'] === 'string' ? account['subscriptionType'] : undefined;
+  const provider = account['apiProvider'];
+  const keySource = account['apiKeySource'];
+  const loggedOut = subscription === undefined && account['tokenSource'] === 'none' && (keySource === undefined || keySource === 'none') && (provider === undefined || provider === 'firstParty');
+  const personal = subscription !== undefined && /\b(pro|max)\b/i.test(subscription) && !/\b(team|enterprise)\b/i.test(subscription);
+  return { state: loggedOut ? 'logged-out' : 'logged-in', personalSubscription: !loggedOut && personal };
+}
+
+/**
+ * An agent's own text as it is stored and sent to everyone: without the characters a reader cannot see (so a command it
+ * quotes reads in the order it is), THEN masked (a credential cannot hide from the mask behind a zero-width character).
+ */
+export function shownText(text: string): string {
+  return mask(shownAgentText(text));
 }
 
 const TOKEN_CHAR = /[A-Za-z0-9_\-+/=.:~%@]/;

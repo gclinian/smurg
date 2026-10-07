@@ -15,7 +15,7 @@
 // asks is bounded: waits end at the session's end, the daemon's stop or the caller's disconnect; notifications are
 // rate-limited per session (`ctx.rates`, bucket `agent-notify`).
 import { isAbsolute, resolve as resolvePath } from 'node:path';
-import { INBOX_EXCERPT_MAX_CHARS, SmurgError, agentSafeName, agentText, defaultSessionTitle, rootRefKey, rootRefEquals, type FileRef, type LockInfo, type SessionInfo } from '@smurg/protocol';
+import { INBOX_EXCERPT_MAX_CHARS, SmurgError, agentSafeName, agentText, defaultSessionTitle, mask, rootRefKey, rootRefEquals, type FileRef, type LockInfo, type SessionInfo } from '@smurg/protocol';
 import { z } from 'zod';
 import type { DaemonContext } from '../core/context.ts';
 import { isPathDeniedError } from '../core/errors.ts';
@@ -313,7 +313,10 @@ async function notifyMember(tc: McpCall, args: unknown): Promise<JsonObject> {
   const file = file_path === undefined ? undefined : await resolveToolPath(tc, file_path);
   // Checked last: a refused call (bad name, bad path) does not use up the budget.
   if (!ctx.rates.take('agent-notify', sessionId)) throw new McpToolError('rate_limited', 'Too many notifications from this session; wait a minute before sending another.');
-  const notification = { from: principal.actor, text: message, ...(file ? { file } : {}) };
+  // An agent's own words for a person: masked like every text of an agent before it is stored or sent (it may repeat
+  // a credential it read to a member who could never open that file).
+  const text = mask(message);
+  const notification = { from: principal.actor, text, ...(file ? { file } : {}) };
   if (!isStubService(ctx.services.activity)) {
     ctx.services.activity.notify(target.userId, notification);
   } else {
@@ -324,7 +327,7 @@ async function notifyMember(tc: McpCall, args: unknown): Promise<JsonObject> {
   let inbox: 'stored' | 'full' | 'unavailable' = 'unavailable';
   if (!isStubService(ctx.services.inbox)) {
     try {
-      inbox = ctx.services.inbox.addMention({ userId: target.userId, from: principal.actor, target: { kind: 'session', sessionId }, excerpt: message.slice(0, INBOX_EXCERPT_MAX_CHARS) });
+      inbox = ctx.services.inbox.addMention({ userId: target.userId, from: principal.actor, target: { kind: 'session', sessionId }, excerpt: text.slice(0, INBOX_EXCERPT_MAX_CHARS) });
     } catch (err) {
       ctx.log.warn('mention not stored', { session: sessionId, member: target.userId, error: err instanceof Error ? err.name : 'unknown' });
     }

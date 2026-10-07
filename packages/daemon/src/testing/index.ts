@@ -15,7 +15,7 @@ export {
 export { MEMORY_RELAY_ORIGIN, MemoryClientSocket, MemoryRelay, TestIdentityIssuer, type IssueOptions, type RelayUser, type TappedFrame } from './memory-relay.ts';
 export { createTempDir, createTempProject, createTempRunDir, isolatedGitEnv, removeTempDir, removeTempRunDir, type TempProjectOptions } from './temp.ts';
 export { registerTestDir, registerTestProcess } from './run-registry.ts';
-export { FAKE_CLAUDE_SCRIPT, installFakeClaude, type FakeClaude, type FakeClaudeScenario, type FakeClaudeStep } from './fake-claude.ts';
+export { CLAUDE_ACCOUNTS, FAKE_CLAUDE_SCRIPT, installFakeClaude, type FakeClaude, type FakeClaudeScenario, type FakeClaudeStep } from './fake-claude.ts';
 
 /** Lets queued microtasks and immediate callbacks run (in-memory relay and channels deliver through them). */
 export async function settle(turns = 5): Promise<void> {

@@ -686,7 +686,7 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     const box = discussion(ian).getByRole('combobox', { name: 'Message Claude · Discussion' });
     await box.fill(IAN_ASKS);
     await box.press('Enter');
-    for (const page of [ian, amy, leo]) await discussion(page).getByText(/^Claude waits to edit specs\/checkout\/SPEC\.md: Amy(,| and) Mei are typing in it\.$/).waitFor({ timeout: STEP_MS });
+    for (const page of [ian, amy, leo]) await discussion(page).getByText(/^Claude waits to edit specs\/checkout\/SPEC\.md: Amy and Mei are typing in it\.$/).waitFor({ timeout: STEP_MS });
     await discussion(mei).getByText(new RegExp(`Claude 正在等待編輯 ${SPEC_PATH.replaceAll('.', '\\.')}`)).waitFor({ timeout: STEP_MS });
     expect(await fileText(SPEC_PATH)).not.toContain('Gift cards.');
     await shots('coedit-agent-waits');
@@ -924,6 +924,8 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
       expect(summary).not.toMatch(/Running|running|正在執行|執行中/);
     }
     // One wait, one number: the card and the status bar under it count the same seconds, read in the same instant.
+    // Both count from the request's own stamp (the bar takes the open card's, not the session's "waiting since",
+    // which the daemon writes a moment later): they are equal by construction, on either side of a second.
     for (let sample = 0; sample < 3; sample++) {
       const [card, bar] = await session(ian, cartId).evaluate((column) => {
         const seconds = (text: string | null | undefined): string => (text ?? '').match(/\d+ (?:sec|min)/)?.[0] ?? '';
@@ -933,12 +935,16 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
       expect(bar).toBe(card);
       await ian.waitForTimeout(700);
     }
-    // An Editor's composer in a narrow column still names its session: the whole placeholder fits the box.
-    for (const [id, name] of [
-      [cartId, 'Suggest to Claude · 1 · Cart API'],
-      [receiptId, 'Suggest to Claude · 3 · Receipt email'],
+    // An Editor's composer in a narrow column still names its session: the whole placeholder fits the box. A
+    // discussion's box shows the topic's name without the word "Discussion", as its header does there (the name of the
+    // box stays whole: it is found by it).
+    for (const [id, name, shown] of [
+      [cartId, 'Suggest to Claude · 1 · Cart API', 'Suggest to Claude · 1 · Cart API'],
+      [receiptId, 'Suggest to Claude · 3 · Receipt email', 'Suggest to Claude · 3 · Receipt email'],
+      [discussionId, `Suggest to Claude · Discussion · ${TOPIC}`, `Suggest to Claude · ${TOPIC}`],
     ] as const) {
-      const box = session(amy, id).getByRole('combobox', { name });
+      const box = session(amy, id).getByRole('combobox', { name, exact: true });
+      await expect.poll(() => box.getAttribute('placeholder'), { timeout: STEP_MS }).toBe(shown);
       const fits = await box.evaluate((node) => {
         const field = node as HTMLTextAreaElement;
         const style = getComputedStyle(field);
@@ -1008,6 +1014,11 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     expect(await line('already').textContent()).toContain('1 · Cart API');
     expect(await line('already').textContent()).toContain('3 · Receipt email');
     expect(await line('commit').textContent()).toContain('SPEC.md');
+    // Who typed into the spec since the last Start: Amy, and nobody else (the daemon records a hand edit at every save).
+    const edits = (await line('handEdits').textContent()) ?? '';
+    // (The sentence ends in a full-width full stop and its button follows without a gap.)
+    expect(edits).toMatch(/^上次開始之後手動編輯過的人：Amy（SPEC\.md，\d\d:\d\d）。顯示變更$/);
+    expect(edits).not.toContain('Mei');
     await line('stale').waitFor({ timeout: STEP_MS });
     await shots('start-again-dialog', [{ name: 'Mei', page: mei }]);
     await dialog.getByRole('button', { name: '開始', exact: true }).click();
@@ -1015,8 +1026,9 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
 
     for (const page of [amy, leo, ian]) await item(page, 'checkout-page').getByText('Waits for 1').waitFor({ timeout: STEP_MS });
     await expect.poll(() => inbox(ian, 'attention').count(), { timeout: STEP_MS }).toBe(0);
-    // The spec as Amy left it is committed again, as Mei, who confirmed it.
+    // The spec as Amy left it is committed again, as Mei, who confirmed it, and the commit says who edited it by hand.
     expect(await env.git(['log', '-1', '--format=%s%n%an'])).toBe(`smurg: spec and plan of ${SLUG}\nMei`);
+    expect(await env.git(['log', '-1', '--format=%(trailers:key=Edited-by,valueonly)'])).toBe('Amy');
     expect(await env.git(['show', '--name-only', '--format=', 'HEAD'])).toBe(SPEC_PATH);
     expect(await env.git(['show', 'HEAD:' + SPEC_PATH])).toContain(AMY_SPEC_EDIT);
     await spec(amy).getByRole('radio', { name: 'Read' }).click();
@@ -1508,7 +1520,8 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
       await log.getByText('Started from plan item 4 in the worktree', { exact: false }).waitFor({ timeout: STEP_MS });
       await log.locator('details.conv-tool', { hasText: 'src/gift/receipt.ts' }).waitFor({ timeout: STEP_MS });
       await session(page, giftId).getByText('Not answered: smurg was restarted. Claude asks again when the session continues.').waitFor({ timeout: STEP_MS });
-      await log.getByText("smurg was restarted on the host's computer. The agent's turn was interrupted.").waitFor({ timeout: STEP_MS });
+      // (A line stands in front of its time without the full stop of its last sentence.)
+      await log.getByText(/^smurg was restarted on the host's computer\. The agent's turn was interrupted · \d/).waitFor({ timeout: STEP_MS });
       expect(await openPermission(page, giftId).count()).toBe(0);
       // The command never ran: its line does not say it did, and the session says why it stands still.
       const build = log.locator('details.conv-tool', { hasText: 'pnpm build' });

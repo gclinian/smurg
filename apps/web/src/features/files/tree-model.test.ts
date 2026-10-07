@@ -135,6 +135,13 @@ describe('badges: locked by a person / being changed by an agent / recently chan
     const entry = makeEntry('a.ts', 'file', { mtime: T0 - 3 * 60_000, lastModifiedBy: agent });
     const [recent] = entryBadges(entry, badgeCtx);
     expect(recent).toEqual({ kind: 'recent', text: 'Claude (Ian)', label: 'Recently changed by Claude (Ian) (3 minutes ago)' });
+    // The tree is redrawn once a minute, so its label never counts seconds it would not follow: under a minute it
+    // says "just now" (review R6-02: an age printed to the second and refreshed slowly).
+    for (const secondsAgo of [0, 12, 45, 59]) {
+      const [fresh] = entryBadges(makeEntry('a.ts', 'file', { mtime: T0 - secondsAgo * 1_000, lastModifiedBy: agent }), badgeCtx);
+      expect(fresh?.label, String(secondsAgo)).toBe('Recently changed by Claude (Ian) (just now)');
+    }
+    expect(entryBadges(makeEntry('a.ts', 'file', { mtime: T0 - 60_000, lastModifiedBy: agent }), badgeCtx)[0]?.label).toBe('Recently changed by Claude (Ian) (1 minute ago)');
     expect(entryBadges(makeEntry('a.ts', 'file', { mtime: T0 - RECENT_CHANGE_MS, lastModifiedBy: agent }), badgeCtx)).toEqual([]);
     expect(entryBadges(entry, { ...badgeCtx, lock: makeAgentLock('a.ts') }).map((b) => b.kind)).toEqual(['agent-lock']);
     const mine = makeEntry('b.ts', 'file', { mtime: T0, lastModifiedBy: { kind: 'user', userId: 'dev:amy', displayName: 'Amy' } });

@@ -471,9 +471,12 @@ export const MESSAGE_REGISTRY = Object.freeze({
     redact: SUGGESTION_TEXT_KEYS,
     rate: 'suggestion',
   }),
+  // An edit is sent whole to everyone a new suggestion is sent to, and written whole to the audit text store: it
+  // takes a token of the same bucket as creating one.
   'suggest.edit': request(suggestions.suggestEditPayloadSchema, suggestions.suggestionResultSchema, OWNER, {
     checks: ['suggestion-author-pending'],
     redact: SUGGESTION_TEXT_KEYS,
+    rate: 'suggestion',
   }),
   'suggest.withdraw': request(suggestions.suggestWithdrawPayloadSchema, suggestions.suggestionResultSchema, OWNER, {
     checks: ['suggestion-author-pending'],

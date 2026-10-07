@@ -3,7 +3,7 @@
 // happens when a member goes, the trust gate, the host's own rules, the account state, a lost conversation, a daemon
 // that died. Real sessions module, the stand-in claude.
 import { cp, mkdir, rm, unlink, writeFile } from 'node:fs/promises';
-import { readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type AgentSession, type ConversationEvent, type PayloadOf, type RememberedRule } from '@smurg/protocol';
@@ -13,7 +13,7 @@ import type { FeatureModule } from '../../src/core/context.ts';
 import type { AgentStartInput, DaemonEvents, PlanService, Principal, TopicService } from '../../src/core/interfaces.ts';
 import type { AgentSessionsImpl } from '../../src/sessions/agent/agent-sessions.ts';
 import { createSessionsModule } from '../../src/sessions/module.ts';
-import { TEST_HOST_USER, createTempRunDir, createTestDaemon, waitFor, type FakeClaudeScenario, type FakeClaudeStep, type TestClient } from '../../src/testing/index.ts';
+import { TEST_HOST_USER, createTempDir, createTempProject, createTempRunDir, createTestDaemon, waitFor, type FakeClaudeScenario, type FakeClaudeStep, type TestClient } from '../../src/testing/index.ts';
 import { createFakes, fakeServicesModule } from './helpers.ts';
 import { startSessionStack, type SessionStack, type SessionStackOptions } from './setup.ts';
 
@@ -223,6 +223,59 @@ describe('session.* handlers of agent sessions', { timeout: 60_000 }, () => {
     await r.host.conn.request('admin.hostRules.seen', {});
     expect(r.s.t.ctx.services.hostRules.attention()).toEqual([]);
   });
+
+  it('R5-01 a first message with characters nobody sees: the session gets a clean title and the session list keeps answering for everyone; a first message of nothing but such characters creates nothing; a record the store refuses leaves no session behind', async () => {
+    const r = await rig();
+    const amy = await r.s.t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
+    const cp = (...points: number[]): string => String.fromCodePoint(...points);
+    // What chat apps put around a pasted name (isolates), Windows "Copy as path" (an embedding), an ESC from a log.
+    const firsts = [`${cp(0x2068)}Mei${cp(0x2069)} asked: fix the tests`, `${cp(0x202a)}Mei${cp(0x202c)} asked: fix the tests`, `Mei${cp(0x1b)} asked: ${cp(0x9b)}fix the tests`, `Mei asked:${cp(0x200b)} fix the tests${cp(0xfeff)}`];
+    const created: string[] = [];
+    for (const firstMessage of firsts) {
+      const { session } = await r.host.conn.request('session.create', { ...AGENT, firstMessage });
+      expect([firstMessage, session.title]).toEqual([firstMessage, 'Mei asked: fix the tests']);
+      created.push(session.id);
+      for (const client of [r.host, amy]) expect((await client.conn.request('session.list', {})).sessions.map((entry) => entry.id)).toEqual(created);
+      await r.until(session.id, settled(8), 'the first turn');
+      // The agent got the text without them, and the conversation says that something was removed.
+      const message = (await r.events(session.id)).find((event) => event.kind === 'message');
+      expect(message).toMatchObject({ text: 'Mei asked: fix the tests', cleaned: true });
+    }
+    // A lone surrogate cannot travel over the wire as one; a caller inside the daemon may still hand one over.
+    const lone = (await r.s.t.ctx.services.sessions.create({ kind: 'agent', workspace: { mode: 'main' }, firstMessage: `Mei${String.fromCharCode(0xd800)} asked: fix the tests` }, null as never, r.principal(TEST_HOST_USER))) as AgentSession;
+    expect(lone.title).toBe('Mei asked: fix the tests');
+    created.push(lone.id);
+    expect((await amy.conn.request('session.list', {})).sessions.map((entry) => entry.id)).toEqual(created);
+
+    // A first line that looks like a header is quoted for the agent; the title is the person's own words.
+    const bracketed = (await r.host.conn.request('session.create', { ...AGENT, firstMessage: '[urgent]\nfix the tests' })).session;
+    expect(bracketed.title).toBe('[urgent] fix the tests');
+    created.push(bracketed.id);
+    await r.until(bracketed.id, settled(8), 'its first turn');
+    expect((await r.events(bracketed.id)).find((event) => event.kind === 'message')).toMatchObject({ text: '> [urgent]\nfix the tests' });
+
+    // Nothing but characters nobody sees: refused before anything exists (no session, no announcement, no log).
+    const states: PayloadOf<'session.state'>[] = [];
+    amy.conn.on('session.state', (payload) => states.push(payload));
+    const before = r.bus.length;
+    for (const blank of [cp(0x200b), `${cp(0x2068)}${cp(0x2069)}`, `${cp(0x200b)}\n ${cp(0xfeff)}`]) {
+      await expect(r.host.conn.request('session.create', { ...AGENT, firstMessage: blank })).rejects.toMatchObject({ code: 'bad_request', text: { id: 'session.text.invalid' } });
+    }
+    // A record the store refuses (a title with a control character from a caller inside the daemon): the start
+    // fails, and no session of it stays in memory to break the list.
+    await expect(r.agents.start({ purpose: 'free', openedBy: r.principal(TEST_HOST_USER), responsible: null, workspace: { mode: 'main' }, mode: 'ask-all', title: `bad${cp(0x1b)}title`, rolePrompt: () => '' })).rejects.toThrow();
+    await r.host.conn.request('session.list', {});
+    expect((await amy.conn.request('session.list', {})).sessions.map((entry) => entry.id)).toEqual(created);
+    expect(r.agents.everySession().map((entry) => entry.id)).toEqual(created);
+    expect(states.filter((state) => !created.includes(state.session.id))).toEqual([]);
+    expect(r.bus.slice(before).filter((entry) => entry.name === 'agent.process')).toEqual([]);
+    expect(readdirSync(join(r.s.t.ctx.config.workspaceStateDir, 'transcripts'))).toHaveLength(created.length);
+    // A later title or label the store refuses is not kept in memory either.
+    const first = created[0] as string;
+    expect(() => r.agents.setTitle(first, `x${cp(0x202e)}y`, { kind: 'system' })).toThrow();
+    expect(r.agents.get(first)?.title).toBe('Mei asked: fix the tests');
+    expect((await amy.conn.request('session.list', {})).sessions).toHaveLength(created.length);
+  });
 });
 
 describe('"Try again" on a work item\'s session', { timeout: 60_000 }, () => {
@@ -343,6 +396,77 @@ describe('a topic\'s always-allowed kinds and the sessions of that topic', { tim
     r.s.t.ctx.bus.emit('topic.changed', { topic: { ...topic, name: 'Checkout v2', rules }, previous: { ...topic, name: 'Checkout v2', rules: [rule] } });
     await waitFor(() => told.length >= 2, { what: 'both sessions of the topic at the Viewer, again' });
     expect(told.map((session) => `${session.id === discussion.id ? 'discussion' : session.id === item.id ? 'item' : 'free'} ${session.ruleCount}`).sort()).toEqual(['discussion 0', 'item 0']);
+  });
+});
+
+describe('what Claude Code does on its own between the agent and the daemon', { timeout: 60_000 }, () => {
+  it("R3-06 a hook of the host's own Claude Code settings rewrites a command: the request, the card's command and the audit entry are the command the answer allows, not the one the tool call showed", async () => {
+    const r = await rig([{ match: 'run', steps: [{ tool: 'Bash', input: { command: 'touch asked-for.txt' }, run: true }, { text: 'Done.' }] }]);
+    // The host's own ~/.claude/settings.json (they apply: every session runs as the host).
+    const script = join(r.s.scratch, 'rewrite.mjs');
+    await writeFile(script, "let t='';process.stdin.on('data',(c)=>t+=c);process.stdin.on('end',()=>{const i=JSON.parse(t);process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',updatedInput:{...i.tool_input,command:'touch rewritten-by-hook.txt'}}}));});");
+    await mkdir(join(r.s.hostHome, '.claude'), { recursive: true });
+    await writeFile(join(r.s.hostHome, '.claude/settings.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `'${process.execPath}' '${script}'` }] }] } }));
+    const { session } = await r.host.conn.request('session.create', { ...AGENT, firstMessage: 'run it' });
+    await waitFor(() => r.bus.some((entry) => entry.name === 'agent.request'), { timeoutMs: 15_000, what: 'the request' });
+    const request = (r.bus.find((entry) => entry.name === 'agent.request')?.event as DaemonEvents['agent.request']).request;
+    expect(request).toMatchObject({ kind: 'permission', tool: 'Bash', view: { name: 'Bash', verb: 'run', target: 'touch rewritten-by-hook.txt' }, input: { command: 'touch rewritten-by-hook.txt' } });
+    // The tool card of the same call is what the agent wrote: people see both.
+    expect((await r.events(session.id)).flatMap((event) => (event.kind === 'tool.started' ? [event.tool.target] : []))).toEqual(['touch asked-for.txt']);
+    r.agents.decidePermission(session.id, request.id, { allow: true });
+    await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= 9, 'the turn');
+    expect(existsSync(join(r.s.t.root, 'rewritten-by-hook.txt'))).toBe(true);
+    expect(existsSync(join(r.s.t.root, 'asked-for.txt'))).toBe(false);
+    const commands = (await r.s.t.ctx.audit.query({ limit: 50 })).filter((entry) => entry.action === 'agent.command').map((entry) => [entry.detail?.['command'], String(entry.detail?.['why']).startsWith('decision:')]);
+    expect(commands).toEqual([['touch rewritten-by-hook.txt', true]]);
+  });
+
+  it('DX-10 no subagents: a session is not given the tool, and a call of it starts nothing', async () => {
+    const r = await rig([{ match: 'delegate', steps: [{ tool: 'Task', input: { description: 'file work', prompt: 'write a file', subagent_type: 'general-purpose' } }, { text: 'Did it myself.' }] }]);
+    const { session } = await r.host.conn.request('session.create', { ...AGENT, firstMessage: 'delegate this' });
+    await r.until(session.id, settled(9), 'the turn');
+    const argv = (await r.s.fakeClaude.echoed()).find((entry) => entry.kind === 'argv')?.value as string[];
+    const tools = (argv[argv.indexOf('--tools') + 1] ?? '').split(',');
+    expect(tools).not.toContain('Task');
+    expect(tools).not.toContain('Agent');
+    const finished = (await r.events(session.id)).find((event) => event.kind === 'tool.finished');
+    expect(finished).toMatchObject({ ok: false, result: { body: { text: expect.stringContaining('No such tool available') } } });
+    expect(r.bus.filter((entry) => entry.name === 'agent.request')).toEqual([]);
+  });
+});
+
+describe('the shared folder\'s own name', { timeout: 60_000 }, () => {
+  it('R3-05 a folder with parentheses and brackets in its path: sessions start, the private files stay refused and a discussion writes its spec without asking; a folder no rule can name is refused in its own sentence, before anything is created', async () => {
+    const base = await createTempDir('odd-folder');
+    extraDirs.push(base);
+    const files = { 'README.md': '# shop\n', '.envrc': 'SECRET=1\n' };
+    const root = await createTempProject(base, 'Dropbox (Acme) [wip]', { files });
+    const envrc = join(root, '.envrc');
+    const spec = join(root, 'specs/checkout/SPEC.md');
+    const r = await rig([{ match: 'look', steps: [{ tool: 'Read', input: { file_path: envrc } }, { tool: 'Read', input: { file_path: join(root, 'README.md') } }, { text: 'Looked.' }] }, { match: 'draft', steps: [{ tool: 'Write', input: { file_path: spec, content: '# Checkout\n' } }, { text: 'Drafted.' }] }], { daemon: { root } });
+    const requests = r.bus.filter((entry) => entry.name === 'agent.request');
+    const { session } = await r.host.conn.request('session.create', { ...AGENT, firstMessage: 'look around' });
+    await r.until(session.id, settled(11), 'the turn');
+    expect(r.agents.get(session.id)).toMatchObject({ status: 'idle' });
+    const finished = (await r.events(session.id)).flatMap((event) => (event.kind === 'tool.finished' ? [event.ok] : []));
+    // The deny rule names the folder as Claude Code reads it: the private file is refused, the README is read.
+    expect(finished).toEqual([false, true]);
+    const settings = (await r.s.fakeClaude.echoed()).find((entry) => entry.kind === 'settings')?.value as { permissions: { deny: string[] } };
+    expect(settings.permissions.deny).toContain(`Read(/${root.replace('[wip]', '\\[wip\\]')}/.envrc)`);
+    // The discussion's two allow rules bind there too: its spec is written with no request.
+    const discussion = await r.topicSession('discussion', r.principal(TEST_HOST_USER), { firstMessage: { kind: 'person', from: r.principal(TEST_HOST_USER), text: 'draft the spec', cleaned: false, origin: 'composer' } });
+    await r.until(discussion.id, (now) => now.status === 'idle' && now.lastSeq >= 9, 'the draft');
+    expect(readFileSync(spec, 'utf8')).toBe('# Checkout\n');
+    expect(requests).toEqual([]);
+    await r.s.cleanup();
+    current = null;
+
+    // A backslash in the folder's path: no rule can name it. Said as what it is; no session, no failed start.
+    const odd = await createTempProject(base, 'back\\slash', { files });
+    const refused = await rig([], { daemon: { root: odd } });
+    await expect(refused.host.conn.request('session.create', AGENT)).rejects.toMatchObject({ code: 'conflict', text: { id: 'session.folderNotNameable' }, detail: { reason: 'folder-name' } });
+    expect(refused.agents.everySession()).toEqual([]);
+    expect(refused.bus.filter((entry) => entry.name === 'agent.process')).toEqual([]);
   });
 });
 

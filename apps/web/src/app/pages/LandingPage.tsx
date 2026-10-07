@@ -5,6 +5,7 @@ import { describeError } from '../../lib/errors.ts';
 import { formatRelativeTime } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { routePath } from '../../lib/router.ts';
+import { forgetAllDrafts, forgetDrafts } from '../../lib/workspace/drafts-storage.ts';
 import { tApp } from '../../strings/app.ts';
 import { Banner, Button, EmptyState, IconButton, LanguageMenu, Spinner } from '../../ui/index.ts';
 import { IconClose, IconLightbulb, IconMonitor, IconShield } from '../../ui/icons.tsx';
@@ -114,7 +115,16 @@ export function LandingPage() {
                       {tApp('landing.recent.lastOpened', { time: formatRelativeTime(item.lastOpenedAt) })}
                     </span>
                   </Link>
-                  <IconButton label={tApp('landing.recent.forget')} icon={<IconClose />} size="sm" onClick={() => recent.forget(item.id)} />
+                  <IconButton
+                    label={tApp('landing.recent.forget')}
+                    icon={<IconClose />}
+                    size="sm"
+                    onClick={() => {
+                      recent.forget(item.id);
+                      // What the browser is asked to forget of a workspace includes the texts left unsent in it.
+                      forgetDrafts(item.id);
+                    }}
+                  />
                 </li>
               ))}
             </ul>
@@ -157,6 +167,9 @@ function SignedIn({ user, onLoggedOut }: { user: RelayUser; onLoggedOut(): void 
         loading={busy}
         onClick={() => {
           setBusy(true);
+          // Unsent texts can quote project code: what this browser kept of them goes with the login, of every
+          // workspace and whether or not the relay can be reached.
+          forgetAllDrafts();
           auth
             .logout()
             .catch(() => {})

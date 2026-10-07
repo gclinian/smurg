@@ -84,6 +84,43 @@ export function isRememberableRule(tool: string, pattern: string): boolean {
   return checkRememberableRule(tool, pattern).ok;
 }
 
+/**
+ * What lets ONE command line run more than the program it starts with, or write somewhere: a list (`;`, `&`, `|`), a
+ * redirect, a substitution or expansion (`$`, a backtick), a group, an escape, a line break, any control character.
+ */
+// eslint-disable-next-line no-control-regex
+const SHELL_ACTIVE = /[;&|<>`$(){}\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+
+/**
+ * Whether a request is of the kind a remembered rule names, AS FAR AS THE DAEMON ITSELF CAN READ IT. It is the
+ * condition of the one answer the daemon gives from a rule by itself (a rule of the topic that a running process does
+ * not have yet, ARCHITECTURE §5.9): Claude Code's suggestion says which rule a click on "Always allow" would add, it
+ * does not say that the rule covers everything the request runs (`pnpm test && curl … | sh` suggests `pnpm test *`
+ * first). So the request itself is read, narrowly, and `false` only ever means that a person is asked:
+ *  - `Bash(<words> *)`: the command is one plain command (no SHELL_ACTIVE character anywhere in it) that is the
+ *    rule's literal words, or starts with them and a space;
+ *  - `WebFetch(domain:<host>)`: the URL is http(s), carries no user name or password, and its host is that host.
+ * A rule that is not rememberable, another tool, a request without a target: false.
+ */
+export function ruleCoversRequest(rule: { readonly tool: string; readonly pattern: string }, request: { readonly tool: string; readonly target: string | undefined }): boolean {
+  const check = checkRememberableRule(rule.tool, rule.pattern);
+  const target = request.target;
+  if (!check.ok || request.tool !== check.rule.tool || typeof target !== 'string' || target.length === 0) return false;
+  if (check.rule.tool === 'Bash') {
+    if (SHELL_ACTIVE.test(target)) return false;
+    const literal = check.rule.pattern.slice(0, -' *'.length);
+    return target === literal || target.startsWith(`${literal} `);
+  }
+  let url: URL;
+  try {
+    url = new URL(target);
+  } catch {
+    return false;
+  }
+  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.username !== '' || url.password !== '') return false;
+  return url.hostname.toLowerCase() === check.rule.pattern.slice('domain:'.length).toLowerCase();
+}
+
 /** `Bash(pnpm test *)`: how a rule is written in a settings file and shown on a card. */
 export function ruleString(rule: { readonly tool: string; readonly pattern: string }): string {
   return `${rule.tool}(${rule.pattern})`;

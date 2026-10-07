@@ -12,11 +12,11 @@
 // | G6 | discussion: an edit tool whose target is not its topic's SPEC.md or PLAN.md               | deny |
 // | G7 | work item: an edit tool on its topic's SPEC.md or PLAN.md                                 | deny |
 // | G8 | any other edit-tool call                                                                  | lock |
-// | G9 | everything else (Bash, WebFetch, Task, AskUserQuestion, `mcp__smurg__*`, …)               | pass |
+// | G9 | everything else (Bash, WebFetch, AskUserQuestion, `mcp__smurg__*`, …)                     | pass |
 //
 // G1 (the daemon does not answer) is hook-cli's: it fails closed for every tool. The gate never says "allow":
 // allowing stays with Claude Code's rules and with people. What it cannot see is what a shell command does.
-import { SMURG_TOOL_PREFIX, isClaudeConfigPath, isEditTool, isHostOnlyPath, isHostPrivatePath, topicPlanPath, topicSpecPath } from '@smurg/protocol';
+import { SMURG_TOOL_PREFIX, foldRelPath, isClaudeConfigPath, isEditTool, isHostOnlyPath, isHostPrivatePath, topicPlanPath, topicSpecPath } from '@smurg/protocol';
 import type { GateRow, HookSessionRegistration } from '../core/interfaces.ts';
 
 /** In `HookSessionRegistration.tools`: any MCP tool is in the list (the host allowed their own servers, `agentMcp`). */
@@ -48,6 +48,15 @@ export function patternLeavesRoot(pattern: string | undefined): boolean {
 
 const deny = (row: GateRow, path?: string): GateDecision => ({ kind: 'deny', row, ...(path === undefined ? {} : { path }) });
 
+/** Whether `path` is one of the recorded files, under any spelling a case-insensitive file system folds onto it. */
+function isRecorded(recorded: ReadonlySet<string>, path: string): boolean {
+  if (recorded.size === 0) return false;
+  if (recorded.has(path)) return true;
+  const folded = foldRelPath(path);
+  for (const entry of recorded) if (foldRelPath(entry) === folded) return true;
+  return false;
+}
+
 /**
  * The decision for one call. `extraProtected`: root-relative paths the trust gate recorded for the session's root
  * (ProjectTrust.protectedPaths). `pattern`: a Glob's pattern.
@@ -56,7 +65,7 @@ export function gateDecision(session: GateFacts, extraProtected: ReadonlySet<str
   if (!toolInList(session.tools, tool)) return deny('G2');
   const path = target.kind === 'in' ? target.path : undefined;
   if (isEditTool(tool)) {
-    if (path !== undefined && (isClaudeConfigPath(path) || extraProtected.has(path))) return deny('G3', path);
+    if (path !== undefined && (isClaudeConfigPath(path) || isRecorded(extraProtected, path))) return deny('G3', path);
     if (path !== undefined && session.pathRights === 'member' && isHostOnlyPath(path)) return deny('G4', path);
     const slug = session.topic?.slug;
     if (session.purpose === 'discussion') {

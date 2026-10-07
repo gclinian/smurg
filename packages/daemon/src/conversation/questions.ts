@@ -195,7 +195,7 @@ export class Questions {
       }
       if (!ownWords) throw new AuthorizationError(msg('question.otherNeedsAgentAccess'), { reason: 'other-needs-agent-access' });
       const { text } = cleanPersonText(answer.other, OTHER_ANSWER_MAX_CHARS);
-      const author = answer.otherBy === undefined || answer.otherBy === member.userId ? null : this.otherAuthor(question, index, answer.otherBy);
+      const author = answer.otherBy === undefined || answer.otherBy === member.userId ? null : this.otherAuthor(question, index, answer.otherBy, text);
       submitted.push({ other: text, ...(author === null ? {} : { otherBy: { ...author, role: this.ctx.members.roleOf(author.userId) } }) });
       stored.push({ other: text, ...(author === null ? {} : { otherBy: author }) });
       others.push(text);
@@ -374,12 +374,17 @@ export class Questions {
     return unique;
   }
 
-  /** `otherBy` names a member whose "Other" vote on that part the text came from; nobody else's name is put on it. */
-  private otherAuthor(question: Question, part: number, userId: UserId): UserRef {
+  /**
+   * `otherBy` names a member whose "Other" vote on that part the text came from. A name is put on a text only when
+   * the submitted text IS that member's vote on that part (both cleaned the same way): a member who proposed nothing
+   * there is refused, and a text the submitter changed is the submitter's own (null: no attribution anywhere, not on
+   * the card, not in what the agent reads, not in the audit log).
+   */
+  private otherAuthor(question: Question, part: number, userId: UserId, text: string): UserRef | null {
     const author = this.ctx.members.userRef(userId);
-    const proposed = question.votes.some((vote) => vote.userId === userId && vote.part === part && vote.other !== undefined);
-    if (author === null || !proposed) throw new SmurgError('bad_request', undefined, { reason: 'other-by' });
-    return author;
+    const proposed = question.votes.find((vote) => vote.userId === userId && vote.part === part && vote.other !== undefined);
+    if (author === null || proposed === undefined) throw new SmurgError('bad_request', undefined, { reason: 'other-by' });
+    return proposed.other === text ? author : null;
   }
 
   /** Members holding `discuss` who are online or have voted on any part. */

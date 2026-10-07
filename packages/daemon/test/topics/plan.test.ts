@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, SmurgError, planInfoSchema, startPreflightSchema, topicPlanPath, topicSpecPath } from '@smurg/protocol';
 import { buildQuestion, recordActivity } from '../../src/core/fakes/index.ts';
 import { countOpenQuestions } from '../../src/topics/plan-service.ts';
-import { SPEC_TEXT, checkPlan, createTopic, itemOf, lineIds, mcpContext, planText, setupTopics, smurgSent, startPlan, topicWithPlan, waitFor, type TopicsTest } from './support.ts';
+import { checkPlan, createTopic, itemOf, lineIds, mcpContext, planText, settle, setupTopics, smurgSent, SPEC_TEXT, startPlan, topicWithPlan, waitFor, type TopicsTest } from './support.ts';
 
 let test: TopicsTest;
 afterEach(async () => {
@@ -124,7 +124,7 @@ describe('generating the plan', () => {
     // A discussion turn about something else does not send a fix either.
     test.fakes.agents.say(session.id, 'Noted.');
     test.fakes.agents.finishTurn(session.id);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(test);
     expect(smurgSent(test, session.id)).toEqual([]);
   });
 });

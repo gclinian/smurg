@@ -69,12 +69,32 @@ export class StringCatalogueError extends Error {
   override readonly name = 'StringCatalogueError';
 }
 
-/** Replaces `{name}` placeholders; a missing variable stays visible as `{name}` (a bug, but never a crash). */
+/** A Chinese character: what a Latin word or a number is set apart from with a space (the zh-TW house style). */
+const HAN = /\p{Script=Han}/u;
+/** The edge of a value that a Chinese character does not touch: a Latin letter, a digit, or what opens or closes them. */
+const NARROW = /[\p{Script=Latin}\p{Nd}()[\]"'+\-#@%]/u;
+
+/**
+ * Replaces `{name}` placeholders; a missing variable stays visible as `{name}` (a bug, but never a crash).
+ *
+ * Where a placeholder stands directly against a Chinese character, a value that begins or ends in Latin letters or
+ * digits there gets a space on that side: a zh-TW sentence that names who deleted a file reads with a space on both
+ * sides of "Mei" and with none around a Chinese name (the examples are in strings.test.ts). A template cannot write
+ * that space itself when its placeholder may hold a name in either script. (English templates hold no Chinese
+ * character, so nothing changes for them.)
+ */
 export function interpolate(template: string, vars?: StringVars): string {
   if (!vars) return template;
-  return template.replace(PLACEHOLDER, (whole, name: string) => {
-    const value = Object.hasOwn(vars, name) ? vars[name] : undefined;
-    return value === undefined ? whole : String(value);
+  return template.replace(PLACEHOLDER, (whole, name: string, offset: number) => {
+    const given = Object.hasOwn(vars, name) ? vars[name] : undefined;
+    if (given === undefined) return whole;
+    const value = String(given);
+    if (value === '') return value;
+    const before = template[offset - 1];
+    const after = template[offset + whole.length];
+    const lead = before !== undefined && HAN.test(before) && NARROW.test(value[0] as string) ? ' ' : '';
+    const trail = after !== undefined && HAN.test(after) && NARROW.test(value.at(-1) as string) ? ' ' : '';
+    return `${lead}${value}${trail}`;
   });
 }
 

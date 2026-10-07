@@ -183,6 +183,93 @@ describe('JsonlAuditLog bounds (security review F5, contract review C12)', () =>
     await log.close();
   });
 
+  // Review DX-15: measured with the release composition, one Editor writing files in a loop added 130 to 270 accepted
+  // entries a second (217 bytes each): the three 32 MiB files were full of them in 30 to 60 minutes.
+  it("a member's accepted requests of one action: the budget of a minute is in the log, the rest is kept whole in the overflow file and counted in one summary", async () => {
+    base = await createTempDir('audit');
+    const path = join(base, 'audit.jsonl');
+    const overflow = join(base, 'audit-overflow.jsonl');
+    const clock = new ManualClock(1_760_000_000_000);
+    const log = await JsonlAuditLog.open(path, { clock, log: silentLogger, pageMax: 500, acceptedPerActionPerMinute: 10 });
+    const live: AuditEntry[] = [];
+    log.subscribe((entry) => live.push(entry));
+    const mei = { kind: 'user', userId: 'dev:mei', displayName: 'Mei' } as const;
+    for (let i = 0; i < 1_000; i++) log.record({ actor: amy, action: 'file.write', outcome: 'ok', target: `main:src/f${i}.ts`, detail: { size: i } });
+    // What the same member does otherwise, what anyone else does, what agents and the daemon record: all in the log.
+    log.record({ actor: amy, action: 'suggest.create', outcome: 'ok', target: 'sg_1' });
+    log.record({ actor: amy, action: 'authz.denied', outcome: 'denied', target: 'session.send' });
+    for (let i = 0; i < 12; i++) log.record({ actor: mei, action: 'file.write', outcome: 'ok', target: `main:mei${i}.ts` });
+    for (let i = 0; i < 30; i++) log.record({ actor: { kind: 'agent', sessionId: 'ses_1', ownerUserId: 'dev:amy', displayName: 'Claude (Amy)' }, action: 'file.write', outcome: 'ok', target: `main:agent${i}.ts` });
+    for (let i = 0; i < 30; i++) log.record({ actor: SYSTEM_ACTOR, action: 'file.write', outcome: 'ok', target: `main:system${i}.ts` });
+    clock.advance(70_000);
+    log.record({ actor: mei, action: 'member.role', outcome: 'ok', target: 'dev:amy' }); // anyone's next entry: the summaries first
+    await log.flush();
+    const entries = (await log.query({ limit: 500 })).reverse();
+    const amyWrites = entries.filter((e) => e.actor.kind === 'user' && e.actor.userId === 'dev:amy' && e.action === 'file.write');
+    expect(amyWrites).toHaveLength(10 + 1 + 1); // the budget, the note, the summary
+    expect(amyWrites.slice(0, 10).map((e) => e.target)).toEqual(Array.from({ length: 10 }, (_, i) => `main:src/f${i}.ts`));
+    expect(amyWrites[10]).toMatchObject({ target: 'main:src/f10.ts', detail: { size: 10, rateLimited: true, limitPerMinute: 10 } });
+    expect(amyWrites[11]).toMatchObject({ outcome: 'ok', target: 'audit-rate-limit', detail: { reason: 'audit-rate-limit', notRecorded: 989, keptIn: 'audit-overflow.jsonl', windowMs: 60_000 } });
+    expect(entries.filter((e) => e.action === 'suggest.create' || e.action === 'authz.denied')).toHaveLength(2);
+    expect(entries.filter((e) => e.actor.kind === 'user' && e.actor.userId === 'dev:mei' && e.action === 'file.write')).toHaveLength(10 + 1 + 1);
+    expect(entries.filter((e) => e.actor.kind === 'agent')).toHaveLength(30);
+    expect(entries.filter((e) => e.actor.kind === 'system')).toHaveLength(30);
+    expect(entries.at(-1)).toMatchObject({ action: 'member.role', target: 'dev:amy' });
+    expect(live).toHaveLength(entries.length); // the host console gets exactly what the log holds
+    // Nothing the member did is lost: the 989 (and Mei's one) are in the overflow file, whole, 0600.
+    const kept = (await readFile(overflow, 'utf8')).trimEnd().split('\n').map((line) => JSON.parse(line) as AuditEntry);
+    expect(kept).toHaveLength(989 + 1);
+    expect(kept[0]).toMatchObject({ actor: { userId: 'dev:amy' }, action: 'file.write', outcome: 'ok', target: 'main:src/f11.ts', detail: { size: 11 } });
+    expect(kept[988]).toMatchObject({ target: 'main:src/f999.ts' });
+    expect(((await stat(overflow)).mode & 0o777).toString(8)).toBe('600');
+    await log.close();
+  });
+
+  it('a loop of accepted requests does not evict a role change (DESIGN S13)', { timeout: 60_000 }, async () => {
+    base = await createTempDir('audit');
+    const path = join(base, 'audit.jsonl');
+    const clock = new ManualClock(1_760_000_000_000);
+    // Three files of 1 MiB hold about 7,000 entries of this size.
+    const log = await JsonlAuditLog.open(path, { clock, log: silentLogger, pageMax: 500, maxBytes: 1024 * 1024 });
+    const host = { kind: 'user', userId: 'dev:host', displayName: 'Host' } as const;
+    log.record({ actor: host, action: 'member.role', outcome: 'ok', target: 'dev:amy', detail: { from: 'viewer', to: 'editor' } });
+    // Amy edits her suggestion and writes files as fast as she can for five minutes: 20,000 accepted requests.
+    for (let i = 0; i < 20_000; i++) {
+      if (i % 100 === 0) clock.advance(1_500);
+      log.record({ actor: amy, action: i % 2 === 0 ? 'suggest.edit' : 'file.write', outcome: 'ok', target: `t${i}`, detail: { note: 'x'.repeat(300) } });
+    }
+    await log.flush();
+    await expect(stat(join(base, 'audit.1.jsonl'))).rejects.toMatchObject({ code: 'ENOENT' }); // the log did not even rotate once
+    const all: AuditEntry[] = [];
+    for (let before: number | undefined; ; ) {
+      const page = await log.query({ limit: 500, ...(before === undefined ? {} : { before }) });
+      all.push(...page);
+      if (page.length < 500) break;
+      before = page.at(-1)?.at;
+    }
+    expect(all.at(-1)).toMatchObject({ action: 'member.role', actor: { userId: 'dev:host' }, target: 'dev:amy' });
+    const summaries = all.filter((e) => e.target === 'audit-rate-limit');
+    expect(summaries.length).toBeGreaterThanOrEqual(8);
+    expect(all.length).toBeLessThan(1_600);
+    // Every request is accounted for: in the log, or counted by a summary (the last minute's summary is written at close).
+    await log.close();
+    const reopened = await JsonlAuditLog.open(path, { clock, log: silentLogger, pageMax: 500 });
+    let recorded = 0;
+    let counted = 0;
+    for (let before: number | undefined; ; ) {
+      const page = await reopened.query({ limit: 500, ...(before === undefined ? {} : { before }) });
+      for (const entry of page) {
+        if (entry.actor.kind !== 'user' || entry.actor.userId !== 'dev:amy') continue;
+        if (entry.target === 'audit-rate-limit') counted += entry.detail?.['notRecorded'] as number;
+        else recorded += 1;
+      }
+      if (page.length < 500) break;
+      before = page.at(-1)?.at;
+    }
+    expect(recorded + counted).toBe(20_000);
+    await reopened.close();
+  });
+
   it('rotates at the size cap (0600 files) and pages through the rotated files', async () => {
     base = await createTempDir('audit');
     const path = join(base, 'audit.jsonl');

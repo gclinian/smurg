@@ -183,7 +183,7 @@ export function entryBadges(entry: FileEntry, ctx: BadgeContext): EntryBadge[] {
   if (lock?.kind !== 'agent' && by !== undefined && ctx.now - entry.mtime < RECENT_CHANGE_MS && ctx.now - entry.mtime >= -60_000) {
     const name = actorName(by);
     const shown = by.kind === 'user' && by.userId === ctx.selfUserId ? t('badge.you') : name;
-    badges.push({ kind: 'recent', text: shown, label: t('badge.recentLabel', { name, time: formatRelativeTime(entry.mtime, ctx.now) }) });
+    badges.push({ kind: 'recent', text: shown, label: t('badge.recentLabel', { name, time: formatRelativeTime(entry.mtime, ctx.now, 'minute') }) });
   }
   // A work item's own copy of the spec and the plan first (the daemon reports what is inside as readOnly too, and it
   // is no shared folder); then host-only: the daemon also reports those paths (.git, .claude, …) as readOnly to

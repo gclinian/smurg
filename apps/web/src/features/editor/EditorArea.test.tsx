@@ -2,6 +2,8 @@ import { MAIN_ROOT, SmurgError, fileRefKey, type FileRef, type LockInfo, type Ro
 import { msg } from '@smurg/protocol/i18n';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import * as awarenessProtocol from 'y-protocols/awareness';
+import * as Y from 'yjs';
 import type { CommandMap } from '../../lib/commands.ts';
 import { T0, makeAgentLock, makeAgentSession, makeSession, makeWelcome } from '../../testing/fixtures.ts';
 import { renderInWorkspace } from '../../testing/services.tsx';
@@ -66,6 +68,38 @@ describe('EditorArea: tabs, lazy editor, collaborative binding', () => {
     await waitFor(() => expect(editor?.readOnly).toBe(false));
     // Remote cursor styles live in a per-document <style>.
     expect(document.head.querySelector('style[data-smurg-presence]')).not.toBeNull();
+  });
+
+  it("an agent's caret and its entry under \"Also in this file\" are there while it works and go when its turn ends, as the host's presence list says (review WX-7)", async () => {
+    const view = renderEditor();
+    const room = view.bridge.addFile(FILE, TEXT);
+    await view.open();
+    await waitFor(() => expect(view.fake.bindings).toHaveLength(1));
+    // The discussion's agent wrote into the file: the daemon puts its caret into the document under the name of its
+    // topic, in the colour of its entry in the presence list (which names it after the person who opened it).
+    const agentClient = 4_242;
+    const caret = new awarenessProtocol.Awareness(new Y.Doc());
+    caret.clientID = agentClient;
+    // Twice: a state is taken from another client only with a clock above the one already known (none: 0).
+    for (let round = 0; round < 2; round += 1) caret.setLocalState({ user: { name: 'Claude (Checkout)', color: '#f59e0b', kind: 'agent', userId: 'dev:host' }, selection: { anchor: {}, head: {} } });
+    act(() => awarenessProtocol.applyAwarenessUpdate(room.awareness, awarenessProtocol.encodeAwarenessUpdate(caret, [agentClient]), 'the daemon'));
+    const agent = (status: 'running' | 'idle' | 'done') => ({ sessionId: 'sess_d', ownerUserId: 'dev:mei', displayName: 'Claude (Mei)', color: '#f59e0b', status, activeFile: FILE });
+    act(() => view.conn.emit('presence.state', { members: [], agents: [agent('running')] }));
+    await view.settle();
+    const names = (): string[] => [...document.querySelectorAll('.editor-doc__participants li')].map((entry) => entry.getAttribute('title') ?? '');
+    const style = (): string => document.head.querySelector('style[data-smurg-presence]')?.textContent ?? '';
+    expect(names()).toEqual(['Claude (Checkout)']);
+    expect(style()).toContain(`yRemoteSelectionHead-${agentClient}`);
+    // Its turn ends. Nothing changes in the document's awareness states: only the presence list says so.
+    act(() => view.conn.emit('presence.state', { members: [], agents: [agent('idle')] }));
+    expect(names()).toEqual([]);
+    expect(style()).not.toContain(`yRemoteSelectionHead-${agentClient}`);
+    // The next turn: it is in the file again.
+    act(() => view.conn.emit('presence.state', { members: [], agents: [agent('running')] }));
+    expect(names()).toEqual(['Claude (Checkout)']);
+    act(() => view.conn.emit('presence.state', { members: [], agents: [agent('done')] }));
+    expect(names()).toEqual([]);
+    caret.destroy();
   });
 
   it('a file an agent is changing: every editor is read-only for now and says so; editable again when it finishes — the web banner and read-only editor', async () => {

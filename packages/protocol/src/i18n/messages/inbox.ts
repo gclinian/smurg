@@ -5,11 +5,11 @@ import { message } from '../define.ts';
 export const inbox = {
   'inbox.itemGone': message({}, {
     en: () => 'This item is no longer waiting.',
-    'zh-TW': () => '這個項目已經不需要處理了',
+    'zh-TW': () => '這一則已經不需要處理了',
   }),
   'inbox.notDismissable': message({}, {
     en: () => 'This item leaves the inbox when it is settled.',
-    'zh-TW': () => '這個項目處理完才會離開收件夾',
+    'zh-TW': () => '這一則要處理完才會離開收件夾',
   }),
   'mention.inboxFull': message({ name: 'string' }, {
     en: (p) => `${p.name} has too many unopened mentions. This one did not reach them.`,

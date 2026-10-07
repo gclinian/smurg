@@ -41,7 +41,9 @@ import {
   REVIEWERS_MAX,
   SmurgError,
   TOPIC_SLUG_PATTERN,
+  foldRelPath,
   isInTopicDir,
+  isRelPathWithin,
   isSessionOver,
   mergeMessageSchema,
   opaqueIdSchema,
@@ -650,13 +652,38 @@ export class WorktreeManagerImpl implements WorktreeManager {
     });
   }
 
-  /** The files of a change that people also edited by hand in the worktree, at most REPORT_BY_HAND_MAX. */
+  /**
+   * The scripts the trust gate records right now for the main workspace (where a merge lands) and for the worktree
+   * the change comes from: what a host-confirmed project hook runs. (A composition without a trust gate has no such
+   * scripts; a gate that fails fails the request.) After a merge the gate looks at the files again and asks the host.
+   */
+  private recordedScripts(worktreeId: string): ReadonlySet<string> {
+    const trust = this.ctx.services.projectTrust;
+    if (isStubService(trust)) return new Set();
+    return new Set([...trust.protectedPaths(MAIN_ROOT), ...trust.protectedPaths({ kind: 'worktree', worktreeId })]);
+  }
+
+  /**
+   * The files of a change that people also edited by hand in the worktree, at most REPORT_BY_HAND_MAX. A hand edit
+   * names what the person's request named: a file, or a FOLDER they renamed, moved into place or deleted, which is an
+   * edit of every file below it (names compared as a case-insensitive file system compares them).
+   */
   private byHandOf(record: StoredWorktree, files: readonly ReviewFile[]): { path: string; by: UserRef[] }[] {
-    const changed = new Set(files.flatMap((entry) => [entry.file.path, ...(entry.file.oldPath !== undefined ? [entry.file.oldPath] : [])]));
-    return (record.handEdits ?? [])
-      .filter((edit) => changed.has(edit.path))
-      .slice(-REPORT_BY_HAND_MAX)
-      .map((edit) => ({ path: edit.path, by: edit.by.map((user) => ({ ...user })) }));
+    const edits = record.handEdits ?? [];
+    if (edits.length === 0) return [];
+    const changed = [...new Set(files.flatMap((entry) => [entry.file.path, ...(entry.file.oldPath !== undefined ? [entry.file.oldPath] : [])]))].map((path) => ({ path, folded: foldRelPath(path) }));
+    // In the order the hand edits were made (the newest are the ones a report is most likely to show).
+    const byPath = new Map<string, UserRef[]>();
+    for (const edit of edits) {
+      const folder = foldRelPath(edit.path);
+      for (const file of changed) {
+        if (!isRelPathWithin(file.folded, folder)) continue;
+        let people = byPath.get(file.path);
+        if (people === undefined) byPath.set(file.path, (people = []));
+        for (const user of edit.by) if (people.length < REVIEWERS_MAX && !people.some((known) => known.userId === user.userId)) people.push({ ...user });
+      }
+    }
+    return [...byPath].slice(-REPORT_BY_HAND_MAX).map(([path, by]) => ({ path, by }));
   }
 
   /** After a start: the branch head and whether the working tree has uncommitted changes, for every item worktree. */
@@ -856,7 +883,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
           const head = await mainHead(repo);
           if (head === null) throw new SmurgError('conflict', msg('merge.mainNoCommits'), { reason: 'no-commits' });
           const files = await reviewFiles(repo, await reviewBase(repo, head, commit), commit);
-          const violation = await checkMergePolicy(repo, files, { requesterIsHost, ...(current.item !== undefined ? { topicSlug: current.item.topicSlug } : {}), timeoutMs });
+          const violation = await checkMergePolicy(repo, files, { requesterIsHost, ...(current.item !== undefined ? { topicSlug: current.item.topicSlug } : {}), recorded: this.recordedScripts(current.id), timeoutMs });
           if (violation) {
             this.auditRefusedRequest(principal.actor, current, commit, violation, false);
             throw policyError(violation);
@@ -926,7 +953,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
         try {
           const files = await reviewFiles(repo, await reviewBase(repo, head, commit), commit);
           // 3. The policy of a request nobody of the host's rank made: no host-only paths, not the topic's two files.
-          const violation = await checkMergePolicy(repo, files, { requesterIsHost: false, ...(topicSlug !== undefined ? { topicSlug } : {}), timeoutMs });
+          const violation = await checkMergePolicy(repo, files, { requesterIsHost: false, ...(topicSlug !== undefined ? { topicSlug } : {}), recorded: this.recordedScripts(record.id), timeoutMs });
           if (violation) {
             this.auditRefusedRequest(SYSTEM_ACTOR, record, commit, violation, true);
             await this.deleteRef(repo, ref);
@@ -1070,7 +1097,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
       // Policy again: the requester's role may have changed since the request. A draft nobody asked for is held to
       // what a member's request is held to, whoever approves it.
       const requesterIsHost = found.requestedBy !== undefined && this.ctx.members.roleOf(found.requestedBy.userId) === 'host';
-      const violation = await checkMergePolicy(repo, files, { requesterIsHost, ...(found.topicSlug !== undefined ? { topicSlug: found.topicSlug } : {}), timeoutMs: this.limits.gitTimeoutMs });
+      const violation = await checkMergePolicy(repo, files, { requesterIsHost, ...(found.topicSlug !== undefined ? { topicSlug: found.topicSlug } : {}), recorded: this.recordedScripts(found.worktreeId), timeoutMs: this.limits.gitTimeoutMs });
       if (violation) {
         this.auditDecision(principal, found, 'denied', { reason: violation.reason, paths: violation.paths.slice(0, 20) });
         throw policyError(violation);

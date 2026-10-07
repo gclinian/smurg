@@ -29,7 +29,7 @@ describe('escalation', { timeout: 60_000 }, () => {
     expect(await refusal(noa.conn.request('question.submit', { questionId: 'q1', answers: [{ options: [0] }] }))).toMatchObject({ code: 'forbidden', id: 'question.notDecider' });
     s.t.advanceClock(ESCALATE_AFTER_MS_DEFAULT - 30_000);
     await settle(20);
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    s.service.sweep();
     expect(s.service.question('q1')?.escalatedAt).toBeUndefined();
     expect(s.service.permission('pr1', true)?.escalatedAt).toBeUndefined();
 
@@ -44,7 +44,8 @@ describe('escalation', { timeout: 60_000 }, () => {
     expect(whoHasTheQuestion()).toEqual([HOST, MEI, NOA].sort());
     expect(whoHasTheRequest()).toEqual([HOST, MEI, NOA].sort());
     // It escalates once.
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    s.service.sweep();
+    await quiet(s);
     expect(questions.filter((update) => update.question.escalatedAt !== undefined)).toHaveLength(1);
 
     // An Editor still cannot; a member with agent access submits for Mei, recorded as that, and the conversation says so.
@@ -65,7 +66,7 @@ describe('escalation', { timeout: 60_000 }, () => {
     await quiet(s);
     // Online: half a minute changes nothing.
     s.t.advanceClock(30_000);
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    s.service.sweep();
     expect(s.service.question('q1')?.escalatedAt).toBeUndefined();
     // Mei closes her browser.
     s.mei.close();
@@ -73,7 +74,7 @@ describe('escalation', { timeout: 60_000 }, () => {
     // (One round of the sweep now, so "offline since" is this moment whatever the machine's load.)
     s.service.sweep();
     s.t.advanceClock(59_000);
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    s.service.sweep();
     expect(s.service.question('q1')?.escalatedAt).toBeUndefined();
     expect(s.service.permission('pr1', true)?.escalatedAt).toBeUndefined();
     s.t.advanceClock(1_500);
@@ -93,7 +94,7 @@ describe('escalation', { timeout: 60_000 }, () => {
     await waitFor(() => !s.t.ctx.hub.isOnline(MEI), { what: 'Mei to be offline' });
     s.service.sweep();
     s.t.advanceClock(5_000);
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    s.service.sweep();
     expect(s.service.permission('pr1', true)?.escalatedAt).toBeUndefined();
     expect(s.service.permission('host-only', true)?.escalatedAt).toBeUndefined();
     // The host shortens the waiting time to a minute: what has waited that long escalates right away.

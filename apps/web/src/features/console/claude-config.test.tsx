@@ -185,6 +185,77 @@ describe('host console: Claude Code project settings', () => {
     expect(within(local).queryByText('This file runs no command, changes no permission and sets no variable.')).toBeNull();
   });
 
+  it('a list that is not everything says so above the lists, and "Use them" then needs its own tick; a variable that changes which programs run is marked', async () => {
+    const CUT = makeConfigFile({
+      runs: ['hook Stop: ./scripts/lint.sh --fix', 'env NODE_OPTIONS: --require ./tools/preload.js'],
+      env: [{ name: 'NODE_OPTIONS', flagged: false, programs: true }],
+      needsAck: ['incomplete'],
+      cut: { omitted: 3, shortened: 1 },
+    });
+    const fixture = defaultFixture();
+    fixture.claudeConfig = [{ root: MAIN, state: 'ignored', files: [CUT] }];
+    const view = renderConsole({ fixture });
+    const claude = await section();
+    const settings = (await within(claude).findByText('.claude/settings.json', { selector: 'h4 code' })).closest('li') as HTMLElement;
+    // Said in plain words, before the lists it is about.
+    const notice = within(settings).getByText('3 more entries are not listed below. 1 entry below is cut short. Read the file itself (at the bottom) before you decide.');
+    const runs = within(settings).getByText('Runs commands');
+    expect(notice.compareDocumentPosition(runs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const variable = within(within(settings).getByText('Sets environment variables').parentElement as HTMLElement).getByText('NODE_OPTIONS').closest('li') as HTMLElement;
+    expect(within(variable).getByText('changes which programs run')).toBeTruthy();
+    expect(within(variable).queryByText('can send your login to another server')).toBeNull();
+    // The tick.
+    const use = within(claude).getByRole('button', { name: 'Use them' }) as HTMLButtonElement;
+    expect(use.disabled).toBe(true);
+    fireEvent.click(within(claude).getByLabelText('The lists above do not show everything. I have read the files themselves.'));
+    expect(use.disabled).toBe(false);
+    fireEvent.click(use);
+    expect(view.conn.lastRequest('admin.claudeConfig.decide')?.payload).toEqual({ root: MAIN, files: [{ path: '.claude/settings.json', hash: hash('a') }], decision: 'trust', acknowledged: ['incomplete'] });
+    // One count alone reads as one sentence; a file that is whole has no such line.
+    expect(acksNeeded({ root: MAIN, state: 'ignored', files: [SETTINGS, CUT, RISKY] })).toEqual(['credentials', 'allows-tools', 'incomplete']);
+  });
+
+  it('everything else Claude Code loads from .claude/ is one more entry: named for what it is, its files listed, confirmed with the settings files', async () => {
+    const LOADED = makeConfigFile({
+      path: '.claude',
+      hash: hash('f'),
+      text: `${hash('1')}  .claude/agents/reviewer.md\n${hash('2')}  .claude/skills/release/SKILL.md`,
+      runs: ['hook in .claude/agents/reviewer.md: ./scripts/check.sh --strict'],
+      permissions: ['.claude/skills/release/SKILL.md: allowed-tools: Bash(git *), Read'],
+      otherKeys: ['.claude/agents/reviewer.md', '.claude/skills/release/SKILL.md'],
+      scripts: [{ path: 'scripts/check.sh', hash: hash('b') }],
+      needsAck: ['allows-tools', 'incomplete'],
+      cut: { omitted: 1, shortened: 0 },
+    });
+    const fixture = defaultFixture();
+    fixture.claudeConfig = [{ root: MAIN, state: 'ignored', files: [SETTINGS, LOADED] }];
+    const view = renderConsole({ fixture });
+    const claude = await section();
+    const entry = (await within(claude).findByText('Everything else in .claude/')).closest('li') as HTMLElement;
+    expect(within(entry).queryByText('.claude', { selector: 'h4 code' })).toBeNull();
+    expect(within(entry).getByText('Claude Code also loads the agents, skills, commands and rules of this folder. They can run commands and allow tools by themselves. A change of any of these files asks you again.')).toBeTruthy();
+    expect(within(entry).getByText('1 more entry is not listed below. Read the files themselves on your computer before you decide.')).toBeTruthy();
+    const files = within(entry).getByText('Files it loads').parentElement as HTMLElement;
+    expect(within(files).getByText('.claude/agents/reviewer.md')).toBeTruthy();
+    expect(within(files).getByText('.claude/skills/release/SKILL.md')).toBeTruthy();
+    expect(within(entry).queryByText('Other settings')).toBeNull();
+    expect(within(within(entry).getByText('Runs commands').parentElement as HTMLElement).getByText('hook in .claude/agents/reviewer.md: ./scripts/check.sh --strict')).toBeTruthy();
+    expect((within(entry).getByText('Show every file with its SHA-256').closest('details') as HTMLDetailsElement).querySelector('pre')?.textContent).toBe(LOADED.text);
+    // One decision about everything on screen.
+    fireEvent.click(within(claude).getByLabelText('These settings let agents run commands, edit files or call MCP tools without asking.'));
+    fireEvent.click(within(claude).getByLabelText('The lists above do not show everything. I have read the files themselves.'));
+    fireEvent.click(within(claude).getByRole('button', { name: 'Use them' }));
+    expect(view.conn.lastRequest('admin.claudeConfig.decide')?.payload).toEqual({
+      root: MAIN,
+      files: [
+        { path: '.claude/settings.json', hash: hash('a') },
+        { path: '.claude', hash: hash('f') },
+      ],
+      decision: 'trust',
+      acknowledged: ['allows-tools', 'incomplete'],
+    });
+  });
+
   it('"Use them" is enabled only after the ticks the contents need, and sends exactly the contents on screen', async () => {
     const fixture = defaultFixture();
     fixture.claudeConfig = [{ root: MAIN, state: 'ignored', files: [SETTINGS, RISKY] }];

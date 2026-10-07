@@ -70,13 +70,20 @@ const changesWithinSeconds = (elapsed: number): boolean => elapsed < 60 && elaps
 /**
  * "just now", "3 minutes ago", ..., then an absolute date after a week. Under a minute the text changes within seconds:
  * the clock is told (lib/clock.ts), so whoever shows it is redrawn in time.
+ *
+ * `finest: 'minute'` is for a text that is redrawn once a minute or less often (a label of the file tree): it says
+ * "just now" for the whole first minute instead of seconds it would not follow, and asks the clock for nothing.
  */
-export function formatRelativeTime(at: number, now: number = Date.now()): string {
+export function formatRelativeTime(at: number, now: number = Date.now(), finest: 'second' | 'minute' = 'second'): string {
   const { relative, dateTime } = formatters();
   const seconds = Math.floor((now - at) / 1000);
-  if (changesWithinSeconds(seconds)) secondsShown();
-  if (seconds < 10) return tApp('common.justNow');
-  if (seconds < 60) return relative.format(-seconds, 'second');
+  if (finest === 'minute') {
+    if (seconds < 60) return tApp('common.justNow');
+  } else {
+    if (changesWithinSeconds(seconds)) secondsShown();
+    if (seconds < 10) return tApp('common.justNow');
+    if (seconds < 60) return relative.format(-seconds, 'second');
+  }
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return relative.format(-minutes, 'minute');
   const hours = Math.floor(minutes / 60);
@@ -181,14 +188,21 @@ export function formatAnd(items: readonly string[]): string {
 }
 
 /**
- * Sentences one after the other in one line: a space between two of them, except after Chinese or full-width
- * punctuation, which carries its own gap (a full-width full stop followed by a space reads as a hole).
+ * The gap between a sentence and what follows it in the same line (another sentence, a link, a button): a space,
+ * except after Chinese or full-width punctuation, which carries its own gap (a full-width full stop followed by a
+ * space reads as a hole). Nothing after nothing.
  */
+export function gapAfter(sentence: string | null | undefined): '' | ' ' {
+  if (sentence === null || sentence === undefined || sentence === '') return '';
+  return WIDE_PUNCTUATION.test(sentence.at(-1) as string) ? '' : ' ';
+}
+
+/** Sentences one after the other in one line, each set apart from the next by gapAfter(). */
 export function joinSentences(sentences: readonly (string | null | undefined)[]): string {
   let text = '';
   for (const sentence of sentences) {
     if (sentence === null || sentence === undefined || sentence === '') continue;
-    text += text === '' || WIDE_PUNCTUATION.test(text.at(-1) as string) ? sentence : ` ${sentence}`;
+    text += `${gapAfter(text)}${sentence}`;
   }
   return text;
 }

@@ -12,7 +12,7 @@
 //  - the trust gate for project settings; the hardened settings; the tool list of the verified version.
 // Skipped LOUDLY without a verified `claude`; SMURG_TEST_CLAUDE_BIN selects another binary.
 import { cp, mkdir, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -28,9 +28,9 @@ import { locksModule } from '../../src/locks/module.ts';
 import type { AgentSessionsImpl } from '../../src/sessions/agent/agent-sessions.ts';
 import { DISCUSSION_TOOLS, EXECUTION_TOOLS } from '../../src/sessions/agent/profiles.ts';
 import { createSessionsModule } from '../../src/sessions/module.ts';
-import { TEST_HOST_USER, createTempDir, createTempRunDir, createTestDaemon, removeTempDir, waitFor, type TestDaemon } from '../../src/testing/index.ts';
+import { TEST_HOST_USER, createTempDir, createTempProject, createTempRunDir, createTestDaemon, removeTempDir, waitFor, type TestDaemon } from '../../src/testing/index.ts';
 import { MOCK_API_KEY, findClaude, isolatedEnv, seedClaudeTrust } from '../hooks/claude-harness.ts';
-import { startMockAnthropic, type MockAnthropic, type MockStep } from '../hooks/mock-anthropic.ts';
+import { startMockAnthropic, type MockAnthropic, type MockOptions, type MockStep } from '../hooks/mock-anthropic.ts';
 import { FakeWorktrees } from './helpers.ts';
 
 const found = await findClaude();
@@ -90,8 +90,12 @@ function alive(pid: number): boolean {
 interface StackOptions {
   readonly files?: Record<string, string>;
   readonly git?: boolean;
-  /** The host's OWN `~/.claude/settings.json` (in the isolated config dir). */
-  readonly hostSettings?: Record<string, unknown>;
+  /** The host's OWN `~/.claude/settings.json` (in the isolated config dir); a function gets the scratch folder to put a script into. */
+  readonly hostSettings?: Record<string, unknown> | ((paths: { readonly base: string }) => Record<string, unknown>);
+  /** The name of the shared folder (default: the harness's own). */
+  readonly rootName?: string;
+  /** How the mock tells a subagent's requests from the main conversation's. */
+  readonly route?: (paths: { readonly root: string; readonly home: string }) => NonNullable<MockOptions['route']>;
   /** A user-scope MCP server in the host's own Claude Code config. */
   readonly plantUserMcp?: boolean;
   readonly agents?: Partial<AgentsConfig>;
@@ -117,7 +121,7 @@ async function start(steps: (paths: { root: string; home: string }) => readonly 
       '',
     ].join('\n'),
   );
-  if (options.hostSettings) await writeFile(join(cfg, 'settings.json'), JSON.stringify(options.hostSettings));
+  if (options.hostSettings) await writeFile(join(cfg, 'settings.json'), JSON.stringify(typeof options.hostSettings === 'function' ? options.hostSettings({ base }) : options.hostSettings));
   const selfCommand = { file: process.execPath, args: [entry] };
   // The mock's address is known after the daemon (its script names files of the project): read at each session start.
   let mockUrl = 'http://127.0.0.1:9';
@@ -133,14 +137,15 @@ async function start(steps: (paths: { root: string; home: string }) => readonly 
     };
     return [locksModule, hooksModule, worktreesModule, createSessionsModule({ hostEnv: () => isolatedEnv(base, mockUrl), launch: { claudePath: (claude as NonNullable<typeof claude>).path, selfCommand } })];
   };
+  const project = { files: { 'README.md': '# shop\n', 'src/cart.ts': 'export const cart = [];\n', '.envrc': 'SECRET=in-envrc\n', ...options.files }, ...(options.git ? { git: true } : {}) };
   const t = await createTestDaemon({
-    project: { files: { 'README.md': '# shop\n', 'src/cart.ts': 'export const cart = [];\n', '.envrc': 'SECRET=in-envrc\n', ...options.files }, ...(options.git ? { git: true } : {}) },
+    ...(options.rootName === undefined ? { project } : { root: await createTempProject(base, options.rootName, project) }),
     modules: modules(),
     sessions: { selfCommand, hostHome: home },
     ...(options.agents ? { agents: options.agents } : {}),
     ...(options.stateDir ? { stateDir: options.stateDir } : {}),
   });
-  const mock = await startMockAnthropic(steps({ root: t.root, home }));
+  const mock = await startMockAnthropic(steps({ root: t.root, home }), options.route ? { route: options.route({ root: t.root, home }) } : {});
   mockUrl = mock.url;
   // What the host's own Claude Code config already has: the folder trusted for the terminal UI, the key approved.
   const claudeJson = await seedClaudeTrust({ cfgDir: cfg, cwd: t.root, apiKey: MOCK_API_KEY });
@@ -522,5 +527,110 @@ describe.skipIf(!claude)(`the agent runtime with the real claude (${V}, mock Ant
     } finally {
       await again.cleanup();
     }
+  });
+});
+
+describe.skipIf(!claude)(`what the review asked to settle with the real claude (${V}, mock Anthropic API)`, { timeout: 180_000 }, () => {
+  it(`DX-9: an \`@path\` in a message, in the note of an answer and in a denial is text: no file reaches the model without a tool call (${V})`, async () => {
+    // Without \`client_composed\` on the user line Claude Code 2.1.288 expands a file mention itself: the file's content
+    // is in the API request with no tool call, no PreToolUse hook and no permission request, a file of the host's
+    // home included (run with the same binary before the fix: both markers below were in what the API received).
+    const s = await start(() => [tool('AskUserQuestion', QUESTION), bash('touch mention.txt'), { text: 'Done.' }, { text: 'Second.' }], {
+      files: { 'inside.txt': 'INSIDE-MARKER-91bc\n' },
+      answer: (request, agents, sessionId) => {
+        const note = `see @${join(s.home, 'private-notes.txt')} and @inside.txt`;
+        if (request.kind === 'question') agents.answerQuestion(sessionId, request.id, { answers: { 'Which database?': 'SQLite' }, notes: { 'Which database?': note } });
+        else agents.decidePermission(sessionId, request.id, { allow: false, message: `No. ${note}` });
+      },
+    });
+    const outside = join(s.home, 'private-notes.txt');
+    await writeFile(outside, 'HOME-MARKER-7f3a\n');
+    const session = await freeSession(s, `Look at @${outside} and @inside.txt and @.envrc`);
+    await s.turnsDone(1);
+    await s.say(session.id, `@${outside}`);
+    await s.turnsDone(2);
+    // The text reached the model as it was written, under its header; none of the three files did.
+    expect(s.mock.saw(`[Host · Host]\\nLook at @${outside} and @inside.txt and @.envrc`)).toBe(true);
+    expect(s.mock.saw(`No. see @${outside} and @inside.txt`)).toBe(true);
+    expect(s.mock.saw('HOME-MARKER-7f3a')).toBe(false);
+    expect(s.mock.saw('INSIDE-MARKER-91bc')).toBe(false);
+    expect(s.mock.saw('in-envrc')).toBe(false);
+    // Nothing of how a message is followed changed: each was taken by a turn and completed.
+    expect(s.turns.map((turn) => [turn.outcome, turn.messages.length])).toEqual([['completed', 1], ['completed', 1]]);
+    expect((await s.events(session.id)).flatMap((event) => (event.kind === 'delivery' ? [event.state] : []))).toEqual(['queued', 'started', 'completed', 'started', 'completed']);
+  });
+
+  it(`R3-06: a hook of the host's own settings rewrites a command: the permission request carries the rewritten command, and that is the one smurg shows, allows and records (${V})`, async () => {
+    const s = await start(() => [bash('touch asked-for.txt'), { text: 'Done.' }], {
+      hostSettings: ({ base }) => {
+        const script = join(base, 'rewrite.mjs');
+        writeFileSync(script, "let t='';process.stdin.on('data',(c)=>t+=c);process.stdin.on('end',()=>{const i=JSON.parse(t);process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',updatedInput:{...i.tool_input,command:'touch rewritten-by-hook.txt'}}}));});");
+        return { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `${process.execPath} ${script}` }] }] } };
+      },
+      answer: allowAll,
+    });
+    const session = await freeSession(s, 'run it');
+    await s.turnsDone(1);
+    // The assistant's tool call (the tool card) still shows what the model wrote; the request is for another command.
+    const cards = (await s.events(session.id)).flatMap((event) => (event.kind === 'tool.started' ? [event.tool.target] : []));
+    expect(cards).toEqual(['touch asked-for.txt']);
+    expect(s.requests).toMatchObject([{ kind: 'permission', tool: 'Bash', view: { name: 'Bash', verb: 'run', target: 'touch rewritten-by-hook.txt' }, input: { command: 'touch rewritten-by-hook.txt' } }]);
+    expect(existsSync(s.path('rewritten-by-hook.txt'))).toBe(true);
+    expect(existsSync(s.path('asked-for.txt'))).toBe(false);
+    const commands = (await s.t.ctx.audit.query({ limit: 50 })).filter((entry) => entry.action === 'agent.command').map((entry) => `${String(entry.detail?.['command'])} | ${String(entry.detail?.['why']).replace(/rq_.*/, 'rq')}`);
+    expect(commands).toEqual(['touch rewritten-by-hook.txt | decision:rq']);
+  });
+
+  it(`DX-10: no subagents: Claude Code is not given the tool, a call of it starts nothing, and a definition that asks for acceptEdits changes no session (${V})`, async () => {
+    const MARK = 'SUBAGENT-PROMPT-MARK';
+    const s = await start(() => [tool('Task', { description: 'file work', prompt: `${MARK} write sub-wrote.txt`, subagent_type: 'loose' }), { text: 'Main: finished.' }], {
+      files: { '.claude/agents/loose.md': '---\nname: loose\ndescription: Does file work.\ntools: Read, Write, Bash\npermissionMode: acceptEdits\n---\nYou do file work.\n' },
+      route: ({ root }) => ({ firstUser, assistantTurns }) => (firstUser.includes(MARK) ? ([tool('Write', { file_path: join(root, 'sub-wrote.txt'), content: 'by the subagent\n' }), bash('touch sub-touched.txt'), { text: 'Subagent: done.' }] as MockStep[])[Math.min(assistantTurns, 2)] : undefined),
+      answer: allowAll,
+    });
+    await freeSession(s, 'run the subagent');
+    await s.turnsDone(1);
+    // A subagent would have been started in the background: give it the time one took when the tool was offered.
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    const tools = s.ready[0]?.tools ?? [];
+    expect(tools.filter((name) => /^(Task|Agent)$/.test(name))).toEqual([]);
+    expect(s.results()).toHaveLength(1);
+    expect(s.results()[0]).toMatch(/No such tool available/);
+    // No conversation of a subagent reached the API, nothing was written, nobody was asked.
+    expect(s.mock.requests.filter((request) => request.kind === 'messages' && request.isMain && JSON.stringify(request.lastUser).includes(MARK) && request.assistantTurns === 0 && !JSON.stringify(request.lastUser).includes('run the subagent'))).toEqual([]);
+    expect(existsSync(s.path('sub-wrote.txt'))).toBe(false);
+    expect(existsSync(s.path('sub-touched.txt'))).toBe(false);
+    expect(s.requests).toEqual([]);
+    expect(s.turns[0]).toMatchObject({ outcome: 'completed', finalText: 'Main: finished.' });
+  });
+
+  it(`R3-05: a shared folder with parentheses and brackets in its name: the session starts, the read rules still hide the private files, a discussion's two files are written without a request (${V})`, async () => {
+    // Unescaped, a bracket in the folder's path makes Claude Code read every rule of that folder as a character class:
+    // the rules match nothing (run with the same binary before the fix: \`.envrc\` was read and \`cat .envrc\` ran).
+    const s = await start(({ root }) => [tool('Read', { file_path: join(root, '.envrc') }), bash('cat .envrc'), tool('Grep', { pattern: 'SECRET', output_mode: 'files_with_matches' }), tool('Write', { file_path: join(root, 'specs/checkout/SPEC.md'), content: '# Checkout\n' }), { text: 'Looked.' }], { rootName: 'Dropbox (Acme) [wip]', answer: allowAll });
+    expect(s.t.root.endsWith('/Dropbox (Acme) [wip]')).toBe(true);
+    const session = await s.agents.start({
+      purpose: 'discussion',
+      topic: TOPIC,
+      openedBy: s.host(),
+      responsible: null,
+      workspace: { mode: 'main' },
+      mode: 'ask-all',
+      rolePrompt: () => 'You are the discussion agent of one topic.',
+      opening: msg('conversation.started.discussion', { name: 'Host' }),
+      firstMessage: { kind: 'person', from: s.host(), text: 'look around, then draft', cleaned: false, origin: 'composer' },
+    });
+    await s.turnsDone(1);
+    expect(s.agents.get(session.id)).toMatchObject({ status: 'idle' });
+    const results = s.mock.toolResults();
+    console.log(`[agent-claude-real ${claude?.version}] R3-05 results: ${JSON.stringify(results.map((r) => `${r.isError ? 'ERROR ' : ''}${r.text.slice(0, 70)}`))}`);
+    expect(results[0]).toMatchObject({ isError: true });
+    expect(results[1]).toMatchObject({ isError: true });
+    expect(results[2]).toMatchObject({ isError: false });
+    expect(results[3]).toMatchObject({ isError: false });
+    expect(s.mock.saw('in-envrc')).toBe(false);
+    expect(await readFile(s.path('specs/checkout/SPEC.md'), 'utf8')).toBe('# Checkout\n');
+    // The spec was written on the discussion's own allow rule: nothing asked.
+    expect(s.requests).toEqual([]);
   });
 });

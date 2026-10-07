@@ -6,7 +6,8 @@
 // Requests the daemon answers itself, each audited `permission.auto`:
 //   - anything but a question from a DISCUSSION session                       → deny
 //   - a write to Claude Code's configuration or to a file the trust gate records → deny ("the host edits these")
-//   - a request whose suggested rule is exactly a rule of the session's topic  → allow, with that rule for this process
+//   - a request that suggests exactly one rule, a rule of the session's topic,
+//     and is itself one plain command (or one URL) of that kind                → allow, with that rule for this process
 //   - an edit tool in a main-workspace session in `ask-commands`               → allow, after the host-only check and
 //                                                                                 the lock (a held file: deny)
 //   - content too large to show whole                                          → deny (never clipped)
@@ -22,6 +23,8 @@ import {
   REMEMBERED_RULES_MAX,
   SmurgError,
   URL_MAX_CHARS,
+  agentDisplayName,
+  agentSafeName,
   can,
   checkRememberableRule,
   isEditTool,
@@ -33,6 +36,7 @@ import {
   offerAlwaysRule,
   permissionWhat,
   rootRefEquals,
+  ruleCoversRequest,
   ruleString,
   settledError,
   type AgentSession,
@@ -298,19 +302,31 @@ export class Permissions {
       return { kind: 'auto', answer: 'claude-config', decision: { allow: false, message: HOST_EDITS_CONFIG }, ...(shownPath === undefined ? {} : { path: shownPath }) };
     }
 
-    // A label for requests smurg recognises as reaching beyond the shared project (not a boundary: D-15).
+    // A label for requests smurg recognises as reaching beyond the shared project (not a boundary: D-15). A compound
+    // command reports `subcommandResults` where a single one reports `safetyCheck`: when its text names Claude Code's
+    // configuration the daemon cannot tell a read from a write, so it is at least the host's to answer.
     const home = this.ctx.config.sessions.hostHome;
     let hostOnly =
       request.reasonType === 'safetyCheck' ||
+      (view.verb === 'run' && request.reasonType === 'subcommandResults' && namesClaudeConfig(view.target ?? '')) ||
       outside ||
       refs.some((ref) => isHostPathInRoot(ref) || trustProtected(ref)) ||
       named.some((entry) => isHostHomePath(entry.abs, home, this.ctx.config.stateDir));
 
     // A rule of the session's topic that this process does not have yet: what a click on "Always allow" would send.
+    // Only for a request that IS of that kind as the daemon reads it (one plain command that starts with the rule's
+    // words, a URL of the rule's host; a target the runner's view may have cut is not read at all). The suggestion
+    // alone says which rule a click would add, not that it covers everything the request runs: anything else is a card.
     const suggested = request.suggestedRule;
     if (!hostOnly && suggested !== undefined && session.topicId !== undefined && !isStubService(this.ctx.services.topics)) {
       const check = checkRememberableRule(suggested.tool, suggested.pattern);
-      if (check.ok && this.ctx.services.topics.rules(session.topicId).some((known) => known.tool === check.rule.tool && known.pattern === check.rule.pattern)) {
+      const whole = view.target !== undefined && utf8Bytes(view.target) <= COMMAND_SHOWN_MAX_BYTES;
+      if (
+        check.ok &&
+        whole &&
+        ruleCoversRequest(check.rule, { tool: request.tool, target: view.target }) &&
+        this.ctx.services.topics.rules(session.topicId).some((known) => known.tool === check.rule.tool && known.pattern === check.rule.pattern)
+      ) {
         return { kind: 'auto', answer: 'topic-rule', decision: { allow: true, sessionRule: check.rule }, rule: ruleString(check.rule) };
       }
     }
@@ -409,7 +425,7 @@ export class Permissions {
 
   private agentName(session: AgentSession): string {
     const actor = isStubService(this.ctx.services.sessions) ? null : this.ctx.services.sessions.agentActor(session.id);
-    return actor !== null && actor.kind === 'agent' ? actor.displayName : `Claude (${session.openedBy.displayName})`;
+    return actor !== null && actor.kind === 'agent' ? actor.displayName : agentDisplayName(agentSafeName(session.openedBy.displayName, session.openedBy.userId));
   }
 
   /** Asks for the agent lock again. Null: there is no lock to take (no locks module, or the file is not in the session's root). */

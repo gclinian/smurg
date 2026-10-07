@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ColumnMenuItems } from '../../lib/columns/context.tsx';
 import { itemLabel } from '../../lib/columns/describe.ts';
 import { renderWireText } from '../../lib/errors.ts';
-import { formatList } from '../../lib/format.ts';
+import { formatList, joinSentences } from '../../lib/format.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { selectSession, selectTopicSessions } from '../../lib/stores/sessions.ts';
 import { selectPlan } from '../../lib/stores/topics.ts';
@@ -321,8 +321,10 @@ function Assign({ topic, plan, members, started }: { topic: Topic; plan: PlanInf
         <>
           {!started && plan.split !== undefined ? (
             <p className="plan-assign__text">
-              {plan.split.source === 'agent' ? (plan.split.reason === undefined || plan.split.reason.trim() === '' ? t('assign.split.agent') : t('assign.split.agentReason', { reason: plan.split.reason })) : t('assign.split.smurg')}{' '}
-              {t('assign.assigned.text')}
+              {joinSentences([
+                plan.split.source === 'agent' ? (plan.split.reason === undefined || plan.split.reason.trim() === '' ? t('assign.split.agent') : t('assign.split.agentReason', { reason: plan.split.reason })) : t('assign.split.smurg'),
+                t('assign.assigned.text'),
+              ])}
             </p>
           ) : !started ? (
             <p className="plan-assign__text">{t('assign.assigned.text')}</p>
@@ -404,7 +406,7 @@ function PlanFoot({ topic, plan, summary, sessionOf }: { topic: Topic; plan: Pla
   text.push(...byItself);
 
   return (
-    <Foot text={text.length === 0 ? undefined : text.join(' ')}>
+    <Foot text={text.length === 0 ? undefined : joinSentences(text)}>
       {mergeButton}
       {running.length > 1 ? (
         <Button

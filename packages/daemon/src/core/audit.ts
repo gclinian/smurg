@@ -9,6 +9,12 @@
 // Bounded (security review F5): `denied` entries are recorded up to a budget per actor and minute, the rest are
 // counted in one summary entry; the file is rotated to audit.1.jsonl / audit.2.jsonl (0600) at a size cap, and
 // queries page through the rotated files too.
+//
+// Accepted requests are bounded as well (review DX-15: one Editor writing files in a loop filled the three files in
+// half an hour, and the role changes and decisions of weeks went with them). A MEMBER's own `ok` entries of one
+// action are recorded up to a budget per minute; the rest of that minute go, whole, to audit-overflow.jsonl (rotated
+// the same way, never paged by a query), and one summary entry in the log says how many. Nothing a member did is
+// dropped, and no loop of one action can push other people's entries, or that member's other actions, out of the log.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
@@ -218,6 +224,11 @@ export interface JsonlAuditLogOptions {
   readonly rotations?: number;
   /** `denied` entries recorded per actor per minute (default 120); 0 disables the budget. */
   readonly deniedPerActorPerMinute?: number;
+  /**
+   * `ok` entries of one action that one MEMBER's own requests add to the log per minute (default 120); the rest of
+   * the minute go to the overflow file and are counted in a summary entry. 0 disables the budget.
+   */
+  readonly acceptedPerActionPerMinute?: number;
   /** Where the whole text of `fullText` keys goes. Without it an entry still carries the hash, the length and the head. */
   readonly texts?: AuditTextStore;
 }
@@ -225,14 +236,22 @@ export interface JsonlAuditLogOptions {
 const DEFAULT_MAX_BYTES = 32 * 1024 * 1024;
 const DEFAULT_ROTATIONS = 2;
 const DEFAULT_DENIED_PER_ACTOR_PER_MINUTE = 120;
+const DEFAULT_ACCEPTED_PER_ACTION_PER_MINUTE = 120;
 const DENIED_WINDOW_MS = 60_000;
 const DENIED_WINDOWS_PRUNE_AT = 1_024;
+/** The file name a summary entry gives for the entries it counts (`detail.keptIn`), next to the log. */
+export const AUDIT_OVERFLOW_FILE = 'audit-overflow.jsonl';
 /** Entries kept in memory while appends fail (beyond: counted in the log line of the recovery). */
 const AUDIT_BACKLOG_MAX_BYTES = 4 * 1024 * 1024;
 
 /** `…/audit.jsonl` → `…/audit.<n>.jsonl` */
 function rotatedPath(path: string, n: number): string {
   return path.endsWith('.jsonl') ? `${path.slice(0, -'.jsonl'.length)}.${n}.jsonl` : `${path}.${n}`;
+}
+
+/** `…/audit.jsonl` → `…/audit-overflow.jsonl` */
+function overflowPath(path: string): string {
+  return path.endsWith('.jsonl') ? `${path.slice(0, -'.jsonl'.length)}-overflow.jsonl` : `${path}-overflow`;
 }
 
 /** Opens a log file and refuses a symlink, a foreign file or one with any group/other permission bit. */
@@ -285,14 +304,20 @@ function isMissing(err: unknown): boolean {
   return typeof cause === 'object' && cause !== null && (cause as { code?: unknown }).code === 'ENOENT';
 }
 
-/** One actor's `denied` entries from one origin (`detail.via`) in the current minute. */
+/**
+ * One budget in the current minute: an actor's `denied` entries from one origin (`detail.via`), or a member's `ok`
+ * entries of one action from one origin.
+ */
 interface DeniedWindow {
   start: number;
   count: number;
   suppressed: number;
   readonly actor: Actor;
-  /** `detail.via` of the refusals this window counts (e.g. 'control-socket'); undefined for the relay channels. */
+  /** `detail.via` of the entries this window counts (e.g. 'control-socket'); undefined for the relay channels. */
   readonly via: string | undefined;
+  readonly outcome: 'denied' | 'ok';
+  /** What `count` may reach before entries are only counted. */
+  readonly limit: number;
   action: AuditAction;
 }
 
@@ -319,11 +344,16 @@ export class JsonlAuditLog implements AuditLog {
   private readonly maxBytes: number;
   private readonly rotations: number;
   private readonly deniedPerActor: number;
+  private readonly acceptedPerAction: number;
+  /** Where a member's `ok` entries beyond the budget go; opened with the first one. `null` inside: it could not be opened. */
+  private overflow: Promise<JsonlAuditLog | null> | null = null;
   private readonly texts: AuditTextStore | null;
   private handle: FileHandle | null;
   private size: number;
   private readonly listeners = new Set<(entry: AuditEntry) => void>();
   private readonly deniedWindows = new Map<string, DeniedWindow>();
+  /** The windows that are over their budget: their summary is due when their minute has ended. */
+  private readonly overBudget = new Map<string, DeniedWindow>();
   private lastAt: number;
   /** Appends, rotations and queries run one after another on this chain. */
   private tail: Promise<void> = Promise.resolve();
@@ -345,6 +375,7 @@ export class JsonlAuditLog implements AuditLog {
     this.maxBytes = Math.max(4_096, options.maxBytes ?? DEFAULT_MAX_BYTES);
     this.rotations = Math.max(1, Math.floor(options.rotations ?? DEFAULT_ROTATIONS));
     this.deniedPerActor = Math.max(0, Math.floor(options.deniedPerActorPerMinute ?? DEFAULT_DENIED_PER_ACTOR_PER_MINUTE));
+    this.acceptedPerAction = Math.max(0, Math.floor(options.acceptedPerActionPerMinute ?? DEFAULT_ACCEPTED_PER_ACTION_PER_MINUTE));
     this.texts = options.texts ?? null;
   }
 
@@ -403,7 +434,13 @@ export class JsonlAuditLog implements AuditLog {
     } else {
       entry = checked.data;
     }
-    if (entry.outcome === 'denied' && !this.admitDenied(entry)) return entry;
+    this.settleEnded(entry.at);
+    if (entry.outcome === 'denied' && this.admitDenied(entry) !== 'record') return entry;
+    if (entry.outcome === 'ok' && entry.actor.kind === 'user') {
+      const admitted = this.admitAccepted(entry);
+      if (admitted === 'counted') this.spill(entry);
+      if (admitted !== 'record') return entry;
+    }
     this.commit(entry);
     return entry;
   }
@@ -451,6 +488,7 @@ export class JsonlAuditLog implements AuditLog {
 
   async flush(): Promise<void> {
     await this.tail;
+    await (await this.overflow)?.flush();
     await this.texts?.flush();
   }
 
@@ -474,6 +512,7 @@ export class JsonlAuditLog implements AuditLog {
     if (this.closed) return;
     for (const window of this.deniedWindows.values()) this.summarize(window);
     this.deniedWindows.clear();
+    this.overBudget.clear();
     this.closed = true;
     await this.tail;
     // One last attempt for entries a failed append kept.
@@ -481,6 +520,7 @@ export class JsonlAuditLog implements AuditLog {
     if (this.backlog.length > 0) this.log.error('audit entries could not be written before close', { entries: this.backlog.length, notRecorded: this.backlogDropped });
     await this.handle?.close();
     this.handle = null;
+    await (await this.overflow)?.close();
     await this.texts?.close();
   }
 
@@ -492,10 +532,26 @@ export class JsonlAuditLog implements AuditLog {
    * budget of the host's own refusals on the web, nor leave a summary that cannot say where the counted ones came
    * from. Two budgets per actor at most: the relay channels and the control socket (deniedOriginOf).
    */
-  private admitDenied(entry: AuditEntry): boolean {
-    if (this.deniedPerActor === 0) return true;
+  private admitDenied(entry: AuditEntry): 'record' | 'noted' | 'counted' {
+    if (this.deniedPerActor === 0) return 'record';
     const via = deniedOriginOf(entry);
-    const key = `${actorKey(entry.actor)}|${via ?? ''}`;
+    return this.admit(entry, `denied|${actorKey(entry.actor)}|${via ?? ''}`, via, this.deniedPerActor);
+  }
+
+  /**
+   * The budget of a MEMBER's own accepted requests, per action and origin: the same steps as for refusals, except
+   * that the entries over budget are not only counted but kept, whole, in the overflow file (`spill`). Per action, so
+   * that a loop of one kind of request leaves every other thing that member does in the log. Entries of agents and of
+   * the daemon itself have no such budget: no request of a member writes them one for one.
+   */
+  private admitAccepted(entry: AuditEntry): 'record' | 'noted' | 'counted' {
+    if (this.acceptedPerAction === 0) return 'record';
+    const via = deniedOriginOf(entry);
+    return this.admit(entry, `ok|${actorKey(entry.actor)}|${via ?? ''}|${entry.action}`, via, this.acceptedPerAction);
+  }
+
+  /** `record`: within the budget. `noted`: the first one over it, written here with `rateLimited`. `counted`: only counted. */
+  private admit(entry: AuditEntry, key: string, via: string | undefined, limit: number): 'record' | 'noted' | 'counted' {
     const now = entry.at;
     let window = this.deniedWindows.get(key);
     if (window && now - window.start >= DENIED_WINDOW_MS) {
@@ -510,21 +566,32 @@ export class JsonlAuditLog implements AuditLog {
           this.deniedWindows.delete(k);
         }
       }
-      window = { start: now, count: 0, suppressed: 0, actor: entry.actor, via, action: entry.action };
+      window = { start: now, count: 0, suppressed: 0, actor: entry.actor, via, outcome: entry.outcome === 'ok' ? 'ok' : 'denied', limit, action: entry.action };
       this.deniedWindows.set(key, window);
     }
     window.count++;
-    if (window.count <= this.deniedPerActor) return true;
+    if (window.count <= limit) return 'record';
     window.suppressed++;
     window.action = entry.action;
-    if (window.suppressed === 1) {
-      const note: AuditEntry = { ...entry, detail: { ...(entry.detail ?? {}), rateLimited: true, limitPerMinute: this.deniedPerActor } };
-      this.commit(note);
-    }
-    return false;
+    if (window.suppressed > 1) return 'counted';
+    this.overBudget.set(key, window);
+    const note: AuditEntry = { ...entry, detail: { ...(entry.detail ?? {}), rateLimited: true, limitPerMinute: limit } };
+    this.commit(note);
+    return 'noted';
   }
 
-  /** One entry for the refusals of a finished window that were only counted. */
+  /** The summaries of the budgets whose minute has ended are written with the next entry, whoever records it. */
+  private settleEnded(now: number): void {
+    if (this.overBudget.size === 0) return;
+    for (const [key, window] of this.overBudget) {
+      if (now - window.start < DENIED_WINDOW_MS) continue;
+      this.overBudget.delete(key);
+      this.summarize(window);
+      if (this.deniedWindows.get(key) === window) this.deniedWindows.delete(key);
+    }
+  }
+
+  /** One entry for the entries of a finished window that were only counted (accepted ones: and kept in the overflow file). */
   private summarize(window: DeniedWindow): void {
     const counted = window.suppressed - 1; // the first one over budget was recorded
     window.suppressed = 0;
@@ -536,10 +603,38 @@ export class JsonlAuditLog implements AuditLog {
       at,
       actor: window.actor,
       action: window.action,
-      outcome: 'denied',
+      outcome: window.outcome,
       target: 'audit-rate-limit',
-      detail: { ...(window.via === undefined ? {} : { via: window.via }), reason: 'audit-rate-limit', notRecorded: counted, windowStart: window.start, windowMs: DENIED_WINDOW_MS },
+      detail: {
+        ...(window.via === undefined ? {} : { via: window.via }),
+        reason: 'audit-rate-limit',
+        notRecorded: counted,
+        ...(window.outcome === 'ok' ? { keptIn: AUDIT_OVERFLOW_FILE } : {}),
+        windowStart: window.start,
+        windowMs: DENIED_WINDOW_MS,
+      },
     });
+  }
+
+  /**
+   * An accepted entry over its budget: appended to the overflow file (opened with the first one; 0600, rotated at the
+   * same size into the same number of files). Not a live entry for the console and not part of any query.
+   */
+  private spill(entry: AuditEntry): void {
+    if (this.closed) return;
+    this.overflow ??= JsonlAuditLog.open(overflowPath(this.path), {
+      clock: this.clock,
+      log: this.log,
+      pageMax: this.pageMax,
+      maxBytes: this.maxBytes,
+      rotations: this.rotations,
+      deniedPerActorPerMinute: 0,
+      acceptedPerActionPerMinute: 0,
+    }).catch((err: unknown) => {
+      this.log.error('audit overflow file could not be opened; entries over the budget are only counted', { error: err instanceof Error ? err.name : 'unknown' });
+      return null;
+    });
+    void this.overflow.then((log) => log?.append(entry));
   }
 
   /** Queues the append and notifies subscribers. */

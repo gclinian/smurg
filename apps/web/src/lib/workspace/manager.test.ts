@@ -91,3 +91,63 @@ describe('workspace manager: ONE connection per workspace', () => {
     expect(created.every((c) => c.conn.getState().kind === 'closed')).toBe(true);
   });
 });
+
+describe('what this browser keeps of unsent texts ends with the member\'s access (review R4-08)', () => {
+  const KEY = `smurg.drafts.${WORKSPACE_ID}`;
+  const OTHER = 'smurg.drafts.ws_another_workspace_001';
+  const keep = (): void => {
+    // What an earlier page load left: no composer is mounted in this one.
+    window.localStorage.setItem(KEY, JSON.stringify([['sess_1', { text: 'src/secret.ts:1\n```\nconst key = 1;\n```', source: null }]]));
+    window.localStorage.setItem(OTHER, JSON.stringify([['sess_2', { text: 'another workspace', source: null }]]));
+  };
+
+  it('leaving deletes the drafts of that workspace, whether or not the host could be told', async () => {
+    for (const answers of [true, false]) {
+      keep();
+      const { manager, created } = setup();
+      manager.acquire(WORKSPACE_ID);
+      const conn = created[0]!.conn;
+      conn.admit(makeWelcome());
+      conn.handle('channel.leave', () => {
+        if (!answers) throw new Error('the host is away');
+        return {};
+      });
+      await manager.leave(WORKSPACE_ID).catch(() => {});
+      expect(window.localStorage.getItem(KEY), String(answers)).toBeNull();
+      expect(window.localStorage.getItem(OTHER)).not.toBeNull();
+    }
+  });
+
+  it('a removal, a revoked device or a browser of another account deletes them the moment this browser learns of it, on any page', () => {
+    const ends: ((conn: FakeConnection) => void)[] = [
+      (conn) => conn.kicked(),
+      (conn) => conn.setState({ kind: 'closed', reason: 'revoked', daemonReason: 'revoked' }),
+      (conn) => conn.setState({ kind: 'rejected', reason: 'kicked' }),
+      (conn) => conn.setState({ kind: 'rejected', reason: 'device-revoked' }),
+      (conn) => conn.setState({ kind: 'rejected', reason: 'device-other-account' }),
+    ];
+    for (const end of ends) {
+      keep();
+      const { manager, created } = setup();
+      manager.acquire(WORKSPACE_ID);
+      end(created[0]!.conn);
+      expect(window.localStorage.getItem(KEY), JSON.stringify(created[0]!.conn.getState())).toBeNull();
+      expect(window.localStorage.getItem(OTHER)).not.toBeNull();
+    }
+  });
+
+  it('what does not end the access keeps them: the host is away, the page is closed, the login ran out, an old client', () => {
+    const { manager, created, runTimers } = setup();
+    keep();
+    const handle = manager.acquire(WORKSPACE_ID);
+    const conn = created[0]!.conn;
+    conn.hostOffline('relay');
+    conn.setState({ kind: 'closed', reason: 'login-required' });
+    conn.setState({ kind: 'rejected', reason: 'version' });
+    handle.release();
+    runTimers();
+    manager.closeAll();
+    expect(window.localStorage.getItem(KEY)).toContain('const key = 1;');
+  });
+});
+

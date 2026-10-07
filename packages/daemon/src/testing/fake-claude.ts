@@ -49,9 +49,17 @@ export interface FakeClaudeScenario {
   readonly version?: string;
   /** `auth status --json` (default true). */
   readonly loggedIn?: boolean;
-  /** `initialize.account` (`apiKeySource: 'none'`: every turn answers "Not logged in"). */
-  readonly account?: { readonly apiKeySource?: string; readonly tokenSource?: string; readonly subscriptionType?: string };
-  /** What `list_permission_rules` answers besides the rules of the session's own settings file. */
+  /**
+   * The WHOLE `initialize.account` object, as Claude Code answers it (CLAUDE_ACCOUNTS has the recorded shapes).
+   * Default: an API key in the environment. Without a key source and without a subscription every turn answers
+   * "Not logged in".
+   */
+  readonly account?: Readonly<Record<string, string>>;
+  /**
+   * What `list_permission_rules` answers besides the rules of the session's own settings file and of the host's own
+   * settings files (which the stand-in reads like the real one: `<home>/.claude/settings.json`, and in the session's
+   * folder `.claude/settings.json` and `.claude/settings.local.json`).
+   */
   readonly rules?: readonly { readonly behavior: 'allow' | 'deny' | 'ask'; readonly source: string; readonly rule: string }[];
   /** `list_permission_rules` is not a request this "version" knows. */
   readonly noRuleList?: boolean;
@@ -60,6 +68,18 @@ export interface FakeClaudeScenario {
   /** The first turn whose `match` (a regex on the message text; none: any) fits answers a message; `once`: one time per conversation. */
   readonly turns?: readonly { readonly match?: string; readonly once?: boolean; readonly steps: readonly FakeClaudeStep[] }[];
 }
+
+/**
+ * `initialize.account` as Claude Code 2.1.288 answers it. `apiKey` and `loggedOut` were recorded with the real binary
+ * against the fake API (dummy key, isolated home); `subscriptionMax` with a credential file that only looks like a
+ * claude.ai login (the same set-up). The display names Claude Code has for `subscriptionType`: `Claude Pro`,
+ * `Claude Max`, `Claude Team`, `Claude Enterprise`, `Claude API`.
+ */
+export const CLAUDE_ACCOUNTS = Object.freeze({
+  apiKey: Object.freeze({ tokenSource: 'none', apiKeySource: 'ANTHROPIC_API_KEY', apiProvider: 'firstParty' }),
+  loggedOut: Object.freeze({ tokenSource: 'none', apiProvider: 'firstParty' }),
+  subscriptionMax: Object.freeze({ subscriptionType: 'Claude Max', apiProvider: 'firstParty' }),
+});
 
 export interface FakeClaude {
   /** The executable to give the daemon as `claudePath`. */
@@ -71,6 +91,11 @@ export interface FakeClaude {
   setScenario(scenario: FakeClaudeScenario): Promise<void>;
   /** Everything the stand-in processes received so far (argv, role prompts, settings, every stdin line). */
   echoed(): Promise<{ readonly kind: 'argv' | 'settings' | 'role-prompt' | 'stdin'; readonly session: string | null; readonly value: unknown }[]>;
+  /**
+   * Every file mention (`@path`) the stand-in processes EXPANDED, as the real CLI does for a user message that is not
+   * marked `client_composed`: the file was read with no tool call. smurg marks every message, so this stays empty.
+   */
+  mentions(): Promise<{ readonly session: string | null; readonly path: string; readonly text: string }[]>;
 }
 
 /** Writes a `claude` wrapper (this Node, the stand-in script) and an empty scenario into `dir`. */
@@ -94,6 +119,12 @@ export async function installFakeClaude(dir: string, scenario: FakeClaudeScenari
   );
   await chmod(path, 0o755);
   const setScenario = (next: FakeClaudeScenario): Promise<void> => writeFile(scenarioPath, JSON.stringify(next));
+  type Entry = { kind: 'argv' | 'settings' | 'role-prompt' | 'stdin' | 'mention'; session: string | null; value: unknown };
+  const entries = async (): Promise<Entry[]> =>
+    (await readFile(echoPath, 'utf8'))
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as Entry);
   await setScenario(scenario);
   await writeFile(echoPath, '');
   return {
@@ -102,10 +133,7 @@ export async function installFakeClaude(dir: string, scenario: FakeClaudeScenari
     echoPath,
     env: Object.freeze({ FAKE_CLAUDE_SCENARIO: scenarioPath, FAKE_CLAUDE_ECHO: echoPath }),
     setScenario,
-    echoed: async () =>
-      (await readFile(echoPath, 'utf8'))
-        .split('\n')
-        .filter((line) => line.length > 0)
-        .map((line) => JSON.parse(line) as { kind: 'argv' | 'settings' | 'role-prompt' | 'stdin'; session: string | null; value: unknown }),
+    echoed: async () => (await entries()).filter((entry): entry is Entry & { kind: 'argv' | 'settings' | 'role-prompt' | 'stdin' } => entry.kind !== 'mention'),
+    mentions: async () => (await entries()).filter((entry) => entry.kind === 'mention').map((entry) => ({ session: entry.session, ...(entry.value as { path: string; text: string }) })),
   };
 }

@@ -9,7 +9,7 @@
 import { MESSAGE_TEXT_MAX_CHARS, TOPIC_NAME_MAX_CHARS, TOPIC_SLUG_PATTERN, isSmurgError, slugFromName, topicNameSchema, topicSpecPath } from '@smurg/protocol';
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { describeError } from '../../lib/errors.ts';
-import { formatRole } from '../../lib/format.ts';
+import { formatRole, joinSentences } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectHostState } from '../../lib/stores/host.ts';
 import { useCan, useCommand, useConnectionState, useMember, useStores } from '../../lib/workspace/context.tsx';
@@ -134,9 +134,7 @@ export function NewTopicDialog({ onClose }: { onClose(): void }) {
           autoComplete="off"
           autoCapitalize="none"
           hint={
-            <>
-              {slug === '' ? t('new.folder.hint.empty') : t('new.folder.hint', { path: topicSpecPath(slug).replace(/[^/]+$/, '') })} {numbered ? t('new.folder.hint.latin') : null}
-            </>
+            joinSentences([slug === '' ? t('new.folder.hint.empty') : t('new.folder.hint', { path: topicSpecPath(slug).replace(/[^/]+$/, '') }), numbered ? t('new.folder.hint.latin') : null])
           }
           error={slugProblem ?? (failure?.folder ? failure.text : undefined)}
           onChange={(event) => {

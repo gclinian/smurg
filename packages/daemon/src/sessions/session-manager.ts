@@ -201,7 +201,7 @@ export class SessionManagerImpl implements SessionManager {
     readonly killDeadlineMs: number;
     readonly maxPidsPerSession: number;
     readonly authStatusTimeoutMs: number;
-    readonly live: { add(sessionId: string): void; remove(sessionId: string): void };
+    readonly live: { add(sessionId: string): void; remove(sessionId: string): void; known(sessionId: string): ReadonlyMap<number, KnownProcess> };
     readonly foreignChildren: () => ReadonlySet<number>;
   } {
     return {
@@ -224,6 +224,8 @@ export class SessionManagerImpl implements SessionManager {
           this.agentProcs.delete(sessionId);
           if (this.liveDoc?.get().live.includes(sessionId) === true) this.forgetLive(sessionId);
         },
+        // What the scan remembered of the session's descendants (the agent runtime ends them with the session).
+        known: (sessionId) => new Map(this.agentProcs.get(sessionId)?.known ?? []),
       },
       foreignChildren: () => {
         const out = new Set<number>();
@@ -412,7 +414,10 @@ export class SessionManagerImpl implements SessionManager {
     if (input.workspace.mode === 'worktree') {
       const handle = await ctx.services.worktrees.acquireForSession({ owner: principal, sessionId: id, ...(input.workspace.worktreeId !== undefined ? { worktreeId: input.workspace.worktreeId } : {}) });
       workspace = { mode: 'worktree', worktreeId: handle.worktree.id };
-      release = () => ctx.services.worktrees.releaseFromSession(handle.worktree.id, id, { keep: true });
+      // A start that is refused (no login, Claude Code too old, a limit): a worktree made for this session holds
+      // nothing and goes again; a kept one the member continued in stays kept.
+      const made = input.workspace.worktreeId === undefined;
+      release = () => ctx.services.worktrees.releaseFromSession(handle.worktree.id, id, { keep: !made });
     }
     const root: RootRef = workspace.mode === 'main' ? { kind: 'main' } : worktreeRoot(workspace.worktreeId);
     const mode = defaultPermissionMode('free', root);
@@ -497,7 +502,9 @@ export class SessionManagerImpl implements SessionManager {
         });
         worktreeId = handle.worktree.id;
         const acquired = worktreeId;
-        undo.push(() => ctx.services.worktrees.releaseFromSession(acquired, id, { keep: true }));
+        // (a worktree made for a session that never started holds nothing: it goes with the failed start)
+        const made = input.workspace.worktreeId === undefined;
+        undo.push(() => ctx.services.worktrees.releaseFromSession(acquired, id, { keep: !made }));
         root = handle.root.ref;
         rootPath = handle.root.realPath;
       }
@@ -765,6 +772,7 @@ export class SessionManagerImpl implements SessionManager {
    *    access), each audited `session.terminate` by the system; a creation in flight for them is abandoned;
    *  - their topic sessions PASS TO THE HOST (the owner whose locks the agent's are; `pathRights` is never raised),
    *    stopped first when they were kicked; a work item's worktree passes with it;
+   *  - every worktree they still own then (kept by the sessions that just ended, or kept earlier) passes to the host;
    *  - wherever they are the responsible person or the fallback decider, that is cleared for good (kicked, left, or
    *    now a Viewer): one line `conversation.responsible.fallback` per session, audit `responsible.fallback`.
    */
@@ -811,6 +819,7 @@ export class SessionManagerImpl implements SessionManager {
           handedOver.push({ sessionId: session.id, topicId: session.topicId, stopped: change === 'kicked' });
         }
       }
+      await this.handOverWorktrees(userId);
     }
     const cleared = new Set<string>();
     if (losesDiscuss && agents !== null) {
@@ -827,6 +836,28 @@ export class SessionManagerImpl implements SessionManager {
       }
     }
     return { ended, handedOver, cleared: [...cleared] };
+  }
+
+  /**
+   * The worktrees a member still owns when they may no longer open sessions pass to the host: the ones their ended
+   * sessions kept just now and the ones they had kept before. The work in them stays for the host to look at, and
+   * `worktree.remove` (owner or host) is no longer theirs: a former member with agent access who is a Viewer now, or
+   * joins again as one, cannot delete it.
+   */
+  private async handOverWorktrees(userId: UserId): Promise<void> {
+    const worktrees = this.ctx.services.worktrees;
+    const host = this.ctx.members.hostUserId();
+    const hostPrincipal = this.ctx.members.principalOf(host);
+    if (isStubService(worktrees) || hostPrincipal === null || userId === host) return;
+    // (never in the way of the rest of the teardown: what cannot be handed over is logged)
+    try {
+      for (const worktree of worktrees.list()) {
+        if (worktree.ownerUserId !== userId) continue;
+        await worktrees.setOwner(worktree.id, hostPrincipal);
+      }
+    } catch (err) {
+      this.logError('the worktrees of a member who went did not all pass to the host', err);
+    }
   }
 
   /** Every agent session, those of archived topics included (`list()` leaves them out). */

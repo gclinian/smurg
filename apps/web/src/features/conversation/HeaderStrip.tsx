@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { PERMISSION_MODES, mayBeResponsible, ruleString, type AgentSession, type PermissionMode, type RememberedRule, type ResultOf } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
-import { formatRole } from '../../lib/format.ts';
+import { formatRole, gapAfter } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectAgentList } from '../../lib/stores/sessions.ts';
 import { useCapabilities, useCommands, useStores } from '../../lib/workspace/context.tsx';
@@ -56,6 +56,7 @@ function ModeDialog({ session, onClose }: { session: AgentSession; onClose(): vo
       });
   };
 
+  const hostRulesLine = t('mode.host', { count: rules?.host.rules?.length ?? 0 });
   return (
     <Dialog
       open
@@ -99,7 +100,8 @@ function ModeDialog({ session, onClose }: { session: AgentSession; onClose(): vo
         ) : null}
         {rules !== null && rules.host.state === 'applied' ? (
           <p className="conv-card__who">
-            {t('mode.host', { count: rules.host.rules?.length ?? 0 })}{' '}
+            {hostRulesLine}
+            {gapAfter(hostRulesLine)}
             {caps.isHost ? (
               // The host reads them in the console's own dialog (which also marks them as seen).
               <button type="button" className="conv-link" onClick={() => hostDialogs.hostRules()}>

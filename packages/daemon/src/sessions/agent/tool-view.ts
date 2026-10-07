@@ -152,19 +152,29 @@ export function editOf(name: string, input: unknown): Extract<AgentRequest, { ki
   return undefined;
 }
 
-/** The rule Claude Code suggests with a permission request (`addRules` … `allow`), as `{ tool, pattern }`. Never echoed back as it came. */
+/**
+ * The rule Claude Code suggests with a permission request (`addRules` … `allow`), as `{ tool, pattern }`: reported only
+ * when the request suggests exactly ONE rule. A compound command carries one rule per sub-command that needs
+ * permission (`mkdir -p .git/hooks && echo x > …` → `mkdir -p .git/hooks` and `echo x *`, recorded from 2.1.288): none
+ * of them is "this kind" of the whole request, so none is offered for "Always allow" and the daemon answers nothing
+ * from it. A rule this cannot read counts as a rule. Never echoed back as it came.
+ */
 export function suggestedRuleOf(suggestions: unknown): { readonly tool: string; readonly pattern: string } | undefined {
   if (!Array.isArray(suggestions)) return undefined;
+  let only: { readonly tool: string; readonly pattern: string } | undefined;
+  let count = 0;
   for (const entry of suggestions) {
-    if (!isObject(entry) || entry['type'] !== 'addRules' || entry['behavior'] !== 'allow' || !Array.isArray(entry['rules'])) continue;
+    if (!isObject(entry) || entry['type'] !== 'addRules') continue;
+    if (entry['behavior'] !== 'allow' || !Array.isArray(entry['rules'])) return undefined;
     for (const rule of entry['rules']) {
-      if (!isObject(rule)) continue;
-      const tool = str(rule['toolName']);
-      const pattern = str(rule['ruleContent']);
-      if (tool !== undefined && pattern !== undefined && tool.length <= 64 && pattern.length <= 4096) return { tool, pattern };
+      count += 1;
+      const tool = isObject(rule) ? str(rule['toolName']) : undefined;
+      const pattern = isObject(rule) ? str(rule['ruleContent']) : undefined;
+      if (count > 1 || tool === undefined || pattern === undefined || tool.length > 64 || pattern.length > 4096) return undefined;
+      only = { tool, pattern };
     }
   }
-  return undefined;
+  return only;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import {
   MERGE_DIFF_MAX_BYTES,
   MERGE_FILES_MAX,
   SmurgError,
+  foldRelPath,
   isHostOnlyPath,
   isHostPrivatePath,
   isSmurgDirName,
@@ -295,6 +296,11 @@ export interface MergePolicyOptions {
   readonly requesterIsHost: boolean;
   /** The changes of a work item of this topic: they may not touch the topic's SPEC.md or PLAN.md. */
   readonly topicSlug?: string;
+  /**
+   * Root-relative files the trust gate records (the scripts a host-confirmed project hook runs:
+   * ProjectTrust.protectedPaths): host-only for writes like the lexical host-only paths, so for a merge too.
+   */
+  readonly recorded?: ReadonlySet<string>;
   readonly timeoutMs: number;
 }
 
@@ -302,8 +308,8 @@ export interface MergePolicyOptions {
  * What a merge request may not carry into the main workspace (fail closed):
  *  - anything under `<share>/.smurg` (the daemon's directory: other worktrees, partial uploads) — for everyone;
  *  - host-only paths of ARCHITECTURE §5.2 (`.claude/`, `.mcp.json`, `.envrc`, `.vscode/`, `CLAUDE.md`, …, at any
- *    depth) unless the requester is the host: the host's unsandboxed agent loads them, so a merge must not do what
- *    file.* refuses;
+ *    depth) and the scripts the trust gate records, unless the requester is the host: the host's unsandboxed agent
+ *    loads them or runs them from a confirmed hook, so a merge must not do what file.* refuses;
  *  - a work item's changes to its topic's `SPEC.md` or `PLAN.md`, unless the requester is the host: every other item
  *    starts from exactly the two files a member confirmed in the Start dialog (ARCHITECTURE §5.10), and no execution
  *    agent edits them;
@@ -314,7 +320,8 @@ export async function checkMergePolicy(repo: MainRepo, files: readonly ReviewFil
   const daemonDir = files.flatMap(names).filter((path) => isSmurgDirName(relPathSegments(path)[0] ?? ''));
   if (daemonDir.length > 0) return { reason: 'daemon-dir', paths: daemonDir };
   if (options.requesterIsHost) return null;
-  const hostOnly = files.flatMap(names).filter((path) => isHostOnlyPath(path));
+  const recorded = new Set([...(options.recorded ?? [])].map(foldRelPath));
+  const hostOnly = files.flatMap(names).filter((path) => isHostOnlyPath(path) || (recorded.size > 0 && recorded.has(foldRelPath(path))));
   if (hostOnly.length > 0) return { reason: 'host-only-paths', paths: hostOnly };
   const topicSlug = options.topicSlug;
   if (topicSlug !== undefined) {

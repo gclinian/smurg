@@ -13,7 +13,7 @@ import { formatActor, formatAge, formatAnd, formatNumber } from '../../lib/forma
 import { kindLabel } from '../../lib/session-status.ts';
 import type { InboxRowAction, InboxRowView } from '../../lib/slots.ts';
 import { selectSession, sessionTitle, type SessionsState, type SessionsStore } from '../../lib/stores/sessions.ts';
-import { selectPlan, selectTopic, type TopicsState, type TopicsStore } from '../../lib/stores/topics.ts';
+import { selectPlan, selectReport, selectTopic, type TopicsState, type TopicsStore } from '../../lib/stores/topics.ts';
 import { t } from './strings.ts';
 
 export interface InboxRowContext {
@@ -206,32 +206,33 @@ function itemOfMergeRow(item: InboxItem, topics: TopicsState): { topicId: string
 }
 
 /**
- * Where a row leads (UX §7). A merge request of a work item that has a result report leads to that report: the
- * outcome, the checks, "What to watch out for", the host's "Merge…" and "Ask the agent to resolve" are there (DESIGN
- * §5.4). The Changes column the item names is for a request without a report: a free session's worktree, or a work
- * item's worktree somebody asked to merge before its agent reported.
+ * Where a row leads (UX §7). A merge request of a work item leads to the item's result report when that report is
+ * about THIS request: the outcome, the checks, "What to watch out for", the host's "Merge…" and "Ask the agent to
+ * resolve" are there (DESIGN §5.4), and "Merge…" there opens the request the report names. Any other request keeps
+ * the Changes column the item names, where "Merge" merges exactly what the row asks for: a free session's worktree, a
+ * work item nobody reported on, and a request somebody made after the report (a hand edit in the item's worktree and
+ * "Request merge" give a new request, while the report still names its own draft).
+ *
+ * The report must be in the store to know (`reportNeededFor`); until it is, the row leads where the item says.
  */
 export function inboxTarget(item: InboxItem, topics: TopicsState): ColumnTarget {
   const about = itemOfMergeRow(item, topics);
-  if (about === null) return item.target;
-  // A reviewed draft was reviewed from its report; for any other request the plan says whether the item has one.
-  const reported = item.ready === true || selectPlan(topics, about.topicId)?.items.some((entry) => entry.id === about.itemId && entry.report !== undefined) === true;
-  return reported ? { kind: 'report', ...about } : item.target;
+  if (about === null || item.target.kind !== 'changes') return item.target;
+  const report = selectReport(topics, about.topicId, about.itemId);
+  return report?.changes?.requestId === item.target.requestId ? { kind: 'report', ...about } : item.target;
 }
 
-/** The topic whose plan `inboxTarget` needs and the store does not hold yet; null when it can say where the row leads. */
-export function planNeededFor(item: InboxItem, topics: TopicsState): string | null {
+/** The report `inboxTarget` needs and the store does not hold: it is read before the row is followed. Null: nothing to read. */
+export function reportNeededFor(item: InboxItem, topics: TopicsState): { topicId: string; itemId: string } | null {
   const about = itemOfMergeRow(item, topics);
-  return about !== null && item.ready !== true && selectPlan(topics, about.topicId) === undefined ? about.topicId : null;
+  return about !== null && selectReport(topics, about.topicId, about.itemId) === undefined ? about : null;
 }
 
-/** The topics whose plans the rows read and the store does not hold yet: where a merge row leads, why an item stopped. */
+/** The topics whose plans the rows read and the store does not hold yet: why an item stopped. */
 export function plansToLoad(items: Iterable<InboxItem>, topics: TopicsState): string[] {
   const wanted = new Set<string>();
   for (const item of items) {
-    const stalledIn = item.kind === 'attention' && item.subject === 'item-stalled' && item.itemId !== undefined ? item.topicId : undefined;
-    const topicId = stalledIn !== undefined && selectPlan(topics, stalledIn) === undefined ? stalledIn : planNeededFor(item, topics);
-    if (topicId !== null) wanted.add(topicId);
+    if (item.kind === 'attention' && item.subject === 'item-stalled' && item.itemId !== undefined && item.topicId !== undefined && selectPlan(topics, item.topicId) === undefined) wanted.add(item.topicId);
   }
   return [...wanted];
 }

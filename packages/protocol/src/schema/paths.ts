@@ -209,6 +209,12 @@ export const CLAUDE_CONFIG_FILE_NAMES: readonly string[] = Object.freeze(['.mcp.
 /** The three project-level Claude Code files of a root whose content the host confirms (the trust gate). */
 export const PROJECT_SETTINGS_FILES: readonly string[] = Object.freeze(['.claude/settings.json', '.claude/settings.local.json', '.mcp.json']);
 
+/**
+ * The trust gate's entry for everything ELSE Claude Code loads from a root's `.claude/` folder (agents, skills,
+ * commands, rules, …): confirmed with the three files, under this path. It is the folder, not a file.
+ */
+export const PROJECT_LOADED_ENTRY = '.claude';
+
 const CLAUDE_CONFIG_DIRS_FOLDED: ReadonlySet<string> = new Set(CLAUDE_CONFIG_DIR_NAMES.map(foldPathName));
 const CLAUDE_CONFIG_FILES_FOLDED: ReadonlySet<string> = new Set(CLAUDE_CONFIG_FILE_NAMES.map(foldPathName));
 
@@ -281,6 +287,21 @@ export function isInTopicDir(path: string, slug: string): boolean {
   const folded = relPathSegments(path).map(foldPathName);
   const dir = relPathSegments(topicDirPath(slug)).map(foldPathName);
   return dir.every((segment, index) => folded[index] === segment);
+}
+
+/** A path as a case-insensitive file system would compare it: every segment through foldPathName. */
+export function foldRelPath(path: string): string {
+  return relPathSegments(path).map(foldPathName).join('/');
+}
+
+/**
+ * Whether the folder `folder` holds `path`: `path` is `folder` itself or lies below it, comparing names as a
+ * case-insensitive file system would (`""`, the root, holds everything). Moving, removing or replacing a folder is a
+ * write of everything it holds, so every rule about ONE path (a script the trust gate recorded, an item worktree's
+ * `specs/<slug>`, a topic's SPEC.md) is asked this way about a folder that is moved, removed or put in place.
+ */
+export function folderHoldsPath(folder: string, path: string): boolean {
+  return isRelPathWithin(foldRelPath(path), foldRelPath(folder));
 }
 
 /** Whether a path segment names the daemon's `.smurg` directory under any spelling (see foldPathName). */

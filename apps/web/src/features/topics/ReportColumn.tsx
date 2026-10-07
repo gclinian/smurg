@@ -19,7 +19,7 @@ import {
   type WorktreeInfo,
 } from '@smurg/protocol';
 import { useEffect, useState, type ReactNode } from 'react';
-import { formatAnd } from '../../lib/format.ts';
+import { formatAnd, joinSentences } from '../../lib/format.ts';
 import { ColumnHeaderExtra } from '../../lib/columns/context.tsx';
 import { describeError, renderWireText } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
@@ -309,13 +309,23 @@ function ReviewFoot({ topic, report, item, request, worktree, merged }: { topic:
       </p>
     ) : null;
 
+  // A merge that stopped on a conflict is said in EVERY state of the report, with the way through the agent: the host
+  // may merge a change nobody reviewed yet, and the inbox row of the conflict leads here.
+  const conflict = request?.status === 'conflict' && !merged;
+  const conflictLine = conflict ? t('review.conflict') : null;
+  const resolve =
+    conflict && canDrive && item !== undefined ? (
+      <Button onClick={() => void act(() => stores.topics.resolveItem(topic.id, report.itemId), (reason) => t('item.failed', { item: item.title, reason }))}>{t('item.resolve')}</Button>
+    ) : null;
+
   if (toReview) {
     if (!may) {
       const names = formatAnd(report.reviewers.map((reviewer) => reviewer.displayName));
       // A viewer has no box to ask in: the sentence does not promise one.
       const others = report.reviewers.length === 1 ? t(canAsk ? 'review.others.one' : 'review.others.one.readOnly', { name: names }) : t(canAsk ? 'review.others.many' : 'review.others.many.readOnly');
       return (
-        <Foot className="report-foot" text={others}>
+        <Foot className="report-foot" text={joinSentences([conflictLine, others])}>
+          {resolve}
           {canRequest && !isHost && worktree !== undefined && request?.status === 'draft' ? <RequestMerge worktree={worktree} /> : null}
           {isHost && request !== undefined && !merged ? <MergeButton requestId={request.id} /> : null}
         </Foot>
@@ -335,7 +345,8 @@ function ReviewFoot({ topic, report, item, request, worktree, merged }: { topic:
       );
     }
     return (
-      <Foot className="report-foot" text={report.state === 'changed-after-review' ? t('review.again') : t('review.lead')}>
+      <Foot className="report-foot" text={joinSentences([conflictLine, report.state === 'changed-after-review' ? t('review.again') : t('review.lead')])}>
+        {resolve}
         {isHost && request !== undefined && !merged ? <MergeButton requestId={request.id} secondary /> : null}
         {canRequest && !isHost && worktree !== undefined && request?.status === 'draft' ? <RequestMerge worktree={worktree} /> : null}
         <Button variant="primary" icon={<IconCheck />} loading={busy} onClick={() => (unfinished ? setConfirmUnfinished(true) : void review(false))}>
@@ -346,29 +357,38 @@ function ReviewFoot({ topic, report, item, request, worktree, merged }: { topic:
     );
   }
 
-  if (report.state === 'invalid') return <Foot className="report-foot" text={t('review.invalid')} />;
+  if (report.state === 'invalid') {
+    // The report cannot be reviewed, but a request of it may still wait in the host's inbox (reviewed before the
+    // report broke, or stopped on a conflict): the host decides it from here.
+    return (
+      <Foot className="report-foot" text={joinSentences([t('review.invalid'), conflictLine])}>
+        {resolve}
+        {isHost && request !== undefined && !merged && request.status !== 'rejected' ? <MergeButton requestId={request.id} /> : null}
+      </Foot>
+    );
+  }
 
   // Reviewed: what became of the change.
-  const by = report.review === undefined ? '' : t('review.by', { name: report.review.by.displayName, time: formatClock(report.review.at) });
-  const insteadOf = report.review?.insteadOf === undefined ? '' : ` ${t('review.insteadOf', { name: report.review.insteadOf.displayName })}`;
+  const by = report.review === undefined ? null : t('review.by', { name: report.review.by.displayName, time: formatClock(report.review.at) });
+  const insteadOf = report.review?.insteadOf === undefined ? null : t('review.insteadOf', { name: report.review.insteadOf.displayName });
+  /** Who reviewed it, then what became of the change. */
+  const reviewed = (then: string): string => joinSentences([by, insteadOf, then]);
   if (merged) {
     const mergedBy = request?.decidedAt === undefined ? t('review.merged') : t('review.mergedAt', { time: formatClock(request.decidedAt) });
-    return <Foot className="report-foot" text={`${by}${insteadOf} ${mergedBy}`} />;
+    return <Foot className="report-foot" text={reviewed(mergedBy)} />;
   }
-  if (request === undefined || report.changes === undefined) return <Foot className="report-foot" text={`${by}${insteadOf} ${t('review.noChanges')}`} />;
+  if (request === undefined || report.changes === undefined) return <Foot className="report-foot" text={reviewed(t('review.noChanges'))} />;
   if (request.status === 'conflict') {
     return (
-      <Foot className="report-foot" text={`${by}${insteadOf} ${t('review.conflict')}`}>
-        {canDrive && item !== undefined ? (
-          <Button onClick={() => void act(() => stores.topics.resolveItem(topic.id, report.itemId), (reason) => t('item.failed', { item: item.title, reason }))}>{t('item.resolve')}</Button>
-        ) : null}
+      <Foot className="report-foot" text={reviewed(t('review.conflict'))}>
+        {resolve}
         {isHost ? <MergeButton requestId={request.id} /> : null}
       </Foot>
     );
   }
-  if (request.status === 'rejected') return <Foot className="report-foot" text={`${by}${insteadOf} ${request.rejectReason ? t('review.rejectedReason', { reason: request.rejectReason }) : t('review.rejected')}`} />;
+  if (request.status === 'rejected') return <Foot className="report-foot" text={reviewed(request.rejectReason ? t('review.rejectedReason', { reason: request.rejectReason }) : t('review.rejected'))} />;
   return (
-    <Foot className="report-foot" text={`${by}${insteadOf} ${isHost ? t('review.ready.host') : t('review.ready')}`}>
+    <Foot className="report-foot" text={reviewed(isHost ? t('review.ready.host') : t('review.ready'))}>
       {isHost ? <MergeButton requestId={request.id} /> : null}
     </Foot>
   );

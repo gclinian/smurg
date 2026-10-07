@@ -3,9 +3,10 @@
 // reviews. The REAL topics module; agents, worktrees, conversation and the rest are fakes the test drives.
 import { afterEach, describe, expect, it } from 'vitest';
 import { SmurgError, reportInfoSchema, type ReportSummary } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import { buildMergeRequest } from '../../src/core/fakes/index.ts';
 import type { DaemonEvents } from '../../src/core/interfaces.ts';
-import { checkReport, handInReport, itemOf, lineIds, reportText, setupTopics, smurgSent, startPlan, topicWithPlan, waitFor, writeReport, type TopicsTest } from './support.ts';
+import { checkReport, handInReport, itemOf, lineIds, reportText, settle, setupTopics, smurgSent, startPlan, topicWithPlan, waitFor, writeReport, type TopicsTest } from './support.ts';
 
 let test: TopicsTest;
 afterEach(async () => {
@@ -37,6 +38,11 @@ async function started(items: Parameters<typeof topicWithPlan>[1], prepare?: (to
 
 function state(topicId: string, itemId: string): string {
   return itemOf(test.plan(topicId), itemId).state;
+}
+
+/** What the worktree module throws when a file changed while it read the tree for a commit. */
+function changedWhileRead(): SmurgError {
+  return new SmurgError('conflict', msg('worktree.changedDuringCommit'), { reason: 'worktree-changed', path: 'src/cart.ts' });
 }
 
 describe('T4.4 a turn without a report is nudged once, then stalled', () => {
@@ -154,14 +160,14 @@ describe('S21 a planted report is not registered', () => {
     expect(await checkReport(test, run.session('a'))).toEqual({ ok: true });
     await writeReport(test, run.slug, 'a', run.worktree('a'), reportText('a', { done: 'Changed after the check.' }));
     test.fakes.agents.finishTurn(run.session('a'));
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await settle(test);
     expect(test.t.ctx.services.reports.get(run.topicId, 'a')).toBeNull();
 
     // A check made in ANOTHER session does not count for this one.
     await writeReport(test, run.slug, 'b', run.worktree('b'), reportText('b'));
     expect(await checkReport(test, run.session('a'))).toEqual({ ok: true });
     test.fakes.agents.finishTurn(run.session('b'));
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await settle(test);
     expect(test.t.ctx.services.reports.get(run.topicId, 'b')).toBeNull();
     // And the tool is the item session's alone.
     const discussion = test.topic(run.topicId).discussionSessionId as string;
@@ -234,7 +240,7 @@ describe('T5.1 a report with its changes and a follow-up', () => {
     // ---- a turn that changes nothing makes no new version ----
     test.fakes.agents.say(sessionId, 'Anything else?');
     test.fakes.agents.finishTurn(sessionId);
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await settle(test);
     expect(test.t.ctx.services.reports.get(run.topicId, 'cart-api')?.version).toBe(1);
 
     // ---- a follow-up from the report ----
@@ -289,7 +295,7 @@ describe('T5.1 a report with its changes and a follow-up', () => {
     const second = (await test.amy.conn.request('report.followUp', { topicId: run.topicId, itemId: 'a', text: 'Second thought' })) as { suggestion: { id: string } };
     await test.mei.conn.request('suggest.reject', { suggestionId: second.suggestion.id });
     test.fakes.agents.finishTurn(sessionId, { finalText: 'Nothing new.' });
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await settle(test);
     expect(test.t.ctx.services.reports.get(run.topicId, 'a')?.questions).toHaveLength(1);
   });
 
@@ -304,6 +310,79 @@ describe('T5.1 a report with its changes and a follow-up', () => {
     expect(report?.changes).toBeUndefined();
     expect(itemOf(test.plan(run.topicId), 'a').merge).toBeUndefined();
     expect(test.fakes.agents.eventsOf(run.session('a')).find((event) => event.kind === 'notice')).toMatchObject({ level: 'warning', text: { id: 'report.changes.markers', params: { files: ['src/cart.ts'] } } });
+  });
+
+  it('a file that changed while the worktree was read: the snapshot is simply taken again, and nobody hears of it', async () => {
+    test = await setupTopics();
+    const run = await started([{ id: 'a' }]);
+    test.fakes.worktrees.failSnapshot.set(run.worktree('a'), [changedWhileRead()]);
+    await handInReport(test, run.slug, 'a');
+    await waitFor(() => state(run.topicId, 'a') === 'done', { what: 'done' });
+    expect(test.fakes.worktrees.log.of('snapshot')).toHaveLength(2);
+    expect(test.t.ctx.services.reports.get(run.topicId, 'a')).toMatchObject({ version: 1, changes: { files: 1 } });
+    expect(test.fakes.agents.eventsOf(run.session('a')).filter((event) => event.kind === 'notice')).toEqual([]);
+  });
+
+  it('a snapshot that cannot be taken registers nothing: the session says why, the item waits for "Continue", and the next completed turn registers the same report with its changes', async () => {
+    test = await setupTopics();
+    const run = await started([{ id: 'a', title: 'Item A' }], async (topicId) => {
+      await test.mei.conn.request('plan.assign', { topicId, itemId: 'a', userId: 'dev:mei' });
+    });
+    const sessionId = run.session('a');
+    // Someone keeps typing in a file of the worktree: the tree changes under both attempts.
+    test.fakes.worktrees.failSnapshot.set(run.worktree('a'), [changedWhileRead(), changedWhileRead()]);
+    await handInReport(test, run.slug, 'a');
+    await waitFor(() => state(run.topicId, 'a') === 'stalled', { what: 'the item to wait for someone' });
+    expect(test.fakes.worktrees.log.of('snapshot')).toHaveLength(2);
+    // No version exists: nothing says "this item changed no files", and nothing can be marked reviewed.
+    expect(test.t.ctx.services.reports.get(run.topicId, 'a')).toBeNull();
+    expect(test.t.ctx.services.reports.toReview()).toEqual([]);
+    expect(await refusal(test.mei.conn.request('report.review', { topicId: run.topicId, itemId: 'a', version: 1 }))).toMatchObject({ code: 'not_found', text: { id: 'report.none' } });
+    expect(itemOf(test.plan(run.topicId), 'a')).toMatchObject({ state: 'stalled', stalledBy: 'error' });
+    expect(itemOf(test.plan(run.topicId), 'a').merge).toBeUndefined();
+    expect(test.fakes.agents.eventsOf(sessionId).filter((event) => event.kind === 'notice')).toMatchObject([{ level: 'warning', text: { id: 'report.changes.failed' } }]);
+    expect(test.fakes.agents.eventsOf(sessionId).some((event) => event.kind === 'pointer')).toBe(false);
+    expect(test.t.ctx.services.topics.attention()).toMatchObject([{ subject: 'item-stalled', recipients: ['dev:mei'], sessionId }]);
+    expect((await test.audit('report.register')).at(-1)).toMatchObject({ outcome: 'error', detail: { itemId: 'a', sessionId, code: 'conflict', reason: 'worktree-changed' } });
+
+    // "Continue": the agent has nothing to add and changes nothing. The report file is the one it had checked.
+    await test.mei.conn.request('plan.item.continue', { topicId: run.topicId, itemId: 'a' });
+    test.fakes.agents.finishTurn(sessionId, { finalText: 'The report is there.' });
+    await waitFor(() => state(run.topicId, 'a') === 'done', { what: 'done' });
+    const report = test.t.ctx.services.reports.get(run.topicId, 'a');
+    expect(report).toMatchObject({ version: 1, state: 'to-review', changes: { files: 1 } });
+    expect(itemOf(test.plan(run.topicId), 'a').merge).toEqual({ requestId: report?.changes?.requestId, status: 'draft', ready: false });
+    expect(test.t.ctx.services.topics.attention()).toEqual([]);
+    // The review marks that draft reviewed: the host is offered the merge.
+    await test.mei.conn.request('report.review', { topicId: run.topicId, itemId: 'a', version: 1 });
+    expect(test.fakes.worktrees.log.of('setReviewed')).toEqual([[report?.changes?.requestId, true]]);
+    // And a later turn that changes nothing registers nothing more.
+    test.fakes.agents.finishTurn(sessionId, { finalText: 'Nothing new.' });
+    await settle(test);
+    expect(test.t.ctx.services.reports.get(run.topicId, 'a')?.version).toBe(1);
+    expect(test.fakes.worktrees.log.of('snapshot')).toHaveLength(3);
+  });
+
+  it('a later version whose snapshot cannot be taken: the earlier version stands as it is, the session says why, and the next completed turn registers the new one', async () => {
+    test = await setupTopics();
+    const run = await started([{ id: 'a' }]);
+    const sessionId = run.session('a');
+    await handInReport(test, run.slug, 'a');
+    await waitFor(() => state(run.topicId, 'a') === 'done', { what: 'done' });
+    const first = test.t.ctx.services.reports.get(run.topicId, 'a')?.changes?.requestId as string;
+    // The second version: git runs out of time (not a request that is simply repeated).
+    test.fakes.worktrees.failSnapshot.set(run.worktree('a'), [new SmurgError('internal', undefined, { reason: 'git-failed', step: 'commit' })]);
+    await handInReport(test, run.slug, 'a', { text: reportText('a', { done: 'More of a.' }) });
+    await waitFor(() => test.fakes.agents.eventsOf(sessionId).some((event) => event.kind === 'notice' && event.text.id === 'report.changes.failed'), { what: 'the notice' });
+    await settle(test);
+    expect(test.fakes.worktrees.log.of('snapshot')).toHaveLength(2);
+    expect(test.t.ctx.services.reports.get(run.topicId, 'a')).toMatchObject({ version: 1, changes: { requestId: first } });
+    expect(itemOf(test.plan(run.topicId), 'a')).toMatchObject({ state: 'done', merge: { requestId: first, status: 'draft' } });
+    // The next turn ends without touching anything: the version that is owed is registered now.
+    test.fakes.agents.finishTurn(sessionId, { finalText: 'Anything else?' });
+    await waitFor(() => test.t.ctx.services.reports.get(run.topicId, 'a')?.version === 2, { what: 'version 2' });
+    expect(test.t.ctx.services.reports.get(run.topicId, 'a')).toMatchObject({ version: 2, sections: { done: 'More of a.' }, changes: { files: 1 } });
+    expect(test.t.ctx.services.reports.get(run.topicId, 'a')?.changes?.requestId).not.toBe(first);
   });
 
   it('there is no report before one is registered; a follow-up needs one', async () => {
@@ -450,6 +529,73 @@ describe('T5.3 a reviewed draft is ready to merge', () => {
     await test.mei.conn.request('report.review', { topicId: run.topicId, itemId: 'a', version: 1 });
     expect(test.fakes.agents.get(sessionId)).toMatchObject({ status: 'ended', endReason: 'merged' });
   });
+
+  it('merged before review, then a follow-up makes version 2 with a new draft: reviewing version 2 neither ends the session nor releases the worktree; merging the new draft does', async () => {
+    test = await setupTopics();
+    const run = await started([{ id: 'a' }, { id: 'b', dependsOn: ['a'] }], async (topicId) => {
+      await test.mei.conn.request('plan.assign', { topicId, itemId: 'a', userId: 'dev:mei' });
+    });
+    const sessionId = run.session('a');
+    const worktreeId = run.worktree('a');
+    await handInReport(test, run.slug, 'a');
+    await waitFor(() => state(run.topicId, 'a') === 'done', { what: 'done' });
+    const first = test.t.ctx.services.reports.get(run.topicId, 'a')?.changes?.requestId as string;
+    // The host approves draft 1 directly, before anyone reviewed.
+    await test.fakes.worktrees.approve({ requestId: first }, test.principals.host);
+    await waitFor(() => itemOf(test.plan(run.topicId), 'a').merge?.status === 'merged', { what: 'draft 1 to be merged' });
+
+    // A follow-up from the report: the agent changes more and hands in version 2, which has a draft of its own.
+    await test.mei.conn.request('report.followUp', { topicId: run.topicId, itemId: 'a', text: 'Please also handle empty carts.' });
+    await handInReport(test, run.slug, 'a', { text: reportText('a', { done: 'Also handles empty carts now.' }) });
+    await waitFor(() => test.t.ctx.services.reports.get(run.topicId, 'a')?.version === 2, { what: 'version 2' });
+    const second = test.t.ctx.services.reports.get(run.topicId, 'a')?.changes?.requestId as string;
+    expect(second).not.toBe(first);
+    expect(itemOf(test.plan(run.topicId), 'a').merge).toEqual({ requestId: second, status: 'draft', ready: false });
+
+    // "I've reviewed this" on version 2: the work of version 2 is not in the main workspace, so nothing of it may go.
+    await test.mei.conn.request('report.review', { topicId: run.topicId, itemId: 'a', version: 2 });
+    await settle(test);
+    expect(test.fakes.agents.get(sessionId)?.status).not.toBe('ended');
+    expect(test.fakes.worktrees.get(worktreeId)).not.toBeNull();
+    expect(test.fakes.worktrees.log.of('releaseItem')).toEqual([]);
+    expect(test.fakes.worktrees.listMerges(test.principals.host).find((request) => request.id === second)).toMatchObject({ status: 'draft', reviewed: true });
+    // The plan says what is true: reviewed, and the reviewed draft waits for the host.
+    expect(itemOf(test.plan(run.topicId), 'a')).toMatchObject({ state: 'reviewed', worktreeId, merge: { requestId: second, status: 'draft', ready: true } });
+
+    // The host merges the new draft: now the item is finished.
+    await test.fakes.worktrees.approve({ requestId: second }, test.principals.host);
+    await waitFor(() => test.fakes.agents.get(sessionId)?.status === 'ended', { what: 'the session to end' });
+    expect(test.fakes.agents.get(sessionId)).toMatchObject({ status: 'ended', endReason: 'merged' });
+    await waitFor(() => itemOf(test.plan(run.topicId), 'a').worktreeId === undefined, { what: 'the item to let go of its worktree' });
+    expect(test.fakes.worktrees.log.of('releaseItem')).toEqual([[worktreeId]]);
+  });
+
+  it('merged and reviewed, but the worktree holds changes no merge carried (a refused snapshot, edits after the report): nothing is removed until they are merged', async () => {
+    test = await setupTopics();
+    const run = await started([{ id: 'a' }], async (topicId) => {
+      await test.mei.conn.request('plan.assign', { topicId, itemId: 'a', userId: 'dev:mei' });
+    });
+    const sessionId = run.session('a');
+    const worktreeId = run.worktree('a');
+    await handInReport(test, run.slug, 'a');
+    await waitFor(() => state(run.topicId, 'a') === 'done', { what: 'done' });
+    const first = test.t.ctx.services.reports.get(run.topicId, 'a')?.changes?.requestId as string;
+    await test.mei.conn.request('report.review', { topicId: run.topicId, itemId: 'a', version: 1 });
+    // Someone edits in the item's worktree after the report (the agent with a command, a person by hand).
+    test.fakes.worktrees.unsavedEdits.add(worktreeId);
+    await test.fakes.worktrees.approve({ requestId: first }, test.principals.host);
+    await waitFor(() => itemOf(test.plan(run.topicId), 'a').merge?.status === 'merged', { what: 'the merge' });
+    await settle(test);
+    expect(test.fakes.agents.get(sessionId)?.status).not.toBe('ended');
+    expect(test.fakes.worktrees.log.of('releaseItem')).toEqual([]);
+    expect(itemOf(test.plan(run.topicId), 'a')).toMatchObject({ state: 'reviewed', worktreeId });
+
+    // Once the tree holds nothing the main workspace lacks, the item is finished without anyone pressing anything.
+    test.fakes.worktrees.unsavedEdits.delete(worktreeId);
+    await waitFor(() => test.fakes.agents.get(sessionId)?.status === 'ended', { what: 'the session to end' });
+    await waitFor(() => test.fakes.worktrees.get(worktreeId) === null, { what: 'the worktree to be released' });
+    await waitFor(() => itemOf(test.plan(run.topicId), 'a').worktreeId === undefined, { what: 'the item to let go of its worktree' });
+  });
 });
 
 describe('after a merge conflict', () => {
@@ -492,7 +638,7 @@ describe('a report nobody reviews', () => {
     // Mei is not the reviewer.
     expect(await refusal(test.mei.conn.request('report.review', { topicId: run.topicId, itemId: 'a', version: 1 }))).toMatchObject({ code: 'forbidden', text: { id: 'report.notReviewer' } });
     test.t.advanceClock(5 * 60_000);
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    await settle(test);
     expect(test.t.ctx.services.reports.get(run.topicId, 'a')?.escalatedAt).toBeUndefined();
     test.t.advanceClock(61_000);
     await waitFor(() => test.t.ctx.services.reports.get(run.topicId, 'a')?.escalatedAt !== undefined, { what: 'the report to escalate' });

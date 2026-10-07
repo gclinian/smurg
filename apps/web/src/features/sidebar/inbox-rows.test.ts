@@ -1,12 +1,12 @@
 // @vitest-environment node
 // What an inbox row says, per kind (DESIGN §3.8, §5.12 items 1–2; P0-API §3.2), and the one action it may offer.
 import { INBOX_KINDS, type HostState, type InboxItem } from '@smurg/protocol';
-import { buildAgentSession, buildInboxItem, buildPlan, buildReportSummary, buildTopic, buildWorkItem } from '@smurg/protocol/testing';
+import { buildAgentSession, buildInboxItem, buildPlan, buildReport, buildTopic, buildWorkItem } from '@smurg/protocol/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { applyLocale } from '../../lib/locale.ts';
 import { INITIAL_SESSIONS_STATE, type SessionsState } from '../../lib/stores/sessions.ts';
 import { INITIAL_TOPICS_STATE, type TopicsState } from '../../lib/stores/topics.ts';
-import { describeInboxItem, inboxTarget, isDismissable, planNeededFor, plansToLoad, whereOf, type InboxRowContext } from './inbox-rows.ts';
+import { describeInboxItem, inboxTarget, isDismissable, plansToLoad, reportNeededFor, whereOf, type InboxRowContext } from './inbox-rows.ts';
 
 const NOW = 1_727_000_600_000;
 const IAN = { userId: 'dev:host', displayName: 'Ian' };
@@ -52,43 +52,49 @@ describe('where an inbox item is', () => {
 describe('where an inbox row leads', () => {
   const report = { kind: 'report', topicId: 'tp_1', itemId: 'cart-api' } as const;
   const changes = { kind: 'changes', requestId: 'mr_1' } as const;
-  const withPlan = (items: Parameters<typeof buildWorkItem>[0][]): TopicsState => ({ ...context().topics, plans: new Map([['tp_1', buildPlan({ items: items.map((item) => buildWorkItem(item)) })]]) });
-  const reported = withPlan([{ id: 'cart-api', state: 'reviewed', report: buildReportSummary({ state: 'reviewed' }) }]);
+  /** The topics store with the item's result report loaded: `requestId` is the request the report's "Merge…" opens. */
+  const withReport = (overrides: Parameters<typeof buildReport>[0] = {}): TopicsState => ({
+    ...context().topics,
+    reports: new Map([['tp_1/cart-api', buildReport({ changes: { requestId: 'mr_1', files: 1, additions: 1, deletions: 0, byHand: [] }, ...overrides })]]),
+  });
   const conflict = buildInboxItem('merge', { ready: false, conflict: true });
+  const asked = buildInboxItem('merge', { ready: false, from: { kind: 'user', ...MEI } });
 
   it('every kind but a merge leads where the item says', () => {
     for (const kind of INBOX_KINDS.filter((one) => one !== 'merge')) {
       const item = buildInboxItem(kind);
-      expect(inboxTarget(item, reported), kind).toBe(item.target);
-      expect(planNeededFor(item, context().topics), kind).toBeNull();
+      expect(inboxTarget(item, withReport()), kind).toBe(item.target);
+      expect(reportNeededFor(item, context().topics), kind).toBeNull();
     }
   });
 
-  it('a merge of a work item that has a result report leads to the report: ready after its review, asked for, or in conflict', () => {
-    // A reviewed draft was reviewed from its report: no plan is needed to know.
-    expect(inboxTarget(buildInboxItem('merge'), context().topics)).toEqual(report);
-    expect(inboxTarget(conflict, reported)).toEqual(report);
-    expect(inboxTarget(buildInboxItem('merge', { ready: false, from: { kind: 'user', ...MEI } }), reported)).toEqual(report);
+  it("a merge of a work item leads to the item's result report when the report's \"Merge…\" is about that request: ready after its review, asked for, or in conflict", () => {
+    for (const item of [buildInboxItem('merge'), conflict, asked]) expect(inboxTarget(item, withReport())).toEqual(report);
+    // Reviewed or not, invalid or not: the report column offers the host that request in every state.
+    expect(inboxTarget(conflict, withReport({ state: 'to-review' }))).toEqual(report);
+    expect(inboxTarget(buildInboxItem('merge'), withReport({ state: 'invalid' }))).toEqual(report);
   });
 
-  it('a request without a report keeps the Changes column: a free session\'s worktree, an item nobody reported on, an archived topic', () => {
-    expect(inboxTarget(buildInboxItem('merge', { ready: false, topicId: undefined, itemId: undefined, item: undefined }), reported)).toEqual(changes);
-    expect(inboxTarget(conflict, withPlan([{ id: 'cart-api', state: 'running' }]))).toEqual(changes);
-    expect(inboxTarget(conflict, withPlan([{ id: 'other', state: 'done', report: buildReportSummary() }]))).toEqual(changes);
-    // An archived topic's report is read-only (nothing merges there): its requests are decided in the Changes column.
-    const archived: TopicsState = { ...reported, topics: new Map(), archived: new Map([[topic.id, { ...topic, archived: true }]]) };
+  it('a request the report is not about keeps the Changes column, where "Merge" merges what the row asks for', () => {
+    // Somebody edited by hand after the report and asked to merge: a NEW request, while the report still names its own.
+    const later = buildInboxItem('merge', { key: 'merge:mr_9', target: { kind: 'changes', requestId: 'mr_9' }, ready: false, from: { kind: 'user', ...MEI } });
+    expect(inboxTarget(later, withReport())).toEqual({ kind: 'changes', requestId: 'mr_9' });
+    // A report without changes (the snapshot was refused) names no request at all.
+    const { changes: _none, ...bare } = buildReport();
+    expect(inboxTarget(conflict, { ...context().topics, reports: new Map([['tp_1/cart-api', bare]]) })).toEqual(changes);
+    // A free session's worktree, an item whose report is not read (or does not exist), an archived topic.
+    expect(inboxTarget(buildInboxItem('merge', { ready: false, topicId: undefined, itemId: undefined, item: undefined }), withReport())).toEqual(changes);
+    expect(inboxTarget(conflict, context().topics)).toEqual(changes);
+    const archived: TopicsState = { ...withReport(), topics: new Map(), archived: new Map([[topic.id, { ...topic, archived: true }]]) };
     expect(inboxTarget(buildInboxItem('merge'), archived)).toEqual(changes);
-    expect(inboxTarget(conflict, archived)).toEqual(changes);
   });
 
-  it('says which plan is still missing to know: only for a work item\'s request that is not a reviewed draft', () => {
-    expect(planNeededFor(conflict, context().topics)).toBe('tp_1');
-    expect(planNeededFor(conflict, reported)).toBeNull();
-    // The topic has no plan at all: that is known too.
-    expect(planNeededFor(conflict, { ...context().topics, plans: new Map([['tp_1', null]]) })).toBeNull();
-    expect(planNeededFor(buildInboxItem('merge'), context().topics)).toBeNull();
-    expect(planNeededFor(buildInboxItem('merge', { ready: false, topicId: undefined, itemId: undefined, item: undefined }), context().topics)).toBeNull();
-    expect(planNeededFor(conflict, { ...context().topics, topics: new Map() })).toBeNull();
+  it("says which report must be read before a merge row is followed: a work item's, in a topic that is open, not read yet", () => {
+    expect(reportNeededFor(conflict, context().topics)).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
+    expect(reportNeededFor(buildInboxItem('merge'), context().topics)).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
+    expect(reportNeededFor(conflict, withReport())).toBeNull();
+    expect(reportNeededFor(buildInboxItem('merge', { ready: false, topicId: undefined, itemId: undefined, item: undefined }), context().topics)).toBeNull();
+    expect(reportNeededFor(conflict, { ...context().topics, topics: new Map() })).toBeNull();
   });
 });
 
@@ -203,13 +209,13 @@ describe('attention rows: work that stopped and has no card', () => {
     expect(row(attention('item-stalled', { itemId: 'other' }), stalledBy('restart')).title).toBe('1 · Cart API stopped without a report');
   });
 
-  it('the plans the rows read and the store does not hold: where a merge leads, why an item stopped', () => {
+  it('the plans the rows read and the store does not hold: why an item stopped', () => {
     const none = context().topics;
     const loaded: TopicsState = { ...none, plans: new Map([['tp_1', buildPlan()]]) };
     const rows = [attention('item-stalled'), buildInboxItem('merge', { ready: false }), buildInboxItem('merge'), buildInboxItem('question'), attention('item-failed')];
     expect(plansToLoad(rows, none)).toEqual(['tp_1']);
     expect(plansToLoad(rows, loaded)).toEqual([]);
-    expect(plansToLoad([attention('item-failed'), buildInboxItem('report'), buildInboxItem('merge')], none)).toEqual([]);
+    expect(plansToLoad([attention('item-failed'), buildInboxItem('report'), buildInboxItem('merge'), buildInboxItem('merge', { ready: false })], none)).toEqual([]);
   });
 
   it('a failed item offers "Try again": its session continues; without a session a new attempt starts', async () => {

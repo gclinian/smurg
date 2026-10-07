@@ -128,6 +128,36 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
     await log(page).waitFor({ timeout: STEP_MS });
   };
 
+  /**
+   * A second sentence in the status bar of a narrow column (the host's account is why nothing moves): what gives way is
+   * that sentence, never the state in front of it. Measured on a copy of the page's bar, 330 px wide.
+   */
+  const stateStaysWhole = async (page: Page, second: string): Promise<void> => {
+    const widths = await column(page)
+      .locator('.conv-status')
+      .evaluate((bar, sentence) => {
+        const copy = bar.cloneNode(true) as HTMLElement;
+        // As wide as a narrow column, with the padding the bar has there (its own is a share of the column it stands in).
+        copy.style.width = '330px';
+        copy.style.boxSizing = 'border-box';
+        copy.style.paddingInline = '12px';
+        copy.style.alignSelf = 'flex-start';
+        bar.after(copy);
+        const state = copy.querySelector('.conv-status__text') as HTMLElement;
+        const more = copy.querySelector('.conv-status__more') as HTMLElement;
+        const alone = state.clientWidth;
+        more.textContent = sentence;
+        const result = { alone, beside: state.clientWidth, age: copy.querySelector('.conv-status__age') !== null, moreNeeds: more.scrollWidth, moreHas: more.clientWidth };
+        copy.remove();
+        return result;
+      }, second);
+    expect(widths.age).toBe(true);
+    expect(widths.alone).toBeGreaterThan(0);
+    // The state keeps every pixel it had without the second sentence, and the second sentence is what is cut.
+    expect(widths.beside).toBe(widths.alone);
+    expect(widths.moreHas).toBeLessThan(widths.moreNeeds);
+  };
+
   it('a session without a topic: the first message reaches the agent; its text, tool line and permission request show for everyone, and those who may answer do', async () => {
     await host.getByRole('button', { name: 'New', exact: true }).click();
     await host.getByRole('menuitem', { name: 'New session' }).click();
@@ -149,6 +179,7 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
     expect(await request.locator('.conv-perm__cmd').textContent()).toBe('pnpm test cart');
     await request.getByRole('button', { name: 'Allow once' }).waitFor({ timeout: STEP_MS });
     await column(host).getByRole('status').filter({ hasText: 'Claude is waiting for permission' }).waitFor({ timeout: STEP_MS });
+    await stateStaysWhole(host, "The host's Claude account reached a usage limit.");
     // "Always allow this kind" names the kind in words.
     await request.getByText(/commands that start with pnpm test/).waitFor({ timeout: STEP_MS });
 
@@ -161,6 +192,8 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
     // A member with agent access answers, on a page in Traditional Chinese: the card settles in every browser.
     await openFromList(mei);
     const meiRequest = column(mei).getByRole('region', { name: 'Claude 請求許可執行指令' });
+    await column(mei).getByRole('status').filter({ hasText: 'Claude 正在等待許可' }).waitFor({ timeout: STEP_MS });
+    await stateStaysWhole(mei, '主人的 Claude 帳號已達用量上限。');
     await meiRequest.getByRole('button', { name: '允許一次' }).click();
     await column(host).getByText(/Allowed once by mei/i).waitFor({ timeout: STEP_MS });
     await column(amy).getByText(/Allowed once by mei/i).waitFor({ timeout: STEP_MS });

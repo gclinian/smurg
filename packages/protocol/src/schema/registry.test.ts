@@ -333,6 +333,8 @@ describe('volatile messages, rates and size rules (ARCHITECTURE §4.3, §5.9)', 
       'question.vote': 'vote',
       'question.comment': 'comment',
       'suggest.create': 'suggestion',
+      // An edit is sent whole to everyone a new suggestion is sent to: the same bucket (review R2-05).
+      'suggest.edit': 'suggestion',
       'topic.revise': 'suggestion',
       'report.followUp': 'suggestion',
     });

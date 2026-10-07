@@ -299,7 +299,7 @@ describe('seed: enumerated values with their own wording (protocol 4)', () => {
   });
 
   it('the owner’s decisions: the zh-TW word for Inbox (OWNER-DECISIONS Q14); the host’s own Claude Code rules apply (Q7)', () => {
-    expect(render('zh-TW', msg('inbox.notDismissable'))).toBe('這個項目處理完才會離開收件夾');
+    expect(render('zh-TW', msg('inbox.notDismissable'))).toBe('這一則要處理完才會離開收件夾');
     expect(render('en', msg('hostRules.found', { count: 12 }))).toBe('Your own Claude Code settings allow 12 kinds of commands without asking. Agents here run them without asking too.');
     expect(render('en', msg('hostRules.found', { count: 1 }))).toContain('1 kind of commands');
   });

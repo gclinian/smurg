@@ -106,10 +106,14 @@ export { isClaudeConfigPath };
 
 /**
  * The copy every member but the host gets: never the absolute `path`; for a request that reaches outside every root
- * also not the raw `input` (it names the path), and not a `reason` that names a path.
+ * also not the raw `input` (it names the path), and not a `reason` that names a path. And never the `change` of a file
+ * members may not read: one outside every root, one the card names no `file` for (the daemon did not read it: each
+ * replacement's old and new text would stand there by itself), or a host-private one. No body for those (DESIGN §7 S7).
  */
 export function memberCopy(request: PermissionRequest): PermissionRequest {
-  const { path: _path, ...rest } = request;
+  const { path: _path, change, ...withoutChange } = request;
+  const bodyWithheld = request.outside === true || request.file === undefined || isHostPrivatePath(request.file.path);
+  const rest: PermissionRequest = change === undefined || bodyWithheld ? withoutChange : { ...withoutChange, change };
   if (request.outside !== true) return rest;
   const { input: _input, ...copy } = rest;
   if (copy.reason !== undefined && /[/\\]/.test(copy.reason)) {

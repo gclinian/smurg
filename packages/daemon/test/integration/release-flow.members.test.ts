@@ -370,7 +370,7 @@ describe('the release composition: a free agent session in a worktree, and what 
     // ================================================================================================================
     // The account: Claude Code is logged out
     // ================================================================================================================
-    await flow.claude.setScenario({ account: { apiKeySource: 'none', tokenSource: 'none' }, turns: spike });
+    await flow.claude.setScenario({ account: { tokenSource: 'none', apiProvider: 'firstParty' }, turns: spike });
     const hostStates: { state: string }[] = [];
     leo.conn.on('session.host', (payload) => hostStates.push({ state: payload.account.state }));
     const { session: second } = await mei.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, title: 'Logged out', firstMessage: 'Hello?' });

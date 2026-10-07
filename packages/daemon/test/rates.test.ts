@@ -91,6 +91,7 @@ describe('the registry', () => {
       'question.vote': 'vote',
       'question.comment': 'comment',
       'suggest.create': 'suggestion',
+      'suggest.edit': 'suggestion',
       'topic.revise': 'suggestion',
       'report.followUp': 'suggestion',
     });
@@ -145,6 +146,28 @@ describe('the Router', () => {
       expect(await send(type)).toEqual({ code: 'rate_limited', reason: 'rate-limited', bucket: 'suggestion' });
     }
     expect(probe.count('suggest.create') + probe.count('topic.revise') + probe.count('report.followUp')).toBe(10);
+  });
+
+  it('the 11th suggest.edit within a minute is rate_limited, never reaches the handler and is audited; edits and new suggestions share the bucket', async () => {
+    const { probe, eddie, rita } = await start();
+    const daemon = t as TestDaemon;
+    const edit = (client: TestClient): Promise<{ code: string; reason: unknown; bucket: unknown }> => codeOf(client.conn.request('suggest.edit', REQUEST_SAMPLES['suggest.edit']));
+    for (let i = 0; i < 10; i++) expect((await edit(eddie)).reason).toBe('probe-reached');
+    for (let i = 0; i < 3; i++) expect(await edit(eddie)).toEqual({ code: 'rate_limited', reason: 'rate-limited', bucket: 'suggestion' });
+    expect(probe.count('suggest.edit', 'dev:eddie')).toBe(10);
+    // The bucket is the one of new suggestions: an edit loop leaves no token for a create, and the other way round.
+    expect(await codeOf(eddie.conn.request('suggest.create', REQUEST_SAMPLES['suggest.create']))).toEqual({ code: 'rate_limited', reason: 'rate-limited', bucket: 'suggestion' });
+    expect(probe.count('suggest.create', 'dev:eddie')).toBe(0);
+    // Another member edits freely.
+    expect((await edit(rita)).reason).toBe('probe-reached');
+    await daemon.ctx.audit.flush();
+    const denied = (await daemon.ctx.audit.query({ limit: 100 })).filter((entry) => entry.action === 'authz.denied' && entry.target === 'suggest.edit');
+    expect(denied).toHaveLength(3);
+    expect(denied[0]).toMatchObject({ outcome: 'denied', actor: { kind: 'user', userId: 'dev:eddie' }, detail: { type: 'suggest.edit', reason: 'rate-limited', bucket: 'suggestion', role: 'editor' } });
+    // Six seconds later one token is back.
+    daemon.advanceClock(6_000);
+    expect((await edit(eddie)).reason).toBe('probe-reached');
+    expect((await edit(eddie)).code).toBe('rate_limited');
   });
 
   it('a request the role may not send is refused as forbidden and takes no token', async () => {

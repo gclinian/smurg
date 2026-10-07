@@ -571,6 +571,11 @@ export class TopicsCore {
     return next;
   }
 
+  /** Resolves when no serialized job runs or waits any more. */
+  async idle(): Promise<void> {
+    while (this.chains.size > 0) await Promise.all([...this.chains.values()]);
+  }
+
   /** A file of a root as the daemon itself reads it (through PathGuard), or null when it is not there or not readable. */
   async readFile(root: RootRef, path: string): Promise<FileContent | null> {
     const ref: FileRef = { root, path };

@@ -3,14 +3,14 @@
 // its entry, and "Send to agent" from the editor puts a quoted selection into it from outside the column.
 //
 // A draft can hold project code (a quoted selection), so it is not a convenience like a pane's width: it must not
-// stay in the browser of someone whose access to the workspace has ended. When the daemon removes the member, revokes
-// this device, or finds the browser logged in as another account, the workspace's drafts are deleted from the storage
-// and nothing more is written (draftsOf watches the connection). `forgetDrafts` is the same deletion for the places
-// that end a member's access themselves.
+// stay in the browser of someone whose access to the workspace has ended. Where it is deleted from the storage is
+// lib/workspace/drafts-storage.ts (removal, a revoked device, another account's browser, leaving, logging out). Here
+// the store of a page that is still showing stops writing at the same moment (draftsOf watches the connection).
 import { MESSAGE_TEXT_MAX_CHARS, fileRefSchema, type FileRef } from '@smurg/protocol';
-import type { ConnectionState, WorkspaceConnection } from '../../lib/connection/types.ts';
+import type { WorkspaceConnection } from '../../lib/connection/types.ts';
 import { browserLocalStorage, readJson, writeJson, type PreferenceStorage } from '../../lib/preferences.ts';
 import { createStore, type ReadableStore } from '../../lib/store.ts';
+import { accessEnded, draftsStorageKey, forgetDrafts } from '../../lib/workspace/drafts-storage.ts';
 
 /** The code selection a draft was made from (it travels with a suggestion as its `source`). */
 export interface DraftSource {
@@ -42,8 +42,6 @@ export interface DraftsStore extends ReadableStore<ReadonlyMap<string, Draft>> {
 /** Drafts of sessions that no longer matter are not kept forever. */
 export const DRAFTS_MAX = 50;
 
-const storageKey = (workspaceId: string): string => `smurg.drafts.${workspaceId}`;
-
 function parseSource(value: unknown): DraftSource | null {
   if (typeof value !== 'object' || value === null) return null;
   const { file, startLine, endLine } = value as Record<string, unknown>;
@@ -68,17 +66,8 @@ function parse(value: unknown): Map<string, Draft> {
   return drafts;
 }
 
-/** Deletes what this browser kept of a workspace's unsent texts. */
-export function forgetDrafts(workspaceId: string, storage: PreferenceStorage | null = browserLocalStorage()): void {
-  try {
-    storage?.removeItem(storageKey(workspaceId));
-  } catch {
-    // a blocked storage kept nothing
-  }
-}
-
 export function createDraftsStore(workspaceId: string | null, storage: PreferenceStorage | null = browserLocalStorage()): DraftsStore {
-  let key = workspaceId === null ? null : storageKey(workspaceId);
+  let key = workspaceId === null ? null : draftsStorageKey(workspaceId);
   const state = createStore<ReadonlyMap<string, Draft>>(key === null ? new Map() : parse(readJson(storage, key)));
   const save = (drafts: ReadonlyMap<string, Draft>): void => {
     if (key === null) return;
@@ -124,18 +113,6 @@ export function createDraftsStore(workspaceId: string | null, storage: Preferenc
       if (state.getState().size > 0) state.setState(new Map());
     },
   };
-}
-
-/**
- * Whether the connection says that this person's access to the workspace, from this browser, is over: the daemon
- * removed the member or revoked the device (while connected, or as its answer to the next attempt), or the device
- * belongs to another account than the one logged in now. A closed page, a host that is away, an expired login or an
- * outdated client end nothing.
- */
-function accessEnded(state: ConnectionState): boolean {
-  if (state.kind === 'closed') return state.reason === 'kicked' || state.reason === 'revoked';
-  if (state.kind === 'rejected') return state.reason === 'kicked' || state.reason === 'device-revoked' || state.reason === 'device-other-account';
-  return false;
 }
 
 /** What drafts need of a workspace session: its connection's state. */

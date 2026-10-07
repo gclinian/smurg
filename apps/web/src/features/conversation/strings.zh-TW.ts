@@ -132,6 +132,8 @@ export const zhTW = {
   'tool.open': '在編輯器開啟',
   'tool.reads': '{count} 個檔案',
   'tool.readsIn': '{dir} 裡的 {count} 個檔案',
+  'tool.reads.failed': '{count} 個失敗',
+  'tool.reads.unfinished': '{count} 個沒有完成',
   'tool.steps': '{count} 個步驟',
   'diff.label': '{path} 的變更',
   'diff.labelPlain': '變更',

@@ -41,6 +41,13 @@ export function StatusBar({ session, onShowCard }: StatusBarProps) {
     const conversation = state.conversations.get(sessionId);
     return conversation === undefined ? null : (selectOpenCards(conversation)[0]?.id ?? null);
   });
+  // Since when that card waits. The wait the bar counts IS the card's: the session's own stamp (`waitingSince`) is
+  // written a moment later, and two stamps on two sides of a second would make the bar and the card read "29 sec" and
+  // "30 sec" for the whole wait (one wait, one number).
+  const openCardSince = useStore(stores.conversations, (state) => {
+    const conversation = state.conversations.get(sessionId);
+    return conversation === undefined ? undefined : selectOpenCards(conversation)[0]?.askedAt;
+  });
   const account = useStore(stores.host, selectAccount);
   const topicPhase = useStore(stores.topics, (state) => (session.topicId === undefined ? undefined : selectTopic(state, session.topicId)?.phase));
   // Why a work item's session stopped without a report, as its plan knows it (when the plan is loaded): the agent
@@ -83,7 +90,7 @@ export function StatusBar({ session, onShowCard }: StatusBarProps) {
     case 'waiting-permission':
       wait = true;
       text = t(session.status === 'waiting-answer' ? 'status.question' : 'status.permission');
-      since = session.waitingSince;
+      since = openCardSince ?? session.waitingSince;
       if (openCard !== null) act('show', t('status.show'), () => onShowCard(openCard));
       break;
     case 'idle':

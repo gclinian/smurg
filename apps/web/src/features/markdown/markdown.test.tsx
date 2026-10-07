@@ -1,9 +1,12 @@
 // The Markdown renderer (DESIGN §5.5, §5.11 "Markdown (no HTML, no image request, link schemes)").
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { findPathCandidates, mayAskAbout, normalizeSessionPath } from '../agents/path-links.ts';
 import { decodeEntities } from './entities.ts';
 import { MAX_PATH_LOOKUPS, Markdown, PlainText, STREAM_PARSE_MS, StreamingMarkdown, findMentions, safeHref, type MarkdownPaths, type PathMatch } from './index.ts';
 import { MARKDOWN_MAX_CHARS, MARKDOWN_MAX_INLINE_CHARS, UNTIMED_STEPS, lexMarkdown, parseBudgetMs } from './lex.ts';
+import { namesAnotherPlace } from './links.ts';
 import { parseStreaming } from './Markdown.tsx';
 import { stableLength } from './stream.ts';
 
@@ -212,6 +215,74 @@ describe('Markdown: nothing of the text is hidden (review R4-01, R4-05)', () => 
     expect([...root.querySelectorAll('a')].map((a) => a.textContent)).toEqual(['https://example.com/docs', 'example.com', 'WWW.Example.org', 'amy@example.com', 'the docs, v1.2', 'https://auto.example/x', 'www.example.net']);
     expect(root.textContent).not.toContain('(');
   });
+
+  it('an image whose words are another address shows where it leads (review R4-05, second round)', () => {
+    const root = html(
+      [
+        '![https://github.com/logo.png](https://evil.example/x.png)',
+        '![The github.com logo][1]',
+        '![amy@example.com](https://evil.example/a.png "the title")',
+        '[1]: https://evil.example/y.png',
+      ].join('\n\n'),
+    );
+    expect([...root.querySelectorAll('p:not(.md-raw)')].map((p) => p.textContent)).toEqual([
+      'Image: https://github.com/logo.png (https://evil.example/x.png)',
+      'Image: The github.com logo (https://evil.example/y.png)',
+      'Image: amy@example.com (https://evil.example/a.png) "the title"',
+    ]);
+    // What can be followed is the destination, under its own address, and it still says that no image is loaded.
+    const links = [...root.querySelectorAll('a')];
+    expect(links.map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['https://evil.example/x.png', 'https://evil.example/x.png'],
+      ['https://evil.example/y.png', 'https://evil.example/y.png'],
+      ['https://evil.example/a.png', 'https://evil.example/a.png'],
+    ]);
+    for (const link of links) expect(link.getAttribute('title')).toContain('Images are not loaded here');
+    expect(root.querySelector('img')).toBeNull();
+    // Words that name the place the image is at, or no place, stay the link's words.
+    const same = html('![The example.com logo](https://www.example.com/logo.png) ![A diagram, v1.2](https://example.com/d.png)');
+    expect([...same.querySelectorAll('a')].map((a) => a.textContent)).toEqual(['Image: The example.com logo', 'Image: A diagram, v1.2']);
+    expect(same.textContent).not.toContain('(');
+  });
+
+  it('reads as a place: a host with a path under any ending, a number address, and a host written with look-alike characters', () => {
+    const elsewhere = 'https://evil.example/';
+    for (const text of [
+      'github.xyz',
+      'smurg.sh/install',
+      'Run smurg.sh/install first',
+      'GitHub.XYZ/login',
+      '192.168.1.1',
+      '10.0.0.1:8080/admin',
+      'http://192.168.1.1/',
+      'https://[::1]:8443/x',
+      'github\u2024com',
+      '\uff47\uff49\uff54\uff48\uff55\uff42\uff0e\uff43\uff4f\uff4d',
+      'https://github.com:x/',
+      'https://exa%6dple.com/',
+      'HTTPS://GITHUB.COM/a',
+    ]) {
+      expect(namesAnotherPlace(text, elsewhere), text).toBe(true);
+    }
+    // The same words on a link that leads there are not a difference.
+    for (const [text, href] of [
+      ['smurg.sh/install', 'https://smurg.sh/install'],
+      ['192.168.1.1', 'http://192.168.1.1/admin'],
+      ['10.0.0.1:8080/admin', 'http://10.0.0.1:8080/'],
+      ['https://[::1]:8443/x', 'https://[::1]:8443/'],
+      ['HTTPS://GITHUB.COM:443/a', 'https://github.com/b'],
+      ['github\u2024com', 'https://github.com/'],
+      ['(see https://example.com/a, or www.example.com.)', 'https://example.com/'],
+    ] as const) {
+      expect(namesAnotherPlace(text, href), text).toBe(false);
+    }
+    // A file, a version, a name from code: none of them is a place, wherever the link leads.
+    for (const text of ['README.md', 'Node.js', 'event.target', 'src/cart.ts:42', 'cart.ts:42', 'v1.2.3', '2.1.288', '300.1.1.1', 'e.g. this', 'docs/README.md', '.github/workflows', 'a@b', '@Mei']) {
+      expect(namesAnotherPlace(text, elsewhere), text).toBe(false);
+    }
+    const root = html('[github.xyz](https://evil.example) [README.md](https://example.com/README.md)');
+    expect(root.textContent).toBe('github.xyz (https://evil.example/) README.md');
+  });
 });
 
 describe('Markdown: a text cannot crash or freeze the page (review R4-03)', () => {
@@ -313,6 +384,96 @@ describe('Markdown: a text cannot crash or freeze the page (review R4-03)', () =
     // What was finished before stays as it was formatted; the rest is shown as written.
     expect(root.querySelector('p')?.textContent).toBe('First paragraph.');
     expect(root.querySelector('.md-plain')?.textContent).toBe(`Second.\n\n${'>'.repeat(500)} deep`);
+  });
+});
+
+describe('Markdown: what a text costs after the lexer (review R4-03 / R4-05, second round)', () => {
+  // The lexer's budget ends a parse; nothing ends a render. So every look at a piece of text while rendering (a link's
+  // words, a path, a comment, a definition) must cost in proportion to its length, whatever the text is.
+  const RUN = 15_970;
+  /** The conversation's path finder, as features/conversation/env.tsx hands it over to a member who is not the host. */
+  const paths: MarkdownPaths = {
+    find: (text) =>
+      findPathCandidates(text)
+        .filter((candidate) => {
+          const path = normalizeSessionPath(candidate.path);
+          return path !== null && mayAskAbout(path, { isHost: false });
+        })
+        .map((candidate) => ({ start: candidate.start, end: candidate.end, text: candidate.text })),
+    resolve: () => Promise.resolve(null),
+  };
+  /** Paragraphs of `one` up to about `total` characters: each within the size of a paragraph. */
+  const fill = (one: string, total: number): string => Array.from({ length: Math.max(1, Math.floor(total / (one.length + 2))) }, () => one).join('\n\n');
+  /** The quickest of three runs: one pause of a busy machine is not the text's cost, a text that costs seconds is. */
+  const quickest = (run: () => void): number => {
+    let best = Number.POSITIVE_INFINITY;
+    for (let round = 0; round < 3; round += 1) {
+      const started = performance.now();
+      run();
+      best = Math.min(best, performance.now() - started);
+    }
+    return best;
+  };
+  const mount = (text: string): number => quickest(() => void renderToStaticMarkup(<Markdown text={text} paths={paths} mentions={['Ian', 'Mei']} />));
+
+  const WORST: Readonly<Record<string, string>> = {
+    'a mail address of dots in a link': `[a@${'.'.repeat(RUN)}:x](https://example.com)`,
+    'dots before a letter in a link': `[${'.'.repeat(RUN)}a](https://example.com)`,
+    'closing marks before a letter in a link': `[${')'.repeat(RUN / 2)}a](https://example.com)`,
+    'the same in an image': `![a@${'.'.repeat(RUN)}:x](https://example.com/x.png)`,
+    'the same through a reference': `[a@${'.'.repeat(RUN)}:x][1]\n\n[1]: https://example.com`,
+    'many addresses in one link': `[${'http://a/1 '.repeat(Math.floor(RUN / 11))}](http://a)`,
+    'many hosts in one link': `[${'a.com '.repeat(Math.floor(RUN / 6))}](http://a.com)`,
+    'host labels without an end': `[${'a.'.repeat(RUN / 2)}-](https://example.com)`,
+    'a path of dots': `a${'.'.repeat(RUN)}b`,
+    'a path of dots in a folder': `src/a${'.'.repeat(RUN)}b and more`,
+    'a path of many folders': `${'a/'.repeat(RUN / 2)}b.ts`,
+    'a path that climbs and comes back': `${'a/../'.repeat(RUN / 5)}b.ts`,
+    'many short paths': 'src/a.ts '.repeat(Math.floor(RUN / 9)),
+    'private names in many folders': `${'.git/'.repeat(RUN / 5)}config ${'a/.envrc '.repeat(200)}`,
+    'a comment of empty lines': `<!--${'\n'.repeat(RUN)}x-->`,
+    'a definition whose title is empty lines': `[a]: b "${'\n'.repeat(RUN)}x"`,
+    'a run of at-signs': '@'.repeat(RUN),
+    'a run of ampersands': '&'.repeat(RUN),
+  };
+
+  it('a 64 KiB message of the worst paragraphs mounts in a fraction of a second', () => {
+    for (const [name, one] of Object.entries(WORST)) expect(mount(fill(one, 65_536)), name).toBeLessThan(300);
+  });
+
+  it('a 1 MiB document (a SPEC.md, a report section) of them mounts in about the time its parse may take', () => {
+    for (const name of ['a mail address of dots in a link', 'a path of dots', 'a definition whose title is empty lines']) {
+      expect(mount(fill(WORST[name] as string, 1_000_000)), name).toBeLessThan(2_000);
+    }
+    // One comment that is a quarter of a million empty lines: one token, looked at once.
+    expect(mount(`<!--${'\n'.repeat(250_000)}x-->`), 'one long comment').toBeLessThan(2_000);
+  }, 120_000);
+
+  it('whether a text names another place is found in time linear in the text', () => {
+    const size = 400_000;
+    for (const text of [
+      `a@${'.'.repeat(size)}:x`,
+      `${'.'.repeat(size)}a`,
+      `${'!'.repeat(size)}a`,
+      `${'('.repeat(size)}a`,
+      `a@${'a.'.repeat(size / 2)}`,
+      'a.'.repeat(size / 2),
+      `${'a-'.repeat(size / 2)}.com`,
+      `https://${'a.'.repeat(size / 2)}/`,
+      `https://${':'.repeat(size)}`,
+      `www.${'a'.repeat(size)}`,
+      '1.'.repeat(size / 2),
+      'http://a/1 '.repeat(size / 11),
+      '\u2024'.repeat(size),
+    ]) {
+      expect(quickest(() => void namesAnotherPlace(text, 'https://example.com/')), text.slice(0, 16)).toBeLessThan(150);
+    }
+  });
+
+  it('still says what it said for ordinary text: the comment, the definition and the path are shown as before', () => {
+    const root = html('<!-- a\n\nb -->\n\n[1]: https://example.com "t"\n\nSee src/cart.ts. And a.b...', { paths });
+    expect([...root.querySelectorAll('.md-raw')].map((node) => node.textContent)).toEqual(['<!-- a\n\nb -->', '[1]: https://example.com "t"']);
+    expect(root.querySelector('p:not(.md-raw)')?.textContent).toBe('See src/cart.ts. And a.b...');
   });
 });
 

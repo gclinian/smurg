@@ -350,6 +350,66 @@ describe('processes: parking, resume, failure, retry, the daemon stopping', { ti
   }, 60_000);
 });
 
+describe('R5-06 messages that wait for a process, across a restart of smurg', { timeout: 90_000 }, () => {
+  it('a session that cannot start (the host is logged out) keeps the messages people write to it; smurg is stopped and started again: they still wait, and the next start delivers them in order, before the new one', async () => {
+    const stateDir = await createTempRunDir();
+    try {
+      const r = await rig([], { daemon: { stateDir, agents: { loginCheckIntervalMs: 1 } } });
+      const mei = await r.s.t.connect({ userId: 'dev:mei', displayName: 'Mei', role: 'agent' });
+      const { session } = await r.host.conn.request('session.create', AGENT);
+      await r.until(session.id, idle, 'the start');
+      await r.agents.restartProcess(session.id, 'slot');
+      await waitFor(() => r.agents.facts(session.id)?.hasProcess === false, { what: 'the process to be parked' });
+      // The host's Claude Code is logged out by now: every start is refused, and what people write waits.
+      await r.s.fakeClaude.setScenario({ loggedIn: false });
+      const principal = (userId: string): Principal => r.s.t.ctx.members.principalOf(userId) as Principal;
+      const refused = (): number => r.bus.filter((entry) => entry.name === 'agent.process' && (entry.event as DaemonEvents['agent.process']).reason === 'failed').length;
+      const first = await r.agents.send(session.id, { kind: 'person', from: principal('dev:mei'), text: 'first, from Mei', cleaned: false, origin: 'composer' });
+      await waitFor(() => refused() === 1, { what: 'the refused start' });
+      const second = await r.agents.send(session.id, { kind: 'person', from: r.hostPrincipal(), text: 'second, from the host', cleaned: false, origin: 'composer' });
+      await waitFor(() => refused() === 2, { what: 'the second refused start' });
+      const own = await r.agents.send(session.id, { kind: 'smurg', purpose: 'continue-item', text: 'third, from smurg itself' });
+      await waitFor(() => refused() === 3, { what: 'the third refused start' });
+      expect(r.agents.get(session.id)?.status).toBe('failed');
+      const deliveries = async (agents: AgentSessionsImpl, messageId: string): Promise<string[]> => (await agents.history({ sessionId: session.id, afterSeq: 0, limit: 500 })).events.flatMap((event) => (event.kind === 'delivery' && event.messageId === messageId ? [event.state] : []));
+      expect(await deliveries(r.agents, first.messageId)).toEqual(['queued']);
+      mei.close();
+      r.host.close();
+      await r.s.t.daemon.stop();
+      // The host logs in and starts smurg again: the same state directory and folder, a new daemon.
+      await r.s.fakeClaude.setScenario({});
+      const selfCommand = { file: '/usr/bin/true', args: [] };
+      const again = await createTestDaemon({
+        root: r.s.t.root,
+        stateDir,
+        workspaceId: r.s.t.workspaceId,
+        modules: [fakeServicesModule(createFakes()), createSessionsModule({ hostEnv: () => ({ PATH: '/usr/bin:/bin', HOME: r.s.hostHome, ...r.s.fakeClaude.env }), hostShell: '/bin/sh', launch: { claudePath: r.s.fakeClaude.path, selfCommand } })],
+        sessions: { selfCommand, hostHome: r.s.hostHome },
+      });
+      try {
+        const agents = again.ctx.services.agents as AgentSessionsImpl;
+        // Nothing runs by itself after a restart, and nothing was thrown away: the messages read "queued", truthfully.
+        expect(agents.get(session.id)).toMatchObject({ status: 'idle' });
+        expect(agents.facts(session.id)?.hasProcess).toBe(false);
+        for (const id of [first.messageId, second.messageId, own.messageId]) expect((await deliveries(agents, id)).at(-1)).toBe('queued');
+        await again.connectHost();
+        const fresh = await agents.send(session.id, { kind: 'person', from: again.ctx.members.principalOf(TEST_HOST_USER) as Principal, text: 'fourth, after the restart', cleaned: false, origin: 'composer' });
+        await waitFor(async () => (await deliveries(agents, fresh.messageId)).includes('completed'), { timeoutMs: 20_000, what: 'the turn that took the new message' });
+        for (const id of [first.messageId, second.messageId, own.messageId, fresh.messageId]) expect((await deliveries(agents, id)).slice(-2)).toEqual(['started', 'completed']);
+        // The agent read them in the order they were written, each under its own header.
+        const told = (await r.s.fakeClaude.echoed()).filter((entry) => entry.kind === 'stdin' && (entry.value as { type?: string }).type === 'user').map((entry) => (entry.value as { message: { content: { text: string }[] } }).message.content[0]?.text ?? '');
+        expect(told.map((text) => text.replace(/^\[smurg [a-z0-9]{4}\]/, '[smurg]'))).toEqual(['[Mei · Agent access]\nfirst, from Mei', '[Host · Host]\nsecond, from the host', '[smurg]\nthird, from smurg itself', '[Host · Host]\nfourth, after the restart']);
+        // A member who is removed takes back what still waits, also after a restart (nothing waits here any more).
+        expect(agents.cancelQueued('dev:mei')).toEqual([]);
+      } finally {
+        await again.cleanup();
+      }
+    } finally {
+      await rm(stateDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('refusals before a start, and the limits', { timeout: 60_000 }, () => {
   it('Claude Code older than the floor, a logged-out host, no claude at all, the session limit: refused with their own sentence, nothing is created', async () => {
     const old = await rig([], { claudeVersion: '2.1.200' });

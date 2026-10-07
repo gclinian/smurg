@@ -7,14 +7,25 @@
 //    each with its own SHA-256, plus the scripts its commands point at (each recorded with its own hash). A decision
 //    is keyed by path + content hash, not by root: a work item's worktree is a clone, its committed files hash like
 //    the main workspace's and need no confirmation of their own.
-//  - A ROOT is `used` when every one of the three files that exists in it has a trusted content (and every recorded
-//    script still has its recorded content); `none` when none exists; otherwise `ignored` (the session then starts with
+//  - EVERYTHING ELSE CLAUDE CODE LOADS from the folder's `.claude/` (agents, skills, commands, rules, …: they can
+//    declare hooks and allow tools in their own headers) is one more entry of the gate (PROJECT_LOADED_ENTRY): every
+//    file named for the host, confirmed with the settings files, and decided per file content too, so a worktree
+//    that has some of them needs no confirmation of its own.
+//  - A ROOT is `used` when every one of these that exists in it has a trusted content (and every recorded script still
+//    has its recorded content); `none` when none exists; otherwise `ignored` (the session then starts with
 //    `--setting-sources user`).
-//  - WHILE SESSIONS RUN the files and the recorded scripts are watched (bus `file.changed`): a change to a content
-//    that is not trusted parks the sessions of that root.
-//  - While a content is trusted its scripts are host-only for writes through smurg (`protectedPaths`).
+//  - WHAT THE HOST IS SHOWN is everything, or it says what is missing: an entry that was shortened or left out of a
+//    list is counted (`cut`) and then "Use them" needs the tick `incomplete`; characters a person cannot see are
+//    written out (`<U+202E>`).
+//  - WHILE SESSIONS RUN the files, `.claude/` and the recorded scripts are watched (bus `file.changed`; a folder that
+//    holds one of them counts, a renamed folder is reported as the folder alone). Whenever a look at the files finds
+//    a content that is not trusted (the watcher, a session start, the host opening the review, a merge) the sessions
+//    of that root that loaded the settings are parked.
+//  - While a content is trusted its scripts are host-only for writes through smurg (`protectedPaths`), and every
+//    agent session of the root is started with a deny rule for each of them (profiles.ts).
 import { createHash } from 'node:crypto';
-import { lstat, readFile, realpath } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { lstat, readFile, readdir, realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { z } from 'zod';
 import {
@@ -23,10 +34,14 @@ import {
   CLAUDE_CONFIG_SCRIPTS_MAX,
   CLAUDE_CONFIG_TEXT_MAX_BYTES,
   MAIN_ROOT,
+  PROJECT_LOADED_ENTRY,
   PROJECT_SETTINGS_FILES,
   SHORT_TEXT_MAX_CHARS,
   SmurgError,
-  isValidRelPath,
+  checkRelPath,
+  foldRelPath,
+  folderHoldsPath,
+  relPathSegments,
   rootRefKey,
   takeListPage,
   truncateToUtf8Bytes,
@@ -37,12 +52,16 @@ import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../../core/context.ts';
 import type { AttentionFact, PersistentDocument, Principal, ProjectTrust, Req, Res } from '../../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../../core/lifecycle.ts';
+import { isRuleNameable } from './profiles.ts';
 
 type ClaudeConfigFile = Res<'admin.claudeConfig.get'>['roots'][number]['files'][number];
 type Ack = ClaudeConfigFile['needsAck'][number];
 
 const sha256 = (data: string | Uint8Array): string => createHash('sha256').update(data).digest('hex');
 const HEX = /^[0-9a-f]{64}$/;
+
+/** Decisions about files below `.claude/` (the loaded entry) that are kept: the oldest go first. */
+const LOADED_KEYS_MAX = 20_000;
 
 const decisionSchema = z.strictObject({
   path: z.string().min(1).max(256),
@@ -52,21 +71,57 @@ const decisionSchema = z.strictObject({
   scripts: z.array(z.strictObject({ path: z.string().min(1).max(4096), hash: z.string().regex(HEX) })).max(CLAUDE_CONFIG_SCRIPTS_MAX),
   at: z.int().min(0),
 });
-const documentSchema = z.strictObject({ decisions: z.array(decisionSchema).max(2_000) });
+const documentSchema = z.strictObject({
+  decisions: z.array(decisionSchema).max(2_000),
+  /**
+   * The loaded entry, decided per file: the key of a file is the hash of its path, its content hash and the scripts
+   * its header's hooks run (with their hashes), so a changed script is a content nobody decided about.
+   */
+  loaded: z.strictObject({ trusted: z.array(z.string().regex(HEX)).max(LOADED_KEYS_MAX), ignored: z.array(z.string().regex(HEX)).max(LOADED_KEYS_MAX) }),
+});
 type TrustDocument = z.infer<typeof documentSchema>;
 type Decision = z.infer<typeof decisionSchema>;
 
 /** A project settings file larger than this is never trusted (it cannot be shown whole). */
 const SETTINGS_FILE_MAX_BYTES = CLAUDE_CONFIG_TEXT_MAX_BYTES;
-const SCRIPT_MAX_BYTES = 8 * 1024 * 1024;
+/** A script larger than this is not hashed: the content that names it is never trusted. */
+const SCRIPT_MAX_BYTES = 64 * 1024 * 1024;
+/** Words of a file's commands that are looked up as files of the root. */
+const SCRIPT_CANDIDATES_MAX = 2_000;
+/** The loaded entry: files below `.claude/`, and their bytes, that one look hashes. More is never trusted. */
+const LOADED_FILES_MAX = 2_000;
+const LOADED_BYTES_MAX = 64 * 1024 * 1024;
+/** A file below `.claude/` whose header is read (larger ones are named and hashed only). */
+const HEADER_FILE_MAX_BYTES = 256 * 1024;
+/** Directly below `.claude/`, not part of the loaded entry: the two settings files, and Claude Code's own worktree checkouts. */
+const NOT_LOADED: ReadonlySet<string> = new Set(['settings.json', 'settings.local.json', 'worktrees']);
 
 type Json = Record<string, unknown>;
 const isObject = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-// eslint-disable-next-line no-control-regex
-const NOT_TEXT = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f‪-‮⁦-⁩]/g;
-const entry = (text: string): string => text.replace(NOT_TEXT, ' ').slice(0, CLAUDE_CONFIG_ENTRY_MAX_CHARS);
-const short = (text: string): string => text.replace(NOT_TEXT, ' ').replace(/[\t\n]/g, ' ').slice(0, SHORT_TEXT_MAX_CHARS) || '?';
+// ---------------------------------------------------------------------------------------------------------------------
+// What the host reads: nothing invisible, nothing cut without a count
+// ---------------------------------------------------------------------------------------------------------------------
+
+// Characters a person cannot see or that change how a line reads: C0/C1 controls (tab and line break aside), DEL,
+// Unicode's default-ignorable set (zero-width, joiners, fillers, variation selectors, the tag block), every
+// bidirectional control, and a lone surrogate (which no wire text may hold).
+const INVISIBLE =
+  /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff0-\ufff8\ud800-\udfff\u{e0000}-\u{e0fff}]/gu;
+const written = (char: string): string => `<U+${(char.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}>`;
+
+/** `text` with every such character written out as `<U+XXXX>`; in one-line text a tab and a line break too. */
+export function visibleText(text: string, oneLine = false): string {
+  const shown = text.replace(INVISIBLE, written);
+  return oneLine ? shown.replace(/[\t\n]/g, written) : shown;
+}
+
+/** The first `max` UTF-16 units of `text`, never ending inside a surrogate pair. */
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const last = text.charCodeAt(max - 1);
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
+}
 
 /** Variables that can send the host's login to another server. */
 export function isFlaggedEnvName(name: string): boolean {
@@ -74,16 +129,99 @@ export function isFlaggedEnvName(name: string): boolean {
   return upper.startsWith('ANTHROPIC_') || upper.startsWith('CLAUDE_') || /^(HTTPS?|ALL|NO)_PROXY$/.test(upper) || upper === 'NODE_EXTRA_CA_CERTS' || upper === 'SSL_CERT_FILE' || upper.startsWith('AWS_') || upper.startsWith('GOOGLE_') || upper.startsWith('VERTEX_');
 }
 
+const PROGRAM_ENV_NAMES: ReadonlySet<string> = new Set([
+  ...['PATH', 'ENV', 'BASH_ENV', 'SHELL', 'ZDOTDIR', 'IFS', 'CDPATH', 'PROMPT_COMMAND', 'PS4', 'HOME', 'TMPDIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME'],
+  ...['EDITOR', 'VISUAL', 'PAGER', 'MANPAGER', 'BROWSER', 'SSH_ASKPASS', 'SUDO_ASKPASS'],
+  ...['NODE_OPTIONS', 'NODE_PATH', 'PYTHONPATH', 'PYTHONSTARTUP', 'PYTHONHOME', 'PYTHONINSPECT', 'PERL5LIB', 'PERL5OPT', 'PERLLIB', 'RUBYOPT', 'RUBYLIB', 'GEM_PATH', 'GEM_HOME', 'BUNDLE_GEMFILE'],
+  ...['JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS', 'CLASSPATH', 'GOFLAGS', 'RUSTC_WRAPPER', 'RUSTFLAGS', 'CC', 'CXX', 'LD', 'MAKEFLAGS'],
+]);
+const PROGRAM_ENV_PREFIXES: readonly string[] = ['LD_', 'DYLD_', 'GIT_', 'SSH_', 'NPM_CONFIG_', 'YARN_', 'PNPM_', 'COREPACK_', 'BUN_', 'DENO_', 'PIP_', 'UV_', 'CARGO_', 'DOCKER_', 'BASH_FUNC_'];
+
+/**
+ * Variables that change which programs run, what they load, or how git and ssh reach a server (`PATH`, `NODE_OPTIONS`,
+ * `BASH_ENV`, `GIT_SSH_COMMAND`, `LD_PRELOAD`, `DYLD_*`, …). Their value is shown among the commands, and a file of the
+ * root it names is recorded like a script. The families smurg knows; no list of them is complete.
+ */
+export function isProgramEnvName(name: string): boolean {
+  const upper = name.toUpperCase();
+  return PROGRAM_ENV_NAMES.has(upper) || PROGRAM_ENV_PREFIXES.some((prefix) => upper.startsWith(prefix));
+}
+
 const TOOL_RULE = /^(Bash|Edit|Write|MultiEdit|NotebookEdit|mcp__)/;
+const TOOL_NAMED = /(^|[\s,[("'])(Bash|Edit|Write|MultiEdit|NotebookEdit|mcp__)/;
 
 export interface FileEffects {
   readonly runs: string[];
   readonly permissions: string[];
-  readonly env: { name: string; flagged: boolean }[];
+  readonly env: { name: string; flagged: boolean; programs?: boolean }[];
   readonly otherKeys: string[];
   /** Every command with its arguments, for the script lookup. */
   readonly commands: string[][];
   readonly needsAck: Ack[];
+  /** What the lists leave out; absent when they are everything. */
+  readonly cut?: { omitted: number; shortened: number };
+}
+
+/** The lists of one entry of the review, bounded as the wire bounds them, counting what does not fit. */
+class Lists {
+  readonly runs: string[] = [];
+  readonly permissions: string[] = [];
+  readonly env: { name: string; flagged: boolean; programs?: boolean }[] = [];
+  readonly otherKeys: string[] = [];
+  readonly commands: string[][] = [];
+  omitted = 0;
+  shortened = 0;
+  credentials = false;
+  allowsTools = false;
+
+  private fit(text: string, max: number): string {
+    if (text.length > max) this.shortened += 1;
+    return clip(text, max);
+  }
+
+  private add<T>(list: T[], make: () => T): void {
+    if (list.length >= CLAUDE_CONFIG_LIST_MAX) this.omitted += 1;
+    else list.push(make());
+  }
+
+  line(list: string[], text: string): void {
+    this.add(list, () => this.fit(visibleText(text), CLAUDE_CONFIG_ENTRY_MAX_CHARS));
+  }
+
+  key(text: string): void {
+    this.add(this.otherKeys, () => this.name(text));
+  }
+
+  name(text: string): string {
+    return this.fit(visibleText(text, true), SHORT_TEXT_MAX_CHARS) || '?';
+  }
+
+  variable(name: string): void {
+    const flagged = isFlaggedEnvName(name);
+    if (flagged) this.credentials = true;
+    this.add(this.env, () => ({ name: this.name(name), flagged, ...(isProgramEnvName(name) ? { programs: true } : {}) }));
+  }
+
+  /** A command the content runs: listed whole, and its words are looked up as scripts. */
+  run(label: string, line: string[] | null): void {
+    if (line === null) return;
+    this.commands.push(line);
+    this.line(this.runs, `${label}: ${line.join(' ')}`);
+  }
+
+  effects(extraAcks: readonly Ack[] = []): FileEffects {
+    const cut = this.omitted > 0 || this.shortened > 0;
+    const acks = new Set<Ack>([...(this.credentials ? (['credentials'] as const) : []), ...(this.allowsTools ? (['allows-tools'] as const) : []), ...extraAcks, ...(cut ? (['incomplete'] as const) : [])]);
+    return {
+      runs: this.runs,
+      permissions: this.permissions,
+      env: this.env,
+      otherKeys: this.otherKeys,
+      commands: this.commands,
+      needsAck: (['credentials', 'allows-tools', 'incomplete'] as const).filter((ack) => acks.has(ack)),
+      ...(cut ? { cut: { omitted: this.omitted, shortened: this.shortened } } : {}),
+    };
+  }
 }
 
 function commandLine(command: unknown, args: unknown): string[] | null {
@@ -94,83 +232,198 @@ function commandLine(command: unknown, args: unknown): string[] | null {
 
 /** PURE: everything a project settings file (or `.mcp.json`) does, read from its text (DESIGN §2.9 table). */
 export function effectsOf(path: string, text: string): FileEffects {
-  const runs: string[] = [];
-  const permissions: string[] = [];
-  const env: { name: string; flagged: boolean }[] = [];
-  const otherKeys: string[] = [];
-  const commands: string[][] = [];
-  let credentials = false;
-  let allowsTools = false;
-  const run = (label: string, line: string[] | null): void => {
-    if (line === null) return;
-    commands.push(line);
-    if (runs.length < CLAUDE_CONFIG_LIST_MAX) runs.push(entry(`${label}: ${line.join(' ')}`));
-  };
+  const lists = new Lists();
   const servers = (value: unknown): void => {
-    if (!isObject(value)) return;
+    if (!isObject(value)) {
+      lists.line(lists.runs, `mcpServers: ${JSON.stringify(value)}`);
+      return;
+    }
     for (const [name, server] of Object.entries(value)) {
       if (!isObject(server)) continue;
       const line = commandLine(server['command'], server['args']);
-      if (line !== null) run(`MCP server ${name}`, line);
-      else if (typeof server['url'] === 'string' && runs.length < CLAUDE_CONFIG_LIST_MAX) runs.push(entry(`MCP server ${name}: ${server['url']}`));
-      if (isObject(server['env'])) for (const key of Object.keys(server['env'])) if (isFlaggedEnvName(key)) credentials = true;
+      if (line !== null) lists.run(`MCP server ${name}`, line);
+      else if (typeof server['url'] === 'string') lists.line(lists.runs, `MCP server ${name}: ${server['url']}`);
+      if (isObject(server['env'])) {
+        for (const [key, value] of Object.entries(server['env'])) {
+          if (isFlaggedEnvName(key)) lists.credentials = true;
+          if (isProgramEnvName(key)) lists.run(`MCP server ${name} env ${key}`, [typeof value === 'string' ? value : JSON.stringify(value)]);
+        }
+      }
     }
   };
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { runs, permissions, env, otherKeys: ['(not valid JSON: Claude Code may read it differently)'], commands, needsAck: ['credentials', 'allows-tools'] };
+    return { ...lists.effects(), otherKeys: ['(not valid JSON: Claude Code may read it differently)'], needsAck: ['credentials', 'allows-tools'] };
   }
-  if (!isObject(parsed)) return { runs, permissions, env, otherKeys: ['(not a JSON object)'], commands, needsAck: [] };
+  if (!isObject(parsed)) return { ...lists.effects(), otherKeys: ['(not a JSON object)'] };
   for (const [key, value] of Object.entries(parsed)) {
     if (key === 'mcpServers') servers(value);
-    else if (path === '.mcp.json') otherKeys.push(short(key));
+    else if (path === '.mcp.json') lists.key(key);
     else if (key === 'hooks' && isObject(value)) {
       for (const [event, groups] of Object.entries(value)) {
-        for (const group of Array.isArray(groups) ? groups : []) {
-          for (const hook of isObject(group) && Array.isArray(group['hooks']) ? group['hooks'] : []) {
-            if (!isObject(hook)) continue;
-            const line = commandLine(hook['command'], hook['args']);
-            if (line !== null) run(`hook ${event}`, line);
-            else if (typeof hook['url'] === 'string' && runs.length < CLAUDE_CONFIG_LIST_MAX) runs.push(entry(`hook ${event}: ${hook['url']}`));
-            else if (runs.length < CLAUDE_CONFIG_LIST_MAX) runs.push(entry(`hook ${event}: ${JSON.stringify(hook)}`));
+        // A shape smurg does not know is shown as it is written: Claude Code may read it as a hook.
+        if (!Array.isArray(groups)) {
+          lists.line(lists.runs, `hook ${event}: ${JSON.stringify(groups)}`);
+          continue;
+        }
+        for (const group of groups) {
+          if (!isObject(group) || !Array.isArray(group['hooks'])) {
+            lists.line(lists.runs, `hook ${event}: ${JSON.stringify(group)}`);
+            continue;
+          }
+          for (const hook of group['hooks']) {
+            const line = isObject(hook) ? commandLine(hook['command'], hook['args']) : null;
+            if (line !== null) lists.run(`hook ${event}`, line);
+            else if (isObject(hook) && typeof hook['url'] === 'string') lists.line(lists.runs, `hook ${event}: ${hook['url']}`);
+            else lists.line(lists.runs, `hook ${event}: ${JSON.stringify(hook)}`);
           }
         }
       }
     } else if (key === 'apiKeyHelper') {
-      credentials = true;
-      run('apiKeyHelper', typeof value === 'string' ? [value] : null);
+      lists.credentials = true;
+      lists.run('apiKeyHelper', typeof value === 'string' ? [value] : null);
     } else if (key === 'statusLine' || key === 'fileSuggestion' || key === 'awsAuthRefresh' || key === 'awsCredentialExport' || key === 'otelHeadersHelper') {
-      if (key !== 'statusLine' && key !== 'fileSuggestion') credentials = true;
-      run(key, typeof value === 'string' ? [value] : isObject(value) ? commandLine(value['command'], value['args']) : null);
+      if (key !== 'statusLine' && key !== 'fileSuggestion') lists.credentials = true;
+      lists.run(key, typeof value === 'string' ? [value] : isObject(value) ? commandLine(value['command'], value['args']) : null);
     } else if (key === 'enabledPlugins' || key === 'extraKnownMarketplaces' || key === 'pluginConfigs') {
-      if (runs.length < CLAUDE_CONFIG_LIST_MAX) runs.push(entry(`${key}: ${JSON.stringify(value)}`));
+      lists.line(lists.runs, `${key}: ${JSON.stringify(value)}`);
     } else if (key === 'permissions' && isObject(value)) {
       for (const [kind, list] of Object.entries(value)) {
         if (Array.isArray(list)) {
           for (const rule of list) {
             if (typeof rule !== 'string') continue;
-            if (kind === 'allow' && TOOL_RULE.test(rule)) allowsTools = true;
-            if (permissions.length < CLAUDE_CONFIG_LIST_MAX) permissions.push(entry(`${kind}: ${rule}`));
+            if (kind === 'allow' && TOOL_RULE.test(rule)) lists.allowsTools = true;
+            lists.line(lists.permissions, `${kind}: ${rule}`);
           }
-        } else if (permissions.length < CLAUDE_CONFIG_LIST_MAX) {
-          if (kind === 'defaultMode' && value[kind] !== 'default' && value[kind] !== 'plan') allowsTools = true;
-          permissions.push(entry(`${kind}: ${typeof list === 'string' ? list : JSON.stringify(list)}`));
+        } else {
+          if (kind === 'defaultMode' && list !== 'default' && list !== 'plan') lists.allowsTools = true;
+          lists.line(lists.permissions, `${kind}: ${typeof list === 'string' ? list : JSON.stringify(list)}`);
         }
       }
     } else if (key === 'env' && isObject(value)) {
-      for (const name of Object.keys(value)) {
-        const flagged = isFlaggedEnvName(name);
-        if (flagged) credentials = true;
-        if (env.length < CLAUDE_CONFIG_LIST_MAX) env.push({ name: short(name), flagged });
+      for (const [name, content] of Object.entries(value)) {
+        lists.variable(name);
+        // What such a variable is set to decides what runs: shown with the commands, looked up like one.
+        if (isProgramEnvName(name)) lists.run(`env ${name}`, [typeof content === 'string' ? content : JSON.stringify(content)]);
       }
-    } else if (otherKeys.length < CLAUDE_CONFIG_LIST_MAX) otherKeys.push(short(key));
+    } else lists.key(key);
   }
-  return { runs, permissions, env, otherKeys, commands, needsAck: [...(credentials ? (['credentials'] as const) : []), ...(allowsTools ? (['allows-tools'] as const) : [])] };
+  return lists.effects();
 }
 
-/** One of the three files as it is in a root right now. */
+/**
+ * PURE: the words of a command line as a shell would split it, far enough to find the files it names: quotes group
+ * (and are removed), a backslash keeps the next character, white space and the shell's operators separate.
+ */
+export function shellWords(text: string): string[] {
+  const words: string[] = [];
+  let current = '';
+  let started = false;
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i] as string;
+    if (quote !== null) {
+      if (char === quote) quote = null;
+      else if (char === '\\' && quote === '"' && i + 1 < text.length && '"\\$`'.includes(text[i + 1] as string)) current += text[++i];
+      else current += char;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+      started = true;
+    } else if (char === '\\' && i + 1 < text.length) {
+      current += text[++i];
+      started = true;
+    } else if (/[\s;&|()<>=,`]/.test(char)) {
+      if (started || current !== '') words.push(current);
+      current = '';
+      started = false;
+    } else current += char;
+  }
+  if (started || current !== '') words.push(current);
+  return words;
+}
+
+const HEADER_KEY = /^([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*)$/;
+const HEADER_PERMISSION_KEYS: ReadonlySet<string> = new Set(['allowed-tools', 'allowedtools', 'tools', 'disallowed-tools', 'disallowedtools', 'permissionmode', 'permission-mode', 'mcpservers', 'mcp-servers']);
+const unquoted = (value: string): string => value.trim().replace(/^(["'])(.*)\1$/, '$2');
+
+/**
+ * PURE: what the header (the block between the two `---` lines) of a file below `.claude/` declares that runs a
+ * command or allows a tool: an agent, a skill or a command can carry hooks of its own and a list of allowed tools.
+ * Read line by line, not as YAML: a line smurg cannot place is shown as it is written rather than interpreted.
+ */
+export function headerEffectsOf(path: string, text: string): FileEffects {
+  const lists = new Lists();
+  headerEffects(path, text, lists);
+  return lists.effects();
+}
+
+function headerEffects(path: string, text: string, lists: Lists): void {
+  if (!text.startsWith('---')) return;
+  const end = text.indexOf('\n---', 3);
+  if (end === -1) return;
+  let section = '';
+  let hookCommands = 0;
+  let hooksDeclared = false;
+  for (const raw of text.slice(3, end).split('\n')) {
+    const line = raw.replace(/\r$/, '');
+    if (line.trim() === '' || line.trim().startsWith('#')) continue;
+    const top = /^\S/.test(line) ? HEADER_KEY.exec(line) : null;
+    if (top !== null) {
+      section = (top[1] as string).toLowerCase();
+      const value = (top[2] as string).trim();
+      if (section === 'hooks') {
+        hooksDeclared = true;
+        // Written on one line (`hooks: { … }`): shown as it stands.
+        if (value !== '') {
+          hookCommands += 1;
+          lists.line(lists.runs, `${path}: ${line.trim()}`);
+        }
+      } else if (HEADER_PERMISSION_KEYS.has(section)) {
+        if ((section === 'allowed-tools' || section === 'allowedtools') && TOOL_NAMED.test(value)) lists.allowsTools = true;
+        if ((section === 'permissionmode' || section === 'permission-mode') && unquoted(value) !== 'default' && unquoted(value) !== 'plan') lists.allowsTools = true;
+        lists.line(lists.permissions, `${path}: ${line.trim()}`);
+      }
+      continue;
+    }
+    if (section === 'hooks') {
+      const command = /^\s*(?:-\s*)?(command|url)\s*:\s*(.+)$/.exec(line);
+      if (command !== null) {
+        hookCommands += 1;
+        if (command[1] === 'command') lists.run(`hook in ${path}`, [unquoted(command[2] as string)]);
+        else lists.line(lists.runs, `hook in ${path}: ${unquoted(command[2] as string)}`);
+      }
+    } else if (HEADER_PERMISSION_KEYS.has(section)) {
+      if ((section === 'allowed-tools' || section === 'allowedtools') && TOOL_NAMED.test(line)) lists.allowsTools = true;
+      lists.line(lists.permissions, `${path}: ${section}: ${line.trim()}`);
+    }
+  }
+  if (hooksDeclared && hookCommands === 0) lists.line(lists.runs, `${path}: declares hooks (read the file)`);
+}
+
+/** SHA-256 of a file, streamed; null when it cannot be read whole. */
+function hashFile(absolute: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const hash = createHash('sha256');
+    const stream = createReadStream(absolute);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('error', () => resolve(null));
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
+type Script = { path: string; hash: string };
+
+/** One file below `.claude/` (the loaded entry). `key`: what a decision about it is stored under. */
+interface LoadedFile {
+  readonly path: string;
+  readonly hash: string;
+  readonly scripts: Script[];
+  readonly key: string;
+}
+
+/** One entry of a root as it is right now: one of the three files, or the loaded entry. */
 interface FileScan {
   readonly path: string;
   readonly hash: string;
@@ -178,7 +431,9 @@ interface FileScan {
   /** A symlink, a directory, an oversized or unreadable file: Claude Code may still load it, smurg cannot vouch for it. */
   readonly unverifiable: boolean;
   readonly effects: FileEffects;
-  readonly scripts: { path: string; hash: string }[];
+  readonly scripts: Script[];
+  /** The loaded entry only: every file it stands for. */
+  readonly loaded?: readonly LoadedFile[];
 }
 
 interface RootScan {
@@ -193,11 +448,13 @@ interface RootScan {
 }
 
 export interface TrustReactions {
-  /** A root's files changed to a content that is not trusted while sessions may run there. */
+  /** A look at a root's files found a content that is not trusted while sessions may run there with the old one. */
   filesChanged(root: RootRef): void;
-  /** The host's decision changed a root's state. */
+  /** The root's sessions must start again to get what is trusted now (the host decided; the recorded scripts changed). */
   decided(root: RootRef): void;
 }
+
+const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>): boolean => a.size === b.size && [...a].every((entry) => b.has(entry));
 
 export class ProjectTrustImpl implements ProjectTrust {
   private readonly ctx: DaemonContext;
@@ -216,19 +473,25 @@ export class ProjectTrustImpl implements ProjectTrust {
   }
 
   async start(): Promise<void> {
-    this.doc = await this.ctx.state.document('claude-trust', documentSchema, () => ({ decisions: [] }));
+    this.doc = await this.ctx.state.document('claude-trust', documentSchema, () => ({ decisions: [], loaded: { trusted: [], ignored: [] } }));
     this.since = this.ctx.clock.now();
     await this.refresh(MAIN_ROOT).catch(() => null);
   }
 
-  /** Bus listeners: the watch of the files and recorded scripts, roots that come and go. */
+  /** Bus listeners: the watch of the files and recorded scripts, a merge into the main workspace, roots that come and go. */
   register(): Disposable {
     const stack = new DisposableStack();
     stack.add(
       this.ctx.bus.on('file.changed', ({ root, changes }) => {
         const scan = this.scans.get(rootRefKey(root));
-        const touches = changes.some((change) => PROJECT_SETTINGS_FILES.includes(change.path) || change.path === '.claude' || scan?.watched.has(change.path) === true);
-        if (touches) void this.refresh(root, 'files').catch(() => null);
+        if (changes.some((change) => this.concerns(scan, change.path))) void this.refresh(root, 'files').catch(() => null);
+      }),
+    );
+    stack.add(
+      // A merge writes many files of the main workspace at once (and the watcher may not report every one): what the
+      // merged change did to the settings, to `.claude/` or to a recorded script is looked at right away.
+      this.ctx.bus.on('merge.changed', ({ request }) => {
+        if (request.status === 'merged') void this.refresh(MAIN_ROOT, 'files').catch(() => null);
       }),
     );
     stack.add(
@@ -240,6 +503,23 @@ export class ProjectTrustImpl implements ProjectTrust {
     return stack;
   }
 
+  /**
+   * Whether a changed path is something the gate looks at: a settings file, anything of `.claude/`, a recorded
+   * script, or a FOLDER that holds one of them (a folder that was renamed, replaced or removed is reported as the
+   * folder alone, never as the files below it). Names compare as a case-insensitive file system compares them.
+   */
+  private concerns(scan: RootScan | undefined, path: string): boolean {
+    if (folderHoldsPath(PROJECT_LOADED_ENTRY, path)) {
+      // Not what lies below Claude Code's own worktree checkouts (`.claude/worktrees/<name>/…`): the gate does not
+      // look there (NOT_LOADED), and a host who works in one would make it look at every file they save.
+      const segments = relPathSegments(foldRelPath(path));
+      return !(segments[1] === 'worktrees' && segments.length > 2);
+    }
+    for (const file of PROJECT_SETTINGS_FILES) if (folderHoldsPath(path, file)) return true;
+    for (const script of scan?.watched ?? []) if (folderHoldsPath(path, script)) return true;
+    return false;
+  }
+
   private decisions(): readonly Decision[] {
     return this.doc?.get().decisions ?? [];
   }
@@ -248,9 +528,36 @@ export class ProjectTrustImpl implements ProjectTrust {
     return this.decisions().find((decision) => decision.path === path && decision.hash === hash) ?? null;
   }
 
+  /** The loaded entry: `trust` when every file it stands for is trusted, `ignore` when every one is decided, else null. */
+  private loadedDecision(files: readonly LoadedFile[]): 'trust' | 'ignore' | null {
+    const stored = this.doc?.get().loaded;
+    if (stored === undefined) return null;
+    const trusted = new Set(stored.trusted);
+    if (files.every((file) => trusted.has(file.key))) return 'trust';
+    const ignored = new Set(stored.ignored);
+    return files.every((file) => trusted.has(file.key) || ignored.has(file.key)) ? 'ignore' : null;
+  }
+
   /**
-   * Reads the root's three files again and recomputes its state; `why: 'files'` is the watcher (a change to an
-   * untrusted content parks the root's sessions). Emits `trust.changed` when the state changed. Null: no such root.
+   * What the host decided about an entry AS IT IS NOW: null when nobody did. The scripts are part of a trusted content
+   * (every recorded one must still be what it was), so a file whose text is the confirmed one but whose script changed
+   * is not decided any more. (The loaded entry: a file's scripts are part of its key.)
+   */
+  private decisionOf(file: FileScan): 'trust' | 'ignore' | null {
+    if (file.unverifiable) return null;
+    if (file.loaded !== undefined) return this.loadedDecision(file.loaded);
+    const stored = this.decisionFor(file.path, file.hash);
+    if (stored === null) return null;
+    if (stored.decision !== 'trust') return stored.decision;
+    const now = new Map(file.scripts.map((script) => [script.path, script.hash]));
+    const intact = stored.scripts.every((script) => now.get(script.path) === script.hash) && stored.scripts.length === file.scripts.length;
+    return intact ? 'trust' : null;
+  }
+
+  /**
+   * Reads the root's files again and recomputes its state; `why: 'files'` is the watcher, `'check'` every other look
+   * (a session start, the host opening the review). Emits `trust.changed` when the state changed; a content that is
+   * no longer trusted parks the root's sessions whoever noticed it. Null: no such root.
    */
   refresh(root: RootRef, why: 'files' | 'check' = 'check'): Promise<RootScan | null> {
     const key = rootRefKey(root);
@@ -276,13 +583,19 @@ export class ProjectTrustImpl implements ProjectTrust {
     const key = rootRefKey(scan.root);
     const before = this.scans.get(key);
     this.scans.set(key, scan);
-    if (before !== undefined && before.state === scan.state && before.undecided === scan.undecided) return;
+    if (before !== undefined && before.state === scan.state && before.undecided === scan.undecided) {
+      // Still in use, but other scripts are recorded now: the sessions need the deny rules of the new set.
+      if (scan.state === 'used' && !sameSet(before.protectedPaths, scan.protectedPaths)) this.reactions?.decided(scan.root);
+      return;
+    }
     if (before === undefined && scan.state === 'none') return;
     this.ctx.bus.emit('trust.changed', { root: scan.root, state: scan.state });
     this.ctx.bus.emit('attention.changed', { source: 'trust' });
     if (before === undefined || before.state === scan.state) return;
     if (why === 'decided') this.reactions?.decided(scan.root);
-    else if (why === 'files' && scan.state === 'ignored') this.reactions?.filesChanged(scan.root);
+    // Not only when the watcher saw it: a watcher misses changes (a folder made in one burst on Linux), and a
+    // session start or the host's look at the review finds the same thing later.
+    else if (scan.state === 'ignored') this.reactions?.filesChanged(scan.root);
   }
 
   private async scan(root: RootRef): Promise<RootScan | null> {
@@ -293,6 +606,8 @@ export class ProjectTrustImpl implements ProjectTrust {
       const file = await this.scanFile(info.realPath, path);
       if (file !== null) files.push(file);
     }
+    const loaded = await this.scanLoaded(info.realPath);
+    if (loaded !== null) files.push(loaded);
     return this.judge(root, files);
   }
 
@@ -303,21 +618,20 @@ export class ProjectTrustImpl implements ProjectTrust {
     let undecided = false;
     for (const file of files) {
       for (const script of file.scripts) watched.add(script.path);
-      const decision = file.unverifiable ? null : this.decisionFor(file.path, file.hash);
+      const decision = this.decisionOf(file);
       if (decision === null) undecided = true;
-      if (decision?.decision !== 'trust') continue;
-      // The scripts are part of the trusted content: every recorded one must still be what it was.
-      const now = new Map(file.scripts.map((script) => [script.path, script.hash]));
-      const intact = decision.scripts.every((script) => now.get(script.path) === script.hash) && decision.scripts.length === file.scripts.length;
-      if (!intact) {
-        undecided = true;
-        continue;
-      }
+      if (decision !== 'trust') continue;
       trusted += 1;
-      for (const script of decision.scripts) protectedPaths.add(script.path);
+      for (const script of file.scripts) protectedPaths.add(script.path);
     }
     const state: ProjectSettingsState = files.length === 0 ? 'none' : trusted === files.length ? 'used' : 'ignored';
     return { root, files, state, watched, protectedPaths, undecided };
+  }
+
+  /** An entry Claude Code may load but smurg cannot vouch for: never trusted; the review says why (and shows what it could read). */
+  private unverifiable(path: string, what: string, shown: { text: string; effects: FileEffects } | null = null): FileScan {
+    const effects: FileEffects = shown?.effects ?? { runs: [], permissions: [], env: [], otherKeys: [], commands: [], needsAck: [] };
+    return { path, hash: sha256(`unverifiable:${what}`), text: shown?.text ?? '', unverifiable: true, effects: { ...effects, otherKeys: [`(${what})`, ...effects.otherKeys].slice(0, CLAUDE_CONFIG_LIST_MAX) }, scripts: [] };
   }
 
   private async scanFile(rootReal: string, path: string): Promise<FileScan | null> {
@@ -333,50 +647,175 @@ export class ProjectTrustImpl implements ProjectTrust {
         if (real === null) return null;
       } else return null;
     }
-    const unverifiable = (what: string): FileScan => ({ path, hash: sha256(`unverifiable:${what}`), text: '', unverifiable: true, effects: { runs: [], permissions: [], env: [], otherKeys: [`(${what})`], commands: [], needsAck: [] }, scripts: [] });
     const real = await realpath(absolute).catch(() => null);
-    if (info === undefined || !info.isFile() || real !== absolute) return unverifiable('not a regular file inside the folder: a link or a folder');
-    if (info.size > SETTINGS_FILE_MAX_BYTES) return unverifiable('too large to show');
+    if (info === undefined || !info.isFile() || real !== absolute) return this.unverifiable(path, 'not a regular file inside the folder: a link or a folder');
+    if (info.size > SETTINGS_FILE_MAX_BYTES) return this.unverifiable(path, 'too large to show');
     let bytes: Buffer;
     try {
       bytes = await readFile(absolute);
     } catch {
-      return unverifiable('unreadable');
+      return this.unverifiable(path, 'unreadable');
     }
     const text = bytes.toString('utf8');
-    if (text.includes('\u0000')) return unverifiable('not text');
+    if (text.includes('\u0000')) return this.unverifiable(path, 'not text');
     const effects = effectsOf(path, text);
-    return { path, hash: sha256(bytes), text, unverifiable: false, effects, scripts: await this.scriptsOf(rootReal, effects.commands) };
+    const found = await this.scriptsOf(rootReal, effects.commands);
+    if (found.problem !== null) return this.unverifiable(path, found.problem, { text, effects });
+    return { path, hash: sha256(bytes), text, unverifiable: false, effects, scripts: found.scripts };
   }
 
-  /** Each argument of each command that resolves to an existing regular file inside the root, with its hash. */
-  private async scriptsOf(rootReal: string, commands: readonly string[][]): Promise<{ path: string; hash: string }[]> {
+  /**
+   * Everything else Claude Code loads from the root's `.claude/`: every file below it except the two settings files
+   * (and Claude Code's own `worktrees/`). Null when there is none. Each file is hashed; the headers of the text files
+   * are read for hooks and allowed tools; a link, a special file or more than smurg looks through is never trusted.
+   */
+  private async scanLoaded(rootReal: string): Promise<FileScan | null> {
+    const path = PROJECT_LOADED_ENTRY;
+    const top = join(rootReal, path);
+    let info;
+    try {
+      info = await lstat(top);
+    } catch {
+      return null;
+    }
+    // A link in place of the folder: the settings files below it are refused one by one (scanFile).
+    if (!info.isDirectory() || (await realpath(top).catch(() => null)) !== top) return info.isSymbolicLink() ? this.unverifiable(path, 'not a folder inside the folder: a link') : null;
+    const lists = new Lists();
+    const found: { path: string; hash: string; size: number; commands: string[][] }[] = [];
+    let problem: string | null = null;
+    let bytes = 0;
+    const pending: string[] = [''];
+    while (pending.length > 0 && problem === null) {
+      const below = pending.shift() as string;
+      let entries;
+      try {
+        entries = await readdir(join(top, below), { withFileTypes: true });
+      } catch {
+        problem = 'a folder in it cannot be read';
+        break;
+      }
+      entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      for (const entry of entries) {
+        if (below === '' && NOT_LOADED.has(entry.name)) continue;
+        const inside = below === '' ? entry.name : `${below}/${entry.name}`;
+        if (entry.isDirectory()) {
+          pending.push(inside);
+          continue;
+        }
+        const rel = checkRelPath(`${path}/${inside}`);
+        if (!entry.isFile() || !rel.ok) {
+          problem = entry.isFile() ? 'a file in it has a name smurg cannot show' : 'it holds a link or a special file';
+          break;
+        }
+        const absolute = join(top, inside);
+        const size = (await stat(absolute).catch(() => null))?.size ?? 0;
+        bytes += size;
+        if (found.length >= LOADED_FILES_MAX || bytes > LOADED_BYTES_MAX) {
+          problem = 'it holds more than smurg can look through';
+          break;
+        }
+        let hash: string | null;
+        const commands: string[][] = [];
+        if (size <= HEADER_FILE_MAX_BYTES) {
+          const content = await readFile(absolute).catch(() => null);
+          hash = content === null ? null : sha256(content);
+          if (content !== null && !content.includes(0)) {
+            const before = lists.commands.length;
+            headerEffects(rel.path, content.toString('utf8'), lists);
+            commands.push(...lists.commands.slice(before));
+          }
+        } else hash = await hashFile(absolute);
+        if (hash === null) {
+          problem = 'a file in it cannot be read';
+          break;
+        }
+        found.push({ path: rel.path, hash, size, commands });
+      }
+    }
+    if (problem === null && found.length === 0) return null;
+    found.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const text = found.map((file) => `${file.hash}  ${file.path}`).join('\n');
+    const loaded: LoadedFile[] = [];
+    const scripts = new Map<string, string>();
+    for (const file of found) {
+      if (problem !== null) break;
+      const own = await this.scriptsOf(rootReal, file.commands);
+      if (own.problem !== null) problem = own.problem;
+      for (const script of own.scripts) scripts.set(script.path, script.hash);
+      loaded.push({ path: file.path, hash: file.hash, scripts: own.scripts, key: sha256(JSON.stringify([file.path, file.hash, own.scripts.map((script) => [script.path, script.hash])])) });
+    }
+    if (problem === null && scripts.size > CLAUDE_CONFIG_SCRIPTS_MAX) problem = `its files run more scripts of this folder than smurg keeps track of (${CLAUDE_CONFIG_SCRIPTS_MAX})`;
+    if (problem === null && Buffer.byteLength(text, 'utf8') > CLAUDE_CONFIG_TEXT_MAX_BYTES) problem = 'it holds more than smurg can show';
+    // Named, one by one (the list's own limit counts what it leaves out); `text` has every file with its hash.
+    for (const file of found) lists.key(file.path);
+    const effects = lists.effects();
+    if (problem !== null) return this.unverifiable(path, problem, { text: truncateToUtf8Bytes(text, CLAUDE_CONFIG_TEXT_MAX_BYTES), effects });
+    return {
+      path,
+      hash: sha256(loaded.map((file) => file.key).join('\n')),
+      text,
+      unverifiable: false,
+      effects,
+      scripts: [...scripts].map(([script, hash]) => ({ path: script, hash })).sort((a, b) => (a.path < b.path ? -1 : 1)),
+      loaded,
+    };
+  }
+
+  /**
+   * Each word of each command that names an existing file inside the root, with the file's hash: the scripts the
+   * content runs. A word is looked up with its quotes removed wherever they stand (`"$CLAUDE_PROJECT_DIR"/x.sh`) and
+   * after the variable in both spellings. The path recorded is the one the FILE SYSTEM gives the file (its stored
+   * case and normalisation; through a link, the link's path and the file it leads to), so the watch, PathGuard and
+   * the deny rules all name the file that runs. `problem`: a script that exists but cannot be recorded (then the
+   * content that names it is never trusted, instead of being trusted with a script nobody guards).
+   */
+  private async scriptsOf(rootReal: string, commands: readonly string[][]): Promise<{ scripts: Script[]; problem: string | null }> {
     const out = new Map<string, string>();
     const candidates = new Set<string>();
     for (const line of commands) {
-      for (const word of line.flatMap((part) => part.split(/\s+/))) {
-        const cleaned = word.replace(/^["']|["']$/g, '').replace(/^\$CLAUDE_PROJECT_DIR\//, '').replace(/^\$\{CLAUDE_PROJECT_DIR\}\//, '');
-        if (cleaned.length === 0 || cleaned.length > 1024 || cleaned.startsWith('-')) continue;
-        candidates.add(cleaned);
+      // Each part whole (an argument of an `args` list is one word whatever it holds), as a shell would split it, and
+      // with every quote simply dropped: a word too many is looked up and not found, a word too few is a script
+      // nobody guards.
+      for (const word of line.flatMap((part) => [part, ...shellWords(part), ...part.replace(/["']/g, '').split(/[\s;&|()<>=,`]+/)])) {
+        const cleaned = word.replace(/^\$\{?CLAUDE_PROJECT_DIR\}?\//, '');
+        if (cleaned.length === 0 || cleaned.length > 1024 || cleaned.startsWith('-') || cleaned.includes('\u0000')) continue;
+        if (candidates.size < SCRIPT_CANDIDATES_MAX) candidates.add(cleaned);
       }
     }
-    for (const candidate of candidates) {
-      if (out.size >= CLAUDE_CONFIG_SCRIPTS_MAX) break;
-      const absolute = normalize(isAbsolute(candidate) ? candidate : join(rootReal, candidate));
+    const inRoot = (absolute: string): string | null => {
       const rel = relative(rootReal, absolute);
-      if (rel.length === 0 || rel.startsWith('..') || isAbsolute(rel)) continue;
-      const relPath = rel.split(sep).join('/');
-      if (!isValidRelPath(relPath) || PROJECT_SETTINGS_FILES.includes(relPath)) continue;
+      return rel.length === 0 || rel.startsWith('..') || isAbsolute(rel) ? null : rel.split(sep).join('/');
+    };
+    for (const candidate of candidates) {
+      const absolute = normalize(isAbsolute(candidate) ? candidate : join(rootReal, candidate));
+      const named = inRoot(absolute);
+      if (named === null) continue;
+      let real: string;
+      let size: number;
       try {
-        const info = await lstat(absolute);
-        if (!info.isFile() || info.size > SCRIPT_MAX_BYTES) continue;
-        if ((await realpath(absolute)) !== absolute) continue;
-        out.set(relPath, sha256(await readFile(absolute)));
+        real = await realpath(absolute);
+        const info = await stat(real);
+        if (!info.isFile()) continue;
+        size = info.size;
       } catch {
-        // not a file of the root
+        continue; // nothing there, or not a file of the root
       }
+      // As the file system spells it; a path that reaches the file through a link is recorded as well.
+      const stored = inRoot(real);
+      const paths = stored === null ? [named] : foldRelPath(stored) === foldRelPath(named) ? [stored] : [stored, named];
+      if (paths.every((path) => PROJECT_SETTINGS_FILES.includes(path))) continue;
+      if (size > SCRIPT_MAX_BYTES) return { scripts: [], problem: 'it runs a file of this folder that is too large to check' };
+      const hash = await hashFile(real);
+      if (hash === null) return { scripts: [], problem: 'it runs a file of this folder that cannot be read' };
+      for (const path of paths) {
+        const checked = checkRelPath(path);
+        // A name no request, rule or list can carry: nobody could guard the file.
+        if (!checked.ok || !isRuleNameable(checked.path)) return { scripts: [], problem: 'it runs a file of this folder whose name smurg cannot guard (brackets, wildcard or control characters)' };
+        out.set(checked.path, hash);
+      }
+      if (out.size > CLAUDE_CONFIG_SCRIPTS_MAX) return { scripts: [], problem: `it runs more scripts of this folder than smurg keeps track of (${CLAUDE_CONFIG_SCRIPTS_MAX})` };
     }
-    return [...out].map(([path, hash]) => ({ path, hash })).sort((a, b) => (a.path < b.path ? -1 : 1));
+    return { scripts: [...out].map(([path, hash]) => ({ path, hash })).sort((a, b) => (a.path < b.path ? -1 : 1)), problem: null };
   }
 
   // ---- ProjectTrust -------------------------------------------------------------------------------------------------
@@ -396,6 +835,7 @@ export class ProjectTrustImpl implements ProjectTrust {
   async describe(input: Req<'admin.claudeConfig.get'>): Promise<Res<'admin.claudeConfig.get'>> {
     const roots = this.ctx.roots.list().sort((a, b) => (a.key === 'main' ? -1 : b.key === 'main' ? 1 : a.key < b.key ? -1 : 1));
     const described: Res<'admin.claudeConfig.get'>['roots'] = [];
+    const loadedKnown = (this.doc?.get().loaded.trusted.length ?? 0) + (this.doc?.get().loaded.ignored.length ?? 0) > 0;
     for (const info of roots) {
       const scan = await this.refresh(info.ref).catch(() => null);
       if (scan === null || (scan.files.length === 0 && info.key !== 'main')) continue;
@@ -403,12 +843,12 @@ export class ProjectTrustImpl implements ProjectTrust {
         root: scan.root,
         state: scan.state,
         files: scan.files.map((file) => {
-          const decision = file.unverifiable ? null : this.decisionFor(file.path, file.hash);
-          const known = this.decisions().some((entry) => entry.path === file.path);
+          const decision = this.decisionOf(file);
+          const known = file.loaded !== undefined || file.path === PROJECT_LOADED_ENTRY ? loadedKnown : this.decisions().some((entry) => entry.path === file.path);
           return {
             path: file.path,
             hash: file.hash,
-            decision: decision?.decision ?? null,
+            decision,
             // Another content of this file was decided before: this one differs from it.
             changed: decision === null && known,
             text: truncateToUtf8Bytes(file.text, CLAUDE_CONFIG_TEXT_MAX_BYTES),
@@ -418,6 +858,7 @@ export class ProjectTrustImpl implements ProjectTrust {
             otherKeys: file.effects.otherKeys,
             scripts: file.scripts,
             needsAck: file.effects.needsAck,
+            ...(file.effects.cut === undefined ? {} : { cut: file.effects.cut }),
           };
         }),
       });
@@ -446,6 +887,14 @@ export class ProjectTrustImpl implements ProjectTrust {
     const at = this.ctx.clock.now();
     this.doc.update((draft) => {
       for (const file of chosen) {
+        if (file.loaded !== undefined) {
+          const keys = new Set(file.loaded.map((entry) => entry.key));
+          const [into, outOf] = input.decision === 'trust' ? (['trusted', 'ignored'] as const) : (['ignored', 'trusted'] as const);
+          draft.loaded[outOf] = draft.loaded[outOf].filter((key) => !keys.has(key));
+          // Bounded: the oldest decisions go first.
+          draft.loaded[into] = [...draft.loaded[into].filter((key) => !keys.has(key)), ...keys].slice(-LOADED_KEYS_MAX);
+          continue;
+        }
         draft.decisions = draft.decisions.filter((entry) => !(entry.path === file.path && entry.hash === file.hash));
         draft.decisions.push({ path: file.path, hash: file.hash, decision: input.decision, scripts: file.scripts.slice(0, CLAUDE_CONFIG_SCRIPTS_MAX), at });
       }

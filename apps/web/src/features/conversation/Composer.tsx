@@ -21,6 +21,30 @@ import { mentionsIn, personOf, withAgentAccess } from './people.ts';
 import { t } from './strings.ts';
 import { lineRange } from './text.ts';
 
+/** The width below which a column shortens what it shows (features/columns/columns.css: `@container column (max-width: 430px)`). */
+const NARROW_COLUMN_PX = 430;
+
+/**
+ * Whether the column `node` stands in is narrow. A placeholder is an attribute, so the container query that shortens
+ * the column's header cannot shorten it: the composer measures. False where nothing is laid out or measured.
+ */
+function useNarrowColumn(node: HTMLElement | null): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (node === null || typeof ResizeObserver === 'undefined') {
+      setNarrow(false);
+      return;
+    }
+    const column = node.closest<HTMLElement>('.col') ?? node;
+    const measure = (): void => setNarrow(column.clientWidth > 0 && column.clientWidth <= NARROW_COLUMN_PX);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, [node]);
+  return narrow;
+}
+
 export interface ComposerProps {
   readonly session: AgentSession;
 }
@@ -37,6 +61,8 @@ export function Composer({ session }: ComposerProps) {
   const drafts = draftsOf(workspace, workspace.workspaceId);
   const draft = useStore(drafts, (state) => state.get(sessionId)) ?? EMPTY_DRAFT;
   const box = useRef<HTMLTextAreaElement>(null);
+  const [root, setRoot] = useState<HTMLDivElement | null>(null);
+  const narrow = useNarrowColumn(root);
   const hintId = useId();
   const [sending, setSending] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -69,10 +95,14 @@ export function Composer({ session }: ComposerProps) {
 
   const offline = connection.kind !== 'online';
   // The box names the session one writes to (DESIGN §5.12 item 11). "Discussion" is the same word in every topic:
-  // a discussion is named with its topic, as its column is.
+  // a discussion is named with its topic, as its column is. In a narrow column the header of a discussion keeps the
+  // topic's name and drops the word; the box shows the same, so the name that tells two discussions apart is not the
+  // part that is cut. The box's accessible name stays whole.
   const name = sessionTitle(session);
-  const title = session.purpose === 'discussion' && session.topicName !== undefined ? t('composer.inTopic', { title: name, topic: session.topicName }) : name;
-  const placeholder = drive ? t('composer.message', { title }) : t('composer.suggest', { title });
+  const inTopic = session.purpose === 'discussion' && session.topicName !== undefined ? session.topicName : null;
+  const sentence = (title: string): string => (drive ? t('composer.message', { title }) : t('composer.suggest', { title }));
+  const label = sentence(inTopic === null ? name : t('composer.inTopic', { title: name, topic: inTopic }));
+  const placeholder = inTopic !== null && narrow ? sentence(inTopic) : label;
   const max = drive ? MESSAGE_TEXT_MAX_CHARS : SUGGESTION_TEXT_MAX_CHARS;
   const text = draft.text;
 
@@ -127,7 +157,7 @@ export function Composer({ session }: ComposerProps) {
 
   const source = draft.source;
   return (
-    <div className={cx('conv-composer', column.focused && 'conv-composer--focused')} data-mode={drive ? 'message' : 'suggestion'}>
+    <div ref={setRoot} className={cx('conv-composer', column.focused && 'conv-composer--focused')} data-mode={drive ? 'message' : 'suggestion'}>
       {source !== null ? (
         <div className="conv-composer__quote">
           <button
@@ -155,7 +185,7 @@ export function Composer({ session }: ComposerProps) {
             if (problem !== null) setProblem(null);
           }}
           onSubmit={send}
-          label={placeholder}
+          label={label}
           placeholder={placeholder}
           disabled={offline}
           describedBy={hintId}

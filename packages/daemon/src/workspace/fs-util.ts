@@ -2,7 +2,7 @@
 // the callers.
 import type { Stats } from 'node:fs';
 import { lstat, readdir, realpath } from 'node:fs/promises';
-import { sep } from 'node:path';
+import { join, sep } from 'node:path';
 import type { FileIdentity, SpellingLookup } from '../core/interfaces.ts';
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -151,4 +151,33 @@ export function isInside(child: string, parent: string): boolean {
   if (child === parent) return true;
   const prefix = parent.endsWith(sep) ? parent : `${parent}${sep}`;
   return child.startsWith(prefix);
+}
+
+/** The most entries findNameBelow looks at below one folder; a larger tree is answered 'unknown'. */
+export const SUBTREE_SCAN_MAX_ENTRIES = 100_000;
+
+/**
+ * Whether an entry below the directory `dir`, at any depth, has a name `matches` accepts. A link is judged by its own
+ * name and never followed (it moves as a link). 'unknown': a directory of the tree could not be listed, or the tree
+ * holds more than `maxEntries` entries; the caller decides what that means (PathGuard refuses).
+ */
+export async function findNameBelow(dir: string, matches: (name: string) => boolean, maxEntries: number = SUBTREE_SCAN_MAX_ENTRIES): Promise<'found' | 'none' | 'unknown'> {
+  const pending: string[] = [dir];
+  let seen = 0;
+  while (pending.length > 0) {
+    const current = pending.pop() as string;
+    let entries;
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch {
+      return 'unknown';
+    }
+    for (const entry of entries) {
+      if (matches(entry.name)) return 'found';
+      seen += 1;
+      if (seen > maxEntries) return 'unknown';
+      if (entry.isDirectory()) pending.push(join(current, entry.name));
+    }
+  }
+  return 'none';
 }

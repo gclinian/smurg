@@ -115,6 +115,11 @@ export const storedItemSchema = z.strictObject({
   nudged: z.boolean(),
   /** `fix-report` was sent for this content, this many times in a row. */
   fix: z.strictObject({ hash: sha256HexSchema, count: indexSchema }).optional(),
+  /**
+   * A report the agent had checked could not be registered because the snapshot of its worktree failed: the next
+   * completed turn of the item's session takes the snapshot again, whatever the report file says by then.
+   */
+  snapshotOwed: z.literal(true).optional(),
 });
 export type StoredItem = z.infer<typeof storedItemSchema>;
 

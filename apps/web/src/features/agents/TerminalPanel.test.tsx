@@ -406,6 +406,41 @@ describe('terminal panel: file paths in the output open the file (SPEC R7)', () 
   });
 });
 
+describe('terminal panel: what a pointer over the output asks the host (review R4-04)', () => {
+  const hover = async (role: 'host' | 'editor', line: string): Promise<{ stats: string[]; links: string[] }> => {
+    const agent = makeSession({ id: 'sess_p', openedBy: { userId: 'dev:bob', displayName: 'Bob' } });
+    const { conn, recording, unmount } = await renderWithSessions(<TerminalPanel />, { role, sessions: [agent] });
+    const stats: string[] = [];
+    conn.handle('file.stat', (ref) => {
+      stats.push(ref.path);
+      if (ref.path === 'src/app.ts') return { entry: makeEntry('src/app.ts') };
+      // A path through a file is refused for everyone; the host's own private files are simply not there in this tree.
+      throw new SmurgError(ref.path.startsWith('README.md/') ? 'path_denied' : 'not_found');
+    });
+    await nextRequest(conn, 'session.attach');
+    await act(async () => {
+      snapshot(conn, agent, line, 60);
+    });
+    const { term, providers } = recording.viewers[0]!;
+    await flushTerm(term);
+    const links = await act(async () => new Promise<ILink[] | undefined>((resolve) => providers[0]!.provideLinks(1, resolve)));
+    unmount();
+    return { stats, links: (links ?? []).map((link) => link.text) };
+  };
+
+  it("a host-private name in terminal output is not asked about by a member who is not the host; the host's page asks", async () => {
+    const line = 'cat .envrc .git/config CLAUDE.local.md .smurg/audit.log src/app.ts';
+    expect(await hover('editor', line)).toEqual({ stats: ['src/app.ts'], links: ['src/app.ts'] });
+    expect(await hover('host', line)).toEqual({ stats: ['.envrc', '.git/config', 'CLAUDE.local.md', '.smurg/audit.log', 'src/app.ts'], links: ['src/app.ts'] });
+  });
+
+  it('a line of names the host refuses costs one refused request, not one per name', async () => {
+    const names = Array.from({ length: 12 }, (_, index) => `README.md/a${index + 1}`).join(' ');
+    expect(await hover('editor', names)).toEqual({ stats: ['README.md/a1'], links: [] });
+    expect(await hover('host', names)).toEqual({ stats: ['README.md/a1'], links: [] });
+  });
+});
+
 describe("terminal panel: the owner's viewport drives the PTY size (policy `owner`)", () => {
   type Callback = (entries: unknown[], observer: unknown) => void;
   const observers: { callback: Callback; targets: Element[] }[] = [];

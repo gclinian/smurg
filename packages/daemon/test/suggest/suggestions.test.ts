@@ -284,6 +284,31 @@ describe('R6 flow', { timeout: 60_000 }, () => {
     expect(await settleError(s.bob.conn.request('suggest.create', { sessionId: 'ses_host', text: 'beyond what one author may have waiting' }))).toMatchObject({ code: 'too_large', reason: 'suggestion-queue-full' });
   });
 
+  it('an edit loop is bounded like new suggestions: after 10 a minute (creates and edits together) the rest is rate_limited, reaches nobody and stores nothing', async () => {
+    const s = await startSuggest();
+    const atAmy: Suggestion[] = [];
+    s.amy.conn.on('suggest.updated', (payload) => atAmy.push(payload.suggestion));
+    const { suggestion } = await s.bob.conn.request('suggest.create', { sessionId: 'ses_host', text: 'first' });
+    const big = 'x'.repeat(60_000);
+    const outcomes: string[] = [];
+    for (let i = 0; i < 40; i += 1) outcomes.push((await settleError(s.bob.conn.request('suggest.edit', { suggestionId: suggestion.id, text: `${i} ${big}` })))?.code ?? 'ok');
+    // One token went to the create: nine edits pass, thirty-one are refused before the handler.
+    expect(outcomes.filter((code) => code === 'ok')).toHaveLength(9);
+    expect(outcomes.slice(9).every((code) => code === 'rate_limited')).toBe(true);
+    await waitFor(() => atAmy.length === 10, { what: 'the create and the nine edits at a member who may decide' });
+    await settle();
+    expect(atAmy).toHaveLength(10);
+    expect(s.service.pending().find((item) => item.id === suggestion.id)?.text).toBe(`8 ${big}`);
+    expect((await auditOf(s, 'suggest.edit')).filter((entry) => entry.outcome === 'ok')).toHaveLength(9);
+    // The refusals are in the log as refusals (and fall under the refusal budget), with none of the text.
+    const refused = (await auditOf(s, 'authz.denied')).filter((entry) => entry.target === 'suggest.edit');
+    expect(refused).toHaveLength(31);
+    expect(JSON.stringify(refused)).not.toContain('xxxx');
+    // A minute later the author edits again.
+    s.t.advanceClock(60_000);
+    expect(await settleError(s.bob.conn.request('suggest.edit', { suggestionId: suggestion.id, text: 'the last word' }))).toBeNull();
+  });
+
   it('a second accept while the first is on its way to the agent sends nothing twice', async () => {
     const s = await startSuggest();
     const { suggestion } = await s.bob.conn.request('suggest.create', { sessionId: 'ses_amy', text: 'once' });

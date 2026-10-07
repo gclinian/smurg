@@ -127,10 +127,15 @@ export class FakeWorktrees {
     const root = ctx.roots.get({ kind: 'worktree', worktreeId }) ?? (await ctx.roots.registerWorktree({ worktreeId, dir, ownerUserId: input.owner.userId as string, sharedLinks: [] }));
     this.acquired.push({ sessionId: input.sessionId, worktreeId });
     const now = Date.now();
-    return {
-      root,
-      worktree: { id: worktreeId, ownerUserId: input.owner.userId as string, ownerName: 'x', branch: `smurg/x/${worktreeId}`, sessionId: input.sessionId, kept: false, createdAt: now, sharedDirs: [] },
-    };
+    const worktree = { id: worktreeId, ownerUserId: input.owner.userId as string, ownerName: 'x', branch: `smurg/x/${worktreeId}`, sessionId: input.sessionId, kept: false, createdAt: now, sharedDirs: [] };
+    this.known.set(worktreeId, worktree);
+    return { root, worktree: { ...worktree } };
+  }
+
+  /** Every worktree this stand-in made, with who owns it now. */
+  private readonly known = new Map<string, WorktreeHandle['worktree']>();
+  list(): WorktreeHandle['worktree'][] {
+    return [...this.known.values()].map((worktree) => ({ ...worktree }));
   }
 
   async releaseFromSession(worktreeId: string, sessionId: string, options: { readonly keep: boolean }): Promise<void> {
@@ -144,6 +149,8 @@ export class FakeWorktrees {
   readonly owners: { worktreeId: string; ownerUserId: string | null }[] = [];
   async setOwner(worktreeId: string, owner: { userId: string | null }): Promise<void> {
     this.owners.push({ worktreeId, ownerUserId: owner.userId });
+    const worktree = this.known.get(worktreeId);
+    if (worktree !== undefined && owner.userId !== null) this.known.set(worktreeId, { ...worktree, ownerUserId: owner.userId });
   }
 }
 

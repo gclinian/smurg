@@ -9,7 +9,7 @@ import { msg } from '@smurg/protocol/i18n';
 import { buildMergeRequest, buildQuestion, recordActivity } from '../../src/core/fakes/index.ts';
 import type { AgentStartInput } from '../../src/core/interfaces.ts';
 import { createTempDir, createTempRunDir, removeTempDir, removeTempRunDir } from '../../src/testing/index.ts';
-import { SPEC_TEXT, checkReport, itemOf, lineIds, mcpContext, planText, reportText, setupTopics, smurgSent, startPlan, topicWithPlan, waitFor, writeReport, type TopicsTest } from './support.ts';
+import { SPEC_TEXT, checkReport, itemOf, lineIds, mcpContext, planText, reportText, settle, setupTopics, smurgSent, startPlan, topicWithPlan, waitFor, writeReport, type TopicsTest } from './support.ts';
 
 let test: TopicsTest;
 const after: (() => Promise<void>)[] = [];
@@ -203,7 +203,7 @@ describe('T4.1 a changed spec or plan starts nothing', () => {
     // What it waited for is merged: still nothing starts.
     merge(test, topic.id, 'cart-api');
     merge(test, topic.id, 'payment-form');
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await settle(test);
     expect(itemStarts(test)).toHaveLength(started);
     expect(itemOf(test.plan(topic.id), 'checkout-page').state).toBe('not-started');
 
@@ -239,7 +239,7 @@ describe('T4.1 a changed spec or plan starts nothing', () => {
     await waitFor(() => itemOf(test.plan(topic.id), 'checkout-page').title === hostile, { what: 'the edited plan to be read' });
     await waitFor(() => !itemOf(test.plan(topic.id), 'checkout-page').armed, { what: 'the item to be disarmed' });
     // Without a dependency it could start at once. It does not: nobody with agent access confirmed this content.
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await settle(test);
     expect(itemOf(test.plan(topic.id), 'checkout-page')).toMatchObject({ state: 'not-started', armed: false, disarmed: 'plan-changed' });
     expect(itemStarts(test).map((input) => input.item?.id)).toEqual(['cart-api', 'payment-form']);
     // Nothing the Editor wrote is in anything any agent was told: not a prompt, not a message, not a session label.
@@ -256,7 +256,7 @@ describe('T4.1 a changed spec or plan starts nothing', () => {
     await startPlan(test, topic.id);
     await test.write(topicPlanPath(topic.slug), planText([{ id: 'a' }, { id: 'late', title: 'Added later' }]));
     await waitFor(() => test.plan(topic.id).items.length === 2, { what: 'the new item' });
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await settle(test);
     expect(itemOf(test.plan(topic.id), 'late')).toMatchObject({ state: 'not-started', armed: false, attempt: 0 });
     expect(itemStarts(test).map((input) => input.item?.id)).toEqual(['a']);
     // A plan update that adds an item reopens a topic that was complete or executing.
@@ -376,7 +376,7 @@ describe('one item: its process dies in the middle of a turn', () => {
     test.fakes.agents.finishTurn(sessionId, { outcome: 'error' });
     test.fakes.agents.fail(sessionId);
     await waitFor(() => itemOf(test.plan(topic.id), 'a').state !== 'running', { what: 'the item to leave `running`' });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle(test);
     expect(itemOf(test.plan(topic.id), 'a')).toMatchObject({ state: 'failed' });
     expect(itemOf(test.plan(topic.id), 'a').stalledBy).toBeUndefined();
     expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).toEqual(['item-failed']);
@@ -510,7 +510,7 @@ describe('T8.1 a restart pauses every plan', () => {
     merge(test, topic.id, 'cart-api');
     merge(test, topic.id, 'payment-form');
     await waitFor(() => itemOf(test.plan(topic.id), 'checkout-page').state === 'queued', { what: 'the waiting item to be queued' });
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await settle(test);
     expect(itemStarts(test)).toEqual([]);
 
     // ---- "Continue all" ----
@@ -571,6 +571,198 @@ describe('T8.1 what the stop itself interrupts', () => {
   });
 });
 
+describe('after a restart: what a hard death between two records left out of step', () => {
+  async function folders(prefix: string): Promise<{ root: string; stateDir: string }> {
+    const root = await createTempDir(prefix);
+    const stateDir = await createTempRunDir();
+    after.push(async () => {
+      await removeTempDir(root);
+      await removeTempRunDir(stateDir);
+    });
+    await writeFile(join(root, 'README.md'), '# project\n');
+    return { root, stateDir };
+  }
+
+  it('a merge the item never heard of: at the start the item is merged, what waited for it is queued, and the reviewed item is finished', async () => {
+    const { root, stateDir } = await folders('p4-crash-merge');
+    const workspaceId = 'ws_test_p4_restart_0005';
+    test = await setupTopics({ root, stateDir, workspaceId });
+    const { topic } = await topicWithPlan(test, [{ id: 'a' }, { id: 'b', dependsOn: ['a'] }]);
+    await test.mei.conn.request('plan.assign', { topicId: topic.id, itemId: 'a', userId: 'dev:mei' });
+    await startPlan(test, topic.id);
+    const a = itemOf(test.plan(topic.id), 'a');
+    const session = test.fakes.agents.get(a.sessionId as string) as NonNullable<ReturnType<typeof test.fakes.agents.get>>;
+    await writeReport(test, topic.slug, 'a', a.worktreeId as string, reportText('a'));
+    expect(await checkReport(test, a.sessionId as string)).toEqual({ ok: true });
+    test.fakes.agents.finishTurn(a.sessionId as string);
+    await waitFor(() => itemOf(test.plan(topic.id), 'a').state === 'done', { what: 'done' });
+    await test.mei.conn.request('report.review', { topicId: topic.id, itemId: 'a', version: 1 });
+    const draft = itemOf(test.plan(topic.id), 'a').merge;
+    expect(draft).toMatchObject({ status: 'draft', ready: true });
+    expect(itemOf(test.plan(topic.id), 'b')).toMatchObject({ state: 'waiting', armed: true });
+    await test.cleanup();
+
+    // The host had approved the merge: the worktree module's record says `merged`; the daemon died before the plan's did.
+    const request = { ...buildMergeRequest({ id: draft?.requestId as string, worktreeId: a.worktreeId as string, topicId: topic.id, itemId: 'a' }), status: 'merged' as const, reviewed: true };
+    test = await setupTopics({
+      root,
+      stateDir,
+      workspaceId,
+      seed: (fakes) => {
+        fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false });
+        fakes.worktrees.putRequest(request);
+      },
+    });
+    const sessionId = a.sessionId as string;
+    await waitFor(() => test.fakes.agents.get(sessionId)?.status === 'ended', { what: "the finished item's session to end" });
+    expect(test.fakes.agents.get(sessionId)).toMatchObject({ status: 'ended', endReason: 'merged' });
+    await settle(test);
+    const plan = test.plan(topic.id);
+    expect(itemOf(plan, 'a')).toMatchObject({ state: 'reviewed', merge: { requestId: request.id, status: 'merged' } });
+    expect(itemOf(plan, 'a').worktreeId).toBeUndefined();
+    // What waited for it is queued (the plan is paused after a restart: "Continue all" starts it).
+    expect(itemOf(plan, 'b')).toMatchObject({ state: 'queued', armed: true });
+    expect(itemOf(plan, 'b').waitsFor).toBeUndefined();
+    expect(test.topic(topic.id).plan).toMatchObject({ merged: 1, reviewed: 1, paused: true });
+  });
+
+  it("the item's request was decided, or replaced by a newer snapshot, and the item did not hear of it: it shows what the worktree module has", async () => {
+    const { root, stateDir } = await folders('p4-crash-request');
+    const workspaceId = 'ws_test_p4_restart_0006';
+    test = await setupTopics({ root, stateDir, workspaceId });
+    const { topic } = await topicWithPlan(test, [{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+    await startPlan(test, topic.id);
+    const sessions = test.fakes.agents.list({ topicId: topic.id });
+    for (const itemId of ['a', 'b', 'c']) {
+      const item = itemOf(test.plan(topic.id), itemId);
+      await writeReport(test, topic.slug, itemId, item.worktreeId as string, reportText(itemId));
+      expect(await checkReport(test, item.sessionId as string)).toEqual({ ok: true });
+      test.fakes.agents.finishTurn(item.sessionId as string);
+    }
+    await waitFor(() => test.plan(topic.id).items.every((item) => item.state === 'done' && item.merge?.status === 'draft'), { what: 'three reports with their drafts' });
+    const before = Object.fromEntries(test.plan(topic.id).items.map((item) => [item.id, item]));
+    await test.cleanup();
+
+    const requestOf = (itemId: string, overrides: Partial<MergeRequest>): MergeRequest => ({ ...buildMergeRequest({ id: before[itemId]?.merge?.requestId as string, worktreeId: before[itemId]?.worktreeId as string, topicId: topic.id, itemId, status: 'draft' }), ...overrides });
+    test = await setupTopics({
+      root,
+      stateDir,
+      workspaceId,
+      seed: (fakes) => {
+        for (const session of sessions) fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false });
+        // a: the host rejected the request. b: a newer snapshot replaced the draft. c: its draft is gone with nothing in its place.
+        fakes.worktrees.putRequest(requestOf('a', { status: 'rejected' }));
+        fakes.worktrees.putRequest(requestOf('b', { id: 'mr_newer', createdAt: 5 }));
+      },
+    });
+    await settle(test);
+    const plan = test.plan(topic.id);
+    expect(itemOf(plan, 'a').merge).toEqual({ requestId: before['a']?.merge?.requestId, status: 'rejected', ready: false });
+    expect(itemOf(plan, 'b').merge).toEqual({ requestId: 'mr_newer', status: 'draft', ready: false });
+    expect(itemOf(plan, 'c').merge).toBeUndefined();
+    expect(plan.items.map((item) => item.state)).toEqual(['done', 'done', 'done']);
+    // Nothing was finished or ended: none of them is merged.
+    expect(test.fakes.agents.log.of('end')).toEqual([]);
+  });
+
+  it('an item session no item names (the daemon died between its start and the record of the item): it is ended, and the armed item gets one session of its own', async () => {
+    const { root, stateDir } = await folders('p4-crash-session');
+    const workspaceId = 'ws_test_p4_restart_0007';
+    test = await setupTopics({ root, stateDir, workspaceId });
+    const { topic } = await topicWithPlan(test, [{ id: 'a' }, { id: 'b', dependsOn: ['a'] }]);
+    await startPlan(test, topic.id);
+    const running = test.fakes.agents.list({ topicId: topic.id }).find((session) => session.purpose === 'item') as NonNullable<ReturnType<typeof test.fakes.agents.get>>;
+    expect(itemOf(test.plan(topic.id), 'b')).toMatchObject({ state: 'waiting', armed: true });
+    await test.cleanup();
+
+    test = await setupTopics({
+      root,
+      stateDir,
+      workspaceId,
+      seed: (fakes) => {
+        fakes.agents.adopt({ ...running, status: 'idle' }, { hasProcess: false });
+        // What the runtime kept of a start whose item record never reached the disk.
+        fakes.agents.adopt({ ...running, id: 'ses_orphan', itemId: 'b', status: 'idle' }, { hasProcess: false });
+      },
+    });
+    await settle(test);
+    expect(test.fakes.agents.get('ses_orphan')).toMatchObject({ status: 'ended', endReason: 'ended' });
+    expect(test.fakes.agents.log.of('end')).toEqual([['ses_orphan', { by: { kind: 'system' }, reason: 'ended', keepWorktree: true }]]);
+    // The item's own session is untouched, and `b` is still armed without one.
+    expect(test.fakes.agents.get(running.id)?.status).not.toBe('ended');
+    expect(itemOf(test.plan(topic.id), 'b')).toMatchObject({ state: 'waiting', armed: true });
+    expect(itemOf(test.plan(topic.id), 'b').sessionId).toBeUndefined();
+  });
+});
+
+describe('after a restart: an item whose process had failed before it', () => {
+  it('is still failed, stays failed whatever its idle session is told, and "Try again" continues the same session', async () => {
+    const root = await createTempDir('p4-restart-failed');
+    const stateDir = await createTempRunDir();
+    after.push(async () => {
+      await removeTempDir(root);
+      await removeTempRunDir(stateDir);
+    });
+    await writeFile(join(root, 'README.md'), '# project\n');
+    const workspaceId = 'ws_test_p4_restart_0004';
+    test = await setupTopics({ root, stateDir, workspaceId });
+    const { topic } = await topicWithPlan(test, [{ id: 'a', title: 'Item A' }]);
+    await test.mei.conn.request('plan.assign', { topicId: topic.id, itemId: 'a', userId: 'dev:mei' });
+    await startPlan(test, topic.id);
+    const sessionId = itemOf(test.plan(topic.id), 'a').sessionId as string;
+    const session = test.fakes.agents.get(sessionId) as NonNullable<ReturnType<typeof test.fakes.agents.get>>;
+    // The process dies; nobody presses "Try again" before the host's smurg is restarted.
+    test.fakes.agents.fail(sessionId);
+    expect(itemOf(test.plan(topic.id), 'a').state).toBe('failed');
+    await test.cleanup();
+
+    test = await setupTopics({ root, stateDir, workspaceId });
+    // What the agent runtime does at a start: a record that had failed is an idle session without a process.
+    test.fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false });
+    expect(itemOf(test.plan(topic.id), 'a')).toMatchObject({ state: 'failed', sessionId, attempt: 1 });
+    expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).toEqual(['item-failed']);
+
+    // The idle session is updated for reasons that have nothing to do with work (the topic is renamed, the item is
+    // given to someone else): the item is not "running", and its "Try again" stays.
+    await test.mei.conn.request('topic.rename', { topicId: topic.id, name: 'Checkout redesign' });
+    await test.mei.conn.request('plan.assign', { topicId: topic.id, itemId: 'a', userId: 'dev:host' });
+    expect(test.fakes.agents.get(sessionId)).toMatchObject({ status: 'idle', responsible: { userId: 'dev:host' } });
+    await settle(test);
+    expect(itemOf(test.plan(topic.id), 'a')).toMatchObject({ state: 'failed', responsible: { userId: 'dev:host' } });
+    expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).toEqual(['item-failed']);
+
+    // "Try again": the runtime no longer calls the session failed, so it is simply told to go on.
+    const retried = (await test.mei.conn.request('plan.item.retry', { topicId: topic.id, itemId: 'a' })).plan;
+    expect(itemOf(retried, 'a')).toMatchObject({ state: 'running', sessionId, attempt: 1 });
+    expect(test.fakes.agents.log.of('retry')).toEqual([]);
+    expect(lineIds(test, sessionId).at(-1)).toBe('conversation.continueRequested');
+    expect(smurgSent(test, sessionId)).toMatchObject([{ purpose: 'continue-item', by: { userId: 'dev:mei' } }]);
+    expect(test.t.ctx.services.topics.attention()).toEqual([]);
+    expect((await test.audit('plan.item.retry')).at(-1)).toMatchObject({ detail: { itemId: 'a', was: 'failed', attempt: 1 } });
+  });
+});
+
+describe('a failed item and its session', () => {
+  it('a session that is started again without a message leaves the item failed; the turn a message starts makes it run', async () => {
+    test = await setupTopics();
+    const { topic } = await topicWithPlan(test, [{ id: 'a' }]);
+    await startPlan(test, topic.id);
+    const sessionId = itemOf(test.plan(topic.id), 'a').sessionId as string;
+    test.fakes.agents.fail(sessionId);
+    expect(itemOf(test.plan(topic.id), 'a').state).toBe('failed');
+    // The process is back and idle (the host restarted the agent): nothing works on the item.
+    await test.fakes.agents.retry(sessionId, test.principals.host);
+    expect(test.fakes.agents.get(sessionId)?.status).toBe('idle');
+    await settle(test);
+    expect(itemOf(test.plan(topic.id), 'a').state).toBe('failed');
+    expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).toEqual(['item-failed']);
+    // A person writes to the session: the turn that takes the message is work on the item.
+    test.fakes.agents.startTurn(sessionId);
+    expect(itemOf(test.plan(topic.id), 'a').state).toBe('running');
+    expect(test.t.ctx.services.topics.attention()).toEqual([]);
+  });
+});
+
 describe('after a restart: a report the agent had checked', () => {
   it('is registered right then: the item is done, not stalled, and nothing waits for "Continue all"', async () => {
     const root = await createTempDir('p4-restart-report');
@@ -589,15 +781,17 @@ describe('after a restart: a report the agent had checked', () => {
     await writeReport(test, topic.slug, 'a', a.worktreeId as string, reportText('a'));
     expect(await checkReport(test, a.sessionId as string)).toEqual({ ok: true });
     test.fakes.agents.startTurn(a.sessionId as string);
+    const worktree = test.fakes.worktrees.get(a.worktreeId as string) as NonNullable<ReturnType<typeof test.fakes.worktrees.get>>;
     await test.cleanup();
 
-    test = await setupTopics({ root, stateDir, workspaceId });
+    // (the worktree module still has the item's worktree: the report's changes are its snapshot)
+    test = await setupTopics({ root, stateDir, workspaceId, seed: (fakes) => fakes.worktrees.adopt(worktree) });
     const plan = test.plan(topic.id);
     expect(plan.items.map((item) => [item.id, item.state, item.stalledBy])).toEqual([
       ['a', 'done', undefined],
       ['b', 'stalled', 'restart'],
     ]);
-    expect(test.t.ctx.services.reports.get(topic.id, 'a')).toMatchObject({ version: 1, state: 'to-review', outcome: 'complete' });
+    expect(test.t.ctx.services.reports.get(topic.id, 'a')).toMatchObject({ version: 1, state: 'to-review', outcome: 'complete', changes: { files: 1 } });
     expect(test.t.ctx.services.reports.toReview().map((entry) => entry.itemId)).toEqual(['a']);
     // Only the interrupted item is paused.
     expect(test.t.ctx.services.topics.attention().find((fact) => fact.subject === 'plan-paused')).toMatchObject({ count: 1 });

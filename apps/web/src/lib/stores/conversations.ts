@@ -16,6 +16,8 @@
 //   - an event that arrives again under a `seq` the window has REPLACES the old one (redaction);
 //   - the session is watched again after EVERY Welcome, resumed ones too (streaming deltas are volatile), with
 //     `haveSeq`, so the reply continues the window or replaces it (P0-API §4.2 rule 1);
+//   - a card the window holds as open that such a reply does not carry was settled meanwhile: it is read again, so a
+//     column that stayed open through a disconnect never keeps a decided or withdrawn card with its buttons;
 //   - a delta beyond what a block holds stops that block until its `text` event; the session is watched again at
 //     most once in DELTA_REWATCH_MIN_MS (rule 5);
 //   - items keep their identity between folds while nothing in them changed, so a memoised row does not render again;
@@ -835,6 +837,30 @@ export function createConversationsArea(): { store: ConversationsStore; lifecycl
     });
     if (newest) for (const block of reply.streaming) notifyStream(entry, block.blockId);
     if (reply.hasMore) void catchUp(sessionId, entry);
+    if (newest) readSettledCards(sessionId, entry, reply);
+  };
+
+  /**
+   * A watch reply carries every OPEN card of its session, or names it in `moreCards`. A card this window still holds
+   * as open (or a suggestion as pending) that the reply neither carries nor names was answered, decided or withdrawn
+   * while this client was not told: the connection was away, the host's smurg was started again. A column that stayed
+   * open would go on showing it with its buttons, so it is read (P0-API §4.2; the rule of `tests/e2e/src/flow.ts`).
+   */
+  const readSettledCards = (sessionId: string, entry: Entry, reply: ResultOf<'session.watch'>): void => {
+    const conversation = get(sessionId);
+    if (conversation === undefined) return;
+    const carried = new Set<string>(reply.moreCards.map(cardKey));
+    for (const card of reply.questions) carried.add(cardKey({ kind: 'question', id: card.id }));
+    for (const card of reply.permissions) carried.add(cardKey({ kind: 'permission', id: card.id }));
+    for (const card of reply.suggestions) carried.add(cardKey({ kind: 'suggestion', id: card.id }));
+    const settled: CardRef[] = [];
+    const look = (kind: CardRef['kind'], cards: Iterable<{ readonly id: string; readonly status: string }>, waiting: string): void => {
+      for (const card of cards) if (card.status === waiting && !carried.has(cardKey({ kind, id: card.id }))) settled.push({ kind, id: card.id });
+    };
+    look('question', conversation.questions.values(), 'open');
+    look('permission', conversation.permissions.values(), 'open');
+    look('suggestion', conversation.suggestions.values(), 'pending');
+    if (settled.length > 0) void fetchCards(sessionId, entry, settled);
   };
 
   /** Watch again because a delta did not fit: at most once per session in DELTA_REWATCH_MIN_MS. */

@@ -1,6 +1,7 @@
 // Small pure helpers of the conversation column: what is shown of text people are asked to allow, how
 // paths are put into a sentence, the quote a code selection becomes.
 import type { FileRef } from '@smurg/protocol';
+import { trimEndOf } from '../../lib/trim.ts';
 
 // eslint-disable-next-line no-control-regex
 const HIDDEN = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g;
@@ -55,7 +56,7 @@ function longestBackticks(text: string): number {
  * editor takes its size bound on (features/editor/selection.ts `formatSelectionForAgent`): nothing is added to it.
  */
 export function quoteSelection(selection: { readonly file: FileRef; readonly startLine: number; readonly endLine: number; readonly text: string }): string {
-  const body = selection.text.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
+  const body = trimEndOf(selection.text.replace(/\r\n?/g, '\n'), '\n');
   const fence = '`'.repeat(Math.max(3, longestBackticks(body) + 1));
   const range = selection.startLine === selection.endLine ? `${selection.startLine}` : `${selection.startLine}-${selection.endLine}`;
   const worktree = selection.file.root.kind === 'worktree' ? ` (worktree ${selection.file.root.worktreeId})` : '';
