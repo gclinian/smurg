@@ -8,7 +8,7 @@
 //
 // Imports nothing but ../locale and its own files (test/entry-boundaries.test.ts): browser, Worker and Node safe.
 import type { Locale } from '../locale/index.ts';
-import { createCatalog, type MessageRef, type ParamsArgOf } from './define.ts';
+import { MESSAGE_ID_MAX_CHARS, createCatalog, type MessageRef, type ParamsArgOf } from './define.ts';
 import { activity } from './messages/activity.ts';
 import { client } from './messages/client.ts';
 import { conversation } from './messages/conversation.ts';
@@ -112,7 +112,8 @@ function camelCase(text: string): string {
  * An unknown code gives the `internal` default.
  */
 export function defaultErrorRef(code: string): MessageRef {
-  const id = typeof code === 'string' ? `error.default.${camelCase(code)}` : '';
+  // (No id is longer than MESSAGE_ID_MAX_CHARS: a longer text is no code, and is not read.)
+  const id = typeof code === 'string' && code.length <= MESSAGE_ID_MAX_CHARS ? `error.default.${camelCase(code)}` : '';
   return isMessageId(id) ? { id } : { id: 'error.default.internal' };
 }
 

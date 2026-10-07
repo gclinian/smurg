@@ -62,51 +62,51 @@ export const topics = {
   }),
   'plan.error.noBlock': message({}, {
     en: () => 'PLAN.md has no work item block (the two smurg:plan marker lines).',
-    'zh-TW': () => 'PLAN.md 裡沒有工作項目區塊（兩行 smurg:plan 標記）',
+    'zh-TW': () => 'PLAN.md 裡沒有工作項目區塊（兩行 smurg:plan 標記）。',
   }),
   'plan.error.unclosed': message({ line: 'number' }, {
     en: (p) => `The work item block that starts at line ${p.line} is not closed.`,
-    'zh-TW': (p) => `從第 ${p.line} 行開始的工作項目區塊沒有結束`,
+    'zh-TW': (p) => `從第 ${p.line} 行開始的工作項目區塊沒有結束。`,
   }),
   'plan.error.heading': message({ line: 'number' }, {
     en: (p) => `Line ${p.line}: a work item starts with a heading like "### 1. Title".`,
-    'zh-TW': (p) => `第 ${p.line} 行：工作項目要以「### 1. 標題」這樣的標題開始`,
+    'zh-TW': (p) => `第 ${p.line} 行：工作項目要以「### 1. 標題」這樣的標題開始。`,
   }),
   'plan.error.field': message({ line: 'number' }, {
     en: (p) => `Line ${p.line}: this is not a field of a work item. The fields are id, depends on, size and touches.`,
-    'zh-TW': (p) => `第 ${p.line} 行：這不是工作項目的欄位。欄位有 id、depends on、size 和 touches`,
+    'zh-TW': (p) => `第 ${p.line} 行：這不是工作項目的欄位。欄位有 id、depends on、size 和 touches。`,
   }),
   'plan.error.missingId': message({ line: 'number' }, {
     en: (p) => `Line ${p.line}: this work item has no id.`,
-    'zh-TW': (p) => `第 ${p.line} 行：這個工作項目沒有 id`,
+    'zh-TW': (p) => `第 ${p.line} 行：這個工作項目沒有 id。`,
   }),
   'plan.error.badId': message({ line: 'number' }, {
     en: (p) => `Line ${p.line}: an id uses lower-case letters, digits and hyphens.`,
-    'zh-TW': (p) => `第 ${p.line} 行：id 請使用小寫英文字母、數字和連字號`,
+    'zh-TW': (p) => `第 ${p.line} 行：id 請使用小寫英文字母、數字和連字號。`,
   }),
   'plan.error.duplicateId': message({ line: 'number', id: 'string' }, {
     en: (p) => `Line ${p.line}: the id "${p.id}" is used twice.`,
-    'zh-TW': (p) => `第 ${p.line} 行：id「${p.id}」重複了`,
+    'zh-TW': (p) => `第 ${p.line} 行：id「${p.id}」重複了。`,
   }),
   'plan.error.unknownDependency': message({ line: 'number' }, {
     en: (p) => `Line ${p.line}: "depends on" names something that is not a work item of this plan.`,
-    'zh-TW': (p) => `第 ${p.line} 行：「depends on」寫了不在這份計畫裡的工作項目`,
+    'zh-TW': (p) => `第 ${p.line} 行：「depends on」寫了不在這份計畫裡的工作項目。`,
   }),
   'plan.error.cycle': message({ ids: 'list' }, {
     en: (p) => `Work items depend on each other in a circle: ${joinList('en', p.ids)}.`,
-    'zh-TW': (p) => `工作項目互相依賴成一個循環：${joinList('zh-TW', p.ids)}`,
+    'zh-TW': (p) => `工作項目互相依賴成一個循環：${joinList('zh-TW', p.ids)}。`,
   }),
   'plan.error.size': message({ line: 'number' }, {
     en: (p) => `Line ${p.line}: size is s, m or l.`,
-    'zh-TW': (p) => `第 ${p.line} 行：size 只能是 s、m 或 l`,
+    'zh-TW': (p) => `第 ${p.line} 行：size 只能是 s、m 或 l。`,
   }),
   'plan.error.tooMany': message({ max: 'number' }, {
     en: (p) => `A plan has at most ${p.max} work items.`,
-    'zh-TW': (p) => `一份計畫最多 ${p.max} 個工作項目`,
+    'zh-TW': (p) => `一份計畫最多 ${p.max} 個工作項目。`,
   }),
   'plan.error.empty': message({}, {
     en: () => 'The plan has no work items.',
-    'zh-TW': () => '計畫裡沒有工作項目',
+    'zh-TW': () => '計畫裡沒有工作項目。',
   }),
   'plan.warning.overlap': message({ first: 'number', second: 'number' }, {
     en: (p) => `Items ${p.first} and ${p.second} may change the same files and neither waits for the other.`,

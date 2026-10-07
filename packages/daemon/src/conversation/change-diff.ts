@@ -15,11 +15,27 @@ export const DIFF_MAX_CHARS = 1_048_576;
 export const DIFF_TIMEOUT_MS = 150;
 const CONTEXT_LINES = 3;
 
-/** The file after the edit, or null when a replacement's old text is not in it (the tool call would fail). */
+/**
+ * How much reading the replacements of one edit are worth, all of them together: 64 times the largest file a diff is
+ * made of. Each replacement reads the whole file once more, and one of "every occurrence" also takes it apart at each
+ * of them (counted as APPLY_EVERY_OCCURRENCE readings), so an edit of thousands of replacements in a large file cost
+ * the product of the two (2,000 of every occurrence in a megabyte: 15 s for one permission card).
+ */
+export const APPLY_MAX_CHARS = 64 * DIFF_MAX_CHARS;
+const APPLY_EVERY_OCCURRENCE = 16;
+
+/**
+ * The file after the edit, or null when a replacement's old text is not in it (the tool call would fail), or when
+ * the edit has more replacements than are applied to a file of this size (APPLY_MAX_CHARS): then every replacement
+ * is shown by itself.
+ */
 export function applyEdit(current: string, edit: EditSpec): string | null {
   if (edit.kind === 'write') return edit.text;
   let text = current;
+  let read = 0;
   for (const replacement of edit.replacements) {
+    read += (text.length + replacement.oldText.length) * (replacement.all ? APPLY_EVERY_OCCURRENCE : 1);
+    if (read > APPLY_MAX_CHARS) return null;
     if (replacement.oldText === '') {
       // Claude Code's Edit with an empty old text writes the new text into an empty (or new) file.
       if (text !== '') return null;

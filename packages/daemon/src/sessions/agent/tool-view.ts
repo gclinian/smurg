@@ -72,8 +72,12 @@ export function headTail(text: string, headBytes: number, tailBytes: number): { 
   return { text: `${head}\n[…]\n${tail}`, truncated: true };
 }
 
+// A control sequence (`ESC [`, parameters, intermediates, a final byte), an operating system command (`ESC ]` up to
+// BEL or `ESC \`), or a two-character escape. Every repetition is followed by something it cannot match itself: `!`
+// counts as a parameter here (`ESC [ ! p`), so the intermediates after the parameters start with another character
+// (two neighbouring runs that both took `!` cost the square of a run of them: 1.5 s for 60,000).
 // eslint-disable-next-line no-control-regex
-const ANSI = /\x1b\[[0-9;?<>=!]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]/g;
+const ANSI = /\x1b\[[0-9;?<>=!]*(?:[ "-/][ -/]*)?[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]/g;
 
 export function stripAnsi(text: string): string {
   return text.replace(ANSI, '');

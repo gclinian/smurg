@@ -1,3 +1,5 @@
+import { authorityOf, HOST_MAX_CHARS, PORT_MAX_CHARS } from '../../lib/web-address.ts';
+
 // Which addresses a link of agent or member text may lead to (DESIGN §5.5): http, https and mailto, nothing else.
 // A relative address, a fragment, `javascript:`, `data:`, `file:`, `vscode:` … is not a link: its text is shown.
 export const LINK_PROTOCOLS: readonly string[] = Object.freeze(['http:', 'https:', 'mailto:']);
@@ -7,6 +9,14 @@ export function safeHref(raw: string | null | undefined): string | null {
   if (typeof raw !== 'string') return null;
   // A scheme hidden behind white space or control characters is refused, not repaired.
   if (raw === '' || /[\u0000- \u007f]/.test(raw)) return null;
+  // The browser's parser is handed nothing but a web address with a host of a host's length, or a mail address: it
+  // reads a host through Unicode's normalisation, which costs the square of a long run of combining marks (seconds
+  // for one address of a message's size, in the render, where nothing has a budget; review R4-03, fourth round).
+  // `https:example.com` and `http:///x` would parse, but they are not what was written for a person to follow.
+  if (!/^mailto:/i.test(raw)) {
+    const authority = authorityOf(raw);
+    if (authority === null || authority.length > HOST_MAX_CHARS + PORT_MAX_CHARS) return null;
+  }
   let url: URL;
   try {
     url = new URL(raw);
@@ -14,8 +24,6 @@ export function safeHref(raw: string | null | undefined): string | null {
     return null;
   }
   if (!LINK_PROTOCOLS.includes(url.protocol)) return null;
-  // `https:example.com` and `http:///x` parse, but they are not what was written for a person to follow.
-  if (url.protocol !== 'mailto:' && !/^https?:\/\/[^/]/i.test(raw)) return null;
   // An address that carries a name and a password shows one host and opens another's account.
   if (url.username !== '' || url.password !== '') return null;
   return url.href;
@@ -83,7 +91,8 @@ function placeOfAddress(rest: string): Place {
   }
   const colon = authority.indexOf(':');
   const host = colon === -1 ? authority : authority.slice(0, colon);
-  if (host === '' || !portIsSound(authority, host.length)) return UNCLEAR;
+  // Longer than a host name can be: nothing a browser reaches, and nothing to take at its word.
+  if (host === '' || host.length > HOST_MAX_CHARS || !portIsSound(authority, host.length)) return UNCLEAR;
   // Anything a browser would first have to decode or rewrite (`%6d`, a character outside a host name) is not taken
   // at its word: it is compared as "another place", which shows the reader where the link really leads.
   for (let index = 0; index < host.length; index += 1) {
@@ -128,6 +137,8 @@ function placeOfBareWord(word: string): Place | null {
     labelStart = end + 1;
   }
   const host = word.slice(0, end);
+  // A dotted word longer than a host name can be is not the name of a place.
+  if (host.length > HOST_MAX_CHARS) return null;
   if (labels === 4 && numeric) return portIsSound(word, end) ? web(host) : UNCLEAR;
   if (labels < 2 || !lastIsWord) return null;
   const ending = word.slice(labelStart, end);
@@ -166,6 +177,18 @@ function placeOf(written: string): Place | null {
 // the name stands in, not part of the name (`\u8acb\u5230github.com\u767b\u5165`): a label ends where the writing changes
 // between those scripts and everything else. And their full stop is a full stop wherever one of their characters
 // stands beside it.
+//
+// What a reader CANNOT SEE is not part of what the words read as: a zero width joiner or space, a word joiner, a soft
+// hyphen, a variation selector, a tag (Unicode's own list: the characters a display leaves out when it has no
+// picture for them). `github<U+200D>.com` reads "github.com" and was two words that name nothing to the rules above
+// (review R4-05, fourth round). They are taken out before the words are read; and words that had one beside the dot
+// of a name are never taken at their word, wherever the link leads: nobody puts one there for the reader.
+//
+// One exception to "any letter from outside ASCII": words that are the NAME OF THE FILE the link leads to (the last
+// part of its path, decoded) are an ordinary link, as `README.md` on a link to a README.md always was. Only where no
+// dot of the name is followed by what a host ends in (HOST_ENDINGS) or by other letters: whoever owns a destination
+// writes its path, so `github.c\u043em` on a link to `https://evil.example/github.c\u043em` is still a name that looks
+// like a place.
 
 /** What a label of a name can be made of, in any script: letters, marks, digits. */
 const NAME_CHAR = /[\p{L}\p{M}\p{N}]/u;
@@ -231,16 +254,20 @@ function foldFullStops(text: string): string {
 /**
  * Whether `text` holds a dotted name with a letter from outside ASCII in one of the two labels at a dot: a name that
  * cannot be taken at its word. One pass: each dot looks at the label on either side of it, and a label ends at the
- * next dot.
+ * next dot. A label longer than a whole host name can be is not part of a name.
+ *
+ * `ofFile`: the text is the name of the file the link leads to. Then a dot counts only where what follows it is
+ * what a host ends in (one of HOST_ENDINGS) or is itself written in other letters: `r\u00e9sum\u00e9.pdf` is a file,
+ * `\u0430\u0440\u0440\u04cf\u0435.com` and `\u0430\u0440\u0440\u04cf\u0435.com login.md` read as a place whatever a path repeats.
  */
-function holdsForeignName(text: string): boolean {
+function holdsForeignName(text: string, ofFile: boolean): boolean {
   let dot = text.indexOf('.');
   while (dot !== -1) {
     let foreign = false;
     // The label before the dot.
     let start = dot;
     let first: LabelKind = 0;
-    for (;;) {
+    while (dot - start <= HOST_MAX_CHARS) {
       const char = charBefore(text, start);
       const kind = char === '' ? 0 : labelKind(char);
       if (first === 0) first = kind;
@@ -248,63 +275,93 @@ function holdsForeignName(text: string): boolean {
       if (kind !== 1) foreign = true;
       start -= char.length;
     }
-    if (start < dot) {
+    if (start < dot && dot - start <= HOST_MAX_CHARS) {
       // The label after it.
       let end = dot + 1;
+      let plain = true;
       first = 0;
-      for (;;) {
+      while (end - dot - 1 <= HOST_MAX_CHARS) {
         const char = charAt(text, end);
         const kind = char === '' ? 0 : labelKind(char);
         if (first === 0) first = kind;
         if (!sameWriting(first, kind)) break;
-        if (kind !== 1) foreign = true;
+        if (kind !== 1) plain = false;
         end += char.length;
       }
-      if (end > dot + 1 && foreign) return true;
+      if (!plain) foreign = true;
+      if (end > dot + 1 && end - dot - 1 <= HOST_MAX_CHARS && foreign) {
+        if (!ofFile || !plain || HOST_ENDINGS.has(text.slice(dot + 1, end).toLowerCase())) return true;
+      }
     }
     dot = text.indexOf('.', dot + 1);
   }
   return false;
 }
 
-/** A combining mark: what `normalize` has to put in order, one run of them at a time. */
-const MARK = /\p{M}/u;
-/** More marks than this on one letter are not part of any name. */
-const MARKS_MAX = 8;
+/** What a reader cannot see: the characters a display leaves out by default (zero width, soft hyphen, selectors, tags). */
+const UNSEEN = /\p{Default_Ignorable_Code_Point}/u;
+
+/** Whether the character at `at` is a dot between the two labels of a name (for a Chinese full stop: as foldFullStops reads it). */
+function isNameDot(text: string, at: number): boolean {
+  const char = text[at];
+  if (char !== '.' && char !== IDEOGRAPHIC_FULL_STOP) return false;
+  const before = labelKind(charBefore(text, at));
+  const after = labelKind(charAt(text, at + 1));
+  if (char === '.') return before !== 0 && after !== 0;
+  return (before === 1 || before === 2) && (after === 1 || after === 2);
+}
 
 /**
- * `text` with every run of combining marks cut to MARKS_MAX of them. The browser's own `normalize` puts the marks of
- * one run in order by comparing them with each other, which costs the square of the run: 32,000 marks of two kinds
- * in turn took 0.3 s, a megabyte of them minutes, for every link that holds them and at every mount (review R4-03,
- * third round). No name has such a run, and whether a word names a place does not depend on its hundredth accent.
+ * `text` as a reader reads it: every character in the form it looks like (full-width letters, a one-dot leader: the
+ * compatibility form, NFKC) and without the characters that cannot be seen. `atDot`: one of those stood beside the
+ * dot of a name.
+ *
+ * Each character is normalised BY ITSELF, one or two UTF-16 units at a time. `normalize` on a whole text puts every
+ * run of combining marks in order by comparing them with each other, at the cost of the square of the run, and a
+ * text can be made of characters that only BECOME marks when normalised (U+FF9E): 84 ms for one link of 15,800
+ * such characters, in the render, at every mount (review R4-03, fourth round). No call of `normalize` in the web
+ * app runs on text whose length someone else chose (test/text-cost.test.tsx keeps it so). Nothing is lost here:
+ * whether words name a place does not depend on the order of their accents, or on a letter and its accent being
+ * one character or two (either way it is a letter from outside ASCII).
  */
-function withFewMarks(text: string): string {
+function asRead(text: string): { readonly text: string; readonly atDot: boolean } {
   const pieces: string[] = [];
+  /** Where unseen characters were left out: the length of the result at that point. */
+  const gaps: number[] = [];
+  let length = 0;
   let from = 0;
-  let marks = 0;
+  const keep = (to: number): void => {
+    if (to <= from) return;
+    pieces.push(text.slice(from, to));
+    length += to - from;
+  };
   let index = 0;
   while (index < text.length) {
-    const unit = text.charCodeAt(index);
-    if (unit < 0x300) {
-      marks = 0;
+    if (text.charCodeAt(index) < 0x80) {
       index += 1;
       continue;
     }
     const char = charAt(text, index);
-    if (!MARK.test(char)) marks = 0;
-    else {
-      marks += 1;
-      if (marks > MARKS_MAX) {
-        // The mark is left out: what stands before it is kept, the next piece begins after it.
-        if (index > from) pieces.push(text.slice(from, index));
-        from = index + char.length;
+    const next = index + char.length;
+    if (UNSEEN.test(char)) {
+      keep(index);
+      if (gaps.at(-1) !== length) gaps.push(length);
+      from = next;
+    } else {
+      const normal = char.normalize('NFKC');
+      if (normal !== char) {
+        keep(index);
+        pieces.push(normal);
+        length += normal.length;
+        from = next;
       }
     }
-    index += char.length;
+    index = next;
   }
-  if (from === 0) return text;
-  pieces.push(text.slice(from));
-  return pieces.join('');
+  if (from === 0) return { text, atDot: false };
+  keep(text.length);
+  const read = pieces.join('');
+  return { text: read, atDot: gaps.some((gap) => (gap > 0 && isNameDot(read, gap - 1)) || isNameDot(read, gap)) };
 }
 
 /** Whether `text` has a character from outside ASCII at all (most links' words have none: nothing above runs for them). */
@@ -312,6 +369,29 @@ function hasNonAscii(text: string): boolean {
   for (let index = 0; index < text.length; index += 1) if (text.charCodeAt(index) > 0x7f) return true;
   return false;
 }
+
+/**
+ * Whether `text` is the name of the file `url` leads to: the last part of its path, decoded, character for character.
+ * A name has no slash in it (an address can hide one in its last part as `%2F`).
+ */
+function isNameOfFile(text: string, url: URL): boolean {
+  if (url.protocol === 'mailto:' || text.includes('/') || text.includes('\\')) return false;
+  const path = url.pathname;
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  // One UTF-16 unit of the words is at most nine characters of an address ("%E8%A8%AD").
+  if (name === '' || name.length > text.length * 9) return false;
+  try {
+    return decodeURIComponent(name) === text;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The longest words of a link that are read, in UTF-16 units: a few sentences. Longer words are written out with
+ * their destination unread (the safe side), so what a link costs the render is bounded by a constant.
+ */
+export const LABEL_MAX_CHARS = 1_024;
 
 /** What may stand in front of an address in a sentence, and after it. */
 const OPENS = '("\'<[';
@@ -325,11 +405,14 @@ const isWordUnit = (unit: number): boolean => unit >= 0x21 && unit <= 0x7e;
  * `[amy@example.com](mailto:eve@evil.example)`, `![github.com/logo.png](https://evil.example/x.png)`.
  * `href` is an address safeHref() accepted. `www.` in front of a host is not a difference. Characters that only look
  * like ASCII (full-width letters, a one-dot leader or a Chinese full stop for the dot) are read as what they look
- * like, and a dotted name with a letter from outside ASCII is always "another place" (see above).
+ * like, characters that cannot be seen are not read, and a dotted name with a letter from outside ASCII is always
+ * "another place" unless it is the name of the file the link leads to (see above). Words longer than
+ * LABEL_MAX_CHARS are "another place" unread.
  *
- * Linear in the length of the text: see the note at the top of this part.
+ * Linear in the length of the text, and bounded: see the note at the top of this part.
  */
 export function namesAnotherPlace(text: string, href: string): boolean {
+  if (text.length > LABEL_MAX_CHARS) return true;
   const url = new URL(href);
   let destination: Place;
   try {
@@ -338,11 +421,17 @@ export function namesAnotherPlace(text: string, href: string): boolean {
     // A mail address that does not decode names nothing a text could agree with.
     destination = UNCLEAR;
   }
-  // Pure ASCII is what it is. Anything else is read as what it looks like (full-width letters, a one-dot leader).
-  const normal = hasNonAscii(text) ? withFewMarks(text).normalize('NFKC') : text;
-  const foreign = hasNonAscii(normal);
-  const read = foreign ? foldFullStops(normal) : normal;
-  if (foreign && holdsForeignName(read)) return true;
+  // Pure ASCII is what it is. Anything else is read as what it looks like.
+  let read = text;
+  if (hasNonAscii(text)) {
+    const seen = asRead(text);
+    if (seen.atDot) return true;
+    read = seen.text;
+    if (hasNonAscii(read)) {
+      read = foldFullStops(read);
+      if (holdsForeignName(read, isNameOfFile(text, url))) return true;
+    }
+  }
   let index = 0;
   while (index < read.length) {
     if (!isWordUnit(read.charCodeAt(index))) {

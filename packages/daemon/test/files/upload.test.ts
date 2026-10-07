@@ -369,6 +369,24 @@ describe('upload plan (folder drops)', () => {
     expect(await readFile(join(f.t.root, 'README.md'), 'utf8')).toBe('# hi\n');
   });
 
+  it('a plan of files in one deep folder makes that folder once, and a plan with more folders than it may have entries is refused before anything is made (review, last round, N1)', async () => {
+    const { ft: f, xfer } = await setup();
+    // (What such a plan costs is measured on the two pure functions: test/text-cost.test.ts.)
+    const deep = `deep/${Array.from({ length: 199 }, () => 'd').join('/')}`;
+    const entries = Array.from({ length: 300 }, (_, index) => ({ path: `${deep}/f${index}.txt`, kind: 'file' as const, size: 1 }));
+    await xfer.request('file.upload.plan', { root: MAIN_ROOT, entries, onConflict: 'fail' });
+    expect((await stat(join(f.t.root, deep))).isDirectory()).toBe(true);
+    // Sixty files, each two hundred folders deep in a folder of its own: 12,000 folders, more than a plan has entries.
+    const many = Array.from({ length: 60 }, (_, index) => ({ path: `many${index}/${'d/'.repeat(199)}f.txt`, kind: 'file' as const, size: 1 }));
+    const refused = await settleError(xfer.request('file.upload.plan', { root: MAIN_ROOT, entries: many, onConflict: 'fail' }));
+    expect(refused).toMatchObject({ code: 'too_large', reason: 'too-many-folders' });
+    await expect(lstat(join(f.t.root, 'many0'))).rejects.toThrow();
+    // As many as a plan may have are made, parents first, each once.
+    const wide = Array.from({ length: 50 }, (_, index) => ({ path: `wide${index}/${'d/'.repeat(99)}f.txt`, kind: 'file' as const, size: 1 }));
+    await xfer.request('file.upload.plan', { root: MAIN_ROOT, entries: wide, onConflict: 'fail' });
+    expect((await stat(join(f.t.root, `wide49/${'d/'.repeat(99)}`))).isDirectory()).toBe(true);
+  }, 120_000);
+
   it('refuses a batch with colliding names (case, file-vs-directory) or existing files, before creating anything', async () => {
     const { ft: f, xfer } = await setup();
     const caseInsensitive = (await lstat(join(f.t.root, 'readme.md')).catch(() => null)) !== null;

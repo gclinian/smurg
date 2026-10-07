@@ -7,12 +7,13 @@
 // lib/workspace/drafts-storage.ts (removal, a revoked device, another account's browser, leaving, logging out). Here
 // the store of a page that is still showing stops writing at the same moment (draftsOf watches the connection), and
 // a store whose drafts were deleted by ANOTHER page of this browser (a second tab that logged out or left) never
-// writes them back: it looks at the storage's mark before every write.
+// writes them back: before every write it looks at the storage's marks of deletions, its workspace's and the
+// browser's, and at whether what it wrote is still there.
 import { MESSAGE_TEXT_MAX_CHARS, fileRefSchema, type FileRef } from '@smurg/protocol';
 import type { WorkspaceConnection } from '../../lib/connection/types.ts';
 import { browserLocalStorage, readJson, type PreferenceStorage } from '../../lib/preferences.ts';
 import { createStore, type ReadableStore } from '../../lib/store.ts';
-import { accessEnded, draftsStorageKey, forgetDrafts, forgottenMark } from '../../lib/workspace/drafts-storage.ts';
+import { accessEnded, draftsStorageKey, forgetDrafts, forgottenMarks } from '../../lib/workspace/drafts-storage.ts';
 
 /** The code selection a draft was made from (it travels with a suggestion as its `source`). */
 export interface DraftSource {
@@ -78,28 +79,27 @@ export function createDraftsStore(workspaceId: string | null, storage: Preferenc
     }
   };
   const state = createStore<ReadonlyMap<string, Draft>>(key === null ? new Map() : parse(readJson(storage, key)));
-  /** The storage's mark of deletions and this workspace's entry, as this store last saw them. */
-  let mark = forgottenMark(storage);
-  let written = raw();
+  /** The storage's marks of deletions as this store last saw them, and whether an entry of this store is in the storage. */
+  let marks = workspaceId === null ? '' : forgottenMarks(storage, workspaceId);
+  let stored = raw() !== null;
   const save = (drafts: ReadonlyMap<string, Draft>, held: boolean): void => {
-    if (key === null) return;
-    // Drafts were deleted somewhere in this browser since this store last looked. If the entry of this workspace is
-    // still what this store wrote, the deletion was another workspace's. If not, it was this one's (and somebody may
-    // have written there since): what this page holds is the page's only from now on, and nothing is written back.
-    const now = forgottenMark(storage);
-    if (now !== mark) {
-      if (held && raw() !== written) {
-        key = null;
-        return;
-      }
-      mark = now;
+    if (key === null || workspaceId === null) return;
+    // The drafts of this workspace were deleted somewhere in this browser since this store last looked: its mark or
+    // the browser's changed, or the entry this store had in the storage is gone (a full storage takes a deletion and
+    // not its mark). What this page holds is the page's only from now on, and nothing is written back. A deletion
+    // of another workspace's drafts changes neither. A store that held nothing has nothing to write back: what is
+    // typed in it from now on is new.
+    const now = forgottenMarks(storage, workspaceId);
+    if (held && (now !== marks || (stored && raw() === null))) {
+      key = null;
+      return;
     }
+    marks = now;
     // Newest last; the oldest go when there are too many.
     const entries = [...drafts].slice(-DRAFTS_MAX).map(([sessionId, draft]) => [sessionId, { text: draft.text, source: draft.source }] as const);
     try {
-      const text = JSON.stringify(entries);
-      storage?.setItem(key, text);
-      written = text;
+      storage?.setItem(key, JSON.stringify(entries));
+      stored = true;
     } catch {
       // Quota or blocked storage: a convenience is lost, nothing else.
     }

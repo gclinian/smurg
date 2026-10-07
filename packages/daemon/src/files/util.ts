@@ -1,7 +1,7 @@
 // Small helpers shared by the files module: keys for best-effort per-path bookkeeping, audit labels, a bounded
 // parallel map (so a 10,000-entry listing does not open 10,000 fs requests at once) and zh-TW formatting.
 import { sep } from 'node:path';
-import { foldPathName, relPathSegments, rootRefKey, type FileRef, type RootRef } from '@smurg/protocol';
+import { foldPathName, normalized, relPathSegments, rootRefKey, type FileRef, type RootRef } from '@smurg/protocol';
 
 /**
  * Key for attribution and "known directory" bookkeeping. Folded like a case-insensitive file system folds names
@@ -9,7 +9,7 @@ import { foldPathName, relPathSegments, rootRefKey, type FileRef, type RootRef }
  * case-sensitive file system two different files can share a key; that only merges two best-effort badges.
  */
 export function looseKey(root: RootRef, path: string): string {
-  return `${rootRefKey(root)}:${relPathSegments(path.normalize('NFC')).map(foldPathName).join('/')}`;
+  return `${rootRefKey(root)}:${relPathSegments(normalized(path, 'NFC')).map(foldPathName).join('/')}`;
 }
 
 /** `main:src/app.ts` / `wt:<id>:src/app.ts`: the audit target convention of PathGuard. */

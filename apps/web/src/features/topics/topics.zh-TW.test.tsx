@@ -60,7 +60,7 @@ describe('the topic screens in zh-TW', () => {
     renderInColumn(<PlanColumn topicId="tp_1" />, { target: { kind: 'plan', topicId: 'tp_1' }, conn, admit: false });
     admitAs(conn, world);
     await settle();
-    expect(screen.getByText(/下面是 smurg 最後一次讀得懂的計畫。/).textContent).toContain('PLAN.md 裡沒有工作項目區塊（兩行 smurg:plan 標記）下面是 smurg 最後一次讀得懂的計畫。檔案修正之前，任何項目都不能開始。');
+    expect(screen.getByText(/下面是 smurg 最後一次讀得懂的計畫。/).textContent).toContain('PLAN.md 裡沒有工作項目區塊（兩行 smurg:plan 標記）。下面是 smurg 最後一次讀得懂的計畫。檔案修正之前，任何項目都不能開始。');
   });
 
   it('badges and lists', () => {

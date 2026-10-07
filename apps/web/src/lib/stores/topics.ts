@@ -28,6 +28,7 @@ import {
 } from '@smurg/protocol';
 import { createStore, type ReadableStore } from '../store.ts';
 import { loadSnapshot, mapFrom, mapWith, mapWithout, readyState, type AreaLifecycle, type LoadStatus, type Loadable, type StoreContext } from './base.ts';
+import { compareIds } from '../format.ts';
 
 export type TopicNoticeKind = 'started' | 'spec-ready' | 'plan-ready' | 'plan-updated' | 'complete';
 
@@ -139,7 +140,7 @@ export const reportKey = (topicId: string, itemId: string): string => `${topicId
 
 /** Topics in the order of the session list: the ones still being worked on, newest first; complete ones after. */
 export function selectTopicList(state: TopicsState): Topic[] {
-  return [...state.topics.values()].sort((a, b) => Number(a.phase === 'complete') - Number(b.phase === 'complete') || b.createdAt - a.createdAt || a.id.localeCompare(b.id));
+  return [...state.topics.values()].sort((a, b) => Number(a.phase === 'complete') - Number(b.phase === 'complete') || b.createdAt - a.createdAt || compareIds(a.id, b.id));
 }
 export const selectArchivedTopics = (state: TopicsState): Topic[] => [...(state.archived?.values() ?? [])].sort((a, b) => b.createdAt - a.createdAt);
 /** A topic by id, archived or not. */

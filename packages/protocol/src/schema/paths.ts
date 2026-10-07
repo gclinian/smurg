@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { hasLongMarkRun, normalized } from '../normalize.ts';
 import { PATH_SEGMENT_MAX_UNITS, REL_PATH_MAX_CHARS } from './limits.ts';
 import { opaqueIdSchema } from './primitives.ts';
 
@@ -20,6 +21,7 @@ export type RelPathProblem =
   | 'empty-segment'
   | 'dot-segment'
   | 'segment-too-long'
+  | 'mark-run'
   | 'root-not-allowed';
 
 export type RelPathCheck = { readonly ok: true; readonly path: string } | { readonly ok: false; readonly problem: RelPathProblem };
@@ -31,10 +33,23 @@ const BIDI = /[؜‎‏‪-‮⁦-⁩]/;
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 const DRIVE_LETTER = /^[A-Za-z]:/;
 
+// Code points HFS+ ignores when it compares names (git's is_hfs_dotgit list): `.g‌it` is `.git` there.
+const HFS_IGNORABLE = /[\u200c-\u200f\u202a-\u202e\u206a-\u206f\ufeff]/g;
+
+/**
+ * Whether a name holds a run of more than MARK_RUN_MAX combining marks, read as a file system reads it that leaves
+ * those code points out (a joiner between two marks does not end the run: folding the name would join them).
+ */
+function hasMarkRun(text: string): boolean {
+  return hasLongMarkRun(text.replace(HFS_IGNORABLE, ''));
+}
+
 /**
  * Validates and normalises a client-supplied relative POSIX path. Rules (ARCHITECTURE §7.4): a string of at most
- * REL_PATH_MAX_CHARS; no control characters, bidi characters, lone surrogates or backslashes; no drive letter; not
- * absolute; no empty, `.` or `..` segments (so no leading, trailing or doubled `/`); each segment at most
+ * REL_PATH_MAX_CHARS; no control characters, bidi characters, lone surrogates or backslashes; no run of more than
+ * MARK_RUN_MAX (30) combining marks, before or after NFC and also when the code points a file system ignores are left
+ * out (normalize.ts: a longer run costs the square of its length to normalise, and a name is never cut); no drive
+ * letter; not absolute; no empty, `.` or `..` segments (so no leading, trailing or doubled `/`); each segment at most
  * PATH_SEGMENT_MAX_UNITS UTF-16 units after NFC. The result is NFC-normalised. `""` is the root and is accepted only
  * with `allowRoot`.
  */
@@ -45,8 +60,11 @@ export function checkRelPath(input: unknown, options: { readonly allowRoot?: boo
   if (CONTROL.test(input)) return { ok: false, problem: 'control-character' };
   if (BIDI.test(input)) return { ok: false, problem: 'bidi-character' };
   if (LONE_SURROGATE.test(input)) return { ok: false, problem: 'lone-surrogate' };
-  const path = input.normalize('NFC');
+  if (hasMarkRun(input)) return { ok: false, problem: 'mark-run' };
+  const path = normalized(input, 'NFC');
   if (path.length > REL_PATH_MAX_CHARS) return { ok: false, problem: 'too-long' };
+  // One mark can be two in NFC: every path that passes has no such run, so folding a name never cuts it.
+  if (path !== input && hasMarkRun(path)) return { ok: false, problem: 'mark-run' };
   if (path === '') return options.allowRoot === true ? { ok: true, path } : { ok: false, problem: 'root-not-allowed' };
   if (path.includes('\\')) return { ok: false, problem: 'backslash' };
   if (DRIVE_LETTER.test(path)) return { ok: false, problem: 'drive-letter' };
@@ -135,18 +153,17 @@ const HOST_ONLY_DIRS: ReadonlySet<string> = new Set(['.claude', '.git', '.smurg'
 // `CLAUDE.md` / `CLAUDE.local.md` at any depth: Claude Code loads them as instructions for agents that run as the host.
 const HOST_ONLY_FILES: ReadonlySet<string> = new Set(['.mcp.json', '.envrc', 'claude.md', 'claude.local.md']);
 
-// Code points HFS+ ignores when it compares names (git's is_hfs_dotgit list): `.g‌it` is `.git` there.
-const HFS_IGNORABLE = /[\u200c-\u200f\u202a-\u202e\u206a-\u206f\ufeff]/g;
-
 /**
  * The key under which a case-insensitive file system may treat two names as the same entry, for security decisions
  * about names (host-only, hidden). `toLowerCase()` alone is not enough: on APFS `ſ` (U+017F) names the same entry as
  * `s`, so `.vſcode` IS `.vscode`, and toLowerCase leaves `ſ` alone. NFKC maps `ſ`→`s`, `K` (Kelvin)→`K` and ligatures
  * such as `ﬅ`→`st`; the upper-then-lower round trip catches `ı`→`I`→`i` (exFAT/NTFS upcase tables); HFS+ ignorable
  * code points are dropped. Folding more names together than a file system does only makes a name MORE protected.
+ * A run of more than MARK_RUN_MAX combining marks is cut to that many first (normalize.ts): no name that passed
+ * checkRelPath has one, so two names of files never share a key; a text that is no path folds at the cost of its length.
  */
 export function foldPathName(name: string): string {
-  return name.replace(HFS_IGNORABLE, '').normalize('NFKC').toUpperCase().toLowerCase();
+  return normalized(name.replace(HFS_IGNORABLE, ''), 'NFKC').toUpperCase().toLowerCase();
 }
 
 /**
@@ -356,7 +373,7 @@ export function rootRefEquals(a: RootRef, b: RootRef): boolean {
  * NFC-normalised again, so two spellings of the same name share a key even if one of them skipped the schema.
  */
 export function fileRefKey(ref: FileRef): string {
-  return `${rootRefKey(ref.root)}:${ref.path.normalize('NFC')}`;
+  return `${rootRefKey(ref.root)}:${normalized(ref.path, 'NFC')}`;
 }
 
 export function fileRefEquals(a: FileRef, b: FileRef): boolean {

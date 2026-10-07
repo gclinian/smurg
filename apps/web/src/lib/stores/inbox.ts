@@ -11,6 +11,7 @@
 import { collectPages, type InboxItem } from '@smurg/protocol';
 import { createStore, type ReadableStore } from '../store.ts';
 import { loadSnapshot, mapFrom, readyState, type AreaLifecycle, type Loadable, type StoreContext } from './base.ts';
+import { compareIds } from '../format.ts';
 
 export interface InboxArrival {
   readonly id: number;
@@ -60,9 +61,9 @@ export function selectInboxGroups(state: InboxState, selfUserId: string | null):
   const waiting: InboxItem[] = [];
   const look: InboxItem[] = [];
   for (const item of state.items.values()) (item.waiting ? waiting : look).push(item);
-  waiting.sort((a, b) => Number(onlyMine(b, selfUserId)) - Number(onlyMine(a, selfUserId)) || a.at - b.at || a.key.localeCompare(b.key));
+  waiting.sort((a, b) => Number(onlyMine(b, selfUserId)) - Number(onlyMine(a, selfUserId)) || a.at - b.at || compareIds(a.key, b.key));
   const unblocks = (item: InboxItem): number => (item.kind === 'merge' && (item.unblocks?.length ?? 0) > 0 ? 1 : 0);
-  look.sort((a, b) => unblocks(b) - unblocks(a) || b.at - a.at || a.key.localeCompare(b.key));
+  look.sort((a, b) => unblocks(b) - unblocks(a) || b.at - a.at || compareIds(a.key, b.key));
   return { waiting, look };
 }
 

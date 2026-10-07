@@ -24,6 +24,7 @@ import { statusLabel, tabLabel } from './session-info.ts';
 import { t } from './strings.ts';
 import { TerminalView } from './TerminalView.tsx';
 import './agents.css';
+import { compareIds } from '../../lib/format.ts';
 
 export type TerminalPanelProps = Record<never, never>;
 
@@ -32,7 +33,7 @@ export const KEEP_TERMINALS = 6;
 
 /** Tab order: running terminals oldest first (new tabs appear at the end), ended ones after them. */
 export function orderTerminals(sessions: Iterable<TerminalSession>): TerminalSession[] {
-  return [...sessions].sort((a, b) => Number(a.status === 'exited') - Number(b.status === 'exited') || a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  return [...sessions].sort((a, b) => Number(a.status === 'exited') - Number(b.status === 'exited') || a.createdAt - b.createdAt || compareIds(a.id, b.id));
 }
 
 export function TerminalPanel(_props: TerminalPanelProps) {

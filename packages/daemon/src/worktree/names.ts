@@ -64,14 +64,14 @@ export function mergeRef(requestId: string): string {
   return `${MERGE_REF_PREFIX}${requestId}`;
 }
 
-// What git strips from both ends of a name ("crud", ident.c): a name made only of these is refused ("name consists
-// only of disallowed characters"), and the commit with it.
-const GIT_CRUD = /^[\u0000-\u0020.,:;<>"\\']+|[\u0000-\u0020.,:;<>"\\']+$/g;
+// What git strips from both ends of a name ("crud", ident.c) is everything but these: a name without one of them is
+// refused ("name consists only of disallowed characters"), and the commit with it.
+const NOT_GIT_CRUD = /[^\u0000-\u0020.,:;<>"\\']/;
 
 /** Author / committer of commits the daemon writes for a member (git refuses `<`, `>` and newlines in names). */
 export function gitIdentity(userId: string, displayName: string): GitIdentity {
   const cleaned = displayName.replace(/[<>\n\r]/g, ' ').trim();
-  const name = cleaned.replace(GIT_CRUD, '').length > 0 ? cleaned : ownerSlug(userId);
+  const name = NOT_GIT_CRUD.test(cleaned) ? cleaned : ownerSlug(userId);
   return { name, email: `${ownerSlug(userId)}@users.smurg.invalid` };
 }
 

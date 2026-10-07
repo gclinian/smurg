@@ -166,6 +166,10 @@ export const files = {
     en: () => 'Some names in this upload are already taken. No file was created.',
     'zh-TW': () => '這批上傳有名稱衝突，沒有建立任何檔案',
   }),
+  'upload.tooManyFolders': message({ max: 'number' }, {
+    en: (p) => `This upload has more folders than one upload may have (${p.max}). No file was created. Upload it in parts.`,
+    'zh-TW': (p) => `這批上傳的資料夾超過一次上傳的上限（${p.max} 個），沒有建立任何檔案，請分批上傳`,
+  }),
   'upload.folderInTheWay': message({}, {
     en: () => 'A folder with this name is already at the destination.',
     'zh-TW': () => '目標位置已經有同名的資料夾',

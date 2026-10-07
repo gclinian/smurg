@@ -1,5 +1,5 @@
 // The pure helpers of the conversation feature: text, people and mentions, drafts, diffs.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { MAIN_ROOT, MENTIONS_PER_TEXT_MAX } from '@smurg/protocol';
 import type { ConnectionState } from '../../lib/connection/types.ts';
 import { forgetAllDrafts, forgetDrafts } from '../../lib/workspace/drafts-storage.ts';
@@ -180,6 +180,74 @@ describe('drafts', () => {
     forgetAllDrafts(null);
     forgetDrafts('ws_1', null);
     expect(loose.get('s1').text).toBe('x');
+  });
+
+  it('two tabs on one workspace go on keeping their drafts when another workspace\u2019s drafts are deleted (review R2-D, fourth round)', () => {
+    const storage = new MemoryStorage();
+    const kept = (sessionId: string): string => createDraftsStore('ws_1', storage).get(sessionId).text;
+    const first = createDraftsStore('ws_1', storage);
+    first.setText('s1', 'A1');
+    // The other tab typed last: the workspace's entry is no longer what the first tab wrote.
+    const second = createDraftsStore('ws_1', storage);
+    second.setText('s2', 'C1');
+    // Another workspace's drafts are deleted somewhere in this browser: taken off the list, left, a removal.
+    createDraftsStore('ws_9', storage).setText('s1', 'Of another workspace');
+    forgetDrafts('ws_9', storage);
+    first.setText('s1', 'A2');
+    expect(kept('s1')).toBe('A2');
+    second.setText('s2', 'C2');
+    expect(kept('s2')).toBe('C2');
+    // Any number of them, with or without drafts there, in either order of the two tabs.
+    forgetDrafts('ws_8', storage);
+    forgetDrafts('ws_9', storage);
+    second.setText('s2', 'C3');
+    first.setText('s1', 'A3');
+    expect(kept('s1')).toBe('A3');
+    // A deletion of THIS workspace's drafts still ends both, whoever typed last.
+    forgetDrafts('ws_1', storage);
+    first.setText('s1', 'A4');
+    second.setText('s2', 'C4');
+    expect(storage.getItem('smurg.drafts.ws_1')).toBeNull();
+    // And a logout ends the tabs of every workspace that held drafts, also when the other tab of one typed last.
+    const third = createDraftsStore('ws_2', storage);
+    third.setText('s1', 'D1');
+    const fourth = createDraftsStore('ws_2', storage);
+    fourth.setText('s2', 'E1');
+    // What a deletion writes holds no time, and what a logout leaves names no workspace.
+    const clock = vi.spyOn(Date, 'now');
+    forgetDrafts('ws_7', storage);
+    forgetAllDrafts(storage);
+    expect(clock).not.toHaveBeenCalled();
+    clock.mockRestore();
+    third.setText('s1', 'D2');
+    fourth.setText('s2', 'E2');
+    expect(storage.getItem('smurg.drafts.ws_2')).toBeNull();
+    expect(Array.from({ length: storage.length }, (_, index) => storage.key(index))).toEqual(['smurg.drafts-forgotten']);
+    const mark = storage.getItem('smurg.drafts-forgotten');
+    forgetAllDrafts(storage);
+    expect(storage.getItem('smurg.drafts-forgotten')).not.toBe(mark);
+  });
+
+  it('a deletion whose mark the storage does not take (it is full) is still seen by the tab that wrote the drafts', () => {
+    /** A storage that takes drafts and refuses everything else, as a full one refuses what is new. */
+    class FullStorage extends MemoryStorage {
+      override setItem(key: string, value: string): void {
+        if (!key.startsWith('smurg.drafts.')) throw new DOMException('full', 'QuotaExceededError');
+        super.setItem(key, value);
+      }
+    }
+    const storage = new FullStorage();
+    const open = createDraftsStore('ws_1', storage);
+    open.setText('s1', 'const secret = 1;');
+    forgetDrafts('ws_1', storage);
+    expect(storage.getItem('smurg.drafts.ws_1')).toBeNull();
+    open.setText('s1', 'const secret = 1; // more');
+    expect(storage.getItem('smurg.drafts.ws_1')).toBeNull();
+    const other = createDraftsStore('ws_2', storage);
+    other.setText('s1', 'Held at the logout');
+    forgetAllDrafts(storage);
+    other.setText('s1', 'Held at the logout, and typed on');
+    expect(storage.getItem('smurg.drafts.ws_2')).toBeNull();
   });
 
   it('a member who is removed, whose device is revoked or whose browser belongs to another account now leaves no draft in this browser', () => {

@@ -86,12 +86,41 @@ export const REPORT_ERROR_SENTENCES: Readonly<Record<ReportErrorKind, string>> =
   'verified-too-many': `Under "How it was verified" list at most ${REPORT_CHECKS_MAX} checks.`,
 });
 
-const SECTION_HEADING = /^##[ \t]+(.+?)[ \t]*#*[ \t]*$/;
+const LINE_SEPARATOR = /[\u2028\u2029]/;
+const isBlank = (char: string | undefined): boolean => char === ' ' || char === '\t';
+
+/**
+ * The name of a `## ` heading: what stands after `##` and its blanks, without the blanks, closing hashes and blanks at
+ * the end of the line (`## What was done ##`); null for a line that is no such heading. Read from both ends in one
+ * pass: an expression with a name of any length in front of three runs that may all be empty tried every split of a
+ * run of blanks (the cube of its length: 1.3 s for a heading and 2,000 blanks before a letter).
+ */
+function sectionHeading(line: string): string | null {
+  if (!line.startsWith('##') || LINE_SEPARATOR.test(line)) return null;
+  let from = 2;
+  while (isBlank(line[from])) from += 1;
+  if (from === 2) return null;
+  // Nothing but blanks after the hashes: the last of two or more is the name (and no section has it).
+  if (from === line.length) return from >= 4 ? (line[from - 1] as string) : null;
+  let end = line.length;
+  while (isBlank(line[end - 1])) end -= 1;
+  while (end > from && line[end - 1] === '#') end -= 1;
+  while (end > from && isBlank(line[end - 1])) end -= 1;
+  // A name is at least one character: of `## ##` it is the first hash.
+  return line.slice(from, Math.max(end, from + 1));
+}
 const OTHER_TOP_HEADING = /^#(?:[ \t]|$)/;
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const OUTCOME_LINE = /^-[ \t]+outcome[ \t]*:[ \t]*(.*)$/i;
 const CHECK_LINE = /^[-*][ \t]+\[([ xX])\][ \t]+(.*)$/;
 const NOT_VERIFIED = /^(.*?):[ \t]*not verified[ \t]*:[ \t]*(.*)$/i;
+/**
+ * The characters `.` does not match. A line is cut at line feeds only, so one can hold the others; an expression
+ * that ends in `(.*)$` then fails at such a character and tries the run of blanks in front of it again from every
+ * blank (the square of the run). Such a line never matched the three expressions above: it is not asked.
+ */
+const DOT_REFUSES = /[\n\r\u2028\u2029]/;
+const lineMatch = (expression: RegExp, line: string): RegExpExecArray | null => (DOT_REFUSES.test(line) ? null : expression.exec(line));
 
 function error(kind: ReportErrorKind, line: number): ReportError {
   return { kind, line, text: kind === 'outcome' ? msg('report.error.outcome', { line }) : msg('report.error.format', { line }), model: REPORT_ERROR_SENTENCES[kind] };
@@ -126,7 +155,7 @@ export function parseReport(source: string, itemId: string): ReportParse {
 
   skipBlank();
   let outcome: ReportOutcome | null = null;
-  const outcomeMatch = OUTCOME_LINE.exec(lines[index] ?? '');
+  const outcomeMatch = lineMatch(OUTCOME_LINE, lines[index] ?? '');
   const outcomeValue = outcomeMatch === null ? '' : (outcomeMatch[1] as string).trim().toLowerCase();
   if (outcomeValue === 'complete' || outcomeValue === 'partial' || outcomeValue === 'blocked') {
     outcome = outcomeValue;
@@ -149,9 +178,9 @@ export function parseReport(source: string, itemId: string): ReportParse {
       found.at(-1)?.body.push(raw);
       continue;
     }
-    const heading = SECTION_HEADING.exec(raw);
+    const heading = sectionHeading(raw);
     if (heading !== null) {
-      found.push({ name: heading[1] as string, line: index + 1, body: [] });
+      found.push({ name: heading, line: index + 1, body: [] });
       continue;
     }
     if (OTHER_TOP_HEADING.test(raw)) {
@@ -214,14 +243,14 @@ export function parseReport(source: string, itemId: string): ReportParse {
         inFence = fenceMatch[1] as string;
         return;
       }
-      const check = CHECK_LINE.exec(raw);
+      const check = lineMatch(CHECK_LINE, raw);
       if (check === null) return; // prose between the checks is allowed and not part of a check
       const body = mask((check[2] as string).trim());
       if (check[1] !== ' ') {
         verified.push({ text: wireMultiline(body, REPORT_CHECK_TEXT_MAX_CHARS), passed: true });
         return;
       }
-      const not = NOT_VERIFIED.exec(body);
+      const not = lineMatch(NOT_VERIFIED, body);
       const what = not === null ? '' : (not[1] as string).trim();
       const whyNot = not === null ? '' : (not[2] as string).trim();
       if (what.length === 0 || whyNot.length === 0) {

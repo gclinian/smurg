@@ -10,7 +10,7 @@
 // - names are passed through by browsers as stored, NFD on macOS: every path is normalised to NFC (gotcha 7);
 // - every path is checked with the protocol's lexical rules before it is sent; names the host would refuse anyway
 //   (a backslash or a control character is legal in a Linux file name) are reported instead of failing the batch.
-import { checkRelPath, type RelPathProblem } from '@smurg/protocol';
+import { checkRelPath, normalized, type RelPathProblem } from '@smurg/protocol';
 import type { UploadSource } from '../../../lib/commands.ts';
 
 export interface CollectedFile {
@@ -69,7 +69,7 @@ class Collector {
   accept(rawPath: string, kind: 'file' | 'dir', file?: File): string | null {
     const check = checkRelPath(rawPath);
     if (!check.ok) {
-      this.rejected.push({ path: rawPath.normalize('NFC'), problem: check.problem });
+      this.rejected.push({ path: normalized(rawPath, 'NFC'), problem: check.problem });
       return null;
     }
     // NFC twins (possible on Linux, where NFC and NFD names are different files) would collide on the host.
@@ -111,7 +111,7 @@ async function walkEntry(entry: EntryLike, parent: string, collector: Collector)
       file = await fileOf(entry as FileEntryLike);
     } catch {
       // Permission lost, the file vanished after the drop: report it, upload the rest.
-      collector.rejected.push({ path: raw.normalize('NFC'), problem: 'unreadable' });
+      collector.rejected.push({ path: normalized(raw, 'NFC'), problem: 'unreadable' });
       return;
     }
     collector.accept(raw, 'file', file);
@@ -156,9 +156,9 @@ export async function collectUploadSource(source: UploadSource): Promise<Collect
   const topNames: string[] = [];
   for (const entry of source.entries as readonly EntryLike[]) {
     await walkEntry(entry, '', collector);
-    topNames.push(entry.name.normalize('NFC'));
+    topNames.push(normalized(entry.name, 'NFC'));
   }
   const resolved = await Promise.all(source.handles.map((pending) => pending.catch(() => null)));
-  for (const handle of resolved) if (handle) handles.set(handle.name.normalize('NFC'), handle);
+  for (const handle of resolved) if (handle) handles.set(normalized(handle.name, 'NFC'), handle);
   return collector.result(topNames, handles);
 }

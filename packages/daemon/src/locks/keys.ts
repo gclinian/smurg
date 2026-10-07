@@ -7,12 +7,12 @@
 //  2. canonicalFileRef(): the realpath of the spelling (symlinks resolved, on-disk case), mapped back to the most
 //     specific root. The LockManager learns these asynchronously and re-keys locks that were taken under an alias.
 import { join } from 'node:path';
-import { foldPathName, isSmurgDirName, relPathSegments, rootRefKey, type FileRef } from '@smurg/protocol';
+import { foldPathName, isSmurgDirName, normalized, relPathSegments, rootRefKey, type FileRef } from '@smurg/protocol';
 import type { PathGuard, RootRegistry } from '../core/interfaces.ts';
 
 /** Synchronous identity key of a file: `<root key>:<folded path>`. */
 export function lockKeyOf(ref: FileRef): string {
-  const segments = relPathSegments(ref.path.normalize('NFC')).map(foldPathName);
+  const segments = relPathSegments(normalized(ref.path, 'NFC')).map(foldPathName);
   return `${rootRefKey(ref.root)}:${segments.join('/')}`;
 }
 

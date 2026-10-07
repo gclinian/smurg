@@ -13,6 +13,7 @@ import { Terminal, type ITerminalOptions } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { HOST_MAX_CHARS, PORT_MAX_CHARS, authorityOf } from './web-address.ts';
 
 export { Terminal, Unicode11Addon, WebLinksAddon };
 
@@ -67,8 +68,14 @@ export function swallowTerminalQueries(term: Terminal): () => void {
   };
 }
 
-/** http(s) only; `javascript:`, `data:`, `file:` and anything unparsable are refused. */
+/**
+ * http(s) only; `javascript:`, `data:`, `file:` and anything unparsable are refused, and so is an address whose host
+ * is longer than a host name can be: the output is written by agents and guests, and the browser's parser is not
+ * handed a host of any length (lib/web-address.ts).
+ */
 export function isWebLink(uri: string): boolean {
+  const authority = authorityOf(uri);
+  if (authority === null || authority.length > HOST_MAX_CHARS + PORT_MAX_CHARS) return false;
   try {
     const url = new URL(uri);
     return url.protocol === 'https:' || url.protocol === 'http:';

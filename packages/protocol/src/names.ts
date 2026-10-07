@@ -2,6 +2,7 @@
 // here, by the daemon, and never translated by a client.
 import { agentSafeName } from './agent-text.ts';
 import { renderEnglish, msg, type MessageRef } from './i18n/index.ts';
+import { normalized } from './normalize.ts';
 import { RELAY_DISPLAY_NAME_MAX_CHARS } from './relay/frames.ts';
 import type { AgentStatus, SessionInfo } from './schema/entities.ts';
 
@@ -91,8 +92,7 @@ const SLUG_MIN_CHARS = 3;
  * taken: the daemon refuses it (`topic.slugTaken` / `topic.folderExists`) and the member changes the field.
  */
 export function slugFromName(name: string, taken: Iterable<string> = []): string {
-  const ascii = name
-    .normalize('NFKD')
+  const ascii = normalized(name, 'NFKD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase();
   const slug = ascii

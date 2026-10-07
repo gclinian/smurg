@@ -61,7 +61,7 @@ export const sessions = {
   }),
   'session.claude.initTimeout': message({}, {
     en: () => 'Claude Code did not answer when the session started. The host should check that `claude` runs in a terminal on their computer.',
-    'zh-TW': () => 'session 啟動時 Claude Code 沒有回應。請主人在自己電腦的終端機確認 `claude` 可以執行',
+    'zh-TW': () => 'session 啟動時 Claude Code 沒有回應。請主人在自己電腦的終端機確認 `claude` 可以執行。',
   }),
   'session.claude.tooOld': message({ found: 'string', min: 'string' }, {
     en: (p) => `Claude Code on the host's computer is version ${p.found}. Agent sessions need ${p.min} or newer. The host should update Claude Code.`,

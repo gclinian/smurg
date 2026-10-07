@@ -160,7 +160,8 @@ function scanFrom(text: string, start: number, options: ScanOptions, depth: numb
     }
     const scan = scanFrom(text, from, options, depth + 1, true);
     if (scan.unparsed || scan.end >= text.length) unparsed = true;
-    commands.push(...scan.commands);
+    // (One by one: a list of a hundred thousand commands is more than a call can be handed as arguments.)
+    for (const inner of scan.commands) commands.push(inner);
     word.unknown('dynamic', UNKNOWN_PART);
     return Math.min(scan.end, text.length - 1);
   };
@@ -233,7 +234,7 @@ function scanFrom(text: string, start: number, options: ScanOptions, depth: numb
     }
     const scan = scanFrom(text.slice(i + 1, end).replace(/\\([`\\$])/g, '$1'), 0, options, depth + 1, false);
     if (scan.unparsed) unparsed = true;
-    commands.push(...scan.commands);
+    for (const inner of scan.commands) commands.push(inner);
     word.unknown('dynamic', UNKNOWN_PART);
     return end;
   };

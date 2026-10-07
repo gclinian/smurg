@@ -16,6 +16,7 @@ import { lstat, mkdir, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   SmurgError,
+  UPLOAD_PLAN_MAX_ENTRIES,
   baseNameOfRelPath,
   can,
   foldPathName,
@@ -84,6 +85,68 @@ interface PlanReservation {
 interface PendingExclusion {
   readonly uploadId?: string;
   readonly plan?: { readonly userId: UserId; readonly key: string };
+}
+
+/** One entry of a plan as `plan` goes on with it. */
+export interface PlannedEntry {
+  readonly path: string;
+  readonly kind: 'file' | 'dir';
+  readonly size: number;
+}
+
+/**
+ * PURE: what a plan's entries are inside the batch itself: each name once (`seen`, by its path, or by the key a file
+ * system that compares names without case gives it when `insensitive`), and the entries that cannot both be made (two
+ * for one name, a file that is also the folder of another entry). null: the entries lie in more folders than a plan
+ * may have entries (UPLOAD_PLAN_MAX_ENTRIES; an entry can lie two thousand folders deep, so without this bound ten
+ * thousand entries were twenty million folders).
+ * Each name is folded once and a folder is walked once: the first entry in it brings the folders above it, the others
+ * stop at it (every entry used to fold every folder above it again, each from its first name on: 2.7 s for a thousand
+ * files two hundred folders deep).
+ */
+export function planBatch(
+  entries: readonly { readonly path: string; readonly kind: 'file' | 'dir'; readonly size?: number | undefined }[],
+  insensitive: boolean,
+): { readonly seen: Map<string, PlannedEntry>; readonly problems: { path: string; reason: string }[] } | null {
+  const seen = new Map<string, PlannedEntry>();
+  const problems: { path: string; reason: string }[] = [];
+  const parentKeys = new Set<string>();
+  for (const entry of entries) {
+    const names = insensitive ? relPathSegments(entry.path).map(foldPathName) : relPathSegments(entry.path);
+    const key = names.join('/');
+    const previous = seen.get(key);
+    if (previous) {
+      if (!(previous.kind === 'dir' && entry.kind === 'dir')) problems.push({ path: entry.path, reason: 'duplicate' });
+      continue;
+    }
+    seen.set(key, { path: entry.path, kind: entry.kind, size: entry.size ?? 0 });
+    for (let depth = names.length - 1; depth > 0; depth -= 1) {
+      const parent = names.slice(0, depth).join('/');
+      if (parentKeys.has(parent)) break;
+      parentKeys.add(parent);
+      if (parentKeys.size > UPLOAD_PLAN_MAX_ENTRIES) return null;
+    }
+  }
+  for (const [key, entry] of seen) if (entry.kind === 'file' && parentKeys.has(key)) problems.push({ path: entry.path, reason: 'file-and-directory' });
+  return { seen, problems };
+}
+
+/**
+ * PURE: the folders to make for a plan's entries (the ones it lists and the ones its entries lie in), parents first.
+ * null: more than a plan may have entries. (As they are spelt: two spellings of one folder are two here, also on a
+ * file system that takes them for one.)
+ */
+export function planFolders(entries: readonly PlannedEntry[]): string[] | null {
+  const depthOf = new Map<string, number>();
+  for (const entry of entries) {
+    let prefix: string | null = entry.kind === 'dir' ? entry.path : parentRelPath(entry.path);
+    while (prefix !== null && prefix !== '' && !depthOf.has(prefix)) {
+      depthOf.set(prefix, relPathSegments(prefix).length);
+      if (depthOf.size > UPLOAD_PLAN_MAX_ENTRIES) return null;
+      prefix = parentRelPath(prefix);
+    }
+  }
+  return [...depthOf].sort(([a, depthA], [b, depthB]) => depthA - depthB || (a < b ? -1 : a > b ? 1 : 0)).map(([dir]) => dir);
 }
 
 /** `SHA-256(u64be size ‖ u32be chunkSize ‖ h0 … hn-1)` (ARCHITECTURE §5.2). */
@@ -167,25 +230,14 @@ export class UploadServiceImpl implements UploadService {
     const fail = (reason: string): never => {
       throw new SmurgError('conflict', msg('upload.nameConflicts'), { reason, paths: problems.slice(0, PLAN_PROBLEMS_LISTED) });
     };
+    const tooManyFolders = (): never => {
+      throw new SmurgError('too_large', msg('upload.tooManyFolders', { max: UPLOAD_PLAN_MAX_ENTRIES }), { reason: 'too-many-folders' });
+    };
 
     // 1. Inside the batch: two entries for one name, a file that is also the parent of another entry.
-    const seen = new Map<string, { path: string; kind: 'file' | 'dir'; size: number }>();
-    const parentKeys = new Set<string>();
-    for (const entry of input.entries) {
-      const key = keyOf(entry.path);
-      const previous = seen.get(key);
-      if (previous) {
-        if (!(previous.kind === 'dir' && entry.kind === 'dir')) problems.push({ path: entry.path, reason: 'duplicate' });
-        continue;
-      }
-      seen.set(key, { path: entry.path, kind: entry.kind, size: entry.size ?? 0 });
-      let prefix = parentRelPath(entry.path);
-      while (prefix !== null && prefix !== '') {
-        parentKeys.add(keyOf(prefix));
-        prefix = parentRelPath(prefix);
-      }
-    }
-    for (const [key, entry] of seen) if (entry.kind === 'file' && parentKeys.has(key)) problems.push({ path: entry.path, reason: 'file-and-directory' });
+    const batch = planBatch(input.entries, insensitive) ?? tooManyFolders();
+    const seen = batch.seen;
+    for (const problem of batch.problems) problems.push(problem);
     if (problems.length > 0) fail('batch-collision');
 
     // 2. Every path through PathGuard for writing (host-only, read-only, symlinks, containment) before anything happens.
@@ -234,16 +286,7 @@ export class UploadServiceImpl implements UploadService {
     if (!disk.ok) this.refuseDisk(disk, principal, { root: input.root, path: entries[0]?.path ?? '' }, 'plan');
 
     // 5. Directories, also the empty ones, parents first.
-    const dirs = new Set<string>();
-    for (const entry of entries) {
-      const dir = entry.kind === 'dir' ? entry.path : parentRelPath(entry.path);
-      let prefix: string | null = dir;
-      while (prefix !== null && prefix !== '') {
-        dirs.add(prefix);
-        prefix = parentRelPath(prefix);
-      }
-    }
-    const ordered = [...dirs].sort((a, b) => relPathSegments(a).length - relPathSegments(b).length || (a < b ? -1 : a > b ? 1 : 0));
+    const ordered = planFolders(entries) ?? tooManyFolders();
     const guard = this.files.guard(principal);
     for (const dir of ordered) {
       const ref: FileRef = { root: input.root, path: dir };

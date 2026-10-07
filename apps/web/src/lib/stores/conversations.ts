@@ -46,6 +46,7 @@ import { isClientRequestError } from '@smurg/protocol/client';
 import { describeError } from '../errors.ts';
 import { createStore, type ReadableStore } from '../store.ts';
 import type { AreaLifecycle, LoadStatus, StoreContext } from './base.ts';
+import { compareIds } from '../format.ts';
 
 // ---------------------------------------------------------------------------------------------------------------
 // Render items: what the event list shows, folded from the events (DESIGN §5.3)
@@ -498,7 +499,7 @@ export function selectOpenCards(conversation: Conversation): { readonly kind: 'q
   const open: { kind: 'question' | 'permission'; id: string; askedAt: number }[] = [];
   for (const question of conversation.questions.values()) if (question.status === 'open') open.push({ kind: 'question', id: question.id, askedAt: question.askedAt });
   for (const request of conversation.permissions.values()) if (request.status === 'open') open.push({ kind: 'permission', id: request.id, askedAt: request.askedAt });
-  return open.sort((a, b) => a.askedAt - b.askedAt || a.id.localeCompare(b.id));
+  return open.sort((a, b) => a.askedAt - b.askedAt || compareIds(a.id, b.id));
 }
 
 /** The `seq` of the event where a card appeared, when the window holds it. */

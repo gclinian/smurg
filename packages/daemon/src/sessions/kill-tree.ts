@@ -411,32 +411,48 @@ function run(file: string, args: readonly string[]): Promise<string> {
 
 /** `lstart`: "Mon Sep 28 13:50:05 2026" (day of month space-padded). */
 const LSTART = '[A-Z][a-z]{2} [A-Z][a-z]{2} [ \\d]\\d \\d{2}:\\d{2}:\\d{2} \\d{4}';
-const TABLE_LINE = new RegExp(`^\\s*(\\d+)\\s+(\\d+)\\s+(\\d+)\\s+(\\d+)\\s+(\\S+)(?:\\s+(${LSTART})(?:\\s+(.*?))?)?\\s*$`);
+// A line of `ps` is read from its start, column by column, and the command is whatever is left: it is another
+// program's argument list, as long as the system allows and with any character in it. (One expression for the whole
+// line, with the command in front of `\s*$`, cost the square of a run of blanks in an argument: 5 s for 100,000; and
+// its `.` stopped at a line separator inside an argument, so such a process was in no table at all.)
+const TABLE_HEAD = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)/;
+const COMMAND_HEAD = /^\s*(\d+)\s+(\d+)\s/;
+const STARTED = new RegExp(`^(${LSTART})(?:\\s|$)`);
+
+/** `rest` (trimmed) as `lstart` and the command after it; null when it does not start with a start time. */
+function startAndCommand(rest: string): { readonly start: string; readonly command: string } | null {
+  const started = STARTED.exec(rest);
+  if (started === null) return null;
+  const start = started[1] as string;
+  return { start, command: rest.slice(start.length).trim() };
+}
 
 /** `ps -o pid=,ppid=,pgid=,uid=,stat=[,lstart=,command=]` */
 export function parseProcessTable(stdout: string): ProcessRow[] {
   const rows: ProcessRow[] = [];
   for (const line of stdout.split('\n')) {
-    const match = TABLE_LINE.exec(line);
+    const match = TABLE_HEAD.exec(line);
     if (!match) continue;
     const [pid, ppid, pgid, uid] = [match[1], match[2], match[3], match[4]].map(Number) as [number, number, number, number];
     if (![pid, ppid, pgid, uid].every((n) => Number.isSafeInteger(n))) continue;
-    const start = match[6];
-    const command = match[7];
-    rows.push({ pid, ppid, pgid, uid, zombie: (match[5] as string).startsWith('Z'), ...(start !== undefined ? { start, command: command ?? '' } : {}) });
+    const rest = line.slice(match[0].length).trim();
+    const started = rest === '' ? null : startAndCommand(rest);
+    // Something after the state that is no start time: not a line of this table.
+    if (rest !== '' && started === null) continue;
+    rows.push({ pid, ppid, pgid, uid, zombie: (match[5] as string).startsWith('Z'), ...(started !== null ? { start: started.start, command: started.command } : {}) });
   }
   return rows;
 }
-
-const COMMAND_LINE = new RegExp(`^\\s*(\\d+)\\s+(\\d+)\\s+(${LSTART})\\s+(.*?)\\s*$`);
 
 /** Lines of `ps -o pid=,uid=,lstart=,command=` keyed by pid. */
 function parseCommands(stdout: string): Map<number, { uid: number; start: string; line: string }> {
   const out = new Map<number, { uid: number; start: string; line: string }>();
   for (const raw of stdout.split('\n')) {
-    const match = COMMAND_LINE.exec(raw);
+    const match = COMMAND_HEAD.exec(raw);
     if (!match) continue;
-    out.set(Number(match[1]), { uid: Number(match[2]), start: match[3] as string, line: match[4] as string });
+    const started = startAndCommand(raw.slice(match[0].length).trim());
+    if (started === null) continue;
+    out.set(Number(match[1]), { uid: Number(match[2]), start: started.start, line: started.command });
   }
   return out;
 }

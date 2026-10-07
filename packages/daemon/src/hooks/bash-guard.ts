@@ -30,8 +30,8 @@
 // The paths are judged as the FILE SYSTEM has them: `bashPlaces` gives the places a command names as absolute paths,
 // the caller resolves links (hook-events.ts), and `judgePlaces` decides.
 import { posix } from 'node:path';
-import { foldRelPath, isRelPathWithin, relPathSegments } from '@smurg/protocol';
-import { UNKNOWN_PART, programName, programWords, scanShell, type ShellWord, type SimpleCommand } from '../core/shell-scan.ts';
+import { foldPathName, foldRelPath, isRelPathWithin, relPathSegments } from '@smurg/protocol';
+import { SCAN_DEPTH_MAX, UNKNOWN_PART, programName, programWords, scanShell, type ShellWord, type SimpleCommand } from '../core/shell-scan.ts';
 
 /** What the gate says about one shell command. */
 export type BashVerdict = 'clear' | 'writes' | 'unsure';
@@ -73,7 +73,8 @@ export interface BashPlace {
   readonly kind: 'write' | 'mention';
   /**
    * A wildcard followed `path` (a folder): what is meant is whatever below it matches. `next`: the pattern of the
-   * first name below the folder, as a regular expression source; null when any name may match.
+   * first name below the folder (`*` any run of characters, `?` any one character, everything else itself, folded
+   * like a name: foldPathName); null when any name may match.
    */
   readonly open?: { readonly next: string | null };
 }
@@ -87,6 +88,9 @@ export interface BashReading {
 /** Places of one command that are looked at, and directories a line may be in; a command with more is `unsure`. */
 export const BASH_PLACES_MAX = 256;
 const BASH_DIRS_MAX = 8;
+/** Changes of directory that are followed in one line, and the longest directory a line can be in; beyond: `unsure`. */
+const BASH_CD_MAX = 16;
+const BASH_DIR_MAX_CHARS = 4_096;
 
 const LOOSE_SPLIT = /[\s;&|()<>=,`'"]+/;
 
@@ -100,42 +104,52 @@ function gluedValueAt(text: string): number {
   return /^[A-Za-z_][A-Za-z0-9_]*=/.test(text) ? text.indexOf('=') + 1 : 0;
 }
 
-/** The pattern of one path name with wildcards, as a regular expression source; null when smurg does not read it. */
+/**
+ * The pattern of one path name with wildcards (`*`, `?`; a class `[…]` is any one character), folded like a name;
+ * null when smurg does not read it (a brace list, a tilde, an expansion, `**`): then any name may match.
+ */
 function namePattern(name: string): string | null {
   if (name === '' || /[{}~]/.test(name) || name.includes(UNKNOWN_PART) || name.includes('**')) return null;
-  let source = '';
+  let pattern = '';
   for (let i = 0; i < name.length; i++) {
     const char = name[i] as string;
-    if (char === '*') source += '.*';
-    else if (char === '?') source += '.';
-    else if (char === '[') {
+    if (char === '[') {
       const end = name.indexOf(']', i + 2);
       if (end === -1) return null;
-      source += '.';
+      pattern += '?';
       i = end;
-    } else source += char.replace(/[\\^$.|+()]/g, '\\$&');
+    } else pattern += char;
   }
-  return `^${source}$`;
+  return foldPathName(pattern);
+}
+
+/** What one reading of a line shares with the lines it hands to other shells: the places found, and how far reading went. */
+interface Reading {
+  readonly places: BashPlace[];
+  /** More places than are looked at were named: nothing is said about any of them. */
+  full: boolean;
 }
 
 /**
- * PURE: the places a shell command names, from `cwd` (absolute; where Claude Code says the command starts). `home`:
- * what `~` stands for. A `cd` to a written path is followed (the line may then be in either directory: both are
- * looked at); any other change of directory makes what is written by a relative name `unsure`.
+ * Reads one command line that starts in one of `startDirs` (`startLost`: or somewhere nobody knows) and adds the
+ * places it names to `reading`; true when the line cannot be followed far enough to say what it changes.
  */
-export function bashPlaces(command: string, cwd: string, home?: string): BashReading {
+function readLine(command: string, startDirs: readonly string[], startLost: boolean, home: string | undefined, reading: Reading, depth: number): boolean {
   const scan = scanShell(command, home === undefined ? {} : { home });
   let unsure = scan.unparsed;
-  let dirs: string[] = [posix.resolve(cwd)];
+  let dirs: string[] = [...startDirs];
   /** A directory change that was not followed: where relative names lead is not known any more. */
-  let lost = false;
-  const places: BashPlace[] = [];
+  let lost = startLost;
+  let changes = 0;
+  const places = reading.places;
   const add = (named: string, kind: 'write' | 'mention', open?: BashPlace['open']): void => {
+    if (reading.full) return;
     if (named.startsWith('/')) places.push({ path: posix.resolve(named), kind, ...(open === undefined ? {} : { open }) });
     else {
       if (lost && kind === 'write') unsure = true;
       for (const dir of dirs) places.push({ path: posix.resolve(dir, named), kind, ...(open === undefined ? {} : { open }) });
     }
+    if (places.length > BASH_PLACES_MAX) reading.full = true;
   };
   const place = (word: ShellWord, kind: 'write' | 'mention'): void => {
     if (word.dynamic) {
@@ -159,6 +173,7 @@ export function bashPlaces(command: string, cwd: string, home?: string): BashRea
   };
   const looseMentions = (word: ShellWord): void => {
     for (const piece of word.text.split(LOOSE_SPLIT)) {
+      if (reading.full) return;
       if (piece === '' || piece.includes(UNKNOWN_PART)) continue;
       // `-oscripts/lint.sh` inside the text: the part after the letter is the place.
       const named = piece.startsWith('-') ? piece.slice(gluedValueAt(piece) || piece.length) : piece;
@@ -179,10 +194,15 @@ export function bashPlaces(command: string, cwd: string, home?: string): BashRea
     if (CD_COMMANDS.has(program)) {
       const operands = rest.filter((word) => word.dynamic || word.glob || !word.text.startsWith('-') || word.text === '-');
       const target = operands[0];
-      if (program === 'cd' && operands.length === 1 && target !== undefined && !target.dynamic && !target.glob && target.text !== '-') {
+      changes += 1;
+      if (changes > BASH_CD_MAX) {
+        // A line that changes directory this often is not followed: where it is, nobody says.
+        unsure = true;
+        lost = true;
+      } else if (program === 'cd' && operands.length === 1 && target !== undefined && !target.dynamic && !target.glob && target.text !== '-') {
         // Either directory from here on: a `cd` in a subshell, or one that failed, leaves the line where it was.
         const next = new Set([...dirs, ...dirs.map((dir) => posix.resolve(dir, target.text))]);
-        if (next.size > BASH_DIRS_MAX) lost = true;
+        if (next.size > BASH_DIRS_MAX || [...next].some((dir) => dir.length > BASH_DIR_MAX_CHARS)) lost = true;
         else dirs = [...next];
       } else lost = true;
       return;
@@ -236,21 +256,30 @@ export function bashPlaces(command: string, cwd: string, home?: string): BashRea
         continue;
       }
       if (shell && /\s/.test(word.text)) {
-        // A command line for another shell: read like this one, from every directory this line may be in.
-        for (const dir of dirs) {
-          const inner = bashPlaces(word.text, dir, home);
-          if (inner.unsure) unsure = true;
-          places.push(...inner.places);
-        }
+        // A command line for another shell: read like this one, ONCE, from every directory this line may be in and
+        // as lost as this line is. A shell inside a shell inside a shell is read SCAN_DEPTH_MAX deep.
+        if (depth >= SCAN_DEPTH_MAX || readLine(word.text, dirs, lost, home, reading, depth + 1)) unsure = true;
       }
       looseMentions(word);
     }
   };
   for (const entry of scan.commands) {
     one(entry);
-    if (places.length > BASH_PLACES_MAX) return { unsure: true, places: [] };
+    if (reading.full) return true;
   }
-  return { unsure, places };
+  return unsure;
+}
+
+/**
+ * PURE: the places a shell command names, from `cwd` (absolute; where Claude Code says the command starts). `home`:
+ * what `~` stands for. A `cd` to a written path is followed (the line may then be in either directory: both are
+ * looked at); any other change of directory makes what is written by a relative name `unsure`. What it costs is in
+ * proportion to the command: every bound above ends the reading with `unsure`.
+ */
+export function bashPlaces(command: string, cwd: string, home?: string): BashReading {
+  const reading: Reading = { places: [], full: false };
+  const unsure = readLine(command, [posix.resolve(cwd)], false, home, reading, 0);
+  return reading.full ? { unsure: true, places: [] } : { unsure, places: reading.places };
 }
 
 /** A place as the file system has it: inside the session's root (`rel`, root-relative, `''` the root itself), or not (null). */
@@ -260,23 +289,51 @@ export interface ResolvedPlace {
   readonly open?: BashPlace['open'];
 }
 
+/** How many steps a wildcard is tried for, per character of the pattern and of the name; then it "can match". */
+const WILDCARD_STEPS_PER_CHAR = 8;
+
+/**
+ * Whether the pattern (`*` any run of characters, `?` any one, everything else itself) can match `name`, both folded.
+ * One walk over the two with one place to go back to (the last `*`). As a regular expression it was tried in every
+ * way the stars can share the name: seven stars against a name of sixty letters took 16 s. A pattern that is not
+ * decided within the steps its length and the name's are worth "can match": a person is asked.
+ */
 function matches(pattern: string, name: string): boolean {
-  try {
-    return new RegExp(pattern, 'iu').test(name);
-  } catch {
-    return true;
+  const wanted = [...pattern];
+  const given = [...name];
+  let steps = WILDCARD_STEPS_PER_CHAR * (wanted.length + given.length) + 64;
+  let p = 0;
+  let n = 0;
+  let star = -1;
+  let afterStar = 0;
+  while (n < given.length) {
+    steps -= 1;
+    if (steps < 0) return true;
+    if (p < wanted.length && wanted[p] !== '*' && (wanted[p] === '?' || wanted[p] === given[n])) {
+      p += 1;
+      n += 1;
+    } else if (p < wanted.length && wanted[p] === '*') {
+      star = p;
+      p += 1;
+      afterStar = n;
+    } else if (star !== -1) {
+      p = star + 1;
+      afterStar += 1;
+      n = afterStar;
+    } else return false;
   }
+  while (p < wanted.length && wanted[p] === '*') p += 1;
+  return p === wanted.length;
 }
 
-/** Whether `place` is at a recorded script, below one, or is (or, for a wildcard, can match) a folder above one. */
-function reaches(place: ResolvedPlace & { readonly rel: string }, script: string): boolean {
-  const at = foldRelPath(place.rel);
+/** Whether a place (`at`: its folded path inside the root) is at a recorded script, below one, or is (or, for a wildcard, can match) a folder above one. */
+function reaches(at: string, open: BashPlace['open'], script: string): boolean {
   if (isRelPathWithin(at, script)) return true;
   if (!isRelPathWithin(script, at)) return false;
-  if (place.open === undefined || place.open.next === null) return true;
+  if (open === undefined || open.next === null) return true;
   // The first name of the script's path below the folder: the wildcard has to match it.
   const below = relPathSegments(script)[relPathSegments(at).length];
-  return below === undefined || matches(place.open.next, below);
+  return below === undefined || matches(open.next, below);
 }
 
 /**
@@ -290,7 +347,8 @@ export function judgePlaces(reading: { readonly unsure: boolean; readonly places
   for (const place of reading.places) {
     const rel = place.rel;
     if (rel === null) continue;
-    if (!scripts.some((script) => reaches({ ...place, rel }, script))) continue;
+    const at = foldRelPath(rel);
+    if (!scripts.some((script) => reaches(at, place.open, script))) continue;
     if (place.kind === 'write') return 'writes';
     if (rel !== '' || place.open !== undefined) verdict = 'unsure';
   }

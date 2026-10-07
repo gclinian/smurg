@@ -634,6 +634,17 @@ describe('conversation column: the status bar', () => {
     expect(status.textContent).toContain("Claude Code is not logged in on the host's computer.");
     fireEvent.click(within(status).getByRole('button', { name: 'Check login again' }));
     expect(view.conn.lastRequest('session.loginStatus')?.payload).toEqual({ sessionId: SID });
+    // The bar's buttons are one piece after the sentences: with two of them a narrow column puts that piece on a line
+    // of its own (conversation.css goes by the second button; the smoke measures it at 320 px, review R6-05).
+    const actions = status.querySelector('.conv-status__actions') as HTMLElement;
+    expect(within(actions).getAllByRole('button').map((button) => button.textContent)).toEqual(['Write the spec now', 'Check login again']);
+    expect(actions.previousElementSibling?.className).toBe('conv-status__line');
+    expect([...status.querySelectorAll('button')].every((button) => button.parentElement === actions)).toBe(true);
+    // No button: no empty piece.
+    act(() => view.conn.emit('session.host', { account: { state: 'ok', sessions: 2 }, mainProjectSettings: 'none' }));
+    act(() => view.conn.emit('topic.updated', { topic: buildTopic({ id: 't_1', phase: 'plan' }) }));
+    expect(within(status).queryAllByRole('button')).toEqual([]);
+    expect(status.querySelector('.conv-status__actions')).toBeNull();
   });
 });
 

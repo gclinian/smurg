@@ -129,6 +129,22 @@ describe('wire catalog', () => {
     }
   });
 
+  it('a sentence that is shown in front of another sentence ends with a full stop in both languages (plan errors, notices)', () => {
+    // The plan column shows a plan error and then "Below is the last plan smurg could read.", a conversation a notice
+    // and then "Only the host can try again.": without its own full stop the first of two Chinese sentences ran into
+    // the second with a space where English has ". ".
+    // Two more are sent as a notice with an action ("Try again", "Start the agent again"), so a sentence follows them too.
+    const NOTICES_WITH_AN_ACTION: readonly string[] = ['session.claude.initTimeout', 'session.projectSettings.untrusted'];
+    const sentences = MESSAGE_IDS.filter((id) => id.startsWith('plan.error.') || id.startsWith('notice.') || NOTICES_WITH_AN_ACTION.includes(id));
+    expect(sentences.length).toBeGreaterThan(20);
+    for (const id of sentences) {
+      for (const ref of sampleRefs(id)) {
+        expect(render('en', ref), id).toMatch(/[^.]\.$/);
+        expect(render('zh-TW', ref), id).toMatch(/[^\u3002.]\u3002$/);
+      }
+    }
+  });
+
   it('every IDENTICAL_IN_BOTH entry is a message', () => {
     for (const id of IDENTICAL_IN_BOTH) expect(isMessageId(id), id).toBe(true);
   });

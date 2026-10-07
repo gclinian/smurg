@@ -3,6 +3,7 @@
 import type { Stats } from 'node:fs';
 import { lstat, readdir, realpath } from 'node:fs/promises';
 import { join, sep } from 'node:path';
+import { normalized } from '@smurg/protocol';
 import type { FileIdentity, SpellingLookup } from '../core/interfaces.ts';
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -36,7 +37,7 @@ export async function otherSpellings(dir: string, name: string): Promise<string[
     if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'EACCES' || code === 'EPERM') return [];
     throw err;
   }
-  return names.filter((entry) => entry !== name && NON_ASCII.test(entry) && entry.normalize('NFC') === name);
+  return names.filter((entry) => entry !== name && NON_ASCII.test(entry) && normalized(entry, 'NFC') === name);
 }
 
 /** The most directories one SpellingIndex keeps (the oldest listing is dropped first). */
@@ -79,7 +80,7 @@ async function indexSpellings(dir: string): Promise<ReadonlyMap<string, readonly
   }
   for (const entry of names) {
     if (!NON_ASCII.test(entry)) continue;
-    const nfc = entry.normalize('NFC');
+    const nfc = normalized(entry, 'NFC');
     if (nfc === entry) continue;
     const group = out.get(nfc);
     if (group) group.push(entry);
@@ -98,7 +99,7 @@ export function unaddressableNames(names: readonly string[]): Set<string> {
   const byForm = new Map<string, string[]>();
   for (const name of names) {
     if (!NON_ASCII.test(name)) continue;
-    const nfc = name.normalize('NFC');
+    const nfc = normalized(name, 'NFC');
     if (nfc === name) continue;
     const group = byForm.get(nfc);
     if (group) group.push(name);

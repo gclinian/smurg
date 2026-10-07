@@ -9,6 +9,7 @@
 import { collectPages, type PayloadInputOf, type Suggestion } from '@smurg/protocol';
 import { createStore, type ReadableStore } from '../store.ts';
 import { loadSnapshot, readyState, type AreaLifecycle, type Loadable, type StoreContext } from './base.ts';
+import { compareIds } from '../format.ts';
 
 export interface SuggestionsState extends Loadable {
   readonly suggestions: ReadonlyMap<string, Suggestion>;
@@ -41,7 +42,7 @@ function indexed(suggestions: ReadonlyMap<string, Suggestion>): Pick<Suggestions
     if (list) list.push(suggestion);
     else bySession.set(suggestion.sessionId, [suggestion]);
   }
-  for (const list of bySession.values()) list.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  for (const list of bySession.values()) list.sort((a, b) => a.createdAt - b.createdAt || compareIds(a.id, b.id));
   return { suggestions, bySession };
 }
 

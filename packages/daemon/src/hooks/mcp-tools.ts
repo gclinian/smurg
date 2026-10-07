@@ -15,7 +15,7 @@
 // asks is bounded: waits end at the session's end, the daemon's stop or the caller's disconnect; notifications are
 // rate-limited per session (`ctx.rates`, bucket `agent-notify`).
 import { isAbsolute, resolve as resolvePath } from 'node:path';
-import { INBOX_EXCERPT_MAX_CHARS, SmurgError, agentSafeName, agentText, defaultSessionTitle, mask, rootRefKey, rootRefEquals, type FileRef, type LockInfo, type SessionInfo } from '@smurg/protocol';
+import { INBOX_EXCERPT_MAX_CHARS, SmurgError, agentSafeName, agentText, defaultSessionTitle, mask, normalized, rootRefKey, rootRefEquals, type FileRef, type LockInfo, type SessionInfo } from '@smurg/protocol';
 import { z } from 'zod';
 import type { DaemonContext } from '../core/context.ts';
 import { isPathDeniedError } from '../core/errors.ts';
@@ -286,7 +286,7 @@ function listSessions(tc: McpCall, args: unknown): JsonObject {
 }
 
 function foldName(name: string): string {
-  return name.normalize('NFKC').toLowerCase();
+  return normalized(name, 'NFKC').toLowerCase();
 }
 
 /**

@@ -155,7 +155,7 @@ describe('conversation column in zh-TW', () => {
       session: { status: 'failed', retryHostOnly: true },
       events: [{ ...buildEvent('notice', { seq: 1, level: 'error', action: 'retry' }), text: msg('notice.processExited', { code: 1 }), fallback: "The agent's process ended unexpectedly (exit code 1)." } as ConversationEvent],
     });
-    expect(screen.getByRole('log').querySelector('.conv-notice')?.textContent).toContain('agent 的程序意外結束（結束代碼 1）只有主人可以再試一次。');
+    expect(screen.getByRole('log').querySelector('.conv-notice')?.textContent).toContain('agent 的程序意外結束（結束代碼 1）。只有主人可以再試一次。');
   });
 
   it('a permission request that smurg\u2019s own gate asked for says why in Chinese, not in the English sentence the daemon sent', async () => {

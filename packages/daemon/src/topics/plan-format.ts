@@ -88,9 +88,31 @@ export const PLAN_ERROR_SENTENCES: Readonly<Record<PlanErrorKind, string>> = Obj
 });
 
 const ITEM_HEADING = /^###[ \t]+(\d{1,4})\.[ \t]+(.*)$/;
+/**
+ * The characters `.` does not match. A line is cut at line feeds only, so one can hold the others; an expression
+ * that ends in `(.*)$` then fails at such a character and tries the run of blanks in front of it again from every
+ * blank (the square of the run: 30 s for a line of 256,000). Such a line never matched: it is not asked.
+ */
+const DOT_REFUSES = /[\n\r\u2028\u2029]/;
 const ANY_HEADING = /^ {0,3}#{1,6}(?:[ \t]|$)/;
-/** `- <name>: <value>`: a name of letters, digits, spaces, `_` and `-`, a colon, then a space or the end of the line. */
-const FIELD_LINE = /^-[ \t]+([A-Za-z][A-Za-z0-9 _\t-]*?)[ \t]*:(?:[ \t]+(.*))?$/;
+/** What stands between the hyphen of a field line and its colon: blanks, then a name of letters, digits, blanks, `_` and `-`. */
+const FIELD_HEAD = /^[ \t]+[A-Za-z][A-Za-z0-9 _\t-]*$/;
+const LINE_SEPARATOR = /[\u2028\u2029]/;
+
+/**
+ * `- <name>: <value>`: a name of letters, digits, blanks, `_` and `-`, a colon, then a blank or the end of the line.
+ * Read at the line's FIRST colon, in one pass: an expression that looked for the colon behind a name of any length
+ * tried every length of the name against every run of blanks (the square of a line of blanks without a colon).
+ */
+function fieldOf(line: string): { readonly name: string; readonly value: string } | null {
+  if (!line.startsWith('-')) return null;
+  const colon = line.indexOf(':');
+  if (colon === -1 || !FIELD_HEAD.test(line.slice(1, colon))) return null;
+  const rest = line.slice(colon + 1);
+  if (rest !== '' && !rest.startsWith(' ') && !rest.startsWith('\t')) return null;
+  if (LINE_SEPARATOR.test(rest)) return null;
+  return { name: line.slice(1, colon).trim().toLowerCase().replace(/[ \t]+/g, ' '), value: rest.trim() };
+}
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const FIELD_NAMES = ['id', 'depends on', 'size', 'touches'] as const;
 type FieldName = (typeof FIELD_NAMES)[number];
@@ -221,7 +243,7 @@ export function parsePlan(source: string): PlanParse {
       current?.description.push(raw);
       continue;
     }
-    const heading = ITEM_HEADING.exec(raw);
+    const heading = DOT_REFUSES.test(raw) ? null : ITEM_HEADING.exec(raw);
     if (heading !== null) {
       const title = wireLine(heading[2] as string, Number.MAX_SAFE_INTEGER).trim();
       if (title.length === 0 || title.length > ITEM_TITLE_MAX_CHARS) errors.push(finding('heading', msg('plan.error.heading', { line: lineNo }), lineNo));
@@ -238,13 +260,12 @@ export function parsePlan(source: string): PlanParse {
     if (current === null) continue; // text before the first item is allowed and ignored
     if (inFields) {
       if (raw.trim().length === 0) continue;
-      const field = FIELD_LINE.exec(raw);
+      const field = fieldOf(raw);
       if (field !== null) {
-        const name = (field[1] as string).trim().toLowerCase().replace(/[ \t]+/g, ' ');
-        if (!(FIELD_NAMES as readonly string[]).includes(name) || current.fields.has(name as FieldName)) {
+        if (!(FIELD_NAMES as readonly string[]).includes(field.name) || current.fields.has(field.name as FieldName)) {
           errors.push(finding('field', msg('plan.error.field', { line: lineNo }), lineNo));
           current.badField = true;
-        } else current.fields.set(name as FieldName, { value: (field[2] ?? '').trim(), line: lineNo });
+        } else current.fields.set(field.name as FieldName, { value: field.value, line: lineNo });
         continue;
       }
       inFields = false;
@@ -286,15 +307,17 @@ export function parsePlan(source: string): PlanParse {
       if (value === 's' || value === 'm' || value === 'l') size = value;
       else errors.push(finding('size', msg('plan.error.size', { line: sizeField.line }), sizeField.line));
     }
-    const dependsOn: string[] = [];
+    // (A set: a file may hold thousands of items before it is refused for holding more than PLAN_ITEMS_MAX.)
+    const depends = new Set<string>();
     const dependsField = draft.fields.get('depends on');
     if (dependsField !== undefined && dependsField.value.toLowerCase() !== 'none') {
       for (const dependency of splitList(dependsField.value)) {
         if (id !== null && dependency === id) errors.push(finding('self-dependency', msg('plan.error.cycle', { ids: [id] }), dependsField.line));
         else if (!lineOfId.has(dependency)) errors.push(finding('unknown-dependency', msg('plan.error.unknownDependency', { line: dependsField.line }), dependsField.line));
-        else if (!dependsOn.includes(dependency)) dependsOn.push(dependency);
+        else depends.add(dependency);
       }
     }
+    const dependsOn = [...depends];
     const touches: string[] = [];
     const touchesField = draft.fields.get('touches');
     if (touchesField !== undefined) {

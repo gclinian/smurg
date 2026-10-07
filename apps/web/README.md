@@ -742,7 +742,10 @@ contract they are built to (DESIGN §5.5 and §5.12 items 10 to 17).
   them tool cards with bodies) opens in under 300 ms of scripting, and a 60 s stream at 5 deltas per second keeps
   every frame under 16 ms of scripting. Measured on 2026-10-07 (macOS arm64, system Chrome): 59.1 ms to open a
   transcript of 5,007 events with 200 rows mounted; in the stream, 1.18 ms per 200 ms interval at the median and
-  8.06 ms at the worst.
+  8.06 ms at the worst. The same file pins what a column of dear texts costs: 400 messages of the dearest text that
+  stays inside its own budget (one 16 KiB paragraph, about 70 ms to format) are shown at once, as written, and
+  formatted while the page has nothing more urgent to do; no task is longer than 200 ms once they are on screen
+  (measured: 77 ms), and a click is answered within 500 ms meanwhile.
 - **Markdown** (`features/markdown`, as built): the tokens of `marked`'s lexer rendered to React elements by smurg's
   own renderer. No HTML string is ever injected; raw HTML in the text shows as text; links are `http`, `https` and
   `mailto` only, open in a new tab with `rel="noopener noreferrer"` and show their address on hover and on keyboard
@@ -760,13 +763,22 @@ contract they are built to (DESIGN §5.5 and §5.12 items 10 to 17).
     counted, up to `PAUSE_MAX_MS`, 200 ms, because one step that stood still is a pause of the machine) is NOT
     formatted. It is one token of type `plain`: the text as it was written, under the note "Shown as it was written:
     this text is too long or too deeply nested to format." (`plain.note`). Whatever the lexer throws is caught the
-    same way. A text that ran out of time or steps is remembered by a hash of its characters (the newest
-    `REMEMBERED_MAX`, 1,024) and shown as written wherever it is mounted again. The page has a share too: the parses
-    a mount waits for take at most `URGENT_PARSE_MS` (200 ms) in any `URGENT_WINDOW_MS` (1 s); a text that comes
-    after the share is spent is shown as written for the moment and parsed again in a transition. A text that is
-    parsed in pieces (a `SPEC.md` cut at its headings) has the one budget of the whole text. The lexer's expressions
-    are compiled by a text of smurg's own before the first parse, so a short text is never shown as written because
-    it came first.
+    same way. What ran out of time or steps is remembered by a hash of its characters (the newest
+    `REMEMBERED_MAX`, 1,024) and shown as written wherever it is mounted again, at the cost of the hash. What is
+    remembered is the PIECE the budget ran out on: a message is one piece, a `SPEC.md` is cut at its headings and has
+    the one budget of the whole text. Every text that holds that piece shows it as written and formats the rest; a
+    text that no longer holds it is formatted whole. The pieces behind the one it ran out on wait and get the budget
+    once more; a text in pieces that runs out a second time is over as a whole (one note, remembered as a whole), so
+    a text costs two budgets at most. The page has a share too: the parses a mount waits for take at most
+    `URGENT_PARSE_MS` (200 ms) and `URGENT_PARSE_STEPS` (50,000 steps: texts that are parsed in no time and are tens
+    of thousands of elements to build) in any `URGENT_WINDOW_MS` (1 s). A text that comes after the share is spent is
+    shown as written for the moment, without a note, and formatted when the browser has nothing more urgent to do
+    (`idle.ts`): one slice of `SLICE_MS` (30 ms) at a time, at least one text a slice, what is on screen first and
+    the newest first, each slice a task of its own (a background-priority task; a timer where a browser has none).
+    Not a React transition, which renders everything that is left in one piece once it is five seconds old, and not
+    `requestIdleCallback`, which Chrome does not call while the pointer rests on a button whose menu was just closed.
+    The lexer's expressions are compiled by a text of smurg's own before the first parse, so a short text is never
+    shown as written because it came first.
   - **Nothing of a text is hidden.** What Markdown keeps out of sight is put on the page: a reference definition is
     printed as its line (and still resolves `[text][1]`); a destination that is not a link stays in the text as it
     was written; a link's or an image's title is printed after it; the whole line after a code fence stands above
@@ -776,16 +788,27 @@ contract they are built to (DESIGN §5.5 and §5.12 items 10 to 17).
     a place (`links.ts`, `namesAnotherPlace`) when they are an address (`https://…`, `www.…`, a mail address, a
     number address), a host with a path under any ending (`smurg.sh/install`), or a bare host under one of about
     fifty well-known endings (`.com`, `.org`, `.io`, `.dev`, `.tw` …). Characters that only look like ASCII are read
-    as what they look like (NFKC: full-width letters, a one-dot leader; a Chinese full stop between two labels of
-    other scripts is the dot). No list of look-alike letters is complete, so a dotted name with ANY letter from
-    outside ASCII is never taken at its word: a link whose words hold one always has its destination written out,
-    even when it leads to the very name it shows (a browser opens the name's `xn--` form). Chinese, Japanese and
-    Korean characters around a Latin name are the sentence it stands in, not part of the name. A bare two-part word
+    as what they look like (NFKC, one character at a time: full-width letters, a one-dot leader; a Chinese full stop
+    between two labels of other scripts is the dot). Characters a reader cannot see (zero width joiners and spaces,
+    a soft hyphen, variation selectors, tags: Unicode's default ignorable characters) are not read, and words that
+    had one beside the dot of a name are written out with the destination wherever the link leads. No list of
+    look-alike letters is complete, so a dotted name with ANY letter from outside ASCII is never taken at its word:
+    a link whose words hold one always has its destination written out, even when it leads to the very name it
+    shows (a browser opens the name's `xn--` form). The one exception is words that are the name of the file the
+    link leads to (the last part of its path, decoded): `résumé.pdf` on a link to that file is an ordinary link,
+    unless a dot of the name is followed by what a host ends in or by letters from outside ASCII. Chinese, Japanese
+    and Korean characters around a Latin name are the sentence it stands in, not part of the name. Words longer than
+    `LABEL_MAX_CHARS` (1,024 units) are written out with the destination unread, and an address whose host part is
+    longer than a host name can be (253 characters and a port) is not a link. A bare two-part word
     under any other ending is not read as a place (no spelling tells `github.lol` from `README.md` or
     `event.target`): such a link keeps its destination behind hover and keyboard focus, like every ordinary link. A numeric character reference never becomes a character nobody
     can see (`&#x202E;`, `&#8203;` and `&#27;` stay as typed: `entities.ts`).
   - **A render has no time budget**, so whatever looks at a piece of text while rendering is a single pass over its
-    characters: no regular expression that is tried again from every character of a long run.
+    characters: no regular expression that is tried again from every character of a long run, and no call of
+    `normalize`, of a collator (`localeCompare`, `Intl.Collator`) or of the address parser (`new URL`) on a text
+    whose length someone else chose: each of them puts a run of combining marks in order at the cost of the square
+    of the run. `test/text-cost.test.tsx` walks hostile texts through every such function and keeps the lists of
+    every regular expression and of every such call, by file.
   - **Path lookups are bounded.** A path is looked up when its element comes on screen, and at most
     `MAX_PATH_LOOKUPS` (32) different paths of one text are asked about, each once. Every lookup of a conversation
     and of a terminal goes through ONE gate per connection (`features/agents/path-links.ts`, `pathGateOf`): a name

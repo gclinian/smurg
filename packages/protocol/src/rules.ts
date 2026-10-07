@@ -9,7 +9,7 @@
 // `domain:example.com`). The client never sends a rule with a permission decision: it sends `allow-always` and the
 // daemon uses the rule the card showed.
 import type { NoAlwaysReason, OfferedRule } from './schema/conversation.ts';
-import { RULE_PATTERN_MAX_CHARS } from './schema/limits.ts';
+import { RULE_PATTERN_MAX_CHARS, URL_MAX_CHARS } from './schema/limits.ts';
 
 const WORD = /^[A-Za-z0-9._:@=/+-]+$/;
 
@@ -111,6 +111,8 @@ export function ruleCoversRequest(rule: { readonly tool: string; readonly patter
     const literal = check.rule.pattern.slice(0, -' *'.length);
     return target === literal || target.startsWith(`${literal} `);
   }
+  // (A longer text is no URL a card carries; and reading a host name normalises it, which is not free for any length.)
+  if (target.length > URL_MAX_CHARS) return false;
   let url: URL;
   try {
     url = new URL(target);

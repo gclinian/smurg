@@ -12,13 +12,18 @@
 //     the elements the page would have to build (64 KiB of "- a" lines are sixteen thousand list items). Every step
 //     is timed, from the first. A text that is parsed in pieces (a SPEC.md cut at its headings) has the one budget of
 //     the whole text: see lexMarkdownPieces;
-//   - a text that ran out of time or steps is REMEMBERED by a hash of its characters and shown as written from then
-//     on, wherever it is mounted: mounting it again costs the hash and nothing else;
+//   - what ran out of time or steps is REMEMBERED by a hash of its characters and shown as written from then on,
+//     wherever it is mounted: mounting it again costs the hash and nothing else. What is remembered is the PIECE the
+//     budget ran out on (a message is one piece): in every text that holds it, that piece is shown as written and the
+//     rest is formatted. A text shown in pieces that runs out a second time, without that piece, is over as a whole
+//     and remembered as a whole;
 //   - the PAGE has a share too: the parses that hold up what a person is doing (a column being mounted) take at most
-//     URGENT_PARSE_MS in any URGENT_WINDOW_MS. A text that comes after the share is spent is shown as written for the
-//     moment (`later`) and whoever mounted it parses it again when the page has time (Markdown.tsx does that in a
-//     transition, which lets go of the thread between two texts). A column of four hundred messages that each stay
-//     just inside their own budget would otherwise hold the page for as long as all of them together;
+//     URGENT_PARSE_MS and URGENT_PARSE_STEPS in any URGENT_WINDOW_MS (the steps are for texts that are parsed in no
+//     time and are a hundred thousand elements to build). A text that comes after the share is spent is shown as
+//     written for the moment (`later`) and whoever mounted it parses it again when the page has time (Markdown.tsx
+//     hands it to idle.ts, which formats what waits a slice at a time, when the browser has nothing more urgent to
+//     do). A column of four hundred messages that each stay just inside their own budget would otherwise hold the
+//     page for as long as all of them together;
 //   - whatever the lexer throws is caught.
 //
 // In each case the result is ONE token of type `plain`: the text as it was written, which render.tsx shows with a
@@ -46,14 +51,17 @@ export const parseBudgetMs = (chars: number): number => 40 + chars / 4_096;
 export const PAUSE_MAX_MS = 200;
 /** The parses a person waits for take at most this long … */
 export const URGENT_PARSE_MS = 200;
+/** … and this many steps, what ONE text may have at most (an ordinary conversation of 400 answers has a tenth) … */
+export const URGENT_PARSE_STEPS = MARKDOWN_MAX_STEPS;
 /** … in any stretch of this length. */
 export const URGENT_WINDOW_MS = 1_000;
-/** How many texts that ran out of time or steps are remembered (a hash each). */
+/** How many pieces and texts that ran out of time or steps are remembered (a hash each). */
 export const REMEMBERED_MAX = 1_024;
 
 /**
- * Why a text is shown as written. `later`: only for the moment, because the page's share of parse time is spent
- * (the caller parses it again without `urgent`); every other reason is final for that text.
+ * Why a text is shown as written. `later`: only for the moment, because the page's share of parse time is spent or
+ * the text's budget ran out on a piece before this one (the caller parses it again without `urgent`, when the page
+ * has time); every other reason is final for that piece.
  */
 export type PlainReason = 'size' | 'depth' | 'time' | 'error' | 'later';
 
@@ -72,7 +80,8 @@ export interface LexOptions {
   readonly breaks?: boolean;
   /**
    * The parse holds up what a person is doing (a mount): it takes from the page's share, and when that is spent the
-   * result is a `later` token. Without it the caller has made sure the page can wait (a transition, a stream's timer).
+   * result is a `later` token. Without it the caller has made sure the page can wait (its turn in idle.ts, a
+   * stream's timer).
    */
   readonly urgent?: boolean;
   /** Milliseconds, for tests (default `performance.now`). */
@@ -121,6 +130,11 @@ class Budget {
   /** Everything since the budget began, pauses included: what the page was held for. */
   elapsed(): number {
     return this.last - this.started;
+  }
+
+  /** The steps so far: about what the page will have to build of it. */
+  taken(): number {
+    return this.steps;
   }
 
   private look(): void {
@@ -280,50 +294,72 @@ function hashOf(text: string): string {
   return `${text.length}.${(a >>> 0).toString(36)}.${(b >>> 0).toString(36)}`;
 }
 
-/** The texts whose parse ran out of time or steps, by hash, with the reason (the newest REMEMBERED_MAX). */
-const remembered = new Map<string, PlainReason>();
-/** How many remembered texts have each length: a text of another length is not hashed to be looked up. */
-const rememberedLengths = new Map<number, number>();
+/** Texts by a hash of their characters, with what is known of each: the newest REMEMBERED_MAX of them. */
+class Remembered<Value> {
+  private readonly values = new Map<string, Value>();
+  /** How many remembered texts have each length: a text of another length is not hashed to be looked up. */
+  private readonly lengths = new Map<number, number>();
 
-function recall(text: string): PlainReason | undefined {
-  if (!rememberedLengths.has(text.length)) return undefined;
-  return remembered.get(hashOf(text));
+  get(text: string): Value | undefined {
+    if (!this.lengths.has(text.length)) return undefined;
+    return this.values.get(hashOf(text));
+  }
+
+  set(text: string, value: Value): void {
+    const key = hashOf(text);
+    if (this.values.has(key)) return;
+    if (this.values.size >= REMEMBERED_MAX) {
+      const oldest = this.values.keys().next().value as string;
+      this.values.delete(oldest);
+      const length = Number(oldest.slice(0, oldest.indexOf('.')));
+      const left = (this.lengths.get(length) ?? 1) - 1;
+      if (left <= 0) this.lengths.delete(length);
+      else this.lengths.set(length, left);
+    }
+    this.values.set(key, value);
+    this.lengths.set(text.length, (this.lengths.get(text.length) ?? 0) + 1);
+  }
+
+  clear(): void {
+    this.values.clear();
+    this.lengths.clear();
+  }
 }
 
-function remember(text: string, reason: PlainReason): void {
-  const key = hashOf(text);
-  if (remembered.has(key)) return;
-  if (remembered.size >= REMEMBERED_MAX) {
-    const oldest = remembered.keys().next().value as string;
-    remembered.delete(oldest);
-    const length = Number(oldest.slice(0, oldest.indexOf('.')));
-    const left = (rememberedLengths.get(length) ?? 1) - 1;
-    if (left <= 0) rememberedLengths.delete(length);
-    else rememberedLengths.set(length, left);
-  }
-  remembered.set(key, reason);
-  rememberedLengths.set(text.length, (rememberedLengths.get(text.length) ?? 0) + 1);
+/**
+ * What is shown as written because a budget ran out, with the reason: the piece it ran out on (a message is its one
+ * piece), and a text in pieces that ran out twice.
+ */
+const over = new Remembered<PlainReason>();
+/** The texts in pieces that ran out once: what waited behind that piece is given the budget once more. */
+const ranOutOnce = new Remembered<true>();
+
+/** Whether `text` is remembered as over its budget: shown as written, as a whole. */
+export function ranOut(text: string): boolean {
+  return over.get(text) !== undefined;
 }
 
 // ---- the page's share
 
-const share = { windowStart: Number.NEGATIVE_INFINITY, spent: 0 };
+const share = { windowStart: Number.NEGATIVE_INFINITY, spent: 0, steps: 0 };
 
 /** Whether an urgent parse may start at `at`. */
 function shareLeft(at: number): boolean {
   if (at - share.windowStart >= URGENT_WINDOW_MS || at < share.windowStart) {
     share.windowStart = at;
     share.spent = 0;
+    share.steps = 0;
   }
-  return share.spent < URGENT_PARSE_MS;
+  return share.spent < URGENT_PARSE_MS && share.steps < URGENT_PARSE_STEPS;
 }
 
 /** As after a reload of the page: nothing is remembered and the page's share is whole. For tests. */
 export function forgetParses(): void {
-  remembered.clear();
-  rememberedLengths.clear();
+  over.clear();
+  ranOutOnce.clear();
   share.windowStart = Number.NEGATIVE_INFINITY;
   share.spent = 0;
+  share.steps = 0;
 }
 
 // ---- the two ways in
@@ -340,25 +376,29 @@ export function waitsForTime(tokens: readonly Token[]): boolean {
 
 /**
  * The tokens of each of `pieces`, which together are the one text `whole` (a SPEC.md cut at its `##` headings so that
- * each section can be asked about): ONE budget of time and steps for all of them, the one of `whole`, and one memory.
- * When the text runs out of either, every piece is shown as written (the note above the first) and the text is
- * remembered, with the piece it ran out on. A piece that is too deep or holds too long a paragraph is shown as
- * written by itself. A caller that knows some pieces from before hands over the others only (Markdown.tsx). Never
- * throws.
+ * each section can be asked about; a message is its own one piece): ONE budget of time and steps for all of them,
+ * the one of `whole`.
+ *
+ * A piece that is too deep or holds too long a paragraph is shown as written by itself. When the BUDGET runs out, the
+ * piece it ran out on is shown as written and remembered: that piece, and nothing else of the text. Every text that
+ * holds it shows it as written at the cost of its hash and formats the rest, and a text that no longer holds it is
+ * formatted whole. (Remembering the whole text for it showed five ordinary sections as written because a sixty
+ * section text they once stood in had been too long: review R4-03, fourth round.)
+ *
+ * The pieces behind the one it ran out on are not parsed in this call (one step cannot be interrupted, so a budget
+ * that is spent is spent): they are `later`, and the caller hands them over again when the page has time, with the
+ * budget once more. A text that runs out a SECOND time is over as a whole: every piece handed over is shown as
+ * written (the note above the first), the text is remembered, and from then on it costs its hash. So a text costs
+ * two budgets at most, whatever it holds, and every budget that is spent leaves one more piece remembered.
+ *
+ * A caller that knows some pieces from before hands over the others only (Markdown.tsx). Never throws.
  */
 export function lexMarkdownPieces(pieces: readonly string[], whole: string, options: LexOptions = {}): Token[][] {
   const breaks = options.breaks === true;
   const all = (reason: PlainReason): Token[][] => pieces.map((piece, index) => plain(piece, reason, index > 0));
   if (whole.length > MARKDOWN_MAX_CHARS) return all('size');
-  const known = recall(whole);
+  const known = over.get(whole);
   if (known !== undefined) return all(known);
-  // A piece on which this text, as it was before a change elsewhere in it, ran out: the text still holds it.
-  if (pieces.length > 1) {
-    for (const piece of pieces) {
-      const before = recall(piece);
-      if (before !== undefined) return all(before);
-    }
-  }
   const now = options.now ?? (() => performance.now());
   if (options.urgent === true && !shareLeft(now())) return all('later');
   warmUp();
@@ -366,6 +406,15 @@ export function lexMarkdownPieces(pieces: readonly string[], whole: string, opti
   const out: Token[][] = [];
   let ended: PlainReason | null = null;
   for (const piece of pieces) {
+    if (ended !== null) {
+      out.push(plain(piece, 'later'));
+      continue;
+    }
+    const before = piece === whole ? undefined : over.get(piece);
+    if (before !== undefined) {
+      out.push(plain(piece, before));
+      continue;
+    }
     try {
       out.push(run(piece, breaks, budget));
     } catch (error) {
@@ -373,16 +422,22 @@ export function lexMarkdownPieces(pieces: readonly string[], whole: string, opti
       else if (!error.ofBudget) out.push(plain(piece, error.reason));
       else {
         ended = error.reason;
-        break;
+        over.set(piece, ended);
+        out.push(plain(piece, ended));
       }
     }
   }
-  if (options.urgent === true) share.spent += budget.elapsed();
-  if (ended === null) return out;
-  remember(whole, ended);
-  // The piece it ran out on, too: the next change of the text elsewhere (a keystroke in another section) makes a new
-  // whole text, which would otherwise spend the budget again on the same piece.
-  if (pieces.length > 1) remember(pieces[out.length] as string, ended);
+  if (options.urgent === true) {
+    share.spent += budget.elapsed();
+    share.steps += budget.taken();
+  }
+  // The text did not run out, or it is its own one piece (remembered above).
+  if (ended === null || (pieces.length === 1 && pieces[0] === whole)) return out;
+  if (ranOutOnce.get(whole) === undefined) {
+    ranOutOnce.set(whole, true);
+    return out;
+  }
+  over.set(whole, ended);
   return all(ended);
 }
 

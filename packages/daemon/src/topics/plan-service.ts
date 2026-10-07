@@ -56,10 +56,27 @@ type MainState = Awaited<ReturnType<WorktreeManager['mainState']>>;
 /** What the model reads when it calls a plan tool from a session that is not a topic's discussion. */
 export const NOT_A_DISCUSSION = "This tool is for the discussion session of a topic. This session is not one.";
 
+const OPEN_QUESTIONS_HEADING = /^#{1,6}[ \t]+open questions/i;
+
+/**
+ * Whether a line is the "Open questions" heading: one to six hashes, blanks, the two words in any case, and after
+ * them nothing but blanks, closing hashes and blanks. What follows the words is read in one pass (as one expression,
+ * three runs that may all be empty tried every split of a run of blanks: the square of its length).
+ */
+function isOpenQuestionsHeading(line: string): boolean {
+  const head = OPEN_QUESTIONS_HEADING.exec(line);
+  if (head === null) return false;
+  let at = head[0].length;
+  while (line[at] === ' ' || line[at] === '\t') at += 1;
+  while (line[at] === '#') at += 1;
+  while (line[at] === ' ' || line[at] === '\t') at += 1;
+  return at === line.length;
+}
+
 /** How many entries the spec lists under its "Open questions" heading (the Start dialog says so). */
 export function countOpenQuestions(spec: string): number {
   const lines = spec.replace(/\r\n?/g, '\n').split('\n');
-  const start = lines.findIndex((line) => /^#{1,6}[ \t]+open questions[ \t]*#*[ \t]*$/i.test(line));
+  const start = lines.findIndex(isOpenQuestionsHeading);
   if (start === -1) return 0;
   let bullets = 0;
   let prose = 0;

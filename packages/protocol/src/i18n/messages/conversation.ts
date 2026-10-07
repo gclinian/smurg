@@ -174,7 +174,7 @@ export const conversation = {
   }),
   'session.projectSettings.untrusted': message({}, {
     en: () => "The host has not confirmed this folder's Claude Code project settings. This session runs without them and without the project's CLAUDE.md.",
-    'zh-TW': () => '主人尚未確認這個資料夾的 Claude Code 專案設定，這個 session 不會載入它們，也不會載入專案的 CLAUDE.md',
+    'zh-TW': () => '主人尚未確認這個資料夾的 Claude Code 專案設定，這個 session 不會載入它們，也不會載入專案的 CLAUDE.md。',
   }),
   'session.projectSettings.changed': message({}, {
     en: () => "This folder's Claude Code project settings changed. The agent was stopped until the host confirms them.",
@@ -182,44 +182,44 @@ export const conversation = {
   }),
   'notice.apiRetry': message({ error: 'string', attempt: 'number', max: 'number' }, {
     en: (p) => `The Claude API did not answer (${p.error}). Claude Code is trying again (${p.attempt} of ${p.max}).`,
-    'zh-TW': (p) => `Claude API 沒有回應（${p.error}），Claude Code 正在重試（第 ${p.attempt} 次，共 ${p.max} 次）`,
+    'zh-TW': (p) => `Claude API 沒有回應（${p.error}），Claude Code 正在重試（第 ${p.attempt} 次，共 ${p.max} 次）。`,
   }),
   'notice.authRejected': message({}, {
     en: () => "Anthropic rejected the host's Claude Code login. The host must log in again in their own terminal.",
-    'zh-TW': () => 'Anthropic 拒絕了主人的 Claude Code 登入，主人需要在自己的終端機重新登入',
+    'zh-TW': () => 'Anthropic 拒絕了主人的 Claude Code 登入，主人需要在自己的終端機重新登入。',
   }),
   'notice.notLoggedIn': message({}, {
     en: () => "Claude Code is not logged in on the host's computer. The host must run `claude` and log in.",
-    'zh-TW': () => '主人電腦上的 Claude Code 尚未登入，主人需要執行 `claude` 並登入',
+    'zh-TW': () => '主人電腦上的 Claude Code 尚未登入，主人需要執行 `claude` 並登入。',
   }),
   'notice.rateLimit': message({}, {
     en: () => "The host's Claude account has reached a usage limit.",
-    'zh-TW': () => '主人的 Claude 帳號已達用量上限',
+    'zh-TW': () => '主人的 Claude 帳號已達用量上限。',
   }),
   'notice.compacted': message({}, {
     en: () => 'Claude Code shortened the earlier conversation to make room.',
-    'zh-TW': () => 'Claude Code 為了騰出空間，縮短了較早的對話內容',
+    'zh-TW': () => 'Claude Code 為了騰出空間，縮短了較早的對話內容。',
   }),
   'notice.processExited': message({ code: 'number' }, {
     en: (p) => `The agent's process ended unexpectedly (exit code ${p.code}).`,
-    'zh-TW': (p) => `agent 的程序意外結束（結束代碼 ${p.code}）`,
+    'zh-TW': (p) => `agent 的程序意外結束（結束代碼 ${p.code}）。`,
   }),
   'notice.unattended': message({}, {
     en: () => 'smurg stopped while this agent was working. The agent may have gone on for a moment by itself: check its changes.',
-    'zh-TW': () => 'smurg 在這個 agent 工作時停止了。agent 可能自己又繼續了一會兒，請檢查它的變更',
+    'zh-TW': () => 'smurg 在這個 agent 工作時停止了。agent 可能自己又繼續了一會兒，請檢查它的變更。',
   }),
   'notice.turnError': message({}, {
     en: () => "The agent's turn ended with an error.",
-    'zh-TW': () => 'agent 的這一輪因錯誤而結束',
+    'zh-TW': () => 'agent 的這一輪因錯誤而結束。',
   }),
   'notice.transcriptTrimmed': message({}, {
     en: () => 'The oldest part of this conversation is no longer kept.',
-    'zh-TW': () => '這段對話最早的部分已不再保留',
+    'zh-TW': () => '這段對話最早的部分已不再保留。',
   }),
   'notice.personalSubscription': message({}, {
     en: () =>
       "Agents here use your personal Claude subscription. Anthropic's terms do not allow making a personal account available to other people; for a group, use an API key, a Team or Enterprise plan, or a cloud provider.",
-    'zh-TW': () => '這裡的 agent 使用你個人的 Claude 訂閱。Anthropic 的條款不允許把個人帳號提供給其他人使用；多人使用請改用 API 金鑰、Team 或 Enterprise 方案，或雲端供應商',
+    'zh-TW': () => '這裡的 agent 使用你個人的 Claude 訂閱。Anthropic 的條款不允許把個人帳號提供給其他人使用；多人使用請改用 API 金鑰、Team 或 Enterprise 方案，或雲端供應商。',
   }),
 
   // ---- questions ----------------------------------------------------------------------------------------------

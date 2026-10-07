@@ -343,8 +343,25 @@ const ASSIGNED = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const notKnown = (word: ShellWord): boolean => word.dynamic || word.glob || word.text.includes(UNKNOWN_PART);
 const literalWord = (text: string): ShellWord => ({ text, dynamic: /[$`]/.test(text), glob: false, prefix: text, quoted: true });
 
+/**
+ * How much reading one command is worth. Every look at a list of words takes the list's length out of it (and one
+ * more for each 64 characters of a word), every text handed to the reader the text's length; a command that uses it up is not followed. So what following costs is in
+ * proportion to the command, whatever the command is: a wrapper in front of a wrapper is looked at twice (as the
+ * command, and as the value of an option of the one before it), so thirty of them in a row doubled the work thirty
+ * times, and an `eval` reads everything behind it again. Sixteen wrappers in a row are followed; no command has more.
+ */
+interface FollowBudget {
+  left: number;
+}
+const FOLLOW_STEPS_MIN = 20_000;
+const FOLLOW_STEPS_PER_CHAR = 8;
+
 /** Whether the words of ONE command name what it runs in a way nobody can follow. */
-function wordsNotFollowed(words: readonly ShellWord[], depth: number): boolean {
+function wordsNotFollowed(words: readonly ShellWord[], depth: number, budget: FollowBudget): boolean {
+  // A look reads every character of every word: a long word costs its length (one step for each 64 characters), or
+  // thirty wrappers in front of one word of 64,000 letters would read it thousands of times.
+  budget.left -= words.reduce((steps, word) => steps + 1 + (word.text.length >> 6), 1);
+  if (budget.left < 0) return true;
   const first = words[0];
   if (first === undefined) return false;
   // The program itself is a variable, a substitution or a wildcard.
@@ -353,21 +370,21 @@ function wordsNotFollowed(words: readonly ShellWord[], depth: number): boolean {
   const rest = words.slice(1);
   if (program === 'cd' || program === 'pushd') return rest.some(notKnown) || rest.some((word) => word.text === '-');
   if (program === 'popd') return true;
-  if (program === 'eval') return rest.some(notKnown) || textNotFollowed(rest.map((word) => word.text).join(' '), depth + 1);
+  if (program === 'eval') return rest.some(notKnown) || textNotFollowed(rest.map((word) => word.text).join(' '), depth + 1, budget);
   if (WRAPPERS.has(program)) {
     let at = 0;
     while (at < rest.length && !notKnown(rest[at] as ShellWord) && (/^-/.test((rest[at] as ShellWord).text) || ASSIGNED.test((rest[at] as ShellWord).text) || /^[0-9.]+[smhd]?$/.test((rest[at] as ShellWord).text))) at += 1;
     const inner = rest.slice(at);
     // `xargs sh`, `xargs node`: the script comes from the input.
     if (program === 'xargs' && inner[0] !== undefined && !notKnown(inner[0]) && SCRIPT_RUNNERS.has(programName(inner[0]))) return true;
-    if (wordsNotFollowed(inner, depth)) return true;
+    if (wordsNotFollowed(inner, depth, budget)) return true;
     // An option of the wrapper that takes a value (`sudo -u x python3 …`): the command starts later.
     const later = inner.findIndex((word, index) => index > 0 && !notKnown(word) && (SCRIPT_RUNNERS.has(programName(word)) || WRAPPERS.has(programName(word)) || programName(word) === 'eval'));
-    return later !== -1 && wordsNotFollowed(inner.slice(later), depth);
+    return later !== -1 && wordsNotFollowed(inner.slice(later), depth, budget);
   }
   if (program === 'find') {
     const at = rest.findIndex((word) => !notKnown(word) && FIND_RUNS.has(word.text));
-    return at !== -1 && wordsNotFollowed(rest.slice(at + 1).filter((word) => word.text !== ';' && word.text !== '+'), depth);
+    return at !== -1 && wordsNotFollowed(rest.slice(at + 1).filter((word) => word.text !== ';' && word.text !== '+'), depth, budget);
   }
   if (!SCRIPT_RUNNERS.has(program)) return false;
   const operands = rest.filter((word) => notKnown(word) || !word.text.startsWith('-'));
@@ -375,30 +392,33 @@ function wordsNotFollowed(words: readonly ShellWord[], depth: number): boolean {
   // No operand: it reads its program from its input, which no settings file holds.
   if (script === undefined) return false;
   // `sh -c "<a command line>"`: read like the command itself.
-  if (SHELLS.has(program) && rest.some((word) => !notKnown(word) && /^-[A-Za-z]*c$/.test(word.text))) return script.text === UNKNOWN_PART || textNotFollowed(script.text, depth + 1);
+  if (SHELLS.has(program) && rest.some((word) => !notKnown(word) && /^-[A-Za-z]*c$/.test(word.text))) return script.text === UNKNOWN_PART || textNotFollowed(script.text, depth + 1, budget);
   return notKnown(script);
 }
 
-function textNotFollowed(text: string, depth: number): boolean {
+function textNotFollowed(text: string, depth: number, budget: FollowBudget): boolean {
   if (depth > 3) return true;
+  budget.left -= text.length;
+  if (budget.left < 0) return true;
   const scan = scanShell(text, { variables: KNOWN_NAMES, home: '/' });
-  return scan.unparsed || scan.commands.some((command) => wordsNotFollowed(programWords(command), depth));
+  return scan.unparsed || scan.commands.some((command) => wordsNotFollowed(programWords(command), depth, budget));
 }
 
 /**
  * PURE: whether a command the content runs reaches its files in a way smurg cannot follow: the program, or the
  * script an interpreter is given, is a variable, a substitution or a wildcard; a `cd` to such a place; `eval` of
- * such a text; a line the reader cannot take apart. `line`: the command, and its `args` when it has a list of them
- * (each one word, run without a shell).
+ * such a text; a line the reader cannot take apart, or one that takes more reading than its length is worth
+ * (FollowBudget). `line`: the command, and its `args` when it has a list of them (each one word, run without a shell).
  */
 export function cannotFollow(line: readonly string[]): boolean {
   const [command, ...args] = line;
   if (command === undefined) return false;
-  if (args.length === 0) return textNotFollowed(command, 0);
+  const budget: FollowBudget = { left: FOLLOW_STEPS_MIN + FOLLOW_STEPS_PER_CHAR * line.reduce((sum, part) => sum + part.length, 0) };
+  if (args.length === 0) return textNotFollowed(command, 0, budget);
   const scan = scanShell(command, { variables: KNOWN_NAMES, home: '/' });
   const head = scan.commands[0];
   if (scan.unparsed || scan.commands.length !== 1 || head === undefined) return true;
-  return wordsNotFollowed([...programWords(head), ...args.map(literalWord)], 0);
+  return wordsNotFollowed([...programWords(head), ...args.map(literalWord)], 0, budget);
 }
 
 const LOOSE_SPLIT = /[\s;&|()<>=,`]+/;
@@ -495,8 +515,10 @@ function headerEffects(path: string, text: string, lists: Lists): void {
   let section = '';
   let hookCommands = 0;
   let hooksDeclared = false;
-  for (const raw of text.slice(3, end).split('\n')) {
-    const line = raw.replace(/\r$/, '');
+  // Cut at every character that ends a line for some reader (a lone CR, U+2028, U+2029 too): each piece is looked at
+  // as a line of its own, so a key cannot stand behind one unseen, and no expression below meets a character `.`
+  // does not match (it would try the run of blanks in front of it again from every blank: the square of the run).
+  for (const line of text.slice(3, end).split(/\r\n|[\n\r\u2028\u2029]/)) {
     if (line.trim() === '' || line.trim().startsWith('#')) continue;
     const top = /^\S/.test(line) ? HEADER_KEY.exec(line) : null;
     if (top !== null) {

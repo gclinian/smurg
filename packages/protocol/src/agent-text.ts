@@ -8,7 +8,8 @@
 //  - agentSafeName(name, userId)    a display name as a model reads it (headers, notes, sentences, commit trailers)
 //  - frameMessage(header, body)     the header line in front of a body
 //
-// Pure, no imports beyond the limits: browser, Worker and Node safe.
+// Pure, no imports beyond the limits and the bounded normalisation: browser, Worker and Node safe.
+import { normalized, withFewMarks } from './normalize.ts';
 import type { Role } from './roles.ts';
 import { AGENT_SAFE_NAME_MAX } from './schema/limits.ts';
 
@@ -82,18 +83,27 @@ export interface AgentText {
 }
 
 /**
- * Cleans a string a person wrote before it is stored, shown and sent to an agent:
- *  - NFC; CRLF, lone CR and Unicode's line and paragraph separators become LF; lone surrogates are dropped;
+ * Cleans a string a person wrote before it is stored, shown and sent to an agent, in this order:
+ *  - CRLF, lone CR and Unicode's line and paragraph separators become LF; lone surrogates are dropped;
  *  - C0 / C1 controls are removed, except tab and newline;
  *  - invisible code points are removed (see isInvisible); the emoji joiner U+200D is kept only between two visible
  *    characters, the emoji presentation selector U+FE0F only directly after a visible character;
+ *  - a run of more than MARK_RUN_MAX (30) combining marks is cut to its first 30 (normalize.ts): no word of any
+ *    language has more on one letter, and putting a longer run in order costs the square of its length;
+ *  - NFC (after the removals, so the marks on either side of a removed character are put in order here and the text
+ *    that comes out is in NFC); a run that is longer than 30 only now is cut again;
  *  - a line that looks like a header (HEADER_LIKE_LINE) gets `> ` in front, so no body line can pass for the header
  *    of a person or of smurg itself.
- * `cleaned` is true when a control or an invisible character was removed (not for line endings, NFC or the quoting).
- * Idempotent: `agentText(agentText(x).text)` changes nothing.
+ * `cleaned` is true when something was removed: a control, an invisible character, or the marks beyond the thirtieth
+ * of a run (not for line endings, NFC or the quoting).
+ * Idempotent: `agentText(agentText(x).text)` changes nothing. What it costs is in proportion to the text.
  */
 export function agentText(raw: string): AgentText {
-  const { text: joined, cleaned } = withoutUnseen(raw.normalize('NFC').replace(LINE_ENDS, '\n'));
+  const seen = withoutUnseen(raw.replace(LINE_ENDS, '\n'));
+  const few = withFewMarks(seen.text);
+  const normal = normalized(few, 'NFC');
+  const joined = withFewMarks(normal);
+  const cleaned = seen.cleaned || few.length < seen.text.length || joined.length < normal.length;
   const lines = joined.split('\n');
   const text = lines.map((line) => (HEADER_LIKE_LINE.test(line) ? QUOTE_PREFIX + line : line)).join('\n');
   return { text, cleaned };
@@ -201,7 +211,7 @@ const USER_ID_PROVIDER = /^[a-z]+:/;
  * of the user id's own part>` (`github:12345` → `member 1234`). The interface keeps showing the real display name.
  */
 export function agentSafeName(displayName: string, userId: string): string {
-  const safe = keepSafe(displayName.normalize('NFC'), AGENT_SAFE_NAME_MAX);
+  const safe = keepSafe(normalized(displayName, 'NFC'), AGENT_SAFE_NAME_MAX);
   if (safe !== '') return safe;
   const idPart = keepSafe(userId.replace(USER_ID_PROVIDER, ''), 4).replaceAll(' ', '');
   return idPart === '' ? 'member' : `member ${idPart}`;

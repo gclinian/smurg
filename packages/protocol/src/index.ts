@@ -4,6 +4,7 @@
 // `export *` of the same name is a type error (TS2308) and silently drops the name at runtime.
 export * from './constants.ts';
 export * from './bytes.ts';
+export * from './normalize.ts';
 export * from './errors.ts';
 export * from './roles.ts';
 export * from './names.ts';

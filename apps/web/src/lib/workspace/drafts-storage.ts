@@ -11,41 +11,52 @@
 //   - a workspace taken off the list of recent ones: app/pages/LandingPage.tsx (forgetDrafts).
 //
 // DELETED STAYS DELETED. Another tab that still shows the workspace holds the drafts in its memory and writes its
-// whole map at the next keystroke. So every deletion also changes ONE mark in the storage (`smurg.drafts-forgotten`,
-// a value that says nothing: no workspace, no time anyone could use), and a writer looks at the mark before it
-// writes: when it changed and the writer's own entry is no longer what it wrote last, its drafts were deleted and it
-// writes nothing from then on (features/conversation/drafts.ts).
+// whole map at the next keystroke. So a deletion also changes a mark in the storage, and a writer looks at the marks
+// before it writes (features/conversation/drafts.ts): when one changed, the drafts it holds were deleted and it writes
+// nothing from then on.
+//
+//   - one workspace's drafts: the mark of THAT workspace (`smurg.drafts-forgotten.<workspace>`). A deletion of
+//     another workspace's drafts is nothing a tab of this one sees: two tabs on one workspace, of which the other
+//     typed last, cannot tell "the other tab wrote" from "deleted, and written again" by the entry alone, and one mark
+//     for the whole browser made the first of them give up its drafts (review R2-D, fourth round);
+//   - every workspace's (a logout): the one mark of the browser (`smurg.drafts-forgotten`), and the marks of single
+//     workspaces go with the drafts, so what a logout leaves names no workspace.
+//
+// A mark's value says nothing: it is random, and holds no time.
 import type { ConnectionState } from '../connection/types.ts';
 import { browserLocalStorage, type PreferenceStorage } from '../preferences.ts';
 
 const PREFIX = 'smurg.drafts.';
-/** Not under PREFIX: the mark is not a workspace's drafts. */
-const FORGOTTEN_MARK = 'smurg.drafts-forgotten';
+/** Not under PREFIX: a mark is not a workspace's drafts. */
+const FORGOTTEN_ALL_MARK = 'smurg.drafts-forgotten';
+const FORGOTTEN_MARK_PREFIX = `${FORGOTTEN_ALL_MARK}.`;
 
 export const draftsStorageKey = (workspaceId: string): string => `${PREFIX}${workspaceId}`;
 
-/** The mark as it is now ('' while nothing was ever deleted, or without a storage). */
-export function forgottenMark(storage: PreferenceStorage | null): string {
+/**
+ * The marks a writer of `workspaceId`'s drafts goes by, as they are now: the workspace's own and the browser's, as one
+ * value (the bare separator while nothing was ever deleted, or without a storage).
+ */
+export function forgottenMarks(storage: PreferenceStorage | null, workspaceId: string): string {
   try {
-    return storage?.getItem(FORGOTTEN_MARK) ?? '';
+    return `${storage?.getItem(`${FORGOTTEN_MARK_PREFIX}${workspaceId}`) ?? ''}|${storage?.getItem(FORGOTTEN_ALL_MARK) ?? ''}`;
   } catch {
-    return '';
+    return '|';
   }
 }
 
-/** A new value of the mark: different from every earlier one in this browser. */
-function markForgotten(storage: Pick<Storage, 'setItem'>): void {
-  storage.setItem(FORGOTTEN_MARK, `${Date.now().toString(36)}.${Math.random().toString(36).slice(2)}`);
-}
+/** A new value of a mark: different from every earlier one in this browser. */
+const newMark = (): string => `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
 
 /** Deletes what this browser kept of one workspace's unsent texts. */
 export function forgetDrafts(workspaceId: string, storage: PreferenceStorage | null = browserLocalStorage()): void {
   try {
     if (storage === null) return;
     storage.removeItem(draftsStorageKey(workspaceId));
-    markForgotten(storage);
+    storage.setItem(`${FORGOTTEN_MARK_PREFIX}${workspaceId}`, newMark());
   } catch {
-    // a blocked storage kept nothing
+    // A blocked storage kept nothing. A full one took the deletion and not the mark: the writer whose entry is gone
+    // sees that (drafts.ts).
   }
 }
 
@@ -64,12 +75,12 @@ export function forgetAllDrafts(storage: Pick<Storage, 'length' | 'key' | 'remov
     const keys: string[] = [];
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index);
-      if (key !== null && key.startsWith(PREFIX)) keys.push(key);
+      if (key !== null && (key.startsWith(PREFIX) || key.startsWith(FORGOTTEN_MARK_PREFIX))) keys.push(key);
     }
     for (const key of keys) storage.removeItem(key);
-    markForgotten(storage);
+    storage.setItem(FORGOTTEN_ALL_MARK, newMark());
   } catch {
-    // a blocked storage kept nothing
+    // As in forgetDrafts.
   }
 }
 

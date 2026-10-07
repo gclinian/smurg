@@ -1,7 +1,7 @@
 // Formatting of times, durations, numbers, sizes, lists and people in the viewer's language, shared by every feature.
 // Everything goes through `Intl` with the tag of the current locale (`en` / `zh-Hant-TW`); the formatters are built
 // lazily, once per locale, so a language switch needs no reload and no module holds a formatter of the old language.
-import type { Actor, Role } from '@smurg/protocol';
+import { withFewMarks, type Actor, type Role } from '@smurg/protocol';
 import { joinList, roleLabel } from '@smurg/protocol/i18n';
 import { intlTag, type Locale } from '@smurg/protocol/locale';
 import { tApp } from '../strings/app.ts';
@@ -207,9 +207,22 @@ export function joinSentences(sentences: readonly (string | null | undefined)[])
   return text;
 }
 
-/** Order of two names as the viewer's language sorts them; digits compare as numbers ("file2" before "file10"). */
+/**
+ * Order of two names as the viewer's language sorts them; digits compare as numbers ("file2" before "file10").
+ * A collator puts every run of combining marks in order first, at the cost of the square of the run (half a second
+ * for two names of 32,000 marks): no run longer than a word can have reaches it (the protocol's withFewMarks).
+ */
 export function compareText(a: string, b: string): number {
-  return formatters().collator.compare(a, b);
+  return formatters().collator.compare(withFewMarks(a), withFewMarks(b));
+}
+
+/**
+ * Order of two ids or keys of the product's own making, by their UTF-16 units: for the last key of a sort, which only
+ * has to be the same on every page. Not `localeCompare`: nothing in the web app hands a text to a collator except
+ * compareText above (test/text-cost.test.tsx keeps it so).
+ */
+export function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 /** The role's label ("Agent access"): one wording for the web app, the CLI and the docs (the wire catalogue). */

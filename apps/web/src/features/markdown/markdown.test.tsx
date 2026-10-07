@@ -6,7 +6,7 @@ import { findPathCandidates, mayAskAbout, normalizeSessionPath } from '../agents
 import { decodeEntities } from './entities.ts';
 import { MAX_PATH_LOOKUPS, Markdown, PlainText, STREAM_PARSE_MS, StreamingMarkdown, findMentions, safeHref, type MarkdownPaths, type PathMatch } from './index.ts';
 import { MARKDOWN_MAX_CHARS, MARKDOWN_MAX_INLINE_CHARS, PAUSE_MAX_MS, lexMarkdown, parseBudgetMs } from './lex.ts';
-import { namesAnotherPlace } from './links.ts';
+import { LABEL_MAX_CHARS, namesAnotherPlace } from './links.ts';
 import { parseStreaming } from './Markdown.tsx';
 import { stableLength } from './stream.ts';
 
@@ -333,6 +333,126 @@ describe('Markdown: a word that only LOOKS like the address of another place (re
       expect(namesAnotherPlace(words, elsewhere), words).toBe(false);
     }
     expect(html(`[caf\u00e9 menu](${elsewhere})`).querySelector('a')?.textContent).toBe('caf\u00e9 menu');
+  });
+});
+
+describe('Markdown: what a reader cannot see in a link\u2019s words, and the name of a file (review R4-05, fourth round)', () => {
+  const CYRILLIC_O = '\u043e';
+  const APPLE = '\u0430\u0440\u0440\u04cf\u0435'; // five Cyrillic letters that read "apple"
+  const elsewhere = 'https://evil.example/login';
+  /** Characters that take no room on a screen: joiners, a space without width, a soft hyphen, selectors, a tag. */
+  const UNSEEN: readonly string[] = ['\u200d', '\u200c', '\u200b', '\u2060', '\u00ad', '\ufe0f', '\ufe00', '\u{e0100}', '\u{e0067}', '\ufeff', '\u180e', '\u034f', '\u200e'];
+  const named = (char: string): string => `U+${(char.codePointAt(0) as number).toString(16).toUpperCase()}`;
+
+  it('an unseen character is taken out before the words are read, and one beside the dot of a name has the destination written out', () => {
+    for (const unseen of UNSEEN) {
+      // The words read "github.com" and lead elsewhere, wherever the unseen character stands.
+      for (const words of [`github${unseen}.com`, `github.${unseen}com`, `git${unseen}hub.com`, `${unseen}github.com`, `github.com${unseen}`, `Sign in at github${unseen}.com now`, `github${unseen}${unseen}.${unseen}com`, `https://github${unseen}.com/login`]) {
+        expect(namesAnotherPlace(words, elsewhere), `${named(unseen)} in ${JSON.stringify(words)}`).toBe(true);
+      }
+      // Beside the dot of a name it is written out even on a link that leads to that name: nobody puts it there for the reader.
+      expect(namesAnotherPlace(`github${unseen}.com`, 'https://github.com/'), named(unseen)).toBe(true);
+      expect(namesAnotherPlace(`github.${unseen}com`, 'https://github.com/'), named(unseen)).toBe(true);
+      expect(namesAnotherPlace(`github${unseen}\u3002com`, 'https://github.com/'), named(unseen)).toBe(true);
+      // Anywhere else it is nothing: the words name the place the link leads to.
+      expect(namesAnotherPlace(`git${unseen}hub.com`, 'https://github.com/'), named(unseen)).toBe(false);
+      expect(namesAnotherPlace(`See git${unseen}hub.com/docs${unseen}`, 'https://github.com/docs'), named(unseen)).toBe(false);
+    }
+    // As a message is stored (the host keeps a joiner between two letters), as a link and as an image.
+    const root = html('[github\u200d.com](https://evil.example/login) ![github\u200d.com logo](https://evil.example/x.png)');
+    expect(root.textContent).toBe('github\u200d.com (https://evil.example/login) Image: github\u200d.com logo (https://evil.example/x.png)');
+    expect([...root.querySelectorAll('a')].map((a) => a.textContent)).toEqual(['https://evil.example/login', 'https://evil.example/x.png']);
+  });
+
+  it('unseen characters in ordinary words change nothing: an emoji before a full stop, a joiner inside a word, a soft hyphen', () => {
+    for (const words of [
+      'Done \u2714\ufe0f.',
+      'See the docs \u2764\ufe0f. Then log in',
+      '\u{1f468}\u200d\u{1f469}\u200d\u{1f467} family.',
+      '\u0d05\u0d35\u0d28\u0d4d\u200d.', // a Malayalam word that ends in a joiner, and its full stop
+      '\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645.', // a Persian word with a non-joiner inside
+      'co\u00adoperate.',
+      'The end\u200b. Next',
+      'v1\ufe0f.',
+      '\u200b',
+      `${'\u200d'.repeat(40)}.`,
+    ]) {
+      expect(namesAnotherPlace(words, elsewhere), JSON.stringify(words)).toBe(false);
+    }
+    expect(html('[Done \u2714\ufe0f.](https://example.com/x)').querySelector('a')?.textContent).toBe('Done \u2714\ufe0f.');
+  });
+
+  it('words that are the name of the file the link leads to are an ordinary link, whatever letters they have', () => {
+    const files: readonly (readonly [string, string])[] = [
+      ['\u8a2d\u8a08\u6587\u4ef6.md', 'https://github.com/a/b/blob/main/\u8a2d\u8a08\u6587\u4ef6.md'],
+      ['r\u00e9sum\u00e9.pdf', 'https://example.com/files/r%C3%A9sum%C3%A9.pdf'],
+      ['My r\u00e9sum\u00e9 (final).pdf', 'https://example.com/files/My%20r%C3%A9sum%C3%A9%20(final).pdf'],
+      ['\u8a2d\u5b9a.json', 'https://example.com/\u8a2d\u5b9a.json?raw=1#top'],
+      ['\u65e5\u672c\u8a9e.tar.gz', 'http://example.com/\u65e5\u672c\u8a9e.tar.gz'],
+    ];
+    for (const [words, href] of files) {
+      expect(namesAnotherPlace(words, href), words).toBe(false);
+      // The same words on a link to another file, or to a folder of that name, are written out as before (where a
+      // letter from outside ASCII stands at the dot).
+      const atTheDot = !words.includes('(');
+      expect(namesAnotherPlace(words, 'https://example.com/files/other.md'), words).toBe(atTheDot);
+      expect(namesAnotherPlace(words, `${href.split(/[?#]/)[0]}/`), words).toBe(atTheDot);
+    }
+    const root = html('[\u8a2d\u8a08\u6587\u4ef6.md](https://github.com/a/b/blob/main/\u8a2d\u8a08\u6587\u4ef6.md) ![r\u00e9sum\u00e9.pdf](https://example.com/r\u00e9sum\u00e9.pdf)');
+    expect(root.textContent).toBe('\u8a2d\u8a08\u6587\u4ef6.md Image: r\u00e9sum\u00e9.pdf');
+    expect([...root.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['https://github.com/a/b/blob/main/%E8%A8%AD%E8%A8%88%E6%96%87%E4%BB%B6.md', 'https://example.com/r%C3%A9sum%C3%A9.pdf']);
+
+    // A name that READS as a host is no file name, wherever the link's path repeats it: whoever owns the destination
+    // writes its path. An ending a host has, an ending in other letters, an unseen character at the dot.
+    for (const words of [`github.c${CYRILLIC_O}m`, `${APPLE}.com`, '\u53f0\u7063\u9280\u884c.tw', 'b\u00fccher.de', '\u4e2d\u6587.\u53f0\u7063', '\u8a2d\u8a08\u200d.md']) {
+      expect(namesAnotherPlace(words, `https://evil.example/${encodeURIComponent(words)}`), words).toBe(true);
+      expect(namesAnotherPlace(words, `https://evil.example/a/${words}`), words).toBe(true);
+    }
+    // Nor is a name with a host's ending in the middle of it, or one that hides a slash in the address.
+    const APPLE_COM = `${APPLE}.com`;
+    for (const [words, href] of [
+      [`${APPLE_COM} login.md`, `https://evil.example/${encodeURIComponent(`${APPLE_COM} login.md`)}`],
+      [`${APPLE_COM}.md`, `https://evil.example/${APPLE_COM}.md`],
+      [`g\u0456thub.c${CYRILLIC_O}m/x.md`, `https://evil.example/g%D1%96thub.c%D0%BEm%2Fx.md`],
+      [`README.\u6587\u4ef6`, 'https://evil.example/README.\u6587\u4ef6'],
+    ] as const) {
+      expect(safeHref(href), href).not.toBeNull();
+      expect(namesAnotherPlace(words, safeHref(href) as string), words).toBe(true);
+    }
+    // And in plain ASCII nothing changed: a host's name on a link to a file of that name elsewhere is written out.
+    expect(namesAnotherPlace('github.com', 'https://evil.example/github.com')).toBe(true);
+    expect(namesAnotherPlace('README.md', 'https://example.com/README.md')).toBe(false);
+  });
+
+  it('words longer than any name of a place with a sentence around it are written out with the destination, unread', () => {
+    const long = `${'word '.repeat(300)}end`;
+    expect(long.length).toBeGreaterThan(LABEL_MAX_CHARS);
+    expect(namesAnotherPlace(long, 'https://example.com/')).toBe(true);
+    expect(namesAnotherPlace(long.slice(0, LABEL_MAX_CHARS), 'https://example.com/')).toBe(false);
+    const root = html(`[${long}](https://example.com/x)`);
+    expect(root.querySelector('p')?.textContent).toBe(`${long} (https://example.com/x)`);
+    // A dotted word longer than a host name can be is not the name of a place; an address that says "https://" is
+    // never taken at its word.
+    expect(namesAnotherPlace(`${'a'.repeat(254)}.com`, 'https://example.com/')).toBe(false);
+    expect(namesAnotherPlace(`${'a'.repeat(249)}.com`, 'https://example.com/')).toBe(true);
+    expect(namesAnotherPlace(`${CYRILLIC_O.repeat(254)}.com`, 'https://example.com/')).toBe(false);
+    expect(namesAnotherPlace(`${CYRILLIC_O.repeat(249)}.com`, 'https://example.com/')).toBe(true);
+    expect(namesAnotherPlace(`https://${'a'.repeat(254)}.com/`, 'https://example.com/')).toBe(true);
+  });
+
+  it('an address whose host is longer than a host name can be is not a link', () => {
+    expect(safeHref(`https://${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(57)}.com:8443/x`)).not.toBeNull();
+    expect(safeHref(`https://${'a.'.repeat(130)}com/x`)).toBeNull();
+    expect(safeHref(`https://x${'\u0301\u0316'.repeat(200)}.com/`)).toBeNull();
+    expect(safeHref(`HTTP://${'\u0301'.repeat(300)}`)).toBeNull();
+    const root = html(`[here](https://${'a.'.repeat(130)}com/x)`);
+    expect(root.querySelector('a')).toBeNull();
+    expect(root.textContent).toBe(`[here](https://${'a.'.repeat(130)}com/x)`);
+    // What was a link is one: a long path, a query, a port, a mail address of any length.
+    expect(safeHref(`https://example.com/${'a/'.repeat(2_000)}?${'q='.repeat(500)}#${'f'.repeat(500)}`)).not.toBeNull();
+    expect(safeHref(`mailto:${'a'.repeat(400)}@example.com`)).not.toBeNull();
+    expect(safeHref('http:example.com')).toBeNull();
+    expect(safeHref('ftp://example.com/x')).toBeNull();
   });
 });
 

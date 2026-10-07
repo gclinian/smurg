@@ -167,7 +167,8 @@ export function StatusBar({ session, onShowCard }: StatusBarProps) {
           {joinSentences([accountLine, action.error === null ? null : t('actionFailed', { message: action.error })])}
         </span>
       </span>
-      {actions}
+      {/* The buttons are one piece: two of them go below the sentences in a column too narrow for both (conversation.css). */}
+      {actions.length === 0 ? null : <span className="conv-status__actions">{actions}</span>}
     </div>
   );
 }

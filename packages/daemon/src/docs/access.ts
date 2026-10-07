@@ -1,7 +1,7 @@
 // Who acts on a document, and what the other modules say about a file. The docs module calls LockManager, the
 // session manager and the member directory lazily through here; a module that is not composed (a stub) is tolerated
 // so documents keep working, but locks are then unavailable (logged once).
-import { foldPathName, relPathSegments, rootRefKey, type Actor, type FileRef, type LockInfo } from '@smurg/protocol';
+import { foldPathName, normalized, relPathSegments, rootRefKey, type Actor, type FileRef, type LockInfo } from '@smurg/protocol';
 import type { DaemonContext } from '../core/context.ts';
 import type { HumanTouchResult, LockManager, Principal, UserId } from '../core/interfaces.ts';
 import type { Logger } from '../core/logger.ts';
@@ -24,7 +24,7 @@ export function agentActorOf(lock: Extract<LockInfo, { kind: 'agent' }>): Extrac
  * case-sensitive file system would; it is only a fallback after the exact key.
  */
 export function foldedFileKey(ref: FileRef): string {
-  return `${rootRefKey(ref.root)}:${relPathSegments(ref.path.normalize('NFC')).map(foldPathName).join('/')}`;
+  return `${rootRefKey(ref.root)}:${relPathSegments(normalized(ref.path, 'NFC')).map(foldPathName).join('/')}`;
 }
 
 export class DocAccess {

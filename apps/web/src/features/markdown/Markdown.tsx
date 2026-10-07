@@ -11,12 +11,14 @@
 //
 // The lexer runs inside bounds (lex.ts): a text that is too long, too deep or too slow to parse is shown as it was
 // written, and nothing a text holds can throw out of a render. A mount takes from the page's share of parse time; a
-// text that comes after the share is spent is shown as written for the moment and parsed in a transition, which lets
-// go of the thread between two texts (usePieces below).
-import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+// text that comes after the share is spent is shown as written for the moment and formatted when the page is idle,
+// one slice of texts at a time (idle.ts, usePieces below).
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react';
+import { flushSync } from 'react-dom';
 import type { Token } from 'marked';
 import { cx } from '../../ui/cx.ts';
-import { lexMarkdown, lexMarkdownPieces, waitsForTime, type PlainToken } from './lex.ts';
+import { formatWhenIdle } from './idle.ts';
+import { lexMarkdown, lexMarkdownPieces, ranOut, waitsForTime } from './lex.ts';
 import type { MarkdownPaths, PathTarget } from './paths.ts';
 import { MdBlock, markMentions, type RenderContext } from './render.tsx';
 import { stableLength } from './stream.ts';
@@ -89,45 +91,48 @@ export function PlainText({ text, mentions, className }: PlainTextProps) {
   return <div className={cx('md-plain', className)}>{mentions === undefined ? text : markMentions(text, mentions)}</div>;
 }
 
-/** Whether `tokens` are a piece that must be parsed again: shown as written only for the moment, or because its text ran out of time. */
-function parsedForNow(tokens: readonly Token[]): boolean {
-  const only = tokens.length === 1 ? (tokens[0] as unknown as PlainToken) : null;
-  return only !== null && only.type === 'plain' && (only.reason === 'later' || only.reason === 'time');
-}
+/** Whether `tokens` are a piece shown as written: for the moment, for a budget, or for what the piece itself is. */
+const shownAsWritten = (tokens: readonly Token[]): boolean => tokens.length === 1 && (tokens[0] as Token).type === 'plain';
 
 /**
  * The tokens of the pieces of one text (lexMarkdownPieces: one budget, one memory). Parsed while rendering, as part of
- * the mount; when the page's share of parse time is spent the pieces are shown as written and parsed again in a
- * transition, in which React lets go of the thread between one component and the next.
+ * the mount. Pieces that wait (the page's share of parse time is spent, or the text's budget ran out on a piece
+ * before them) are shown as written and ask the page's idle queue for a turn (idle.ts): in its turn this component
+ * renders once more, synchronously and by itself, and parses what waits outside the page's share. `shown` is the
+ * element the text is drawn in (for "on screen first"), null for a text in pieces.
  *
- * A piece that is the same as at the last render keeps its tokens: it is not parsed again, and its blocks are not
+ * A piece that was FORMATTED at the last render keeps its tokens: it is not parsed again, and its blocks are not
  * drawn again (render.tsx MdBlock goes by the token). A keystroke in a long SPEC.md changes the whole text and ONE
- * of its sections.
+ * of its sections. A piece shown as written is asked about again whenever the text changes: whether it is formatted
+ * can depend on the text it stands in (lex.ts). A text that is over its budget as a whole keeps nothing.
  */
-function usePieces(pieces: readonly string[], whole: string, breaks: boolean): readonly (readonly Token[])[] {
-  /** The text this component parses outside the page's share (it was told to wait once). */
-  const [late, setLate] = useState<string | null>(null);
-  /** The pieces of the last render with what they were parsed into. */
+function usePieces(pieces: readonly string[], whole: string, breaks: boolean, shown: RefObject<Element | null> | null): readonly (readonly Token[])[] {
+  /** The turn the idle queue gave this component: the text it parses outside the page's share. A new object each turn. */
+  const [turn, setTurn] = useState<{ readonly whole: string } | null>(null);
+  /** The pieces of the last render that were formatted, with what they were parsed into. */
   const kept = useRef<{ readonly breaks: boolean; readonly tokens: ReadonlyMap<string, readonly Token[]> } | null>(null);
   const tokens = useMemo(() => {
     const before = kept.current !== null && kept.current.breaks === breaks ? kept.current.tokens : null;
     const fresh = [...new Set(pieces.filter((piece) => before?.has(piece) !== true))];
-    const lexed = fresh.length === 0 ? [] : lexMarkdownPieces(fresh, whole, { breaks, urgent: late !== whole });
+    const lexed = fresh.length === 0 ? [] : lexMarkdownPieces(fresh, whole, { breaks, urgent: turn?.whole !== whole });
     const now = new Map<string, readonly Token[]>(fresh.map((piece, index) => [piece, lexed[index] as Token[]]));
-    const all = pieces.map((piece) => before?.get(piece) ?? (now.get(piece) as readonly Token[]));
-    kept.current = { breaks, tokens: new Map(pieces.flatMap((piece, index) => (parsedForNow(all[index] as readonly Token[]) ? [] : [[piece, all[index] as readonly Token[]] as const]))) };
+    // Over its budget as a whole, since this parse or an earlier one: every piece is shown as written, the kept ones too.
+    const all = ranOut(whole) ? lexMarkdownPieces(pieces, whole, { breaks }) : pieces.map((piece) => before?.get(piece) ?? (now.get(piece) as readonly Token[]));
+    kept.current = { breaks, tokens: new Map(pieces.flatMap((piece, index) => (shownAsWritten(all[index] as readonly Token[]) ? [] : [[piece, all[index] as readonly Token[]] as const]))) };
     return all;
-  }, [pieces, whole, breaks, late]);
+  }, [pieces, whole, breaks, turn]);
   const waits = tokens.some((piece) => waitsForTime(piece));
   useEffect(() => {
-    if (waits) startTransition(() => setLate(whole));
-  }, [waits, whole]);
+    if (!waits) return undefined;
+    // `turn` is a dependency: a text whose budget ran out in its turn has pieces that wait again, and asks again.
+    return formatWhenIdle(shown?.current ?? null, () => flushSync(() => setTurn({ whole })));
+  }, [waits, whole, turn, shown]);
   return tokens;
 }
 
-function Blocks({ tokens, context, className }: { tokens: readonly Token[]; context: RenderContext; className: string | undefined }) {
+function Blocks({ tokens, context, className, ref }: { tokens: readonly Token[]; context: RenderContext; className: string | undefined; ref?: Ref<HTMLDivElement> }) {
   return (
-    <div className={cx('md-body', className)}>
+    <div ref={ref} className={cx('md-body', className)}>
       {tokens.map((token, index) => (
         <MdBlock key={index} token={token} context={context} />
       ))}
@@ -139,8 +144,9 @@ export function Markdown(props: MarkdownProps) {
   const { text, breaks = false, className } = props;
   const context = useRenderContext(props);
   const pieces = useMemo(() => [text], [text]);
-  const tokens = usePieces(pieces, text, breaks);
-  return <Blocks tokens={tokens[0] ?? []} context={context} className={className} />;
+  const shown = useRef<HTMLDivElement>(null);
+  const tokens = usePieces(pieces, text, breaks, shown);
+  return <Blocks ref={shown} tokens={tokens[0] ?? []} context={context} className={className} />;
 }
 
 export interface MarkdownPiecesProps extends MarkdownOptions {
@@ -159,7 +165,7 @@ export interface MarkdownPiecesProps extends MarkdownOptions {
 export function MarkdownPieces(props: MarkdownPiecesProps) {
   const { text, pieces, breaks = false, className, children } = props;
   const context = useRenderContext(props);
-  const tokens = usePieces(pieces, text, breaks);
+  const tokens = usePieces(pieces, text, breaks, null);
   return <>{tokens.map((piece, index) => children(<Blocks tokens={piece} context={context} className={className} />, index))}</>;
 }
 

@@ -172,6 +172,9 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
               moreInsideBar: moreBox.left >= barBox.left - 0.01 && moreBox.right <= barBox.right + 0.01 && moreBox.top >= barBox.top - 0.01 && moreBox.bottom <= barBox.bottom + 0.01,
               moreShown: moreBox.width > 0 && moreBox.height > 0,
               besideOrBelow: moreBox.left >= stateBox.right - 0.5 || moreBox.top >= stateBox.bottom - 1,
+              // The bar's one button stays beside the sentences, in their first line's row.
+              buttons: copy.querySelectorAll('.conv-status__actions button').length,
+              buttonBeside: (copy.querySelector('.conv-status__actions') as HTMLElement).getBoundingClientRect().top < (copy.querySelector('.conv-status__line') as HTMLElement).getBoundingClientRect().bottom,
             };
             box.remove();
             return result;
@@ -190,6 +193,103 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
       expect(seen.moreScroll, at).toBe(seen.moreClient);
       expect(seen.moreInsideBar, at).toBe(true);
       expect(seen.besideOrBelow, at).toBe(true);
+      expect(seen.buttons, at).toBe(1);
+      expect(seen.buttonBeside, at).toBe(true);
+    }
+  };
+
+  /**
+   * The bar with TWO buttons and a second sentence, which is what a member with agent access sees while Claude Code
+   * is logged out on the host ("Show it" and "Check login again"). In a narrow column the buttons stand on a line of
+   * their own below the sentences, which have the bar's whole width: beside two buttons a 320 px column left them a
+   * strip of 51 to 90 px, the state on three to five lines (review R6-05, fourth round). In a wide column the buttons
+   * stay beside the sentences. Measured like bothSentencesWhole, on a copy of the page's bar with its one button
+   * drawn a second time under the other label (and a third time: a discussion that may be started afresh has three).
+   */
+  const twoButtons = async (page: Page, secondButton: string, sentence: string, thirdButton?: string): Promise<void> => {
+    for (const width of [320, 380, 420, 1100]) {
+      const seen = await column(page)
+        .locator('.conv-status')
+        .evaluate(
+          (bar, { secondButton, thirdButton, sentence, width }) => {
+            const box = document.createElement('div');
+            box.style.cssText = `position:absolute;left:0;top:0;width:${width}px;display:flex;flex-direction:column`;
+            const copy = bar.cloneNode(true) as HTMLElement;
+            box.append(copy);
+            (bar.parentElement as HTMLElement).append(box);
+            const line = copy.querySelector('.conv-status__line') as HTMLElement;
+            const state = copy.querySelector('.conv-status__text') as HTMLElement;
+            const more = copy.querySelector('.conv-status__more') as HTMLElement;
+            const actions = copy.querySelector('.conv-status__actions') as HTMLElement;
+            const first = actions.querySelector('button') as HTMLElement;
+            const drawn = [first];
+            for (const label of thirdButton === undefined ? [secondButton] : [secondButton, thirdButton]) {
+              const button = first.cloneNode(true) as HTMLElement;
+              button.textContent = label;
+              actions.append(button);
+              drawn.push(button);
+            }
+            more.textContent = sentence;
+            const oneLine = (node: HTMLElement): number => {
+              const probe = document.createElement('span');
+              probe.textContent = 'x';
+              node.append(probe);
+              const height = probe.getBoundingClientRect().height;
+              probe.remove();
+              return height;
+            };
+            const style = getComputedStyle(copy);
+            const barBox = copy.getBoundingClientRect();
+            const lineBox = line.getBoundingClientRect();
+            const stateBox = state.getBoundingClientRect();
+            const moreBox = more.getBoundingClientRect();
+            const actionsBox = actions.getBoundingClientRect();
+            const buttons = drawn.map((button) => button.getBoundingClientRect());
+            const result = {
+              barWidth: barBox.width,
+              barHeight: barBox.height,
+              // Where the bar's content ends on the right.
+              innerRight: barBox.right - Number.parseFloat(style.paddingRight) - Number.parseFloat(style.borderRightWidth),
+              lineRight: lineBox.right,
+              lineWidth: lineBox.width,
+              buttonsBelow: actionsBox.top >= lineBox.bottom - 0.5,
+              buttonsBeside: actionsBox.top < lineBox.bottom && actionsBox.left >= lineBox.right - 0.5,
+              buttonsOnOneLine: buttons.every((one) => Math.abs(one.top - (buttons[0] as DOMRect).top) < 1),
+              buttonsInsideBar: buttons.every((one) => one.left >= barBox.left - 0.01 && one.right <= barBox.right + 0.01 && one.bottom <= barBox.bottom + 0.01),
+              buttonsWhole: drawn.every((button) => button.scrollWidth <= button.clientWidth),
+              buttonsApart: buttons.every((one, index) => buttons.every((other, at) => at === index || one.right <= other.left + 0.01 || other.right <= one.left + 0.01 || one.bottom <= other.top + 0.01 || other.bottom <= one.top + 0.01)),
+              stateLines: stateBox.height / oneLine(state),
+              stateScroll: state.scrollWidth,
+              stateClient: state.clientWidth,
+              moreScroll: more.scrollWidth,
+              moreClient: more.clientWidth,
+              moreInsideBar: moreBox.left >= barBox.left - 0.01 && moreBox.right <= barBox.right + 0.01 && moreBox.bottom <= barBox.bottom + 0.01,
+            };
+            box.remove();
+            return result;
+          },
+          { secondButton, thirdButton, sentence, width },
+        );
+      const at = `${secondButton}${thirdButton === undefined ? '' : ` and ${thirdButton}`} at ${width} px: ${JSON.stringify(seen)}`;
+      expect(seen.barWidth, at).toBe(width);
+      if (width <= 420) {
+        // The buttons below, together, at the end; the sentences from the glyph to the bar's end.
+        expect(seen.buttonsBelow, at).toBe(true);
+        expect(seen.innerRight - seen.lineRight, at).toBeLessThan(1);
+        expect(seen.lineWidth, at).toBeGreaterThan(width - 60);
+      } else {
+        expect(seen.buttonsBeside, at).toBe(true);
+      }
+      // Two buttons are one line; three wrap where the column is too narrow for them. None is cut or covered.
+      if (thirdButton === undefined || width > 420) expect(seen.buttonsOnOneLine, at).toBe(true);
+      expect(seen.buttonsInsideBar, at).toBe(true);
+      expect(seen.buttonsWhole, at).toBe(true);
+      expect(seen.buttonsApart, at).toBe(true);
+      // The state on one line, whole; the second sentence whole, inside the bar.
+      expect(seen.stateLines, at).toBeLessThan(1.5);
+      expect(seen.stateScroll, at).toBe(seen.stateClient);
+      expect(seen.moreScroll, at).toBe(seen.moreClient);
+      expect(seen.moreInsideBar, at).toBe(true);
     }
   };
 
@@ -215,6 +315,8 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
     await request.getByRole('button', { name: 'Allow once' }).waitFor({ timeout: STEP_MS });
     await column(host).getByRole('status').filter({ hasText: 'Claude is waiting for permission' }).waitFor({ timeout: STEP_MS });
     await bothSentencesWhole(host, "The host's Claude account reached a usage limit.");
+    await twoButtons(host, 'Check login again', "Claude Code is not logged in on the host's computer.");
+    await twoButtons(host, 'Start a fresh conversation', "Claude Code is not logged in on the host's computer.", 'Check login again');
     // "Always allow this kind" names the kind in words.
     await request.getByText(/commands that start with pnpm test/).waitFor({ timeout: STEP_MS });
 
@@ -229,6 +331,7 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
     const meiRequest = column(mei).getByRole('region', { name: 'Claude 請求許可執行指令' });
     await column(mei).getByRole('status').filter({ hasText: 'Claude 正在等待許可' }).waitFor({ timeout: STEP_MS });
     await bothSentencesWhole(mei, '主人的 Claude 帳號已達用量上限。');
+    await twoButtons(mei, '重新檢查登入', '主人電腦上的 Claude Code 尚未登入。');
     await meiRequest.getByRole('button', { name: '允許一次' }).click();
     await column(host).getByText(/Allowed once by mei/i).waitFor({ timeout: STEP_MS });
     await column(amy).getByText(/Allowed once by mei/i).waitFor({ timeout: STEP_MS });

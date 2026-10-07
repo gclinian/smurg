@@ -8,6 +8,7 @@
 //   a group heavier than 1.5 x (total weight / number of people) is split item by item instead.
 //
 // Only members with agent access are ever suggested: a responsible Editor could not allow their agent's commands.
+import { normalized } from '@smurg/protocol';
 
 export interface SplitPerson {
   readonly userId: string;
@@ -28,7 +29,7 @@ export const SIZE_WEIGHT: Readonly<Record<SplitItem['size'], number>> = Object.f
 export const GROUP_SPLIT_FACTOR = 1.5;
 
 function fold(name: string): string {
-  return name.normalize('NFKC').trim().toLowerCase();
+  return normalized(name, 'NFKC').trim().toLowerCase();
 }
 
 export interface CheckedProposal {
