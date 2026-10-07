@@ -294,9 +294,11 @@ describe.skipIf(chrome === null)('the budget of a long conversation (built app, 
       const usual = durations[Math.floor(durations.length / 2)] ?? 0;
       console.info(`[conversation perf] hard texts, ${label}: all formatted ${((until - from) / 1_000).toFixed(1)} s after their frame; ${tasks.length} tasks over 50 ms, the longest ${longest.toFixed(0)} ms, the usual one ${usual.toFixed(0)} ms`);
       // A slice is one text, and one text is about 70 ms on the machine the budget was set on; a continuous-integration
-      // runner is four to five times slower, and there a slice alone is over the budget. What must hold on every
-      // machine: no task is much longer than the usual slice (formatting that came back in one piece took 22 s).
-      return { longest, atMost: Math.max(LONG_TASK_BUDGET_MS, 3 * usual) };
+      // runner is about three times slower and uneven (its usual slice was 140 to 270 ms, its longest 208 to 597 ms),
+      // and there a slice alone is over the budget. What must hold on every machine: no task is much longer than the
+      // budget at this machine's speed, or than a few of its usual slices (formatting that came back in one piece
+      // took 22 s).
+      return { longest, atMost: Math.max(LONG_TASK_BUDGET_MS * slow, 4 * usual) };
     };
 
     await row.click();
@@ -331,9 +333,9 @@ describe.skipIf(chrome === null)('the budget of a long conversation (built app, 
     console.info(`[conversation perf] hard texts: a click was answered after ${(click.answered - click.pressed).toFixed(0)} ms, ${during.waiting} texts still waiting`);
     expect(during.waiting).toBeGreaterThan(0);
     expect(click.pressed).toBeGreaterThan(0);
-    // Within a slice or two: the budget on the machine it was set on, three of this machine's usual slices on a slower one.
+    // Within a slice or two: the budget at this machine's speed, or a few of its usual slices.
     const slices = (await reader.evaluate(() => (window as unknown as { smurgLongTasks: [number, number][] }).smurgLongTasks)).filter(([start]) => start >= from).map(([, duration]) => duration).sort((a, b) => a - b);
-    expect(click.answered - click.pressed).toBeLessThan(Math.max(CLICK_BUDGET_MS, 3 * (slices[Math.floor(slices.length / 2)] ?? 0)));
+    expect(click.answered - click.pressed).toBeLessThan(Math.max(CLICK_BUDGET_MS * slow, 4 * (slices[Math.floor(slices.length / 2)] ?? 0)));
     expect(during.lastWaits).toBe(false);
     await reader.keyboard.press('Escape');
 
