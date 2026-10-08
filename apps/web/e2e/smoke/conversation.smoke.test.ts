@@ -129,12 +129,22 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
   };
 
   /**
+   * The status bar as the two measurements below copy it: with its one button ("Show it"). A page that has just opened
+   * the column says the state first, from the list of sessions, and draws the button a moment later, when it has the
+   * conversation's open card (seen on a CI runner: the copy was made in between and had no button to measure).
+   */
+  const barHasItsButton = async (page: Page): Promise<void> => {
+    await column(page).locator('.conv-status .conv-status__actions button').first().waitFor({ timeout: STEP_MS });
+  };
+
+  /**
    * A second sentence in the status bar (the host's account is why nothing moves), in columns of four widths: the
    * state in front of it is never squeezed, not by a fraction of a pixel (Chrome draws "…" for that), and the second
    * sentence is never cut either: it stands beside the state or on a line of its own, inside the bar. Measured on a
    * copy of the page's bar in a box of each width (the bar's padding is a share of the box it stands in).
    */
   const bothSentencesWhole = async (page: Page, second: string): Promise<void> => {
+    await barHasItsButton(page);
     for (const width of [320, 380, 420, 560]) {
       const seen = await column(page)
         .locator('.conv-status')
@@ -207,6 +217,7 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
    * drawn a second time under the other label (and a third time: a discussion that may be started afresh has three).
    */
   const twoButtons = async (page: Page, secondButton: string, sentence: string, thirdButton?: string): Promise<void> => {
+    await barHasItsButton(page);
     for (const width of [320, 380, 420, 1100]) {
       const seen = await column(page)
         .locator('.conv-status')
