@@ -70,6 +70,16 @@ SMURG_RELEASE_GATE=1 pnpm check   # the same, for a release: nothing may be pend
   `PATH` or named by `SMURG_TEST_CLAUDE_BIN=/absolute/path/to/claude`, and skips loudly otherwise. For a release it is
   run with `SMURG_TEST_CLAUDE_BIN` pointing at 2.1.288 ("Other ways to run" below; `docs/RELEASING.md` §4.5). No real
   Claude account is used at any point.
+- **Expected result, v0.5.1** (English and zh-TW, protocol 4; `SMURG_RELEASE_GATE=1 pnpm check` with the published
+  executables of 0.4.0 and 0.5.0 in `SMURG_PREVIOUS_BINARIES` and this tree's build in `SMURG_SEA_BINARY`, so the
+  upgrade from both ran with the real files; 2026-10-08, the release's code):
+  - macOS 26.5.1 on an Apple M3 (arm64), Node 22.22.1, `SMURG_TEST_CLAUDE_BIN` naming Claude Code 2.1.288:
+    `Test Files  438 passed (438)` and `Tests  9168 passed | 8 skipped (9176)`, vitest's own duration 679 s, exit 0;
+    no file skipped (the tests of the packaged executable ran: the build is 112.7 MiB).
+  - The Ubuntu 24.04 arm64 VM, Node 22.22.1, with `SMURG_TEST_CHROME`, the published Linux executables and a build
+    made in the VM (122.2 MiB), from a checkout that has the tags (`GIT_DIR`): `Test Files  430 passed | 8 skipped
+    (438)` and `Tests  9125 passed | 51 skipped (9176)`, 741 s, exit 0. The eight skipped files: the five real-Claude
+    files of the daemon, `flow.claude.smoke`, and the two browser files that take only Google Chrome.
 - **Expected result, v0.5.0** (English and zh-TW, protocol 4; `SMURG_RELEASE_GATE=1 pnpm check` on macOS):
   - 2026-10-07, macOS 26.5.1 on an Apple M3 (arm64), Node 22.22.1, `SMURG_TEST_CLAUDE_BIN` naming Claude Code
     2.1.288 (so the real-Claude suite and `flow.claude.smoke` ran too): `Test Files  400 passed | 2 skipped (402)` and
