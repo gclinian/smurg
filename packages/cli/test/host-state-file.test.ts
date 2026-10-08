@@ -21,7 +21,7 @@ import { appendFileSync } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, readFile, readdir, readlink, realpath, rename, rm, symlink, truncate, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_FEATURE_MODULES, silentLogger, systemClock, type Daemon } from '@smurg/daemon';
+import { DEFAULT_FEATURE_MODULES, StateFileError, silentLogger, systemClock, type Daemon, type FeatureModule } from '@smurg/daemon';
 import { MemoryRelay, TestIdentityIssuer, createTempDir, createTempRunDir, removeTempDir, removeTempRunDir, waitFor } from '@smurg/daemon/testing';
 import { PROTOCOL_VERSION, daemonKeyFingerprint, equalBytes, formatFingerprintForDisplay, type AdmitContext } from '@smurg/protocol';
 import { readPinnedDaemonKey } from '@smurg/protocol/node';
@@ -105,7 +105,12 @@ function show(title: string, lang: Lang, terminal: Terminal): void {
  * `smurg host <the fixture's folder>` with the RELEASE composition, as the dispatcher runs it (a failure is printed as
  * `smurg: ...` on stderr). A host that started is stopped after `during`.
  */
-async function smurgHost(shared: Shared, lang: Lang, title: string, options: { readonly update?: UpdateNoticeDeps; readonly during?: (daemon: Daemon, io: TestIo) => Promise<void> | void } = {}): Promise<Terminal> {
+async function smurgHost(
+  shared: Shared,
+  lang: Lang,
+  title: string,
+  options: { readonly update?: UpdateNoticeDeps; readonly during?: (daemon: Daemon, io: TestIo) => Promise<void> | void; readonly modules?: readonly FeatureModule[] } = {},
+): Promise<Terminal> {
   const io = testIo({ env: { ...shared.env, SMURG_LANG: lang }, openUrl: browserOpening, now: () => NOW });
   const ctx = commandContext(io);
   let ready: (daemon: Daemon) => void = () => {};
@@ -113,7 +118,11 @@ async function smurgHost(shared: Shared, lang: Lang, title: string, options: { r
     ready = resolve;
   });
   const done = runHost([shared.copy.project, '--relay', shared.relay.origin, '--no-keep-awake'], ctx, {
-    daemon: { socketFactory: shared.memory.hostSocketFactory(), identityKeys: { get: (kid: string) => (kid === shared.issuer.kid ? shared.issuer.publicKey : null), refresh: async () => {} } },
+    daemon: {
+      socketFactory: shared.memory.hostSocketFactory(),
+      identityKeys: { get: (kid: string) => (kid === shared.issuer.kid ? shared.issuer.publicKey : null), refresh: async () => {} },
+      ...(options.modules ? { modules: options.modules } : {}),
+    },
     onReady: (daemon) => ready(daemon),
     ...(options.update ? { update: options.update } : {}),
   }).catch((err: unknown) => {
@@ -191,6 +200,17 @@ function stderrOf(terminal: Terminal): { readonly log: string[]; readonly said: 
   const lines = terminal.err.split('\n');
   const log = lines.filter((line) => /^\d{4}-\d{2}-\d{2}T\S+Z (?:error|warn|info) /.test(line));
   return { log, said: lines.filter((line) => !log.includes(line)).join('\n') };
+}
+
+/** Every line of the whole terminal (stdout and stderr) that starts with a timestamp: a raw line of the daemon's log. */
+function rawLogLines(terminal: Terminal): string[] {
+  return `${terminal.out}\n${terminal.err}`.split('\n').filter((line) => /^\d{4}-\d{2}-\d{2}T/.test(line));
+}
+
+/** The refusals of the workspace's state in the host's log FILE (`<state>/logs/<workspace>.log`), oldest first. */
+async function refusalsLogged(shared: Shared): Promise<string[]> {
+  const text = await readFile(hostLogPath(statePaths(shared.env), shared.copy.workspaceId), 'utf8');
+  return text.split('\n').filter((line) => line.includes(' error "workspace state refused; the daemon does not start" '));
 }
 
 /**
@@ -637,11 +657,16 @@ describe('smurg host on a workspace folder it refuses: one text per kind and cau
       expect(t.started).toBe(false);
       expect(t.code).toBe(1);
       expect(t.out).toBe('');
-      // The daemon logged the refusal once, with its kind (errors of the log reach the terminal too) ...
-      const { log, said } = stderrOf(t);
-      expect(log).toHaveLength(1);
-      expect(log[0]).toContain('error "workspace state refused; the daemon does not start" error=StateFileError');
-      for (const field of refusal.logged) expect(log[0]).toContain(field);
+      // The daemon logged the refusal once, with its kind: in the host's log FILE. The terminal holds no raw line
+      // of the log (the owner pasted exactly such a line, `2026-…Z error "workspace state refused; …" error=…`,
+      // above the command's words): the words name the file and the reason themselves ...
+      const logged = await refusalsLogged(shared);
+      expect(logged).toHaveLength(LANGS.indexOf(lang) + 1);
+      expect(logged.at(-1)).toMatch(/^\d{4}-\d{2}-\d{2}T\S+Z error "workspace state refused; the daemon does not start" error=StateFileError /);
+      for (const field of refusal.logged) expect(logged.at(-1)).toContain(field);
+      expect(rawLogLines(t)).toEqual([]);
+      const { said } = stderrOf(t);
+      expect(said).toBe(t.err);
       // ... and the command says what it is and what to do, word for word.
       const expected = refusal.says(copy, lang, said);
       expect(said).toBe(failure(lang, expected.message, expected.hint));
@@ -681,10 +706,12 @@ describe('smurg host on a workspace folder it refuses: one text per kind and cau
     const before = await pictureOf(copy);
     for (const lang of LANGS) {
       const t = await smurgHost(shared, lang, 'insecure, owner');
-      const { log, said } = stderrOf(t);
-      expect(log).toHaveLength(1);
-      expect(log[0]).toContain('kind=insecure');
-      expect(log[0]).toContain('cause=owner');
+      const logged = await refusalsLogged(shared);
+      expect(logged).toHaveLength(LANGS.indexOf(lang) + 1);
+      expect(logged.at(-1)).toContain('kind=insecure');
+      expect(logged.at(-1)).toContain('cause=owner');
+      expect(rawLogLines(t)).toEqual([]);
+      const { said } = stderrOf(t);
       expect(said).toBe(
         lang === 'en'
           ? failure('en', `8 files of this workspace's state belong to another user, not to you; the first: ${files[0]}`, [
@@ -714,6 +741,82 @@ describe('smurg host on a workspace folder it refuses: one text per kind and cau
     const again = await smurgHost(shared, 'en', 'after the chmod');
     expect(again.started).toBe(true);
     expect(again.out).toBe(cleanStart('en', again.out, PAUSED_050));
+  }, 120_000);
+});
+
+// ---- the raw line of the daemon's log (0.5.1: the owner pasted `2026-…Z error "workspace state refused; …"`)
+
+describe('the daemon\'s own log line of a refusal: in the host\'s log file, and on the terminal only when the command has no words of its own', () => {
+  it('the workspace\'s folder itself is open to other users (a refusal with words of the command, though no StateFileError): no line of the terminal starts with a timestamp, in both languages', async () => {
+    const shared = await onFixture('0.5.0');
+    const ws = shared.copy.workspaceDir;
+    await chmod(ws, 0o755);
+    cleanups.push(() => chmod(ws, 0o700));
+    for (const lang of LANGS) {
+      const t = await smurgHost(shared, lang, 'the workspace folder is open to others');
+      expect(t.started).toBe(false);
+      expect(t.code).toBe(1);
+      expect(t.out).toBe('');
+      expect(rawLogLines(t)).toEqual([]);
+      expect(t.err).toBe(
+        lang === 'en'
+          ? failure('en', `The daemon's key or state folder is in a folder other users can access: ${ws}`, [`Run chmod 700 ${ws}, or use a new SMURG_HOME.`])
+          : failure('zh-TW', `daemon 的金鑰或狀態目錄所在的資料夾權限不安全（其他使用者可以存取）：${ws}`, [`請執行 chmod 700 ${ws}，或改用新的 SMURG_HOME。`]),
+      );
+      // The log file has the line, with the error's own name and reason.
+      const logged = await refusalsLogged(shared);
+      expect(logged).toHaveLength(LANGS.indexOf(lang) + 1);
+      expect(logged.at(-1)).toContain('error=KeyFileError');
+    }
+  }, 120_000);
+
+  it.skipIf(!notRoot)('a start that fails for a reason the command has NO words for still shows the daemon\'s log line, as before: it is the only place that says why', async () => {
+    const shared = await onFixture('0.5.0');
+    const { copy } = shared;
+    // The folder of a workspace that is new to this state dir cannot be made: the system's error, no file of smurg's.
+    const parent = join(copy.hostHome, 'workspaces');
+    await rename(copy.workspaceDir, join(copy.root, 'set-aside'));
+    await chmod(parent, 0o500);
+    cleanups.push(() => chmod(parent, 0o700));
+    for (const lang of LANGS) {
+      const t = await smurgHost(shared, lang, 'a failure the command has no words for');
+      expect(t.started).toBe(false);
+      expect(t.code).toBe(1);
+      const { log, said } = stderrOf(t);
+      expect(log).toHaveLength(1);
+      expect(log[0]).toMatch(/^\d{4}-\d{2}-\d{2}T\S+Z error "workspace state refused; the daemon does not start" error=Error reason=EACCES$/);
+      // The line comes first, the command's words after it (the order the terminal has always had): they can only
+      // say that the daemon did not start and where the log is.
+      expect(t.err.startsWith(`${log[0]}\n`)).toBe(true);
+      expect(said).toBe(
+        lang === 'en'
+          ? failure('en', 'The daemon could not start (Error)', [`The log has the details: ${hostLogPath(statePaths(shared.env), copy.workspaceId)}`])
+          : failure('zh-TW', 'daemon 無法啟動（Error）', [`詳細原因請看紀錄檔 ${hostLogPath(statePaths(shared.env), copy.workspaceId)}`]),
+      );
+      expect(await refusalsLogged(shared)).toHaveLength(LANGS.indexOf(lang) + 1);
+    }
+  }, 120_000);
+
+  it('a state file refused AFTER the two phases (a module finds it when it is composed): that line of the log stays off the terminal too', async () => {
+    const shared = await onFixture('0.5.0');
+    const refusedFile = join(shared.copy.workspaceDir, 'activity.jsonl');
+    const breaks: FeatureModule = {
+      name: 'f0-refuses',
+      create: () => {
+        throw new StateFileError({ kind: 'cannot-open', errno: 'EIO', path: refusedFile, message: 'cannot open the activity log (EIO)' });
+      },
+      register: () => ({ dispose: () => {} }),
+    };
+    for (const lang of LANGS) {
+      const t = await smurgHost(shared, lang, 'a state file refused while the modules are composed', { modules: [...DEFAULT_FEATURE_MODULES, breaks] });
+      expect(t.started).toBe(false);
+      expect(t.code).toBe(1);
+      expect(rawLogLines(t)).toEqual([]);
+      expect(t.err).toContain(refusedFile);
+      expect(t.err).toContain('EIO');
+      const text = await readFile(hostLogPath(statePaths(shared.env), shared.copy.workspaceId), 'utf8');
+      expect(text.split('\n').filter((line) => line.includes(' error "daemon composition failed" error=StateFileError '))).toHaveLength(LANGS.indexOf(lang) + 1);
+    }
   }, 120_000);
 });
 
@@ -776,6 +879,37 @@ describe('a damaged state.json beside the copy an upgrade kept', () => {
       expect(putBack.out).toBe(`${warning}\n${cleanStart(lang, putBack.out)}`);
       // What it undoes (documented, not prevented): Gina is a member again.
       expect(gina).toBe('active');
+    }
+  }, 180_000);
+
+  it('two copies of one step (the host went back to 0.4.0 with the first, worked there, updated again): the daemon names the second in its upgrade, and a refusal names the NEWEST copy', async () => {
+    const shared = await onFixture('0.4.0');
+    const ws = shared.copy.workspaceDir;
+    const state040 = await readFile(join(ws, 'state.json'), 'utf8');
+    expect((await smurgHost(shared, 'en', 'the first upgrade')).started).toBe(true);
+    const first = join(ws, 'state.json.before-upgrade-from-0.4.0');
+    expect(await readFile(first, 'utf8')).toBe(state040);
+    // Back on 0.4.0 the host renamed the workspace's first member; that smurg wrote state.json in its own shape again.
+    const later = JSON.parse(state040) as { members: { displayName: string }[] };
+    (later.members[0] as { displayName: string }).displayName = 'Renamed on 0.4.0';
+    await writeFile(join(ws, 'state.json'), `${JSON.stringify(later, null, 2)}\n`, { mode: 0o600 });
+    const laterBytes = await readFile(join(ws, 'state.json'), 'utf8');
+    let upgraded: Daemon['upgraded'] = [];
+    const again = await smurgHost(shared, 'en', 'the second upgrade, of another 0.4.0 file', { during: (daemon) => void (upgraded = daemon.upgraded) });
+    expect(again.started).toBe(true);
+    const second = join(ws, 'state.json.before-upgrade-from-0.4.0-2');
+    expect(upgraded).toEqual([{ document: 'state', from: '0.4.0', copy: second }]);
+    expect(await readFile(first, 'utf8')).toBe(state040);
+    expect(await readFile(second, 'utf8')).toBe(laterBytes);
+    expect(((await lstat(second)).mode & 0o777).toString(8)).toBe('600');
+
+    await truncate(join(ws, 'state.json'), 100);
+    const keptAt = formatTime((await lstat(second)).mtimeMs);
+    for (const lang of LANGS) {
+      const refused = await smurgHost(shared, lang, 'unreadable, with two kept copies of one step beside it');
+      expect(rawLogLines(refused)).toEqual([]);
+      expect(refused.err).toContain(lang === 'en' ? `The newest copy: state.json.before-upgrade-from-0.4.0-2, kept ${keptAt}.` : `最新的副本：state.json.before-upgrade-from-0.4.0-2，保留於 ${keptAt}。`);
+      expect(refused.err).not.toContain('state.json.before-upgrade-from-0.4.0,');
     }
   }, 180_000);
 

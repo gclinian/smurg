@@ -20,6 +20,17 @@ import { CLI_VERSION } from '../version.ts';
 
 const MAX_BYTES = 1024 * 1024;
 
+/**
+ * The KeyFileError codes `stateProblem` has words of its own for: its text names the file or folder AND the reason.
+ * Any other code gets `state.unusable`, which names the path only (the reason is then in the log alone).
+ */
+const KEY_FILE_CODES_WORDED: ReadonlySet<string> = new Set(['insecure-directory', 'insecure-permissions', 'not-owner', 'not-regular-file', 'wrong-size']);
+
+/** Whether `stateProblem(err, …)` says the reason itself (see KEY_FILE_CODES_WORDED). */
+export function stateProblemSaysWhy(err: unknown): boolean {
+  return err instanceof KeyFileError && KEY_FILE_CODES_WORDED.has(err.code);
+}
+
 /** A state-dir problem as the person should read it (directory or file permissions, symlinks, other owners). */
 export function stateProblem(err: unknown, subject: StateSubject): CliError {
   if (err instanceof KeyFileError) {
@@ -65,6 +76,45 @@ export function versionedRecord(raw: unknown, path: string, what: VersionedState
     throw new CliError(m('state.newer', { subject: what, path, current: CLI_VERSION }), { hint: m('state.newer.hint') });
   }
   throw badFormat(path, what);
+}
+
+/**
+ * `value` when it is the list a versioned file holds at `key` (absent: an empty one, nothing is there that could be
+ * lost); something else in its place is the refusal of a file not in its format: read as "empty", the next write
+ * would put an empty list where it stood.
+ */
+export function listField(record: Record<string, unknown>, key: string, path: string, what: VersionedStateFile): readonly unknown[] {
+  const value = record[key];
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw badFormat(path, what);
+  return value;
+}
+
+// ---- entries this smurg cannot read (0.5.1)
+//
+// Inside a file this smurg reads (its `version` is the one it knows), ONE entry can still be something it cannot read:
+// a later smurg wrote a field in another form, or the entry was damaged. Until 0.5.0 such an entry was skipped without
+// a word and was gone at the next write. Now the loaders keep it (state/workspaces.ts, state/credentials.ts: every
+// write puts it back exactly as it was, at its place), this smurg does not use it, and the command says so ONCE per
+// file: how many entries of which file. The loaders have no terminal; the command's context lends them its own.
+
+/** Told how many entries of which file were not read. */
+export type UnreadEntriesTeller = (what: VersionedStateFile, path: string, count: number) => void;
+
+const unreadTellers = new WeakMap<object, { readonly tell: UnreadEntriesTeller; readonly told: Set<string> }>();
+
+/** From now on `tell` hears, once per file, of entries a loader given `paths` (this very object) could not read. */
+export function tellUnreadEntries(paths: object, tell: UnreadEntriesTeller): void {
+  unreadTellers.set(paths, { tell, told: new Set() });
+}
+
+/** A loader's report. Said once per command (the `paths` object of its context) and file; never for a count of 0. */
+export function reportUnreadEntries(paths: object, what: VersionedStateFile, path: string, count: number): void {
+  if (count <= 0) return;
+  const teller = unreadTellers.get(paths);
+  if (teller === undefined || teller.told.has(path)) return;
+  teller.told.add(path);
+  teller.tell(what, path, count);
 }
 
 /** `value` when it is the object a versioned file must hold at `key`; else the refusal of a file not in its format. */

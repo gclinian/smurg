@@ -398,16 +398,35 @@ export async function writeStamp(dir: string, stamp: WorkspaceStamp): Promise<vo
 // =====================================================================================================================
 
 const COPY_MARK = '.json.before-upgrade-from-';
+/**
+ * How many copies of ONE step a document may have beside it: the first carries the step's name alone, the others
+ * `-2` … `-99`. A further one is made only when a file that differs from every copy of its step is upgraded (an older
+ * file was put back, changed by the smurg that wrote it, and upgraded again); at the bound the start is refused
+ * rather than a file upgraded that is kept nowhere.
+ */
+export const KEPT_COPIES_MAX = 99;
 
-export function keptCopyPath(dir: string, name: string, from: string): string {
-  if (!DOCUMENT_NAME.test(name) || !isVersionName(from)) throw new TypeError('invalid kept copy name');
-  return join(dir, `${name}${COPY_MARK}${from}`);
+/** `<name>.json.before-upgrade-from-<step>`, and for the second, third, … copy of the same step `-2`, `-3`, … */
+export function keptCopyPath(dir: string, name: string, from: string, nth = 1): string {
+  if (!DOCUMENT_NAME.test(name) || !isVersionName(from) || !Number.isInteger(nth) || nth < 1 || nth > KEPT_COPIES_MAX) throw new TypeError('invalid kept copy name');
+  return join(dir, `${name}${COPY_MARK}${from}${nth === 1 ? '' : `-${nth}`}`);
+}
+
+/** The step and the number in what follows the mark of a kept copy's name (`0.4.0`, `0.4.0-2`), or null. */
+function keptCopyNameOf(rest: string): { readonly from: string; readonly nth: number } | null {
+  const dash = rest.indexOf('-');
+  if (dash === -1) return isVersionName(rest) ? { from: rest, nth: 1 } : null;
+  const from = rest.slice(0, dash);
+  const digits = rest.slice(dash + 1);
+  const nth = digits.length >= 1 && digits.length <= 2 ? Number(digits) : Number.NaN;
+  // Exactly the names keptCopyPath makes: `-2` … `-99`, written the one way (no `-02`, no `-1`).
+  return isVersionName(from) && Number.isInteger(nth) && nth >= 2 && nth <= KEPT_COPIES_MAX && String(nth) === digits ? { from, nth } : null;
 }
 
 /**
  * Keeps the file as it was beside the document, before the upgraded document is renamed in: O_CREAT | O_EXCL |
- * O_NOFOLLOW, 0600, fsynced. One per step and never overwritten: 'exists' when a copy of this step is already there
- * (it is left exactly as it is). Any other failure throws (`cannot-open`): the document is then not written.
+ * O_NOFOLLOW, 0600, fsynced. Never overwritten: 'exists' when something already carries this name (it is left exactly
+ * as it is; `keepCopy` then looks at it). Any other failure throws (`cannot-open`): the document is then not written.
  */
 export async function writeKeptCopy(path: string, dir: string, bytes: Uint8Array): Promise<'created' | 'exists'> {
   let handle;
@@ -432,9 +451,51 @@ export async function writeKeptCopy(path: string, dir: string, bytes: Uint8Array
   return 'created';
 }
 
+/** Where the file as it was is kept: a copy made now, or one that was already there with exactly these bytes. */
+export interface KeptCopy {
+  readonly path: string;
+  /** 1 for `<name>.json.before-upgrade-from-<step>`, 2 for `…-2`, … */
+  readonly nth: number;
+  /** False: a copy of this step already held these bytes (the file was put back from it); nothing new was made. */
+  readonly made: boolean;
+}
+
 /**
- * The kept copies beside `<name>.json`, newest first. Only what passes the checks of a private file is listed (a
- * regular file, ours, no group/other bits): a refusal never points the host at a symlink or somebody else's file.
+ * Keeps `bytes` (the file as it was, read through the checked handle) as a copy of step `from`, under the first name
+ * of that step that is free: `<name>.json.before-upgrade-from-<step>`, then `-2`, `-3`, … A name that is taken is
+ * never written. When what it holds IS these bytes, nothing new is made: the file was put back from that copy. When
+ * it holds OTHER bytes (the host went back to the older smurg with the copy, worked there, and updated again), the
+ * file as it is now is kept too, under the next name: what a smurg is about to rewrite is always kept somewhere.
+ *
+ * What carries a copy's name must BE a kept copy (a regular file of ours, no group/other bits): a symlink or somebody
+ * else's file is refused (`insecure`), and so is a copy that cannot be made (`cannot-open`; with `EEXIST` when every
+ * name of the step is taken by other bytes). The caller then does not write the document.
+ */
+export async function keepCopy(dir: string, name: string, from: string, bytes: Uint8Array): Promise<KeptCopy> {
+  for (let nth = 1; nth <= KEPT_COPIES_MAX; nth++) {
+    const path = keptCopyPath(dir, name, from, nth);
+    // Twice at most for one name: something that was there went away between the two looks.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if ((await writeKeptCopy(path, dir, bytes)) === 'created') return { path, nth, made: true };
+      const there = await readPrivateFile(path, { what: 'kept copy' });
+      if (there === null) continue;
+      if (there.equals(bytes)) return { path, nth, made: false };
+      break;
+    }
+  }
+  const last = keptCopyPath(dir, name, from, KEPT_COPIES_MAX);
+  throw new StateFileError({
+    kind: 'cannot-open',
+    errno: 'EEXIST',
+    path: last,
+    message: `cannot keep a copy of the state file before its upgrade: ${KEPT_COPIES_MAX} copies of this step are beside it, none with these bytes (EEXIST)`,
+  });
+}
+
+/**
+ * The kept copies beside `<name>.json`, newest first: every step's, and of one step every one (`-2`, `-3`, …). Only
+ * what passes the checks of a private file is listed (a regular file, ours, no group/other bits): a refusal never
+ * points the host at a symlink or somebody else's file.
  */
 export async function listKeptCopies(dir: string, name: string): Promise<StateFileCopy[]> {
   const prefix = `${name}${COPY_MARK}`;
@@ -444,21 +505,23 @@ export async function listKeptCopies(dir: string, name: string): Promise<StateFi
   } catch {
     return [];
   }
-  const copies: StateFileCopy[] = [];
+  const copies: (StateFileCopy & { readonly nth: number })[] = [];
   for (const entry of entries) {
     if (!entry.startsWith(prefix)) continue;
-    const from = entry.slice(prefix.length);
-    if (!isVersionName(from)) continue;
+    const named = keptCopyNameOf(entry.slice(prefix.length));
+    if (named === null) continue;
     const path = join(dir, entry);
     try {
       const st = await lstat(path);
       assertPrivateFileStat(path, st, 'kept copy');
-      copies.push({ path, from, at: Math.floor(st.mtimeMs) });
+      copies.push({ path, from: named.from, at: Math.floor(st.mtimeMs), nth: named.nth });
     } catch {
       // not a copy this smurg would name
     }
   }
-  return copies.sort((a, b) => b.at - a.at || compareVersionNames(b.from, a.from));
+  // By the time each was made; made in the same millisecond, the later step first, and of one step the higher number.
+  copies.sort((a, b) => b.at - a.at || compareVersionNames(b.from, a.from) || b.nth - a.nth);
+  return copies.map(({ path, from, at }) => ({ path, from, at }));
 }
 
 /** Backoff of the automatic re-writes of a document whose last write failed (disk full, EIO, permissions). */

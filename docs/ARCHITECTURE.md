@@ -363,7 +363,10 @@ kick answers within R2's 3 s:
 4. `UploadService.abortAllForUser` (not for a role change).
 
 One `session.handover` audit entry per handed-over session says from whom, why, whether it was stopped, and what was
-removed. Feature modules do not duplicate any of this.
+removed. Feature modules do not duplicate any of this. A step's budget is for the answer: a step that has used its
+time is not stopped, it goes on after the kick answered, and the handover of a sessions' step that was late is
+audited when that step is through (its sessions are not known before). What a session names in between (the member
+as responsible, until the step's last act clears it) decides nothing: "Who decides" counts active members only.
 
 ---
 
@@ -1853,9 +1856,12 @@ a schema, no strip, no passthrough.
   `<name>.json.before-upgrade-from-<step>` (`state.json.before-upgrade-from-0.4.0`): made from the bytes that were
   read through the checked handle (never a second read of the path), with `O_CREAT|O_EXCL|O_NOFOLLOW`, mode 0600,
   fsynced before the upgraded document is renamed in. If the copy cannot be created the document is not written and
-  the start is refused. One per step, never overwritten: a copy that is already there is left as it is, also when
-  its bytes differ (logged; the file as it was just before THIS upgrade is then kept nowhere). The daemon never
-  reads a copy; a refusal lists the ones beside the refused document. A copy is there to READ what the workspace
+  the start is refused. Never overwritten: a copy of the step that is already there with the SAME bytes is left as
+  it is and nothing new is made (the file was put back from it); when it holds OTHER bytes (the host went back to
+  the older smurg with the copy, worked there, updated again) the file as it is now is kept too, under the next
+  free name of the step, `…-from-<step>-2`, `-3`, … up to `-99` (`keepCopy`; with all of them taken by other bytes
+  the start is refused). The daemon never reads a copy for its state; a refusal lists every one beside the refused
+  document, newest first. A copy is there to READ what the workspace
   held: putting it back undoes every kick, revoked device, role change and used or revoked link since. That is
   documented, not prevented, and it is said: `Daemon.putBack` is true when a step ran in a folder whose stamp
   already had that step's `sinceShapes` (known false positive: a crash between the stamp and the upgraded document
@@ -1883,7 +1889,11 @@ a schema, no strip, no passthrough.
   `version`, or not in its format, is refused and never written over (0.4.0 and 0.5.0 read such a file as EMPTY and
   then wrote over it: every folder-to-workspace link gone without a word). It follows that the `version` of these
   two files can never be raised, since the published versions would erase the newer file: a later smurg adds
-  optional fields only (an older writer drops them), or uses a new file.
+  optional fields only (an older writer drops them), or uses a new file. Inside a file it reads, an ENTRY the
+  command cannot read (a field that fails its check, something that is no object) is not used and never dropped:
+  every write puts it back exactly as it was, at its place, and the command says once per file, on stderr, how many
+  there are (`state/private-file.ts` `reportUnreadEntries`; 0.4.0 and 0.5.0 skip such an entry without a word and
+  write the file without it). A list that is there and is no list refuses the file.
 - **The tests that hold the rule** (§10): `packages/daemon/test/fixtures/published/<version>/` is what each
   published version wrote, made by its own code (0.4.0 by the published executable), with a README, the SHA-256 of
   every file and which stored shape each file visits. `packages/daemon/test/upgrade/` opens them: the documents as
@@ -1915,14 +1925,10 @@ already published. Each is for the next protocol version, or stays:
   still sends exactly what 0.5.0 sends (the published commands read strictly and answer "nothing is running" to
   anything else). The command of 0.5.1 reads loosely, so a version after it may add a key without blinding 0.5.1
   and later; 0.4.0 and 0.5.0 stay blind to whatever adds one, and 0.4.0 is already blind to every 0.5.x daemon.
-- **An entry the command cannot read** inside a version-1 `workspaces.json` or `credentials.json` (a field that
-  fails its check) is still skipped without a word and gone at the next write: the FILE is refused, an entry is not.
 - **`smurg.columns.<id>`** in the browser writes `v: 1` and does not check it: an older tab writes its shape over a
   newer page's (the key store alone got the check).
 - **The installer asks the smurg that is installed**: run over a 0.4.0 executable while a 0.5.x daemon shares, it is
   not stopped (0.4.0's `status` does not see that daemon).
-- **CI checks out without tags**, so the tests that run the code of tag v0.5.0 skip there (with the reason in their
-  name line); the release gate fails without the tag (`docs/RELEASING.md` §4.5).
 - **The fixtures hold no shared folder** (a git repository with worktrees names absolute paths): what a start makes
   of kept worktrees and pending merge requests when their folders are there was tried by hand on the real 0.4.0
   state, and is asserted by no test.

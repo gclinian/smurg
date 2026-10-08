@@ -830,8 +830,10 @@ invite links in the host console once after the update, and change a role or rev
 
 **The copies smurg keeps.** Before it writes a file in a new form, smurg keeps the file as it was beside it, named
 after the version it came from: `state.json.before-upgrade-from-0.4.0`,
-`suggestions.json.before-upgrade-from-0.4.0`. A copy is made once and never written again, only you can read it
-(mode 600), and smurg never reads it. It is there so that you can look up what the workspace held. It holds the keys
+`suggestions.json.before-upgrade-from-0.4.0`. A copy is never written again, only you can read it (mode 600), and
+smurg never reads it. If a file of the older form that is not the copy is ever upgraded again (you went back to the
+older smurg, worked there and updated once more), smurg keeps that file too, under the same name with `-2` at its
+end (then `-3`, and so on). It is there so that you can look up what the workspace held. It holds the keys
 of your invite links: keep it as private as the state file itself, and delete it when you no longer need it.
 
 **Do not put a copy back in the place of the file in use.** `state.json` is where smurg records who was removed,
@@ -845,8 +847,8 @@ through the members, the roles and the invite links in the host console then.
 
 `smurg host` uses a workspace's state only when it can read all of it. Otherwise it does not start, and it changes
 nothing: the members, the invite links, the keys and the settings are as they were, and you can try again as often
-as you need. One line of the daemon's log comes first; the lines after `smurg:` name the file (or the workspace's
-folder), say why, and say what to do. Never move the workspace's folder away to get past a refusal: that gives up
+as you need. The lines after `smurg:` name the file (or the workspace's folder), say why, and say what to do; the
+daemon's own line about it is in the log (`~/.smurg/logs/`). Never move the workspace's folder away to get past a refusal: that gives up
 the members, the invite links and the daemon key. The terminal names it in one case only, as the last resort and
 after what it costs (the list below the table).
 

@@ -4,7 +4,7 @@
 // in-memory fakes of the protocol 4 services `@smurg/daemon/fakes` (src/core/fakes).
 // Neither are the entry points Claude Code runs inside sessions: they must start without loading the daemon, so the
 // CLI imports them as `@smurg/daemon/hook-cli` (runHookCli) and `@smurg/daemon/mcp` (runMcpServer).
-export { DAEMON_VERSION, DEFAULT_FEATURE_MODULES, createDaemon, type Daemon, type DaemonOptions, type DaemonStatus } from './daemon.ts';
+export { DAEMON_VERSION, DEFAULT_FEATURE_MODULES, START_FAILURE_LOGS, createDaemon, type Daemon, type DaemonOptions, type DaemonStatus } from './daemon.ts';
 export {
   CLAUDE_MIN_VERSION,
   CLAUDE_VERIFIED_VERSIONS,

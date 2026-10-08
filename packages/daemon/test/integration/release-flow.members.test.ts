@@ -140,9 +140,18 @@ describe('the release composition when a member is removed', { timeout: 480_000 
     expect((await leo.conn.request('session.watch', { sessionId: discussionId })).questions).toMatchObject([{ id: payment.id, status: 'open', votes: [{ userId: AMY, options: [0] }], eligible: 2, decider: { userId: IAN } }]);
 
     // ---- her free session ended; her topic session passed to the host STOPPED
+    // The kick answers when the teardown is through OR when a step of it has used its time (admin/teardown.ts: 2.5 s
+    // a step, so that a kick answers within R2's 3 s); the sessions' step then goes on by itself. So nothing below
+    // reads a session the moment the kick answered: each waits for what the step does LAST for that session. For a
+    // session that passes to the host that is clearing the responsible person, after the line about the handover
+    // and after her worktrees passed (SessionManager.teardownUser). In between the session still names her as
+    // responsible, and nothing follows from that: who decides is worked out over the ACTIVE members (routing.ts),
+    // and she is none (the question below became the host's to decide before it was withdrawn).
+    await waitFor(async () => (await sessionOf(leo, hers.id)).status === 'ended', { timeoutMs: 30_000, what: "Mei's free session to end" });
     expect(await sessionOf(leo, hers.id)).toMatchObject({ status: 'ended', endReason: 'kicked' });
     await eventOf(leo, cartId, (event) => event.kind === 'line' && event.text.id === 'conversation.owner.handover.kicked', 'the line about the handover');
     await statusIs(leo, cartId, 'stalled');
+    await waitFor(async () => (await sessionOf(leo, cartId)).responsible === null, { timeoutMs: 30_000, what: 'nobody to be responsible for the session that passed to the host' });
     const handed = await sessionOf(leo, cartId);
     // `openedBy` stays the record of who started it; nobody is responsible any more.
     expect(handed).toMatchObject({ status: 'stalled', openedBy: { userId: MEI }, responsible: null, ruleCount: 0, permissionMode: 'ask-commands' });
@@ -163,7 +172,8 @@ describe('the release composition when a member is removed', { timeout: 480_000 
     // Nothing was started by any of it.
     expect(await launches(flow)).toBe(launchesBefore);
 
-    // ---- the audit log lists all of it in one entry of the handover
+    // ---- the audit log lists all of it in one entry of the handover (written when the sessions' step is through)
+    await waitFor(async () => (await audited(flow, 'session.handover')).length > 0, { timeoutMs: 30_000, what: 'the audit entry of the handover' });
     const handover = (await audited(flow, 'session.handover')).map((entry) => entry.detail);
     expect(handover).toHaveLength(1);
     expect(handover[0]).toMatchObject({ from: MEI, to: IAN, reason: 'kicked', sessionId: cartId, topicId, stopped: true, modeReset: false, removed: { rules: ['Bash(pnpm lint *)', 'Bash(pnpm test *)'], armedItems: [`${topicId}/checkout-page`], queuedMessages: 0, votes: 1, modesReset: [notes.id] } });

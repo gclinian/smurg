@@ -138,6 +138,9 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'state.badFormat.hint': (p) => `沒有更動任何東西。如果這台電腦用過較新版的 smurg，請執行 smurg update。${BAD_FORMAT_NEXT[p.file]}`,
   'state.newer': (p) => `${STATE_SUBJECT[p.subject]}是較新版的 smurg 寫的（這個 smurg 是 ${p.current}）：${p.path}`,
   'state.newer.hint': () => '請執行 smurg update。沒有更動任何東西。',
+  'state.entriesKept': (p) =>
+    `注意：${STATE_SUBJECT[p.subject]}裡有 ${p.count} 筆資料這個 smurg（${p.current}）讀不懂；它們會原封不動地留著，這個 smurg 不會使用它們：${p.path}\n` +
+    '  如果這台電腦用過較新版的 smurg，請執行 smurg update。',
   'state.workspaceId': (p) => `工作區 ID 不正確：${p.id}`,
   'state.socketPathTooLong': (p) => `smurg 的狀態目錄路徑太長，Unix socket 放不下：${p.path}`,
   'state.socketPathTooLong.hint': () => '請把 SMURG_HOME 設成較短的路徑。',

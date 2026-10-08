@@ -14,6 +14,13 @@
 //
 // and one `session.handover` audit entry per handed-over session, with what was removed. A service that is still a
 // stub (its module is not composed) is skipped. Each step has a time budget, so a kick answers within R2's 3 s.
+//
+// The budget is for the ANSWER: a step that has used its time is not stopped, it goes on. So for a moment after a
+// kick answered on a slow machine, a session can still be on its way to the host (stopped, the host its owner, the
+// member still named as responsible until the step's last act clears that). Nothing follows from what is named in
+// between: who decides is worked out over the ACTIVE members (routing.ts of @smurg/protocol), and the member is none.
+// What the sessions' step handed over is known only when it is through, so the `session.handover` entries of a step
+// that ran out of its time are written THEN (the same entries, later), never at once without the sessions.
 import { can, type Role } from '@smurg/protocol';
 import type { DaemonContext } from '../core/context.ts';
 import type { ConversationRemoval, MemberChange, TopicRemoval, UserId, UserTeardown } from '../core/interfaces.ts';
@@ -23,24 +30,63 @@ import { isStubService } from '../core/stubs.ts';
 /** How long kick / leave wait for one step before answering (R2: 3 s for the whole kick). */
 export const TEARDOWN_TIMEOUT_MS = 2_500;
 
-async function withTimeout<T>(label: string, ctx: DaemonContext, work: () => Promise<T> | T): Promise<T | null> {
+/**
+ * How long the handover's audit waits for a sessions' step that ran out of its time. After that it is written without
+ * the sessions (what the member had put in place still went, and the log says so), and an error is logged.
+ */
+export const TEARDOWN_LATE_AUDIT_MS = 60_000;
+
+const LATE = Symbol('late');
+
+/**
+ * `work` within one step's time: its result; null when it failed (logged); LATE when it is still running (logged: it
+ * is not stopped and goes on).
+ */
+async function within<T>(label: string, ctx: DaemonContext, work: () => Promise<T> | T): Promise<T | null | typeof LATE> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<'timeout'>((resolve) => {
-    timer = setTimeout(() => resolve('timeout'), TEARDOWN_TIMEOUT_MS);
+  const timeout = new Promise<typeof LATE>((resolve) => {
+    timer = setTimeout(() => resolve(LATE), TEARDOWN_TIMEOUT_MS);
   });
   try {
     const outcome = await Promise.race([Promise.resolve().then(work), timeout]);
-    if (outcome === 'timeout') {
-      ctx.log.warn('user teardown step timed out', { step: label });
-      return null;
-    }
-    return outcome as T;
+    if (outcome === LATE) ctx.log.warn('user teardown step timed out', { step: label });
+    return outcome;
   } catch (err) {
     ctx.log.error('user teardown step failed', { step: label, error: err instanceof Error ? err.name : 'unknown' });
     return null;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+async function withTimeout<T>(label: string, ctx: DaemonContext, work: () => Promise<T> | T): Promise<T | null> {
+  const outcome = await within(label, ctx, work);
+  return outcome === LATE ? null : outcome;
+}
+
+/**
+ * The audit of a handover whose sessions' step is still running: written ONCE, when the step is through (with what
+ * it handed over), when it failed, or after TEARDOWN_LATE_AUDIT_MS (both without the sessions). Never throws.
+ */
+function auditWhenThrough(ctx: DaemonContext, step: Promise<UserTeardown>, audit: (sessions: UserTeardown | null) => void): void {
+  let written = false;
+  const write = (sessions: UserTeardown | null, problem?: string): void => {
+    if (written) return;
+    written = true;
+    clearTimeout(timer);
+    if (problem !== undefined) ctx.log.error('the sessions of a member who went: the handover is audited without them', { step: 'sessions', problem });
+    try {
+      audit(sessions);
+    } catch (err) {
+      ctx.log.error('the handover of a member who went was not audited', { error: err instanceof Error ? err.name : 'unknown' });
+    }
+  };
+  const timer = setTimeout(() => write(null, 'still-running'), TEARDOWN_LATE_AUDIT_MS);
+  timer.unref?.();
+  step.then(
+    (sessions) => write(sessions),
+    (err: unknown) => write(null, err instanceof Error ? err.name : 'unknown'),
+  );
 }
 
 /** The capabilities whose loss takes something away: what a member put in place, opened, or was asked to decide. */
@@ -62,16 +108,25 @@ export interface MemberTeardownResult {
 
 /**
  * Runs the four steps for one member. `to`: the new role of a role change. Never throws; a failed or slow step is
- * logged and the others still run.
+ * logged and the others still run. `sessions` is null in the result when that step failed or was not through in its
+ * time (it goes on, and its handover is audited when it is through).
  */
 export async function teardownMember(ctx: DaemonContext, userId: UserId, change: MemberChange, to?: Role): Promise<MemberTeardownResult> {
   const { conversation, topics, sessions, uploads } = ctx.services;
   const removedConversation = isStubService(conversation) ? null : await withTimeout('conversation', ctx, () => conversation.memberRemoved(userId, change, to));
   const removedTopics = isStubService(topics) ? null : await withTimeout('topics', ctx, () => topics.memberRemoved(userId, change, to));
-  const [torn] = await Promise.all([
-    isStubService(sessions) ? Promise.resolve(null) : withTimeout('sessions', ctx, () => sessions.teardownUser(userId, change, to)),
+  // Started once and never abandoned: its budget is for the answer, the step itself goes on.
+  const sessionsStep = isStubService(sessions) ? null : Promise.resolve().then(() => sessions.teardownUser(userId, change, to));
+  const [inTime] = await Promise.all([
+    sessionsStep === null ? Promise.resolve(null) : within('sessions', ctx, () => sessionsStep),
     isStubService(uploads) || change === 'role-changed' ? Promise.resolve(null) : withTimeout('uploads', ctx, () => uploads.abortAllForUser(userId)),
   ]);
+  if (inTime === LATE && sessionsStep !== null) {
+    // The answer does not wait any longer; the audit does: which sessions passed to the host is not known yet.
+    auditWhenThrough(ctx, sessionsStep, (late) => auditHandover(ctx, userId, change, to, removedConversation, removedTopics, late));
+    return { conversation: removedConversation, topics: removedTopics, sessions: null };
+  }
+  const torn = inTime === LATE ? null : inTime;
   auditHandover(ctx, userId, change, to, removedConversation, removedTopics, torn);
   return { conversation: removedConversation, topics: removedTopics, sessions: torn };
 }

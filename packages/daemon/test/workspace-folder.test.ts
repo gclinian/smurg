@@ -1,7 +1,7 @@
 // A start has two phases (ARCHITECTURE §7.1, core/workspace-folder.ts): phase 1 reads and checks the whole workspace
 // folder and writes NOTHING; phase 2 writes, in a fixed order, only when phase 1 accepted everything. Tested here on
 // the folder itself, with small hand-made files; test/two-phase-start.test.ts does the same through createDaemon.
-import { chmod, copyFile, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { loadOrCreateDaemonIdentity } from '@smurg/protocol/node';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -342,14 +342,72 @@ describe('phase 2 writes, in order', () => {
     expect(await readWorkspaceFolder(options())).toMatchObject({ putBack: true });
   });
 
-  it('a copy of this step that differs from the file being upgraded stays as it is (never overwritten) and the start goes on', async () => {
+  it('a copy of this step that holds OTHER bytes stays as it is, and the file as it is now is kept too, under the next free name (-2, -3, …); the same bytes make nothing new', async () => {
+    // A host who went back to 0.4.0 with the kept copy, worked there, and updated again: the copy of the first
+    // upgrade is beside a 0.4.0 state.json that is not the one it was made from.
+    await folderOfV040();
+    const first = await writeWorkspaceFolder(await readWorkspaceFolder(options()), { log: silentLogger, clock });
+    first.store.close();
+    const copy1 = await readFile(keptCopyPath(dir, 'state', '0.4.0'));
+    const sharing = (...sharedDirs: string[]): Record<string, unknown> => ({ ...stateOfV040(), settings: { ...(stateOfV040()['settings'] as Record<string, unknown>), sharedDirs } });
+    await put('state.json', sharing('data', 'changed-while-back-on-0.4.0'));
+    const laterBytes = await readFile(join(dir, 'state.json'));
+    expect(laterBytes.equals(copy1)).toBe(false);
+    const log = createMemoryLogger();
+    const reading = await readWorkspaceFolder(options({ log }));
+    expect(reading).toMatchObject({ putBack: true });
+    const second = await writeWorkspaceFolder(reading, { log, clock });
+    second.store.close();
+    // The first copy is never overwritten; the file as it was just before THIS upgrade is the second one.
+    expect((await readFile(keptCopyPath(dir, 'state', '0.4.0'))).equals(copy1)).toBe(true);
+    expect(keptCopyPath(dir, 'state', '0.4.0', 2)).toBe(join(dir, 'state.json.before-upgrade-from-0.4.0-2'));
+    expect((await readFile(keptCopyPath(dir, 'state', '0.4.0', 2))).equals(laterBytes)).toBe(true);
+    expect(((await lstat(keptCopyPath(dir, 'state', '0.4.0', 2))).mode & 0o777).toString(8)).toBe('600');
+    expect(second.upgraded).toEqual([{ document: 'state', from: '0.4.0', copy: keptCopyPath(dir, 'state', '0.4.0', 2) }]);
+    expect((JSON.parse(await readFile(join(dir, 'state.json'), 'utf8')) as WorkspaceState).settings.sharedDirs).toEqual(['data', 'changed-while-back-on-0.4.0']);
+    expect(log.lines.some((line) => line.level === 'warn' && /holds other bytes/.test(line.message) && line.fields?.['copy'] === keptCopyPath(dir, 'state', '0.4.0', 2))).toBe(true);
+
+    // The SAME file put back once more (from either copy): nothing new is made, and the copy that holds it is named.
+    for (const nth of [2, 1]) {
+      await copyFile(keptCopyPath(dir, 'state', '0.4.0', nth), join(dir, 'state.json'));
+      const names = (await readdir(dir)).sort();
+      const mtimes = await Promise.all([1, 2].map(async (n) => (await lstat(keptCopyPath(dir, 'state', '0.4.0', n))).mtimeMs));
+      const again = await writeWorkspaceFolder(await readWorkspaceFolder(options()), { log: silentLogger, clock });
+      again.store.close();
+      expect(again.upgraded).toEqual([{ document: 'state', from: '0.4.0', copy: keptCopyPath(dir, 'state', '0.4.0', nth) }]);
+      expect((await readdir(dir)).sort()).toEqual(names);
+      expect(await Promise.all([1, 2].map(async (n) => (await lstat(keptCopyPath(dir, 'state', '0.4.0', n))).mtimeMs))).toEqual(mtimes);
+    }
+
+    // Yet another 0.4.0 file: the third name. A refusal names all of them, newest first.
+    await put('state.json', sharing('data', 'a-third-one'));
+    const thirdBytes = await readFile(join(dir, 'state.json'));
+    (await writeWorkspaceFolder(await readWorkspaceFolder(options()), { log: silentLogger, clock })).store.close();
+    expect((await readFile(keptCopyPath(dir, 'state', '0.4.0', 3))).equals(thirdBytes)).toBe(true);
+    await utimes(keptCopyPath(dir, 'state', '0.4.0'), 1_000, 1_000);
+    await utimes(keptCopyPath(dir, 'state', '0.4.0', 2), 2_000, 2_000);
+    await utimes(keptCopyPath(dir, 'state', '0.4.0', 3), 3_000, 3_000);
+    await put('state.json', '{ not json');
+    const refusal = await rejectionOf(readWorkspaceFolder(options()));
+    expect(refusal).toMatchObject({ kind: 'unreadable', reason: 'not-json' });
+    expect(refusal.copies).toEqual([
+      { path: keptCopyPath(dir, 'state', '0.4.0', 3), from: '0.4.0', at: 3_000_000 },
+      { path: keptCopyPath(dir, 'state', '0.4.0', 2), from: '0.4.0', at: 2_000_000 },
+      { path: keptCopyPath(dir, 'state', '0.4.0'), from: '0.4.0', at: 1_000_000 },
+    ]);
+  });
+
+  it('something that is no kept copy under a LATER name of the step refuses the start too, and the document is not written', async () => {
     await folderOfV040();
     await put('state.json.before-upgrade-from-0.4.0', 'an earlier copy, other bytes');
-    const log = createMemoryLogger();
-    const { upgraded } = await writeWorkspaceFolder(await readWorkspaceFolder(options({ log })), { log, clock });
-    expect(upgraded.map((entry) => entry.document)).toEqual(['state', 'suggestions']);
+    await writeFile(join(base, 'target'), 'not a copy', { mode: 0o600 });
+    await symlink(join(base, 'target'), keptCopyPath(dir, 'state', '0.4.0', 2));
+    const oldState = await readFile(join(dir, 'state.json'));
+    const reading = await readWorkspaceFolder(options());
+    expect(await rejectionOf(writeWorkspaceFolder(reading, { log: silentLogger, clock }))).toMatchObject({ kind: 'insecure', cause: 'symlink', path: keptCopyPath(dir, 'state', '0.4.0', 2) });
+    expect((await readFile(join(dir, 'state.json'))).equals(oldState)).toBe(true);
     expect(await readFile(keptCopyPath(dir, 'state', '0.4.0'), 'utf8')).toBe('an earlier copy, other bytes');
-    expect(log.lines.some((line) => line.level === 'warn' && /differs from the file that is upgraded now/.test(line.message))).toBe(true);
+    expect(await readFile(join(base, 'target'), 'utf8')).toBe('not a copy');
   });
 
   it('a copy that cannot be created refuses the start: the stamp is written, the document is NOT', async () => {

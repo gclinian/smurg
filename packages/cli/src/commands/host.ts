@@ -36,6 +36,7 @@ import {
   DEFAULT_FEATURE_MODULES,
   HOMES_PARENTS,
   KeepAwake,
+  START_FAILURE_LOGS,
   ShareError,
   ShareLockError,
   StateFileError,
@@ -65,7 +66,7 @@ import { ensureSession } from '../relay/login.ts';
 import { pickRelay, relayApi, relayDefaultText, relayOriginOf, relayProblem } from '../relay/relay.ts';
 import { loadCredentials, type StoredSession } from '../state/credentials.ts';
 import { homeDirOf, hostLogPath, workspaceStateDir } from '../state/paths.ts';
-import { stateProblem } from '../state/private-file.ts';
+import { stateProblem, stateProblemSaysWhy } from '../state/private-file.ts';
 import { loadWorkspaces, newWorkspaceId, rememberSharedFolder, sharedFolderFor, type WorkspaceBook } from '../state/workspaces.ts';
 import { NativeExtractionError, ensureSeaNative } from '../sea/native.ts';
 import { agentsPausedNotice } from '../cli/agents-text.ts';
@@ -216,8 +217,36 @@ function tee(a: Logger, b: Logger): Logger {
   };
 }
 
+/** `inner`, with every error whose message is one of `messages` passed to `held` instead (also through its children). */
+function holdingBack(inner: Logger, messages: readonly string[], held: (log: () => void) => void): Logger {
+  return {
+    debug: (m: string, f?: LogFields) => inner.debug(m, f),
+    info: (m: string, f?: LogFields) => inner.info(m, f),
+    warn: (m: string, f?: LogFields) => inner.warn(m, f),
+    error: (m: string, f?: LogFields) => {
+      if (messages.includes(m)) held(() => inner.error(m, f));
+      else inner.error(m, f);
+    },
+    child: (fields: LogFields) => holdingBack(inner.child(fields), messages, held),
+  };
+}
+
+interface HostLog {
+  readonly logger: Logger;
+  readonly path: string;
+  close(): Promise<void>;
+  /**
+   * The daemon's own line about a start it refuses (START_FAILURE_LOGS: the workspace's state was refused, the
+   * composition failed) is written to the log FILE at once and held back from the terminal until the command knows
+   * whether it words the failure itself: `show` true prints the line(s) as they were logged (the command has no
+   * words: the line is the only place that says why), false drops them (the command's words name the file and the
+   * reason). Every other error of the log reaches stderr at once, as it always has.
+   */
+  settleRefusal(show: boolean): void;
+}
+
 /** The daemon's log: everything from info up to `<state>/logs/<workspace>.log` (0600), errors also to stderr. */
-async function openLog(ctx: CommandContext, workspaceId: string): Promise<{ logger: Logger; path: string; close(): Promise<void> }> {
+async function openLog(ctx: CommandContext, workspaceId: string): Promise<HostLog> {
   try {
     await ensurePrivateDirectory(ctx.paths.logsDir);
   } catch (err) {
@@ -227,11 +256,25 @@ async function openLog(ctx: CommandContext, workspaceId: string): Promise<{ logg
   const stream = createWriteStream(path, { flags: 'a', mode: 0o600 });
   stream.on('error', () => undefined);
   const file = createLineLogger({ level: 'info', write: (line) => stream.write(`${line}\n`) });
-  const console = createLineLogger({ level: 'error', write: (line) => ctx.io.stderr.write(`${line}\n`) });
+  // The terminal's lines are formatted when they are logged (their time is the log's), and one kind is held back.
+  const held: string[] = [];
+  let holding = false;
+  const terminal = createLineLogger({ level: 'error', write: (line) => (holding ? held.push(line) : ctx.io.stderr.write(`${line}\n`)) });
+  const console = holdingBack(terminal, START_FAILURE_LOGS, (log) => {
+    holding = true;
+    try {
+      log();
+    } finally {
+      holding = false;
+    }
+  });
   return {
     logger: tee(file, console),
     path,
     close: () => new Promise<void>((done) => stream.end(() => done())),
+    settleRefusal: (show) => {
+      for (const line of held.splice(0)) if (show) ctx.io.stderr.write(`${line}\n`);
+    },
   };
 }
 
@@ -403,9 +446,14 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     });
   } catch (err) {
     // createDaemon logged why (the state it refused, review F3); the log is flushed before the hint names it.
+    // That line is in the log file. On the terminal it is shown only when the command has no words of its own for
+    // the refusal: a StateFileError (./host-state.ts) and a KeyFileError with a text name the file and the reason.
+    log.settleRefusal(!(err instanceof StateFileError || stateProblemSaysWhy(err)));
     await log.close();
     throw await daemonProblem(err, log.path, refusal);
   }
+  // Nothing was refused: nothing is held (a line that were would be shown, never lost).
+  log.settleRefusal(true);
 
   // What this start found in the workspace's folder, ONE line each, before the links (the daemon wrote an upgrade in
   // createDaemon, so it is said now: a start that fails later would never say it again). The log gets the same.

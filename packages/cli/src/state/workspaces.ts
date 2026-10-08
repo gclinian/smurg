@@ -8,10 +8,15 @@
 // B5): a `version` above 1 says a newer smurg wrote it (`smurg update`), anything else that it is not in its format.
 // 0.4.0 and 0.5.0 are published with the old behaviour (an unknown version read as empty and written over), so the
 // `version` of this file can never be raised without those two losing it: a later smurg adds optional fields only.
+//
+// An ENTRY this smurg cannot read (a workspace id in another form, a folder path longer than it takes, something that
+// is no object) is not used and is never dropped: every write puts it back exactly as it was, at its place among the
+// others, and the command says once how many there are (./private-file.ts reportUnreadEntries). Until 0.5.0 it was
+// skipped without a word and gone at the next write. A list that is there and is no list refuses the file.
 import { randomBytes } from 'node:crypto';
 import { isWorkspaceId } from '@smurg/protocol/relay';
 import type { StatePaths } from './paths.ts';
-import { isRecord, numberField, readPrivateJson, stringField, versionedRecord, writePrivateJson } from './private-file.ts';
+import { isRecord, listField, numberField, readPrivateJson, reportUnreadEntries, stringField, versionedRecord, writePrivateJson } from './private-file.ts';
 
 const WHAT = 'workspaces' as const;
 
@@ -40,30 +45,60 @@ export interface WorkspaceBook {
   readonly joined: readonly JoinedWorkspace[];
 }
 
-export async function loadWorkspaces(paths: StatePaths): Promise<WorkspaceBook> {
+/** One item of a list as the file holds it: an entry this smurg reads, or what stands there, kept as it is. */
+type Slot<T> = { readonly entry: T } | { readonly kept: unknown };
+
+/** The file as it is written back: every item of both lists in its place. */
+interface BookFile {
+  readonly shared: readonly Slot<SharedFolder>[];
+  readonly joined: readonly Slot<JoinedWorkspace>[];
+}
+
+function entriesOf<T>(slots: readonly Slot<T>[]): T[] {
+  return slots.flatMap((slot) => ('entry' in slot ? [slot.entry] : []));
+}
+
+function sharedFolderOf(item: unknown): SharedFolder | null {
+  if (!isRecord(item)) return null;
+  const folder = stringField(item, 'folder', 4096);
+  const relay = stringField(item, 'relay', 2048);
+  const workspaceId = stringField(item, 'workspaceId', 64);
+  const createdAt = numberField(item, 'createdAt');
+  return folder && relay && workspaceId && isWorkspaceId(workspaceId) && createdAt !== null ? { folder, relay, workspaceId, createdAt } : null;
+}
+
+function joinedWorkspaceOf(item: unknown): JoinedWorkspace | null {
+  if (!isRecord(item)) return null;
+  const workspaceId = stringField(item, 'workspaceId', 64);
+  const relay = stringField(item, 'relay', 2048);
+  const joinedAt = numberField(item, 'joinedAt');
+  const name = typeof item['name'] === 'string' ? item['name'].slice(0, 256) : null;
+  const web = originField(item, 'web');
+  return workspaceId && isWorkspaceId(workspaceId) && relay && joinedAt !== null ? { workspaceId, relay, name, joinedAt, ...(web ? { web } : {}) } : null;
+}
+
+function slotsOf<T>(items: readonly unknown[], read: (item: unknown) => T | null): Slot<T>[] {
+  return items.map((item) => {
+    const entry = read(item);
+    return entry === null ? { kept: item } : { entry };
+  });
+}
+
+async function readBook(paths: StatePaths): Promise<BookFile> {
   // No file: nothing was shared or joined yet. A file this smurg cannot read: refused (never an empty list).
   const raw = versionedRecord(await readPrivateJson(paths.workspaces, WHAT), paths.workspaces, WHAT, 1);
   if (raw === null) return { shared: [], joined: [] };
-  const shared: SharedFolder[] = [];
-  for (const item of Array.isArray(raw['shared']) ? raw['shared'] : []) {
-    if (!isRecord(item)) continue;
-    const folder = stringField(item, 'folder', 4096);
-    const relay = stringField(item, 'relay', 2048);
-    const workspaceId = stringField(item, 'workspaceId', 64);
-    const createdAt = numberField(item, 'createdAt');
-    if (folder && relay && workspaceId && isWorkspaceId(workspaceId) && createdAt !== null) shared.push({ folder, relay, workspaceId, createdAt });
-  }
-  const joined: JoinedWorkspace[] = [];
-  for (const item of Array.isArray(raw['joined']) ? raw['joined'] : []) {
-    if (!isRecord(item)) continue;
-    const workspaceId = stringField(item, 'workspaceId', 64);
-    const relay = stringField(item, 'relay', 2048);
-    const joinedAt = numberField(item, 'joinedAt');
-    const name = typeof item['name'] === 'string' ? item['name'].slice(0, 256) : null;
-    const web = originField(item, 'web');
-    if (workspaceId && isWorkspaceId(workspaceId) && relay && joinedAt !== null) joined.push({ workspaceId, relay, name, joinedAt, ...(web ? { web } : {}) });
-  }
-  return { shared, joined };
+  const file: BookFile = {
+    shared: slotsOf(listField(raw, 'shared', paths.workspaces, WHAT), sharedFolderOf),
+    joined: slotsOf(listField(raw, 'joined', paths.workspaces, WHAT), joinedWorkspaceOf),
+  };
+  reportUnreadEntries(paths, WHAT, paths.workspaces, file.shared.length + file.joined.length - entriesOf(file.shared).length - entriesOf(file.joined).length);
+  return file;
+}
+
+export async function loadWorkspaces(paths: StatePaths): Promise<WorkspaceBook> {
+  const file = await readBook(paths);
+  return { shared: entriesOf(file.shared), joined: entriesOf(file.joined) };
 }
 
 /** An http(s) origin exactly as `URL.origin` spells it (it is shown to the person as part of an address), else null. */
@@ -78,8 +113,13 @@ function originField(record: Record<string, unknown>, key: string): string | nul
   }
 }
 
-async function save(paths: StatePaths, book: WorkspaceBook): Promise<void> {
-  await writePrivateJson(paths.workspaces, { version: 1, shared: book.shared, joined: book.joined }, WHAT);
+/** An entry as it is written, or the kept item exactly as it was read. */
+function written<T>(slots: readonly Slot<T>[]): unknown[] {
+  return slots.map((slot) => ('entry' in slot ? slot.entry : slot.kept));
+}
+
+async function save(paths: StatePaths, file: BookFile): Promise<void> {
+  await writePrivateJson(paths.workspaces, { version: 1, shared: written(file.shared), joined: written(file.joined) }, WHAT);
 }
 
 /** A fresh workspace id: `ws_` + 128 random bits (base64url). */
@@ -102,13 +142,14 @@ export function sharedFolderContaining(book: WorkspaceBook, dir: string): Shared
 }
 
 export async function rememberSharedFolder(paths: StatePaths, entry: SharedFolder): Promise<void> {
-  const book = await loadWorkspaces(paths);
-  const shared = book.shared.filter((e) => !(e.folder === entry.folder && e.relay === entry.relay));
-  await save(paths, { shared: [...shared, entry], joined: book.joined });
+  const file = await readBook(paths);
+  // The entry of this folder and relay is replaced (the new one goes to the end); what could not be read stays put.
+  const shared = file.shared.filter((slot) => !('entry' in slot && slot.entry.folder === entry.folder && slot.entry.relay === entry.relay));
+  await save(paths, { shared: [...shared, { entry }], joined: file.joined });
 }
 
 export async function rememberJoined(paths: StatePaths, entry: JoinedWorkspace): Promise<void> {
-  const book = await loadWorkspaces(paths);
-  const joined = book.joined.filter((e) => e.workspaceId !== entry.workspaceId);
-  await save(paths, { shared: book.shared, joined: [...joined, entry] });
+  const file = await readBook(paths);
+  const joined = file.joined.filter((slot) => !('entry' in slot && slot.entry.workspaceId === entry.workspaceId));
+  await save(paths, { shared: file.shared, joined: [...joined, { entry }] });
 }

@@ -73,6 +73,16 @@ import { acquireShareLock } from './workspace/share-lock.ts';
 export const DAEMON_VERSION: string = daemonPackage.version;
 
 /**
+ * The messages of the error lines createDaemon logs for a start that did not happen: the workspace's state was
+ * refused (phase 1 or 2; the fields say which file and why), or the composition failed after it. `smurg host` knows
+ * these lines by their message: when it words the failure itself (a refused state file or key, with the file and the
+ * reason), the line stays in the host's log file and is not repeated on the terminal.
+ */
+export const STATE_REFUSED_LOG = 'workspace state refused; the daemon does not start';
+export const COMPOSITION_FAILED_LOG = 'daemon composition failed';
+export const START_FAILURE_LOGS: readonly string[] = Object.freeze([STATE_REFUSED_LOG, COMPOSITION_FAILED_LOG]);
+
+/**
  * Feature modules composed in production (and by createTestDaemon / the e2e startStack when a test passes no
  * `modules`): the release composition, every feature area exactly once (DESIGN §9.3; test/composition.test.ts
  * transcribes the order). Tests that want a subset pass modules to createTestDaemon directly.
@@ -230,7 +240,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
   /** Every refusal of any file is logged with the file and the reason (messages are ours: paths and zod's own texts, never a value). */
   const logRefusal = (err: unknown): void => {
     const known = err instanceof StateFileError;
-    log.error('workspace state refused; the daemon does not start', {
+    log.error(STATE_REFUSED_LOG, {
       error: err instanceof Error ? err.name : 'unknown',
       ...(known ? { kind: err.kind, file: err.path } : {}),
       ...(known && err.cause !== undefined ? { cause: err.cause } : {}),
@@ -264,7 +274,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     });
   } catch (err) {
     if (err instanceof StateFileError || (err instanceof Error && err.name === 'KeyFileError')) logRefusal(err);
-    else log.error('daemon composition failed', { error: err instanceof Error ? err.name : 'unknown', reason: errnoCodeOf(err) });
+    else log.error(COMPOSITION_FAILED_LOG, { error: err instanceof Error ? err.name : 'unknown', reason: errnoCodeOf(err) });
     await shareLock.release();
     throw err;
   }
@@ -702,7 +712,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
   } catch (err) {
     // Nothing was started yet; release what is open so a failed composition leaves no handle behind. The host's
     // terminal points at the log for the reason: at least which error it was.
-    log.error('daemon composition failed', { error: err instanceof Error ? err.name : 'unknown', reason: err instanceof StateFileError ? err.message : errnoCodeOf(err) });
+    log.error(COMPOSITION_FAILED_LOG, { error: err instanceof Error ? err.name : 'unknown', reason: err instanceof StateFileError ? err.message : errnoCodeOf(err) });
     await audit.close().catch(() => {});
     await shareLock.release();
     throw err;

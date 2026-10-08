@@ -177,6 +177,10 @@ Docs: https://smurg.ai/docs/
   'state.badFormat.hint': (p: { file: VersionedStateFile }) => `Nothing was changed. If a newer smurg was ever used on this computer, run smurg update. ${BAD_FORMAT_NEXT[p.file]}`,
   'state.newer': (p: { subject: VersionedStateFile; path: string; current: string }) => `${STATE_SUBJECT[p.subject]} was written by a newer smurg than this one (this is ${p.current}): ${p.path}`,
   'state.newer.hint': () => 'Run smurg update. Nothing was changed.',
+  'state.entriesKept': (p: { subject: VersionedStateFile; path: string; count: number; current: string }) =>
+    `Note: ${STATE_SUBJECT[p.subject]} holds ${p.count} ${plural(p.count, 'entry', 'entries')} this smurg cannot read (this is ${p.current}); ` +
+    `${plural(p.count, 'it is', 'they are')} left exactly as ${plural(p.count, 'it is', 'they are')}, and this smurg does not use ${plural(p.count, 'it', 'them')}: ${p.path}\n` +
+    '  If a newer smurg was ever used on this computer, run smurg update.',
   'state.workspaceId': (p: { id: string }) => `Not a workspace ID: ${p.id}`,
   'state.socketPathTooLong': (p: { path: string }) => `The path of smurg's state folder is too long for a Unix socket: ${p.path}`,
   'state.socketPathTooLong.hint': () => 'Set SMURG_HOME to a shorter path.',

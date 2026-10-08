@@ -243,4 +243,28 @@ describe('a start has two phases', { timeout: 60_000 }, () => {
     expect(t.ctx.members.get('dev:amy')).toMatchObject({ status: 'active', role: 'editor' });
     expect(t.daemon.internals.members.devicesOf('dev:amy').every((device) => !device.revoked)).toBe(true);
   });
+
+  it('an older file that is NOT the kept copy (the host went back to the older smurg, worked there, updated again): the copy of the first upgrade stays, the file as it is now is kept under the next name, and the daemon names that one', async () => {
+    const h = await home();
+    await (await h.start()).cleanup();
+    const old = await asV040Left(h);
+    await h.start();
+    await h.stop();
+    const firstCopy = await readFile(keptCopyPath(h.dir, 'state', '0.4.0'));
+    // Back on the older smurg the host changed a setting; its state.json is in the old shape again, with other bytes.
+    const changed = { ...old, settings: { ...(old['settings'] as Record<string, unknown>), humanLockIdleMs: 50_000 } };
+    await writeFile(join(h.dir, 'state.json'), serializeDocument(changed), { mode: 0o600 });
+    const asItIsNow = await readFile(join(h.dir, 'state.json'));
+    const t = await h.start();
+    expect(t.daemon.putBack).toBe(true);
+    expect(t.daemon.upgraded).toEqual([{ document: 'state', from: '0.4.0', copy: join(h.dir, 'state.json.before-upgrade-from-0.4.0-2') }]);
+    expect((await readFile(keptCopyPath(h.dir, 'state', '0.4.0'))).equals(firstCopy)).toBe(true);
+    expect((await readFile(keptCopyPath(h.dir, 'state', '0.4.0', 2))).equals(asItIsNow)).toBe(true);
+    expect(t.ctx.settings.get().humanLockIdleMs).toBe(50_000);
+    await h.stop();
+    // The next start upgrades nothing and makes no third copy.
+    const again = await h.start();
+    expect(again.daemon.upgraded).toEqual([]);
+    expect((await readdir(h.dir)).filter((name) => name.startsWith('state.json.before-upgrade-from-')).sort()).toEqual(['state.json.before-upgrade-from-0.4.0', 'state.json.before-upgrade-from-0.4.0-2']);
+  });
 });

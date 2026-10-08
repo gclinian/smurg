@@ -26,13 +26,12 @@ import {
   STAMP_FILE,
   WORKSPACE_SHAPES,
   compareVersionNames,
+  keepCopy,
   keptCopyPath,
   listKeptCopies,
   readDocument,
-  readPrivateFile,
   readStamp,
   serializeDocument,
-  writeKeptCopy,
   writePrivateFileAtomic,
   writeStamp,
   type DocumentDeclaration,
@@ -246,7 +245,10 @@ export interface UpgradedDocument {
   readonly document: string;
   /** The step's name: the published smurg whose shape the file had (`0.4.0`). */
   readonly from: string;
-  /** Absolute path of the kept copy (`<name>.json.before-upgrade-from-<from>`). */
+  /**
+   * Absolute path of the kept copy that holds the file as it was: `<name>.json.before-upgrade-from-<from>`, or with
+   * `-2`, `-3`, … when a copy of this step with other bytes was already there.
+   */
   readonly copy: string;
 }
 
@@ -267,22 +269,22 @@ export async function writeWorkspaceFolder(reading: FolderReading, options: { re
   const upgraded: UpgradedDocument[] = [];
   for (const document of reading.loaded.values()) {
     if (document.upgradedFrom === null) continue;
-    const copy = keptCopyPath(dir, document.name, document.upgradedFrom);
-    // The file as it was, from the bytes phase 1 read through the checked handle: never a second read of the path.
-    let kept = await writeKeptCopy(copy, dir, document.bytes);
-    if (kept === 'exists') {
-      // One per step, never overwritten. What is there must BE a kept copy (a regular file of ours, no group/other
-      // bits): a symlink or somebody else's file under this name is refused, and the document is not written.
-      const there = await readPrivateFile(copy, { what: 'kept copy' });
-      if (there === null) kept = await writeKeptCopy(copy, dir, document.bytes); // it went away meanwhile
-      else {
-        log.warn(
-          there.equals(document.bytes)
-            ? 'the kept copy of this step is already beside the state file, with the same bytes: the file was put back'
-            : 'a kept copy of this step is already beside the state file and differs from the file that is upgraded now; it is never overwritten and stays as it is',
-          { document: document.name, from: document.upgradedFrom, copy },
-        );
-      }
+    // The file as it was, from the bytes phase 1 read through the checked handle (never a second read of the path),
+    // kept under the first name of this step that is free. A name that is taken is never written: when it holds
+    // these very bytes nothing new is made (the file was put back from that copy); when it holds other bytes the
+    // file as it is now is kept under the next name (`-2`, `-3`, …). What carries a copy's name and is no private
+    // file of ours, or a copy that cannot be made, refuses the start here: the document is then not written.
+    const kept = await keepCopy(dir, document.name, document.upgradedFrom, document.bytes);
+    const copy = kept.path;
+    if (!kept.made) {
+      log.warn('a kept copy of this step is already beside the state file, with the same bytes: the file was put back', { document: document.name, from: document.upgradedFrom, copy });
+    } else if (kept.nth > 1) {
+      log.warn('a kept copy of this step is already beside the state file and holds other bytes; it stays as it is, and the file as it is now was kept under the next name', {
+        document: document.name,
+        from: document.upgradedFrom,
+        copy,
+        earlier: keptCopyPath(dir, document.name, document.upgradedFrom),
+      });
     }
     try {
       await writePrivateFileAtomic(document.path, dir, serializeDocument(document.value));

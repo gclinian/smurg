@@ -263,6 +263,8 @@ describe.skipIf(!READY)('the upgrade with real executables: what each published 
       expect(refused.stderr).toContain(`smurg：這個工作區有一個狀態檔，這台電腦的其他使用者也能存取（權限 644）：${stateFile}\n  沒有更動任何東西。\n`);
       expect(refused.stderr.endsWith(`再執行一次 smurg host：\n  chmod 600 ${stateFile}\n`), refused.stderr).toBe(true);
       expect(refused.stderr).not.toMatch(/\bmv\b/);
+      // The whole terminal: no raw line of the daemon's log (a line that starts with a timestamp) above the words.
+      expect(`${refused.stdout}\n${refused.stderr}`).not.toMatch(/^\d{4}-\d{2}-\d{2}T/m);
       expect((await readFile(stateFile)).equals(stateNow)).toBe(true);
       expect((await lstat(stateFile)).mode & 0o777).toBe(0o644);
       await chmod(stateFile, 0o600);

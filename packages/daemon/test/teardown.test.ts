@@ -113,6 +113,57 @@ describe('the order', () => {
   });
 });
 
+describe('a sessions step that is not through in its time', { timeout: 30_000 }, () => {
+  it('the kick answers at the step\'s budget, the step goes on, and the handover is audited when it IS through, naming the session: not at once without it', async () => {
+    const { daemon, fakes } = await start();
+    const host = await daemon.connectHost();
+    await daemon.connect({ userId: 'dev:rita', role: 'agent' });
+    fakes.agents.adopt(buildAgentSession({ id: 'ses_item', purpose: 'item', topicId: 'tp_login', itemId: 't2', attempt: 1, openedBy: RITA, responsible: RITA, status: 'running' }));
+    fakes.conversation.removal = { rules: ['Bash(pnpm test *)'], modesReset: [], votes: 1, messages: 0 };
+    // The step waits (a slow machine: ending processes, handing worktrees over) until the test lets it go on.
+    let letGo: () => void = () => {};
+    const waiting = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    const real = fakes.sessions.teardownUser.bind(fakes.sessions);
+    fakes.sessions.teardownUser = async (userId, change, to) => {
+      await waiting;
+      return real(userId, change, to);
+    };
+    const asked = Date.now();
+    await host.conn.request('admin.member.kick', { userId: 'dev:rita' });
+    // Answered at the budget (SPEC R2: a kick answers within 3 s), with the session still on its way.
+    expect(Date.now() - asked).toBeGreaterThanOrEqual(TEARDOWN_TIMEOUT_MS - 50);
+    expect(Date.now() - asked).toBeLessThan(TEARDOWN_TIMEOUT_MS + 2_000);
+    expect(fakes.agents.get('ses_item')).toMatchObject({ responsible: RITA });
+    // Nothing is said yet about a handover that has not happened: the entry would not name the session.
+    expect(await handovers(daemon)).toEqual([]);
+    letGo();
+    await waitFor(async () => (await handovers(daemon)).length > 0, { what: 'the handover to be audited once the step is through' });
+    expect(await handovers(daemon)).toMatchObject([
+      { target: 'ses_item', actor: { kind: 'system' }, detail: { from: 'dev:rita', to: daemon.hostUserId, reason: 'kicked', sessionId: 'ses_item', topicId: 'tp_login', stopped: true, removed: { rules: ['Bash(pnpm test *)'], votes: 1 } } },
+    ]);
+    expect(fakes.agents.get('ses_item')?.responsible).toBeNull();
+  });
+
+  it('a step that fails after its time is audited then, without the sessions: what the member had put in place still went', async () => {
+    const { daemon, fakes } = await start();
+    const host = await daemon.connectHost();
+    await daemon.connect({ userId: 'dev:rita', role: 'agent' });
+    fakes.conversation.removal = { rules: ['Bash(pnpm test *)'], modesReset: [], votes: 0, messages: 0 };
+    let fail: (err: Error) => void = () => {};
+    const waiting = new Promise<never>((_, reject) => {
+      fail = reject;
+    });
+    fakes.sessions.teardownUser = () => waiting;
+    await host.conn.request('admin.member.kick', { userId: 'dev:rita' });
+    expect(await handovers(daemon)).toEqual([]);
+    fail(new Error('broken'));
+    await waitFor(async () => (await handovers(daemon)).length > 0, { what: 'the audit after the failed step' });
+    expect(await handovers(daemon)).toMatchObject([{ target: 'dev:rita', detail: { from: 'dev:rita', reason: 'kicked', removed: { rules: ['Bash(pnpm test *)'] }, cleared: [] } }]);
+  });
+});
+
 describe('what the fakes do with the sessions (the contract of SessionManager.teardownUser)', () => {
   it('a kick ends terminals and free sessions, hands topic sessions to the host STOPPED, and clears the member as responsible', async () => {
     const { daemon, fakes } = await start();

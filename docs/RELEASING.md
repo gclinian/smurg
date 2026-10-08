@@ -242,8 +242,11 @@ Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1
    `scripts/bootstrap-tools.sh` and no workflow runs them: use your own install, or the Ubuntu VM's `shellcheck`;
    for 0.5.0 `shellcheck` was run there and `actionlint` was not run, and the workflows did not change). With
    `SMURG_RELEASE_GATE=1` the gate also refuses anything left on a pending list (`docs/ACCEPTANCE.md` "How to run the
-   gate"): a release has none. Since 0.5.0 two more things are done before the tag, by a person on their own machine,
-   because CI has no Claude Code: the real-Claude suite and the release dry run, both in §4.5.
+   gate"): a release has none. The gate runs from a checkout that has the tags of the published versions (with
+   `SMURG_RELEASE_GATE=1` the tests that run a tag's own code fail without it); the Ubuntu VM's copy of the tree has
+   no `.git` and gets them from the mounted repository, `GIT_DIR=<the mounted repository>/.git` (§4.5). Since 0.5.0
+   two more things are done before the tag, by a person on their own machine, because CI has no Claude Code: the
+   real-Claude suite and the release dry run, both in §4.5.
 2. The changelogs: the section `## [X.Y.Z] - YYYY-MM-DD` in `CHANGELOG.md` and, with the same heading, in
    `docs/zh-TW/CHANGELOG.md`, written for hosts and members. Set `"version": "X.Y.Z"` in all eight `package.json`
    files. Commit, then check what the workflow's first job will check:
@@ -606,7 +609,7 @@ stored shape. For a release it means:
 - **The gate runs from a checkout that has the tags of the published versions.**
   `packages/daemon/test/upgrade/other-version.test.ts` takes the daemon and the protocol package of tag `v0.5.0`
   with `git archive` and lets that code and this tree open each other's workspace folders. Without the tag its tests
-  skip, each with the reason in its name line (CI checks out without tags, so they skip there); with
+  skip, each with the reason in its name line (CI has the tags: its checkout fetches the whole history); with
   `SMURG_RELEASE_GATE=1` a missing tag fails. In the Ubuntu VM, whose copy of the tree has no `.git`, name the
   mounted repository: `GIT_DIR=<the mounted repository>/.git`. `SMURG_PUBLISHED_TREES=<folder>` names trees made
   beforehand instead (`<folder>/v0.5.0/packages/{daemon,protocol}`).

@@ -34,19 +34,31 @@ describe('escalation', { timeout: 60_000 }, () => {
     expect(s.service.permission('pr1', true)?.escalatedAt).toBeUndefined();
 
     // After it: both carry `escalatedAt`, every watcher gets the whole card again, the inbox routing widens.
-    const bus: string[] = [];
-    s.t.ctx.bus.on('question.changed', (event) => bus.push(`question:${event.question.escalatedAt !== undefined}`));
-    s.t.ctx.bus.on('permission.changed', (event) => bus.push(`permission:${event.request.escalatedAt !== undefined}`));
+    // The bus tells EVERY change of a card (a vote, who is online and so `eligible`, the decider, …): the escalation
+    // is the one change that gives the card its `escalatedAt`, and that is what is counted. (Counting "changes of a
+    // card that has escalated" counted the machine: this test moves the clock by five minutes, the link to the relay
+    // measures its silence with that clock, and when its watchdog looks before the next pong everybody is offline
+    // for a moment; each member who goes changes `eligible` of the open question, as it should.)
+    const escalated: string[] = [];
+    s.t.ctx.bus.on('question.changed', (event) => {
+      if (event.previous?.escalatedAt === undefined && event.question.escalatedAt !== undefined) escalated.push(`question ${event.question.id}`);
+    });
+    s.t.ctx.bus.on('permission.changed', (event) => {
+      if (event.previous?.escalatedAt === undefined && event.request.escalatedAt !== undefined) escalated.push(`permission ${event.request.id}`);
+    });
     s.t.advanceClock(30_000);
     await waitFor(() => s.service.question('q1')?.escalatedAt !== undefined && s.service.permission('pr1', true)?.escalatedAt !== undefined, { what: 'both to escalate' });
     await waitFor(() => questions.at(-1)?.question.escalatedAt !== undefined && permissions.at(-1)?.request.escalatedAt !== undefined, { what: 'the escalated cards for a watcher' });
-    expect(bus.sort()).toEqual(['permission:true', 'question:true']);
+    expect(escalated.sort()).toEqual(['permission pr1', 'question q1']);
     expect(whoHasTheQuestion()).toEqual([HOST, MEI, NOA].sort());
     expect(whoHasTheRequest()).toEqual([HOST, MEI, NOA].sort());
-    // It escalates once.
+    // It escalates once: a further round of the sweep escalates nothing again, and the time it carries stays.
+    const escalatedAt = s.service.question('q1')?.escalatedAt;
     s.service.sweep();
     await quiet(s);
-    expect(questions.filter((update) => update.question.escalatedAt !== undefined)).toHaveLength(1);
+    expect(escalated).toHaveLength(2);
+    expect(s.service.question('q1')?.escalatedAt).toBe(escalatedAt);
+    expect(new Set(questions.flatMap((update) => (update.question.escalatedAt === undefined ? [] : [update.question.escalatedAt])))).toEqual(new Set([escalatedAt]));
 
     // An Editor still cannot; a member with agent access submits for Mei, recorded as that, and the conversation says so.
     expect(await refusal(s.amy.conn.request('question.submit', { questionId: 'q1', answers: [{ options: [0] }] }))).toMatchObject({ code: 'forbidden', id: 'question.notDecider' });

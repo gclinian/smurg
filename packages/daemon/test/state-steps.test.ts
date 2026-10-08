@@ -3,13 +3,14 @@
 // schema. These tests prove the mechanism with small hand-made files; the files the published versions really wrote
 // are opened by test/upgrade/.
 import { execFileSync } from 'node:child_process';
-import { chmod, lstat, mkdir, readFile, readdir, symlink, utimes, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { defaultHostSettings, defaultMaxLiveAgents } from '../src/core/config.ts';
 import { createMemoryLogger, silentLogger } from '../src/core/logger.ts';
 import {
+  KEPT_COPIES_MAX,
   STAMP_FILE,
   STATE_FILE_PROBLEMS_MAX,
   StateFileError,
@@ -18,6 +19,7 @@ import {
   declareDocument,
   defineStep,
   expectedVersionOf,
+  keepCopy,
   keptCopyPath,
   listKeptCopies,
   loadDocumentValue,
@@ -368,6 +370,56 @@ describe('kept copies: <name>.json.before-upgrade-from-<step>', () => {
     await expect(lstat(join(base, 'nowhere'))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('keepCopy: the first free name of the step (the step alone, then -2, -3, …); a name that holds these bytes already makes nothing new; no name is ever written twice', async () => {
+    const a = Buffer.from('{ "as": "it was" }\n');
+    const b = Buffer.from('{ "as": "it was, later" }\n');
+    const c = Buffer.from('{ "as": "it was, later still" }\n');
+    expect(await keepCopy(dir, 'state', '0.4.0', a)).toEqual({ path: keptCopyPath(dir, 'state', '0.4.0'), nth: 1, made: true });
+    expect(await keepCopy(dir, 'state', '0.4.0', a)).toEqual({ path: keptCopyPath(dir, 'state', '0.4.0'), nth: 1, made: false });
+    expect(await keepCopy(dir, 'state', '0.4.0', b)).toEqual({ path: join(dir, 'state.json.before-upgrade-from-0.4.0-2'), nth: 2, made: true });
+    expect(await keepCopy(dir, 'state', '0.4.0', c)).toEqual({ path: join(dir, 'state.json.before-upgrade-from-0.4.0-3'), nth: 3, made: true });
+    expect(await keepCopy(dir, 'state', '0.4.0', b)).toEqual({ path: keptCopyPath(dir, 'state', '0.4.0', 2), nth: 2, made: false });
+    expect(await keepCopy(dir, 'state', '0.4.0', a)).toEqual({ path: keptCopyPath(dir, 'state', '0.4.0', 1), nth: 1, made: false });
+    // Another step and another document count by themselves.
+    expect(await keepCopy(dir, 'state', '0.5.0', b)).toMatchObject({ nth: 1, made: true });
+    expect(await keepCopy(dir, 'suggestions', '0.4.0', b)).toMatchObject({ nth: 1, made: true });
+    expect((await readdir(dir)).sort()).toEqual([
+      'state.json.before-upgrade-from-0.4.0',
+      'state.json.before-upgrade-from-0.4.0-2',
+      'state.json.before-upgrade-from-0.4.0-3',
+      'state.json.before-upgrade-from-0.5.0',
+      'suggestions.json.before-upgrade-from-0.4.0',
+    ]);
+    expect((await readFile(keptCopyPath(dir, 'state', '0.4.0'))).equals(a)).toBe(true);
+    expect((await readFile(keptCopyPath(dir, 'state', '0.4.0', 2))).equals(b)).toBe(true);
+    expect((await readFile(keptCopyPath(dir, 'state', '0.4.0', 3))).equals(c)).toBe(true);
+    for (const name of await readdir(dir)) expect(`${name} ${((await lstat(join(dir, name))).mode & 0o777).toString(8)}`).toBe(`${name} 600`);
+    // The names are the ones keptCopyPath makes and no others.
+    expect(() => keptCopyPath(dir, 'state', '0.4.0', 0)).toThrow(TypeError);
+    expect(() => keptCopyPath(dir, 'state', '0.4.0', 1.5)).toThrow(TypeError);
+    expect(() => keptCopyPath(dir, 'state', '0.4.0', KEPT_COPIES_MAX + 1)).toThrow(TypeError);
+  });
+
+  it('keepCopy: what carries a name of the step and is no private file of ours refuses (the document is then not written); every name taken by other bytes is a refusal, never an overwrite', async () => {
+    await writeFile(join(base, 'target'), 'untouched', { mode: 0o600 });
+    await symlink(join(base, 'target'), keptCopyPath(dir, 'state', '0.4.0'));
+    expect(await rejectionOf(keepCopy(dir, 'state', '0.4.0', Buffer.from('x')))).toMatchObject({ kind: 'insecure', cause: 'symlink', path: keptCopyPath(dir, 'state', '0.4.0') });
+    expect(await readFile(join(base, 'target'), 'utf8')).toBe('untouched');
+    await rm(keptCopyPath(dir, 'state', '0.4.0'));
+    await writeFile(keptCopyPath(dir, 'state', '0.4.0'), 'open to others', { mode: 0o644 });
+    await chmod(keptCopyPath(dir, 'state', '0.4.0'), 0o644);
+    expect(await rejectionOf(keepCopy(dir, 'state', '0.4.0', Buffer.from('x')))).toMatchObject({ kind: 'insecure', cause: 'mode', path: keptCopyPath(dir, 'state', '0.4.0') });
+    await rm(keptCopyPath(dir, 'state', '0.4.0'));
+    // Every name of the step taken, each by other bytes.
+    for (let nth = 1; nth <= KEPT_COPIES_MAX; nth++) await writeFile(keptCopyPath(dir, 'state', '0.4.0', nth), `copy ${nth}`, { mode: 0o600 });
+    const before = await readdir(dir);
+    expect(await rejectionOf(keepCopy(dir, 'state', '0.4.0', Buffer.from('one more')))).toMatchObject({ kind: 'cannot-open', errno: 'EEXIST', path: keptCopyPath(dir, 'state', '0.4.0', KEPT_COPIES_MAX) });
+    expect(await readdir(dir)).toEqual(before);
+    expect(await readFile(keptCopyPath(dir, 'state', '0.4.0', KEPT_COPIES_MAX), 'utf8')).toBe(`copy ${KEPT_COPIES_MAX}`);
+    // The bytes of one of them: that one is named, nothing is made.
+    expect(await keepCopy(dir, 'state', '0.4.0', Buffer.from('copy 57'))).toEqual({ path: keptCopyPath(dir, 'state', '0.4.0', 57), nth: 57, made: false });
+  });
+
   it('a copy that cannot be created is a refusal (cannot-open, with the errno), and nothing half-written stays', async () => {
     await chmod(dir, 0o500);
     try {
@@ -391,6 +443,20 @@ describe('kept copies: <name>.json.before-upgrade-from-<step>', () => {
     await writeKeptCopy(keptCopyPath(dir, 'suggestions', '0.4.0'), dir, Buffer.from('c'));
     expect(await listKeptCopies(dir, 'state')).toEqual([
       { path: keptCopyPath(dir, 'state', '0.5.0'), from: '0.5.0', at: 2_000_000 },
+      { path: keptCopyPath(dir, 'state', '0.4.0'), from: '0.4.0', at: 1_000_000 },
+    ]);
+    // The second and third copy of one step are listed with it, each at its own time; names keptCopyPath would not
+    // make (`-1`, `-02`, `-100`, `-2-3`, `-x`) are no copies.
+    await keepCopy(dir, 'state', '0.4.0', Buffer.from('a, later'));
+    await keepCopy(dir, 'state', '0.4.0', Buffer.from('a, later still'));
+    await utimes(keptCopyPath(dir, 'state', '0.4.0', 2), 3_000, 3_000);
+    await utimes(keptCopyPath(dir, 'state', '0.4.0', 3), 2_000, 2_000);
+    for (const odd of ['-1', '-02', '-100', '-2-3', '-x', '-']) await writeFile(join(dir, `state.json.before-upgrade-from-0.4.0${odd}`), 'x', { mode: 0o600 });
+    expect(await listKeptCopies(dir, 'state')).toEqual([
+      { path: keptCopyPath(dir, 'state', '0.4.0', 2), from: '0.4.0', at: 3_000_000 },
+      // The same millisecond: the later step first, and of one step the higher number.
+      { path: keptCopyPath(dir, 'state', '0.5.0'), from: '0.5.0', at: 2_000_000 },
+      { path: keptCopyPath(dir, 'state', '0.4.0', 3), from: '0.4.0', at: 2_000_000 },
       { path: keptCopyPath(dir, 'state', '0.4.0'), from: '0.4.0', at: 1_000_000 },
     ]);
     expect((await listKeptCopies(dir, 'suggestions')).map((copy) => copy.from)).toEqual(['0.4.0']);
