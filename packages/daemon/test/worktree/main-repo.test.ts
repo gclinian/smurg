@@ -182,7 +182,7 @@ describe('headBlobs and mainState', { timeout: 60_000 }, () => {
   it('a folder that is no git repository: nothing is at HEAD, nothing can start, and the facts say why', async () => {
     stack = await startWorktreeStack({ git: false, files: { ...BASE, [SPEC]: '# Checkout\n' } });
     const s = stack;
-    expect(await s.manager.mainState()).toEqual({ isRepo: false, hasCommit: false, gitOk: true, branch: null, busy: false, free: 64 });
+    expect(await s.manager.mainState()).toEqual({ isRepo: false, hasCommit: false, gitOk: true, unavailable: { id: 'worktree.unavailable.notAGitRepo' }, branch: null, busy: false, free: 64 });
     expect(await s.manager.headBlobs([SPEC, PLAN])).toEqual({ [SPEC]: null, [PLAN]: null });
     expect(await s.manager.diffMainPaths({ paths: [SPEC, PLAN], against: 'head', maxBytes: 1024 })).toEqual([]);
     expect(await settleError(s.manager.commitMainPaths({ paths: [SPEC], message: 'm', trailers: [], as: s.principal(s.host.userId) }))).toMatchObject({ code: 'conflict', reason: 'not-a-git-repo' });
@@ -197,7 +197,7 @@ describe('headBlobs and mainState', { timeout: 60_000 }, () => {
       await execFileAsync('git', ['init', '-q', '-b', 'main'], { cwd: root, env: isolatedGitEnv(join(root, '.home')) });
       stack = await startWorktreeStack({ root });
       const s = stack;
-      expect(await s.manager.mainState()).toMatchObject({ isRepo: true, hasCommit: false, gitOk: true, branch: 'main', busy: false });
+      expect(await s.manager.mainState()).toMatchObject({ isRepo: true, hasCommit: false, gitOk: true, unavailable: { id: 'worktree.unavailable.noCommit' }, branch: 'main', busy: false });
       expect(await s.manager.headBlobs([SPEC])).toEqual({ [SPEC]: null });
       expect(await settleError(s.manager.commitMainPaths({ paths: [SPEC], message: 'm', trailers: [], as: s.principal(s.host.userId) }))).toMatchObject({ code: 'conflict', reason: 'no-commits' });
       // Against HEAD there is nothing: the file as it is now is all of the change.

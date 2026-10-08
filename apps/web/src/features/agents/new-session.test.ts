@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Role, SessionInfo, WorkspaceInfo } from '@smurg/protocol';
 import { makeSession, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
-import { buildCreatePayload, effectiveWhere, newSessionOptions } from './new-session.ts';
+import { buildCreatePayload, effectiveWhere, newSessionOptions, worktreeUnavailableNote } from './new-session.ts';
 
 
 const workspace = (isGitRepo: boolean): WorkspaceInfo => ({ ...makeWelcome().workspace, isGitRepo });
@@ -37,9 +37,14 @@ describe('new session: what each role may open (the daemon decides again)', () =
 });
 
 describe('new session: where it runs (R9)', () => {
-  it('a folder that is not a git repository has no worktree choice (with the reason)', () => {
+  it('a folder that is not a git repository (as far as the page knows): no kept worktree, the reason as a note, a new worktree still offered', () => {
     const plain = options('agent', { git: false, worktrees: [makeWorktree({ kept: true })] });
     expect(plain.worktree).toEqual({ available: false, unavailableReason: 'not-git', kept: [] });
+    // The reason in the host's own words (the Start dialog's blocker, a worktree refusal), with what the host can do.
+    expect(worktreeUnavailableNote('not-git')).toBe(
+      'The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.',
+    );
+    expect(options('agent').worktree.unavailableReason).toBeNull();
   });
 
   it('offers only MY kept worktrees that no running session uses, newest first', () => {
@@ -60,7 +65,9 @@ describe('new session: where it runs (R9)', () => {
     expect(effectiveWhere(agent, 'worktree:new')).toBe('worktree:new');
     expect(effectiveWhere(agent, 'worktree:wt_9')).toBe('worktree:wt_9');
     expect(effectiveWhere(agent, 'worktree:wt_gone')).toBe('main');
-    expect(effectiveWhere(options('agent', { git: false }), 'worktree:new')).toBe('main');
+    // The page may not know yet that the folder became a repository (a workspace without a topic): the host decides.
+    expect(effectiveWhere(options('agent', { git: false }), 'worktree:new')).toBe('worktree:new');
+    expect(effectiveWhere(options('agent', { git: false, worktrees: [makeWorktree({ id: 'wt_9', kept: true })] }), 'worktree:wt_9')).toBe('main');
   });
 
   it('builds session.create: main, a new worktree, or a kept one — the same for the host and members with agent access', () => {
@@ -74,8 +81,10 @@ describe('new session: where it runs (R9)', () => {
       expect(buildCreatePayload(opts, { ...base, where: 'worktree:new' }, size).workspace).toEqual({ mode: 'worktree' });
       expect(buildCreatePayload(opts, { ...base, where: 'worktree:wt_9' }, size).workspace).toEqual({ mode: 'worktree', worktreeId: 'wt_9' });
     }
-    // Not a git repository: whatever the form says, the session runs in the main workspace.
-    expect(buildCreatePayload(options('agent', { git: false }), { ...base, where: 'worktree:new' }, size).workspace).toEqual({ mode: 'main' });
+    // Not a git repository as far as the page knows: a new worktree is still asked for (the host looks again and
+    // refuses with the reason); a kept worktree is not offered, so the session runs in the main workspace.
+    expect(buildCreatePayload(options('agent', { git: false }), { ...base, where: 'worktree:new' }, size).workspace).toEqual({ mode: 'worktree' });
+    expect(buildCreatePayload(options('agent', { git: false, worktrees: [makeWorktree({ id: 'wt_9', kept: true })] }), { ...base, where: 'worktree:wt_9' }, size).workspace).toEqual({ mode: 'main' });
   });
 
   it('sends a title only when given (trimmed), and never an API key', () => {

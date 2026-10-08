@@ -132,38 +132,46 @@ export const worktrees = {
     'zh-TW': () => 'git 執行失敗',
   }),
 
-  // ---- why worktree mode is unavailable (detail.reason says which) ----------------------------------------------
+  // ---- why worktrees cannot be used (detail.reason says which) ------------------------------------------------
+  // One message per reason, what is wrong, then what the host can do and whether sharing has to start again (0.5.2): the
+  // Start dialog's git blocker, worktree refusals, the plan column and the new-session dialog all show these. The
+  // folder and its .git are looked at again while sharing (a first commit or `git init` counts at once); git itself
+  // and the .smurg/worktrees folder only when sharing starts. zh-TW ends with a full stop: other words may follow.
   'worktree.unavailable.starting': message({}, {
     en: () => 'Worktrees are not ready yet.',
-    'zh-TW': () => 'worktree 功能尚未就緒',
+    'zh-TW': () => 'worktree 功能尚未就緒。',
   }),
   'worktree.unavailable.notAGitRepo': message({}, {
-    en: () => 'The shared folder is not a git repository, so worktrees are not available.',
-    'zh-TW': () => '分享的資料夾不是 git 儲存庫，無法使用 worktree 模式',
+    en: () => 'The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.',
+    'zh-TW': () => '分享的資料夾不是 git 儲存庫，無法使用 worktree。主人可以在資料夾裡執行 `git init` 並提交一次，不必重新分享。',
+  }),
+  'worktree.unavailable.noCommit': message({}, {
+    en: () => "The shared folder's git repository has no commit yet, so no worktree can be created. The host can commit once, without sharing again.",
+    'zh-TW': () => '分享資料夾的 git 儲存庫還沒有任何提交，無法建立 worktree。主人可以提交一次，不必重新分享。',
   }),
   'worktree.unavailable.gitDirNotDirectory': message({}, {
-    en: () => "The shared folder's .git is not an ordinary folder (a git worktree or a submodule, for example), so worktrees are not available.",
-    'zh-TW': () => '分享資料夾的 .git 不是一般的資料夾（例如 git worktree 或 submodule），無法使用 worktree 模式',
+    en: () => "The shared folder's .git is not an ordinary folder (the folder is a git worktree or a submodule, for example), so worktrees cannot be used. The host can share the repository's main folder instead.",
+    'zh-TW': () => '分享資料夾的 .git 不是一般的資料夾（例如這個資料夾本身是 git worktree 或 submodule），無法使用 worktree。主人可以改為分享儲存庫的主資料夾。',
   }),
-  'worktree.unavailable.gitNotFound': message({}, {
-    en: () => 'git was not found on the host, so worktrees are not available.',
-    'zh-TW': () => '找不到 git，無法使用 worktree 模式',
+  'worktree.unavailable.gitNotFound': message({ minVersion: 'string' }, {
+    en: (p) => `git was not found on the host's computer, so worktrees cannot be used. The host can install git ${p.minVersion} or later, stop sharing, and share again from a new terminal.`,
+    'zh-TW': (p) => `主人的電腦上找不到 git，無法使用 worktree。主人可以安裝 git ${p.minVersion} 以上，停止分享，再從新的終端機重新分享。`,
   }),
-  'worktree.unavailable.gitUnusable': message({}, {
-    en: () => 'git cannot be used on the host, so worktrees are not available.',
-    'zh-TW': () => 'git 無法使用，無法使用 worktree 模式',
+  'worktree.unavailable.gitTooOld': message({ version: 'string', minVersion: 'string' }, {
+    en: (p) => `The host's git is version ${p.version}, and worktrees need ${p.minVersion} or later. The host can update git, stop sharing, and share again from a new terminal.`,
+    'zh-TW': (p) => `主人電腦上的 git 是 ${p.version} 版，worktree 需要 ${p.minVersion} 以上。主人可以更新 git，停止分享，再從新的終端機重新分享。`,
   }),
   'worktree.unavailable.gitCannotRun': message({}, {
-    en: () => 'git cannot be run on the host, so worktrees are not available.',
-    'zh-TW': () => 'git 無法執行，無法使用 worktree 模式',
-  }),
-  'worktree.unavailable.gitTooOld': message({ minVersion: 'string' }, {
-    en: (p) => `The host's git is too old (${p.minVersion} or newer is needed), so worktrees are not available.`,
-    'zh-TW': (p) => `git 版本太舊（需要 ${p.minVersion} 以上），無法使用 worktree 模式`,
+    en: () => "git does not run on the host's computer, so worktrees cannot be used. The host can make `git version` work in a terminal, stop sharing, and share again from that terminal.",
+    'zh-TW': () => '主人電腦上的 git 無法執行，無法使用 worktree。主人可以先讓 `git version` 在終端機裡正常執行，停止分享，再從那個終端機重新分享。',
   }),
   'worktree.unavailable.worktreesDirUnusable': message({}, {
-    en: () => '.smurg/worktrees is not an ordinary folder, so worktrees are not available.',
-    'zh-TW': () => '.smurg/worktrees 不是一般的資料夾，無法使用 worktree 模式',
+    en: () => '.smurg/worktrees in the shared folder is not an ordinary folder, so worktrees cannot be used. The host can move it out of the shared folder, stop sharing, and share again.',
+    'zh-TW': () => '分享資料夾裡的 .smurg/worktrees 不是一般的資料夾，無法使用 worktree。主人可以把它移出分享的資料夾，停止分享，再重新分享。',
+  }),
+  'worktree.unavailable.checkFailed': message({}, {
+    en: () => "smurg could not look at the shared folder's git repository just now. Try again in a moment.",
+    'zh-TW': () => 'smurg 暫時無法查看分享資料夾的 git 儲存庫。請稍後再試。',
   }),
 
   // ---- worktrees ----------------------------------------------------------------------------------------------
@@ -194,14 +202,6 @@ export const worktrees = {
   'worktree.limitOwner': message({}, {
     en: () => 'You have reached your worktree limit. Delete worktrees you no longer need.',
     'zh-TW': () => '你的 worktree 數量已達上限，請先刪除不用的 worktree',
-  }),
-  'worktree.mainNoCommits': message({}, {
-    en: () => 'The main workspace has no commit yet, so no worktree can be created.',
-    'zh-TW': () => '主工作區還沒有任何 commit，無法建立 worktree',
-  }),
-  'worktree.worktreesDirUnusable': message({}, {
-    en: () => '.smurg/worktrees is not an ordinary folder, so no worktree can be created.',
-    'zh-TW': () => '.smurg/worktrees 不是一般的資料夾，無法建立 worktree',
   }),
   'worktree.createFailed': message({}, {
     en: () => 'The worktree could not be created.',

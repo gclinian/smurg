@@ -182,9 +182,17 @@ describe('the plan column: before the start', () => {
     expect(screen.getByText('Items 1 and 2 may change the same files and neither waits for the other.')).toBeTruthy();
   });
 
-  it('in a folder that is not a git repository the foot says why nothing can start', async () => {
-    await setup({ topic: { ...TOPIC, versioned: false } });
-    expect(screen.getByText(/This folder is not a git repository yet, so work items cannot start/)).toBeTruthy();
+  it('in a folder that is not a git repository the foot says why nothing can start, in the Start dialog’s words, and follows the folder', async () => {
+    const { conn } = await setup({ topic: { ...TOPIC, versioned: false } });
+    expect(screen.getByText(/^Work items cannot start yet:/).textContent).toBe(
+      'Work items cannot start yet: The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again. Item 3 starts by itself when 1 and 2 are merged.',
+    );
+    // The host ran `git init` while sharing: the host announces the topic again, and the foot offers Start.
+    act(() => {
+      conn.emit('topic.updated', { topic: TOPIC });
+    });
+    expect(screen.queryByText(/^Work items cannot start yet:/)).toBeNull();
+    expect(screen.getByText(/^Start opens one agent session per item, each in its own worktree\./)).toBeTruthy();
   });
 });
 

@@ -218,7 +218,8 @@ export const t = defineStrings(
     // ---- the plan's foot
     'foot.start': 'Start opens one agent session per item, each in its own worktree.',
     'foot.start.others': '{names} can start the plan.',
-    'foot.noGit': 'This folder is not a git repository yet, so work items cannot start: they run in git worktrees.',
+    // {reason}: the wire catalog's sentence (worktree.unavailable.notAGitRepo), the Start dialog's words for it.
+    'foot.noGit': 'Work items cannot start yet: {reason}',
     'foot.startsByItself.one': 'Item {number} starts by itself when {items} is merged.',
     'foot.startsByItself.many': 'Item {number} starts by itself when {items} are merged.',
     'foot.startAll': { one: 'Start {count} item', other: 'Start {count} items' },

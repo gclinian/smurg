@@ -2,9 +2,27 @@
 // plan, the sessions, the worktrees, the host state), with the people of the mock: Ian (host), Mei (agent access),
 // Amy (editor), Vic (viewer).
 import { act } from '@testing-library/react';
-import type { HostState, MergeRequest, PlanInfo, PresenceMember, Role, SessionInfo, Topic, WorktreeInfo } from '@smurg/protocol';
+import type { HostState, MergeRequest, MessageRef, PlanInfo, PresenceMember, Role, SessionInfo, Topic, WorktreeInfo } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import { FakeConnection } from '../../../testing/fake-connection.ts';
 import { HOST_USER, makeMember, makeWelcome, presenceOf } from '../../../testing/fixtures.ts';
+
+/**
+ * Every reason git gives for refusing a Start (the preflight's blocker; the same sentence refuses a worktree): one
+ * sentence per reason since 0.5.2, each saying what the host can do. The parameters of a host on git 2.39.5.
+ */
+export const GIT_REASONS = {
+  notAGitRepo: msg('worktree.unavailable.notAGitRepo'),
+  noCommit: msg('worktree.unavailable.noCommit'),
+  gitNotFound: msg('worktree.unavailable.gitNotFound', { minVersion: '2.42.0' }),
+  gitTooOld: msg('worktree.unavailable.gitTooOld', { version: '2.39.5', minVersion: '2.42.0' }),
+  gitCannotRun: msg('worktree.unavailable.gitCannotRun'),
+  gitDirNotDirectory: msg('worktree.unavailable.gitDirNotDirectory'),
+  worktreesDirUnusable: msg('worktree.unavailable.worktreesDirUnusable'),
+  checkFailed: msg('worktree.unavailable.checkFailed'),
+  starting: msg('worktree.unavailable.starting'),
+} as const satisfies Readonly<Record<string, MessageRef>>;
+export type GitReason = keyof typeof GIT_REASONS;
 
 export const IAN = { userId: HOST_USER, displayName: 'Ian' } as const;
 export const MEI = { userId: 'dev:mei', displayName: 'Mei' } as const;

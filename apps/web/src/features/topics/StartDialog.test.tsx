@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { T0 } from '../../testing/fixtures.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
 import { StartDialog } from './StartDialog.tsx';
-import { AMY, IAN, MEI, admitAs, settle, topicConnection } from './testing/support.tsx';
+import { AMY, GIT_REASONS, IAN, MEI, admitAs, settle, topicConnection, type GitReason } from './testing/support.tsx';
 
 const TOPIC: Topic = buildTopic({
   phase: 'plan',
@@ -134,11 +134,54 @@ describe('the Start dialog', () => {
 
   it('a blocker is read first and disables Start', async () => {
     const { answer } = await setup();
-    await answer(preflight({ blockers: [{ text: msg('plan.start.noGit'), fallback: 'Not a git repository.' }], commit: null }));
+    await answer(preflight({ blockers: [{ text: GIT_REASONS.notAGitRepo, fallback: 'The shared folder is not a git repository yet.' }], commit: null }));
     const dialog = screen.getByRole('dialog');
     const lines = within(dialog).getAllByRole('listitem');
     expect(lines[0]?.getAttribute('data-tone')).toBe('danger');
-    expect(lines[0]?.textContent).toContain('Cannot start: Work items run in git worktrees, and this folder is not a git repository yet.');
+    expect(lines[0]?.textContent?.trim()).toBe(
+      'Cannot start: The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.',
+    );
+    expect((within(dialog).getByRole('button', { name: 'Start' }) as HTMLButtonElement).disabled).toBe(true);
+    // Nothing would be committed: a host whose git stops the start names no branch (commit: null), so no commit line.
+    expect(dialog.querySelector('[data-line="commit"]')).toBeNull();
+    expect(within(dialog).queryByText(/SPEC\.md and PLAN\.md/)).toBeNull();
+  });
+
+  it('git says why it stops the start, one message per reason with what the host can do, and no commit line', async () => {
+    const said: Readonly<Record<GitReason, string>> = {
+      notAGitRepo: 'The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.',
+      noCommit: "The shared folder's git repository has no commit yet, so no worktree can be created. The host can commit once, without sharing again.",
+      gitNotFound: "git was not found on the host's computer, so worktrees cannot be used. The host can install git 2.42.0 or later, stop sharing, and share again from a new terminal.",
+      gitTooOld: "The host's git is version 2.39.5, and worktrees need 2.42.0 or later. The host can update git, stop sharing, and share again from a new terminal.",
+      gitCannotRun: "git does not run on the host's computer, so worktrees cannot be used. The host can make `git version` work in a terminal, stop sharing, and share again from that terminal.",
+      gitDirNotDirectory:
+        "The shared folder's .git is not an ordinary folder (the folder is a git worktree or a submodule, for example), so worktrees cannot be used. The host can share the repository's main folder instead.",
+      worktreesDirUnusable: '.smurg/worktrees in the shared folder is not an ordinary folder, so worktrees cannot be used. The host can move it out of the shared folder, stop sharing, and share again.',
+      checkFailed: "smurg could not look at the shared folder's git repository just now. Try again in a moment.",
+      starting: 'Worktrees are not ready yet.',
+    };
+    for (const reason of Object.keys(GIT_REASONS) as GitReason[]) {
+      const { answer, unmount } = await setup();
+      // The fallback travels with the reference: this build renders the reference, never the fallback.
+      await answer(preflight({ blockers: [{ text: GIT_REASONS[reason], fallback: `fallback of ${reason}` }], commit: null }));
+      const dialog = screen.getByRole('dialog', { name: 'Start 2 items' });
+      const first = within(dialog).getAllByRole('listitem')[0];
+      expect(first?.getAttribute('data-line'), reason).toBe('blocker');
+      expect(first?.textContent?.trim(), reason).toBe(`Cannot start: ${said[reason]}`);
+      expect(dialog.querySelector('[data-line="commit"]'), reason).toBeNull();
+      expect((within(dialog).getByRole('button', { name: 'Start' }) as HTMLButtonElement).disabled, reason).toBe(true);
+      unmount();
+    }
+  });
+
+  it('a blocker this page cannot render (a host before 0.5.2 sends plan.start.noGit) shows the English sentence it came with', async () => {
+    const { answer } = await setup();
+    const fallback = 'Work items run in git worktrees, and this folder is not a git repository yet. The host can make it one: run `git init`, then commit once.';
+    // A 0.5.1 host with a gitfile share also named no branch: that commit line would say something false, so none.
+    await answer(preflight({ blockers: [{ text: { id: 'plan.start.noGit' }, fallback }], commit: { needed: false, branch: '', as: MEI, files: [], alsoInFolder: [] } }));
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getAllByRole('listitem')[0]?.textContent?.trim()).toBe(`Cannot start: ${fallback}`);
+    expect(dialog.querySelector('[data-line="commit"]')).toBeNull();
     expect((within(dialog).getByRole('button', { name: 'Start' }) as HTMLButtonElement).disabled).toBe(true);
   });
 

@@ -66,7 +66,7 @@ import { RelayLink } from './net/relay-connection.ts';
 import { PathGuardImpl } from './workspace/path-guard.ts';
 import { KeepAwake } from './workspace/power.ts';
 import { RootRegistryImpl } from './workspace/roots.ts';
-import { prepareShare } from './workspace/share.ts';
+import { ignoreSmurgDir, prepareShare } from './workspace/share.ts';
 import { acquireShareLock } from './workspace/share-lock.ts';
 
 /** The daemon's version: its package.json (every package of a release carries the release's X.Y.Z, docs/RELEASING.md §4). */
@@ -336,6 +336,11 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     throw refusal;
   }
   try {
+    // `.smurg/` ignores itself (0.5.2): whatever order the host runs `git init`, `git add -A` and `git commit` in while
+    // sharing, smurg's folder is not committed. Written now that the start writes. One the host made is left alone.
+    const smurgIgnore = await ignoreSmurgDir(share.realPath);
+    if (smurgIgnore === 'other') log.warn('.smurg/.gitignore was not written by smurg; it is left as it is', { module: 'share' });
+    else if (smurgIgnore === 'failed') log.warn('.smurg/.gitignore could not be written', { module: 'share' });
     const bus = new TypedEventBus(log.child({ module: 'bus' }));
     // A state document the disk refuses (and its recovery) reaches the host's terminal through the bus.
     const stateHealth = store.onHealthChange((event) => bus.emit('state.write', event));
@@ -391,16 +396,31 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     const power = options.power ?? new KeepAwake({ enabled: config.keepAwake, log: log.child({ module: 'power' }) });
 
     const hostMember = members.active(config.hostUserId);
-    const info: WorkspaceInfo = {
+    // `isGitRepo` follows the folder while it is shared (0.5.2): the worktree module looks at `.git` again and says
+    // what it saw (noteGitRepo). Everything that reads `workspace.info` (each welcome, the local attach, the status)
+    // gets the object as it is now; each version of it is frozen.
+    let info: WorkspaceInfo = Object.freeze({
       id: config.workspaceId,
       name: sanitizeName(config.workspaceName ?? share.name, 'workspace'),
       hostUserId: config.hostUserId,
       hostName: hostMember?.displayName ?? config.hostName,
       platform,
       isGitRepo: share.isGitRepo,
-    };
+    });
     const fingerprint = formatFingerprintForDisplay(daemonKeyFingerprint(identity.keyPair.publicKey));
-    const workspace: WorkspaceDescriptor = Object.freeze({ info: Object.freeze(info), shareRealPath: share.realPath, daemonPublicKey: identity.keyPair.publicKey.slice(), fingerprint });
+    const workspace: WorkspaceDescriptor = Object.freeze({
+      get info(): WorkspaceInfo {
+        return info;
+      },
+      shareRealPath: share.realPath,
+      daemonPublicKey: identity.keyPair.publicKey.slice(),
+      fingerprint,
+      noteGitRepo(isGitRepo: boolean): void {
+        if (info.isGitRepo === isGitRepo) return;
+        info = Object.freeze({ ...info, isGitRepo });
+        bus.emit('workspace.git', { isGitRepo });
+      },
+    });
 
     const stopping = new AbortController();
     // Bound to the Daemon object below (it exists before any module can call these).

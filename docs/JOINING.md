@@ -417,7 +417,9 @@ step is a row of the topic in the session list.
 6. **Start** (host and Agent access): before anything runs, a dialog lists what Start will do: which items start
    now and which wait for others, who is responsible, who edited the spec and the plan by hand since the last
    Start, and that smurg commits the two files to the host's repository. Starting needs the shared folder to be a
-   git repository.
+   git repository with at least one commit, and git 2.42 or later on the host's computer; the dialog says what is
+   missing and what the host can do. The folder can become a repository while it is shared: once the host has run
+   `git init` and committed, Start works the next time it is opened.
 7. **Execution**: every started work item is an agent session of its own, in its own worktree (§7), and shows up
    as a row of the topic. Its agent edits files in its worktree without asking and asks before commands (§5.4). The
    plan column stays the overview: what runs, what waits for a person, what waits for a merge. An item that waits

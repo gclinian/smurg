@@ -20,8 +20,9 @@
 //     file put back), and a folder `<workspace id>.old*` lies beside the one that is opened;
 //  6. tells the host when the relay link drops or recovers, when the relay refuses the host's login (and picks up a
 //     renewed login from credentials.json without a restart), when that login is about to expire, when a state file
-//     cannot be written, when keep-awake is lost, and (once per run and direction) when a teammate's page or smurg of
-//     another protocol version was turned away;
+//     cannot be written, when keep-awake is lost, (once per run and direction) when a teammate's page or smurg of
+//     another protocol version was turned away, and (once per run) when the repository tracks smurg's own .smurg
+//     folder (0.5.2: a `git add -A` while sharing with an earlier smurg took its share lock marker);
 //  7. adds ONE line under the links when a newer smurg is published (../update/notice.ts: looked up in the background
 //     after the links are printed, at most 2 s, silent on every failure; never in an automated run or with
 //     SMURG_NO_UPDATE_CHECK=1);
@@ -76,7 +77,7 @@ import { CLI_VERSION } from '../version.ts';
 import { m, renderText, roleText, type MessageId, type Text } from '../i18n/index.ts';
 import type { DurationUnit } from '../i18n/en.ts';
 import { say, tr, type CommandContext } from './context.ts';
-import { entryUnreadProblem, foldersSetAside, formatTime, oldFolderNotice, shown, stateFileProblem, upgradeNotice, wasStamped, watchRefusedPeers, type RefusalContext } from './host-state.ts';
+import { entryUnreadProblem, foldersSetAside, formatTime, oldFolderNotice, shown, stateFileProblem, upgradeNotice, wasStamped, watchRefusedPeers, watchSmurgTracked, type RefusalContext } from './host-state.ts';
 
 /** `smurg host --help`; the --relay default depends on the built-in relay (../relay/default-relay.ts). */
 export function hostUsage(): Text {
@@ -519,12 +520,18 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     log.logger.info('a known peer of another protocol version was turned away', { direction });
     if (stopping === null) say(ctx, text);
   });
+  // The repository tracks smurg's own folder (the daemon looks when worktree mode becomes available, from the start on):
+  // one line under the links (the daemon's log has its own line).
+  const smurgTrackedWatch = watchSmurgTracked(daemon, (text) => {
+    if (stopping === null) say(ctx, text);
+  });
   const updateCheck = new AbortController();
   const cleanup = async (): Promise<void> => {
     updateCheck.abort();
     if (powerWatch !== undefined) clearInterval(powerWatch);
     relayWatch?.dispose();
     peerWatch.dispose();
+    smurgTrackedWatch.dispose();
     for (const off of unsubscribe) off();
     stoppingListener.dispose();
     // The control socket closes just after the rest of the daemon stopped (src/local/module.ts in @smurg/daemon):
@@ -565,6 +572,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     powerWatch.unref?.();
     relayWatch = watchRelay(ctx, daemon, { origin, userId: user.userId, session }, () => stopping !== null, deps.credentialsWatchMs ?? CREDENTIALS_WATCH_MS);
     peerWatch.release();
+    smurgTrackedWatch.release();
     // A newer version: one line under the links, whenever the answer comes (never awaited: the start is not delayed).
     void updateNotice(io, updateCheck.signal, deps.update).then((line) => {
       if (line !== null && stopping === null) say(ctx, `\n${tr(ctx, line)}`);

@@ -168,8 +168,8 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
   three columns as the window widens. Keep its labels equal to the app's strings when the app changes them.
 - A new file in `public/` is served without running the Worker; `test/site.test.ts` lists the expected files (update
   it on purpose). Only SVG images, but for the two preview pictures (PNG, above); `public/` without them stays under
-  160 KB, and every page with what it loads under 164 KB (150 KB until 0.5.1: the host guide, the longest page, grew
-  by its part on updating).
+  160 KB, and every page with what it loads under 176 KB (150 KB until 0.5.1, 164 KB until 0.5.2: the host guide,
+  the longest page, grew by its parts on updating and on git).
 - A new redirect goes into `src/routes.ts`, and its path into `run_worker_first` in `wrangler.jsonc` (the test fails
   otherwise), and into the table above.
 

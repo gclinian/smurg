@@ -16,8 +16,8 @@ import {
   type UserRef,
   type WorktreeInfo,
 } from '@smurg/protocol';
-import { msg } from '@smurg/protocol/i18n';
-import type { Principal, Req, Res, RootInfo, SnapshotResult, WorktreeHandle, WorktreeManager } from '../interfaces.ts';
+import { msg, type MessageRef } from '@smurg/protocol/i18n';
+import type { MainState, Principal, Req, Res, RootInfo, SnapshotResult, WorktreeHandle, WorktreeManager } from '../interfaces.ts';
 import { buildMergeRequest, buildWorktree } from './build.ts';
 import { CallLog, fakeId, type FakeEnv } from './env.ts';
 
@@ -32,8 +32,13 @@ function fakeCommit(seed: string): string {
 
 export class FakeWorktreeManager implements WorktreeManager {
   readonly log = new CallLog();
-  /** What `mainState` answers. */
-  main: Awaited<ReturnType<WorktreeManager['mainState']>> = { isRepo: true, hasCommit: true, gitOk: true, branch: 'main', busy: false, free: 64 };
+  /**
+   * What `mainState` answers. Without `unavailable` it is made from the three facts as the real module orders them:
+   * no usable git, no repository, no commit.
+   */
+  main: Omit<MainState, 'unavailable'> & { unavailable?: MessageRef | null } = { isRepo: true, hasCommit: true, gitOk: true, branch: 'main', busy: false, free: 64 };
+  /** How often `refreshGitState` was asked. */
+  refreshes = 0;
   /** What the next `snapshot` of a worktree answers instead of a draft (a policy refusal), once. */
   readonly refuseSnapshot = new Map<string, Extract<SnapshotResult, { ok: false }>>();
   /** What the next `snapshot` calls of a worktree throw instead of answering, one per call (a file that changed while the tree was read, git out of time). */
@@ -227,8 +232,24 @@ export class FakeWorktreeManager implements WorktreeManager {
     return Object.fromEntries(paths.map((path) => [path, this.head.get(path) ?? null]));
   }
 
-  async mainState(): Promise<Awaited<ReturnType<WorktreeManager['mainState']>>> {
-    return { ...this.main };
+  async mainState(): Promise<MainState> {
+    await this.refreshGitState();
+    const main = this.main;
+    const unavailable =
+      main.unavailable !== undefined
+        ? main.unavailable
+        : !main.gitOk
+          ? msg('worktree.unavailable.gitCannotRun')
+          : !main.isRepo
+            ? msg('worktree.unavailable.notAGitRepo')
+            : !main.hasCommit
+              ? msg('worktree.unavailable.noCommit')
+              : null;
+    return { ...main, unavailable };
+  }
+
+  async refreshGitState(): Promise<void> {
+    this.refreshes += 1;
   }
 
   async updateFromMain(worktreeId: string): Promise<{ readonly mergeParent: string; readonly conflicted: readonly string[] }> {

@@ -373,6 +373,31 @@ export function oldFolderNotice(folders: readonly string[]): Text | null {
   return first === undefined ? null : m('host.oldFolder', { path: shown(first), more: folders.length - 1 });
 }
 
+/**
+ * The repository tracks files below `.smurg/` (a `git add -A` while sharing with a smurg before 0.5.2 took its share
+ * lock marker): told ONCE per run, when the daemon looks (worktree mode became available, at the start or when the
+ * folder became a repository while it is shared). Held until `release()` (the start summary is printed first).
+ */
+export function watchSmurgTracked(daemon: Pick<Daemon, 'ctx'>, tell: (text: Text) => void): { release(): void; dispose(): void } {
+  let told = false;
+  let held = false;
+  let holding = true;
+  const listener = daemon.ctx.bus.on('worktree.smurg-tracked', () => {
+    if (told) return;
+    told = true;
+    if (holding) held = true;
+    else tell(m('host.smurgTracked'));
+  });
+  return {
+    release: () => {
+      holding = false;
+      if (held) tell(m('host.smurgTracked'));
+      held = false;
+    },
+    dispose: () => listener.dispose(),
+  };
+}
+
 export type RefusedPeer = 'peer-newer' | 'peer-older';
 
 /**

@@ -72,7 +72,7 @@ describe('the built site', () => {
     for (const path of GENERATED_PAGES) expect(publicFiles(), path).not.toContain(path);
   });
 
-  it('public/ stays under 160 KB in total (the preview pictures aside), and every page with everything it loads under 164 KB', () => {
+  it('public/ stays under 160 KB in total (the preview pictures aside), and every page with everything it loads under 176 KB', () => {
     // The preview pictures are not loaded by any page: they have their own bound (the next test).
     const total = publicFiles()
       .filter((path) => !SOCIAL_CARDS.includes(path))
@@ -86,10 +86,12 @@ describe('the built site', () => {
       const bytes = size(path) + loaded.reduce((sum, file) => sum + size(file), 0);
       // The host guide is the longest page (0.5.0: about 98 KB in English; 0.5.1: about 119 KB, since its §9 says
       // what an update carries over, what every refusal of a workspace's state means and how to go back to a folder
-      // that was moved away). The page's bound follows the guide; with the stylesheet (35 KB), the script and the
-      // icon it stays under the 164 KB below, which was 150 KB until 0.5.1.
-      expect(size(path), `${path} itself`).toBeLessThan(128 * 1024);
-      expect(bytes, `${path} with ${loaded.join(', ')}`).toBeLessThan(164 * 1024);
+      // that was moved away; 0.5.2: about 133 KB, since §8 has one row per reason git stops Start and §10.2 says
+      // what happens when the folder becomes a repository while it is shared). The page's bound follows the guide;
+      // with the stylesheet (35 KB), the script and the icon it stays under the bound below (150 KB until 0.5.1,
+      // 164 KB until 0.5.2).
+      expect(size(path), `${path} itself`).toBeLessThan(140 * 1024);
+      expect(bytes, `${path} with ${loaded.join(', ')}`).toBeLessThan(176 * 1024);
     }
     // The notices are text, not a page: generous, but bounded.
     expect(size(NOTICES_FILE.slice(1))).toBeLessThan(2 * 1024 * 1024);

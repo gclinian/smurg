@@ -627,6 +627,10 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       }
       // An item that is merged and reviewed but could not be finished yet (its worktree held something unmerged).
       void this.scheduler.finishPending().catch((err: unknown) => this.ctx.log.error('finishing items failed', { error: err instanceof Error ? err.name : 'unknown' }));
+      // The shared folder's `.git`, looked at again (file calls only while nothing changed): a repository the host made
+      // while sharing counts without a restart, and the topics' `versioned` follows (0.5.2).
+      const worktrees = this.ctx.services.worktrees;
+      if (!isStubService(worktrees)) void worktrees.refreshGitState({ timer: true });
     }, this.ctx.config.agents.escalationSweepMs);
     this.sweepTimer.unref();
     return toDisposable(() => this.stopSweep());

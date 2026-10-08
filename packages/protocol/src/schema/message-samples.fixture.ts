@@ -334,7 +334,7 @@ export const preflight = {
   projectSettings: 'used',
   rules: [rule],
   sharedDirs: ['data'],
-  blockers: [{ text: { id: 'plan.start.noGit' }, fallback: 'Work items run in git worktrees.' }],
+  blockers: [{ text: { id: 'plan.paused' }, fallback: "smurg was restarted on the host's computer. This plan is paused." }],
 };
 const CART_ITEM = { number: 1, title: 'Cart API' };
 /** A question I decide (kind `question`). */

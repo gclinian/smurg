@@ -130,10 +130,6 @@ export const topics = {
     en: () => 'The spec or the plan changed since you opened this. Look at it again before you start.',
     'zh-TW': () => 'spec 或計畫在你開啟之後有變動，開始前請再看一次',
   }),
-  'plan.start.noGit': message({}, {
-    en: () => 'Work items run in git worktrees, and this folder is not a git repository yet. The host can make it one: run `git init`, then commit once.',
-    'zh-TW': () => '工作項目在 git worktree 裡執行，而這個資料夾還不是 git 儲存庫。主人可以執行 `git init` 並提交一次',
-  }),
   'plan.start.worktreeLimit': message({ max: 'number' }, {
     en: (p) => `There is no room for more worktrees (${p.max}). Merge or archive finished work first.`,
     'zh-TW': (p) => `worktree 數量已達上限（${p.max}），請先合併或封存已完成的工作`,

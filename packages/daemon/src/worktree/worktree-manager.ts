@@ -30,7 +30,17 @@
 // A conflict (ARCHITECTURE §7.8 "A conflict"): `updateFromMain` commits the worktree's work, merges the main
 // workspace's HEAD into the working tree without committing and remembers that HEAD; the next commit of the working
 // tree has it as second parent and is refused while a conflicted file still has a marker line (update-from-main.ts).
-import { lstat, realpath } from 'node:fs/promises';
+//
+// The folder while it is shared (0.5.2): whether `<share>/.git` is a repository is looked at again (refreshGitState)
+// when Start asks (mainState), when a worktree is acquired, by the scheduler's pin check and every few seconds on the
+// topics module's sweep: file calls only while nothing changed. A repository that appeared gets the exclude line and
+// the detection of git (the git executable, its version, the worktrees folder): worktree mode can become available
+// without a restart. A `.git` that went, or that is no plain git directory any more, makes worktree mode unavailable;
+// nothing is deleted or moved (worktrees, kept worktrees and merge requests stay as records). The git executable is
+// looked for only at the start, when a repository appears, and once when a folder that is no repository is first
+// asked about: never on a timer (on a Mac without the Command Line Tools, running /usr/bin/git puts a system prompt on
+// the host's screen).
+import { lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   ITEM_ID_PATTERN,
@@ -57,9 +67,10 @@ import {
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
-import type { DaemonEvents, MemberRecord, PersistentDocument, Principal, RootInfo, SnapshotResult, WorktreeHandle, WorktreeManager } from '../core/interfaces.ts';
+import type { DaemonEvents, MainState, MemberRecord, PersistentDocument, Principal, RootInfo, SnapshotResult, WorktreeHandle, WorktreeManager } from '../core/interfaces.ts';
 import { SYSTEM_ACTOR, isHostPrincipal, principalCan, userActor } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
+import { excludeSmurgDir, observeGit, sameGitObservation, type GitObservation } from '../workspace/share.ts';
 import { ensureWorktreesDir, filesWithConflictMarkers, linkSharedDirs, removeEntryBelow, removeWorktreeDir, sweepRemovals, untrackedInTheWay, writeExclude } from './fs-ops.ts';
 import { GIT_MIN_VERSION, GitRunner, GitUnavailableError, findGit, firstLine, gitVersionAtLeast, listedPaths, requireOk, type GitIdentity } from './git.ts';
 import { parseMergeTree, parseNameOnly, parseNameStatus, parseStatusPaths } from './git-parse.ts';
@@ -143,6 +154,39 @@ export interface WorktreeModuleOptions {
 
 type Available = { readonly ok: true; readonly git: GitRunner; readonly repo: MainRepo } | { readonly ok: false; readonly error: SmurgError };
 
+/** What the git executable was found to be: at the start, when a repository appeared, or once when first asked. */
+type GitBinary = { readonly kind: 'ok'; readonly version: string } | { readonly kind: 'not-found' } | { readonly kind: 'cannot-run' } | { readonly kind: 'too-old'; readonly version: string };
+
+const MIN_VERSION_TEXT = GIT_MIN_VERSION.join('.');
+
+/** Why the git executable cannot be used (null: it can). */
+function binaryUnavailable(binary: GitBinary): Extract<Available, { ok: false }> | null {
+  switch (binary.kind) {
+    case 'ok':
+      return null;
+    case 'not-found':
+      return notAvailable('git-not-found', msg('worktree.unavailable.gitNotFound', { minVersion: MIN_VERSION_TEXT }));
+    case 'cannot-run':
+      return notAvailable('git-unusable', msg('worktree.unavailable.gitCannotRun'));
+    case 'too-old':
+      return notAvailable('git-too-old', msg('worktree.unavailable.gitTooOld', { version: binary.version, minVersion: MIN_VERSION_TEXT }));
+  }
+}
+
+/**
+ * Why `<share>/.git` as it is seen cannot hold worktrees (null: it is a plain git directory). Nothing there, or a
+ * directory git does not take for a repository (no HEAD): not a repository yet (`git init` makes it one). A gitfile
+ * (a linked worktree, a submodule), a link, or anything else: not an ordinary folder.
+ */
+function folderUnavailable(observed: GitObservation): Extract<Available, { ok: false }> | null {
+  if (observed.kind === 'dir' && observed.plain) return null;
+  if (observed.kind === 'file' || (observed.exists && !observed.plain)) return notAvailable('git-dir-not-directory', msg('worktree.unavailable.gitDirNotDirectory'));
+  return notAvailable('not-a-git-repo', msg('worktree.unavailable.notAGitRepo'));
+}
+
+/** How many times one look at `.git` detects again when `.git` changed while git ran (then the look failed). */
+const GIT_LOOKS_MAX = 3;
+
 /**
  * Commit messages smurg writes itself are fixed English (one shared git history; DESIGN A.5). A message the member
  * typed is used as it is.
@@ -158,7 +202,7 @@ export function mergeCommitMessage(branch: string, requesterName: string, body: 
 /** The commit `updateFromMain` makes of the worktree's work before it merges the main workspace into it. */
 export const UPDATE_COMMIT_MESSAGE = 'smurg: work before merging the main workspace';
 
-function notAvailable(reason: string, message: MessageRef): Available {
+function notAvailable(reason: string, message: MessageRef): Extract<Available, { ok: false }> {
   return { ok: false, error: new SmurgError('conflict', message, { reason }) };
 }
 
@@ -203,8 +247,19 @@ export class WorktreeManagerImpl implements WorktreeManager {
   readonly limits: WorktreeLimits;
   private doc: PersistentDocument<WorktreesDocument> | null = null;
   private available: Available = notAvailable('starting', msg('worktree.unavailable.starting'));
-  /** Whether a usable git (found, new enough) exists on the host, whatever the folder is; null: not looked yet. */
-  private gitUsable: boolean | null = null;
+  /** What the git executable is, whatever the folder is; null: not looked for yet. */
+  private gitBinary: GitBinary | null = null;
+  /** The one look for the git executable a folder that is no repository gets (mainState), while it runs. */
+  private binaryLook: Promise<GitBinary> | null = null;
+  /** What the last look at `<share>/.git` saw (null: not looked yet); `observedFailed`: the detection after it threw. */
+  private observed: GitObservation | null = null;
+  private observedFailed = false;
+  /** The look at `<share>/.git` that is running (callers at the same time share it). */
+  private refreshing: Promise<void> | null = null;
+  /** The stray review refs were swept in this run (once, the first time worktree mode is available). */
+  private refsSwept = false;
+  /** The host was told that the repository tracks files below `.smurg/` (once a run). */
+  private smurgTrackedTold = false;
   private templateDir = '';
   /** Daemon-private staging stores of merge-request commits (stage-commit.ts) and of diffs of main files. */
   private stagingDir = '';
@@ -230,77 +285,218 @@ export class WorktreeManagerImpl implements WorktreeManager {
   /** Never throws for a workspace without git: worktree mode is then unavailable with a clear error. */
   async start(): Promise<void> {
     this.doc = await this.ctx.state.document(WORKTREES_DOCUMENT, worktreesDocumentSchema, initialWorktreesDocument);
+    // The start's look at `.git` is the first shared look: a refresh asked while it runs (the topics module's sweep
+    // ticks from its registration on) waits for it, rather than looking beside it and being overwritten by it.
+    const look = this.firstLook();
+    this.refreshing = look;
+    await look;
+    if (this.refreshing === look) this.refreshing = null;
+    await this.reconcile();
+    if (this.available.ok) this.refsSwept = true;
+    // What the item worktrees hold is looked at in the background: until then `unmerged` lists them all. So is
+    // whether the repository tracks smurg's own folder (the host is told once).
+    const available = this.available;
+    const previous = this.inspection;
+    this.inspection = Promise.all([previous, this.inspectItemWorktrees(), available.ok ? this.lookForTrackedSmurg(available) : undefined]).then(() => {});
+  }
+
+  /** The start's look at `.git` and at git (never rejects: a failure makes worktree mode unavailable). */
+  private async firstLook(): Promise<void> {
+    const seen: { observed: GitObservation | null } = { observed: null };
     try {
-      this.available = await this.probe();
+      const available = await this.detectSettled(await observeGit(this.ctx.roots.main.realPath), { atStart: true }, seen);
+      this.available = available;
     } catch (err) {
       this.ctx.log.error('worktree mode unavailable', { module: 'worktree', error: err instanceof Error ? err.name : 'unknown' });
-      this.available = notAvailable('git-unusable', msg('worktree.unavailable.gitUnusable'));
+      this.available = notAvailable('git-unusable', msg('worktree.unavailable.gitCannotRun'));
     }
-    await this.reconcile();
-    // What the item worktrees hold is looked at in the background: until then `unmerged` lists them all.
-    this.inspection = this.inspectItemWorktrees();
+    if (seen.observed !== null) {
+      this.observed = seen.observed;
+      this.ctx.workspace.noteGitRepo(seen.observed.kind !== 'none');
+    }
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
     for (const timer of this.treeChecks.values()) clearTimeout(timer);
     this.treeChecks.clear();
-    // Operations on the main repository run to their end (a killed merge would leave the host's repo half-merged).
-    await Promise.race([Promise.all([this.serial.idle(), this.inspection]), new Promise((resolve) => setTimeout(resolve, 15_000).unref?.())]);
+    // Operations on the main repository run to their end (a killed merge would leave the host's repo half-merged); so
+    // does a look at `.git` that is under way (it assigns nothing once the module stopped).
+    await Promise.race([Promise.all([this.serial.idle(), this.inspection, this.refreshing]), new Promise((resolve) => setTimeout(resolve, 15_000).unref?.())]);
     await this.doc?.flush().catch(() => {});
   }
 
-  /** Resolves when the check of the item worktrees after a start has finished (tests). */
+  /** Resolves when the check of the item worktrees after a start (or after worktree mode became available) has finished (tests). */
   inspected(): Promise<void> {
     return this.inspection;
   }
 
-  private async probe(): Promise<Available> {
+  /**
+   * Whether worktree mode can run in the folder as it was seen: the folder first (no git process for a folder that is
+   * no repository), then the git executable (found on the daemon's PATH, runs, new enough), then the worktrees folder.
+   * Only at the start are the daemon's staging stores swept: later, a commit or a diff could be using them.
+   */
+  private async detect(observed: GitObservation, options: { readonly atStart: boolean }): Promise<Available> {
     const ctx = this.ctx;
-    if (!ctx.workspace.info.isGitRepo) return notAvailable('not-a-git-repo', msg('worktree.unavailable.notAGitRepo'));
+    const folder = folderUnavailable(observed);
+    if (folder !== null) return folder;
     const share = ctx.roots.main.realPath;
     const gitDir = join(share, '.git');
-    const gitStat = await lstat(gitDir).catch(() => null);
-    if (gitStat === null || !gitStat.isDirectory() || (await realpath(gitDir).catch(() => null)) !== gitDir) {
-      return notAvailable('git-dir-not-directory', msg('worktree.unavailable.gitDirNotDirectory'));
-    }
     const gitPath = this.options.gitPath ?? (await findGit(process.env['PATH']));
     if (gitPath === null) {
-      this.gitUsable = false;
-      return notAvailable('git-not-found', msg('worktree.unavailable.gitNotFound'));
+      this.gitBinary = { kind: 'not-found' };
+      return binaryUnavailable(this.gitBinary) as Available;
     }
     const home = await ctx.state.privateDir('git-home');
     this.templateDir = await ctx.state.privateDir('git-template');
     this.stagingDir = await ctx.state.privateDir('git-staging');
-    await sweepStaging(this.stagingDir);
+    if (options.atStart) await sweepStaging(this.stagingDir);
     const git = new GitRunner({ gitPath, home, signal: ctx.stopping });
-    const version = await git.version().catch(() => null);
-    this.gitUsable = version !== null && gitVersionAtLeast(version, GIT_MIN_VERSION);
-    if (version === null) return notAvailable('git-unusable', msg('worktree.unavailable.gitCannotRun'));
-    if (!gitVersionAtLeast(version, GIT_MIN_VERSION)) {
-      return notAvailable('git-too-old', msg('worktree.unavailable.gitTooOld', { minVersion: GIT_MIN_VERSION.join('.') }));
-    }
+    this.gitBinary = binaryOf(await git.version().catch(() => null));
+    const binary = binaryUnavailable(this.gitBinary);
+    if (binary !== null) return binary;
     if (!(await ensureWorktreesDir(share, ctx.roots.worktreesDir))) {
       return notAvailable('worktrees-dir-unusable', msg('worktree.unavailable.worktreesDirUnusable'));
     }
     return { ok: true, git, repo: { git, gitDir } };
   }
 
-  /** Whether the host has a git this module can use (`mainState().gitOk`), also when the folder is no repository. */
-  private async probeGit(): Promise<boolean> {
-    if (this.gitUsable !== null) return this.gitUsable;
-    let usable = false;
-    try {
-      const gitPath = this.options.gitPath ?? (await findGit(process.env['PATH']));
-      if (gitPath !== null) {
-        const version = await new GitRunner({ gitPath, home: await this.ctx.state.privateDir('git-home'), signal: this.ctx.stopping }).version();
-        usable = version !== null && gitVersionAtLeast(version, GIT_MIN_VERSION);
+  /**
+   * The git executable (`mainState().gitOk`, and the first reason Start names), also when the folder is no repository:
+   * looked for once in a run when nothing has looked yet, never again on a timer or on a request.
+   */
+  private gitBinaryNow(): Promise<GitBinary> {
+    if (this.gitBinary !== null) return Promise.resolve(this.gitBinary);
+    this.binaryLook ??= (async (): Promise<GitBinary> => {
+      let binary: GitBinary;
+      try {
+        const gitPath = this.options.gitPath ?? (await findGit(process.env['PATH']));
+        binary = gitPath === null ? { kind: 'not-found' } : binaryOf(await new GitRunner({ gitPath, home: await this.ctx.state.privateDir('git-home'), signal: this.ctx.stopping }).version().catch(() => null));
+      } catch {
+        binary = { kind: 'cannot-run' };
       }
-    } catch {
-      usable = false;
+      this.gitBinary ??= binary;
+      return this.gitBinary;
+    })();
+    return this.binaryLook;
+  }
+
+  /**
+   * Looks at `<share>/.git` again (WorktreeManager.refreshGitState). `timer`: the topics module's sweep, which never
+   * repeats a detection that threw (it would run git every few seconds); a request does.
+   */
+  refreshGitState(options: { readonly timer?: boolean } = {}): Promise<void> {
+    if (this.stopped || this.doc === null) return Promise.resolve();
+    if (this.refreshing !== null) return this.refreshing;
+    const run = this.lookAgain(options.timer === true)
+      .catch((err: unknown) => {
+        this.ctx.log.warn('the shared folder\'s git state could not be looked at; what was known stays', { module: 'worktree', error: err instanceof Error ? err.name : 'unknown' });
+      })
+      .finally(() => {
+        if (this.refreshing === run) this.refreshing = null;
+      });
+    this.refreshing = run;
+    return run;
+  }
+
+  private async lookAgain(timer: boolean): Promise<void> {
+    const first = await observeGit(this.ctx.roots.main.realPath);
+    const before = this.observed;
+    if (this.stopped || (before !== null && sameGitObservation(first, before) && (!this.observedFailed || timer))) return;
+    const seen: { observed: GitObservation | null } = { observed: first };
+    let available: Available;
+    try {
+      // `.git` went, or is no plain git directory any more: worktree mode is off, with no git process. Nothing is
+      // deleted or moved: the worktrees, kept worktrees and merge requests stay as records (they work again when the
+      // repository is back). A plain git directory appeared, or `.git` is another one now: git is looked for (the
+      // host just ran it there).
+      available = await this.detectSettled(first, { atStart: false }, seen);
+      // The first time worktree mode is available in this run: the review refs a crash left behind (on the main
+      // queue: no request is between its fetch and its record). A request's ref can only be made while worktree mode
+      // is available, so after a first sweep there is nothing left to sweep.
+      if (available.ok && !this.refsSwept && !this.stopped) {
+        const ready = available;
+        await this.serial.run('main', () => this.sweepReviewRefs(ready));
+        this.refsSwept = true;
+      }
+    } catch (err) {
+      if (!this.stopped && seen.observed !== null) {
+        // What was known stays when it was "available" (a request tries again). A reason found earlier is about the
+        // `.git` that was there then: Start says to try again in a moment, not, say, "not a git repository" in a
+        // folder that is one.
+        this.observed = seen.observed;
+        this.observedFailed = true;
+        this.ctx.workspace.noteGitRepo(seen.observed.kind !== 'none');
+        if (!this.available.ok) this.available = notAvailable('check-failed', msg('worktree.unavailable.checkFailed'));
+      }
+      throw err;
     }
-    this.gitUsable = usable;
-    return usable;
+    if (this.stopped || seen.observed === null) return;
+    this.observed = seen.observed;
+    this.observedFailed = false;
+    this.ctx.workspace.noteGitRepo(seen.observed.kind !== 'none');
+    const previous = this.available;
+    this.available = available;
+    const reasonOf = (state: Available): string => (state.ok ? 'available' : String(state.error.detail?.['reason']));
+    if (reasonOf(previous) !== reasonOf(available)) {
+      this.ctx.log.info(available.ok ? 'worktree mode is available' : 'worktree mode is unavailable', { module: 'worktree', ...(available.ok ? {} : { reason: reasonOf(available) }) });
+    }
+    if (available.ok && !previous.ok) {
+      // What start() looks at once worktree mode is available, safe at any time: the item worktrees not looked at
+      // yet (read-only, each on its own queue) and whether the repository tracks smurg's own folder (told once).
+      // Never the sweeps of interrupted removals and of the staging stores: now they could delete work in flight.
+      const inspection = this.inspection;
+      this.inspection = Promise.all([inspection, this.inspectItemWorktrees(), this.lookForTrackedSmurg(available)]).then(() => {});
+    }
+  }
+
+  /**
+   * Worktree mode on `.git` as it was seen: the folder first (no git process for one that is no plain git directory),
+   * then git, on the main repository's queue. Once git has answered, `.git` is looked at again: one that changed
+   * meanwhile (moved away, replaced by a link or by another repository) is looked at anew, at most GIT_LOOKS_MAX
+   * times, so the answer is about the `.git` that is there. `seen.observed` is the last observation (what a look that
+   * throws keeps).
+   */
+  private async detectSettled(first: GitObservation, options: { readonly atStart: boolean }, seen: { observed: GitObservation | null }): Promise<Available> {
+    const share = this.ctx.roots.main.realPath;
+    let observed = first;
+    seen.observed = observed;
+    for (let round = 1; ; round++) {
+      const folder = folderUnavailable(observed);
+      if (folder !== null) return folder;
+      // smurg's folder is kept out of a repository that appeared while sharing (prepareShare did it for the one that
+      // was there at the start), before git runs there.
+      if (!options.atStart || round > 1) {
+        await excludeSmurgDir(join(share, '.git')).catch((err: unknown) =>
+          this.ctx.log.warn('.smurg could not be added to .git/info/exclude', { module: 'worktree', error: err instanceof Error ? err.name : 'unknown' }),
+        );
+      }
+      const detecting = observed;
+      const available = await this.serial.run('main', () => this.detect(detecting, options));
+      const after = await observeGit(share);
+      if (sameGitObservation(after, observed)) return available;
+      observed = after;
+      seen.observed = observed;
+      if (round >= GIT_LOOKS_MAX) throw new Error('the shared folder\'s .git kept changing while it was looked at');
+    }
+  }
+
+  /**
+   * One `git ls-files` of `.smurg` in the main repository when worktree mode becomes available: files there were
+   * committed by a `git add -A` while sharing with a smurg before 0.5.2 (the share lock marker changes at every start
+   * and stop, and every item worktree checks it out). The host is told once (`worktree.smurg-tracked`, the log).
+   */
+  private async lookForTrackedSmurg(available: Extract<Available, { ok: true }>): Promise<void> {
+    if (this.smurgTrackedTold || this.stopped) return;
+    const listed = await available.git
+      .run({ gitDir: available.repo.gitDir, workTree: this.ctx.roots.main.realPath, args: ['ls-files', '-z', '--', '.smurg'], readOnly: true, maxStdoutBytes: 64 * 1024 })
+      .catch(() => null);
+    if (listed === null || (listed.code !== 0 && !listed.truncated) || this.smurgTrackedTold) return;
+    const count = listed.stdout.toString('utf8').split('\0').filter((path) => path.length > 0).length;
+    if (count === 0) return;
+    this.smurgTrackedTold = true;
+    this.ctx.log.warn('the repository tracks files below .smurg (git rm -r --cached .smurg, then a commit, untracks them)', { module: 'worktree', count });
+    this.ctx.bus.emit('worktree.smurg-tracked', { count });
   }
 
   /**
@@ -348,7 +544,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
       });
       await doc.flush();
     }
-    await this.sweepReviewRefs();
+    if (this.available.ok) await this.sweepReviewRefs(this.available);
   }
 
   /**
@@ -357,9 +553,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
    * the start every ref below `refs/smurg/merge/` that no stored request names is removed. Nothing else of the
    * repository is listed or touched; when the refs cannot be listed, none is removed.
    */
-  private async sweepReviewRefs(): Promise<void> {
-    if (!this.available.ok) return;
-    const repo = this.available.repo;
+  private async sweepReviewRefs(available: Extract<Available, { ok: true }>): Promise<void> {
+    const repo = available.repo;
     const prefix = MERGE_REF_PREFIX;
     const listed = await repo.git.run({ gitDir: repo.gitDir, args: ['for-each-ref', '--format=%(refname)', prefix], readOnly: true, maxStdoutBytes: 4 * 1024 * 1024 }).catch(() => null);
     if (listed === null || listed.code !== 0 || listed.truncated) {
@@ -404,8 +599,9 @@ export class WorktreeManagerImpl implements WorktreeManager {
   // Sessions
   // =================================================================================================================
 
-  acquireForSession(input: { readonly owner: Principal; readonly sessionId: string; readonly worktreeId?: string }): Promise<WorktreeHandle> {
+  async acquireForSession(input: { readonly owner: Principal; readonly sessionId: string; readonly worktreeId?: string }): Promise<WorktreeHandle> {
     const member = this.memberOf(input.owner);
+    await this.refreshGitState();
     if (input.worktreeId !== undefined) {
       const worktreeId = input.worktreeId;
       return this.serial.run(`wt:${worktreeId}`, () => this.resume(member, worktreeId, input.sessionId));
@@ -473,10 +669,10 @@ export class WorktreeManagerImpl implements WorktreeManager {
       throw new SmurgError('conflict', msg('worktree.limitOwner'), { reason: 'worktree-limit-owner' });
     }
     const base = await mainHead(repo);
-    if (base === null) throw new SmurgError('conflict', msg('worktree.mainNoCommits'), { reason: 'no-commits' });
+    if (base === null) throw new SmurgError('conflict', msg('worktree.unavailable.noCommit'), { reason: 'no-commits' });
     const share = this.ctx.roots.main.realPath;
     if (!(await ensureWorktreesDir(share, this.ctx.roots.worktreesDir))) {
-      throw new SmurgError('conflict', msg('worktree.worktreesDirUnusable'), { reason: 'worktrees-dir-unusable' });
+      throw new SmurgError('conflict', msg('worktree.unavailable.worktreesDirUnusable'), { reason: 'worktrees-dir-unusable' });
     }
     const id = newWorktreeId();
     const dir = this.dirOf(id);
@@ -556,6 +752,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
       throw new SmurgError('bad_request', undefined, { reason: 'bad-work-item' });
     }
     const item: StoredItem = { topicId: input.topic.id, topicSlug: input.topic.slug, itemId: input.itemId };
+    await this.refreshGitState();
     return this.serial.run('create', async () => {
       const existing = this.records().find((record) => record.item?.topicId === item.topicId && record.item.itemId === item.itemId);
       if (existing) return this.serial.run(`wt:${existing.id}`, () => this.reuseForItem(existing.id));
@@ -1425,22 +1622,38 @@ export class WorktreeManagerImpl implements WorktreeManager {
 
   async headBlobs(paths: readonly string[]): Promise<Record<string, string | null>> {
     const none = (): Record<string, string | null> => Object.fromEntries(paths.map((path) => [path, null]));
+    await this.refreshGitState();
     if (!this.available.ok || this.stopped) return none();
     const repo = this.available.repo;
     const head = await mainHead(repo);
     return head === null ? none() : blobsAt(repo, head, paths, this.limits.gitTimeoutMs);
   }
 
-  async mainState(): Promise<{ readonly isRepo: boolean; readonly hasCommit: boolean; readonly gitOk: boolean; readonly branch: string | null; readonly busy: boolean; readonly free: number }> {
+  async mainState(): Promise<MainState> {
+    await this.refreshGitState();
     const isRepo = this.ctx.workspace.info.isGitRepo;
     const free = Math.max(0, this.limits.maxWorktrees - this.records().length);
-    if (!this.available.ok) return { isRepo, hasCommit: false, gitOk: await this.probeGit(), branch: null, busy: false, free };
-    const repo = this.available.repo;
+    const available = this.available;
+    if (!available.ok) {
+      // git itself first (`git init` needs it), then what the folder lacks.
+      const binary = await this.gitBinaryNow();
+      const reason = binaryUnavailable(binary) ?? available;
+      return { isRepo, hasCommit: false, gitOk: binary.kind === 'ok', unavailable: reason.error.text ?? msg('worktree.unavailable.checkFailed'), branch: null, busy: false, free };
+    }
+    const repo = available.repo;
     try {
       const head = await mainHead(repo);
-      return { isRepo: true, hasCommit: head !== null, gitOk: true, branch: await currentBranch(repo), busy: (await busyMarker(repo)) !== null, free };
+      return {
+        isRepo: true,
+        hasCommit: head !== null,
+        gitOk: true,
+        unavailable: head === null ? msg('worktree.unavailable.noCommit') : null,
+        branch: await currentBranch(repo),
+        busy: (await busyMarker(repo)) !== null,
+        free,
+      };
     } catch {
-      return { isRepo, hasCommit: false, gitOk: false, branch: null, busy: false, free };
+      return { isRepo, hasCommit: false, gitOk: false, unavailable: msg('worktree.unavailable.checkFailed'), branch: null, busy: false, free };
     }
   }
 
@@ -1582,6 +1795,12 @@ export class WorktreeManagerImpl implements WorktreeManager {
     if (isStubService(sessions)) return false;
     return sessions.list({ topicId: record.item.topicId }).some((session) => !isSessionOver(session) && session.root.kind === 'worktree' && session.root.worktreeId === record.id);
   }
+}
+
+/** What `git version` said (null: it did not run, or said nothing readable). */
+function binaryOf(version: readonly [number, number, number] | null): GitBinary {
+  if (version === null) return { kind: 'cannot-run' };
+  return gitVersionAtLeast(version, GIT_MIN_VERSION) ? { kind: 'ok', version: version.join('.') } : { kind: 'too-old', version: version.join('.') };
 }
 
 /** What a request carries of the work item its worktree belongs to. */

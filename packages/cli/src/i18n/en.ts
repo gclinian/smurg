@@ -589,6 +589,7 @@ Docs: https://smurg.ai/docs/
     `If you moved it away because smurg 0.5.0 told you to after an update, it still holds the members, invite links and daemon key you had before, and the guide says how to go back to it: ${GUIDE_GOING_BACK}`,
   'host.peer.newer': () => "\nWarning: a teammate's page or smurg is newer than this smurg and was turned away. Stop sharing, run smurg update, then share again.",
   'host.peer.older': () => "\nA teammate's page or smurg is older than this smurg and was turned away. That teammate reloads the page or updates smurg; if you run your own relay, deploy it again.",
+  'host.smurgTracked': () => "\nsmurg's own .smurg folder is committed in this repository: run `git rm -r --cached .smurg` in the shared folder and commit.",
   'host.alreadyRunning': () => 'A smurg host is already running for this workspace',
   'host.alreadyShared': () => 'This folder is already being shared',
   'host.alreadyShared.hint': () => 'Look with smurg status, or stop it with smurg stop.',

@@ -64,6 +64,8 @@ export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'item
     lines.push({ id, tone, text });
   };
 
+  // What stops the start comes first, in the host's words: one message per reason, saying what the host can do
+  // (git's reasons: `worktree.unavailable.*`). An id this build does not know shows the English it came with.
   for (const blocker of preflight.blockers) push('blocker', renderWireText(blocker.text, blocker.fallback), 'danger');
 
   if (preflight.startsNow.length > 0) push('starts', t('start.now', { count: preflight.startsNow.length, items: itemNames(plan, preflight.startsNow) }));
@@ -88,8 +90,10 @@ export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'item
   if (offline.length > 0) push('offline', t(`start.offline.${oneOrMany(offline.length)}`, { names: formatAnd(offline) }), 'warn');
   if (preflight.youDecide > 0) push('youDecide', t('start.youDecide', { count: preflight.youDecide }));
 
-  if (preflight.commit !== null) {
-    const { commit } = preflight;
+  // What Start commits, and where. A host says nothing (null) while git stops the start; a host before 0.5.2 named no
+  // branch ('') for a share it could not commit in (a gitfile `.git`): no line then, the blocker says why.
+  const commit = preflight.commit;
+  if (commit !== null && !(commit.branch === '' && preflight.blockers.length > 0)) {
     const parts = [
       !commit.needed
         ? t('start.commit.clean', { branch: commit.branch })

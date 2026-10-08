@@ -1,5 +1,6 @@
 import { MAIN_ROOT, SmurgError, fileRefKey } from '@smurg/protocol';
 import type { InteractiveRequestType } from '@smurg/protocol/client';
+import { buildTopic } from '@smurg/protocol/testing';
 import { describe, expect, it } from 'vitest';
 import { FakeConnection } from '../../testing/fake-connection.ts';
 import {
@@ -173,6 +174,29 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     expect(stores.locks.getState().locks.size).toBe(0);
     conn.emit('worktree.removed', { worktreeId: 'wt_1' });
     expect(stores.worktrees.getState().worktrees.size).toBe(0);
+  });
+
+  it("the folder's git state follows the folder while it is shared: the Welcome, then every topic the host announces", async () => {
+    const { conn, stores, admit } = setup();
+    admit();
+    answerEmpty(conn);
+    await flush();
+    const welcomed = stores.workspace.getState();
+    expect(welcomed.workspace?.isGitRepo).toBe(true);
+    // The same fact again changes nothing (no render for the readers of the workspace).
+    conn.emit('topic.updated', { topic: buildTopic({ versioned: true }) });
+    expect(stores.workspace.getState()).toBe(welcomed);
+    // The folder stopped being a repository (its `.git` went away), then became one again (`git init`).
+    conn.emit('topic.updated', { topic: buildTopic({ versioned: false }) });
+    expect(stores.workspace.getState().workspace).toEqual({ ...welcomed.workspace, isGitRepo: false });
+    expect(stores.workspace.getState()).toMatchObject({ member: welcomed.member, settings: welcomed.settings, generation: 1 });
+    conn.emit('topic.updated', { topic: buildTopic({ id: 'tp_2', archived: true, versioned: true }) });
+    expect(stores.workspace.getState().workspace?.isGitRepo).toBe(true);
+    // A later Welcome says what the folder is then.
+    conn.emit('topic.updated', { topic: buildTopic({ versioned: false }) });
+    conn.hostOffline('silence');
+    admit({ resumed: true });
+    expect(stores.workspace.getState().workspace?.isGitRepo).toBe(true);
   });
 
   it('merge request drafts are replaced, not updated: a new draft drops the worktree\'s earlier draft and conflict; a removed worktree takes its drafts', async () => {

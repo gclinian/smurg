@@ -14,7 +14,7 @@ import { tApp } from '../../strings/app.ts';
 import { MESSAGE_TEXT_MAX_CHARS } from '@smurg/protocol';
 import { Banner, Button, Dialog, Input, TextArea, useToast } from '../../ui/index.ts';
 import { IconInfo } from '../../ui/icons.tsx';
-import { DEFAULT_TERMINAL_SIZE, buildCreatePayload, effectiveWhere, newSessionOptions, type NewSessionForm, type SessionKind, type WhereChoice } from './new-session.ts';
+import { DEFAULT_TERMINAL_SIZE, buildCreatePayload, effectiveWhere, newSessionOptions, worktreeUnavailableNote, type NewSessionForm, type SessionKind, type WhereChoice } from './new-session.ts';
 import { describeSessionError, type SessionErrorView } from './session-info.ts';
 import { t } from './strings.ts';
 
@@ -80,9 +80,9 @@ export function NewSessionDialog({ kind, open, onClose, onCreated }: NewSessionD
   const blockedText =
     options.blockedBy === 'role-editor' ? t('new.role.editor') : options.blockedBy === 'role-viewer' ? t('new.role.viewer') : t('new.role.unknown');
 
-  const whereOption = (value: WhereChoice, label: string, hint: string | null, disabled: boolean) => (
-    <label className="agents-choice" data-disabled={disabled || undefined}>
-      <input type="radio" name={`${formId}-where`} value={value} checked={where === value} disabled={disabled} onChange={() => update({ where: value })} />
+  const whereOption = (value: WhereChoice, label: string, hint: string | null) => (
+    <label className="agents-choice">
+      <input type="radio" name={`${formId}-where`} value={value} checked={where === value} onChange={() => update({ where: value })} />
       <span className="agents-choice__text">
         <span className="agents-choice__label">{label}</span>
         {hint ? <span className="agents-choice__hint">{hint}</span> : null}
@@ -125,12 +125,12 @@ export function NewSessionDialog({ kind, open, onClose, onCreated }: NewSessionD
 
           <fieldset className="agents-fieldset">
             <legend>{t('new.where')}</legend>
-            {whereOption('main', t('new.where.main'), t('new.where.mainHint'), false)}
-            {whereOption('worktree:new', t('new.where.worktreeNew'), options.worktree.available ? t(role === 'host' ? 'new.where.worktreeHintHost' : 'new.where.worktreeHint') : null, !options.worktree.available)}
+            {whereOption('main', t('new.where.main'), t('new.where.mainHint'))}
+            {whereOption('worktree:new', t('new.where.worktreeNew'), options.worktree.available ? t(role === 'host' ? 'new.where.worktreeHintHost' : 'new.where.worktreeHint') : null)}
             {keptChoices.map(({ worktree, value }) => (
-              <div key={worktree.id}>{whereOption(value, t('new.where.worktreeKept', { branch: worktree.branch }), null, false)}</div>
+              <div key={worktree.id}>{whereOption(value, t('new.where.worktreeKept', { branch: worktree.branch }), null)}</div>
             ))}
-            {!options.worktree.available ? <p className="agents-fieldset__note">{t('new.where.notGit')}</p> : null}
+            {options.worktree.unavailableReason !== null ? <p className="agents-fieldset__note">{worktreeUnavailableNote(options.worktree.unavailableReason)}</p> : null}
           </fieldset>
 
           <Input label={t('new.name')} hint={t('new.nameHint')} maxLength={256} value={form.title} onChange={(event) => update({ title: event.currentTarget.value })} />

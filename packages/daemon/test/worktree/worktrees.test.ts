@@ -129,7 +129,7 @@ describe('worktree creation (shared clone, ARCHITECTURE §5.7)', { timeout: 60_0
     const error = await settleError(s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_nogit' }));
     expect(error).toMatchObject({ code: 'conflict', reason: 'not-a-git-repo' });
     expect(error).toMatchObject({ text: { id: 'worktree.unavailable.notAGitRepo' } });
-    expect(error?.message).toBe('The shared folder is not a git repository, so worktrees are not available.');
+    expect(error?.message).toBe('The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.');
     expect(await s.host.conn.request('worktree.list', {})).toEqual({ worktrees: [] });
   });
 
@@ -140,7 +140,7 @@ describe('worktree creation (shared clone, ARCHITECTURE §5.7)', { timeout: 60_0
       stack = await startWorktreeStack({ root: project });
       const s = stack;
       await s.connect('dev:amy', 'agent');
-      expect(await settleError(s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_empty' }))).toMatchObject({ code: 'conflict', reason: 'no-commits' });
+      expect(await settleError(s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_empty' }))).toMatchObject({ code: 'conflict', reason: 'no-commits', text: { id: 'worktree.unavailable.noCommit' } });
       expect(s.manager.list()).toEqual([]);
     } finally {
       await stack?.cleanup();

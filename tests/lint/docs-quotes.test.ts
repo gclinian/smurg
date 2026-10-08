@@ -53,6 +53,11 @@ const webQuote = (key: string, guides: readonly Guide[], vars?: Readonly<Record<
 });
 
 const INVITE_URL = 'https://app.smurg.ai/join/ws_…#k=…&s=…';
+/**
+ * The oldest git the worktree mode accepts, as the daemon renders it in its refusals: read from the daemon's source
+ * (this folder loads no daemon), so that the guide's "2.42.0" cannot stay behind when the daemon raises it.
+ */
+const GIT_MIN_VERSION = (/\bGIT_MIN_VERSION\b[^=]*= Object\.freeze\(\[(\d+), (\d+), (\d+)\]\)/.exec(read('packages/daemon/src/worktree/git.ts')) ?? []).slice(1).join('.');
 /** A workspace's state folder and one of its files, as a refusal names them (the guides quote the words before the path). */
 const STATE_DIR = '~/.smurg/workspaces/ws_…';
 const STATE_FILE = `${STATE_DIR}/state.json`;
@@ -327,7 +332,55 @@ const QUOTES: readonly Quote[] = [
   { what: 'wire session.projectSettings.changed', guides: ['HOSTING'], render: (locale) => wire(locale, 'session.projectSettings.changed') },
   { what: 'wire session.claude.notLoggedIn', guides: ['HOSTING'], render: (locale) => wire(locale, 'session.claude.notLoggedIn') },
   { what: 'wire notice.rateLimit', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.rateLimit') },
-  { what: 'wire plan.start.noGit', guides: ['HOSTING'], render: (locale) => wire(locale, 'plan.start.noGit') },
+  // One row per reason git keeps Start from running (0.5.2): the row quotes what is wrong, its other cell says what to
+  // do (with the oldest git the daemon accepts, and 2.39.5 for a git that is too old).
+  {
+    what: 'wire worktree.unavailable.notAGitRepo',
+    guides: ['HOSTING'],
+    render: (locale) => wire(locale, 'worktree.unavailable.notAGitRepo'),
+    part: { en: 'The shared folder is not a git repository, so worktrees cannot be used.', 'zh-TW': '分享的資料夾不是 git 儲存庫，無法使用 worktree。' },
+  },
+  {
+    what: 'wire worktree.unavailable.noCommit',
+    guides: ['HOSTING'],
+    render: (locale) => wire(locale, 'worktree.unavailable.noCommit'),
+    part: { en: "The shared folder's git repository has no commit yet, so no worktree can be created.", 'zh-TW': '分享資料夾的 git 儲存庫還沒有任何提交，無法建立 worktree。' },
+  },
+  {
+    what: 'wire worktree.unavailable.gitNotFound',
+    guides: ['HOSTING'],
+    render: (locale) => wire(locale, 'worktree.unavailable.gitNotFound', { minVersion: GIT_MIN_VERSION }),
+    part: { en: "git was not found on the host's computer, so worktrees cannot be used.", 'zh-TW': '主人的電腦上找不到 git，無法使用 worktree。' },
+  },
+  {
+    what: 'wire worktree.unavailable.gitTooOld',
+    guides: ['HOSTING'],
+    render: (locale) => wire(locale, 'worktree.unavailable.gitTooOld', { version: '2.39.5', minVersion: GIT_MIN_VERSION }),
+    part: { en: `The host's git is version 2.39.5, and worktrees need ${GIT_MIN_VERSION} or later.`, 'zh-TW': `主人電腦上的 git 是 2.39.5 版，worktree 需要 ${GIT_MIN_VERSION} 以上。` },
+  },
+  {
+    what: 'wire worktree.unavailable.gitCannotRun',
+    guides: ['HOSTING'],
+    render: (locale) => wire(locale, 'worktree.unavailable.gitCannotRun'),
+    part: { en: "git does not run on the host's computer, so worktrees cannot be used.", 'zh-TW': '主人電腦上的 git 無法執行，無法使用 worktree。' },
+  },
+  {
+    what: 'wire worktree.unavailable.gitDirNotDirectory',
+    guides: ['HOSTING'],
+    render: (locale) => wire(locale, 'worktree.unavailable.gitDirNotDirectory'),
+    part: {
+      en: "The shared folder's .git is not an ordinary folder (the folder is a git worktree or a submodule, for example), so worktrees cannot be used.",
+      'zh-TW': '分享資料夾的 .git 不是一般的資料夾（例如這個資料夾本身是 git worktree 或 submodule），無法使用 worktree。',
+    },
+  },
+  {
+    what: 'wire worktree.unavailable.worktreesDirUnusable',
+    guides: ['HOSTING'],
+    render: (locale) => wire(locale, 'worktree.unavailable.worktreesDirUnusable'),
+    part: { en: '.smurg/worktrees in the shared folder is not an ordinary folder, so worktrees cannot be used.', 'zh-TW': '分享資料夾裡的 .smurg/worktrees 不是一般的資料夾，無法使用 worktree。' },
+  },
+  { what: 'wire worktree.unavailable.checkFailed', guides: ['HOSTING'], render: (locale) => wire(locale, 'worktree.unavailable.checkFailed') },
+  cliQuote('host.smurgTracked', undefined, ['HOSTING']),
   { what: 'wire notice.unattended', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.unattended') },
   // The other sentences of a conversation that the host guide quotes whole (their zh-TW forms end in a full stop or do not, as the catalog has them).
   { what: 'wire notice.authRejected', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.authRejected') },

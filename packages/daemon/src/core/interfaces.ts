@@ -366,6 +366,18 @@ export interface DaemonEvents {
    * only when `known` is true. Never audited beyond today's `auth.rejected` entry, never on the wire.
    */
   'peer.version-refused': { readonly direction: 'peer-newer' | 'peer-older'; readonly peerProtocol: number; readonly known: boolean };
+  /**
+   * The shared folder became a git repository while it is shared, or stopped being one (`WorkspaceInfo.isGitRepo`
+   * changed; WorkspaceDescriptor.noteGitRepo). Topics follow (`Topic.versioned`). Never on the wire as such: a page
+   * learns it from `topic.updated` and from the next welcome.
+   */
+  'workspace.git': { readonly isGitRepo: boolean };
+  /**
+   * The main repository tracks files below `.smurg/` (a `git add -A` while sharing with a smurg before 0.5.2 took the
+   * share lock marker): `smurg host` tells the host once how to untrack them. Looked at with one `git ls-files` when
+   * worktree mode becomes available (the start, or a repository that appeared while sharing); at most once a run.
+   */
+  'worktree.smurg-tracked': { readonly count: number };
 }
 
 export type DaemonEventName = keyof DaemonEvents;
@@ -2063,6 +2075,20 @@ export type SnapshotResult =
     }
   | { readonly ok: false; readonly reason: 'host-only-paths' | 'spec-files' | 'conflict-markers'; readonly files: readonly string[] };
 
+/** WorktreeManager.mainState(). */
+export interface MainState {
+  /** `<share>/.git` is a repository (WorkspaceInfo.isGitRepo, as it is now). */
+  readonly isRepo: boolean;
+  readonly hasCommit: boolean;
+  /** A usable git was found (looked for at the start, when a repository appeared, or once when first asked). */
+  readonly gitOk: boolean;
+  /** Why no work item can run in a worktree now (null: nothing in the way, as far as git goes). */
+  readonly unavailable: MessageRef | null;
+  readonly branch: string | null;
+  readonly busy: boolean;
+  readonly free: number;
+}
+
 /**
  * Worktrees (R9, deviation D-2: `git clone --shared`). Module: src/worktree/. Registers every worktree with the
  * RootRegistry (with its shared read-only links) BEFORE any session or client uses it, and unregisters on removal.
@@ -2123,8 +2149,20 @@ export interface WorktreeManager {
   }>;
   /** Blob ids of files at the main workspace's HEAD (null: not in HEAD): the scheduler's pin check. */
   headBlobs(paths: readonly string[]): Promise<Record<string, string | null>>;
-  /** `free`: worktrees left before `maxWorktrees`. */
-  mainState(): Promise<{ readonly isRepo: boolean; readonly hasCommit: boolean; readonly gitOk: boolean; readonly branch: string | null; readonly busy: boolean; readonly free: number }>;
+  /**
+   * The main workspace as Start needs it, looked at now (refreshGitState first). `free`: worktrees left before
+   * `maxWorktrees`. `unavailable`: why no work item can run in a worktree, as far as git goes (null: nothing in the
+   * way): the first reason that holds, one `worktree.unavailable.*` sentence each.
+   */
+  mainState(): Promise<MainState>;
+  /**
+   * Looks at `<share>/.git` again (0.5.2): file calls only while nothing changed. A repository that appeared gets the
+   * exclude line and the detection of git (worktree mode may become available); a `.git` that went or changed into
+   * something else makes worktree mode unavailable (nothing is deleted). Callers at the same time share one run;
+   * never throws (a failed look keeps what was known). `timer`: the topics module's sweep, which never repeats a
+   * detection that threw (that would run git every few seconds).
+   */
+  refreshGitState(options?: { readonly timer?: boolean }): Promise<void>;
   /** After a merge conflict: snapshot, merge the main HEAD without committing, record the second parent and the conflicted files. */
   updateFromMain(worktreeId: string): Promise<{ readonly mergeParent: string; readonly conflicted: readonly string[] }>;
   /**
@@ -2226,7 +2264,13 @@ export const FEATURE_SERVICE_LABELS: Readonly<Record<FeatureServiceName, string>
 
 /** What the daemon knows about its workspace (the Welcome's WorkspaceInfo plus host paths). */
 export interface WorkspaceDescriptor {
+  /** As it is now (each version frozen): `isGitRepo` follows the folder while it is shared. */
   readonly info: WorkspaceInfo;
+  /**
+   * The worktree module saw `<share>/.git` become a repository or stop being one (0.5.2): `info.isGitRepo` follows and
+   * the bus says `workspace.git` when it changed. Nothing else changes `info`.
+   */
+  noteGitRepo(isGitRepo: boolean): void;
   /** realpath of the shared folder. */
   readonly shareRealPath: string;
   /** The daemon's static public key and its fingerprint (`k`) for display. */

@@ -50,6 +50,10 @@ const CHANGED_WITHOUT_A_WIRE_CHANGE: Readonly<Record<string, string>> = {
   'browser/key-stores.ts': 'the browser\'s own key store (IndexedDB): a record written by a later page is no longer replaced by a new key. Nothing of it is ever sent.',
   'node/index.ts': 'exports assertPrivateDirectory (a look at a folder of the host\'s disk).',
   'node/key-file.ts': 'assertPrivateDirectory: checks owner and mode of a folder and creates nothing. Files on the host\'s disk, never on the wire.',
+  'i18n/messages/topics.ts':
+    'the Start blocker `plan.start.noGit` is gone (0.5.2: one message per reason, the worktree.unavailable.* ones). A message id is free-form wire text (messageRefSchema bounds its shape only) and travels with its English fallback: a page that does not know an id shows the fallback. No schema or message type changes.',
+  'i18n/messages/worktrees.ts':
+    'the worktree.unavailable.* sentences say what the host can do (0.5.2), two are new (noCommit, checkFailed), gitNotFound and gitTooOld take parameters, and gitUnusable, worktree.mainNoCommits and worktree.worktreesDirUnusable are gone. The same free-form ids with their English fallback: a page of 0.5.1 renders an id it knows in its own words and shows the fallback for one it does not. No schema or message type changes.',
 };
 
 interface Line {

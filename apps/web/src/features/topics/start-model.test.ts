@@ -80,6 +80,21 @@ describe('the Start dialog’s lines', () => {
     expect(textOf(startLines(preflight({ commit: null }), plan, MEI.userId), 'commit')).toEqual([]);
   });
 
+  it('says nothing about a commit that names no branch while the start is refused (a host before 0.5.2, a gitfile share)', () => {
+    const noBranch = { needed: false, branch: '', as: MEI, files: [], alsoInFolder: [] };
+    const blocked = preflight({ commit: noBranch, blockers: [{ text: { id: 'plan.start.noGit' }, fallback: 'Work items run in git worktrees, and this folder is not a git repository yet.' }] });
+    expect(startLines(blocked, plan, MEI.userId).map((line) => line.id)).not.toContain('commit');
+    // Another reason to wait does not hide what Start will commit, and where.
+    const paused = preflight({ blockers: [{ text: msg('plan.paused'), fallback: 'The plan is paused.' }] });
+    expect(textOf(startLines(paused, plan, MEI.userId), 'commit')[0]).toMatch(/^smurg commits SPEC\.md and PLAN\.md to the branch main/);
+  });
+
+  it('git’s reason for refusing comes first, in the host’s words for it, whatever fallback came along', () => {
+    const lines = startLines(preflight({ commit: null, blockers: [{ text: msg('worktree.unavailable.noCommit'), fallback: 'x' }] }), plan, MEI.userId);
+    expect(lines[0]).toEqual({ id: 'blocker', tone: 'danger', text: "The shared folder's git repository has no commit yet, so no worktree can be created. The host can commit once, without sharing again." });
+    expect(textOf(lines, 'commit')).toEqual([]);
+  });
+
   it('warns about what changed since someone last looked', () => {
     const lines = startLines(
       preflight({

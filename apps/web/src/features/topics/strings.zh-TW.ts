@@ -201,7 +201,7 @@ export const zhTW = {
 
   'foot.start': '「開始」會為每個項目開一個 agent session，各自在自己的 worktree。',
   'foot.start.others': '{names} 可以開始執行計畫。',
-  'foot.noGit': '這個資料夾還不是 git 儲存庫，所以工作項目無法開始：它們要在 git worktree 裡執行。',
+  'foot.noGit': '工作項目還不能開始：{reason}',
   'foot.startsByItself.one': '項目 {number} 會在 {items} 合併後自動開始。',
   'foot.startsByItself.many': '項目 {number} 會在 {items} 都合併後自動開始。',
   'foot.startAll': '開始 {count} 個項目',

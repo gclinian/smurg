@@ -3,13 +3,14 @@
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { SmurgError, worktreeRoot, type Role } from '@smurg/protocol';
-import { buildAgentSession } from '@smurg/protocol/testing';
+import { buildAgentSession, buildTopic } from '@smurg/protocol/testing';
 import { msg } from '@smurg/protocol/i18n';
 import { makeSession, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
 import { renderInWorkspace } from '../../testing/services.tsx';
 import { EndSessionDialog } from './EndSessionDialog.tsx';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
 
+const NOT_A_GIT_REPO = 'The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.';
 
 function renderDialog(role: Role, options: { git?: boolean; kind?: 'agent' | 'terminal' } = {}) {
   const onCreated = vi.fn();
@@ -116,11 +117,76 @@ describe('new session dialog: where it runs (R9)', () => {
     });
   });
 
-  it('the worktree choice is disabled with an explanation when the folder is not a git repository; the main workspace stays', () => {
-    renderDialog('agent', { git: false });
-    expect(screen.getByRole('radio', { name: /A new worktree of my own/ })).toHaveProperty('disabled', true);
+  it('a folder that is not a git repository as far as the page knows: the reason as a note; a new worktree is still offered and the host answers', async () => {
+    const { conn } = renderDialog('agent', { git: false });
     expect(screen.getByRole('radio', { name: /Shared main workspace/ })).toHaveProperty('checked', true);
-    expect(screen.getByText('This folder is not a git repository, so worktrees are not available.')).toBeTruthy();
+    // The host's own sentence for the reason (the Start dialog's blocker): what the host can do about it.
+    expect(screen.getByText(NOT_A_GIT_REPO)).toBeTruthy();
+    // A workspace without a topic learns that the folder became a repository only at the next welcome: the choice
+    // stays, and the host's daemon looks at the folder again before it answers.
+    expect(screen.getByRole('radio', { name: /A new worktree of my own/ })).toHaveProperty('disabled', false);
+    fireEvent.click(screen.getByRole('radio', { name: /A new worktree of my own/ }));
+    await submit();
+    expect(conn.lastRequest('session.create')?.payload.workspace).toEqual({ mode: 'worktree' });
+    await act(async () => {
+      conn.fail('session.create', new SmurgError('conflict', msg('worktree.unavailable.notAGitRepo'), { reason: 'not-a-git-repo' }));
+    });
+    expect(dialogAlert().textContent).toContain(NOT_A_GIT_REPO);
+    // The host ran `git init` and committed since the page opened: the same request now opens the session there.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    });
+    expect(conn.lastRequest('session.create')?.payload.workspace).toEqual({ mode: 'worktree' });
+    await act(async () => {
+      conn.respond('session.create', { session: makeSession({ id: 'sess_wt', openedBy: { userId: 'dev:amy', displayName: 'Amy' }, root: worktreeRoot('wt_new') }) });
+    });
+  });
+
+  it('follows the folder while it is open: a topic the host announces again says it became a git repository, or stopped being one', async () => {
+    const { conn } = renderDialog('agent', { git: false });
+    await act(async () => {
+      conn.respond('worktree.list', { worktrees: [makeWorktree({ id: 'wt_kept', branch: 'smurg/amy/wt_kept', kept: true })] });
+      conn.respond('worktree.merge.list', { requests: [] });
+    });
+    expect(screen.queryByRole('radio', { name: /Continue in the worktree I kept/ })).toBeNull();
+    // The host ran `git init` while sharing: every topic is announced again with `versioned`.
+    act(() => {
+      conn.emit('topic.updated', { topic: buildTopic({ versioned: true }) });
+    });
+    expect(screen.getByRole('radio', { name: /A new worktree of my own/ })).toHaveProperty('disabled', false);
+    expect(screen.getByRole('radio', { name: /Continue in the worktree I kept: smurg\/amy\/wt_kept/ })).toBeTruthy();
+    expect(screen.queryByText(NOT_A_GIT_REPO)).toBeNull();
+    fireEvent.click(screen.getByRole('radio', { name: /A new worktree of my own/ }));
+
+    fireEvent.click(screen.getByRole('radio', { name: /Continue in the worktree I kept/ }));
+
+    // Its `.git` went away: the reason, the kept worktree no longer offered (back to the main workspace).
+    act(() => {
+      conn.emit('topic.updated', { topic: buildTopic({ versioned: false }) });
+    });
+    expect(screen.queryByRole('radio', { name: /Continue in the worktree I kept/ })).toBeNull();
+    expect(screen.getByRole('radio', { name: /Shared main workspace/ })).toHaveProperty('checked', true);
+    expect(screen.getByText(NOT_A_GIT_REPO)).toBeTruthy();
+    await submit();
+    expect(conn.lastRequest('session.create')?.payload.workspace).toEqual({ mode: 'main' });
+  });
+
+  it('a repository that cannot hold a worktree yet: the host refuses with the reason and what to do, and the dialog says it', async () => {
+    const { conn } = renderDialog('agent');
+    fireEvent.click(screen.getByRole('radio', { name: /A new worktree of my own/ }));
+    await submit();
+    expect(conn.lastRequest('session.create')?.payload.workspace).toEqual({ mode: 'worktree' });
+    await act(async () => {
+      conn.fail('session.create', new SmurgError('conflict', msg('worktree.unavailable.noCommit'), { reason: 'no-commits' }));
+    });
+    expect(dialogAlert().textContent).toContain("The shared folder's git repository has no commit yet, so no worktree can be created. The host can commit once, without sharing again.");
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    });
+    await act(async () => {
+      conn.fail('session.create', new SmurgError('conflict', msg('worktree.unavailable.gitTooOld', { version: '2.39.5', minVersion: '2.42.0' }), { reason: 'git-too-old' }));
+    });
+    expect(dialogAlert().textContent).toContain("The host's git is version 2.39.5, and worktrees need 2.42.0 or later. The host can update git, stop sharing, and share again from a new terminal.");
   });
 });
 

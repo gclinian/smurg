@@ -11,9 +11,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_FEATURE_MODULES, LOG_UNSAFE_CHARACTER, STAMP_FILE, StateFileError } from '@smurg/daemon';
 import { createTempDir, removeTempDir } from '@smurg/daemon/testing';
 import { formatFailure } from '../src/cli/errors.ts';
-import { foldersSetAside, oldFolderNotice, shellWord, shown, stateFileProblem, upgradeNotice, wasStamped, watchRefusedPeers, type FileLook, type RefusalContext } from '../src/commands/host-state.ts';
+import { foldersSetAside, oldFolderNotice, shellWord, shown, stateFileProblem, upgradeNotice, wasStamped, watchRefusedPeers, watchSmurgTracked, type FileLook, type RefusalContext } from '../src/commands/host-state.ts';
 import { SET_ASIDE_DOCUMENTS } from '../src/i18n/en.ts';
-import { renderText, type Text } from '../src/i18n/index.ts';
+import { m, renderText, type Text } from '../src/i18n/index.ts';
 import { CLI_VERSION } from '../src/version.ts';
 import { testIo } from './helpers.ts';
 
@@ -715,5 +715,47 @@ describe('a peer of another protocol version: once per run and direction, only a
     expect(told).toEqual([told[0], "peer-older: \nA teammate's page or smurg is older than this smurg and was turned away. That teammate reloads the page or updates smurg; if you run your own relay, deploy it again."]);
     watch.dispose();
     expect(listeners.size).toBe(0);
+  });
+});
+
+describe('a repository that tracks smurg\'s own .smurg folder (0.5.2): once per run, after the links', () => {
+  it('holds what it hears until it is released, then tells at once; never twice', () => {
+    const listeners = new Set<(event: { count: number }) => void>();
+    const names: string[] = [];
+    const daemon = {
+      ctx: {
+        bus: {
+          on: (event: string, listener: (event: { count: number }) => void) => {
+            names.push(event);
+            listeners.add(listener);
+            return { dispose: () => void listeners.delete(listener) };
+          },
+        },
+      },
+    } as unknown as Parameters<typeof watchSmurgTracked>[0];
+    const emit = (): void => {
+      for (const listener of [...listeners]) listener({ count: 1 });
+    };
+    const told: string[] = [];
+    const watch = watchSmurgTracked(daemon, (text) => told.push(renderText('en', text)));
+    expect(names).toEqual(['worktree.smurg-tracked']);
+    // The daemon looks while it starts: heard, said after the links.
+    emit();
+    expect(told).toEqual([]);
+    watch.release();
+    expect(told).toEqual(["\nsmurg's own .smurg folder is committed in this repository: run `git rm -r --cached .smurg` in the shared folder and commit."]);
+    emit();
+    expect(told).toHaveLength(1);
+    expect(renderText('zh-TW', m('host.smurgTracked'))).toBe('\nsmurg 自己的 .smurg 資料夾已經被提交到這個儲存庫：請在分享的資料夾裡執行 `git rm -r --cached .smurg` 並提交。');
+    watch.dispose();
+    expect(listeners.size).toBe(0);
+
+    // Heard only after the links: said at once.
+    const later: string[] = [];
+    const second = watchSmurgTracked(daemon, (text) => later.push(renderText('en', text)));
+    second.release();
+    emit();
+    expect(later).toHaveLength(1);
+    second.dispose();
   });
 });

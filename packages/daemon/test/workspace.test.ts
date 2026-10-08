@@ -2,12 +2,12 @@
 // from git), and refuses locations that would expose its own state or the whole home directory. Also the Claude Code
 // version policy of config.sessions (minimum, verified versions, verdict).
 import { execFile } from 'node:child_process';
-import { lstat, readFile, readdir, readlink, stat, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { lstat, readFile, readdir, readlink, rm, stat, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CLAUDE_MIN_VERSION, CLAUDE_VERIFIED_VERSIONS, claudeVersionVerdict, compareClaudeVersions, parseClaudeVersion, resolveConfig } from '../src/core/config.ts';
-import { ShareError, prepareShare } from '../src/workspace/share.ts';
+import { ShareError, ignoreSmurgDir, prepareShare } from '../src/workspace/share.ts';
 import { createTempDir, createTempProject, removeTempDir } from '../src/testing/temp.ts';
 import { isolatedGitEnv } from '../src/testing/index.ts';
 
@@ -100,6 +100,90 @@ describe('prepareShare', () => {
     await symlink(join(elsewhere, 'target.txt'), join(elsewhere, '.git', 'HEAD'));
     expect(await prepareShare(elsewhere, state, home)).toMatchObject({ isGitRepo: false });
     expect(await readdir(join(elsewhere, '.git'))).toEqual(['HEAD']);
+  });
+
+  // 0.5.2 (DESIGN D1): `.smurg/` ignores itself, so a host who turns the shared folder into a repository while sharing
+  // never commits the share lock marker, trash/ or uploads/, in whatever order git init / add / commit come.
+  describe('.smurg/.gitignore', () => {
+    const gitHome = (): string => join(base, 'git-home');
+    const git = async (cwd: string, ...args: string[]): Promise<string> => (await execFileAsync('git', args, { cwd, env: isolatedGitEnv(gitHome()) })).stdout;
+    /** What a running share keeps in .smurg/. */
+    const fill = async (project: string): Promise<void> => {
+      await writeFile(join(project, '.smurg', 'daemon-lock.json'), '{}\n');
+      await mkdir(join(project, '.smurg', 'trash', 't1'), { recursive: true });
+      await writeFile(join(project, '.smurg', 'trash', 't1', 'old.txt'), 'old\n');
+      await mkdir(join(project, '.smurg', 'uploads'), { recursive: true });
+      await writeFile(join(project, '.smurg', 'uploads', 'up_1.part'), 'part\n');
+    };
+    const seenByGit = async (project: string): Promise<string[]> => (await git(project, 'status', '--porcelain=v1', '--untracked-files=all')).split('\n').filter((line) => line.includes('.smurg'));
+
+    beforeEach(async () => {
+      await mkdir(gitHome(), { recursive: true });
+    });
+
+    it('is written at every start when it is missing (not by prepareShare: a refused start writes nothing), holding `*`; one smurg wrote is left as it is', async () => {
+      const project = await createTempProject(base, 'p', { files: { 'a.txt': 'a' } });
+      await prepareShare(project, join(base, 'state'), { homeDir: join(base, 'home') });
+      expect(await stat(join(project, '.smurg', '.gitignore')).catch(() => null)).toBeNull();
+      expect(await ignoreSmurgDir(project)).toBe('written');
+      const text = await readFile(join(project, '.smurg', '.gitignore'), 'utf8');
+      expect(text.split('\n')).toEqual(["# Written by smurg: git ignores smurg's own folder (the share lock, trash, uploads, worktrees).", '*', '']);
+      expect(await ignoreSmurgDir(project)).toBe('ours');
+      await rm(join(project, '.smurg', '.gitignore'));
+      expect(await ignoreSmurgDir(project)).toBe('written');
+      expect(await readFile(join(project, '.smurg', '.gitignore'), 'utf8')).toBe(text);
+    });
+
+    it('never over a file the host made, and never through a link (also a dangling one)', async () => {
+      const own = await createTempProject(base, 'own', { files: { '.smurg/.gitignore': '# mine\n!keep.txt\n' } });
+      expect(await ignoreSmurgDir(own)).toBe('other');
+      expect(await readFile(join(own, '.smurg', '.gitignore'), 'utf8')).toBe('# mine\n!keep.txt\n');
+
+      const linked = await createTempProject(base, 'linked', { files: { 'a.txt': 'a' } });
+      await writeFile(join(base, 'target.txt'), 'not smurg\'s\n');
+      await mkdir(join(linked, '.smurg'), { mode: 0o700 });
+      await symlink(join(base, 'target.txt'), join(linked, '.smurg', '.gitignore'));
+      expect(await ignoreSmurgDir(linked)).toBe('other');
+      expect(await readFile(join(base, 'target.txt'), 'utf8')).toBe('not smurg\'s\n');
+      expect((await lstat(join(linked, '.smurg', '.gitignore'))).isSymbolicLink()).toBe(true);
+
+      const dangling = await createTempProject(base, 'dangling', { files: { 'a.txt': 'a' } });
+      await mkdir(join(dangling, '.smurg'), { mode: 0o700 });
+      await symlink(join(base, 'nowhere.txt'), join(dangling, '.smurg', '.gitignore'));
+      expect(await ignoreSmurgDir(dangling)).toBe('other');
+      expect(await stat(join(base, 'nowhere.txt')).catch(() => null)).toBeNull();
+    });
+
+    it('git does not see .smurg/ when the folder became a repository after sharing started (no exclude line yet)', async () => {
+      const project = await createTempProject(base, 'later', { files: { 'a.txt': 'a' } });
+      await prepareShare(project, join(base, 'state'), { homeDir: join(base, 'home') });
+      await ignoreSmurgDir(project);
+      await fill(project);
+      await git(project, 'init', '-q', '-b', 'main');
+      expect(await readFile(join(project, '.git', 'info', 'exclude'), 'utf8')).not.toContain('/.smurg/');
+      expect(await seenByGit(project)).toEqual([]);
+      await git(project, 'add', '-A');
+      await git(project, 'commit', '-q', '-m', 'first');
+      expect((await git(project, 'ls-files')).split('\n').filter(Boolean)).toEqual(['a.txt']);
+    });
+
+    it('git does not see .smurg/ in a repository shared after git init, nor with a root .gitignore that says !.smurg/', async () => {
+      const repo = await createTempProject(base, 'repo', { files: { 'a.txt': 'a' } });
+      await git(repo, 'init', '-q', '-b', 'main');
+      await prepareShare(repo, join(base, 'state'), { homeDir: join(base, 'home') });
+      await ignoreSmurgDir(repo);
+      await fill(repo);
+      expect(await seenByGit(repo)).toEqual([]);
+
+      const negated = await createTempProject(base, 'negated', { files: { 'a.txt': 'a', '.gitignore': '!.smurg/\n!.smurg/**\n' } });
+      await git(negated, 'init', '-q', '-b', 'main');
+      await prepareShare(negated, join(base, 'state'), { homeDir: join(base, 'home') });
+      await ignoreSmurgDir(negated);
+      await fill(negated);
+      expect(await seenByGit(negated)).toEqual([]);
+      await git(negated, 'add', '-A');
+      expect((await git(negated, 'diff', '--cached', '--name-only')).split('\n').filter(Boolean)).toEqual(['.gitignore', 'a.txt']);
+    });
   });
 
   it('refuses the file system root, the home directory, and any overlap with the state directory', async () => {

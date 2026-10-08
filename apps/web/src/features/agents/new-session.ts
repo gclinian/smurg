@@ -5,8 +5,17 @@
 //   editor / viewer → no session; the dialog says why.
 // Worktrees (R9) need a git repository; a kept worktree of one's own can be continued (R9.4). The daemon enforces all
 // of this again.
-import type { PayloadInputOf, Role, SessionInfo, WorkspaceInfo, WorktreeInfo } from '@smurg/protocol';
+//
+// Whether the folder is a git repository is `WorkspaceInfo.isGitRepo`, which follows the folder while it is shared
+// (the Welcome, then every topic.updated: lib/stores/workspace.ts). A workspace without a topic learns it only at the
+// next Welcome, so a new worktree is offered either way, with the reason as a note while the page believes the
+// folder is none: the host's daemon looks at the folder again before it answers. Why a repository cannot hold a
+// worktree (no commit yet, git missing or too old, a `.git` that is no ordinary folder) only the host knows: its
+// refusal of session.create says so, in the same words as the Start dialog.
+import type { MessageRef, PayloadInputOf, Role, SessionInfo, WorkspaceInfo, WorktreeInfo } from '@smurg/protocol';
+import { msg, renderEnglish } from '@smurg/protocol/i18n';
 import { canRole } from '../../lib/capabilities.ts';
+import { renderWireText } from '../../lib/errors.ts';
 
 export type SessionKind = 'agent' | 'terminal';
 
@@ -16,7 +25,9 @@ export interface NewSessionOptions {
   readonly canCreate: boolean;
   readonly blockedBy: CreateBlockReason | null;
   readonly worktree: {
+    /** The folder is a git repository as far as this page knows (a new worktree is offered either way). */
     readonly available: boolean;
+    /** Why the page believes worktrees cannot be used: a note under the choices. */
     readonly unavailableReason: 'not-git' | null;
     /** The member's own kept worktrees that no running session uses, newest first. */
     readonly kept: readonly WorktreeInfo[];
@@ -51,14 +62,26 @@ export function newSessionOptions(input: {
   };
 }
 
+const UNAVAILABLE: Readonly<Record<NonNullable<NewSessionOptions['worktree']['unavailableReason']>, MessageRef>> = {
+  'not-git': msg('worktree.unavailable.notAGitRepo'),
+};
+
+/**
+ * Why the worktree choices are off, in the viewer's language: the host's own sentence for the reason (the Start
+ * dialog's blocker, a worktree refusal), saying what the host can do.
+ */
+export function worktreeUnavailableNote(reason: NonNullable<NewSessionOptions['worktree']['unavailableReason']>): string {
+  const ref = UNAVAILABLE[reason];
+  return renderWireText(ref, renderEnglish(ref));
+}
+
 /** 'main' | 'worktree:new' | 'worktree:<id>' — the value of the "Where to work" choice. */
 export type WhereChoice = 'main' | 'worktree:new' | `worktree:${string}`;
 
 /** `where` if the options still offer it (the worktree list may change while the dialog is open), else the main workspace. */
 export function effectiveWhere(options: NewSessionOptions, where: WhereChoice): WhereChoice {
-  if (where === 'main' || !options.worktree.available) return 'main';
-  if (where === 'worktree:new' || options.worktree.kept.some((worktree) => where === `worktree:${worktree.id}`)) return where;
-  return 'main';
+  if (where === 'main' || where === 'worktree:new') return where;
+  return options.worktree.kept.some((worktree) => where === `worktree:${worktree.id}`) ? where : 'main';
 }
 
 export interface NewSessionForm {

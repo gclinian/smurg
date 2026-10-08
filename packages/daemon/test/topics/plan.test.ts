@@ -4,6 +4,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, SmurgError, planInfoSchema, startPreflightSchema, topicPlanPath, topicSpecPath } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import { buildQuestion, recordActivity } from '../../src/core/fakes/index.ts';
 import { countOpenQuestions } from '../../src/topics/plan-service.ts';
 import { checkPlan, createTopic, itemOf, lineIds, mcpContext, planText, settle, setupTopics, smurgSent, SPEC_TEXT, startPlan, topicWithPlan, waitFor, type TopicsTest } from './support.ts';
@@ -369,16 +370,33 @@ describe('the Start dialog (plan.preflight)', () => {
     expect(await refusal(test.amy.conn.request('plan.preflight', { topicId: topic.id }))).toMatchObject({ code: 'forbidden' });
   });
 
-  it('blockers: not a git repository, git busy, no room for worktrees', async () => {
+  it('blockers: why git is in the way (one message per reason), git busy, no room for worktrees', async () => {
     test = await setupTopics();
     const { topic } = await topicWithPlan(test, THREE);
     const blockers = async (): Promise<string[]> => (await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight.blockers.map((blocker) => blocker.text.id);
+    // (0.5.2: the worktree module names the reason; the blocker is its sentence, the same one a worktree refusal has.)
     test.fakes.worktrees.main = { isRepo: false, hasCommit: false, gitOk: true, branch: null, busy: false, free: 64 };
-    expect(await blockers()).toEqual(['plan.start.noGit']);
+    expect(await blockers()).toEqual(['worktree.unavailable.notAGitRepo']);
     expect((await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight.commit).toBeNull();
     expect(test.topic(topic.id).versioned).toBe(false);
     const pins = (await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight;
-    expect(await refusal(test.mei.conn.request('plan.start', { topicId: topic.id, planRevision: pins.planRevision, specHash: pins.specHash, planHash: pins.planHash }))).toMatchObject({ code: 'conflict', text: { id: 'plan.start.noGit' } });
+    expect(await refusal(test.mei.conn.request('plan.start', { topicId: topic.id, planRevision: pins.planRevision, specHash: pins.specHash, planHash: pins.planHash }))).toMatchObject({
+      code: 'conflict',
+      text: { id: 'worktree.unavailable.notAGitRepo' },
+      message: 'The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.',
+    });
+    // A repository without a commit: its own sentence, and no commit line (there is no branch to name yet).
+    test.fakes.worktrees.main = { isRepo: true, hasCommit: false, gitOk: true, branch: 'main', busy: false, free: 64 };
+    expect(await blockers()).toEqual(['worktree.unavailable.noCommit']);
+    expect((await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight.commit).toBeNull();
+    expect(test.topic(topic.id).versioned).toBe(true);
+    // Whatever the module says is the reason is what the dialog shows (here: git is too old).
+    test.fakes.worktrees.main = { isRepo: true, hasCommit: false, gitOk: false, branch: null, busy: false, free: 64, unavailable: msg('worktree.unavailable.gitTooOld', { version: '2.39.5', minVersion: '2.42.0' }) };
+    const tooOld = (await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight;
+    expect(tooOld.blockers).toEqual([
+      { text: { id: 'worktree.unavailable.gitTooOld', params: { version: '2.39.5', minVersion: '2.42.0' } }, fallback: "The host's git is version 2.39.5, and worktrees need 2.42.0 or later. The host can update git, stop sharing, and share again from a new terminal." },
+    ]);
+    expect(tooOld.commit).toBeNull();
     test.fakes.worktrees.main = { isRepo: true, hasCommit: true, gitOk: true, branch: 'main', busy: true, free: 64 };
     expect(await blockers()).toEqual(['plan.start.commit.busy']);
     expect(test.topic(topic.id).versioned).toBe(true);

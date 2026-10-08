@@ -42,6 +42,7 @@ no `sudo`, no system packages.
   with, agent sessions run and you get one notification that says so. `smurg status` shows which it is (§7).
 - To let agents carry out work items, the folder you share must be a **git repository** with at least one commit,
   and this computer needs git 2.42 or later (§10.2). Without git, a topic's discussion, spec and plan still work.
+  The folder can become a repository while you share it (§10.2).
 - **Language**: smurg's interface comes in English and Traditional Chinese, and everyone sees their own language. The
   `smurg` command follows this computer's locale (`LC_ALL`, `LC_MESSAGES`, `LANG`; on macOS, when none of the three
   is set, the system language) and uses English for anything that is not Traditional Chinese; to choose yourself, set
@@ -663,7 +664,8 @@ which is usage on your account. After the next start smurg ends what is left, an
 
 While sharing, `smurg host` tells you in the terminal when the connection to the relay is lost and when it is back,
 when the relay refuses your login (it expired; teammates cannot connect), when your login is about to expire
-(within 24 hours), and when smurg's state file cannot be written. When the login has expired or is about to, run
+(within 24 hours), when smurg's state file cannot be written, and once when the repository tracks smurg's own
+`.smurg` folder (§10.2). When the login has expired or is about to, run
 `smurg login` in **another terminal** (with the same account; if the relay you share through is not the one you last
 logged in to, add `--relay <its address>`): `smurg host` switches to the new login within seconds, and you do not
 have to share again.
@@ -702,8 +704,16 @@ they open in the browser, not in a terminal.
 | A work item says "Stopped on an error, no report", and its conversation says "smurg could not read this item's changes, so its report is not registered yet. It tries again when the agent's next turn ends." | The agent wrote its report, but smurg could not record the item's changes with it: someone kept typing in the worktree, there is a git repository inside it, or git took too long. No report appears until it can. "Continue" lets the agent go on; the report is registered when its next turn ends. A later version of a report that cannot be recorded leaves the earlier version in place and shows the same sentence. |
 | An agent session cannot be started: "The path of this session's folder has a backslash or a control character in it. Claude Code's permission rules cannot name such a folder, so no agent session can be started there. The host should rename the folder." | Rename the shared folder, or the folder above it that has the character, and share again. Files and terminals work in such a folder; only agent sessions are refused. Spaces, parentheses, brackets and other signs in a path are fine. |
 | A work item says "Failed" (your inbox: "the agent's process failed"), or its session shows "The agent's process ended unexpectedly" | Claude Code's process ended. "Try again" continues the same conversation. If it keeps failing, look at the daemon's log (§7). |
-| A work item says "The plan changed: Start again" (your inbox: "did not start"): "The spec or the plan changed since Start. This item did not start." | A work item starts only from the spec and the plan that someone confirmed when they pressed Start (§10.2). Open the plan, look at what changed and press "Start again" on the item. |
-| Start is refused: "Work items run in git worktrees, and this folder is not a git repository yet. The host can make it one: run `git init`, then commit once." | Do that in the shared folder, in your own terminal (§10.2). |
+| A work item says "The plan changed: Start again" (your inbox: "did not start"): "The spec or the plan changed since Start. This item did not start." | A work item starts only from the spec and the plan that someone confirmed when they pressed Start (§10.2). Open the plan, look at what changed and press "Start again" on the item. Items waiting to start say the same when the folder stopped being a git repository for a while (§10.2). |
+| Start is refused: "The shared folder is not a git repository, so worktrees cannot be used." | Run `git init` in the shared folder and commit once (next row, §10.2); no need to stop sharing. But if `.git` was there a moment ago, put it back; if a folder above is a repository, share that one. |
+| Start is refused: "The shared folder's git repository has no commit yet, so no worktree can be created." | Commit the project's files as in §10.2: a worktree holds only what is committed. If git asks who you are, run `git config --global user.name 'Your Name'` and `git config --global user.email you@example.com`, then commit again. No need to stop sharing. |
+| Start is refused: "git was not found on the host's computer, so worktrees cannot be used." | smurg uses the first `git` on the `PATH` of the terminal that ran `smurg host`. Install git 2.42 or later (macOS: `xcode-select --install`, or Homebrew), check in a new terminal that `git version` answers, stop sharing and run `smurg host` from that terminal. |
+| Start is refused: "The host's git is version 2.39.5, and worktrees need 2.42.0 or later." | That is the first `git` on the `PATH` of the terminal that ran `smurg host`. Update git (macOS: the Command Line Tools in Software Update, or `brew install git`), check in a new terminal that `which git` and `git version` show the new one, stop sharing and run `smurg host` from that terminal. |
+| Start is refused: "git does not run on the host's computer, so worktrees cannot be used." | On macOS, `/usr/bin/git` needs Apple's Command Line Tools; without them it brings up macOS's offer to install them, also when `smurg host` starts. Run `xcode-select --install` (on Linux, reinstall git). When `git version` answers in a terminal, stop sharing and run `smurg host` from that terminal. |
+| Start is refused: "The shared folder's .git is not an ordinary folder (the folder is a git worktree or a submodule, for example), so worktrees cannot be used." | Worktrees are made only from a repository's main folder, where `.git` is a folder. Share that folder instead: it is another workspace, so send your teammates new invite links. Up to the plan, everything works in this one. |
+| Start is refused: ".smurg/worktrees in the shared folder is not an ordinary folder, so worktrees cannot be used." | Something replaced the folder where smurg keeps worktrees. Move it out of the shared folder (look at it first), stop sharing and share again: smurg makes the folder anew. |
+| Start is refused: "smurg could not look at the shared folder's git repository just now. Try again in a moment." | git failed or took too long this once. Press Start again; if it keeps happening, look at the daemon's log (§7). |
+| Under the two links: "smurg's own .smurg folder is committed in this repository: run `git rm -r --cached .smurg` in the shared folder and commit." | A commit, a `git add -A` while sharing with smurg 0.5.1 or earlier for example, took smurg's share lock (`.smurg/daemon-lock.json`), which holds the path of your state folder. Do what the line says (§10.2): the files stay on disk, and `.smurg/.gitignore` keeps them out from then on. Until then git shows the lock as changed: `git rebase` refuses, and discarding changes (`git checkout -- .`, `git stash`, `git reset --hard`) puts back an old lock that lets a second smurg share the folder. Printed once per run. |
 | Start is refused: "The spec and the plan could not be committed: git is in the middle of another operation in the main workspace." | Finish or abort the merge or rebase in the shared folder, then press Start again. |
 | A work item waits although nothing seems to run (the plan says "Waiting for a free agent") | The limit of work items that run at once is reached (§10.4), often because several of them wait for a person: answer the questions and permission requests in the inbox, or raise the limit in the host console's settings ("Work items running at the same time"). |
 | An agent session cannot be started, and the sentence ends with "Try again when one is idle." | This computer already runs 32 agent processes, the fixed limit of one `smurg host`; it is not a setting. smurg puts an idle agent's process aside by itself to make room, but an agent that is working or waiting for a person keeps its process: answer what waits in the inbox, or end sessions you no longer need. |
@@ -1031,8 +1041,34 @@ the host you can always submit an answer too.
 ### 10.2 Start: git, and the commit smurg makes
 
 - **Work items need git.** Each work item runs in its own git worktree, so the shared folder must be a git
-  repository with at least one commit (`git init`, then commit once), and git must be 2.42 or later. Without that,
-  everything up to the plan works, and Start says what is missing.
+  repository with at least one commit, and git must be 2.42 or later. Without that, everything up to the plan
+  works, and Start says what is missing and what to do (§8); a session that asks for a worktree of its own is
+  refused with the same words.
+- **The folder can become a repository while you share it.** In your own terminal, in the shared folder:
+
+```sh
+git init
+git add -A                      # write a .gitignore for node_modules and the like first
+git commit -m "First commit"
+```
+
+- smurg looks again whenever Start is pressed, and every few seconds: the next Start sees it, without sharing
+  again, and open pages see it within seconds (in a workspace without a topic, after a reload; the plan column does
+  not know about the first commit, Start does). A change of git itself (installed, updated, repaired) needs sharing
+  again: smurg looks for git, on the `PATH` of the terminal that ran `smurg host`, only when sharing starts or the
+  folder becomes a repository (§8).
+- **smurg's own `.smurg` folder ignores itself.** Each start of sharing writes `.smurg/.gitignore` (`*`) unless there
+  is one, so git leaves the folder out whatever the order of `git init`, `git add -A` and `git commit`. If the
+  repository already tracks it (committed while sharing with smurg 0.5.1 or earlier), `smurg host` says so once;
+  take it out:
+
+```sh
+git rm -r --cached .smurg       # the files stay on disk
+git commit -m "Stop tracking smurg's own folder"
+```
+
+- If `.git` goes away while you share, Start is refused with the reason, and items waiting to start need "Start
+  again" (§8). Nothing is deleted: worktrees, their work and merge requests work again once that `.git` is back.
 - **Start shows what it will do before it does it**: which items start now and which wait for others, who is
   responsible for each, who edited the spec and the plan by hand since the last Start, and the commit below. Read
   it: it is the moment the team's text becomes instructions for agents that run as you. A member who renamed or

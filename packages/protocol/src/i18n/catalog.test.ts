@@ -134,8 +134,10 @@ describe('wire catalog', () => {
     // and then "Only the host can try again.": without its own full stop the first of two Chinese sentences ran into
     // the second with a space where English has ". ".
     // Two more are sent as a notice with an action ("Try again", "Start the agent again"), so a sentence follows them too.
+    // Why no worktree can be created (0.5.2): the plan column, the new-session dialog and the host's terminal put the
+    // reason next to words of their own, and most of these are two sentences already.
     const NOTICES_WITH_AN_ACTION: readonly string[] = ['session.claude.initTimeout', 'session.projectSettings.untrusted'];
-    const sentences = MESSAGE_IDS.filter((id) => id.startsWith('plan.error.') || id.startsWith('notice.') || NOTICES_WITH_AN_ACTION.includes(id));
+    const sentences = MESSAGE_IDS.filter((id) => id.startsWith('plan.error.') || id.startsWith('notice.') || id.startsWith('worktree.unavailable.') || NOTICES_WITH_AN_ACTION.includes(id));
     expect(sentences.length).toBeGreaterThan(20);
     for (const id of sentences) {
       for (const ref of sampleRefs(id)) {

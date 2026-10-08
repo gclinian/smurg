@@ -363,7 +363,8 @@ export class PlanServiceImpl implements PlanService {
     if (isStubService(worktrees)) return null;
     try {
       const main = await worktrees.mainState();
-      this.core.versioned = main.isRepo;
+      // (A change the worktree module saw is announced through `workspace.git` already; this keeps the two in step.)
+      this.core.setVersioned(main.isRepo);
       return main;
     } catch (err) {
       this.ctx.log.warn('main workspace state unavailable', { error: err instanceof Error ? err.name : 'unknown' });
@@ -376,8 +377,10 @@ export class PlanServiceImpl implements PlanService {
     const blockers: MessageRef[] = [];
     if (!topic.spec.exists) blockers.push(msg('topic.noSpec'));
     if (!topic.plan.exists || !topic.plan.valid || !topic.plan.parsed) blockers.push(msg('plan.start.invalid'));
-    // Execution needs git: items run in worktrees, their changes are reviewed and merged.
-    if (main === null || !main.isRepo || !main.hasCommit || !main.gitOk) blockers.push(msg('plan.start.noGit'));
+    // Execution needs git: items run in worktrees, their changes are reviewed and merged. One message per reason (the
+    // first that holds), saying what the host can do and whether sharing has to be restarted.
+    if (main === null) blockers.push(msg('worktree.unavailable.checkFailed'));
+    else if (main.unavailable !== null || !main.isRepo || !main.hasCommit || !main.gitOk) blockers.push(main.unavailable ?? msg('worktree.unavailable.checkFailed'));
     else if (main.busy) blockers.push(msg('plan.start.commit.busy'));
     else {
       const startsNow = targets.filter((item) => this.core.unmergedDependencies(topic, item).length === 0 && item.worktreeId === undefined).length;
@@ -423,8 +426,10 @@ export class PlanServiceImpl implements PlanService {
     const main = await this.mainState();
     const [spec, plan] = await Promise.all([this.core.readFile(MAIN_ROOT, specPath), this.core.readFile(MAIN_ROOT, planPath)]);
     const worktrees = this.ctx.services.worktrees;
+    // What Start would commit: only when worktree mode is available and the repository has a commit (a folder that is
+    // no repository yet, a gitfile share or one without a commit has no branch to name; its blocker says why).
     let commit: StartPreflight['commit'] = null;
-    if (main !== null && main.isRepo) {
+    if (main !== null && main.unavailable === null && main.isRepo && main.hasCommit && main.gitOk) {
       const differs = await worktrees.diffMainPaths({ paths: [specPath, planPath], against: 'head', maxBytes: 1 }).catch(() => []);
       commit = { needed: differs.length > 0, branch: main.branch ?? '', as: caller, files: [specPath, planPath], alsoInFolder: await this.alsoInFolder(topic.slug) };
     }

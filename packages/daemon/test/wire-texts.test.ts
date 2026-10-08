@@ -184,7 +184,7 @@ describe('errors as they reach a client', () => {
       expect(payloadOf(error as SmurgError)).toMatchObject({ code: 'internal', detail: { reason: 'git-failed', step }, text: { id: 'git.stepFailed', params: { step } } });
     }
     expect(() => requireOk(truncated, 'diff')).toThrowError(expect.objectContaining({ code: 'too_large', text: { id: 'git.outputTooLarge', params: { step: 'diff' } } }));
-    expect(payloadOf(new GitUnavailableError('git-not-found', msg('worktree.unavailable.gitNotFound')))).toMatchObject({ code: 'conflict', detail: { reason: 'git-not-found' } });
+    expect(payloadOf(new GitUnavailableError('git-not-found', msg('worktree.unavailable.gitNotFound', { minVersion: '2.42.0' })))).toMatchObject({ code: 'conflict', detail: { reason: 'git-not-found' } });
   });
 
   it('lists and sizes are parameters, clipped so the reference always fits the wire', () => {

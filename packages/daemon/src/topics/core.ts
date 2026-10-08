@@ -111,7 +111,10 @@ export class TopicsCore {
   readonly options: TopicsOptions;
   /** Asks the scheduler for another pass (set by the module). */
   requestSchedule: () => void = () => {};
-  /** The main workspace is a git repository (asked of the worktree module at start and at every preflight). */
+  /**
+   * The main workspace is a git repository (`Topic.versioned`): asked of the worktree module at start and at every
+   * preflight, and told by `workspace.git` when the folder becomes one, or stops being one, while it is shared.
+   */
   versioned = false;
   /** Topics whose plan the agent is writing right now, with the message that asked for it (never persisted). */
   readonly generating = new Map<string, string>();
@@ -539,6 +542,14 @@ export class TopicsCore {
   /** Every topic that is not archived (after something every plan shows changed: the slots, the members). */
   publishAll(): void {
     for (const topic of this.topics()) if (!topic.archived) this.publish(topic.id);
+  }
+
+  /** `versioned` as the folder is now: when it changed after the start, every topic is announced again (archived ones too). */
+  setVersioned(versioned: boolean): void {
+    if (this.versioned === versioned) return;
+    this.versioned = versioned;
+    if (!this.started) return;
+    for (const topic of this.topics()) this.publish(topic.id);
   }
 
   publishReport(topicId: string, itemId: string, previous: ReportSummary | null): void {

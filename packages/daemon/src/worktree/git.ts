@@ -293,7 +293,12 @@ export class GitRunner {
             return;
           }
           if (code === 'ENOENT') {
-            reject(new GitUnavailableError('git-not-found', msg('worktree.unavailable.gitNotFound')));
+            // The executable went, or the folder the command runs in did (a `.git` removed while sharing): only the
+            // first is "git was not found" (whose words tell the host to install git and share again).
+            void access(this.gitPath, fsConstants.X_OK).then(
+              () => reject(new SmurgError('internal', msg('git.failed'), { reason: 'git-failed' }, { cause: error })),
+              () => reject(new GitUnavailableError('git-not-found', msg('worktree.unavailable.gitNotFound', { minVersion: GIT_MIN_VERSION.join('.') }))),
+            );
             return;
           }
           if (code === 'ABORT_ERR' || signal?.aborted) {

@@ -15,7 +15,7 @@ import { NewTopicDialog } from './NewTopicDialog.tsx';
 import PlanColumn from './PlanColumn.tsx';
 import ReportColumn from './ReportColumn.tsx';
 import { startLines } from './start-model.ts';
-import { IAN, MEI, admitAs, settle, topicConnection } from './testing/support.tsx';
+import { GIT_REASONS, IAN, MEI, admitAs, settle, topicConnection, type GitReason } from './testing/support.tsx';
 
 useTestLocale('zh-TW');
 
@@ -110,6 +110,57 @@ describe('the topic screens in zh-TW', () => {
       '主人還沒確認這個資料夾的 Claude Code 專案設定：agent 不會讀 CLAUDE.md。',
       '每個項目都在自己全新的 worktree 裡進行，沒有共享任何資料夾，所以 agent 會先安裝需要的東西。',
     ]);
+  });
+
+  it('git’s reasons for refusing a Start: one sentence each, saying what the host can do, and no commit line', () => {
+    const said: Readonly<Record<GitReason, string>> = {
+      notAGitRepo: '分享的資料夾不是 git 儲存庫，無法使用 worktree。主人可以在資料夾裡執行 `git init` 並提交一次，不必重新分享。',
+      noCommit: '分享資料夾的 git 儲存庫還沒有任何提交，無法建立 worktree。主人可以提交一次，不必重新分享。',
+      gitNotFound: '主人的電腦上找不到 git，無法使用 worktree。主人可以安裝 git 2.42.0 以上，停止分享，再從新的終端機重新分享。',
+      gitTooOld: '主人電腦上的 git 是 2.39.5 版，worktree 需要 2.42.0 以上。主人可以更新 git，停止分享，再從新的終端機重新分享。',
+      gitCannotRun: '主人電腦上的 git 無法執行，無法使用 worktree。主人可以先讓 `git version` 在終端機裡正常執行，停止分享，再從那個終端機重新分享。',
+      gitDirNotDirectory: '分享資料夾的 .git 不是一般的資料夾（例如這個資料夾本身是 git worktree 或 submodule），無法使用 worktree。主人可以改為分享儲存庫的主資料夾。',
+      worktreesDirUnusable: '分享資料夾裡的 .smurg/worktrees 不是一般的資料夾，無法使用 worktree。主人可以把它移出分享的資料夾，停止分享，再重新分享。',
+      checkFailed: 'smurg 暫時無法查看分享資料夾的 git 儲存庫。請稍後再試。',
+      starting: 'worktree 功能尚未就緒。',
+    };
+    const base: StartPreflight = {
+      planRevision: 1,
+      specHash: FAKE_HASH,
+      planHash: FAKE_HASH,
+      startsNow: ['cart-api'],
+      waits: [],
+      alreadyStarted: [],
+      responsible: [],
+      youDecide: 0,
+      commit: null,
+      handEdits: { spec: [], plan: [] },
+      invisibleCharacters: [],
+      stale: false,
+      openQuestion: false,
+      specOpenQuestions: 0,
+      editingNow: [],
+      projectSettings: 'none',
+      rules: [],
+      sharedDirs: [],
+      blockers: [],
+    };
+    for (const reason of Object.keys(GIT_REASONS) as GitReason[]) {
+      const lines = startLines({ ...base, blockers: [{ text: GIT_REASONS[reason], fallback: `fallback of ${reason}` }] }, PLAN, MEI.userId);
+      expect(lines[0], reason).toEqual({ id: 'blocker', tone: 'danger', text: said[reason] });
+      expect(lines.map((line) => line.id), reason).not.toContain('commit');
+    }
+  });
+
+  it('the plan’s foot in a folder that is not a git repository yet: the same sentence as the Start dialog', async () => {
+    const world = { role: 'agent' as const, topics: [{ ...TOPIC, versioned: false }], plans: { tp_1: PLAN } };
+    const conn = topicConnection(world);
+    renderInColumn(<PlanColumn topicId="tp_1" />, { target: { kind: 'plan', topicId: 'tp_1' }, conn, admit: false });
+    admitAs(conn, world);
+    await settle();
+    expect(screen.getByText(/^工作項目還不能開始：/).textContent).toBe(
+      '工作項目還不能開始：分享的資料夾不是 git 儲存庫，無法使用 worktree。主人可以在資料夾裡執行 `git init` 並提交一次，不必重新分享。項目 3 會在 1 和 2 都合併後自動開始。',
+    );
   });
 
   it('a result report: the catalogue’s headings over what the agent wrote', async () => {

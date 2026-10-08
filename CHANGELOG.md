@@ -5,6 +5,31 @@ Every released version's changes are recorded here (the format follows
 [Semantic Versioning](https://semver.org/)). A version's section is also its release notes; a version without a
 section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.md).
 
+## [0.5.2] - 2026-10-09
+
+- **A folder can become a git repository while it is shared.** smurg 0.5.1 looked at git only when sharing started:
+  a host who ran `git init` and committed in a shared folder kept reading in Start that the folder was not a git
+  repository, until they stopped sharing and shared again. smurg now looks again whenever Start is pressed, and every
+  few seconds while sharing, so the next Start works without sharing again. When `.git` goes away while
+  sharing, Start says so and nothing is deleted ([host guide](docs/HOSTING.md) §10.2).
+- **smurg's own `.smurg` folder stays out of your commits.** Sharing writes `.smurg/.gitignore` (with `*`), so
+  git ignores the folder whatever order `git init`, `git add -A` and `git commit` come in. Before, a `git add -A` in
+  a folder that had become a repository while shared committed smurg's share lock (`.smurg/daemon-lock.json`),
+  which holds the path of smurg's state folder. When a repository already tracks it, `smurg host` says so once and
+  names the command that takes it out (`git rm -r --cached .smurg`, then a commit) ([host guide](docs/HOSTING.md)
+  §10.2).
+- **When git is why Start cannot run, the dialog says which reason and what to do.** The reasons: not a
+  repository yet, no commit yet, git not found, too old or not running, a `.git` that is not an ordinary folder (a
+  git worktree or a submodule), smurg's folder for worktrees replaced, or a look at the repository that failed for a
+  moment. Each says whether sharing has to start again: only for git itself and for the folder for worktrees. A
+  session that asks for a worktree of its own is refused with the same sentences. Before, every reason read as a
+  folder that was not a repository yet, with the advice to run `git init`, and the dialog could offer a commit on a
+  branch that could not be used ([host guide](docs/HOSTING.md) §8).
+- **The protocol did not change**: 0.5.1 and this version connect to each other and open each other's workspaces; a
+  page of 0.5.1 shows a reason it does not know in English. A host who still runs 0.5.1 has to stop sharing and
+  share again after `git init`, even where a newer page says otherwise. If you run your own relay, deploy it again
+  when you update, as before.
+
 ## [0.5.1] - 2026-10-08
 
 - **Updating from 0.4.0 keeps your workspace.** smurg 0.5.0 refused to start on a workspace that 0.4.0 had shared,

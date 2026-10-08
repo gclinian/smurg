@@ -94,7 +94,6 @@ export const t = defineStrings(
     'new.where.worktreeHint': 'Work in your own worktree without disturbing the main workspace. When you are done, ask the host to merge it.',
     'new.where.worktreeHintHost': 'Work in a separate worktree without disturbing the main workspace. When you are done, merge it back.',
     'new.where.worktreeKept': 'Continue in the worktree I kept: {branch}',
-    'new.where.notGit': 'This folder is not a git repository, so worktrees are not available.',
     'new.runsAs.host': 'This session runs on your computer, and the agent uses your Claude account.',
     'new.runsAs.member': "This session runs on the host's computer, and the agent uses the host's Claude account.",
     'new.name': 'Name (optional)',

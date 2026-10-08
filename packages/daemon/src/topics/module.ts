@@ -104,6 +104,8 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
           if (event.worktree === null) scheduler.onWorktreeRemoved(event.worktreeId);
         }),
       );
+      // The folder became a git repository while it is shared, or stopped being one (the worktree module looked).
+      stack.add(ctx.bus.on('workspace.git', (event) => core.setVersioned(event.isGitRepo)));
       stack.add(ctx.bus.on('question.changed', () => core.started && core.publishAll()));
       stack.add(ctx.bus.on('permission.changed', () => core.started && core.publishAll()));
       stack.add(ctx.bus.on('suggestion.changed', (event) => reports.onSuggestion(event.suggestion)));
@@ -142,6 +144,7 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       const { core, reports, scheduler } = parts;
       await core.open();
       const worktrees = ctx.services.worktrees;
+      // (Set, not announced: every topic is announced below, once the restart is looked at.)
       if (!isStubService(worktrees)) core.versioned = await worktrees.mainState().then((main) => main.isRepo, () => false);
       // What a crash between two records left out of step (a merge the item never heard of, a session no item names).
       await scheduler.reconcile();

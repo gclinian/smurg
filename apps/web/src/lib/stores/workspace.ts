@@ -1,5 +1,8 @@
 // Workspace, own member and public settings: everything the Welcome carries, kept live by channel.memberUpdated and
-// channel.settingsUpdated (ARCHITECTURE §5.1).
+// channel.settingsUpdated (ARCHITECTURE §5.1). The folder's git state (`WorkspaceInfo.isGitRepo`) follows the folder
+// while it is shared (0.5.2): no event carries the workspace again, but every topic carries it as `versioned`, and the
+// host announces every topic again (topic.updated) when the folder becomes a git repository or stops being one. A
+// workspace without a topic learns it at the next Welcome (a reconnect or a reload).
 import type { Member, PublicSettings, Role, Welcome, WorkspaceInfo } from '@smurg/protocol';
 import { createStore, type ReadableStore } from '../store.ts';
 import type { WorkspaceConnection } from '../connection/types.ts';
@@ -110,9 +113,17 @@ export function createWorkspaceArea(conn: WorkspaceConnection): WorkspaceArea {
       const offSettings = conn.on('channel.settingsUpdated', ({ settings }) => {
         state.setState((previous) => ({ ...previous, settings }));
       });
+      // A topic says whether the shared folder is a git repository now (the same fact as the Welcome's, kept by the
+      // host as the folder changes); the channel is ordered, so the latest of the two is what the folder is.
+      const offTopic = conn.on('topic.updated', ({ topic }) => {
+        state.setState((previous) =>
+          previous.workspace === null || previous.workspace.isGitRepo === topic.versioned ? previous : { ...previous, workspace: { ...previous.workspace, isGitRepo: topic.versioned } },
+        );
+      });
       return () => {
         offMember();
         offSettings();
+        offTopic();
       };
     },
   };

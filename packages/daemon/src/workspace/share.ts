@@ -1,11 +1,19 @@
-// Preparing the shared folder (ARCHITECTURE §7.1): inside it the daemon creates only `.smurg/` and adds `.smurg/` to
-// `.git/info/exclude` (never the user's .gitignore). It also refuses share locations that would expose the daemon's
-// own secrets or the whole home directory to guests: ~/.smurg must stay outside the shared folder (§2 rule 3).
+// Preparing the shared folder (ARCHITECTURE §7.1): inside it the daemon creates only `.smurg/`, with a `.gitignore`
+// of its own that ignores everything in it, and adds `.smurg/` to `.git/info/exclude` (never the user's .gitignore).
+// It also refuses share locations that would expose the daemon's own secrets or the whole home directory to guests:
+// ~/.smurg must stay outside the shared folder (§2 rule 3).
+//
+// `.smurg/.gitignore` (0.5.2): the folder ignores itself, whatever order the host types `git init`, `git add -A` and
+// `git commit` in while sharing, and whatever a root .gitignore says (`!.smurg/` beats info/exclude, not a nested
+// .gitignore). Written at every start when it is missing (ignoreSmurgDir, once the state folder was accepted: a
+// refused start leaves the shared folder as it was): created, never through a link, never over a file the host made.
+// The exclude line is still written, at the start and when a repository appears while sharing (the worktree module,
+// observeGit), for gits and tools that read only that.
 import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, open, readFile, readlink, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import { isInside, lstatOrNull } from './fs-util.ts';
+import { errnoCode, isInside, lstatOrNull } from './fs-util.ts';
 
 /** Why a folder cannot be shared (ShareError.reason). Codes: the CLI words them in the host's language. */
 export const SHARE_ERROR_REASONS = [
@@ -53,6 +61,9 @@ export interface PreparedShare {
   readonly isGitRepo: boolean;
 }
 
+/** `written`: created now; `ours`: smurg's from an earlier start; `other`: something the host made, left alone; `failed`: could not be created. */
+export type SmurgIgnoreOutcome = 'written' | 'ours' | 'other' | 'failed';
+
 /**
  * Validates the share location against the state dir and the home directory, creates `<share>/.smurg` (0700) and
  * the git exclude entry. `homeDir` is injectable so tests never depend on the real home.
@@ -91,12 +102,84 @@ export async function prepareShare(
   return { realPath: share, name: basename(share) || share, isGitRepo: git !== 'none' };
 }
 
+/** The name and the content of the `.gitignore` smurg writes into `<share>/.smurg`. */
+export const SMURG_GITIGNORE_NAME = '.gitignore';
+export const SMURG_GITIGNORE_TEXT = "# Written by smurg: git ignores smurg's own folder (the share lock, trash, uploads, worktrees).\n*\n";
+
+/**
+ * Creates `<share>/.smurg/.gitignore` holding `*` when nothing is there (O_CREAT | O_EXCL | O_NOFOLLOW: never through
+ * a link, never over an entry that exists). An entry that is there is left as it is; read only to say whether it is
+ * ours. Never throws. `.smurg` itself was checked by prepareShare (a real directory).
+ */
+export async function ignoreSmurgDir(shareRealPath: string): Promise<SmurgIgnoreOutcome> {
+  const path = join(shareRealPath, '.smurg', SMURG_GITIGNORE_NAME);
+  let handle;
+  try {
+    handle = await open(path, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o644);
+  } catch (err) {
+    if (errnoCode(err) !== 'EEXIST') return 'failed';
+    return (await readSmall(path)) === SMURG_GITIGNORE_TEXT ? 'ours' : 'other';
+  }
+  try {
+    await handle.writeFile(SMURG_GITIGNORE_TEXT, 'utf8');
+    return 'written';
+  } catch {
+    return 'failed';
+  } finally {
+    await handle.close().catch(() => {});
+  }
+}
+
+/** A small regular file's text, never through a link; null for anything else. */
+async function readSmall(path: string): Promise<string | null> {
+  const handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK).catch(() => null);
+  if (handle === null) return null;
+  try {
+    const st = await handle.stat();
+    if (!st.isFile() || st.size > 4096) return null;
+    return await handle.readFile('utf8');
+  } catch {
+    return null;
+  } finally {
+    await handle.close().catch(() => {});
+  }
+}
+
+/**
+ * What `<share>/.git` is right now, from file calls only (no git process): what the worktree module compares to
+ * notice that the folder became a repository while it is shared, or stopped being one (0.5.2).
+ *  - `kind`: gitKind (a git directory, a gitfile, or neither);
+ *  - `exists`: something is at `.git` at all; `plain`: it is a real directory, not reached through a link (what
+ *    worktree mode needs);
+ *  - `dev` / `ino`: which entry it is (0 when there is none): a `.git` replaced by another one is a change.
+ */
+export interface GitObservation {
+  readonly kind: 'dir' | 'file' | 'none';
+  readonly exists: boolean;
+  readonly plain: boolean;
+  readonly dev: number;
+  readonly ino: number;
+}
+
+export async function observeGit(shareRealPath: string): Promise<GitObservation> {
+  const gitPath = join(shareRealPath, '.git');
+  const st = await lstatOrNull(gitPath);
+  if (st === null || st === 'not-directory') return { kind: 'none', exists: false, plain: false, dev: 0, ino: 0 };
+  const kind = await gitKind(gitPath);
+  const plain = st.isDirectory() && (await realpath(gitPath).catch(() => null)) === gitPath;
+  return { kind, exists: true, plain, dev: st.dev, ino: st.ino };
+}
+
+export function sameGitObservation(a: GitObservation, b: GitObservation): boolean {
+  return a.kind === b.kind && a.exists === b.exists && a.plain === b.plain && a.dev === b.dev && a.ino === b.ino;
+}
+
 /**
  * What `<share>/.git` is: a git directory (it has a HEAD file, or a HEAD symlink into refs/), a gitfile (`gitdir: …`, a linked worktree or a
  * submodule) or neither. Merely existing is not enough (git's own rule): an empty `.git` directory or
  * file is no repository, and taking it for one would offer worktree mode on a folder git does not know.
  */
-async function gitKind(gitPath: string): Promise<'dir' | 'file' | 'none'> {
+export async function gitKind(gitPath: string): Promise<'dir' | 'file' | 'none'> {
   const st = await lstatOrNull(gitPath);
   if (st === null || st === 'not-directory') return 'none';
   if (st.isDirectory()) {
@@ -125,7 +208,7 @@ async function gitKind(gitPath: string): Promise<'dir' | 'file' | 'none'> {
 const EXCLUDE_LINE = '/.smurg/';
 
 /** Appends `/.smurg/` to .git/info/exclude unless an equivalent line is there. Never follows a symlink. */
-async function excludeSmurgDir(gitDir: string): Promise<void> {
+export async function excludeSmurgDir(gitDir: string): Promise<void> {
   const infoDir = join(gitDir, 'info');
   const info = await lstatOrNull(infoDir);
   if (info === null) await mkdir(infoDir, { mode: 0o755 });

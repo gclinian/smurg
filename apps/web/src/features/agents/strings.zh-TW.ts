@@ -81,7 +81,6 @@ export const zhTW = {
   'new.where.worktreeHint': '在自己的 worktree 裡工作，不會弄亂主工作區；完成後再請主人合併。',
   'new.where.worktreeHintHost': '在獨立的 worktree 裡工作，不會弄亂主工作區；完成後再合併回主工作區。',
   'new.where.worktreeKept': '繼續我保留的 worktree：{branch}',
-  'new.where.notGit': '這個資料夾不是 git 儲存庫，所以無法使用 worktree。',
   'new.runsAs.host': '這個 session 會在你的電腦上執行，agent 使用你的 Claude 帳號。',
   'new.runsAs.member': '這個 session 會在主人的電腦上執行，agent 使用主人的 Claude 帳號。',
   'new.name': '名稱（選填）',

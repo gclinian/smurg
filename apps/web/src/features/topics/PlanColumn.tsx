@@ -21,7 +21,7 @@ import { IconCode, IconFileText, IconGitMerge, IconOpenSide, IconPlan, IconPlay,
 import { StandaloneDocument, useHeldDocument } from '../editor/standalone.tsx';
 import { ReviseBox } from './Discussion.tsx';
 import { topicDialogs } from './dialogs.ts';
-import { agentAccessNames, itemBadge, itemNames, loads, planFile, planSummary, progressLine, startsByItselfLines, waitingForLine, type PlanSummary } from './model.ts';
+import { agentAccessNames, itemBadge, itemNames, loads, notVersionedLine, planFile, planSummary, progressLine, startsByItselfLines, waitingForLine, type PlanSummary } from './model.ts';
 import { PlanItems } from './PlanItems.tsx';
 import { Foot, LinkButton, Note, Scroll, Toolbar, ToolbarPath, useAction, useMembers, useOpenSide, useTopic } from './shared.tsx';
 import { t } from './strings.ts';
@@ -400,7 +400,7 @@ function PlanFoot({ topic, plan, summary, sessionOf }: { topic: Topic; plan: Pla
   // The button counts what starts NOW; when everything left waits for another item, what a Start would arm.
   const startable = summary.canStart > 0 ? summary.canStart : summary.startable.length;
   const text: string[] = [];
-  if (!topic.versioned) text.push(t('foot.noGit'));
+  if (!topic.versioned) text.push(notVersionedLine());
   else if (startable > 0) text.push(canStart ? t('foot.start') : t('foot.start.others', { names: agentAccessNames(members) }));
   text.push(...byItself);
 
