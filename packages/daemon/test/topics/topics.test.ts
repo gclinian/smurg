@@ -7,8 +7,9 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, SmurgError, topicSchema, topicPlanPath, topicSpecPath, unmergedWorktreesOfError, type Topic } from '@smurg/protocol';
 import { buildMergeRequest, buildQuestion, recordActivity } from '../../src/core/fakes/index.ts';
-import type { DaemonEvents } from '../../src/core/interfaces.ts';
-import { SPEC_TEXT, createTopic, lineIds, planText, setupTopics, smurgSent, startPlan, topicWithPlan, waitFor, type TopicsTest } from './support.ts';
+import { PathDeniedError, type PathDeniedReason } from '../../src/core/errors.ts';
+import type { DaemonEvents, PathGuard } from '../../src/core/interfaces.ts';
+import { SPEC_TEXT, createTopic, lineIds, planText, settle, setupTopics, smurgSent, startPlan, topicWithPlan, waitFor, type TopicsTest } from './support.ts';
 
 let test: TopicsTest;
 afterEach(async () => {
@@ -23,6 +24,29 @@ async function refusal(promise: Promise<unknown>): Promise<SmurgError> {
     throw err;
   }
   throw new Error('expected the request to be refused');
+}
+
+/** Makes the path guard refuse the next `times` reads of one file of the main workspace, as it does on the host's disk. */
+function refuseReads(of: TopicsTest, path: string, reason: PathDeniedReason, times: number): { count: number; read: number; restore(): void } {
+  const paths = of.t.ctx.paths as { readFile: PathGuard['readFile'] };
+  const real = paths.readFile;
+  const seen = {
+    count: 0,
+    read: 0,
+    restore: () => {
+      paths.readFile = real;
+    },
+  };
+  paths.readFile = async (ref, options) => {
+    if (ref.path !== path) return real.call(paths, ref, options);
+    if (seen.count < times) {
+      seen.count += 1;
+      throw new PathDeniedError(reason, path);
+    }
+    seen.read += 1;
+    return real.call(paths, ref, options);
+  };
+  return seen;
 }
 
 describe('T1.1 a topic and its discussion session', () => {
@@ -149,6 +173,44 @@ describe('the spec of a topic', () => {
     await waitFor(() => test.topic(topic.id).phase === 'spec', { what: 'spec again' });
     await test.remove(topicSpecPath(topic.slug));
     await waitFor(() => test.topic(topic.id).phase === 'discussing', { what: 'discussing' });
+  });
+
+  it('a read that meets the spec while a save replaces it is made again: the spec is not taken for a missing one', async () => {
+    test = await setupTopics();
+    const { topic } = await createTopic(test);
+    const specPath = topicSpecPath(topic.slug);
+    await test.write(specPath, SPEC_TEXT);
+    await waitFor(() => test.topic(topic.id).phase === 'spec', { what: 'spec' });
+
+    // What the path guard says when the file was replaced between its look and its open (an editor's save).
+    const refused = refuseReads(test, specPath, 'changed', 2);
+    await test.write(specPath, `${SPEC_TEXT}\nOne more line.\n`);
+    await waitFor(() => refused.count === 2 && refused.read > 0, { what: 'the read to be made again' });
+    await settle(test);
+    expect(test.topic(topic.id)).toMatchObject({ phase: 'spec', spec: { exists: true } });
+    expect(test.fakes.agents.log.of('start')).toHaveLength(1);
+  });
+
+  it('a spec that is replaced at every look is no spec for this read, and a refusal of another kind is not asked twice', async () => {
+    test = await setupTopics();
+    const { topic } = await createTopic(test);
+    const specPath = topicSpecPath(topic.slug);
+    await test.write(specPath, SPEC_TEXT);
+    await waitFor(() => test.topic(topic.id).phase === 'spec', { what: 'spec' });
+
+    const always = refuseReads(test, specPath, 'changed', Number.POSITIVE_INFINITY);
+    await test.write(specPath, `${SPEC_TEXT}\nOne more line.\n`);
+    await waitFor(() => test.topic(topic.id).phase === 'discussing', { what: 'no spec that could be read' });
+    // The first look and four more, then it gives up (no endless loop on a file that never holds still).
+    expect(always.count).toBe(5);
+    always.restore();
+
+    await test.write(specPath, SPEC_TEXT);
+    await waitFor(() => test.topic(topic.id).phase === 'spec', { what: 'spec again' });
+    const link = refuseReads(test, specPath, 'symlink', Number.POSITIVE_INFINITY);
+    await test.write(specPath, `${SPEC_TEXT}\nAnd another.\n`);
+    await waitFor(() => test.topic(topic.id).phase === 'discussing', { what: 'a refused spec is no spec' });
+    expect(link.count).toBe(1);
   });
 
   it('"Ask the agent to revise" is a message of a member with agent access and a suggestion of an Editor, both composed by the conversation module', async () => {

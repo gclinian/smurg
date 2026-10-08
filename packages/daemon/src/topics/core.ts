@@ -32,6 +32,7 @@ import {
 import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import type { AttentionFact, PersistentDocument, Principal, UserId } from '../core/interfaces.ts';
+import { PathDeniedError } from '../core/errors.ts';
 import { SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { attentionFacts } from './attention.ts';
@@ -51,6 +52,9 @@ import {
   type TopicsDocument,
 } from './store.ts';
 import { EMPTY_HASH, sha256Hex } from './text.ts';
+
+/** A read that met a file while it was being replaced is made again after these pauses (an editor's save takes a moment). */
+const READ_AGAIN_AFTER_MS: readonly number[] = [10, 25, 60, 150];
 
 export interface TopicsOptions {
   /** How long after a change of SPEC.md / PLAN.md on disk the files are read again (changes coalesce). */
@@ -578,16 +582,29 @@ export class TopicsCore {
     while (this.chains.size > 0) await Promise.all([...this.chains.values()]);
   }
 
-  /** A file of a root as the daemon itself reads it (through PathGuard), or null when it is not there or not readable. */
+  /**
+   * A file of a root as the daemon itself reads it (through PathGuard), or null when it is not there or not readable.
+   *
+   * A file that is REPLACED while it is read (an editor's save puts a new file in its place; PathGuard then refuses
+   * the read as `changed`, because what it opened is not what it resolved) is read again: it is there, a moment
+   * later. Taken for "not there", a spec vanished from its topic until the next change of the file, and "Generate
+   * plan" did nothing right after someone had typed in the spec (seen once on a slow machine).
+   */
   async readFile(root: RootRef, path: string): Promise<FileContent | null> {
     const ref: FileRef = { root, path };
-    try {
-      const { bytes } = await this.ctx.paths.readFile(ref, { principal: SYSTEM_PRINCIPAL, maxBytes: TOPIC_FILE_MAX_BYTES, audit: false });
-      return { text: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('utf8'), hash: sha256Hex(bytes) };
-    } catch (err) {
-      if (err instanceof SmurgError && err.code !== 'not_found') this.ctx.log.debug('topic file not readable', { path, code: err.code });
-      else if (!(err instanceof SmurgError)) this.ctx.log.debug('topic file not readable', { path, error: err instanceof Error ? err.name : 'unknown' });
-      return null;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const { bytes } = await this.ctx.paths.readFile(ref, { principal: SYSTEM_PRINCIPAL, maxBytes: TOPIC_FILE_MAX_BYTES, audit: false });
+        return { text: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('utf8'), hash: sha256Hex(bytes) };
+      } catch (err) {
+        if (err instanceof PathDeniedError && err.reason === 'changed' && attempt < READ_AGAIN_AFTER_MS.length) {
+          await new Promise<void>((resolve) => setTimeout(resolve, READ_AGAIN_AFTER_MS[attempt]));
+          continue;
+        }
+        if (err instanceof SmurgError && err.code !== 'not_found') this.ctx.log.debug('topic file not readable', { path, code: err.code });
+        else if (!(err instanceof SmurgError)) this.ctx.log.debug('topic file not readable', { path, error: err instanceof Error ? err.name : 'unknown' });
+        return null;
+      }
     }
   }
 

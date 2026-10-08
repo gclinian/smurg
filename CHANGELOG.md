@@ -62,6 +62,10 @@ section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.m
   that is sharing a workspace: it asks you to stop sharing first (`--force` installs all the same). The files
   `~/.smurg/workspaces.json` and `credentials.json` of a newer smurg are refused; before, they were read as empty
   and written over.
+- **A spec or plan saved at the moment smurg reads it is no longer taken for a missing file.** In 0.5.0 a save in
+  the editor could meet smurg's own look at `SPEC.md` or `PLAN.md`. The file then counted as missing until it
+  changed again: the topic went back to "discussing", or a plan's work items did not appear. smurg now reads the
+  file again.
 - **If you run your own relay**: deploy it again when you update, as before. The deploy can now keep the previous
   version's page files beside the new ones (`scripts/deploy-relay.sh --keep-assets`), so that tabs opened before the
   deploy still load their parts; run without the option, the script says what that does to pages that are open.
