@@ -1,0 +1,782 @@
+{
+  "workspaceId": "ws_x0ero8pS70bWM5G4VbZ1NA",
+  "links": {
+    "hostLink": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=tlXOeo7lE_Qxz93ZLQJiOe6ZiB8NoIv0obQKyo9eXzQ",
+    "teamLink": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=W5k8WrWq6yRMoN5K65d61p6zmEVYmVUwR9qmOLb7vJ8"
+  },
+  "invites": {
+    "bob-viewer-1use": {
+      "url": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=_C7OW51fw8r-3NYcKxkqD2PjwsZUaz1wjtA1Aq3a83c",
+      "id": "inv_PAdk5OvbXSgSHqgBQdqQPQ",
+      "role": "viewer",
+      "maxUses": 1,
+      "createdAt": 1791378020853,
+      "expiresAt": 1791982820853
+    },
+    "carol-agent-1use": {
+      "url": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=iI1Gs6cbbj9GAFFeDuV73lCBylHueozllkkd2vbfkts",
+      "id": "inv_839ulTv6vVL7LrRz6Dyd_Q",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1791378020866,
+      "expiresAt": 1791982820866
+    },
+    "dave-agent-1use": {
+      "url": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=zcjU6KOYY98Q-YP-d36hqYHH9B-pWquVQ66drHSWmlk",
+      "id": "inv_mJfMVjP0yEaEgJg3ElzkiA",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1791378020875,
+      "expiresAt": 1791982820875
+    },
+    "multi-editor-5uses": {
+      "url": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=i1YV16X-5CIGdyCM6MyAsAf6CqF3u-vJRs9J2hdTzBo",
+      "id": "inv_2XxtGksLLXVvKBtWXtdEGw",
+      "role": "editor",
+      "maxUses": 5,
+      "createdAt": 1791378020881,
+      "expiresAt": 1791982820881
+    },
+    "gina-viewer-2uses-then-revoked": {
+      "url": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=Df5GD7gfeSNfkJEkGre2AM5Aqpfl9sXg5-bY2sIbWMA",
+      "id": "inv_rHX04I2_MT3H9zMMBJsegw",
+      "role": "viewer",
+      "maxUses": 2,
+      "createdAt": 1791378020889,
+      "expiresAt": 1791982820889,
+      "revoked": true
+    },
+    "unused-editor-3uses": {
+      "url": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=-E0-k_rFSEEGUMfOKVmiFTtc1bhMZYhd06OHRj2M9Dk",
+      "id": "inv_6G1DLoKecHfdUIdGbOU3Xw",
+      "role": "editor",
+      "maxUses": 3,
+      "createdAt": 1791378020897,
+      "expiresAt": 1791982820897
+    },
+    "unused-viewer-nolimit-30d": {
+      "url": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=LSbQUHDXJSNfS5eH0c1s-Uejc1yws4hro8_8mxzo40Y",
+      "id": "inv_ogRLfZQevSvnqWEnZ70Sgw",
+      "role": "viewer",
+      "expiresInSec": 2592000,
+      "createdAt": 1791378020904,
+      "expiresAt": 1793970020904
+    },
+    "unused-agent-1use": {
+      "url": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=NMbnlJDzHPpQHE6t9bhxzq1wvhxdwx-vM2vkTp48i8U",
+      "id": "inv_7a5zKMfKxrGcnrYNiZ-4fg",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1791378020913,
+      "expiresAt": 1791982820913
+    },
+    "expired-editor-8s": {
+      "url": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=RHA1TqXDgzlyCcQcfCLT7XFVt3yF-KPABZEIXGAo9WM",
+      "id": "inv_ZEUmmkm0NtF_gj-9a0B6lg",
+      "role": "editor",
+      "expiresInSec": 8,
+      "maxUses": 2,
+      "createdAt": 1791378020921,
+      "expiresAt": 1791378028921
+    },
+    "revoked-unused-editor": {
+      "url": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=nYIrilZrbhhKrR6CI0u2AB9V5oshGm8vPz7OhSMlqso",
+      "id": "inv_UC9wnGDhWPvFvOYAbebxDA",
+      "role": "editor",
+      "maxUses": 4,
+      "createdAt": 1791378020930,
+      "expiresAt": 1791982820930,
+      "revoked": true
+    },
+    "ivan-agent-cli-1use": {
+      "url": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=aTpG6CVHkVvkkx94EfuuGzKmjBb5gzfEQreN1xjq6dA",
+      "id": "inv_bIYSQGyWGc5r3wZFYiGH3Q",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1791378020939,
+      "expiresAt": 1791982820939
+    },
+    "frank-editor-rejoin-1use": {
+      "url": "http://localhost:18740/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=CBolxPflcf-NlkLSRP2lTzWkOZxDQjzxNSaP5cmNbl4",
+      "id": "inv_zMZKBJL5K8qjp-X3GydGiQ",
+      "role": "editor",
+      "maxUses": 1,
+      "createdAt": 1791378031012,
+      "expiresAt": 1791982831012
+    }
+  },
+  "hostJoined": true,
+  "afterA": {
+    "members": [
+      {
+        "userId": "dev:host",
+        "displayName": "Host",
+        "role": "host",
+        "color": "#4a6fa8",
+        "online": true,
+        "joinedAt": 1791377829781,
+        "devices": [
+          {
+            "deviceId": "NA4QmSUi3xZKXcphZDxGuw",
+            "name": "host-console (REAL test browser)",
+            "kind": "web",
+            "addedAt": 1791378020786,
+            "lastSeenAt": 1791378020786,
+            "revoked": false
+          }
+        ]
+      },
+      {
+        "userId": "dev:amy",
+        "displayName": "Amy",
+        "role": "editor",
+        "color": "#b8860b",
+        "online": true,
+        "joinedAt": 1791378020841,
+        "devices": [
+          {
+            "deviceId": "JIjSikT5uMktptsb_00ztw",
+            "name": "amy (REAL test browser)",
+            "kind": "web",
+            "addedAt": 1791378020841,
+            "lastSeenAt": 1791378020841,
+            "revoked": false
+          },
+          {
+            "deviceId": "6GJgI2PWBxaq76G7CLldSw",
+            "name": "amy-phone (REAL test browser)",
+            "kind": "web",
+            "addedAt": 1791378031684,
+            "lastSeenAt": 1791378031684,
+            "revoked": false
+          }
+        ]
+      },
+      {
+        "userId": "dev:bob",
+        "displayName": "Bob",
+        "role": "viewer",
+        "color": "#008080",
+        "online": true,
+        "joinedAt": 1791378020983,
+        "devices": [
+          {
+            "deviceId": "Yw49VXRgifChIimZHTjAkA",
+            "name": "bob (REAL test browser)",
+            "kind": "web",
+            "addedAt": 1791378020983,
+            "lastSeenAt": 1791378020983,
+            "revoked": false
+          }
+        ]
+      },
+      {
+        "userId": "dev:carol",
+        "displayName": "Carol",
+        "role": "agent",
+        "color": "#2e8b3e",
+        "online": true,
+        "joinedAt": 1791378021028,
+        "devices": [
+          {
+            "deviceId": "zft1cA8nTwo7q_aayO1jJQ",
+            "name": "carol (REAL test browser)",
+            "kind": "web",
+            "addedAt": 1791378021028,
+            "lastSeenAt": 1791378021028,
+            "revoked": false
+          }
+        ]
+      },
+      {
+        "userId": "dev:dave",
+        "displayName": "Dave",
+        "role": "agent",
+        "color": "#9a6324",
+        "online": true,
+        "joinedAt": 1791378021069,
+        "devices": [
+          {
+            "deviceId": "q_bALDAkrLwz96A0tl0JUg",
+            "name": "dave (REAL test browser)",
+            "kind": "web",
+            "addedAt": 1791378021069,
+            "lastSeenAt": 1791378021069,
+            "revoked": false
+          }
+        ]
+      },
+      {
+        "userId": "dev:erin",
+        "displayName": "Erin",
+        "role": "editor",
+        "color": "#4363d8",
+        "online": true,
+        "joinedAt": 1791378021110,
+        "devices": [
+          {
+            "deviceId": "oFew2Cg2JhIRVp0G3faezA",
+            "name": "erin (REAL test browser)",
+            "kind": "web",
+            "addedAt": 1791378021110,
+            "lastSeenAt": 1791378021110,
+            "revoked": false
+          }
+        ]
+      },
+      {
+        "userId": "dev:gina",
+        "displayName": "Gina",
+        "role": "editor",
+        "color": "#d45087",
+        "online": true,
+        "joinedAt": 1791378021191,
+        "devices": [
+          {
+            "deviceId": "nk9GVKZvc7aKMWWeh3O6Ig",
+            "name": "gina (REAL test browser)",
+            "kind": "web",
+            "addedAt": 1791378021191,
+            "lastSeenAt": 1791378031643,
+            "revoked": false
+          }
+        ]
+      },
+      {
+        "userId": "dev:frank",
+        "displayName": "Frank",
+        "role": "editor",
+        "color": "#d2691e",
+        "online": true,
+        "joinedAt": 1791378031094,
+        "devices": [
+          {
+            "deviceId": "7gk4PsKLNdVdh2_OdJ1T_Q",
+            "name": "frank-laptop (REAL test browser)",
+            "kind": "web",
+            "addedAt": 1791378021150,
+            "lastSeenAt": 1791378030466,
+            "revoked": true
+          },
+          {
+            "deviceId": "KtjG_p1JQE_BlLFbQJ_axw",
+            "name": "frank-phone (REAL test browser)",
+            "kind": "web",
+            "addedAt": 1791378031094,
+            "lastSeenAt": 1791378031094,
+            "revoked": false
+          }
+        ]
+      }
+    ],
+    "invites": [
+      {
+        "id": "inv_McvUF-3Ohjm-F9RcNBBIkg",
+        "role": "host",
+        "createdAt": 1791377830079,
+        "expiresAt": 1791982630079,
+        "maxUses": 1,
+        "uses": 1,
+        "revoked": false
+      },
+      {
+        "id": "inv_tZRl9LGC6HXcQr3NnW25fQ",
+        "role": "editor",
+        "createdAt": 1791377830091,
+        "expiresAt": 1791982630091,
+        "uses": 2,
+        "revoked": false
+      },
+      {
+        "id": "inv_PAdk5OvbXSgSHqgBQdqQPQ",
+        "role": "viewer",
+        "createdAt": 1791378020853,
+        "expiresAt": 1791982820853,
+        "maxUses": 1,
+        "uses": 1,
+        "revoked": false
+      },
+      {
+        "id": "inv_839ulTv6vVL7LrRz6Dyd_Q",
+        "role": "agent",
+        "createdAt": 1791378020866,
+        "expiresAt": 1791982820866,
+        "maxUses": 1,
+        "uses": 1,
+        "revoked": false
+      },
+      {
+        "id": "inv_mJfMVjP0yEaEgJg3ElzkiA",
+        "role": "agent",
+        "createdAt": 1791378020875,
+        "expiresAt": 1791982820875,
+        "maxUses": 1,
+        "uses": 1,
+        "revoked": false
+      },
+      {
+        "id": "inv_2XxtGksLLXVvKBtWXtdEGw",
+        "role": "editor",
+        "createdAt": 1791378020881,
+        "expiresAt": 1791982820881,
+        "maxUses": 5,
+        "uses": 2,
+        "revoked": false
+      },
+      {
+        "id": "inv_rHX04I2_MT3H9zMMBJsegw",
+        "role": "viewer",
+        "createdAt": 1791378020889,
+        "expiresAt": 1791982820889,
+        "maxUses": 2,
+        "uses": 1,
+        "revoked": true
+      },
+      {
+        "id": "inv_6G1DLoKecHfdUIdGbOU3Xw",
+        "role": "editor",
+        "createdAt": 1791378020897,
+        "expiresAt": 1791982820897,
+        "maxUses": 3,
+        "uses": 0,
+        "revoked": false
+      },
+      {
+        "id": "inv_ogRLfZQevSvnqWEnZ70Sgw",
+        "role": "viewer",
+        "createdAt": 1791378020904,
+        "expiresAt": 1793970020904,
+        "uses": 0,
+        "revoked": false
+      },
+      {
+        "id": "inv_7a5zKMfKxrGcnrYNiZ-4fg",
+        "role": "agent",
+        "createdAt": 1791378020913,
+        "expiresAt": 1791982820913,
+        "maxUses": 1,
+        "uses": 0,
+        "revoked": false
+      },
+      {
+        "id": "inv_ZEUmmkm0NtF_gj-9a0B6lg",
+        "role": "editor",
+        "createdAt": 1791378020921,
+        "expiresAt": 1791378028921,
+        "maxUses": 2,
+        "uses": 0,
+        "revoked": false
+      },
+      {
+        "id": "inv_UC9wnGDhWPvFvOYAbebxDA",
+        "role": "editor",
+        "createdAt": 1791378020930,
+        "expiresAt": 1791982820930,
+        "maxUses": 4,
+        "uses": 0,
+        "revoked": true
+      },
+      {
+        "id": "inv_bIYSQGyWGc5r3wZFYiGH3Q",
+        "role": "agent",
+        "createdAt": 1791378020939,
+        "expiresAt": 1791982820939,
+        "maxUses": 1,
+        "uses": 0,
+        "revoked": false
+      },
+      {
+        "id": "inv_zMZKBJL5K8qjp-X3GydGiQ",
+        "role": "editor",
+        "createdAt": 1791378031012,
+        "expiresAt": 1791982831012,
+        "maxUses": 1,
+        "uses": 1,
+        "revoked": false
+      }
+    ]
+  },
+  "settings": {
+    "before": {
+      "humanLockIdleMs": 30000,
+      "agentLockTimeoutMs": 60000,
+      "uploadChunkSize": 4194304,
+      "sharedDirs": [],
+      "diskReserveBytes": 5368709120,
+      "diskReservePercent": 5
+    },
+    "afterB": {
+      "humanLockIdleMs": 45000,
+      "agentLockTimeoutMs": 60000,
+      "uploadChunkSize": 4194304,
+      "sharedDirs": [
+        "data"
+      ],
+      "diskReserveBytes": 5368709120,
+      "diskReservePercent": 5
+    },
+    "afterC": {
+      "humanLockIdleMs": 45000,
+      "agentLockTimeoutMs": 90000,
+      "uploadChunkSize": 4194304,
+      "sharedDirs": [
+        "data"
+      ],
+      "diskReserveBytes": 5368709120,
+      "diskReservePercent": 3
+    }
+  },
+  "uploads": {
+    "complete": {
+      "path": "assets/logo.bin",
+      "uploadId": "up_0KNlSJ_GUBbIWztNIXWnSQ"
+    },
+    "interrupted": {
+      "path": "assets/big-video.bin",
+      "uploadId": "up_csBqrqqTK4yjRWoaJ2NtnA",
+      "size": 5243003,
+      "chunkSize": 1048576,
+      "chunksSent": [
+        0,
+        1,
+        3
+      ],
+      "chunkCount": 6
+    }
+  },
+  "conflicts": {
+    "open": "conflict_4TAtEtDhPERt-gzyWq8cLA",
+    "applied": "conflict_wpgqYNMI2IdsZbCbFsdc7g",
+    "dismissed": "conflict_3ttKDIHBTVlZSckwgCNPXA"
+  },
+  "afterB": {
+    "conflicts": [
+      {
+        "id": "conflict_4TAtEtDhPERt-gzyWq8cLA",
+        "file": {
+          "root": {
+            "kind": "main"
+          },
+          "path": "conflict.txt"
+        },
+        "createdAt": 1791378108538,
+        "source": {
+          "kind": "system"
+        },
+        "humans": [
+          {
+            "userId": "dev:amy",
+            "displayName": "Amy"
+          }
+        ],
+        "hunks": [
+          {
+            "humanText": "line (Amy) one",
+            "agentText": "line ONE by a formatter",
+            "baseText": "line one",
+            "startLine": 1
+          }
+        ],
+        "agentVersionBytes": 44,
+        "status": "open"
+      },
+      {
+        "id": "conflict_wpgqYNMI2IdsZbCbFsdc7g",
+        "file": {
+          "root": {
+            "kind": "main"
+          },
+          "path": "docs/plan.md"
+        },
+        "createdAt": 1791378108845,
+        "source": {
+          "kind": "system"
+        },
+        "humans": [
+          {
+            "userId": "dev:erin",
+            "displayName": "Erin"
+          }
+        ],
+        "hunks": [
+          {
+            "humanText": "# Erin's Plan",
+            "agentText": "# PLAN (rewritten by a script)",
+            "baseText": "# Plan",
+            "startLine": 1
+          }
+        ],
+        "agentVersionBytes": 49,
+        "status": "applied"
+      },
+      {
+        "id": "conflict_3ttKDIHBTVlZSckwgCNPXA",
+        "file": {
+          "root": {
+            "kind": "main"
+          },
+          "path": "docs/gina.md"
+        },
+        "createdAt": 1791378109171,
+        "source": {
+          "kind": "user",
+          "userId": "dev:gina",
+          "displayName": "Gina"
+        },
+        "humans": [
+          {
+            "userId": "dev:gina",
+            "displayName": "Gina"
+          }
+        ],
+        "hunks": [
+          {
+            "humanText": "# About Gina",
+            "agentText": "# GINA (reformatted)",
+            "baseText": "# Gina",
+            "startLine": 1
+          }
+        ],
+        "agentVersionBytes": 67,
+        "status": "dismissed"
+      }
+    ],
+    "locks": [
+      {
+        "kind": "human",
+        "file": {
+          "root": {
+            "kind": "main"
+          },
+          "path": "conflict.txt"
+        },
+        "holders": [
+          {
+            "userId": "dev:amy",
+            "displayName": "Amy",
+            "lastActivityAt": 1791378108256
+          }
+        ],
+        "acquiredAt": 1791378108256
+      },
+      {
+        "kind": "human",
+        "file": {
+          "root": {
+            "kind": "main"
+          },
+          "path": "docs/plan.md"
+        },
+        "holders": [
+          {
+            "userId": "dev:erin",
+            "displayName": "Erin",
+            "lastActivityAt": 1791378108878
+          }
+        ],
+        "acquiredAt": 1791378108669
+      },
+      {
+        "kind": "human",
+        "file": {
+          "root": {
+            "kind": "main"
+          },
+          "path": "docs/gina.md"
+        },
+        "holders": [
+          {
+            "userId": "dev:gina",
+            "displayName": "Gina",
+            "lastActivityAt": 1791378108994
+          }
+        ],
+        "acquiredAt": 1791378108994
+      }
+    ]
+  },
+  "sessions": {
+    "T1-host-terminal-running": {
+      "id": "ses_a67306060bc5863556b339887a39a315",
+      "kind": "terminal",
+      "root": {
+        "kind": "main"
+      },
+      "owner": "dev:host",
+      "title": "host shell"
+    },
+    "T2-carol-terminal-exited-by-itself": {
+      "id": "ses_eacbbf373c99a1874c0f03954e9d8d10",
+      "kind": "terminal",
+      "root": {
+        "kind": "main"
+      },
+      "owner": "dev:carol"
+    },
+    "T3-carol-terminal-terminated-by-host": {
+      "id": "ses_9cf4835746a3393dcb395a247963acc4",
+      "kind": "terminal",
+      "root": {
+        "kind": "main"
+      },
+      "owner": "dev:carol"
+    },
+    "T4-dave-terminal-ended-when-he-left": {
+      "id": "ses_c2bab7eaca97927c71a8878dbc2553ae",
+      "kind": "terminal",
+      "root": {
+        "kind": "main"
+      },
+      "owner": "dev:dave"
+    },
+    "A1-host-agent-running": {
+      "id": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "kind": "agent",
+      "root": {
+        "kind": "main"
+      },
+      "owner": "dev:host",
+      "title": "Claude (stand-in)"
+    },
+    "A2-carol-agent-ended-by-carol": {
+      "id": "ses_37c9f5f62e77b1a9af74b61d7a744abd",
+      "kind": "agent",
+      "root": {
+        "kind": "main"
+      },
+      "owner": "dev:carol"
+    },
+    "A3-host-agent-exited-code-3": {
+      "id": "ses_532753f2f60a475d134f3470a5165444",
+      "kind": "agent",
+      "root": {
+        "kind": "main"
+      },
+      "owner": "dev:host"
+    },
+    "W1-carol-terminal-in-worktree-running": {
+      "id": "ses_0b8bd3786f41970ca9e8424dbb4d92f4",
+      "kind": "terminal",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_1a6446cb2f94b9ce8fadd272"
+      },
+      "owner": "dev:carol",
+      "title": "carol feature"
+    },
+    "A4-host-agent-in-worktree-ended-kept": {
+      "id": "ses_9fade02da4039bbf807a4ec2fea3395c",
+      "kind": "agent",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_efcb449900c9593bcdf13b6b"
+      },
+      "owner": "dev:host",
+      "title": "agent in a worktree"
+    },
+    "W3-carol-terminal-in-worktree-ended-removed": {
+      "id": "ses_00a716fab5995afbeeaeea6535c0956c",
+      "kind": "terminal",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_445021e401719181692db4e9"
+      },
+      "owner": "dev:carol"
+    }
+  },
+  "suggestions": {
+    "s1-amy-withdrawn": {
+      "id": "sug_Fq6EVpE_uDAENDYuH0mXXA",
+      "sessionId": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "text": "please run the tests"
+    },
+    "s2-amy-rejected-by-host": {
+      "id": "sug_GP-dmFOP6y8EESLoKK7_pA",
+      "sessionId": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "text": "delete the docs folder"
+    },
+    "s3-amy-accepted-by-host": {
+      "id": "sug_7WGWWzOp3VNxopjBKpuTVQ",
+      "sessionId": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "text": "add a test for hello()"
+    },
+    "s4-erin-accepted-modified-by-carol": {
+      "id": "sug_tfyXjG4o383wKFRpG4vDoA",
+      "sessionId": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "text": "rename a to answer"
+    },
+    "s5-gina-PENDING-on-A1": {
+      "id": "sug_vDO9ys-45mFRMkQu85fuGg",
+      "sessionId": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "text": "explain what hello() returns"
+    },
+    "s6-erin-PENDING-on-A1-author-kicked-later": {
+      "id": "sug_Qkvn51GWBzsm8J_ErcmcMA",
+      "sessionId": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "text": "also update the README"
+    },
+    "s7-amy-PENDING-on-T1": {
+      "id": "sug_oWA8YADVBTI2rg6r4z2JXg",
+      "sessionId": "ses_a67306060bc5863556b339887a39a315",
+      "text": "ls -la"
+    }
+  },
+  "worktrees": {
+    "W1-carol-running-session": "wt_1a6446cb2f94b9ce8fadd272",
+    "W2-host-kept-no-session": "wt_efcb449900c9593bcdf13b6b",
+    "W3-carol-removed": "wt_445021e401719181692db4e9"
+  },
+  "merges": {
+    "MR1-merged": {
+      "id": "mr_5af9acb2f4fe6eaf64f84491",
+      "worktreeId": "wt_1a6446cb2f94b9ce8fadd272",
+      "requestedBy": {
+        "userId": "dev:carol",
+        "displayName": "Carol"
+      },
+      "message": "add feature.txt",
+      "commit": "64ac33881126fe19f23c279370fff9b07d1423b3",
+      "status": "merged",
+      "createdAt": 1791378177756,
+      "decidedAt": 1791378177954
+    },
+    "MR2-rejected": {
+      "id": "mr_4a6503df8edff6caa18d3920",
+      "worktreeId": "wt_1a6446cb2f94b9ce8fadd272",
+      "requestedBy": {
+        "userId": "dev:carol",
+        "displayName": "Carol"
+      },
+      "message": "add second.txt",
+      "commit": "b154d4fc43774a7d4c69876c74f830b0bddc03ab",
+      "status": "rejected",
+      "createdAt": 1791378178130,
+      "decidedAt": 1791378178142,
+      "rejectReason": "請先修正測試"
+    },
+    "MR3-PENDING": {
+      "id": "mr_3ef5388b8d2467de233905c8",
+      "worktreeId": "wt_1a6446cb2f94b9ce8fadd272",
+      "requestedBy": {
+        "userId": "dev:carol",
+        "displayName": "Carol"
+      },
+      "message": "add third.txt\n- waits for the host",
+      "commit": "07784a8e1c5ae0e9e6e8729fda62421d21ca395d",
+      "status": "pending",
+      "createdAt": 1791378178333
+    },
+    "MR4-PENDING-kept-worktree": {
+      "id": "mr_a8132d293bf7d3d1164e8d2f",
+      "worktreeId": "wt_efcb449900c9593bcdf13b6b",
+      "requestedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "message": "notes from the agent",
+      "commit": "944589c0ed8896c1de5d2e002cc11c155132e069",
+      "status": "pending",
+      "createdAt": 1791378178934
+    }
+  }
+}

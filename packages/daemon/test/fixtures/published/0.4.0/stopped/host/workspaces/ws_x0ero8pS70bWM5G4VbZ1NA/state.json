@@ -1,0 +1,434 @@
+{
+  "version": 1,
+  "workspaceId": "ws_x0ero8pS70bWM5G4VbZ1NA",
+  "members": [
+    {
+      "userId": "dev:host",
+      "displayName": "Host",
+      "role": "host",
+      "color": "#4a6fa8",
+      "joinedAt": 1791377829781,
+      "lastSeenAt": 1791378217252,
+      "status": "active"
+    },
+    {
+      "userId": "dev:amy",
+      "displayName": "Amy",
+      "role": "editor",
+      "color": "#b8860b",
+      "joinedAt": 1791378020841,
+      "lastSeenAt": 1791378180729,
+      "status": "active"
+    },
+    {
+      "userId": "dev:bob",
+      "displayName": "Bob",
+      "role": "viewer",
+      "color": "#008080",
+      "joinedAt": 1791378020983,
+      "lastSeenAt": 1791378111902,
+      "status": "active"
+    },
+    {
+      "userId": "dev:carol",
+      "displayName": "Carol",
+      "role": "agent",
+      "color": "#2e8b3e",
+      "joinedAt": 1791378021028,
+      "lastSeenAt": 1791378180730,
+      "status": "active"
+    },
+    {
+      "userId": "dev:dave",
+      "displayName": "Dave",
+      "role": "agent",
+      "color": "#9a6324",
+      "joinedAt": 1791378021069,
+      "lastSeenAt": 1791378175673,
+      "status": "active"
+    },
+    {
+      "userId": "dev:erin",
+      "displayName": "Erin",
+      "role": "editor",
+      "color": "#4363d8",
+      "joinedAt": 1791378021110,
+      "lastSeenAt": 1791378179185,
+      "status": "kicked",
+      "kickedAt": 1791378179185
+    },
+    {
+      "userId": "dev:gina",
+      "displayName": "Gina",
+      "role": "editor",
+      "color": "#d45087",
+      "joinedAt": 1791378021191,
+      "lastSeenAt": 1791378180730,
+      "status": "active"
+    },
+    {
+      "userId": "dev:frank",
+      "displayName": "Frank",
+      "role": "editor",
+      "color": "#d2691e",
+      "joinedAt": 1791378031094,
+      "lastSeenAt": 1791378031703,
+      "status": "active"
+    },
+    {
+      "userId": "dev:ivan",
+      "displayName": "ivan",
+      "role": "agent",
+      "color": "#a03cc8",
+      "joinedAt": 1791378058441,
+      "lastSeenAt": 1791378217406,
+      "status": "active"
+    }
+  ],
+  "devices": [
+    {
+      "deviceId": "NA4QmSUi3xZKXcphZDxGuw",
+      "userId": "dev:host",
+      "publicKeyHex": "f8b5d55b79ec41d0a85e79a206174cf9d7aee22b162721d7d618666acd49cf43",
+      "name": "host-console (REAL test browser)",
+      "kind": "web",
+      "addedAt": 1791378020786,
+      "lastSeenAt": 1791378205871,
+      "revoked": false,
+      "inviteId": "inv_McvUF-3Ohjm-F9RcNBBIkg"
+    },
+    {
+      "deviceId": "JIjSikT5uMktptsb_00ztw",
+      "userId": "dev:amy",
+      "publicKeyHex": "f56a0d077b4d7c3cb4bee209f189a5bd571d6abe8ad519fdb8173265dd97ef64",
+      "name": "amy (REAL test browser)",
+      "kind": "web",
+      "addedAt": 1791378020841,
+      "lastSeenAt": 1791378180729,
+      "revoked": false,
+      "inviteId": "inv_tZRl9LGC6HXcQr3NnW25fQ"
+    },
+    {
+      "deviceId": "Yw49VXRgifChIimZHTjAkA",
+      "userId": "dev:bob",
+      "publicKeyHex": "1ddf84b835e9e604351b3327058d5ce05b3f402b6574dece9421b8d81f383847",
+      "name": "bob (REAL test browser)",
+      "kind": "web",
+      "addedAt": 1791378020983,
+      "lastSeenAt": 1791378111902,
+      "revoked": false,
+      "inviteId": "inv_PAdk5OvbXSgSHqgBQdqQPQ"
+    },
+    {
+      "deviceId": "zft1cA8nTwo7q_aayO1jJQ",
+      "userId": "dev:carol",
+      "publicKeyHex": "3e9431debba65b5efbea1ecc926201b93044e83235547f02f839216557641c02",
+      "name": "carol (REAL test browser)",
+      "kind": "web",
+      "addedAt": 1791378021028,
+      "lastSeenAt": 1791378180730,
+      "revoked": false,
+      "inviteId": "inv_839ulTv6vVL7LrRz6Dyd_Q"
+    },
+    {
+      "deviceId": "q_bALDAkrLwz96A0tl0JUg",
+      "userId": "dev:dave",
+      "publicKeyHex": "627af9204b108b28cbf73d7690a436c94f470e7f8bf7260ae602d10beb4c7c25",
+      "name": "dave (REAL test browser)",
+      "kind": "web",
+      "addedAt": 1791378021069,
+      "lastSeenAt": 1791378175673,
+      "revoked": false,
+      "inviteId": "inv_mJfMVjP0yEaEgJg3ElzkiA"
+    },
+    {
+      "deviceId": "oFew2Cg2JhIRVp0G3faezA",
+      "userId": "dev:erin",
+      "publicKeyHex": "0087867a200ccd9032be937144213aaa20943ca0ad85bb9c8b4f1c3049cc2333",
+      "name": "erin (REAL test browser)",
+      "kind": "web",
+      "addedAt": 1791378021110,
+      "lastSeenAt": 1791378179185,
+      "revoked": true,
+      "revokedAt": 1791378179185,
+      "inviteId": "inv_2XxtGksLLXVvKBtWXtdEGw"
+    },
+    {
+      "deviceId": "7gk4PsKLNdVdh2_OdJ1T_Q",
+      "userId": "dev:frank",
+      "publicKeyHex": "11dfe0a96b27546f6c438e81425b289a9fa419ccc723064a24d9a6363d31f703",
+      "name": "frank-laptop (REAL test browser)",
+      "kind": "web",
+      "addedAt": 1791378021150,
+      "lastSeenAt": 1791378030466,
+      "revoked": true,
+      "revokedAt": 1791378030465,
+      "inviteId": "inv_2XxtGksLLXVvKBtWXtdEGw"
+    },
+    {
+      "deviceId": "nk9GVKZvc7aKMWWeh3O6Ig",
+      "userId": "dev:gina",
+      "publicKeyHex": "37b8b3fd8f37bdc0edcbb52a4843c40f12fa625d45d809aa79d147c454de3245",
+      "name": "gina (REAL test browser)",
+      "kind": "web",
+      "addedAt": 1791378021191,
+      "lastSeenAt": 1791378180730,
+      "revoked": false,
+      "inviteId": "inv_rHX04I2_MT3H9zMMBJsegw"
+    },
+    {
+      "deviceId": "KtjG_p1JQE_BlLFbQJ_axw",
+      "userId": "dev:frank",
+      "publicKeyHex": "53c9f3c1928081c9e18c01504e961db20a070b84a0ecda2d61891f1d16636d4b",
+      "name": "frank-phone (REAL test browser)",
+      "kind": "web",
+      "addedAt": 1791378031094,
+      "lastSeenAt": 1791378031703,
+      "revoked": false,
+      "inviteId": "inv_zMZKBJL5K8qjp-X3GydGiQ"
+    },
+    {
+      "deviceId": "6GJgI2PWBxaq76G7CLldSw",
+      "userId": "dev:amy",
+      "publicKeyHex": "6f8d52aa62b3852561221cfec071ca48bc7fc25c345e9264e1949ef8519dca79",
+      "name": "amy-phone (REAL test browser)",
+      "kind": "web",
+      "addedAt": 1791378031684,
+      "lastSeenAt": 1791378031704,
+      "revoked": false,
+      "inviteId": "inv_tZRl9LGC6HXcQr3NnW25fQ"
+    },
+    {
+      "deviceId": "G4f15tbUnsBe6RWr_ncLRQ",
+      "userId": "dev:ivan",
+      "publicKeyHex": "a1ce795a5db862fef2b6e6b7002b5364a410d3a05057bc660a761d3c7dcda812",
+      "name": "smurg CLI (fixture-host)",
+      "kind": "cli",
+      "addedAt": 1791378058441,
+      "lastSeenAt": 1791378217406,
+      "revoked": false,
+      "inviteId": "inv_bIYSQGyWGc5r3wZFYiGH3Q"
+    }
+  ],
+  "invites": [
+    {
+      "id": "inv_McvUF-3Ohjm-F9RcNBBIkg",
+      "keyIdHex": "3dc08869f1ee3b38ddfd4172103e4819",
+      "pskHex": "59ca42c61040b397a3d73c996ae661984a10bcd821a2c86673ef9a116344408b",
+      "role": "host",
+      "boundUserId": "dev:host",
+      "createdAt": 1791377830079,
+      "createdBy": null,
+      "expiresAt": 1791982630079,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": true
+    },
+    {
+      "id": "inv_tZRl9LGC6HXcQr3NnW25fQ",
+      "keyIdHex": "3e9623866097a58692209df19f6ce58e",
+      "pskHex": "85a10fd9b1d2763755ec4d3b14efb9cdb838968d4b453176fb5d4544613b12d1",
+      "role": "editor",
+      "createdAt": 1791377830091,
+      "createdBy": "dev:host",
+      "expiresAt": 1791982630091,
+      "uses": 2,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_PAdk5OvbXSgSHqgBQdqQPQ",
+      "keyIdHex": "ef6036c333efdd7103b1de4babc57a8a",
+      "pskHex": "b927ecc0fabf3aa7a26f8fdfc8eb397caf9b42eece185a439a19a743d11dea7d",
+      "role": "viewer",
+      "createdAt": 1791378020853,
+      "createdBy": "dev:host",
+      "expiresAt": 1791982820853,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_839ulTv6vVL7LrRz6Dyd_Q",
+      "keyIdHex": "0561adf5f3ec1c8041b6bb5206d6dbd4",
+      "pskHex": "75b666d4678156f1197c3d0208206a4e1dec1cc7f63f8b219343afa02619671b",
+      "role": "agent",
+      "createdAt": 1791378020866,
+      "createdBy": "dev:host",
+      "expiresAt": 1791982820866,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_mJfMVjP0yEaEgJg3ElzkiA",
+      "keyIdHex": "9b0b8e480dbeb2464def78bfebf70340",
+      "pskHex": "14ca9f0dc3f023c70718816516b49561ce9a298ce49fadf9f171626b2c1e4e0e",
+      "role": "agent",
+      "createdAt": 1791378020875,
+      "createdBy": "dev:host",
+      "expiresAt": 1791982820875,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_2XxtGksLLXVvKBtWXtdEGw",
+      "keyIdHex": "cb68728f2e97b82f5ab9b6ebf951b70c",
+      "pskHex": "bdea808962904150a1c2fd13e1be5b2e0f5d86edc0f2b4bf209c16a0f7c6df54",
+      "role": "editor",
+      "createdAt": 1791378020881,
+      "createdBy": "dev:host",
+      "expiresAt": 1791982820881,
+      "maxUses": 5,
+      "uses": 2,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_rHX04I2_MT3H9zMMBJsegw",
+      "keyIdHex": "ded788f72d6fd586e0b2fbe754774429",
+      "pskHex": "fffd6d3bf92f9aad8ebc2e1731d03376d0c1a68878661f79e2f77a4cb1b49bed",
+      "role": "viewer",
+      "createdAt": 1791378020889,
+      "createdBy": "dev:host",
+      "expiresAt": 1791982820889,
+      "maxUses": 2,
+      "uses": 1,
+      "revoked": true,
+      "host": false
+    },
+    {
+      "id": "inv_6G1DLoKecHfdUIdGbOU3Xw",
+      "keyIdHex": "59440f073bc7d4320b58456ad602a7cc",
+      "pskHex": "743d4d158f7a16395843efbc2fe2684f00bf9937834ba413405204e5c29aa329",
+      "role": "editor",
+      "createdAt": 1791378020897,
+      "createdBy": "dev:host",
+      "expiresAt": 1791982820897,
+      "maxUses": 3,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_ogRLfZQevSvnqWEnZ70Sgw",
+      "keyIdHex": "f62ee29e3257e6268bbd266ba4cae48e",
+      "pskHex": "decd74cb58b0bfc97f9143f7566f294a3d7420f3c042fe8aedf693a4b6f202bc",
+      "role": "viewer",
+      "createdAt": 1791378020904,
+      "createdBy": "dev:host",
+      "expiresAt": 1793970020904,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_7a5zKMfKxrGcnrYNiZ-4fg",
+      "keyIdHex": "5404079d01c4a39f98ea8318e5ae1f1d",
+      "pskHex": "a400d2ecd4b9467b6285e604c98830b21f1e6bb9fe4b6587b701d91ee6391345",
+      "role": "agent",
+      "createdAt": 1791378020913,
+      "createdBy": "dev:host",
+      "expiresAt": 1791982820913,
+      "maxUses": 1,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_ZEUmmkm0NtF_gj-9a0B6lg",
+      "keyIdHex": "d68125b01ed72e770027a1119ab568bf",
+      "pskHex": "8116cc164ee265f0276071aec4447ab2d94471d67a8df07cf43bd3bc4962a311",
+      "role": "editor",
+      "createdAt": 1791378020921,
+      "createdBy": "dev:host",
+      "expiresAt": 1791378028921,
+      "maxUses": 2,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_UC9wnGDhWPvFvOYAbebxDA",
+      "keyIdHex": "d764a0d404e9d6dee2132a7c65c3d0f5",
+      "pskHex": "37c618f0e42ea99c29c2f131c4b533aa90e19d3dc0058fa7b2cfc2371e9306cd",
+      "role": "editor",
+      "createdAt": 1791378020930,
+      "createdBy": "dev:host",
+      "expiresAt": 1791982820930,
+      "maxUses": 4,
+      "uses": 0,
+      "revoked": true,
+      "host": false
+    },
+    {
+      "id": "inv_bIYSQGyWGc5r3wZFYiGH3Q",
+      "keyIdHex": "5daba3fee645027384d4089fe7cd0b6c",
+      "pskHex": "5608f7060574c47f6730d312896529979b89bf7161a636045ed93b2a73d93e3c",
+      "role": "agent",
+      "createdAt": 1791378020939,
+      "createdBy": "dev:host",
+      "expiresAt": 1791982820939,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_zMZKBJL5K8qjp-X3GydGiQ",
+      "keyIdHex": "4b7c10f8fca2d7786c15943cb2edcf40",
+      "pskHex": "f0fd971746f6038f71c3bcf37d644c761b30e8d766ec582999a18c79fe6c61cd",
+      "role": "editor",
+      "createdAt": 1791378031012,
+      "createdBy": "dev:host",
+      "expiresAt": 1791982831012,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    }
+  ],
+  "settings": {
+    "humanLockIdleMs": 45000,
+    "agentLockTimeoutMs": 90000,
+    "uploadChunkSize": 4194304,
+    "sharedDirs": [
+      "data"
+    ],
+    "diskReserveBytes": 5368709120,
+    "diskReservePercent": 3
+  },
+  "worktreeRoots": [
+    {
+      "worktreeId": "wt_1a6446cb2f94b9ce8fadd272",
+      "realPath": "/__SMURG_FIXTURE__/project/.smurg/worktrees/wt_1a6446cb2f94b9ce8fadd272",
+      "ownerUserId": "dev:carol",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/project/data"
+        }
+      ],
+      "registeredAt": 1791378177520
+    },
+    {
+      "worktreeId": "wt_efcb449900c9593bcdf13b6b",
+      "realPath": "/__SMURG_FIXTURE__/project/.smurg/worktrees/wt_efcb449900c9593bcdf13b6b",
+      "ownerUserId": "dev:host",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/project/data"
+        }
+      ],
+      "registeredAt": 1791378178407
+    }
+  ]
+}

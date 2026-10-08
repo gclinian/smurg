@@ -1,0 +1,156 @@
+: #1 union by kind
+<0>: #2 object strict
+<0>.kind: literal "line"
+<0>.text: #3 object [custom] strict
+<0>.text.id: string [min_length minimum=1] [max_length maximum=80] [string_format format=regex pattern=^[a-z][A-Za-z0-9.]*$/]
+<0>.text.params: optional
+<0>.text.params: record [custom] [custom]
+<0>.text.params{key}: string [min_length minimum=1] [max_length maximum=32]
+<0>.text.params{}: #4 union
+<0>.text.params{}<0>: string [max_length maximum=1000]
+<0>.text.params{}<1>: number [custom]
+<0>.text.params{}<2>: boolean
+<0>.text.params{}<3>: array [max_length maximum=10]
+<0>.text.params{}<3>[]: string [max_length maximum=500]
+<0>.fallback: string [min_length minimum=0] [max_length maximum=1000] [custom]
+<0>.seq: number format=safeint [greater_than value=1 inclusive=true]
+<0>.at: number format=safeint [greater_than value=0 inclusive=true]
+<1>: #5 object strict
+<1>.kind: literal "notice"
+<1>.level: enum "info"|"warning"|"error"
+<1>.text: the same as #3
+<1>.fallback: string [min_length minimum=0] [max_length maximum=1000] [custom]
+<1>.action: optional
+<1>.action: enum "restart-agent"|"retry"
+<1>.seq: number format=safeint [greater_than value=1 inclusive=true]
+<1>.at: number format=safeint [greater_than value=0 inclusive=true]
+<2>: #6 object strict
+<2>.kind: literal "message"
+<2>.messageId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<2>.from: #7 object strict
+<2>.from.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+<2>.from.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+<2>.from.role: enum "host"|"agent"|"editor"|"viewer"
+<2>.text: string [min_length minimum=1] [max_length maximum=65536] [custom] [custom]
+<2>.cleaned: optional
+<2>.cleaned: literal true
+<2>.origin: enum "composer"|"follow-up"|"revise"|"selection"
+<2>.suggestion: optional
+<2>.suggestion: #8 object strict
+<2>.suggestion.id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<2>.suggestion.acceptedBy: #9 object strict
+<2>.suggestion.acceptedBy.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+<2>.suggestion.acceptedBy.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+<2>.suggestion.modified: boolean
+<2>.mentions: optional
+<2>.mentions: array [max_length maximum=10]
+<2>.mentions[]: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+<2>.seq: number format=safeint [greater_than value=1 inclusive=true]
+<2>.at: number format=safeint [greater_than value=0 inclusive=true]
+<3>: #10 object strict
+<3>.kind: literal "smurg"
+<3>.messageId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<3>.purpose: enum "write-spec"|"generate-plan"|"update-plan"|"start-item"|"continue-item"|"retry-item"|"fix-plan"|"fix-report"|"nudge-report"|"resolve-conflict"|"conversation-lost"|"restart-discussion"
+<3>.by: optional
+<3>.by: the same as #9
+<3>.text: string [custom] [custom]
+<3>.seq: number format=safeint [greater_than value=1 inclusive=true]
+<3>.at: number format=safeint [greater_than value=0 inclusive=true]
+<4>: #11 object strict
+<4>.kind: literal "delivery"
+<4>.messageId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<4>.state: enum "queued"|"started"|"completed"|"cancelled"
+<4>.seq: number format=safeint [greater_than value=1 inclusive=true]
+<4>.at: number format=safeint [greater_than value=0 inclusive=true]
+<5>: #12 object strict
+<5>.kind: literal "turn.started"
+<5>.turnId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<5>.seq: number format=safeint [greater_than value=1 inclusive=true]
+<5>.at: number format=safeint [greater_than value=0 inclusive=true]
+<6>: #13 object strict
+<6>.kind: literal "turn.finished"
+<6>.turnId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<6>.outcome: enum "completed"|"interrupted"|"error"|"max-turns"|"budget"
+<6>.durationMs: number format=safeint [greater_than value=0 inclusive=true]
+<6>.stoppedBy: optional
+<6>.stoppedBy: the same as #9
+<6>.seq: number format=safeint [greater_than value=1 inclusive=true]
+<6>.at: number format=safeint [greater_than value=0 inclusive=true]
+<7>: #14 object strict
+<7>.kind: literal "text"
+<7>.turnId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<7>.blockId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<7>.text: string [custom] [custom]
+<7>.aborted: optional
+<7>.aborted: literal true
+<7>.truncated: optional
+<7>.truncated: literal true
+<7>.parentToolUseId: optional
+<7>.parentToolUseId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<7>.seq: number format=safeint [greater_than value=1 inclusive=true]
+<7>.at: number format=safeint [greater_than value=0 inclusive=true]
+<8>: #15 object strict
+<8>.kind: literal "tool.started"
+<8>.turnId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<8>.toolUseId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<8>.tool: #16 object strict
+<8>.tool.name: string [min_length minimum=1] [max_length maximum=64] [custom]
+<8>.tool.verb: enum "read"|"edit"|"create"|"run"|"search"|"fetch"|"task"|"smurg"|"todo"|"other"
+<8>.tool.target: optional
+<8>.tool.target: string [custom] [custom]
+<8>.tool.file: optional
+<8>.tool.file: #17 object strict
+<8>.tool.file.root: #18 union by kind
+<8>.tool.file.root<0>: #19 object strict
+<8>.tool.file.root<0>.kind: literal "main"
+<8>.tool.file.root<1>: #20 object strict
+<8>.tool.file.root<1>.kind: literal "worktree"
+<8>.tool.file.root<1>.worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<8>.tool.file.path: pipe
+<8>.tool.file.path|in: string [max_length maximum=16384]
+<8>.tool.file.path|out: transform
+<8>.tool.outside: optional
+<8>.tool.outside: literal true
+<8>.parentToolUseId: optional
+<8>.parentToolUseId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<8>.seq: number format=safeint [greater_than value=1 inclusive=true]
+<8>.at: number format=safeint [greater_than value=0 inclusive=true]
+<9>: #21 object strict
+<9>.kind: literal "tool.finished"
+<9>.turnId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<9>.toolUseId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<9>.ok: boolean
+<9>.result: #22 object strict
+<9>.result.additions: optional
+<9>.result.additions: number format=safeint [greater_than value=0 inclusive=true]
+<9>.result.deletions: optional
+<9>.result.deletions: number format=safeint [greater_than value=0 inclusive=true]
+<9>.result.exitCode: optional
+<9>.result.exitCode: number format=safeint
+<9>.result.matches: optional
+<9>.result.matches: number format=safeint [greater_than value=0 inclusive=true]
+<9>.result.durationMs: optional
+<9>.result.durationMs: number format=safeint [greater_than value=0 inclusive=true]
+<9>.result.body: optional
+<9>.result.body: #23 object strict
+<9>.result.body.kind: enum "diff"|"output"|"list"|"text"
+<9>.result.body.text: string [custom] [custom]
+<9>.result.body.truncated: boolean
+<9>.seq: number format=safeint [greater_than value=1 inclusive=true]
+<9>.at: number format=safeint [greater_than value=0 inclusive=true]
+<10>: #24 object strict
+<10>.kind: literal "card"
+<10>.card: enum "question"|"permission"|"suggestion"
+<10>.id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<10>.seq: number format=safeint [greater_than value=1 inclusive=true]
+<10>.at: number format=safeint [greater_than value=0 inclusive=true]
+<11>: #25 object strict
+<11>.kind: literal "pointer"
+<11>.target: enum "spec"|"plan"|"report"
+<11>.topicId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+<11>.itemId: optional
+<11>.itemId: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,39}$/]
+<11>.version: optional
+<11>.version: number format=safeint [greater_than value=1 inclusive=true]
+<11>.seq: number format=safeint [greater_than value=1 inclusive=true]
+<11>.at: number format=safeint [greater_than value=0 inclusive=true]

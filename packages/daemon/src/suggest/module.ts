@@ -8,6 +8,7 @@
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import { DisposableStack, toDisposable } from '../core/lifecycle.ts';
 import { registerSuggestionHandlers } from './handlers.ts';
+import { suggestionsDocument } from './store.ts';
 import { SuggestionServiceImpl, type SuggestionModuleOptions } from './suggestion-service.ts';
 
 /** A suggest module with seams (limits). Production uses suggestModule. */
@@ -15,6 +16,7 @@ export function createSuggestModule(options: SuggestionModuleOptions = {}): Feat
   const services = new WeakMap<DaemonContext, SuggestionServiceImpl>();
   return {
     name: 'suggest',
+    documents: [suggestionsDocument],
     create: (ctx) => {
       const service = new SuggestionServiceImpl(ctx, options);
       services.set(ctx, service);

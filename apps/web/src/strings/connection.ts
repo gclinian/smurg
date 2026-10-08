@@ -70,8 +70,16 @@ export const tConn = defineStrings(
     'rejected.identity-invalid.body': "The host's computer could not verify your login. Reload the page; if it keeps happening, log out and log in again.",
     'rejected.kicked.title': 'You were removed from the workspace',
     'rejected.kicked.body': 'The host removed you from this workspace. To join again, ask the host for a new invite link.',
+    // A `version` refusal: the page asks the relay whether it still serves this tab's page (lib/page-build.ts) and
+    // says which side has to act. `body` is for when the relay could not be asked: both steps, the person's own first.
     'rejected.version.title': 'Incompatible versions',
-    'rejected.version.body': "This page and smurg on the host's computer are not compatible. Reload the page; if it keeps happening, ask the host to update smurg.",
+    'rejected.version.body':
+      "This page and smurg on the host's computer are not compatible. Reload the page. If the page says this again, the host's smurg is older than the page: the host stops sharing, runs smurg update and shares again (a host who runs their own relay deploys the relay again); then reload this page.",
+    'rejected.version.checking': 'Checking whether this tab runs the newest page…',
+    'rejected.version.stale.title': 'This tab is from before an update',
+    'rejected.version.stale.body': 'smurg was updated while this tab was open, and the tab still runs the page from before. Reload the page to get the new one.',
+    'rejected.version.hostOlder.title': "The host's smurg is older than this page",
+    'rejected.version.hostOlder.body': 'The host stops sharing, runs smurg update and shares again (a host who runs their own relay deploys the relay again). Then reload this page.',
     'rejected.unknown.title': 'The host refused this connection',
     'rejected.unknown.body': "The host's computer refused this connection without giving a reason. Try again later, or contact the host.",
 
@@ -89,6 +97,9 @@ export const tConn = defineStrings(
     'closed.no-trust.body': 'Join with the invite link the host gave you. An invite link looks like https://…/join/…#k=…&s=…; copy and paste all of it, not only the part before the "#".',
     'closed.storage-error.title': 'Cannot read or write the device key',
     'closed.storage-error.body': "The browser cannot use this site's storage (IndexedDB). Check that site data is not blocked, or use a normal (not private) window.",
+    // The key store found a record a newer page wrote and left it as it is (never replaced by a new key).
+    'closed.newer-key.title': "This browser's smurg key was written by a newer page",
+    'closed.newer-key.body': 'A newer smurg page stored the key this browser uses for this workspace, in a form this tab cannot read. Nothing was changed. Reload the page to get the newer one.',
 
     'action.home': 'Back to home',
     'action.reload': 'Reload the page',

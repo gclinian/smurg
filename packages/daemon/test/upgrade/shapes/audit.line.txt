@@ -1,0 +1,23 @@
+: #1 object strict
+id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+at: number format=safeint [greater_than value=0 inclusive=true]
+actor: #2 union by kind
+actor<0>: #3 object strict
+actor<0>.kind: literal "user"
+actor<0>.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+actor<0>.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+actor<1>: #4 object strict
+actor<1>.kind: literal "agent"
+actor<1>.sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+actor<1>.ownerUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+actor<1>.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+actor<2>: #5 object strict
+actor<2>.kind: literal "system"
+action: enum "auth.join"|"auth.connect"|"auth.disconnect"|"auth.rejected"|"authz.denied"|"path.denied"|"file.write"|"file.create"|"file.rename"|"file.delete"|"file.upload"|"file.download"|"doc.edit"|"agent.edit"|"external.change"|"doc.conflict"|"doc.conflict-resolve"|"lock.acquire"|"lock.release"|"lock.denied"|"lock.force-release"|"session.create"|"session.end"|"session.terminate"|"session.message"|"smurg.message"|"session.interrupt"|"session.retry"|"session.restart"|"session.responsible"|"session.mode"|"session.rule.remove"|"session.handover"|"responsible.fallback"|"question.submit"|"question.remind"|"permission.decide"|"permission.auto"|"permission.auto-deny"|"agent.command"|"topic.create"|"topic.rename"|"topic.archive"|"topic.delete"|"topic.discussion.restart"|"topic.spec.request"|"topic.rule.add"|"topic.rule.remove"|"plan.generate"|"plan.start"|"plan.resume"|"plan.assign"|"plan.mode"|"plan.item.retry"|"plan.item.continue"|"plan.item.resolve"|"scheduler.start"|"scheduler.disarm"|"report.register"|"report.review"|"spec.commit"|"claude-config.decide"|"transcript.redact"|"suggest.create"|"suggest.edit"|"suggest.accept"|"suggest.reject"|"suggest.withdraw"|"worktree.create"|"worktree.remove"|"worktree.merge.request"|"worktree.merge.approve"|"worktree.merge.reject"|"member.role"|"member.kick"|"member.leave"|"invite.create"|"invite.revoke"|"device.revoke"|"settings.change"
+target: optional
+target: string [min_length minimum=0] [max_length maximum=4200] [custom]
+outcome: enum "ok"|"denied"|"error"
+detail: optional
+detail: record [custom] [custom]
+detail{key}: string [min_length minimum=1] [max_length maximum=64]
+detail{}: unknown

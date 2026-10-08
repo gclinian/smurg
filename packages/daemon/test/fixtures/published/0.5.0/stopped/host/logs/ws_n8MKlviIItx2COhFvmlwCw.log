@@ -1,0 +1,28 @@
+2026-10-07T16:08:58.498Z info "hook socket listening" sessions=0
+2026-10-07T16:08:58.695Z info "control socket listening" module=control
+2026-10-07T16:08:58.705Z info "daemon started" workspace=ws_n8MKlviIItx2COhFvmlwCw relay=http://127.0.0.1:62452
+2026-10-07T16:08:58.715Z info "relay link online" module=relay link=ws
+2026-10-07T16:08:58.718Z info "relay link online" module=relay link=xfer
+2026-10-07T16:08:59.455Z info "stop requested on the control socket" module=control
+2026-10-07T16:09:10.201Z info "hook socket listening" sessions=0
+2026-10-07T16:09:10.273Z info "control socket listening" module=control
+2026-10-07T16:09:10.292Z info "daemon started" workspace=ws_n8MKlviIItx2COhFvmlwCw relay=http://127.0.0.1:62452
+2026-10-07T16:09:10.299Z info "relay link online" module=relay link=ws
+2026-10-07T16:09:10.306Z info "relay link online" module=relay link=xfer
+2026-10-07T16:09:29.085Z info "agent.tool.unknown: a tool outside the session's list was refused" session=ses_d7789ee40d953fa406bd278b4b078f3e tool=TodoWrite
+2026-10-07T16:09:29.436Z info "agent.tool.unknown: a tool outside the session's list was refused" session=ses_d7789ee40d953fa406bd278b4b078f3e tool=SomethingNew
+2026-10-07T16:09:36.638Z info "agent notified a member" session=ses_d7789ee40d953fa406bd278b4b078f3e member=dev:bob
+2026-10-07T16:09:42.950Z warn "an agent process ended unexpectedly" session=ses_f1ada460ace4585e4ceef832da033a60 code=3 signal=none stderr="boom\n"
+2026-10-07T16:09:53.595Z warn "an agent process ended unexpectedly" session=ses_2f08c13dde7de9a00ac39ce36e5750f6 code=7 signal=none stderr="fatal\n"
+2026-10-07T16:09:55.502Z warn "an agent process ended unexpectedly" session=ses_2597fec2feff4fbbf35867eef8b897ab code=9 signal=none stderr="no ink\n"
+2026-10-07T16:09:58.456Z error "snapshot failed" topic=tp_l-V_bHpkEwNfFIX9wnHCBA item=card-vendor error=SmurgError
+2026-10-07T16:10:36.761Z info "stop requested on the control socket" module=control
+2026-10-07T16:10:38.316Z info "hook socket listening" sessions=0
+2026-10-07T16:10:38.364Z warn "inbox: a source failed" module=inbox source=plans error=SmurgError
+2026-10-07T16:10:38.471Z info "control socket listening" module=control
+2026-10-07T16:10:38.493Z info "daemon started" workspace=ws_n8MKlviIItx2COhFvmlwCw relay=http://127.0.0.1:62452
+2026-10-07T16:10:38.504Z info "relay link online" module=relay link=ws
+2026-10-07T16:10:38.513Z info "relay link online" module=relay link=xfer
+2026-10-07T16:11:06.506Z warn "an agent process ended unexpectedly" session=ses_5695448fc43ec83f6fa6041ca70044b4 code=3 signal=none stderr="boom\n"
+2026-10-07T16:17:52.213Z info "stop requested on the control socket" module=control
+2026-10-07T16:17:52.972Z info "agent notified a member" session=ses_bb9948139dcea27fb014d172a6ac2350 member=dev:bob

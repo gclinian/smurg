@@ -2,6 +2,7 @@
 // (src/lib/connection/status.test.ts) independently of the components that render it.
 import type { ConnectionState } from '@smurg/protocol/client';
 import { tConn } from '../../strings/connection.ts';
+import type { PageBuild } from '../page-build.ts';
 
 export type ConnectionTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
@@ -43,7 +44,22 @@ export interface ConnectionView {
   readonly body?: string;
 }
 
-export function describeConnection(state: ConnectionState): ConnectionView {
+/**
+ * What the page found out beside the connection's own state, for the two terminal states whose state says too little
+ * to tell the person what to do. Without them the wording is the one that holds whatever the facts are.
+ */
+export interface ConnectionFacts {
+  /**
+   * After a `version` refusal (the wire says nothing but that word): does the relay still serve the page this tab
+   * runs (lib/page-build.ts)? 'stale': this tab is the older side, a reload cures it. 'current': the host's smurg is
+   * the older side (or, with a relay someone runs themselves, the relay's page is). 'checking': being asked.
+   */
+  readonly pageBuild?: PageBuild | 'checking';
+  /** The key store stopped at a record a newer page wrote (browser-deps.ts); the engine reports it as storage-error. */
+  readonly newerKeyRecord?: boolean;
+}
+
+export function describeConnection(state: ConnectionState, facts: ConnectionFacts = {}): ConnectionView {
   switch (state.kind) {
     case 'idle':
       return view('idle', 'neutral', tConn('pill.idle'), tConn('detail.connecting'));
@@ -100,6 +116,13 @@ export function describeConnection(state: ConnectionState): ConnectionView {
       if (reason === 'kicked') {
         return blockingView('kicked', tConn('pill.kicked'), tConn('rejected.kicked.title'), tConn('rejected.kicked.body'));
       }
+      if (reason === 'version') {
+        // Never "ask the host" alone, and never "nothing to do": a refusal is final until this page is reloaded.
+        const build = facts.pageBuild ?? 'unknown';
+        if (build === 'stale') return blockingView('rejected', tConn('pill.rejected'), tConn('rejected.version.stale.title'), tConn('rejected.version.stale.body'));
+        if (build === 'current') return blockingView('rejected', tConn('pill.rejected'), tConn('rejected.version.hostOlder.title'), tConn('rejected.version.hostOlder.body'));
+        return blockingView('rejected', tConn('pill.rejected'), tConn('rejected.version.title'), build === 'checking' ? tConn('rejected.version.checking') : tConn('rejected.version.body'));
+      }
       const title =
         reason === 'invite-invalid'
           ? tConn('rejected.invite-invalid.title')
@@ -111,9 +134,7 @@ export function describeConnection(state: ConnectionState): ConnectionView {
                 ? tConn('rejected.device-other-account.title')
                 : reason === 'identity-invalid'
                   ? tConn('rejected.identity-invalid.title')
-                  : reason === 'version'
-                    ? tConn('rejected.version.title')
-                    : tConn('rejected.unknown.title');
+                  : tConn('rejected.unknown.title');
       const body =
         reason === 'invite-invalid'
           ? tConn('rejected.invite-invalid.body')
@@ -125,9 +146,7 @@ export function describeConnection(state: ConnectionState): ConnectionView {
                 ? tConn('rejected.device-other-account.body')
                 : reason === 'identity-invalid'
                   ? tConn('rejected.identity-invalid.body')
-                  : reason === 'version'
-                    ? tConn('rejected.version.body')
-                    : tConn('rejected.unknown.body');
+                  : tConn('rejected.unknown.body');
       return blockingView('rejected', tConn('pill.rejected'), title, body);
     }
     case 'closed': {
@@ -143,6 +162,7 @@ export function describeConnection(state: ConnectionState): ConnectionView {
         case 'no-trust':
           return blockingView('closed', tConn('pill.closed'), tConn('closed.no-trust.title'), tConn('closed.no-trust.body'), 'warning');
         case 'storage-error':
+          if (facts.newerKeyRecord === true) return blockingView('closed', tConn('pill.closed'), tConn('closed.newer-key.title'), tConn('closed.newer-key.body'));
           return blockingView('closed', tConn('pill.closed'), tConn('closed.storage-error.title'), tConn('closed.storage-error.body'));
         case 'local':
           return blockingView('closed', tConn('pill.closed'), tConn('closed.local.title'), tConn('closed.local.body'), 'neutral');

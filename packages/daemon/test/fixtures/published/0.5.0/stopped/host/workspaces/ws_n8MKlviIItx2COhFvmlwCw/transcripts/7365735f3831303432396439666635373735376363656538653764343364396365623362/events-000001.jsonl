@@ -1,0 +1,13 @@
+{"v":1,"kind":"line","text":{"id":"conversation.started.item","params":{"number":1,"branch":"smurg/wishlist/wish-list"}},"fallback":"Started from plan item 1 in the worktree smurg/wishlist/wish-list","seq":1,"at":1791389460406}
+{"v":1,"kind":"smurg","messageId":"m_Fu-bvTA6IKBEIFY5a8K-fw","purpose":"start-item","text":"Start work item 1 (id wish-list). Its title and description are in specs/wishlist/PLAN.md. Responsible for this item: nobody in particular.","seq":2,"at":1791389460406}
+{"v":1,"kind":"delivery","messageId":"m_Fu-bvTA6IKBEIFY5a8K-fw","state":"queued","seq":3,"at":1791389460417}
+{"v":1,"kind":"notice","level":"warning","text":{"id":"session.projectSettings.untrusted"},"fallback":"The host has not confirmed this folder's Claude Code project settings. This session runs without them and without the project's CLAUDE.md.","action":"restart-agent","seq":4,"at":1791389460559}
+{"v":1,"kind":"delivery","messageId":"m_Fu-bvTA6IKBEIFY5a8K-fw","state":"started","seq":5,"at":1791389460564}
+{"v":1,"kind":"turn.started","turnId":"t_1","seq":6,"at":1791389460564}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0001","tool":{"name":"Write","verb":"create","target":"src/wish/list/list.ts","file":{"root":{"kind":"worktree","worktreeId":"wt_c112e9bccd1a636559175ea0"},"path":"src/wish/list/list.ts"}},"seq":7,"at":1791389460627}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0001","ok":true,"result":{"durationMs":131,"additions":1,"deletions":0,"body":{"kind":"diff","text":"+export const list = [];\n","truncated":false}},"seq":8,"at":1791389460758}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0002","tool":{"name":"Bash","verb":"run","target":"pnpm build"},"seq":9,"at":1791389460758}
+{"v":1,"kind":"card","card":"permission","id":"rq_-papZ7iKFMahwsqxWa2RsA","seq":10,"at":1791389460901}
+{"v":1,"kind":"turn.finished","turnId":"t_1","outcome":"interrupted","durationMs":412116,"seq":11,"at":1791389872707}
+{"v":1,"kind":"delivery","messageId":"m_Fu-bvTA6IKBEIFY5a8K-fw","state":"completed","seq":12,"at":1791389872729}
+{"v":1,"kind":"line","text":{"id":"conversation.interrupted.restart"},"fallback":"smurg was restarted on the host's computer. The agent's turn was interrupted","seq":13,"at":1791389872870}

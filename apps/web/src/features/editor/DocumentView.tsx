@@ -5,8 +5,9 @@
 import { fileRefKey, type FileRef } from '@smurg/protocol';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useAppServices } from '../../app/services.tsx';
+import { isChunkLoadError, type ChunkLoadError } from '../../lib/chunks.ts';
 import { useStore } from '../../lib/store.ts';
-import { Banner, Button, Spinner } from '../../ui/index.ts';
+import { Banner, Button, ChunkNotice, Spinner } from '../../ui/index.ts';
 import type { DocSession } from './doc-session.ts';
 import { useEditorEngineLoader, type EditorEngine, type EditorHandle } from './engine.ts';
 import type { EditorSelection } from './selection.ts';
@@ -34,31 +35,39 @@ export interface DocumentViewProps {
   readonly onSendToAgent?: () => void;
 }
 
-function useEngine(): { engine: EditorEngine | null; failed: boolean; retry(): void } {
+/**
+ * `notLoaded`: the editor's chunk did not come (lib/chunks.ts says why: the web app was deployed again, the network
+ * is gone); the notice for it offers the reload, not a retry (a failed import stays failed).
+ */
+function useEngine(): { engine: EditorEngine | null; failed: boolean; notLoaded: ChunkLoadError | null; retry(): void } {
   const loader = useEditorEngineLoader();
   const [engine, setEngine] = useState<EditorEngine | null>(null);
   const [failed, setFailed] = useState(false);
+  const [notLoaded, setNotLoaded] = useState<ChunkLoadError | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let cancelled = false;
     setFailed(false);
+    setNotLoaded(null);
     loader().then(
       (loaded) => {
         if (!cancelled) setEngine(() => loaded);
       },
-      () => {
-        if (!cancelled) setFailed(true);
+      (error: unknown) => {
+        if (cancelled) return;
+        if (isChunkLoadError(error)) setNotLoaded(error);
+        else setFailed(true);
       },
     );
     return () => {
       cancelled = true;
     };
   }, [loader, attempt]);
-  return { engine, failed, retry: () => setAttempt((n) => n + 1) };
+  return { engine, failed, notLoaded, retry: () => setAttempt((n) => n + 1) };
 }
 
 export function DocumentView({ session, file, readOnly, readOnlyMessage, reveal, onRevealed, onSelection, editorRef, onSendToAgent }: DocumentViewProps) {
-  const { engine, failed, retry } = useEngine();
+  const { engine, failed, notLoaded, retry } = useEngine();
   const container = useRef<HTMLDivElement>(null);
   const [editor, setEditor] = useState<EditorHandle | null>(null);
   const [bound, setBound] = useState(false);
@@ -127,7 +136,11 @@ export function DocumentView({ session, file, readOnly, readOnlyMessage, reveal,
   return (
     <div className="editor-doc__view">
       <div ref={container} className="editor-doc__monaco" data-bound={bound || undefined} />
-      {failed ? (
+      {notLoaded ? (
+        <div className="editor-doc__overlay">
+          <ChunkNotice error={notLoaded} />
+        </div>
+      ) : failed ? (
         <div className="editor-doc__overlay">
           <Banner tone="danger" live="alert" actions={<Button size="sm" onClick={retry}>{t('engine.retry')}</Button>}>
             {t('engine.failed')}

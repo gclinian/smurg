@@ -41,8 +41,10 @@ const NUMBERS = new Set([
   'waiting',
   'stalled',
   'idle',
+  'more',
+  'uid',
 ]);
-const LISTS = new Set(['ids', 'others', 'markers', 'names', 'cacheRoots', 'removed', 'rest', 'left']);
+const LISTS = new Set(['ids', 'others', 'markers', 'names', 'cacheRoots', 'removed', 'rest', 'left', 'labels', 'lines', 'paths', 'problems']);
 const BOOLEANS = new Set(['stopping', 'builtIn', 'several', 'bashAttribution']);
 /** Parameters a message may be rendered without. */
 const OPTIONAL: Readonly<Record<string, readonly string[]>> = {
@@ -54,6 +56,14 @@ const OPTIONAL: Readonly<Record<string, readonly string[]>> = {
   'status.claude': ['version'],
   'attach.agents.browser': ['url'],
   'uninstall.stopFailed': ['reason'],
+  'status.otherVersion': ['workspaceId', 'folder'],
+  'status.bookUnreadable': ['hint'],
+  'stop.otherVersion.asking': ['workspaceId'],
+  // A refused workspace state: the writer the folder's stamp names and who owns a file, when they can be said.
+  'host.newer': ['writtenBy'],
+  'host.newer.stamp': ['writtenBy'],
+  'host.insecure.owner': ['owner'],
+  'host.upgraded': ['from'],
 };
 const UNIONS: Readonly<Record<string, readonly string[]>> = {
   action: ['claim', 'login', 'dev-login', 'verify'],
@@ -61,10 +71,14 @@ const UNIONS: Readonly<Record<string, readonly string[]>> = {
   verdict: ['verified', 'unverified', 'too-old', 'unknown'],
   login: ['logged-in', 'logged-out', 'unknown'],
   trust: ['used', 'ignored', 'none'],
+  // Why a running smurg host could not be read (a host of another version), and the two versioned state files.
+  why: ['no-answer', 'not-understood', 'closed', 'message'],
+  file: ['credentials', 'workspaces'],
 };
 const SUBJECTS: Readonly<Record<string, readonly string[]>> = {
   'relay.badUrl': ['flag', 'web-origin', 'env', 'credentials', 'built-in', 'invite'],
   state: ['credentials', 'workspaces', 'logs', 'daemon-key', 'device-key'],
+  'state.newer': ['credentials', 'workspaces'],
 };
 
 interface Sample {
@@ -108,7 +122,16 @@ const SAMPLES: readonly Sample[] = [
 ];
 
 /** zh-TW texts that are the same as the English ones on purpose (a URL-free name, a unit, a table cell). */
-const IDENTICAL_IN_BOTH: readonly MessageId[] = ['arg.session', 'attach.note', 'uninstall.plan.item', 'update.progress.unknown'];
+const IDENTICAL_IN_BOTH: readonly MessageId[] = [
+  'arg.session',
+  'attach.note',
+  'uninstall.plan.item',
+  'update.progress.unknown',
+  // The sentences of a hint, one per line; an errno this smurg has no words for; the one user every system names so.
+  'host.lines',
+  'host.cannotOpen.reason',
+  'host.owner.root',
+];
 
 describe('the CLI catalog (src/i18n)', () => {
   it('has the same ids in both languages', () => {

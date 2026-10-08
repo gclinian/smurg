@@ -5,6 +5,53 @@ Every released version's changes are recorded here (the format follows
 [Semantic Versioning](https://semver.org/)). A version's section is also its release notes; a version without a
 section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.md).
 
+## [Unreleased]
+
+- **Updating from 0.4.0 keeps your workspace.** smurg 0.5.0 refused to start on a workspace that 0.4.0 had shared,
+  and told the host to move the workspace's folder away, which gives up its members, its invite links and its daemon
+  key. This version reads what 0.4.0 and 0.5.0 wrote: at the first `smurg host` after the update the members with
+  their roles, the devices, the invite links, the daemon key and the settings are carried over, nobody joins again,
+  and nobody is asked about a changed key. One line above the links says that it happened. From now on every
+  version reads what every published version before it wrote ([host guide](docs/HOSTING.md) §9.2).
+- **If you followed 0.5.0's advice and moved the folder away**, it is still there
+  (`~/.smurg/workspaces/<workspace code>.old`) and can be put back. `smurg host` names it once, and the
+  [host guide](docs/HOSTING.md) §9.4 has the steps and what going back means for the workspace you used in between.
+- **Look at roles and unused invite links once.** Members and unused links from 0.4.0 keep their role, and the
+  roles do more since 0.5.0: an Editor votes, comments and reviews result reports; Agent access creates topics,
+  starts work items, sends messages to agents and answers their permission requests. Nobody decided that again for
+  your workspace, so change a role or revoke a link you would not give today. The three settings that 0.5.0 added
+  start at their defaults, and "Agents may use my own and this project's MCP servers" is off.
+- **A workspace's state that cannot be used is refused untouched, and the terminal says why.** `smurg host` now reads
+  all of a workspace's state before it writes anything. Written by a newer smurg, open to other users, another
+  user's file, a link, a file the system will not open, a damaged or a missing file: each has its own message, which
+  names the file, says that nothing was changed and says what to do. Moving the folder away is named only as the
+  last resort for a file that cannot be read, after what it costs. A state file that is missing beside its key, or a
+  key missing beside its state file, is refused too; before, smurg quietly made a new, empty one in its place
+  ([host guide](docs/HOSTING.md) §9.3).
+- **smurg keeps a copy of every file it brings to a new form** (for example
+  `state.json.before-upgrade-from-0.4.0`), so that you can look up what the workspace held. Putting a copy back
+  undoes every removal, every revoked device or link and every role change since, and `smurg host` says so when it
+  finds one put back. Going back to an older smurg is not supported.
+- **Different versions: each side is told who has to act.** A page that the host's smurg turns away now tells a tab
+  from before an update ("This tab is from before an update": reload it) from a host who has not updated yet ("The
+  host's smurg is older than this page": the host updates). `smurg attach` says the same in a terminal, and
+  `smurg host` tells the host in one line when it turned away a teammate whose page or smurg is newer or older.
+  Before, both sides read "update smurg", whoever had to.
+- **A tab left open across an update says so.** A part of the page that the update replaced shows "smurg was
+  updated" with a button to reload, where there was an empty page, a column that could not be shown or a dialog that
+  never opened. The panel widths and folds you set under 0.4.0 are kept. The browser never replaces a device key or
+  a recorded host key that a newer page stored.
+- **A `smurg` command and a running `smurg host` of different versions.** `smurg status` says that a host of another
+  version is sharing (exit code 5) where it said that nothing was shared; `smurg stop` stops it; `smurg host`,
+  `smurg update`, `smurg uninstall` and `smurg attach` say why they stop. The installer no longer replaces a `smurg`
+  that is sharing a workspace: it asks you to stop sharing first (`--force` installs all the same). The files
+  `~/.smurg/workspaces.json` and `credentials.json` of a newer smurg are refused; before, they were read as empty
+  and written over.
+- **If you run your own relay**: deploy it again when you update, as before. The deploy can now keep the previous
+  version's page files beside the new ones (`scripts/deploy-relay.sh --keep-assets`), so that tabs opened before the
+  deploy still load their parts. The protocol did not change: 0.5.0 and this version connect to each other and open
+  each other's workspaces.
+
 ## [0.5.0] - 2026-10-07
 
 - **Topics: a team takes a feature from a discussion to reviewed work.** The main screen is now built around

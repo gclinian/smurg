@@ -1,0 +1,13 @@
+: #1 object strict
+main: array [max_length maximum=500]
+main[]: #2 object strict
+main[].rule: string [min_length minimum=1] [max_length maximum=500]
+main[].source: enum "user"|"project"|"local"|"managed"
+worktree: array [max_length maximum=500]
+worktree[]: the same as #2
+told: array [max_length maximum=2000]
+told[]: string [min_length minimum=1] [max_length maximum=516]
+seen: boolean
+foundAt: number format=safeint [greater_than value=0 inclusive=true]
+notices: array [max_length maximum=16]
+notices[]: string [min_length minimum=1] [max_length maximum=64]

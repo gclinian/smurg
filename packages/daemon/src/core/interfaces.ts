@@ -358,6 +358,14 @@ export interface DaemonEvents {
    * again; members cannot connect meanwhile), 'replaced', 'stopped'. `reason` / `status` say why it left `online`.
    */
   'relay.link': { readonly purpose: ChannelPurpose; readonly state: string; readonly reason?: string; readonly status?: number };
+  /**
+   * Admission answered the verdict `version`: the peer's ClientHello names another protocol version than this smurg
+   * speaks. Emitted before anything else about the peer is decided (the token is not looked at). `known`: the peer's
+   * Noise static key is a registered, unrevoked device of an active member, or the handshake used an invite that is
+   * usable now; anyone who ever held an invite link can make the other kind happen, so `smurg host` prints its line
+   * only when `known` is true. Never audited beyond today's `auth.rejected` entry, never on the wire.
+   */
+  'peer.version-refused': { readonly direction: 'peer-newer' | 'peer-older'; readonly peerProtocol: number; readonly known: boolean };
 }
 
 export type DaemonEventName = keyof DaemonEvents;
@@ -397,6 +405,11 @@ export interface StateStore {
    * Opens (or creates with `init()`) `<dir>/<name>.json`. `name` is `[a-z0-9-]{1,40}`; `state` is reserved for the
    * core (members, devices, invites, settings, roots). Feature modules keep their own documents here
    * (`conflicts`, `suggestions`, `worktrees`, …). Opening the same name twice returns the same document.
+   *
+   * In a daemon the document must be DECLARED by its module (`FeatureModule.documents`), with this very `schema`: a
+   * start reads and checks every declared document before it writes anything (and upgrades what an earlier published
+   * smurg wrote), so by the time a module opens its document it was already read; a name that was not declared is
+   * refused (TypeError). A declared document that is not there yet is created from its declared `init` now.
    */
   document<S extends z.ZodType>(name: string, schema: S, init: () => z.output<S>): Promise<PersistentDocument<z.output<S>>>;
   /** Absolute path of a private sub-directory (created 0700), e.g. `uploads`. */

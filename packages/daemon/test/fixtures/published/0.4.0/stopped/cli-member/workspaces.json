@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "shared": [],
+  "joined": [
+    {
+      "workspaceId": "ws_x0ero8pS70bWM5G4VbZ1NA",
+      "relay": "http://localhost:18740",
+      "name": "project",
+      "joinedAt": 1791378217394
+    }
+  ]
+}

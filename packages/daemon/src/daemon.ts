@@ -2,6 +2,10 @@
 // implementation or a stub), registers handlers, and owns the lifecycle.
 //
 //   const daemon = await createDaemon({ config, relay: { token }, modules: DEFAULT_FEATURE_MODULES });
+//                                         // PHASE 1 reads and checks the whole workspace folder and writes nothing
+//                                         // (a refusal is a StateFileError with its kind); PHASE 2 writes: the stamp,
+//                                         // kept copies and upgraded documents, the key and state.json of a new
+//                                         // workspace, the logs (core/workspace-folder.ts). daemon.upgraded / .putBack
 //   await daemon.start();                 // keep-awake, identity keys, modules, host invite, relay links
 //   console.log(daemon.hostInviteUrl);
 //   await daemon.stop();                  // channel.closed{stopped} → relay links closed → modules stopped (reverse)
@@ -9,7 +13,7 @@
 import { homedir, totalmem } from 'node:os';
 import { join } from 'node:path';
 import { SmurgError, daemonKeyFingerprint, formatFingerprintForDisplay, shortTextSchema, type ChannelPurpose, type NoiseSuite, type Welcome, type WorkspaceInfo } from '@smurg/protocol';
-import { ensurePrivateDirectory, loadOrCreateDaemonIdentity, nodeCryptoSuite } from '@smurg/protocol/node';
+import { ensurePrivateDirectory, loadOrCreateDaemonIdentity, nodeCryptoSuite, type LoadedStaticKey } from '@smurg/protocol/node';
 import { relayHttpUrl, wsHostUrl, xferHostUrl } from '@smurg/protocol/relay';
 import { registerAdminHandlers } from './admin/handlers.ts';
 import { InviteServiceImpl } from './admin/invites.ts';
@@ -50,9 +54,10 @@ import { createLineLogger, type Logger } from './core/logger.ts';
 import { SYSTEM_ACTOR } from './core/permissions.ts';
 import { TokenBucketLimiter } from './core/rates.ts';
 import { RouterImpl } from './core/router.ts';
-import { FileStateStore, StateFileError } from './core/state-store.ts';
+import { FileStateStore, StateFileError, type DocumentDeclaration } from './core/state-store.ts';
 import { createStubService, isStubService } from './core/stubs.ts';
-import { STATE_DOCUMENT, initialWorkspaceState, workspaceStateSchema } from './core/workspace-state.ts';
+import { readWorkspaceFolder, writeWorkspaceFolder, type FolderReading, type UpgradedDocument } from './core/workspace-folder.ts';
+import { STATE_DOCUMENT, stateDocument, type workspaceStateSchema } from './core/workspace-state.ts';
 import { ChannelServer } from './net/channel-server.ts';
 import { wsHostSocketFactory, type HostSocketFactory } from './net/host-socket.ts';
 import { IdentityVerifier, jwksKeySource, staticKeySource, type IdentityKeySource } from './net/identity.ts';
@@ -113,6 +118,14 @@ export const DEFAULT_FEATURE_MODULES: readonly FeatureModule[] = Object.freeze([
   localControlModule,
 ]);
 
+/**
+ * Every document of the workspace folder a daemon with these modules declares: the core's `state` first, then each
+ * module's (FeatureModule.documents), in module order. Phase 1 of a start reads and checks exactly these.
+ */
+export function declaredDocuments(config: Pick<DaemonConfig, 'workspaceId' | 'defaultSettings'>, modules: readonly FeatureModule[] = DEFAULT_FEATURE_MODULES): readonly DocumentDeclaration[] {
+  return [stateDocument(config.workspaceId, config.defaultSettings), ...modules.flatMap((module) => module.documents ?? [])];
+}
+
 export interface DaemonOptions {
   readonly config: DaemonConfigInput;
   /** Relay access for the host sockets. Without it (or without config.relayUrl) the daemon opens no relay link. */
@@ -153,6 +166,18 @@ export interface Daemon {
    * at once when the relay refused the old one (link state 'auth-rejected', bus event 'relay.link').
    */
   updateRelayToken(token: string): void;
+  /**
+   * What this start upgraded (empty when nothing): a document that an earlier published smurg wrote in another shape
+   * was read, upgraded in memory, kept as it was in `copy` and written in today's shape, before the daemon did
+   * anything else. `from`: the step's name (`0.4.0`); `copy`: the absolute path of the kept copy.
+   */
+  readonly upgraded: readonly { readonly document: string; readonly from: string; readonly copy: string }[];
+  /**
+   * A step ran although the folder's stamp already named a smurg that upgrades this shape itself (0.5.1 or later): an
+   * OLDER file was put back. Everything decided since that file was written (kicks, revoked devices and links, role
+   * changes, used-up links) is undone by it; `smurg host` says so.
+   */
+  readonly putBack: boolean;
   /** For the testing harness and the local control socket. */
   readonly internals: {
     readonly hub: HubImpl;
@@ -163,6 +188,11 @@ export interface Daemon {
     readonly identityKeys: IdentityKeySource;
     /** `store.unsaved()`: state documents the disk currently refuses. */
     readonly store: FileStateStore;
+    /**
+     * What phase 1 of this start read, before anything was written: the stamp, and every declared document that
+     * existed, as loaded and upgraded in memory (`folder.loaded.get('state')?.value`, frozen). For tests.
+     */
+    readonly folder: FolderReading;
   };
 }
 
@@ -195,15 +225,74 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
   const share = await prepareShare(config.shareDir, config.stateDir, options.homeDir === undefined ? {} : { homeDir: options.homeDir });
   // One daemon per folder, whatever state dir or relay the other one uses. Held until stop().
   const shareLock = await acquireShareLock({ shareRealPath: share.realPath, runDir: config.runDir, workspaceId: config.workspaceId });
+  const modules = options.modules ?? DEFAULT_FEATURE_MODULES;
+  const stateLog = log.child({ module: 'state' });
+  /** Every refusal of any file is logged with the file and the reason (messages are ours: paths and zod's own texts, never a value). */
+  const logRefusal = (err: unknown): void => {
+    const known = err instanceof StateFileError;
+    log.error('workspace state refused; the daemon does not start', {
+      error: err instanceof Error ? err.name : 'unknown',
+      ...(known ? { kind: err.kind, file: err.path } : {}),
+      ...(known && err.cause !== undefined ? { cause: err.cause } : {}),
+      ...(known && err.errno !== undefined ? { errno: err.errno } : {}),
+      ...(known && err.reason !== undefined ? { why: err.reason } : {}),
+      ...(known && err.paths.length > 1 ? { files: err.paths.join(' ') } : {}),
+      ...(known && err.writtenBy !== undefined ? { writtenBy: err.writtenBy } : {}),
+      reason: known || (err instanceof Error && err.name === 'KeyFileError') ? (err as Error).message : errnoCodeOf(err),
+    });
+  };
+
+  // ---- PHASE 1: only reads (core/workspace-folder.ts). The stamp; owner, mode and kind of the key, the logs and every
+  // declared document; the key; every declared document that exists, upgraded in memory. No key is created, no log
+  // is opened, no folder is made and no module code has run. A refusal leaves the workspace folder byte for byte.
+  let reading: FolderReading;
+  const documents = declaredDocuments(config, modules);
+  const coreDocument = documents[0] as ReturnType<typeof stateDocument>;
+  try {
+    const moduleNames = new Set<string>();
+    for (const module of modules) {
+      if (moduleNames.has(module.name)) throw new Error(`feature module ${module.name} is listed twice`);
+      moduleNames.add(module.name);
+    }
+    reading = await readWorkspaceFolder({
+      dir: config.workspaceStateDir,
+      log: stateLog,
+      documents,
+      env: { memoryBytes: options.config.memoryBytes ?? totalmem() },
+      smurg: DAEMON_VERSION,
+      workspaceId: config.workspaceId,
+    });
+  } catch (err) {
+    if (err instanceof StateFileError || (err instanceof Error && err.name === 'KeyFileError')) logRefusal(err);
+    else log.error('daemon composition failed', { error: err instanceof Error ? err.name : 'unknown', reason: errnoCodeOf(err) });
+    await shareLock.release();
+    throw err;
+  }
+
+  // ---- PHASE 2: writes, only now that phase 1 accepted everything. In this order: the folder (a new workspace), the
+  // stamp, for every upgraded document its kept copy and then the document; then everything a start does: the key and
+  // the first state.json of a new folder, the logs, ensureHost, prune, the modules.
   let store: FileStateStore;
-  let identity: Awaited<ReturnType<typeof loadOrCreateDaemonIdentity>>;
+  let identity: { readonly keyPair: LoadedStaticKey['keyPair'] };
   let state: Awaited<ReturnType<typeof store.coreDocument<typeof workspaceStateSchema>>>;
   let audit: JsonlAuditLog;
+  let upgraded: readonly UpgradedDocument[];
   try {
-    store = await FileStateStore.open(config.workspaceStateDir, log.child({ module: 'state' }));
-    identity = await loadOrCreateDaemonIdentity(config.workspaceStateDir);
-    state = await store.coreDocument(STATE_DOCUMENT, workspaceStateSchema, () => initialWorkspaceState(config.workspaceId, config.defaultSettings));
-    if (state.get().workspaceId !== config.workspaceId) throw new StateFileError(join(config.workspaceStateDir, 'state.json'), 'state file belongs to another workspace');
+    const written = await writeWorkspaceFolder(reading, { log: stateLog, clock });
+    store = written.store;
+    upgraded = written.upgraded;
+    if (upgraded.length > 0 && reading.putBack) {
+      log.warn('an OLDER state file was put back into this workspace folder and upgraded again: everything decided since it was written (kicks, revoked devices and links, role changes, used-up links) is undone', {
+        documents: upgraded.map((entry) => entry.document).join(' '),
+        stamp: reading.stamp?.smurg ?? 'unknown',
+      });
+    }
+    // The key is created only with the first state.json of a NEW folder; an existing folder's key was read in phase 1.
+    identity = reading.keyPair !== null ? { keyPair: reading.keyPair } : await loadOrCreateDaemonIdentity(config.workspaceStateDir);
+    state = await store.coreDocument(STATE_DOCUMENT, coreDocument.schema, coreDocument.init);
+    if (state.get().workspaceId !== config.workspaceId) {
+      throw new StateFileError({ kind: 'other-workspace', path: join(config.workspaceStateDir, 'state.json'), message: 'state file belongs to another workspace' });
+    }
     // Full texts (messages, suggestions, commands, notes) rotate in their own files, never the core log.
     const auditTexts = await AuditTextStore.open(join(config.workspaceStateDir, 'audit-text.jsonl'), {
       clock,
@@ -223,12 +312,8 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       throw err;
     });
   } catch (err) {
-    // The host is sent to the log for the reason (review F3): say which file and why. StateFileError / KeyFileError
-    // messages are ours: paths and schema paths with zod's messages, never the values (describeIssues).
-    log.error('workspace state refused; the daemon does not start', {
-      error: err instanceof Error ? err.name : 'unknown',
-      reason: err instanceof StateFileError || (err instanceof Error && err.name === 'KeyFileError') ? err.message : errnoCodeOf(err),
-    });
+    // The host is sent to the log for the reason (review F3): say which file and why.
+    logRefusal(err);
     await shareLock.release();
     throw err;
   }
@@ -329,12 +414,8 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       lifecycle,
     });
 
-    const modules = options.modules ?? DEFAULT_FEATURE_MODULES;
-    const names = new Set<string>();
     const provided = new Map<FeatureServiceName, string>();
     for (const module of modules) {
-      if (names.has(module.name)) throw new Error(`feature module ${module.name} is listed twice`);
-      names.add(module.name);
       const created = (await module.create?.(ctx)) ?? {};
       for (const [key, value] of Object.entries(created)) {
         const name = key as FeatureServiceName;
@@ -568,7 +649,9 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       get hostInviteUrl() {
         return hostInviteUrl;
       },
-      internals: { hub, channelServer, members, invites, links, identityKeys, store },
+      upgraded,
+      putBack: upgraded.length > 0 && reading.putBack,
+      internals: { hub, channelServer, members, invites, links, identityKeys, store, folder: reading },
 
       async start(): Promise<void> {
         if (started || stopped) return;
@@ -577,7 +660,10 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
           await startAll();
         } catch (err) {
           // Half-started (keep-awake child, timers, modules): undo everything before reporting the failure.
-          log.error('daemon start failed', { error: err instanceof Error ? err.name : 'unknown' });
+          log.error('daemon start failed', {
+            error: err instanceof Error ? err.name : 'unknown',
+            ...(err instanceof StateFileError ? { kind: err.kind, file: err.path, reason: err.message } : {}),
+          });
           await daemon.stop('start-failed');
           throw err;
         }

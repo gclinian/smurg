@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "suggestions": [
+    {
+      "id": "sug_Fq6EVpE_uDAENDYuH0mXXA",
+      "sessionId": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "please run the unit tests",
+      "status": "withdrawn",
+      "createdAt": 1791378176817,
+      "resolvedAt": 1791378176836,
+      "sessionOwnerUserId": "dev:host",
+      "editedAt": 1791378176827
+    },
+    {
+      "id": "sug_GP-dmFOP6y8EESLoKK7_pA",
+      "sessionId": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "delete the docs folder",
+      "status": "rejected",
+      "createdAt": 1791378176844,
+      "resolvedAt": 1791378176852,
+      "rejectReason": "先不要",
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_7WGWWzOp3VNxopjBKpuTVQ",
+      "sessionId": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "add a test for hello()",
+      "source": {
+        "file": {
+          "root": {
+            "kind": "main"
+          },
+          "path": "src/hello.ts"
+        },
+        "startLine": 1,
+        "endLine": 3
+      },
+      "status": "accepted",
+      "createdAt": 1791378176859,
+      "resolvedAt": 1791378176870,
+      "finalText": "add a test for hello()",
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_tfyXjG4o383wKFRpG4vDoA",
+      "sessionId": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "author": {
+        "userId": "dev:erin",
+        "displayName": "Erin"
+      },
+      "text": "rename a to answer",
+      "status": "accepted-modified",
+      "createdAt": 1791378176878,
+      "resolvedAt": 1791378176885,
+      "finalText": "rename a to answer in src/app.ts only",
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_vDO9ys-45mFRMkQu85fuGg",
+      "sessionId": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "author": {
+        "userId": "dev:gina",
+        "displayName": "Gina"
+      },
+      "text": "explain what hello() returns",
+      "status": "rejected",
+      "createdAt": 1791378176893,
+      "resolvedAt": 1791378241108,
+      "closedReason": "session-ended",
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_Qkvn51GWBzsm8J_ErcmcMA",
+      "sessionId": "ses_ad7f6572673d5c30eeabf3530e1ee0e9",
+      "author": {
+        "userId": "dev:erin",
+        "displayName": "Erin"
+      },
+      "text": "also update the README",
+      "status": "withdrawn",
+      "createdAt": 1791378176901,
+      "resolvedAt": 1791378179186,
+      "closedReason": "author-kicked",
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_oWA8YADVBTI2rg6r4z2JXg",
+      "sessionId": "ses_a67306060bc5863556b339887a39a315",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "ls -la",
+      "status": "rejected",
+      "createdAt": 1791378176906,
+      "resolvedAt": 1791378241091,
+      "closedReason": "session-ended",
+      "sessionOwnerUserId": "dev:host"
+    }
+  ]
+}

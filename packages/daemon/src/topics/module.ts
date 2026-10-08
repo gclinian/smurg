@@ -14,6 +14,7 @@ import { registerTopicHandlers } from './handlers.ts';
 import { PlanServiceImpl } from './plan-service.ts';
 import { ReportServiceImpl } from './report-service.ts';
 import { Scheduler } from './scheduler.ts';
+import { reportsDocument, topicsDocument } from './store.ts';
 import { TopicServiceImpl } from './topic-service.ts';
 
 export type TopicsModuleOptions = Partial<TopicsOptions>;
@@ -31,6 +32,7 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
   const built = new WeakMap<DaemonContext, Parts>();
   return {
     name: 'topics',
+    documents: [topicsDocument, reportsDocument],
     create: (ctx) => {
       const core = new TopicsCore(ctx, options);
       const scheduler = new Scheduler(ctx, core);

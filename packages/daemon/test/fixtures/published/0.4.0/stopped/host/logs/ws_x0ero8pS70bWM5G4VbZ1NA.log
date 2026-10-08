@@ -1,0 +1,6 @@
+2026-10-07T12:57:09.789Z info "hook socket listening" sessions=0
+2026-10-07T12:57:10.078Z info "control socket listening" module=control
+2026-10-07T12:57:10.091Z info "daemon started" workspace=ws_x0ero8pS70bWM5G4VbZ1NA relay=http://localhost:18740
+2026-10-07T12:57:10.098Z info "relay link online" module=relay link=ws
+2026-10-07T12:57:10.103Z info "relay link online" module=relay link=xfer
+2026-10-07T13:04:00.918Z info "stop requested on the control socket" module=control

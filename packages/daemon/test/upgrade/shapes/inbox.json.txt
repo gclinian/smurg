@@ -1,0 +1,62 @@
+: #1 object strict
+version: literal 1
+members: record
+members{key}: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+members{}: #2 object strict
+members{}.notes: array [max_length maximum=200]
+members{}.notes[]: #3 union by kind
+members{}.notes[]<0>: #4 object strict
+members{}.notes[]<0>.id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+members{}.notes[]<0>.kind: literal "mention"
+members{}.notes[]<0>.at: number format=safeint [greater_than value=0 inclusive=true]
+members{}.notes[]<0>.from: #5 union by kind
+members{}.notes[]<0>.from<0>: #6 object strict
+members{}.notes[]<0>.from<0>.kind: literal "user"
+members{}.notes[]<0>.from<0>.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+members{}.notes[]<0>.from<0>.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+members{}.notes[]<0>.from<1>: #7 object strict
+members{}.notes[]<0>.from<1>.kind: literal "agent"
+members{}.notes[]<0>.from<1>.sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+members{}.notes[]<0>.from<1>.ownerUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+members{}.notes[]<0>.from<1>.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+members{}.notes[]<0>.from<2>: #8 object strict
+members{}.notes[]<0>.from<2>.kind: literal "system"
+members{}.notes[]<0>.target: #9 union by kind
+members{}.notes[]<0>.target<0>: #10 object strict
+members{}.notes[]<0>.target<0>.kind: literal "session"
+members{}.notes[]<0>.target<0>.sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+members{}.notes[]<0>.target<1>: #11 object strict
+members{}.notes[]<0>.target<1>.kind: literal "spec"
+members{}.notes[]<0>.target<1>.topicId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+members{}.notes[]<0>.target<2>: #12 object strict
+members{}.notes[]<0>.target<2>.kind: literal "plan"
+members{}.notes[]<0>.target<2>.topicId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+members{}.notes[]<0>.target<3>: #13 object strict
+members{}.notes[]<0>.target<3>.kind: literal "report"
+members{}.notes[]<0>.target<3>.topicId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+members{}.notes[]<0>.target<3>.itemId: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,39}$/]
+members{}.notes[]<0>.target<4>: #14 object strict
+members{}.notes[]<0>.target<4>.kind: literal "changes"
+members{}.notes[]<0>.target<4>.requestId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+members{}.notes[]<0>.target<5>: #15 object strict
+members{}.notes[]<0>.target<5>.kind: literal "console"
+members{}.notes[]<0>.target<5>.section: enum "members"|"sessions"|"suggestions"|"merges"|"invites"|"audit"|"settings"|"claude-config"|"host-rules"
+members{}.notes[]<0>.anchor: optional
+members{}.notes[]<0>.anchor: #16 object strict
+members{}.notes[]<0>.anchor.cardId: optional
+members{}.notes[]<0>.anchor.cardId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+members{}.notes[]<0>.anchor.seq: optional
+members{}.notes[]<0>.anchor.seq: number format=safeint [greater_than value=1 inclusive=true]
+members{}.notes[]<0>.excerpt: string [min_length minimum=0] [max_length maximum=300] [custom]
+members{}.notes[]<1>: #17 object strict
+members{}.notes[]<1>.id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+members{}.notes[]<1>.kind: literal "result"
+members{}.notes[]<1>.at: number format=safeint [greater_than value=0 inclusive=true]
+members{}.notes[]<1>.from: the same as #5
+members{}.notes[]<1>.sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+members{}.notes[]<1>.suggestionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+members{}.notes[]<1>.outcome: enum "rejected"|"accepted-edited"
+members{}.notes[]<1>.excerpt: string [min_length minimum=0] [max_length maximum=300] [custom]
+members{}.seen: record [custom]
+members{}.seen{key}: string [min_length minimum=3] [max_length maximum=200] [string_format format=regex pattern=^[a-z]+:[\x21-\x7e]+$/]
+members{}.seen{}: string [max_length maximum=200]

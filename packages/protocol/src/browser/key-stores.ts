@@ -1,5 +1,11 @@
 // Device keys and pinned daemon keys on top of a KeyValueStore (IndexedDB in browsers). Every record read back is
 // re-validated before use; nothing unusable is ever handed to the handshake.
+//
+// A record carries `v`, the version of its shape. What a later page wrote under another `v` is a record this page
+// cannot read, and it is NEVER taken for "no record": it is not replaced by a new key and not overwritten by a new
+// pin (the host knows the key the other page made, not a new one; and an older tab that is still open reconnects at
+// every deploy). Reading it stops with 'newer-record', and the stored value stays as it was. A later change of a
+// record's shape converts the old shape, it does not only raise `v`.
 import { equalBytes } from '../bytes.ts';
 import { isWorkspaceId } from '../relay/routes.ts';
 import {
@@ -13,7 +19,11 @@ import {
 } from './device-key.ts';
 import { DAEMON_PIN_STORE, DEVICE_KEY_STORE, type KeyValueStore } from './kv.ts';
 
-export type KeyStoreErrorCode = 'corrupt-record' | 'pin-mismatch' | 'bad-argument';
+/**
+ * 'newer-record': the stored record names a version of its shape this page does not know (a newer page wrote it).
+ * Nothing was changed; the person reloads the page to get the page that reads it.
+ */
+export type KeyStoreErrorCode = 'corrupt-record' | 'pin-mismatch' | 'bad-argument' | 'newer-record';
 
 export class KeyStoreError extends Error {
   readonly code: KeyStoreErrorCode;
@@ -26,6 +36,15 @@ export class KeyStoreError extends Error {
 }
 
 const RECORD_VERSION = 1;
+
+/** The stored value says it is a record of another version than the one this page reads and writes. */
+function isRecordOfAnotherVersion(stored: unknown): boolean {
+  return typeof stored === 'object' && stored !== null && Object.hasOwn(stored, 'v') && (stored as { v: unknown }).v !== RECORD_VERSION;
+}
+
+function newerRecord(what: string): KeyStoreError {
+  return new KeyStoreError('newer-record', `the stored ${what} was written by a newer page (this page reads version ${RECORD_VERSION}); it was left as it is`);
+}
 
 // ---------------------------------------------------------------------------------------------------------------
 // Device keys
@@ -49,8 +68,15 @@ export interface LoadOrCreateResult extends LoadedDeviceKey {
 }
 
 export interface DeviceKeyStore {
-  /** The key stored under `id` after re-validation and a DH self-test, or null if absent or unusable. */
+  /**
+   * The key stored under `id` after re-validation and a DH self-test, or null if absent or unusable. A record of
+   * another version throws 'newer-record'.
+   */
   load(id: string): Promise<LoadedDeviceKey | null>;
+  /**
+   * The stored key, or a new one when there is none (or when the record of THIS version no longer loads). A record
+   * of another version is never replaced: 'newer-record', and the record stays.
+   */
   loadOrCreate(id: string): Promise<LoadOrCreateResult>;
   delete(id: string): Promise<void>;
 }
@@ -73,6 +99,7 @@ export function createDeviceKeyStore(kv: KeyValueStore, options: DeviceKeyStoreO
   const now = options.now ?? Date.now;
 
   const tryUse = async (stored: unknown): Promise<LoadedDeviceKey | null> => {
+    if (isRecordOfAnotherVersion(stored)) throw newerRecord('device key');
     if (typeof stored !== 'object' || stored === null) return null;
     const s = stored as Partial<StoredDeviceKey>;
     if (s.v !== RECORD_VERSION || typeof s.createdAt !== 'number' || !isUsableDeviceKeyRecord(s.record)) return null;
@@ -127,12 +154,16 @@ export function createDeviceKeyStore(kv: KeyValueStore, options: DeviceKeyStoreO
 type StoredPin = { v: typeof RECORD_VERSION; key: Uint8Array; pinnedAt: number };
 
 export interface DaemonPinStore {
-  /** The pinned daemon key, or null if none. A stored record that fails validation throws 'corrupt-record'. */
+  /**
+   * The pinned daemon key, or null if none. A stored record that fails validation throws 'corrupt-record'; a record
+   * of another version throws 'newer-record'.
+   */
   get(workspaceId: string): Promise<Uint8Array | null>;
   /**
    * Pins a VERIFIED daemon key (from clientConnect's onDaemonVerified). Re-pinning the same key is a no-op. A different
    * key throws 'pin-mismatch' unless `replace` is set, which is only legitimate after the key was verified against a
-   * fresh invite's fingerprint (noise.md gotcha 16: never auto-accept a changed daemon key).
+   * fresh invite's fingerprint (noise.md gotcha 16: never auto-accept a changed daemon key). A pin of another version
+   * is never overwritten, with or without `replace`: 'newer-record'.
    */
   pin(workspaceId: string, daemonStaticKey: Uint8Array, options?: { replace?: boolean }): Promise<void>;
   delete(workspaceId: string): Promise<void>;
@@ -147,6 +178,7 @@ export function createDaemonPinStore(kv: KeyValueStore, options: { now?: () => n
   const read = async (workspaceId: string): Promise<Uint8Array | null> => {
     const stored = await kv.get(DAEMON_PIN_STORE, workspaceId);
     if (stored === undefined) return null;
+    if (isRecordOfAnotherVersion(stored)) throw newerRecord('daemon pin');
     const s = stored as Partial<StoredPin> | null;
     if (!s || s.v !== RECORD_VERSION || !(s.key instanceof Uint8Array) || s.key.length !== 32 || typeof s.pinnedAt !== 'number') {
       throw new KeyStoreError('corrupt-record', 'stored daemon pin is malformed');
@@ -167,8 +199,9 @@ export function createDaemonPinStore(kv: KeyValueStore, options: { now?: () => n
       try {
         existing = await read(workspaceId);
       } catch (err) {
-        // A corrupt pin may be overwritten only by an explicit replacement.
-        if (!(err instanceof KeyStoreError) || !pinOptions.replace) throw err;
+        // A corrupt pin (of this version) may be overwritten only by an explicit replacement; a pin this page
+        // cannot read is never overwritten.
+        if (!(err instanceof KeyStoreError) || err.code !== 'corrupt-record' || !pinOptions.replace) throw err;
         existing = null;
       }
       if (existing && equalBytes(existing, daemonStaticKey)) return;

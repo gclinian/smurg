@@ -45,6 +45,11 @@ export function clampSize(value: number, limits: SplitLimits): number {
   return Math.min(limits.max, Math.max(limits.min, Math.round(value)));
 }
 
+/** Where a split pane remembers its size in this browser (`storageKey` of SplitPane): `smurg.pane.<key>`. */
+export function paneStorageKey(storageKey: string): string {
+  return `smurg.pane.${storageKey}`;
+}
+
 /** A size read back from storage: a finite number, or null (missing, corrupt, another type). */
 export function storedSize(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;

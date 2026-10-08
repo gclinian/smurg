@@ -9,8 +9,9 @@
 //
 // This file loads with the workspace page and stays light: the handler of `newSession` is registered here, at once
 // (the "New" control is there from the first moment), and the dialogs behind it (Overlays.tsx) load on their own.
-import { lazy, Suspense, useState } from 'react';
+import { Suspense, useState } from 'react';
 import { isSessionOver } from '@smurg/protocol';
+import { lazyChunk } from '../../lib/chunks.ts';
 import { defineSlots } from '../../lib/slots.ts';
 import { useCommandHandler } from '../../lib/workspace/context.tsx';
 import type { MenuItem } from '../../ui/Menu.tsx';
@@ -18,7 +19,7 @@ import type { SessionKind } from './new-session.ts';
 import { terminalDialogs } from './requests.ts';
 import { t } from './strings.ts';
 
-const Dialogs = lazy(() => import('./Overlays.tsx'));
+const Dialogs = lazyChunk(() => import('./Overlays.tsx'));
 
 function AgentsOverlay() {
   const [creating, setCreating] = useState<SessionKind | null>(null);
@@ -34,7 +35,7 @@ function AgentsOverlay() {
 
 export const slots = defineSlots({
   feature: 'agents',
-  columns: { terminal: lazy(() => import('./TerminalColumn.tsx')) },
+  columns: { terminal: lazyChunk(() => import('./TerminalColumn.tsx')) },
   overlays: [AgentsOverlay],
   menus: {
     session(session, env) {

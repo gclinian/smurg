@@ -5,16 +5,17 @@
 //
 // which exports `slots = defineSlots({ … })`. The shell finds every such file by itself (app/workspace/
 // feature-slots.ts, import.meta.glob), so adding a column kind never means editing a shared file. Keep slots.tsx
-// light: it is loaded with the workspace page. Components go in with React.lazy, so Monaco, xterm and the
-// conversation code load when a column of that kind is first shown.
+// light: it is loaded with the workspace page. Components go in with lazyChunk (lib/chunks.ts: React.lazy behind the
+// one helper that says why a chunk did not come), so Monaco, xterm and the conversation code load when a column of
+// that kind is first shown.
 //
 //   // src/features/conversation/slots.tsx
-//   import { lazy } from 'react';
+//   import { lazyChunk } from '../../lib/chunks.ts';
 //   import { defineSlots } from '../../lib/slots.ts';
 //   export const slots = defineSlots({
 //     feature: 'conversation',
-//     columns: { conversation: lazy(() => import('./ConversationColumn.tsx')) },     // default export: the component
-//     overlays: [lazy(() => import('./SessionDialogs.tsx'))],                        // mounted once, in both modes
+//     columns: { conversation: lazyChunk(() => import('./ConversationColumn.tsx')) },  // default export: the component
+//     overlays: [lazyChunk(() => import('./SessionDialogs.tsx'))],                     // mounted once, in both modes
 //     menus: { session: (session, env) => [{ id: 'rename', label: t('row.rename'), onSelect: () => … }] },
 //     inboxRows: { question: (item, base, env) => ({ ...base, where: `${base.where} · …` }) },
 //   });

@@ -13,6 +13,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { daemonKeyFingerprint, equalBytes } from '@smurg/protocol';
 import { isTerminalState, type ConnectionState, type InviteTrust, type RelayUser } from '@smurg/protocol/client';
+import { loadChunk } from '../../lib/chunks.ts';
 import { describeConnection } from '../../lib/connection/status.ts';
 import { describeError } from '../../lib/errors.ts';
 import { clearPendingInvite, readPendingInvite } from '../../lib/invite/pending-invite.ts';
@@ -251,8 +252,9 @@ function JoinConnect({ workspaceId, invite, preferInvite, manager }: { workspace
   useEffect(() => {
     const acquired = manager.acquire(workspaceId, { invite, preferInvite });
     setHandle(acquired);
-    // Fetch the workspace chunk while the handshake runs, so the hand-over after admission is immediate.
-    void import('../workspace/WorkspaceRoute.tsx').catch(() => {});
+    // Fetch the workspace chunk while the handshake runs, so the hand-over after admission is immediate. A chunk that
+    // does not come is said by the workspace route itself, which asks for it again (app/PageBoundary.tsx).
+    void loadChunk(() => import('../workspace/WorkspaceRoute.tsx')).catch(() => {});
     return () => acquired.release();
   }, [manager, workspaceId, invite, preferInvite]);
 

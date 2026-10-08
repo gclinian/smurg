@@ -1,0 +1,8 @@
+{"v":1,"kind":"line","text":{"id":"conversation.started.free","params":{"name":"Host"}},"fallback":"Host opened this session","seq":1,"at":1791389466301}
+{"v":1,"kind":"notice","level":"warning","text":{"id":"session.projectSettings.untrusted"},"fallback":"The host has not confirmed this folder's Claude Code project settings. This session runs without them and without the project's CLAUDE.md.","action":"restart-agent","seq":2,"at":1791389466418}
+{"v":1,"kind":"message","messageId":"m_k1VEdxVlTGZb3Vhl2pqEaw","from":{"userId":"dev:host","displayName":"Host","role":"host"},"text":"Please crash now.","origin":"composer","seq":3,"at":1791389466444}
+{"v":1,"kind":"delivery","messageId":"m_k1VEdxVlTGZb3Vhl2pqEaw","state":"started","seq":4,"at":1791389466446}
+{"v":1,"kind":"turn.started","turnId":"t_1","seq":5,"at":1791389466446}
+{"v":1,"kind":"text","turnId":"t_1","blockId":"b_1_1","text":"Going down.","seq":6,"at":1791389466504}
+{"v":1,"kind":"turn.finished","turnId":"t_1","outcome":"error","durationMs":60,"seq":7,"at":1791389466506}
+{"v":1,"kind":"notice","level":"error","text":{"id":"notice.processExited","params":{"code":3}},"fallback":"The agent's process ended unexpectedly (exit code 3).","action":"retry","seq":8,"at":1791389466507}

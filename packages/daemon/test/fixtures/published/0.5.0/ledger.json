@@ -1,0 +1,591 @@
+{
+  "relay": "http://127.0.0.1:62452",
+  "workspaceId": "ws_n8MKlviIItx2COhFvmlwCw",
+  "projectRealPath": "/__SMURG_FIXTURE__/project",
+  "firstRun": {
+    "hostLink": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=AEeeBpwL-3FC_0TZ4XOinqkjRtl6nD9BbCeJubVmRRs",
+    "teammatesLink": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=MdZyNK2C14ojvRPhRJAoM941rDQ-0zjZi2zjzeF8zbg",
+    "note": "printed by the first `smurg host`; the host link was never used and is revoked by the next start, the teammates' link (editor, 7 days, no use limit) stays"
+  },
+  "statusFirstRun": "Workspace ws_n8MKlviIItx2COhFvmlwCw\n  Folder: /__SMURG_FIXTURE__/project\n  Relay: http://127.0.0.1:62452, interactive connection connected, file transfer connected\n  Connections: 0, members online: 0\n  Daemon key fingerprint: cb32 c31a ed6d e26a 69b9\n  Keep-awake: off (turned off with --no-keep-awake)\n  Notices of agents' shell commands: on\n  Claude Code: not checked yet (smurg checks it when the first agent session starts)\n  Agent sessions: none\n  Topics: none\n  Claude Code project settings: none in this folder\n  Your own Claude Code allow rules: none apply to agent sessions\n  Log: /__SMURG_FIXTURE__/host/logs/ws_n8MKlviIItx2COhFvmlwCw.log\n  Daemon process: 56990\n",
+  "story": {
+    "startedAt": 1791389339796,
+    "hostLink": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=DoOS5kaAJnFHJLQEf-rYXTikpRqYjjG7klm_Kvym_4c",
+    "note": "the host link of the daemon the story ran in: used by the host's own device (devices/host)"
+  },
+  "lastRun": {
+    "hostLink": "http://localhost:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=p0ZqspxjiAd_BPMbYeUf9RSbDmf-PzA7BMdK8n5-Pmw",
+    "teammatesLink": "http://localhost:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=fxbenVl3VDVd7apB37I3WN9TyTj2l2xZi45r-fAK6aQ",
+    "webOrigin": "http://localhost:62452",
+    "note": "printed by the last `smurg host --name Bookshop --role agent --expires 2d --max-uses 3 --web-origin <the relay as localhost>`; the host link was never used; the links made from here on name the web origin"
+  },
+  "claudeConfig": [
+    {
+      "root": {
+        "kind": "main"
+      },
+      "state": "ignored",
+      "files": [
+        {
+          "path": ".claude/settings.json",
+          "decision": "trust"
+        },
+        {
+          "path": ".claude/settings.local.json",
+          "decision": "ignore"
+        },
+        {
+          "path": ".mcp.json",
+          "decision": "ignore"
+        },
+        {
+          "path": ".claude",
+          "decision": "trust"
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "before": {
+      "humanLockIdleMs": 30000,
+      "agentLockTimeoutMs": 60000,
+      "uploadChunkSize": 4194304,
+      "sharedDirs": [],
+      "diskReserveBytes": 5368709120,
+      "diskReservePercent": 5,
+      "maxLiveAgents": 8,
+      "escalateAfterMs": 300000,
+      "agentMcp": false
+    },
+    "after": {
+      "humanLockIdleMs": 45000,
+      "agentLockTimeoutMs": 60000,
+      "uploadChunkSize": 1048576,
+      "sharedDirs": [
+        "data"
+      ],
+      "diskReserveBytes": 5368709120,
+      "diskReservePercent": 3,
+      "maxLiveAgents": 8,
+      "escalateAfterMs": 60000,
+      "agentMcp": false
+    },
+    "live": {
+      "humanLockIdleMs": 45000,
+      "agentLockTimeoutMs": 60000,
+      "uploadChunkSize": 1048576,
+      "sharedDirs": [
+        "data"
+      ],
+      "diskReserveBytes": 5368709120,
+      "diskReservePercent": 3,
+      "maxLiveAgents": 2,
+      "escalateAfterMs": 60000,
+      "agentMcp": true
+    }
+  },
+  "invites": {
+    "bob-viewer-1use": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=Rc5J3OedRp4bq9P_Ll5CjTc9F4JQki-2LCNv6GU8NZ0",
+      "id": "inv_ZtiHbOwTj4VI1zlumMi-bA",
+      "role": "viewer",
+      "maxUses": 1,
+      "createdAt": 1791389350788,
+      "expiresAt": 1791994150788
+    },
+    "kate-agent-1use": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=EdZiMZLxS4uB3zAT1zZJ2vk1tpEqV-55bR5bj8PC4Zg",
+      "id": "inv_agCq0y94_xSXRkSpQbm6mA",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1791389350797,
+      "expiresAt": 1791994150797
+    },
+    "dave-agent-1use": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=OdG8PlHK898xLJSs-aV1riXqL_2R0ruPPP-aHp0tvdM",
+      "id": "inv_JLHKJCJBT8Ir2Rnr6rdIiA",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1791389350806,
+      "expiresAt": 1791994150806
+    },
+    "ruth-agent-1use": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=RY_ZEWtguSyFiLQqwEfoLkATE4m6YBvnioHxSLGJ3M0",
+      "id": "inv_L1W4FIZMNEPjb1VRq8YO5g",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1791389350815,
+      "expiresAt": 1791994150815
+    },
+    "agents-3uses": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=wlbZjYWqRwgNLc66nE7euST7fr3EXP4dsHuykJTmgfE",
+      "id": "inv_d65_B0KF6H_vFexSR6fNoA",
+      "role": "agent",
+      "maxUses": 3,
+      "createdAt": 1791389350820,
+      "expiresAt": 1791994150820
+    },
+    "multi-editor-5uses": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=1wnVB0X49gqEeKxz1ZH8rCnLXKL-jvr1B5ybJKVgWG8",
+      "id": "inv_QNWIRnm8ioF_kOuIGCQRSg",
+      "role": "editor",
+      "maxUses": 5,
+      "createdAt": 1791389350829,
+      "expiresAt": 1791994150829
+    },
+    "gina-viewer-2uses-then-revoked": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=HnpbAdZQ0hk4dsBXK7ePJlbQyUfZ8YK0ieXv3Tq-Le8",
+      "id": "inv_MFA2WehPcWPsJhqyZV7rQw",
+      "role": "viewer",
+      "maxUses": 2,
+      "createdAt": 1791389350837,
+      "expiresAt": 1791994150837,
+      "revoked": true
+    },
+    "unused-editor-3uses": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=y9kcva_Xh0hk3y0NKn5WRoV4MuXGi6026BxRwgU3bns",
+      "id": "inv_RIr-aGq98CzTZ2c0dhQlCw",
+      "role": "editor",
+      "maxUses": 3,
+      "createdAt": 1791389350843,
+      "expiresAt": 1791994150843
+    },
+    "unused-viewer-nolimit-30d": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=twP7ghaQhXRAmfKp9hle0Z-1elOpE7ndt9Efw2TrK_Y",
+      "id": "inv_k43AjOSgC8oWHogxDZ8iAA",
+      "role": "viewer",
+      "expiresInSec": 2592000,
+      "createdAt": 1791389350850,
+      "expiresAt": 1793981350850
+    },
+    "unused-agent-1use": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=7JZlxhAeW8Q9qBFOfU7ZrTeyshAVnO3of-mV1yA4K4A",
+      "id": "inv_2nAGV8yyfMgNvJZKyHWEvg",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1791389350858,
+      "expiresAt": 1791994150858
+    },
+    "expired-editor-6s": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=lnI5jGV1AC9HrTNsjdx0-x8Dnmyvxx0tBZnIQlhukPs",
+      "id": "inv_WINYNIU5EbIqiWY_O52cdA",
+      "role": "editor",
+      "expiresInSec": 6,
+      "maxUses": 2,
+      "createdAt": 1791389350866,
+      "expiresAt": 1791389356866
+    },
+    "revoked-unused-editor": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=Je3Ghpjq4OfxHJsZfNrj2QxUFw5I4D8eLGK1lxjQe_s",
+      "id": "inv_Onu3P5mnh-Iqx535h3XPfg",
+      "role": "editor",
+      "maxUses": 4,
+      "createdAt": 1791389350871,
+      "expiresAt": 1791994150871,
+      "revoked": true
+    },
+    "cli-member-agent-1use": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=ze9M2UjHEJ8QAtyfk2cgLcXft2mCH4WSQLn2Rdsn2GE",
+      "id": "inv_uFE_467DsNXhVhTlOpdRiQ",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1791389350878,
+      "expiresAt": 1791994150878
+    },
+    "frank-editor-rejoin-1use": {
+      "url": "http://127.0.0.1:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=Y5ft72wWPMjmBC7_tiTXB_kW-b44w9As5THYTiqeaBw",
+      "id": "inv_T8s2msyRPRHIYVXgVZZ0Nw",
+      "role": "editor",
+      "maxUses": 1,
+      "createdAt": 1791389358983,
+      "expiresAt": 1791994158983
+    },
+    "sam-agent-1use": {
+      "url": "http://localhost:62452/join/ws_n8MKlviIItx2COhFvmlwCw#k=yzLDGu1t4mppufR3eX9kP6_20O4Ivyua3l6SRm7vgzw&s=-g_2xPRqFYa2GVW0jddxC0RuQpastUSxF_l1GR9lq6A",
+      "id": "inv_FlPXq03myURZR-IamJwGtA",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1791389444996,
+      "expiresAt": 1791994244996
+    }
+  },
+  "refused": {
+    "a used-up single-use link": {
+      "kind": "rejected",
+      "reason": "invite-invalid"
+    },
+    "a revoked link": {
+      "kind": "rejected",
+      "reason": "invite-invalid"
+    },
+    "an expired link": {
+      "kind": "rejected",
+      "reason": "invite-invalid"
+    },
+    "a removed member's device, no link": {
+      "kind": "rejected",
+      "reason": "device-revoked"
+    }
+  },
+  "members": {
+    "bob": {
+      "userId": "dev:bob",
+      "role": "viewer",
+      "device": "bob"
+    },
+    "kate": {
+      "userId": "dev:kate",
+      "role": "agent",
+      "device": "kate"
+    },
+    "dave": {
+      "userId": "dev:dave",
+      "role": "agent",
+      "device": "dave"
+    },
+    "ruth": {
+      "userId": "dev:ruth",
+      "role": "agent",
+      "device": "ruth"
+    },
+    "pete": {
+      "userId": "dev:pete",
+      "role": "agent",
+      "device": "pete"
+    },
+    "quinn": {
+      "userId": "dev:quinn",
+      "role": "agent",
+      "device": "quinn"
+    },
+    "erin": {
+      "userId": "dev:erin",
+      "role": "editor",
+      "device": "erin"
+    },
+    "olga": {
+      "userId": "dev:olga",
+      "role": "editor",
+      "device": "olga"
+    },
+    "gina": {
+      "userId": "dev:gina",
+      "role": "viewer",
+      "device": "gina"
+    },
+    "frank": {
+      "userId": "dev:frank",
+      "role": "editor",
+      "device": "frank-2"
+    }
+  },
+  "devicesRevoked": {
+    "frank (first device)": "frank"
+  },
+  "uploads": {
+    "whole": {
+      "path": "assets/logo.txt",
+      "uploadId": "up_aTEx337u9ulcw2TTztl0uw"
+    },
+    "interrupted": [
+      {
+        "path": "assets/clip.bin",
+        "uploadId": "up__CCU3uPIULMtAYaaC33NWQ",
+        "size": 1022710,
+        "chunkSize": 1048576,
+        "chunkCount": 2,
+        "chunksSent": [
+          1
+        ],
+        "onConflict": "fail"
+      },
+      {
+        "path": "assets/logo.txt",
+        "uploadId": "up_R775n2eYjeHfJrzP5LEj4Q",
+        "chunkSize": 1048576,
+        "chunkCount": 2,
+        "chunksSent": [
+          1
+        ],
+        "onConflict": "overwrite"
+      },
+      {
+        "path": "assets/in-worktree.bin",
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_decc9955c8c25efc36f31fec"
+        },
+        "uploadId": "up_v83zkG9jCNeHC5dfJw6h8g",
+        "chunkSize": 1048576,
+        "chunkCount": 2,
+        "chunksSent": [
+          1
+        ],
+        "onConflict": "rename"
+      }
+    ]
+  },
+  "conflicts": {
+    "open": {
+      "id": "conflict_l8EU7ayRNfZQKbD7k7AYmw",
+      "path": "conflict.txt",
+      "for": "dev:amy"
+    },
+    "applied": "conflict_IXWwps931oeWwumav8V3IQ",
+    "dismissed": "conflict_wRIqLCMnE2aDZ9TN648Ttw",
+    "openWithManyHunks": "conflict_cWWGTtpyPNpWQWAljnqmdw",
+    "openInWorktree": "conflict_FUl1Yo-o-w96t4DF7iCDCQ",
+    "openByAgent": "conflict_oBQWD3fM3Rean1a-yRNEcA",
+    "openByTheAgentWithALongHunk": "conflict_fn54nZ12235ZtnZ5D_NRGA"
+  },
+  "sessions": {
+    "T1-host-terminal-running": "ses_6eaef70ebda25eda7c5e0335081f182c",
+    "T2-kate-terminal-exited-by-itself": "ses_6c332ff2b4bf22f621a842bb447b13cb",
+    "T3-kate-terminal-ended-by-the-host": "ses_8aa14ceb91d9cf8a5f607d179f58d42c",
+    "W1-ruth-terminal-in-a-worktree-running": "ses_e69af3149bc58e6e94cf4a4b405ae7af",
+    "W2-kate-terminal-in-a-worktree-kept": "ses_53754b638e34919893bfb63c008cbb9b",
+    "W3-ruth-terminal-in-a-worktree-removed": "ses_8fc9fe0b9fc47c6127ea9622eaaee06d",
+    "A1-host-agent-main": "ses_d7789ee40d953fa406bd278b4b078f3e",
+    "A2-kate-agent-ended-by-kate": "ses_987411e24f9d9f664102e228c5bc0043",
+    "A3-host-agent-failed": "ses_f1ada460ace4585e4ceef832da033a60",
+    "A5-kate-agent-ended-by-the-host": "ses_12c42a864d0bb493b472b8624a82961f",
+    "A11-kate-agent-one-very-long-answer": "ses_850b1e046ddd450be25b99cf3e7ae818",
+    "A4-ruth-agent-in-a-worktree-ended-kept": "ses_bbd6b2ca03b8cd29c154dae3c664afc3",
+    "A6-dave-agent-ended-when-he-left": "ses_147c50f4ab09de1c6b7c47c70a514956",
+    "T4-dave-terminal-ended-when-he-left": "ses_a7e6cb6a096340667b31b337a5f3db70",
+    "A7-pete-agent-ended-when-he-was-removed": "ses_c9fe33e46104cb0b62015f0e1633a8f0",
+    "A8-quinn-agent-ended-when-her-role-changed": "ses_45f7153ffc1eb3511e8265548dda3d01",
+    "T5-host-terminal-running": "ses_227dc006c7d41f7cc9e138faa1736a6c",
+    "W5-ruth-terminal-in-a-worktree-running": "ses_65ce56179687570c40cb400717d7732e",
+    "A9-mei-agent-main-waiting-for-a-decision": "ses_bb9948139dcea27fb014d172a6ac2350",
+    "A10-host-agent-failed": "ses_5695448fc43ec83f6fa6041ca70044b4"
+  },
+  "worktrees": {
+    "W1-ruth-running-terminal": "wt_ce45965a87df06cd88275dd5",
+    "W2-kate-kept-no-session": "wt_decc9955c8c25efc36f31fec",
+    "W3-ruth-removed": "wt_fb67434ac84b2960d01aa594",
+    "W4-ruth-agent-kept": "wt_74b06a92358ff750f2a5f25d",
+    "W5-ruth-running-terminal": "wt_6225b5477bceb8fcf47aee8a"
+  },
+  "merges": {
+    "free-merged": "mr_7e85dfbaf1968cdb96df1f05",
+    "free-rejected": "mr_251c6b4b6de84c3c1f69c95c",
+    "free-pending": "mr_5c4010b441c5049c1b0444f1",
+    "free-conflict": "mr_cbb4258d561187556d0ab802"
+  },
+  "rules": {
+    "A1": {
+      "rules": [
+        {
+          "id": "rule_Ov1erWGlGux8TmNRiqTeIg",
+          "tool": "WebFetch",
+          "pattern": "domain:example.com",
+          "scope": "session",
+          "addedBy": {
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "addedAt": 1791389369317
+        },
+        {
+          "id": "rule_vY0Z1CHe2iaU3Qgoyc0Atw",
+          "tool": "Bash",
+          "pattern": "pnpm test *",
+          "scope": "session",
+          "addedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "addedAt": 1791389370048
+        }
+      ],
+      "host": {
+        "state": "applied",
+        "rules": [
+          "Bash(git status)",
+          "WebFetch(domain:docs.example.com)",
+          "Read(docs/**)",
+          "Bash(ls *)"
+        ]
+      }
+    }
+  },
+  "suggestions": {
+    "s1-amy-edited-then-withdrawn": "sug_ERTxSVnb9dq2f-IPT2G8NA",
+    "s2-amy-rejected-with-a-reason": "sug_b_jm0fMu2iKleg5N4n6FYQ",
+    "s2b-amy-rejected-without-a-reason": "sug_m_uvE--BMGjQMyTVQkqKaw",
+    "s3-amy-selection-accepted": "sug_G08FkAfSfCvdUU1dg9v4ZA",
+    "s4-erin-accepted-after-an-edit-by-kate": "sug_BcDeIzPNTnJIRF_y7izOiw",
+    "s4b-amy-accepted-after-an-edit-by-mei": "sug__XRO78vx44-0J8c0fVeMsg",
+    "s8-amy-cleaned-accepted": "sug_NAN-HPghkADRkDdcdzHM_w",
+    "s5-gina-pending": "sug_WSIw1OHf0QiyqSSz2qUgpA",
+    "s6-erin-pending-until-she-is-removed": "sug_97E3qnOaRw_h2tq0yimHCQ",
+    "s7-olga-pending-until-she-is-a-viewer": "sug_R_QpHv7QfWydkGpUFS0K-g",
+    "s9-amy-pending-until-the-session-ends": "sug_BEjrKsqPSIH38lNtzZQMBw",
+    "s10-amy-selection-in-a-worktree": "sug_BYnC6UAi8y6wA3pOHfttrQ",
+    "s11-amy-pending-in-an-item": "sug_kr-fp7RdrHV63RB8WTIsow",
+    "s12-amy-accepted-while-the-agent-is-busy": "sug_GVXGmqdDmZ_F7Nh_BjPOyA",
+    "s13-gina-pending-at-the-snapshot": "sug_A1oaphZzKsxT8nNYFGtVGw",
+    "s14-amy-pending-until-the-topic-is-archived": "sug_huDB2sm8_v5UxnmAt458Pw"
+  },
+  "kicked": {
+    "erin": "dev:erin",
+    "pete": "dev:pete",
+    "sam": "dev:sam"
+  },
+  "left": {
+    "dave": "dev:dave"
+  },
+  "roleChanged": {
+    "gina": "viewer -> editor",
+    "quinn": "agent -> editor",
+    "olga": "editor -> viewer"
+  },
+  "topics": {
+    "gift-cards": {
+      "id": "tp_l-V_bHpkEwNfFIX9wnHCBA",
+      "discussion": "ses_197621d069274a5ed812e5304aa47c68",
+      "report": {
+        "version": 1,
+        "writtenAt": 1791389400117,
+        "outcome": "blocked",
+        "state": "to-review",
+        "reviewers": [
+          {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          }
+        ],
+        "checks": {
+          "passed": 1,
+          "notVerified": 1
+        },
+        "topicId": "tp_l-V_bHpkEwNfFIX9wnHCBA",
+        "itemId": "card-page",
+        "file": {
+          "root": {
+            "kind": "worktree",
+            "worktreeId": "wt_0bbc8488dc13a7d2cebeb6f5"
+          },
+          "path": "specs/gift-cards/reports/card-page.md"
+        },
+        "sections": {
+          "done": "The work of Card page.",
+          "why": "As the spec decided.",
+          "verified": [
+            {
+              "text": "`pnpm test`: 3 tests passed",
+              "passed": true
+            },
+            {
+              "text": "Manual check in the browser",
+              "passed": false,
+              "note": "no browser in this session"
+            }
+          ],
+          "watchOut": "Blocked: the payment provider has no test account yet."
+        },
+        "changes": {
+          "requestId": "mr_6035aa115179537dcaf5228e",
+          "files": 2,
+          "additions": 18,
+          "deletions": 0,
+          "byHand": []
+        },
+        "questions": [
+          {
+            "text": "@Kate what about empty cards?",
+            "id": "fq_TuJ5uXE9qKnHkUdSv65wVw",
+            "from": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1791389417560,
+            "answer": {
+              "text": "An empty card is refused at the till.",
+              "at": 1791389417685
+            }
+          },
+          {
+            "text": "What about empty cards? Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the ",
+            "truncated": true,
+            "id": "fq_k6RMxlxm4V3Uqr8OFVTwhg",
+            "from": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1791389417867,
+            "answer": {
+              "text": "An empty card is refused at the till.",
+              "at": 1791389418000
+            }
+          },
+          {
+            "text": "Please give the long answer.",
+            "id": "fq__nX5L3JiHAIv5Tm5bwmWYw",
+            "from": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1791389418117,
+            "answer": {
+              "text": "A long answer. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance o",
+              "truncated": true,
+              "at": 1791389418241
+            }
+          }
+        ]
+      }
+    },
+    "late-shipping": {
+      "id": "tp_ce8Hpn5xVg7x_Qz88qNtsQ",
+      "discussion": "ses_80cbcbd661e503b339777cae2bcbfb60"
+    },
+    "tiny-things": {
+      "id": "tp_63lPMRfbtVXUHyV-PA6NyA",
+      "discussion": "ses_ea90a0a9b43fe289c1057572606b35aa"
+    },
+    "bare-shelves": {
+      "id": "tp_wrUmiN19TdFyqcyY3l3DNw",
+      "discussion": "ses_a8f5af8fdb6deca25e00c718970ae2c1"
+    },
+    "exchange": {
+      "id": "tp_ts9H84EPzAZDjWSG4ltB_A",
+      "discussion": "ses_75fe14dc5524e2060dbd8c2cc0135498"
+    },
+    "vouchers": {
+      "id": "tp_EBptno8n9wVBaquqJszsBA",
+      "discussion": "ses_32f39a1c0f829ea5d9a2286f8d8f654e"
+    },
+    "wishlist": {
+      "id": "tp_TbvQkMxH8g1Gd4e-GlPuAg",
+      "discussion": "ses_cfa26c055e779736333790418b3ec33e",
+      "openQuestion": "rq_4PydNEMC38D3tKA1V5EKQQ"
+    },
+    "returns": {
+      "id": "tp_f68K5vbuLhYhRHoBDzAx_Q",
+      "discussion": "ses_1c6baa9aa72b250dcbf345cad36fe5d2"
+    },
+    "refunds": {
+      "id": "tp_C59ht2UKRhfPtTfaeS80ig",
+      "discussion": "ses_ee6f15ccf1a5329aa6de80aa032b3723"
+    },
+    "old-idea": {
+      "id": "tp_A_VAFkqP1R1TMyKSvisO8A",
+      "discussion": "ses_74ba1e9f0dbb81af92ffa5459b5e989a"
+    }
+  },
+  "liveSince": 1791389439304,
+  "liveLast": 1791389477554,
+  "cliMember": {
+    "userId": "github:12345",
+    "attach": "Workspace \"Bookshop\" (ws_n8MKlviIItx2COhFvmlwCw, through the relay http://127.0.0.1:62452)\nNo.   Session ID                            Type      Owner         Status      Title\n1     ses_227dc006c7d41f7cc9e138faa1736a6c  terminal  Host          running     host shell\n2     ses_65ce56179687570c40cb400717d7732e  terminal  Ruth          running     ruth again\n\nAgent sessions (conversations):\nSession ID                            Status                    Topic                     Title\nses_b9260011d245aee1f0443d43910c4cae  idle                      Checkout                  Discussion\nses_faf66bb98671c4650fa5be820206f987  ended                     Checkout                  1 · Cart API\nses_29f9ea86f9f3256ab682c0e72faef236  ended                     Checkout                  3 · Receipt email\nses_ec626acb488e22ba0b16868fde2e2608  ended                     Checkout                  2 · Checkout page\nses_197621d069274a5ed812e5304aa47c68  idle                      Gift cards                Discussion\nses_c4f24dcc46bcdb2d2fb4a3e0373c5027  done                      Gift cards                1 · Card model\nses_f8a5d1a2555b724ac7af878f8cf01434  stopped without a report  Gift cards                3 · Card email\nses_e32224318c70de5e2828338a9b7979b2  stopped without a report  Gift cards                4 · Card admin\nses_2f08c13dde7de9a00ac39ce36e5750f6  idle                      Gift cards                7 · Card print\nses_e31b17dfca65fcf75ebdac04ccf1eb7c  ended                     Gift cards                8 · Card audit\nses_51d5d9e4366a0b20dcaa2f305f985493  done                      Gift cards                9 · Card terms\nses_ada7ffeb44b79825c012d68cbd16be82  stopped without a report  Gift cards                11 · Card fonts\nses_82aff70d9682a232537495ad47411db9  done                      Gift cards                13 · Card merge\nses_2597fec2feff4fbbf35867eef8b897ab  stopped without a report  Gift cards                14 · Card ink\nses_c3e7e8fed6469623767879d65f9a85b5  done                      Gift cards                12 · Card FAQ\nses_cb0fcc77fd0493c5374d257a47855584  done                      Gift cards                15 · Card logo\nses_0fbf6b7ba2ee9ff21fdfd384a7daa57b  done                      Gift cards                16 · Card banner\nses_4db578c3dc64ac4e29e29f6328582923  stopped without a report  Gift cards                17 · Card vendor\nses_331f70ca381e272a98a0b71501d3b733  running                   Gift cards                2 · Card page\nses_80cbcbd661e503b339777cae2bcbfb60  idle                      Late shipping             Discussion\nses_ea90a0a9b43fe289c1057572606b35aa  idle                      Tiny things               Discussion\nses_a2727a031fc40af91e2568b4e868d85d  stopped without a report  Tiny things               1 · Tiny one\nses_a8f5af8fdb6deca25e00c718970ae2c1  idle                      Bare shelves              Discussion\nses_75fe14dc5524e2060dbd8c2cc0135498  idle                      Exchange                  Discussion\nses_32f39a1c0f829ea5d9a2286f8d8f654e  idle                      Vouchers                  Discussion\nses_cfa26c055e779736333790418b3ec33e  waiting for an answer     Wishlist                  Discussion\nses_810429d9ff57757ccee8e7d43d9ceb3b  waiting for permission    Wishlist                  1 · Wish list\nses_b51da5bfd5b51c2ec45df557babf32bf  running                   Wishlist                  2 · Wish share\nses_1c6baa9aa72b250dcbf345cad36fe5d2  ended                     Returns                   Discussion\nses_ee6f15ccf1a5329aa6de80aa032b3723  ended                     Refunds and credit        Discussion\nses_f62d0f37e36fcacf62ff3e1851fc14e9  idle                      Refunds and credit        Discussion\nses_3952fcfda8dd4ae6cfc1840a72e42ced  idle                      No topic                  Notes\nses_d7789ee40d953fa406bd278b4b078f3e  idle                      No topic                  Look around\nses_987411e24f9d9f664102e228c5bc0043  ended                     No topic                  Short one\nses_f1ada460ace4585e4ceef832da033a60  idle                      No topic                  Crash\nses_12c42a864d0bb493b472b8624a82961f  ended                     No topic                  Terminated\nses_850b1e046ddd450be25b99cf3e7ae818  ended                     No topic                  Everything\nses_bbd6b2ca03b8cd29c154dae3c664afc3  ended                     No topic                  In a worktree\nses_147c50f4ab09de1c6b7c47c70a514956  ended                     No topic                  Dave's\nses_c9fe33e46104cb0b62015f0e1633a8f0  ended                     No topic                  Pete's\nses_45f7153ffc1eb3511e8265548dda3d01  ended                     No topic                  Quinn's\nses_bb9948139dcea27fb014d172a6ac2350  waiting for permission    No topic                  Readme\nses_5695448fc43ec83f6fa6041ca70044b4  failed                    No topic                  Crash\n\nAttach with smurg attach <number or session ID>.\nAgent conversations open in the browser: http://localhost:62452/w/ws_n8MKlviIItx2COhFvmlwCw\n",
+    "exit": 0
+  },
+  "statusRunning": "Workspace ws_n8MKlviIItx2COhFvmlwCw\n  Folder: /__SMURG_FIXTURE__/project\n  Relay: http://127.0.0.1:62452, interactive connection connected, file transfer connected\n  Connections: 12, members online: 12\n  Daemon key fingerprint: cb32 c31a ed6d e26a 69b9\n  Keep-awake: off (turned off with --no-keep-awake)\n  Notices of agents' shell commands: on\n  Claude Code: 2.1.288 (verified with this smurg), logged in\n  Agent sessions: 2 running, 3 waiting for a person, 7 stopped without a report or failed, 18 idle\n  Topics: 10 (1 paused)\n  Claude Code project settings: not confirmed (agents run without them; confirm them in the web app)\n  Your own Claude Code allow rules: 4 apply to agent sessions (agents run what they allow without asking)\n  Log: /__SMURG_FIXTURE__/host/logs/ws_n8MKlviIItx2COhFvmlwCw.log\n  Daemon process: 58795\n",
+  "escalated": {
+    "reportOfCardPage": 1791389763397
+  },
+  "runningAt": 1791389871306,
+  "stoppedAt": 1791389873318
+}

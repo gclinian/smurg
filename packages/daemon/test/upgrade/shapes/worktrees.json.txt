@@ -1,0 +1,75 @@
+: #1 object strict
+version: literal 1
+worktrees: array [max_length maximum=256]
+worktrees[]: #2 object strict
+worktrees[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/] [string_format format=regex pattern=^wt_[0-9a-f]{24}$/]
+worktrees[].ownerUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+worktrees[].ownerName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+worktrees[].branch: pipe
+worktrees[].branch|in: string [min_length minimum=0] [max_length maximum=256] [custom]
+worktrees[].branch|out: string [min_length minimum=1]
+worktrees[].sessionId: optional
+worktrees[].sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+worktrees[].kept: boolean
+worktrees[].createdAt: number format=safeint [greater_than value=0 inclusive=true]
+worktrees[].sharedDirs: array [max_length maximum=64]
+worktrees[].sharedDirs[]: pipe
+worktrees[].sharedDirs[]|in: string [max_length maximum=16384]
+worktrees[].sharedDirs[]|out: transform
+worktrees[].baseCommit: string [string_format format=regex pattern=^[0-9a-f]{40}(?:[0-9a-f]{24})?$/]
+worktrees[].configHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+worktrees[].headHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+worktrees[].alternatesHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+worktrees[].item: optional
+worktrees[].item: #3 object strict
+worktrees[].item.topicId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+worktrees[].item.topicSlug: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,47}$/]
+worktrees[].item.itemId: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,39}$/]
+worktrees[].merge: optional
+worktrees[].merge: #4 object strict
+worktrees[].merge.parent: string [string_format format=regex pattern=^[0-9a-f]{40}(?:[0-9a-f]{24})?$/]
+worktrees[].merge.conflicted: array [max_length maximum=10000]
+worktrees[].merge.conflicted[]: pipe
+worktrees[].merge.conflicted[]|in: string [max_length maximum=16384]
+worktrees[].merge.conflicted[]|out: transform
+worktrees[].handEdits: optional
+worktrees[].handEdits: array [max_length maximum=500]
+worktrees[].handEdits[]: #5 object strict
+worktrees[].handEdits[].path: pipe
+worktrees[].handEdits[].path|in: string [max_length maximum=16384]
+worktrees[].handEdits[].path|out: transform
+worktrees[].handEdits[].by: array [max_length maximum=20]
+worktrees[].handEdits[].by[]: #6 object strict
+worktrees[].handEdits[].by[].userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+worktrees[].handEdits[].by[].displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+merges: array [max_length maximum=1000]
+merges[]: #7 object strict
+merges[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/] [string_format format=regex pattern=^mr_[0-9a-f]{24}$/]
+merges[].worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+merges[].ownerUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+merges[].requestedBy: optional
+merges[].requestedBy: the same as #6
+merges[].message: optional
+merges[].message: string [min_length minimum=0] [max_length maximum=4000] [custom]
+merges[].commit: string [string_format format=regex pattern=^[0-9a-f]{40}(?:[0-9a-f]{24})?$/]
+merges[].status: enum "draft"|"pending"|"merged"|"rejected"|"conflict"
+merges[].reviewed: optional
+merges[].reviewed: literal true
+merges[].topicId: optional
+merges[].topicId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+merges[].itemId: optional
+merges[].itemId: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,39}$/]
+merges[].topicSlug: optional
+merges[].topicSlug: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,47}$/]
+merges[].conflictFiles: optional
+merges[].conflictFiles: array [max_length maximum=10000]
+merges[].conflictFiles[]: pipe
+merges[].conflictFiles[]|in: string [max_length maximum=16384]
+merges[].conflictFiles[]|out: transform
+merges[].createdAt: number format=safeint [greater_than value=0 inclusive=true]
+merges[].decidedAt: optional
+merges[].decidedAt: number format=safeint [greater_than value=0 inclusive=true]
+merges[].rejectReason: optional
+merges[].rejectReason: string [min_length minimum=0] [max_length maximum=1000] [custom]
+merges[].mergeCommit: optional
+merges[].mergeCommit: string [string_format format=regex pattern=^[0-9a-f]{40}(?:[0-9a-f]{24})?$/]

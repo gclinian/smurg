@@ -1,0 +1,9 @@
+{"v":1,"kind":"line","text":{"id":"conversation.started.free","params":{"name":"Pete"}},"fallback":"Pete opened this session","seq":1,"at":1791389388933}
+{"v":1,"kind":"message","messageId":"m_jJbkddihkL8NXTdmgXRKZQ","from":{"userId":"dev:pete","displayName":"Pete","role":"agent"},"text":"Hello.","origin":"composer","seq":2,"at":1791389388934}
+{"v":1,"kind":"delivery","messageId":"m_jJbkddihkL8NXTdmgXRKZQ","state":"queued","seq":3,"at":1791389388934}
+{"v":1,"kind":"notice","level":"warning","text":{"id":"session.projectSettings.untrusted"},"fallback":"The host has not confirmed this folder's Claude Code project settings. This session runs without them and without the project's CLAUDE.md.","action":"restart-agent","seq":4,"at":1791389389055}
+{"v":1,"kind":"delivery","messageId":"m_jJbkddihkL8NXTdmgXRKZQ","state":"started","seq":5,"at":1791389389056}
+{"v":1,"kind":"turn.started","turnId":"t_1","seq":6,"at":1791389389056}
+{"v":1,"kind":"text","turnId":"t_1","blockId":"b_1_1","text":"ok","seq":7,"at":1791389389117}
+{"v":1,"kind":"turn.finished","turnId":"t_1","outcome":"completed","durationMs":117,"seq":8,"at":1791389389173}
+{"v":1,"kind":"delivery","messageId":"m_jJbkddihkL8NXTdmgXRKZQ","state":"completed","seq":9,"at":1791389389174}

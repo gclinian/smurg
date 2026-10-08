@@ -10,6 +10,11 @@
 // An invite whose daemon key differs from the key this device pinned for the workspace (the host started over with new
 // workspace keys, HOSTING §5.1 / §8 — or someone poses as the host) is explained and used only after the person's
 // explicit yes at a terminal or --accept-new-key (the web app asks the same question).
+// A `smurg host` of ANOTHER smurg version on this machine (0.5.1, DESIGN B1/B2): its control socket is alive and this
+// command cannot read its answer, or the attach succeeds and a later message cannot be decoded. Both end the command at
+// once with "another version of smurg is sharing here: stop it and start it again" (channel/local-channel.ts).
+// A member refused through the relay with `version` learns who has to act from what `smurg update` would find
+// (update/version-advice.ts, DESIGN B3): the refusal itself carries nothing but that word.
 import { hostname } from 'node:os';
 import {
   InviteLinkError,
@@ -31,14 +36,16 @@ import { clipColumn, padColumn } from '../cli/columns.ts';
 import { CliError, usageError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
 import type { WorkspaceChannel } from '../channel/channel.ts';
-import { ctlPathFor, daemonAt, hintedWorkspace, runningDaemons } from '../channel/discover.ts';
-import { LocalWorkspaceChannel } from '../channel/local-channel.ts';
+import { ctlPathFor, hintedWorkspace, probeDaemon, probeDaemons, unreadableLabel } from '../channel/discover.ts';
+import { LocalWorkspaceChannel, otherVersionAttachError } from '../channel/local-channel.ts';
 import { RelayWorkspaceChannel } from '../channel/relay-channel.ts';
 import { ensureSession } from '../relay/login.ts';
 import { DEFAULT_RELAY_URL } from '../relay/default-relay.ts';
 import { builtInRelayNotice, pickRelay, relayApi, relayOriginOf, workspaceAddress } from '../relay/relay.ts';
 import { loadCredentials, sessionFor } from '../state/credentials.ts';
 import { loadWorkspaces, rememberJoined, type JoinedWorkspace } from '../state/workspaces.ts';
+import type { UpdateNoticeDeps } from '../update/notice.ts';
+import { versionRefusalAdvice } from '../update/version-advice.ts';
 import { attachSession, readOnlyNotice, sessionTitle, signalExitCode, type AttachOutcome } from '../attach/attach-session.ts';
 import { localeIsUtf8 } from '../attach/output-filter.ts';
 import { m, renderText, type Locale, type MessageId, type Text } from '../i18n/index.ts';
@@ -52,6 +59,8 @@ export function attachUsage(): Text {
 /** Tests inject the relay transport (an in-memory relay); production uses RelayApi with the stored session. */
 export interface AttachDeps {
   readonly relayFor?: (origin: string) => Promise<ConnectionRelay>;
+  /** The seams of the lookup after a `version` refusal (the executable, its version, fetch, the timeout). */
+  readonly update?: UpdateNoticeDeps;
 }
 
 /** The name this device has in the host's member list: one spelling for every language (docs/GLOSSARY.md). */
@@ -205,8 +214,11 @@ async function resolveTarget(ctx: CommandContext, flags: { workspace?: string; i
   const hinted = await hintedWorkspace(ctx.paths, flags.workspace, ctx.io.cwd);
   if (hinted !== null) {
     const ctlPath = ctlPathFor(ctx.paths, hinted);
-    const local = await daemonAt(ctlPath);
-    if (local) return { kind: 'local', workspaceId: hinted, ctlPath, webOrigin: local.webOrigin };
+    const local = await probeDaemon(ctlPath);
+    if (local.kind === 'running') return { kind: 'local', workspaceId: hinted, ctlPath, webOrigin: local.daemon.webOrigin };
+    // A smurg host of another version shares this workspace here: said at once, and never taken for "not running on
+    // this computer" (which would go on to join this machine's own workspace through the relay).
+    if (local.kind === 'unreadable') throw otherVersionAttachError(local.daemon.why);
     const joined = (await loadWorkspaces(ctx.paths)).joined.find((j) => j.workspaceId === hinted);
     if (flags.relay !== undefined) return relayTarget(hinted, relayOriginOf(flags.relay), joined);
     if (joined !== undefined) return relayTarget(hinted, joined.relay, joined);
@@ -215,12 +227,16 @@ async function resolveTarget(ctx: CommandContext, flags: { workspace?: string; i
     if (chosen.source === 'built-in') say(ctx, builtInRelayNotice(chosen.origin));
     return relayTarget(hinted, chosen.origin, undefined);
   }
-  const running = await runningDaemons(ctx.paths);
+  const { running, unreadable } = await probeDaemons(ctx.paths);
+  if (running.length + unreadable.length > 1) {
+    throw usageError(m('attach.several'), m('attach.several.hint', { ids: [...running.map((d) => d.status.workspaceId), ...unreadable.map(unreadableLabel)] }));
+  }
   if (running.length === 1) {
     const only = running[0] as (typeof running)[number];
     return { kind: 'local', workspaceId: only.status.workspaceId, ctlPath: only.ctlPath, webOrigin: only.webOrigin };
   }
-  if (running.length > 1) throw usageError(m('attach.several'), m('attach.several.hint', { ids: running.map((d) => d.status.workspaceId) }));
+  // The only share on this computer is a smurg host of another version: that is the one this command means.
+  if (unreadable.length === 1) throw otherVersionAttachError((unreadable[0] as (typeof unreadable)[number]).why);
   const joined = (await loadWorkspaces(ctx.paths)).joined;
   if (joined.length === 1) {
     const only = joined[0] as (typeof joined)[number];
@@ -287,6 +303,7 @@ async function openChannel(ctx: CommandContext, target: Target, deps: AttachDeps
     invite: target.invite ?? null,
     ...(preferInvite ? { preferInvite: true } : {}),
     deviceName: deviceName(),
+    versionRefused: () => versionRefusalAdvice(ctx.io, deps.update),
   });
   // The web app's origin is remembered only when it is not the relay itself (a development setup: Vite in front).
   const web = target.webOrigin !== null && target.webOrigin !== origin ? { web: target.webOrigin } : {};

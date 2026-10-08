@@ -1,0 +1,10 @@
+: #1 object strict
+live: array [max_length maximum=4096]
+live[]: string [string_format format=regex pattern=^ses_[0-9a-f]{32}$/]
+procs: optional
+procs: record
+procs{key}: string [string_format format=regex pattern=^ses_[0-9a-f]{32}$/]
+procs{}: array [max_length maximum=512]
+procs{}[]: #2 object strict
+procs{}[].pid: number format=safeint [greater_than value=2 inclusive=true] [less_than value=2147483648 inclusive=true]
+procs{}[].id: string [string_format format=regex pattern=^[0-9a-f]{64}$/]

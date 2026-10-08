@@ -10,6 +10,7 @@ import { conflictRecordSchema, type ConflictRecord } from '@smurg/protocol';
 import { z } from 'zod';
 import type { PersistentDocument, StateStore } from '../core/interfaces.ts';
 import type { Logger } from '../core/logger.ts';
+import { declareDocument } from '../core/state-store.ts';
 
 export const MAX_CONFLICTS_KEPT = 200;
 const CACHE_MAX_BYTES = 32 * 1024 * 1024;
@@ -18,6 +19,9 @@ const conflictsDocumentSchema = z.strictObject({
   conflicts: z.array(conflictRecordSchema).max(MAX_CONFLICTS_KEPT),
 });
 type ConflictsDocument = z.infer<typeof conflictsDocumentSchema>;
+
+/** conflicts.json (no `version` key; the same shape since 0.4.0). Declared by the docs module. */
+export const conflictsDocument = declareDocument({ name: 'conflicts', schema: conflictsDocumentSchema, init: (): ConflictsDocument => ({ conflicts: [] }) });
 
 /** File name of an agent version: hex of the id (ids are case-sensitive, APFS is not). */
 function versionFileName(id: string): string {
@@ -37,7 +41,7 @@ export class ConflictStore {
   }
 
   async open(state: StateStore): Promise<void> {
-    this.document = await state.document('conflicts', conflictsDocumentSchema, () => ({ conflicts: [] }));
+    this.document = await state.document(conflictsDocument.name, conflictsDocument.schema, conflictsDocument.init);
     this.dir = await state.privateDir('conflicts');
   }
 

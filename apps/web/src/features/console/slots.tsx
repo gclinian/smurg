@@ -10,12 +10,13 @@
 // conversation entry can ask from the first moment), and the dialogs behind them load on their own.
 //
 // The console page itself (index.tsx `HostConsolePage`) is a route of its own and is not a slot.
-import { lazy, Suspense } from 'react';
+import { Suspense } from 'react';
+import { lazyChunk } from '../../lib/chunks.ts';
 import { defineSlots } from '../../lib/slots.ts';
 import { useCommandHandler, useStores } from '../../lib/workspace/context.tsx';
 import { consoleDialogs } from './dialogs.ts';
 
-const Dialogs = lazy(() => import('./ConsoleOverlays.tsx'));
+const Dialogs = lazyChunk(() => import('./ConsoleOverlays.tsx'));
 
 function ConsoleOverlay() {
   const dialogs = consoleDialogs(useStores());

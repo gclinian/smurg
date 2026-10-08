@@ -6,6 +6,7 @@
 // the agent runtime does.
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import { DisposableStack, toDisposable } from '../core/lifecycle.ts';
+import { cardsIndexDocument } from './cards-store.ts';
 import { ConversationServiceImpl, type ConversationModuleOptions } from './conversation-service.ts';
 import { registerConversationHandlers } from './handlers.ts';
 
@@ -14,6 +15,7 @@ export function createConversationModule(options: ConversationModuleOptions = {}
   const services = new WeakMap<DaemonContext, ConversationServiceImpl>();
   return {
     name: 'conversation',
+    documents: [cardsIndexDocument],
     create: (ctx) => {
       const service = new ConversationServiceImpl(ctx, options);
       services.set(ctx, service);

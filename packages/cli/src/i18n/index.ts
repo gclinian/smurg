@@ -9,7 +9,8 @@
 //  - `wireText(...)` / `wireError(...)`: a message the daemon or the client SDK made, carried as a reference into the
 //    wire catalog (`@smurg/protocol/i18n`) with its English text as the fallback: rendered in THIS terminal's language;
 //  - a plain string: data that is never translated (a path, a name, text a person wrote).
-// A string parameter of a message may itself be a Text; it is rendered first (in the same language).
+// A string parameter of a message may itself be a Text, and so may each item of a list; it is rendered first (in the
+// same language).
 import { execFileSync } from 'node:child_process';
 import { defaultErrorRef, render, roleRef, type MessageRef } from '@smurg/protocol/i18n';
 import { localeFromEnv, parseAppleLanguages, type Locale } from '@smurg/protocol/locale';
@@ -37,8 +38,8 @@ export interface CatalogText {
 export type Text = CatalogText | WireText | string;
 
 type ParamsOf<I extends MessageId> = Parameters<(typeof en)[I]>[0];
-/** A string parameter may be given as a Text (rendered before the message is). */
-type Loose<P> = { readonly [K in keyof P]: string extends P[K] ? P[K] | Text : P[K] };
+/** A string parameter, and each item of a list of strings, may be given as a Text (rendered before the message is). */
+type Loose<P> = { readonly [K in keyof P]: string extends P[K] ? P[K] | Text : P[K] extends readonly string[] ? readonly Text[] : P[K] };
 type ParamsArg<I extends MessageId> = ParamsOf<I> extends undefined ? [] : [params: Loose<NonNullable<ParamsOf<I>>>];
 
 /** A message of the CLI's catalog, to be rendered later. */
@@ -82,7 +83,8 @@ export function renderText(lang: Locale, text: Text): string {
   }
   const form = (CATALOGS[lang] ?? en)[text.id] as (params: Record<string, unknown>) => string;
   const params: Record<string, unknown> = {};
-  for (const [name, value] of Object.entries(text.params ?? {})) params[name] = isText(value) ? renderText(lang, value) : value;
+  const inner = (value: unknown): unknown => (isText(value) ? renderText(lang, value) : value);
+  for (const [name, value] of Object.entries(text.params ?? {})) params[name] = Array.isArray(value) ? value.map(inner) : inner(value);
   return form(params);
 }
 

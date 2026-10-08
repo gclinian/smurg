@@ -1,0 +1,94 @@
+: #1 object strict
+sessions: array [max_length maximum=10000]
+sessions[]: #2 object strict
+sessions[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+sessions[].purpose: enum "discussion"|"item"|"free"
+sessions[].topic: optional
+sessions[].topic: #3 object strict
+sessions[].topic.id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+sessions[].topic.slug: string [min_length minimum=1] [max_length maximum=64]
+sessions[].topic.name: string [min_length minimum=1] [max_length maximum=256]
+sessions[].item: optional
+sessions[].item: #4 object strict
+sessions[].item.id: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,39}$/]
+sessions[].item.number: number format=safeint [greater_than value=0 inclusive=true]
+sessions[].item.title: string [min_length minimum=1] [max_length maximum=256]
+sessions[].item.attempt: number format=safeint [greater_than value=1 inclusive=true]
+sessions[].openedBy: #5 object strict
+sessions[].openedBy.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+sessions[].openedBy.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+sessions[].ownerUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+sessions[].pathRights: enum "member"|"host"
+sessions[].responsible: nullable
+sessions[].responsible: the same as #5
+sessions[].fallbackDecider: nullable
+sessions[].fallbackDecider: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+sessions[].title: optional
+sessions[].title: string [min_length minimum=0] [max_length maximum=256] [custom]
+sessions[].root: #6 union by kind
+sessions[].root<0>: #7 object strict
+sessions[].root<0>.kind: literal "main"
+sessions[].root<1>: #8 object strict
+sessions[].root<1>.kind: literal "worktree"
+sessions[].root<1>.worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+sessions[].worktreeId: optional
+sessions[].worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+sessions[].branch: optional
+sessions[].branch: string [min_length minimum=0] [max_length maximum=256] [custom]
+sessions[].mode: enum "ask-all"|"ask-commands"
+sessions[].modeChangedBy: optional
+sessions[].modeChangedBy: #9 object strict
+sessions[].modeChangedBy.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+sessions[].modeChangedBy.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+sessions[].rules: array [max_length maximum=200]
+sessions[].rules[]: #10 object strict
+sessions[].rules[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+sessions[].rules[].tool: enum "Bash"|"WebFetch"
+sessions[].rules[].pattern: string [min_length minimum=1] [max_length maximum=200] [string_format format=regex pattern=^[\x21-\x7e]+(?: [\x21-\x7e]+)*$/]
+sessions[].rules[].scope: enum "session"|"topic"
+sessions[].rules[].addedBy: the same as #5
+sessions[].rules[].addedAt: number format=safeint [greater_than value=0 inclusive=true]
+sessions[].claudeSessionId: string format=uuid pattern=^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/
+sessions[].hasConversation: boolean
+sessions[].turnCounter: number format=safeint [greater_than value=0 inclusive=true]
+sessions[].smurgTag: string [string_format format=regex pattern=^[a-z0-9]{4}$/]
+sessions[].startFailures: number format=safeint [greater_than value=0 inclusive=true]
+sessions[].lastTurnOpen: boolean
+sessions[].state: enum "live"|"failed"|"ended"
+sessions[].itemState: optional
+sessions[].itemState: #11 object strict
+sessions[].itemState.reportRegistered: boolean
+sessions[].itemState.stalled: optional
+sessions[].itemState.stalled: enum "agent"|"restart"|"stopped"|"error"
+sessions[].untrustedSaid: boolean
+sessions[].createdAt: number format=safeint [greater_than value=0 inclusive=true]
+sessions[].endedAt: optional
+sessions[].endedAt: number format=safeint [greater_than value=0 inclusive=true]
+sessions[].endReason: optional
+sessions[].endReason: enum "exit"|"ended"|"terminated"|"kicked"|"left"|"role-changed"|"stopped"|"worktree-removed"|"archived"|"replaced"|"merged"
+sessions[].endedBy: optional
+sessions[].endedBy: the same as #5
+sessions[].noteworthyAt: number format=safeint [greater_than value=0 inclusive=true]
+sessions[].lastActivityAt: number format=safeint [greater_than value=0 inclusive=true]
+sessions[].claudeVersion: optional
+sessions[].claudeVersion: string [max_length maximum=40]
+sessions[].pending: optional
+sessions[].pending: array [max_length maximum=200]
+sessions[].pending[]: #12 object strict
+sessions[].pending[].messageId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+sessions[].pending[].text: string [min_length minimum=1] [max_length maximum=4194304]
+sessions[].pending[].turn: #13 object strict
+sessions[].pending[].turn.messageId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+sessions[].pending[].turn.kind: enum "person"|"smurg"
+sessions[].pending[].turn.origin: optional
+sessions[].pending[].turn.origin: enum "composer"|"follow-up"|"revise"|"selection"
+sessions[].pending[].turn.from: optional
+sessions[].pending[].turn.from: the same as #5
+sessions[].pending[].turn.by: optional
+sessions[].pending[].turn.by: the same as #5
+sessions[].pending[].turn.purpose: optional
+sessions[].pending[].turn.purpose: enum "write-spec"|"generate-plan"|"update-plan"|"start-item"|"continue-item"|"retry-item"|"fix-plan"|"fix-report"|"nudge-report"|"resolve-conflict"|"conversation-lost"|"restart-discussion"
+sessions[].pending[].turn.suggestionId: optional
+sessions[].pending[].turn.suggestionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+sessions[].pending[].fromUserId: nullable
+sessions[].pending[].fromUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]

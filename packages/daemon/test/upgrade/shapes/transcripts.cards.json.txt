@@ -1,0 +1,141 @@
+: #1 object strict
+version: literal 1
+sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+cards: array [max_length maximum=10000]
+cards[]: #2 union by kind
+cards[]<0>: #3 object strict
+cards[]<0>.kind: literal "question"
+cards[]<0>.question: #4 object strict
+cards[]<0>.question.id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+cards[]<0>.question.sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+cards[]<0>.question.askedAt: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<0>.question.status: enum "open"|"answered"|"withdrawn"
+cards[]<0>.question.parts: array [min_length minimum=1] [max_length maximum=4] [custom]
+cards[]<0>.question.parts[]: #5 object strict
+cards[]<0>.question.parts[].header: string [min_length minimum=0] [max_length maximum=64] [custom]
+cards[]<0>.question.parts[].text: string [min_length minimum=1] [max_length maximum=4000] [custom]
+cards[]<0>.question.parts[].multi: boolean
+cards[]<0>.question.parts[].options: array [min_length minimum=2] [max_length maximum=4]
+cards[]<0>.question.parts[].options[]: #6 object strict
+cards[]<0>.question.parts[].options[].label: string [min_length minimum=1] [max_length maximum=200] [custom]
+cards[]<0>.question.parts[].options[].description: string [min_length minimum=0] [max_length maximum=1000] [custom]
+cards[]<0>.question.votes: array [max_length maximum=200]
+cards[]<0>.question.votes[]: #7 object [custom] strict
+cards[]<0>.question.votes[].userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+cards[]<0>.question.votes[].displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+cards[]<0>.question.votes[].part: number format=safeint [greater_than value=0 inclusive=true] [less_than value=3 inclusive=true]
+cards[]<0>.question.votes[].options: optional
+cards[]<0>.question.votes[].options: array [min_length minimum=1] [max_length maximum=4]
+cards[]<0>.question.votes[].options[]: number format=safeint [greater_than value=0 inclusive=true] [less_than value=3 inclusive=true]
+cards[]<0>.question.votes[].other: optional
+cards[]<0>.question.votes[].other: string [min_length minimum=1] [max_length maximum=500] [custom] [custom]
+cards[]<0>.question.votes[].at: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<0>.question.comments: array [max_length maximum=100]
+cards[]<0>.question.comments[]: #8 object strict
+cards[]<0>.question.comments[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+cards[]<0>.question.comments[].from: #9 object strict
+cards[]<0>.question.comments[].from.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+cards[]<0>.question.comments[].from.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+cards[]<0>.question.comments[].text: string [min_length minimum=1] [max_length maximum=1000] [custom] [custom]
+cards[]<0>.question.comments[].at: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<0>.question.comments[].mentions: optional
+cards[]<0>.question.comments[].mentions: array [max_length maximum=10]
+cards[]<0>.question.comments[].mentions[]: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+cards[]<0>.question.eligible: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<0>.question.decider: nullable
+cards[]<0>.question.decider: the same as #9
+cards[]<0>.question.deciderSeenAt: optional
+cards[]<0>.question.deciderSeenAt: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<0>.question.escalatedAt: optional
+cards[]<0>.question.escalatedAt: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<0>.question.previous: optional
+cards[]<0>.question.previous: #10 object strict
+cards[]<0>.question.previous.askedAt: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<0>.question.previous.tally: array [min_length minimum=1] [max_length maximum=4]
+cards[]<0>.question.previous.tally[]: array [min_length minimum=3] [max_length maximum=5]
+cards[]<0>.question.previous.tally[][]: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<0>.question.answer: optional
+cards[]<0>.question.answer: #11 object strict
+cards[]<0>.question.answer.parts: array [min_length minimum=1] [max_length maximum=4]
+cards[]<0>.question.answer.parts[]: #12 object [custom] strict
+cards[]<0>.question.answer.parts[].options: optional
+cards[]<0>.question.answer.parts[].options: array [min_length minimum=1] [max_length maximum=4]
+cards[]<0>.question.answer.parts[].options[]: number format=safeint [greater_than value=0 inclusive=true] [less_than value=3 inclusive=true]
+cards[]<0>.question.answer.parts[].other: optional
+cards[]<0>.question.answer.parts[].other: string [min_length minimum=1] [max_length maximum=500] [custom] [custom]
+cards[]<0>.question.answer.parts[].otherBy: optional
+cards[]<0>.question.answer.parts[].otherBy: the same as #9
+cards[]<0>.question.answer.note: optional
+cards[]<0>.question.answer.note: string [min_length minimum=1] [max_length maximum=1000] [custom] [custom]
+cards[]<0>.question.answer.by: the same as #9
+cards[]<0>.question.answer.onBehalfOf: optional
+cards[]<0>.question.answer.onBehalfOf: the same as #9
+cards[]<0>.question.answer.at: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<0>.question.answer.tally: array [min_length minimum=1] [max_length maximum=4]
+cards[]<0>.question.answer.tally[]: array [min_length minimum=3] [max_length maximum=5]
+cards[]<0>.question.answer.tally[][]: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<0>.question.withdrawn: optional
+cards[]<0>.question.withdrawn: #13 object strict
+cards[]<0>.question.withdrawn.reason: enum "stopped"|"ended"|"failed"|"restarted"
+cards[]<0>.question.withdrawn.by: optional
+cards[]<0>.question.withdrawn.by: the same as #9
+cards[]<0>.question.withdrawn.at: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<1>: #14 object strict
+cards[]<1>.kind: literal "permission"
+cards[]<1>.request: #15 object strict
+cards[]<1>.request.id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+cards[]<1>.request.sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+cards[]<1>.request.askedAt: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<1>.request.status: enum "open"|"allowed"|"denied"|"withdrawn"
+cards[]<1>.request.tool: string [min_length minimum=1] [max_length maximum=64] [custom]
+cards[]<1>.request.what: enum "command"|"edit"|"fetch"|"outside"|"other"
+cards[]<1>.request.command: optional
+cards[]<1>.request.command: string [custom] [custom]
+cards[]<1>.request.file: optional
+cards[]<1>.request.file: #16 object strict
+cards[]<1>.request.file.root: #17 union by kind
+cards[]<1>.request.file.root<0>: #18 object strict
+cards[]<1>.request.file.root<0>.kind: literal "main"
+cards[]<1>.request.file.root<1>: #19 object strict
+cards[]<1>.request.file.root<1>.kind: literal "worktree"
+cards[]<1>.request.file.root<1>.worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+cards[]<1>.request.file.path: pipe
+cards[]<1>.request.file.path|in: string [max_length maximum=16384]
+cards[]<1>.request.file.path|out: transform
+cards[]<1>.request.change: optional
+cards[]<1>.request.change: #20 object strict
+cards[]<1>.request.change.text: string [custom] [custom]
+cards[]<1>.request.outside: optional
+cards[]<1>.request.outside: literal true
+cards[]<1>.request.path: optional
+cards[]<1>.request.path: string [custom] [custom]
+cards[]<1>.request.url: optional
+cards[]<1>.request.url: string [min_length minimum=0] [max_length maximum=2048] [custom]
+cards[]<1>.request.input: optional
+cards[]<1>.request.input: string [custom] [custom]
+cards[]<1>.request.root: the same as #17
+cards[]<1>.request.reason: optional
+cards[]<1>.request.reason: string [min_length minimum=0] [max_length maximum=1000] [custom]
+cards[]<1>.request.gate: optional
+cards[]<1>.request.gate: enum "writes-settings-script"|"may-reach-settings-script"
+cards[]<1>.request.hostOnly: boolean
+cards[]<1>.request.alwaysRule: optional
+cards[]<1>.request.alwaysRule: #21 object strict
+cards[]<1>.request.alwaysRule.tool: enum "Bash"|"WebFetch"
+cards[]<1>.request.alwaysRule.pattern: string [min_length minimum=1] [max_length maximum=200] [string_format format=regex pattern=^[\x21-\x7e]+(?: [\x21-\x7e]+)*$/]
+cards[]<1>.request.noAlways: optional
+cards[]<1>.request.noAlways: enum "interpreter"|"fetches-code"|"one-word"|"host-only"|"no-suggestion"
+cards[]<1>.request.escalatedAt: optional
+cards[]<1>.request.escalatedAt: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<1>.request.decision: optional
+cards[]<1>.request.decision: #22 object strict
+cards[]<1>.request.decision.by: the same as #9
+cards[]<1>.request.decision.at: number format=safeint [greater_than value=0 inclusive=true]
+cards[]<1>.request.decision.always: optional
+cards[]<1>.request.decision.always: enum "session"|"topic"
+cards[]<1>.request.decision.message: optional
+cards[]<1>.request.decision.message: string [min_length minimum=1] [max_length maximum=1000] [custom] [custom]
+cards[]<1>.request.withdrawn: optional
+cards[]<1>.request.withdrawn: #23 object strict
+cards[]<1>.request.withdrawn.reason: enum "stopped"|"ended"|"failed"|"restarted"
+cards[]<1>.request.withdrawn.at: number format=safeint [greater_than value=0 inclusive=true]

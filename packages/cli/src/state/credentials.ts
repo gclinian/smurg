@@ -1,9 +1,14 @@
 // `~/.smurg/credentials.json` (0600): the CLI's relay session tokens, one per relay origin (relay.md §1.4 "CLI and
 // daemon: Authorization: Bearer <token>"). A token is a secret: it is never printed, logged or passed on a command
 // line; it only goes into this file and into the Authorization header of requests to the relay it came from.
+//
+// A file this smurg cannot read is a refusal that changes nothing (./private-file.ts versionedRecord; 0.5.1, DESIGN
+// B5): until 0.5.0 an unknown `version` read as "not logged in", and the next login wrote the file anew with only
+// that one relay. As for workspaces.json, the `version` of this file can never be raised (0.4.0 and 0.5.0 would lose
+// it): a later smurg adds optional fields only.
 import type { RelaySession } from '@smurg/protocol/client';
 import type { StatePaths } from './paths.ts';
-import { isRecord, numberField, readPrivateJson, removePrivateFile, stringField, writePrivateJson } from './private-file.ts';
+import { isRecord, numberField, readPrivateJson, recordField, removePrivateFile, stringField, versionedRecord, writePrivateJson } from './private-file.ts';
 
 const WHAT = 'credentials' as const;
 
@@ -39,11 +44,11 @@ function parseSession(value: unknown): StoredSession | null {
 }
 
 export async function loadCredentials(paths: StatePaths): Promise<Credentials> {
-  const raw = await readPrivateJson(paths.credentials, WHAT);
+  // No file: not logged in anywhere. A file this smurg cannot read: refused (never "not logged in").
+  const raw = versionedRecord(await readPrivateJson(paths.credentials, WHAT), paths.credentials, WHAT, 1);
   if (raw === null) return EMPTY;
-  if (!isRecord(raw) || raw['version'] !== 1 || !isRecord(raw['relays'])) return EMPTY;
   const relays: Record<string, StoredSession> = {};
-  for (const [origin, value] of Object.entries(raw['relays'])) {
+  for (const [origin, value] of Object.entries(recordField(raw, 'relays', paths.credentials, WHAT))) {
     const session = parseSession(value);
     if (session) relays[origin] = session;
   }

@@ -3,6 +3,7 @@
 //   // src/files/module.ts
 //   export const filesModule: FeatureModule = {
 //     name: 'files',
+//     documents: [],                                                   // every `<name>.json` it keeps (see below)
 //     create: (ctx) => ({ files: new FileServiceImpl(ctx) }),
 //     register: (router, ctx) => registerFileHandlers(router, ctx),   // returns a Disposable
 //   };
@@ -29,6 +30,7 @@ import type {
 import type { DaemonConfig } from './config.ts';
 import type { Clock, Disposable } from './lifecycle.ts';
 import type { Logger } from './logger.ts';
+import type { DocumentDeclaration } from './state-store.ts';
 
 export interface DaemonContext {
   readonly config: DaemonConfig;
@@ -59,6 +61,14 @@ export interface DaemonContext {
 export interface FeatureModule {
   /** Unique, e.g. 'files', 'docs', 'locks', 'sessions', 'hooks', 'suggest', 'worktree'. */
   readonly name: string;
+  /**
+   * Every document of the workspace folder this module keeps (`<name>.json`), with today's strict schema, its `init`
+   * and the steps from the shapes earlier published versions wrote (core/state-store.ts declareDocument). A start
+   * reads and checks ALL declared documents before it writes anything or runs any module code (phase 1,
+   * core/workspace-folder.ts), so `ctx.state.document(name, …)` refuses a name that is not listed here, and a schema
+   * other than the declared one.
+   */
+  readonly documents?: readonly DocumentDeclaration[];
   /**
    * Builds the services this module implements (a slot may be filled by exactly one module). Runs once, in module
    * order, before any register(). Must not call other services.

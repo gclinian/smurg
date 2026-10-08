@@ -7,6 +7,7 @@ export { SlotBoundary, type SlotBoundaryProps } from './Boundary.tsx';
 export { Button, IconButton, type ButtonProps, type ButtonSize, type ButtonVariant, type IconButtonProps } from './Button.tsx';
 export { Card, type CardProps } from './Card.tsx';
 export { Chip, type ChipProps } from './Chip.tsx';
+export { ChunkFailureBanner, ChunkNotice, ChunkNoticeIcon, ReloadButton, chunkNoticeText } from './ChunkNotice.tsx';
 export { Collapsible, type CollapsibleProps } from './Collapsible.tsx';
 export { Columns, type ColumnsItem, type ColumnsProps } from './Columns.tsx';
 export { ContextMenu, type ContextMenuProps } from './ContextMenu.tsx';

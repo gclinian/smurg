@@ -15,6 +15,10 @@ export {
 export { MEMORY_RELAY_ORIGIN, MemoryClientSocket, MemoryRelay, TestIdentityIssuer, type IssueOptions, type RelayUser, type TappedFrame } from './memory-relay.ts';
 export { createTempDir, createTempProject, createTempRunDir, isolatedGitEnv, removeTempDir, removeTempRunDir, type TempProjectOptions } from './temp.ts';
 export { registerTestDir, registerTestProcess } from './run-registry.ts';
+// The two phases of a start, for tests that open a folder a published smurg wrote without a whole daemon.
+export { declaredDocuments } from '../daemon.ts';
+export { readWorkspaceFolder, writeWorkspaceFolder, type FolderReading, type FolderReadOptions, type UpgradedDocument } from '../core/workspace-folder.ts';
+export { STAMP_FILE, WORKSPACE_SHAPES, keptCopyPath, listKeptCopies, type DocumentDeclaration, type LoadedDocument, type WorkspaceStamp } from '../core/state-store.ts';
 export { CLAUDE_ACCOUNTS, FAKE_CLAUDE_SCRIPT, installFakeClaude, type FakeClaude, type FakeClaudeScenario, type FakeClaudeStep } from './fake-claude.ts';
 
 /** Lets queued microtasks and immediate callbacks run (in-memory relay and channels deliver through them). */

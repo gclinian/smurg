@@ -4,7 +4,13 @@
 //
 // What "non-extractable" means (noise.md §1.6, gotcha 20): script cannot EXPORT the key; it is NOT encrypted at rest
 // (Chromium and Firefox write the raw bytes into the profile). Never describe it as protected against disk theft.
+//
+// A record a NEWER page wrote (another `v`) is never replaced: the key store stops with 'newer-record' and leaves it
+// (packages/protocol/src/browser/key-stores.ts). The connection engine only knows that the storage failed
+// (`closed: storage-error`); `keyStorage.newerRecord` is how the page knows why and says "reload" instead of "check
+// that site data is not blocked".
 import {
+  KeyStoreError,
   createDaemonPinStore,
   createDeviceKeyStore,
   createMemoryKeyValueStore,
@@ -20,6 +26,8 @@ import type { ConnectFn, WorkspaceConnection } from './types.ts';
 export interface KeyStorageStatus {
   /** null until the first key operation opened the storage. */
   readonly persistent: boolean | null;
+  /** A key operation stopped at a record a newer page wrote. Nothing was changed; a reload gets the page that reads it. */
+  readonly newerRecord: boolean;
 }
 
 export interface BrowserConnectionDeps {
@@ -37,25 +45,43 @@ interface OpenedKeys {
   readonly pins: DaemonPinStore;
 }
 
-export function createBrowserConnectionDeps(options: { origin?: string; userAgent?: string } = {}): BrowserConnectionDeps {
+export interface BrowserConnectionDepsOptions {
+  origin?: string;
+  userAgent?: string;
+  /** Opens the browser's key-value store (default: IndexedDB `smurg-keys`). A rejection means "not available here". */
+  openKeyValueStore?: () => Promise<KeyValueStore>;
+}
+
+export function createBrowserConnectionDeps(options: BrowserConnectionDepsOptions = {}): BrowserConnectionDeps {
   const origin = options.origin ?? window.location.origin;
   const relay = new RelayApi({ relayUrl: origin, auth: { kind: 'cookie' } });
-  const keyStorage = createStore<KeyStorageStatus>({ persistent: null });
+  const keyStorage = createStore<KeyStorageStatus>({ persistent: null, newerRecord: false });
+  const openKeyValueStore = options.openKeyValueStore ?? (() => openIndexedDbKeyValueStore());
   let opening: Promise<OpenedKeys> | null = null;
   const open = (): Promise<OpenedKeys> => {
     opening ??= (async () => {
       let kv: KeyValueStore;
       try {
-        kv = await openIndexedDbKeyValueStore();
-        keyStorage.setState({ persistent: true });
+        kv = await openKeyValueStore();
+        keyStorage.setState((previous) => ({ ...previous, persistent: true }));
       } catch {
         // Private windows of some browsers refuse IndexedDB: keep working for this tab, and say so in the UI.
         kv = createMemoryKeyValueStore();
-        keyStorage.setState({ persistent: false });
+        keyStorage.setState((previous) => ({ ...previous, persistent: false }));
       }
       return { kv, devices: createDeviceKeyStore(kv), pins: createDaemonPinStore(kv) };
     })();
     return opening;
+  };
+  /** Runs one key operation; a stop at a newer page's record is remembered for the page's words, then passed on. */
+  const use = async <T>(operation: (keys: OpenedKeys) => Promise<T>): Promise<T> => {
+    const keys = await open();
+    try {
+      return await operation(keys);
+    } catch (error) {
+      if (error instanceof KeyStoreError && error.code === 'newer-record') keyStorage.setState((previous) => ({ ...previous, newerRecord: true }));
+      throw error;
+    }
   };
   return {
     relay,
@@ -64,14 +90,12 @@ export function createBrowserConnectionDeps(options: { origin?: string; userAgen
     deviceKeys: {
       // One key per workspace (the protocol's browser store is keyed by id): a revoked key is replaced for that
       // workspace alone.
-      async getKeyPair(workspaceId) {
-        return (await (await open()).devices.loadOrCreate(workspaceId)).keyPair;
-      },
+      getKeyPair: (workspaceId) => use(async ({ devices }) => (await devices.loadOrCreate(workspaceId)).keyPair),
     },
     pins: {
-      get: async (workspaceId) => (await open()).pins.get(workspaceId),
-      pin: async (workspaceId, key, pinOptions) => (await open()).pins.pin(workspaceId, key, pinOptions),
-      delete: async (workspaceId) => (await open()).pins.delete(workspaceId),
+      get: (workspaceId) => use(({ pins }) => pins.get(workspaceId)),
+      pin: (workspaceId, key, pinOptions) => use(({ pins }) => pins.pin(workspaceId, key, pinOptions)),
+      delete: (workspaceId) => use(({ pins }) => pins.delete(workspaceId)),
     },
   };
 }

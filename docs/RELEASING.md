@@ -163,6 +163,32 @@ and every outside check passes. It never logs in and never puts or reads a secre
 with exit 3 when a person has to act. Details: `apps/relay/README.md` ("The shared relay (app.smurg.ai,
 maintainers)", "What scripts/deploy-relay.sh does").
 
+**The previous web app's files stay served (since 0.5.1): `--keep-assets`.** The web app loads its parts when they
+are first needed (the workspace, code mode, the editor, the terminal, dialogs), from files named by their content
+(`assets/<name>-<hash>.<ext>`). A deploy replaces the set of files, so a tab that was opened before it asked for a
+file that was gone and got the page itself instead: an empty page, a column that could not be shown. Since 0.5.1
+the page says "smurg was updated" with a button to reload in that case (`apps/web/src/lib/chunks.ts`), and a deploy
+for a release keeps the files of the PREVIOUS published version beside the new ones, so that the case does not arise
+for tabs of that version:
+
+```sh
+scratch="$(mktemp -d)" && git archive --prefix=previous/ vX.Y.W | tar -x -C "$scratch"       # vX.Y.W: the version published before
+(cd "$scratch/previous" && scripts/bootstrap-tools.sh && source scripts/env.sh && pnpm install --frozen-lockfile && pnpm --filter @smurg/web build)
+scripts/deploy-relay.sh --dry-run --keep-assets "$scratch/previous/apps/web/dist/assets"     # lists what would be kept; deploys nothing
+scripts/deploy-relay.sh --keep-assets "$scratch/previous/apps/web/dist/assets"               # the deploy of §4 step 3
+```
+
+The folder is the assets folder of that version's own web build, made from its tag in a scratch folder (never in
+the checkout you deploy from). Only files named `<name>-<hash>.<ext>` are taken, only into `apps/web/dist/assets`,
+and a name the new build already has must have the same bytes; `index.html` is always the new build's, so `--check`
+still compares the live page with this checkout's build. The dry run lists what is kept (for v0.5.0 under the tree
+of 0.5.1: 52 files kept, 6.0 MB; 87 already in the new build under the same name and bytes). One version back is
+kept, not every version: a tab from an older page than that gets the notice and reloads. A tab that is kept alive
+this way still runs the OLD page: when the new version changed the protocol, the host's smurg turns it away and the
+page says "This tab is from before an update" (`apps/web/src/lib/page-build.ts` asks the relay for `/` and compares
+the entry script). What the option does not cover: the two Workers of the web app (the file transfer's and the
+editor's) are not `import()`s; a tab whose worker file is gone does not show the notice.
+
 What the production configuration must say:
 
 | Name | Production value |
@@ -238,7 +264,7 @@ Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1
 3. Redeploy the shared relay from the commit you are about to tag (a clean checkout of it), §2:
 
    ```sh
-   scripts/deploy-relay.sh                                 # ends with "Done: …": every outside check passed
+   scripts/deploy-relay.sh --keep-assets <assets folder of the previous published web build>   # §2; ends with "Done: …": every outside check passed
    scripts/deploy-relay.sh --check https://app.smurg.ai    # later, from the same checkout: "All checks passed."
    ```
 
@@ -252,12 +278,21 @@ Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1
    **For 0.5.0 the order "redeploy first, then publish" decides whether the release works at all.** 0.5.0 speaks
    protocol 4, and nothing of protocol 3 is kept: there is no compatibility code on either side (ARCHITECTURE
    §4.3). Until `app.smurg.ai` serves the build of the release commit, a browser that opens the invite
-   link of a 0.5.0 host is refused at the handshake (the page says "Incompatible versions"); from the moment it
-   does, a host that still runs an older smurg is refused the same way until it updates. So: deploy from the release
-   commit, wait for "Done: …", run `--check` (it compares the live web app with this checkout's build), and only
-   then tag, build and publish (steps 4 to 7), without a pause in between. Never publish while `--check` still
-   reports another web build. Say in the release notes that hosts update before they share again
+   link of a 0.5.0 host is refused at the handshake (the page of 0.5.0 says "Incompatible versions"); from the
+   moment it does, a host that still runs an older smurg is refused the same way until it updates. So: deploy from
+   the release commit, wait for "Done: …", run `--check` (it compares the live web app with this checkout's build),
+   and only then tag, build and publish (steps 4 to 7), without a pause in between. Never publish while `--check`
+   still reports another web build. Say in the release notes that hosts update before they share again
    (`smurg update`).
+
+   **A release that keeps the protocol version (0.5.1 keeps 4) has no such moment**: the page of the release and
+   the hosts of the version before connect to each other, and nobody is cut off by the deploy. When a release does
+   change it, both sides are told who has to act since 0.5.1: a freshly loaded page says "The host's smurg is older
+   than this page" (the host stops sharing, runs `smurg update` and shares again), a tab from before the deploy says
+   "This tab is from before an update" (reload), `smurg attach` says the same in a terminal, and `smurg host` prints
+   one line when it turned away a teammate it knows (`docs/HOSTING.md` §8, `docs/JOINING.md` §8). A host of 0.5.0
+   or earlier has none of these lines: it only stops accepting the newer page. What 0.5.1 could not add without
+   changing the wire (the refusal carries no version numbers) is in ARCHITECTURE §11 D-24.
 4. Tag and push the tag:
 
    ```sh
@@ -533,17 +568,60 @@ this suite against it, then change the two constants in the same commit as whate
    not match its checksum (change one byte of the served file to see it), and otherwise ends with `Updated smurg:
    0.0.1 -> X.Y.Z`. Never run a release's `install.sh` without `--base-url` or `SMURG_INSTALL_BASE_URL`: its
    built-in location is the real downloads site.
-5. The third-party notices are fresh: `node scripts/third-party-notices.ts --check` (0.5.0 added one dependency to
+5. **The upgrade from every published version that `smurg update` can start from** (since 0.5.1; for 0.5.1: 0.4.0
+   and 0.5.0), with the real executables. Download each one from `https://downloads.smurg.ai/v<version>/` into a
+   scratch folder and check it against that version's `SHA256SUMS` (they are the files hosts have: a published
+   version's files stay in the bucket, §7). Then, with the executable of step 2:
+
+   ```sh
+   SMURG_PREVIOUS_BINARIES=/path/to/smurg-0.4.0:/path/to/smurg-0.5.0 \
+   SMURG_SEA_BINARY=packages/cli/dist/smurg-darwin-arm64 \
+     pnpm --filter @smurg/cli exec vitest run test/sea-upgrade.test.ts
+   ```
+
+   For each old executable, in a scratch `HOME` and `SMURG_HOME` of its own: the old one logs in to a local relay,
+   shares a scratch folder, prints its key fingerprint and stops; the new one shares the same folder and must show
+   the same workspace code and the same fingerprint, list the old invite link, and, when the old files needed a step
+   (0.4.0), print the one-line notice, keep the old `state.json` beside the new one byte for byte and write the
+   stamp; a state file that other users can read is refused with the one `chmod`, never "move". Without both
+   variables the test is SKIPPED and says so on stderr: a dry run in which it was skipped has not done this step.
+   Every later release adds the executable of the version before it to the list, and none is ever taken off.
+   The same rule on files instead of executables is part of the gate (`packages/daemon/test/upgrade/`, below).
+6. The third-party notices are fresh: `node scripts/third-party-notices.ts --check` (0.5.0 added one dependency to
    the web app, the Markdown lexer `marked`, and its notices must list it).
-6. The frames per minute of the whole flow through the local relay (the flow of the web-smoke project's flow smoke:
+7. The frames per minute of the whole flow through the local relay (the flow of the web-smoke project's flow smoke:
    four browsers, the stand-in `claude`; the relay's test tap sees every frame). `pnpm exec vitest run --project
    @smurg/web-smoke flow.smoke` prints it in its last test as `[flow] {…}` and, with `SMURG_SMOKE_SHOTS=<folder>`,
    writes `<folder>/flow-measure.json`. §8 has the number of the integration run; record a new one there when it
    differs much.
-7. Afterwards nothing is left: no `claude`, `workerd`, Chrome or daemon that the run started is alive, and
+8. Afterwards nothing is left: no `claude`, `workerd`, Chrome or daemon that the run started is alive, and
    `git status` shows only the intended changes.
 
 When all of it is green, go on with §4: the changelog checks of step 2, then the relay (step 3), then the tag.
+
+**What a published version wrote is read by every later one: what a release owes the tests (since 0.5.1).** The
+rule and how the daemon keeps it are in ARCHITECTURE §11 D-24; `CONTRIBUTING.md` has the rule for whoever changes a
+stored shape. For a release it means:
+
+- **The gate runs from a checkout that has the tags of the published versions.**
+  `packages/daemon/test/upgrade/other-version.test.ts` takes the daemon and the protocol package of tag `v0.5.0`
+  with `git archive` and lets that code and this tree open each other's workspace folders. Without the tag its tests
+  skip, each with the reason in its name line (CI checks out without tags, so they skip there); with
+  `SMURG_RELEASE_GATE=1` a missing tag fails. In the Ubuntu VM, whose copy of the tree has no `.git`, name the
+  mounted repository: `GIT_DIR=<the mounted repository>/.git`. `SMURG_PUBLISHED_TREES=<folder>` names trees made
+  beforehand instead (`<folder>/v0.5.0/packages/{daemon,protocol}`).
+- **A released version gets its fixture.** `packages/daemon/test/fixtures/published/<version>/` holds what that
+  version wrote, made by running that version's own code until every stored shape has an instance (its `README.md`
+  says how each was made and how a test copies one; the driver that made 0.5.0's is not in the repository). After
+  X.Y.Z is published: make its fixture from the tag, name the version in `PUBLISHED_VERSIONS`
+  (`test/upgrade/fixture.ts`) with its story in `STORIES` and what its files become in `UPGRADES`
+  (`test/upgrade/opens.test.ts`), empty `NOT_PUBLISHED_YET` (`test/upgrade/fixtures.test.ts`), and add the tag to
+  `other-version.test.ts` (`TAG`). The newest fixture is the one whose coverage must match today's schemas exactly.
+- **A stored shape that changed since the last release has its step.** While a version is built, the pin
+  (`test/upgrade/pin.test.ts`) fails on any change of what a stored file accepts and asks the question; the answer
+  is a step from a frozen shape and a raised `WORKSPACE_SHAPES` (`CONTRIBUTING.md`). Before the tag, look at
+  `NOT_PUBLISHED_YET`: every entry there is a stored shape of this release that no published fixture holds yet, and
+  the fixture of this release must hold it.
 
 ## 5. Checking the one-line install on a clean machine
 
@@ -591,8 +669,16 @@ cost figures) are kept outside the repository.
 
 ## 7. Rolling back
 
-**A bad release** (people should stop installing it): point `latest/` back at the previous good version. Nothing is
-overwritten:
+**A published version is never withdrawn: it is followed by a fix** (since 0.5.1). Its files stay in the downloads
+bucket, its fixture stays in the repository, and the next version reads everything it wrote. The answer to a bad
+release is X.Y.(Z+1), published normally. Hosts have already shared workspaces with the bad version, and going back
+to an older smurg is not supported (`docs/HOSTING.md` §9.1): an older smurg may refuse what the newer one wrote.
+
+**A bad release, until its fix is out** (people should stop installing it): point `latest/` back at the previous
+good version. Do this only when the bad version has the same `PROTOCOL_VERSION` and the same `WORKSPACE_SHAPES`
+(`packages/daemon/src/core/state-store.ts`) as the one you point back to; otherwise a host who goes back with the
+install line meets a workspace their smurg refuses as written by a newer one, and the only way is forward. Nothing
+is overwritten:
 
 ```sh
 cd <repo> && source scripts/env.sh
@@ -610,11 +696,13 @@ one line under the links of `smurg host`, both read `latest/VERSION`). Mark the 
 `gh release edit vBAD --repo gclinian/smurg --prerelease`, and say so in its notes. **Never reuse a published
 version's number**: the next fix is X.Y.(Z+1), published normally (it becomes latest again because it is newer).
 
-**Removing a version.** A version's files are never overwritten, and they stay as long as the version may be the
-rollback target (at least the one before `latest/`). Older versions may be removed by a maintainer's decision
-(`pnpm --filter @smurg/relay exec wrangler r2 object delete smurg-downloads/vX.Y.Z/<file> --remote`, each file); the
-changelog keeps describing them. Something that must not be public at all in a release file (a secret) is removed at
-once: `--set-latest` away from it first, delete the affected objects, rotate the secret, and keep the number burned.
+**A version's files stay.** They are never overwritten and, since 0.5.1, never removed: `smurg update` can start
+from every published version, the release dry run downloads each of them for the upgrade test (§4.5 step 5), and
+somebody may still be running any of them. The one exception is something that must not be public at all in a
+release file (a secret): `--set-latest` away from it first, delete the affected objects
+(`pnpm --filter @smurg/relay exec wrangler r2 object delete smurg-downloads/vX.Y.Z/<file> --remote`, each file),
+rotate the secret, keep the number burned, and publish the same code under the next number so that the list of
+versions the upgrade is tested from has no hole.
 
 **A bad relay deploy**:
 
@@ -651,7 +739,7 @@ agent's streaming text: every frame the relay forwards arrived as an incoming We
 200 ms and its finished events in batches at most once per 100 ms, per watching browser, and streaming text goes
 only to conversations that are on screen (a hidden column gets the finished events and no streaming frames). What
 that comes to for a whole working session is measured, not estimated: the flow smoke counts the frames of the whole
-flow through a local relay (§4.5 step 6).
+flow through a local relay (§4.5 step 7).
 
 - **0.5.0, measured** (2026-10-07, macOS arm64, Node 22.22.1, a local relay with its test tap;
   `apps/web/e2e/smoke/flow.smoke.test.ts`, two runs): the owner's whole flow with four browsers (Host, Agent access,

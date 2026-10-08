@@ -1,0 +1,360 @@
+{
+  "version": 1,
+  "suggestions": [
+    {
+      "id": "sug_bXk1ycz1J9OKF9fqpcG4sw",
+      "sessionId": "ses_b9260011d245aee1f0443d43910c4cae",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "About SPEC.md:\nPlease say that coupons are not part of it. smurg-flow-SUGGESTION-d12ce0e4f0714fe5dc13b776",
+      "origin": "revise",
+      "topicId": "tp_7dE1xFDNb-USqora9tPYvw",
+      "status": "accepted",
+      "createdAt": 1791389341120,
+      "resolvedAt": 1791389341141,
+      "finalText": "About SPEC.md:\nPlease say that coupons are not part of it. smurg-flow-SUGGESTION-d12ce0e4f0714fe5dc13b776",
+      "decidedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_XQPGyEwNTXJdazu8YLY5eg",
+      "sessionId": "ses_b9260011d245aee1f0443d43910c4cae",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "Please also think of gift cards.",
+      "origin": "composer",
+      "topicId": "tp_7dE1xFDNb-USqora9tPYvw",
+      "status": "pending",
+      "createdAt": 1791389342831,
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_ERTxSVnb9dq2f-IPT2G8NA",
+      "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "please run the unit tests",
+      "origin": "composer",
+      "status": "withdrawn",
+      "createdAt": 1791389378390,
+      "resolvedAt": 1791389378488,
+      "sessionOwnerUserId": "dev:host",
+      "editedAt": 1791389378456
+    },
+    {
+      "id": "sug_b_jm0fMu2iKleg5N4n6FYQ",
+      "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "delete the docs folder",
+      "origin": "composer",
+      "status": "rejected",
+      "createdAt": 1791389378509,
+      "resolvedAt": 1791389378545,
+      "decidedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "rejectReason": "Not now.",
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_m_uvE--BMGjQMyTVQkqKaw",
+      "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "delete the notes folder too",
+      "origin": "composer",
+      "status": "rejected",
+      "createdAt": 1791389378572,
+      "resolvedAt": 1791389378612,
+      "decidedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_G08FkAfSfCvdUU1dg9v4ZA",
+      "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "add a test for the title",
+      "origin": "selection",
+      "source": {
+        "file": {
+          "root": {
+            "kind": "main"
+          },
+          "path": "src/app.ts"
+        },
+        "startLine": 1,
+        "endLine": 1
+      },
+      "status": "accepted",
+      "createdAt": 1791389378659,
+      "resolvedAt": 1791389378696,
+      "finalText": "add a test for the title",
+      "decidedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_BcDeIzPNTnJIRF_y7izOiw",
+      "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+      "author": {
+        "userId": "dev:erin",
+        "displayName": "Erin"
+      },
+      "text": "@Leo rename the title",
+      "origin": "composer",
+      "mentions": [
+        "dev:leo"
+      ],
+      "status": "accepted-modified",
+      "createdAt": 1791389378955,
+      "resolvedAt": 1791389379109,
+      "finalText": "rename the title in src/app.ts only",
+      "decidedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug__XRO78vx44-0J8c0fVeMsg",
+      "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "rename the shop",
+      "origin": "composer",
+      "status": "accepted-modified",
+      "createdAt": 1791389379379,
+      "resolvedAt": 1791389379412,
+      "finalText": "rename the shop in the README only",
+      "decidedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_NAN-HPghkADRkDdcdzHM_w",
+      "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "tidy this up please",
+      "cleaned": true,
+      "origin": "composer",
+      "status": "accepted",
+      "createdAt": 1791389379669,
+      "resolvedAt": 1791389379708,
+      "finalText": "tidy this up please",
+      "decidedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_WSIw1OHf0QiyqSSz2qUgpA",
+      "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+      "author": {
+        "userId": "dev:gina",
+        "displayName": "Gina"
+      },
+      "text": "explain what the title is for",
+      "origin": "composer",
+      "status": "pending",
+      "createdAt": 1791389379972,
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_97E3qnOaRw_h2tq0yimHCQ",
+      "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+      "author": {
+        "userId": "dev:erin",
+        "displayName": "Erin"
+      },
+      "text": "also update the README",
+      "origin": "composer",
+      "status": "withdrawn",
+      "createdAt": 1791389380005,
+      "resolvedAt": 1791389389956,
+      "closedReason": "author-kicked",
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_R_QpHv7QfWydkGpUFS0K-g",
+      "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+      "author": {
+        "userId": "dev:olga",
+        "displayName": "Olga"
+      },
+      "text": "and the docs",
+      "origin": "composer",
+      "status": "withdrawn",
+      "createdAt": 1791389380043,
+      "resolvedAt": 1791389389998,
+      "closedReason": "author-demoted",
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_BEjrKsqPSIH38lNtzZQMBw",
+      "sessionId": "ses_987411e24f9d9f664102e228c5bc0043",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "one more thing",
+      "origin": "composer",
+      "status": "rejected",
+      "createdAt": 1791389380504,
+      "resolvedAt": 1791389382649,
+      "closedReason": "session-ended",
+      "sessionOwnerUserId": "dev:kate"
+    },
+    {
+      "id": "sug_BYnC6UAi8y6wA3pOHfttrQ",
+      "sessionId": "ses_bbd6b2ca03b8cd29c154dae3c664afc3",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "explain this line",
+      "origin": "selection",
+      "source": {
+        "file": {
+          "root": {
+            "kind": "worktree",
+            "worktreeId": "wt_74b06a92358ff750f2a5f25d"
+          },
+          "path": "wt-notes.md"
+        },
+        "startLine": 1,
+        "endLine": 1
+      },
+      "status": "rejected",
+      "createdAt": 1791389385124,
+      "resolvedAt": 1791389388040,
+      "closedReason": "session-ended",
+      "sessionOwnerUserId": "dev:ruth"
+    },
+    {
+      "id": "sug_kr-fp7RdrHV63RB8WTIsow",
+      "sessionId": "ses_e32224318c70de5e2828338a9b7979b2",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "also lint the tests",
+      "origin": "composer",
+      "topicId": "tp_l-V_bHpkEwNfFIX9wnHCBA",
+      "itemId": "card-admin",
+      "status": "pending",
+      "createdAt": 1791389398672,
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_pErrgnZdu9iUmz2ysFVXHA",
+      "sessionId": "ses_331f70ca381e272a98a0b71501d3b733",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "Please also show the balance.",
+      "origin": "follow-up",
+      "topicId": "tp_l-V_bHpkEwNfFIX9wnHCBA",
+      "itemId": "card-page",
+      "status": "pending",
+      "createdAt": 1791389417814,
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_N_GJq16-7GDDQ1xShE5GNA",
+      "sessionId": "ses_331f70ca381e272a98a0b71501d3b733",
+      "author": {
+        "userId": "dev:gina",
+        "displayName": "Gina"
+      },
+      "text": "Please also list the cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. ",
+      "origin": "follow-up",
+      "topicId": "tp_l-V_bHpkEwNfFIX9wnHCBA",
+      "itemId": "card-page",
+      "status": "pending",
+      "createdAt": 1791389418365,
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_GVXGmqdDmZ_F7Nh_BjPOyA",
+      "sessionId": "ses_b51da5bfd5b51c2ec45df557babf32bf",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "keep the old link working",
+      "origin": "composer",
+      "topicId": "tp_TbvQkMxH8g1Gd4e-GlPuAg",
+      "itemId": "wish-share",
+      "status": "accepted",
+      "createdAt": 1791389461407,
+      "resolvedAt": 1791389461437,
+      "finalText": "keep the old link working",
+      "decidedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_A1oaphZzKsxT8nNYFGtVGw",
+      "sessionId": "ses_bb9948139dcea27fb014d172a6ac2350",
+      "author": {
+        "userId": "dev:gina",
+        "displayName": "Gina"
+      },
+      "text": "please keep the old title",
+      "origin": "composer",
+      "status": "pending",
+      "createdAt": 1791389466270,
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_huDB2sm8_v5UxnmAt458Pw",
+      "sessionId": "ses_74ba1e9f0dbb81af92ffa5459b5e989a",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "maybe next year",
+      "origin": "composer",
+      "topicId": "tp_A_VAFkqP1R1TMyKSvisO8A",
+      "status": "rejected",
+      "createdAt": 1791389472023,
+      "resolvedAt": 1791389472167,
+      "closedReason": "topic-archived",
+      "sessionOwnerUserId": "dev:mei"
+    }
+  ]
+}

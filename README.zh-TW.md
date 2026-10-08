@@ -92,7 +92,8 @@ curl -fsSL https://smurg.ai/install.sh | sh
 
 - 要執行 agent，這台電腦還需要已經登入的 `claude` 指令（Claude Code 2.1.288 以上）：每個 agent session 都用這個登入。
   要執行工作項目，資料夾要是至少有一個提交的 git 儲存庫。
-- 更新：`smurg update`（正在分享時先 `smurg stop`；更新前先讀變更紀錄：這個版本不會讀取舊版本的工作區狀態）。移除：
+- 更新：`smurg update`（正在分享時先 `smurg stop`）。你的工作區會保留下來：下一次執行 `smurg host` 時，會讀取舊版本
+  （0.4.0 以後）寫的內容並沿用（主人指南 §9.2）。移除：
   `smurg uninstall` 會列出並移除執行檔 `~/.local/bin/smurg`、`~/.smurg`（登入、金鑰、工作區狀態、對話）和快取目錄
   （macOS：`~/Library/Caches/smurg`；Linux：`~/.cache/smurg`），不會動專案資料夾裡的 `.smurg/`
   （[主人指南](docs/zh-TW/HOSTING.md) §9）。

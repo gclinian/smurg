@@ -7,7 +7,8 @@
 // between the views (openColumn, setMode, openInCodeMode), the overlays the features registered (dialogs and command
 // handlers that must exist in both modes), the notices, and the browser tab's title with the waiting count.
 import type { Topic } from '@smurg/protocol';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { lazyChunk } from '../../lib/chunks.ts';
 import { columnId, isColumnRef } from '../../lib/columns/target.ts';
 import type { WorkspaceMode } from '../../lib/commands.ts';
 import { routePath } from '../../lib/router.ts';
@@ -18,7 +19,7 @@ import { useCommandHandler, useCommands, useConnectionState, useStores, useWorks
 import { useSlots } from '../../lib/workspace/slots.tsx';
 import { tConn } from '../../strings/connection.ts';
 import { tWorkbench } from '../../strings/workbench.ts';
-import { Banner, SlotBoundary, Spinner } from '../../ui/index.ts';
+import { Banner, ChunkFailureBanner, SlotBoundary, Spinner } from '../../ui/index.ts';
 import { InboxNotices } from '../../features/sidebar/index.tsx';
 import { ConnectionBanner } from '../connection/indicators.tsx';
 import { useAppServices } from '../services.tsx';
@@ -27,7 +28,7 @@ import { SessionsView } from './SessionsView.tsx';
 import { TopBar, type LayoutToggles } from './TopBar.tsx';
 import { useWorkspaceNotices } from './useWorkspaceNotices.ts';
 
-const Workbench = lazy(() => import('./Workbench.tsx'));
+const Workbench = lazyChunk(() => import('./Workbench.tsx'));
 
 export interface WorkspaceShellProps {
   mode: WorkspaceMode;
@@ -141,6 +142,8 @@ export function WorkspaceShell({ mode }: WorkspaceShellProps) {
       <TopBar view={mode} layout={toggles} />
       <div className="app-banners">
         <ConnectionBanner state={state} />
+        {/* A dialog or an overlay whose chunk did not come has no place of its own: it is said here. */}
+        <ChunkFailureBanner />
         {persistentKeys === false ? (
           <Banner tone="warning" live="none">
             {tConn('banner.memoryKeys')}

@@ -15,6 +15,7 @@ import { msg, renderEnglish } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../../core/context.ts';
 import type { AttentionFact, HostRules, PersistentDocument, Principal, Res } from '../../core/interfaces.ts';
 import { SYSTEM_ACTOR } from '../../core/permissions.ts';
+import { declareDocument } from '../../core/state-store.ts';
 import { isStubService } from '../../core/stubs.ts';
 
 type RuleSource = (typeof HOST_RULE_SOURCES)[number];
@@ -39,6 +40,8 @@ const documentSchema = z.strictObject({
 });
 type RulesDocument = z.infer<typeof documentSchema>;
 const EMPTY: RulesDocument = Object.freeze({ main: [], worktree: [], told: [], seen: true, foundAt: 0, notices: [] }) as RulesDocument;
+/** host-rules.json (no `version` key; new in 0.5.0). Declared by the sessions module. */
+export const hostRulesDocument = declareDocument({ name: 'host-rules', schema: documentSchema, init: (): RulesDocument => structuredClone(EMPTY) });
 const keyOf = (entry: HostRule): string => `${entry.source}\u0000${entry.rule}`;
 const inOrder = (a: HostRule, b: HostRule): number => (a.source === b.source ? (a.rule < b.rule ? -1 : a.rule > b.rule ? 1 : 0) : a.source < b.source ? -1 : 1);
 
@@ -97,7 +100,7 @@ export class HostRulesImpl implements HostRules {
   }
 
   async start(): Promise<void> {
-    this.doc = await this.ctx.state.document('host-rules', documentSchema, () => structuredClone(EMPTY));
+    this.doc = await this.ctx.state.document(hostRulesDocument.name, hostRulesDocument.schema, hostRulesDocument.init);
   }
 
   private current(): Readonly<RulesDocument> {

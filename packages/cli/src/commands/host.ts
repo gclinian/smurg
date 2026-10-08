@@ -15,10 +15,13 @@
 //  4. runs the daemon in the foreground with DEFAULT_FEATURE_MODULES and keeps the machine awake;
 //  5. prints the workspace's name, the host's own link and a guest invite (its expiry, and its role and use limit when
 //     the host chose them) — the links go to the terminal only, never to the log file; then, only when it happens,
-//     a one-line notice the host must act on: keep-awake refused at the start;
+//     a one-line notice the host must act on: keep-awake refused at the start. Before the links, only when it
+//     happened, ONE line each (./host-state.ts): this start upgraded what an earlier smurg wrote (or found an OLDER
+//     file put back), and a folder `<workspace id>.old*` lies beside the one that is opened;
 //  6. tells the host when the relay link drops or recovers, when the relay refuses the host's login (and picks up a
 //     renewed login from credentials.json without a restart), when that login is about to expire, when a state file
-//     cannot be written and when keep-awake is lost;
+//     cannot be written, when keep-awake is lost, and (once per run and direction) when a teammate's page or smurg of
+//     another protocol version was turned away;
 //  7. adds ONE line under the links when a newer smurg is published (../update/notice.ts: looked up in the background
 //     after the links are printed, at most 2 s, silent on every failure; never in an automated run or with
 //     SMURG_NO_UPDATE_CHECK=1);
@@ -57,7 +60,7 @@ import { booleanOption, parseArgs, parseCount, parseDuration, stringOption } fro
 import { CliError, usageError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
 import type { CliSignal } from '../cli/io.ts';
-import { ctlPathFor, daemonAt, runningDaemons } from '../channel/discover.ts';
+import { ctlPathFor, probeDaemon, probeDaemons } from '../channel/discover.ts';
 import { ensureSession } from '../relay/login.ts';
 import { pickRelay, relayApi, relayDefaultText, relayOriginOf, relayProblem } from '../relay/relay.ts';
 import { loadCredentials, type StoredSession } from '../state/credentials.ts';
@@ -68,9 +71,11 @@ import { NativeExtractionError, ensureSeaNative } from '../sea/native.ts';
 import { agentsPausedNotice } from '../cli/agents-text.ts';
 import { powerState } from '../cli/power-text.ts';
 import { updateNotice, type UpdateNoticeDeps } from '../update/notice.ts';
-import { m, roleText, type MessageId, type Text } from '../i18n/index.ts';
+import { CLI_VERSION } from '../version.ts';
+import { m, renderText, roleText, type MessageId, type Text } from '../i18n/index.ts';
 import type { DurationUnit } from '../i18n/en.ts';
 import { say, tr, type CommandContext } from './context.ts';
+import { foldersSetAside, formatTime, oldFolderNotice, stateFileProblem, upgradeNotice, wasStamped, watchRefusedPeers, type RefusalContext } from './host-state.ts';
 
 /** `smurg host --help`; the --relay default depends on the built-in relay (../relay/default-relay.ts). */
 export function hostUsage(): Text {
@@ -230,15 +235,6 @@ async function openLog(ctx: CommandContext, workspaceId: string): Promise<{ logg
   };
 }
 
-/**
- * A state file the daemon refuses: written by another smurg version (there is no compatibility with earlier state) or
- * not in the expected format. The daemon logged which file and why; there is no migration: the way forward is a fresh
- * workspace state.
- */
-function stateFileProblem(err: unknown, logPath: string, workspaceDir: string): CliError {
-  return new CliError(m('host.stateFile'), { hint: m('host.stateFile.hint', { logPath, workspaceDir }), cause: err });
-}
-
 /** The daemon's reason codes for a folder it refuses to share (SHARE_ERROR_REASONS in @smurg/daemon). */
 const SHARE_REFUSALS: Readonly<Record<ShareErrorReason, MessageId>> = {
   'not-found': 'host.share.notFound',
@@ -252,8 +248,12 @@ const SHARE_REFUSALS: Readonly<Record<ShareErrorReason, MessageId>> = {
   'smurg-not-a-directory': 'host.share.smurgNotDirectory',
 };
 
-/** A daemon start failure as the person should read it. */
-function daemonProblem(err: unknown, logPath: string, workspaceDir: string): CliError {
+/**
+ * A daemon start failure as the person should read it. A state file the daemon refuses is worded by its kind and
+ * cause (./host-state.ts): the text names the file and the reason itself (the log has the same).
+ */
+async function daemonProblem(err: unknown, logPath: string, refusal: RefusalContext): Promise<CliError> {
+  const workspaceDir = refusal.workspaceDir;
   if (err instanceof CliError) return err;
   if (err instanceof ShareError) {
     const text: Text = Object.hasOwn(SHARE_REFUSALS, err.reason) ? { id: SHARE_REFUSALS[err.reason] } : m('host.share.other', { reason: String(err.reason) });
@@ -264,7 +264,7 @@ function daemonProblem(err: unknown, logPath: string, workspaceDir: string): Cli
     return new CliError(m(err.reason === 'ancestor-shared' ? 'host.locked.ancestor' : 'host.locked.shared'), { hint: m('host.locked.hint'), cause: err });
   }
   if (err instanceof KeyFileError) return stateProblem(err, 'daemon-key');
-  if (err instanceof StateFileError) return stateFileProblem(err, logPath, workspaceDir);
+  if (err instanceof StateFileError) return stateFileProblem(err, refusal);
   if (err instanceof SocketPathError) return new CliError(m('state.socketPathTooLong', { path: workspaceDir }), { hint: m('state.socketPathTooLong.hint'), cause: err });
   const named = err as { name?: unknown; code?: unknown };
   if (named?.name === 'ControlSocketError' && named.code === 'daemon-running') {
@@ -280,12 +280,6 @@ function durationOf(seconds: number): { amount: number; unit: DurationUnit } {
   if (seconds % 3600 === 0) return { amount: seconds / 3600, unit: 'hour' };
   if (seconds % 60 === 0) return { amount: seconds / 60, unit: 'minute' };
   return { amount: seconds, unit: 'second' };
-}
-
-function formatTime(epochMs: number): string {
-  const d = new Date(epochMs);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function parseRole(text: string | undefined): GuestRole {
@@ -345,10 +339,11 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   const origin = pickRelay(stringOption(args, 'relay'), io, await loadCredentials(ctx.paths)).origin;
   const existing = sharedFolderFor(await loadWorkspaces(ctx.paths), folder, origin);
   const workspaceId = existing?.workspaceId ?? newWorkspaceId();
-  // Before any login: a folder that is already shared needs no browser.
-  if (await daemonAt(ctlPathFor(ctx.paths, workspaceId))) {
-    throw new CliError(m('host.alreadyShared'), { hint: m('host.alreadyShared.hint') });
-  }
+  // Before any login: a folder that is already shared needs no browser. A smurg host of another version (alive, its
+  // answer not readable by this command: channel/discover.ts) shares the folder just the same.
+  const sharing = await probeDaemon(ctlPathFor(ctx.paths, workspaceId));
+  if (sharing.kind === 'running') throw new CliError(m('host.alreadyShared'), { hint: m('host.alreadyShared.hint') });
+  if (sharing.kind === 'unreadable') throw new CliError(m('host.otherVersion', { current: CLI_VERSION, why: sharing.daemon.why }), { hint: m('otherVersion.hint') });
   await refuseOverlappingShare(ctx, folder);
   // No notice for the built-in relay here (owner decision 2026-10-01: the start shows only the links): a login names
   // the relay it opens, and `smurg status` names the relay of a running share.
@@ -376,6 +371,11 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     throw err;
   }
   const log = await openLog(ctx, workspaceId);
+  const workspaceDir = workspaceStateDir(ctx.paths, workspaceId);
+  const refusal: RefusalContext = { io, workspaceId, workspaceDir, ...(deps.update ? { update: deps.update } : {}) };
+  // Whether a smurg that stamps its folders has opened this workspace's folder before (asked before the daemon
+  // writes the stamp): the line about a folder set aside is said at the first such start only.
+  const stampedBefore = await wasStamped(workspaceDir);
   const modules = deps.daemon?.modules ?? DEFAULT_FEATURE_MODULES;
   const power = new HostPower(deps.daemon?.power ?? new KeepAwake({ enabled: keepAwake, log: log.logger.child({ module: 'power' }) }));
   let daemon: Daemon;
@@ -404,7 +404,16 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   } catch (err) {
     // createDaemon logged why (the state it refused, review F3); the log is flushed before the hint names it.
     await log.close();
-    throw daemonProblem(err, log.path, workspaceStateDir(ctx.paths, workspaceId));
+    throw await daemonProblem(err, log.path, refusal);
+  }
+
+  // What this start found in the workspace's folder, ONE line each, before the links (the daemon wrote an upgrade in
+  // createDaemon, so it is said now: a start that fails later would never say it again). The log gets the same.
+  const found: (Text | null)[] = [upgradeNotice(daemon), stampedBefore ? null : oldFolderNotice(await foldersSetAside(workspaceDir))];
+  for (const line of found) {
+    if (line === null) continue;
+    say(ctx, line);
+    log.logger.info(renderText('en', line));
   }
 
   // Stop requests: a signal (Ctrl-C, SIGTERM, a closed terminal) or `smurg stop` on the control socket.
@@ -452,11 +461,18 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   });
   let powerWatch: ReturnType<typeof setInterval> | undefined;
   let relayWatch: { dispose(): void } | undefined;
+  // A teammate's page or smurg of another protocol version that was turned away: heard from the first connection
+  // on (teammates' open tabs reconnect the moment the daemon is at the relay), told under the links.
+  const peerWatch = watchRefusedPeers(daemon, (direction, text) => {
+    log.logger.info('a known peer of another protocol version was turned away', { direction });
+    if (stopping === null) say(ctx, text);
+  });
   const updateCheck = new AbortController();
   const cleanup = async (): Promise<void> => {
     updateCheck.abort();
     if (powerWatch !== undefined) clearInterval(powerWatch);
     relayWatch?.dispose();
+    peerWatch.dispose();
     for (const off of unsubscribe) off();
     stoppingListener.dispose();
     // The control socket closes just after the rest of the daemon stopped (src/local/module.ts in @smurg/daemon):
@@ -469,7 +485,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     await daemon.start();
   } catch (err) {
     await cleanup();
-    throw daemonProblem(err, log.path, workspaceStateDir(ctx.paths, workspaceId));
+    throw await daemonProblem(err, log.path, refusal);
   }
   starting = false;
   if ((stopping as { readonly source: 'signal' | 'control' } | null)?.source === 'control') announceControlStop();
@@ -496,6 +512,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     }, POWER_WATCH_MS);
     powerWatch.unref?.();
     relayWatch = watchRelay(ctx, daemon, { origin, userId: user.userId, session }, () => stopping !== null, deps.credentialsWatchMs ?? CREDENTIALS_WATCH_MS);
+    peerWatch.release();
     // A newer version: one line under the links, whenever the answer comes (never awaited: the start is not delayed).
     void updateNotice(io, updateCheck.signal, deps.update).then((line) => {
       if (line !== null && stopping === null) say(ctx, `\n${tr(ctx, line)}`);
@@ -520,11 +537,17 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
  * folder or one of its ancestors.
  */
 async function refuseOverlappingShare(ctx: CommandContext, folder: string): Promise<void> {
-  const running = await runningDaemons(ctx.paths);
-  if (running.length === 0) return;
+  const { running, unreadable } = await probeDaemons(ctx.paths);
+  if (running.length === 0 && unreadable.length === 0) return;
   const book: WorkspaceBook = await loadWorkspaces(ctx.paths);
-  for (const daemon of running) {
-    for (const entry of book.shared.filter((e) => e.workspaceId === daemon.status.workspaceId)) {
+  // A host of another version is in the way too, as far as workspaces.json says which folder its socket belongs to
+  // (the daemon's own lock in the folder covers the rest: it needs no answer anyone has to read).
+  const sharing = [
+    ...running.map((daemon) => ({ workspaceId: daemon.status.workspaceId, otherVersion: false })),
+    ...unreadable.flatMap((daemon) => (daemon.workspaceId === null ? [] : [{ workspaceId: daemon.workspaceId, otherVersion: true }])),
+  ];
+  for (const daemon of sharing) {
+    for (const entry of book.shared.filter((e) => e.workspaceId === daemon.workspaceId)) {
       if (!isInside(folder, entry.folder) && !isInside(entry.folder, folder)) continue;
       const what =
         entry.folder === folder
@@ -532,7 +555,11 @@ async function refuseOverlappingShare(ctx: CommandContext, folder: string): Prom
           : isInside(folder, entry.folder)
             ? m('host.overlap.ancestor', { folder: entry.folder })
             : m('host.overlap.inside', { folder: entry.folder });
-      throw new CliError(what, { hint: m('host.overlap.hint', { workspaceId: daemon.status.workspaceId, relay: entry.relay }) });
+      throw new CliError(what, {
+        hint: daemon.otherVersion
+          ? m('host.overlap.otherVersion.hint', { workspaceId: daemon.workspaceId, current: CLI_VERSION })
+          : m('host.overlap.hint', { workspaceId: daemon.workspaceId, relay: entry.relay }),
+      });
     }
   }
 }

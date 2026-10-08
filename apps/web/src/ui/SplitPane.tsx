@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import { browserLocalStorage, readJson, writeJson } from '../lib/preferences.ts';
 import { tUi } from '../strings/ui.ts';
 import { cx } from './cx.ts';
-import { clampSize, dragMove, grabOffset, sizeFromKey, sizeFromPointer, sizeFromSeparator, splitLimits, storedSize, type SplitGeometry, type SplitLimits } from './split-resize.ts';
+import { clampSize, dragMove, grabOffset, paneStorageKey, sizeFromKey, sizeFromPointer, sizeFromSeparator, splitLimits, storedSize, type SplitGeometry, type SplitLimits } from './split-resize.ts';
 
 export interface SplitPaneProps {
   /** 'horizontal': panes side by side (a vertical separator); 'vertical': stacked. */
@@ -81,7 +81,7 @@ export function SplitPane({
   className,
 }: SplitPaneProps) {
   const horizontal = orientation === 'horizontal';
-  const storeKey = storageKey ? `smurg.pane.${storageKey}` : null;
+  const storeKey = storageKey ? paneStorageKey(storageKey) : null;
   const limitsIn = (geometry: SplitGeometry | null): SplitLimits =>
     splitLimits({ minSize, maxSize, minOther: minOtherSize, containerSize: geometry?.containerSize ?? null, separatorSize: geometry?.separatorSize ?? SEPARATOR_PX });
 

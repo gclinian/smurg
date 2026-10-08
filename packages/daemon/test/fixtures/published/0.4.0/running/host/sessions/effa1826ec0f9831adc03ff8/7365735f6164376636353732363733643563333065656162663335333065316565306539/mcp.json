@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "smurg": {
+      "type": "stdio",
+      "command": "/__SMURG_FIXTURE__/bin/smurg",
+      "args": [
+        "mcp"
+      ],
+      "env": {}
+    }
+  }
+}

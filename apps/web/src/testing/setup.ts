@@ -5,6 +5,7 @@ import { act, cleanup } from '@testing-library/react';
 import { LOCALE_COOKIE } from '@smurg/protocol/locale';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { forgetParses } from '../features/markdown/lex.ts';
+import { resetChunkFailures, setChunkProbe } from '../lib/chunks.ts';
 import { applyLocale } from '../lib/locale.ts';
 import '../strings/index.ts';
 import { TEST_LOCALE } from './locale.ts';
@@ -15,10 +16,17 @@ beforeEach(() => {
   applyLocale(TEST_LOCALE);
 });
 
+// A part of the page that fails to load asks the server why (lib/chunks.ts). No unit test asks a network: here the
+// answer is "something else went wrong" unless the test sets its own (setChunkProbe).
+beforeEach(() => {
+  setChunkProbe(() => Promise.resolve('failed'));
+});
+
 afterEach(() => {
   applyLocale(TEST_LOCALE);
   // What the Markdown renderer remembers of earlier texts and of the page's time is one test's, not the next one's.
   forgetParses();
+  resetChunkFailures();
   if (typeof document === 'undefined') return;
   cleanup();
   try {

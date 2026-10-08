@@ -1,0 +1,20 @@
+: #1 object strict
+v: literal 1
+uploadId: string [string_format format=regex pattern=^up_[A-Za-z0-9_-]{22}$/]
+userId: string [min_length minimum=1] [max_length maximum=256]
+root: #2 union by kind
+root<0>: #3 object strict
+root<0>.kind: literal "main"
+root<1>: #4 object strict
+root<1>.kind: literal "worktree"
+root<1>.worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+path: pipe
+path|in: string [max_length maximum=16384]
+path|out: transform
+size: number format=safeint [greater_than value=0 inclusive=true]
+chunkSize: number format=safeint [greater_than value=1048576 inclusive=true] [less_than value=8388608 inclusive=true]
+chunkCount: number format=safeint [greater_than value=0 inclusive=true]
+lastModified: number format=safeint
+onConflict: enum "fail"|"overwrite"|"rename"
+createdAt: number format=safeint
+targetDev: number format=safeint

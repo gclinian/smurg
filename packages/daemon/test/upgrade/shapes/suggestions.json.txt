@@ -1,0 +1,49 @@
+: #1 object strict
+version: literal 1
+suggestions: array [max_length maximum=1000]
+suggestions[]: #2 object strict
+suggestions[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+suggestions[].sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+suggestions[].author: #3 object strict
+suggestions[].author.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+suggestions[].author.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+suggestions[].text: string [min_length minimum=1] [max_length maximum=65536] [custom] [custom]
+suggestions[].cleaned: optional
+suggestions[].cleaned: literal true
+suggestions[].origin: enum "composer"|"follow-up"|"revise"|"selection"
+suggestions[].topicId: optional
+suggestions[].topicId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+suggestions[].itemId: optional
+suggestions[].itemId: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,39}$/]
+suggestions[].mentions: optional
+suggestions[].mentions: array [max_length maximum=10]
+suggestions[].mentions[]: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+suggestions[].source: optional
+suggestions[].source: #4 object [custom] strict
+suggestions[].source.file: #5 object strict
+suggestions[].source.file.root: #6 union by kind
+suggestions[].source.file.root<0>: #7 object strict
+suggestions[].source.file.root<0>.kind: literal "main"
+suggestions[].source.file.root<1>: #8 object strict
+suggestions[].source.file.root<1>.kind: literal "worktree"
+suggestions[].source.file.root<1>.worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+suggestions[].source.file.path: pipe
+suggestions[].source.file.path|in: string [max_length maximum=16384]
+suggestions[].source.file.path|out: transform
+suggestions[].source.startLine: number format=safeint [greater_than value=1 inclusive=true]
+suggestions[].source.endLine: number format=safeint [greater_than value=1 inclusive=true]
+suggestions[].status: enum "pending"|"accepted"|"accepted-modified"|"rejected"|"withdrawn"
+suggestions[].createdAt: number format=safeint [greater_than value=0 inclusive=true]
+suggestions[].resolvedAt: optional
+suggestions[].resolvedAt: number format=safeint [greater_than value=0 inclusive=true]
+suggestions[].finalText: optional
+suggestions[].finalText: string [min_length minimum=1] [max_length maximum=65536] [custom] [custom]
+suggestions[].decidedBy: optional
+suggestions[].decidedBy: the same as #3
+suggestions[].rejectReason: optional
+suggestions[].rejectReason: string [min_length minimum=0] [max_length maximum=1000] [custom]
+suggestions[].closedReason: optional
+suggestions[].closedReason: enum "session-ended"|"author-kicked"|"author-demoted"|"topic-archived"
+suggestions[].sessionOwnerUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+suggestions[].editedAt: optional
+suggestions[].editedAt: number format=safeint [greater_than value=0 inclusive=true]

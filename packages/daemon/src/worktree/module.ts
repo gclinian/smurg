@@ -10,6 +10,7 @@
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import { toDisposable } from '../core/lifecycle.ts';
 import { registerWorktreeHandlers } from './handlers.ts';
+import { worktreesDocument } from './store.ts';
 import { WorktreeManagerImpl, type WorktreeModuleOptions } from './worktree-manager.ts';
 
 /** A worktree module with seams (git path, limits). Production uses worktreeModule. */
@@ -17,6 +18,7 @@ export function createWorktreeModule(options: WorktreeModuleOptions = {}): Featu
   const managers = new WeakMap<DaemonContext, WorktreeManagerImpl>();
   return {
     name: 'worktree',
+    documents: [worktreesDocument],
     create: (ctx) => {
       const manager = new WorktreeManagerImpl(ctx, options);
       managers.set(ctx, manager);

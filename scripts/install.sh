@@ -6,8 +6,15 @@
 # https://smurg.ai/install.sh only redirects (302, apps/site) to https://downloads.smurg.ai/latest/install.sh, the copy
 # of this file that belongs to the newest version; every version also keeps its own at
 # https://downloads.smurg.ai/v<X.Y.Z>/install.sh (scripts/publish-downloads.sh uploads both; docs/RELEASING.md).
-# Or, downloaded first:  sh install.sh [--base-url URL] [--prefix DIR]
+# Or, downloaded first:  sh install.sh [--base-url URL] [--prefix DIR] [--force]
 #
+#  0. when a smurg is already installed at <prefix>/bin/smurg, asks it whether it is sharing (`smurg status`: exit 0
+#     means a workspace is being shared, 5 that a smurg host of another version is; 3 that nothing is) and stops with
+#     "stop sharing first" when it is, before anything is downloaded and again right before the executable is
+#     replaced: the sessions of a daemon that keeps running would start the NEW `smurg hook` / `smurg mcp` against
+#     the OLD daemon (`smurg update` refuses for the same reason). `--force` installs without asking. An installed
+#     smurg that cannot say (it does not start: the reason many people run the installer again) does not stop the
+#     install; one line says that it could not be asked;
 #  1. picks the single executable for this machine (smurg-darwin-arm64, smurg-darwin-x64, smurg-linux-x64,
 #     smurg-linux-arm64; glibc only; an x86_64 shell under Rosetta on Apple silicon gets the arm64 build), downloads it
 #     and the release's SHA256SUMS from the release URL, and refuses to install unless the file's sha256 matches (fail
@@ -125,15 +132,17 @@ failf() {
 }
 
 usage() {
-  msg 'Usage: sh install.sh [--base-url URL] [--prefix DIR]' '用法：sh install.sh [--base-url 網址] [--prefix 資料夾]'
+  msg 'Usage: sh install.sh [--base-url URL] [--prefix DIR] [--force]' '用法：sh install.sh [--base-url 網址] [--prefix 資料夾] [--force]'
   msg '  --base-url  where the release files are (with SHA256SUMS); or set SMURG_INSTALL_BASE_URL' '  --base-url  發佈檔案所在的網址（含 SHA256SUMS）；也可用環境變數 SMURG_INSTALL_BASE_URL'
   msg '  --prefix    install to <DIR>/bin/smurg (default ~/.local)' '  --prefix    安裝到 <資料夾>/bin/smurg（預設 ~/.local）'
+  msg '  --force     install even while the installed smurg is sharing a workspace (without it: stop sharing first)' '  --force     即使已安裝的 smurg 正在分享工作區也照樣安裝（不加的話：請先停止分享）'
   msg '  Language: English or Traditional Chinese, from your locale; SMURG_LANG=en or SMURG_LANG=zh-TW chooses.' '  語言：依照你的系統語言顯示英文或繁體中文；可用 SMURG_LANG=en 或 SMURG_LANG=zh-TW 指定。'
 }
 
 parse_args() {
   base_url="${SMURG_INSTALL_BASE_URL:-$SMURG_RELEASE_BASE_URL}"
   prefix="${HOME:-}/.local"
+  force=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --base-url)
@@ -148,6 +157,7 @@ parse_args() {
         shift 2
         ;;
       --prefix=*) prefix="${1#--prefix=}"; shift ;;
+      --force) force=1; shift ;;
       -h | --help) usage; exit 0 ;;
       *) FAIL_CODE=2 failf 'unknown argument %s (--help shows the usage)' '不認得的參數 %s（--help 查看用法）' "$1" ;;
     esac
@@ -166,6 +176,29 @@ parse_args() {
     *[!A-Za-z0-9:/._~%-]*) FAIL_CODE=2 failf 'the download location has characters that are not allowed: %s' '下載位置含有不允許的字元：%s' "$base_url" ;;
   esac
   [ -n "$prefix" ] || FAIL_CODE=2 failf 'the home folder was not found; give the install location with --prefix' '找不到家目錄，請用 --prefix 指定安裝位置'
+  bindir="$prefix/bin"
+}
+
+# ---- a share that is running
+# Asks the smurg that is installed at <prefix>/bin/smurg (the file about to be replaced) whether it is sharing, and
+# stops when it is. Its stdin is /dev/null: under `curl ... | sh` the shell's stdin is this script, which the installed
+# smurg must not read. Its output is not shown (only the exit code is read), and it contacts nothing.
+check_not_sharing() {
+  [ "$force" = 0 ] || return 0
+  if [ ! -f "$bindir/smurg" ] || [ ! -x "$bindir/smurg" ]; then return 0; fi
+  sharing=0
+  "$bindir/smurg" status </dev/null >/dev/null 2>&1 || sharing=$?
+  case "$sharing" in
+    3) return 0 ;;
+    0 | 5)
+      failf 'smurg is sharing a workspace on this computer; nothing was installed. Stop sharing first (smurg stop, or Ctrl-C in the terminal that runs smurg host), then run the installer again. Replacing smurg while it shares would mix the daemon that is still running with the new smurg commands. (To install all the same, add --force: curl -fsSL https://smurg.ai/install.sh | sh -s -- --force)' 'smurg 正在這台電腦上分享工作區，沒有安裝。請先停止分享（smurg stop，或到執行 smurg host 的終端機按 Ctrl-C），再重新執行安裝程式。分享中換掉 smurg 的話，還在執行的 daemon 會和新版的 smurg 指令混在一起。（仍要安裝請加上 --force：curl -fsSL https://smurg.ai/install.sh | sh -s -- --force）'
+      ;;
+    *)
+      # It could not say (it does not start, or failed): installing again is how that is repaired.
+      [ "${sharing_unknown_said:-0}" = 1 ] || msg 'smurg install: the smurg installed at %s could not say whether it is sharing (smurg status ended with %s). If smurg host is running, stop it and start it again after this install.' 'smurg 安裝：安裝在 %s 的 smurg 無法回答是否正在分享（smurg status 的結束代碼是 %s）。如果 smurg host 正在執行，請在安裝完成後停止它，再重新啟動。' "$bindir/smurg" "$sharing"
+      sharing_unknown_said=1
+      ;;
+  esac
 }
 
 # ---- which executable
@@ -254,9 +287,10 @@ install_binary() {
     sed -n '1,5s/^/  /p' "$tmp/version.err" >&2
     failf 'the downloaded %s does not run on this computer (see the message above); nothing was installed' '下載的 %s 無法在這台電腦上執行（見上面的訊息），不安裝' "$name"
   }
-  bindir="$prefix/bin"
   [ ! -d "$bindir/smurg" ] || failf '%s/smurg is a folder; nothing was installed' '%s/smurg 是一個資料夾，不安裝' "$bindir"
   mkdir -p "$bindir" || failf 'cannot create %s' '無法建立 %s' "$bindir"
+  # A share that started while the download ran is not replaced under either.
+  check_not_sharing
   cp "$tmp/$name" "$bindir/.smurg.new.$$" || failf 'cannot write to %s' '無法寫入 %s' "$bindir"
   chmod 755 "$bindir/.smurg.new.$$"
   mv -f "$bindir/.smurg.new.$$" "$bindir/smurg" || failf 'cannot write %s/smurg' '無法寫入 %s/smurg' "$bindir"
@@ -298,6 +332,7 @@ main() {
   parse_args "$@"
   detect_target
   pick_tools
+  check_not_sharing
   quarantine_removed=0
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/smurg-install.XXXXXX")"
   trap 'rm -rf "$tmp"' EXIT

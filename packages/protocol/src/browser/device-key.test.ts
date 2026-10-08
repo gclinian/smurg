@@ -163,13 +163,67 @@ describe('device key store', () => {
     const kv = createMemoryKeyValueStore();
     const store = createDeviceKeyStore(kv);
     await store.loadOrCreate(WS);
-    for (const junk of [{ v: 2 }, { v: 1, createdAt: 1, record: { kind: 'raw', secretKey: new Uint8Array(3) } }, 'x', 42]) {
+    for (const junk of [{ v: 1 }, { v: 1, createdAt: 1, record: { kind: 'raw', secretKey: new Uint8Array(3) } }, 'x', 42]) {
       await kv.put(DEVICE_KEY_STORE, WS, junk);
       expect(await store.load(WS)).toBeNull();
     }
     const replaced = await store.loadOrCreate(WS);
     expect(replaced.replacedUnusable).toBe(true);
     await expect(store.load('')).rejects.toBeInstanceOf(KeyStoreError);
+  });
+
+  // A later page may write another shape under another `v`. This page, still open in another tab, reconnects at every
+  // deploy: it must not take what it cannot read for "no key" and put a new key in its place (the host does not know
+  // the new key, and the key the newer page made is gone).
+  it('a record of another version is never replaced: loading stops with newer-record and the record stays as it was', async () => {
+    const kv = createMemoryKeyValueStore();
+    const store = createDeviceKeyStore(kv);
+    const mine = await store.loadOrCreate(WS);
+    for (const later of [
+      { v: 2, createdAt: 5, record: { kind: 'raw-v2', secretKey: new Uint8Array(32).fill(7), extra: 'x' } },
+      { v: 2 },
+      { v: 3, key: new Uint8Array(32).fill(9) },
+      { v: 0, createdAt: 1 },
+      { v: '2', createdAt: 1 },
+    ]) {
+      await kv.put(DEVICE_KEY_STORE, WS, later);
+      await expect(store.load(WS)).rejects.toMatchObject({ name: 'KeyStoreError', code: 'newer-record' });
+      await expect(store.loadOrCreate(WS)).rejects.toMatchObject({ name: 'KeyStoreError', code: 'newer-record' });
+      // Nothing was written: what the other page stored is still there, value for value.
+      expect(await kv.get(DEVICE_KEY_STORE, WS)).toEqual(later);
+    }
+    // Another workspace's key is not touched by it, and this workspace's own record of this version still loads.
+    expect((await store.loadOrCreate('ws_other_0123456789')).created).toBe(true);
+    await kv.delete(DEVICE_KEY_STORE, WS);
+    expect((await store.loadOrCreate(WS)).keyPair.publicKey).not.toEqual(mine.keyPair.publicKey);
+  });
+
+  it('a record of this version that no longer loads is still replaced, and the caller is told (the WebKit path stays)', async () => {
+    const kv = createMemoryKeyValueStore();
+    const store = createDeviceKeyStore(kv);
+    await kv.put(DEVICE_KEY_STORE, WS, { v: 1, createdAt: 1, record: { kind: 'webcrypto', keyPair: { privateKey: null, publicKey: null }, publicKey: new Uint8Array(32) } });
+    expect(await store.load(WS)).toBeNull();
+    expect(await store.loadOrCreate(WS)).toMatchObject({ created: true, replacedUnusable: true });
+  });
+
+  it('two tabs racing: the one that lost finds a record of another version and stops, it does not overwrite it', async () => {
+    const inner = createMemoryKeyValueStore();
+    const later = { v: 2, createdAt: 9, record: { kind: 'later' } };
+    let first = true;
+    // The first read finds nothing; before this tab's add lands, a newer page in another tab stored its record.
+    const kv: KeyValueStore = {
+      ...inner,
+      get: async (store, key) => {
+        if (first) {
+          first = false;
+          await inner.put(store, key, later);
+          return undefined;
+        }
+        return inner.get(store, key);
+      },
+    };
+    await expect(createDeviceKeyStore(kv).loadOrCreate(WS)).rejects.toMatchObject({ code: 'newer-record' });
+    expect(await inner.get(DEVICE_KEY_STORE, WS)).toEqual(later);
   });
 });
 
@@ -201,6 +255,18 @@ describe('daemon pin store', () => {
     expect(await pins.get(WS)).toEqual(k);
     await expect(pins.get('../x')).rejects.toMatchObject({ code: 'bad-argument' });
     await expect(pins.pin(WS, new Uint8Array(31))).rejects.toMatchObject({ code: 'bad-argument' });
+  });
+
+  it('a pin of another version is never overwritten, not even by an explicit replacement (a new invite): reading and pinning stop with newer-record', async () => {
+    const kv = createMemoryKeyValueStore();
+    const pins = createDaemonPinStore(kv);
+    for (const later of [{ v: 2, key: randomBytes(32), pinnedAt: 3, by: 'invite' }, { v: 2, keys: [randomBytes(32)] }, { v: 0, key: randomBytes(32), pinnedAt: 0 }]) {
+      await kv.put('daemon-pins', WS, later);
+      await expect(pins.get(WS)).rejects.toMatchObject({ name: 'KeyStoreError', code: 'newer-record' });
+      await expect(pins.pin(WS, randomBytes(32))).rejects.toMatchObject({ code: 'newer-record' });
+      await expect(pins.pin(WS, randomBytes(32), { replace: true })).rejects.toMatchObject({ code: 'newer-record' });
+      expect(await kv.get('daemon-pins', WS)).toEqual(later);
+    }
   });
 
   it('end to end: join by invite, pin at msg2, reload from storage, reconnect in device mode', async () => {

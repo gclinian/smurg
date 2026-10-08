@@ -20,10 +20,15 @@ import { clipExcerpt, mentionExcerpt } from '../src/conversation/mentions.ts';
 import { namesClaudeConfig, shownInput, shownReason, shownText, shownToolName, shownUrl } from '../src/conversation/permission-card.ts';
 import { cleanPersonText } from '../src/conversation/session-facts.ts';
 import { sanitizeAuditDetail } from '../src/core/audit.ts';
+import { defaultHostSettings } from '../src/core/config.ts';
 import { quoteForLog } from '../src/core/logger.ts';
 import { scanShell } from '../src/core/shell-scan.ts';
+import { escapeForTerminal } from '../src/core/state-file-error.ts';
+import { loadDocumentValue } from '../src/core/state-store.ts';
+import { stateDocument } from '../src/core/workspace-state.ts';
 import { classifyText, encodeText } from '../src/docs/text-codec.ts';
 import { planBatch, planFolders } from '../src/files/upload.ts';
+import { stateShapeV040, suggestionsShapeV040 } from '../src/frozen/v0.4.0.ts';
 import { looseKey } from '../src/files/util.ts';
 import { bashPlaces, judgePlaces, type BashReading, type ResolvedPlace } from '../src/hooks/bash-guard.ts';
 import { daemonUnreachableReason, gateDenyReason, pathDeniedReason } from '../src/hooks/deny-text.ts';
@@ -198,7 +203,47 @@ const LOOKS: Readonly<Record<string, Look>> = {
   },
 };
 
+/** A state.json and a suggestions.json in the shapes of smurg 0.4.0, with `text` wherever a person's text or a path stands. */
+const stateWith = (text: string): unknown => ({
+  version: 1,
+  workspaceId: 'ws_test_0123456789abcdef',
+  members: [{ userId: 'dev:amy', displayName: text, avatarUrl: text, role: 'editor', color: '#112233', joinedAt: 1, lastSeenAt: 1, status: 'active' }],
+  devices: [{ deviceId: 'dv_1', userId: text, publicKeyHex: text, name: text, kind: 'web', addedAt: 1, lastSeenAt: 1, revoked: false }],
+  invites: [],
+  settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [text, `data/${text}`], diskReserveBytes: 0, diskReservePercent: 5 },
+  worktreeRoots: [{ worktreeId: text, realPath: `/${text}`, ownerUserId: 'dev:amy', sharedLinks: [{ path: text, mainPath: text, targetRealPath: `/${text}` }], registeredAt: 1 }],
+});
+const suggestionsWith = (text: string): unknown => ({
+  version: 1,
+  suggestions: [{ id: 'sg_1', sessionId: 'ses_1', author: { userId: 'dev:amy', displayName: text }, text, finalText: text, rejectReason: text, source: { file: { root: { kind: 'main' }, path: text }, startLine: 1, endLine: 1 }, status: 'pending', createdAt: 1, sessionOwnerUserId: 'dev:amy' }],
+});
+const stateOfToday = stateDocument('ws_test_0123456789abcdef', defaultHostSettings(16 * 1024 * 1024 * 1024));
+/** A refused state file: what the problems of a file with `text` as a key, as a value and as a path cost. */
+function refuse(text: string): void {
+  for (const raw of [{ [text]: 1 }, stateWith(text), { ...(stateWith('a') as object), [text]: { [text]: [text] } }]) {
+    try {
+      loadDocumentValue(stateOfToday, '/nowhere/state.json', raw, { memoryBytes: 0 });
+    } catch {
+      // Refused: that is the answer.
+    }
+  }
+}
+
+// What an earlier smurg wrote, and what is said about a file that is refused (the host's own files, read at a start;
+// in a suggestion of 0.4.0 the text and the path were a member's).
+const UPGRADE_LOOKS: Readonly<Record<string, Look>> = {
+  'the frozen shapes of smurg 0.4.0 (state.json, suggestions.json: every text and every path)': {
+    run: (text) => void [stateShapeV040.safeParse(stateWith(text)), suggestionsShapeV040.safeParse(suggestionsWith(text))],
+    fronts: ['a/', '/', 'C:', 'dev:', '#'],
+  },
+  'loadDocumentValue and escapeForTerminal (a refused state file: zod names unknown keys as they are)': { run: (text) => void [refuse(text), escapeForTerminal(text)] },
+};
+
 describe('what a text costs the daemon that reads it: packages/daemon', () => {
+  it.each(Object.entries(UPGRADE_LOOKS))('sixteen times the text costs about sixteen times as much: %s', (_name, look) => {
+    expect(disproportionate(look)).toEqual([]);
+  }, 300_000);
+
   it.each(Object.entries(LOOKS))('sixteen times the text costs about sixteen times as much: %s', (_name, look) => {
     expect(disproportionate(look)).toEqual([]);
   }, 300_000);
@@ -476,13 +521,15 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'core/logger.ts': 3,
   'core/shell-scan.ts': 8,
   'core/sockets.ts': 1,
-  'core/state-store.ts': 1,
+  'core/state-file-error.ts': 1,
+  'core/state-store.ts': 2,
   'core/workspace-state.ts': 1,
   'daemon.ts': 1,
   'docs/conflict-panel.ts': 1,
   'docs/text-codec.ts': 3,
   'files/upload-store.ts': 4,
   'files/watcher.ts': 2,
+  'frozen/v0.4.0.ts': 16,
   'hooks/bash-guard.ts': 6,
   'hooks/deny-text.ts': 3,
   'hooks/schemas.ts': 1,
@@ -539,10 +586,12 @@ const ORDERINGS: Readonly<Record<string, number>> = {
   'core/config.ts': 1,
   'core/fakes/conversation.ts': 1,
   'core/fakes/sessions.ts': 1,
+  'core/state-store.ts': 1,
   'docs/merge.ts': 1,
   'files/file-service.ts': 1,
   'files/upload.ts': 1,
   'files/zip.ts': 1,
+  'frozen/v0.4.0.ts': 1,
   'hooks/settings-writer.ts': 2,
   'inbox/derive.ts': 2,
   'inbox/inbox-service.ts': 2,
@@ -569,6 +618,11 @@ describe('the regular expressions, normalisations and sorts of packages/daemon',
     const found = countInSources(SOURCES);
     expect(found.expressions).toEqual(EXPRESSIONS);
     expect(found.orderings).toEqual(ORDERINGS);
-    expect(Object.keys(SOURCES).filter((name) => (SOURCES[name] as string).includes('.normalize('))).toEqual([]);
+    // ONE file normalises by itself: the frozen shapes of smurg 0.4.0 (src/frozen/), which are a literal copy of what
+    // that version accepted and import nothing of today's code. 0.4.0 normalised a path before it measured its names;
+    // the copy answers 'segment-too-long' for a run of marks no name can hold BEFORE it normalises (the one line that
+    // is not 0.4.0's, and it changes no answer), so no run of more than 1,020 marks reaches `normalize` there, and no
+    // text of more than 16,384 units. It reads the host's own files, once, at a start (LOOKS measures it).
+    expect(Object.keys(SOURCES).filter((name) => (SOURCES[name] as string).includes('.normalize('))).toEqual(['frozen/v0.4.0.ts']);
   });
 });

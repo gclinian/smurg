@@ -2,12 +2,16 @@
 // workspace shell (the top bar with the mode switch, the sessions view around its columns) and the connection screens
 // in zh-TW, with <html lang="zh-Hant-TW">.
 import { act, render, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PENDING_INVITE_KEY_PREFIX } from '../boot/capture-invite.ts';
+import { ChunkLoadError } from '../lib/chunks.ts';
 import { WORKSPACE_ID, makeInvite, makeMember, makeWelcome, presenceOf } from '../testing/fixtures.ts';
 import { useTestLocale } from '../testing/locale.ts';
 import { createTestServices } from '../testing/services.tsx';
+import { ChunkFailureBanner, SlotBoundary } from '../ui/index.ts';
 import { App } from './App.tsx';
+import { PageBoundary } from './PageBoundary.tsx';
+import { AppServicesProvider } from './services.tsx';
 
 useTestLocale('zh-TW');
 
@@ -73,5 +77,72 @@ describe('the app in zh-TW', () => {
     act(() => conn.setState({ kind: 'key-mismatch', mode: 'device', detail: 'unauthenticated' }));
     const warning = await screen.findByRole('alertdialog', { name: '安全警告：已拒絕連線' });
     expect(warning.textContent).toContain('技術資訊：對方無法證明持有主人金鑰（重新連線）');
+  });
+
+  it('refused for its version: which side has to act, and the reload, in zh-TW', async () => {
+    const stale = createTestServices({ path: `/w/${WORKSPACE_ID}`, pageBuild: () => Promise.resolve('stale') });
+    const first = render(<App services={stale} />);
+    await waitFor(() => expect(stale.connections).toHaveLength(1), { timeout: 15_000 });
+    act(() => stale.connections[0]!.conn.setState({ kind: 'rejected', reason: 'version' }));
+    expect(await screen.findByRole('heading', { name: '這個分頁是更新之前開的' })).toBeTruthy();
+    expect(screen.getByTestId('connection-ended-screen').textContent).toContain('這個分頁開著的時候 smurg 更新了，分頁裡還是更新前的網頁。請重新整理頁面，換成新的網頁。');
+    expect(screen.getByRole('button', { name: '重新整理頁面' })).toBeTruthy();
+    first.unmount();
+
+    const current = createTestServices({ path: `/w/${WORKSPACE_ID}`, pageBuild: () => Promise.resolve('current') });
+    render(<App services={current} />);
+    await waitFor(() => expect(current.connections).toHaveLength(1), { timeout: 15_000 });
+    act(() => current.connections[0]!.conn.setState({ kind: 'rejected', reason: 'version' }));
+    expect(await screen.findByRole('heading', { name: '主人的 smurg 比這個網頁舊' })).toBeTruthy();
+    expect(screen.getByTestId('connection-ended-screen').textContent).toContain('請主人停止分享、執行 smurg update，再重新開始分享（自己架設 relay 的主人要重新部署 relay）。然後重新整理這個頁面。');
+    expect(screen.getByRole('button', { name: '重新整理頁面' })).toBeTruthy();
+  });
+
+  it("the browser's key was written by a newer page, in zh-TW", async () => {
+    const services = createTestServices({ path: `/w/${WORKSPACE_ID}`, keyStorage: { persistent: true, newerRecord: true } });
+    render(<App services={services} />);
+    await waitFor(() => expect(services.connections).toHaveLength(1), { timeout: 15_000 });
+    act(() => services.connections[0]!.conn.setState({ kind: 'closed', reason: 'storage-error' }));
+    expect(await screen.findByRole('heading', { name: '這個瀏覽器的 smurg 金鑰是比較新的網頁寫的' })).toBeTruthy();
+    expect(screen.getByTestId('connection-ended-screen').textContent).toContain('金鑰沒有被更動。請重新整理頁面，換成比較新的網頁。');
+    expect(screen.getByRole('button', { name: '重新整理頁面' })).toBeTruthy();
+  });
+
+  it('a part of the page that did not load: a slot, the banner of the workspace and the whole page say why, in zh-TW', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    function Throws({ error }: { error: unknown }): null {
+      throw error;
+    }
+    const view = render(
+      <AppServicesProvider services={createTestServices()}>
+        <ChunkFailureBanner />
+        <SlotBoundary name="終端機（Amy）">
+          <Throws error={new ChunkLoadError('gone', null)} />
+        </SlotBoundary>
+        <SlotBoundary name="topics" silent>
+          <Throws error={new ChunkLoadError('offline', null)} />
+        </SlotBoundary>
+      </AppServicesProvider>,
+    );
+    const [banner, slot] = screen.getAllByRole('alert') as [HTMLElement, HTMLElement];
+    expect(slot.textContent).toBe('smurg 已經更新重新整理頁面就會換成新的網頁；如果主人還沒更新，頁面會告訴你。重新整理頁面');
+    expect(banner.textContent).toContain('頁面的這個部分載入不了');
+    expect(banner.textContent).toContain('瀏覽器離線了，或連不上 smurg 伺服器。網路恢復後，請重新整理頁面。');
+    expect(within(banner).getByRole('button', { name: '重新整理頁面' })).toBeTruthy();
+    view.unmount();
+
+    render(
+      <AppServicesProvider services={createTestServices()}>
+        <PageBoundary resetKey="a">
+          <Throws error={new ChunkLoadError('gone', null)} />
+        </PageBoundary>
+      </AppServicesProvider>,
+    );
+    const page = screen.getByTestId('page-not-loaded');
+    expect(within(page).getByRole('heading', { name: 'smurg 已經更新' })).toBeTruthy();
+    expect(page.textContent).toContain('重新整理頁面就會換成新的網頁；如果主人還沒更新，頁面會告訴你。');
+    expect(within(page).getByRole('button', { name: '重新整理頁面' })).toBeTruthy();
+    expect(within(page).getByRole('button', { name: '語言' })).toBeTruthy();
+    warn.mockRestore();
   });
 });

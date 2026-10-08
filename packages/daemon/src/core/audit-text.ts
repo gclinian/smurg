@@ -11,6 +11,8 @@ import { open, rename, type FileHandle } from 'node:fs/promises';
 import { readLinesBackward, terminateTornLine } from './audit.ts';
 import type { Clock } from './lifecycle.ts';
 import type { Logger } from './logger.ts';
+import { openPrivateFile } from './private-file.ts';
+import { StateFileError } from './state-file-error.ts';
 
 export interface AuditTextStoreOptions {
   readonly clock: Clock;
@@ -34,8 +36,11 @@ function rotatedPath(path: string, n: number): string {
   return path.endsWith('.jsonl') ? `${path.slice(0, -'.jsonl'.length)}.${n}.jsonl` : `${path}.${n}`;
 }
 
+/** Like every file of the workspace folder: never through a symlink, a regular file, ours, no group/other bit. */
 async function openAppend(path: string): Promise<FileHandle> {
-  return open(path, fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW, 0o600);
+  const handle = await openPrivateFile(path, fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_CREAT, { what: 'audit text store' });
+  if (handle === null) throw new StateFileError({ kind: 'cannot-open', errno: 'ENOENT', path, message: 'cannot open the audit text store (ENOENT)' });
+  return handle;
 }
 
 export class AuditTextStore {

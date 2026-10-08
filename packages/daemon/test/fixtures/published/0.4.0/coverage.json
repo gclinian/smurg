@@ -1,0 +1,834 @@
+{
+ "version": "0.4.0",
+ "what": "What the files of this fixture are instances of, in the code of tag v0.4.0, and what of those schemas they visit. Made by W/K2A/tools (walk.mjs, check.ts) running in a git archive of the tag; see README.md.",
+ "howToRead": {
+  "paths": "members[].avatarUrl = a key of every element of an array; members{}.seen{} = a value of a record; notes[]<kind=mention>.anchor = inside one branch of a union (a discriminated one by its key, another one by <index:what it is>); responsible<null> / responsible<value> = the two sides of a nullable.",
+  "visited": "optionalKeys: present in at least one instance. arrays, records: not empty in at least one instance. branches: taken by at least one instance. enums: the values that occur.",
+  "variants": "Both variants count together (stopped, running): every file of each copy is an instance.",
+  "why": "\"cannot\": the code of this version has no way to write it (the reason names the code). \"not-made\": it can be written, and this fixture does not hold it (the reason says what it would take).",
+  "enums": "Every value of an enumeration that a stored file may hold. The ones that are not visited carry one reason for the whole enumeration; they are told for the reader and are not a gap of shape."
+ },
+ "documentsOpenedByTheDaemon": [
+  "conflicts",
+  "sessions",
+  "state",
+  "suggestions",
+  "worktrees"
+ ],
+ "totals": {
+  "optionalKeys": {
+   "visited": 24,
+   "notVisited": 4
+  },
+  "arrays": {
+   "visited": 18,
+   "notVisited": 1
+  },
+  "records": {
+   "visited": 4,
+   "notVisited": 0
+  },
+  "branches": {
+   "visited": 21,
+   "notVisited": 6
+  }
+ },
+ "kinds": [
+  {
+   "kind": "conflicts.json",
+   "schema": "packages/daemon/src/docs/conflicts.ts conflictsDocumentSchema (not exported)",
+   "instances": 2,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts.json"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [],
+    "notVisited": [
+     {
+      "at": "conflicts[].hunksOmitted",
+      "why": "not-made",
+      "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. It has three small conflicts; this key needs one of more than 64 hunks."
+     },
+     {
+      "at": "conflicts[].hunks[].truncated",
+      "why": "not-made",
+      "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. This key needs a hunk of more than 64 KiB."
+     }
+    ]
+   },
+   "arrays": {
+    "visited": [
+     "conflicts",
+     "conflicts[].humans",
+     "conflicts[].hunks"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "conflicts[].file.root<kind=main>",
+     "conflicts[].source<kind=system>",
+     "conflicts[].source<kind=user>"
+    ],
+    "notVisited": [
+     {
+      "at": "conflicts[].file.root<kind=worktree>",
+      "why": "not-made",
+      "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. Its three conflicts are in the main folder; this needs a file of a worktree that is edited while another program rewrites it."
+     },
+     {
+      "at": "conflicts[].source<kind=agent>",
+      "why": "not-made",
+      "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. Its conflicts came from another program (system) and from a member's write (user); this needs a shell command of an agent session that rewrites a file somebody is typing in."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {
+    "conflicts[].status": {
+     "visited": [
+      "applied",
+      "dismissed",
+      "open"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {
+    "conflicts[].hunks[].truncated": []
+   }
+  },
+  {
+   "kind": "sessions.json",
+   "schema": "packages/daemon/src/sessions/session-manager.ts liveDocumentSchema (not exported)",
+   "instances": 2,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/sessions.json"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/sessions.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "procs"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "live",
+     "procs{}"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [
+     "procs"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {},
+   "booleans": {}
+  },
+  {
+   "kind": "state.json",
+   "schema": "packages/daemon/src/core/workspace-state.ts workspaceStateSchema",
+   "instances": 2,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/state.json"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/state.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "devices[].inviteId",
+     "devices[].revokedAt",
+     "invites[].boundUserId",
+     "invites[].expiresAt",
+     "invites[].maxUses",
+     "members[].kickedAt"
+    ],
+    "notVisited": [
+     {
+      "at": "members[].avatarUrl",
+      "why": "not-made",
+      "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. Every member logged in with the relay's dev login, which has no picture; this needs a GitHub or Google login."
+     }
+    ]
+   },
+   "arrays": {
+    "visited": [
+     "devices",
+     "invites",
+     "members",
+     "settings.sharedDirs",
+     "worktreeRoots",
+     "worktreeRoots[].sharedLinks"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "invites[].createdBy<null>",
+     "invites[].createdBy<value>"
+    ],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [
+    "devices[].inviteId",
+    "invites[].expiresAt"
+   ],
+   "enums": {
+    "devices[].kind": {
+     "visited": [
+      "cli",
+      "web"
+     ],
+     "notVisited": []
+    },
+    "invites[].role": {
+     "visited": [
+      "agent",
+      "editor",
+      "host",
+      "viewer"
+     ],
+     "notVisited": []
+    },
+    "members[].role": {
+     "visited": [
+      "agent",
+      "editor",
+      "host",
+      "viewer"
+     ],
+     "notVisited": []
+    },
+    "members[].status": {
+     "visited": [
+      "active",
+      "kicked"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {
+    "devices[].revoked": [
+     "true",
+     "false"
+    ],
+    "invites[].host": [
+     "true",
+     "false"
+    ],
+    "invites[].revoked": [
+     "true",
+     "false"
+    ]
+   }
+  },
+  {
+   "kind": "suggestions.json",
+   "schema": "packages/daemon/src/suggest/store.ts suggestionsDocumentSchema",
+   "instances": 2,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/suggestions.json"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/suggestions.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "suggestions[].closedReason",
+     "suggestions[].editedAt",
+     "suggestions[].finalText",
+     "suggestions[].rejectReason",
+     "suggestions[].resolvedAt",
+     "suggestions[].source"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "suggestions"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "suggestions[].source.file.root<kind=main>"
+    ],
+    "notVisited": [
+     {
+      "at": "suggestions[].source.file.root<kind=worktree>",
+      "why": "not-made",
+      "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. Its one suggestion with a code selection names a file of the main folder."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {
+    "suggestions[].closedReason": {
+     "visited": [
+      "author-kicked",
+      "session-ended"
+     ],
+     "notVisited": [
+      "author-demoted"
+     ],
+     "why": "not-made",
+     "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. No author of a pending suggestion became a Viewer."
+    },
+    "suggestions[].status": {
+     "visited": [
+      "accepted",
+      "accepted-modified",
+      "pending",
+      "rejected",
+      "withdrawn"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {}
+  },
+  {
+   "kind": "worktrees.json",
+   "schema": "packages/daemon/src/worktree/store.ts worktreesDocumentSchema",
+   "instances": 2,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/worktrees.json"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/worktrees.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "merges[].decidedAt",
+     "merges[].mergeCommit",
+     "merges[].message",
+     "merges[].rejectReason",
+     "worktrees[].sessionId"
+    ],
+    "notVisited": [
+     {
+      "at": "merges[].conflictFiles",
+      "why": "not-made",
+      "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. None of its four merge requests met a conflict."
+     }
+    ]
+   },
+   "arrays": {
+    "visited": [
+     "merges",
+     "worktrees",
+     "worktrees[].sharedDirs"
+    ],
+    "notVisited": [
+     {
+      "at": "merges[].conflictFiles",
+      "why": "not-made",
+      "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. None of its four merge requests met a conflict."
+     }
+    ]
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [
+    "merges[].message"
+   ],
+   "enums": {
+    "merges[].status": {
+     "visited": [
+      "merged",
+      "pending",
+      "rejected"
+     ],
+     "notVisited": [
+      "conflict"
+     ],
+     "why": "not-made",
+     "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. No merge request met a conflict."
+    }
+   },
+   "booleans": {
+    "worktrees[].kept": [
+     "true",
+     "false"
+    ]
+   }
+  },
+  {
+   "kind": "uploads/<upload id>.json",
+   "schema": "packages/daemon/src/files/upload-store.ts manifestSchema",
+   "instances": 2,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/uploads/up_csBqrqqTK4yjRWoaJ2NtnA.json"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/uploads/up_csBqrqqTK4yjRWoaJ2NtnA.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "root<kind=main>"
+    ],
+    "notVisited": [
+     {
+      "at": "root<kind=worktree>",
+      "why": "not-made",
+      "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. Its one interrupted upload goes to the main folder."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {
+    "onConflict": {
+     "visited": [
+      "fail"
+     ],
+     "notVisited": [
+      "overwrite",
+      "rename"
+     ],
+     "why": "not-made",
+     "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. Its one interrupted upload was begun with the default (fail)."
+    }
+   },
+   "booleans": {}
+  },
+  {
+   "kind": "uploads/<upload id>.log (journal: one line \"<chunk index> <sha256 hex>\" per durable chunk)",
+   "schema": "packages/daemon/src/files/upload-store.ts JOURNAL_LINE",
+   "instances": 2,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/uploads/up_csBqrqqTK4yjRWoaJ2NtnA.log"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/uploads/up_csBqrqqTK4yjRWoaJ2NtnA.log"
+    ]
+   }
+  },
+  {
+   "kind": "uploads/<upload id>.part (the bytes received so far, at their offsets)",
+   "schema": "none (bytes)",
+   "instances": 2,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/uploads/up_csBqrqqTK4yjRWoaJ2NtnA.part"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/uploads/up_csBqrqqTK4yjRWoaJ2NtnA.part"
+    ]
+   }
+  },
+  {
+   "kind": "audit.jsonl, audit.<n>.jsonl (one entry per line)",
+   "schema": "packages/protocol/src/schema/entities.ts auditEntrySchema (read by packages/daemon/src/core/audit.ts)",
+   "instances": 383,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/audit.jsonl"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/audit.jsonl"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "detail",
+     "target"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [
+     "detail"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "actor<kind=agent>",
+     "actor<kind=system>",
+     "actor<kind=user>"
+    ],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [
+    "target"
+   ],
+   "enums": {
+    "action": {
+     "visited": [
+      "agent.edit",
+      "auth.connect",
+      "auth.disconnect",
+      "auth.join",
+      "auth.rejected",
+      "authz.denied",
+      "device.revoke",
+      "doc.conflict",
+      "doc.conflict-resolve",
+      "doc.edit",
+      "external.change",
+      "file.create",
+      "file.delete",
+      "file.download",
+      "file.rename",
+      "file.upload",
+      "file.write",
+      "invite.create",
+      "invite.revoke",
+      "lock.acquire",
+      "lock.denied",
+      "lock.force-release",
+      "lock.release",
+      "member.kick",
+      "member.leave",
+      "member.role",
+      "path.denied",
+      "session.create",
+      "session.end",
+      "session.terminate",
+      "settings.change",
+      "suggest.accept",
+      "suggest.create",
+      "suggest.edit",
+      "suggest.reject",
+      "suggest.withdraw",
+      "worktree.create",
+      "worktree.merge.approve",
+      "worktree.merge.reject",
+      "worktree.merge.request",
+      "worktree.remove"
+     ],
+     "notVisited": []
+    },
+    "outcome": {
+     "visited": [
+      "denied",
+      "ok"
+     ],
+     "notVisited": [
+      "error"
+     ],
+     "why": "not-made",
+     "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. No audited action ended in an internal error."
+    }
+   },
+   "booleans": {}
+  },
+  {
+   "kind": "activity.jsonl, activity.1.jsonl (one event per line)",
+   "schema": "packages/protocol/src/schema/entities.ts activityEventSchema (read by packages/daemon/src/locks/activity-log.ts)",
+   "instances": 64,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/activity.jsonl"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/activity.jsonl"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "file",
+     "renamedFrom",
+     "text.params",
+     "via"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "text.params{}<3:array<string>>"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [
+     "text.params"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "actor<kind=agent>",
+     "actor<kind=system>",
+     "actor<kind=user>",
+     "file.root<kind=main>",
+     "file.root<kind=worktree>",
+     "text.params{}<0:string>",
+     "text.params{}<1:number>",
+     "text.params{}<2:boolean>",
+     "text.params{}<3:array<string>>"
+    ],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {
+    "kind": {
+     "visited": [
+      "agent.edit",
+      "conflict",
+      "external.change",
+      "file.create",
+      "file.delete",
+      "file.rename",
+      "file.upload",
+      "human.edit",
+      "lock.denied",
+      "merge"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {
+    "text.params{}<2:boolean>": [
+     "true",
+     "false"
+    ]
+   }
+  },
+  {
+   "kind": "identity.key (the daemon's static private key: 32 bytes)",
+   "schema": "packages/protocol/src/node (loadOrCreateDaemonIdentity)",
+   "instances": 2,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/identity.key"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/identity.key"
+    ]
+   }
+  },
+  {
+   "kind": "conflicts/<hex of the conflict id>.bin (the agent's version of a file, bytes)",
+   "schema": "none (bytes; packages/daemon/src/docs/conflicts.ts)",
+   "instances": 6,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts/636f6e666c6963745f3374744b4449484254566c5a53636b7767434e505841.bin",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts/636f6e666c6963745f3454417445744468504552742d677a79577138634c41.bin",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts/636f6e666c6963745f77706771594e4d49324964735a624362467364633767.bin"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts/636f6e666c6963745f3374744b4449484254566c5a53636b7767434e505841.bin",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts/636f6e666c6963745f3454417445744468504552742d677a79577138634c41.bin",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts/636f6e666c6963745f77706771594e4d49324964735a624362467364633767.bin"
+    ]
+   }
+  },
+  {
+   "kind": "workspaces.json (the command: shared folders and joined workspaces)",
+   "schema": "none in the code: packages/cli/src/state/workspaces.ts reads it field by field (loadWorkspaces); described in coverage.json",
+   "instances": 3,
+   "files": {
+    "stopped": [
+     "host/workspaces.json",
+     "cli-member/workspaces.json"
+    ],
+    "running": [
+     "host/workspaces.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "joined",
+     "shared"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "joined[].name<value>"
+    ],
+    "notVisited": [
+     {
+      "at": "joined[].name<null>",
+      "why": "cannot",
+      "reason": "The command writes the workspace's name from the Welcome, always a string (packages/cli/src/commands/attach.ts of v0.4.0, rememberJoined); null is what its reader makes of an entry without a name."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {},
+   "booleans": {}
+  },
+  {
+   "kind": "credentials.json (the command: relay logins)",
+   "schema": "none in the code: packages/cli/src/state/credentials.ts reads it field by field (loadCredentials); described in coverage.json",
+   "instances": 3,
+   "files": {
+    "stopped": [
+     "host/credentials.json",
+     "cli-member/credentials.json"
+    ],
+    "running": [
+     "host/credentials.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [
+     "relays"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "defaultRelay<value>"
+    ],
+    "notVisited": [
+     {
+      "at": "defaultRelay<null>",
+      "why": "not-made",
+      "reason": "The 0.4.0 state was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. This needs `smurg logout --relay` of the default relay while another login is kept."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {},
+   "booleans": {}
+  },
+  {
+   "kind": "device.key (a device's private key) and pins/<hex of the workspace id>.pub (the daemon key it saw): 32 bytes each",
+   "schema": "packages/protocol/src/node (loadOrCreateCliDeviceKey, pinDaemonKey)",
+   "instances": 24,
+   "files": {
+    "stopped": [
+     "cli-member/device.key",
+     "cli-member/pins/77735f783065726f387053373062574d35473456625a314e41.pub",
+     "devices/amy/device.key",
+     "devices/amy/pins/77735f783065726f387053373062574d35473456625a314e41.pub",
+     "devices/amy-phone/device.key",
+     "devices/amy-phone/pins/77735f783065726f387053373062574d35473456625a314e41.pub",
+     "devices/bob/device.key",
+     "devices/bob/pins/77735f783065726f387053373062574d35473456625a314e41.pub",
+     "devices/carol/device.key",
+     "devices/carol/pins/77735f783065726f387053373062574d35473456625a314e41.pub",
+     "devices/dave/device.key",
+     "devices/dave/pins/77735f783065726f387053373062574d35473456625a314e41.pub",
+     "devices/erin/device.key",
+     "devices/erin/pins/77735f783065726f387053373062574d35473456625a314e41.pub",
+     "devices/frank-laptop/device.key",
+     "devices/frank-laptop/pins/77735f783065726f387053373062574d35473456625a314e41.pub",
+     "devices/frank-phone/device.key",
+     "devices/frank-phone/pins/77735f783065726f387053373062574d35473456625a314e41.pub",
+     "devices/gina/device.key",
+     "devices/gina/pins/77735f783065726f387053373062574d35473456625a314e41.pub",
+     "devices/host-console/device.key",
+     "devices/host-console/pins/77735f783065726f387053373062574d35473456625a314e41.pub",
+     "devices/mallory/device.key",
+     "devices/mallory/pins/77735f783065726f387053373062574d35473456625a314e41.pub"
+    ]
+   }
+  },
+  {
+   "kind": "logs/<workspace id>.log (the host log of `smurg host`: text lines, never read back by smurg)",
+   "schema": "none (packages/cli/src/commands/host.ts openLog; packages/daemon/src/core/logger.ts)",
+   "instances": 2,
+   "files": {
+    "stopped": [
+     "host/logs/ws_x0ero8pS70bWM5G4VbZ1NA.log"
+    ],
+    "running": [
+     "host/logs/ws_x0ero8pS70bWM5G4VbZ1NA.log"
+    ]
+   }
+  },
+  {
+   "kind": "run/<12 characters>.pid (the process id of a running daemon; removed at a clean stop)",
+   "schema": "none (packages/daemon/src/local (the control module))",
+   "instances": 1,
+   "files": {
+    "running": [
+     "host/run/TjKF9sASqOmy.pid"
+    ]
+   }
+  },
+  {
+   "kind": "sessions/<workspace key>/<hex of the session id>/settings.json, mcp.json, role.md (launch files of a session that has a process; removed with it)",
+   "schema": "none (packages/daemon/src/hooks/settings-writer.ts)",
+   "instances": 2,
+   "files": {
+    "running": [
+     "host/sessions/effa1826ec0f9831adc03ff8/7365735f6164376636353732363733643563333065656162663335333065316565306539/mcp.json",
+     "host/sessions/effa1826ec0f9831adc03ff8/7365735f6164376636353732363733643563333065656162663335333065316565306539/settings.json"
+    ]
+   }
+  }
+ ]
+}

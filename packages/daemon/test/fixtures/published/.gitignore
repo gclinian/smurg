@@ -1,0 +1,3 @@
+# Everything below this folder is test data that a published smurg wrote: none of it is ignored.
+# (The repository ignores *.log: the host log and every upload journal have that name.)
+!*

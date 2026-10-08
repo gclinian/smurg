@@ -20,7 +20,12 @@ import { makeDirs, type Dirs } from './helpers.ts';
 const INSTALL = fileURLToPath(new URL('../../../scripts/install.sh', import.meta.url));
 const RELEASE_ASSETS = fileURLToPath(new URL('../../../scripts/release-assets.sh', import.meta.url));
 const HOST_NAME = `smurg-${process.platform}-${process.arch === 'arm64' ? 'arm64' : 'x64'}`;
-const BINARY = '#!/bin/sh\necho "smurg 9.8.7 (fake release)"\n';
+/**
+ * What every stand-in for a smurg executable answers to `smurg status`: exit 3, "nothing is being shared" (the installer
+ * asks the smurg it is about to replace; a stand-in that answered 0 would be a share that is running).
+ */
+const NOT_SHARING = 'case "${1:-}" in status) exit 3 ;; esac\n';
+const BINARY = `#!/bin/sh\n${NOT_SHARING}echo "smurg 9.8.7 (fake release)"\n`;
 const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
 /** Every shell `curl … | sh` may land in: /bin/sh (bash in sh mode on macOS, dash on Ubuntu) and dash itself. */
 const SHELLS = [...new Set(['/bin/sh', '/bin/dash'].filter((shell) => existsSync(shell)))];
@@ -37,7 +42,7 @@ const TARGETS: readonly Target[] = [
 ];
 
 /** A stand-in executable for one target: says which one it is, and logs that it ran (after the install checks). */
-const fakeBinary = (name: string): string => `#!/bin/sh\n[ -z "\${FAKE_LOG:-}" ] || echo "run ${name} $*" >>"$FAKE_LOG"\necho "smurg 9.8.7 (fake ${name})"\n`;
+const fakeBinary = (name: string): string => `#!/bin/sh\n[ -z "\${FAKE_LOG:-}" ] || echo "run ${name} $*" >>"$FAKE_LOG"\n${NOT_SHARING}echo "smurg 9.8.7 (fake ${name})"\n`;
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -417,11 +422,12 @@ describe('scripts/install.sh installs the executable and nothing else, on every 
     expect((await f.calls()).filter((call) => call.startsWith('UNEXPECTED'))).toEqual([]);
   });
 
-  it('--help offers only the download location and the prefix; the sandbox options are gone', async () => {
+  it('--help offers the download location, the prefix and --force; the sandbox options are gone', async () => {
     const dirs = await setup();
     const help = await install(dirs, ['--help']);
     expect(help.code).toBe(0);
-    expect(help.out).toContain('Usage: sh install.sh [--base-url URL] [--prefix DIR]');
+    expect(help.out).toContain('Usage: sh install.sh [--base-url URL] [--prefix DIR] [--force]\n');
+    expect(help.out).toContain('  --force     install even while the installed smurg is sharing a workspace (without it: stop sharing first)\n');
     expect(help.out).not.toMatch(/--yes|--no-deps|sandbox|sudo/);
     for (const option of ['--yes', '--no-deps']) {
       const refused = await install(dirs, ['--base-url', 'https://downloads.smurg.ai/v9.8.7', option]);
@@ -437,6 +443,139 @@ describe('scripts/install.sh installs the executable and nothing else, on every 
       .filter((line) => !/^\s*#/.test(line))
       .join('\n');
     expect(code).not.toMatch(/sudo|apt-get|apparmor|bwrap|bubblewrap|socat|ripgrep|runuser|sandbox|SMURG_INSTALL_TEST_SYSROOT/i);
+  });
+});
+
+describe('scripts/install.sh and a share that is running (0.5.1, DESIGN B6)', () => {
+  // The installer replaced <prefix>/bin/smurg without looking (W/FOUND-U6: install.sh :260-262, read). A daemon that
+  // keeps running then starts the NEW `smurg hook` / `smurg mcp` for its sessions against the OLD daemon (proof p9: a
+  // hook request and three MCP tools refused between 0.4.0 and 0.5.0), and two hints of `smurg update` send people to
+  // the installer. Now it asks the smurg that is installed there, as `smurg update` asks itself.
+
+  /** A smurg installed at <prefix>/bin/smurg whose `status` ends with what `answer` (shell) says; every call is logged. */
+  async function installedSmurg(f: Faked, answer: string): Promise<{ path: string; text: string }> {
+    const path = join(f.prefix, 'bin', 'smurg');
+    const text = `#!/bin/sh\nIFS= read -r line || true\necho "installed $* stdin=<\${line:-}>" >>"$FAKE_LOG"\n[ "\${1:-}" = status ] || exit 64\n${answer}\n`;
+    await writeExecutable(path, text);
+    return { path, text };
+  }
+  const SHARING_EN =
+    'smurg install: smurg is sharing a workspace on this computer; nothing was installed. Stop sharing first (smurg stop, or Ctrl-C in the terminal that runs smurg host), then run the installer again. Replacing smurg while it shares would mix the daemon that is still running with the new smurg commands. (To install all the same, add --force: curl -fsSL https://smurg.ai/install.sh | sh -s -- --force)\n';
+
+  for (const shell of SHELLS) {
+    for (const [what, code] of [
+      ['is sharing (smurg status: exit 0)', 0],
+      ['says a smurg host of another version is sharing (exit 5)', 5],
+    ] as const) {
+      it(`${shell}: the installed smurg ${what}: stops with "stop sharing first" before anything is downloaded; the executable is the old one`, async () => {
+        const f = await faked(LINUX_X64);
+        const old = await installedSmurg(f, `exit ${code}`);
+        const release = await serve(fullRelease());
+        const result = await runShell(shell, [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
+        expect(result.out).toBe(SHARING_EN);
+        expect(result.code).toBe(1);
+        expect(release.requests).toEqual([]);
+        expect(await readFile(old.path, 'utf8')).toBe(old.text);
+        expect(await readdir(join(f.prefix, 'bin'))).toEqual(['smurg']);
+        // It was asked once, for its status, with nothing on its stdin.
+        expect((await f.calls()).filter((call) => call.startsWith('installed'))).toEqual(['installed status stdin=<>']);
+      });
+    }
+
+    it(`${shell}: nothing is being shared (exit 3): installs over the old executable, having asked before the download and again before the replace`, async () => {
+      const f = await faked(LINUX_X64);
+      await installedSmurg(f, 'exit 3');
+      const release = await serve(fullRelease());
+      const result = await runShell(shell, [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
+      expect(result.code).toBe(0);
+      expect(result.out).not.toContain('sharing');
+      expect(await readFile(join(f.prefix, 'bin', 'smurg'), 'utf8')).toBe(fakeBinary('smurg-linux-x64'));
+      const calls = await f.calls();
+      expect(calls.filter((call) => call.startsWith('installed'))).toEqual(['installed status stdin=<>', 'installed status stdin=<>']);
+      // The first question comes before the downloaded executable ever ran, the second after.
+      const firstRun = calls.findIndex((call) => call.startsWith('run smurg-linux-x64'));
+      expect(calls.indexOf('installed status stdin=<>')).toBeLessThan(firstRun);
+      expect(calls.lastIndexOf('installed status stdin=<>')).toBeGreaterThan(firstRun);
+    });
+  }
+
+  it('as `curl … | sh`: the installed smurg is asked with an empty stdin (never the script), and --force goes through `sh -s -- --force`', async () => {
+    const script = await readFile(INSTALL, 'utf8');
+    const release = await serve(fullRelease());
+    const f = await faked(LINUX_X64);
+    const old = await installedSmurg(f, 'exit 0');
+    const env = { ...f.env, SMURG_INSTALL_BASE_URL: release.base };
+    const refused = await runShell('/bin/sh', ['-s', '--', '--prefix', f.prefix], env, script);
+    expect(refused.out).toBe(SHARING_EN);
+    expect(refused.code).toBe(1);
+    expect(await f.calls()).toContain('installed status stdin=<>');
+    expect(await readFile(old.path, 'utf8')).toBe(old.text);
+    const forced = await runShell('/bin/sh', ['-s', '--', '--prefix', f.prefix, '--force'], env, script);
+    expect(forced.code).toBe(0);
+    expect(forced.out).toContain('smurg is installed:');
+    expect(await readFile(old.path, 'utf8')).toBe(fakeBinary('smurg-linux-x64'));
+  });
+
+  it('--force installs while it is sharing, without running the installed smurg at all', async () => {
+    const f = await faked(LINUX_X64);
+    await installedSmurg(f, 'exit 0');
+    const release = await serve(fullRelease());
+    const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix, '--force'], f.env);
+    expect(result.code).toBe(0);
+    expect(result.out).not.toContain('sharing');
+    expect(await readFile(join(f.prefix, 'bin', 'smurg'), 'utf8')).toBe(fakeBinary('smurg-linux-x64'));
+    expect((await f.calls()).filter((call) => call.startsWith('installed'))).toEqual([]);
+  });
+
+  it('a share that starts while the download runs: refused right before the replace; the old executable stays and no temp file is left', async () => {
+    const f = await faked(LINUX_X64);
+    // The first question: not sharing. Every later one: sharing.
+    const marker = join(f.dirs.home, 'asked-once');
+    const old = await installedSmurg(f, `if [ -e '${marker}' ]; then exit 0; fi\n: >'${marker}'\nexit 3`);
+    const release = await serve(fullRelease());
+    const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
+    expect(result.code).toBe(1);
+    expect(result.out).toContain('smurg is sharing a workspace on this computer; nothing was installed.');
+    expect(release.requests.sort()).toEqual(['/r1/SHA256SUMS', '/r1/smurg-linux-x64']);
+    expect(await readFile(old.path, 'utf8')).toBe(old.text);
+    expect(await readdir(join(f.prefix, 'bin'))).toEqual(['smurg']);
+    expect(await readdir(join(f.dirs.home, 'tmp'))).toEqual([]);
+  });
+
+  it('an installed smurg that cannot say (it does not start, or fails) does not stop the install: one line says it could not be asked', async () => {
+    for (const [answer, code] of [
+      ['exit 1', '1'],
+      ['exit 127', '127'],
+      ['kill -9 $$', '137'],
+    ] as const) {
+      const f = await faked(LINUX_X64);
+      await installedSmurg(f, answer);
+      const release = await serve(fullRelease());
+      const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
+      expect(result.code, answer).toBe(0);
+      const line = `smurg install: the smurg installed at ${join(f.prefix, 'bin', 'smurg')} could not say whether it is sharing (smurg status ended with ${code}). If smurg host is running, stop it and start it again after this install.\n`;
+      expect(result.out.split(line), answer).toHaveLength(2);
+      expect(await readFile(join(f.prefix, 'bin', 'smurg'), 'utf8')).toBe(fakeBinary('smurg-linux-x64'));
+    }
+    // A file there that is not executable, or a first install: nobody to ask, nothing said.
+    const f = await faked(LINUX_X64);
+    await mkdir(join(f.prefix, 'bin'), { recursive: true });
+    await writeFile(join(f.prefix, 'bin', 'smurg'), 'not executable\n', { mode: 0o644 });
+    const release = await serve(fullRelease());
+    const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
+    expect(result.code).toBe(0);
+    expect(result.out).not.toContain('could not say');
+  });
+
+  it('says it in Traditional Chinese too', async () => {
+    const f = await faked(LINUX_X64, { SMURG_LANG: 'zh-TW' });
+    await installedSmurg(f, 'exit 0');
+    const release = await serve(fullRelease());
+    const result = await runShell('/bin/sh', [INSTALL, '--base-url', release.base, '--prefix', f.prefix], f.env);
+    expect(result.code).toBe(1);
+    expect(result.out).toBe(
+      'smurg 安裝：smurg 正在這台電腦上分享工作區，沒有安裝。請先停止分享（smurg stop，或到執行 smurg host 的終端機按 Ctrl-C），再重新執行安裝程式。分享中換掉 smurg 的話，還在執行的 daemon 會和新版的 smurg 指令混在一起。（仍要安裝請加上 --force：curl -fsSL https://smurg.ai/install.sh | sh -s -- --force）\n',
+    );
   });
 });
 
@@ -482,7 +621,7 @@ describe('scripts/release-assets.sh → the R2 layout → install.sh (https://do
    * and this machine's one is run: it says its version and Node.js as `smurg --version` does.
    */
   const fakeOf = (name: string, version: string, node = FAKE_NODE): string =>
-    `#!/bin/sh\n# smurg-build-version=${version};\n# https://nodejs.org/download/release/v${node}/\n[ -z "\${FAKE_LOG:-}" ] || echo "run ${name} $*" >>"$FAKE_LOG"\necho "smurg ${version} (fake ${name}, node ${node})"\n`;
+    `#!/bin/sh\n# smurg-build-version=${version};\n# https://nodejs.org/download/release/v${node}/\n[ -z "\${FAKE_LOG:-}" ] || echo "run ${name} $*" >>"$FAKE_LOG"\n${NOT_SHARING}echo "smurg ${version} (fake ${name}, node ${node})"\n`;
 
   async function releaseDirs(
     dirs: Dirs,

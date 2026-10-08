@@ -1,0 +1,167 @@
+{"v":1,"kind":"line","text":{"id":"conversation.started.free","params":{"name":"Host"}},"fallback":"Host opened this session","seq":1,"at":1791389368580}
+{"v":1,"kind":"notice","level":"warning","text":{"id":"session.projectSettings.untrusted"},"fallback":"The host has not confirmed this folder's Claude Code project settings. This session runs without them and without the project's CLAUDE.md.","action":"restart-agent","seq":2,"at":1791389368694}
+{"v":1,"kind":"message","messageId":"m_MuECsx6jD0hYyPtIXmIYzg","from":{"userId":"dev:host","displayName":"Host","role":"host"},"text":"Please look around.","origin":"composer","seq":3,"at":1791389368788}
+{"v":1,"kind":"delivery","messageId":"m_MuECsx6jD0hYyPtIXmIYzg","state":"started","seq":4,"at":1791389368791}
+{"v":1,"kind":"turn.started","turnId":"t_1","seq":5,"at":1791389368791}
+{"v":1,"kind":"text","turnId":"t_1","blockId":"b_1_1","text":"I will look around.","seq":6,"at":1791389368863}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0001","tool":{"name":"Read","verb":"read","target":"README.md","file":{"root":{"kind":"main"},"path":"README.md"}},"seq":7,"at":1791389368864}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0001","ok":true,"result":{"durationMs":58},"seq":8,"at":1791389368922}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0002","tool":{"name":"Grep","verb":"search","target":"title"},"seq":9,"at":1791389368922}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0002","ok":true,"result":{"durationMs":57,"matches":0},"seq":10,"at":1791389368979}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0003","tool":{"name":"Glob","verb":"search","target":"src/**/*.ts"},"seq":11,"at":1791389368979}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0003","ok":true,"result":{"durationMs":52,"matches":0},"seq":12,"at":1791389369031}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0004","tool":{"name":"TodoWrite","verb":"todo"},"seq":13,"at":1791389369031}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0004","ok":false,"result":{"durationMs":57},"seq":14,"at":1791389369088}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_k2a_task_1","tool":{"name":"Task","verb":"task","target":"Count the files"},"seq":15,"at":1791389369089}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_k2a_task_1","ok":false,"result":{"durationMs":0,"body":{"kind":"text","text":"<tool_use_error>Error: No such tool available: Task</tool_use_error>","truncated":false}},"seq":16,"at":1791389369089}
+{"v":1,"kind":"text","turnId":"t_1","blockId":"b_1_2","text":"The sub-agent counted 5 files.","parentToolUseId":"toolu_k2a_task_1","seq":17,"at":1791389369089}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0005","tool":{"name":"Read","verb":"read","target":"src/app.ts","file":{"root":{"kind":"main"},"path":"src/app.ts"}},"parentToolUseId":"toolu_k2a_task_1","seq":18,"at":1791389369089}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0005","ok":true,"result":{"durationMs":56},"seq":19,"at":1791389369145}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0006","tool":{"name":"WebFetch","verb":"fetch","target":"https://example.com/docs/gift-cards"},"seq":20,"at":1791389369145}
+{"v":1,"kind":"card","card":"permission","id":"rq_rGUENTrYdGsRokxLeZj0nQ","seq":21,"at":1791389369203}
+{"v":1,"kind":"line","text":{"id":"conversation.rule.added","params":{"by":"Host","rule":"WebFetch(domain:example.com)"}},"fallback":"Host always allows WebFetch(domain:example.com) in this session","seq":22,"at":1791389369319}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0006","ok":true,"result":{"durationMs":176,"body":{"kind":"text","text":"Example Domain","truncated":false}},"seq":23,"at":1791389369321}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0007","tool":{"name":"WebFetch","verb":"fetch","target":"https://example.com/docs/prices"},"seq":24,"at":1791389369321}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0007","ok":true,"result":{"durationMs":61,"body":{"kind":"text","text":"Prices","truncated":false}},"seq":25,"at":1791389369382}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0008","tool":{"name":"SomethingNew","verb":"other","target":"SomethingNew"},"seq":26,"at":1791389369383}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0008","ok":false,"result":{"durationMs":56,"body":{"kind":"text","text":"PreToolUse:SomethingNew hook error: This session does not have the tool SomethingNew. Use the tools you were given.","truncated":false}},"seq":27,"at":1791389369439}
+{"v":1,"kind":"notice","level":"warning","text":{"id":"notice.apiRetry","params":{"error":"overloaded","attempt":1,"max":10}},"fallback":"The Claude API did not answer (overloaded). Claude Code is trying again (1 of 10).","seq":28,"at":1791389369439}
+{"v":1,"kind":"notice","level":"info","text":{"id":"notice.compacted"},"fallback":"Claude Code shortened the earlier conversation to make room.","seq":29,"at":1791389369451}
+{"v":1,"kind":"text","turnId":"t_1","blockId":"b_1_3","text":"Done looking.","seq":30,"at":1791389369452}
+{"v":1,"kind":"turn.finished","turnId":"t_1","outcome":"completed","durationMs":719,"seq":31,"at":1791389369508}
+{"v":1,"kind":"delivery","messageId":"m_MuECsx6jD0hYyPtIXmIYzg","state":"completed","seq":32,"at":1791389369509}
+{"v":1,"kind":"line","text":{"id":"conversation.mode.changed","params":{"by":"Host","mode":"ask-all"}},"fallback":"Host changed the permission mode: asks before edits and commands","seq":33,"at":1791389369562}
+{"v":1,"kind":"line","text":{"id":"conversation.mode.changed","params":{"by":"Host","mode":"ask-commands"}},"fallback":"Host changed the permission mode: asks before commands","seq":34,"at":1791389369579}
+{"v":1,"kind":"message","messageId":"m_Ban0rcmCjToMyr9r7IVHIQ","from":{"userId":"dev:host","displayName":"Host","role":"host"},"text":"Please run the checks.","origin":"composer","seq":35,"at":1791389369598}
+{"v":1,"kind":"delivery","messageId":"m_Ban0rcmCjToMyr9r7IVHIQ","state":"started","seq":36,"at":1791389369599}
+{"v":1,"kind":"turn.started","turnId":"t_2","seq":37,"at":1791389369599}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0009","tool":{"name":"Bash","verb":"run","target":"pnpm test"},"seq":38,"at":1791389369656}
+{"v":1,"kind":"card","card":"permission","id":"rq_k0WRJymv07YI3R77GmulcQ","seq":39,"at":1791389369772}
+{"v":1,"kind":"tool.finished","turnId":"t_2","toolUseId":"toolu_fake_0009","ok":true,"result":{"durationMs":226,"exitCode":0,"body":{"kind":"output","text":"3 tests passed","truncated":false}},"seq":40,"at":1791389369882}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0010","tool":{"name":"Bash","verb":"run","target":"pnpm test --coverage"},"seq":41,"at":1791389369882}
+{"v":1,"kind":"card","card":"permission","id":"rq_Ak7ZjSfTDG4Mso8aeWms1g","seq":42,"at":1791389369997}
+{"v":1,"kind":"line","text":{"id":"conversation.rule.added","params":{"by":"Mei","rule":"Bash(pnpm test *)"}},"fallback":"Mei always allows Bash(pnpm test *) in this session","seq":43,"at":1791389370049}
+{"v":1,"kind":"tool.finished","turnId":"t_2","toolUseId":"toolu_fake_0010","ok":true,"result":{"durationMs":227,"exitCode":0,"body":{"kind":"output","text":"covered","truncated":false}},"seq":44,"at":1791389370109}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0011","tool":{"name":"Bash","verb":"run","target":"pnpm test unit"},"seq":45,"at":1791389370109}
+{"v":1,"kind":"tool.finished","turnId":"t_2","toolUseId":"toolu_fake_0011","ok":true,"result":{"durationMs":171,"exitCode":0,"body":{"kind":"output","text":"ok","truncated":false}},"seq":46,"at":1791389370280}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0012","tool":{"name":"Bash","verb":"run","target":"npx cowsay done"},"seq":47,"at":1791389370280}
+{"v":1,"kind":"card","card":"permission","id":"rq_nC9C5KPjEycwfg8MLIyPRg","seq":48,"at":1791389370394}
+{"v":1,"kind":"tool.finished","turnId":"t_2","toolUseId":"toolu_fake_0012","ok":false,"result":{"durationMs":221,"exitCode":1,"body":{"kind":"output","text":"The user doesn't want to proceed with this tool use. Host (Host) did not allow this and says what to do instead:\nUse the echo command.","truncated":false}},"seq":49,"at":1791389370501}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0013","tool":{"name":"Bash","verb":"run","target":"python3 -c \"print(1)\""},"seq":50,"at":1791389370501}
+{"v":1,"kind":"card","card":"permission","id":"rq_kKzBYolSUQqpbFRue5Kp7w","seq":51,"at":1791389370614}
+{"v":1,"kind":"tool.finished","turnId":"t_2","toolUseId":"toolu_fake_0013","ok":false,"result":{"durationMs":227,"exitCode":1,"body":{"kind":"output","text":"The user doesn't want to proceed with this tool use. Host (Host) did not allow this. Do not try it again in another way; continue without it, or ask what to do instead.","truncated":false}},"seq":52,"at":1791389370728}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0014","tool":{"name":"Bash","verb":"run","target":"make"},"seq":53,"at":1791389370728}
+{"v":1,"kind":"card","card":"permission","id":"rq_5v4QdKRfAMBweYTC5VqvZQ","seq":54,"at":1791389370848}
+{"v":1,"kind":"tool.finished","turnId":"t_2","toolUseId":"toolu_fake_0014","ok":true,"result":{"durationMs":284,"exitCode":0},"seq":55,"at":1791389371012}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0015","tool":{"name":"Bash","verb":"run","target":"echo done"},"seq":56,"at":1791389371012}
+{"v":1,"kind":"tool.finished","turnId":"t_2","toolUseId":"toolu_fake_0015","ok":true,"result":{"durationMs":168,"exitCode":0},"seq":57,"at":1791389371180}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0016","tool":{"name":"Write","verb":"create","outside":true},"seq":58,"at":1791389371180}
+{"v":1,"kind":"tool.finished","turnId":"t_2","toolUseId":"toolu_fake_0016","ok":false,"result":{"durationMs":58},"seq":59,"at":1791389371238}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0017","tool":{"name":"Bash","verb":"run","target":"printf '#!/bin/sh\\n' > scripts/lint.sh"},"seq":60,"at":1791389371238}
+{"v":1,"kind":"card","card":"permission","id":"rq_6nd6PiW8Oz1cDTY57gmdug","seq":61,"at":1791389371351}
+{"v":1,"kind":"tool.finished","turnId":"t_2","toolUseId":"toolu_fake_0017","ok":true,"result":{"durationMs":208,"exitCode":0},"seq":62,"at":1791389371446}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0018","tool":{"name":"Bash","verb":"run","target":"X=scripts; cp -f README.md \"$X/\""},"seq":63,"at":1791389371446}
+{"v":1,"kind":"card","card":"permission","id":"rq_vEQs0S697dEwBJIwotvA2Q","seq":64,"at":1791389371559}
+{"v":1,"kind":"tool.finished","turnId":"t_2","toolUseId":"toolu_fake_0018","ok":false,"result":{"durationMs":165,"exitCode":1,"body":{"kind":"output","text":"The user doesn't want to proceed with this tool use. Host (Host) did not allow this and says what to do instead:\nNothing outside the folder.","truncated":false}},"seq":65,"at":1791389371611}
+{"v":1,"kind":"text","turnId":"t_2","blockId":"b_2_1","text":"The checks ran.","seq":66,"at":1791389371611}
+{"v":1,"kind":"turn.finished","turnId":"t_2","outcome":"completed","durationMs":2069,"seq":67,"at":1791389371667}
+{"v":1,"kind":"delivery","messageId":"m_Ban0rcmCjToMyr9r7IVHIQ","state":"completed","seq":68,"at":1791389371668}
+{"v":1,"kind":"message","messageId":"m_CJ9QQXl2i-uBx6A-IVDpBA","from":{"userId":"dev:mei","displayName":"Mei","role":"agent"},"text":"Now end badly, please.","origin":"composer","seq":69,"at":1791389371736}
+{"v":1,"kind":"delivery","messageId":"m_CJ9QQXl2i-uBx6A-IVDpBA","state":"started","seq":70,"at":1791389371737}
+{"v":1,"kind":"turn.started","turnId":"t_3","seq":71,"at":1791389371737}
+{"v":1,"kind":"text","turnId":"t_3","blockId":"b_3_1","text":"It broke.","seq":72,"at":1791389371797}
+{"v":1,"kind":"turn.finished","turnId":"t_3","outcome":"error","durationMs":113,"seq":73,"at":1791389371850}
+{"v":1,"kind":"notice","level":"error","text":{"id":"notice.turnError"},"fallback":"The agent's turn ended with an error.","seq":74,"at":1791389371850}
+{"v":1,"kind":"delivery","messageId":"m_CJ9QQXl2i-uBx6A-IVDpBA","state":"completed","seq":75,"at":1791389371850}
+{"v":1,"kind":"message","messageId":"m_Wfu76ymmJStUY-anOqKVEA","from":{"userId":"dev:mei","displayName":"Mei","role":"agent"},"text":"This will take too many turns.","origin":"composer","seq":76,"at":1791389371960}
+{"v":1,"kind":"delivery","messageId":"m_Wfu76ymmJStUY-anOqKVEA","state":"started","seq":77,"at":1791389371961}
+{"v":1,"kind":"turn.started","turnId":"t_4","seq":78,"at":1791389371962}
+{"v":1,"kind":"text","turnId":"t_4","blockId":"b_4_1","text":"Still going.","seq":79,"at":1791389372021}
+{"v":1,"kind":"turn.finished","turnId":"t_4","outcome":"max-turns","durationMs":112,"seq":80,"at":1791389372073}
+{"v":1,"kind":"delivery","messageId":"m_Wfu76ymmJStUY-anOqKVEA","state":"completed","seq":81,"at":1791389372074}
+{"v":1,"kind":"message","messageId":"m_H6nY4MZrB3x27lCv1eaofw","from":{"userId":"dev:mei","displayName":"Mei","role":"agent"},"text":"This is too expensive.","origin":"composer","seq":82,"at":1791389372182}
+{"v":1,"kind":"delivery","messageId":"m_H6nY4MZrB3x27lCv1eaofw","state":"started","seq":83,"at":1791389372183}
+{"v":1,"kind":"turn.started","turnId":"t_5","seq":84,"at":1791389372183}
+{"v":1,"kind":"text","turnId":"t_5","blockId":"b_5_1","text":"Spent it.","seq":85,"at":1791389372241}
+{"v":1,"kind":"turn.finished","turnId":"t_5","outcome":"budget","durationMs":116,"seq":86,"at":1791389372298}
+{"v":1,"kind":"delivery","messageId":"m_H6nY4MZrB3x27lCv1eaofw","state":"completed","seq":87,"at":1791389372299}
+{"v":1,"kind":"message","messageId":"m_XKyBLPr0TduzQg_kA8e-ug","from":{"userId":"dev:host","displayName":"Host","role":"host"},"text":"Now wait for me.","origin":"composer","seq":88,"at":1791389372503}
+{"v":1,"kind":"delivery","messageId":"m_XKyBLPr0TduzQg_kA8e-ug","state":"started","seq":89,"at":1791389372505}
+{"v":1,"kind":"turn.started","turnId":"t_6","seq":90,"at":1791389372506}
+{"v":1,"kind":"text","turnId":"t_6","blockId":"b_6_1","text":"Waiting.","seq":91,"at":1791389372576}
+{"v":1,"kind":"line","text":{"id":"conversation.stopped","params":{"name":"Mei"}},"fallback":"Mei stopped the agent","seq":92,"at":1791389373139}
+{"v":1,"kind":"turn.finished","turnId":"t_6","outcome":"interrupted","durationMs":735,"stoppedBy":{"userId":"dev:mei","displayName":"Mei"},"seq":93,"at":1791389373239}
+{"v":1,"kind":"delivery","messageId":"m_XKyBLPr0TduzQg_kA8e-ug","state":"completed","seq":94,"at":1791389373240}
+{"v":1,"kind":"message","messageId":"m_GMYHw2i1nWy-avBG4LcXhg","from":{"userId":"dev:host","displayName":"Host","role":"host"},"text":"Please recite slowly.","origin":"composer","seq":95,"at":1791389373361}
+{"v":1,"kind":"delivery","messageId":"m_GMYHw2i1nWy-avBG4LcXhg","state":"started","seq":96,"at":1791389373363}
+{"v":1,"kind":"turn.started","turnId":"t_7","seq":97,"at":1791389373363}
+{"v":1,"kind":"line","text":{"id":"conversation.stopped","params":{"name":"Host"}},"fallback":"Host stopped the agent","seq":98,"at":1791389375891}
+{"v":1,"kind":"text","turnId":"t_7","blockId":"b_7_1","text":"one two three four five six sev","aborted":true,"seq":99,"at":1791389376245}
+{"v":1,"kind":"turn.finished","turnId":"t_7","outcome":"interrupted","durationMs":2969,"stoppedBy":{"userId":"dev:host","displayName":"Host"},"seq":100,"at":1791389376332}
+{"v":1,"kind":"delivery","messageId":"m_GMYHw2i1nWy-avBG4LcXhg","state":"completed","seq":101,"at":1791389376333}
+{"v":1,"kind":"message","messageId":"m_oQ_FPKD44Db2DNZM749FdA","from":{"userId":"dev:host","displayName":"Host","role":"host"},"text":"@Bob look at this: tell bob the notes are ready.","origin":"composer","mentions":["dev:bob"],"seq":102,"at":1791389376453}
+{"v":1,"kind":"delivery","messageId":"m_oQ_FPKD44Db2DNZM749FdA","state":"started","seq":103,"at":1791389376455}
+{"v":1,"kind":"turn.started","turnId":"t_8","seq":104,"at":1791389376456}
+{"v":1,"kind":"tool.started","turnId":"t_8","toolUseId":"toolu_fake_0019","tool":{"name":"mcp__smurg__notify_member","verb":"smurg","target":"notify_member"},"seq":105,"at":1791389376527}
+{"v":1,"kind":"tool.finished","turnId":"t_8","toolUseId":"toolu_fake_0019","ok":true,"result":{"durationMs":112,"body":{"kind":"text","text":"{\n  \"delivered\": true,\n  \"member\": {\n    \"userId\": \"dev:bob\",\n    \"name\": \"Bob\"\n  },\n  \"online\": true,\n  \"inbox\": \"stored\",\n  \"summary\": \"Bob was notified. It is also in their inbox.\"\n}","truncated":false}},"seq":106,"at":1791389376639}
+{"v":1,"kind":"text","turnId":"t_8","blockId":"b_8_1","text":"Told him.","seq":107,"at":1791389376639}
+{"v":1,"kind":"turn.finished","turnId":"t_8","outcome":"completed","durationMs":241,"seq":108,"at":1791389376694}
+{"v":1,"kind":"delivery","messageId":"m_oQ_FPKD44Db2DNZM749FdA","state":"completed","seq":109,"at":1791389376695}
+{"v":1,"kind":"message","messageId":"m_j125WzdOiciuT0fe0s66rw","from":{"userId":"dev:host","displayName":"Host","role":"host"},"text":"Please change the plan doc.","origin":"composer","seq":110,"at":1791389376876}
+{"v":1,"kind":"delivery","messageId":"m_j125WzdOiciuT0fe0s66rw","state":"started","seq":111,"at":1791389376878}
+{"v":1,"kind":"turn.started","turnId":"t_9","seq":112,"at":1791389376878}
+{"v":1,"kind":"tool.started","turnId":"t_9","toolUseId":"toolu_fake_0020","tool":{"name":"Edit","verb":"edit","target":"docs/plan.md","file":{"root":{"kind":"main"},"path":"docs/plan.md"}},"seq":113,"at":1791389376936}
+{"v":1,"kind":"tool.finished","turnId":"t_9","toolUseId":"toolu_fake_0020","ok":false,"result":{"durationMs":58,"body":{"kind":"text","text":"PreToolUse:Edit hook error: This file is being edited by Erin, Amy. Work on other files first, or try again later.","truncated":false}},"seq":114,"at":1791389376994}
+{"v":1,"kind":"text","turnId":"t_9","blockId":"b_9_1","text":"Tried.","seq":115,"at":1791389376994}
+{"v":1,"kind":"turn.finished","turnId":"t_9","outcome":"completed","durationMs":174,"seq":116,"at":1791389377051}
+{"v":1,"kind":"delivery","messageId":"m_j125WzdOiciuT0fe0s66rw","state":"completed","seq":117,"at":1791389377052}
+{"v":1,"kind":"message","messageId":"m_dWbyCZKRvNYjW9WfaWSlUA","from":{"userId":"dev:host","displayName":"Host","role":"host"},"text":"Please overwrite the notes with a command.","origin":"composer","seq":118,"at":1791389377264}
+{"v":1,"kind":"delivery","messageId":"m_dWbyCZKRvNYjW9WfaWSlUA","state":"started","seq":119,"at":1791389377265}
+{"v":1,"kind":"turn.started","turnId":"t_10","seq":120,"at":1791389377265}
+{"v":1,"kind":"tool.started","turnId":"t_10","toolUseId":"toolu_fake_0021","tool":{"name":"Bash","verb":"run","target":"printf 'rewritten by a command of the agent\\n' > docs/gina.md"},"seq":121,"at":1791389377324}
+{"v":1,"kind":"tool.finished","turnId":"t_10","toolUseId":"toolu_fake_0021","ok":true,"result":{"durationMs":170,"exitCode":0},"seq":122,"at":1791389377494}
+{"v":1,"kind":"text","turnId":"t_10","blockId":"b_10_1","text":"Rewritten.","seq":123,"at":1791389377494}
+{"v":1,"kind":"turn.finished","turnId":"t_10","outcome":"completed","durationMs":285,"seq":124,"at":1791389377549}
+{"v":1,"kind":"delivery","messageId":"m_dWbyCZKRvNYjW9WfaWSlUA","state":"completed","seq":125,"at":1791389377550}
+{"v":1,"kind":"message","messageId":"m_Qun8Po_YAB54XK3XdlfBvg","from":{"userId":"dev:host","displayName":"Host","role":"host"},"text":"Please write the late notes.","origin":"composer","seq":126,"at":1791389377692}
+{"v":1,"kind":"delivery","messageId":"m_Qun8Po_YAB54XK3XdlfBvg","state":"started","seq":127,"at":1791389377693}
+{"v":1,"kind":"turn.started","turnId":"t_11","seq":128,"at":1791389377693}
+{"v":1,"kind":"tool.started","turnId":"t_11","toolUseId":"toolu_fake_0022","tool":{"name":"Write","verb":"create","target":"docs/late.md","file":{"root":{"kind":"main"},"path":"docs/late.md"}},"seq":129,"at":1791389377752}
+{"v":1,"kind":"tool.finished","turnId":"t_11","toolUseId":"toolu_fake_0022","ok":true,"result":{"durationMs":178,"additions":2,"deletions":0,"body":{"kind":"diff","text":"+first line of the late notes\n+second line\n","truncated":false}},"seq":130,"at":1791389377930}
+{"v":1,"kind":"text","turnId":"t_11","blockId":"b_11_1","text":"Written.","seq":131,"at":1791389377930}
+{"v":1,"kind":"turn.finished","turnId":"t_11","outcome":"completed","durationMs":298,"seq":132,"at":1791389377990}
+{"v":1,"kind":"delivery","messageId":"m_Qun8Po_YAB54XK3XdlfBvg","state":"completed","seq":133,"at":1791389377991}
+{"v":1,"kind":"card","card":"suggestion","id":"sug_ERTxSVnb9dq2f-IPT2G8NA","seq":134,"at":1791389378390}
+{"v":1,"kind":"card","card":"suggestion","id":"sug_b_jm0fMu2iKleg5N4n6FYQ","seq":135,"at":1791389378509}
+{"v":1,"kind":"card","card":"suggestion","id":"sug_m_uvE--BMGjQMyTVQkqKaw","seq":136,"at":1791389378573}
+{"v":1,"kind":"card","card":"suggestion","id":"sug_G08FkAfSfCvdUU1dg9v4ZA","seq":137,"at":1791389378659}
+{"v":1,"kind":"message","messageId":"m_537OAOcffRk46wOTG4yexA","from":{"userId":"dev:amy","displayName":"Amy","role":"editor"},"text":"add a test for the title","origin":"selection","suggestion":{"id":"sug_G08FkAfSfCvdUU1dg9v4ZA","acceptedBy":{"userId":"dev:host","displayName":"Host"},"modified":false},"seq":138,"at":1791389378695}
+{"v":1,"kind":"delivery","messageId":"m_537OAOcffRk46wOTG4yexA","state":"started","seq":139,"at":1791389378697}
+{"v":1,"kind":"turn.started","turnId":"t_12","seq":140,"at":1791389378697}
+{"v":1,"kind":"text","turnId":"t_12","blockId":"b_12_1","text":"ok","seq":141,"at":1791389378759}
+{"v":1,"kind":"turn.finished","turnId":"t_12","outcome":"completed","durationMs":116,"seq":142,"at":1791389378811}
+{"v":1,"kind":"delivery","messageId":"m_537OAOcffRk46wOTG4yexA","state":"completed","seq":143,"at":1791389378812}
+{"v":1,"kind":"card","card":"suggestion","id":"sug_BcDeIzPNTnJIRF_y7izOiw","seq":144,"at":1791389378957}
+{"v":1,"kind":"message","messageId":"m_3I6JmC7PhfjDAUioOMZeoA","from":{"userId":"dev:erin","displayName":"Erin","role":"editor"},"text":"rename the title in src/app.ts only","origin":"composer","suggestion":{"id":"sug_BcDeIzPNTnJIRF_y7izOiw","acceptedBy":{"userId":"dev:kate","displayName":"Kate"},"modified":true},"seq":145,"at":1791389379106}
+{"v":1,"kind":"delivery","messageId":"m_3I6JmC7PhfjDAUioOMZeoA","state":"started","seq":146,"at":1791389379111}
+{"v":1,"kind":"turn.started","turnId":"t_13","seq":147,"at":1791389379111}
+{"v":1,"kind":"text","turnId":"t_13","blockId":"b_13_1","text":"ok","seq":148,"at":1791389379176}
+{"v":1,"kind":"turn.finished","turnId":"t_13","outcome":"completed","durationMs":122,"seq":149,"at":1791389379230}
+{"v":1,"kind":"delivery","messageId":"m_3I6JmC7PhfjDAUioOMZeoA","state":"completed","seq":150,"at":1791389379230}
+{"v":1,"kind":"card","card":"suggestion","id":"sug__XRO78vx44-0J8c0fVeMsg","seq":151,"at":1791389379380}
+{"v":1,"kind":"message","messageId":"m_sAJMvAAwrFWsmBEZNPi6Aw","from":{"userId":"dev:amy","displayName":"Amy","role":"editor"},"text":"rename the shop in the README only","origin":"composer","suggestion":{"id":"sug__XRO78vx44-0J8c0fVeMsg","acceptedBy":{"userId":"dev:mei","displayName":"Mei"},"modified":true},"seq":152,"at":1791389379411}
+{"v":1,"kind":"delivery","messageId":"m_sAJMvAAwrFWsmBEZNPi6Aw","state":"started","seq":153,"at":1791389379413}
+{"v":1,"kind":"turn.started","turnId":"t_14","seq":154,"at":1791389379413}
+{"v":1,"kind":"text","turnId":"t_14","blockId":"b_14_1","text":"ok","seq":155,"at":1791389379474}
+{"v":1,"kind":"turn.finished","turnId":"t_14","outcome":"completed","durationMs":120,"seq":156,"at":1791389379531}
+{"v":1,"kind":"delivery","messageId":"m_sAJMvAAwrFWsmBEZNPi6Aw","state":"completed","seq":157,"at":1791389379532}
+{"v":1,"kind":"card","card":"suggestion","id":"sug_NAN-HPghkADRkDdcdzHM_w","seq":158,"at":1791389379670}
+{"v":1,"kind":"message","messageId":"m_WbcK0HH5yonbl4nttzdzVA","from":{"userId":"dev:amy","displayName":"Amy","role":"editor"},"text":"tidy this up please","cleaned":true,"origin":"composer","suggestion":{"id":"sug_NAN-HPghkADRkDdcdzHM_w","acceptedBy":{"userId":"dev:host","displayName":"Host"},"modified":false},"seq":159,"at":1791389379707}
+{"v":1,"kind":"delivery","messageId":"m_WbcK0HH5yonbl4nttzdzVA","state":"started","seq":160,"at":1791389379709}
+{"v":1,"kind":"turn.started","turnId":"t_15","seq":161,"at":1791389379709}
+{"v":1,"kind":"text","turnId":"t_15","blockId":"b_15_1","text":"ok","seq":162,"at":1791389379772}
+{"v":1,"kind":"turn.finished","turnId":"t_15","outcome":"completed","durationMs":121,"seq":163,"at":1791389379828}
+{"v":1,"kind":"delivery","messageId":"m_WbcK0HH5yonbl4nttzdzVA","state":"completed","seq":164,"at":1791389379829}
+{"v":1,"kind":"card","card":"suggestion","id":"sug_WSIw1OHf0QiyqSSz2qUgpA","seq":165,"at":1791389379972}
+{"v":1,"kind":"card","card":"suggestion","id":"sug_97E3qnOaRw_h2tq0yimHCQ","seq":166,"at":1791389380005}
+{"v":1,"kind":"card","card":"suggestion","id":"sug_R_QpHv7QfWydkGpUFS0K-g","seq":167,"at":1791389380044}

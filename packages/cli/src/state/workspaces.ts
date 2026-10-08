@@ -1,10 +1,17 @@
 // `~/.smurg/workspaces.json` (ARCHITECTURE §7.1 "folder path → workspaceId"): the workspaces this machine hosts (one
 // per shared folder and relay, so `smurg host` keeps its members, devices and audit log across runs) and the ones it
 // joined as a guest (so `smurg attach --workspace <id>` knows the relay later).
+//
+// This file is the ONLY link from a shared folder to its workspace id: read as empty, `smurg host` gives the folder a
+// new workspace (new members, new invite links, a new daemon key), exactly as moving the workspace's state away does.
+// So a file this smurg cannot read is a refusal that changes nothing (./private-file.ts versionedRecord; 0.5.1, DESIGN
+// B5): a `version` above 1 says a newer smurg wrote it (`smurg update`), anything else that it is not in its format.
+// 0.4.0 and 0.5.0 are published with the old behaviour (an unknown version read as empty and written over), so the
+// `version` of this file can never be raised without those two losing it: a later smurg adds optional fields only.
 import { randomBytes } from 'node:crypto';
 import { isWorkspaceId } from '@smurg/protocol/relay';
 import type { StatePaths } from './paths.ts';
-import { isRecord, numberField, readPrivateJson, stringField, writePrivateJson } from './private-file.ts';
+import { isRecord, numberField, readPrivateJson, stringField, versionedRecord, writePrivateJson } from './private-file.ts';
 
 const WHAT = 'workspaces' as const;
 
@@ -34,8 +41,9 @@ export interface WorkspaceBook {
 }
 
 export async function loadWorkspaces(paths: StatePaths): Promise<WorkspaceBook> {
-  const raw = await readPrivateJson(paths.workspaces, WHAT);
-  if (!isRecord(raw) || raw['version'] !== 1) return { shared: [], joined: [] };
+  // No file: nothing was shared or joined yet. A file this smurg cannot read: refused (never an empty list).
+  const raw = versionedRecord(await readPrivateJson(paths.workspaces, WHAT), paths.workspaces, WHAT, 1);
+  if (raw === null) return { shared: [], joined: [] };
   const shared: SharedFolder[] = [];
   for (const item of Array.isArray(raw['shared']) ? raw['shared'] : []) {
     if (!isRecord(item)) continue;

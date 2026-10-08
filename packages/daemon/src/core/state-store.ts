@@ -2,35 +2,51 @@
 // writes serialized per document (tmp + fsync + rename + dir fsync), schema-validated on load.
 //
 // Fail closed on load: a state file that is a symlink, owned by someone else, readable by group/other, or that does
-// not match its schema stops the daemon with a clear error. It is never "repaired" or reset, because resetting
-// state.json would silently forget revoked devices and consumed invites.
+// not match a shape a published smurg wrote stops the daemon with a refusal that has a KIND (core/state-file-error.ts).
+// It is never "repaired" or reset, because resetting state.json would silently forget revoked devices and consumed
+// invites.
+//
+// What an EARLIER published smurg wrote is read through STEPS. A document is declared with its current strict schema,
+// its `init`, and one step per earlier shape: `{ from: '0.4.0', sinceShapes: 1, shape: <frozen strict schema>,
+// upgrade(old) }`. Loading tries the current schema, then each earlier shape; on a match the steps run in memory and
+// the result must pass the current strict schema. Nothing here is lenient: no default in a schema, no strip, no
+// passthrough. A step never drops a record and never resets; a step is never removed.
+//
+// The store never decides WHEN a file is written: a start has two phases (core/workspace-folder.ts). Everything in
+// this file that reads is used by phase 1 and writes nothing; `FileStateStore.adopt` is phase 2.
 import { constants as fsConstants } from 'node:fs';
-import { open, rename, unlink } from 'node:fs/promises';
+import { lstat, open, readdir, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { ensurePrivateDirectory } from '@smurg/protocol/node';
-import type { z } from 'zod';
+import { z } from 'zod';
 import type { PersistentDocument, StateStore } from './interfaces.ts';
 import type { Logger } from './logger.ts';
+import { assertPrivateFileStat, openPrivateFile } from './private-file.ts';
+import { StateFileError, describeProblems, errnoCodeOf, escapeForTerminal, type StateFileCopy } from './state-file-error.ts';
 
 const FILE_MODE = 0o600;
-const GROUP_OTHER_BITS = 0o077;
 const DOCUMENT_NAME = /^[a-z0-9-]{1,40}$/;
+/** A published smurg version, as a step and the stamp name it: digits.digits.digits. */
+const VERSION_NAME = /^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$/;
 /** Documents only the core opens (members, devices, invites, settings, roots). */
 const RESERVED_DOCUMENTS: ReadonlySet<string> = new Set(['state']);
 
-export class StateFileError extends Error {
-  readonly path: string;
-
-  constructor(path: string, message: string, options?: { cause?: unknown }) {
-    super(`${message}: ${path}`, options);
-    this.name = 'StateFileError';
-    this.path = path;
-  }
-}
+export {
+  STATE_FILE_INSECURE_CAUSES,
+  STATE_FILE_KINDS,
+  STATE_FILE_PROBLEMS_MAX,
+  STATE_FILE_UNREADABLE_REASONS,
+  StateFileError,
+  type StateFileCopy,
+  type StateFileErrorInit,
+  type StateFileInsecureCause,
+  type StateFileKind,
+  type StateFileUnreadableReason,
+} from './state-file-error.ts';
 
 function errnoCode(err: unknown): string | undefined {
-  return typeof err === 'object' && err !== null && 'code' in err ? String((err as { code: unknown }).code) : undefined;
+  return errnoCodeOf(err);
 }
 
 function deepFreeze<T>(value: T): T {
@@ -41,34 +57,65 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** -1, 0, 1 for two version names (digits.digits.digits), compared number by number. */
+export function compareVersionNames(a: string, b: string): number {
+  const left = a.split('.').map(Number);
+  const right = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const diff = (left[i] ?? 0) - (right[i] ?? 0);
+    if (diff !== 0) return diff < 0 ? -1 : 1;
+  }
+  return 0;
+}
+
+export function isVersionName(value: unknown): value is string {
+  return typeof value === 'string' && VERSION_NAME.test(value);
+}
+
+// =====================================================================================================================
+// Reading and writing one private file
+// =====================================================================================================================
+
+/**
+ * The bytes of a private file, read through the handle that was checked (O_NOFOLLOW, regular, ours, no group/other
+ * bits). Null when it does not exist. `maxBytes`: a larger file is refused before it is read (`unreadable`).
+ */
+export async function readPrivateFile(path: string, options: { readonly what?: string; readonly maxBytes?: number } = {}): Promise<Buffer | null> {
+  const what = options.what ?? 'state file';
+  const handle = await openPrivateFile(path, fsConstants.O_RDONLY, { what });
+  if (handle === null) return null;
+  try {
+    if (options.maxBytes !== undefined) {
+      const { size } = await handle.stat();
+      if (size > options.maxBytes) {
+        throw new StateFileError({ kind: 'unreadable', reason: 'no-known-shape', path, message: `${what} is larger than ${options.maxBytes} bytes`, problems: [`(file): larger than ${options.maxBytes} bytes`] });
+      }
+    }
+    return await handle.readFile();
+  } catch (source) {
+    if (source instanceof StateFileError) throw source;
+    throw new StateFileError({ kind: 'cannot-open', errno: errnoCode(source) ?? 'unknown', path, message: `cannot read the ${what} (${errnoCode(source) ?? 'unknown'})`, source });
+  } finally {
+    await handle.close().catch(() => {});
+  }
+}
+
+function parseJson(path: string, bytes: Buffer): unknown {
+  try {
+    return JSON.parse(bytes.toString('utf8')) as unknown;
+  } catch (source) {
+    throw new StateFileError({ kind: 'unreadable', reason: 'not-json', path, message: 'state file is not valid JSON', problems: ['(file): not valid JSON'], source });
+  }
+}
+
 /** Reads a private JSON file: O_NOFOLLOW, regular, ours, no group/other bits. Returns null when it does not exist. */
 export async function readPrivateJson(path: string): Promise<unknown> {
-  let handle;
-  try {
-    handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  } catch (cause) {
-    const code = errnoCode(cause);
-    if (code === 'ENOENT') return null;
-    if (code === 'ELOOP' || code === 'EMLINK') throw new StateFileError(path, 'state file is a symlink', { cause });
-    throw cause;
-  }
-  try {
-    const st = await handle.stat();
-    if (!st.isFile()) throw new StateFileError(path, 'state file is not a regular file');
-    const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
-    if (uid !== undefined && st.uid !== uid) throw new StateFileError(path, 'state file is owned by another user');
-    if ((st.mode & GROUP_OTHER_BITS) !== 0) {
-      throw new StateFileError(path, `state file mode ${(st.mode & 0o777).toString(8)} grants group/other access`);
-    }
-    const text = await handle.readFile('utf8');
-    try {
-      return JSON.parse(text) as unknown;
-    } catch (cause) {
-      throw new StateFileError(path, 'state file is not valid JSON', { cause });
-    }
-  } finally {
-    await handle.close();
-  }
+  const bytes = await readPrivateFile(path);
+  return bytes === null ? null : parseJson(path, bytes);
 }
 
 /** Writes `text` to `path` atomically with mode 0600. The directory must already be private. */
@@ -105,12 +152,313 @@ export async function syncDirectory(dir: string): Promise<void> {
   }
 }
 
+/** A key of the file can be megabytes long, and zod names unknown keys as they are. */
+const PROBLEM_MAX_CHARS = 240;
+
+/** One problem per issue: the path in the document and zod's message, never a value; control characters escaped. */
+export function problemsOf(error: z.ZodError): string[] {
+  return error.issues.map((issue) => {
+    const text = escapeForTerminal(`${issue.path.map(String).join('.') || '(root)'}: ${issue.message}`);
+    return text.length > PROBLEM_MAX_CHARS ? `${text.slice(0, PROBLEM_MAX_CHARS)}…` : text;
+  });
+}
+
 function describeIssues(error: z.ZodError): string {
-  // Paths and messages only: never the offending values (they can be keys or member data).
-  return error.issues
-    .slice(0, 5)
-    .map((issue) => `${issue.path.map(String).join('.') || '(root)'}: ${issue.message}`)
-    .join('; ');
+  return describeProblems(problemsOf(error), 0);
+}
+
+/** How a document is serialized (every published smurg: two spaces, a final newline). */
+export function serializeDocument(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+// =====================================================================================================================
+// Declarations and steps
+// =====================================================================================================================
+
+/** What a step may know about the machine it runs on (nothing about the workspace: that is in the file). */
+export interface StepEnv {
+  /** The host's RAM (`maxLiveAgents` of a 0.4.0 workspace is the default for this machine). */
+  readonly memoryBytes: number;
+}
+
+/**
+ * From the shape ONE earlier published smurg wrote to the next shape. `upgrade` is pure and works in memory: it never
+ * drops a record, never resets, and adds a security-relevant value only CLOSED. A step is never removed.
+ */
+export interface DocumentStep {
+  /** The first published smurg that wrote `shape` (`0.4.0`). Names the step and the kept copy. */
+  readonly from: string;
+  /**
+   * WORKSPACE_SHAPES of the first smurg that has this step (1 for the steps of 0.5.1, the first smurg that stamps a
+   * folder). A folder whose stamp carries that number or a higher one was already upgraded by a smurg that has the
+   * step: finding this shape there means an OLDER file was put back (Daemon.putBack).
+   */
+  readonly sinceShapes: number;
+  /** FROZEN: a literal strict copy of what that smurg accepted, with its own scalar rules (src/frozen/). */
+  readonly shape: z.ZodType;
+  /** Returns the next shape (the next step's, or today's schema for the last step). */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  upgrade(old: any, env: StepEnv): unknown;
+}
+
+/** A typed step (the store only needs the erased DocumentStep). */
+export function defineStep<S extends z.ZodType, Next>(step: { readonly from: string; readonly sinceShapes: number; readonly shape: S; upgrade(old: z.output<S>, env: StepEnv): Next }): DocumentStep {
+  if (!isVersionName(step.from)) throw new TypeError(`a step is named after the published version whose shape it reads (X.Y.Z): ${step.from}`);
+  if (!Number.isSafeInteger(step.sinceShapes) || step.sinceShapes < 1 || step.sinceShapes > WORKSPACE_SHAPES) throw new TypeError(`a step's sinceShapes is a shapes number this smurg has (1..${WORKSPACE_SHAPES})`);
+  return Object.freeze(step) as DocumentStep;
+}
+
+/** One document of the workspace folder: `<name>.json`. A FeatureModule lists its own in `documents`. */
+export interface DocumentDeclaration<S extends z.ZodType = z.ZodType> {
+  /** `[a-z0-9-]{1,40}`; `state` is the core's. */
+  readonly name: string;
+  /** Today's strict schema: exactly what this smurg writes. */
+  readonly schema: S;
+  /** The value of a document that is not there yet. */
+  readonly init: () => z.output<S>;
+  /** From the shapes earlier published versions wrote, OLDEST FIRST. */
+  readonly steps?: readonly DocumentStep[];
+}
+
+export function declareDocument<S extends z.ZodType>(declaration: DocumentDeclaration<S>): DocumentDeclaration<S> {
+  if (!DOCUMENT_NAME.test(declaration.name)) throw new TypeError(`invalid state document name: ${declaration.name}`);
+  const steps = declaration.steps ?? [];
+  for (let i = 1; i < steps.length; i++) {
+    if (compareVersionNames((steps[i - 1] as DocumentStep).from, (steps[i] as DocumentStep).from) >= 0) throw new TypeError(`the steps of ${declaration.name} are not oldest first`);
+  }
+  return Object.freeze({ ...declaration, steps: Object.freeze([...steps]) });
+}
+
+/**
+ * The number the raw file's `version` key holds in today's shape, or null when today's shape has no such key (five
+ * documents have none). It is what `init()` writes, so it cannot drift from the schema.
+ */
+export function expectedVersionOf(declaration: DocumentDeclaration): number | null {
+  const initial: unknown = declaration.init();
+  return isPlainObject(initial) && typeof initial['version'] === 'number' ? initial['version'] : null;
+}
+
+/** A document as phase 1 read it: validated, upgraded in memory, nothing written. */
+export interface LoadedDocument<T = unknown> {
+  readonly name: string;
+  readonly path: string;
+  /** In today's shape (frozen). */
+  readonly value: Readonly<T>;
+  /** The step whose shape the FILE had (`0.4.0`), or null when the file was in today's shape. */
+  readonly upgradedFrom: string | null;
+  /** The steps that ran, in order (empty when none). */
+  readonly ran: readonly DocumentStep[];
+  /** The file as it was, read through the checked handle (the kept copy is made from these bytes). */
+  readonly bytes: Buffer;
+}
+
+/**
+ * Validates what a file held against the declaration: today's schema, else each earlier shape and its steps. Pure:
+ * no file is touched. Throws StateFileError `newer` or `unreadable`.
+ */
+export function loadDocumentValue<S extends z.ZodType>(declaration: DocumentDeclaration<S>, path: string, raw: unknown, env: StepEnv): { readonly value: z.output<S>; readonly upgradedFrom: string | null; readonly ran: readonly DocumentStep[] } {
+  const current = declaration.schema.safeParse(raw);
+  if (current.success) return { value: current.data, upgradedFrom: null, ran: [] };
+
+  // A later smurg says so with the number: above the one this smurg expects, or on a document that has none today.
+  const expected = expectedVersionOf(declaration);
+  const rawVersion = isPlainObject(raw) ? raw['version'] : undefined;
+  if (typeof rawVersion === 'number' && (expected === null || rawVersion > expected)) {
+    throw new StateFileError({
+      kind: 'newer',
+      path,
+      message: expected === null ? 'state file carries a version this smurg does not know (a newer smurg wrote it)' : `state file has version ${String(rawVersion).slice(0, 24)}, this smurg reads ${expected} (a newer smurg wrote it)`,
+    });
+  }
+
+  const steps = declaration.steps ?? [];
+  const failures: { readonly from: string | null; readonly error: z.ZodError }[] = [{ from: null, error: current.error }];
+  // The newest earlier shape first: the fewest steps between the file and today.
+  for (let index = steps.length - 1; index >= 0; index--) {
+    const step = steps[index] as DocumentStep;
+    const matched = step.shape.safeParse(raw);
+    if (!matched.success) {
+      failures.push({ from: step.from, error: matched.error });
+      continue;
+    }
+    let value: unknown = matched.data;
+    const ran: DocumentStep[] = [];
+    for (let at = index; at < steps.length; at++) {
+      const running = steps[at] as DocumentStep;
+      try {
+        value = running.upgrade(value, env);
+      } catch (source) {
+        throw new StateFileError({ kind: 'unreadable', reason: 'carried-value-refused', path, message: `the upgrade step from smurg ${running.from} failed on this state file`, problems: [`(step from ${running.from}): failed`], source });
+      }
+      ran.push(running);
+      const next = steps[at + 1];
+      const checked = (next === undefined ? declaration.schema : next.shape).safeParse(value);
+      if (!checked.success) {
+        // What that smurg accepted and this one refuses (a path with more than 30 combining marks in a row): refused,
+        // naming the entry and the rule. No entry is dropped.
+        throw new StateFileError({
+          kind: 'unreadable',
+          reason: 'carried-value-refused',
+          path,
+          message: `state file was written by smurg ${step.from} and holds a value this smurg refuses (${describeIssues(checked.error)})`,
+          problems: problemsOf(checked.error),
+        });
+      }
+      value = checked.data;
+    }
+    return { value: value as z.output<S>, upgradedFrom: step.from, ran };
+  }
+
+  // No shape any published smurg wrote. The problems are measured against the shape the file came closest to (a
+  // 0.4.0 file with one bad record must not be answered with "three settings are missing").
+  let closest = failures[0] as (typeof failures)[number];
+  for (const failure of failures) if (failure.error.issues.length < closest.error.issues.length) closest = failure;
+  const problems = problemsOf(closest.error);
+  throw new StateFileError({
+    kind: 'unreadable',
+    reason: 'no-known-shape',
+    path,
+    message: closest.from === null ? `state file does not match its schema (${describeProblems(problems, 0)})` : `state file does not match its schema; measured against what smurg ${closest.from} wrote: (${describeProblems(problems, 0)})`,
+    problems,
+  });
+}
+
+/** Phase 1 for one document: null when the file is not there. Reads; writes nothing. */
+export async function readDocument<S extends z.ZodType>(dir: string, declaration: DocumentDeclaration<S>, env: StepEnv): Promise<LoadedDocument<z.output<S>> | null> {
+  const path = join(dir, `${declaration.name}.json`);
+  const bytes = await readPrivateFile(path);
+  if (bytes === null) return null;
+  const loaded = loadDocumentValue(declaration, path, parseJson(path, bytes), env);
+  return { name: declaration.name, path, value: deepFreeze(loaded.value), upgradedFrom: loaded.upgradedFrom, ran: loaded.ran, bytes };
+}
+
+// =====================================================================================================================
+// The stamp: written-by.json
+// =====================================================================================================================
+
+export const STAMP_FILE = 'written-by.json';
+/**
+ * ONE integer for everything persisted under the workspace folder (store documents or not: per-session cards.json,
+ * upload manifests with their parts, transcript segments, the lines of audit.jsonl and activity.jsonl). 0.5.1 writes
+ * 1. RAISE IT whenever any persisted shape changes; a smurg that meets a higher number refuses the whole folder as
+ * `newer` before it reads a document.
+ */
+export const WORKSPACE_SHAPES = 1;
+/** More than this is not a stamp. */
+const STAMP_MAX_BYTES = 4096;
+
+const stampSchema = z.strictObject({
+  smurg: z.string().regex(VERSION_NAME),
+  shapes: z.int().min(1).max(1_000_000),
+  at: z.int().min(0),
+});
+export type WorkspaceStamp = z.infer<typeof stampSchema>;
+
+/**
+ * The stamp, or null when the writer is unknown: no stamp, or one that fails any check (a symlink, another owner,
+ * group/other bits, not a regular file, too large, not JSON, another form). An unusable stamp is logged and is never
+ * a refusal of its own and never `newer`.
+ */
+export async function readStamp(dir: string, log: Logger): Promise<WorkspaceStamp | null> {
+  const path = join(dir, STAMP_FILE);
+  const unknown = (reason: string): null => {
+    log.warn('the stamp of this workspace folder cannot be used; its writer is unknown', { file: path, reason });
+    return null;
+  };
+  let bytes: Buffer | null;
+  try {
+    bytes = await readPrivateFile(path, { what: 'stamp', maxBytes: STAMP_MAX_BYTES });
+  } catch (err) {
+    return unknown(err instanceof StateFileError ? `${err.kind}${err.cause === undefined ? '' : `:${err.cause}`}${err.errno === undefined ? '' : `:${err.errno}`}` : (errnoCode(err) ?? 'unknown'));
+  }
+  if (bytes === null) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    return unknown('not-json');
+  }
+  const parsed = stampSchema.safeParse(raw);
+  return parsed.success ? parsed.data : unknown('another-form');
+}
+
+/** Phase 2, first write: tmp + fsync + rename, 0600. A stamp that cannot be written refuses the start. */
+export async function writeStamp(dir: string, stamp: WorkspaceStamp): Promise<void> {
+  const path = join(dir, STAMP_FILE);
+  try {
+    await writePrivateFileAtomic(path, dir, serializeDocument(stampSchema.parse(stamp)));
+  } catch (source) {
+    throw new StateFileError({ kind: 'cannot-open', errno: errnoCode(source) ?? 'unknown', path, message: `cannot write the stamp (${errnoCode(source) ?? 'unknown'})`, source });
+  }
+}
+
+// =====================================================================================================================
+// Kept copies: <name>.json.before-upgrade-from-<step>
+// =====================================================================================================================
+
+const COPY_MARK = '.json.before-upgrade-from-';
+
+export function keptCopyPath(dir: string, name: string, from: string): string {
+  if (!DOCUMENT_NAME.test(name) || !isVersionName(from)) throw new TypeError('invalid kept copy name');
+  return join(dir, `${name}${COPY_MARK}${from}`);
+}
+
+/**
+ * Keeps the file as it was beside the document, before the upgraded document is renamed in: O_CREAT | O_EXCL |
+ * O_NOFOLLOW, 0600, fsynced. One per step and never overwritten: 'exists' when a copy of this step is already there
+ * (it is left exactly as it is). Any other failure throws (`cannot-open`): the document is then not written.
+ */
+export async function writeKeptCopy(path: string, dir: string, bytes: Uint8Array): Promise<'created' | 'exists'> {
+  let handle;
+  try {
+    handle = await open(path, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, FILE_MODE);
+  } catch (source) {
+    if (errnoCode(source) === 'EEXIST') return 'exists';
+    throw new StateFileError({ kind: 'cannot-open', errno: errnoCode(source) ?? 'unknown', path, message: `cannot keep a copy of the state file before its upgrade (${errnoCode(source) ?? 'unknown'})`, source });
+  }
+  try {
+    await handle.chmod(FILE_MODE);
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } catch (source) {
+    await handle.close().catch(() => {});
+    // Ours (O_EXCL made it a moment ago) and incomplete: a half copy under this name would later be taken for the file as it was.
+    await unlink(path).catch(() => {});
+    throw new StateFileError({ kind: 'cannot-open', errno: errnoCode(source) ?? 'unknown', path, message: `cannot keep a copy of the state file before its upgrade (${errnoCode(source) ?? 'unknown'})`, source });
+  }
+  await handle.close();
+  await syncDirectory(dir);
+  return 'created';
+}
+
+/**
+ * The kept copies beside `<name>.json`, newest first. Only what passes the checks of a private file is listed (a
+ * regular file, ours, no group/other bits): a refusal never points the host at a symlink or somebody else's file.
+ */
+export async function listKeptCopies(dir: string, name: string): Promise<StateFileCopy[]> {
+  const prefix = `${name}${COPY_MARK}`;
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return [];
+  }
+  const copies: StateFileCopy[] = [];
+  for (const entry of entries) {
+    if (!entry.startsWith(prefix)) continue;
+    const from = entry.slice(prefix.length);
+    if (!isVersionName(from)) continue;
+    const path = join(dir, entry);
+    try {
+      const st = await lstat(path);
+      assertPrivateFileStat(path, st, 'kept copy');
+      copies.push({ path, from, at: Math.floor(st.mtimeMs) });
+    } catch {
+      // not a copy this smurg would name
+    }
+  }
+  return copies.sort((a, b) => b.at - a.at || compareVersionNames(b.from, a.from));
 }
 
 /** Backoff of the automatic re-writes of a document whose last write failed (disk full, EIO, permissions). */
@@ -168,7 +516,9 @@ class JsonDocument<T> implements PersistentDocument<T> {
     const next = returned === undefined ? draft : returned;
     const parsed = this.schema.safeParse(next);
     // An invalid update is a bug in the caller: refuse it instead of persisting something unloadable.
-    if (!parsed.success) throw new StateFileError(this.path, `invalid ${this.name} update (${describeIssues(parsed.error)})`);
+    if (!parsed.success) {
+      throw new StateFileError({ kind: 'unreadable', reason: 'no-known-shape', path: this.path, message: `invalid ${this.name} update (${describeIssues(parsed.error)})`, problems: problemsOf(parsed.error) });
+    }
     this.value = deepFreeze(parsed.data);
     this.dirty = true;
     // While the disk refuses writes, the retry timer (or a flush) writes the latest value; every update does not
@@ -225,7 +575,7 @@ class JsonDocument<T> implements PersistentDocument<T> {
   private async writeLoop(): Promise<void> {
     while (this.dirty) {
       this.dirty = false;
-      const text = `${JSON.stringify(this.value, null, 2)}\n`;
+      const text = serializeDocument(this.value);
       try {
         await writePrivateFileAtomic(this.path, this.dir, text);
       } catch (err) {
@@ -264,16 +614,28 @@ class JsonDocument<T> implements PersistentDocument<T> {
   }
 }
 
+/** A store outside a daemon (unit tests of the store, tools) knows nothing about the machine. */
+const NO_ENV: StepEnv = Object.freeze({ memoryBytes: 0 });
+
 export class FileStateStore implements StateStore {
   readonly dir: string;
   private readonly log: Logger;
+  /**
+   * The documents the daemon's modules declared (FeatureModule.documents, and the core's `state`): only these names
+   * can be opened, and what phase 1 read of them is in `preloaded`. Null for a store outside a daemon
+   * (FileStateStore.open): any name, read when it is opened.
+   */
+  private readonly declared: ReadonlyMap<string, DocumentDeclaration> | null;
+  private readonly preloaded: Map<string, LoadedDocument>;
   private readonly documents = new Map<string, Promise<PersistentDocument<unknown>>>();
   private readonly loaded = new Set<JsonDocument<unknown>>();
   private readonly healthListeners = new Set<(event: { readonly document: string; readonly ok: boolean }) => void>();
 
-  private constructor(dir: string, log: Logger) {
+  private constructor(dir: string, log: Logger, declared: ReadonlyMap<string, DocumentDeclaration> | null, preloaded: Map<string, LoadedDocument>) {
     this.dir = dir;
     this.log = log;
+    this.declared = declared;
+    this.preloaded = preloaded;
   }
 
   /** Documents whose latest value could not be written: shown to the host, reported at stop. */
@@ -302,10 +664,35 @@ export class FileStateStore implements StateStore {
     }
   };
 
-  /** Creates the directory (0700, with missing parents) and refuses an existing one that is not private. */
+  /**
+   * A store OUTSIDE a daemon (unit tests of the store, tools): creates the directory (0700, with missing parents),
+   * refuses an existing one that is not private, and opens any document name, reading it when it is opened. The
+   * daemon never uses this: it reads the whole folder first (core/workspace-folder.ts) and adopts what it read.
+   */
   static async open(dir: string, log: Logger): Promise<FileStateStore> {
     await ensurePrivateDirectory(dir);
-    return new FileStateStore(dir, log);
+    return new FileStateStore(dir, log, null, new Map());
+  }
+
+  /**
+   * The daemon's store, after phase 1 accepted the whole folder: `loaded` holds every declared document that exists
+   * (already written in today's shape when a step ran: core/workspace-folder.ts does that before it calls this).
+   * A declared document that is not there is created from its `init` when its module opens it. Reads nothing.
+   */
+  static adopt(dir: string, log: Logger, declarations: readonly DocumentDeclaration[], loaded: ReadonlyMap<string, LoadedDocument>): FileStateStore {
+    const declared = new Map<string, DocumentDeclaration>();
+    for (const declaration of declarations) {
+      if (!DOCUMENT_NAME.test(declaration.name)) throw new TypeError(`invalid state document name: ${declaration.name}`);
+      if (declared.has(declaration.name)) throw new TypeError(`state document ${declaration.name} is declared twice`);
+      declared.set(declaration.name, declaration);
+    }
+    for (const name of loaded.keys()) if (!declared.has(name)) throw new TypeError(`state document ${name} was read and never declared`);
+    return new FileStateStore(dir, log, declared, new Map(loaded));
+  }
+
+  /** Whether a module declared `name` (always true for a store outside a daemon). */
+  declares(name: string): boolean {
+    return this.declared === null || this.declared.has(name);
   }
 
   document<S extends z.ZodType>(name: string, schema: S, init: () => z.output<S>): Promise<PersistentDocument<z.output<S>>> {
@@ -321,9 +708,19 @@ export class FileStateStore implements StateStore {
 
   private open<S extends z.ZodType>(name: string, schema: S, init: () => z.output<S>): Promise<PersistentDocument<z.output<S>>> {
     if (!DOCUMENT_NAME.test(name)) return Promise.reject(new TypeError(`invalid state document name: ${name}`));
+    let declaration: DocumentDeclaration<S>;
+    if (this.declared === null) {
+      declaration = { name, schema, init };
+    } else {
+      const declared = this.declared.get(name);
+      // Every document is read and checked before a start writes anything: one that no module declared was not.
+      if (declared === undefined) return Promise.reject(new TypeError(`state document ${name} was not declared (FeatureModule.documents): a start reads every document before it writes anything`));
+      if (declared.schema !== schema) return Promise.reject(new TypeError(`state document ${name} is opened with another schema than it was declared with`));
+      declaration = declared as DocumentDeclaration<S>;
+    }
     const existing = this.documents.get(name);
     if (existing) return existing as Promise<PersistentDocument<z.output<S>>>;
-    const loading = this.load(name, schema as unknown as z.ZodType<z.output<S>>, init);
+    const loading = this.load(declaration);
     this.documents.set(name, loading as Promise<PersistentDocument<unknown>>);
     loading.catch(() => this.documents.delete(name));
     return loading;
@@ -343,12 +740,19 @@ export class FileStateStore implements StateStore {
     if (failed) throw failed.reason;
   }
 
-  private async load<T>(name: string, schema: z.ZodType<T>, init: () => T): Promise<PersistentDocument<T>> {
+  private async load<S extends z.ZodType>(declaration: DocumentDeclaration<S>): Promise<PersistentDocument<z.output<S>>> {
+    type T = z.output<S>;
+    const { name } = declaration;
+    const schema = declaration.schema as unknown as z.ZodType<T>;
     const path = join(this.dir, `${name}.json`);
-    const raw = await readPrivateJson(path);
-    if (raw === null) {
-      const initial = schema.safeParse(init());
-      if (!initial.success) throw new StateFileError(path, `invalid initial ${name} (${describeIssues(initial.error)})`);
+    // The daemon: what phase 1 read. Outside a daemon: read now.
+    const found = this.declared === null ? await readDocument(this.dir, declaration, NO_ENV) : ((this.preloaded.get(name) as LoadedDocument<T> | undefined) ?? null);
+    this.preloaded.delete(name);
+    if (found === null) {
+      const initial = schema.safeParse(declaration.init());
+      if (!initial.success) {
+        throw new StateFileError({ kind: 'unreadable', reason: 'no-known-shape', path, message: `invalid initial ${name} (${describeIssues(initial.error)})`, problems: problemsOf(initial.error) });
+      }
       const doc = new JsonDocument(name, this.dir, schema, initial.data, this.log, this.health);
       try {
         await doc.persistNow();
@@ -359,9 +763,7 @@ export class FileStateStore implements StateStore {
       this.loaded.add(doc as JsonDocument<unknown>);
       return doc;
     }
-    const parsed = schema.safeParse(raw);
-    if (!parsed.success) throw new StateFileError(path, `state file does not match its schema (${describeIssues(parsed.error)})`);
-    const doc = new JsonDocument(name, this.dir, schema, parsed.data, this.log, this.health);
+    const doc = new JsonDocument(name, this.dir, schema, found.value as T, this.log, this.health);
     this.loaded.add(doc as JsonDocument<unknown>);
     return doc;
   }

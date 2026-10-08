@@ -25,13 +25,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { EXEC_INPUT_MAX_BYTES, isSmurgError, parentRelPath, type FileEntry, type FileRef, type SessionInfo } from '@smurg/protocol';
 import { isClientRequestError } from '@smurg/protocol/client';
+import { isChunkLoadError, type ChunkLoadError } from '../../lib/chunks.ts';
 import { NoCommandHandlerError } from '../../lib/commands.ts';
 import { describeError } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectDir, type FilesState } from '../../lib/stores/files.ts';
 import { useCapabilities, useCommand, useConnection, useStores } from '../../lib/workspace/context.tsx';
 import { useAppServices } from '../../app/services.tsx';
-import { Banner, Button, Spinner, useToast } from '../../ui/index.ts';
+import { Banner, Button, ChunkNotice, Spinner, useToast } from '../../ui/index.ts';
 import { createPathExistence, createPathLinkProvider, pathGateOf } from './path-links.ts';
 import { t } from './strings.ts';
 import { TerminalFeed } from './terminal-feed.ts';
@@ -99,7 +100,8 @@ export function SessionTerminal({ session, isOwner, canType, active, scaled }: S
   const visible = active && onScreen;
 
   const [viewer, setViewer] = useState<TerminalViewer | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  /** The terminal's code did not come: `true`, or the chunk failure that says why (lib/chunks.ts). */
+  const [loadFailed, setLoadFailed] = useState<ChunkLoadError | boolean>(false);
   const [phase, setPhase] = useState<Phase>('waiting');
   const [errorText, setErrorText] = useState<string | null>(null);
   /** The attach found no such session, and the session had ended: the daemon no longer keeps it. */
@@ -131,7 +133,7 @@ export function SessionTerminal({ session, isOwner, canType, active, scaled }: S
 
   // xterm.js is created the first time the terminal is shown (the chunk is fetched then), and disposed on unmount.
   useEffect(() => {
-    if (!visible || viewer !== null || loadFailed) return;
+    if (!visible || viewer !== null || loadFailed !== false) return;
     const host = hostRef.current;
     if (!host) return;
     let cancelled = false;
@@ -141,8 +143,8 @@ export function SessionTerminal({ session, isOwner, canType, active, scaled }: S
         if (cancelled) created.dispose();
         else setViewer(created);
       },
-      () => {
-        if (!cancelled) setLoadFailed(true);
+      (error: unknown) => {
+        if (!cancelled) setLoadFailed(isChunkLoadError(error) ? error : true);
       },
     );
     return () => {
@@ -406,11 +408,13 @@ export function SessionTerminal({ session, isOwner, canType, active, scaled }: S
           : null;
   return (
     <div className="agents-term">
-      {loadFailed ? (
+      {loadFailed === false ? null : loadFailed === true ? (
         <Banner tone="danger" live="alert">
           {t('terminal.loadFailed')}
         </Banner>
-      ) : null}
+      ) : (
+        <ChunkNotice error={loadFailed} />
+      )}
       {phase === 'error' && errorText !== null ? (
         gone ? (
           <Banner tone="info" live="status">

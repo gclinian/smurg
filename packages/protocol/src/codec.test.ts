@@ -391,6 +391,22 @@ describe('ClientHello', () => {
     expect(decodeClientHello(msgpackEncode({ ...hello, protocolVersion: PROTOCOL_VERSION - 1 }))).toMatchObject({ ok: false, reason: 'version' });
   });
 
+  it('`version` carries the number the peer speaks (the daemon is the only side that ever has both; the verdict carries none)', () => {
+    const decode = (protocolVersion: unknown): unknown => decodeClientHello(msgpackEncode({ ...hello, protocolVersion }));
+    expect(decode(PROTOCOL_VERSION + 1)).toMatchObject({ ok: false, reason: 'version', peerProtocol: PROTOCOL_VERSION + 1 });
+    expect(decode(PROTOCOL_VERSION - 1)).toMatchObject({ ok: false, reason: 'version', peerProtocol: PROTOCOL_VERSION - 1 });
+    expect(decode(99)).toMatchObject({ ok: false, reason: 'version', peerProtocol: 99 });
+    // Nothing but the number is read from such a hello: it need not be a hello this version could parse.
+    expect(decodeClientHello(msgpackEncode({ protocolVersion: 3, anything: ['at', 'all'] }))).toMatchObject({ ok: false, reason: 'version', peerProtocol: 3 });
+    // A number that is no version is malformed and carries none; the right version carries none either.
+    for (const bad of [1.5, '5', null, Number.MAX_SAFE_INTEGER + 1]) {
+      const result = decode(bad) as { ok: boolean; reason?: string };
+      expect(result).toMatchObject({ ok: false, reason: 'malformed' });
+      expect(result).not.toHaveProperty('peerProtocol');
+    }
+    expect(decode(PROTOCOL_VERSION)).not.toHaveProperty('peerProtocol');
+  });
+
   it('refuses malformed hellos', () => {
     const cases: unknown[] = [
       { ...hello, purpose: 'transfer' }, // resume is interactive-only

@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "worktrees": [
+    {
+      "id": "wt_1a6446cb2f94b9ce8fadd272",
+      "ownerUserId": "dev:carol",
+      "ownerName": "Carol",
+      "branch": "smurg/dev-carol/wt_1a6446cb2f94b9ce8fadd272",
+      "kept": true,
+      "createdAt": 1791378177520,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "7e51bfa95cdad985f7e241c0627db12638a4dee7",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "f54754c34d303ff8fe4482c5d12b151d627dc4f5c148ce222176b7e52dac3287",
+      "alternatesHash": "82999d2fc12a39fa3c601c74c9fcdc2752b51f826e7474b26fc4876989a2a65e"
+    },
+    {
+      "id": "wt_efcb449900c9593bcdf13b6b",
+      "ownerUserId": "dev:host",
+      "ownerName": "Host",
+      "branch": "smurg/dev-host/wt_efcb449900c9593bcdf13b6b",
+      "kept": true,
+      "createdAt": 1791378178406,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "a2994971f987c85acaf652915d82bf07a0093219",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "f1aacbfbd93a82bbd92f71f8786da5a81672a0ef3764ce8098f3923dcc5f903c",
+      "alternatesHash": "82999d2fc12a39fa3c601c74c9fcdc2752b51f826e7474b26fc4876989a2a65e"
+    }
+  ],
+  "merges": [
+    {
+      "id": "mr_5af9acb2f4fe6eaf64f84491",
+      "worktreeId": "wt_1a6446cb2f94b9ce8fadd272",
+      "ownerUserId": "dev:carol",
+      "requestedBy": {
+        "userId": "dev:carol",
+        "displayName": "Carol"
+      },
+      "message": "add feature.txt",
+      "commit": "64ac33881126fe19f23c279370fff9b07d1423b3",
+      "status": "merged",
+      "createdAt": 1791378177756,
+      "decidedAt": 1791378177954,
+      "mergeCommit": "a2994971f987c85acaf652915d82bf07a0093219"
+    },
+    {
+      "id": "mr_4a6503df8edff6caa18d3920",
+      "worktreeId": "wt_1a6446cb2f94b9ce8fadd272",
+      "ownerUserId": "dev:carol",
+      "requestedBy": {
+        "userId": "dev:carol",
+        "displayName": "Carol"
+      },
+      "message": "add second.txt",
+      "commit": "b154d4fc43774a7d4c69876c74f830b0bddc03ab",
+      "status": "rejected",
+      "createdAt": 1791378178130,
+      "decidedAt": 1791378178142,
+      "rejectReason": "請先修正測試"
+    },
+    {
+      "id": "mr_3ef5388b8d2467de233905c8",
+      "worktreeId": "wt_1a6446cb2f94b9ce8fadd272",
+      "ownerUserId": "dev:carol",
+      "requestedBy": {
+        "userId": "dev:carol",
+        "displayName": "Carol"
+      },
+      "message": "add third.txt\n- waits for the host",
+      "commit": "07784a8e1c5ae0e9e6e8729fda62421d21ca395d",
+      "status": "pending",
+      "createdAt": 1791378178333
+    },
+    {
+      "id": "mr_a8132d293bf7d3d1164e8d2f",
+      "worktreeId": "wt_efcb449900c9593bcdf13b6b",
+      "ownerUserId": "dev:host",
+      "requestedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "message": "notes from the agent",
+      "commit": "944589c0ed8896c1de5d2e002cc11c155132e069",
+      "status": "pending",
+      "createdAt": 1791378178934
+    }
+  ]
+}

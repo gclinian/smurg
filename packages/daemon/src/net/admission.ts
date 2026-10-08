@@ -9,6 +9,7 @@
 // (registered, member active) → connection cap → logical channel (resume) → Welcome.
 // Invite use and device registration happen in the same synchronous step as the checks (no await in between).
 import {
+  PROTOCOL_VERSION,
   decodeClientHello,
   encodeVerdict,
   verifyIdentityCnf,
@@ -78,7 +79,21 @@ export function admitConnection(ctx: AdmitContext, purpose: ChannelPurpose, peer
   };
 
   const decoded = decodeClientHello(ctx.helloPayload);
-  if (!decoded.ok) return reject(decoded.reason === 'version' ? 'version' : 'identity-invalid', `hello-${decoded.reason}`, null);
+  if (!decoded.ok) {
+    if (decoded.reason === 'version') {
+      // The daemon is the only side that ever has both numbers (the verdict carries the word `version` and nothing
+      // else). Said on the bus before anything else about the peer is decided, with whether the peer is KNOWN: its
+      // static key is a registered, unrevoked device of an active member, or the handshake used an invite that is
+      // usable now. Anyone who ever held an invite link reaches this line with any number in the hello, so `smurg
+      // host` speaks only for a known peer; for every other one the audit entry below is all, as before.
+      deps.bus.emit('peer.version-refused', {
+        direction: decoded.peerProtocol > PROTOCOL_VERSION ? 'peer-newer' : 'peer-older',
+        peerProtocol: decoded.peerProtocol,
+        known: isKnownPeer(ctx, deps, now),
+      });
+    }
+    return reject(decoded.reason === 'version' ? 'version' : 'identity-invalid', `hello-${decoded.reason}`, null);
+  }
   const hello = decoded.hello;
   if (hello.purpose !== purpose) return reject('identity-invalid', 'purpose-mismatch', null);
 
@@ -180,6 +195,15 @@ export function admitConnection(ctx: AdmitContext, purpose: ChannelPurpose, peer
     },
   });
   return { decision, admitted: { userId, deviceId: device.deviceId, hello, mode: ctx.mode, hub } };
+}
+
+/** Whether a peer that was turned away for its protocol version is somebody this workspace knows (see the bus event). */
+function isKnownPeer(ctx: AdmitContext, deps: AdmissionDeps, now: number): boolean {
+  const device = deps.members.deviceByKey(ctx.clientStaticKey);
+  if (device !== null && !device.revoked && deps.members.get(device.userId)?.status === 'active') return true;
+  if (ctx.mode !== 'invite' || ctx.inviteId === undefined) return false;
+  const invite = deps.invites.byKeyId(ctx.inviteId);
+  return invite !== null && deps.invites.unusableReason(invite, now) === null;
 }
 
 function withinConnectionCap(deps: AdmissionDeps, userId: UserId): boolean {

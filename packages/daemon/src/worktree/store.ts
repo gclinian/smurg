@@ -2,6 +2,7 @@
 // daemon created, what it must look like on disk (integrity.ts), and every merge request, drafts included. Loaded with
 // its schema: a file that does not match stops the daemon (StateStore), it is never reset.
 import { z } from 'zod';
+import { declareDocument } from '../core/state-store.ts';
 import {
   MERGE_FILES_MAX,
   MERGE_REQUEST_STATUSES,
@@ -108,6 +109,9 @@ export type WorktreesDocument = z.infer<typeof worktreesDocumentSchema>;
 export function initialWorktreesDocument(): WorktreesDocument {
   return { version: WORKTREES_VERSION, worktrees: [], merges: [] };
 }
+
+/** worktrees.json (what 0.4.0 wrote passes today's schema: 0.5.0 added optional keys only). Declared by the worktree module. */
+export const worktreesDocument = declareDocument({ name: WORKTREES_DOCUMENT, schema: worktreesDocumentSchema, init: initialWorktreesDocument });
 
 export function toWorktreeInfo(record: StoredWorktree): WorktreeInfo {
   return {

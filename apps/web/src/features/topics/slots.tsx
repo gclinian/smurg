@@ -11,14 +11,15 @@
 // Keep this file light: it loads with the workspace page. Everything it names is behind a dynamic import, except
 // dialogs.ts (a few lines of state) and the strings. The handler of `newTopic` is registered here, at once (the "New"
 // control is there from the first moment), and the dialogs behind it (TopicOverlays.tsx) load on their own.
-import { lazy, Suspense } from 'react';
+import { Suspense } from 'react';
+import { lazyChunk } from '../../lib/chunks.ts';
 import type { MenuItem } from '../../ui/Menu.tsx';
 import { defineSlots } from '../../lib/slots.ts';
 import { useCommandHandler, useStores } from '../../lib/workspace/context.tsx';
 import { topicDialogs } from './dialogs.ts';
 import { t } from './strings.ts';
 
-const Dialogs = lazy(() => import('./TopicOverlays.tsx'));
+const Dialogs = lazyChunk(() => import('./TopicOverlays.tsx'));
 
 /**
  * The feature's overlay. A click on "New" → "New topic" right after the page appeared must not find "nobody handles
@@ -40,10 +41,10 @@ function TopicsOverlay() {
 export const slots = defineSlots({
   feature: 'topics',
   columns: {
-    spec: lazy(() => import('./SpecColumn.tsx')),
-    plan: lazy(() => import('./PlanColumn.tsx')),
-    report: lazy(() => import('./ReportColumn.tsx')),
-    changes: lazy(() => import('./ChangesColumn.tsx')),
+    spec: lazyChunk(() => import('./SpecColumn.tsx')),
+    plan: lazyChunk(() => import('./PlanColumn.tsx')),
+    report: lazyChunk(() => import('./ReportColumn.tsx')),
+    changes: lazyChunk(() => import('./ChangesColumn.tsx')),
   },
   overlays: [TopicsOverlay],
   menus: {

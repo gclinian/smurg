@@ -9,6 +9,14 @@ export type RelayAction = 'claim' | 'login' | 'dev-login' | 'verify';
 export type UrlSubject = 'flag' | 'web-origin' | 'env' | 'credentials' | 'built-in' | 'invite';
 /** A private file or directory of the state dir (state/private-file.ts stateProblem). */
 export type StateSubject = 'credentials' | 'workspaces' | 'logs' | 'daemon-key' | 'device-key';
+/** A private file of the state dir that carries a `version` (state/private-file.ts versionedRecord). */
+export type VersionedStateFile = 'credentials' | 'workspaces';
+/**
+ * Why a running smurg host could not be read by this command (channel/local-channel.ts): no answer came, the answer
+ * is not one this command knows, the connection was closed before one came, or (after an attach) a message could not
+ * be decoded. Each means a host of another smurg version.
+ */
+export type UnreadableHost = 'no-answer' | 'not-understood' | 'closed' | 'message';
 export type DurationUnit = 'day' | 'hour' | 'minute' | 'second';
 /** What the daemon found out about Claude Code on the host (`smurg status`; DaemonStatus.claude of @smurg/daemon). */
 export type ClaudeVerdict = 'verified' | 'unverified' | 'too-old' | 'unknown';
@@ -22,6 +30,20 @@ const STATE_SUBJECT: Readonly<Record<StateSubject, string>> = {
   logs: 'The log folder',
   'daemon-key': "The daemon's key or state folder",
   'device-key': "This device's key (device.key)",
+};
+
+/** What to do with a state file that is not in its format, after "nothing was changed" (never: just delete it). */
+const BAD_FORMAT_NEXT: Readonly<Record<VersionedStateFile, string>> = {
+  credentials: 'Otherwise move the file away and log in again (smurg login).',
+  workspaces:
+    'Otherwise repair it or put a copy back: it links every shared folder to its workspace, and without it smurg host gives a folder a new workspace (new members, new invite links, a new daemon key).',
+};
+
+const UNREADABLE_HOST: Readonly<Record<UnreadableHost, string>> = {
+  'no-answer': 'it did not answer',
+  'not-understood': 'its answer is not one this smurg can read',
+  closed: 'it closed the connection without an answer',
+  message: 'it sent a message this smurg cannot read',
 };
 
 const URL_SUBJECT: Readonly<Record<UrlSubject, string>> = {
@@ -65,6 +87,34 @@ const PROJECT_SETTINGS: Readonly<Record<ProjectSettings, string>> = {
   ignored: 'not confirmed (agents run without them; confirm them in the web app)',
   none: 'none in this folder',
 };
+
+/**
+ * Why the system would not open or write a file (a refused workspace state, `cannot-open`): the errno in words. A code
+ * that is not here is shown as it is.
+ */
+const ERRNO_WORDS: Readonly<Record<string, string>> = {
+  EACCES: 'permission denied',
+  EPERM: 'the system does not permit it',
+  EIO: 'read or write error; the disk may be failing',
+  ENOSPC: 'no space left on the disk',
+  EDQUOT: 'the disk quota is used up',
+  EROFS: 'the file system is read-only',
+  EISDIR: 'it is a folder',
+  ENOTDIR: 'a part of its path is not a folder',
+  EMFILE: 'too many open files',
+  ENFILE: 'too many open files',
+  EBUSY: 'the file is in use',
+  ENOENT: 'it is not there',
+  EEXIST: 'a file of that name is already there',
+  ELOOP: 'too many symbolic links',
+  ENAMETOOLONG: 'the path is too long',
+};
+
+/** Where the host guide says what an update carries over, what a refusal means and how to go back to a folder set aside. */
+const GUIDE_UPDATING = 'https://smurg.ai/docs/hosting/#9-updating-and-removing';
+
+/** "A file of this workspace's state is" / "3 files of this workspace's state are" (+ "; the first" before its details). */
+const stateFiles = (count: number, one: string, many: string): string => (count === 1 ? `A file of this workspace's state ${one}` : `${count} files of this workspace's state ${many}`);
 
 const duration = (amount: number, unit: DurationUnit): string => `${amount} ${plural(amount, unit, `${unit}s`)}`;
 
@@ -124,7 +174,9 @@ Docs: https://smurg.ai/docs/
   'state.noAccess': (p: { subject: StateSubject; code: string }) => `${STATE_SUBJECT[p.subject]} cannot be accessed (${p.code})`,
   'state.tooLarge': (p: { subject: StateSubject; path: string }) => `${STATE_SUBJECT[p.subject]} is too large and may be damaged: ${p.path}`,
   'state.badFormat': (p: { subject: StateSubject; path: string }) => `${STATE_SUBJECT[p.subject]} is not in the expected format: ${p.path}`,
-  'state.badFormat.hint': () => 'You can delete the file and run the command again (you will have to log in or share again).',
+  'state.badFormat.hint': (p: { file: VersionedStateFile }) => `Nothing was changed. If a newer smurg was ever used on this computer, run smurg update. ${BAD_FORMAT_NEXT[p.file]}`,
+  'state.newer': (p: { subject: VersionedStateFile; path: string; current: string }) => `${STATE_SUBJECT[p.subject]} was written by a newer smurg than this one (this is ${p.current}): ${p.path}`,
+  'state.newer.hint': () => 'Run smurg update. Nothing was changed.',
   'state.workspaceId': (p: { id: string }) => `Not a workspace ID: ${p.id}`,
   'state.socketPathTooLong': (p: { path: string }) => `The path of smurg's state folder is too long for a Unix socket: ${p.path}`,
   'state.socketPathTooLong.hint': () => 'Set SMURG_HOME to a shorter path.',
@@ -210,7 +262,14 @@ Docs: https://smurg.ai/docs/
   'channel.rejected.deviceOtherAccount': () =>
     'This device joined this workspace with another account before, so it cannot connect with the account logged in now. Log in with the original account (smurg login), or use another SMURG_HOME.',
   'channel.rejected.identityInvalid': () => "The relay's identity token could not be verified; log in again and retry.",
-  'channel.rejected.version': () => "This smurg version is not compatible with the host's; update smurg.",
+  // A `version` refusal names no side. These three are chosen by what smurg update would find (update/version-advice.ts):
+  // it could not ask (both steps, this computer's first) / a newer smurg is published / this one is the newest.
+  'channel.rejected.version': () =>
+    "This smurg and the host's smurg are different versions and cannot connect. First run smurg update here. If it says this is the latest version, the host's smurg is the older one: the host stops sharing, runs smurg update and shares again.",
+  'channel.rejected.version.updateHere': (p: { current: string; latest: string }) =>
+    `This smurg (${p.current}) and the host's smurg are different versions and cannot connect, and a newer smurg (${p.latest}) is published: update this one (smurg update), then connect again.`,
+  'channel.rejected.version.hostOlder': (p: { current: string }) =>
+    `The host's smurg is older than this one (${p.current}; no newer smurg is published): the host stops sharing, runs smurg update and shares again. Then connect again.`,
   'channel.rejected.aborted': () => 'The host does not know this invite link; check that the link is complete.',
   'channel.rejected.unknown': () => 'The host refused the connection.',
   'channel.closed.loginRequired': () => 'The relay login is no longer valid; run smurg login to log in again.',
@@ -220,15 +279,14 @@ Docs: https://smurg.ai/docs/
   'channel.hostOffline': () => "The host is offline (smurg host is not running, or the host's computer is asleep).",
   'channel.relayUnreachable': () => 'Cannot reach the relay.',
   'channel.timeout': () => 'The connection timed out; could not join the workspace.',
-  'ctl.connectTimeout': () => 'smurg host did not answer (connecting to the control socket timed out)',
   'ctl.notRunning': () => 'No smurg host is running for this workspace',
   'ctl.connectFailed': (p: { code: string }) => `Cannot connect to the control socket of smurg host (${p.code})`,
-  'ctl.requestTimeout': () => 'smurg host did not answer (the control request timed out)',
-  'ctl.badResponse': () => 'smurg host sent a response that is not in the expected format',
-  'ctl.closedEarly': () => 'smurg host closed the connection before it answered',
   'ctl.disconnected': () => 'The connection to smurg host was lost.',
   'ctl.attachRefused': (p: { reason: string }) => `smurg host refused the connection: ${p.reason}`,
   'ctl.noAnswer': (p: { type: string }) => `smurg host did not answer (${p.type})`,
+  // A smurg host of another version: its control socket is alive and this command cannot read what it sends.
+  'otherVersion.hint': () => 'Stop it (smurg stop, or Ctrl-C in the terminal that runs smurg host), then start it again with smurg host.',
+  'attach.otherVersion': (p: { current: string; why: UnreadableHost }) => `Another version of smurg is sharing here (this smurg is ${p.current}): ${UNREADABLE_HOST[p.why]}`,
   'discover.notRunningFor': (p: { workspaceId: string }) => `No smurg host is running for workspace ${p.workspaceId}`,
   'discover.notRunning': () => 'No smurg host is running',
   'discover.several': () => 'Several workspaces are being shared; choose one with --workspace',
@@ -393,15 +451,99 @@ Docs: https://smurg.ai/docs/
   'host.locked.ancestor': () => 'A folder above this one is already being shared',
   'host.locked.shared': () => "This folder is already being shared (perhaps through another relay or from another smurg state folder)",
   'host.locked.hint': () => 'One smurg host at a time can share a folder. Look with smurg status, or stop the other share first.',
-  'host.stateFile': () => 'This workspace\'s state files were written by another smurg version, or are not in the expected format; the daemon refused to start',
-  'host.stateFile.hint': (p: { logPath: string; workspaceDir: string }) =>
-    `The log says which file and why: ${p.logPath}.\n  ` +
-    `To share again: move ${p.workspaceDir} away first (for example mv "${p.workspaceDir}" "${p.workspaceDir}.old"), then run smurg host again. ` +
-    'That creates a new workspace state: the earlier members and invite links stop working, and your teammates join again with a new invite link.\n  ' +
-    'The daemon key is new too, so teammates who joined before will see "The host computer\'s key has changed": tell them the new key fingerprint that smurg status shows through another channel (in person, by phone).',
+  // ---- a workspace's state that smurg host does not open (0.5.1, DESIGN C; commands/host-state.ts). One text per kind
+  // and cause of the daemon's refusal; each names the file and the reason itself and says that nothing was changed.
+  // The hint is a list of sentences, one id each, joined by `host.lines`. Never "move the folder away", except as the
+  // last resort of `unreadable`, after what that costs.
+  'host.lines': (p: { lines: readonly string[] }) => p.lines.join('\n  '),
+  'host.unchanged': () => 'Nothing was changed.',
+  'host.refused.all': (p: { paths: readonly string[] }) => `All of them: ${p.paths.join(', ')}`,
+  // newer: the folder's stamp, or a document's version, is from a later smurg
+  'host.newer': (p: { path: string; current: string; writtenBy?: string }) =>
+    `This workspace was last shared with ${p.writtenBy === undefined ? 'a newer smurg' : `smurg ${p.writtenBy}, a newer smurg`} than this one (this is ${p.current}), and this smurg cannot read what it wrote: ${p.path}`,
+  'host.newer.update': (p: { latest: string }) => `Run smurg update (version ${p.latest} is available), then smurg host again.`,
+  'host.newer.maybe': () =>
+    'Run smurg update, then smurg host again. If smurg update says that this is the latest version, the folder was last written by a smurg this computer cannot get that way: share it with the smurg that wrote it.',
+  'host.newer.newest': (p: { current: string }) =>
+    `smurg update cannot help: ${p.current} is the latest published version. This folder was last written by a smurg this computer cannot get that way (a build that was never published, or a folder copied from another computer): share it with the smurg that wrote it.`,
+  'host.newer.stamp': (p: { stamp: string; writtenBy?: string }) =>
+    p.writtenBy === undefined ? `The folder has no usable stamp that names its writer (${p.stamp}).` : `The stamp that names its writer: ${p.stamp} (it says smurg ${p.writtenBy}).`,
+  // insecure, by cause
+  'host.insecure.mode': (p: { path: string; mode: string; count: number }) =>
+    `${stateFiles(p.count, 'is', 'are')} open to other users of this computer${p.count === 1 ? '' : '; the first'} (mode ${p.mode}): ${p.path}`,
+  'host.insecure.mode.hint': (p: { count: number; command: string }) =>
+    `Until now, other users of this computer could read or change ${plural(p.count, 'it', 'them')} (a workspace's state holds the daemon's key and the keys of its invite links). ` +
+    `Make ${plural(p.count, 'it', 'them')} yours alone, then run smurg host again:\n  ${p.command}`,
+  'host.insecure.owner': (p: { path: string; count: number; owner?: string }) =>
+    `${stateFiles(p.count, 'belongs', 'belong')} to another user, not to you${p.count === 1 ? '' : '; the first'}${p.owner === undefined ? '' : ` (${p.owner})`}: ${p.path}`,
+  'host.owner.root': () => 'root',
+  'host.owner.uid': (p: { uid: number }) => `user ID ${p.uid}`,
+  'host.insecure.owner.hint': (p: { count: number }) =>
+    `smurg uses only state files that belong to you, and chmod does not change who owns a file. If you ever ran smurg with sudo, that is where ${plural(p.count, 'it comes', 'they come')} from. ` +
+    `The owner or an administrator of this computer gives ${plural(p.count, 'it', 'them')} back to you (chown); then run smurg host again.`,
+  'host.insecure.symlink': (p: { path: string; count: number }) =>
+    `${stateFiles(p.count, 'is a symbolic link', 'are symbolic links')}, and smurg follows no link in its state folder${p.count === 1 ? '' : '; the first'}: ${p.path}`,
+  'host.insecure.symlink.hint': () => 'smurg host starts when the file itself is in that place: a regular file that belongs to you, mode 600.',
+  'host.insecure.notFile': (p: { path: string; count: number; found: string }) =>
+    p.count === 1
+      ? `Where a file of this workspace's state belongs there is ${p.found}: ${p.path}`
+      : `In ${p.count} places where files of this workspace's state belong there is something else; in the first, ${p.found}: ${p.path}`,
+  'host.found.directory': () => 'a folder',
+  'host.found.fifo': () => 'a named pipe (FIFO)',
+  'host.found.socket': () => 'a socket',
+  'host.found.device': () => 'a device',
+  'host.found.other': () => 'something that is not a regular file',
+  'host.insecure.notFile.hint': () => 'smurg reads only a regular file there. smurg host starts when the file itself is back in that place.',
+  // cannot-open: the file is there and the system refused to open or write it
+  'host.cannotOpen': (p: { path: string; count: number; reason: string }) =>
+    `${stateFiles(p.count, 'could not be opened or written', 'could not be opened or written')}${p.count === 1 ? '' : '; the first'} (${p.reason}): ${p.path}`,
+  'host.cannotOpen.reason': (p: { code: string }) => (p.code === 'unknown' ? 'the system gave no reason' : ERRNO_WORDS[p.code] === undefined ? p.code : `${ERRNO_WORDS[p.code]}, ${p.code}`),
+  'host.cannotOpen.unchanged': () => 'smurg host did not start, and nothing in the workspace was changed or reset: its members, invite links, keys and settings are as they were.',
+  'host.cannotOpen.owner': (p: { owner: string }) =>
+    `The file belongs to another user (${p.owner}). If you ever ran smurg with sudo, that is where it comes from: the owner or an administrator of this computer gives it back to you (chown).`,
+  'host.cannotOpen.hint': () => 'When the file can be opened and written again, run smurg host again.',
+  // other-workspace
+  'host.otherWorkspace': (p: { path: string; workspaceId: string }) => `The state file in the folder of workspace ${p.workspaceId} names another workspace: ${p.path}`,
+  'host.otherWorkspace.hint': () =>
+    "The folder was copied from another workspace's, or mixed up with it. smurg does not use it, and no command repairs this: put this workspace's own folder back in its place.",
+  // unreadable, by reason
+  'host.unreadable.notJson': (p: { path: string }) => `A file of this workspace's state is damaged: it is not valid JSON (it may be empty or cut off): ${p.path}`,
+  'host.unreadable.shape': (p: { path: string; current: string }) => `A file of this workspace's state is not in a form that smurg ${p.current} or an earlier published smurg wrote: ${p.path}`,
+  'host.unreadable.missingState': (p: { path: string }) => `The state file of this workspace is not there, although other files of the workspace are: ${p.path}`,
+  'host.unreadable.missingKey': (p: { path: string }) => `The daemon's key of this workspace is not there, although its state file is: ${p.path}`,
+  'host.unreadable.carried': (p: { path: string; current: string }) => `A state file that an earlier smurg wrote holds a value that smurg ${p.current} does not accept: ${p.path}`,
+  'host.unreadable.problems': (p: { problems: readonly string[]; more: number }) => `What does not fit: ${p.problems.join('; ')}${p.more > 0 ? `; and ${p.more} more` : ''}`,
+  'host.unreadable.missing.unchanged': () => 'Nothing was changed, and smurg made no new file in its place. If the file was moved or renamed by hand, put it back.',
+  'host.unreadable.maybeNewer': () => 'First: if a newer smurg was ever used on this computer, run smurg update, then smurg host again.',
+  'host.unreadable.writerNewer': (p: { writtenBy: string }) => `First: this folder was last written by smurg ${p.writtenBy}, which is newer than this one. Run smurg update, then smurg host again.`,
+  'host.unreadable.copy.state': (p: { name: string; date: string }) =>
+    'smurg kept a copy of this file as it was before an upgrade, for reading what the workspace held. Putting it back undoes everything decided since then: ' +
+    `people removed since are members again, revoked devices and revoked or used-up invite links work again, and role changes are gone. The newest copy: ${p.name}, kept ${p.date}.`,
+  'host.unreadable.copy.other': (p: { name: string; date: string }) =>
+    `smurg kept a copy of this file as it was before an upgrade, for reading what it held. Putting it back replaces everything recorded in this file since then. The newest copy: ${p.name}, kept ${p.date}.`,
+  'host.unreadable.lastResort': () =>
+    "The last resort is a new workspace. It costs: this workspace's members and invite links (your teammates join again with a new link), its topics, conversations and audit log, " +
+    'and the daemon\'s key (teammates who joined before will see "The host computer\'s key has changed": tell them the new key fingerprint that smurg status shows through another channel, in person or by phone); ' +
+    "and smurg no longer knows the worktrees it kept (their folders stay in the shared folder's .smurg/worktrees, with work that is not merged).",
+  'host.unreadable.lastResort.command': (p: { command: string }) => `If you accept that, move this workspace's folder away and run smurg host again:\n  ${p.command}`,
+  // ---- what a start found (one line each): an upgrade, an older file put back, a folder set aside, a refused peer
+  'host.upgraded': (p: { from?: string }) =>
+    `This workspace was last shared with ${p.from === undefined ? 'an earlier smurg' : `smurg ${p.from}`}: its members, invite links and settings were carried over. What changed: ${GUIDE_UPDATING}`,
+  'host.putBack.state': (p: { names: readonly string[] }) =>
+    `Warning: an OLDER ${p.names.join(', ')} was put back into this workspace and upgraded again. Everything decided since it was written is undone: ` +
+    `people removed since are members again, revoked devices and revoked or used-up invite links work again, and role changes are gone. Guide: ${GUIDE_UPDATING}`,
+  'host.putBack.other': (p: { names: readonly string[] }) =>
+    `Warning: an OLDER ${p.names.join(', ')} was put back into this workspace and upgraded again: what it holds replaces everything recorded there since. Guide: ${GUIDE_UPDATING}`,
+  'host.oldFolder': (p: { path: string; more: number }) =>
+    `An earlier state folder of this workspace lies beside the one in use: ${p.path}${p.more > 0 ? ` (and ${p.more} more)` : ''}. smurg does not use it. ` +
+    `If you moved it away because smurg 0.5.0 told you to after an update, the guide says how to go back to it: ${GUIDE_UPDATING}`,
+  'host.peer.newer': () => "\nWarning: a teammate's page or smurg is newer than this smurg and was turned away. Stop sharing, run smurg update, then share again.",
+  'host.peer.older': () => '\nA page or smurg older than this smurg was turned away. The teammate reloads the page or updates smurg; if you run your own relay, deploy it again.',
   'host.alreadyRunning': () => 'A smurg host is already running for this workspace',
   'host.alreadyShared': () => 'This folder is already being shared',
   'host.alreadyShared.hint': () => 'Look with smurg status, or stop it with smurg stop.',
+  'host.otherVersion': (p: { current: string; why: UnreadableHost }) =>
+    `This folder is already being shared, by a smurg host of another version (this smurg is ${p.current}): ${UNREADABLE_HOST[p.why]}`,
   'host.controlSocket': () => "Could not create the daemon's control socket",
   'host.seeLog': (p: { logPath: string }) => `The log has the details: ${p.logPath}`,
   'host.daemonFailed': (p: { name: string }) => `The daemon could not start (${p.name})`,
@@ -435,6 +577,9 @@ Docs: https://smurg.ai/docs/
   'host.overlap.inside': (p: { folder: string }) => `${p.folder} inside this folder is already being shared`,
   'host.overlap.hint': (p: { workspaceId: string; relay: string }) =>
     `One smurg host at a time can share the same files (workspace ${p.workspaceId}, relay ${p.relay}). Look with smurg status, or stop it first with smurg stop --workspace ${p.workspaceId}.`,
+  'host.overlap.otherVersion.hint': (p: { workspaceId: string; current: string }) =>
+    `It is workspace ${p.workspaceId}, shared by a smurg host of another version (this smurg is ${p.current}).\n  ` +
+    `Stop it first: smurg stop --workspace ${p.workspaceId}, or Ctrl-C in the terminal that runs smurg host.`,
   'host.relay.back': () => 'Reconnected to the relay; your teammates can connect again.',
   'host.relay.authRejected': (p: { origin: string }) =>
     `\nWarning: the relay refused this computer's login (it expired or is no longer valid); your teammates cannot connect right now.\n  Run smurg login --relay ${p.origin} in another terminal; smurg host picks up the new login and reconnects by itself, and you do not have to share again.`,
@@ -479,11 +624,18 @@ Docs: https://smurg.ai/docs/
   Show the workspaces being shared: the folder, the relay and its connections, the daemon key fingerprint,
   keep-awake, the settings of smurg host, Claude Code and the agent sessions, and where the log is.
   What each line means: https://smurg.ai/docs/hosting/#7-status-and-stopping
+
+  Exit code: 0 when every share is shown; 3 when nothing is being shared; 5 when a smurg host of another
+  version is sharing (this smurg cannot read its answer: stop it and start it again).
 `,
   'stop.refused': (p: { reason: string }) => `smurg host refused to stop: ${p.reason}`,
   'stop.timeout': (p: { seconds: number }) => `smurg host did not stop within ${duration(p.seconds, 'second')}`,
   'stop.timeout.hint': () => 'Look at the terminal that runs smurg host.',
   'stop.stopping': (p: { workspaceId: string }) => `Stopping the share of workspace ${p.workspaceId}...`,
+  'stop.otherVersion.asking': (p: { current: string; workspaceId?: string }) =>
+    `A smurg host of another version is sharing ${p.workspaceId === undefined ? 'here' : `workspace ${p.workspaceId}`} (this smurg is ${p.current}); asking it to stop...`,
+  'stop.otherVersion.failed': (p: { seconds: number }) => `The smurg host of another version did not stop within ${duration(p.seconds, 'second')}`,
+  'stop.otherVersion.failed.hint': () => 'Press Ctrl-C in the terminal that runs smurg host.',
   'status.relay.online': () => 'connected',
   'status.relay.connecting': () => 'connecting',
   'status.relay.waiting': () => 'waiting to reconnect',
@@ -493,6 +645,14 @@ Docs: https://smurg.ai/docs/
   'status.relay.none': () => 'not used',
   'status.none': () => 'No workspace is being shared.',
   'status.noneFor': (p: { workspaceId: string }) => `No smurg host is running for workspace ${p.workspaceId}.`,
+  'status.otherVersion': (p: { current: string; why: UnreadableHost; socket: string; workspaceId?: string; folder?: string }) =>
+    [
+      p.workspaceId === undefined ? `A workspace (control socket ${p.socket})` : `Workspace ${p.workspaceId}`,
+      ...(p.folder === undefined ? [] : [`  Folder: ${p.folder}`]),
+      `  A smurg host of another version is sharing it (this smurg is ${p.current}): ${UNREADABLE_HOST[p.why]}.`,
+      `  To stop it: smurg stop${p.workspaceId === undefined ? '' : ` --workspace ${p.workspaceId}`}, or Ctrl-C in the terminal that runs smurg host. To use this smurg, start it again with smurg host.`,
+    ].join('\n'),
+  'status.bookUnreadable': (p: { problem: string; hint?: string }) => `Note: ${p.problem}${p.hint === undefined ? '' : `\n  ${p.hint}`}`,
   'status.workspace': (p: {
     workspaceId: string;
     stopping: boolean;
@@ -618,6 +778,11 @@ Docs: https://smurg.ai/docs/
   'update.downloading': (p: { latest: string; name: string; from: string }) => `Downloading smurg ${p.latest} (${p.name}, ${p.from})...`,
   'update.startedSharing': (p: { ids: readonly string[] }) => `A workspace started being shared during the download (${p.ids.join(', ')}); nothing was updated`,
   'update.startedSharing.hint': () => 'Run smurg stop first, then smurg update again.',
+  'update.otherVersion': (p: { labels: readonly string[]; current: string }) =>
+    `A smurg host of another version is sharing on this computer (${p.labels.join(', ')}; this smurg is ${p.current}); nothing was updated`,
+  'update.otherVersion.hint': () =>
+    'Stop it first (smurg stop, or Ctrl-C in the terminal that runs smurg host), then run smurg update again.\n  ' +
+    'An update while it shares would mix the daemon that is still running with the new smurg commands.',
   'update.replaceFailed': (p: { executable: string; code: string }) => `Could not replace ${p.executable} (${p.code})`,
   'update.done': (p: { current: string; latest: string; executable: string }) => `Updated smurg: ${p.current} -> ${p.latest} (${p.executable})`,
   'update.quarantineRemoved': (p: { attribute: string }) => `Removed the ${p.attribute} attribute of the downloaded file (after its sha256 matched)`,
@@ -688,4 +853,6 @@ Docs: https://smurg.ai/docs/
   'uninstall.stopFailed': (p: { workspaceId: string; reason?: string }) =>
     `Could not stop the share of workspace ${p.workspaceId}${p.reason === undefined ? '' : ` (${p.reason})`}; nothing was removed`,
   'uninstall.stopFailed.hint': () => 'Press Ctrl-C in the terminal that runs smurg host to stop sharing, then run smurg uninstall again.',
+  'uninstall.otherVersion': (p: { labels: readonly string[] }) => `A smurg host of another version is sharing on this computer (${p.labels.join(', ')}); nothing was removed`,
+  'uninstall.otherVersion.hint': () => 'Stop it first (smurg stop, or Ctrl-C in the terminal that runs smurg host), then run smurg uninstall again.',
 } as const;

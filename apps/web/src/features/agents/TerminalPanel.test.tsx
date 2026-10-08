@@ -8,6 +8,7 @@ import { act, fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { SmurgError, worktreeRoot, type TerminalSession } from '@smurg/protocol';
 import type { ILink } from '@xterm/xterm';
+import { ChunkLoadError } from '../../lib/chunks.ts';
 import { HOST_USER, makeEntry, makeSession, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
 import { TerminalPanel } from './index.tsx';
 import { REFUSALS_PER_MINUTE } from './path-links.ts';
@@ -629,5 +630,35 @@ describe('terminal panel: ending sessions', () => {
     await renderWithSessions(<TerminalPanel />, { role: 'host', sessions: [amyAgent] });
     fireEvent.click(within(screen.getByRole('tabpanel')).getByRole('button', { name: 'Terminate' }));
     expect(screen.getByRole('alertdialog', { name: 'Terminate session' })).toBeTruthy();
+  });
+});
+
+// xterm.js is a chunk of its own. When it does not come, the terminal says why with the words every part of the page
+// uses for that (lib/chunks.ts), and offers the reload.
+describe('a terminal whose chunk does not come', () => {
+  const failing = (error: unknown) => ({ ...recordingViewerFactory(), factory: () => Promise.reject(error) });
+
+  it('the web app was deployed again: "smurg was updated" and the reload', async () => {
+    await renderWithSessions(<TerminalPanel />, { role: 'agent', sessions: [hostShell], recording: failing(new ChunkLoadError('gone', new TypeError('Failed to fetch dynamically imported module'))) });
+    await settle();
+    const notice = within(screen.getByRole('tabpanel')).getByRole('alert');
+    expect(notice.textContent).toContain('smurg was updated');
+    expect(notice.textContent).toContain('Reload to get the new page; if the host has not updated yet, the page will say so.');
+    expect(within(notice).getByRole('button', { name: 'Reload the page' })).toBeTruthy();
+    expect(screen.queryByText('Could not load the terminal. Reload the page.')).toBeNull();
+  });
+
+  it('the network is gone: says offline, not updated', async () => {
+    await renderWithSessions(<TerminalPanel />, { role: 'agent', sessions: [hostShell], recording: failing(new ChunkLoadError('offline', null)) });
+    await settle();
+    const notice = within(screen.getByRole('tabpanel')).getByRole('alert');
+    expect(notice.textContent).toContain('The browser is offline or cannot reach the smurg server.');
+    expect(notice.textContent).not.toMatch(/updated/);
+  });
+
+  it('any other failure keeps its own words', async () => {
+    await renderWithSessions(<TerminalPanel />, { role: 'agent', sessions: [hostShell], recording: failing(new Error('xterm broke')) });
+    await settle();
+    expect(within(screen.getByRole('tabpanel')).getByRole('alert').textContent).toBe('Could not load the terminal. Reload the page.');
   });
 });

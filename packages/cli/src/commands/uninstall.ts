@@ -14,7 +14,8 @@
 // sizes) and the person is asked to confirm (y/N) at a terminal (`--yes` skips the question; without a terminal
 // and without `--yes` it refuses); then every running `smurg host` of this state dir is stopped as `smurg stop` does
 // and waited for (one that cannot be stopped aborts with nothing removed); then the cache, the state dir, and the
-// executable last (a failure before it leaves a `smurg` to run again).
+// executable last (a failure before it leaves a `smurg` to run again). A smurg host of ANOTHER VERSION that is
+// sharing (this command cannot read its answer) is a refusal before anything changes: the person stops it first.
 //
 // Guards (fail closed): only the single executable uninstalls itself (a source checkout is told what to delete by
 // hand). The state dir is removed only when its real path is not `/`, not a top-level directory, not the home
@@ -29,7 +30,7 @@ import { HOMES_PARENTS } from '@smurg/daemon';
 import { booleanOption, parseArgs } from '../cli/args.ts';
 import { CliError, isCliError, usageError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
-import { runningDaemons, type RunningDaemon } from '../channel/discover.ts';
+import { probeDaemons, unreadableLabel, type Daemons, type RunningDaemon } from '../channel/discover.ts';
 import { nativeCacheEntry, nativeCacheRoots, seaExecutable } from '../sea/native.ts';
 import { homeDirOf } from '../state/paths.ts';
 import { loadWorkspaces } from '../state/workspaces.ts';
@@ -231,7 +232,9 @@ export async function runUninstall(argv: readonly string[], ctx: CommandContext,
   const state = keepData ? null : await stateRemoval(ctx, home);
   const cache = await cacheRemovals(cacheRoots);
   const projects = await projectFolders(ctx);
-  const running = await runningDaemons(ctx.paths);
+  const sharing = await probeDaemons(ctx.paths);
+  refuseOtherVersion(sharing);
+  const running = sharing.running;
   const self = await removalOf(executable, 'file', m('uninstall.what.executable'), exe);
   // The executable goes last: a failure before it leaves a `smurg` to run again.
   const removals: Removal[] = [...cache.removals, ...(state ? [state.removal] : []), self];
@@ -266,8 +269,9 @@ export async function runUninstall(argv: readonly string[], ctx: CommandContext,
     }
   }
   // … including a share that started while the question was open.
-  const still = await runningDaemons(ctx.paths);
-  if (still.length > 0) throw stopFailure(still[0] as RunningDaemon, null);
+  const still = await probeDaemons(ctx.paths);
+  if (still.running.length > 0) throw stopFailure(still.running[0] as RunningDaemon, null);
+  refuseOtherVersion(still);
   if (running.length > 0) say(ctx, m('host.stopped'));
 
   // ---- remove: the cache, the state dir, the executable last
@@ -289,6 +293,15 @@ export async function runUninstall(argv: readonly string[], ctx: CommandContext,
   const left = [...kept, tr(ctx, m('uninstall.left.path', { dir: dirname(executable) }))];
   say(ctx, m('uninstall.done', { removed, left, install: INSTALL_COMMAND }));
   return EXIT.ok;
+}
+
+/**
+ * A smurg host of another version is sharing (alive behind its control socket, its answer not readable by this
+ * command: channel/discover.ts): its state is not removed under it. Nothing has been removed when this is thrown.
+ */
+function refuseOtherVersion(sharing: Daemons): void {
+  if (sharing.unreadable.length === 0) return;
+  throw new CliError(m('uninstall.otherVersion', { labels: sharing.unreadable.map(unreadableLabel) }), { hint: m('uninstall.otherVersion.hint') });
 }
 
 function stopFailure(daemon: RunningDaemon, err: unknown): CliError {

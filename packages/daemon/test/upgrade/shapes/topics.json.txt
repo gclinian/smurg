@@ -1,0 +1,182 @@
+: #1 object strict
+version: literal 1
+topics: array [max_length maximum=200]
+topics[]: #2 object strict
+topics[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].name: string [min_length minimum=1] [max_length maximum=120] [custom] [custom]
+topics[].slug: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,47}$/]
+topics[].archived: boolean
+topics[].createdBy: #3 object strict
+topics[].createdBy.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+topics[].createdBy.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+topics[].createdAt: number format=safeint [greater_than value=0 inclusive=true]
+topics[].discussionSessionId: optional
+topics[].discussionSessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].discussion: enum "live"|"lost"
+topics[].lostAt: optional
+topics[].lostAt: number format=safeint [greater_than value=0 inclusive=true]
+topics[].discussionSessions: array [max_length maximum=64]
+topics[].discussionSessions[]: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].spec: #4 object strict
+topics[].spec.exists: boolean
+topics[].spec.hash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+topics[].spec.changedAt: optional
+topics[].spec.changedAt: number format=safeint [greater_than value=0 inclusive=true]
+topics[].spec.changedBy: optional
+topics[].spec.changedBy: #5 union by kind
+topics[].spec.changedBy<0>: #6 object strict
+topics[].spec.changedBy<0>.kind: literal "user"
+topics[].spec.changedBy<0>.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+topics[].spec.changedBy<0>.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+topics[].spec.changedBy<1>: #7 object strict
+topics[].spec.changedBy<1>.kind: literal "agent"
+topics[].spec.changedBy<1>.sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].spec.changedBy<1>.ownerUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+topics[].spec.changedBy<1>.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+topics[].spec.changedBy<2>: #8 object strict
+topics[].spec.changedBy<2>.kind: literal "system"
+topics[].spec.lastAgentChange: optional
+topics[].spec.lastAgentChange: #9 object strict
+topics[].spec.lastAgentChange.sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].spec.lastAgentChange.seq: number format=safeint [greater_than value=1 inclusive=true]
+topics[].spec.lastAgentChange.at: number format=safeint [greater_than value=0 inclusive=true]
+topics[].spec.lastAgentChange.askedBy: optional
+topics[].spec.lastAgentChange.askedBy: the same as #3
+topics[].handEdits: #10 object strict
+topics[].handEdits.spec: array [max_length maximum=20]
+topics[].handEdits.spec[]: #11 object strict
+topics[].handEdits.spec[].by: #12 union
+topics[].handEdits.spec[].by<0>: the same as #3
+topics[].handEdits.spec[].by<1>: literal "outside"
+topics[].handEdits.spec[].at: number format=safeint [greater_than value=0 inclusive=true]
+topics[].handEdits.plan: array [max_length maximum=20]
+topics[].handEdits.plan[]: the same as #11
+topics[].rules: array [max_length maximum=50]
+topics[].rules[]: #13 object strict
+topics[].rules[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].rules[].tool: enum "Bash"|"WebFetch"
+topics[].rules[].pattern: string [min_length minimum=1] [max_length maximum=200] [string_format format=regex pattern=^[\x21-\x7e]+(?: [\x21-\x7e]+)*$/]
+topics[].rules[].scope: enum "session"|"topic"
+topics[].rules[].addedBy: the same as #3
+topics[].rules[].addedAt: number format=safeint [greater_than value=0 inclusive=true]
+topics[].plan: #14 object strict
+topics[].plan.exists: boolean
+topics[].plan.hash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+topics[].plan.valid: boolean
+topics[].plan.error: optional
+topics[].plan.error: #15 object strict
+topics[].plan.error.text: #16 object [custom] strict
+topics[].plan.error.text.id: string [min_length minimum=1] [max_length maximum=80] [string_format format=regex pattern=^[a-z][A-Za-z0-9.]*$/]
+topics[].plan.error.text.params: optional
+topics[].plan.error.text.params: record [custom] [custom]
+topics[].plan.error.text.params{key}: string [min_length minimum=1] [max_length maximum=32]
+topics[].plan.error.text.params{}: #17 union
+topics[].plan.error.text.params{}<0>: string [max_length maximum=1000]
+topics[].plan.error.text.params{}<1>: number [custom]
+topics[].plan.error.text.params{}<2>: boolean
+topics[].plan.error.text.params{}<3>: array [max_length maximum=10]
+topics[].plan.error.text.params{}<3>[]: string [max_length maximum=500]
+topics[].plan.error.fallback: string [min_length minimum=0] [max_length maximum=1000] [custom]
+topics[].plan.error.line: optional
+topics[].plan.error.line: number format=safeint [greater_than value=1 inclusive=true]
+topics[].plan.changedAt: optional
+topics[].plan.changedAt: number format=safeint [greater_than value=0 inclusive=true]
+topics[].plan.changedBy: optional
+topics[].plan.changedBy: the same as #5
+topics[].plan.parsed: boolean
+topics[].plan.fingerprint: string [max_length maximum=1048576]
+topics[].plan.revision: number format=safeint [greater_than value=0 inclusive=true]
+topics[].plan.mode: enum "assigned"|"everyone"
+topics[].plan.paused: boolean
+topics[].plan.pausedAt: optional
+topics[].plan.pausedAt: number format=safeint [greater_than value=0 inclusive=true]
+topics[].plan.warnings: array [max_length maximum=40]
+topics[].plan.warnings[]: #18 object strict
+topics[].plan.warnings[].text: the same as #16
+topics[].plan.warnings[].fallback: string [min_length minimum=0] [max_length maximum=1000] [custom]
+topics[].plan.split: optional
+topics[].plan.split: #19 object strict
+topics[].plan.split.source: enum "agent"|"smurg"
+topics[].plan.split.reason: optional
+topics[].plan.split.reason: string [min_length minimum=0] [max_length maximum=500] [custom]
+topics[].plan.people: array [max_length maximum=20]
+topics[].plan.people[]: #20 object strict
+topics[].plan.people[].userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+topics[].plan.people[].name: string [min_length minimum=0] [max_length maximum=256] [custom]
+topics[].plan.people[].joinedAt: number format=safeint [greater_than value=0 inclusive=true]
+topics[].plan.lastPin: optional
+topics[].plan.lastPin: #21 object strict
+topics[].plan.lastPin.by: the same as #3
+topics[].plan.lastPin.at: number format=safeint [greater_than value=0 inclusive=true]
+topics[].plan.lastPin.planRevision: number format=safeint [greater_than value=0 inclusive=true]
+topics[].plan.lastPin.specHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+topics[].plan.lastPin.planHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+topics[].plan.lastPin.commit: string [string_format format=regex pattern=^[0-9a-f]{7,64}$/]
+topics[].plan.lastPin.specBlob: nullable
+topics[].plan.lastPin.specBlob: string [string_format format=regex pattern=^[0-9a-f]{7,64}$/]
+topics[].plan.lastPin.planBlob: nullable
+topics[].plan.lastPin.planBlob: string [string_format format=regex pattern=^[0-9a-f]{7,64}$/]
+topics[].plan.fix: optional
+topics[].plan.fix: #22 object strict
+topics[].plan.fix.hash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+topics[].plan.fix.count: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items: array [max_length maximum=80]
+topics[].items[]: #23 object strict
+topics[].items[].id: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,39}$/]
+topics[].items[].number: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].title: string [min_length minimum=1] [max_length maximum=120] [custom]
+topics[].items[].summary: string [min_length minimum=0] [max_length maximum=2000] [custom]
+topics[].items[].dependsOn: array [max_length maximum=40]
+topics[].items[].dependsOn[]: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,39}$/]
+topics[].items[].size: enum "s"|"m"|"l"
+topics[].items[].touches: array [max_length maximum=16]
+topics[].items[].touches[]: string [min_length minimum=1] [max_length maximum=200] [custom]
+topics[].items[].state: enum "not-started"|"waiting"|"queued"|"running"|"stalled"|"done"|"reviewed"|"failed"|"stopped"
+topics[].items[].stalledBy: optional
+topics[].items[].stalledBy: enum "agent"|"restart"|"stopped"|"error"
+topics[].items[].since: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].armed: boolean
+topics[].items[].disarmed: optional
+topics[].items[].disarmed: enum "plan-changed"|"starter-removed"|"start-failed"
+topics[].items[].retry: boolean
+topics[].items[].responsible: nullable
+topics[].items[].responsible: #24 object strict
+topics[].items[].responsible.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+topics[].items[].responsible.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+topics[].items[].responsible.source: enum "agent"|"smurg"|"chosen"
+topics[].items[].chosen: boolean
+topics[].items[].startedBy: optional
+topics[].items[].startedBy: the same as #3
+topics[].items[].pin: optional
+topics[].items[].pin: the same as #21
+topics[].items[].sessionId: optional
+topics[].items[].sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].items[].sessions: array [max_length maximum=64]
+topics[].items[].sessions[]: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].items[].worktreeId: optional
+topics[].items[].worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].items[].attempt: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].startError: optional
+topics[].items[].startError: the same as #18
+topics[].items[].changesAsked: optional
+topics[].items[].changesAsked: #25 object strict
+topics[].items[].changesAsked.by: the same as #3
+topics[].items[].changesAsked.at: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].merge: optional
+topics[].items[].merge: #26 object strict
+topics[].items[].merge.requestId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].items[].merge.status: enum "draft"|"pending"|"merged"|"rejected"|"conflict"
+topics[].items[].merge.ready: boolean
+topics[].items[].merged: boolean
+topics[].items[].checked: array [max_length maximum=16]
+topics[].items[].checked[]: #27 object strict
+topics[].items[].checked[].sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].items[].checked[].attempt: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].checked[].hash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+topics[].items[].nudged: boolean
+topics[].items[].fix: optional
+topics[].items[].fix: #28 object strict
+topics[].items[].fix.hash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+topics[].items[].fix.count: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].snapshotOwed: optional
+topics[].items[].snapshotOwed: literal true

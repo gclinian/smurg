@@ -1,0 +1,672 @@
+{
+  "version": 1,
+  "reports": [
+    {
+      "version": 1,
+      "writtenAt": 1791389346055,
+      "outcome": "partial",
+      "state": "reviewed",
+      "reviewers": [
+        {
+          "userId": "dev:mei",
+          "displayName": "Mei"
+        }
+      ],
+      "review": {
+        "by": {
+          "userId": "dev:mei",
+          "displayName": "Mei"
+        },
+        "at": 1791389346194,
+        "version": 1
+      },
+      "checks": {
+        "passed": 1,
+        "notVerified": 1
+      },
+      "topicId": "tp_7dE1xFDNb-USqora9tPYvw",
+      "itemId": "cart-api",
+      "file": {
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_52a2042de1c3753986f1f469"
+        },
+        "path": "specs/checkout/reports/cart-api.md"
+      },
+      "sections": {
+        "done": "The work of Cart API. smurg-flow-REPORT-c63417573ee9c4b6da0c0578",
+        "why": "As the spec decided.",
+        "verified": [
+          {
+            "text": "`pnpm test`: 3 tests passed",
+            "passed": true
+          },
+          {
+            "text": "Manual check in the browser",
+            "passed": false,
+            "note": "no browser in this session"
+          }
+        ],
+        "watchOut": "The page was never opened in a browser."
+      },
+      "changes": {
+        "requestId": "mr_bf9476027a631fa84d96ac16",
+        "files": 3,
+        "additions": 19,
+        "deletions": 1,
+        "byHand": []
+      },
+      "questions": [],
+      "contentHash": "a98bbc8649654d058b514694f3cc70e9a6c85551a31f7def082a8df501f26d97",
+      "sessionId": "ses_faf66bb98671c4650fa5be820206f987",
+      "waitingSince": 1791389346055,
+      "pending": []
+    },
+    {
+      "version": 1,
+      "writtenAt": 1791389347295,
+      "outcome": "complete",
+      "state": "reviewed",
+      "reviewers": [
+        {
+          "userId": "dev:amy",
+          "displayName": "Amy"
+        }
+      ],
+      "review": {
+        "by": {
+          "userId": "dev:amy",
+          "displayName": "Amy"
+        },
+        "at": 1791389347419,
+        "version": 1
+      },
+      "checks": {
+        "passed": 1,
+        "notVerified": 0
+      },
+      "topicId": "tp_7dE1xFDNb-USqora9tPYvw",
+      "itemId": "checkout-page",
+      "file": {
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_3280fa9ea454144211143448"
+        },
+        "path": "specs/checkout/reports/checkout-page.md"
+      },
+      "sections": {
+        "done": "The work of Checkout page.",
+        "why": "As the spec decided.",
+        "verified": [
+          {
+            "text": "`pnpm test`: 3 tests passed",
+            "passed": true
+          }
+        ],
+        "watchOut": "Nothing special."
+      },
+      "changes": {
+        "requestId": "mr_8ab7f33a6704ad53a6616d25",
+        "files": 2,
+        "additions": 17,
+        "deletions": 0,
+        "byHand": []
+      },
+      "questions": [],
+      "contentHash": "6ea344f053a287ffec2e164de629392118d91300a865eafc6964c7d44d035ee4",
+      "sessionId": "ses_ec626acb488e22ba0b16868fde2e2608",
+      "waitingSince": 1791389347295,
+      "pending": []
+    },
+    {
+      "version": 2,
+      "writtenAt": 1791389349249,
+      "outcome": "complete",
+      "state": "reviewed",
+      "reviewers": [
+        {
+          "userId": "dev:host",
+          "displayName": "Host"
+        }
+      ],
+      "review": {
+        "by": {
+          "userId": "dev:host",
+          "displayName": "Host"
+        },
+        "at": 1791389349404,
+        "version": 2
+      },
+      "checks": {
+        "passed": 1,
+        "notVerified": 0
+      },
+      "topicId": "tp_7dE1xFDNb-USqora9tPYvw",
+      "itemId": "receipt-email",
+      "file": {
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_de1cc1f038db4ed2d5e1a28e"
+        },
+        "path": "specs/checkout/reports/receipt-email.md"
+      },
+      "sections": {
+        "done": "The work of Receipt email. The title names both now.",
+        "why": "As the spec decided.",
+        "verified": [
+          {
+            "text": "`pnpm test`: 3 tests passed",
+            "passed": true
+          }
+        ],
+        "watchOut": "Nothing special."
+      },
+      "changes": {
+        "requestId": "mr_f1db7cfd2975309665a02272",
+        "files": 2,
+        "additions": 17,
+        "deletions": 1,
+        "byHand": []
+      },
+      "questions": [],
+      "contentHash": "0af8371a928e1fbe26cbda27bf5a046fb279082fd78617c8ba22ac82e20db71e",
+      "sessionId": "ses_29f9ea86f9f3256ab682c0e72faef236",
+      "waitingSince": 1791389349249,
+      "pending": []
+    },
+    {
+      "version": 2,
+      "writtenAt": 1791389400001,
+      "outcome": "complete",
+      "state": "reviewed",
+      "reviewers": [
+        {
+          "userId": "dev:mei",
+          "displayName": "Mei"
+        }
+      ],
+      "review": {
+        "by": {
+          "userId": "dev:host",
+          "displayName": "Host"
+        },
+        "at": 1791389866705,
+        "version": 2,
+        "insteadOf": {
+          "userId": "dev:mei",
+          "displayName": "Mei"
+        }
+      },
+      "checks": {
+        "passed": 1,
+        "notVerified": 0
+      },
+      "topicId": "tp_l-V_bHpkEwNfFIX9wnHCBA",
+      "itemId": "card-model",
+      "file": {
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_65eb4da96d85b966b47b51d1"
+        },
+        "path": "specs/gift-cards/reports/card-model.md"
+      },
+      "sections": {
+        "done": "The model, and the card number.",
+        "why": "As the spec decided.",
+        "verified": [
+          {
+            "text": "`pnpm test`: 4 tests passed",
+            "passed": true
+          }
+        ],
+        "watchOut": "Nothing special.",
+        "followUps": "Mei asked for a card number: 16 digits."
+      },
+      "changes": {
+        "requestId": "mr_0aed00e4c2f713b47b8aaeb4",
+        "files": 2,
+        "additions": 6,
+        "deletions": 2,
+        "byHand": []
+      },
+      "questions": [
+        {
+          "text": "Please also give the card a card number.",
+          "id": "fq_Exyy86OaS5objAYKYTSHzg",
+          "from": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "at": 1791389399117,
+          "answer": {
+            "text": "The card has a number now.",
+            "at": 1791389399781
+          }
+        }
+      ],
+      "contentHash": "580e6f1e9f02684c5a50ba111545b849b1b5bd76f0fbce64f11f49e58b8e64cd",
+      "sessionId": "ses_c4f24dcc46bcdb2d2fb4a3e0373c5027",
+      "waitingSince": 1791389400001,
+      "pending": []
+    },
+    {
+      "version": 1,
+      "writtenAt": 1791389395856,
+      "outcome": "complete",
+      "state": "to-review",
+      "reviewers": [
+        {
+          "userId": "dev:ruth",
+          "displayName": "Ruth"
+        }
+      ],
+      "escalatedAt": 1791389758396,
+      "checks": {
+        "passed": 1,
+        "notVerified": 0
+      },
+      "topicId": "tp_l-V_bHpkEwNfFIX9wnHCBA",
+      "itemId": "card-terms",
+      "file": {
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_8064b385a4847ec9d142d79e"
+        },
+        "path": "specs/gift-cards/reports/card-terms.md"
+      },
+      "sections": {
+        "done": "The work of Card terms.",
+        "why": "As the spec decided.",
+        "verified": [
+          {
+            "text": "`pnpm test`: 3 tests passed",
+            "passed": true
+          }
+        ],
+        "watchOut": "Nothing special."
+      },
+      "changes": {
+        "requestId": "mr_3d10ffa54c6b30dc26df8c69",
+        "files": 2,
+        "additions": 19,
+        "deletions": 0,
+        "byHand": []
+      },
+      "questions": [],
+      "contentHash": "794789baf73f577953dffe3cda98cb4e1b8266f7379389424cfafcd77901a605",
+      "sessionId": "ses_51d5d9e4366a0b20dcaa2f305f985493",
+      "waitingSince": 1791389395856,
+      "pending": []
+    },
+    {
+      "version": 1,
+      "writtenAt": 1791389396202,
+      "outcome": "partial",
+      "state": "to-review",
+      "reviewers": [
+        {
+          "userId": "dev:noa",
+          "displayName": "Noa"
+        }
+      ],
+      "escalatedAt": 1791389758396,
+      "checks": {
+        "passed": 1,
+        "notVerified": 1
+      },
+      "topicId": "tp_l-V_bHpkEwNfFIX9wnHCBA",
+      "itemId": "card-merge",
+      "file": {
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_0234c84f29f9aac0523b1c4f"
+        },
+        "path": "specs/gift-cards/reports/card-merge.md"
+      },
+      "sections": {
+        "done": "The work of Card merge.",
+        "why": "As the spec decided.",
+        "verified": [
+          {
+            "text": "`pnpm test`: 3 tests passed",
+            "passed": true
+          },
+          {
+            "text": "Manual check in the browser",
+            "passed": false,
+            "note": "no browser in this session"
+          }
+        ],
+        "watchOut": "Nothing special."
+      },
+      "noChanges": "spec-files",
+      "questions": [],
+      "contentHash": "087b1f790c1c3ce87081789853be64501cb849fe9c316c7950c2302e707d371d",
+      "sessionId": "ses_82aff70d9682a232537495ad47411db9",
+      "waitingSince": 1791389396202,
+      "pending": []
+    },
+    {
+      "version": 1,
+      "writtenAt": 1791389397672,
+      "outcome": "complete",
+      "state": "to-review",
+      "reviewers": [
+        {
+          "userId": "dev:mei",
+          "displayName": "Mei"
+        }
+      ],
+      "escalatedAt": 1791389758396,
+      "checks": {
+        "passed": 1,
+        "notVerified": 0
+      },
+      "topicId": "tp_l-V_bHpkEwNfFIX9wnHCBA",
+      "itemId": "card-logo",
+      "file": {
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_dd82de5a5583287f3bc3e4d8"
+        },
+        "path": "specs/gift-cards/reports/card-logo.md"
+      },
+      "sections": {
+        "done": "The work of Card logo.",
+        "why": "As the spec decided.",
+        "verified": [
+          {
+            "text": "`pnpm test`: 3 tests passed",
+            "passed": true
+          }
+        ],
+        "watchOut": "Nothing special."
+      },
+      "changes": {
+        "requestId": "mr_f2c0d89490d3ddc93b20334b",
+        "files": 2,
+        "additions": 17,
+        "deletions": 0,
+        "byHand": []
+      },
+      "questions": [],
+      "contentHash": "5a84f72ec89f11219913d90c14f82aa9f821272b35370961ebfccdd734ac6203",
+      "sessionId": "ses_cb0fcc77fd0493c5374d257a47855584",
+      "waitingSince": 1791389397672,
+      "pending": []
+    },
+    {
+      "version": 2,
+      "writtenAt": 1791389419574,
+      "outcome": "complete",
+      "state": "to-review",
+      "reviewers": [
+        {
+          "userId": "dev:host",
+          "displayName": "Host"
+        }
+      ],
+      "escalatedAt": 1791389783401,
+      "checks": {
+        "passed": 1,
+        "notVerified": 0
+      },
+      "topicId": "tp_l-V_bHpkEwNfFIX9wnHCBA",
+      "itemId": "card-banner",
+      "file": {
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_75e7292f7aeaac0d52e865f7"
+        },
+        "path": "specs/gift-cards/reports/card-banner.md"
+      },
+      "sections": {
+        "done": "The work of Card banner.",
+        "why": "As the spec decided.",
+        "verified": [
+          {
+            "text": "`pnpm test`: 3 tests passed",
+            "passed": true
+          }
+        ],
+        "watchOut": "Nothing special."
+      },
+      "noChanges": "conflict-markers",
+      "questions": [],
+      "contentHash": "89a3d2fb511aebc9b6e51c7925eb3e976fcfc478e0230d9fca52f4db90779c04",
+      "sessionId": "ses_0fbf6b7ba2ee9ff21fdfd384a7daa57b",
+      "waitingSince": 1791389419574,
+      "pending": []
+    },
+    {
+      "version": 1,
+      "writtenAt": 1791389400117,
+      "outcome": "blocked",
+      "state": "to-review",
+      "reviewers": [
+        {
+          "userId": "dev:mei",
+          "displayName": "Mei"
+        }
+      ],
+      "escalatedAt": 1791389763397,
+      "checks": {
+        "passed": 1,
+        "notVerified": 1
+      },
+      "topicId": "tp_l-V_bHpkEwNfFIX9wnHCBA",
+      "itemId": "card-page",
+      "file": {
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_0bbc8488dc13a7d2cebeb6f5"
+        },
+        "path": "specs/gift-cards/reports/card-page.md"
+      },
+      "sections": {
+        "done": "The work of Card page.",
+        "why": "As the spec decided.",
+        "verified": [
+          {
+            "text": "`pnpm test`: 3 tests passed",
+            "passed": true
+          },
+          {
+            "text": "Manual check in the browser",
+            "passed": false,
+            "note": "no browser in this session"
+          }
+        ],
+        "watchOut": "Blocked: the payment provider has no test account yet."
+      },
+      "changes": {
+        "requestId": "mr_6035aa115179537dcaf5228e",
+        "files": 2,
+        "additions": 18,
+        "deletions": 0,
+        "byHand": []
+      },
+      "questions": [
+        {
+          "text": "@Kate what about empty cards?",
+          "id": "fq_TuJ5uXE9qKnHkUdSv65wVw",
+          "from": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "at": 1791389417560,
+          "answer": {
+            "text": "An empty card is refused at the till.",
+            "at": 1791389417685
+          }
+        },
+        {
+          "text": "What about empty cards? Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the next number too. Please check the gift card with the ",
+          "truncated": true,
+          "id": "fq_k6RMxlxm4V3Uqr8OFVTwhg",
+          "from": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "at": 1791389417867,
+          "answer": {
+            "text": "An empty card is refused at the till.",
+            "at": 1791389418000
+          }
+        },
+        {
+          "text": "Please give the long answer.",
+          "id": "fq__nX5L3JiHAIv5Tm5bwmWYw",
+          "from": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "at": 1791389418117,
+          "answer": {
+            "text": "A long answer. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance of every card is kept to the cent. The balance o",
+            "truncated": true,
+            "at": 1791389418241
+          }
+        },
+        {
+          "text": "Please think about the balance of a card.",
+          "id": "fq_xfdz3XYF0PBEpWl4FFCgUw",
+          "from": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "at": 1791389473215
+        },
+        {
+          "text": "And which currency?",
+          "id": "fq_0CH-lFg3r4VYOuiYNfSR0Q",
+          "from": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "at": 1791389477370
+        }
+      ],
+      "contentHash": "2ce8ee973af7ad7002d64113d04fd796fa3b030ddcc42299627d1597349f8146",
+      "sessionId": "ses_331f70ca381e272a98a0b71501d3b733",
+      "waitingSince": 1791389400117,
+      "pending": [
+        {
+          "questionId": "fq_dHexub2xfIKs9fysFWJqbA",
+          "suggestionId": "sug_pErrgnZdu9iUmz2ysFVXHA",
+          "question": {
+            "from": {
+              "userId": "dev:amy",
+              "displayName": "Amy"
+            },
+            "text": "Please also show the balance.",
+            "at": 1791389417826
+          }
+        },
+        {
+          "questionId": "fq_bkfElRtdphXENorbsM_KBQ",
+          "suggestionId": "sug_N_GJq16-7GDDQ1xShE5GNA",
+          "question": {
+            "from": {
+              "userId": "dev:gina",
+              "displayName": "Gina"
+            },
+            "text": "Please also list the cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. One more card for the list of cards. On",
+            "truncated": true,
+            "at": 1791389418379
+          }
+        },
+        {
+          "questionId": "fq_xfdz3XYF0PBEpWl4FFCgUw",
+          "messageId": "m_L62K6HQnIKXPAExtyXBGLw"
+        },
+        {
+          "questionId": "fq_0CH-lFg3r4VYOuiYNfSR0Q",
+          "messageId": "m_It9Sbpw6eMjwKjfKqsmXDg"
+        }
+      ]
+    },
+    {
+      "version": 1,
+      "writtenAt": 1791389417274,
+      "outcome": "complete",
+      "state": "invalid",
+      "reviewers": [
+        {
+          "userId": "dev:host",
+          "displayName": "Host"
+        }
+      ],
+      "checks": {
+        "passed": 1,
+        "notVerified": 0
+      },
+      "error": {
+        "text": {
+          "id": "report.error.outcome",
+          "params": {
+            "line": 4
+          }
+        },
+        "fallback": "Line 4: the outcome is complete, partial or blocked.",
+        "line": 4
+      },
+      "topicId": "tp_l-V_bHpkEwNfFIX9wnHCBA",
+      "itemId": "card-faq",
+      "file": {
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_49cb51de640f8379371a51f7"
+        },
+        "path": "specs/gift-cards/reports/card-faq.md"
+      },
+      "sections": {
+        "done": "The work of Card FAQ.",
+        "why": "As the spec decided.",
+        "verified": [
+          {
+            "text": "`pnpm test`: 3 tests passed",
+            "passed": true
+          }
+        ],
+        "watchOut": "Nothing special."
+      },
+      "changes": {
+        "requestId": "mr_7f3c207d1b8098442ad0c8e2",
+        "files": 3,
+        "additions": 20,
+        "deletions": 0,
+        "byHand": [
+          {
+            "path": "src/faq-by-hand.ts",
+            "by": [
+              {
+                "userId": "dev:amy",
+                "displayName": "Amy"
+              }
+            ]
+          }
+        ]
+      },
+      "questions": [
+        {
+          "text": "Please shorten the report a lot.",
+          "id": "fq_cNqkl1Q3jtfgT3VjNpixWA",
+          "from": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "at": 1791389418414,
+          "answer": {
+            "text": "Shorter now.",
+            "at": 1791389418766
+          }
+        }
+      ],
+      "contentHash": "fc3ba69c94edbafcf819762809c11ab07756b76a8b2050f80d93ed7de2f77047",
+      "sessionId": "ses_c3e7e8fed6469623767879d65f9a85b5",
+      "waitingSince": 1791389417274,
+      "pending": []
+    }
+  ]
+}

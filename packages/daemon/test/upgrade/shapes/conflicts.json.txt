@@ -1,0 +1,43 @@
+: #1 object strict
+conflicts: array [max_length maximum=200]
+conflicts[]: #2 object strict
+conflicts[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+conflicts[].file: #3 object strict
+conflicts[].file.root: #4 union by kind
+conflicts[].file.root<0>: #5 object strict
+conflicts[].file.root<0>.kind: literal "main"
+conflicts[].file.root<1>: #6 object strict
+conflicts[].file.root<1>.kind: literal "worktree"
+conflicts[].file.root<1>.worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+conflicts[].file.path: pipe
+conflicts[].file.path|in: string [max_length maximum=16384]
+conflicts[].file.path|out: transform
+conflicts[].createdAt: number format=safeint [greater_than value=0 inclusive=true]
+conflicts[].source: #7 union by kind
+conflicts[].source<0>: #8 object strict
+conflicts[].source<0>.kind: literal "user"
+conflicts[].source<0>.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+conflicts[].source<0>.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+conflicts[].source<1>: #9 object strict
+conflicts[].source<1>.kind: literal "agent"
+conflicts[].source<1>.sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+conflicts[].source<1>.ownerUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+conflicts[].source<1>.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+conflicts[].source<2>: #10 object strict
+conflicts[].source<2>.kind: literal "system"
+conflicts[].humans: array [max_length maximum=1000]
+conflicts[].humans[]: #11 object strict
+conflicts[].humans[].userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+conflicts[].humans[].displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+conflicts[].hunks: array [max_length maximum=64]
+conflicts[].hunks[]: #12 object strict
+conflicts[].hunks[].humanText: string [custom] [custom]
+conflicts[].hunks[].agentText: string [custom] [custom]
+conflicts[].hunks[].baseText: string [custom] [custom]
+conflicts[].hunks[].startLine: number format=safeint [greater_than value=1 inclusive=true]
+conflicts[].hunks[].truncated: optional
+conflicts[].hunks[].truncated: boolean
+conflicts[].hunksOmitted: optional
+conflicts[].hunksOmitted: number format=safeint [greater_than value=0 inclusive=true]
+conflicts[].agentVersionBytes: number format=safeint [greater_than value=0 inclusive=true]
+conflicts[].status: enum "open"|"dismissed"|"applied"

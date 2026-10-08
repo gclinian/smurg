@@ -10,6 +10,12 @@ export const EXIT = Object.freeze({
   notRunning: 3,
   /** Login required or failed. */
   auth: 4,
+  /**
+   * `smurg status`: a smurg host of another version is sharing here (its control socket is alive and its answer is
+   * not one this smurg can read). Not 3: something IS being shared. Not 0: this smurg cannot show it. scripts/install.sh
+   * reads 0 and 5 as "sharing".
+   */
+  otherVersion: 5,
   /** Terminated by SIGINT (a second Ctrl-C while stopping). */
   interrupted: 130,
 } as const);

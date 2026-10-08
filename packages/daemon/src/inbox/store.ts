@@ -9,6 +9,7 @@
 // The document is validated on load and on every update (StateStore): a file edited by hand to hold a control
 // character or an unknown target stops the daemon instead of reaching a client.
 import { z } from 'zod';
+import { declareDocument } from '../core/state-store.ts';
 import {
   INBOX_EXCERPT_MAX_CHARS,
   INBOX_ITEMS_MAX,
@@ -77,6 +78,9 @@ export type InboxDocument = z.infer<typeof inboxDocumentSchema>;
 export function initialInboxDocument(): InboxDocument {
   return { version: INBOX_VERSION, members: {} };
 }
+
+/** inbox.json (new in 0.5.0). Declared by the inbox module. */
+export const inboxDocument = declareDocument({ name: INBOX_DOCUMENT, schema: inboxDocumentSchema, init: initialInboxDocument });
 
 export function emptyBox(): MemberBox {
   return { notes: [], seen: {} };

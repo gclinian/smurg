@@ -6,6 +6,7 @@
 // Both are validated on load and on every update (StateStore): an edited file that does not fit stops the daemon
 // instead of starting an agent from it.
 import { z } from 'zod';
+import { declareDocument } from '../core/state-store.ts';
 import {
   DISARMED_REASONS,
   HAND_EDITS_MAX,
@@ -222,3 +223,7 @@ export type ReportsDocument = z.infer<typeof reportsDocumentSchema>;
 export function initialReportsDocument(): ReportsDocument {
   return { version: TOPICS_VERSION, reports: [] };
 }
+
+/** topics.json and reports.json (new in 0.5.0). Declared by the topics module. */
+export const topicsDocument = declareDocument({ name: TOPICS_DOCUMENT, schema: topicsDocumentSchema, init: initialTopicsDocument });
+export const reportsDocument = declareDocument({ name: REPORTS_DOCUMENT, schema: reportsDocumentSchema, init: initialReportsDocument });

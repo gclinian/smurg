@@ -1,12 +1,14 @@
 // The editor engine seam: what the document view needs from Monaco + y-monaco, behind a small interface.
-//  - production: loadEditorEngine() fetches Monaco through lib/lazy.ts (loadMonaco) and y-monaco with import(), so
-//    both stay out of the entry chunk (scripts/check-chunks.ts); ./monaco-engine.ts adapts them;
+//  - production: loadEditorEngine() fetches Monaco through lib/lazy.ts (loadMonaco) and y-monaco with a dynamic
+//    import, so both stay out of the entry chunk (scripts/check-chunks.ts); ./monaco-engine.ts adapts them. Every one
+//    of them goes through loadChunk (lib/chunks.ts): a chunk that does not come rejects with a ChunkLoadError;
 //  - tests: an EditorEngineContext provider hands in a fake engine, so no Monaco runs in jsdom (the real-browser
 //    behaviour is verified in the integration phase).
 import type { FileRef } from '@smurg/protocol';
 import { createContext, useContext } from 'react';
 import type { Awareness } from 'y-protocols/awareness';
 import type * as Y from 'yjs';
+import { loadChunk } from '../../lib/chunks.ts';
 import { loadMonaco } from '../../lib/lazy.ts';
 import type { ResolvedTheme } from '../../lib/preferences.ts';
 import type { EditorSelection } from './selection.ts';
@@ -56,9 +58,9 @@ export type EditorEngineLoader = () => Promise<EditorEngine>;
 
 let enginePromise: Promise<EditorEngine> | null = null;
 
-/** Monaco + y-monaco, loaded once (a failed chunk load may be retried). */
+/** Monaco + y-monaco, loaded once (a failed load is not kept: a later call asks again). */
 export const loadEditorEngine: EditorEngineLoader = () => {
-  enginePromise ??= Promise.all([loadMonaco(), import('y-monaco'), import('./monaco-engine.ts')])
+  enginePromise ??= Promise.all([loadMonaco(), loadChunk(() => import('y-monaco')), loadChunk(() => import('./monaco-engine.ts'))])
     .then(([monaco, yMonaco, adapter]) => adapter.createMonacoEngine(monaco, yMonaco.MonacoBinding))
     .catch((error: unknown) => {
       enginePromise = null;

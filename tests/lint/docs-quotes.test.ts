@@ -4,8 +4,9 @@
 //   forward: a list of messages (catalog id + sample parameters) that the guides must quote as the catalogs render
 //            them: the samples of `smurg login` and `smurg host`, the troubleshooting tables, role names, main buttons;
 //   reverse: every quoted text of a guide ("…" in English, 「…」 in zh-TW, and the lines of its sample blocks) and every
-//            label of the product page's picture of the app is found in the catalogs of its language, except the
-//            quotes listed below that are not UI text (prose, other products' words, composed samples).
+//            label of the product page's picture of the app is found in the catalogs of its language (their sources,
+//            and what the forward list renders from them: a message built from parameters), except the quotes listed
+//            below that are not UI text (prose, other products' words).
 //
 // English guide <-> English catalogs, zh-TW guide <-> zh-TW catalogs: a guide never quotes the other language.
 import { describe, expect, it } from 'vitest';
@@ -66,6 +67,9 @@ const webQuote = (key: string, guides: readonly Guide[], vars?: Readonly<Record<
 });
 
 const INVITE_URL = 'https://app.smurg.ai/join/ws_…#k=…&s=…';
+/** A workspace's state folder and one of its files, as a refusal names them (the guides quote the words before the path). */
+const STATE_DIR = '~/.smurg/workspaces/ws_…';
+const STATE_FILE = `${STATE_DIR}/state.json`;
 
 const QUOTES: readonly Quote[] = [
   // ---- smurg login (HOSTING §2)
@@ -102,7 +106,100 @@ const QUOTES: readonly Quote[] = [
   cliQuote('login.expired', undefined, ['HOSTING']),
   cliQuote('login.unsupported', { origin: 'https://relay.example' }, ['HOSTING'], { en: 'This relay does not support logging in with a code yet', 'zh-TW': '這個 relay 還不支援用代碼登入' }),
   cliQuote('host.state.unsaved', undefined, ['HOSTING'], { en: "smurg's state file could not be written", 'zh-TW': '無法寫入 smurg 的狀態檔' }),
-  cliQuote('host.stateFile', undefined, ['HOSTING']),
+  // ---- a workspace's state after an update (HOSTING §8, §9.2, §9.4): the one line of a start, and the lines for a
+  // teammate of another protocol version
+  cliQuote('host.upgraded', { from: '0.4.0' }, ['HOSTING']),
+  cliQuote('host.putBack.state', { names: ['state.json'] }, ['HOSTING'], { en: 'was put back into this workspace and upgraded again', 'zh-TW': '被放回這個工作區，並且重新升級了' }),
+  cliQuote('host.oldFolder', { path: `${STATE_DIR}.old`, more: 0 }, ['HOSTING'], {
+    en: 'An earlier state folder of this workspace lies beside the one in use',
+    'zh-TW': '這個工作區之前的狀態資料夾還放在旁邊',
+  }),
+  cliQuote('host.peer.newer', undefined, ['HOSTING'], {
+    en: "Warning: a teammate's page or smurg is newer than this smurg and was turned away. Stop sharing, run smurg update, then share again.",
+    'zh-TW': '有組員的網頁或 smurg 比這個 smurg 新，連線被拒絕了。請停止分享，執行 smurg update，再重新分享。',
+  }),
+  cliQuote('host.peer.older', undefined, ['HOSTING']),
+  cliQuote('status.otherVersion', { current: '0.5.1', why: 'no-answer', socket: '/x', workspaceId: 'ws_…', folder: '/p' }, ['HOSTING'], {
+    en: 'A smurg host of another version is sharing it',
+    'zh-TW': '正由另一個版本的 smurg host 分享',
+  }),
+  // ---- a refused workspace state (HOSTING §8, §9.3): one text per cause; each names the file and says that nothing was changed
+  cliQuote('host.unchanged', undefined, ['HOSTING']),
+  cliQuote('host.newer', { path: STATE_DIR, current: '0.5.1' }, ['HOSTING'], {
+    en: 'This workspace was last shared with a newer smurg than this one (this is 0.5.1), and this smurg cannot read what it wrote',
+    'zh-TW': '這個工作區上次是用比這個 smurg（0.5.1）更新的版本分享的，這個 smurg 讀不了它寫的東西',
+  }),
+  cliQuote('host.insecure.mode', { path: STATE_FILE, mode: '644', count: 1 }, ['HOSTING'], {
+    en: "A file of this workspace's state is open to other users of this computer (mode 644)",
+    'zh-TW': '這個工作區有一個狀態檔，這台電腦的其他使用者也能存取（權限 644）',
+  }),
+  cliQuote('host.insecure.owner', { path: STATE_FILE, count: 1 }, ['HOSTING'], {
+    en: "A file of this workspace's state belongs to another user, not to you",
+    'zh-TW': '這個工作區有一個狀態檔屬於其他使用者，不是你的',
+  }),
+  cliQuote('host.insecure.symlink', { path: STATE_FILE, count: 1 }, ['HOSTING'], {
+    en: "A file of this workspace's state is a symbolic link, and smurg follows no link in its state folder",
+    'zh-TW': '這個工作區有一個狀態檔是符號連結（symlink），smurg 不會跟著狀態資料夾裡的連結走',
+  }),
+  {
+    what: 'CLI host.insecure.notFile with host.found.directory',
+    guides: ['HOSTING'],
+    render: (locale) => cli(locale, 'host.insecure.notFile', { path: STATE_FILE, count: 1, found: cli(locale, 'host.found.directory') }),
+    part: { en: "Where a file of this workspace's state belongs there is a folder", 'zh-TW': '這個工作區的狀態檔該在的位置上，是一個資料夾' },
+  },
+  {
+    what: 'CLI host.cannotOpen with host.cannotOpen.reason',
+    guides: ['HOSTING'],
+    render: (locale) => cli(locale, 'host.cannotOpen', { path: STATE_FILE, count: 1, reason: cli(locale, 'host.cannotOpen.reason', { code: 'EACCES' }) }),
+    part: {
+      en: "A file of this workspace's state could not be opened or written (permission denied, EACCES)",
+      'zh-TW': '這個工作區有一個狀態檔無法開啟或寫入（沒有權限，EACCES）',
+    },
+  },
+  cliQuote('host.otherWorkspace', { path: STATE_FILE, workspaceId: 'ws_…' }, ['HOSTING'], { en: 'names another workspace', 'zh-TW': '狀態檔寫的是另一個工作區' }),
+  cliQuote('host.unreadable.missingState', { path: STATE_FILE }, ['HOSTING'], {
+    en: 'The state file of this workspace is not there, although other files of the workspace are',
+    'zh-TW': '這個工作區的狀態檔不見了，可是工作區的其他檔案還在',
+  }),
+  cliQuote('host.unreadable.missingKey', { path: `${STATE_DIR}/identity.key` }, ['HOSTING'], {
+    en: "The daemon's key of this workspace is not there, although its state file is",
+    'zh-TW': '這個工作區的 daemon 金鑰不見了，可是它的狀態檔還在',
+  }),
+  cliQuote('host.unreadable.notJson', { path: STATE_FILE }, ['HOSTING'], {
+    en: "A file of this workspace's state is damaged: it is not valid JSON (it may be empty or cut off)",
+    'zh-TW': '這個工作區有一個狀態檔已損毀：它不是有效的 JSON（可能是空的，或只寫了一半）',
+  }),
+  cliQuote('host.unreadable.shape', { path: STATE_FILE, current: '0.5.1' }, ['HOSTING'], {
+    en: "A file of this workspace's state is not in a form that smurg 0.5.1 or an earlier published smurg wrote",
+    'zh-TW': '這個工作區有一個狀態檔的格式，不是 smurg 0.5.1 或更早發佈的任何版本寫的',
+  }),
+  cliQuote('host.unreadable.carried', { path: STATE_FILE, current: '0.5.1' }, ['HOSTING'], {
+    en: 'A state file that an earlier smurg wrote holds a value that smurg 0.5.1 does not accept',
+    'zh-TW': '較早版本的 smurg 寫的狀態檔裡，有一個值是 smurg 0.5.1 不接受的',
+  }),
+  cliQuote('host.unreadable.maybeNewer', undefined, ['HOSTING']),
+  cliQuote('host.unreadable.lastResort', undefined, ['HOSTING'], { en: 'The last resort is a new workspace.', 'zh-TW': '最後的辦法是建立新的工作區。' }),
+  // The host's own two files (~/.smurg/workspaces.json, credentials.json): refused, never read as empty.
+  cliQuote('state.newer', { subject: 'workspaces', path: '~/.smurg/workspaces.json', current: '0.5.1' }, ['HOSTING'], {
+    en: 'The workspace list (workspaces.json) was written by a newer smurg than this one (this is 0.5.1)',
+    'zh-TW': '工作區紀錄檔（workspaces.json）是較新版的 smurg 寫的（這個 smurg 是 0.5.1）',
+  }),
+  // ---- a page or a command of another version than the host's smurg (HOSTING §8, §9.1; JOINING §8, §10)
+  webQuote('conn.rejected.version.hostOlder.title', ['HOSTING', 'JOINING']),
+  webQuote('conn.rejected.version.stale.title', ['JOINING']),
+  webQuote('conn.rejected.version.title', ['JOINING']),
+  webQuote('ui.chunk.gone.title', ['JOINING']),
+  webQuote('ui.chunk.reload', ['JOINING']),
+  webQuote('conn.closed.newer-key.title', ['JOINING']),
+  cliQuote('channel.rejected.version', undefined, ['JOINING']),
+  cliQuote('channel.rejected.version.updateHere', { current: '0.5.0', latest: '0.5.1' }, ['JOINING'], {
+    en: 'a newer smurg (0.5.1) is published: update this one (smurg update), then connect again.',
+    'zh-TW': '已經有更新的版本（0.5.1）：請更新這個 smurg（smurg update），再重新連線。',
+  }),
+  cliQuote('channel.rejected.version.hostOlder', { current: '0.5.1' }, ['JOINING'], {
+    en: "The host's smurg is older than this one",
+    'zh-TW': '請主人停止分享、執行 smurg update，再重新分享；然後你再重新連線。',
+  }),
   cliQuote('state.socketPathTooLong', { path: '/x' }, ['HOSTING'], { en: "The path of smurg's state folder is too long for a Unix socket", 'zh-TW': 'smurg 的狀態目錄路徑太長' }),
   cliQuote('uninstall.question', undefined, ['HOSTING'], { en: 'Remove these? [y/N]', 'zh-TW': '確定要移除嗎？ [y/N]' }),
   // ---- one title for the key change, in the web app and in `smurg attach`
@@ -342,6 +439,20 @@ function corpus(locale: Locale): string {
   return flat([...picked, ...both].map((path) => read(path).replaceAll("\\'", "'")).join('\n'));
 }
 
+/**
+ * What the forward list renders, per language: catalog text too. A message that is built from parameters (a number of
+ * days, a version, one message inside another) is in no source file as the guide quotes it; its rendering is.
+ */
+const renderings = new Map<Locale, Promise<string>>();
+function forwardRenderings(locale: Locale): Promise<string> {
+  let text = renderings.get(locale);
+  if (text === undefined) {
+    text = webCatalogue().then((web) => QUOTES.map((quote) => flat(quote.render(locale, web))).join('\n'));
+    renderings.set(locale, text);
+  }
+  return text;
+}
+
 /** Sample values the guides put where a catalog has a placeholder: a quote is compared piece by piece around them. */
 const SAMPLE_VALUES =
   /Claude \((?:Amy|Ian)\)|<your name>|<你的名字>|Amy, Ben|Amy、Ben|\bAmy\b|\bBen\b|\bIan\b|src\/app\.ts|tests\/login\.test\.ts|package\.json|data\/fixtures\.json|my-app|0\.5\.[01]|WDJB-MJHT|https:\/\/\S+|ws_…#k=…&s=…|…|\.\.\./g;
@@ -401,8 +512,6 @@ const NOT_UI_TEXT: Readonly<Record<string, readonly string[]>> = {
     'is the host still there', // prose: what the keep-alive asks
     'After taking it back', // the name of a step of this guide
     ' do not matter) and press ', // not a quote: the text between two quotes on one line
-    'Warning: keep-awake: off (the system (polkit) does not allow blocking sleep, …)', // two messages put together: in the forward list
-    'Link for your teammates (send it to them privately; valid for 7 days):', // rendered with a duration: in the forward list
   ],
   'docs/JOINING.md': [
     'Should you check the key fingerprint?', // a heading of this guide
@@ -411,9 +520,6 @@ const NOT_UI_TEXT: Readonly<Record<string, readonly string[]>> = {
     '主人還在嗎', // prose
     '收回之後', // the name of a step of this guide
     '只有一個 agent 正在執行 shell 指令', // prose: the condition under discussion
-    '給組員的連結（用私訊傳給他們，7 天內有效）：', // rendered with a duration: in the forward list
-    '⚠ 防止睡眠：未啟用（系統（polkit）不允許防止睡眠…）', // two messages put together: in the forward list
-    'Claude (Amy) 透過 shell 指令修改了 src/app.ts', // rendered with a verb: in the forward list
   ],
   'docs/zh-TW/JOINING.md': [
     '要不要核對金鑰指紋', // a heading of this guide
@@ -430,8 +536,8 @@ describe('what the guides and the product page quote is in the catalogs (reverse
     [LANDING['zh-TW'], 'zh-TW', 2, () => pictureLabels(LANDING['zh-TW'])],
   ];
 
-  it.each(cases)('%s (%s): every quoted text is catalog text', (path, locale, minLength, quotes) => {
-    const text = corpus(locale);
+  it.each(cases)('%s (%s): every quoted text is catalog text', async (path, locale, minLength, quotes) => {
+    const text = `${corpus(locale)}\n${await forwardRenderings(locale)}`;
     const all = quotes();
     const allowed = new Set(NOT_UI_TEXT[path] ?? []);
     const missing = all.filter((quote) => !allowed.has(quote) && inCatalogs(quote, text, minLength) === false);

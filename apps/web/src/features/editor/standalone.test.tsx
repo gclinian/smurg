@@ -1,9 +1,10 @@
 // A document on its own inside a column (standalone.tsx) and the holds that keep it open (doc-holds.ts): what the
 // spec and plan columns of the sessions view mount (DESIGN §5.4).
 import { DOC_TEXT_NAME, MAIN_ROOT, fileRefKey, type FileRef } from '@smurg/protocol';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ChunkLoadError } from '../../lib/chunks.ts';
 import { renderInWorkspace } from '../../testing/services.tsx';
 import { docHoldsFor, selectEditorDocs } from './doc-holds.ts';
 import { EditorEngineContext } from './engine.ts';
@@ -195,5 +196,52 @@ describe('the editor of a held document, on its own', () => {
     expect(screen.getByRole('button', { name: 'Create again from this content' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Close tab' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+  });
+});
+
+// The editor's code is a chunk of its own (Monaco, y-monaco). When it does not come, the document says why with the
+// words every part of the page uses for that (lib/chunks.ts, ui/ChunkNotice.tsx), and offers the reload.
+describe('the editor whose chunk does not come', () => {
+  function Page({ loader }: { loader: () => Promise<never> }) {
+    return (
+      <EditorEngineContext.Provider value={loader}>
+        <Column file={SPEC} startEditing />
+      </EditorEngineContext.Provider>
+    );
+  }
+  async function open(error: unknown) {
+    const ctx = renderInWorkspace(<Page loader={() => Promise.reject(error)} />, { role: 'editor' });
+    const bridge = bridgeDocs(ctx.conn, testUser('Amy', 'dev:amy'));
+    bridge.addFile(SPEC, TEXT);
+    disposers.push(() => ctx.session.dispose());
+    for (let i = 0; i < 6; i++) {
+      await act(async () => {
+        await flush();
+        bridge.pump();
+      });
+    }
+  }
+
+  it('the web app was deployed again: "smurg was updated", the reload, and no Retry that cannot work', async () => {
+    await open(new ChunkLoadError('gone', new TypeError('Failed to fetch dynamically imported module')));
+    const notice = await within(screen.getByLabelText('Editor for specs/checkout/SPEC.md')).findByRole('alert');
+    expect(notice.textContent).toContain('smurg was updated');
+    expect(notice.textContent).toContain('Reload to get the new page; if the host has not updated yet, the page will say so.');
+    expect(screen.getByRole('button', { name: 'Reload the page' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
+  it('the network is gone: says offline, not updated', async () => {
+    await open(new ChunkLoadError('offline', null));
+    const notice = await within(screen.getByLabelText('Editor for specs/checkout/SPEC.md')).findByRole('alert');
+    expect(notice.textContent).toContain('The browser is offline or cannot reach the smurg server.');
+    expect(notice.textContent).not.toMatch(/updated/);
+  });
+
+  it('any other failure of the editor keeps its own words and its Retry', async () => {
+    await open(new Error('the engine broke'));
+    const notice = await within(screen.getByLabelText('Editor for specs/checkout/SPEC.md')).findByRole('alert');
+    expect(notice.textContent).toContain('The editor failed to load. Check your network and try again.');
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
   });
 });

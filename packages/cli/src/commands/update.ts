@@ -5,6 +5,8 @@
 //     this one → says so (never a downgrade); `--check` stops here and only reports (exit 0 either way);
 //  2. refuses while a `smurg host` of this state dir runs (a share that keeps running would mix the old daemon with the
 //     new `smurg hook` / `smurg attach`): the person stops it with `smurg stop`; nothing is stopped from here;
+//     a host of another version (alive behind its control socket, its answer not readable by this command) counts as
+//     running: fail closed;
 //  3. downloads that version's SHA256SUMS and this platform's executable into a temp file NEXT TO the current
 //     executable (the same directory, so the last step is one rename), streaming, and installs it only when all of
 //     this holds (fail closed, as scripts/install.sh): the size the server announced, the sha256 of SHA256SUMS, exactly
@@ -26,7 +28,7 @@ import { parseArgs } from '../cli/args.ts';
 import { CliError, isCliError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
 import type { CliIo, CliSignal } from '../cli/io.ts';
-import { runningDaemons } from '../channel/discover.ts';
+import { probeDaemons, unreadableLabel, type Daemons } from '../channel/discover.ts';
 import { seaExecutable } from '../sea/native.ts';
 import {
   DEFAULT_DOWNLOADS_URL,
@@ -288,6 +290,15 @@ async function removeStaleTemps(dir: string, now: number): Promise<void> {
   }
 }
 
+/**
+ * A smurg host of another version is sharing (its control socket is alive, its answer not readable by this command:
+ * channel/discover.ts): the executable is not replaced under it either, and the person is told why.
+ */
+function refuseOtherVersion(sharing: Daemons, current: string): void {
+  if (sharing.unreadable.length === 0) return;
+  throw new CliError(m('update.otherVersion', { labels: sharing.unreadable.map(unreadableLabel), current }), { hint: m('update.otherVersion.hint') });
+}
+
 export async function runUpdate(argv: readonly string[], ctx: CommandContext, deps: UpdateDeps = {}): Promise<number> {
   const args = parseArgs(argv, { options: { check: { kind: 'boolean' }, help: { kind: 'boolean', short: 'h' } } });
   if (args.options['help']) {
@@ -340,10 +351,11 @@ export async function runUpdate(argv: readonly string[], ctx: CommandContext, de
       return EXIT.ok;
     }
 
-    const running = await runningDaemons(ctx.paths);
-    if (running.length > 0) {
-      throw new CliError(m('update.sharing', { ids: running.map((d) => d.status.workspaceId) }), { hint: m('update.sharing.hint', { latest, current, several: running.length > 1 }) });
+    const sharing = await probeDaemons(ctx.paths);
+    if (sharing.running.length > 0) {
+      throw new CliError(m('update.sharing', { ids: sharing.running.map((d) => d.status.workspaceId) }), { hint: m('update.sharing.hint', { latest, current, several: sharing.running.length > 1 }) });
     }
+    refuseOtherVersion(sharing, current);
 
     const dir = dirname(executable);
     const st = await lstat(executable).catch(() => null);
@@ -367,8 +379,9 @@ export async function runUpdate(argv: readonly string[], ctx: CommandContext, de
     await probe(temp, latest, io.env, stop.signal);
     if (interrupted) throw new Error('interrupted');
     // A share that started while the download ran is not updated under either.
-    const started = await runningDaemons(ctx.paths);
-    if (started.length > 0) throw new CliError(m('update.startedSharing', { ids: started.map((d) => d.status.workspaceId) }), { hint: m('update.startedSharing.hint') });
+    const started = await probeDaemons(ctx.paths);
+    if (started.running.length > 0) throw new CliError(m('update.startedSharing', { ids: started.running.map((d) => d.status.workspaceId) }), { hint: m('update.startedSharing.hint') });
+    refuseOtherVersion(started, current);
     try {
       await rename(temp, executable);
     } catch (err) {

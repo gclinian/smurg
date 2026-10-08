@@ -42,10 +42,15 @@ export {
   encodeCtlFrame,
   parseCtlRequest,
   parseCtlResponse,
+  // The command's side (0.5.1): an answer read with unknown keys ignored; the daemon keeps sending the strict ones.
+  commandCtlResponseSchema,
+  commandDaemonStatusSchema,
+  readCtlResponse,
   type CtlFrame,
   type CtlFrameKind,
   type CtlRequest,
   type CtlResponse,
+  type CtlResponseRead,
   type CtlStatus,
 } from './local/protocol.ts';
 export type { DaemonContext, FeatureModule } from './core/context.ts';
@@ -60,7 +65,18 @@ export { SYSTEM_ACTOR, SYSTEM_PRINCIPAL, agentDisplayName, agentPrincipalFor, is
 export { auditDetailForMessage, sanitizeAuditDetail } from './core/audit.ts';
 export { RATE_BUCKET_SIZES, TokenBucketLimiter } from './core/rates.ts';
 export { createStubService, isStubService } from './core/stubs.ts';
-export { StateFileError } from './core/state-store.ts';
+export {
+  STATE_FILE_INSECURE_CAUSES,
+  STATE_FILE_KINDS,
+  STATE_FILE_PROBLEMS_MAX,
+  STATE_FILE_UNREADABLE_REASONS,
+  StateFileError,
+  type StateFileCopy,
+  type StateFileErrorInit,
+  type StateFileInsecureCause,
+  type StateFileKind,
+  type StateFileUnreadableReason,
+} from './core/state-file-error.ts';
 export { wsHostSocketFactory, type HostSocket, type HostSocketFactory, type HostSocketHandlers } from './net/host-socket.ts';
 export { IDENTITY_TOKEN_TYPE, jwksKeySource, staticKeySource, type IdentityKeySource } from './net/identity.ts';
 export { KeepAwake } from './workspace/power.ts';
@@ -68,3 +84,6 @@ export { HOMES_PARENTS, SHARE_ERROR_REASONS, ShareError, type ShareErrorReason }
 export { SHARE_LOCK_MARKER, ShareLockError } from './workspace/share-lock.ts';
 export type { RelayLinkState } from './net/relay-connection.ts';
 export type { UnsavedDocument } from './core/state-store.ts';
+// What a module declares (FeatureModule.documents), and the two files a start adds to a workspace folder (0.5.1): the
+// stamp `written-by.json` and the kept copies `<name>.json.before-upgrade-from-<step>`.
+export { STAMP_FILE, WORKSPACE_SHAPES, declareDocument, defineStep, type DocumentDeclaration, type DocumentStep, type StepEnv, type WorkspaceStamp } from './core/state-store.ts';

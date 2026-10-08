@@ -9,11 +9,13 @@ import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import { DisposableStack, toDisposable } from '../core/lifecycle.ts';
 import { registerInboxHandlers } from './handlers.ts';
 import { InboxServiceImpl } from './inbox-service.ts';
+import { inboxDocument } from './store.ts';
 
 export function createInboxModule(): FeatureModule {
   const services = new WeakMap<DaemonContext, InboxServiceImpl>();
   return {
     name: 'inbox',
+    documents: [inboxDocument],
     create: async (ctx) => {
       const service = await InboxServiceImpl.open(ctx);
       services.set(ctx, service);

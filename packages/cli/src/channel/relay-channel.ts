@@ -90,6 +90,11 @@ export interface RelayChannelOptions {
   readonly deviceName: string;
   readonly onlineTimeoutMs?: number;
   readonly hostOfflineGiveUpMs?: number;
+  /**
+   * What to say after the host refused this command with `version` (the refusal names no side: the command looks up
+   * whether a newer smurg is published, update/version-advice.ts). Never rejects. Absent: the text that names both sides.
+   */
+  readonly versionRefused?: () => Promise<Text>;
 }
 
 /** Rejects once `conn` has been host-offline for `ms` without a break; `stop()` ends the watch. */
@@ -125,10 +130,14 @@ export class RelayWorkspaceChannel implements WorkspaceChannel {
   private readonly restartListeners = new Set<() => void>();
   private readonly statusListeners = new Set<(status: ChannelStatus) => void>();
   private ended: ChannelEnd | null = null;
+  /** A `version` refusal is being worded (a lookup of at most a few seconds); the end is announced when it is. */
+  private ending = false;
+  private readonly versionRefused: (() => Promise<Text>) | undefined;
 
-  private constructor(conn: Connection, welcome: Welcome) {
+  private constructor(conn: Connection, welcome: Welcome, versionRefused: (() => Promise<Text>) | undefined) {
     this.conn = conn;
     this.welcome = welcome;
+    this.versionRefused = versionRefused;
     let first = true;
     conn.onWelcome((_welcome, { resumed }) => {
       if (first) {
@@ -163,13 +172,15 @@ export class RelayWorkspaceChannel implements WorkspaceChannel {
     try {
       const welcome = await Promise.race([conn.whenOnline({ timeoutMs: options.onlineTimeoutMs ?? ONLINE_TIMEOUT_MS }), offline.gaveUp]);
       offline.stop();
-      return new RelayWorkspaceChannel(conn, welcome);
+      return new RelayWorkspaceChannel(conn, welcome, options.versionRefused);
     } catch (err) {
       offline.stop();
       const state = conn.getState();
       conn.close();
       if (state.kind === 'key-mismatch' || state.kind === 'rejected' || state.kind === 'closed') {
         const end = describeTerminalState(state);
+        // `version`: who has to update is not in the refusal; the command asks what `smurg update` asks.
+        if (state.kind === 'rejected' && state.reason === 'version' && options.versionRefused) throw new CliError(await options.versionRefused(), { cause: err });
         throw new CliError(end.message, { exitCode: state.kind === 'closed' && state.reason === 'login-required' ? EXIT.auth : EXIT.failure, cause: err });
       }
       if (state.kind === 'host-offline') throw new CliError(m('channel.hostOffline'), { cause: err });
@@ -214,14 +225,30 @@ export class RelayWorkspaceChannel implements WorkspaceChannel {
     this.conn.close();
   }
 
-  private onState(state: ConnectionState): void {
+  private finish(end: ChannelEnd): void {
     if (this.ended) return;
+    this.ended = end;
+    for (const listener of [...this.endListeners]) listener(end);
+    this.endListeners.clear();
+  }
+
+  private onState(state: ConnectionState): void {
+    if (this.ended || this.ending) return;
     const stopped = state.kind === 'host-offline' && state.reason === 'stopped';
     if (state.kind === 'key-mismatch' || state.kind === 'rejected' || state.kind === 'closed' || stopped) {
+      // The host came back as another smurg version (a reconnect refused with `version`, a terminal state): the end
+      // waits for the words that say who has to update.
+      if (state.kind === 'rejected' && state.reason === 'version' && this.versionRefused) {
+        this.ending = true;
+        const fallback = describeTerminalState(state);
+        void this.versionRefused().then(
+          (message) => this.finish({ reason: 'rejected', message }),
+          () => this.finish(fallback),
+        );
+        return;
+      }
       // The host ran `smurg stop`: its sessions are gone, so an attach ends (the SDK itself would wait for the host).
-      this.ended = stopped ? { reason: 'stopped', message: closedMessage('stopped') } : describeTerminalState(state);
-      for (const listener of [...this.endListeners]) listener(this.ended);
-      this.endListeners.clear();
+      this.finish(stopped ? { reason: 'stopped', message: closedMessage('stopped') } : describeTerminalState(state));
       return;
     }
     const status: ChannelStatus | null = state.kind === 'online' ? 'online' : state.kind === 'host-offline' ? 'host-offline' : state.kind === 'idle' ? null : 'reconnecting';

@@ -18,10 +18,13 @@ import { createMemoryPinStore, type RelayUser } from '@smurg/protocol/client';
 import type { Role } from '@smurg/protocol';
 import { App } from '../app/App.tsx';
 import { AppServicesProvider, staticKeyStorage, type AppServices } from '../app/services.tsx';
+import type { KeyStorageStatus } from '../lib/connection/browser-deps.ts';
 import type { OpenOptions } from '../lib/connection/types.ts';
+import type { PageBuild } from '../lib/page-build.ts';
 import { createRecentWorkspaces, createThemeController } from '../lib/preferences.ts';
 import type { LoginOptions, RelayAuthClient } from '../lib/relay/auth.ts';
 import { createMemoryRouter, type Router } from '../lib/router.ts';
+import { createStore } from '../lib/store.ts';
 import type { Scheduler } from '../lib/stores/base.ts';
 import { createSlotRegistry, type FeatureSlots } from '../lib/slots.ts';
 import { createWorkspaceManager, type WorkspaceManager } from '../lib/workspace/manager.ts';
@@ -91,7 +94,18 @@ export interface TestServices extends AppServices {
   readonly connections: { readonly workspaceId: string; readonly options: OpenOptions; readonly conn: FakeConnection }[];
 }
 
-export function createTestServices(options: { path?: string; user?: RelayUser | null; dev?: boolean; releaseGraceMs?: number } = {}): TestServices {
+export interface TestServicesOptions {
+  path?: string;
+  user?: RelayUser | null;
+  dev?: boolean;
+  releaseGraceMs?: number;
+  /** What asking the relay for the current page answers (default: it cannot be asked). */
+  pageBuild?: () => Promise<PageBuild>;
+  /** What the key storage says about itself (default: persistent, no record of a newer page). */
+  keyStorage?: KeyStorageStatus;
+}
+
+export function createTestServices(options: TestServicesOptions = {}): TestServices {
   const connections: TestServices['connections'][number][] = [];
   const manager: WorkspaceManager = createWorkspaceManager({
     connect: (workspaceId, openOptions) => {
@@ -110,7 +124,8 @@ export function createTestServices(options: { path?: string; user?: RelayUser | 
     sessionStorage: new MemoryStorage(),
     recent: createRecentWorkspaces(new MemoryStorage()),
     theme: createThemeController({ storage: null, media: null }),
-    keyStorage: staticKeyStorage(true),
+    keyStorage: options.keyStorage === undefined ? staticKeyStorage(true) : createStore<KeyStorageStatus>(options.keyStorage),
+    pageBuild: options.pageBuild ?? (() => Promise.resolve('unknown')),
     connections,
   };
 }

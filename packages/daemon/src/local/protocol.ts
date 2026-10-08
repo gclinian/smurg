@@ -182,6 +182,97 @@ export function parseCtlResponse(body: Uint8Array): CtlResponse {
   return parsed.data;
 }
 
+// ── The command's side: reading the daemon of another smurg version ─────────────────────────────────────────────────
+//
+// What the daemon SENDS is the strict schemas above, and stays so: `ctlResponseSchema` guards `encodeCtlControl`, and
+// no key is ever added to an answer, because the published commands (0.4.0, 0.5.0) read an answer strictly and take a
+// daemon whose answer they cannot read for "nothing is running".
+//
+// What a COMMAND reads (`smurg status`, `stop`, `attach`, and the "is this computer sharing?" question of `host`,
+// `update` and `uninstall`) is these schemas instead. They differ from the strict ones in ONE way: a key the command
+// does not know is ignored, in the answer and in every object inside the status (each is restated here, because
+// ignoring is per object). A key the command does know keeps its rule. So the command of this version reads the
+// daemon of an older one (fewer keys: every key added after 0.4.0 is optional) and of a later one that only added
+// keys; an answer it still cannot read is "a smurg host of another version is sharing here" for the command, never
+// "nothing is running".
+//   - The `attach` welcome is the protocol's own strict schema: the attach then speaks Envelopes, which are strict too.
+//   - A refusal is read for what the command shows of it: the code as a string (a later daemon may know more codes),
+//     the English message, and the reference into the wire catalog as it came (the CLI renders it only when it is one).
+// The two sides must keep the same keys: packages/cli/test/ctl-other-version.test.ts compares them.
+
+/** Longest refusal message a command reads (the daemon's own are clamped to the protocol's 2000 characters). */
+const COMMAND_ERROR_MESSAGE_MAX_CHARS = 8_192;
+
+/** The status as a command reads it: `daemonStatusSchema` with unknown keys ignored at every level. */
+export const commandDaemonStatusSchema = z.object({
+  workspaceId: z.string().min(1).max(64),
+  started: z.boolean(),
+  stopped: z.boolean(),
+  relay: z.object({ interactive: z.string().max(32), transfer: z.string().max(32) }),
+  connections: count,
+  onlineMembers: count,
+  power: z.object({
+    active: z.boolean(),
+    mechanism: z.enum(['caffeinate', 'systemd-inhibit', 'none']),
+    pid: z.int().positive().nullable(),
+    reason: z.string().max(1_000).nullable(),
+  }),
+  handshakes: z.object({
+    handshakes: count,
+    accepted: count,
+    failed: count,
+    refusedByRateLimit: count,
+    kickedForFailures: count,
+    kickedIdle: count,
+  }),
+  fingerprint: z.string().max(200).optional(),
+  relayUrl: z.string().max(2_048).nullable().optional(),
+  switches: z.object({ attributeBashEdits: z.boolean() }).optional(),
+  isGitRepo: z.boolean().optional(),
+  claude: z
+    .object({
+      version: z.string().max(64).nullable(),
+      verdict: z.enum(['verified', 'unverified', 'too-old', 'unknown']),
+      login: loginStateSchema,
+    })
+    .optional(),
+  agents: z.object({ running: count, waiting: count, stalled: count, idle: count }).optional(),
+  topics: z.object({ total: count, paused: count }).optional(),
+  projectSettings: projectSettingsStateSchema.optional(),
+  hostRules: z.object({ count }).optional(),
+});
+
+/** An answer of the control socket as a command reads it (`ctlResponseSchema` with unknown keys ignored). */
+export const commandCtlResponseSchema = z.union([
+  z.object({ ok: z.literal(true), op: z.literal('status'), status: commandDaemonStatusSchema, webOrigin: z.string().min(1).max(CTL_WEB_ORIGIN_MAX_CHARS).optional() }),
+  z.object({ ok: z.literal(true), op: z.literal('stop') }),
+  z.object({ ok: z.literal(true), op: z.literal('attach'), welcome: welcomeSchema }),
+  z.object({
+    ok: z.literal(false),
+    error: z.object({ code: z.string().min(1).max(64), message: z.string().max(COMMAND_ERROR_MESSAGE_MAX_CHARS), text: z.unknown().optional() }),
+  }),
+]);
+export type CtlResponseRead = z.infer<typeof commandCtlResponseSchema>;
+
+// Compile-time: a status a command read has the keys and the types of the status the daemon sends (a key added to
+// one schema and not to the other fails here), and every answer the daemon sends is one a command reads.
+const readStatusIsCtlStatus: (s: z.infer<typeof commandDaemonStatusSchema>) => CtlStatus = (s) => s;
+const ctlStatusIsReadStatus: (s: CtlStatus) => z.infer<typeof commandDaemonStatusSchema> = (s) => s;
+const sentIsRead: (r: CtlResponse) => CtlResponseRead = (r) => r;
+void readStatusIsCtlStatus;
+void ctlStatusIsReadStatus;
+void sentIsRead;
+
+/**
+ * The answer in a CONTROL frame as a command reads it. Throws CtlProtocolError when it is not one this command can
+ * read (not JSON, a shape it does not know): the daemon behind the socket is then another version's.
+ */
+export function readCtlResponse(body: Uint8Array): CtlResponseRead {
+  const parsed = commandCtlResponseSchema.safeParse(parseJson(body));
+  if (!parsed.success) throw new CtlProtocolError('control response not readable by this command');
+  return parsed.data;
+}
+
 /** Reassembles frames from stream chunks. Throws CtlProtocolError (end the connection) on anything malformed. */
 export class CtlFrameDecoder {
   /** Received, not yet framed; joined only when a whole frame is there (an 8 MiB frame arrives in many chunks). */

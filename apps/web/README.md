@@ -125,6 +125,9 @@ src/
 │   ├── commands.ts          Cross-feature command bus
 │   ├── capabilities.ts      Capability checks (only to hide UI)
 │   ├── locale.ts            The language controller (getLocale, setLocale, subscribe)
+│   ├── chunks.ts            loadChunk / lazyChunk: THE way a part of the page is loaded later, and what a load that
+│   │                        failed is called (ChunkLoadError: gone, offline, failed)
+│   ├── page-build.ts        Is this tab the page the relay serves now? (asked after a `version` refusal)
 │   ├── lazy.ts              loadMonaco() / loadXterm()
 │   ├── monaco.ts xterm.ts   Heavy modules (load them only through lazy.ts)
 │   ├── presence-css.ts      CSS for y-monaco's remote cursors
@@ -250,7 +253,9 @@ inbox counts, so a question is not missed while hand-coding; the "Code mode" seg
 conflicts, because a conflict can hold a person's unsaved text.
 
 **What is remembered where.** What a person folded (the left column and its two sections; code mode's file tree,
-session column and drawer) is per browser: `localStorage['smurg.layout']` (`layout.ts`). Which columns are open, their
+session column and drawer) is per browser: `localStorage['smurg.layout']` (`layout.ts`; a browser that ran 0.4.0
+holds this key in 0.4.0's shape and pane widths under names that are gone: `readLayout` and `carryOldPanelSettings`
+carry what still means something, once, when the page starts, and remove the rest). Which columns are open, their
 order, widths and pins, what was seen, the session list's folds and filter, and the session beside the editor in code
 mode are per browser AND workspace: `localStorage['smurg.columns.<workspace id>']` (the `columns` store). None of it
 is sent anywhere: a member's view is their own. The unsent text of a composer is kept per browser and workspace as
@@ -288,6 +293,8 @@ The state -> UI mapping is in `lib/connection/status.ts` (`describeConnection`),
 | `relay-unreachable` | "Server unreachable", **a different message from host offline**, with a countdown | No |
 | `key-mismatch` | **Full-screen security warning** (SPEC R3.2): the relay handed over a different host key, the connection was refused, ask the host for a new link through another channel; there is no "retry anyway" | Yes |
 | `rejected(…)`, `closed(kicked/revoked/no-trust/…)` | A screen that explains each case | Yes |
+| `rejected(version)` | The refusal carries no numbers, so the page asks the relay whether it still serves this tab's page (`lib/page-build.ts`: `GET /` past every cache, the entry script named there against the one this document names) and says which side has to act: **"This tab is from before an update"** (reload), **"The host's smurg is older than this page"** (the host stops sharing, runs `smurg update`, shares again; a host with their own relay deploys it again; then reload), or both steps when the relay cannot be asked. Never "nothing to do": a refusal is final until the page is reloaded | Yes |
+| `closed(storage-error)` after the key store stopped at a record a NEWER page wrote | **"This browser's smurg key was written by a newer page"** (reload). The key store never replaces a record whose `v` it does not know (`@smurg/protocol/browser` `'newer-record'`); `keyStorage.newerRecord` (`lib/connection/browser-deps.ts`) is how the page knows why | Yes |
 | `closed(login-required)` | The login screen; after login you come back to the same page | Yes |
 
 Stable test hooks (for Playwright / e2e): `data-testid="key-mismatch-screen"` (`role="alertdialog"`),
@@ -584,12 +591,12 @@ by itself (`app/workspace/feature-slots.ts`, `import.meta.glob`), so adding a co
 shared file.
 
 ```tsx
-import { lazy } from 'react';
+import { lazyChunk } from '../../lib/chunks.ts';
 import { defineSlots } from '../../lib/slots.ts';
 export const slots = defineSlots({
   feature: 'topics',                                   // MUST equal the folder name
-  columns: { plan: lazy(() => import('./PlanColumn.tsx')) },      // default export: the body of a column of that kind
-  overlays: [lazy(() => import('./TopicOverlays.tsx'))],          // mounted once, in BOTH views
+  columns: { plan: lazyChunk(() => import('./PlanColumn.tsx')) }, // default export: the body of a column of that kind
+  overlays: [lazyChunk(() => import('./TopicOverlays.tsx'))],     // mounted once, in BOTH views
   menus: { topic: (topic, env) => [{ id: 'topic-rename', label: t('menu.rename'), onSelect: () => … }] },
   inboxRows: { attention: (item, base, env) => ({ ...base, action: { id: 'start-again', label: …, run: … } }) },
 });
@@ -608,8 +615,9 @@ export const slots = defineSlots({
 `env` is `{ stores, commands, capabilities, member }`. A column kind and an inbox kind belong to ONE feature: a second
 claim throws `SlotConflictError` when the registry is built. A kind nobody registered shows the shell's placeholder,
 so the shell works before a feature lands. Keep `slots.tsx` light: it loads with the workspace page, so components go
-in with `React.lazy`, and Monaco, xterm and the conversation code load when a column of that kind is first shown
-(`scripts/check-chunks.ts` guards the first load).
+in with `lazyChunk` (`lib/chunks.ts`: `React.lazy` behind the one helper every `import()` of a chunk goes through, see
+"A part of the page that does not load"), and Monaco, xterm and the conversation code load when a column of that kind
+is first shown (`scripts/check-chunks.ts` guards the first load).
 
 **In code mode and the console: fixed places.** `Workbench.tsx` puts the components below in fixed places, each
 inside its own error boundary (`SlotBoundary` of `ui/`). Keep the export names and the props (none of them has props;
@@ -1135,6 +1143,37 @@ has no locale.
 - Style: a calm, information-dense workbench (like a code editor, not a marketing page). No decorative gradients; the
   focus ring is always visible; everything works with the keyboard.
 
+## A part of the page that does not load
+
+The relay serves the app as files named after their content, and answers an address it has no file for with the page
+itself. A tab that stays open across a deploy of the web app therefore asks, the first time it shows a column, a
+dialog, code mode, the editor or a terminal, for a file that may be gone, and the browser refuses the HTML it gets as
+a script. `lib/chunks.ts` is the one place that deals with it:
+
+```ts
+const PlanColumn = lazyChunk(() => import('./PlanColumn.tsx'));          // a component: a slot, a route, a dialog
+const monaco = await loadChunk(() => import('./monaco.ts'));             // anything else
+void loadChunk(() => import('./dialogs.tsx')).then(open).catch(reportChunkFailure);   // no place of its own
+```
+
+- **Every `import()` of a chunk under `src/` goes through `loadChunk` or `lazyChunk`**, and `React.lazy` is used by
+  the helper alone: `src/lib/chunks.test.tsx` reads the source tree and fails for one that does not.
+- A load that fails becomes one named error, `ChunkLoadError`, whose `reason` was ASKED of the server (one request for
+  the file the browser named, past every cache): `'gone'` (the answer is the page itself, or "not found": the web app
+  was deployed again), `'offline'` (the request fails), `'failed'` (the file is there). "smurg was updated" is said
+  only for `'gone'`.
+- Who shows it, with the same words (`ui/ChunkNotice.tsx`): `SlotBoundary` in the slot's place; `PageBoundary`
+  (`app/PageBoundary.tsx`, around the routes) for the workspace route and code mode, instead of an empty page; the
+  editor and a terminal in their own place; and the workspace's banner (`ChunkFailureBanner`) for a failure without a
+  place: a `silent` slot (an overlay) and anything handed to `reportChunkFailure`.
+- **The one action is "Reload the page".** A browser keeps a failed import for as long as the page lives (run in
+  Chrome 155: the same `import()` fails again after the file is served fine), so nothing offers to try again.
+- Unit tests never ask a network: `src/testing/setup.ts` pins the reason to `'failed'`; a test sets its own with
+  `setChunkProbe`. In a real browser: `e2e/smoke/update.smoke.test.ts`.
+
+A deploy of the relay should keep the files of the previous build beside the new ones (`docs/RELEASING.md`); this is
+what a tab sees when one did not.
+
 ## Monaco, xterm and marked (lazy loaded)
 
 Load Monaco (about 3.8 MB) and xterm only through `src/lib/lazy.ts`:
@@ -1147,7 +1186,7 @@ const { createViewerTerminal } = await loadXterm();
 **Never** `import` `lib/monaco.ts` or `lib/xterm.ts` directly: `scripts/check-chunks.ts`, run by `pnpm build`, fails
 the build when they end up in the initial load. Since 0.5.0 that matters twice: the sessions view is the first thing
 a member sees and must import neither statically. Code mode (`Workbench.tsx`) is a lazy chunk of the workspace page,
-and a column's body is `React.lazy` in its feature's `slots.tsx`, so Monaco comes with the first editor (code mode,
+and a column's body is a `lazyChunk` in its feature's `slots.tsx`, so Monaco comes with the first editor (code mode,
 or the Edit view of a spec or plan column), xterm with the first terminal, and the Markdown lexer `marked` (MIT, no
 dependencies, pinned exactly, listed in the web app's third-party notices) with the first column that renders
 Markdown.
@@ -1342,6 +1381,8 @@ The smokes that came from 0.4.0, as they are in the new shell:
 | `zh-TW.smoke.test.ts` | The old path in Traditional Chinese (`locale: 'zh-TW'`): join through an invite link, the sessions view, a terminal in a column (an editor watches it read-only), code mode with the host's sentence in the activity feed, and `/device`. A suggestion accepted on a zh-TW page is `conversation.smoke` |
 | `acceptance.smoke.test.ts` | R11.1c one-click terminate and remove in the console; R9 worktree merge (asked for from code mode's worktree switcher; the host's inbox item opens the full diff in a Changes column; merge; the worktree is unchanged after a reject); R8.4 a real conflict appears in the conflicts panel of code mode; a member with agent access opens their own terminal (it runs as the host's user) and types directly in the host's terminal, an editor only watches; the console's risk confirmation before it gives agent access (an invite and a role change). 0.4.0's R6 test and suggestion steps typed into a terminal and are deleted: `conversation.smoke` has the suggestion flow |
 | `transfer-resume.smoke.test.ts` | R7.3: `drop-proxy.ts` (a TCP proxy in front of the relay) cuts the transfer socket in the middle of an upload; the upload resumes by itself and completes, the content is identical, and only the missing part is sent again |
+| `update.smoke.test.ts` | A tab across a deploy of the web app (0.5.1): the relay answers a file it does not have with the page itself; with every file under `/assets/` answered so, a column whose chunk was not loaded says "smurg was updated" with "Reload the page" (English and Traditional Chinese), code mode says it for the whole page instead of going empty and the back button returns to the sessions view, and the reload brings the workspace and the terminal back; without the network the same column says offline, never "updated" |
+| `version.smoke.test.ts` | A page the host's smurg refuses for its version (0.5.1): this file's daemon speaks another protocol number than the built page. The page asks the relay for `/` (once, no cache, no cookie, inside its own Content-Security-Policy) and says "The host's smurg is older than this page" with what the host does; with `/` naming another entry script it says "This tab is from before an update"; also in Traditional Chinese |
 
 The smokes 0.5.0 added, one per feature, each against the stand-in `claude`: `columns.smoke` (the dividers of the
 strip under a real mouse) and `sidebar.smoke` (the shell), `terminal.smoke` (a terminal as a column),

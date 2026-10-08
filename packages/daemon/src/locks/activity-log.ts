@@ -3,44 +3,30 @@
 // dropped), so the feed keeps roughly the last 2 × maxBytes of history. Queries read backwards from the end in blocks
 // (readLinesBackward), so paging never loads a whole file.
 import { constants as fsConstants } from 'node:fs';
-import { open, rename, type FileHandle } from 'node:fs/promises';
+import { rename, type FileHandle } from 'node:fs/promises';
 import { activityEventSchema, type ActivityEvent } from '@smurg/protocol';
 import { readLinesBackward, terminateTornLine } from '../core/audit.ts';
 import type { Logger } from '../core/logger.ts';
+import { openPrivateFile } from '../core/private-file.ts';
+import { StateFileError } from '../core/state-file-error.ts';
 
 export const ACTIVITY_LOG_MAX_BYTES = 8 * 1024 * 1024;
 
+/** The log object was used after close(). (A refusal of the FILE is a StateFileError with its kind.) */
 export class ActivityLogError extends Error {
-  constructor(path: string, message: string, options?: { cause?: unknown }) {
-    super(`${message}: ${path}`, options);
+  constructor(path: string, message: string) {
+    super(`${message}: ${path}`);
     this.name = 'ActivityLogError';
   }
 }
 
-function errnoCode(err: unknown): string | undefined {
-  return typeof err === 'object' && err !== null && 'code' in err ? String((err as { code: unknown }).code) : undefined;
-}
-
-/** Opens a log file, refusing a symlink, a non-regular file, a foreign owner or any group/other permission bit. */
-async function openPrivate(path: string, flags: number): Promise<FileHandle | null> {
-  let handle: FileHandle;
-  try {
-    handle = await open(path, flags | fsConstants.O_NOFOLLOW, 0o600);
-  } catch (cause) {
-    if (errnoCode(cause) === 'ENOENT' && (flags & fsConstants.O_CREAT) === 0) return null;
-    throw new ActivityLogError(path, 'cannot open the activity log', { cause });
-  }
-  try {
-    const st = await handle.stat();
-    const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
-    if (!st.isFile()) throw new ActivityLogError(path, 'activity log is not a regular file');
-    if (uid !== undefined && st.uid !== uid) throw new ActivityLogError(path, 'activity log is owned by another user');
-    if ((st.mode & 0o077) !== 0) throw new ActivityLogError(path, 'activity log grants group/other access');
-    return handle;
-  } catch (err) {
-    await handle.close();
-    throw err;
-  }
+/**
+ * Opens a log file, refusing a symlink, a non-regular file, a foreign owner or any group/other permission bit: a
+ * StateFileError with its kind (`insecure` with the cause, `cannot-open` with the errno), as for every file of the
+ * workspace folder. Null when the file does not exist and is not created.
+ */
+function openPrivate(path: string, flags: number): Promise<FileHandle | null> {
+  return openPrivateFile(path, flags, { what: 'activity log' });
 }
 
 function parse(line: string): ActivityEvent | null {
@@ -174,7 +160,7 @@ export class ActivityLogFile {
     if (this.closed) return Promise.reject(new ActivityLogError(this.path, 'activity log is closed'));
     this.opening ??= (async () => {
       const handle = await openPrivate(this.path, fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_CREAT);
-      if (!handle) throw new ActivityLogError(this.path, 'cannot open the activity log');
+      if (!handle) throw new StateFileError({ kind: 'cannot-open', errno: 'ENOENT', path: this.path, message: 'cannot open the activity log (ENOENT)' });
       this.handle = handle;
       this.size = (await handle.stat()).size;
       // A crash during a write can leave a last line without its newline: the next event would be glued onto it and

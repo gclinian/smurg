@@ -23,6 +23,7 @@ import {
   userRefSchema,
 } from '@smurg/protocol';
 import type { PersistentDocument, StateStore } from '../../core/interfaces.ts';
+import { declareDocument } from '../../core/state-store.ts';
 
 export const AGENT_SESSIONS_DOCUMENT = 'agent-sessions';
 
@@ -97,6 +98,8 @@ export type AgentRecord = z.infer<typeof agentRecordSchema>;
 
 const documentSchema = z.strictObject({ sessions: z.array(agentRecordSchema).max(10_000) });
 type AgentDocument = z.infer<typeof documentSchema>;
+/** agent-sessions.json (no `version` key; new in 0.5.0). Declared by the sessions module. */
+export const agentSessionsDocument = declareDocument({ name: AGENT_SESSIONS_DOCUMENT, schema: documentSchema, init: (): AgentDocument => ({ sessions: [] }) });
 
 /** The document's records, keyed by session id; every change is written through `save`. */
 export class AgentStore {
@@ -107,7 +110,7 @@ export class AgentStore {
   }
 
   static async open(state: StateStore): Promise<AgentStore> {
-    return new AgentStore(await state.document(AGENT_SESSIONS_DOCUMENT, documentSchema, () => ({ sessions: [] })));
+    return new AgentStore(await state.document(agentSessionsDocument.name, agentSessionsDocument.schema, agentSessionsDocument.init));
   }
 
   all(): AgentRecord[] {

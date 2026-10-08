@@ -2,13 +2,25 @@
 // local protocol): one-shot `status` / `stop` requests, and the host's local attach, which carries msgpack Envelopes
 // both ways on a normal logical channel of the host (seq, channel.ack, requests, events) without Noise and without
 // the relay. A disconnect ends the attach; the CLI does not resume (a new `smurg attach` starts a fresh channel).
+//
+// A daemon of ANOTHER smurg version (0.5.1, DESIGN B1/B2). The daemon behind a control socket may be older or newer
+// than this command (the installer replaced the executable under a running share; two smurgs on one machine). A
+// request to it therefore has three outcomes (`ctlAsk`), never two:
+//   - nothing there: the connect failed (no socket file, nobody listening);
+//   - an answer this command can read (the command-side schemas of @smurg/daemon: unknown keys are ignored);
+//   - alive but unreadable: the connect succeeded (or hung: something holds the socket) and the answer could not be
+//     read, or none came. That is "a smurg host of another version is sharing here", never "nothing is running".
+// And a local attach ends AT ONCE on the first frame from the daemon it cannot decode, with that same explanation: it
+// used to drop the frame and wait out its 30 s request timer ("smurg host did not answer (session.list)").
 import { createConnection, type Socket } from 'node:net';
 import { SmurgError, decodeEnvelope, encodeEnvelope, type PayloadInputOf, type ResultOf, type Welcome } from '@smurg/protocol';
 import type { EventHandler, EventMeta, InteractiveEventType, InteractiveNotifyType, InteractiveRequestType, RequestOptions } from '@smurg/protocol/client';
-import { CTL_FRAME_KIND, CtlFrameDecoder, encodeCtlControl, encodeCtlFrame, parseCtlResponse, type CtlRequest, type CtlResponse } from '@smurg/daemon';
+import { CTL_FRAME_KIND, CtlFrameDecoder, encodeCtlControl, encodeCtlFrame, readCtlResponse, type CtlRequest, type CtlResponseRead } from '@smurg/daemon';
 import { CliError } from '../cli/errors.ts';
 import { EXIT } from '../cli/exit-codes.ts';
-import { m, wireError } from '../i18n/index.ts';
+import { m, wireError, type Text } from '../i18n/index.ts';
+import type { UnreadableHost } from '../i18n/en.ts';
+import { CLI_VERSION } from '../version.ts';
 import { closedMessage, type ChannelEnd, type ChannelStatus, type WorkspaceChannel } from './channel.ts';
 
 const CONNECT_TIMEOUT_MS = 5_000;
@@ -17,12 +29,47 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const ACK_DELAY_MS = 250;
 const ACK_EVERY = 32;
 
+/** Why a running smurg host could not be read; `message`: a frame after a successful attach. */
+export type { UnreadableHost } from '../i18n/en.ts';
+
+/** "A smurg host of another version is sharing here": what `smurg attach` says, and how to get out of it. */
+export function otherVersionAttachError(why: UnreadableHost): CliError {
+  return new CliError(otherVersionAttachText(why), { hint: m('otherVersion.hint') });
+}
+
+function otherVersionAttachText(why: UnreadableHost): Text {
+  return m('attach.otherVersion', { current: CLI_VERSION, why });
+}
+
+/** How a connect ended when it did not succeed. */
+class ConnectFailure extends Error {
+  /** `timeout`: neither connected nor refused within the time (something holds the socket); else the errno. */
+  readonly code: string;
+
+  constructor(code: string) {
+    super(`control socket connect: ${code}`);
+    this.name = 'ConnectFailure';
+    this.code = code;
+  }
+}
+
+/** Why no readable response came on a connected socket. */
+class ResponseFailure extends Error {
+  readonly why: Exclude<UnreadableHost, 'message'>;
+
+  constructor(why: Exclude<UnreadableHost, 'message'>) {
+    super(`control socket response: ${why}`);
+    this.name = 'ResponseFailure';
+    this.why = why;
+  }
+}
+
 function connect(path: string, timeoutMs: number): Promise<Socket> {
   return new Promise((resolve, reject) => {
     const socket = createConnection({ path });
     const timer = setTimeout(() => {
       socket.destroy();
-      reject(new CliError(m('ctl.connectTimeout')));
+      reject(new ConnectFailure('timeout'));
     }, timeoutMs);
     socket.once('connect', () => {
       clearTimeout(timer);
@@ -31,14 +78,21 @@ function connect(path: string, timeoutMs: number): Promise<Socket> {
     });
     socket.once('error', (err: NodeJS.ErrnoException) => {
       clearTimeout(timer);
-      if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED') reject(new CliError(m('ctl.notRunning'), { exitCode: EXIT.notRunning }));
-      else reject(new CliError(m('ctl.connectFailed', { code: err.code ?? 'unknown' })));
+      reject(new ConnectFailure(err.code ?? 'unknown'));
     });
   });
 }
 
-/** Reads frames from `socket` until the first control response. */
-function readResponse(socket: Socket, decoder: CtlFrameDecoder, timeoutMs: number, onRest: (rest: Uint8Array[]) => void): Promise<CtlResponse> {
+/** A failed connect as `smurg attach` words it (a socket that was just found and is gone again, mostly). */
+function connectProblem(err: unknown): unknown {
+  if (!(err instanceof ConnectFailure)) return err;
+  if (err.code === 'timeout') return otherVersionAttachError('no-answer');
+  if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED') return new CliError(m('ctl.notRunning'), { exitCode: EXIT.notRunning });
+  return new CliError(m('ctl.connectFailed', { code: err.code }));
+}
+
+/** Reads frames from `socket` until the first control response; rejects with a ResponseFailure. */
+function readResponse(socket: Socket, decoder: CtlFrameDecoder, timeoutMs: number, onRest: (rest: Uint8Array[]) => void): Promise<CtlResponseRead> {
   return new Promise((resolve, reject) => {
     const cleanup = (): void => {
       clearTimeout(timer);
@@ -46,31 +100,31 @@ function readResponse(socket: Socket, decoder: CtlFrameDecoder, timeoutMs: numbe
       socket.off('close', onClose);
       socket.off('error', onError);
     };
-    const fail = (err: CliError): void => {
+    const fail = (why: Exclude<UnreadableHost, 'message'>): void => {
       cleanup();
       socket.destroy();
-      reject(err);
+      reject(new ResponseFailure(why));
     };
-    const timer = setTimeout(() => fail(new CliError(m('ctl.requestTimeout'))), timeoutMs);
+    const timer = setTimeout(() => fail('no-answer'), timeoutMs);
     const onData = (chunk: Buffer): void => {
       let frames;
       try {
         frames = decoder.push(new Uint8Array(chunk));
       } catch {
-        fail(new CliError(m('ctl.badResponse')));
+        fail('not-understood');
         return;
       }
       if (frames.length === 0) return;
       const [first, ...rest] = frames;
       if (!first || first.kind !== CTL_FRAME_KIND.control) {
-        fail(new CliError(m('ctl.badResponse')));
+        fail('not-understood');
         return;
       }
-      let response: CtlResponse;
+      let response: CtlResponseRead;
       try {
-        response = parseCtlResponse(first.body);
+        response = readCtlResponse(first.body);
       } catch {
-        fail(new CliError(m('ctl.badResponse')));
+        fail('not-understood');
         return;
       }
       cleanup();
@@ -79,7 +133,7 @@ function readResponse(socket: Socket, decoder: CtlFrameDecoder, timeoutMs: numbe
       onRest(rest.map((f) => f.body));
       resolve(response);
     };
-    const onClose = (): void => fail(new CliError(m('ctl.closedEarly')));
+    const onClose = (): void => fail('closed');
     const onError = (): void => undefined;
     socket.on('data', onData);
     socket.once('close', onClose);
@@ -87,12 +141,32 @@ function readResponse(socket: Socket, decoder: CtlFrameDecoder, timeoutMs: numbe
   });
 }
 
-/** `status` or `stop`: one request, one response, then the daemon closes the socket. */
-export async function ctlRequest(path: string, request: Extract<CtlRequest, { op: 'status' | 'stop' }>, timeoutMs = RESPONSE_TIMEOUT_MS): Promise<CtlResponse> {
-  const socket = await connect(path, CONNECT_TIMEOUT_MS);
+/** What one `status` or `stop` request to a control socket came to (the three outcomes of the header). */
+export type CtlOutcome =
+  | { readonly kind: 'nothing' }
+  | { readonly kind: 'answer'; readonly response: CtlResponseRead }
+  | { readonly kind: 'unreadable'; readonly why: Exclude<UnreadableHost, 'message'> };
+
+/**
+ * `status` or `stop`: one request, at most one response, then the socket is closed. Never throws for what the other
+ * side does: a daemon that is not there, one that answers, and one whose answer cannot be read are three outcomes.
+ * (Both requests have had the same shape in every published version.)
+ */
+export async function ctlAsk(path: string, request: Extract<CtlRequest, { op: 'status' | 'stop' }>, timeoutMs = RESPONSE_TIMEOUT_MS): Promise<CtlOutcome> {
+  let socket: Socket;
+  try {
+    socket = await connect(path, Math.min(CONNECT_TIMEOUT_MS, timeoutMs));
+  } catch (err) {
+    if (!(err instanceof ConnectFailure)) throw err;
+    // A connect that neither succeeds nor fails: a listener is there and takes no connection. Fail closed: alive.
+    return err.code === 'timeout' ? { kind: 'unreadable', why: 'no-answer' } : { kind: 'nothing' };
+  }
   try {
     socket.write(encodeCtlControl(request));
-    return await readResponse(socket, new CtlFrameDecoder(), timeoutMs, () => {});
+    return { kind: 'answer', response: await readResponse(socket, new CtlFrameDecoder(), timeoutMs, () => {}) };
+  } catch (err) {
+    if (err instanceof ResponseFailure) return { kind: 'unreadable', why: err.why };
+    throw err;
   } finally {
     socket.destroy();
   }
@@ -116,6 +190,8 @@ export class LocalWorkspaceChannel implements WorkspaceChannel {
   private readonly endListeners = new Set<(end: ChannelEnd) => void>();
   private ended: ChannelEnd | null = null;
   private closedReason: string | null = null;
+  /** Set when THIS side ends the attach because the daemon sent something it cannot read. */
+  private unreadable: ChannelEnd | null = null;
   private seq = 0;
   private lastSeq = 0;
   private unacked = 0;
@@ -129,13 +205,20 @@ export class LocalWorkspaceChannel implements WorkspaceChannel {
     this.welcome = welcome;
     socket.on('data', (chunk: Buffer) => this.onData(new Uint8Array(chunk)));
     socket.on('error', () => undefined);
-    socket.on('close', () => this.finish(this.closedReason === null ? { reason: 'disconnected', message: m('ctl.disconnected') } : { reason: endReason(this.closedReason), message: closedMessage(this.closedReason) }));
+    socket.on('close', () =>
+      this.finish(this.unreadable ?? (this.closedReason === null ? { reason: 'disconnected', message: m('ctl.disconnected') } : { reason: endReason(this.closedReason), message: closedMessage(this.closedReason) })),
+    );
     socket.resume();
   }
 
   /** Attaches to the daemon behind `path` as the host (the socket's file mode is the credential). */
   static async open(path: string, options: { readonly deviceName: string }): Promise<LocalWorkspaceChannel> {
-    const socket = await connect(path, CONNECT_TIMEOUT_MS);
+    let socket: Socket;
+    try {
+      socket = await connect(path, CONNECT_TIMEOUT_MS);
+    } catch (err) {
+      throw connectProblem(err);
+    }
     const decoder = new CtlFrameDecoder();
     let rest: Uint8Array[] = [];
     try {
@@ -144,18 +227,19 @@ export class LocalWorkspaceChannel implements WorkspaceChannel {
         rest = r;
       });
       if (!response.ok) throw new CliError(m('ctl.attachRefused', { reason: wireError(response.error) }));
-      if (response.op !== 'attach') throw new CliError(m('ctl.badResponse'));
+      if (response.op !== 'attach') throw otherVersionAttachError('not-understood');
       const channel = new LocalWorkspaceChannel(socket, decoder, response.welcome);
       for (const body of rest) channel.onEnvelope(body);
       return channel;
     } catch (err) {
       socket.destroy();
-      throw err;
+      // No answer, or one this command cannot read (the welcome of another version): said as that, at once.
+      throw err instanceof ResponseFailure ? otherVersionAttachError(err.why) : err;
     }
   }
 
   request<T extends InteractiveRequestType>(type: T, payload: PayloadInputOf<T>, options: RequestOptions = {}): Promise<ResultOf<T>> {
-    if (this.ended) return Promise.reject(new CliError(this.ended.message));
+    if (this.ended) return Promise.reject(this.endError(this.ended));
     const id = `${this.idPrefix}-${++this.ids}`;
     return new Promise<ResultOf<T>>((resolve, reject) => {
       const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
@@ -230,23 +314,37 @@ export class LocalWorkspaceChannel implements WorkspaceChannel {
     try {
       frames = this.decoder.push(chunk);
     } catch {
-      this.closedReason = 'protocol-error';
-      this.socket.destroy();
+      this.endUnreadable();
       return;
     }
     for (const frame of frames) {
+      if (this.ended) return;
       if (frame.kind !== CTL_FRAME_KIND.envelope) {
-        this.closedReason = 'protocol-error';
-        this.socket.destroy();
+        this.endUnreadable();
         return;
       }
       this.onEnvelope(frame.body);
     }
   }
 
+  /**
+   * The daemon sent something this command cannot decode (a frame, or an Envelope: a message type or a payload shape of
+   * another smurg version). The attach ends now, with the reason, instead of waiting for an answer that was dropped.
+   */
+  private endUnreadable(): void {
+    if (this.ended) return;
+    this.unreadable = { reason: 'protocol-error', message: otherVersionAttachText('message') };
+    this.finish(this.unreadable);
+    this.socket.destroy();
+  }
+
   private onEnvelope(body: Uint8Array): void {
+    if (this.ended) return;
     const decoded = decodeEnvelope(body, { from: 'daemon', channel: 'interactive' });
-    if (!decoded.ok) return;
+    if (!decoded.ok) {
+      this.endUnreadable();
+      return;
+    }
     const envelope = decoded.envelope as { type: string; id: string; seq: number; payload: unknown };
     if (envelope.seq > 0) {
       if (envelope.seq <= this.lastSeq) return; // a replay we already processed
@@ -290,13 +388,18 @@ export class LocalWorkspaceChannel implements WorkspaceChannel {
     }
   }
 
+  /** A request that cannot be answered any more; the "another version" end names the way out as its hint. */
+  private endError(end: ChannelEnd): CliError {
+    return new CliError(end.message, end === this.unreadable ? { hint: m('otherVersion.hint') } : {});
+  }
+
   private finish(end: ChannelEnd): void {
     if (this.ended) return;
     this.ended = end;
     if (this.ackTimer !== undefined) clearTimeout(this.ackTimer);
     for (const [, pending] of this.pending) {
       if (pending.timer !== undefined) clearTimeout(pending.timer);
-      pending.reject(new CliError(end.message));
+      pending.reject(this.endError(end));
     }
     this.pending.clear();
     for (const listener of [...this.endListeners]) listener(end);

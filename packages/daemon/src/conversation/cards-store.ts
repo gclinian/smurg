@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { opaqueIdSchema, permissionRequestSchema, questionSchema, type PermissionRequest, type Question } from '@smurg/protocol';
 import type { DaemonContext } from '../core/context.ts';
 import type { PersistentDocument } from '../core/interfaces.ts';
-import { readPrivateJson, writePrivateFileAtomic } from '../core/state-store.ts';
+import { declareDocument, readPrivateJson, writePrivateFileAtomic } from '../core/state-store.ts';
 import { isStubService } from '../core/stubs.ts';
 
 export const CARDS_FILE = 'cards.json';
@@ -45,6 +45,8 @@ const cardsIndexSchema = z.strictObject({
   sessions: z.array(opaqueIdSchema).max(INDEX_SESSIONS_MAX),
 });
 type CardsIndex = z.infer<typeof cardsIndexSchema>;
+/** cards.json of the workspace folder (the index; new in 0.5.0). Declared by the conversation module. */
+export const cardsIndexDocument = declareDocument({ name: CARDS_INDEX_DOCUMENT, schema: cardsIndexSchema, init: (): CardsIndex => ({ version: CARDS_VERSION, sessions: [] }) });
 
 export interface CardsLimits {
   /** Settled cards kept per session (open ones are always kept). */
@@ -93,7 +95,7 @@ export class CardsStore {
 
   /** Opens the index and loads the cards of every session it names that still exists. */
   async start(): Promise<void> {
-    this.index = await this.ctx.state.document(CARDS_INDEX_DOCUMENT, cardsIndexSchema, (): CardsIndex => ({ version: CARDS_VERSION, sessions: [] }));
+    this.index = await this.ctx.state.document(cardsIndexDocument.name, cardsIndexDocument.schema, cardsIndexDocument.init);
     if (isStubService(this.ctx.services.agents)) return;
     const stale: string[] = [];
     for (const sessionId of this.index.get().sessions) {

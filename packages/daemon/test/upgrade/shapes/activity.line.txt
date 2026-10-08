@@ -1,0 +1,45 @@
+: #1 object strict
+id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+at: number format=safeint [greater_than value=0 inclusive=true]
+actor: #2 union by kind
+actor<0>: #3 object strict
+actor<0>.kind: literal "user"
+actor<0>.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+actor<0>.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+actor<1>: #4 object strict
+actor<1>.kind: literal "agent"
+actor<1>.sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+actor<1>.ownerUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+actor<1>.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+actor<2>: #5 object strict
+actor<2>.kind: literal "system"
+kind: enum "agent.edit"|"human.edit"|"file.create"|"file.delete"|"file.rename"|"file.upload"|"external.change"|"conflict"|"lock.denied"|"merge"
+file: optional
+file: #6 object strict
+file.root: #7 union by kind
+file.root<0>: #8 object strict
+file.root<0>.kind: literal "main"
+file.root<1>: #9 object strict
+file.root<1>.kind: literal "worktree"
+file.root<1>.worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+file.path: pipe
+file.path|in: string [max_length maximum=16384]
+file.path|out: transform
+text: #10 object strict
+text.id: string [min_length minimum=1] [max_length maximum=80] [string_format format=regex pattern=^[a-z][A-Za-z0-9.]*$/]
+text.params: optional
+text.params: record [custom] [custom]
+text.params{key}: string [min_length minimum=1] [max_length maximum=32]
+text.params{}: #11 union
+text.params{}<0>: string [max_length maximum=1000]
+text.params{}<1>: number [custom]
+text.params{}<2>: boolean
+text.params{}<3>: array [max_length maximum=10]
+text.params{}<3>[]: string [max_length maximum=500]
+summary: string [min_length minimum=0] [max_length maximum=500] [custom]
+via: optional
+via: literal "bash"
+renamedFrom: optional
+renamedFrom: pipe
+renamedFrom|in: string [max_length maximum=16384]
+renamedFrom|out: transform

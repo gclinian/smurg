@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "shared": [
+    {
+      "folder": "/__SMURG_FIXTURE__/project",
+      "relay": "http://localhost:18740",
+      "workspaceId": "ws_x0ero8pS70bWM5G4VbZ1NA",
+      "createdAt": 1791377829732
+    }
+  ],
+  "joined": []
+}

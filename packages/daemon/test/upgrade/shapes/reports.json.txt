@@ -1,0 +1,110 @@
+: #1 object strict
+version: literal 1
+reports: array [max_length maximum=16000]
+reports[]: #2 object strict
+reports[].version: number format=safeint [greater_than value=1 inclusive=true]
+reports[].writtenAt: number format=safeint [greater_than value=0 inclusive=true]
+reports[].outcome: enum "complete"|"partial"|"blocked"
+reports[].state: enum "to-review"|"reviewed"|"changed-after-review"|"invalid"
+reports[].reviewers: array [max_length maximum=20]
+reports[].reviewers[]: #3 object strict
+reports[].reviewers[].userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+reports[].reviewers[].displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+reports[].escalatedAt: optional
+reports[].escalatedAt: number format=safeint [greater_than value=0 inclusive=true]
+reports[].review: optional
+reports[].review: #4 object strict
+reports[].review.by: the same as #3
+reports[].review.at: number format=safeint [greater_than value=0 inclusive=true]
+reports[].review.version: number format=safeint [greater_than value=1 inclusive=true]
+reports[].review.insteadOf: optional
+reports[].review.insteadOf: the same as #3
+reports[].checks: #5 object strict
+reports[].checks.passed: number format=safeint [greater_than value=0 inclusive=true]
+reports[].checks.notVerified: number format=safeint [greater_than value=0 inclusive=true]
+reports[].error: optional
+reports[].error: #6 object strict
+reports[].error.text: #7 object [custom] strict
+reports[].error.text.id: string [min_length minimum=1] [max_length maximum=80] [string_format format=regex pattern=^[a-z][A-Za-z0-9.]*$/]
+reports[].error.text.params: optional
+reports[].error.text.params: record [custom] [custom]
+reports[].error.text.params{key}: string [min_length minimum=1] [max_length maximum=32]
+reports[].error.text.params{}: #8 union
+reports[].error.text.params{}<0>: string [max_length maximum=1000]
+reports[].error.text.params{}<1>: number [custom]
+reports[].error.text.params{}<2>: boolean
+reports[].error.text.params{}<3>: array [max_length maximum=10]
+reports[].error.text.params{}<3>[]: string [max_length maximum=500]
+reports[].error.fallback: string [min_length minimum=0] [max_length maximum=1000] [custom]
+reports[].error.line: optional
+reports[].error.line: number format=safeint [greater_than value=1 inclusive=true]
+reports[].topicId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+reports[].itemId: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,39}$/]
+reports[].file: #9 object strict
+reports[].file.root: #10 union by kind
+reports[].file.root<0>: #11 object strict
+reports[].file.root<0>.kind: literal "main"
+reports[].file.root<1>: #12 object strict
+reports[].file.root<1>.kind: literal "worktree"
+reports[].file.root<1>.worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+reports[].file.path: pipe
+reports[].file.path|in: string [max_length maximum=16384]
+reports[].file.path|out: transform
+reports[].sections: #13 object strict
+reports[].sections.done: string [custom] [custom]
+reports[].sections.why: string [custom] [custom]
+reports[].sections.verified: array [max_length maximum=100]
+reports[].sections.verified[]: #14 object strict
+reports[].sections.verified[].text: string [min_length minimum=0] [max_length maximum=2000] [custom]
+reports[].sections.verified[].passed: boolean
+reports[].sections.verified[].note: optional
+reports[].sections.verified[].note: string [min_length minimum=0] [max_length maximum=2000] [custom]
+reports[].sections.watchOut: string [custom] [custom]
+reports[].sections.followUps: optional
+reports[].sections.followUps: string [custom] [custom]
+reports[].changes: optional
+reports[].changes: #15 object strict
+reports[].changes.requestId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+reports[].changes.files: number format=safeint [greater_than value=0 inclusive=true]
+reports[].changes.additions: number format=safeint [greater_than value=0 inclusive=true]
+reports[].changes.deletions: number format=safeint [greater_than value=0 inclusive=true]
+reports[].changes.byHand: array [max_length maximum=50]
+reports[].changes.byHand[]: #16 object strict
+reports[].changes.byHand[].path: pipe
+reports[].changes.byHand[].path|in: string [max_length maximum=16384]
+reports[].changes.byHand[].path|out: transform
+reports[].changes.byHand[].by: array [max_length maximum=20]
+reports[].changes.byHand[].by[]: the same as #3
+reports[].noChanges: optional
+reports[].noChanges: enum "host-only-paths"|"spec-files"|"conflict-markers"
+reports[].questions: array [max_length maximum=50]
+reports[].questions[]: #17 object strict
+reports[].questions[].text: string [custom] [custom]
+reports[].questions[].truncated: optional
+reports[].questions[].truncated: literal true
+reports[].questions[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+reports[].questions[].from: the same as #3
+reports[].questions[].at: number format=safeint [greater_than value=0 inclusive=true]
+reports[].questions[].answer: optional
+reports[].questions[].answer: #18 object strict
+reports[].questions[].answer.text: string [custom] [custom]
+reports[].questions[].answer.truncated: optional
+reports[].questions[].answer.truncated: literal true
+reports[].questions[].answer.at: number format=safeint [greater_than value=0 inclusive=true]
+reports[].contentHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+reports[].sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+reports[].waitingSince: number format=safeint [greater_than value=0 inclusive=true]
+reports[].pending: array [max_length maximum=100]
+reports[].pending[]: #19 object strict
+reports[].pending[].questionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+reports[].pending[].messageId: optional
+reports[].pending[].messageId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+reports[].pending[].suggestionId: optional
+reports[].pending[].suggestionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+reports[].pending[].question: optional
+reports[].pending[].question: #20 object strict
+reports[].pending[].question.from: the same as #3
+reports[].pending[].question.text: string [max_length maximum=65536]
+reports[].pending[].question.truncated: optional
+reports[].pending[].question.truncated: literal true
+reports[].pending[].question.at: number format=safeint [greater_than value=0 inclusive=true]

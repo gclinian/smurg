@@ -87,10 +87,12 @@ describe('activity.jsonl', () => {
     dirs.push(dir);
     await writeFile(join(dir, 'elsewhere.jsonl'), '', { mode: 0o600 });
     await symlink(join(dir, 'elsewhere.jsonl'), join(dir, 'activity.jsonl'));
-    await expect(new ActivityLogFile(join(dir, 'activity.jsonl'), { log: silentLogger }).open()).rejects.toThrow(/cannot open/);
+    // A refusal of the file has its kind (0.5.1): a symlink is `insecure`, never "cannot open" (which a chmod could not cure either).
+    await expect(new ActivityLogFile(join(dir, 'activity.jsonl'), { log: silentLogger }).open()).rejects.toMatchObject({ name: 'StateFileError', kind: 'insecure', cause: 'symlink', path: join(dir, 'activity.jsonl') });
     await mkdir(join(dir, 'open'), { mode: 0o700 });
     await writeFile(join(dir, 'open', 'activity.jsonl'), '', { mode: 0o644 });
     await expect(new ActivityLogFile(join(dir, 'open', 'activity.jsonl'), { log: silentLogger }).open()).rejects.toThrow(/group\/other/);
+    await expect(new ActivityLogFile(join(dir, 'open', 'activity.jsonl'), { log: silentLogger }).open()).rejects.toMatchObject({ kind: 'insecure', cause: 'mode', mode: 0o644 });
   });
 
   it('`at` is strictly increasing, also across a restart with a clock that went back', async () => {

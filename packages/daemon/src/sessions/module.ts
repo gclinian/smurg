@@ -10,10 +10,11 @@
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import { DisposableStack, toDisposable } from '../core/lifecycle.ts';
 import { AgentSessionsImpl } from './agent/agent-sessions.ts';
-import { HostRulesImpl } from './agent/host-rules.ts';
-import { ProjectTrustImpl } from './agent/project-settings.ts';
+import { HostRulesImpl, hostRulesDocument } from './agent/host-rules.ts';
+import { ProjectTrustImpl, claudeTrustDocument } from './agent/project-settings.ts';
+import { agentSessionsDocument } from './agent/store.ts';
 import { registerSessionHandlers } from './handlers.ts';
-import { SessionManagerImpl, type SessionsModuleOptions } from './session-manager.ts';
+import { SessionManagerImpl, liveSessionsDocument, type SessionsModuleOptions } from './session-manager.ts';
 
 interface Parts {
   readonly manager: SessionManagerImpl;
@@ -27,6 +28,7 @@ export function createSessionsModule(options: SessionsModuleOptions = {}): Featu
   const parts = new WeakMap<DaemonContext, Parts>();
   return {
     name: 'sessions',
+    documents: [liveSessionsDocument, hostRulesDocument, claudeTrustDocument, agentSessionsDocument],
     create: (ctx) => {
       const manager = new SessionManagerImpl(ctx, options);
       const trust = new ProjectTrustImpl(ctx);

@@ -44,7 +44,11 @@ function errnoCode(err: unknown): string | undefined {
   return typeof err === 'object' && err !== null && 'code' in err ? String((err as { code: unknown }).code) : undefined;
 }
 
-async function assertPrivateDirectory(dir: string): Promise<void> {
+/**
+ * Refuses a directory that is not a real directory owned by us without group/other access (KeyFileError
+ * 'insecure-directory'; 'missing' when it does not exist). Creates and changes nothing.
+ */
+export async function assertPrivateDirectory(dir: string): Promise<void> {
   let st;
   try {
     st = await lstat(dir);

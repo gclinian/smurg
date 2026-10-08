@@ -42,6 +42,7 @@ import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
 import type { AgentSessions, ClientConnection, MemberChange, MemberRecord, PersistentDocument, Principal, SessionAttachStart, SessionManager, UserId, UserTeardown } from '../core/interfaces.ts';
 import { SYSTEM_ACTOR, principalCan } from '../core/permissions.ts';
+import { declareDocument } from '../core/state-store.ts';
 import { isStubService } from '../core/stubs.ts';
 import type { AgentSessionsImpl } from './agent/agent-sessions.ts';
 import { freeRolePrompt } from './agent/prompts.ts';
@@ -130,6 +131,8 @@ const liveDocumentSchema = z.strictObject({
   procs: z.record(z.string().regex(SESSION_ID), z.array(liveProcessSchema).max(512)).optional(),
 });
 type LiveDocument = z.infer<typeof liveDocumentSchema>;
+/** sessions.json (no `version` key; the same shape since 0.4.0). Declared by the sessions module. */
+export const liveSessionsDocument = declareDocument({ name: LIVE_DOCUMENT, schema: liveDocumentSchema, init: (): LiveDocument => ({ live: [] }) });
 /** Sessions of a crashed run whose leftovers are looked for at start (bounded work before the daemon is up). */
 const MAX_LEFTOVER_SESSIONS = 64;
 
@@ -246,7 +249,7 @@ export class SessionManagerImpl implements SessionManager {
     await mkdir(stateDir, { recursive: true, mode: 0o700 });
     await mkdir(join(stateDir, 'sessions'), { recursive: true, mode: 0o700 });
     this.sessionsDir = await realpath(join(stateDir, 'sessions'));
-    this.liveDoc = await this.ctx.state.document(LIVE_DOCUMENT, liveDocumentSchema, () => ({ live: [] }));
+    this.liveDoc = await this.ctx.state.document(liveSessionsDocument.name, liveSessionsDocument.schema, liveSessionsDocument.init);
     // Terminals never survive the daemon: what a run that died hard left behind (its sessions' processes) goes now.
     await this.endLeftovers(this.liveDoc.get()).catch((err: unknown) => this.logError('ending the processes of a previous run failed', err));
     this.liveDoc.update((draft) => {

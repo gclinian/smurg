@@ -1,0 +1,49 @@
+{
+  "main": [
+    {
+      "rule": "Bash(git status)",
+      "source": "local"
+    },
+    {
+      "rule": "WebFetch(domain:docs.example.com)",
+      "source": "managed"
+    },
+    {
+      "rule": "Read(docs/**)",
+      "source": "project"
+    },
+    {
+      "rule": "Bash(ls *)",
+      "source": "user"
+    }
+  ],
+  "worktree": [
+    {
+      "rule": "Bash(git status)",
+      "source": "local"
+    },
+    {
+      "rule": "WebFetch(domain:docs.example.com)",
+      "source": "managed"
+    },
+    {
+      "rule": "Read(docs/**)",
+      "source": "project"
+    },
+    {
+      "rule": "Bash(ls *)",
+      "source": "user"
+    }
+  ],
+  "told": [
+    "local\u0000Bash(git status)",
+    "managed\u0000WebFetch(domain:docs.example.com)",
+    "project\u0000Read(docs/**)",
+    "user\u0000Bash(ls *)"
+  ],
+  "seen": false,
+  "foundAt": 1791389368694,
+  "notices": [
+    "subscription"
+  ]
+}

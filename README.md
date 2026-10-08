@@ -117,8 +117,8 @@ packages. Details: [`docs/HOSTING.md`](docs/HOSTING.md) §1.
 - To run agents, this computer also needs the `claude` command (Claude Code 2.1.288 or later), already logged in:
   every agent session uses that login. Carrying out work items needs the folder to be a git repository with at
   least one commit.
-- Update: `smurg update` (run `smurg stop` first while sharing; read the changelog first: this version does not read
-  the workspace state of an earlier one). Uninstall: `smurg uninstall` lists and removes the executable
+- Update: `smurg update` (run `smurg stop` first while sharing). Your workspaces are kept: the next `smurg host`
+  reads what the earlier version wrote, from 0.4.0 on, and carries it over (host guide §9.2). Uninstall: `smurg uninstall` lists and removes the executable
   `~/.local/bin/smurg`, `~/.smurg` (logins, keys, workspace state, conversations) and the cache directory (macOS:
   `~/Library/Caches/smurg`; Linux: `~/.cache/smurg`); it never touches the `.smurg/` folder inside a project
   ([`docs/HOSTING.md`](docs/HOSTING.md) §9).
@@ -263,7 +263,8 @@ repository's fake Anthropic API with a dummy key and an isolated configuration f
 of test files and tests a green run shows, how long it takes and the environments it was verified in are in
 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md), "How to run the gate" (the numbers change as features are added and are
 recorded only there). Skipped by default: `packages/cli/test/sea.test.ts` and `packages/cli/test/sea-update.test.ts`
-(they need the single executable to be built first, `SMURG_SEA_BINARY`) and the test of
+(they need the single executable to be built first, `SMURG_SEA_BINARY`), `packages/cli/test/sea-upgrade.test.ts`
+(it also needs the executables of the published versions, `SMURG_PREVIOUS_BINARIES`) and the test of
 `packages/cli/test/dev-stack.test.ts` that starts the whole stack (`SMURG_TEST_DEV_STACK=1`; the file's other test
 always runs); without a system Chrome or a verified version of `claude`, the tests that need them are skipped too,
 and the numbers differ. Temporary directories and processes that a test did not clean up (a crashed

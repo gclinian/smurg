@@ -6,6 +6,7 @@
 // is still running then: DEFAULT_FEATURE_MODULES stops docs before files) and ends the compute worker.
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import { DisposableStack } from '../core/lifecycle.ts';
+import { conflictsDocument } from './conflicts.ts';
 import { DocServiceImpl, type DocServiceOptions } from './doc-service.ts';
 import { registerDocHandlers } from './handlers.ts';
 
@@ -18,6 +19,7 @@ export function createDocsModule(options: DocServiceOptions = {}): FeatureModule
   };
   return {
     name: 'docs',
+    documents: [conflictsDocument],
     create: (ctx) => {
       const service = new DocServiceImpl(ctx, options);
       services.set(ctx, service);

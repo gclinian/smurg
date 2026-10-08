@@ -1,0 +1,11 @@
+{"v":1,"kind":"line","text":{"id":"conversation.started.item","params":{"number":1,"branch":"smurg/tiny-things/tiny-one"}},"fallback":"Started from plan item 1 in the worktree smurg/tiny-things/tiny-one","seq":1,"at":1791389446445}
+{"v":1,"kind":"smurg","messageId":"m_Key9gLSP3tUm3YX56_9Ymg","purpose":"start-item","text":"Start work item 1 (id tiny-one). Its title and description are in specs/tiny-things/PLAN.md. Responsible for this item: Host.","seq":2,"at":1791389446445}
+{"v":1,"kind":"delivery","messageId":"m_Key9gLSP3tUm3YX56_9Ymg","state":"queued","seq":3,"at":1791389446454}
+{"v":1,"kind":"notice","level":"warning","text":{"id":"session.projectSettings.untrusted"},"fallback":"The host has not confirmed this folder's Claude Code project settings. This session runs without them and without the project's CLAUDE.md.","action":"restart-agent","seq":4,"at":1791389446587}
+{"v":1,"kind":"delivery","messageId":"m_Key9gLSP3tUm3YX56_9Ymg","state":"started","seq":5,"at":1791389446590}
+{"v":1,"kind":"turn.started","turnId":"t_1","seq":6,"at":1791389446591}
+{"v":1,"kind":"text","turnId":"t_1","blockId":"b_1_1","text":"Working on the first tiny thing.","seq":7,"at":1791389446650}
+{"v":1,"kind":"turn.finished","turnId":"t_1","outcome":"interrupted","durationMs":2056,"seq":8,"at":1791389448646}
+{"v":1,"kind":"delivery","messageId":"m_Key9gLSP3tUm3YX56_9Ymg","state":"completed","seq":9,"at":1791389448648}
+{"v":1,"kind":"line","text":{"id":"conversation.owner.handover.kicked","params":{"name":"Sam"}},"fallback":"Sam was removed. This session was stopped and now runs for the host","seq":10,"at":1791389448673}
+{"v":1,"kind":"line","text":{"id":"conversation.responsible.fallback","params":{"name":"Sam"}},"fallback":"Sam can no longer be responsible. The host decides now","seq":11,"at":1791389448674}

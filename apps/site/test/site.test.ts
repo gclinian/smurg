@@ -70,7 +70,7 @@ describe('the built site', () => {
     for (const path of GENERATED_PAGES) expect(publicFiles(), path).not.toContain(path);
   });
 
-  it('public/ stays under 160 KB in total, and every page with everything it loads under 150 KB', () => {
+  it('public/ stays under 160 KB in total, and every page with everything it loads under 164 KB', () => {
     const total = publicFiles().reduce((sum, path) => sum + statSync(join(PUBLIC, path)).size, 0);
     expect(total).toBeLessThan(160 * 1024);
     const size = (path: string): number => testSite().files.get(path)?.length ?? Number.NaN;
@@ -79,9 +79,12 @@ describe('the built site', () => {
         .elements.filter((el) => (el.tag === 'link' && ['stylesheet', 'icon'].includes(el.attr('rel') ?? '')) || el.tag === 'script')
         .map((el) => (el.attr('href') ?? el.attr('src') ?? '').slice(1));
       const bytes = size(path) + loaded.reduce((sum, file) => sum + size(file), 0);
-      // The host guide is the longest page (0.5.0: about 98 KB in English); with the stylesheet it stays under the 150 KB below.
-      expect(size(path), `${path} itself`).toBeLessThan(104 * 1024);
-      expect(bytes, `${path} with ${loaded.join(', ')}`).toBeLessThan(150 * 1024);
+      // The host guide is the longest page (0.5.0: about 98 KB in English; 0.5.1: about 119 KB, since its §9 says
+      // what an update carries over, what every refusal of a workspace's state means and how to go back to a folder
+      // that was moved away). The page's bound follows the guide; with the stylesheet (35 KB), the script and the
+      // icon it stays under the 164 KB below, which was 150 KB until 0.5.1.
+      expect(size(path), `${path} itself`).toBeLessThan(128 * 1024);
+      expect(bytes, `${path} with ${loaded.join(', ')}`).toBeLessThan(164 * 1024);
     }
     // The notices are text, not a page: generous, but bounded.
     expect(size(NOTICES_FILE.slice(1))).toBeLessThan(2 * 1024 * 1024);

@@ -2,6 +2,7 @@
 export { nodeChaChaPolyDecrypt, nodeChaChaPolyEncrypt, nodeCryptoSuite, withNodeCryptoAead } from './aead.ts';
 export {
   KeyFileError,
+  assertPrivateDirectory,
   ensurePrivateDirectory,
   readKeyFile,
   writeKeyFile,

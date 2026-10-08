@@ -517,6 +517,30 @@ or the host's network is down. Once the host goes offline, everyone sees "Host o
   message that was still waiting for its agent ("Claude reads it when it starts again") is delivered then.
 - "Server unreachable" is something else: a network problem between you and the relay.
 
+**When smurg was updated: the screens about versions.** The page you use comes from the relay and is replaced there
+with each new version of smurg; the host's `smurg` is updated by the host. The two must speak the same protocol
+version, so around an update you may meet one of these screens. Each says who has to do something:
+
+- "This tab is from before an update": smurg was updated while your tab was open, and the tab still runs the page
+  from before. Reload the page. You stay a member and need no new invite link.
+- "The host's smurg is older than this page": your page is the newest one, and the host has not updated yet. There
+  is nothing for you to do but tell the host: the host stops sharing, runs `smurg update` and shares again (a host
+  who runs their own relay also deploys it again). Then reload the page.
+- "Incompatible versions": shown for the moment in which the page finds out which of the two it is, and when it
+  cannot ask the relay. It then names both steps: reload first, and if the page says the same again, the host has to
+  update.
+- "smurg was updated", in a column, in a panel or as the whole page, with the button "Reload the page": a part of
+  the page that your tab had not loaded yet was replaced by the update. Reload; if the host has not updated yet, the
+  page says so then.
+- "This browser's smurg key was written by a newer page": this browser was already used with a newer page of
+  smurg, and this tab is an older one. Nothing was changed. Reload the page to get the newer one.
+
+An update of the host's smurg keeps the workspace: its members, their roles and their devices are carried over,
+from 0.4.0 too. You do not join again, and you are not asked about the host's key. If you are asked about it after
+the host updated ("The host computer's key has changed"), check the fingerprint with the host as in §1: a host who
+went from 0.4.0 to 0.5.0 may have had to start the workspace anew, and may since have gone back to the earlier one.
+Since 0.5.0 the roles do more than they did in 0.4.0, and you have today's meaning of the role you had (§2).
+
 ## 9. Leaving a workspace: what ends
 
 "**Leave**" at the top right → confirm with "Leave".
@@ -591,6 +615,14 @@ only if you yourself just ran smurg in a terminal; if someone else gave you the 
   and asks whether to go on. Type `y` only if the invite link's fingerprint is the one the host sees with
   `smurg status`; any other input cancels, and nothing is sent. Outside a terminal (in a script, for example) it
   does not ask: add `--accept-new-key` once you have checked.
+- **When your `smurg` and the host's are different versions**, `smurg attach` cannot connect, and it says which side
+  has to do something. It asks smurg's download site which version is the newest. When a newer one than yours is
+  published: "a newer smurg (0.5.1) is published: update this one (smurg update), then connect again." When yours is
+  the newest: "The host's smurg is older than this one", and it is the host who stops sharing, runs `smurg update`
+  and shares again. When it cannot ask, it names both steps, yours first:
+  "This smurg and the host's smurg are different versions and cannot connect. First run smurg update here. If it says this is the latest version, the host's smurg is the older one: the host stops sharing, runs smurg update and shares again."
+  `smurg update` keeps this computer's device key and the workspaces you joined: you need no new invite link
+  afterwards.
 
 After joining:
 

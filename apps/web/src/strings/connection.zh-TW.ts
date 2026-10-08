@@ -63,7 +63,13 @@ export const zhTW = {
   'rejected.kicked.title': '你已被移出工作區',
   'rejected.kicked.body': '主人已將你移出這個工作區。若需要再次加入，請向主人索取新的邀請連結。',
   'rejected.version.title': '版本不相容',
-  'rejected.version.body': '這個網頁和主人電腦上的 smurg 版本不相容。請重新整理頁面；若問題持續，請主人更新 smurg。',
+  'rejected.version.body':
+    '這個網頁和主人電腦上的 smurg 版本不相容。請重新整理頁面。如果頁面還是這樣說，就是主人的 smurg 比這個網頁舊：請主人停止分享、執行 smurg update，再重新開始分享（自己架設 relay 的主人要重新部署 relay）；然後重新整理這個頁面。',
+  'rejected.version.checking': '正在確認這個分頁是不是最新的網頁…',
+  'rejected.version.stale.title': '這個分頁是更新之前開的',
+  'rejected.version.stale.body': '這個分頁開著的時候 smurg 更新了，分頁裡還是更新前的網頁。請重新整理頁面，換成新的網頁。',
+  'rejected.version.hostOlder.title': '主人的 smurg 比這個網頁舊',
+  'rejected.version.hostOlder.body': '請主人停止分享、執行 smurg update，再重新開始分享（自己架設 relay 的主人要重新部署 relay）。然後重新整理這個頁面。',
   'rejected.unknown.title': '主人拒絕了這次連線',
   'rejected.unknown.body': '主人的電腦拒絕了這次連線，但沒有說明原因。請稍後再試，或聯絡主人。',
 
@@ -81,6 +87,8 @@ export const zhTW = {
   'closed.no-trust.body': '請使用主人給你的邀請連結加入。邀請連結的格式是 https://…/join/…#k=…&s=…；請整段複製貼上，不要只複製「#」之前的部分。',
   'closed.storage-error.title': '無法讀寫裝置金鑰',
   'closed.storage-error.body': '瀏覽器無法使用這個網站的儲存空間（IndexedDB）。請確認沒有封鎖網站資料，或改用一般（非私密）視窗。',
+  'closed.newer-key.title': '這個瀏覽器的 smurg 金鑰是比較新的網頁寫的',
+  'closed.newer-key.body': '比較新的 smurg 網頁存了這個瀏覽器在這個工作區用的金鑰，這個分頁讀不懂它的格式。金鑰沒有被更動。請重新整理頁面，換成比較新的網頁。',
 
   'action.home': '回到首頁',
   'action.reload': '重新整理頁面',

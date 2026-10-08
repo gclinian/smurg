@@ -142,7 +142,8 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
   the quote lint (`tests/lint/docs-quotes.test.ts`) holds it to that. It is hidden below 720 px and shows one, two or
   three columns as the window widens. Keep its labels equal to the app's strings when the app changes them.
 - A new file in `public/` is served without running the Worker; `test/site.test.ts` lists the expected files (update
-  it on purpose). Only SVG images; `public/` stays under 160 KB, and every page with what it loads under 150 KB.
+  it on purpose). Only SVG images; `public/` stays under 160 KB, and every page with what it loads under 164 KB
+  (150 KB until 0.5.1: the host guide, the longest page, grew by its part on updating).
 - A new redirect goes into `src/routes.ts`, and its path into `run_worker_first` in `wrangler.jsonc` (the test fails
   otherwise), and into the table above.
 

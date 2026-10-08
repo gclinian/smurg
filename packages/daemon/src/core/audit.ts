@@ -22,7 +22,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { open, rename, type FileHandle } from 'node:fs/promises';
+import { rename, type FileHandle } from 'node:fs/promises';
 import {
   AUDIT_DETAIL_MAX_KEYS,
   AUDIT_TARGET_MAX_CHARS,
@@ -39,7 +39,8 @@ import type { AuditTextStore } from './audit-text.ts';
 import { AUDIT_FULL_TEXT_HEAD_CHARS, type AuditInput, type AuditLog, type AuditQuery } from './interfaces.ts';
 import { newId, toDisposable, type Clock, type Disposable } from './lifecycle.ts';
 import type { Logger } from './logger.ts';
-import { StateFileError } from './state-store.ts';
+import { openPrivateFile } from './private-file.ts';
+import { StateFileError } from './state-file-error.ts';
 
 function sha256Hex(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex');
@@ -266,25 +267,15 @@ function overflowPath(path: string): string {
   return path.endsWith('.jsonl') ? `${path.slice(0, -'.jsonl'.length)}-overflow.jsonl` : `${path}-overflow`;
 }
 
-/** Opens a log file and refuses a symlink, a foreign file or one with any group/other permission bit. */
+/**
+ * Opens a log file and refuses a symlink, a foreign file or one with any group/other permission bit (StateFileError:
+ * `insecure` with its cause, `cannot-open` with the errno; a file that is not there and is not created: `cannot-open`
+ * with ENOENT).
+ */
 async function openChecked(path: string, flags: number): Promise<FileHandle> {
-  let handle: FileHandle;
-  try {
-    handle = await open(path, flags | fsConstants.O_NOFOLLOW, 0o600);
-  } catch (cause) {
-    throw new StateFileError(path, 'cannot open the audit log', { cause });
-  }
-  try {
-    const st = await handle.stat();
-    const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
-    if (!st.isFile()) throw new StateFileError(path, 'audit log is not a regular file');
-    if (uid !== undefined && st.uid !== uid) throw new StateFileError(path, 'audit log is owned by another user');
-    if ((st.mode & 0o077) !== 0) throw new StateFileError(path, `audit log mode ${(st.mode & 0o777).toString(8)} grants group/other access`);
-    return handle;
-  } catch (err) {
-    await handle.close();
-    throw err;
-  }
+  const handle = await openPrivateFile(path, flags, { what: 'audit log' });
+  if (handle === null) throw new StateFileError({ kind: 'cannot-open', errno: 'ENOENT', path, message: 'cannot open the audit log (ENOENT)' });
+  return handle;
 }
 
 /**
@@ -312,8 +303,7 @@ async function lastEntryAt(handle: FileHandle): Promise<number | null> {
 }
 
 function isMissing(err: unknown): boolean {
-  const cause = err instanceof StateFileError ? (err as { cause?: unknown }).cause : err;
-  return typeof cause === 'object' && cause !== null && (cause as { code?: unknown }).code === 'ENOENT';
+  return err instanceof StateFileError ? err.kind === 'cannot-open' && err.errno === 'ENOENT' : typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'ENOENT';
 }
 
 /**

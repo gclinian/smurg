@@ -440,8 +440,14 @@ export type ClientHelloInput = z.input<typeof clientHelloSchema>;
 
 export type ClientHelloDecodeResult =
   | { readonly ok: true; readonly hello: ClientHello }
-  /** `version`: answer the verdict `version`; anything else: the verdict the daemon's policy picks for bad input. */
-  | { readonly ok: false; readonly reason: 'version' | 'malformed'; readonly error: SmurgError };
+  /**
+   * The peer speaks another protocol version: answer the verdict `version`. `peerProtocol` is the number in its hello
+   * (a safe integer, never equal to PROTOCOL_VERSION): the daemon is the only side that ever has both numbers, the
+   * verdict carries none.
+   */
+  | { readonly ok: false; readonly reason: 'version'; readonly peerProtocol: number; readonly error: SmurgError }
+  /** The verdict the daemon's policy picks for bad input. */
+  | { readonly ok: false; readonly reason: 'malformed'; readonly error: SmurgError };
 
 /** Validates and encodes a ClientHello. Never log the input: it contains the identity token. */
 export function encodeClientHello(hello: ClientHelloInput): Uint8Array {
@@ -470,6 +476,7 @@ export function decodeClientHello(bytes: Uint8Array): ClientHelloDecodeResult {
       return {
         ok: false,
         reason: 'version',
+        peerProtocol: version,
         error: failure('version', `protocol version ${version} is not supported (this peer speaks ${PROTOCOL_VERSION})`),
       };
     }

@@ -42,6 +42,8 @@ Read `docs/ARCHITECTURE.md` §0 before you write or run code. In short:
 6. Fail closed: hooks, path checks and permission checks deny when anything is uncertain.
 7. What smurg promises about an agent's limits is enforced by smurg's own code (the tool gate that runs before every
    tool call), never only by Claude Code's permission flow.
+8. What a published smurg wrote, every later smurg reads: no reset, no default, no lenient parse, and an upgrade
+   step is never removed (below: "When you change something smurg stores").
 
 `docs/ARCHITECTURE.md` §1 has the layout and which package may import which. The design of the topics flow, as it
 was written before the code, is in `docs/design/v0.5.0/`; where it and `docs/ARCHITECTURE.md` differ, the
@@ -64,6 +66,55 @@ its regular expressions, sorts and normalisations (`test/text-cost.test.ts` in `
 `packages/daemon` and `packages/cli`; `apps/web/test/text-cost.test.tsx`). A new one fails that test until the
 list follows: look at what it costs on a long run of one character first. A text whose length someone else chose
 is normalised only through `normalized` of `packages/protocol/src/normalize.ts`.
+
+### When you change something smurg stores
+
+People have workspaces that 0.4.0, 0.5.0 and every later version wrote, and the next version must open all of them
+(`docs/ARCHITECTURE.md` §0 rule 8 and §7.1, "What a published smurg wrote is read by every later one"). smurg 0.5.0
+broke this without anyone changing a stored file's own schema: three settings were added to a schema of the
+protocol package that `state.json` imports. So the rule is about what a stored file ACCEPTS, wherever that is
+written:
+
+- **What counts.** Every document a module declares (`declareDocument`), and everything else under a workspace's
+  folder: the lines of the audit log and of the activity feed, a session's `cards.json` and transcript, an upload's
+  manifest and journal, the stamp, the name of a kept copy. A stored shape changes when a key is added, removed or
+  renamed, when an optional key becomes required, when a union gains or loses a branch, and also when a RULE gets
+  tighter with no change of shape (a shorter limit, a stricter path check in `packages/protocol`).
+- **The test that stops you** is the pin, `packages/daemon/test/upgrade/pin.test.ts`. It holds a hash of every
+  source file of `packages/protocol` that a stored schema is built from, the shape of every stored schema as a text
+  file (`packages/daemon/test/upgrade/shapes/`), the frozen shapes byte for byte, and the source lines of the
+  formats that are no schema. When it fails it asks one question: does this change what a stored file accepts?
+- **If it does not** (a comment, a new export nothing stored uses, a rule for something that is never stored): take
+  the pins again in the same change, `SMURG_PIN_WRITE=1 pnpm --filter @smurg/daemon exec vitest run
+  test/upgrade/pin.test.ts` for the shape texts, and the new hashes in the test, and say in the pull request why
+  the answer is no.
+- **If it does**, the change comes with all of this:
+  1. a frozen copy of the shape the last published version wrote, in `packages/daemon/src/frozen/v<that
+     version>.ts`: literal, with its own scalar rules, importing zod and nothing else. A frozen file is never edited
+     again;
+  2. a step on the document (`defineStep({ from: '<that version>', shape, upgrade, sinceShapes })`). A step carries
+     every record, drops nothing without saying so, and gives a new security-relevant value its closed side as a
+     constant of the step (never today's default, which may change);
+  3. `WORKSPACE_SHAPES` raised by one (`packages/daemon/src/core/state-store.ts`), also for a file that is not a
+     document. An older smurg then refuses the folder as written by a newer one and tells the host to update; it
+     never tries to read it;
+  4. the new point named in `NOT_PUBLISHED_YET` (`packages/daemon/test/upgrade/fixtures.test.ts`) until a published
+     version's fixture holds it, and the pins taken again.
+- **Never**: a default in a stored schema, `.strip()` or `.passthrough()`, a "repair" that drops what does not
+  parse, a reset. Each of them was shown to let a removed member, a revoked device or a stranger with a used-up link
+  back in. A file that cannot be read is refused untouched, with a kind the command can word
+  (`StateFileError`).
+- **What you cannot change in a minor version**: the `version` of `~/.smurg/workspaces.json` and `credentials.json`
+  (the published versions erase a file whose version they do not know: add optional fields, or a new file), and what
+  the daemon sends on its control socket or on the wire (the published commands and pages read both strictly). A new
+  host setting is both a wire change and a stored-shape change (`docs/ARCHITECTURE.md` §7.1, "What 0.5.1 could not
+  repair").
+- **In the browser** the same holds for what a page stores (the device key and the recorded host keys in IndexedDB,
+  the panel settings in `localStorage`): a newer record is never replaced by an older page, and a key that is
+  renamed is carried once (`apps/web/src/app/workspace/layout.ts`, `packages/protocol/src/browser/key-stores.ts`).
+
+The fixtures of the published versions (`packages/daemon/test/fixtures/published/`) are never edited by hand; a
+release adds the one of its version (`docs/RELEASING.md` §4.5).
 
 ## Language
 

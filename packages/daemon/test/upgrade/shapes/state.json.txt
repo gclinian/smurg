@@ -1,0 +1,81 @@
+: #1 object strict
+version: literal 1
+workspaceId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{16,64}$/]
+members: array
+members[]: #2 object strict
+members[].userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+members[].displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+members[].avatarUrl: optional
+members[].avatarUrl: string [max_length maximum=2048] [custom]
+members[].role: enum "host"|"agent"|"editor"|"viewer"
+members[].color: string [string_format format=regex pattern=^#[0-9a-fA-F]{6}$/]
+members[].joinedAt: number format=safeint [greater_than value=0 inclusive=true]
+members[].lastSeenAt: number format=safeint [greater_than value=0 inclusive=true]
+members[].status: enum "active"|"kicked"
+members[].kickedAt: optional
+members[].kickedAt: number format=safeint [greater_than value=0 inclusive=true]
+devices: array
+devices[]: #3 object strict
+devices[].deviceId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+devices[].userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+devices[].publicKeyHex: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+devices[].name: string [min_length minimum=0] [max_length maximum=256] [custom]
+devices[].kind: enum "web"|"cli"
+devices[].addedAt: number format=safeint [greater_than value=0 inclusive=true]
+devices[].lastSeenAt: number format=safeint [greater_than value=0 inclusive=true]
+devices[].revoked: boolean
+devices[].revokedAt: optional
+devices[].revokedAt: number format=safeint [greater_than value=0 inclusive=true]
+devices[].inviteId: optional
+devices[].inviteId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+invites: array
+invites[]: #4 object strict
+invites[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+invites[].keyIdHex: string [string_format format=regex pattern=^[0-9a-f]{32}$/]
+invites[].pskHex: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+invites[].role: enum "host"|"agent"|"editor"|"viewer"
+invites[].boundUserId: optional
+invites[].boundUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+invites[].createdAt: number format=safeint [greater_than value=0 inclusive=true]
+invites[].createdBy: nullable
+invites[].createdBy: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+invites[].expiresAt: optional
+invites[].expiresAt: number format=safeint [greater_than value=0 inclusive=true]
+invites[].maxUses: optional
+invites[].maxUses: number format=safeint [greater_than value=1 inclusive=true]
+invites[].uses: number format=safeint [greater_than value=0 inclusive=true]
+invites[].revoked: boolean
+invites[].host: boolean
+settings: #5 object strict
+settings.humanLockIdleMs: number format=safeint [greater_than value=1000 inclusive=true] [less_than value=3600000 inclusive=true]
+settings.agentLockTimeoutMs: number format=safeint [greater_than value=1000 inclusive=true] [less_than value=600000 inclusive=true]
+settings.uploadChunkSize: number format=safeint [greater_than value=1048576 inclusive=true] [less_than value=8388608 inclusive=true]
+settings.sharedDirs: array [max_length maximum=64]
+settings.sharedDirs[]: pipe
+settings.sharedDirs[]|in: string [max_length maximum=16384]
+settings.sharedDirs[]|out: transform
+settings.diskReserveBytes: number format=safeint [greater_than value=0 inclusive=true]
+settings.diskReservePercent: number [greater_than value=0 inclusive=true] [less_than value=100 inclusive=true]
+settings.maxLiveAgents: number format=safeint [greater_than value=2 inclusive=true] [less_than value=32 inclusive=true]
+settings.escalateAfterMs: number format=safeint [greater_than value=60000 inclusive=true] [less_than value=3600000 inclusive=true]
+settings.agentMcp: boolean
+worktreeRoots: array
+worktreeRoots[]: #6 object strict
+worktreeRoots[].worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+worktreeRoots[].realPath: string [min_length minimum=1] [string_format format=starts_with pattern=^\/.*/]
+worktreeRoots[].ownerUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+worktreeRoots[].sharedLinks: array [max_length maximum=64]
+worktreeRoots[].sharedLinks[]: #7 object strict
+worktreeRoots[].sharedLinks[].path: pipe
+worktreeRoots[].sharedLinks[].path|in: string [max_length maximum=16384]
+worktreeRoots[].sharedLinks[].path|out: transform
+worktreeRoots[].sharedLinks[].mainPath: pipe
+worktreeRoots[].sharedLinks[].mainPath|in: string [max_length maximum=16384]
+worktreeRoots[].sharedLinks[].mainPath|out: transform
+worktreeRoots[].sharedLinks[].targetRealPath: string [min_length minimum=1] [string_format format=starts_with pattern=^\/.*/]
+worktreeRoots[].registeredAt: number format=safeint [greater_than value=0 inclusive=true]
+worktreeRoots[].item: optional
+worktreeRoots[].item: #8 object strict
+worktreeRoots[].item.topicId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+worktreeRoots[].item.topicSlug: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,47}$/]
+worktreeRoots[].item.itemId: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,39}$/]

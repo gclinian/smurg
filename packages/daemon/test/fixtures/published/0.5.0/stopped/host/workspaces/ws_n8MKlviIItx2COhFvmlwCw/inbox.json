@@ -1,0 +1,383 @@
+{
+  "version": 1,
+  "members": {
+    "dev:leo": {
+      "notes": [
+        {
+          "id": "nt_xlWPHyys7_d-luEHkMUyAQ",
+          "kind": "mention",
+          "at": 1791389340828,
+          "from": {
+            "kind": "user",
+            "userId": "dev:amy",
+            "displayName": "Amy"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_b9260011d245aee1f0443d43910c4cae"
+          },
+          "anchor": {
+            "cardId": "rq_Zc-EborEvfxrGWqYQfwfxA"
+          },
+          "excerpt": "@Leo invoices matter to schools. smurg-flow-COMMENT-0e6991005b4202ca8bb00dd3"
+        },
+        {
+          "id": "nt_5K_lcI9j4Zbv6HZbhjbLbA",
+          "kind": "mention",
+          "at": 1791389378968,
+          "from": {
+            "kind": "user",
+            "userId": "dev:erin",
+            "displayName": "Erin"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e"
+          },
+          "anchor": {
+            "cardId": "sug_BcDeIzPNTnJIRF_y7izOiw"
+          },
+          "excerpt": "@Leo rename the title"
+        },
+        {
+          "id": "nt_u7WF06abhAekmzn7Rhgm2g",
+          "kind": "mention",
+          "at": 1791389464707,
+          "from": {
+            "kind": "user",
+            "userId": "dev:amy",
+            "displayName": "Amy"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_cfa26c055e779736333790418b3ec33e"
+          },
+          "anchor": {
+            "cardId": "rq_4PydNEMC38D3tKA1V5EKQQ"
+          },
+          "excerpt": "@Leo readers without an account matter."
+        }
+      ],
+      "seen": {}
+    },
+    "dev:mei": {
+      "notes": [
+        {
+          "id": "nt_V5613pLQp8oYYYaz8YKtbQ",
+          "kind": "mention",
+          "at": 1791389464730,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_cfa26c055e779736333790418b3ec33e"
+          },
+          "anchor": {
+            "cardId": "rq_4PydNEMC38D3tKA1V5EKQQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {
+        "suggestion:ses_b9260011d245aee1f0443d43910c4cae.dev-amy": "sug_XQPGyEwNTXJdazu8YLY5eg"
+      }
+    },
+    "dev:bob": {
+      "notes": [
+        {
+          "id": "nt_9FFKz1-sVzkbI_BOIeNUtg",
+          "kind": "mention",
+          "at": 1791389376454,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e"
+          },
+          "anchor": {
+            "seq": 102
+          },
+          "excerpt": "@Bob look at this: tell bob the notes are ready."
+        },
+        {
+          "id": "nt_WYZsas5tbmfdAUqSLpZs0Q",
+          "kind": "mention",
+          "at": 1791389376638,
+          "from": {
+            "kind": "agent",
+            "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+            "ownerUserId": "dev:host",
+            "displayName": "Claude (Host)"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e"
+          },
+          "excerpt": "The notes are ready, Bob."
+        },
+        {
+          "id": "nt_ZhAPj3b3t-_U-AbOObrZsQ",
+          "kind": "mention",
+          "at": 1791389872972,
+          "from": {
+            "kind": "agent",
+            "sessionId": "ses_bb9948139dcea27fb014d172a6ac2350",
+            "ownerUserId": "dev:mei",
+            "displayName": "Claude (Mei)"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_bb9948139dcea27fb014d172a6ac2350"
+          },
+          "excerpt": "The notes are ready, Bob."
+        }
+      ],
+      "seen": {}
+    },
+    "dev:amy": {
+      "notes": [
+        {
+          "id": "nt_NDDinS46FAInbvSFMpDqDA",
+          "kind": "result",
+          "at": 1791389378545,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+          "suggestionId": "sug_b_jm0fMu2iKleg5N4n6FYQ",
+          "outcome": "rejected",
+          "excerpt": "delete the docs folder"
+        },
+        {
+          "id": "nt_Lfdk0DylGxJjL2v9kEIF0Q",
+          "kind": "result",
+          "at": 1791389378612,
+          "from": {
+            "kind": "user",
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+          "suggestionId": "sug_m_uvE--BMGjQMyTVQkqKaw",
+          "outcome": "rejected",
+          "excerpt": "delete the notes folder too"
+        },
+        {
+          "id": "nt_U031E7ZL7Z9ib6gc4SL2PQ",
+          "kind": "result",
+          "at": 1791389379412,
+          "from": {
+            "kind": "user",
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "sessionId": "ses_d7789ee40d953fa406bd278b4b078f3e",
+          "suggestionId": "sug__XRO78vx44-0J8c0fVeMsg",
+          "outcome": "accepted-edited",
+          "excerpt": "rename the shop"
+        },
+        {
+          "id": "nt_dgWgMPSo2jcmzwj4PDUOCQ",
+          "kind": "mention",
+          "at": 1791389464730,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_cfa26c055e779736333790418b3ec33e"
+          },
+          "anchor": {
+            "cardId": "rq_4PydNEMC38D3tKA1V5EKQQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    },
+    "dev:kate": {
+      "notes": [
+        {
+          "id": "nt_J6MURa7zovZC77ej0ePQcw",
+          "kind": "mention",
+          "at": 1791389417559,
+          "from": {
+            "kind": "user",
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_331f70ca381e272a98a0b71501d3b733"
+          },
+          "anchor": {
+            "seq": 17
+          },
+          "excerpt": "@Kate what about empty cards?"
+        },
+        {
+          "id": "nt_PBdU-EjNG8QlcP4I6u73-w",
+          "kind": "mention",
+          "at": 1791389461354,
+          "from": {
+            "kind": "user",
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_b51da5bfd5b51c2ec45df557babf32bf"
+          },
+          "anchor": {
+            "seq": 10
+          },
+          "excerpt": "@Kate and then add a share button."
+        },
+        {
+          "id": "nt_M-C-yDKPS4ch-kBwPVZpQg",
+          "kind": "mention",
+          "at": 1791389464730,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_cfa26c055e779736333790418b3ec33e"
+          },
+          "anchor": {
+            "cardId": "rq_4PydNEMC38D3tKA1V5EKQQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    },
+    "dev:noa": {
+      "notes": [
+        {
+          "id": "nt_XHjj3gmXjn1LPN_OA-KWKw",
+          "kind": "mention",
+          "at": 1791389464730,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_cfa26c055e779736333790418b3ec33e"
+          },
+          "anchor": {
+            "cardId": "rq_4PydNEMC38D3tKA1V5EKQQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    },
+    "dev:ruth": {
+      "notes": [
+        {
+          "id": "nt_uNaOP6cv5hlfPDWoCAtU1A",
+          "kind": "mention",
+          "at": 1791389464731,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_cfa26c055e779736333790418b3ec33e"
+          },
+          "anchor": {
+            "cardId": "rq_4PydNEMC38D3tKA1V5EKQQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    },
+    "dev:quinn": {
+      "notes": [
+        {
+          "id": "nt_t-RnvI21VFtlPLNoFvqVqw",
+          "kind": "mention",
+          "at": 1791389464731,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_cfa26c055e779736333790418b3ec33e"
+          },
+          "anchor": {
+            "cardId": "rq_4PydNEMC38D3tKA1V5EKQQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    },
+    "dev:gina": {
+      "notes": [
+        {
+          "id": "nt_7ol-2EVvmPr_kLz0WtDBcQ",
+          "kind": "mention",
+          "at": 1791389464731,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_cfa26c055e779736333790418b3ec33e"
+          },
+          "anchor": {
+            "cardId": "rq_4PydNEMC38D3tKA1V5EKQQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    },
+    "dev:frank": {
+      "notes": [
+        {
+          "id": "nt_4-8ZR751YDUAXmdomwWQXQ",
+          "kind": "mention",
+          "at": 1791389464731,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_cfa26c055e779736333790418b3ec33e"
+          },
+          "anchor": {
+            "cardId": "rq_4PydNEMC38D3tKA1V5EKQQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    }
+  }
+}

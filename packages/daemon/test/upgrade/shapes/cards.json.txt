@@ -1,0 +1,4 @@
+: #1 object strict
+version: literal 1
+sessions: array [max_length maximum=20000]
+sessions[]: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]

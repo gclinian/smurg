@@ -5,12 +5,14 @@ import { createContext, useContext, type ReactNode } from 'react';
 import type { PinStore } from '@smurg/protocol/client';
 import { browserConnect, createBrowserConnectionDeps, type KeyStorageStatus } from '../lib/connection/browser-deps.ts';
 import type { InviteStorage } from '../lib/invite/pending-invite.ts';
+import { askPageBuild, type PageBuild } from '../lib/page-build.ts';
 import { browserLocalStorage, createRecentWorkspaces, createThemeController, type RecentWorkspaces, type ThemeController } from '../lib/preferences.ts';
 import { createRelayAuthClient, type RelayAuthClient } from '../lib/relay/auth.ts';
 import { browserSessionHint } from '../lib/relay/session-hint.ts';
 import { createBrowserRouter, type Router } from '../lib/router.ts';
 import { createStore, type ReadableStore } from '../lib/store.ts';
 import { createWorkspaceManager, type WorkspaceManager } from '../lib/workspace/manager.ts';
+import { carryOldPanelSettings } from './workspace/layout.ts';
 
 export interface AppServices {
   readonly router: Router;
@@ -23,6 +25,8 @@ export interface AppServices {
   readonly recent: RecentWorkspaces;
   readonly theme: ThemeController;
   readonly keyStorage: ReadableStore<KeyStorageStatus>;
+  /** Asks the relay whether it still serves the page this tab runs (after a `version` refusal: lib/page-build.ts). */
+  readonly pageBuild: () => Promise<PageBuild>;
 }
 
 const AppServicesContext = createContext<AppServices | null>(null);
@@ -47,6 +51,8 @@ function browserSessionStorage(): InviteStorage | null {
 
 /** The real thing, for main.tsx. */
 export function createBrowserServices(): AppServices {
+  // Before anything reads a panel setting: what a browser that ran smurg 0.4.0 still holds (workspace/layout.ts).
+  carryOldPanelSettings(browserLocalStorage());
   const deps = createBrowserConnectionDeps();
   const auth = createRelayAuthClient({ relay: deps.relay, origin: window.location.origin, hint: browserSessionHint() });
   const connect = browserConnect(deps);
@@ -69,10 +75,11 @@ export function createBrowserServices(): AppServices {
     recent: createRecentWorkspaces(browserLocalStorage()),
     theme: createThemeController(),
     keyStorage: deps.keyStorage,
+    pageBuild: () => askPageBuild(),
   };
 }
 
 /** A key storage status that never changes (tests, previews). */
 export function staticKeyStorage(persistent: boolean | null = true): ReadableStore<KeyStorageStatus> {
-  return createStore<KeyStorageStatus>({ persistent });
+  return createStore<KeyStorageStatus>({ persistent, newerRecord: false });
 }

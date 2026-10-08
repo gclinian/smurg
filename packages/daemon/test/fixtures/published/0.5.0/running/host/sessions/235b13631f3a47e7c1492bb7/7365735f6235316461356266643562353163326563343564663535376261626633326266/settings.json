@@ -1,0 +1,223 @@
+{
+  "disableAllHooks": false,
+  "env": {
+    "CLAUDE_CODE_SAFE_MODE": "0",
+    "CLAUDE_CODE_SIMPLE": "0"
+  },
+  "disableDeepLinkRegistration": "disable",
+  "crossSessionInbound": "refuse",
+  "permissions": {
+    "allow": [
+      "mcp__smurg"
+    ],
+    "ask": [],
+    "deny": [
+      "ListAgents",
+      "Read(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/.envrc)",
+      "Read(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/**/.envrc)",
+      "Read(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/.git/**)",
+      "Read(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/**/.git/**)",
+      "Read(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/.claude/settings.local.json)",
+      "Read(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/**/.claude/settings.local.json)",
+      "Read(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/CLAUDE.local.md)",
+      "Read(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/**/CLAUDE.local.md)",
+      "Edit(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/.claude/**)",
+      "Edit(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/**/.claude/**)",
+      "Edit(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/.git/**)",
+      "Edit(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/**/.git/**)",
+      "Edit(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/.mcp.json)",
+      "Edit(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/**/.mcp.json)",
+      "Edit(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/specs/wishlist/SPEC.md)",
+      "Edit(//__SMURG_FIXTURE__/project/.smurg/worktrees/wt_7067b78f3b67883c10e4491b/specs/wishlist/PLAN.md)"
+    ],
+    "disableBypassPermissionsMode": "disable",
+    "defaultMode": "acceptEdits"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/__SMURG_FIXTURE__/node",
+            "args": [
+              "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+              "hook"
+            ],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/__SMURG_FIXTURE__/node",
+            "args": [
+              "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+              "hook",
+              "bash-activity"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/__SMURG_FIXTURE__/node",
+            "args": [
+              "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+              "hook"
+            ],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/__SMURG_FIXTURE__/node",
+            "args": [
+              "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+              "hook",
+              "bash-activity"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/__SMURG_FIXTURE__/node",
+            "args": [
+              "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+              "hook"
+            ],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/__SMURG_FIXTURE__/node",
+            "args": [
+              "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+              "hook",
+              "bash-activity"
+            ],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/__SMURG_FIXTURE__/node",
+            "args": [
+              "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+              "hook"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/__SMURG_FIXTURE__/node",
+            "args": [
+              "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+              "hook"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/__SMURG_FIXTURE__/node",
+            "args": [
+              "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+              "hook"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/__SMURG_FIXTURE__/node",
+            "args": [
+              "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+              "hook"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/__SMURG_FIXTURE__/node",
+            "args": [
+              "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+              "hook"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "FileChanged": [
+      {
+        "matcher": ".gitignore|.mcp.json|README.md|conflict.txt|feature.txt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/__SMURG_FIXTURE__/node",
+            "args": [
+              "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+              "hook"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

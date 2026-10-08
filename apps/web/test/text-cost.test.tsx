@@ -789,14 +789,19 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
  *   - lib/format.ts holds the one collator, reached through compareText only, which cuts long runs of marks first
  *     (the protocol's withFewMarks); ids are ordered by their UTF-16 units (compareIds), never by `localeCompare`;
  *   - a dropped file's path is normalised by the protocol's `normalized` (features/transfer/engine/collect.ts);
- *   - lib/router.ts and lib/relay/auth.ts parse the app's own paths and origin, features/transfer/client a literal.
+ *   - lib/router.ts and lib/relay/auth.ts parse the app's own paths and origin, features/transfer/client a literal;
+ *   - lib/page-build.ts parses the `src` of a script of the app's own page (this document's, and the relay's `/`), at
+ *     most 2,048 characters of it; lib/chunks.ts parses one word of the BROWSER's own message for a failed import,
+ *     cut from at most 2,000 characters of it. Neither is a text a member or an agent wrote.
  * A NEW call changes this list: before changing it, bound what the call is handed and add its function to LOOKS.
  */
 const UNBOUNDED = /\.normalize\(|\blocaleCompare\b|\bIntl\.(?:Collator|Segmenter)\b|\bnew URL\(/g;
 const UNBOUNDED_CALLS: Readonly<Record<string, readonly string[]>> = {
   'features/markdown/links.ts': ['new URL(', '.normalize(', 'new URL('],
   'features/transfer/client/transfer-client.ts': ['new URL('],
+  'lib/chunks.ts': ['new URL('],
   'lib/format.ts': ['Intl.Collator', 'Intl.Collator'],
+  'lib/page-build.ts': ['new URL('],
   'lib/relay/auth.ts': ['new URL(', 'new URL(', 'new URL('],
   'lib/router.ts': ['new URL('],
   'lib/xterm.ts': ['new URL('],

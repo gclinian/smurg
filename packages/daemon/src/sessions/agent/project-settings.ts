@@ -63,6 +63,7 @@ import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../../core/context.ts';
 import type { AttentionFact, FileChange, PersistentDocument, Principal, ProjectTrust, Req, Res } from '../../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../../core/lifecycle.ts';
+import { declareDocument } from '../../core/state-store.ts';
 import { UNKNOWN_PART, programName, programWords, scanShell, type ShellWord } from '../../core/shell-scan.ts';
 
 type ClaudeConfigFile = Res<'admin.claudeConfig.get'>['roots'][number]['files'][number];
@@ -91,6 +92,8 @@ const documentSchema = z.strictObject({
   loaded: z.strictObject({ trusted: z.array(z.string().regex(HEX)).max(LOADED_KEYS_MAX), ignored: z.array(z.string().regex(HEX)).max(LOADED_KEYS_MAX) }),
 });
 type TrustDocument = z.infer<typeof documentSchema>;
+/** claude-trust.json (no `version` key; new in 0.5.0): the host's decisions about a project's Claude Code settings. Declared by the sessions module. */
+export const claudeTrustDocument = declareDocument({ name: 'claude-trust', schema: documentSchema, init: (): TrustDocument => ({ decisions: [], loaded: { trusted: [], ignored: [] } }) });
 type Decision = z.infer<typeof decisionSchema>;
 
 /** A project settings file larger than this is never trusted (it cannot be shown whole). */
@@ -641,7 +644,7 @@ export class ProjectTrustImpl implements ProjectTrust {
   }
 
   async start(): Promise<void> {
-    this.doc = await this.ctx.state.document('claude-trust', documentSchema, () => ({ decisions: [], loaded: { trusted: [], ignored: [] } }));
+    this.doc = await this.ctx.state.document(claudeTrustDocument.name, claudeTrustDocument.schema, claudeTrustDocument.init);
     this.since = this.ctx.clock.now();
     await this.refresh(MAIN_ROOT).catch(() => null);
   }

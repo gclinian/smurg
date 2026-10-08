@@ -1,13 +1,13 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from '../App.tsx';
-import { createTestServices, type TestServices } from '../../testing/services.tsx';
+import { createTestServices, type TestServices, type TestServicesOptions } from '../../testing/services.tsx';
 import { WORKSPACE_ID, makeMember, makeWelcome, presenceOf } from '../../testing/fixtures.ts';
 import type { FakeConnection } from '../../testing/fake-connection.ts';
 
-async function openWorkspace(path = `/w/${WORKSPACE_ID}`): Promise<{ services: TestServices; conn: FakeConnection }> {
-  const services = createTestServices({ path });
+async function openWorkspace(path = `/w/${WORKSPACE_ID}`, doubles: Omit<TestServicesOptions, 'path'> = {}): Promise<{ services: TestServices; conn: FakeConnection }> {
+  const services = createTestServices({ path, ...doubles });
   render(<App services={services} />);
   // The workspace routes are a lazy chunk that grows with every feature: its cold import alone can take seconds on a
   // loaded machine, so wait for it generously (the default 1 s timed out under load).
@@ -136,6 +136,77 @@ describe('connection states in the UI', () => {
     const { conn } = await openWorkspace();
     act(() => conn.setState({ kind: 'rejected', reason: 'device-revoked' }));
     expect(await screen.findByRole('heading', { name: 'This device can no longer connect' })).toBeTruthy();
+  });
+
+  // The refusal itself says only `version`. The page asks the relay whether it still serves this tab's page and says
+  // which side has to act; a refusal is final until the page is reloaded, so every answer names the reload.
+  it('refused for its version, and the relay serves another page by now: this tab is from before an update, and Reload is the way out', async () => {
+    const { conn } = await openWorkspace(undefined, { pageBuild: () => Promise.resolve('stale') });
+    act(() => conn.setState({ kind: 'rejected', reason: 'version' }));
+    expect(await screen.findByRole('heading', { name: 'This tab is from before an update' })).toBeTruthy();
+    const ended = screen.getByTestId('connection-ended-screen');
+    expect(ended.textContent).toContain('Reload the page to get the new one.');
+    expect(within(ended).getByRole('button', { name: 'Reload the page' })).toBeTruthy();
+    expect(ended.textContent).not.toContain('smurg update');
+  });
+
+  it("refused for its version, and this tab runs the current page: the host's smurg is the older side; what the host does, and then a reload of this page", async () => {
+    const { conn } = await openWorkspace(undefined, { pageBuild: () => Promise.resolve('current') });
+    act(() => conn.setState({ kind: 'rejected', reason: 'version' }));
+    expect(await screen.findByRole('heading', { name: "The host's smurg is older than this page" })).toBeTruthy();
+    const ended = screen.getByTestId('connection-ended-screen');
+    expect(ended.textContent).toContain('The host stops sharing, runs smurg update and shares again (a host who runs their own relay deploys the relay again). Then reload this page.');
+    expect(within(ended).getByRole('button', { name: 'Reload the page' })).toBeTruthy();
+  });
+
+  it('refused for its version: while the relay is asked the page says so, and when it cannot be asked the page names both steps', async () => {
+    let answer: (build: 'unknown') => void = () => {};
+    const asked: number[] = [];
+    const { conn } = await openWorkspace(undefined, {
+      pageBuild: () => {
+        asked.push(asked.length);
+        return new Promise((resolve) => {
+          answer = resolve;
+        });
+      },
+    });
+    act(() => conn.setState({ kind: 'rejected', reason: 'version' }));
+    expect(await screen.findByRole('heading', { name: 'Incompatible versions' })).toBeTruthy();
+    expect(screen.getByText('Checking whether this tab runs the newest page…')).toBeTruthy();
+    await act(async () => answer('unknown'));
+    expect(screen.getByRole('heading', { name: 'Incompatible versions' })).toBeTruthy();
+    expect(screen.getByText(/Reload the page\. If the page says this again, the host's smurg is older than the page/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reload the page' })).toBeTruthy();
+    // Asked once for the refusal, not on every render.
+    expect(asked).toHaveLength(1);
+  });
+
+  it('the relay is asked only for a version refusal', async () => {
+    const asked: number[] = [];
+    const { conn } = await openWorkspace(undefined, {
+      pageBuild: () => {
+        asked.push(1);
+        return Promise.resolve('stale');
+      },
+    });
+    act(() => conn.setState({ kind: 'rejected', reason: 'device-revoked' }));
+    expect(await screen.findByRole('heading', { name: 'This device can no longer connect' })).toBeTruthy();
+    expect(asked).toEqual([]);
+  });
+
+  it("the browser's key was written by a newer page: the page says so and offers the reload; the plain storage error keeps its words", async () => {
+    const newer = await openWorkspace(undefined, { keyStorage: { persistent: true, newerRecord: true } });
+    act(() => newer.conn.setState({ kind: 'closed', reason: 'storage-error' }));
+    expect(await screen.findByRole('heading', { name: "This browser's smurg key was written by a newer page" })).toBeTruthy();
+    const ended = screen.getByTestId('connection-ended-screen');
+    expect(ended.textContent).toContain('Nothing was changed. Reload the page to get the newer one.');
+    expect(within(ended).getByRole('button', { name: 'Reload the page' })).toBeTruthy();
+    cleanup();
+
+    const plain = await openWorkspace();
+    act(() => plain.conn.setState({ kind: 'closed', reason: 'storage-error' }));
+    expect(await screen.findByRole('heading', { name: 'Cannot read or write the device key' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Reload the page' })).toBeNull();
   });
 
   it('rejected: a browser that joined as another account is told so, and what to do about it', async () => {

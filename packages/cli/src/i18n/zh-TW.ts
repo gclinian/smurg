@@ -1,6 +1,6 @@
 // The CLI's own messages in Traditional Chinese (zh-TW): the same ids and parameters as en.ts (checked by type and by
 // test/i18n.test.ts). The wording is the one smurg has always used; it changes only where a sentence became false.
-import type { ClaudeLogin, ClaudeVerdict, DurationUnit, ProjectSettings, RelayAction, StateSubject, UrlSubject, en } from './en.ts';
+import type { ClaudeLogin, ClaudeVerdict, DurationUnit, ProjectSettings, RelayAction, StateSubject, UnreadableHost, UrlSubject, VersionedStateFile, en } from './en.ts';
 
 const STATE_SUBJECT: Readonly<Record<StateSubject, string>> = {
   credentials: '登入資料檔（credentials.json）',
@@ -8,6 +8,18 @@ const STATE_SUBJECT: Readonly<Record<StateSubject, string>> = {
   logs: '紀錄檔目錄',
   'daemon-key': 'daemon 的金鑰或狀態目錄',
   'device-key': '這台裝置的金鑰（device.key）',
+};
+
+const BAD_FORMAT_NEXT: Readonly<Record<VersionedStateFile, string>> = {
+  credentials: '否則請把這個檔案移到別處，再重新登入（smurg login）。',
+  workspaces: '否則請修好它，或把備份放回來：它記錄每個分享的資料夾對應哪個工作區，沒有它，smurg host 會幫資料夾建立新的工作區（成員、邀請連結、daemon 金鑰都是新的）。',
+};
+
+const UNREADABLE_HOST: Readonly<Record<UnreadableHost, string>> = {
+  'no-answer': '它沒有回應',
+  'not-understood': '它的回應這個 smurg 讀不懂',
+  closed: '它沒有回應就關閉了連線',
+  message: '它送來這個 smurg 讀不懂的訊息',
 };
 
 const URL_SUBJECT: Readonly<Record<UrlSubject, string>> = {
@@ -46,6 +58,26 @@ const PROJECT_SETTINGS: Readonly<Record<ProjectSettings, string>> = {
   ignored: '尚未確認（agent 不會載入；請在網頁上確認）',
   none: '這個資料夾沒有',
 };
+
+const ERRNO_WORDS: Readonly<Record<string, string>> = {
+  EACCES: '沒有權限',
+  EPERM: '系統不允許',
+  EIO: '讀寫發生錯誤，磁碟可能有問題',
+  ENOSPC: '磁碟空間不足',
+  EDQUOT: '磁碟配額已用完',
+  EROFS: '檔案系統是唯讀的',
+  EISDIR: '它是一個資料夾',
+  ENOTDIR: '路徑裡有一段不是資料夾',
+  EMFILE: '開啟的檔案太多',
+  ENFILE: '開啟的檔案太多',
+  EBUSY: '檔案正在使用中',
+  ENOENT: '找不到',
+  EEXIST: '已經有同名的檔案',
+  ELOOP: '符號連結太多層',
+  ENAMETOOLONG: '路徑太長',
+};
+
+const GUIDE_UPDATING = 'https://smurg.ai/zh-TW/docs/hosting/#9-更新與移除';
 
 const UNCHANGED = 'smurg 沒有被更動。';
 
@@ -103,7 +135,9 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'state.noAccess': (p) => `無法存取${STATE_SUBJECT[p.subject]}（${p.code}）`,
   'state.tooLarge': (p) => `${STATE_SUBJECT[p.subject]}太大，可能已損毀：${p.path}`,
   'state.badFormat': (p) => `${STATE_SUBJECT[p.subject]}的格式不正確：${p.path}`,
-  'state.badFormat.hint': () => '可以刪除這個檔案後重新執行（需要重新登入或重新分享）。',
+  'state.badFormat.hint': (p) => `沒有更動任何東西。如果這台電腦用過較新版的 smurg，請執行 smurg update。${BAD_FORMAT_NEXT[p.file]}`,
+  'state.newer': (p) => `${STATE_SUBJECT[p.subject]}是較新版的 smurg 寫的（這個 smurg 是 ${p.current}）：${p.path}`,
+  'state.newer.hint': () => '請執行 smurg update。沒有更動任何東西。',
   'state.workspaceId': (p) => `工作區 ID 不正確：${p.id}`,
   'state.socketPathTooLong': (p) => `smurg 的狀態目錄路徑太長，Unix socket 放不下：${p.path}`,
   'state.socketPathTooLong.hint': () => '請把 SMURG_HOME 設成較短的路徑。',
@@ -185,7 +219,10 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'channel.rejected.deviceRevoked': () => '這台裝置的金鑰已被撤銷（可能被移出工作區），請向主人索取新的邀請連結。',
   'channel.rejected.deviceOtherAccount': () => '這台裝置先前用另一個帳號加入過這個工作區，不能改用現在登入的帳號連線。請用原本的帳號重新登入（smurg login），或改用另一個 SMURG_HOME。',
   'channel.rejected.identityInvalid': () => 'relay 的身分權杖驗證失敗，請重新登入後再試。',
-  'channel.rejected.version': () => 'smurg 版本和主人的不相容，請更新。',
+  'channel.rejected.version': () =>
+    '這個 smurg 和主人的 smurg 版本不同，無法連線。請先在這台電腦執行 smurg update；如果它說已經是最新版本，就是主人的 smurg 比較舊：請主人停止分享、執行 smurg update，再重新分享。',
+  'channel.rejected.version.updateHere': (p) => `這個 smurg（${p.current}）和主人的 smurg 版本不同，無法連線，而且已經有更新的版本（${p.latest}）：請更新這個 smurg（smurg update），再重新連線。`,
+  'channel.rejected.version.hostOlder': (p) => `主人的 smurg 比這個（${p.current}，目前沒有更新的版本）舊：請主人停止分享、執行 smurg update，再重新分享；然後你再重新連線。`,
   'channel.rejected.aborted': () => '主人不認得這個邀請連結，請確認連結是否完整。',
   'channel.rejected.unknown': () => '主人拒絕了連線。',
   'channel.closed.loginRequired': () => 'relay 的登入已失效，請執行 smurg login 重新登入。',
@@ -195,15 +232,13 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'channel.hostOffline': () => '主人目前離線（smurg host 沒有在執行，或主人的電腦在睡眠）。',
   'channel.relayUnreachable': () => '無法連線到 relay。',
   'channel.timeout': () => '連線逾時，無法加入工作區。',
-  'ctl.connectTimeout': () => 'smurg host 沒有回應（控制 socket 連線逾時）',
   'ctl.notRunning': () => '這個工作區沒有正在執行的 smurg host',
   'ctl.connectFailed': (p) => `無法連線到 smurg host 的控制 socket（${p.code}）`,
-  'ctl.requestTimeout': () => 'smurg host 沒有回應（控制請求逾時）',
-  'ctl.badResponse': () => 'smurg host 的回應格式不正確',
-  'ctl.closedEarly': () => 'smurg host 在回應前關閉了連線',
   'ctl.disconnected': () => '與 smurg host 的連線中斷了。',
   'ctl.attachRefused': (p) => `smurg host 拒絕了連線：${p.reason}`,
   'ctl.noAnswer': (p) => `smurg host 沒有回應（${p.type}）`,
+  'otherVersion.hint': () => '請先停止它（smurg stop，或到執行 smurg host 的終端機按 Ctrl-C），再用 smurg host 重新啟動。',
+  'attach.otherVersion': (p) => `這裡正由另一個版本的 smurg 分享（這個 smurg 是 ${p.current}）：${UNREADABLE_HOST[p.why]}`,
   'discover.notRunningFor': (p) => `工作區 ${p.workspaceId} 沒有正在執行的 smurg host`,
   'discover.notRunning': () => '沒有正在執行的 smurg host',
   'discover.several': () => '有多個工作區正在分享，請用 --workspace 指定',
@@ -354,15 +389,86 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'host.locked.ancestor': () => '這個資料夾的上層資料夾已經在分享中',
   'host.locked.shared': () => '這個資料夾已經在分享中（可能是另一個 relay 或另一個 smurg 狀態目錄）',
   'host.locked.hint': () => '同一個資料夾同時只能由一個 smurg host 分享。用 smurg status 查看，或先停止另一個分享。',
-  'host.stateFile': () => '這個工作區的狀態檔是別的 smurg 版本寫的，或不是預期的格式，daemon 拒絕啟動',
-  'host.stateFile.hint': (p) =>
-    `哪個檔案、什麼原因記在紀錄檔 ${p.logPath}。\n  ` +
-    `要重新分享：先把 ${p.workspaceDir} 移到別的地方（例如 mv "${p.workspaceDir}" "${p.workspaceDir}.old"），再執行一次 smurg host。` +
-    '這會建立新的工作區狀態：之前的成員和邀請連結都不再有效，組員要用新的邀請連結重新加入。\n  ' +
-    'daemon 金鑰也會換新，加入過的組員會看到「主人的電腦金鑰和之前不同」：請把 smurg status 顯示的新金鑰指紋用其他管道（當面、電話）告訴他們。',
+  // ---- smurg host 不開啟的工作區狀態（0.5.1）：每一種拒絕各有一段文字，都寫出是哪個檔案、什麼原因，也都說明沒有更動任何東西。
+  'host.lines': (p) => p.lines.join('\n  '),
+  'host.unchanged': () => '沒有更動任何東西。',
+  'host.refused.all': (p) => `全部是：${p.paths.join('、')}`,
+  'host.newer': (p) =>
+    p.writtenBy === undefined
+      ? `這個工作區上次是用比這個 smurg（${p.current}）更新的版本分享的，這個 smurg 讀不了它寫的東西：${p.path}`
+      : `這個工作區上次是用 smurg ${p.writtenBy} 分享的，它比這個 smurg（${p.current}）新，這個 smurg 讀不了它寫的東西：${p.path}`,
+  'host.newer.update': (p) => `請執行 smurg update（已經有 ${p.latest} 版），再執行一次 smurg host。`,
+  'host.newer.maybe': () => '請執行 smurg update，再執行一次 smurg host。如果 smurg update 說已經是最新版本，表示上次寫入這個資料夾的 smurg 是這台電腦用 smurg update 拿不到的版本：請用寫入它的那個 smurg 來分享。',
+  'host.newer.newest': (p) =>
+    `smurg update 幫不上忙：${p.current} 已經是發佈過的最新版本。上次寫入這個資料夾的 smurg 是這台電腦用 smurg update 拿不到的版本（沒有發佈過的版本，或是從別台電腦複製來的資料夾）：請用寫入它的那個 smurg 來分享。`,
+  'host.newer.stamp': (p) => (p.writtenBy === undefined ? `這個資料夾裡沒有可用的檔案記下是哪個版本寫的（${p.stamp}）。` : `記下是哪個版本寫的檔案：${p.stamp}（上面寫的是 smurg ${p.writtenBy}）。`),
+  'host.insecure.mode': (p) =>
+    p.count === 1
+      ? `這個工作區有一個狀態檔，這台電腦的其他使用者也能存取（權限 ${p.mode}）：${p.path}`
+      : `這個工作區有 ${p.count} 個狀態檔，這台電腦的其他使用者也能存取；第一個（權限 ${p.mode}）：${p.path}`,
+  'host.insecure.mode.hint': (p) =>
+    `在這之前，這台電腦的其他使用者可以讀取或更動${p.count === 1 ? '這個檔案' : '這些檔案'}（工作區的狀態裡有 daemon 金鑰和邀請連結的金鑰）。` + `請改成只有你自己能存取，再執行一次 smurg host：\n  ${p.command}`,
+  'host.insecure.owner': (p) =>
+    p.count === 1
+      ? `這個工作區有一個狀態檔屬於其他使用者，不是你的${p.owner === undefined ? '' : `（${p.owner}）`}：${p.path}`
+      : `這個工作區有 ${p.count} 個狀態檔屬於其他使用者，不是你的；第一個${p.owner === undefined ? '' : `（${p.owner}）`}：${p.path}`,
+  'host.owner.root': () => 'root',
+  'host.owner.uid': (p) => `使用者 ID ${p.uid}`,
+  'host.insecure.owner.hint': (p) =>
+    `smurg 只使用屬於你自己的狀態檔，chmod 也不會改變檔案的擁有者。如果你曾經用 sudo 執行 smurg，${p.count === 1 ? '這個檔案' : '這些檔案'}就是那時候留下的。` +
+    `請檔案的擁有者或這台電腦的管理員把${p.count === 1 ? '它' : '它們'}交還給你（chown），再執行一次 smurg host。`,
+  'host.insecure.symlink': (p) =>
+    p.count === 1
+      ? `這個工作區有一個狀態檔是符號連結（symlink），smurg 不會跟著狀態資料夾裡的連結走：${p.path}`
+      : `這個工作區有 ${p.count} 個狀態檔是符號連結（symlink），smurg 不會跟著狀態資料夾裡的連結走；第一個：${p.path}`,
+  'host.insecure.symlink.hint': () => '把檔案本身放在那個位置（屬於你自己的一般檔案，權限 600），smurg host 就能啟動。',
+  'host.insecure.notFile': (p) =>
+    p.count === 1 ? `這個工作區的狀態檔該在的位置上，是${p.found}：${p.path}` : `這個工作區有 ${p.count} 個狀態檔該在的位置上是別的東西；第一個是${p.found}：${p.path}`,
+  'host.found.directory': () => '一個資料夾',
+  'host.found.fifo': () => '一個具名管道（FIFO）',
+  'host.found.socket': () => '一個 socket',
+  'host.found.device': () => '一個裝置檔',
+  'host.found.other': () => '不是一般檔案的東西',
+  'host.insecure.notFile.hint': () => 'smurg 在那裡只讀一般檔案。把檔案本身放回那個位置，smurg host 就能啟動。',
+  'host.cannotOpen': (p) =>
+    p.count === 1 ? `這個工作區有一個狀態檔無法開啟或寫入（${p.reason}）：${p.path}` : `這個工作區有 ${p.count} 個狀態檔無法開啟或寫入；第一個（${p.reason}）：${p.path}`,
+  'host.cannotOpen.reason': (p) => (p.code === 'unknown' ? '系統沒有說明原因' : ERRNO_WORDS[p.code] === undefined ? p.code : `${ERRNO_WORDS[p.code]}，${p.code}`),
+  'host.cannotOpen.unchanged': () => 'smurg host 沒有啟動，工作區裡的東西沒有被更動或重設：成員、邀請連結、金鑰和設定都和原來一樣。',
+  'host.cannotOpen.owner': (p) => `這個檔案屬於其他使用者（${p.owner}）。如果你曾經用 sudo 執行 smurg，它就是那時候留下的：請檔案的擁有者或這台電腦的管理員把它交還給你（chown）。`,
+  'host.cannotOpen.hint': () => '等這個檔案可以開啟和寫入之後，再執行一次 smurg host。',
+  'host.otherWorkspace': (p) => `工作區 ${p.workspaceId} 的資料夾裡，狀態檔寫的是另一個工作區：${p.path}`,
+  'host.otherWorkspace.hint': () => '這個資料夾是從另一個工作區複製來的，或是和它弄混了。smurg 不會使用它，也沒有指令可以修好：請把這個工作區自己的資料夾放回原位。',
+  'host.unreadable.notJson': (p) => `這個工作區有一個狀態檔已損毀：它不是有效的 JSON（可能是空的，或只寫了一半）：${p.path}`,
+  'host.unreadable.shape': (p) => `這個工作區有一個狀態檔的格式，不是 smurg ${p.current} 或更早發佈的任何版本寫的：${p.path}`,
+  'host.unreadable.missingState': (p) => `這個工作區的狀態檔不見了，可是工作區的其他檔案還在：${p.path}`,
+  'host.unreadable.missingKey': (p) => `這個工作區的 daemon 金鑰不見了，可是它的狀態檔還在：${p.path}`,
+  'host.unreadable.carried': (p) => `較早版本的 smurg 寫的狀態檔裡，有一個值是 smurg ${p.current} 不接受的：${p.path}`,
+  'host.unreadable.problems': (p) => `不符合的地方：${p.problems.join('；')}${p.more > 0 ? `；另外還有 ${p.more} 項` : ''}`,
+  'host.unreadable.missing.unchanged': () => '沒有更動任何東西，smurg 也沒有另外建立新的檔案。如果這個檔案是被手動移走或改名的，請把它放回來。',
+  'host.unreadable.maybeNewer': () => '第一步：如果這台電腦曾經用過較新版的 smurg，請執行 smurg update，再執行一次 smurg host。',
+  'host.unreadable.writerNewer': (p) => `第一步：這個資料夾上次是 smurg ${p.writtenBy} 寫的，它比這個 smurg 新。請執行 smurg update，再執行一次 smurg host。`,
+  'host.unreadable.copy.state': (p) =>
+    'smurg 在升級前保留了這個檔案當時的副本，用來查看工作區當時的內容。把它放回去，會取消那之後決定的每一件事：' +
+    `之後被移出的人又會是成員，已撤銷的裝置、已撤銷或已用完的邀請連結又可以使用，角色的變更也會消失。最新的副本：${p.name}，保留於 ${p.date}。`,
+  'host.unreadable.copy.other': (p) => `smurg 在升級前保留了這個檔案當時的副本，用來查看它當時的內容。把它放回去，這個檔案在那之後記下的東西都會被它取代。最新的副本：${p.name}，保留於 ${p.date}。`,
+  'host.unreadable.lastResort': () =>
+    '最後的辦法是建立新的工作區。代價是：這個工作區的成員和邀請連結（組員要用新的邀請連結重新加入）、主題、對話和操作紀錄，' +
+    '還有 daemon 金鑰（加入過的組員會看到「主人的電腦金鑰和之前不同」：請把 smurg status 顯示的新金鑰指紋用其他管道（當面、電話）告訴他們）；' +
+    'smurg 也不再認得它保留的 worktree（它們的資料夾還在分享資料夾的 .smurg/worktrees 裡，連同還沒合併的工作）。',
+  'host.unreadable.lastResort.command': (p) => `如果你接受這些代價，把這個工作區的資料夾移到別處，再執行一次 smurg host：\n  ${p.command}`,
+  // ---- 這次啟動發現的事（各一行）：升級、較舊的檔案被放回來、被移到旁邊的資料夾、被拒絕的連線
+  'host.upgraded': (p) => `這個工作區上次是用${p.from === undefined ? '較早版本的 smurg ' : ` smurg ${p.from} `}分享的：成員、邀請連結和設定都已沿用。有哪些改變：${GUIDE_UPDATING}`,
+  'host.putBack.state': (p) =>
+    `⚠ 較舊的 ${p.names.join('、')} 被放回這個工作區，並且重新升級了。它寫入之後決定的每一件事都被取消：` + `之後被移出的人又是成員，已撤銷的裝置、已撤銷或已用完的邀請連結又可以使用，角色的變更也消失了。說明：${GUIDE_UPDATING}`,
+  'host.putBack.other': (p) => `⚠ 較舊的 ${p.names.join('、')} 被放回這個工作區，並且重新升級了：這個檔案在那之後記下的東西，都被它的內容取代。說明：${GUIDE_UPDATING}`,
+  'host.oldFolder': (p) =>
+    `這個工作區之前的狀態資料夾還放在旁邊：${p.path}${p.more > 0 ? `（另外還有 ${p.more} 個）` : ''}。smurg 不會使用它。` + `如果你是在更新後照 smurg 0.5.0 的指示把它移開的，說明文件有換回去的方法：${GUIDE_UPDATING}`,
+  'host.peer.newer': () => '\n⚠ 有組員的網頁或 smurg 比這個 smurg 新，連線被拒絕了。請停止分享，執行 smurg update，再重新分享。',
+  'host.peer.older': () => '\n有一個比這個 smurg 舊的網頁或 smurg 被拒絕連線。請組員重新整理網頁或更新 smurg；如果你用的是自己架的 relay，請重新部署它。',
   'host.alreadyRunning': () => '這個工作區已經有 smurg host 在執行',
   'host.alreadyShared': () => '這個資料夾已經在分享中',
   'host.alreadyShared.hint': () => '用 smurg status 查看，或 smurg stop 停止。',
+  'host.otherVersion': (p) => `這個資料夾已經由另一個版本的 smurg host 分享中（這個 smurg 是 ${p.current}）：${UNREADABLE_HOST[p.why]}`,
   'host.controlSocket': () => '無法建立 daemon 的控制 socket',
   'host.seeLog': (p) => `詳細原因請看紀錄檔 ${p.logPath}`,
   'host.daemonFailed': (p) => `daemon 無法啟動（${p.name}）`,
@@ -395,6 +501,8 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'host.overlap.inside': (p) => `這個資料夾裡的 ${p.folder} 已經在分享中`,
   'host.overlap.hint': (p) =>
     `同一份檔案同時只能由一個 smurg host 分享（工作區 ${p.workspaceId}，relay ${p.relay}）。用 smurg status 查看，或先用 smurg stop --workspace ${p.workspaceId} 停止它。`,
+  'host.overlap.otherVersion.hint': (p) =>
+    `它是工作區 ${p.workspaceId}，由另一個版本的 smurg host 分享（這個 smurg 是 ${p.current}）。\n  ` + `請先停止它：smurg stop --workspace ${p.workspaceId}，或到執行 smurg host 的終端機按 Ctrl-C。`,
   'host.relay.back': () => '✓ 已重新連上 relay，組員可以再次連線。',
   'host.relay.authRejected': (p) =>
     `\n⚠ relay 拒絕了這台電腦的登入（登入已過期或已失效），組員目前無法連線。\n  請在另一個終端機執行 smurg login --relay ${p.origin}；smurg host 會自動改用新的登入並重新連線，不必重新分享。`,
@@ -435,11 +543,17 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   顯示正在分享的工作區狀態：資料夾、relay 與連線、daemon 金鑰指紋、防止睡眠、smurg host 的設定、
   Claude Code 與 agent session、紀錄檔的位置。
   各項的意思：https://smurg.ai/zh-TW/docs/hosting/#7-狀態與停止
+
+  結束代碼：0 表示所有分享中的工作區都已列出；3 表示目前沒有分享；5 表示有另一個版本的 smurg host
+  正在分享（這個 smurg 讀不懂它的回應：請先停止它，再重新啟動）。
 `,
   'stop.refused': (p) => `smurg host 拒絕停止：${p.reason}`,
   'stop.timeout': (p) => `smurg host 在 ${p.seconds} 秒內沒有停止`,
   'stop.timeout.hint': () => '請查看執行 smurg host 的終端機。',
   'stop.stopping': (p) => `正在停止分享工作區 ${p.workspaceId}…`,
+  'stop.otherVersion.asking': (p) => `${p.workspaceId === undefined ? '這裡' : `工作區 ${p.workspaceId} `}正由另一個版本的 smurg host 分享（這個 smurg 是 ${p.current}）；正在請它停止…`,
+  'stop.otherVersion.failed': (p) => `另一個版本的 smurg host 在 ${p.seconds} 秒內沒有停止`,
+  'stop.otherVersion.failed.hint': () => '請到執行 smurg host 的終端機按 Ctrl-C。',
   'status.relay.online': () => '已連線',
   'status.relay.connecting': () => '連線中',
   'status.relay.waiting': () => '等待重新連線',
@@ -449,6 +563,14 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'status.relay.none': () => '未使用',
   'status.none': () => '目前沒有正在分享的工作區。',
   'status.noneFor': (p) => `工作區 ${p.workspaceId} 沒有正在執行的 smurg host。`,
+  'status.otherVersion': (p) =>
+    [
+      p.workspaceId === undefined ? `一個工作區（控制 socket ${p.socket}）` : `工作區 ${p.workspaceId}`,
+      ...(p.folder === undefined ? [] : [`  資料夾：${p.folder}`]),
+      `  正由另一個版本的 smurg host 分享（這個 smurg 是 ${p.current}）：${UNREADABLE_HOST[p.why]}。`,
+      `  要停止它：smurg stop${p.workspaceId === undefined ? '' : ` --workspace ${p.workspaceId}`}，或到執行 smurg host 的終端機按 Ctrl-C。要改用這個 smurg，請再用 smurg host 重新啟動。`,
+    ].join('\n'),
+  'status.bookUnreadable': (p) => `注意：${p.problem}${p.hint === undefined ? '' : `\n  ${p.hint}`}`,
   'status.workspace': (p) =>
     [
       `工作區 ${p.workspaceId}${p.stopping ? '（正在停止）' : ''}`,
@@ -545,6 +667,9 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'update.downloading': (p) => `下載 smurg ${p.latest}（${p.name}，${p.from}）…`,
   'update.startedSharing': (p) => `下載期間有工作區開始分享（${p.ids.join('、')}），沒有更新`,
   'update.startedSharing.hint': () => '請先執行 smurg stop 停止分享，再執行一次 smurg update。',
+  'update.otherVersion': (p) => `這台電腦正由另一個版本的 smurg host 分享（${p.labels.join('、')}；這個 smurg 是 ${p.current}），沒有更新`,
+  'update.otherVersion.hint': () =>
+    '請先停止它（smurg stop，或到執行 smurg host 的終端機按 Ctrl-C），再執行一次 smurg update。\n  ' + '分享中更新的話，還在執行的 daemon 會和新版的 smurg 指令混在一起。',
   'update.replaceFailed': (p) => `無法換掉 ${p.executable}（${p.code}）`,
   'update.done': (p) => `已更新 smurg：${p.current} → ${p.latest}（${p.executable}）`,
   'update.quarantineRemoved': (p) => `已移除下載檔案的 ${p.attribute} 屬性（sha256 驗證相符之後）`,
@@ -606,4 +731,6 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'uninstall.done': (p) => ['', '已移除：', ...p.removed.map((path) => `  ${path}`), '', '還留著：', ...p.left, '', `smurg 已從這台電腦移除。要再安裝：${p.install}`].join('\n'),
   'uninstall.stopFailed': (p) => `無法停止正在分享的工作區 ${p.workspaceId}${p.reason === undefined ? '' : `（${p.reason}）`}，沒有移除任何東西`,
   'uninstall.stopFailed.hint': () => '請到執行 smurg host 的終端機按 Ctrl-C 停止分享，再執行一次 smurg uninstall。',
+  'uninstall.otherVersion': (p) => `這台電腦正由另一個版本的 smurg host 分享（${p.labels.join('、')}），沒有移除任何東西`,
+  'uninstall.otherVersion.hint': () => '請先停止它（smurg stop，或到執行 smurg host 的終端機按 Ctrl-C），再執行一次 smurg uninstall。',
 };

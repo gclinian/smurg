@@ -5,9 +5,11 @@
 // Every full page (join, login, connecting, key mismatch, rejected, closed, not found) carries the language menu in
 // the corner of its card: these screens have no top bar, and a person who cannot read the page must be able to
 // switch. It is the LAST element of the card, so the screen's own action stays the first tab stop.
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { ConnectionState } from '@smurg/protocol/client';
-import type { ConnectionView } from '../../lib/connection/status.ts';
+import { describeConnection, type ConnectionFacts, type ConnectionView } from '../../lib/connection/status.ts';
+import type { PageBuild } from '../../lib/page-build.ts';
+import { useStore } from '../../lib/store.ts';
 import { tConn } from '../../strings/connection.ts';
 import { tApp } from '../../strings/app.ts';
 import { Button, LanguageMenu, Spinner, cx } from '../../ui/index.ts';
@@ -94,18 +96,54 @@ export function KeyMismatchScreen({ state }: { state: Extract<ConnectionState, {
   );
 }
 
+/**
+ * What the page finds out for the two ended states whose state alone does not say what to do:
+ *   - refused for its `version`: the relay is asked, once per refusal, whether it still serves the page this tab runs
+ *     (which side is the older one); until it answered the page says that it is checking;
+ *   - the key storage failed: whether it stopped at a record a newer page wrote.
+ */
+function useConnectionFacts(state: ConnectionState): ConnectionFacts | null {
+  const { keyStorage, pageBuild } = useAppServices();
+  const newerKeyRecord = useStore(keyStorage, (s) => s.newerRecord);
+  const versionRefused = state.kind === 'rejected' && state.reason === 'version';
+  const [build, setBuild] = useState<PageBuild | 'checking'>('checking');
+  useEffect(() => {
+    if (!versionRefused) return;
+    let cancelled = false;
+    setBuild('checking');
+    pageBuild().then(
+      (answer) => {
+        if (!cancelled) setBuild(answer);
+      },
+      () => {
+        if (!cancelled) setBuild('unknown');
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [versionRefused, pageBuild]);
+  if (versionRefused) return { pageBuild: build };
+  if (state.kind === 'closed' && state.reason === 'storage-error' && newerKeyRecord) return { newerKeyRecord: true };
+  return null;
+}
+
 /** Kicked, rejected, revoked, no trust, storage error, closed: why, and the one thing to do next. */
-export function ConnectionEndedScreen({ view, state, onReconnect }: { view: ConnectionView; state: ConnectionState; onReconnect?: () => void }) {
+export function ConnectionEndedScreen({ view: given, state, onReconnect }: { view: ConnectionView; state: ConnectionState; onReconnect?: () => void }) {
   const titleId = useId();
   const bodyId = useId();
-  const reloadable = state.kind === 'rejected' && (state.reason === 'version' || state.reason === 'identity-invalid' || state.reason === 'unknown');
+  const facts = useConnectionFacts(state);
+  const view = facts === null ? given : describeConnection(state, facts);
+  /** A reload is THE way out: this tab runs a page from before an update, or a newer page wrote this browser's key. */
+  const reloadCures = facts !== null && (facts.pageBuild === 'stale' || facts.newerKeyRecord === true);
+  const reloadable = reloadCures || (state.kind === 'rejected' && (state.reason === 'version' || state.reason === 'identity-invalid' || state.reason === 'unknown'));
   return (
     <FullPage tone={view.tone === 'danger' ? 'danger' : 'warning'} role="alertdialog" labelledBy={titleId} describedBy={bodyId} testId="connection-ended-screen">
       <div className={cx('app-fullpage__icon', view.tone === 'danger' && 'app-fullpage__icon--danger')}>
         <IconAlertCircle size={32} />
       </div>
       <h1 id={titleId}>{view.title}</h1>
-      <p id={bodyId} className="app-fullpage__body">
+      <p id={bodyId} className="app-fullpage__body" aria-busy={facts?.pageBuild === 'checking' || undefined}>
         {view.body}
       </p>
       <div className="app-fullpage__actions">
@@ -115,11 +153,11 @@ export function ConnectionEndedScreen({ view, state, onReconnect }: { view: Conn
           </Button>
         ) : null}
         {reloadable ? (
-          <Button variant="secondary" onClick={() => window.location.reload()}>
+          <Button variant={reloadCures && !onReconnect ? 'primary' : 'secondary'} onClick={() => window.location.reload()}>
             {tConn('action.reload')}
           </Button>
         ) : null}
-        <HomeButton variant={onReconnect ? 'secondary' : 'primary'} />
+        <HomeButton variant={onReconnect || reloadCures ? 'secondary' : 'primary'} />
       </div>
     </FullPage>
   );

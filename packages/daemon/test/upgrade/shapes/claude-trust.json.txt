@@ -1,0 +1,16 @@
+: #1 object strict
+decisions: array [max_length maximum=2000]
+decisions[]: #2 object strict
+decisions[].path: string [min_length minimum=1] [max_length maximum=256]
+decisions[].hash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+decisions[].decision: enum "trust"|"ignore"
+decisions[].scripts: array [max_length maximum=20]
+decisions[].scripts[]: #3 object strict
+decisions[].scripts[].path: string [min_length minimum=1] [max_length maximum=4096]
+decisions[].scripts[].hash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+decisions[].at: number format=safeint [greater_than value=0 inclusive=true]
+loaded: #4 object strict
+loaded.trusted: array [max_length maximum=20000]
+loaded.trusted[]: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+loaded.ignored: array [max_length maximum=20000]
+loaded.ignored[]: string [string_format format=regex pattern=^[0-9a-f]{64}$/]

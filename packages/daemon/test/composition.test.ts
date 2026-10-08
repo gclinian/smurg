@@ -16,6 +16,7 @@ import { toDisposable } from '../src/core/lifecycle.ts';
 import { ManualClock } from '../src/core/lifecycle.ts';
 import { silentLogger } from '../src/core/logger.ts';
 import { SYSTEM_PRINCIPAL } from '../src/core/permissions.ts';
+import { declareDocument } from '../src/core/state-store.ts';
 import { IdentityVerifier, jwksKeySource } from '../src/net/identity.ts';
 import { MEMORY_RELAY_ORIGIN, TestIdentityIssuer } from '../src/testing/memory-relay.ts';
 import { createTestDaemon, waitFor, type TestDaemon } from '../src/testing/index.ts';
@@ -125,12 +126,21 @@ describe('composition', () => {
     expect(events).toEqual(['power.start', 'disposed', 'power.stop']);
   });
 
-  it("modules cannot open the core's state document", async () => {
-    t = await createTestDaemon();
-    await expect(t.ctx.state.document('state', z.object({}), () => ({}))).rejects.toThrow(/reserved/);
+  it("modules cannot open the core's state document, nor one that no module declared", async () => {
     // A name no composed module uses (the suggest module owns `suggestions` with its own schema).
-    const own = await t.ctx.state.document('feature-own-test', z.object({ items: z.array(z.string()) }), () => ({ items: [] }));
+    const ownSchema = z.object({ items: z.array(z.string()) });
+    const owner: FeatureModule = {
+      name: 'owner',
+      documents: [declareDocument({ name: 'feature-own-test', schema: ownSchema, init: () => ({ items: [] as string[] }) })],
+      register: () => toDisposable(() => {}),
+    };
+    t = await createTestDaemon({ modules: [owner, ...DEFAULT_FEATURE_MODULES] });
+    await expect(t.ctx.state.document('state', z.object({}), () => ({}))).rejects.toThrow(/reserved/);
+    const own = await t.ctx.state.document('feature-own-test', ownSchema, () => ({ items: [] }));
     expect(own.get()).toEqual({ items: [] });
+    // A start reads and checks every document before it writes anything: what no module declared was never read.
+    await expect(t.ctx.state.document('never-declared', ownSchema, () => ({ items: [] }))).rejects.toThrow(/was not declared/);
+    await expect(t.ctx.state.document('feature-own-test', z.object({ items: z.array(z.string()) }), () => ({ items: [] }))).rejects.toThrow(/another schema/);
   });
 });
 

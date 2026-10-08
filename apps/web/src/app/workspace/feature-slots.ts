@@ -1,6 +1,6 @@
 // The slots of every feature, found by convention: `src/features/<feature>/slots.tsx` exports `slots`
 // (lib/slots.ts says what a feature may contribute). Loaded with the workspace page, so a slots file imports its
-// components with React.lazy and nothing heavy itself.
+// components with lazyChunk (lib/chunks.ts) and nothing heavy itself.
 import { createSlotRegistry, type FeatureSlots, type SlotRegistry } from '../../lib/slots.ts';
 
 const modules = import.meta.glob<{ readonly slots?: FeatureSlots }>('../../features/*/slots.tsx', { eager: true });
