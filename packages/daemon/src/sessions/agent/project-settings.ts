@@ -93,7 +93,7 @@ const documentSchema = z.strictObject({
 });
 type TrustDocument = z.infer<typeof documentSchema>;
 /** claude-trust.json (no `version` key; new in 0.5.0): the host's decisions about a project's Claude Code settings. Declared by the sessions module. */
-export const claudeTrustDocument = declareDocument({ name: 'claude-trust', schema: documentSchema, init: (): TrustDocument => ({ decisions: [], loaded: { trusted: [], ignored: [] } }) });
+export const claudeTrustDocument = declareDocument({ name: 'claude-trust', schema: documentSchema, init: (): TrustDocument => ({ decisions: [], loaded: { trusted: [], ignored: [] } }), canSetAside: true });
 type Decision = z.infer<typeof decisionSchema>;
 
 /** A project settings file larger than this is never trusted (it cannot be shown whole). */

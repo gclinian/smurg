@@ -18,6 +18,8 @@
 #   pnpm install --frozen-lockfile && pnpm --filter @smurg/web build
 #   cd - && scripts/deploy-relay.sh --dry-run --keep-assets "$scratch/previous/apps/web/dist/assets"   # lists them
 # Only files named <name>-<hash>.<ext> are taken, only into apps/web/dist/assets; index.html is always the new build's.
+# WITHOUT --keep-assets a deploy (and a dry run) says first, before anything is built or uploaded, that the pages open
+# when it goes live will not find the code they load later, and names this option; then it goes on.
 cd "$(dirname "$0")/.." || exit 1
 # shellcheck source=/dev/null # env.sh is linted on its own; its top-level `return` would read as an exit here
 . scripts/env.sh || exit 1

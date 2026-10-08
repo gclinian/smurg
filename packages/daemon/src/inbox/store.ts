@@ -80,7 +80,7 @@ export function initialInboxDocument(): InboxDocument {
 }
 
 /** inbox.json (new in 0.5.0). Declared by the inbox module. */
-export const inboxDocument = declareDocument({ name: INBOX_DOCUMENT, schema: inboxDocumentSchema, init: initialInboxDocument });
+export const inboxDocument = declareDocument({ name: INBOX_DOCUMENT, schema: inboxDocumentSchema, init: initialInboxDocument, canSetAside: true });
 
 export function emptyBox(): MemberBox {
   return { notes: [], seen: {} };

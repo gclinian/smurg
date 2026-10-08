@@ -264,7 +264,8 @@ of test files and tests a green run shows, how long it takes and the environment
 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md), "How to run the gate" (the numbers change as features are added and are
 recorded only there). Skipped by default: `packages/cli/test/sea.test.ts` and `packages/cli/test/sea-update.test.ts`
 (they need the single executable to be built first, `SMURG_SEA_BINARY`), `packages/cli/test/sea-upgrade.test.ts`
-(it also needs the executables of the published versions, `SMURG_PREVIOUS_BINARIES`) and the test of
+(it also needs the executables of the published versions, `SMURG_PREVIOUS_BINARIES`; it says on stderr that it was
+skipped, and a release's gate, `SMURG_RELEASE_GATE=1`, fails without it: `docs/RELEASING.md` §4.5) and the test of
 `packages/cli/test/dev-stack.test.ts` that starts the whole stack (`SMURG_TEST_DEV_STACK=1`; the file's other test
 always runs); without a system Chrome or a verified version of `claude`, the tests that need them are skipped too,
 and the numbers differ. Temporary directories and processes that a test did not clean up (a crashed

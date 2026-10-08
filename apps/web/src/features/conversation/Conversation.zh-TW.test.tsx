@@ -1,7 +1,7 @@
 // The conversation column in Traditional Chinese: the strip, the rows, the three cards, the status bar and the
 // composer speak zh-TW (role labels and the daemon's lines from the wire catalogue), and what people and agents
 // wrote stays as it was written.
-import { act, fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { SmurgError, type ConversationEvent } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
@@ -189,5 +189,17 @@ describe('conversation column in zh-TW', () => {
     await openConversation({ role: 'viewer', session: { status: 'ended', endedAt: FAKE_NOW } });
     expect(screen.getByText('這個 session 已結束，不再接受訊息。')).toBeTruthy();
     expect(screen.getByText('這個 session 已結束。')).toBeTruthy();
+  });
+
+  it('a card whose content the host no longer keeps says so in Chinese', async () => {
+    const view = await openConversation({ events: [events[0] as ConversationEvent, buildEvent('card', { seq: 2, card: 'question', id: 'q_old' })] });
+    expect(screen.getByText('正在載入這張卡片…')).toBeTruthy();
+    await waitFor(() => expect(view.conn.lastRequest('session.cards.get')?.payload.cards).toHaveLength(1), { timeout: 5_000 });
+    act(() => {
+      view.conn.respond('session.cards.get', { questions: [], permissions: [], suggestions: [], moreCards: [] });
+    });
+    await settle();
+    expect(screen.getByText('主人的電腦已經不再保留這張卡片。')).toBeTruthy();
+    expect(screen.queryByText('正在載入這張卡片…')).toBeNull();
   });
 });

@@ -9,6 +9,10 @@
 //   unreadable       not JSON, no shape any published smurg wrote, a file that must be there and is not, or a value
 //                    an earlier smurg accepted and this one refuses
 //
+// A start has two phases (core/workspace-folder.ts). A refusal says which one it is of (`phase`): phase 1 only reads,
+// so the folder is byte for byte as it was; a refusal of phase 2 came while the start was writing (the stamp, a kept
+// copy, an upgraded document may be there), and nobody may then say "nothing was changed".
+//
 // The text of `message` is for the log. It never carries a value from the file: paths in the document and zod's own
 // messages only, with control characters escaped (a key of the file can be anything).
 
@@ -61,7 +65,16 @@ export interface StateFileErrorInit {
   readonly copies?: readonly StateFileCopy[];
   /** The system's own error (never shown; for the log's errno and for debugging). */
   readonly source?: unknown;
+  /** Which phase of the start refused. Default 1 (reading); everything that fails once a start writes is marked 2. */
+  readonly phase?: StateFilePhase;
+  /** The declared name of the document (`inbox` for inbox.json), when the refused file IS a declared document. */
+  readonly document?: string;
+  /** See StateFileError.canSetAside. Default false. */
+  readonly canSetAside?: boolean;
 }
+
+/** 1: the start was only reading (nothing was written). 2: the start was writing. */
+export type StateFilePhase = 1 | 2;
 
 /**
  * Makes a text safe for a terminal and a log line: every character the log itself treats as unsafe (the C0 and C1
@@ -98,6 +111,23 @@ export class StateFileError extends Error {
   readonly copies: readonly StateFileCopy[];
   /** The system's own error behind this refusal, if any. */
   readonly source?: unknown;
+  /**
+   * 1: refused while the start was only READING: the workspace folder is byte for byte as it was. 2: refused while
+   * the start was WRITING (the stamp, a kept copy, an upgraded document, the key and state.json of a new workspace,
+   * the logs): something of that may be on disk, and "nothing was changed" is not true. Nothing the workspace held is
+   * lost or reset in either phase.
+   */
+  readonly phase: StateFilePhase;
+  /** The declared name of the document (`inbox` for inbox.json), when the refused file IS a declared document. */
+  readonly document?: string;
+  /**
+   * The host can move this ONE file out of the workspace folder and keep the workspace: its members, invite links
+   * and key stay, the next start makes a new, empty document, and what the rest of the state says about the things
+   * that were in the file is handled. True only for an `unreadable` document whose declaration says so
+   * (DocumentDeclaration.canSetAside: proven per document by test/upgrade/set-aside.test.ts). Always false for
+   * state.json and the key, and for every other kind (a file open to others is cured by `chmod`, not by moving it).
+   */
+  readonly canSetAside: boolean;
 
   constructor(init: StateFileErrorInit) {
     super(`${init.message}: ${escapeForTerminal(init.path)}`);
@@ -115,10 +145,16 @@ export class StateFileError extends Error {
     if (init.writtenBy !== undefined) this.writtenBy = init.writtenBy;
     this.copies = Object.freeze([...(init.copies ?? [])]);
     if (init.source !== undefined) this.source = init.source;
+    this.phase = init.phase ?? 1;
+    if (init.document !== undefined) this.document = init.document;
+    this.canSetAside = init.canSetAside === true && init.kind === 'unreadable' && init.document !== undefined;
   }
 
-  /** The same refusal with what only the folder's reader knows (the stamp's writer, the kept copies, all paths). */
-  with(more: Pick<StateFileErrorInit, 'paths' | 'writtenBy' | 'copies'>): StateFileError {
+  /**
+   * The same refusal with what only the folder's reader knows (the stamp's writer, the kept copies, all paths, which
+   * declared document the file is and whether it can be set aside) and what only the start knows (its phase).
+   */
+  with(more: Pick<StateFileErrorInit, 'paths' | 'writtenBy' | 'copies' | 'phase' | 'document' | 'canSetAside'>): StateFileError {
     const next = new StateFileError({
       kind: this.kind,
       path: this.path,
@@ -133,6 +169,9 @@ export class StateFileError extends Error {
       ...((more.writtenBy ?? this.writtenBy) === undefined ? {} : { writtenBy: more.writtenBy ?? this.writtenBy }),
       copies: more.copies ?? this.copies,
       ...(this.source === undefined ? {} : { source: this.source }),
+      phase: more.phase ?? this.phase,
+      ...((more.document ?? this.document) === undefined ? {} : { document: more.document ?? this.document }),
+      canSetAside: more.canSetAside ?? this.canSetAside,
     });
     if (this.stack !== undefined) next.stack = this.stack;
     return next;

@@ -224,6 +224,14 @@ export function initialReportsDocument(): ReportsDocument {
   return { version: TOPICS_VERSION, reports: [] };
 }
 
-/** topics.json and reports.json (new in 0.5.0). Declared by the topics module. */
+/**
+ * topics.json and reports.json (new in 0.5.0). Declared by the topics module.
+ *
+ * NEITHER can be set aside (no `canSetAside`; test/upgrade/set-aside.test.ts shows what a start without one leaves):
+ * without topics.json the discussion sessions of every topic stay in the list, idle, naming a topic that is not there
+ * (only the item sessions are ended), and merge requests and suggestions name it too; without reports.json the items
+ * still say `done` or `reviewed` and have no report anyone could read or review. Nothing here looks for that when it
+ * starts. Whoever adds that handling may say `canSetAside: true`, with the proof in that test.
+ */
 export const topicsDocument = declareDocument({ name: TOPICS_DOCUMENT, schema: topicsDocumentSchema, init: initialTopicsDocument });
 export const reportsDocument = declareDocument({ name: REPORTS_DOCUMENT, schema: reportsDocumentSchema, init: initialReportsDocument });

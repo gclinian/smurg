@@ -13,13 +13,27 @@
 // How the two sides get different numbers: the e2e harness has no switch for it, so THIS FILE's copy of the protocol
 // package says one more than the real one. The daemon runs in this process and reads it; the page is the built app
 // (built by globalSetup, in another process) and the relay is workerd: both speak the real number.
+//
+// And how they come to fit again (the way out the screens name must really lead in): the daemon compares the numbers
+// at every hello, so `ahead.by = 0` is "the host runs a smurg that fits the page from now on". A person who came
+// through an invite link and was refused presses "Reload the page" and must be asked "Join?" again and get in with
+// the same link: the refusal used up nothing (before 0.5.1's last fixes the join page forgot the link there, and the
+// reload ended at "This device can no longer connect … ask the host for a new invite link").
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { STEP_MS, confirmJoin, explainFailures, startSmoke, systemChrome, wordsOf, type SmokeEnv } from './helpers.ts';
+import { STEP_MS, confirmJoin, explainFailures, startSmoke, systemChrome, wordsOf, workspaceOnline, type SmokeEnv } from './helpers.ts';
+
+/** How far this file's daemon is ahead of the page: 1 = it refuses the page for its version; 0 = they fit. */
+const ahead = vi.hoisted(() => ({ by: 1 }));
 
 vi.mock('../../../../packages/protocol/src/constants.ts', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../../../packages/protocol/src/constants.ts')>();
-  return { ...real, PROTOCOL_VERSION: real.PROTOCOL_VERSION + 1 };
+  return {
+    ...real,
+    get PROTOCOL_VERSION() {
+      return real.PROTOCOL_VERSION + ahead.by;
+    },
+  };
 });
 
 const chrome = systemChrome();
@@ -50,6 +64,21 @@ describe.skipIf(chrome === null)("a page the host's smurg refuses for its versio
     return ended;
   }
 
+  /**
+   * "Reload the page" on the refusal's screen, now that host and page fit: the join page asks again (the tab kept the
+   * link, in its own storage: the address has no fragment any more), "Join" lets the person in with the same link,
+   * and the host knows them. Never the dead end of a device the host has never seen.
+   */
+  async function reloadAndGetIn(page: Page, userId: string): Promise<void> {
+    expect(new URL(page.url()).hash).toBe('');
+    await Promise.all([page.waitForEvent('load', { timeout: STEP_MS }), page.getByTestId('connection-ended-screen').getByRole('button', { name: 'Reload the page' }).click()]);
+    await confirmJoin(page);
+    await page.waitForURL(`${env.origin}/w/${env.stack.workspaceId}`, { timeout: STEP_MS });
+    await workspaceOnline(page);
+    expect(env.stack.daemon.ctx.members.active(userId)).not.toBeNull();
+    expect(await page.getByText('This device can no longer connect').count()).toBe(0);
+  }
+
   /** The page's questions to the relay about the page itself: `/`, asked by script. */
   function watchQuestions(page: Page): { readonly headers: Record<string, string>[] } {
     const seen: Record<string, string>[] = [];
@@ -65,7 +94,7 @@ describe.skipIf(chrome === null)("a page the host's smurg refuses for its versio
     expect(PROTOCOL_VERSION).toBe(real.PROTOCOL_VERSION + 1);
   });
 
-  it("this tab runs the page the relay serves: the host's smurg is the older side; what the host does, then a reload of this page", async () => {
+  it("this tab runs the page the relay serves: the host's smurg is the older side; the host does what the page says, and a reload of this page asks \"Join?\" again and leads in", async () => {
     const page = await env.newPage();
     const questions = watchQuestions(page);
     const ended = await joinAndBeRefused(page, 'amy');
@@ -79,7 +108,16 @@ describe.skipIf(chrome === null)("a page the host's smurg refuses for its versio
     expect(questions.headers[0]?.['cache-control']).toBe('no-cache');
     expect(questions.headers[0]?.['cookie']).toBeUndefined();
     expect(env.problemsOf(page).console.filter((line) => /Content Security Policy/.test(line))).toEqual([]);
-  });
+
+    // "The host stops sharing, runs smurg update and shares again": the same workspace, key and links, a smurg that fits.
+    ahead.by = 0;
+    try {
+      await env.stack.restartDaemon();
+      await reloadAndGetIn(page, 'dev:amy');
+    } finally {
+      ahead.by = 1;
+    }
+  }, 240_000);
 
   it('the relay serves another page by now: this tab is from before an update, and Reload is the way out', async () => {
     const page = await env.newPage();
@@ -97,7 +135,16 @@ describe.skipIf(chrome === null)("a page the host's smurg refuses for its versio
     expect(body).toBe('smurg was updated while this tab was open, and the tab still runs the page from before. Reload the page to get the new one.');
     expect(body).not.toContain('smurg update');
     await ended.getByRole('button', { name: 'Reload the page' }).waitFor({ timeout: STEP_MS });
-  });
+    expect(env.stack.daemon.ctx.members.active('dev:bob')).toBeNull();
+
+    // The way out, taken: the page the reload gets and the host's smurg fit.
+    ahead.by = 0;
+    try {
+      await reloadAndGetIn(page, 'dev:bob');
+    } finally {
+      ahead.by = 1;
+    }
+  }, 240_000);
 
   it('the same in Traditional Chinese', async () => {
     const page = await env.newPage({ locale: 'zh-TW' });

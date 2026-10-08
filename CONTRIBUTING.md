@@ -80,14 +80,27 @@ written:
   manifest and journal, the stamp, the name of a kept copy. A stored shape changes when a key is added, removed or
   renamed, when an optional key becomes required, when a union gains or loses a branch, and also when a RULE gets
   tighter with no change of shape (a shorter limit, a stricter path check in `packages/protocol`).
-- **The test that stops you** is the pin, `packages/daemon/test/upgrade/pin.test.ts`. It holds a hash of every
-  source file of `packages/protocol` that a stored schema is built from, the shape of every stored schema as a text
-  file (`packages/daemon/test/upgrade/shapes/`), the frozen shapes byte for byte, and the source lines of the
-  formats that are no schema. When it fails it asks one question: does this change what a stored file accepts?
+- **The test that stops you** is the pin, `packages/daemon/test/upgrade/pin.test.ts`. What it sees, exactly (the
+  head of the test says the same, list by list):
+  - by hash, the source of every file of the daemon that defines a stored schema (`DAEMON_SOURCES`: each file that
+    declares a document, and those of the stored things that are no document) and of every module of
+    `packages/protocol` that ANY run-time name those files import leads to (`PROTOCOL_SOURCES`; the walk stops only
+    where `WALK_STOPS` says why, and a name it cannot follow fails the test). A rule written as code (a `.refine`,
+    a path check) is in no description of a schema: only the source says it;
+  - one by one, each with its reason, the other files of the daemon that a schema file imports
+    (`DAEMON_FILES_NO_STORED_VALUE_PASSES`): a new import fails until that file is pinned or reasoned;
+  - as text, the shape of every stored schema and of the stamp (`packages/daemon/test/upgrade/shapes/`);
+  - byte for byte, the frozen shapes (`FROZEN`); line by line, the formats that are no schema (`FORMAT_LINES`).
+
+  It fails when one of these changes, and asks one question: does this change what a stored file accepts? It does
+  not know the answer: a comment in a pinned file fails it as surely as a tightened rule. And it does not see a
+  rule in a file of the daemon that is no schema file, a value a schema reads at run time from outside the pinned
+  files, or what an upgrade of zod does with the same description. For the last, the files the published versions
+  wrote must still open (the fixtures, below).
 - **If it does not** (a comment, a new export nothing stored uses, a rule for something that is never stored): take
-  the pins again in the same change, `SMURG_PIN_WRITE=1 pnpm --filter @smurg/daemon exec vitest run
-  test/upgrade/pin.test.ts` for the shape texts, and the new hashes in the test, and say in the pull request why
-  the answer is no.
+  the pins again in the same change, and say in the pull request why the answer is no. `SMURG_PIN_WRITE=1 pnpm
+  --filter @smurg/daemon exec vitest run test/upgrade/pin.test.ts` writes the shape texts only; a hash is edited in
+  the test, in the list its failure names.
 - **If it does**, the change comes with all of this:
   1. a frozen copy of the shape the last published version wrote, in `packages/daemon/src/frozen/v<that
      version>.ts`: literal, with its own scalar rules, importing zod and nothing else. A frozen file is never edited

@@ -42,6 +42,7 @@ export {
   type StateFileErrorInit,
   type StateFileInsecureCause,
   type StateFileKind,
+  type StateFilePhase,
   type StateFileUnreadableReason,
 } from './state-file-error.ts';
 
@@ -82,22 +83,15 @@ export function isVersionName(value: unknown): value is string {
 
 /**
  * The bytes of a private file, read through the handle that was checked (O_NOFOLLOW, regular, ours, no group/other
- * bits). Null when it does not exist. `maxBytes`: a larger file is refused before it is read (`unreadable`).
+ * bits). Null when it does not exist.
  */
-export async function readPrivateFile(path: string, options: { readonly what?: string; readonly maxBytes?: number } = {}): Promise<Buffer | null> {
+export async function readPrivateFile(path: string, options: { readonly what?: string } = {}): Promise<Buffer | null> {
   const what = options.what ?? 'state file';
   const handle = await openPrivateFile(path, fsConstants.O_RDONLY, { what });
   if (handle === null) return null;
   try {
-    if (options.maxBytes !== undefined) {
-      const { size } = await handle.stat();
-      if (size > options.maxBytes) {
-        throw new StateFileError({ kind: 'unreadable', reason: 'no-known-shape', path, message: `${what} is larger than ${options.maxBytes} bytes`, problems: [`(file): larger than ${options.maxBytes} bytes`] });
-      }
-    }
     return await handle.readFile();
   } catch (source) {
-    if (source instanceof StateFileError) throw source;
     throw new StateFileError({ kind: 'cannot-open', errno: errnoCode(source) ?? 'unknown', path, message: `cannot read the ${what} (${errnoCode(source) ?? 'unknown'})`, source });
   } finally {
     await handle.close().catch(() => {});
@@ -219,10 +213,21 @@ export interface DocumentDeclaration<S extends z.ZodType = z.ZodType> {
   readonly init: () => z.output<S>;
   /** From the shapes earlier published versions wrote, OLDEST FIRST. */
   readonly steps?: readonly DocumentStep[];
+  /**
+   * True: a host whose `<name>.json` cannot be read may move that ONE file out of the workspace folder and keep the
+   * workspace. The next start makes a new document from `init`, and everything the rest of the state says about the
+   * things the file held is handled by the code that reads it (nothing a member sees points at something that is no
+   * longer there). Say it only for a document for which test/upgrade/set-aside.test.ts PROVES it, on what a published
+   * smurg wrote; what setting the file aside loses is said per document in docs/HOSTING.md §9.3. Default false: the
+   * file can then only go with the whole workspace (the last resort). Never for `state`.
+   */
+  readonly canSetAside?: boolean;
 }
 
 export function declareDocument<S extends z.ZodType>(declaration: DocumentDeclaration<S>): DocumentDeclaration<S> {
   if (!DOCUMENT_NAME.test(declaration.name)) throw new TypeError(`invalid state document name: ${declaration.name}`);
+  // The members, devices, invite links and settings ARE the workspace: without them there is nothing to keep.
+  if (declaration.canSetAside === true && RESERVED_DOCUMENTS.has(declaration.name)) throw new TypeError(`${declaration.name}.json can never be set aside`);
   const steps = declaration.steps ?? [];
   for (let i = 1; i < steps.length; i++) {
     if (compareVersionNames((steps[i - 1] as DocumentStep).from, (steps[i] as DocumentStep).from) >= 0) throw new TypeError(`the steps of ${declaration.name} are not oldest first`);
@@ -237,6 +242,27 @@ export function declareDocument<S extends z.ZodType>(declaration: DocumentDeclar
 export function expectedVersionOf(declaration: DocumentDeclaration): number | null {
   const initial: unknown = declaration.init();
   return isPlainObject(initial) && typeof initial['version'] === 'number' ? initial['version'] : null;
+}
+
+/**
+ * THE RULES THAT GOT TIGHTER since a published smurg wrote files: what that smurg accepted and this one refuses. A
+ * file that fails today's schema because of these alone was written by an earlier smurg, whatever document it is
+ * (`carried-value-refused`: the words name the entry and the rule, and never "run smurg update").
+ *
+ * A rule is named here by the issue it raises (the code that raises it is pinned: test/upgrade/pin.test.ts). When a
+ * rule of a stored value is made tighter again, it is added here with the smurg that tightened it; a rule is never
+ * taken out (the files it refuses do not go away).
+ */
+const TIGHTENED_RULES: readonly { readonly since: string; readonly what: string; is(issue: z.core.$ZodIssue): boolean }[] = [
+  {
+    since: '0.5.0',
+    what: 'a path or a name with a run of more than 30 combining marks (packages/protocol/src/schema/paths.ts, `mark-run`)',
+    is: (issue) => issue.code === 'custom' && /^invalid (?:relative path|name): mark-run$/.test(issue.message),
+  },
+];
+
+function isTightenedRule(issue: z.core.$ZodIssue): boolean {
+  return TIGHTENED_RULES.some((rule) => rule.is(issue));
 }
 
 /** A document as phase 1 read it: validated, upgraded in memory, nothing written. */
@@ -310,6 +336,21 @@ export function loadDocumentValue<S extends z.ZodType>(declaration: DocumentDecl
     return { value: value as z.output<S>, upgradedFrom: step.from, ran };
   }
 
+  // It fails today's schema ONLY because of rules that got tighter since a published smurg wrote such files (a path
+  // with more than 30 combining marks in a row): an earlier smurg wrote this file, and every one of its problems is
+  // a value that smurg accepted. Decided by what the problems are, so that it holds for every document, with or
+  // without a step (0.4.0's conflicts.json and worktrees.json pass today's schema as they are and have none).
+  if (current.error.issues.every(isTightenedRule)) {
+    const problems = problemsOf(current.error);
+    throw new StateFileError({
+      kind: 'unreadable',
+      reason: 'carried-value-refused',
+      path,
+      message: `state file holds a value an earlier published smurg accepted and this smurg refuses (${describeProblems(problems, 0)})`,
+      problems,
+    });
+  }
+
   // No shape any published smurg wrote. The problems are measured against the shape the file came closest to (a
   // 0.4.0 file with one bad record must not be answered with "three settings are missing").
   let closest = failures[0] as (typeof failures)[number];
@@ -347,47 +388,119 @@ export const STAMP_FILE = 'written-by.json';
 export const WORKSPACE_SHAPES = 1;
 /** More than this is not a stamp. */
 const STAMP_MAX_BYTES = 4096;
+const COPY_MARK = '.json.before-upgrade-from-';
 
-const stampSchema = z.strictObject({
+/** One document of an upgrade that is under way: its step, and the NAME (in the workspace folder) its kept copy gets. */
+const pendingSchema = z.strictObject({
+  document: z.string().regex(DOCUMENT_NAME),
+  from: z.string().regex(VERSION_NAME),
+  copy: z.string().min(1).max(120),
+});
+export type PendingUpgrade = z.infer<typeof pendingSchema>;
+
+/**
+ * `written-by.json` as this smurg writes it. A stored shape like every document's (pinned in test/upgrade/pin.test.ts):
+ * every later smurg reads the stamps this one wrote.
+ */
+export const workspaceStampSchema = z.strictObject({
   smurg: z.string().regex(VERSION_NAME),
   shapes: z.int().min(1).max(1_000_000),
   at: z.int().min(0),
+  /**
+   * The upgrade THIS start is doing: written with the first stamp of a start that will upgrade documents, gone from
+   * the stamp that start writes when the last of them is on disk. A start that finds it was preceded by one that did
+   * not finish (a kill, a full disk, a refusal while it wrote): it finishes the job and reports an upgrade, never a
+   * put back. The stamp is this smurg's own file (first published by 0.5.1; no earlier smurg reads it).
+   */
+  pending: z.array(pendingSchema).min(1).max(64).optional(),
 });
-export type WorkspaceStamp = z.infer<typeof stampSchema>;
+export type WorkspaceStamp = z.infer<typeof workspaceStampSchema>;
+
+/** What `written-by.json` says, as far as it can be believed. */
+export interface StampLook {
+  /**
+   * The stamp when ALL of it can be used (a regular file of ours with no group/other bits, in exactly the form this
+   * smurg writes); null: the writer is unknown.
+   */
+  readonly stamp: WorkspaceStamp | null;
+  /**
+   * The number under `shapes`, whatever else the stamp holds and whoever may read the file: it is there whenever the
+   * stamp is a regular file (not a link) of at most 4 KiB that holds a JSON object with a number under that key.
+   * This number alone decides `newer`: a later smurg may add keys to its own stamp, write its version another way, or
+   * be restored without its modes, and its folder must still not be opened (and the number never lowered) by this one.
+   */
+  readonly shapes: number | null;
+  /** `smurg` of such a stamp when it is a version name (digits.digits.digits): the writer, for a `newer` refusal. */
+  readonly smurg: string | null;
+}
 
 /**
- * The stamp, or null when the writer is unknown: no stamp, or one that fails any check (a symlink, another owner,
- * group/other bits, not a regular file, too large, not JSON, another form). An unusable stamp is logged and is never
- * a refusal of its own and never `newer`.
+ * Looks at the stamp. Never a refusal of its own: no stamp, or one that fails a check (a symlink, not a regular
+ * file, too large, not JSON, not an object, another owner, group/other bits, another form), means "the writer is
+ * unknown" and is logged. The ONE thing taken from a stamp that is not usable as a whole is its `shapes` number.
  */
-export async function readStamp(dir: string, log: Logger): Promise<WorkspaceStamp | null> {
+export async function lookAtStamp(dir: string, log: Logger): Promise<StampLook> {
   const path = join(dir, STAMP_FILE);
-  const unknown = (reason: string): null => {
+  const unknown = (reason: string, shapes: number | null = null, smurg: string | null = null): StampLook => {
     log.warn('the stamp of this workspace folder cannot be used; its writer is unknown', { file: path, reason });
-    return null;
+    return { stamp: null, shapes, smurg };
   };
-  let bytes: Buffer | null;
+  let handle;
   try {
-    bytes = await readPrivateFile(path, { what: 'stamp', maxBytes: STAMP_MAX_BYTES });
+    // Never through a link; O_NONBLOCK: a FIFO in the stamp's place must not hang the start.
+    handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
   } catch (err) {
-    return unknown(err instanceof StateFileError ? `${err.kind}${err.cause === undefined ? '' : `:${err.cause}`}${err.errno === undefined ? '' : `:${err.errno}`}` : (errnoCode(err) ?? 'unknown'));
+    const code = errnoCode(err);
+    if (code === 'ENOENT') return { stamp: null, shapes: null, smurg: null };
+    return unknown(code === 'ELOOP' || code === 'EMLINK' ? 'insecure:symlink' : `cannot-open:${code ?? 'unknown'}`);
   }
-  if (bytes === null) return null;
+  let bytes: Buffer;
+  let notPrivate: string | null = null;
+  try {
+    const st = await handle.stat();
+    if (!st.isFile()) return unknown('insecure:not-a-file');
+    if (st.size > STAMP_MAX_BYTES) return unknown('too-large');
+    bytes = await handle.readFile();
+    try {
+      assertPrivateFileStat(path, st, 'stamp');
+    } catch (err) {
+      notPrivate = err instanceof StateFileError ? `insecure:${err.cause ?? 'unknown'}` : 'insecure';
+    }
+  } catch (err) {
+    return unknown(`cannot-open:${errnoCode(err) ?? 'unknown'}`);
+  } finally {
+    await handle.close().catch(() => {});
+  }
   let raw: unknown;
   try {
     raw = JSON.parse(bytes.toString('utf8'));
   } catch {
     return unknown('not-json');
   }
-  const parsed = stampSchema.safeParse(raw);
-  return parsed.success ? parsed.data : unknown('another-form');
+  if (!isPlainObject(raw)) return unknown('another-form');
+  const shapes = typeof raw['shapes'] === 'number' ? raw['shapes'] : null;
+  const smurg = isVersionName(raw['smurg']) ? raw['smurg'] : null;
+  if (notPrivate !== null) return unknown(notPrivate, shapes, smurg);
+  const parsed = workspaceStampSchema.safeParse(raw);
+  if (!parsed.success) return unknown('another-form', shapes, smurg);
+  // A copy's name is joined to the folder later: it must be exactly a name this smurg gives a copy of that document and step.
+  for (const entry of parsed.data.pending ?? []) {
+    const prefix = `${entry.document}${COPY_MARK}`;
+    if (!entry.copy.startsWith(prefix) || keptCopyNameOf(entry.copy.slice(prefix.length))?.from !== entry.from) return unknown('another-form', shapes, smurg);
+  }
+  return { stamp: parsed.data, shapes, smurg };
 }
 
-/** Phase 2, first write: tmp + fsync + rename, 0600. A stamp that cannot be written refuses the start. */
+/** The stamp when all of it can be used, else null (see lookAtStamp). */
+export async function readStamp(dir: string, log: Logger): Promise<WorkspaceStamp | null> {
+  return (await lookAtStamp(dir, log)).stamp;
+}
+
+/** Phase 2: tmp + fsync + rename, 0600. A stamp that cannot be written refuses the start. */
 export async function writeStamp(dir: string, stamp: WorkspaceStamp): Promise<void> {
   const path = join(dir, STAMP_FILE);
   try {
-    await writePrivateFileAtomic(path, dir, serializeDocument(stampSchema.parse(stamp)));
+    await writePrivateFileAtomic(path, dir, serializeDocument(workspaceStampSchema.parse(stamp)));
   } catch (source) {
     throw new StateFileError({ kind: 'cannot-open', errno: errnoCode(source) ?? 'unknown', path, message: `cannot write the stamp (${errnoCode(source) ?? 'unknown'})`, source });
   }
@@ -397,7 +510,6 @@ export async function writeStamp(dir: string, stamp: WorkspaceStamp): Promise<vo
 // Kept copies: <name>.json.before-upgrade-from-<step>
 // =====================================================================================================================
 
-const COPY_MARK = '.json.before-upgrade-from-';
 /**
  * How many copies of ONE step a document may have beside it: the first carries the step's name alone, the others
  * `-2` … `-99`. A further one is made only when a file that differs from every copy of its step is upgraded (an older
@@ -483,13 +595,53 @@ export async function keepCopy(dir: string, name: string, from: string, bytes: U
       break;
     }
   }
-  const last = keptCopyPath(dir, name, from, KEPT_COPIES_MAX);
-  throw new StateFileError({
+  throw noFreeCopyName(dir, name, from);
+}
+
+/**
+ * PHASE 1's look at the copy a step WILL make: the name `keepCopy` would give `bytes` now, found without writing
+ * anything. The first name of the step that is free, or the one that already holds these very bytes. Throws what
+ * `keepCopy` would throw: `insecure` when something that is no private file of ours carries one of the names on the
+ * way, `cannot-open` (EEXIST) when every name is taken by other bytes. So a start that cannot keep the file as it was
+ * is refused before it has written anything.
+ */
+export async function planKeptCopy(dir: string, name: string, from: string, bytes: Uint8Array): Promise<string> {
+  for (let nth = 1; nth <= KEPT_COPIES_MAX; nth++) {
+    const path = keptCopyPath(dir, name, from, nth);
+    const there = await readPrivateFile(path, { what: 'kept copy' });
+    if (there === null || there.equals(bytes)) return path;
+  }
+  throw noFreeCopyName(dir, name, from);
+}
+
+function noFreeCopyName(dir: string, name: string, from: string): StateFileError {
+  return new StateFileError({
     kind: 'cannot-open',
     errno: 'EEXIST',
-    path: last,
+    path: keptCopyPath(dir, name, from, KEPT_COPIES_MAX),
     message: `cannot keep a copy of the state file before its upgrade: ${KEPT_COPIES_MAX} copies of this step are beside it, none with these bytes (EEXIST)`,
   });
+}
+
+/**
+ * Every name in the folder that IS a kept copy's name of `<name>.json` (`…-from-<step>`, `-2` … `-99`), whatever
+ * carries it: oldest step first, of one step by its number. Phase 1 checks owner, mode and kind of each.
+ */
+export async function keptCopyNames(dir: string, name: string): Promise<string[]> {
+  const prefix = `${name}${COPY_MARK}`;
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return [];
+  }
+  const named: { readonly entry: string; readonly from: string; readonly nth: number }[] = [];
+  for (const entry of entries) {
+    if (!entry.startsWith(prefix)) continue;
+    const copy = keptCopyNameOf(entry.slice(prefix.length));
+    if (copy !== null) named.push({ entry, ...copy });
+  }
+  return named.sort((a, b) => compareVersionNames(a.from, b.from) || a.nth - b.nth).map((copy) => join(dir, copy.entry));
 }
 
 /**

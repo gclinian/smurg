@@ -1,5 +1,6 @@
 // Smoke test of the single executable (scripts/build-sea.ts runs it after every build). Skipped unless
-// SMURG_SEA_BINARY names a built binary:
+// SMURG_SEA_BINARY names a built binary (a path that is not absolute is read from the repository's root, where this
+// command is typed: ./sea-binaries.ts):
 //   SMURG_SEA_BINARY=packages/cli/dist/smurg-darwin-arm64 pnpm --filter @smurg/cli exec vitest run test/sea.test.ts
 // It runs the BINARY (no Node from node_modules, no source files) with an isolated environment: `--version`, the
 // host's NODE_OPTIONS ignored, `smurg hook` / `smurg mcp` and their start-up time, then a real workspace: `smurg login
@@ -11,9 +12,8 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { lstat, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { systemClock } from '@smurg/daemon';
 import { PROTOCOL_VERSION, parseInviteUrl } from '@smurg/protocol';
 import { MemoryRelay, TestIdentityIssuer, waitFor } from '@smurg/daemon/testing';
@@ -22,11 +22,11 @@ import { statePaths } from '../src/state/paths.ts';
 import { rememberSharedFolder } from '../src/state/workspaces.ts';
 import { startFakeRelay } from './fake-relay.ts';
 import { isolatedEnv, makeDirs, type Dirs } from './helpers.ts';
+import { REPO_ROOT, requireSeaBinary, seaBinary } from './sea-binaries.ts';
 import { localTerminal } from './viewer.ts';
 
 const run = promisify(execFile);
-const BINARY = process.env['SMURG_SEA_BINARY'] ? resolve(process.env['SMURG_SEA_BINARY']) : null;
-const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
+const BINARY = seaBinary();
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -62,6 +62,9 @@ function runWithInput(bin: string, args: readonly string[], input: string, env: 
 const PRE_TOOL_USE = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: '/tmp/x.txt' }, cwd: '/tmp' });
 
 describe.skipIf(BINARY === null)('the single executable (SMURG_SEA_BINARY)', () => {
+  // A named executable that is not there: one plain sentence, before anything is started.
+  beforeAll(() => requireSeaBinary());
+
   it('smurg --version works from the binary alone, and the host NODE_OPTIONS never reaches it', async () => {
     const s = await setup();
     const { stdout } = await run(s.bin, ['--version'], { env: s.env, cwd: s.dirs.home, timeout: 30_000 });

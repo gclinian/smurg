@@ -3,9 +3,10 @@
 import { MAIN_ROOT, type DiskReport } from '@smurg/protocol';
 import { act, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { setChunkProbe } from '../../lib/chunks.ts';
 import { useTestLocale } from '../../testing/locale.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
-import { transferClientFor } from './client/transfer-client.ts';
+import { transferClientFor, type WorkerLike } from './client/transfer-client.ts';
 import { createMemoryJournal } from './engine/journal.ts';
 import { syntheticBytes } from './engine/synthetic-source.ts';
 import { TransfersPanel } from './index.tsx';
@@ -74,5 +75,36 @@ describe('the transfers panel in zh-TW', () => {
     expect(alert.textContent).toContain('主人的磁碟空間不足，上傳尚未開始');
     expect(alert.textContent).toContain('低於保留空間 23 GB（目前可用 20 GB');
     expect(within(items()[0] as HTMLElement).getByRole('button', { name: '重試：big.bin' })).toBeTruthy();
+  });
+
+  it("the Worker's file is gone after a deploy: the notice and the upload's message are in Traditional Chinese", async () => {
+    setChunkProbe(() => Promise.resolve('gone'));
+    const context = createTestWorkspace({ role: 'editor' });
+    const errorListeners = new Set<(event: Event) => void>();
+    const dead: WorkerLike = {
+      postMessage: () => {},
+      terminate: () => {},
+      addEventListener: (type: 'message' | 'error', listener: ((event: MessageEvent) => void) | ((event: Event) => void)) => {
+        if (type === 'error') errorListeners.add(listener as (event: Event) => void);
+      },
+    };
+    transferClientFor(context.session, { createWorker: () => dead });
+    render(
+      <WorkspaceTestProviders context={context}>
+        <TransfersPanel />
+      </WorkspaceTestProviders>,
+    );
+    act(() => {
+      for (const listener of errorListeners) listener(new Event('error'));
+    });
+    const panel = screen.getByRole('region', { name: '上傳與下載' });
+    const notice = await within(panel).findByRole('alert');
+    expect(notice.textContent).toBe('smurg 已經更新重新整理頁面就會換成新的網頁；如果主人還沒更新，頁面會告訴你。重新整理頁面');
+    expect(panel.textContent).not.toContain('worker error');
+
+    await act(() => context.session.commands.dispatch('startUpload', { root: MAIN_ROOT, targetDir: 'in', source: { kind: 'files', files: [new File([new Uint8Array(1)], 'a.bin')] } }));
+    const toast = document.querySelector('.ui-toast') as HTMLElement;
+    expect(within(toast).getByText('smurg 已經更新')).toBeTruthy();
+    expect(within(toast).getByRole('button', { name: '重新整理頁面' })).toBeTruthy();
   });
 });

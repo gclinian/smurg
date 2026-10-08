@@ -41,7 +41,7 @@ const documentSchema = z.strictObject({
 type RulesDocument = z.infer<typeof documentSchema>;
 const EMPTY: RulesDocument = Object.freeze({ main: [], worktree: [], told: [], seen: true, foundAt: 0, notices: [] }) as RulesDocument;
 /** host-rules.json (no `version` key; new in 0.5.0). Declared by the sessions module. */
-export const hostRulesDocument = declareDocument({ name: 'host-rules', schema: documentSchema, init: (): RulesDocument => structuredClone(EMPTY) });
+export const hostRulesDocument = declareDocument({ name: 'host-rules', schema: documentSchema, init: (): RulesDocument => structuredClone(EMPTY), canSetAside: true });
 const keyOf = (entry: HostRule): string => `${entry.source}\u0000${entry.rule}`;
 const inOrder = (a: HostRule, b: HostRule): number => (a.source === b.source ? (a.rule < b.rule ? -1 : a.rule > b.rule ? 1 : 0) : a.source < b.source ? -1 : 1);
 

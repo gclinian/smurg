@@ -11,6 +11,7 @@ import {
   WINDOW_TRIM_ABOVE,
   createConversationsArea,
   foldEvents,
+  selectCardGone,
   selectCardSeq,
   selectChangedFiles,
   selectOpenCards,
@@ -626,6 +627,123 @@ describe('cards', () => {
     conn.respond('session.cards.get', { questions: [], permissions: [], suggestions: [buildSuggestion()], moreCards: [] });
     await tick();
     expect(conversation().suggestions.has('sg_1')).toBe(true);
+  });
+
+  // A conversation's log holds where a card was; the card's content is kept apart on the host, and bounded (a session
+  // keeps its newest settled cards; and a host may set cards.json or suggestions.json aside, 0.5.1). The host answers
+  // a request for such a card without an error and without the card. The page used to wait for it for ever
+  // ("Loading this card…").
+  describe('a card whose content the host no longer keeps', () => {
+    const empty = { questions: [], permissions: [], suggestions: [], moreCards: [] };
+    const cardEvents = (count: number): ConversationEvent[] => Array.from({ length: count }, (_, index) => buildEvent('card', { seq: index + 1, card: 'permission', id: `pr_${index}` }));
+
+    it('is asked for once; the answer neither carries nor names it: the store says it is not kept, and does not ask again', async () => {
+      const { conn, open, scheduler, conversation } = setup();
+      await open([buildEvent('card', { seq: 1, card: 'question', id: 'q_old' }), buildEvent('card', { seq: 2, card: 'suggestion', id: 'sg_1' })]);
+      expect(selectCardGone(conversation(), 'question', 'q_old')).toBe(false);
+      scheduler.advance(MISSING_CARDS_DELAY_MS);
+      expect(conn.lastRequest('session.cards.get')?.payload.cards).toEqual([{ kind: 'question', id: 'q_old' }, { kind: 'suggestion', id: 'sg_1' }]);
+      conn.respond('session.cards.get', { ...empty, suggestions: [buildSuggestion()] });
+      await tick();
+      expect(selectCardGone(conversation(), 'question', 'q_old')).toBe(true);
+      expect(selectCardGone(conversation(), 'suggestion', 'sg_1')).toBe(false);
+      expect(conversation().suggestions.has('sg_1')).toBe(true);
+
+      // The next card event makes the store look again: what it knows to be gone is not asked for a second time.
+      conn.emit('session.events', { sessionId: SID, events: [buildEvent('card', { seq: 3, card: 'permission', id: 'pr_new' })] });
+      scheduler.advance(MISSING_CARDS_DELAY_MS);
+      expect(conn.requestsOf('session.cards.get')).toHaveLength(2);
+      expect(conn.lastRequest('session.cards.get')?.payload.cards).toEqual([{ kind: 'permission', id: 'pr_new' }]);
+    });
+
+    it('a card the answer names as waiting for its turn is not gone, and one that did not fit is asked for again', async () => {
+      const { conn, open, scheduler, conversation } = setup();
+      await open(cardEvents(2));
+      scheduler.advance(MISSING_CARDS_DELAY_MS);
+      conn.respond('session.cards.get', { ...empty, permissions: [buildPermission({ id: 'pr_0' })], moreCards: [{ kind: 'permission', id: 'pr_1' }] });
+      await tick();
+      expect(selectCardGone(conversation(), 'permission', 'pr_1')).toBe(false);
+      expect(conn.lastRequest('session.cards.get')?.payload.cards).toEqual([{ kind: 'permission', id: 'pr_1' }]);
+      conn.respond('session.cards.get', { ...empty, permissions: [buildPermission({ id: 'pr_1' })] });
+      await tick();
+      expect(conversation().permissions.size).toBe(2);
+      expect(selectCardGone(conversation(), 'permission', 'pr_1')).toBe(false);
+    });
+
+    it('many of them (the host set the cards aside) are all found out in one go, twenty at a time, and the asking ends', async () => {
+      const { conn, open, scheduler, conversation } = setup();
+      const count = CARDS_GET_MAX * 2 + 3;
+      await open(cardEvents(count));
+      scheduler.advance(MISSING_CARDS_DELAY_MS);
+      for (let round = 0; round < 3; round++) {
+        expect(conn.requestsOf('session.cards.get')).toHaveLength(round + 1);
+        conn.respond('session.cards.get', empty);
+        await tick();
+      }
+      expect(conn.requestsOf('session.cards.get')).toHaveLength(3);
+      expect(conn.requestsOf('session.cards.get').map((request) => request.payload.cards.length)).toEqual([CARDS_GET_MAX, CARDS_GET_MAX, 3]);
+      for (let index = 0; index < count; index++) expect(selectCardGone(conversation(), 'permission', `pr_${index}`), String(index)).toBe(true);
+    });
+
+    it('a host that names the same cards again and again without sending one is not asked for ever', async () => {
+      const { conn, open, scheduler } = setup();
+      await open(cardEvents(2));
+      scheduler.advance(MISSING_CARDS_DELAY_MS);
+      conn.respond('session.cards.get', { ...empty, moreCards: [{ kind: 'permission', id: 'pr_0' }, { kind: 'permission', id: 'pr_1' }] });
+      await tick();
+      expect(conn.requestsOf('session.cards.get')).toHaveLength(1);
+    });
+
+    it('a card this page still holds as open: its stale copy goes with the answer, so no button points at nothing', async () => {
+      const { conn, open, lifecycle, conversation } = setup();
+      await open([buildEvent('card', { seq: 1, card: 'question', id: 'q_1' })], { questions: [buildQuestion()] });
+      expect(conversation().questions.get('q_1')?.status).toBe('open');
+      // The host stopped, set the cards aside and shares again: the watch after it carries no open card.
+      lifecycle.reset();
+      await lifecycle.load();
+      conn.respond('session.watch', watchReply([], { firstSeq: 0, nextSeq: 2 }));
+      await tick();
+      expect(conn.lastRequest('session.cards.get')?.payload.cards).toEqual([{ kind: 'question', id: 'q_1' }]);
+      conn.respond('session.cards.get', empty);
+      await tick();
+      expect(conversation().questions.has('q_1')).toBe(false);
+      expect(selectCardGone(conversation(), 'question', 'q_1')).toBe(true);
+      expect(selectOpenCards(conversation())).toEqual([]);
+    });
+
+    it('a fresh channel (the host started again) forgets what the host before said, and the cards are asked for again', async () => {
+      const { conn, open, scheduler, lifecycle, conversation } = setup();
+      await open(cardEvents(1));
+      scheduler.advance(MISSING_CARDS_DELAY_MS);
+      conn.respond('session.cards.get', empty);
+      await tick();
+      expect(selectCardGone(conversation(), 'permission', 'pr_0')).toBe(true);
+      // The host put the file back and shares again: the window is continued by an empty page.
+      lifecycle.reset();
+      expect(selectCardGone(conversation(), 'permission', 'pr_0')).toBe(false);
+      await lifecycle.load();
+      conn.respond('session.watch', watchReply([], { firstSeq: 0, nextSeq: 2 }));
+      await tick();
+      scheduler.advance(MISSING_CARDS_DELAY_MS);
+      expect(conn.requestsOf('session.cards.get')).toHaveLength(2);
+      conn.respond('session.cards.get', { ...empty, permissions: [buildPermission({ id: 'pr_0' })] });
+      await tick();
+      expect(conversation().permissions.has('pr_0')).toBe(true);
+      expect(selectCardGone(conversation(), 'permission', 'pr_0')).toBe(false);
+    });
+
+    it('on an earlier page too: a card event without its content is asked for after a moment', async () => {
+      const { conn, open, scheduler, store, conversation } = setup();
+      await open([buildEvent('line', { seq: 5 })], { hasEarlier: true });
+      const earlier = store.loadEarlier(SID);
+      conn.respond('session.history', historyReply([buildEvent('card', { seq: 4, card: 'question', id: 'q_old' })]));
+      await earlier;
+      scheduler.advance(MISSING_CARDS_DELAY_MS);
+      expect(conn.lastRequest('session.cards.get')?.payload.cards).toEqual([{ kind: 'question', id: 'q_old' }]);
+      conn.respond('session.cards.get', empty);
+      await tick();
+      expect(selectCardGone(conversation(), 'question', 'q_old')).toBe(true);
+    });
   });
 
   it('lists the cards that wait, oldest first, and the files the session changed, newest first', async () => {

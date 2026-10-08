@@ -207,6 +207,16 @@ keep it. `WorkspaceRoute` renders ONE `WorkspaceShell` for `workspace` and `code
 6. After the connection succeeds, the invite is deleted from sessionStorage and the app goes to `/w/:workspaceId`,
    **reusing the same connection** (the manager guarantees one connection per workspace).
 
+When else the invite is forgotten: you click "Do not join", or the host refuses in a way that ends the link (used up,
+revoked, removed, a key mismatch). **It is kept through a refusal the screen answers with "Reload the page"**: the
+host's smurg and the page do not fit (`rejected(version)`), the login could not be verified, a refusal without a
+reason, or a key a newer page wrote (`reloadIsAWayOut` in `lib/connection/status.ts`; the screen's button and the join
+page read the same function). Such a refusal used up nothing, so the reload asks "Join?" again and the same link lets
+you in. By then the host's key is pinned (step 5) and it is the invite's own, so the SDK tries this browser's device
+key first and falls back to the invite when the host does not know the device. (Without the invite the reloaded page
+went on as a device the host had never seen and said "This device can no longer connect … ask the host for a new
+invite link", about a link that still worked.)
+
 ## The two views of a workspace
 
 As built (`app/workspace/`, `features/columns`, `features/sidebar`).
@@ -336,7 +346,7 @@ store before the promise resolves.
 | `sessions` | `session.list`, `session.state` | every session of both kinds; for terminals also the stream and attach plumbing |
 | `topics` | `topic.list`, `topic.updated` / `topic.removed`, `plan.get`, `plan.updated`, `report.get`, `report.updated` | topics, their plans, loaded result reports, the notices a change of phase tells everyone |
 | `inbox` | `inbox.list`, `inbox.changed` | the member's own items and the two counts |
-| `conversations` | `session.watch` / `session.history` / `session.cards.get`, `session.events`, `session.delta`, the card updates | per watched session: the folded list React renders, the cards by id, the streaming text |
+| `conversations` | `session.watch` / `session.history` / `session.cards.get`, `session.events`, `session.delta`, the card updates | per watched session: the folded list React renders, the cards by id, the streaming text, and which cards the host no longer keeps (`cardsGone` / `selectCardGone`: a card asked for by name that the answer neither carries nor names; its place says "The host's computer no longer keeps this card." instead of "Loading this card…", and it is not asked for again until a fresh channel) |
 | `host` | `session.host.get`, `session.host` | the state of the host's Claude account and of the main folder's Claude Code project settings |
 | `columns` | nothing from the daemon | the member's own view (see "What is remembered where") |
 | `suggestions` | `suggest.list`, `suggest.updated` | suggestions, by session |
@@ -1154,18 +1164,29 @@ a script. `lib/chunks.ts` is the one place that deals with it:
 const PlanColumn = lazyChunk(() => import('./PlanColumn.tsx'));          // a component: a slot, a route, a dialog
 const monaco = await loadChunk(() => import('./monaco.ts'));             // anything else
 void loadChunk(() => import('./dialogs.tsx')).then(open).catch(reportChunkFailure);   // no place of its own
+const worker = startWorker(() => new Worker(new URL('./x.worker.ts', import.meta.url), { type: 'module' }), onFileFailure);   // a Worker
 ```
 
 - **Every `import()` of a chunk under `src/` goes through `loadChunk` or `lazyChunk`**, and `React.lazy` is used by
   the helper alone: `src/lib/chunks.test.tsx` reads the source tree and fails for one that does not.
 - A load that fails becomes one named error, `ChunkLoadError`, whose `reason` was ASKED of the server (one request for
-  the file the browser named, past every cache): `'gone'` (the answer is the page itself, or "not found": the web app
-  was deployed again), `'offline'` (the request fails), `'failed'` (the file is there). "smurg was updated" is said
-  only for `'gone'`.
+  the file the browser named, past every cache): `'gone'` (the answer is "not found", or the relay's own answer for a
+  file it does not have: the page itself, as HTML with an OK status and no redirect; the web app was deployed again),
+  `'offline'` (the request fails), `'failed'` (anything else: the file is there, or the answer is an error such as a
+  proxy's 503 page, whatever it is written in). "smurg was updated" is said only for `'gone'`.
+- **Every Worker is started through `startWorker`** (the transfer Worker in `features/transfer/client`, Monaco's
+  editor Worker in `lib/monaco.ts`; the same test fails for a file that makes a Worker and does not). A Worker's
+  script is a file of the build too, but its load is not an import: when the file does not come the browser fires
+  one bare `error` event at the Worker (no message, before the Worker said anything). `startWorker` asks why in the
+  same way (the event names no file, so the page's entry script is asked) and hands the `ChunkLoadError` to
+  `onFileFailure`, or to `reportChunkFailure` when none is given. An error with a message is the Worker's own code
+  that ran and threw: left to whoever started it.
 - Who shows it, with the same words (`ui/ChunkNotice.tsx`): `SlotBoundary` in the slot's place; `PageBoundary`
   (`app/PageBoundary.tsx`, around the routes) for the workspace route and code mode, instead of an empty page; the
-  editor and a terminal in their own place; and the workspace's banner (`ChunkFailureBanner`) for a failure without a
-  place: a `silent` slot (an overlay) and anything handed to `reportChunkFailure`.
+  editor, a terminal and the transfers panel in their own place (an upload or download that is tried while the
+  transfer Worker's file is gone says it in a message with the same action: `chunkToast`); and the workspace's banner
+  (`ChunkFailureBanner`) for a failure without a place: a `silent` slot (an overlay), the editor's Worker (Monaco
+  goes on without it) and anything handed to `reportChunkFailure`.
 - **The one action is "Reload the page".** A browser keeps a failed import for as long as the page lives (run in
   Chrome 155: the same `import()` fails again after the file is served fine), so nothing offers to try again.
 - Unit tests never ask a network: `src/testing/setup.ts` pins the reason to `'failed'`; a test sets its own with
@@ -1381,8 +1402,8 @@ The smokes that came from 0.4.0, as they are in the new shell:
 | `zh-TW.smoke.test.ts` | The old path in Traditional Chinese (`locale: 'zh-TW'`): join through an invite link, the sessions view, a terminal in a column (an editor watches it read-only), code mode with the host's sentence in the activity feed, and `/device`. A suggestion accepted on a zh-TW page is `conversation.smoke` |
 | `acceptance.smoke.test.ts` | R11.1c one-click terminate and remove in the console; R9 worktree merge (asked for from code mode's worktree switcher; the host's inbox item opens the full diff in a Changes column; merge; the worktree is unchanged after a reject); R8.4 a real conflict appears in the conflicts panel of code mode; a member with agent access opens their own terminal (it runs as the host's user) and types directly in the host's terminal, an editor only watches; the console's risk confirmation before it gives agent access (an invite and a role change). 0.4.0's R6 test and suggestion steps typed into a terminal and are deleted: `conversation.smoke` has the suggestion flow |
 | `transfer-resume.smoke.test.ts` | R7.3: `drop-proxy.ts` (a TCP proxy in front of the relay) cuts the transfer socket in the middle of an upload; the upload resumes by itself and completes, the content is identical, and only the missing part is sent again |
-| `update.smoke.test.ts` | A tab across a deploy of the web app (0.5.1): the relay answers a file it does not have with the page itself; with every file under `/assets/` answered so, a column whose chunk was not loaded says "smurg was updated" with "Reload the page" (English and Traditional Chinese), code mode says it for the whole page instead of going empty and the back button returns to the sessions view, and the reload brings the workspace and the terminal back; without the network the same column says offline, never "updated" |
-| `version.smoke.test.ts` | A page the host's smurg refuses for its version (0.5.1): this file's daemon speaks another protocol number than the built page. The page asks the relay for `/` (once, no cache, no cookie, inside its own Content-Security-Policy) and says "The host's smurg is older than this page" with what the host does; with `/` naming another entry script it says "This tab is from before an update"; also in Traditional Chinese |
+| `update.smoke.test.ts` | A tab across a deploy of the web app (0.5.1): the relay answers a file it does not have with the page itself; with every file under `/assets/` answered so, a column whose chunk was not loaded says "smurg was updated" with "Reload the page" (English and Traditional Chinese), code mode says it for the whole page instead of going empty and the back button returns to the sessions view, and the reload brings the workspace and the terminal back; a 503 page in HTML for the file (a proxy's) says "could not be loaded", never "updated"; with only the two Workers' files gone the transfers panel and a tried upload say "smurg was updated" with "Reload the page", the editor goes on and the workspace's banner says it, and after the reload the upload arrives; without the network the same column says offline, never "updated" |
+| `version.smoke.test.ts` | A page the host's smurg refuses for its version (0.5.1): this file's daemon speaks another protocol number than the built page. The page asks the relay for `/` (once, no cache, no cookie, inside its own Content-Security-Policy) and says "The host's smurg is older than this page" with what the host does; with `/` naming another entry script it says "This tab is from before an update"; also in Traditional Chinese. On both screens "Reload the page" is then pressed against a host that fits (the daemon restarted for the first): the join page asks "Join?" again and the same invite link leads into the workspace |
 
 The smokes 0.5.0 added, one per feature, each against the stand-in `claude`: `columns.smoke` (the dividers of the
 strip under a real mouse) and `sidebar.smoke` (the shell), `terminal.smoke` (a terminal as a column),

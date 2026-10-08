@@ -21,7 +21,7 @@ const conflictsDocumentSchema = z.strictObject({
 type ConflictsDocument = z.infer<typeof conflictsDocumentSchema>;
 
 /** conflicts.json (no `version` key; the same shape since 0.4.0). Declared by the docs module. */
-export const conflictsDocument = declareDocument({ name: 'conflicts', schema: conflictsDocumentSchema, init: (): ConflictsDocument => ({ conflicts: [] }) });
+export const conflictsDocument = declareDocument({ name: 'conflicts', schema: conflictsDocumentSchema, init: (): ConflictsDocument => ({ conflicts: [] }), canSetAside: true });
 
 /** File name of an agent version: hex of the id (ids are case-sensitive, APFS is not). */
 function versionFileName(id: string): string {

@@ -67,7 +67,7 @@ import { pickRelay, relayApi, relayDefaultText, relayOriginOf, relayProblem } fr
 import { loadCredentials, type StoredSession } from '../state/credentials.ts';
 import { homeDirOf, hostLogPath, workspaceStateDir } from '../state/paths.ts';
 import { stateProblem, stateProblemSaysWhy } from '../state/private-file.ts';
-import { loadWorkspaces, newWorkspaceId, rememberSharedFolder, sharedFolderFor, type WorkspaceBook } from '../state/workspaces.ts';
+import { loadWorkspaces, lookUpSharedFolder, newWorkspaceId, rememberSharedFolder, type WorkspaceBook } from '../state/workspaces.ts';
 import { NativeExtractionError, ensureSeaNative } from '../sea/native.ts';
 import { agentsPausedNotice } from '../cli/agents-text.ts';
 import { powerState } from '../cli/power-text.ts';
@@ -76,7 +76,7 @@ import { CLI_VERSION } from '../version.ts';
 import { m, renderText, roleText, type MessageId, type Text } from '../i18n/index.ts';
 import type { DurationUnit } from '../i18n/en.ts';
 import { say, tr, type CommandContext } from './context.ts';
-import { foldersSetAside, formatTime, oldFolderNotice, stateFileProblem, upgradeNotice, wasStamped, watchRefusedPeers, type RefusalContext } from './host-state.ts';
+import { entryUnreadProblem, foldersSetAside, formatTime, oldFolderNotice, shown, stateFileProblem, upgradeNotice, wasStamped, watchRefusedPeers, type RefusalContext } from './host-state.ts';
 
 /** `smurg host --help`; the --relay default depends on the built-in relay (../relay/default-relay.ts). */
 export function hostUsage(): Text {
@@ -380,7 +380,11 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   const folder = await validateFolder(ctx, args.positionals[0] as string);
 
   const origin = pickRelay(stringOption(args, 'relay'), io, await loadCredentials(ctx.paths)).origin;
-  const existing = sharedFolderFor(await loadWorkspaces(ctx.paths), folder, origin);
+  const known = await lookUpSharedFolder(ctx.paths, folder, origin);
+  const existing = known.entry;
+  // The folder HAS an entry, and this smurg cannot read it: never a new workspace for it (that left the folder's
+  // members, invite links and daemon key behind without a word). Before anything is asked of the relay or written.
+  if (existing === null && known.unread !== null) throw entryUnreadProblem(known.unread, ctx.paths);
   const workspaceId = existing?.workspaceId ?? newWorkspaceId();
   // Before any login: a folder that is already shared needs no browser. A smurg host of another version (alive, its
   // answer not readable by this command: channel/discover.ts) shares the folder just the same.
@@ -597,16 +601,17 @@ async function refuseOverlappingShare(ctx: CommandContext, folder: string): Prom
   for (const daemon of sharing) {
     for (const entry of book.shared.filter((e) => e.workspaceId === daemon.workspaceId)) {
       if (!isInside(folder, entry.folder) && !isInside(entry.folder, folder)) continue;
+      // (The other folder's path and its relay are what workspaces.json holds: shown escaped, as every name from the disk.)
       const what =
         entry.folder === folder
           ? m('host.overlap.same')
           : isInside(folder, entry.folder)
-            ? m('host.overlap.ancestor', { folder: entry.folder })
-            : m('host.overlap.inside', { folder: entry.folder });
+            ? m('host.overlap.ancestor', { folder: shown(entry.folder) })
+            : m('host.overlap.inside', { folder: shown(entry.folder) });
       throw new CliError(what, {
         hint: daemon.otherVersion
           ? m('host.overlap.otherVersion.hint', { workspaceId: daemon.workspaceId, current: CLI_VERSION })
-          : m('host.overlap.hint', { workspaceId: daemon.workspaceId, relay: entry.relay }),
+          : m('host.overlap.hint', { workspaceId: daemon.workspaceId, relay: shown(entry.relay) }),
       });
     }
   }

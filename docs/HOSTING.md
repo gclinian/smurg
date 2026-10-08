@@ -681,14 +681,14 @@ they open in the browser, not in a terminal.
 | The page where you enter the code says "That code is not correct or is no longer valid." / "Too many wrong codes." | Make sure it is the **newest** code in the terminal (8 letters, no digits). A code stops working once it was used, denied or expired; after too many wrong codes you wait a few minutes (the page says how long). |
 | "This relay does not support logging in with a code yet" | The relay you named with `--relay` is older than your smurg. Ask whoever runs that relay to update it. |
 | "smurg's state file could not be written" | The disk is full or a permission is missing. The change you just made (removing a member, changing a role, revoking an invite) is in effect now, but if you stop sharing before a write succeeds, it is gone after the restart. |
-| `smurg host` does not start and names a file of the workspace's state (or the workspace itself); the next line is "Nothing was changed." or, for a file the system would not open, says that nothing in the workspace was changed or reset | smurg read the workspace's state (`~/.smurg/workspaces/<workspace code>/`) and cannot use what it found: a newer smurg wrote it, a file is open to other users or belongs to someone else, a file is damaged or missing. Nothing was changed or reset. §9.3 has every message and what to do for each. Do not move the folder away: that gives up the members, the invite links and the daemon key, and the terminal names it only as the last resort, after what it costs. |
+| `smurg host` does not start and names a file of the workspace's state (or the workspace itself). One of the next lines is "Nothing was changed." (after "What does not fit: …" for a file in an unknown form) or, when the system would not open or write a file, "smurg host did not start, and nothing in the workspace was changed or reset: …" | smurg read the workspace's state (`~/.smurg/workspaces/<workspace code>/`) and cannot use what it found: a newer smurg wrote it, a file is open to other users or belongs to someone else, a file is damaged or missing. §9.3 has every message and what to do for each. Do not move the folder away: that gives up the members, the invite links and the daemon key. |
 | Above the two links: "An earlier state folder of this workspace lies beside the one in use" | You (or smurg 0.5.0's advice after an update) moved this workspace's state folder away earlier, and the workspace in use now is a new one. §9.4 says how to go back to the old one, and when not to. The line is printed once. |
 | Above the two links: a warning that an older file "was put back into this workspace and upgraded again" | Someone put a copy that smurg had kept before an upgrade back in place of the file in use. Everything decided since that copy was made is undone (§9.2): go through the members, the roles and the invite links in the host console now. |
 | Under the two links: "Warning: a teammate's page or smurg is newer than this smurg and was turned away. Stop sharing, run smurg update, then share again." | A teammate tried to connect with a newer web app (the relay was updated) or a newer `smurg` than yours, and the two do not speak the same protocol version. Until you update, nobody with the newer one can connect. Do what the line says (§9.1). It is printed once per run, and only for a teammate the workspace knows. |
-| Under the two links: "A page or smurg older than this smurg was turned away. The teammate reloads the page or updates smurg; if you run your own relay, deploy it again." | A teammate still has a tab from before an update open, or an older `smurg` on their computer; or the relay you share through still serves an older web app. The teammate reloads the page or runs `smurg update`; your own relay needs a new deploy (§2.2). |
+| Under the two links: "A teammate's page or smurg is older than this smurg and was turned away. That teammate reloads the page or updates smurg; if you run your own relay, deploy it again." | A teammate still has a tab from before an update open, or an older `smurg` on their computer; or the relay you share through still serves an older web app. The teammate reloads the page or runs `smurg update`; your own relay needs a new deploy (§2.2). |
 | Teammates see "The host's smurg is older than this page" | The relay serves a newer web app than your `smurg` can talk to. Stop sharing, run `smurg update`, share again (§9.1). |
-| `smurg status` says "A smurg host of another version is sharing it", or `smurg host`, `smurg update`, `smurg uninstall` or `smurg attach` say that a smurg host of another version is sharing | The `smurg` command was replaced while a `smurg host` of the earlier version kept running (an install over a running share, for example), and the two cannot talk to each other. Stop the one that runs (`smurg stop` works across versions, or press Ctrl-C in its terminal), then start it again with `smurg host`. `smurg status` ends with exit code 5 in this case (0: a share is shown; 3: nothing is shared). |
-| A teammate says they see "The host computer's key has changed" | You replaced the workspace's keys (§5.1 "After taking it back", step 1, or the last resort of §9.3), or you went back to a state folder you had moved away (§9.4): look up the daemon key fingerprint with `smurg status` and tell them over another channel (in person, on the phone), so they can compare it before they continue. If you did none of these, tell them not to continue: someone may be posing as you. |
+| `smurg status` says "A smurg host of another version is sharing it", or `smurg host`, `smurg update`, `smurg uninstall` or `smurg attach` say that a smurg host of another version is sharing | The `smurg` command was replaced while a `smurg host` of the earlier version kept running (an install over a running share, for example), and the two cannot talk to each other. Stop the one that runs (`smurg stop` works across versions, or press Ctrl-C in its terminal), then start it again with `smurg host`. `smurg status` ends with exit code 5 in this case (0: a share is shown; 3: nothing is shared). A known limit: beside a `smurg host` of 0.4.0 that still runs, `smurg status` shows its usual lines and exit code 0, because 0.4.0's answer names no version; `smurg attach` does say that another version is sharing. |
+| A teammate's page, or your own, says "Security warning: connection refused", or a link asks "The host computer's key has changed" | That browser or computer recorded another daemon key for this workspace than `smurg host` has now: you replaced the workspace's keys (§5.1 "After taking it back", step 1, or the last resort of §9.3), or you went back to a state folder you had moved away (§9.4 says who is affected). The warning's only way on is a link: open "Your link" yourself, send a teammate a new invite link, and tell them the daemon key fingerprint that `smurg status` shows over another channel (in person, on the phone), so they can compare it when the link asks about the changed key. If you did none of these, tell them not to continue: someone may be posing as you. |
 | "The path of smurg's state folder is too long for a Unix socket" | Set `SMURG_HOME` to a shorter path (the path of a Unix socket has a length limit). |
 | Teammates see "Host offline" | `smurg host` is not running, or the computer is asleep or has no network. |
 | A topic or an agent session cannot be started: "Claude Code is not logged in on the host's computer, so no agent session can be started. The host must run `claude` and log in." (a session that is already open says "Claude Code is not logged in on the host's computer.") | Every agent uses your Claude Code login on this computer (§5.1). Run `claude` in your own terminal and log in; nobody can log in from inside a session. Then choose "Check login again" in the session, or send the next message. |
@@ -776,12 +776,13 @@ steps:
    `smurg host` does not start and the workspace is exactly as it was (§9.3).
 2. Only when all of it could be read does it **write**: first a small file that names the smurg that shares the
    workspace (`written-by.json`), then, for each file it brought to today's form, a copy of the file as it was (see
-   below) and the file in its new form.
+   below) and the file in its new form. A start that is cut short here (the disk is full, the power goes) loses
+   nothing: a file is replaced only after its copy is kept, and the next `smurg host` finishes the work.
 
 When step 2 wrote a file in a new form, one line above the two links says so. It is printed at that start only:
 
 ```text
-This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over. What changed: https://smurg.ai/docs/hosting/#9-updating-and-removing
+This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over. What changed: https://smurg.ai/docs/hosting/#92-after-an-update-what-your-workspace-keeps
 ```
 
 **Carried over from 0.4.0, as it was:**
@@ -830,8 +831,8 @@ invite links in the host console once after the update, and change a role or rev
 
 **The copies smurg keeps.** Before it writes a file in a new form, smurg keeps the file as it was beside it, named
 after the version it came from: `state.json.before-upgrade-from-0.4.0`,
-`suggestions.json.before-upgrade-from-0.4.0`. A copy is never written again, only you can read it (mode 600), and
-smurg never reads it. If a file of the older form that is not the copy is ever upgraded again (you went back to the
+`suggestions.json.before-upgrade-from-0.4.0`. A copy is never written again, only you can read it (mode 600; a start
+checks that as it does for the state file), and smurg never reads it. If a file of the older form that is not the copy is ever upgraded again (you went back to the
 older smurg, worked there and updated once more), smurg keeps that file too, under the same name with `-2` at its
 end (then `-3`, and so on). It is there so that you can look up what the workspace held. It holds the keys
 of your invite links: keep it as private as the state file itself, and delete it when you no longer need it.
@@ -839,7 +840,8 @@ of your invite links: keep it as private as the state file itself, and delete it
 **Do not put a copy back in the place of the file in use.** `state.json` is where smurg records who was removed,
 which device was revoked, which invite link was used up or revoked, and who has which role. Putting the copy back
 undoes all of that since the update: people removed since are members again, revoked devices and revoked or used-up
-invite links work again, and role changes are gone. smurg cannot prevent it. It says so at the next start, with a
+invite links work again, and role changes are gone; whoever joined since is no longer a member, and invite links
+made since no longer work. smurg cannot prevent it. It says so at the next start, with a
 warning that an older file "was put back into this workspace and upgraded again" in the place of the line above; go
 through the members, the roles and the invite links in the host console then.
 
@@ -848,9 +850,12 @@ through the members, the roles and the invite links in the host console then.
 `smurg host` uses a workspace's state only when it can read all of it. Otherwise it does not start, and it changes
 nothing: the members, the invite links, the keys and the settings are as they were, and you can try again as often
 as you need. The lines after `smurg:` name the file (or the workspace's folder), say why, and say what to do; the
-daemon's own line about it is in the log (`~/.smurg/logs/`). Never move the workspace's folder away to get past a refusal: that gives up
-the members, the invite links and the daemon key. The terminal names it in one case only, as the last resort and
-after what it costs (the list below the table).
+daemon's own line about it is in the log (`~/.smurg/logs/`). A refusal that comes later, while the start was
+already writing (the disk filled up), does not say "Nothing was changed." but that nothing in the workspace was
+changed or reset: what the start had begun stays, and the next start finishes it (§9.2). Never move the workspace's
+folder away to get past a refusal: that gives up the members, the invite links and the daemon key. The terminal
+names it only as the last resort, after what it costs, and not at all for a file that can be set aside alone (below
+the table).
 
 | The terminal says | What happened, and what to do |
 |---|---|
@@ -858,12 +863,13 @@ after what it costs (the list below the table).
 | "A file of this workspace's state is open to other users of this computer (mode 644)" | The file's permissions let other accounts of this computer read or change it, and smurg does not use such a file. Run the one `chmod 600 …` line the terminal prints (it names every such file), then `smurg host` again. Until now those accounts could read the file, and a workspace's state holds the daemon key and the keys of its invite links: if you do not trust them, replace the keys (§5.1 "After taking it back", step 1). |
 | "A file of this workspace's state belongs to another user, not to you" | Usually smurg was once run with `sudo`. `chmod` does not change who owns a file: the owner or an administrator of this computer gives it back to you (`chown`). Then run `smurg host` again. |
 | "A file of this workspace's state is a symbolic link, and smurg follows no link in its state folder", or "Where a file of this workspace's state belongs there is a folder" | smurg reads only a regular file of your own in that place. Put the file itself there (mode 600), then run `smurg host` again. |
-| "A file of this workspace's state could not be opened or written (permission denied, EACCES)" (or another reason of the system's) | The file is there and the system would not open it or write it: a permission, a full disk, a disk that fails. smurg never starts a new workspace in such a case. Put right what the reason names, then run `smurg host` again. |
+| "A file of this workspace's state could not be opened or written (permission denied, EACCES)" (or another reason of the system's) | The system would not open the file or write it: a permission, a full disk, a disk that fails. smurg never starts a new workspace in such a case. Put right what the reason names, then run `smurg host` again. When the file it names is not there (`written-by.json` at the first start of this version), smurg was not allowed to create it: look at the permissions of the workspace's folder itself. |
 | The state file in the folder of the workspace "names another workspace" | The folder was copied from another workspace's, or the two were mixed up. No command repairs this: put this workspace's own folder back in its place. |
-| "The state file of this workspace is not there, although other files of the workspace are", or "The daemon's key of this workspace is not there, although its state file is" | A file was moved, renamed or deleted by hand. smurg makes no new one in its place (a new state file would forget who was removed, a new key would make every teammate's browser warn). Put the file back. |
-| "A file of this workspace's state is damaged: it is not valid JSON (it may be empty or cut off)", or "A file of this workspace's state is not in a form that smurg 0.5.1 or an earlier published smurg wrote" | The file was cut off, or changed by hand or by another program, or written by a smurg that was never published. "What does not fit:" lists the places in the file and the rule each one breaks (never a value from the file). The terminal then goes through what you can do, in this order (below the table). |
-| "A state file that an earlier smurg wrote holds a value that smurg 0.5.1 does not accept" | The one known case: a shared folder (a setting of the host console, or a shared link of a worktree) whose path has more than 30 combining marks in a row, which 0.4.0 accepted and later versions refuse everywhere. "What does not fit:" names the entry. Nothing is dropped for you: the file stays as it is, and the terminal names the kept copies and the last resort (below the table). |
+| "The state file of this workspace is not there, although other files of the workspace are", or "The daemon's key of this workspace is not there, although its state file is" | A file was moved, renamed or deleted by hand. smurg makes no new one in its place (a new state file would forget who was removed, a new key would make every teammate's browser warn). Put the file back. If it is gone for good, the terminal goes on as for a damaged file (below the table): for the state file the newest kept copy, when there is one, then the last resort; for the key the last resort only. |
+| "A file of this workspace's state is damaged: it is not valid JSON (it may be empty or cut off)", or "A file of this workspace's state is not in a form that smurg 0.5.1 or an earlier published smurg wrote" | The file was cut off, or changed by hand or by another program, or written by a smurg that was never published. "What does not fit:" lists the places in the file and the rule each one breaks (never a value from the file; the rules are worded in English in every language). The terminal then goes through what you can do, in this order (below the table). |
+| "A state file that an earlier smurg wrote holds a value that smurg 0.5.1 does not accept" | The one known case: a path or a name with more than 30 combining marks in a row, which 0.4.0 accepted and later versions refuse everywhere. "What does not fit:" names the entry (counted from 0) and ends in `mark-run`. It can sit in `conflicts.json` (the file of a kept conflict), in `worktrees.json` (a worktree's shared folder, a file of a merge request) or in `state.json` (`settings.sharedDirs`: "Shared folders (read-only in worktrees)" in the host console). Nothing is dropped for you. For the first two the terminal offers to set that one file aside (below the table); for `state.json` it names only the last resort. What keeps the workspace there: take the named entry out of the file by hand (keep a copy, leave the mode at 600). `smurg host` then starts and carries the rest over. |
 | "The workspace list (workspaces.json) was written by a newer smurg than this one (this is 0.5.1)" (or the relay login, `credentials.json`), or one of the two "is not in the expected format" | These two files in `~/.smurg` are this computer's own: which folder is which workspace, and your relay login. smurg no longer reads such a file as empty and writes over it. Written by a newer smurg: run `smurg update`. Not in the expected format: repair the workspace list or put a copy of it back (without it, `smurg host` gives a folder a new workspace); a login you can move away and replace with `smurg login`. |
+| "This folder's entry in the workspace list (workspaces.json) is not in a form this smurg can read (this is 0.5.1)" | The list can be read, the entry of the folder you share cannot; the terminal names the entry and what it cannot read in it. `smurg host` stops, because without that entry it would give the folder a new workspace. If a newer smurg was ever used on this computer, run `smurg update`; otherwise repair the entry (its form is below the table) or put a copy of the file back. An entry smurg cannot read is never dropped: a note above says how many the file holds. |
 
 For a file that is damaged or in an unknown form, the terminal lists, after "Nothing was changed.":
 
@@ -872,11 +878,40 @@ For a file that is damaged or in an unknown form, the terminal lists, after "Not
 2. The newest copy smurg kept of that file before an upgrade (§9.2), by name and date, after what putting it back
    undoes. For `state.json` that is everything decided since the copy was made. Take it only when what the workspace
    held then is what you want, and go through the members, the roles and the links afterwards.
-3. "The last resort is a new workspace." The terminal says what that costs before it names the command: the
-   workspace's members and invite links, its topics, conversations and audit log, and the daemon key (your teammates
-   join again with a new link and are asked about a changed key); and smurg no longer knows the worktrees it kept.
-   The command it prints moves the folder to a name that carries the date and the time, so the folder is kept and
-   the way back of §9.4 stays open.
+3. For a file of the table below: "This one file can be set aside without losing the workspace: …", what the file
+   holds, and the command that moves that one file to `<file>.set-aside-<date>-<time>` beside it. The members, the
+   invite links, the settings and the daemon key stay, and smurg makes a new, empty file at the next start. The
+   last resort is then not printed.
+4. For every other file: "The last resort is a new workspace." The terminal says what that costs before it names
+   the command: the workspace's members and invite links, its topics, conversations and audit log, and the daemon
+   key (your teammates join again with a new link and are asked about a changed key); and smurg no longer knows the
+   worktrees it kept. The command it prints moves the folder to a name that carries the date and the time, so the
+   folder is kept and the way back of §9.4 stays open.
+
+| File | What it holds | Setting it aside loses this, and nothing else |
+|---|---|---|
+| `inbox.json` | what each member has read or dismissed in their inbox, and the mentions kept for them | everything in every inbox is unread again; the kept mentions |
+| `suggestions.json` | the suggestions members made to agent sessions | all of them; one that still waited is made again |
+| `conflicts.json` | the list of kept conflicts between a person's and an agent's edit of the same file | that list: the agent's version can no longer be applied from smurg. Your files are not touched |
+| `worktrees.json` | smurg's record of the worktrees it made and of every merge request | smurg no longer knows any worktree (the folders stay in `.smurg/worktrees/` with the work in them: merge it by hand), and a request that waited is gone |
+| `sessions.json` | which terminal sessions were running | nothing after a normal stop; after a crash, processes those terminals left running are not ended for you |
+| `host-rules.json` | your own Claude Code allow rules as smurg last saw them | nothing that lasts: smurg tells you about the rules again |
+| `claude-trust.json` | your decisions about projects' Claude Code settings | all of them: agent sessions start without a project's settings until you confirm them again |
+| `cards.json` | which conversations have questions and permission requests | the ones asked so far are no longer shown |
+
+Where a conversation showed a question, a permission request or a suggestion that is gone this way, the page says
+"The host's computer no longer keeps this card." Five files cannot be set aside, and the last resort stays the only
+way: `state.json` and `identity.key` are the workspace itself, and the rest of the state points into
+`agent-sessions.json`, `topics.json` and `reports.json` (without one of them, topics would name sessions and reports
+that are not there). A log the system cannot read (`audit.jsonl`, `audit-text.jsonl`, `activity.jsonl`) can be moved
+away too: what that file recorded is lost, and a new one starts.
+
+An entry of `shared` in `~/.smurg/workspaces.json` (`workspaceId` is the name of the workspace's folder in
+`~/.smurg/workspaces/`, `createdAt` a whole number):
+
+```text
+{ "folder": "/Users/you/projects/my-app", "relay": "https://app.smurg.ai", "workspaceId": "ws_YOURCODE", "createdAt": 1791377829732 }
+```
 
 ### 9.4 If you moved the state folder away because smurg 0.5.0 told you to
 
@@ -900,13 +935,23 @@ smurg host ~/projects/my-app                   # 4. share the folder again
 `ws_YOURCODE` stands for the workspace code: the name of the folder that is there twice, once with `.old`. At step
 4 `smurg host` reads the earlier state, brings it to today's form and prints the line of §9.2. The two links carry
 the earlier daemon key again, and whoever was a member before the folder was moved is a member again, with the
-devices they had. This was tried, step by step, with a workspace that 0.4.0 had really written.
+devices they had. That includes people you had not invited again in between, with the role they had before: go
+through the members, the roles and the invite links in the host console after step 4 (§9.2). This was tried, step
+by step, with a workspace that 0.4.0 had really written.
 
 What going back means for what happened in between:
 
-- A teammate who joined the new workspace in between, or who accepted its key, is asked about a changed key once
-  more: "The host computer's key has changed". Tell them the fingerprint that `smurg status` shows now. It is the
-  one from before the move.
+- Whoever opened the new workspace in between has ITS key recorded: your own browser, and every teammate who
+  joined it or accepted its key. They are not asked anything. Their page says
+  "Security warning: connection refused" (`smurg attach`:
+  "… the key of the host's computer differs from the one this computer recorded last time …"), and its only way on
+  is a link. Open "Your link" of step 4 yourself. Send the others a link again, and tell them over another channel
+  the fingerprint that `smurg status` shows now (the one from before the move). With the link they are asked
+  "The host computer's key has changed", compare the fingerprint and confirm.
+- The link for teammates that step 4 prints is an Editor link (unless you chose another with `--role`). An earlier
+  member with another role (Viewer, Agent access) who takes it reads "This invite link cannot be used" after
+  confirming the key. The key was accepted all the same: they open the workspace again, without the link, and are
+  in. Or make them a link of their own role in the host console.
 - Someone who joined only the new workspace is not a member of the earlier one, and the invite links made in
   between do not work in it: send a new link.
 - The topics, the conversations and the audit log of the time in between are not merged into the earlier

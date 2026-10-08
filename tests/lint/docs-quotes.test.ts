@@ -12,24 +12,10 @@
 import { describe, expect, it } from 'vitest';
 import { agentHeldReason, humanHeldReason } from '../../packages/daemon/src/hooks/deny-text.ts';
 import { RELAY_STRINGS, cli, webCatalogue, wire, type CliMessageId, type Locale, type WebCatalogue } from './catalogs.ts';
+import { GUIDES, flat, type Guide } from './guides.ts';
 import { CJK, read, repoFiles } from './tree.ts';
 
-type Guide = 'HOSTING' | 'JOINING';
-const GUIDES: Readonly<Record<Guide, Readonly<Record<Locale, string>>>> = {
-  HOSTING: { en: 'docs/HOSTING.md', 'zh-TW': 'docs/zh-TW/HOSTING.md' },
-  JOINING: { en: 'docs/JOINING.md', 'zh-TW': 'docs/zh-TW/JOINING.md' },
-};
 const LANDING: Readonly<Record<Locale, string>> = { en: 'apps/site/public/index.html', 'zh-TW': 'apps/site/public/zh-TW/index.html' };
-
-/** One line of text: Markdown emphasis and code marks dropped, whitespace collapsed (zh-TW: none between Han characters). */
-function flat(text: string): string {
-  const joined = text
-    .replace(/\*\*|`/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const han = '[\\u2E80-\\u9FFF\\uFF00-\\uFFEF\\u3000-\\u303F]'.replace(/\\u([0-9A-F]{4})/g, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)));
-  return joined.replace(new RegExp(`(${han}) (?=${han})`, 'g'), '$1');
-}
 
 const guideText = new Map<string, string>();
 function guide(path: string): string {
@@ -119,6 +105,14 @@ const QUOTES: readonly Quote[] = [
     'zh-TW': '有組員的網頁或 smurg 比這個 smurg 新，連線被拒絕了。請停止分享，執行 smurg update，再重新分享。',
   }),
   cliQuote('host.peer.older', undefined, ['HOSTING']),
+  // ---- after going back to a folder that was moved away (HOSTING §8, §9.4; JOINING §1, §10): what the people who
+  // hold the key of the time in between read, and what a member whose role is not the link's reads after confirming
+  cliQuote('channel.keyMismatch.device', undefined, ['HOSTING'], {
+    en: "the key of the host's computer differs from the one this computer recorded last time",
+    'zh-TW': '主人電腦的金鑰和這台電腦上次記錄的不同',
+  }),
+  webQuote('conn.rejected.invite-invalid.title', ['HOSTING', 'JOINING']),
+  cliQuote('channel.rejected.inviteInvalid', undefined, ['JOINING']),
   cliQuote('status.otherVersion', { current: '0.5.1', why: 'no-answer', socket: '/x', workspaceId: 'ws_…', folder: '/p' }, ['HOSTING'], {
     en: 'A smurg host of another version is sharing it',
     'zh-TW': '正由另一個版本的 smurg host 分享',
@@ -178,11 +172,32 @@ const QUOTES: readonly Quote[] = [
     'zh-TW': '較早版本的 smurg 寫的狀態檔裡，有一個值是 smurg 0.5.1 不接受的',
   }),
   cliQuote('host.unreadable.maybeNewer', undefined, ['HOSTING']),
+  // What follows the first line: the places that do not fit, and what a refusal says when the start was already
+  // writing (or the system would not open the file) instead of the bare "Nothing was changed."
+  cliQuote('host.unreadable.problems', { problems: ['…'], more: 0 }, ['HOSTING'], { en: 'What does not fit:', 'zh-TW': '不符合的地方：' }),
+  cliQuote('host.cannotOpen.unchanged', undefined, ['HOSTING'], {
+    en: 'smurg host did not start, and nothing in the workspace was changed or reset',
+    'zh-TW': 'smurg host 沒有啟動，工作區裡的東西沒有被更動或重設',
+  }),
+  // Where a carried value can sit (the host console's own name of the setting), and what a page says of a card whose
+  // file the host set aside.
+  webQuote('console.settings.sharedDirs', ['HOSTING']),
+  webQuote('conversation.card.gone', ['HOSTING']),
+  // ONE file that can be set aside alone, named before the last resort (which is then not printed).
+  cliQuote('host.setAside', { document: 'inbox' }, ['HOSTING'], {
+    en: 'This one file can be set aside without losing the workspace',
+    'zh-TW': '這一個檔案可以單獨移到旁邊，工作區不會因此不見',
+  }),
   cliQuote('host.unreadable.lastResort', undefined, ['HOSTING'], { en: 'The last resort is a new workspace.', 'zh-TW': '最後的辦法是建立新的工作區。' }),
   // The host's own two files (~/.smurg/workspaces.json, credentials.json): refused, never read as empty.
   cliQuote('state.newer', { subject: 'workspaces', path: '~/.smurg/workspaces.json', current: '0.5.1' }, ['HOSTING'], {
     en: 'The workspace list (workspaces.json) was written by a newer smurg than this one (this is 0.5.1)',
     'zh-TW': '工作區紀錄檔（workspaces.json）是較新版的 smurg 寫的（這個 smurg 是 0.5.1）',
+  }),
+  // The folder's own entry in workspaces.json that this smurg cannot read: `smurg host` stops, never a new workspace.
+  cliQuote('host.entryUnread', { place: 3, path: '~/.smurg/workspaces.json', current: '0.5.1' }, ['HOSTING'], {
+    en: "This folder's entry in the workspace list (workspaces.json) is not in a form this smurg can read (this is 0.5.1)",
+    'zh-TW': '工作區紀錄檔（workspaces.json）裡，這個資料夾的那筆資料這個 smurg（0.5.1）讀不懂',
   }),
   // ---- a page or a command of another version than the host's smurg (HOSTING §8, §9.1; JOINING §8, §10)
   webQuote('conn.rejected.version.hostOlder.title', ['HOSTING', 'JOINING']),
@@ -214,7 +229,7 @@ const QUOTES: readonly Quote[] = [
   webQuote('app.login.google', ['JOINING']),
   webQuote('join.confirm.join', ['JOINING']),
   webQuote('join.keyChange.confirm', ['JOINING']),
-  webQuote('conn.keyMismatch.title', ['JOINING']),
+  webQuote('conn.keyMismatch.title', ['HOSTING', 'JOINING']),
   webQuote('conn.pill.hostOffline', ['HOSTING', 'JOINING']),
   webQuote('conn.pill.relayUnreachable', ['HOSTING', 'JOINING']),
   webQuote('conn.pill.roleChanged', ['JOINING']),

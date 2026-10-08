@@ -34,7 +34,7 @@ The tools:
 | Installer | `scripts/install.sh`: picks darwin/linux × arm64/x64 (glibc), downloads `SHA256SUMS` and then the executable from its baked download location, installs `~/.local/bin/smurg` only when the sha256 matches (https only); on macOS it removes `com.apple.quarantine` after the sha256 matched. No sudo, no system package. | `packages/cli/test/install-script.test.ts` |
 | Release workflow | `.github/workflows/release.yml` (§4 step 5). Only the release job has `permissions: contents: write`; actions are pinned to commit SHAs. A manual run is a dry run that releases nothing. | |
 | CI | `.github/workflows/ci.yml`: `pnpm check` on `macos-15` and `ubuntu-24.04` for pushes to `main`, pull requests and manual runs. Pull requests from forks get a read-only token and no secret. The runners have no `claude`: every agent in CI is the scripted stand-in (`packages/daemon/src/testing/fake-claude.mjs`). | |
-| Release gate | `SMURG_RELEASE_GATE=1 pnpm check` (§4 step 1): the same gate, which then also fails while anything is still on a pending list of the release being built. | `tests/lint/pending.test.ts`, `tests/lint/acceptance-refs.test.ts`, `packages/daemon/test/composition.test.ts`, `packages/daemon/test/wire-texts.test.ts` |
+| Release gate | `SMURG_RELEASE_GATE=1 pnpm check` (§4 step 1): the same gate, which then also fails while anything is still on a pending list of the release being built and, since 0.5.1, unless the upgrade from the published executables is tested in it (§4.5 step 1 has the command). | `tests/lint/pending.test.ts`, `tests/lint/acceptance-refs.test.ts`, `packages/daemon/test/composition.test.ts`, `packages/daemon/test/wire-texts.test.ts` |
 | Real Claude Code | The suite and the dry run of §4.5: the host's own kind of `claude`, version 2.1.288, against the repository's fake Anthropic API with a dummy key and its own temporary `HOME` and config directory. Never a real account. | `packages/daemon/test/hooks/claude-harness.ts` (how it is isolated), `docs/ACCEPTANCE.md` "How to run the gate" |
 | Relay deploy | `scripts/deploy-relay.sh` (§2): production build of web + relay, then `wrangler deploy` of the top level of `apps/relay/wrangler.jsonc`; `--dry-run`, `--check <url>`. | `apps/relay/test/deploy-relay.test.ts` |
 | CLI default relay | `DEFAULT_RELAY_URL` in `packages/cli/src/relay/default-relay.ts` (§3) | `packages/cli/test/default-relay.test.ts`, `apps/relay/test/config.test.ts` |
@@ -182,12 +182,18 @@ The folder is the assets folder of that version's own web build, made from its t
 the checkout you deploy from). Only files named `<name>-<hash>.<ext>` are taken, only into `apps/web/dist/assets`,
 and a name the new build already has must have the same bytes; `index.html` is always the new build's, so `--check`
 still compares the live page with this checkout's build. The dry run lists what is kept (for v0.5.0 under the tree
-of 0.5.1: 52 files kept, 6.0 MB; 87 already in the new build under the same name and bytes). One version back is
-kept, not every version: a tab from an older page than that gets the notice and reloads. A tab that is kept alive
-this way still runs the OLD page: when the new version changed the protocol, the host's smurg turns it away and the
-page says "This tab is from before an update" (`apps/web/src/lib/page-build.ts` asks the relay for `/` and compares
-the entry script). What the option does not cover: the two Workers of the web app (the file transfer's and the
-editor's) are not `import()`s; a tab whose worker file is gone does not show the notice.
+of 0.5.1: about fifty files kept, 6 MB, and about ninety already in the new build under the same name and bytes). One version back is
+kept, not every version: a tab from an older page than that gets the notice and reloads, when its page has the
+notice. The page of 0.5.0 has none: after a deploy WITHOUT the option an open 0.5.0 tab shows an empty page in code
+mode and columns that "cannot be shown" until someone reloads it, so the deploy of 0.5.1 carries the option with the
+assets of v0.5.0. Run without it, the script says first what that does to open pages and names the option, then
+goes on (a relay's first deploy has no previous version). A tab that is kept alive this way still runs the OLD
+page: when the new version changed the protocol, the host's smurg turns it away and the page says "This tab is from
+before an update" (`apps/web/src/lib/page-build.ts` asks the relay for `/` and compares the entry script). The two
+Workers of the web app (the file transfer's and the editor's) are files of the same kind and are kept with the
+rest; since 0.5.1 a tab whose Worker file is gone shows the same notice (in the Transfers panel and on an upload or
+download that is tried; for the editor, which goes on working, in the workspace's banner). An HTML error page for a
+file (a proxy's 503) is not read as an update: the page then says that the part could not be loaded.
 
 What the production configuration must say:
 
@@ -237,7 +243,9 @@ Changing it is expensive (every released `smurg`, every stored login and invite 
 
 Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1.2) and a gh login.
 
-1. `main` is green in CI, `source scripts/env.sh && SMURG_RELEASE_GATE=1 pnpm check` is green locally,
+1. `main` is green in CI, the release gate is green locally (`source scripts/env.sh`, then
+   `SMURG_RELEASE_GATE=1 pnpm check`; since 0.5.1 with `SMURG_PREVIOUS_BINARIES` and `SMURG_SEA_BINARY` set, or it
+   fails: §4.5 step 1 has the whole command),
    `shellcheck -S warning scripts/*.sh` and `actionlint .github/workflows/*.yml` are clean (neither tool comes with
    `scripts/bootstrap-tools.sh` and no workflow runs them: use your own install, or the Ubuntu VM's `shellcheck`;
    for 0.5.0 `shellcheck` was run there and `actionlint` was not run, and the workflows did not change). With
@@ -528,9 +536,23 @@ this suite against it, then change the two constants in the same commit as whate
 
 **The release dry run.** Nothing in it tags, pushes, publishes or deploys; those stay steps 3 to 8 of §4.
 
-1. The version: `"version": "X.Y.Z"` in all eight `package.json` files (§4 step 2), then the full gate with
-   `SMURG_RELEASE_GATE=1` on macOS and in the Ubuntu 24.04 VM. The counts go into `docs/ACCEPTANCE.md` ("How to run
-   the gate", "Linux verification").
+1. The version: `"version": "X.Y.Z"` in all eight `package.json` files (§4 step 2). Then the full gate with
+   `SMURG_RELEASE_GATE=1` on macOS and in the Ubuntu 24.04 VM. Since 0.5.1 a release's gate FAILS (in `@smurg/cli`)
+   unless the upgrade from the published executables is tested in it, so on each platform it needs two things
+   before it runs: this tree's executable for that platform (step 2's build; in the VM an executable built in the
+   VM) and the published executables for that platform (step 5 says where they come from; in the VM the Linux files
+   of its architecture). From the repository's root:
+
+   ```sh
+   SMURG_PREVIOUS_BINARIES=/path/to/v0.4.0/smurg-darwin-arm64:/path/to/v0.5.0/smurg-darwin-arm64 \
+   SMURG_SEA_BINARY=packages/cli/dist/smurg-darwin-arm64 \
+     SMURG_RELEASE_GATE=1 pnpm check
+   ```
+
+   With `SMURG_SEA_BINARY` set, the gate also runs the two other suites of the executable (`test/sea.test.ts` and
+   `test/sea-update.test.ts` of `packages/cli`), which are skipped without it. CI sets none of these variables:
+   there the upgrade test is skipped and says so. The counts go into `docs/ACCEPTANCE.md` ("How to run the gate",
+   "Linux verification").
 2. The executable for this machine: `scripts/build-sea.sh --version X.Y.Z` (it runs the smoke tests). Then, by hand,
    with the built executable, a scratch `HOME` and a scratch `SMURG_HOME` whose path is SHORT (the control socket
    lies in it, and a Unix socket's path has a small limit): `--version` (it says `protocol v4`), `licenses`,
@@ -574,10 +596,11 @@ this suite against it, then change the two constants in the same commit as whate
 5. **The upgrade from every published version that `smurg update` can start from** (since 0.5.1; for 0.5.1: 0.4.0
    and 0.5.0), with the real executables. Download each one from `https://downloads.smurg.ai/v<version>/` into a
    scratch folder and check it against that version's `SHA256SUMS` (they are the files hosts have: a published
-   version's files stay in the bucket, §7). Then, with the executable of step 2:
+   version's files stay in the bucket, §7). Then, with the executable of step 2, from the repository's root (a path
+   that is not absolute is read from the root, whatever folder the runner is in):
 
    ```sh
-   SMURG_PREVIOUS_BINARIES=/path/to/smurg-0.4.0:/path/to/smurg-0.5.0 \
+   SMURG_PREVIOUS_BINARIES=/path/to/v0.4.0/smurg-darwin-arm64:/path/to/v0.5.0/smurg-darwin-arm64 \
    SMURG_SEA_BINARY=packages/cli/dist/smurg-darwin-arm64 \
      pnpm --filter @smurg/cli exec vitest run test/sea-upgrade.test.ts
    ```
@@ -586,8 +609,15 @@ this suite against it, then change the two constants in the same commit as whate
    shares a scratch folder, prints its key fingerprint and stops; the new one shares the same folder and must show
    the same workspace code and the same fingerprint, list the old invite link, and, when the old files needed a step
    (0.4.0), print the one-line notice, keep the old `state.json` beside the new one byte for byte and write the
-   stamp; a state file that other users can read is refused with the one `chmod`, never "move". Without both
-   variables the test is SKIPPED and says so on stderr: a dry run in which it was skipped has not done this step.
+   stamp; a state file that other users can read is refused with the one `chmod`, never "move". A run that tested
+   ends with `Tests  2 passed (2)` (one test per old executable) and nothing skipped. Without both variables the
+   test is SKIPPED: one line on stderr, whatever the reporter,
+   `[sea-upgrade] SKIPPED: the upgrade from the published executables was NOT tested.` (it goes on to name the two
+   variables), then `Test Files  1 passed (1)` and `Tests  1 skipped (1)`, exit 0. "skipped" in the last lines of
+   this test always means "not tested": a dry run in which it was skipped has not done this step. It FAILS, with
+   the reason as one plain sentence, when only one of the two variables is set, when a named file is not an
+   executable (the sentence names the variable, the path as given and the place that was looked at), and when
+   `SMURG_RELEASE_GATE=1` is set and neither is (`packages/cli/test/sea-binaries.ts` has the rules).
    Every later release adds the executable of the version before it to the list, and none is ever taken off.
    The same rule on files instead of executables is part of the gate (`packages/daemon/test/upgrade/`, below).
 6. The third-party notices are fresh: `node scripts/third-party-notices.ts --check` (0.5.0 added one dependency to
@@ -612,16 +642,21 @@ stored shape. For a release it means:
   skip, each with the reason in its name line (CI has the tags: its checkout fetches the whole history); with
   `SMURG_RELEASE_GATE=1` a missing tag fails. In the Ubuntu VM, whose copy of the tree has no `.git`, name the
   mounted repository: `GIT_DIR=<the mounted repository>/.git`. `SMURG_PUBLISHED_TREES=<folder>` names trees made
-  beforehand instead (`<folder>/v0.5.0/packages/{daemon,protocol}`).
+  beforehand instead (`<folder>/v0.5.0/packages/{daemon,protocol}`). `packages/daemon/test/upgrade/wire.test.ts`
+  needs the tag in the same way: while the protocol version is the published one, it holds this tree's wire to the
+  tag's (every registered message type with its shape, every exported schema and constant, and every source file of
+  `packages/protocol/src` except the ones it names with a reason).
 - **A released version gets its fixture.** `packages/daemon/test/fixtures/published/<version>/` holds what that
   version wrote, made by running that version's own code until every stored shape has an instance (its `README.md`
   says how each was made and how a test copies one; the driver that made 0.5.0's is not in the repository). After
   X.Y.Z is published: make its fixture from the tag, name the version in `PUBLISHED_VERSIONS`
   (`test/upgrade/fixture.ts`) with its story in `STORIES` and what its files become in `UPGRADES`
   (`test/upgrade/opens.test.ts`), empty `NOT_PUBLISHED_YET` (`test/upgrade/fixtures.test.ts`), and add the tag to
-  `other-version.test.ts` (`TAG`). The newest fixture is the one whose coverage must match today's schemas exactly.
+  `other-version.test.ts` and `wire.test.ts` (`TAG` in both; the list `CHANGED_WITHOUT_A_WIRE_CHANGE` of the
+  second is emptied then). The newest fixture is the one whose coverage must match today's schemas exactly.
 - **A stored shape that changed since the last release has its step.** While a version is built, the pin
-  (`test/upgrade/pin.test.ts`) fails on any change of what a stored file accepts and asks the question; the answer
+  (`test/upgrade/pin.test.ts`) fails when one of the places that decide what a stored file accepts changes (what it
+  sees, and what it does not, is in `CONTRIBUTING.md`) and asks the question; the answer
   is a step from a frozen shape and a raised `WORKSPACE_SHAPES` (`CONTRIBUTING.md`). Before the tag, look at
   `NOT_PUBLISHED_YET`: every entry there is a stored shape of this release that no published fixture holds yet, and
   the fixture of this release must hold it.

@@ -1,8 +1,10 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { x25519KeyPair } from '@smurg/protocol';
+import type { ConnectionState } from '@smurg/protocol/client';
 import { describe, expect, it } from 'vitest';
 import { PENDING_INVITE_KEY_PREFIX, captureInviteFragment } from '../../boot/capture-invite.ts';
+import type { KeyStorageStatus } from '../../lib/connection/browser-deps.ts';
 import { App } from '../App.tsx';
 import { MemoryStorage, createTestServices, type TestServices } from '../../testing/services.tsx';
 import { WORKSPACE_ID, makeInvite, makeWelcome } from '../../testing/fixtures.ts';
@@ -190,6 +192,78 @@ describe('join flow (ARCHITECTURE §4.1)', () => {
     act(() => services.connections[0]!.conn.setState({ kind: 'rejected', reason: 'invite-invalid' }));
     expect(await screen.findByRole('heading', { name: 'This invite link cannot be used' })).toBeTruthy();
     expect(services.sessionStorage.getItem(PENDING_INVITE_KEY_PREFIX + WORKSPACE_ID)).toBeNull();
+  });
+
+  // A refusal that is not about the link and that the screen answers with "Reload the page" uses up nothing: the host
+  // let nobody in and the link is as good as before. A join page that forgot the invite there sent the reload into a
+  // dead end: no invite left, but the host's key already pinned (the SDK pins it before the host answers), so the
+  // page went on as a device the host has never seen and read "This device can no longer connect … Ask the host for
+  // a new invite link" (0.5.1, V4-1).
+  it('refused for its version: the invite is kept, and "Reload the page" asks "Join?" again and joins with the same link', async () => {
+    const { services, invite } = servicesWithInvite();
+    const first = render(<App services={services} />);
+    await confirmJoin();
+    await waitFor(() => expect(services.connections).toHaveLength(1));
+    // What the SDK did on the way to the refusal: the key the invite names is pinned before the host's verdict comes.
+    await services.pins.pin(WORKSPACE_ID, invite.daemonKey);
+    act(() => services.connections[0]!.conn.setState({ kind: 'rejected', reason: 'version' }));
+    const ended = await screen.findByTestId('connection-ended-screen');
+    expect(within(ended).getByRole('button', { name: 'Reload the page' })).toBeTruthy();
+    expect(services.sessionStorage.getItem(PENDING_INVITE_KEY_PREFIX + WORKSPACE_ID)).toBe(invite.fragment);
+
+    // "Reload the page", after the host updated: the same tab (its storage) and browser (its pins), the page from its start.
+    first.unmount();
+    const reloaded: TestServices = { ...createTestServices({ path: JOIN_PATH }), sessionStorage: services.sessionStorage, pins: services.pins };
+    render(<App services={reloaded} />);
+    await confirmJoin();
+    expect(reloaded.router.getState().pathname).toBe(JOIN_PATH);
+    await waitFor(() => expect(reloaded.connections).toHaveLength(1));
+    const { conn, options } = reloaded.connections[0]!;
+    expect([...(options.invite?.fingerprint ?? [])]).toEqual([...invite.fingerprint]);
+    expect([...(options.invite?.secret ?? [])]).toEqual([...invite.secret]);
+    // The pinned key is the invite's own: nothing to confirm, and nothing replaces a pin (the SDK tries the device first
+    // and falls back to the invite when the host does not know it).
+    expect(options.preferInvite).toBe(false);
+    act(() => conn.admit(makeWelcome()));
+    await waitFor(() => expect(reloaded.router.getState().pathname).toBe(`/w/${WORKSPACE_ID}`), { timeout: 15_000 });
+    // Used now: forgotten.
+    expect(reloaded.sessionStorage.getItem(PENDING_INVITE_KEY_PREFIX + WORKSPACE_ID)).toBeNull();
+  });
+
+  it('the invite is kept exactly where the screen sends the person to "Reload the page"; every other final refusal forgets it', async () => {
+    const newerKey: KeyStorageStatus = { persistent: true, newerRecord: true };
+    const cases: readonly { readonly state: ConnectionState; readonly keyStorage?: KeyStorageStatus }[] = [
+      { state: { kind: 'rejected', reason: 'version' } },
+      { state: { kind: 'rejected', reason: 'identity-invalid' } },
+      { state: { kind: 'rejected', reason: 'unknown' } },
+      { state: { kind: 'closed', reason: 'storage-error' }, keyStorage: newerKey },
+      { state: { kind: 'closed', reason: 'storage-error' } },
+      { state: { kind: 'rejected', reason: 'invite-invalid' } },
+      { state: { kind: 'rejected', reason: 'aborted' } },
+      { state: { kind: 'rejected', reason: 'device-revoked' } },
+      { state: { kind: 'rejected', reason: 'device-other-account' } },
+      { state: { kind: 'rejected', reason: 'kicked' } },
+      { state: { kind: 'closed', reason: 'kicked', daemonReason: 'kicked' } },
+      { state: { kind: 'closed', reason: 'revoked' } },
+      { state: { kind: 'closed', reason: 'relay-refused' } },
+      { state: { kind: 'closed', reason: 'no-trust' } },
+    ];
+    let kept = 0;
+    for (const { state, keyStorage } of cases) {
+      const { services, invite } = servicesWithInvite(keyStorage === undefined ? {} : { keyStorage });
+      const view = render(<App services={services} />);
+      await confirmJoin();
+      await waitFor(() => expect(services.connections).toHaveLength(1));
+      act(() => services.connections[0]!.conn.setState(state));
+      const ended = await screen.findByTestId('connection-ended-screen');
+      const reload = within(ended).queryByRole('button', { name: 'Reload the page' }) !== null;
+      const what = `${JSON.stringify(state)}${keyStorage === undefined ? '' : ' (a key of a newer page)'}`;
+      expect(services.sessionStorage.getItem(PENDING_INVITE_KEY_PREFIX + WORKSPACE_ID), what).toBe(reload ? invite.fragment : null);
+      if (reload) kept += 1;
+      view.unmount();
+    }
+    // The four the screen answers with a reload (a scan that keeps none, or all, proves nothing).
+    expect(kept).toBe(4);
   });
 
   it('a login that expired during the join keeps the invite and asks to log in again', async () => {

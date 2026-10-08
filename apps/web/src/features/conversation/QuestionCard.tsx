@@ -20,7 +20,7 @@ import {
 import { formatAge, formatAnd, formatTime, gapAfter } from '../../lib/format.ts';
 import { kindLabel } from '../../lib/session-status.ts';
 import { useStore } from '../../lib/store.ts';
-import type { QuestionAnswerInput } from '../../lib/stores/conversations.ts';
+import { selectCardGone, type QuestionAnswerInput } from '../../lib/stores/conversations.ts';
 import { useNow } from '../../lib/use-now.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { Avatar, AvatarStack, Badge, Button, Card, KindIcon, Select, cx, type SelectOption } from '../../ui/index.ts';
@@ -309,6 +309,7 @@ export const QuestionCard = memo(function QuestionCard({ questionId }: { questio
   const stores = useStores();
   const { sessionId, self, role, people, mentionNames } = useConversationEnv();
   const question = useStore(stores.conversations, (state) => state.conversations.get(sessionId)?.questions.get(questionId));
+  const gone = useStore(stores.conversations, (state) => selectCardGone(state.conversations.get(sessionId), 'question', questionId));
   const facts = useSessionFacts(sessionId);
   const ref = useRef<HTMLElement>(null);
   const selfId = self?.userId ?? null;
@@ -353,7 +354,7 @@ export const QuestionCard = memo(function QuestionCard({ questionId }: { questio
   if (question === undefined) {
     return (
       <Card ref={ref} id={cardDomId(questionId)} title={t('q.title')} icon={<KindIcon kind="question" label={kindLabel('question')} />} className="conv-card">
-        <p className="conv-card__who">{t('card.missing')}</p>
+        <p className="conv-card__who">{t(gone ? 'card.gone' : 'card.missing')}</p>
       </Card>
     );
   }

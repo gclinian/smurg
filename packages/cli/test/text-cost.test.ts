@@ -14,7 +14,7 @@ import { readOnlyNotice, sessionTitle } from '../src/attach/attach-session.ts';
 import { OutputFilter } from '../src/attach/output-filter.ts';
 import { clipColumn, displayWidth, padColumn } from '../src/cli/columns.ts';
 import { deviceName, formatSessionList } from '../src/commands/attach.ts';
-import { shellWord } from '../src/commands/host-state.ts';
+import { shellWord, shown } from '../src/commands/host-state.ts';
 import { m, renderText, wireError } from '../src/i18n/index.ts';
 import { parseVersion } from '../src/update/versions.ts';
 
@@ -48,13 +48,15 @@ const LOOKS: Readonly<Record<string, Look>> = {
   },
   'deviceName and parseVersion (a host name, a version a download names)': { run: (text) => void [deviceName(text), parseVersion(text), parseVersion(`1.2.3-${text}`)], fronts: ['1.2.3', '1.2.3-'] },
   // A refused workspace state (commands/host-state.ts): a path of this computer as one word of a shell command, and
-  // the problems the daemon names (at most eight, each cut by the daemon) joined into one line of the hint.
-  'shellWord and the problems of a refused state file': {
+  // the problems the daemon names (at most eight, each cut by the daemon) joined into one line of the hint. And a name
+  // from the disk as it is shown (`shown`: one class of single characters, each replaced once), also when the name is
+  // nothing but such characters (`shellWord` then writes each as its bytes).
+  'shellWord, shown and the problems of a refused state file': {
     run: (text) => {
-      void shellWord(text);
-      for (const lang of ['en', 'zh-TW'] as const) void renderText(lang, m('host.lines', { lines: [m('host.unreadable.problems', { problems: [text, text], more: 3 }), m('host.refused.all', { paths: [text] })] }));
+      void [shellWord(text), shown(text), shellWord(`${text}\u001b`)];
+      for (const lang of ['en', 'zh-TW'] as const) void renderText(lang, m('host.lines', { lines: [m('host.unreadable.problems', { problems: [shown(text), shown(text)], more: 3 }), m('host.refused.all', { paths: [shown(text)] })] }));
     },
-    fronts: ['/tmp/a', "/tmp/it's"],
+    fronts: ['/tmp/a', "/tmp/it's", '/tmp/\u001b[2J', '/tmp/\u202e'],
   },
 };
 
@@ -89,7 +91,7 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'cli/args.ts': 2,
   'cli/io.ts': 1,
   'commands/attach.ts': 3,
-  'commands/host-state.ts': 2,
+  'commands/host-state.ts': 3,
   'commands/host.ts': 1,
   'commands/stop.ts': 1,
   'commands/uninstall.ts': 2,

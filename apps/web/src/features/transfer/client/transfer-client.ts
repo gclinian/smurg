@@ -7,6 +7,7 @@
 // moves between the workspace and the host console, and stop (resumable from the journal) when the session ends.
 import type { FileRef, RootRef } from '@smurg/protocol';
 import { isTerminalState } from '@smurg/protocol/client';
+import { startWorker, type ChunkLoadError } from '../../../lib/chunks.ts';
 import type { UploadSource } from '../../../lib/commands.ts';
 import { describeDevice } from '../../../lib/connection/browser-deps.ts';
 import { createStore, type ReadableStore } from '../../../lib/store.ts';
@@ -28,7 +29,10 @@ export interface WorkerLike {
 
 export type WorkerFactory = () => WorkerLike;
 
-/** The real Worker (Vite bundles it as its own chunk from this literal `new URL(…)`). Null where there is none. */
+/**
+ * The real Worker (Vite bundles it as its own chunk from this literal `new URL(…)`). Null where there is none.
+ * TransferClient starts whatever factory it is given through lib/chunks.ts `startWorker`.
+ */
 export function browserWorkerFactory(): WorkerFactory | null {
   if (typeof Worker === 'undefined') return null;
   return () => new Worker(new URL('../worker/transfer.worker.ts', import.meta.url), { type: 'module', name: 'smurg-transfer' }) as unknown as WorkerLike;
@@ -53,6 +57,12 @@ export interface TransferClientState {
   readonly measured: ReadonlyMap<string, MeasureResult>;
   readonly worker: WorkerStatus;
   readonly workerError: string | null;
+  /**
+   * The Worker's file did not come (gone after a deploy of the web app, offline, …: lib/chunks.ts). Set a moment
+   * after `worker` became 'failed', once the server was asked why; the panel then shows the notice for it instead of
+   * `workerError`.
+   */
+  readonly workerFile: ChunkLoadError | null;
   /** ConnectionState kind of the transfer socket ('idle' while none is open). */
   readonly link: string;
 }
@@ -102,6 +112,7 @@ export class TransferClient {
     measured: new Map(),
     worker: 'starting',
     workerError: null,
+    workerFile: null,
     link: 'idle',
   });
   private worker: WorkerLike | null = null;
@@ -123,7 +134,8 @@ export class TransferClient {
       return;
     }
     try {
-      this.worker = options.createWorker();
+      // A Worker whose file does not come says so with a bare `error` event: named, with the reason, by startWorker.
+      this.worker = startWorker(options.createWorker, (error) => this.state.setState((s) => ({ ...s, worker: 'failed', workerFile: error })));
     } catch (error) {
       this.state.setState((s) => ({ ...s, worker: 'failed', workerError: error instanceof Error ? error.message : String(error) }));
       return;

@@ -157,6 +157,7 @@ export const t = defineStrings(
     'card.withdrawn.failed': 'Not answered: the agent stopped with an error.',
     'card.withdrawn.restarted': 'Not answered: smurg was restarted. Claude asks again when the session continues.',
     'card.missing': 'Loading this card…',
+    'card.gone': "The host's computer no longer keeps this card.",
     'card.escalated': '{name} has not answered for {age}.',
     'card.late.answered': '{name} already submitted an answer.',
     'card.late.allowed': '{name} already allowed this.',

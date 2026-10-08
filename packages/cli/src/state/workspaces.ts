@@ -13,6 +13,10 @@
 // is no object) is not used and is never dropped: every write puts it back exactly as it was, at its place among the
 // others, and the command says once how many there are (./private-file.ts reportUnreadEntries). Until 0.5.0 it was
 // skipped without a word and gone at the next write. A list that is there and is no list refuses the file.
+//
+// "Not used" has one exception, for the folder such an entry is FOR: `smurg host <folder>` found no entry it could
+// read and gave the folder a NEW workspace (the silent reset this file's first paragraph is about). `lookUpSharedFolder`
+// therefore also says when an entry that cannot be read names the folder (`unread`), and `smurg host` stops there.
 import { randomBytes } from 'node:crypto';
 import { isWorkspaceId } from '@smurg/protocol/relay';
 import type { StatePaths } from './paths.ts';
@@ -129,6 +133,54 @@ export function newWorkspaceId(): string {
 
 export function sharedFolderFor(book: WorkspaceBook, folder: string, relay: string): SharedFolder | null {
   return book.shared.find((entry) => entry.folder === folder && entry.relay === relay) ?? null;
+}
+
+/** The fields of a shared folder's entry, in the order the file has them. */
+export type SharedFolderField = 'folder' | 'relay' | 'workspaceId' | 'createdAt';
+
+/** An item of `shared` that this smurg cannot read and that is the entry of one folder at one relay. */
+export interface UnreadSharedEntry {
+  /** Its place in the file's `shared` list, counted from 1. */
+  readonly place: number;
+  /** The fields that are not there in a form this smurg reads: names of ours, never anything the file holds. */
+  readonly fields: readonly SharedFolderField[];
+}
+
+export interface SharedFolderLookup {
+  /** The entry of this folder and relay, when this smurg can read it. */
+  readonly entry: SharedFolder | null;
+  /**
+   * Without such an entry: the first item of `shared` this smurg could NOT read that is this folder's own. It is one
+   * when it names exactly this folder and does not name another relay (a `relay` that cannot be read may be this one).
+   * An item that names no folder that can be compared (no object, no text there) is nobody's own: it is kept and
+   * counted (reportUnreadEntries), as every entry this smurg cannot read.
+   */
+  readonly unread: UnreadSharedEntry | null;
+}
+
+function unreadFields(item: Record<string, unknown>): SharedFolderField[] {
+  const workspaceId = stringField(item, 'workspaceId', 64);
+  const readable: Readonly<Record<SharedFolderField, boolean>> = {
+    folder: stringField(item, 'folder', 4096) !== null,
+    relay: stringField(item, 'relay', 2048) !== null,
+    workspaceId: workspaceId !== null && isWorkspaceId(workspaceId),
+    createdAt: numberField(item, 'createdAt') !== null,
+  };
+  return (['folder', 'relay', 'workspaceId', 'createdAt'] as const).filter((field) => !readable[field]);
+}
+
+/** What workspaces.json says about `folder` shared through `relay` (one read of the file). */
+export async function lookUpSharedFolder(paths: StatePaths, folder: string, relay: string): Promise<SharedFolderLookup> {
+  const file = await readBook(paths);
+  const entry = sharedFolderFor({ shared: entriesOf(file.shared), joined: [] }, folder, relay);
+  if (entry !== null) return { entry, unread: null };
+  for (const [index, slot] of file.shared.entries()) {
+    if ('entry' in slot || !isRecord(slot.kept) || slot.kept['folder'] !== folder) continue;
+    const itsRelay = stringField(slot.kept, 'relay', 2048);
+    if (itsRelay !== null && itsRelay !== relay) continue;
+    return { entry: null, unread: { place: index + 1, fields: unreadFields(slot.kept) } };
+  }
+  return { entry: null, unread: null };
 }
 
 /** The hosted workspace whose folder contains `dir` (the deepest one), whatever the relay. */

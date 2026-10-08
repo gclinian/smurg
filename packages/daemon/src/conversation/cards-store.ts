@@ -46,7 +46,7 @@ const cardsIndexSchema = z.strictObject({
 });
 type CardsIndex = z.infer<typeof cardsIndexSchema>;
 /** cards.json of the workspace folder (the index; new in 0.5.0). Declared by the conversation module. */
-export const cardsIndexDocument = declareDocument({ name: CARDS_INDEX_DOCUMENT, schema: cardsIndexSchema, init: (): CardsIndex => ({ version: CARDS_VERSION, sessions: [] }) });
+export const cardsIndexDocument = declareDocument({ name: CARDS_INDEX_DOCUMENT, schema: cardsIndexSchema, init: (): CardsIndex => ({ version: CARDS_VERSION, sessions: [] }), canSetAside: true });
 
 export interface CardsLimits {
   /** Settled cards kept per session (open ones are always kept). */

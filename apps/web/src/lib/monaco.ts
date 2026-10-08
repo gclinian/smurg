@@ -6,7 +6,9 @@
 //    for every language (each a lazy chunk), and NO language-service workers (the TypeScript worker alone is 6.8 MB;
 //    IntelliSense is not a product goal);
 //  - MonacoEnvironment.getWorker is still required for the base editor worker (without it: "Failed to load worker
-//    script for label: editorWorkerService"); the production build emits it as a classic IIFE worker;
+//    script for label: editorWorkerService"); the production build emits it as a classic IIFE worker. It is started
+//    through lib/chunks.ts `startWorker`: when its file is gone after a deploy of the web app, Monaco goes on without
+//    it (it runs the worker's code in the page), and the workspace's banner says "smurg was updated" with Reload;
 //  - y-monaco 0.1.6 deep-imports monaco-editor/esm/vs/editor/editor.api.js: the alias in vite.config.ts maps it onto
 //    the same module this file loads, so there is exactly one Monaco instance;
 //  - unicodeHighlight allows zh-hant / zh-hans (otherwise full-width punctuation such as U+FF01, the full-width exclamation mark, gets a warning box);
@@ -16,10 +18,11 @@ import * as monaco from 'monaco-editor/editor';
 import 'monaco-editor/features/register.all';
 import 'monaco-editor/languages/definitions/register.all';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
+import { startWorker } from './chunks.ts';
 
 self.MonacoEnvironment = {
   getWorker(_workerId: string, _label: string): Worker {
-    return new EditorWorker();
+    return startWorker(() => new EditorWorker());
   },
 };
 

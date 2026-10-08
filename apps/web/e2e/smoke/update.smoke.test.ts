@@ -11,22 +11,36 @@
 // "A deploy" here: every request of the page under /assets/ is sent on to the relay under a name it has no file for,
 // so the answer IS the relay's own answer for a file that is gone. "The new page" after the reload: the same files
 // again (the relay has one build; what matters is that the reload loads a whole page and the workspace is back).
+//
+// The two Workers of the app (the file transfer's, the editor's) are files of the build too, loaded when code mode
+// starts. Their load is not an import: the browser fires an `error` event at the Worker. A step below takes only
+// those two files away (the deploy came between code mode's chunk and its Workers) and reads what the page says.
+import { readFile, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { STEP_MS, columnOf, explainFailures, joinAs, joinAsHost, openTerminal, rowOf, startSmoke, systemChrome, terminalOf, typeInTerminal, waitForTerminalText, workspaceOnline, type SmokeEnv } from './helpers.ts';
+import { STEP_MS, columnOf, explainFailures, joinAs, joinAsHost, openTerminal, rowOf, startSmoke, systemChrome, terminalOf, toCodeMode, typeInTerminal, waitForTerminalText, waitUntil, workspaceOnline, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
 if (chrome === null) console.warn('[web smoke] SKIPPED: no system Chrome found (playwright-core downloads no browser); install Google Chrome to run it.');
 
 /** The terminal the host opened before anyone else came: its column's code is a chunk no other page has asked for. */
 const TERMINAL = 'build log';
+/** A Worker's file in the build: `transfer.worker-<hash>.js`, `editor.worker-<hash>.js`. */
+const WORKER_FILE = /\.worker-[\w-]+\.js$/;
 
 describe.skipIf(chrome === null)('a tab across a deploy of the web app, and a tab without its network (built app, real relay, system Chrome)', () => {
   let env: SmokeEnv;
   let sessionId: string;
 
   beforeAll(async () => {
-    env = await startSmoke({ stack: { projectFiles: { 'README.md': '# Class project\n', 'src/app.ts': 'export const x = 1;\n' } } });
+    env = await startSmoke({
+      stack: {
+        projectFiles: { 'README.md': '# Class project\n', 'src/app.ts': 'export const x = 1;\n' },
+        // This machine's disk may be nearly full: the default reserve would refuse the small upload of the Workers' step.
+        settings: { diskReserveBytes: 0, diskReservePercent: 0 },
+      },
+    });
     const host = await env.newPage();
     await joinAsHost(host, env);
     sessionId = await openTerminal(host, TERMINAL);
@@ -134,6 +148,103 @@ describe.skipIf(chrome === null)('a tab across a deploy of the web app, and a ta
     await Promise.all([page.waitForEvent('load', { timeout: STEP_MS }), notice.getByRole('button', { name: '重新整理頁面' }).click()]);
     await workspaceOnline(page);
     await waitForTerminalText(page, sessionId, 'deploy-42');
+  });
+
+  it('an error page for the file (what a proxy in front of the relay sends: a 503 in HTML) is not "smurg was updated"; the reload brings the column', async () => {
+    const page = await env.newPage();
+    await joinAs(page, env, 'cho', 'editor');
+    await rowOf(page, TERMINAL).waitFor({ timeout: STEP_MS });
+    // The import and the page's own question about the file both get the proxy's page: HTML, but with an error status.
+    const pattern = `${env.origin}/assets/TerminalColumn-*`;
+    const asked: string[] = [];
+    await page.route(pattern, (route) => {
+      asked.push(route.request().resourceType());
+      void route.fulfill({ status: 503, contentType: 'text/html; charset=utf-8', body: '<html><body><h1>503 Service Temporarily Unavailable</h1></body></html>' });
+    });
+    await rowOf(page, TERMINAL).click();
+    const notice = columnOf(page, TERMINAL).getByRole('alert');
+    await notice.waitFor({ timeout: STEP_MS });
+    expect(await notice.getAttribute('data-chunk-failure')).toBe('failed');
+    expect(await notice.textContent()).toBe('This part of the page could not be loadedReload the page to load it again.Reload the page');
+    expect(await page.getByText('smurg was updated').count()).toBe(0);
+    // The page did ask about the file itself (a fetch), and that answer was the error page too.
+    expect(asked).toContain('fetch');
+
+    await page.unroute(pattern);
+    await Promise.all([page.waitForEvent('load', { timeout: STEP_MS }), notice.getByRole('button', { name: 'Reload the page' }).click()]);
+    await workspaceOnline(page);
+    await waitForTerminalText(page, sessionId, 'deploy-42');
+  });
+
+  it("the Workers' files are gone: the transfers panel and a tried upload say \"smurg was updated\" with Reload, the editor goes on and the banner says it; after the reload the upload arrives", async () => {
+    const page = await env.newPage();
+    await joinAs(page, env, 'dee', 'editor');
+    const source = join(process.env['TMPDIR'] as string, 'after-the-deploy.txt');
+    const onHost = join(env.stack.root, 'after-the-deploy.txt');
+    await writeFile(source, 'uploaded after the reload\n');
+    try {
+      // The deploy took every file of this tab's build. The tab had loaded all that code mode needs except the two
+      // Workers' files: they get the relay's answer for a file that is gone, and so does the page's own question about
+      // its build (a fetch; a Worker's failed load names no file, so the page asks for its entry script).
+      const pattern = `${env.origin}/assets/**`;
+      const workerAnswers: string[] = [];
+      page.on('response', (response) => {
+        const name = new URL(response.url()).pathname.split('/').pop() ?? '';
+        if (WORKER_FILE.test(name)) workerAnswers.push(`${name.split('.')[0]}: ${response.status()} ${response.headers()['content-type'] ?? ''}`);
+      });
+      await page.context().route(pattern, (route) => {
+        const request = route.request();
+        const name = new URL(request.url()).pathname.slice('/assets/'.length);
+        if (!WORKER_FILE.test(name) && request.resourceType() !== 'fetch') return void route.continue();
+        void route.continue({ url: `${env.origin}/assets/gone-with-the-deploy/${name}` });
+      });
+
+      await toCodeMode(page);
+      // The editor works without its Worker (Monaco runs that code in the page), and what happened is said where a
+      // failure without a place of its own is said: the workspace's banner.
+      await page.getByRole('treeitem', { name: 'README.md' }).first().click();
+      await page.locator('.monaco-editor .view-lines', { hasText: 'Class project' }).first().waitFor({ timeout: STEP_MS });
+      const banner = page.locator('.app-banners [data-chunk-failure]');
+      await banner.waitFor({ timeout: STEP_MS });
+      expect(await banner.getAttribute('data-chunk-failure')).toBe('gone');
+      expect(await page.locator('.app-banners [role="alert"]').filter({ has: page.locator('[data-chunk-failure]') }).textContent()).toBe('smurg was updatedReload to get the new page; if the host has not updated yet, the page will say so.Reload the page');
+
+      // The transfers panel: the notice in its place, and never "worker error".
+      await page.getByRole('tab', { name: 'Transfers' }).click();
+      const notice = page.getByRole('region', { name: 'Uploads and downloads' }).getByRole('alert');
+      await notice.waitFor({ timeout: STEP_MS });
+      expect(await notice.getAttribute('data-chunk-failure')).toBe('gone');
+      expect(await notice.textContent()).toBe('smurg was updatedReload to get the new page; if the host has not updated yet, the page will say so.Reload the page');
+      expect(await page.getByText('worker error').count()).toBe(0);
+      expect(await page.getByText('The transfer component could not start').count()).toBe(0);
+
+      // A file handed over all the same: the same words where the person is looking, with the same way out; nothing arrives.
+      await page.locator('input[type=file][multiple][hidden]').first().setInputFiles(source);
+      const toast = page.locator('.ui-toast').filter({ hasText: 'smurg was updated' });
+      await toast.waitFor({ timeout: STEP_MS });
+      expect(await toast.textContent()).toContain('Reload to get the new page; if the host has not updated yet, the page will say so.');
+      await toast.getByRole('button', { name: 'Reload the page' }).waitFor({ timeout: STEP_MS });
+      expect(await page.getByTestId('transfer-item').count()).toBe(0);
+      expect(await readFile(onHost, 'utf8').catch(() => null)).toBeNull();
+      // Nothing of the app's own threw. ("Event" is Monaco's: it throws what the Worker's `error` event handed it, from
+      // a timer, as its way of reporting; it reaches the console and nothing else.)
+      expect(env.problemsOf(page).pageErrors.filter((message) => message !== 'Event')).toEqual([]);
+      // The premise: both Workers were asked for, and both got the page itself.
+      expect(workerAnswers.sort()).toEqual(['editor: 200 text/html; charset=utf-8', 'transfer: 200 text/html; charset=utf-8']);
+
+      // Reload: the page that is served now, with its Workers; the same file arrives.
+      await page.context().unroute(pattern);
+      await Promise.all([page.waitForEvent('load', { timeout: STEP_MS }), notice.getByRole('button', { name: 'Reload the page' }).click()]);
+      await workspaceOnline(page);
+      await toCodeMode(page);
+      await page.getByRole('tab', { name: 'Transfers' }).click();
+      await page.locator('input[type=file][multiple][hidden]').first().setInputFiles(source);
+      await page.getByTestId('transfer-item').filter({ hasText: 'after-the-deploy.txt' }).first().and(page.locator('[data-status=done]')).waitFor({ timeout: STEP_MS });
+      await waitUntil(async () => (await readFile(onHost, 'utf8').catch(() => null)) === 'uploaded after the reload\n', STEP_MS, 'the upload on the host');
+      expect(await page.locator('[data-chunk-failure]').count()).toBe(0);
+    } finally {
+      await rm(source, { force: true });
+    }
   });
 
   it('without the network the same column says offline, not updated; with the network back, the reload brings it', async () => {

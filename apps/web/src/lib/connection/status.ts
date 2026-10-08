@@ -59,6 +59,21 @@ export interface ConnectionFacts {
   readonly newerKeyRecord?: boolean;
 }
 
+/**
+ * Is "Reload the page" a way out of this ended state?
+ *   - refused for its `version`: the cure IS a reload, of this tab now or once the host has updated;
+ *   - `identity-invalid` and `unknown`: the screen's own advice is to try again with a reload;
+ *   - the key storage stopped at a record of a newer page: the newer page reads it.
+ * Two places read this and have to agree. The ended screen offers the button for exactly these states. The join page
+ * KEEPS THE INVITE for exactly these: none of them is about the link and the host let nobody in, so the link is as
+ * good as before; a reload without it would go on as a device the host has never seen, and the person would read
+ * "This device can no longer connect … ask the host for a new invite link" about a link that still works.
+ */
+export function reloadIsAWayOut(state: ConnectionState, facts: ConnectionFacts = {}): boolean {
+  if (state.kind === 'rejected') return state.reason === 'version' || state.reason === 'identity-invalid' || state.reason === 'unknown';
+  return state.kind === 'closed' && state.reason === 'storage-error' && facts.newerKeyRecord === true;
+}
+
 export function describeConnection(state: ConnectionState, facts: ConnectionFacts = {}): ConnectionView {
   switch (state.kind) {
     case 'idle':

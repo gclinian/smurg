@@ -1828,30 +1828,46 @@ a schema, no strip, no passthrough.
   stays 1, whose two published shapes are told apart by shape, this once) and `suggestions.json` from 0.4.0
   (`suggestionsStepFromV040`: `origin` is `selection` when the entry has a `source`, else `composer`). The other
   files of 0.4.0 pass today's schemas. A file that matched an earlier shape and whose upgraded value fails today's
-  schema is refused naming the entry and the rule, and no entry is dropped (the one known case: a path with more
-  than 30 combining marks in a row, which 0.4.0 accepted).
+  schema is refused naming the entry and the rule, and no entry is dropped (the one known case: a path or a name
+  with more than 30 combining marks in a row, which 0.4.0 accepted). The same refusal (`carried-value-refused`) is
+  given in EVERY document, with or without a step, when a file fails today's schema ONLY because of rules that got
+  tighter since a published smurg wrote such files (`TIGHTENED_RULES`, `src/core/state-store.ts`; today that one
+  rule): `conflicts.json` and `worktrees.json` have no step and hold paths.
 - **A start has two phases** (`src/core/workspace-folder.ts`, called by `createDaemon` before anything else).
   *Phase 1 only reads* (`readWorkspaceFolder`): the stamp; owner, mode and kind of `identity.key`, `audit.jsonl`,
-  `audit-text.jsonl`, `activity.jsonl` and of every declared document that exists, all of them before one refusal;
-  then every declared document that exists, validated and upgraded in memory. It creates no key, opens no log, makes
-  no folder and runs no module code. A refusal in phase 1 leaves the workspace folder, `~/.smurg/sessions` and the
+  `audit-text.jsonl`, `activity.jsonl`, of every declared document that exists and of every kept copy beside one,
+  all of them before one refusal; then every declared document that exists, validated and upgraded in memory; and,
+  for every document a step ran on, the name its kept copy will get (something in the way of that name, or no free
+  one, refuses here, before anything is written). It creates no key, opens no log, makes no folder and runs no
+  module code. A refusal in phase 1 leaves the workspace folder, `~/.smurg/sessions` and the
   uploads byte for byte as they were (names, modes, bytes); what a refused start may still touch is the host's log,
   `<share>/.smurg/daemon-lock.json` (made and removed) and `~/.smurg` and `run/` themselves when they were missing.
   A workspace folder is new only when it holds neither `identity.key` nor `state.json` (nor another declared
-  document, a log or the stamp); `state.json` without the key, or the key without `state.json`, is a refusal
+  document or a log). A folder that holds nothing but the stamp IS new: that is what a first start leaves that
+  died right after it wrote the stamp. `state.json` without the key, or the key without `state.json`, is a refusal
   (`unreadable`, `missing`) and nothing is created: 0.5.0 quietly made a new empty document, or a new key, there.
-  *Phase 2 writes* (`writeWorkspaceFolder`), only when phase 1 accepted everything, in this order: the stamp; for
-  every upgraded document its kept copy and then the document, in THIS start; then what a start always did (the key
-  and `state.json` of a new folder, the logs, `ensureHost`, `prune`, the modules). A document other than
-  `state.json` that is absent is created from its `init` when its module opens it. A failure after phase 1 (the
-  stamp or a copy cannot be written, a module fails) is outside the byte-for-byte promise.
-- **The stamp `written-by.json`**: `{ "smurg": "X.Y.Z", "shapes": 1, "at": <ms> }`. Not a document (older versions
-  ignore the file). Written first in phase 2 of every start with the store's atomic write, and never lowered.
+  *Phase 2 writes* (`writeWorkspaceFolder`), only when phase 1 accepted everything, in this order: the stamp, with
+  `pending` naming the documents this start will upgrade; for every upgraded document its kept copy and then the
+  document, in THIS start; the stamp again, without `pending`; then what a start always did (the key and
+  `state.json` of a new folder, the logs, `ensureHost`, `prune`, the modules). A document other than `state.json`
+  that is absent is created from its `init` when its module opens it. A refusal that comes after phase 1 (the
+  stamp, a copy or a document cannot be written; a module fails) is outside the byte-for-byte promise and says so:
+  it carries `phase: 2`, and the command never words it as "nothing was changed" (§8). Nothing the workspace held
+  is lost by it: a document is replaced only after its copy is kept. **An upgrade that did not finish is not a put
+  back**: a start that finds `pending` in the stamp finishes the job and reports the upgrade, whatever of it was
+  already done (a kill, a full disk, a refusal of phase 2).
+- **The stamp `written-by.json`**: `{ "smurg": "X.Y.Z", "shapes": 1, "at": <ms> }`, and `"pending": [{ document,
+  from, copy }]` while an upgrade is under way. Not a document (older versions ignore the file). Written first in
+  phase 2 of every start with the store's atomic write, and never lowered (neither `shapes` nor `smurg`).
   `shapes` (`WORKSPACE_SHAPES`, 1 in 0.5.1) is ONE integer for everything persisted under the workspace, documents
   or not; a version raises it whenever any persisted shape changes. A stamp whose `shapes` is above this smurg's
-  refuses the WHOLE folder as `newer` before any document is read. A stamp that cannot be read (it is read with the
-  checks of a private file, without blocking, with a size cap, against a strict schema) means "writer unknown": it
-  is logged, and is never a refusal of its own and never `newer`. A stamp that cannot be written refuses the start.
+  refuses the WHOLE folder as `newer` before any document is read, and that number decides ALONE: it is taken from
+  any stamp that is a regular file (no link, within the size cap) holding a JSON object with a number there,
+  whatever else the stamp holds and whoever may read the file. A later smurg may add keys to its own stamp or name
+  its version in another form; 0.5.1 is the first reader of this file, so it is the one that must not mind. Only
+  the OTHER fields are "unknown" when they do not fit the strict schema; a stamp that is no JSON object, a link or
+  too large means "writer unknown": it is logged, and is never a refusal of its own. A stamp that cannot be
+  written refuses the start. The stamp's own shape is pinned (`test/upgrade/shapes/written-by.json.txt`).
 - **Kept copies.** Before an upgraded document is written, the file as it was is kept beside it as
   `<name>.json.before-upgrade-from-<step>` (`state.json.before-upgrade-from-0.4.0`): made from the bytes that were
   read through the checked handle (never a second read of the path), with `O_CREAT|O_EXCL|O_NOFOLLOW`, mode 0600,
@@ -1863,9 +1879,12 @@ a schema, no strip, no passthrough.
   the start is refused). The daemon never reads a copy for its state; a refusal lists every one beside the refused
   document, newest first. A copy is there to READ what the workspace
   held: putting it back undoes every kick, revoked device, role change and used or revoked link since. That is
-  documented, not prevented, and it is said: `Daemon.putBack` is true when a step ran in a folder whose stamp
-  already had that step's `sinceShapes` (known false positive: a crash between the stamp and the upgraded document
-  of the very first upgrade).
+  documented, not prevented, and it is said: `Daemon.putBack` is true exactly when a step ran in a folder that
+  had a usable stamp WITHOUT `pending` (every smurg that stamps a folder has the steps from 0.4.0; an upgrade that
+  did not finish has `pending` and is never a put back). Whatever carries a kept copy's name is looked at in phase
+  1 with the checks of a private file, whether or not a step will run: a copy open to others is among the `paths`
+  of the `insecure` refusal, so the one `chmod` the command prints covers it; a link or a folder there is refused
+  and never followed.
 - **Refusals have kinds** (`StateFileError`, `src/core/state-file-error.ts`; one row per throw site is kept with the
   code): `newer` (the stamp's `shapes`, or a document's raw `version` above the one expected, or a `version` where
   today's shape has none; a file that is not JSON is never `newer`); `insecure` with a cause (`symlink`,
@@ -1873,7 +1892,15 @@ a schema, no strip, no passthrough.
   such path); `cannot-open` with the errno; `other-workspace`; `unreadable` with a reason (`not-json`,
   `no-known-shape`, `missing`, `carried-value-refused`) and at most eight problems, measured against the shape the
   file came closest to (places and rules, never a value from the file; control characters escaped), then "and N
-  more". It carries the stamp's writer when known and the kept copies. `identity.key`, the audit log and the
+  more". It carries the stamp's writer when known, the kept copies, `phase` (1: the start only read; 2: it was
+  writing), `document` (the declared name, when the refused file is a declared document) and `canSetAside`.
+  **One file set aside**: `canSetAside` is true only for `unreadable` of a document whose declaration says so
+  (`DocumentDeclaration.canSetAside`): `conflicts`, `worktrees`, `sessions`, `host-rules`, `claude-trust`, `cards`,
+  `suggestions` and `inbox`. The host can move that ONE file away and keep the workspace; the next start makes a
+  new, empty one. Never `state` or the key, and not `agent-sessions`, `topics` or `reports`: without one of those
+  the rest of the state names sessions, topics and reports that are not there, and nothing handles that.
+  `test/upgrade/set-aside.test.ts` starts the daemon without each file in turn and looks at everything a page can
+  ask for; what each file holds and what is lost with it is in the host guide (§9.3). `identity.key`, the audit log and the
   activity log refuse through the same checked open (`src/core/private-file.ts`), with the same kinds; the
   workspace DIRECTORY (or `~/.smurg`, `run/`) being a link, another user's or open to others stays
   `KeyFileError('insecure-directory')`. Every refusal is logged with the file and the reason. The CLI words each
@@ -1902,8 +1929,14 @@ a schema, no strip, no passthrough.
   eleven refusals per fixture leave the whole copy byte for byte; a copy put back is said; the CODE OF TAG v0.5.0
   (from `git archive`) and this tree open each other's folders; a fixture that leaves an array empty or an optional
   key or a union branch unvisited fails unless a reasoned allowlist names it; and the pin: the frozen file byte for
-  byte, a hash of every source a persisted schema imports, the shape of every persisted schema as text, the lines
-  of the formats that are no schema. `packages/cli/test/sea-upgrade.test.ts` (opt-in) does the upgrade with the
+  byte; a hash of every file of the daemon that defines a persisted schema and of every module of the protocol
+  package that a run-time name of theirs leads to; the shape of every persisted schema and of the stamp as text;
+  the lines of the formats that are no schema (what it does not see is said at its head and in `CONTRIBUTING.md`).
+  `unfinished.test.ts` kills the first upgrade after each write, puts something in the way of a kept copy and
+  refuses in phase 2, then starts again; `carried.test.ts` and `set-aside.test.ts` are named above; `wire.test.ts`
+  holds this tree's wire to the tag's while the protocol version is the published one (every registered message
+  type with its shape, every exported schema and constant, every source file of the protocol package but the ones
+  it names with a reason). `packages/cli/test/sea-upgrade.test.ts` (opt-in) does the upgrade with the
   published executables; `packages/cli/test/host-state-file.test.ts` runs the command on the fixtures, the way back
   to a `.old` folder included. `CONTRIBUTING.md` has what to do when the pin fails.
 
@@ -1926,7 +1959,17 @@ already published. Each is for the next protocol version, or stays:
   anything else). The command of 0.5.1 reads loosely, so a version after it may add a key without blinding 0.5.1
   and later; 0.4.0 and 0.5.0 stay blind to whatever adds one, and 0.4.0 is already blind to every 0.5.x daemon.
 - **`smurg.columns.<id>`** in the browser writes `v: 1` and does not check it: an older tab writes its shape over a
-  newer page's (the key store alone got the check).
+  newer page's (the key store alone got the check). And the key store has a narrow window left: a v1 record that no
+  longer loads is replaced with one write, outside a transaction, so a newer page that writes in that same instant
+  is written over.
+- **A link of another role than the member's is refused with the words of a dead link** (`invite-invalid`; the
+  daemon's own reason, `invite-role-mismatch`, is in the audit log only). A text of its own is a wire text. The
+  flow that runs into it is the way back of the host guide's §9.4, where a member who holds the key of the time in
+  between confirms the changed key and is then refused; the key was accepted, and the guides say what to do.
+- **A deploy of the relay without the previous build's files** leaves open tabs of the page before without the
+  parts they had not loaded. A tab of 0.5.1 or later says so and offers the reload; a tab of 0.5.0 has no notice.
+  `scripts/deploy-relay.sh` says what a run without `--keep-assets` does; nothing enforces the option.
+- **The problems of a refused file are worded by the schema library**, in English in every language.
 - **The installer asks the smurg that is installed**: run over a 0.4.0 executable while a 0.5.x daemon shares, it is
   not stopped (0.4.0's `status` does not see that daemon).
 - **The fixtures hold no shared folder** (a git repository with worktrees names absolute paths): what a start makes
@@ -3441,8 +3484,14 @@ listens to the bus event `peer.version-refused` (`commands/host-state.ts` `watch
 run and direction, only when the refused peer is `known` (a registered, unrevoked device of an active member, or an
 invite that is usable now); any other `version` refusal goes to the audit log only. The words for a refused
 workspace state, for an upgrade, for a file put back and for a `<workspace id>.old*` folder beside the one that is
-opened are in `commands/host-state.ts`, by the kind and cause of §7.1; the address they print is
-`GUIDE_UPDATING` (`i18n/`), §9 of the host guide.
+opened are in `commands/host-state.ts`, by the kind and cause of §7.1. A refusal of `phase` 2 says what a failed
+write has always said in the place of "Nothing was changed."; a file with `canSetAside` gets what it holds, that
+setting it aside loses only that, and the `mv` of that one file to `<file>.set-aside-<date>-<time>`, and the last
+resort is then not printed. Every name and path from the disk is shown escaped, and written as a shell word in a
+printed command. The one-line notices print the address of the part of the host guide they are about (`GUIDE_KEPT`
+for §9.2, `GUIDE_GOING_BACK` for §9.4, in `i18n/`; `test/guide-anchors.test.ts` holds each to a heading). And
+`smurg host` stops before it asks anything of the relay when the folder's own entry in `workspaces.json` is one it
+cannot read (`lookUpSharedFolder`): going on meant a new workspace for a folder that has one.
 
 **Update notice** (`update/notice.ts`). After `smurg host` printed its two links it asks
 `<downloads>/latest/VERSION` once, in the background (never awaited; ended by a stop), with a 2 s timeout, and prints
@@ -3886,23 +3935,32 @@ As built before 0.5.0 and still true (details in `apps/web/README.md`):
 **A page across an update (0.5.1).** The relay serves ONE web app to every workspace, and a deploy replaces it, so
 a tab can be older than the files the relay has, or newer than the host's smurg. (1) *A chunk that is gone.*
 `loadChunk` turns a failed `import()` into one `ChunkLoadError` and tells why by fetching the file the browser's
-message names (no-store): the relay answers a missing file with the page itself (`text/html`) = `gone`; the fetch
-fails = `offline`; else `failed`. `SlotBoundary` shows the notice for it also when `silent` (then as a banner of
+message names (no-store): `gone` only for the relay's own answer to a missing file (the page itself: an OK, not
+redirected `text/html` answer) or a 404 / 410; the fetch fails = `offline`; everything else, the HTML error page of
+a proxy included, = `failed`. `SlotBoundary` shows the notice for it also when `silent` (then as a banner of
 the workspace), `app/PageBoundary.tsx` around the routes does the same for the workspace route and the workbench:
 "smurg was updated" with Reload. There is no "try again": a browser keeps a failed import until the page is
 reloaded (run in Chrome). The relay's deploy keeps the previous published build's hashed files beside the new ones
 (`scripts/deploy-relay.sh --keep-assets`, `docs/RELEASING.md` §2), so the case arises only for tabs older than
-that. The web app's two Workers are not `import()`s and are not covered. (2) *A `version` refusal* carries no
+that. The web app's two Workers (the file transfer's and the editor's) are no `import()`s: they are started
+through `startWorker` (`lib/chunks.ts`), where a bare `error` event before the Worker said anything means that its
+file did not come. The event names no file, so the page's entry script is asked in its place, and the Transfers
+panel (for the editor, which goes on working, the workspace's banner) shows the same notice. (2) *A `version` refusal* carries no
 numbers: the page asks the relay for `/` (no cache) and compares the entry script named there with the one it runs
 (`lib/page-build.ts`). Different: this tab is from before an update, reload. Same: the host's smurg is older than
 this page, and the page says what the host does. While it checks, and when the relay cannot be asked, the old title
-stays and the body names both steps. (3) *Stored panel settings* of 0.4.0 are carried at the page's start
+stays and the body names both steps. A refusal the screen answers with "Reload the page" uses up nothing: the join
+page keeps the pending invite (`reloadIsAWayOut`, `lib/connection/status.ts`), so the reload asks to join again. (3) *Stored panel settings* of 0.4.0 are carried at the page's start
 (`carryOldPanelSettings`, `app/workspace/layout.ts`: `smurg.layout` with `sidebar` → `files`, `right` → `side`,
 `merge-requests` → `activity`; `smurg.pane.right` → `smurg.pane.side`; the dead keys are removed once read). (4)
 *The key store* (`packages/protocol/src/browser/key-stores.ts`): a stored record that has a `v` other than the one
 this page knows is never replaced by a new key (code `newer-record`): the page stops with "this browser's smurg key
 was written by a newer page" and offers Reload. Junk without a `v` and a v1 record that no longer loads are still
 replaced, as before. `smurg.columns.<id>` writes `v: 1` and does not check it (§7.1 "What 0.5.1 could not repair").
+(5) *A card the host no longer keeps* (older than a session's 500 newest settled ones, or every earlier one after
+the host set `cards.json` or `suggestions.json` aside, §7.1): once the page asked for it by name and the answer came
+without it, the card says "The host's computer no longer keeps this card." (`cardsGone`,
+`lib/stores/conversations.ts`); no wire change, the page reads the answer the daemon already gives.
 
 ## 10. Testing
 
@@ -4053,7 +4111,7 @@ where 0.5.0 changed what a row says, the row says so ("0.5.0:").
 | D-21 **(0.5.0)** | D3 / R4: what an agent may do is Claude Code's own permission system, answered in the session | **The tool gate.** Every tool call of every agent session passes smurg's own code first: ONE PreToolUse hook registered for every tool, which decides by the kind of session (§7.7, rows G1–G10) BEFORE Claude Code's permission flow and whatever allow rules the host or the project have, and refuses every tool when the daemon does not answer. A discussion agent reads only inside the project, writes only its topic's `SPEC.md` and `PLAN.md` and has no other tool; a work item's agent may not edit those two files; no agent writes Claude Code's configuration; a shell command that may change a script of project settings in use asks a person, whatever rule would have let it run (G10). Claude Code's tool list, deny rules and permission requests (which become cards) are the second layer (§0 rule 7). What the gate lets through is subject to the host's own Claude Code allow rules, which apply (OWNER-DECISIONS Q7) | Verified: the host's own `permissions.allow` answers before any request reaches smurg; with `["Read","Edit","Write"]` there, a discussion profile built from rules alone wrote a source file and read a file in the host's home. A deny of smurg's own hook holds under settings that allow everything, and with the hook answering as an unreachable daemon nothing ran (`claude-structured.md` §5). Tests: daemon `hooks/tool-gate.test.ts`, `hooks/hook-cli.test.ts`, `hooks/claude-failmodes.test.ts`, `sessions/agent-claude-real.test.ts` › R1…, `conversation/gate-audit.test.ts` |
 | D-22 **(0.5.0, the brief's decisions 5 and 10)** | (the brief) the spec and the plan are files in the project that people edit together; executing the plan opens one agent session per work item | **A Start pins the spec and the plan.** `plan.start` must repeat the plan revision and the hashes of both files that the Start dialog showed; inside the request the daemon commits exactly those two files and stores the pin; the scheduler starts an armed item only while both files, in the working tree and at HEAD, still hash as pinned, never commits, and disarms the item otherwise; an item that appears in the plan later is never armed by an earlier Start (§7.8 "Start", "Execution"). Any change after a Start costs a "Start again", whose dialog shows the change | An Editor can edit those files, and an item may start hours after the click, when what it depends on is merged: without the pin an Editor's later sentence would reach an agent that no member with agent access had seen (§2 rule 6; the security review's SEC-02). Tests: daemon `topics/scheduler.test.ts` › T4.1 a changed spec or plan starts nothing, › S3 an Editor's edit of an armed item's summary or dependency starts nothing and reaches no agent, › S3 the checkpoint commits two files |
 | D-23 **(0.5.0)** | R4: the host's own Claude Code runs the agents (no version is named; until 0.4.0 any version started, with a warning below the oldest verified one) | **Claude Code 2.1.288 is the floor** for agent sessions, and the one verified version: an older Claude Code is refused before the spawn with its own sentence (`session.claude.tooOld`); a newer one, or one whose version cannot be read, runs, and the host is told once (§7.6 "Claude Code version"). Terminals are not affected | The release is verified on one version. One security property holds only from there (a read deny rule hides a file from Grep on 2.1.288 and not on 2.1.220), and the structured protocol is defined by what the binary does, not by a documented contract. A newer version must not lock anyone out, because Claude Code updates itself: the explicit tool list (a new tool does nothing until a smurg release lists it), the tolerant normaliser and the replay test bound what an update can change. Tests: daemon `sessions/agent-sessions.test.ts` (refusals; an unverified version), `workspace.test.ts` (the policy) |
-| D-24 **(0.5.1)** | (no requirement of SPEC.md) the rule 0.5.0 was built under: "nobody has installed any version, no compatibility code"; `smurg host` of 0.5.0 refused every workspace 0.4.0 had shared and advised moving its folder away | **What a published smurg wrote is read by every later one (§0 rule 8).** A start reads the whole workspace folder before it writes anything; a document a published version wrote is brought to today's strict shape by a named step from that version's frozen shape; a kept copy and a stamp are written first; a refusal has a kind, changes nothing and never advises a new workspace except as the last resort for an unreadable file, with its cost said first. The wire and every shape 0.5.0 writes are unchanged, so 0.5.0 and 0.5.1 connect to each other and open each other's folders. Mechanism, kinds and what could not be repaired without the wire: §7.1 "What a published smurg wrote"; the command and the page: §8 "Another version of smurg", §9 "A page across an update" | The rule was false the day 0.5.0 was published: the owner updated their own computer from 0.4.0, `smurg host` refused to start, and following the printed advice throws away the members, the invite links and the daemon key. A real 0.4.0 state was made with the published executable and tried against 0.5.0: it is refused at exactly two files (`state.json`: three new required settings; `suggestions.json`: `origin`) and read everywhere else; resetting or "repairing" the state instead was shown to admit a kicked member, a revoked device and strangers through used-up links (admission run over the carried and the repaired documents). The fixtures of both published versions and the tests that open them are `packages/daemon/test/fixtures/published/` and `packages/daemon/test/upgrade/` |
+| D-24 **(0.5.1)** | (no requirement of SPEC.md) the rule 0.5.0 was built under: "nobody has installed any version, no compatibility code"; `smurg host` of 0.5.0 refused every workspace 0.4.0 had shared and advised moving its folder away | **What a published smurg wrote is read by every later one (§0 rule 8).** A start reads the whole workspace folder before it writes anything; a document a published version wrote is brought to today's strict shape by a named step from that version's frozen shape; a kept copy and a stamp are written first; a refusal has a kind, changes nothing while the start only reads, and never advises a new workspace except as the last resort for an unreadable file that cannot be set aside alone, with its cost said first. The wire and every shape 0.5.0 writes are unchanged, so 0.5.0 and 0.5.1 connect to each other and open each other's folders. Mechanism, kinds and what could not be repaired without the wire: §7.1 "What a published smurg wrote"; the command and the page: §8 "Another version of smurg", §9 "A page across an update" | The rule was false the day 0.5.0 was published: the owner updated their own computer from 0.4.0, `smurg host` refused to start, and following the printed advice throws away the members, the invite links and the daemon key. A real 0.4.0 state was made with the published executable and tried against 0.5.0: it is refused at exactly two files (`state.json`: three new required settings; `suggestions.json`: `origin`) and read everywhere else; resetting or "repairing" the state instead was shown to admit a kicked member, a revoked device and strangers through used-up links (admission run over the carried and the repaired documents). The fixtures of both published versions and the tests that open them are `packages/daemon/test/fixtures/published/` and `packages/daemon/test/upgrade/` |
 
 ## 12. Known limits of the prototype
 

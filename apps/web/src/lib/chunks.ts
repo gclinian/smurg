@@ -1,5 +1,6 @@
 // THE way a part of the page is loaded later: every `import()` of a chunk under src/ is the argument of
-// `loadChunk(() => import(…))` or `lazyChunk(() => import(…))` (lib/chunks.test.tsx fails for one that is not).
+// `loadChunk(() => import(…))` or `lazyChunk(() => import(…))`, and every Worker is started through `startWorker`
+// (lib/chunks.test.tsx fails for one that is not).
 //
 // Why one way. The relay serves the web app as files named after their content. A tab that stays open across a deploy
 // of the web app asks, the first time it shows a column, a dialog, the editor or a terminal, for a file of the build
@@ -10,12 +11,18 @@
 //
 //   'gone'     the server answers the page itself (or "not found") for the file: the web app was deployed again;
 //   'offline'  the request for the file fails: no network, or the server cannot be reached;
-//   'failed'   the file is there: something else went wrong.
+//   'failed'   anything else: the file is there, or the answer is an error (a server that broke, a proxy's own
+//              error page, whatever it is written in), which says nothing about an update.
 //
 // The reason is asked of the server (one request for the file the browser named, past every cache), never guessed:
 // "smurg was updated" is only said when it was. Who shows it: ui/Boundary.tsx (a slot), app/PageBoundary.tsx (a
 // route), the editor and the terminal (their own place), and the workspace's banner for a failure that has no place
 // of its own (`reportChunkFailure`: a dialog's chunk, a menu's).
+//
+// A Worker's script is a file of the same build and goes with the same deploy, but its load is not an import: the
+// browser fires an `error` event at the Worker and nothing rejects. `startWorker` turns that event into the same
+// named error, so a Worker whose file is gone is said with the same notice (the transfers panel in its place; the
+// editor's Worker, which has none, in the banner).
 //
 // The cure is always a reload. A browser keeps a failed import for as long as the page lives (run in Chrome 155: the
 // same import() fails again after the file is served fine, after a dropped connection and after being offline), so
@@ -110,12 +117,24 @@ export async function browserChunkProbe(error: unknown, env: ChunkProbeEnv = {})
     const response = await doFetch(address, { cache: 'no-store', credentials: 'omit', signal: abort.signal });
     // Only the headers are wanted: a chunk that IS there can be megabytes (Monaco).
     void response.body?.cancel().catch(() => {});
-    return isHtml(response) || response.status === 404 || response.status === 410 ? 'gone' : 'failed';
+    return answersGone(response) ? 'gone' : 'failed';
   } catch {
     return 'offline';
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Does this answer for a file of the app say that the file is gone? Two answers do: "not found" outright, and the
+ * relay's own answer for an address it has no file for, which is the page itself, served as found at that very
+ * address (text/html, an OK status, no redirect). Any other page in HTML is not that: an ERROR status (a 503 of a
+ * proxy in front of the relay, a 500), or a page the request was sent on to (a proxy's login page). The file may
+ * well be there then, and nothing was updated.
+ */
+function answersGone(response: Pick<Response, 'status' | 'ok' | 'redirected' | 'headers'>): boolean {
+  if (response.status === 404 || response.status === 410) return true;
+  return response.ok && !response.redirected && isHtml(response);
 }
 
 let probe: ChunkProbe = browserChunkProbe;
@@ -137,14 +156,19 @@ export function loadChunk<T>(load: () => Promise<T>): Promise<T> {
   return new Promise<T>((resolve) => resolve(load())).catch(async (error: unknown) => {
     // A chunk that loads another one through this helper: already named, already asked.
     if (error instanceof ChunkLoadError) throw error;
-    let reason: ChunkFailure;
-    try {
-      reason = await probe(error);
-    } catch {
-      reason = 'failed';
-    }
-    throw new ChunkLoadError(reason, error);
+    throw await named(error);
   });
+}
+
+/** What did not load, as the named error that says why (asked of the server; a probe that fails itself: 'failed'). */
+async function named(cause: unknown): Promise<ChunkLoadError> {
+  let reason: ChunkFailure;
+  try {
+    reason = await probe(cause);
+  } catch {
+    reason = 'failed';
+  }
+  return new ChunkLoadError(reason, cause);
 }
 
 /**
@@ -155,6 +179,50 @@ export function loadChunk<T>(load: () => Promise<T>): Promise<T> {
 export const lazyChunk: typeof lazy = (load) => lazy(() => loadChunk(load));
 
 // ---------------------------------------------------------------------------------------------------------------
+// Workers
+// ---------------------------------------------------------------------------------------------------------------
+
+/** What the helper listens to on a Worker (the browser's, or a test's stand-in). */
+export interface WorkerEvents {
+  addEventListener(type: 'message', listener: (event: MessageEvent) => void): void;
+  addEventListener(type: 'error', listener: (event: Event) => void): void;
+}
+
+/**
+ * Starts one Worker of the app: `startWorker(() => new Worker(new URL('./x.worker.ts', import.meta.url), …))`, or
+ * with the class a `?worker` import gives. The Worker is handed back as it is.
+ *
+ * When its file does not come, the browser fires ONE `error` event at the Worker: a bare event that names no file
+ * and carries no message, before the Worker has said anything. That is taken for what it is, why is asked like for
+ * an import (the event names no file, so the page's own entry script is asked: a deploy replaces it together with
+ * every other file), and the named error goes to `onFileFailure`: the place that shows this Worker's work, or,
+ * for a Worker that has none (the editor's), the workspace's banner.
+ *
+ * Not a missing file, and left to whoever started the Worker: an error after the Worker spoke, and an error with a
+ * message (an ErrorEvent: its script was there, ran and threw).
+ */
+export function startWorker<W extends WorkerEvents>(create: () => W, onFileFailure: (error: ChunkLoadError) => void = reportChunkFailure): W {
+  const worker = create();
+  let spoke = false;
+  let asked = false;
+  worker.addEventListener('message', () => {
+    spoke = true;
+  });
+  worker.addEventListener('error', (event) => {
+    if (spoke || asked || saysWhatBroke(event)) return;
+    asked = true;
+    void named(event).then(onFileFailure);
+  });
+  return worker;
+}
+
+/** An `error` event that carries a message is a script that ran and threw (an ErrorEvent), not a file that did not come. */
+function saysWhatBroke(event: Event): boolean {
+  const message = (event as Partial<ErrorEvent>).message;
+  return typeof message === 'string' && message !== '';
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // Failures without a place of their own
 // ---------------------------------------------------------------------------------------------------------------
 
@@ -162,7 +230,7 @@ const reported = createStore<readonly ChunkLoadError[]>([]);
 
 /**
  * The chunk failures that have no place of their own on the page (a dialog that would have opened, a menu's action,
- * an overlay that renders nothing): the workspace shows ONE banner for them (ui/ChunkNotice.tsx).
+ * an overlay that renders nothing, the editor's Worker): the workspace shows ONE banner for them (ui/ChunkNotice.tsx).
  */
 export const chunkFailures: ReadableStore<readonly ChunkLoadError[]> = reported;
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ConnectionState } from '@smurg/protocol/client';
 import { makeWelcome } from '../../testing/fixtures.ts';
-import { describeConnection, secondsUntil } from './status.ts';
+import { describeConnection, reloadIsAWayOut, secondsUntil } from './status.ts';
 import { applyLocale } from '../locale.ts';
 
 const ALL: readonly ConnectionState[] = [
@@ -171,6 +171,29 @@ describe('connection state → UI', () => {
       for (const state of ALL) {
         if (state.kind === 'closed' && state.reason === 'storage-error') continue;
         expect(describeConnection(state, { newerKeyRecord: true }), JSON.stringify(state)).toEqual(describeConnection(state));
+      }
+    });
+  });
+
+  // Read by the ended screen (the "Reload the page" button) and by the join page (which keeps the invite through
+  // exactly these refusals: app/pages/JoinPage.test.tsx).
+  describe('for which ended states a reload is a way out', () => {
+    it('refused for its version, a login the host could not verify, a refusal without a reason; and a key a newer page wrote', () => {
+      const yes = ALL.filter((state) => reloadIsAWayOut(state)).map((state) => `${state.kind}/${'reason' in state ? state.reason : ''}`);
+      expect(yes).toEqual(['rejected/identity-invalid', 'rejected/version', 'rejected/unknown']);
+      // What the page found out about the version changes the words, never whether a reload is offered.
+      for (const pageBuild of ['stale', 'current', 'unknown', 'checking'] as const) expect(reloadIsAWayOut({ kind: 'rejected', reason: 'version' }, { pageBuild })).toBe(true);
+      // The storage failed: only when it stopped at a newer page's record does a reload get the page that reads it.
+      expect(reloadIsAWayOut({ kind: 'closed', reason: 'storage-error' })).toBe(false);
+      expect(reloadIsAWayOut({ kind: 'closed', reason: 'storage-error' }, { newerKeyRecord: false })).toBe(false);
+      expect(reloadIsAWayOut({ kind: 'closed', reason: 'storage-error' }, { newerKeyRecord: true })).toBe(true);
+    });
+
+    it('never for a refusal that ends the link or the membership, and never while the connection is still trying', () => {
+      for (const state of ALL) {
+        if (state.kind === 'rejected' && (state.reason === 'version' || state.reason === 'identity-invalid' || state.reason === 'unknown')) continue;
+        if (state.kind === 'closed' && state.reason === 'storage-error') continue;
+        expect(reloadIsAWayOut(state, { newerKeyRecord: true, pageBuild: 'stale' }), JSON.stringify(state)).toBe(false);
       }
     });
   });

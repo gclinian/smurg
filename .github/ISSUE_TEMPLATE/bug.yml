@@ -28,7 +28,7 @@ body:
     attributes:
       label: smurg version
       description: The output of `smurg --version` on the host
-      placeholder: smurg 0.5.0 (protocol v4, daemon 0.5.0, node 22.x.y)
+      placeholder: smurg 0.5.1 (protocol v4, daemon 0.5.1, node 22.x.y)
     validations:
       required: true
   - type: dropdown

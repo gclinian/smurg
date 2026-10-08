@@ -10,6 +10,7 @@ import { SUGGESTION_TEXT_MAX_CHARS, REASON_MAX_CHARS, type Suggestion } from '@s
 import { formatTime } from '../../lib/format.ts';
 import { kindLabel } from '../../lib/session-status.ts';
 import { useStore } from '../../lib/store.ts';
+import { selectCardGone } from '../../lib/stores/conversations.ts';
 import { useCapabilities, useCommands, useStores } from '../../lib/workspace/context.tsx';
 import { Button, Card, KindIcon } from '../../ui/index.ts';
 import { PlainText } from '../markdown/index.ts';
@@ -62,6 +63,7 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestionId }: { s
   const caps = useCapabilities();
   const { sessionId, self, mentionNames } = useConversationEnv();
   const suggestion = useStore(stores.conversations, (state) => state.conversations.get(sessionId)?.suggestions.get(suggestionId));
+  const gone = useStore(stores.conversations, (state) => selectCardGone(state.conversations.get(sessionId), 'suggestion', suggestionId));
   const facts = useSessionFacts(sessionId);
   const ref = useRef<HTMLElement>(null);
   const pending = suggestion?.status === 'pending';
@@ -82,7 +84,7 @@ export const SuggestionCard = memo(function SuggestionCard({ suggestionId }: { s
   if (suggestion === undefined) {
     return (
       <Card ref={ref} id={cardDomId(suggestionId)} title={kindLabel('suggestion')} icon={icon} className="conv-card">
-        <p className="conv-card__who">{t('card.missing')}</p>
+        <p className="conv-card__who">{t(gone ? 'card.gone' : 'card.missing')}</p>
       </Card>
     );
   }

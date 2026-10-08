@@ -1,15 +1,21 @@
 // What a PUBLISHED smurg left behind opens in the new one: the upgrade with REAL executables (0.5.1, DESIGN E2 and
 // E-tests; docs/RELEASING.md runs it before every release with the executable of every published version `smurg update`
-// can start from). Opt-in, beside sea-update.test.ts:
+// can start from). Opt-in, beside sea-update.test.ts. From the repository's root:
 //
-//   SMURG_PREVIOUS_BINARIES=/path/to/smurg-0.4.0:/path/to/smurg-0.5.0 \
+//   SMURG_PREVIOUS_BINARIES=/path/to/v0.4.0/smurg-darwin-arm64:/path/to/v0.5.0/smurg-darwin-arm64 \
 //   SMURG_SEA_BINARY=packages/cli/dist/smurg-darwin-arm64 \
 //     pnpm --filter @smurg/cli exec vitest run test/sea-upgrade.test.ts
 //
 //   SMURG_PREVIOUS_BINARIES  one or more published executables (downloaded from https://downloads.smurg.ai/v<X.Y.Z>/ and
 //                            checked against that version's SHA256SUMS), separated by ":";
 //   SMURG_SEA_BINARY         the executable of this tree (scripts/build-sea.sh).
-// Without both it is SKIPPED, and says so loudly: a release must not pass because this did not run.
+// A path that is not absolute is read from the repository's root, whatever folder the runner is in (`pnpm --filter …
+// exec` runs vitest in packages/cli). What a run does with the two variables is decided in ./sea-binaries.ts and held
+// by sea-upgrade-asked.test.ts; a release must not pass because this did not run:
+//   - without both it is SKIPPED, and one line on stderr says so (written when this file is loaded, outside any test
+//     body, so that every reporter shows it); with SMURG_RELEASE_GATE=1 that is a FAILURE;
+//   - with only one of the two it FAILS and names the missing one;
+//   - a named file that is not an executable FAILS with one plain sentence, before anything is started.
 //
 // For EACH old executable, in a scratch HOME / SMURG_HOME / cache of its own (never the real ~/.smurg or ~/.local/bin):
 //   1. the old executable logs in to the ONE local relay of this file with the dev login (`smurg login --dev-user`),
@@ -30,7 +36,7 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import { chmod, lstat, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
-import { basename, delimiter, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { systemClock } from '@smurg/daemon';
 import { MemoryRelay, TestIdentityIssuer, waitFor } from '@smurg/daemon/testing';
@@ -39,25 +45,38 @@ import { RelayWorkspaceChannel } from '../src/channel/relay-channel.ts';
 import { statePaths, workspaceStateDir } from '../src/state/paths.ts';
 import { startFakeRelay, type FakeRelay } from './fake-relay.ts';
 import { isolatedEnv, makeDirs } from './helpers.ts';
+import { upgradePlan } from './sea-binaries.ts';
 
-const NEW = process.env['SMURG_SEA_BINARY'] ? resolve(process.env['SMURG_SEA_BINARY']) : null;
-const PREVIOUS = (process.env['SMURG_PREVIOUS_BINARIES'] ?? '')
-  .split(delimiter)
-  .filter((path) => path !== '')
-  .map((path) => resolve(path));
-const READY = NEW !== null && PREVIOUS.length > 0;
+const PLAN = upgradePlan();
+const NEW = PLAN.kind === 'run' ? PLAN.next : null;
+const PREVIOUS = PLAN.kind === 'run' ? PLAN.previous : [];
 
-const SKIPPED =
-  '[sea-upgrade] SKIPPED: the upgrade from the published executables was NOT tested. It needs SMURG_PREVIOUS_BINARIES (one or more published smurg executables, separated by ":") and SMURG_SEA_BINARY (the build of this tree). See the top of packages/cli/test/sea-upgrade.test.ts.';
+// Loud on purpose, and OUTSIDE any test body: the default reporter shows nothing of a skipped test (a file that is
+// silently skipped reads as "covered"), so the line goes to stderr when the file is loaded.
+if (PLAN.kind === 'skipped') process.stderr.write(`\n${PLAN.line}\n\n`);
+if (PLAN.kind === 'failed') process.stderr.write(`\n${PLAN.problems.map((problem) => `[sea-upgrade] ${problem}`).join('\n')}\n\n`);
 
-// Loud on purpose: a run without the variables reports this test as skipped WITH the reason (a file that is silently
-// skipped reads as "covered"), and prints the line where the runner shows a test's output.
-describe.skipIf(READY)('the upgrade with real executables', () => {
-  it('NOT TESTED without SMURG_PREVIOUS_BINARIES and SMURG_SEA_BINARY', (context) => {
-    console.warn(`\n${SKIPPED}\n`);
-    context.skip(SKIPPED);
+// Only what this run is gets registered (not three suites of which two are skipped): a run that tested the upgrade
+// reports its tests as passed and NOTHING as skipped, so "skipped" in a run's last lines always means "not tested".
+if (PLAN.kind === 'skipped') {
+  const { line } = PLAN;
+  describe('the upgrade with real executables', () => {
+    it('NOT TESTED without SMURG_PREVIOUS_BINARIES and SMURG_SEA_BINARY', (context) => {
+      context.skip(line);
+    });
   });
-});
+}
+
+// The run was asked for (a variable is set, or this is a release's gate) and cannot be what was asked for: a failure
+// with the reason as a plain sentence, never a skip and never the error of a process that could not be started.
+if (PLAN.kind === 'failed') {
+  const { problems } = PLAN;
+  describe('the upgrade with real executables was asked for and cannot run', () => {
+    it('the upgrade can be tested with what SMURG_PREVIOUS_BINARIES and SMURG_SEA_BINARY name', () => {
+      throw new Error(problems.join('\n'));
+    });
+  });
+}
 
 /**
  * The one line `smurg host` prints when this start upgraded what an earlier smurg wrote (DESIGN A7 and C: "this
@@ -133,7 +152,7 @@ async function linksOf(host: Host, who: string): Promise<{ hostLink: string; inv
 const fingerprintOf = (status: string): string | null => /Daemon key fingerprint: ([0-9a-f ]+)\n/.exec(status)?.[1] ?? null;
 const versionOf = (banner: string): string | null => /^smurg (\S+) \(/.exec(banner)?.[1] ?? null;
 
-describe.skipIf(!READY)('the upgrade with real executables: what each published smurg left behind opens in the new one (SMURG_PREVIOUS_BINARIES, SMURG_SEA_BINARY)', () => {
+describe.runIf(PLAN.kind === 'run')('the upgrade with real executables: what each published smurg left behind opens in the new one (SMURG_PREVIOUS_BINARIES, SMURG_SEA_BINARY)', () => {
   // ONE relay for every old executable and for the new one.
   let relay: FakeRelay;
   beforeAll(async () => {

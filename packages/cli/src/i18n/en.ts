@@ -110,8 +110,39 @@ const ERRNO_WORDS: Readonly<Record<string, string>> = {
   ENAMETOOLONG: 'the path is too long',
 };
 
-/** Where the host guide says what an update carries over, what a refusal means and how to go back to a folder set aside. */
-const GUIDE_UPDATING = 'https://smurg.ai/docs/hosting/#9-updating-and-removing';
+/**
+ * The documents of a workspace's folder that a host can set aside ALONE when smurg refuses one as unreadable: the
+ * workspace keeps its members, invite links and key, and the next start makes a new, empty one. The daemon decides
+ * which (DocumentDeclaration.canSetAside in @smurg/daemon, proven per document by its test/upgrade/set-aside.test.ts;
+ * test/host-state-words.test.ts holds this list equal to the daemon's). `other`: a document the daemon vouches for
+ * and this list does not know yet.
+ */
+export const SET_ASIDE_DOCUMENTS = ['inbox', 'suggestions', 'conflicts', 'worktrees', 'sessions', 'host-rules', 'claude-trust', 'cards'] as const;
+export type SetAsideDocument = (typeof SET_ASIDE_DOCUMENTS)[number] | 'other';
+
+/** What each such file holds, and that setting it aside loses only that: one sentence pair per document. */
+const SET_ASIDE: Readonly<Record<SetAsideDocument, string>> = {
+  inbox: 'It holds what each member has read or dismissed in their inbox and the mentions kept for them. Setting it aside loses only that: everything in every inbox is unread again.',
+  suggestions: 'It holds the suggestions members made to agent sessions. Setting it aside loses only those: one that still waited has to be made again.',
+  conflicts: "It holds the list of kept conflicts between a person's and an agent's edit of the same file. Setting it aside loses only that list: your files are not touched.",
+  worktrees:
+    "It holds smurg's record of the worktrees it made and of every merge request. Setting it aside loses only that: " +
+    "the worktrees' folders stay on disk (in the shared folder's .smurg/worktrees), unknown to smurg, and merge requests that waited are gone.",
+  sessions: 'It holds which terminal sessions were running. Setting it aside loses only that: processes they left running after a crash are not ended for you.',
+  'host-rules': 'It holds what smurg last saw of your own Claude Code allow rules. Setting it aside loses only that: smurg tells you about them again.',
+  'claude-trust':
+    "It holds your decisions about projects' Claude Code settings. Setting it aside loses only those: agent sessions start without a project's settings until you confirm them again.",
+  cards: 'It holds the list of conversations that have questions and permission requests. Setting it aside loses only that: the ones asked so far are no longer shown.',
+  other: "It holds a part of the workspace's state that is neither its members nor its invite links nor its keys. Setting it aside loses only what this file holds.",
+};
+
+/**
+ * Where the host guide says what a one-line notice of `smurg host` is about (docs/HOSTING.md; the anchors are the
+ * headings' own, and test/guide-anchors.test.ts fails when a heading they name is gone): what an update carries over
+ * and what putting a kept copy back undoes (9.2), and how to go back to a folder set aside (9.4).
+ */
+const GUIDE_KEPT = 'https://smurg.ai/docs/hosting/#92-after-an-update-what-your-workspace-keeps';
+const GUIDE_GOING_BACK = 'https://smurg.ai/docs/hosting/#94-if-you-moved-the-state-folder-away-because-smurg-050-told-you-to';
 
 /** "A file of this workspace's state is" / "3 files of this workspace's state are" (+ "; the first" before its details). */
 const stateFiles = (count: number, one: string, many: string): string => (count === 1 ? `A file of this workspace's state ${one}` : `${count} files of this workspace's state ${many}`);
@@ -458,7 +489,7 @@ Docs: https://smurg.ai/docs/
   // ---- a workspace's state that smurg host does not open (0.5.1, DESIGN C; commands/host-state.ts). One text per kind
   // and cause of the daemon's refusal; each names the file and the reason itself and says that nothing was changed.
   // The hint is a list of sentences, one id each, joined by `host.lines`. Never "move the folder away", except as the
-  // last resort of `unreadable`, after what that costs.
+  // last resort of `unreadable`, after what that costs; and not even then for a file that can be set aside alone.
   'host.lines': (p: { lines: readonly string[] }) => p.lines.join('\n  '),
   'host.unchanged': () => 'Nothing was changed.',
   'host.refused.all': (p: { paths: readonly string[] }) => `All of them: ${p.paths.join(', ')}`,
@@ -522,27 +553,42 @@ Docs: https://smurg.ai/docs/
   'host.unreadable.writerNewer': (p: { writtenBy: string }) => `First: this folder was last written by smurg ${p.writtenBy}, which is newer than this one. Run smurg update, then smurg host again.`,
   'host.unreadable.copy.state': (p: { name: string; date: string }) =>
     'smurg kept a copy of this file as it was before an upgrade, for reading what the workspace held. Putting it back undoes everything decided since then: ' +
-    `people removed since are members again, revoked devices and revoked or used-up invite links work again, and role changes are gone. The newest copy: ${p.name}, kept ${p.date}.`,
+    'people removed since are members again, revoked devices and revoked or used-up invite links work again, and role changes are gone; ' +
+    `whoever joined since is no longer a member, and invite links made since no longer work. The newest copy: ${p.name}, kept ${p.date}.`,
   'host.unreadable.copy.other': (p: { name: string; date: string }) =>
     `smurg kept a copy of this file as it was before an upgrade, for reading what it held. Putting it back replaces everything recorded in this file since then. The newest copy: ${p.name}, kept ${p.date}.`,
+  // A file the host can set aside alone (the daemon says which): named BEFORE the last resort, which is then not printed.
+  'host.setAside': (p: { document: SetAsideDocument }) =>
+    `This one file can be set aside without losing the workspace: its members, invite links, settings and daemon key stay. ${SET_ASIDE[p.document]}`,
+  'host.setAside.command': (p: { command: string }) => `To do that, move the file aside and run smurg host again (smurg makes a new, empty one in its place):\n  ${p.command}`,
   'host.unreadable.lastResort': () =>
     "The last resort is a new workspace. It costs: this workspace's members and invite links (your teammates join again with a new link), its topics, conversations and audit log, " +
     'and the daemon\'s key (teammates who joined before will see "The host computer\'s key has changed": tell them the new key fingerprint that smurg status shows through another channel, in person or by phone); ' +
     "and smurg no longer knows the worktrees it kept (their folders stay in the shared folder's .smurg/worktrees, with work that is not merged).",
   'host.unreadable.lastResort.command': (p: { command: string }) => `If you accept that, move this workspace's folder away and run smurg host again:\n  ${p.command}`,
+  // ---- the folder's own entry in workspaces.json that this smurg cannot read: never a new workspace for the folder
+  'host.entryUnread': (p: { place: number; path: string; current: string }) =>
+    `This folder's entry in the workspace list (workspaces.json) is not in a form this smurg can read (this is ${p.current}): entry ${p.place} of "shared" in ${p.path}`,
+  'host.entryUnread.fields': (p: { fields: readonly string[] }) => `What this smurg cannot read in the entry: ${p.fields.join(', ')}`,
+  'host.entryUnread.unchanged': () =>
+    'Nothing was changed, and smurg host did not start: the entry is the only link from this folder to its workspace, and without it smurg host would give the folder a new workspace (new members, new invite links, a new daemon key).',
+  'host.entryUnread.next': (p: { workspacesDir: string }) =>
+    'If a newer smurg was ever used on this computer, run smurg update, then smurg host again. Otherwise repair the entry or put a copy of the file back: ' +
+    `an entry holds "folder" (the folder's full path), "relay" (the relay's URL), "workspaceId" (the name of the workspace's folder in ${p.workspacesDir}) and "createdAt" (a whole number).`,
   // ---- what a start found (one line each): an upgrade, an older file put back, a folder set aside, a refused peer
   'host.upgraded': (p: { from?: string }) =>
-    `This workspace was last shared with ${p.from === undefined ? 'an earlier smurg' : `smurg ${p.from}`}: its members, invite links and settings were carried over. What changed: ${GUIDE_UPDATING}`,
+    `This workspace was last shared with ${p.from === undefined ? 'an earlier smurg' : `smurg ${p.from}`}: its members, invite links and settings were carried over. What changed: ${GUIDE_KEPT}`,
   'host.putBack.state': (p: { names: readonly string[] }) =>
     `Warning: an OLDER ${p.names.join(', ')} was put back into this workspace and upgraded again. Everything decided since it was written is undone: ` +
-    `people removed since are members again, revoked devices and revoked or used-up invite links work again, and role changes are gone. Guide: ${GUIDE_UPDATING}`,
+    'people removed since are members again, revoked devices and revoked or used-up invite links work again, and role changes are gone; ' +
+    `whoever joined since is no longer a member, and invite links made since no longer work. Guide: ${GUIDE_KEPT}`,
   'host.putBack.other': (p: { names: readonly string[] }) =>
-    `Warning: an OLDER ${p.names.join(', ')} was put back into this workspace and upgraded again: what it holds replaces everything recorded there since. Guide: ${GUIDE_UPDATING}`,
+    `Warning: an OLDER ${p.names.join(', ')} was put back into this workspace and upgraded again: what it holds replaces everything recorded there since. Guide: ${GUIDE_KEPT}`,
   'host.oldFolder': (p: { path: string; more: number }) =>
     `An earlier state folder of this workspace lies beside the one in use: ${p.path}${p.more > 0 ? ` (and ${p.more} more)` : ''}. smurg does not use it. ` +
-    `If you moved it away because smurg 0.5.0 told you to after an update, the guide says how to go back to it: ${GUIDE_UPDATING}`,
+    `If you moved it away because smurg 0.5.0 told you to after an update, it still holds the members, invite links and daemon key you had before, and the guide says how to go back to it: ${GUIDE_GOING_BACK}`,
   'host.peer.newer': () => "\nWarning: a teammate's page or smurg is newer than this smurg and was turned away. Stop sharing, run smurg update, then share again.",
-  'host.peer.older': () => '\nA page or smurg older than this smurg was turned away. The teammate reloads the page or updates smurg; if you run your own relay, deploy it again.',
+  'host.peer.older': () => "\nA teammate's page or smurg is older than this smurg and was turned away. That teammate reloads the page or updates smurg; if you run your own relay, deploy it again.",
   'host.alreadyRunning': () => 'A smurg host is already running for this workspace',
   'host.alreadyShared': () => 'This folder is already being shared',
   'host.alreadyShared.hint': () => 'Look with smurg status, or stop it with smurg stop.',

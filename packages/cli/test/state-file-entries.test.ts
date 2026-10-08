@@ -9,9 +9,14 @@
 //
 // Now such an entry is kept: every write puts it back exactly as it was, at its place, and the command says once, on
 // stderr, how many entries of which file it could not read. This smurg does not USE the entry (it cannot read it).
+//
+// One thing followed from "does not use it" and is closed here (F0's open item; the lead's decision): `smurg host` of
+// the very folder such an entry is FOR found no entry it could read and gave the folder a NEW workspace, without a
+// word about what that leaves behind (the members, the invite links, the daemon's key): the silent reset. Now it
+// stops, names the entry and the file, and makes nothing.
 import { generateKeyPairSync } from 'node:crypto';
-import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { chmod, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { systemClock, type Daemon, type HostSocketFactory } from '@smurg/daemon';
 import { MemoryRelay, TestIdentityIssuer, waitFor } from '@smurg/daemon/testing';
@@ -21,9 +26,9 @@ import { commandContext } from '../src/commands/context.ts';
 import { runHost } from '../src/commands/host.ts';
 import { loadCredentials, removeSessions, saveSession, sessionFor } from '../src/state/credentials.ts';
 import { statePaths, type StatePaths } from '../src/state/paths.ts';
-import { loadWorkspaces, rememberJoined, rememberSharedFolder, sharedFolderFor } from '../src/state/workspaces.ts';
+import { loadWorkspaces, lookUpSharedFolder, rememberJoined, rememberSharedFolder, sharedFolderFor } from '../src/state/workspaces.ts';
 import { CLI_VERSION } from '../src/version.ts';
-import { browserOpening, startFakeRelay } from './fake-relay.ts';
+import { browserOpening, startFakeRelay, type FakeRelay } from './fake-relay.ts';
 import { makeDirs, testIo, type Dirs } from './helpers.ts';
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -126,51 +131,51 @@ describe('workspaces.json: an entry this smurg cannot read is kept, at its place
   });
 });
 
-describe('smurg host of ANOTHER folder beside entries this smurg cannot read', () => {
-  /** `smurg host <the project>` against a fake relay (already logged in), started and stopped; the whole terminal. */
-  async function host(dirs: Dirs, env: Record<string, string>, lang: 'en' | 'zh-TW', now: number): Promise<{ code: number; out: string; err: string; relay: string }> {
-    const relay = await startFakeRelay();
-    cleanups.push(() => relay.close());
-    const token = 'stored.host-token-for-test';
-    relay.tokens.set(token, relay.loginAs);
-    // (saveSession reads and writes credentials.json, not the workspace list.)
-    await saveSession(statePaths(env), relay.origin, { token, tokenType: 'Bearer', expiresIn: 7 * 24 * 3600, user: relay.loginAs }, Date.now());
-    const issuer = new TestIdentityIssuer(relay.origin, generateKeyPairSync('ed25519'), systemClock);
-    // The in-memory relay serves ONE workspace id, and a folder that is new gets its id in this very run.
-    let memory: MemoryRelay | null = null;
-    const socketFactory: HostSocketFactory = (url, ...rest) => {
-      memory ??= new MemoryRelay(/\/(ws_[A-Za-z0-9_-]+)\//.exec(String(url))?.[1] ?? 'ws_unknown');
-      return memory.hostSocketFactory()(url, ...rest);
-    };
-    const io = testIo({ env: { ...env, SMURG_LANG: lang }, openUrl: browserOpening, now: () => now });
-    let ready: (daemon: Daemon) => void = () => {};
-    const started = new Promise<Daemon>((resolve) => {
-      ready = resolve;
-    });
-    const ctx = commandContext(io);
-    const done = runHost([dirs.project, '--relay', relay.origin, '--no-keep-awake'], ctx, {
-      daemon: { socketFactory, identityKeys: { get: (kid: string) => (kid === issuer.kid ? issuer.publicKey : null), refresh: async () => {} } },
-      onReady: (daemon) => ready(daemon),
-    }).catch((err: unknown) => {
-      const failure = formatFailure(err, ctx.lang);
-      io.stderr.write(failure.text);
-      return failure.exitCode as number;
-    });
-    let ended = false;
-    void done.then(() => {
-      ended = true;
-    });
-    cleanups.push(async () => {
-      if (!ended) io.signal('SIGTERM');
-      await done;
-    });
-    if ((await Promise.race([started, done.then(() => null)])) !== null) {
-      await waitFor(() => (io.out().match(/\/join\//g) ?? []).length === 2, { what: 'the two links' });
-      io.signal('SIGTERM');
-    }
-    return { code: await done, out: io.out(), err: io.err(), relay: relay.origin };
+/** `smurg host <the project>` against a fake relay (already logged in), started and stopped; the whole terminal. */
+async function host(dirs: Dirs, env: Record<string, string>, lang: 'en' | 'zh-TW', now: number, at?: FakeRelay): Promise<{ code: number; out: string; err: string; relay: string }> {
+  const relay = at ?? (await startFakeRelay());
+  if (at === undefined) cleanups.push(() => relay.close());
+  const token = 'stored.host-token-for-test';
+  relay.tokens.set(token, relay.loginAs);
+  // (saveSession reads and writes credentials.json, not the workspace list.)
+  await saveSession(statePaths(env), relay.origin, { token, tokenType: 'Bearer', expiresIn: 7 * 24 * 3600, user: relay.loginAs }, Date.now());
+  const issuer = new TestIdentityIssuer(relay.origin, generateKeyPairSync('ed25519'), systemClock);
+  // The in-memory relay serves ONE workspace id, and a folder that is new gets its id in this very run.
+  let memory: MemoryRelay | null = null;
+  const socketFactory: HostSocketFactory = (url, ...rest) => {
+    memory ??= new MemoryRelay(/\/(ws_[A-Za-z0-9_-]+)\//.exec(String(url))?.[1] ?? 'ws_unknown');
+    return memory.hostSocketFactory()(url, ...rest);
+  };
+  const io = testIo({ env: { ...env, SMURG_LANG: lang }, openUrl: browserOpening, now: () => now });
+  let ready: (daemon: Daemon) => void = () => {};
+  const started = new Promise<Daemon>((resolve) => {
+    ready = resolve;
+  });
+  const ctx = commandContext(io);
+  const done = runHost([dirs.project, '--relay', relay.origin, '--no-keep-awake'], ctx, {
+    daemon: { socketFactory, identityKeys: { get: (kid: string) => (kid === issuer.kid ? issuer.publicKey : null), refresh: async () => {} } },
+    onReady: (daemon) => ready(daemon),
+  }).catch((err: unknown) => {
+    const failure = formatFailure(err, ctx.lang);
+    io.stderr.write(failure.text);
+    return failure.exitCode as number;
+  });
+  let ended = false;
+  void done.then(() => {
+    ended = true;
+  });
+  cleanups.push(async () => {
+    if (!ended) io.signal('SIGTERM');
+    await done;
+  });
+  if ((await Promise.race([started, done.then(() => null)])) !== null) {
+    await waitFor(() => (io.out().match(/\/join\//g) ?? []).length === 2, { what: 'the two links' });
+    io.signal('SIGTERM');
   }
+  return { code: await done, out: io.out(), err: io.err(), relay: relay.origin };
+}
 
+describe('smurg host of ANOTHER folder beside entries this smurg cannot read', () => {
   it('the entry survives byte for byte, the new folder is added, and the command says ONCE how many entries of which file it could not read (both languages)', async () => {
     for (const lang of ['en', 'zh-TW'] as const) {
       const { dirs, env, paths } = await setup();
@@ -205,6 +210,80 @@ describe('smurg host of ANOTHER folder beside entries this smurg cannot read', (
     const t = await host(dirs, env, 'en', 1791424800000);
     expect(t.code, t.err).toBe(0);
     expect(t.err).toBe('');
+  }, 120_000);
+});
+
+describe('smurg host of the folder whose OWN entry this smurg cannot read', () => {
+  const NOW = 1791424800000;
+  const noteZh = (count: number, path: string): string =>
+    `注意：工作區紀錄檔（workspaces.json）裡有 ${count} 筆資料這個 smurg（${CLI_VERSION}）讀不懂；它們會原封不動地留著，這個 smurg 不會使用它們：${path}\n  如果這台電腦用過較新版的 smurg，請執行 smurg update。\n`;
+
+  it('which entry is a folder\'s own: the one that names the folder, unless it names another relay', async () => {
+    const { paths } = await setup();
+    const atoll = '/work/atoll';
+    const otherRelay = { ...LATER_SHARED, relay: 'https://eu.smurg.ai' };
+    const noRelay = { folder: atoll, relays: [RELAY], workspaceId: 'ws_bm8gcmVsYXkgaW4gdGhpcw', createdAt: '2026-10-08' };
+    await put(paths.workspaces, { version: 1, shared: [TIDEPOOL, 'not an entry at all', LONG_FOLDER, otherRelay, LATER_SHARED, noRelay, HARBOUR], joined: [LATER_JOINED] });
+    // An entry this smurg reads is found as before, and nothing else is said about the folder.
+    expect(await lookUpSharedFolder(paths, TIDEPOOL.folder, RELAY)).toEqual({ entry: TIDEPOOL, unread: null });
+    // The folder's own entry that cannot be read: its place in the list as the file has it (counted from 1) and the
+    // fields that do not fit (names of an entry's fields, never anything the file holds). The first such entry.
+    expect(await lookUpSharedFolder(paths, atoll, RELAY)).toEqual({ entry: null, unread: { place: 5, fields: ['workspaceId'] } });
+    // At another relay the folder is another share: the entry that names THAT relay is its own, and so is the one
+    // whose relay cannot be read (it may be this one's).
+    expect(await lookUpSharedFolder(paths, atoll, 'https://eu.smurg.ai')).toEqual({ entry: null, unread: { place: 4, fields: ['workspaceId'] } });
+    expect(await lookUpSharedFolder(paths, atoll, 'https://third.example')).toEqual({ entry: null, unread: { place: 6, fields: ['relay', 'createdAt'] } });
+    // A folder no entry names: new, as before. What cannot be told to be any folder's (no object, no folder that can
+    // be compared) is kept and counted, and is nobody's own.
+    expect(await lookUpSharedFolder(paths, '/work/reef', RELAY)).toEqual({ entry: null, unread: null });
+    expect(await lookUpSharedFolder(paths, LONG_FOLDER.folder, RELAY)).toEqual({ entry: null, unread: { place: 3, fields: ['folder'] } });
+    // No file at all: nothing was ever shared.
+    const fresh = await setup();
+    expect(await lookUpSharedFolder(fresh.paths, atoll, RELAY)).toEqual({ entry: null, unread: null });
+  });
+
+  it('stops, names the entry and the file, and makes NO new workspace: the list, the relay and the state folder are as they were (both languages)', async () => {
+    for (const lang of ['en', 'zh-TW'] as const) {
+      const { dirs, env, paths } = await setup();
+      const relay = await startFakeRelay();
+      cleanups.push(() => relay.close());
+      // As a later smurg might write THIS folder's entry: a workspace id in another form, fields this smurg never saw.
+      const own = { ...LATER_SHARED, folder: await realpath(dirs.project), relay: relay.origin };
+      const before = await put(paths.workspaces, { version: 1, shared: [TIDEPOOL, 'not an entry at all', own, HARBOUR], joined: [JOINED] });
+      const t = await host(dirs, env, lang, NOW, relay);
+      expect(t.code).toBe(1);
+      expect(t.out).toBe('');
+      const workspacesDir = join(paths.stateDir, 'workspaces');
+      expect(t.err).toBe(
+        lang === 'en'
+          ? `${noteWorkspaces(2, paths.workspaces)}smurg: This folder's entry in the workspace list (workspaces.json) is not in a form this smurg can read (this is ${CLI_VERSION}): entry 3 of "shared" in ${paths.workspaces}\n` +
+              '  What this smurg cannot read in the entry: workspaceId\n' +
+              '  Nothing was changed, and smurg host did not start: the entry is the only link from this folder to its workspace, and without it smurg host would give the folder a new workspace (new members, new invite links, a new daemon key).\n' +
+              `  If a newer smurg was ever used on this computer, run smurg update, then smurg host again. Otherwise repair the entry or put a copy of the file back: an entry holds "folder" (the folder's full path), "relay" (the relay's URL), "workspaceId" (the name of the workspace's folder in ${workspacesDir}) and "createdAt" (a whole number).\n`
+          : `${noteZh(2, paths.workspaces)}smurg：工作區紀錄檔（workspaces.json）裡，這個資料夾的那筆資料這個 smurg（${CLI_VERSION}）讀不懂：${paths.workspaces} 的「shared」第 3 筆\n` +
+              '  這筆資料裡讀不懂的欄位：workspaceId\n' +
+              '  沒有更動任何東西，smurg host 也沒有啟動：這筆資料是這個資料夾和它的工作區之間唯一的連結，少了它，smurg host 會幫資料夾建立新的工作區（成員、邀請連結、daemon 金鑰都是新的）。\n' +
+              `  如果這台電腦用過較新版的 smurg，請執行 smurg update，再執行一次 smurg host。否則請修好這筆資料，或把這個檔案的備份放回來：一筆資料有「folder」（資料夾的完整路徑）、「relay」（relay 的網址）、「workspaceId」（工作區在 ${workspacesDir} 裡的資料夾名稱）和「createdAt」（一個整數）。\n`,
+      );
+      // Never a value of the entry.
+      expect(t.err).not.toContain('w2:');
+      // Nothing was made: the list is byte for byte what it was, no workspace was claimed at the relay, no workspace
+      // folder (no key, no state) was created.
+      expect(await readFile(paths.workspaces, 'utf8')).toBe(before);
+      expect([...relay.workspaces.keys()]).toEqual([]);
+      expect(await readdir(workspacesDir).catch(() => [])).toEqual([]);
+    }
+  }, 120_000);
+
+  it('the same folder shared through ANOTHER relay is another share: an entry that names that other relay does not stop this one', async () => {
+    const { dirs, env, paths } = await setup();
+    const elsewhere = { ...LATER_SHARED, folder: await realpath(dirs.project), relay: 'https://eu.smurg.ai' };
+    await put(paths.workspaces, { version: 1, shared: [elsewhere], joined: [] });
+    const t = await host(dirs, env, 'en', NOW);
+    expect(t.code, t.err).toBe(0);
+    expect(t.err).toBe(noteWorkspaces(1, paths.workspaces));
+    const written = JSON.parse(await readFile(paths.workspaces, 'utf8')) as { shared: unknown[] };
+    expect(written.shared).toEqual([elsewhere, { folder: elsewhere.folder, relay: t.relay, workspaceId: expect.stringMatching(/^ws_[A-Za-z0-9_-]{22}$/), createdAt: NOW }]);
   }, 120_000);
 });
 

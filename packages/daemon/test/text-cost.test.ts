@@ -522,7 +522,9 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'core/shell-scan.ts': 8,
   'core/sockets.ts': 1,
   'core/state-file-error.ts': 1,
-  'core/state-store.ts': 2,
+  // (0.5.1, the third: which problem of a refused file is a rule that got tighter. Anchored at both ends, no
+  // repetition, tried once per problem, on the message of a problem; loadDocumentValue's look above passes through it.)
+  'core/state-store.ts': 3,
   'core/workspace-state.ts': 1,
   'daemon.ts': 1,
   'docs/conflict-panel.ts': 1,
@@ -586,7 +588,9 @@ const ORDERINGS: Readonly<Record<string, number>> = {
   'core/config.ts': 1,
   'core/fakes/conversation.ts': 1,
   'core/fakes/sessions.ts': 1,
-  'core/state-store.ts': 1,
+  // (Both sort the kept copies beside ONE document, by step and number: names of the host's own folder, a version
+  // name of at most 17 characters each, at most 99 of a step.)
+  'core/state-store.ts': 2,
   'docs/merge.ts': 1,
   'files/file-service.ts': 1,
   'files/upload.ts': 1,

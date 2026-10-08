@@ -13,6 +13,7 @@ import { DENY_MESSAGE_MAX_CHARS, mayAllowForTopic, mayDecidePermission, ruleStri
 import { formatAge, formatTime } from '../../lib/format.ts';
 import { kindLabel } from '../../lib/session-status.ts';
 import { useStore } from '../../lib/store.ts';
+import { selectCardGone } from '../../lib/stores/conversations.ts';
 import { useNow } from '../../lib/use-now.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { Button, Card, KindIcon } from '../../ui/index.ts';
@@ -186,6 +187,7 @@ export const PermissionCard = memo(function PermissionCard({ requestId }: { requ
   const stores = useStores();
   const { sessionId, self, role } = useConversationEnv();
   const request = useStore(stores.conversations, (state) => state.conversations.get(sessionId)?.permissions.get(requestId));
+  const gone = useStore(stores.conversations, (state) => selectCardGone(state.conversations.get(sessionId), 'permission', requestId));
   const facts = useSessionFacts(sessionId);
   const branch = useStore(stores.worktrees, (state) => (request?.root.kind === 'worktree' ? state.worktrees.get(request.root.worktreeId)?.branch : undefined));
   const ref = useRef<HTMLElement>(null);
@@ -214,7 +216,7 @@ export const PermissionCard = memo(function PermissionCard({ requestId }: { requ
   if (request === undefined) {
     return (
       <Card ref={ref} id={cardDomId(requestId)} title={t('perm.title.other', { tool: '…' })} icon={icon} className="conv-card">
-        <p className="conv-card__who">{t('card.missing')}</p>
+        <p className="conv-card__who">{t(gone ? 'card.gone' : 'card.missing')}</p>
       </Card>
     );
   }

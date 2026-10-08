@@ -4,7 +4,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChunkLoadError, page, reportChunkFailure } from '../lib/chunks.ts';
-import { ChunkFailureBanner, ChunkNotice, SlotBoundary } from './index.ts';
+import { ChunkFailureBanner, ChunkNotice, SlotBoundary, chunkToast } from './index.ts';
 
 function Throws({ error }: { error: unknown }): null {
   throw error;
@@ -136,5 +136,17 @@ describe('the banner for failures without a place of their own', () => {
     reportChunkFailure(new ChunkLoadError('gone', null));
     expect((await screen.findByText(/if the host has not updated yet/)).closest('[role="alert"]')?.textContent).toContain('smurg was updated');
     expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+});
+
+describe('the same words as a message, for something a person just tried that needed the part', () => {
+  it('title and sentence by the reason, kept until dismissed, and its one action is the reload', () => {
+    const gone = chunkToast(new ChunkLoadError('gone', null));
+    expect(gone).toMatchObject({ title: 'smurg was updated', description: 'Reload to get the new page; if the host has not updated yet, the page will say so.', duration: 0 });
+    expect(gone.action?.label).toBe('Reload the page');
+    gone.action?.onClick();
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(chunkToast(new ChunkLoadError('offline', null))).toMatchObject({ title: 'This part of the page could not be loaded', description: 'The browser is offline or cannot reach the smurg server. When the connection is back, reload the page.' });
+    expect(chunkToast(new ChunkLoadError('failed', null))).toMatchObject({ title: 'This part of the page could not be loaded', description: 'Reload the page to load it again.' });
   });
 });

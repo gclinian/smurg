@@ -1,6 +1,6 @@
 // The CLI's own messages in Traditional Chinese (zh-TW): the same ids and parameters as en.ts (checked by type and by
 // test/i18n.test.ts). The wording is the one smurg has always used; it changes only where a sentence became false.
-import type { ClaudeLogin, ClaudeVerdict, DurationUnit, ProjectSettings, RelayAction, StateSubject, UnreadableHost, UrlSubject, VersionedStateFile, en } from './en.ts';
+import type { ClaudeLogin, ClaudeVerdict, DurationUnit, ProjectSettings, RelayAction, SetAsideDocument, StateSubject, UnreadableHost, UrlSubject, VersionedStateFile, en } from './en.ts';
 
 const STATE_SUBJECT: Readonly<Record<StateSubject, string>> = {
   credentials: '登入資料檔（credentials.json）',
@@ -77,7 +77,20 @@ const ERRNO_WORDS: Readonly<Record<string, string>> = {
   ENAMETOOLONG: '路徑太長',
 };
 
-const GUIDE_UPDATING = 'https://smurg.ai/zh-TW/docs/hosting/#9-更新與移除';
+const SET_ASIDE: Readonly<Record<SetAsideDocument, string>> = {
+  inbox: '它記著每位成員在收件夾裡看過、移除了什麼，還有為他們保留的提及。把它移到旁邊只會失去這些：每個人收件夾裡的項目都會變回還沒看過。',
+  suggestions: '它記著成員給 agent session 的建議。把它移到旁邊只會失去這些建議：還在等的建議要重新提一次。',
+  conflicts: '它記著保留下來的衝突清單（成員和 agent 改到同一個檔案的地方）。把它移到旁邊只會失去這份清單：你的檔案不會被動到。',
+  worktrees: '它記著 smurg 建立的 worktree 和所有合併請求。把它移到旁邊只會失去這些紀錄：worktree 的資料夾還在磁碟上（分享資料夾的 .smurg/worktrees 裡），只是 smurg 不再認得；還在等的合併請求會消失。',
+  sessions: '它記著有哪些終端機 session 正在執行。把它移到旁邊只會失去這份紀錄：當機之後它們留下的程序，smurg 不會替你結束。',
+  'host-rules': '它記著 smurg 上次看到的、你自己的 Claude Code 規則。把它移到旁邊只會失去這份紀錄：smurg 會再告訴你一次有哪些規則。',
+  'claude-trust': '它記著你對各個專案的 Claude Code 專案設定做過的決定。把它移到旁邊只會失去這些決定：在你重新確認之前，agent session 不會載入專案設定。',
+  cards: '它記著哪些對話裡有選擇題和權限請求。把它移到旁邊只會失去這份紀錄：之前問過的不會再顯示。',
+  other: '它是工作區狀態的一部分，但不是成員、邀請連結，也不是金鑰。把它移到旁邊只會失去這個檔案裡記的東西。',
+};
+
+const GUIDE_KEPT = 'https://smurg.ai/zh-TW/docs/hosting/#92-更新之後工作區保留了什麼';
+const GUIDE_GOING_BACK = 'https://smurg.ai/zh-TW/docs/hosting/#94-如果你照-smurg-050-的指示把狀態資料夾移走了';
 
 const UNCHANGED = 'smurg 沒有被更動。';
 
@@ -452,22 +465,31 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'host.unreadable.writerNewer': (p) => `第一步：這個資料夾上次是 smurg ${p.writtenBy} 寫的，它比這個 smurg 新。請執行 smurg update，再執行一次 smurg host。`,
   'host.unreadable.copy.state': (p) =>
     'smurg 在升級前保留了這個檔案當時的副本，用來查看工作區當時的內容。把它放回去，會取消那之後決定的每一件事：' +
-    `之後被移出的人又會是成員，已撤銷的裝置、已撤銷或已用完的邀請連結又可以使用，角色的變更也會消失。最新的副本：${p.name}，保留於 ${p.date}。`,
+    `之後被移出的人又會是成員，已撤銷的裝置、已撤銷或已用完的邀請連結又可以使用，角色的變更也會消失；之後才加入的人不再是成員，之後建立的邀請連結也不能用。最新的副本：${p.name}，保留於 ${p.date}。`,
   'host.unreadable.copy.other': (p) => `smurg 在升級前保留了這個檔案當時的副本，用來查看它當時的內容。把它放回去，這個檔案在那之後記下的東西都會被它取代。最新的副本：${p.name}，保留於 ${p.date}。`,
+  'host.setAside': (p) => `這一個檔案可以單獨移到旁邊，工作區不會因此不見：成員、邀請連結、設定和 daemon 金鑰都會留著。${SET_ASIDE[p.document]}`,
+  'host.setAside.command': (p) => `要這麼做，請把這個檔案移到旁邊，再執行一次 smurg host（smurg 會在原位建立一個新的空檔案）：\n  ${p.command}`,
   'host.unreadable.lastResort': () =>
     '最後的辦法是建立新的工作區。代價是：這個工作區的成員和邀請連結（組員要用新的邀請連結重新加入）、主題、對話和操作紀錄，' +
     '還有 daemon 金鑰（加入過的組員會看到「主人的電腦金鑰和之前不同」：請把 smurg status 顯示的新金鑰指紋用其他管道（當面、電話）告訴他們）；' +
     'smurg 也不再認得它保留的 worktree（它們的資料夾還在分享資料夾的 .smurg/worktrees 裡，連同還沒合併的工作）。',
   'host.unreadable.lastResort.command': (p) => `如果你接受這些代價，把這個工作區的資料夾移到別處，再執行一次 smurg host：\n  ${p.command}`,
+  // ---- workspaces.json 裡這個資料夾自己的那筆資料讀不懂：絕不幫這個資料夾建立新的工作區
+  'host.entryUnread': (p) => `工作區紀錄檔（workspaces.json）裡，這個資料夾的那筆資料這個 smurg（${p.current}）讀不懂：${p.path} 的「shared」第 ${p.place} 筆`,
+  'host.entryUnread.fields': (p) => `這筆資料裡讀不懂的欄位：${p.fields.join('、')}`,
+  'host.entryUnread.unchanged': () => '沒有更動任何東西，smurg host 也沒有啟動：這筆資料是這個資料夾和它的工作區之間唯一的連結，少了它，smurg host 會幫資料夾建立新的工作區（成員、邀請連結、daemon 金鑰都是新的）。',
+  'host.entryUnread.next': (p) =>
+    '如果這台電腦用過較新版的 smurg，請執行 smurg update，再執行一次 smurg host。否則請修好這筆資料，或把這個檔案的備份放回來：' +
+    `一筆資料有「folder」（資料夾的完整路徑）、「relay」（relay 的網址）、「workspaceId」（工作區在 ${p.workspacesDir} 裡的資料夾名稱）和「createdAt」（一個整數）。`,
   // ---- 這次啟動發現的事（各一行）：升級、較舊的檔案被放回來、被移到旁邊的資料夾、被拒絕的連線
-  'host.upgraded': (p) => `這個工作區上次是用${p.from === undefined ? '較早版本的 smurg ' : ` smurg ${p.from} `}分享的：成員、邀請連結和設定都已沿用。有哪些改變：${GUIDE_UPDATING}`,
+  'host.upgraded': (p) => `這個工作區上次是用${p.from === undefined ? '較早版本的 smurg ' : ` smurg ${p.from} `}分享的：成員、邀請連結和設定都已沿用。有哪些改變：${GUIDE_KEPT}`,
   'host.putBack.state': (p) =>
-    `⚠ 較舊的 ${p.names.join('、')} 被放回這個工作區，並且重新升級了。它寫入之後決定的每一件事都被取消：` + `之後被移出的人又是成員，已撤銷的裝置、已撤銷或已用完的邀請連結又可以使用，角色的變更也消失了。說明：${GUIDE_UPDATING}`,
-  'host.putBack.other': (p) => `⚠ 較舊的 ${p.names.join('、')} 被放回這個工作區，並且重新升級了：這個檔案在那之後記下的東西，都被它的內容取代。說明：${GUIDE_UPDATING}`,
+    `⚠ 較舊的 ${p.names.join('、')} 被放回這個工作區，並且重新升級了。它寫入之後決定的每一件事都被取消：` + `之後被移出的人又是成員，已撤銷的裝置、已撤銷或已用完的邀請連結又可以使用，角色的變更也消失了；之後才加入的人不再是成員，之後建立的邀請連結也不能用了。說明：${GUIDE_KEPT}`,
+  'host.putBack.other': (p) => `⚠ 較舊的 ${p.names.join('、')} 被放回這個工作區，並且重新升級了：這個檔案在那之後記下的東西，都被它的內容取代。說明：${GUIDE_KEPT}`,
   'host.oldFolder': (p) =>
-    `這個工作區之前的狀態資料夾還放在旁邊：${p.path}${p.more > 0 ? `（另外還有 ${p.more} 個）` : ''}。smurg 不會使用它。` + `如果你是在更新後照 smurg 0.5.0 的指示把它移開的，說明文件有換回去的方法：${GUIDE_UPDATING}`,
+    `這個工作區之前的狀態資料夾還放在旁邊：${p.path}${p.more > 0 ? `（另外還有 ${p.more} 個）` : ''}。smurg 不會使用它。` + `如果你是在更新後照 smurg 0.5.0 的指示把它移開的，你原本的成員、邀請連結和 daemon 金鑰都還在裡面，說明文件有換回去的方法：${GUIDE_GOING_BACK}`,
   'host.peer.newer': () => '\n⚠ 有組員的網頁或 smurg 比這個 smurg 新，連線被拒絕了。請停止分享，執行 smurg update，再重新分享。',
-  'host.peer.older': () => '\n有一個比這個 smurg 舊的網頁或 smurg 被拒絕連線。請組員重新整理網頁或更新 smurg；如果你用的是自己架的 relay，請重新部署它。',
+  'host.peer.older': () => '\n有組員的網頁或 smurg 比這個 smurg 舊，連線被拒絕了。請那位組員重新整理網頁或更新 smurg；如果你用的是自己架的 relay，請重新部署它。',
   'host.alreadyRunning': () => '這個工作區已經有 smurg host 在執行',
   'host.alreadyShared': () => '這個資料夾已經在分享中',
   'host.alreadyShared.hint': () => '用 smurg status 查看，或 smurg stop 停止。',

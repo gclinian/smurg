@@ -7,7 +7,9 @@
 // Nothing is deployed here and nothing is built: the copy runs on scratch folders that stand in for the previous
 // build's assets folder and for apps/web/dist. What is covered: which folders are taken at all (nothing but
 // content-hashed files), that only <dist>/assets is written, that index.html is always the new build's, that a name
-// can never get other bytes, the order (build, copy, check) and what a run (also a dry run) shows.
+// can never get other bytes, the order (build, copy, check) and what a run (also a dry run) shows; and that a run
+// WITHOUT the option says first what a deploy then does to the pages that are open (sceptic V4-2: a plain deploy of
+// 0.5.1 emptied every open 0.5.0 tab, and the script said nothing).
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, symlink, truncate, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -21,6 +23,7 @@ import {
   buildWebKeeping,
   keepPreviousAssets,
   keptReport,
+  noKeepAssetsNotice,
   previousAssets,
   run,
   takeKeepAssets,
@@ -263,6 +266,51 @@ describe('scripts/deploy-relay.ts --keep-assets: the arguments', () => {
     expect(await run(['--keep-assets'], { ...deps, err: (text) => (err += text) })).toBe(2);
     expect(err).toContain('--keep-assets needs a folder');
     expect(calls).toEqual([]);
+  });
+
+  it('WITHOUT --keep-assets a deploy, and a dry run, say first what that does to the pages that are open, and name the option; with it, with --check and with --help nothing is said (sceptic V4-2)', async () => {
+    const { previous } = await twoBuilds();
+    // The guided deploy itself is not run here: what matters is what was said BEFORE it starts (before anything is built or uploaded).
+    const ran = async (argv: readonly string[]): Promise<{ code: number; seen: string[] }> => {
+      const seen: string[] = [];
+      const code = await run(
+        argv,
+        { out: (line) => seen.push(line), err: (text) => seen.push(`err ${text}`) },
+        {
+          deploy: async (rest) => {
+            seen.push(`DEPLOY ${rest.join(' ')}`);
+            return 0;
+          },
+        },
+      );
+      return { code, seen };
+    };
+    const deploy = await ran(['--url', 'https://relay.example']);
+    expect(deploy.code).toBe(0);
+    expect(deploy.seen).toEqual([...noKeepAssetsNotice('deploy'), 'DEPLOY --url https://relay.example']);
+    expect(noKeepAssetsNotice('deploy')).toEqual([
+      'deploy-relay: this deploy is run WITHOUT --keep-assets.',
+      '  It replaces every file of the web app that is live now. A page that is open in a browser when the deploy goes live will not find the code it loads',
+      '  later (the files are named by their content, and the old names are gone): that part of the page stays broken, or the page goes empty, until the',
+      '  person reloads it.',
+      "  To keep the previous version's files served beside the new ones, stop now (Ctrl-C) and run it again with --keep-assets DIR",
+      '  (scripts/deploy-relay.sh --help says how to make DIR from the tag of the version that is live).',
+      '',
+    ]);
+    const dry = await ran(['--dry-run']);
+    expect(dry.seen).toEqual([...noKeepAssetsNotice('dry-run'), 'DEPLOY --dry-run']);
+    expect(noKeepAssetsNotice('dry-run')[0]).toBe('deploy-relay: this dry run is WITHOUT --keep-assets, and a deploy run the same way:');
+    expect(noKeepAssetsNotice('dry-run').join('\n')).not.toContain('Ctrl-C');
+    for (const mode of ['deploy', 'dry-run'] as const) expect(noKeepAssetsNotice(mode).join('\n')).toContain('--keep-assets DIR');
+
+    // With the option: the run lists what it keeps instead (above); the guided deploy gets the other arguments.
+    expect((await ran(['--dry-run', '--keep-assets', previous])).seen).toEqual(['DEPLOY --dry-run']);
+    // --check and --help deploy nothing; arguments the guided deploy refuses are its own to report.
+    expect((await ran(['--check', 'https://relay.example'])).seen).toEqual(['DEPLOY --check https://relay.example']);
+    expect((await ran(['--dry-run', '--check', 'https://relay.example'])).seen).toEqual(['DEPLOY --dry-run --check https://relay.example']);
+    expect((await ran(['--wait', 'soon'])).seen).toEqual(['DEPLOY --wait soon']);
+    const help = await ran(['--help']);
+    expect(help.seen.filter((line) => line.includes('WITHOUT --keep-assets'))).toEqual([]);
   });
 
   it('--help shows the guided deploy\'s usage and then this option, with the way to make the folder from a tag', async () => {

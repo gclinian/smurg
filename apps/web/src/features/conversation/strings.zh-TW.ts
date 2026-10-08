@@ -149,6 +149,7 @@ export const zhTW = {
   'card.withdrawn.failed': '未回答：agent 因錯誤而停止。',
   'card.withdrawn.restarted': '未回答：smurg 重新啟動了。session 繼續時 Claude 會再問一次。',
   'card.missing': '正在載入這張卡片…',
+  'card.gone': '主人的電腦已經不再保留這張卡片。',
   'card.escalated': '{name} 已經 {age} 沒有回答。',
   'card.late.answered': '{name} 已經送出答案了。',
   'card.late.allowed': '{name} 已經允許了。',

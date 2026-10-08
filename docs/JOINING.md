@@ -78,7 +78,7 @@ Other things you may see:
 
 | You see | What it means |
 |---|---|
-| "This invite link cannot be used" | The link expired, has no uses left or was revoked by the host. Ask the host for a new one. |
+| "This invite link cannot be used" | The link expired, has no uses left or was revoked by the host: ask the host for a new one. One more case: you are already a member, and the link is for another role than yours (the host's link for teammates is usually an Editor link). In a browser that had joined before and needed the link only because of "The host computer's key has changed", the new key was recorded all the same: open the workspace again without the link ("Recent workspaces" on the home page). On a new device, ask the host for a link of your own role. |
 | "This browser already joined with another account" | A browser profile can be only one person in a workspace: the first time it joined, this browser was bound to the account logged in then. Log out and log in with that account again; to use another account, open the invite link in another browser profile or in a private window. |
 | "You were removed from the workspace" | The host removed you from the workspace. To join again you need a new link from the host. |
 | "Role changed" | The host changed your role; the page reconnects by itself with the new permissions. |
@@ -535,10 +535,15 @@ version, so around an update you may meet one of these screens. Each says who ha
 - "This browser's smurg key was written by a newer page": this browser was already used with a newer page of
   smurg, and this tab is an older one. Nothing was changed. Reload the page to get the newer one.
 
+If one of these screens came while you were joining through an invite link, reload all the same: the page kept the
+link and asks "Join this workspace?" again. Only a browser that blocks site data cannot keep it; open the invite
+link again there.
+
 An update of the host's smurg keeps the workspace: its members, their roles and their devices are carried over,
-from 0.4.0 too. You do not join again, and you are not asked about the host's key. If you are asked about it after
-the host updated ("The host computer's key has changed"), check the fingerprint with the host as in §1: a host who
-went from 0.4.0 to 0.5.0 may have had to start the workspace anew, and may since have gone back to the earlier one.
+from 0.4.0 too. You do not join again, and you are not asked about the host's key. If your page says
+"Security warning: connection refused" after the host updated, or a link asks "The host computer's key has changed",
+check the fingerprint with the host as in §1 and ask for a link: a host who went from 0.4.0 to 0.5.0 may have had to
+start the workspace anew, and may since have gone back to the earlier one.
 Since 0.5.0 the roles do more than they did in 0.4.0, and you have today's meaning of the role you had (§2).
 
 ## 9. Leaving a workspace: what ends
@@ -614,7 +619,10 @@ only if you yourself just ran smurg in a terminal; if someone else gave you the 
   "The host computer's key has changed", the fingerprint it recorded and the fingerprint of the invite link's key,
   and asks whether to go on. Type `y` only if the invite link's fingerprint is the one the host sees with
   `smurg status`; any other input cancels, and nothing is sent. Outside a terminal (in a script, for example) it
-  does not ask: add `--accept-new-key` once you have checked.
+  does not ask: add `--accept-new-key` once you have checked. If your role is not the link's (the host's link for
+  teammates is usually an Editor link), smurg then says
+  "The invite link is not valid, has expired or has been used up; ask the host for a new one." The new key was
+  recorded all the same: run `smurg attach --workspace …` again.
 - **When your `smurg` and the host's are different versions**, `smurg attach` cannot connect, and it says which side
   has to do something. It asks smurg's download site which version is the newest. When a newer one than yours is
   published: "a newer smurg (0.5.1) is published: update this one (smurg update), then connect again." When yours is

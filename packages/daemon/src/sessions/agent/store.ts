@@ -98,7 +98,13 @@ export type AgentRecord = z.infer<typeof agentRecordSchema>;
 
 const documentSchema = z.strictObject({ sessions: z.array(agentRecordSchema).max(10_000) });
 type AgentDocument = z.infer<typeof documentSchema>;
-/** agent-sessions.json (no `version` key; new in 0.5.0). Declared by the sessions module. */
+/**
+ * agent-sessions.json (no `version` key; new in 0.5.0). Declared by the sessions module.
+ *
+ * It CANNOT be set aside (no `canSetAside`; test/upgrade/set-aside.test.ts shows what a start without it leaves):
+ * every topic still says its discussion is live and every started item still names its session, and none of those
+ * sessions exists; a topic's discussion is only called lost when its session ends, never because it is not there.
+ */
 export const agentSessionsDocument = declareDocument({ name: AGENT_SESSIONS_DOCUMENT, schema: documentSchema, init: (): AgentDocument => ({ sessions: [] }) });
 
 /** The document's records, keyed by session id; every change is written through `save`. */

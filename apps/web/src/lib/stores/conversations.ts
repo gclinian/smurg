@@ -396,6 +396,13 @@ export interface Conversation {
   readonly questions: ReadonlyMap<string, Question>;
   readonly permissions: ReadonlyMap<string, PermissionRequest>;
   readonly suggestions: ReadonlyMap<string, Suggestion>;
+  /**
+   * The cards the host answered it no longer keeps, as `kind:id`: asked for by name (`session.cards.get`), and the
+   * answer neither carried the card nor named it as waiting for its turn. A conversation's log holds where a card
+   * was; its content is kept apart on the host and bounded, and a host may have set that file aside. Read through
+   * `selectCardGone`: the card's place says so instead of waiting for content that will not come.
+   */
+  readonly cardsGone: ReadonlySet<string>;
   /** The blocks streaming right now, in the order they began. */
   readonly streaming: readonly StreamingRef[];
   /** The turn the agent thinks in: a thinking delta arrived and nothing of that turn since. */
@@ -410,6 +417,7 @@ export interface ConversationsState {
 export const INITIAL_CONVERSATIONS_STATE: ConversationsState = Object.freeze({ conversations: new Map() });
 
 const EMPTY_MAP: ReadonlyMap<string, never> = new Map<string, never>();
+const EMPTY_SET: ReadonlySet<never> = new Set<never>();
 
 function emptyConversation(sessionId: string): Conversation {
   return {
@@ -428,6 +436,7 @@ function emptyConversation(sessionId: string): Conversation {
     questions: EMPTY_MAP,
     permissions: EMPTY_MAP,
     suggestions: EMPTY_MAP,
+    cardsGone: EMPTY_SET,
     streaming: [],
     thinkingTurnId: null,
   };
@@ -500,6 +509,12 @@ export function selectOpenCards(conversation: Conversation): { readonly kind: 'q
   for (const question of conversation.questions.values()) if (question.status === 'open') open.push({ kind: 'question', id: question.id, askedAt: question.askedAt });
   for (const request of conversation.permissions.values()) if (request.status === 'open') open.push({ kind: 'permission', id: request.id, askedAt: request.askedAt });
   return open.sort((a, b) => a.askedAt - b.askedAt || compareIds(a.id, b.id));
+}
+
+/** The host no longer keeps this card's content, and this page holds none: what the card's place in the conversation says. */
+export function selectCardGone(conversation: Conversation | undefined, kind: CardRef['kind'], id: string): boolean {
+  if (conversation === undefined || !conversation.cardsGone.has(cardKey({ kind, id }))) return false;
+  return !(kind === 'question' ? conversation.questions : kind === 'permission' ? conversation.permissions : conversation.suggestions).has(id);
 }
 
 /** The `seq` of the event where a card appeared, when the window holds it. */
@@ -704,6 +719,25 @@ export function createConversationsArea(): { store: ConversationsStore; lifecycl
 
   // ---- cards the page named but did not carry
 
+  /**
+   * The host answered a request for these cards without them: it no longer keeps them. Remembered (the place of each
+   * says so, and none is asked for again), and a copy this page still held goes: the host would not know the card a
+   * button of it names.
+   */
+  const withCardsGone = (conversation: Conversation, gone: readonly CardRef[]): Conversation => {
+    if (gone.length === 0) return conversation;
+    const cardsGone = new Set(conversation.cardsGone);
+    const held = { question: conversation.questions, permission: conversation.permissions, suggestion: conversation.suggestions };
+    for (const card of gone) {
+      cardsGone.add(cardKey(card));
+      if (!held[card.kind].has(card.id)) continue;
+      const without = new Map<string, never>(held[card.kind] as ReadonlyMap<string, never>);
+      without.delete(card.id);
+      held[card.kind] = without;
+    }
+    return { ...conversation, cardsGone, questions: held.question, permissions: held.permission, suggestions: held.suggestion };
+  };
+
   const fetchCards = async (sessionId: string, entry: Entry, cards: readonly CardRef[]): Promise<void> => {
     let rest = cards.filter((card) => !entry.cardsAsked.has(cardKey(card)));
     for (const card of rest) entry.cardsAsked.add(cardKey(card));
@@ -712,11 +746,18 @@ export function createConversationsArea(): { store: ConversationsStore; lifecycl
         const asked = rest.slice(0, CARDS_GET_MAX);
         const reply = await context().conn.request('session.cards.get', { sessionId, cards: asked });
         if (entries.get(sessionId) !== entry) return;
-        update(sessionId, (conversation) => applyCards(conversation, reply));
+        // An asked card the answer neither carries nor names (as one that did not fit) is not kept on the host any more.
+        const answered = new Set<string>(reply.moreCards.map(cardKey));
+        for (const card of reply.questions) answered.add(cardKey({ kind: 'question', id: card.id }));
+        for (const card of reply.permissions) answered.add(cardKey({ kind: 'permission', id: card.id }));
+        for (const card of reply.suggestions) answered.add(cardKey({ kind: 'suggestion', id: card.id }));
+        const gone = asked.filter((card) => !answered.has(cardKey(card)));
+        update(sessionId, (conversation) => withCardsGone(applyCards(conversation, reply), gone));
         // What did not fit comes back named again; never ask for the same slice forever.
         const more = reply.moreCards.filter((card) => asked.some((one) => cardKey(one) === cardKey(card)) || rest.some((one) => cardKey(one) === cardKey(card)));
         rest = [...more, ...rest.slice(CARDS_GET_MAX).filter((card) => !more.some((one) => cardKey(one) === cardKey(card)))];
-        if (reply.questions.length + reply.permissions.length + reply.suggestions.length === 0) break;
+        // Go on while an answer brings something: a card, or the knowledge that one is gone.
+        if (reply.questions.length + reply.permissions.length + reply.suggestions.length === 0 && gone.length === 0) break;
       }
     } catch (error) {
       if (!isClientRequestError(error)) ctx?.reportError('conversations', error);
@@ -725,7 +766,10 @@ export function createConversationsArea(): { store: ConversationsStore; lifecycl
     }
   };
 
-  /** A card event whose entity never arrived (an update lost with a connection) is asked for after a moment. */
+  /**
+   * A card event whose entity never arrived (an update lost with a connection, or a card whose content the host no
+   * longer keeps) is asked for after a moment.
+   */
   const scheduleMissingCards = (sessionId: string, entry: Entry): void => {
     const c = context();
     if (entry.cardsTimer !== null) return;
@@ -737,7 +781,8 @@ export function createConversationsArea(): { store: ConversationsStore; lifecycl
       for (const event of conversation.events) {
         if (event.kind !== 'card') continue;
         const has = event.card === 'question' ? conversation.questions.has(event.id) : event.card === 'permission' ? conversation.permissions.has(event.id) : conversation.suggestions.has(event.id);
-        if (!has) missing.push({ kind: event.card, id: event.id });
+        // What the host said it no longer keeps is not asked for again.
+        if (!has && !conversation.cardsGone.has(cardKey({ kind: event.card, id: event.id }))) missing.push({ kind: event.card, id: event.id });
       }
       if (missing.length > 0) void fetchCards(sessionId, entry, missing);
     }, MISSING_CARDS_DELAY_MS);
@@ -839,6 +884,9 @@ export function createConversationsArea(): { store: ConversationsStore; lifecycl
     if (newest) for (const block of reply.streaming) notifyStream(entry, block.blockId);
     if (reply.hasMore) void catchUp(sessionId, entry);
     if (newest) readSettledCards(sessionId, entry, reply);
+    // The window may hold card events without their content although this page brought none (it continued the
+    // window after a fresh channel, which forgot which cards the host no longer keeps).
+    scheduleMissingCards(sessionId, entry);
   };
 
   /**
@@ -1078,6 +1126,7 @@ export function createConversationsArea(): { store: ConversationsStore; lifecycl
             return next;
           });
           if (reply.moreCards.length > 0) void fetchCards(sessionId, entry, reply.moreCards);
+          if (reply.events.some((event) => event.kind === 'card')) scheduleMissingCards(sessionId, entry);
         } finally {
           entry.earlier = null;
           if (entries.get(sessionId) === entry) update(sessionId, (current) => (current.loadingEarlier ? { ...current, loadingEarlier: false } : current));
@@ -1190,10 +1239,12 @@ export function createConversationsArea(): { store: ConversationsStore; lifecycl
     // A fresh logical channel forgot every watch. The windows stay on screen and are continued (or replaced) by the
     // watch that load() sends with `haveSeq`.
     reset() {
-      for (const entry of entries.values()) {
+      for (const [sessionId, entry] of entries) {
         entry.pending.clear();
         entry.catchUp = null;
         entry.earlier = null;
+        // Which cards the host no longer keeps was the answer of the host's smurg as it ran then: asked again.
+        update(sessionId, (conversation) => (conversation.cardsGone.size === 0 ? conversation : { ...conversation, cardsGone: EMPTY_SET }));
       }
     },
     async load() {

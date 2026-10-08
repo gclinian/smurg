@@ -308,7 +308,10 @@ export function report(cov: Coverage): CoverageReport {
 // What a schema accepts, as far as zod can say it: for the pin
 // =====================================================================================================================
 
-/** One check of a string, number or array, with its numbers (a custom check has only its name: its rule is code). */
+/**
+ * One check of a string, number or array, with its numbers. A custom check (`.refine`, `.superRefine`, `.check`) has
+ * only its name here: its rule is CODE, and no description of a schema says what that code accepts.
+ */
 function checkOf(check: unknown): string {
   const def = defOf(check) as (Def & { check?: string }) | undefined;
   if (!def) return 'check?';
@@ -321,7 +324,12 @@ function checkOf(check: unknown): string {
 /**
  * A text for everything zod itself knows about what `schema` accepts: every key in its order, whether it may be left
  * out, every type, limit, pattern, literal and enumeration value, every branch of every union, and WHERE a rule
- * written as code sits (`custom`, `transform`: the code itself is pinned by the hash of its source file).
+ * written as code sits (`custom`, `transform`).
+ *
+ * What this text does NOT say: what such code accepts. A `.refine` whose bound goes from 1000 to 50 gives the same
+ * text. That is why test/upgrade/pin.test.ts also pins, by hash, the SOURCE of every file such code can be written
+ * in or taken from: the daemon's own schema files, and every module of the protocol package that a run-time name
+ * they import leads to (its section 2 says exactly which, and what is still not seen).
  */
 export function shapeOf(schema: Schema | unknown): string {
   const lines: string[] = [];

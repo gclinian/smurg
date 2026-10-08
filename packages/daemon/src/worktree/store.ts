@@ -111,7 +111,7 @@ export function initialWorktreesDocument(): WorktreesDocument {
 }
 
 /** worktrees.json (what 0.4.0 wrote passes today's schema: 0.5.0 added optional keys only). Declared by the worktree module. */
-export const worktreesDocument = declareDocument({ name: WORKTREES_DOCUMENT, schema: worktreesDocumentSchema, init: initialWorktreesDocument });
+export const worktreesDocument = declareDocument({ name: WORKTREES_DOCUMENT, schema: worktreesDocumentSchema, init: initialWorktreesDocument, canSetAside: true });
 
 export function toWorktreeInfo(record: StoredWorktree): WorktreeInfo {
   return {

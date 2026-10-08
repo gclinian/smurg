@@ -132,7 +132,7 @@ const liveDocumentSchema = z.strictObject({
 });
 type LiveDocument = z.infer<typeof liveDocumentSchema>;
 /** sessions.json (no `version` key; the same shape since 0.4.0). Declared by the sessions module. */
-export const liveSessionsDocument = declareDocument({ name: LIVE_DOCUMENT, schema: liveDocumentSchema, init: (): LiveDocument => ({ live: [] }) });
+export const liveSessionsDocument = declareDocument({ name: LIVE_DOCUMENT, schema: liveDocumentSchema, init: (): LiveDocument => ({ live: [] }), canSetAside: true });
 /** Sessions of a crashed run whose leftovers are looked for at start (bounded work before the daemon is up). */
 const MAX_LEFTOVER_SESSIONS = 64;
 

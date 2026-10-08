@@ -36,12 +36,17 @@
 // The same sources build the same names on every machine (the deploy's own check that the live web app is "the build of
 // this checkout" rests on that; it was verified for v0.5.0, 139 files, byte for byte, when this option was written).
 // Keep ONE previous version: the folder of the version that is live when you deploy.
+//
+// WITHOUT --keep-assets a deploy (and a dry run of one) says FIRST, before anything is built or uploaded, what it does
+// to the pages that are open when it goes live, and names the option (`noKeepAssetsNotice`). A plain deploy of 0.5.1
+// emptied every open 0.5.0 tab at its next click, and nothing had said so (0.5.1, sceptic V4-2). It is said, not
+// asked: the first deploy of a relay has no previous version, and the operator decides.
 import { spawn } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import { copyFile, lstat, readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DeployError, main, type DeployDeps } from '../apps/relay/scripts/deploy.ts';
+import { DeployError, main, parseDeployArgs, type DeployDeps } from '../apps/relay/scripts/deploy.ts';
 
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const RELAY_DIR = join(REPO_ROOT, 'apps', 'relay');
@@ -195,6 +200,35 @@ function runShown(file: string, args: readonly string[], cwd: string): Promise<n
   });
 }
 
+/**
+ * What a run WITHOUT --keep-assets says before the guided deploy starts: what such a deploy does to the pages that are
+ * open when it goes live, and the option that prevents it. (A dry run deploys nothing: it says what the deploy would.)
+ */
+export function noKeepAssetsNotice(mode: 'deploy' | 'dry-run'): string[] {
+  return [
+    mode === 'deploy' ? 'deploy-relay: this deploy is run WITHOUT --keep-assets.' : 'deploy-relay: this dry run is WITHOUT --keep-assets, and a deploy run the same way:',
+    `  ${mode === 'deploy' ? 'It replaces' : 'replaces'} every file of the web app that is live now. A page that is open in a browser when the deploy goes live will not find the code it loads`,
+    '  later (the files are named by their content, and the old names are gone): that part of the page stays broken, or the page goes empty, until the',
+    '  person reloads it.',
+    mode === 'deploy'
+      ? "  To keep the previous version's files served beside the new ones, stop now (Ctrl-C) and run it again with --keep-assets DIR"
+      : "  To keep the previous version's files served beside the new ones, run the deploy with --keep-assets DIR",
+    '  (scripts/deploy-relay.sh --help says how to make DIR from the tag of the version that is live).',
+    '',
+  ];
+}
+
+/** Whether these arguments (without --keep-assets) are a deploy or a dry run; null for --check, --help and arguments the guided deploy refuses. */
+function deployModeOf(rest: readonly string[]): 'deploy' | 'dry-run' | null {
+  try {
+    const options = parseDeployArgs(rest);
+    return options === 'help' || options.mode === 'check' ? null : options.mode;
+  } catch {
+    // The guided deploy reports its own arguments (and nothing is deployed).
+    return null;
+  }
+}
+
 /** Seams of step 4 with --keep-assets (the real ones: the repository's web build, its check, apps/web/dist, stdout). */
 export interface KeepDeps {
   /** `pnpm --filter @smurg/web build` (it empties apps/web/dist first). */
@@ -203,6 +237,8 @@ export interface KeepDeps {
   readonly check?: () => Promise<void>;
   readonly webDist?: string;
   readonly out?: (line: string) => void;
+  /** TEST ONLY: the guided deploy itself (apps/relay/scripts/deploy.ts main). */
+  readonly deploy?: (argv: readonly string[], deps: DeployDeps) => Promise<number>;
 }
 
 /**
@@ -239,11 +275,14 @@ export const KEEP_ASSETS_USAGE = `  --keep-assets DIR     With a deploy or --dry
                         scripts/bootstrap-tools.sh, source scripts/env.sh, pnpm install --frozen-lockfile,
                         pnpm --filter @smurg/web build. Only files named <name>-<hash>.<ext> are taken, only into
                         apps/web/dist/assets; index.html is always the new build's (details: scripts/deploy-relay.ts)
+                        WITHOUT it, a deploy says first that the pages open at that moment will not find the code
+                        they load later (that part of the page breaks until the person reloads), and goes on.
 `;
 
 /** The guided deploy with `--keep-assets` understood; every other argument is apps/relay/scripts/deploy.ts's. */
 export async function run(argv: readonly string[], deps: DeployDeps = {}, keep: KeepDeps = {}): Promise<number> {
   const err = deps.err ?? ((text: string) => process.stderr.write(text));
+  const deploy = keep.deploy ?? main;
   let previous: PreviousAssets | undefined;
   let rest: string[];
   try {
@@ -256,7 +295,7 @@ export async function run(argv: readonly string[], deps: DeployDeps = {}, keep: 
       previous = await previousAssets(taken.dir);
     }
     if (help) {
-      const code = await main(rest, deps);
+      const code = await deploy(rest, deps);
       (deps.out ?? keep.out ?? ((line: string) => process.stdout.write(`${line}\n`)))(KEEP_ASSETS_USAGE);
       return code;
     }
@@ -267,10 +306,15 @@ export async function run(argv: readonly string[], deps: DeployDeps = {}, keep: 
     }
     throw error;
   }
-  if (previous === undefined) return main(rest, deps);
   const out = deps.out ?? keep.out;
+  if (previous === undefined) {
+    // Said first, before anything is built, contacted or uploaded: what a deploy without the previous files does.
+    const mode = deployModeOf(rest);
+    if (mode !== null) for (const line of noKeepAssetsNotice(mode)) (out ?? ((text: string) => process.stdout.write(`${text}\n`)))(line);
+    return deploy(rest, deps);
+  }
   const buildWeb = buildWebKeeping(previous, { ...keep, ...(out ? { out } : {}) });
-  return main(rest, {
+  return deploy(rest, {
     ...deps,
     buildWeb: async () => {
       try {

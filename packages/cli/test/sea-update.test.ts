@@ -1,21 +1,23 @@
 // `smurg update` and `smurg uninstall` with the REAL single executable (opt-in like sea.test.ts: skipped unless
-// SMURG_SEA_BINARY names a built binary):
+// SMURG_SEA_BINARY names a built binary; a path that is not absolute is read from the repository's root, where this
+// command is typed: ./sea-binaries.ts):
 //   SMURG_SEA_BINARY=packages/cli/dist/smurg-darwin-arm64 pnpm --filter @smurg/cli exec vitest run test/sea-update.test.ts
 // The binary is COPIED into a scratch HOME (<home>/.local/bin/smurg) and only that copy runs, with an isolated
 // environment (HOME, SMURG_HOME and SMURG_CACHE_DIR in temp dirs) and a local HTTP server as the downloads site: the
 // built binary itself, the real ~/.local/bin and the real ~/.smurg are never touched, and nothing reaches the network.
 import { execFile } from 'node:child_process';
 import { chmod, copyFile, lstat, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { statePaths } from '../src/state/paths.ts';
 import { rememberSharedFolder } from '../src/state/workspaces.ts';
 import { HOST_TARGET, fakeExecutable, release, startDownloads } from './downloads-server.ts';
 import { isolatedEnv, makeDirs, type Dirs } from './helpers.ts';
+import { requireSeaBinary, seaBinary } from './sea-binaries.ts';
 
 const run = promisify(execFile);
-const BINARY = process.env['SMURG_SEA_BINARY'] ? resolve(process.env['SMURG_SEA_BINARY']) : null;
+const BINARY = seaBinary();
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -50,6 +52,9 @@ function smurgRun(smurg: string, args: readonly string[], env: Record<string, st
 }
 
 describe.skipIf(BINARY === null)('the single executable updates and uninstalls itself (SMURG_SEA_BINARY)', () => {
+  // A named executable that is not there: one plain sentence, before anything is started.
+  beforeAll(() => requireSeaBinary());
+
   it('smurg update: already the newest; --check; then a newer release from the stand-in site replaces the executable in place', async () => {
     const { dirs, smurg, cache } = await installed();
     const server = await startDownloads();

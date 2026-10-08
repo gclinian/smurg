@@ -647,6 +647,10 @@ describe('the generated pages', () => {
     // The sections the `smurg` command's help links by their heading (packages/cli/src/i18n: usage.host, usage.status,
     // usage.uninstall, usage.attach), and the ones 0.5.0 added.
     for (const id of ['7-status-and-stopping', '9-updating-and-removing', '10-topics-from-the-hosts-side']) expect(hosting, id).toContain(`id="${id}"`);
+    // The parts of §9 the one-line notices of `smurg host` send their reader to (0.5.1: GUIDE_KEPT and GUIDE_GOING_BACK
+    // in packages/cli/src/i18n; packages/cli/test/guide-anchors.test.ts holds the catalogs to the Markdown headings,
+    // this holds the built page to the same ids). Rewording one of these headings breaks a printed address.
+    for (const id of ['92-after-an-update-what-your-workspace-keeps', '94-if-you-moved-the-state-folder-away-because-smurg-050-told-you-to']) expect(hosting, id).toContain(`id="${id}"`);
     for (const id of ['10-joining-from-a-terminal-cli-optional', '6-topics-from-discussion-to-reviewed-result']) expect(text('en', 1), id).toContain(`id="${id}"`);
     // What 0.5.0 must say to a host: the Claude Code floor, git for work items, whose account, the host's own rules,
     // and that the flow was verified against a scripted stand-in.
@@ -658,7 +662,7 @@ describe('the generated pages', () => {
     for (const phrase of ['在你的電腦上執行任何指令', '讀取你的家目錄', '使用你的 Claude 帳號', '只把這個角色給你完全信任的人', '用量和費用都算在你身上', '--role agent', '你可以自己架設 relay']) {
       expect(zh, phrase).toContain(phrase);
     }
-    for (const id of ['7-狀態與停止', '9-更新與移除']) expect(zh, id).toContain(`id="${id}"`);
+    for (const id of ['7-狀態與停止', '9-更新與移除', '92-更新之後工作區保留了什麼', '94-如果你照-smurg-050-的指示把狀態資料夾移走了']) expect(zh, id).toContain(`id="${id}"`);
     expect(text('zh-TW', 1)).toContain('id="10-用終端機cli加入選用"');
     for (const phrase of ['2.1.288 以上', '你自己的允許規則也有效', 'Team 或 Enterprise 方案', '照劇本回應的', '沒有使用任何真正的 Claude 帳號']) {
       expect(zh, phrase).toContain(phrase);

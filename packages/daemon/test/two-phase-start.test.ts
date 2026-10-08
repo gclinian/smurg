@@ -112,6 +112,52 @@ describe('a start has two phases', { timeout: 60_000 }, () => {
     expect(Buffer.from(again.daemon.daemonPublicKey).equals(Buffer.from(t.daemon.daemonPublicKey))).toBe(true);
   });
 
+  it('a NEW workspace whose first start died right after it wrote the stamp: the next start makes the workspace (it is not "state.json is missing", with the last resort for a folder that holds nothing)', async () => {
+    // V1-6. The folder holds one file, the stamp, exactly as phase 2 of a first start leaves it before the key.
+    const h = await home();
+    await mkdir(h.dir, { recursive: true, mode: 0o700 });
+    await writeFile(join(h.dir, STAMP_FILE), serializeDocument({ smurg: DAEMON_VERSION, shapes: 1, at: 5 }), { mode: 0o600 });
+    const t = await h.start();
+    expect(t.daemon.internals.folder).toMatchObject({ isNew: true, keyPair: null, stamp: { smurg: DAEMON_VERSION, shapes: 1 } });
+    expect(t.daemon.upgraded).toEqual([]);
+    expect(t.daemon.putBack).toBe(false);
+    expect(await readdir(h.dir)).toEqual(expect.arrayContaining(['identity.key', 'state.json', STAMP_FILE]));
+    const key = Buffer.from(t.daemon.daemonPublicKey);
+    await h.stop();
+    // From then on it is a workspace like any other: the key and state.json are read, never made again.
+    const again = await h.start();
+    expect(again.daemon.internals.folder).toMatchObject({ isNew: false, putBack: false });
+    expect(Buffer.from(again.daemon.daemonPublicKey).equals(key)).toBe(true);
+    await h.stop();
+    // The stamp beside the KEY (a death one write later) is still a question for the host: a key is never orphaned silently.
+    await rm(join(h.dir, 'state.json'));
+    expect(await rejectionOf(h.start())).toMatchObject({ kind: 'unreadable', reason: 'missing', phase: 1, path: join(h.dir, 'state.json') });
+  });
+
+  it('a refusal while the start is WRITING says `phase: 2`, one while it only reads says `phase: 1`', async () => {
+    const h = await home();
+    await h.start();
+    await h.stop();
+    await asV040Left(h);
+    // Phase 1: a damaged document. Nothing was written.
+    await writeFile(join(h.dir, 'topics.json'), '{"cut', { mode: 0o600 });
+    const before = await everything(h);
+    expect(await rejectionOf(h.start())).toMatchObject({ kind: 'unreadable', reason: 'not-json', phase: 1, document: 'topics', canSetAside: false });
+    expect(await everything(h)).toEqual(before);
+    await rm(join(h.dir, 'topics.json'));
+    // Phase 2: the stamp cannot be written (something that is no file lies in its place, with something in it).
+    await mkdir(join(h.dir, STAMP_FILE), { mode: 0o700 });
+    await writeFile(join(h.dir, STAMP_FILE, 'x'), 'x', { mode: 0o600 });
+    const refusal = await rejectionOf(h.start());
+    expect(refusal).toMatchObject({ kind: 'cannot-open', phase: 2, path: join(h.dir, STAMP_FILE) });
+    expect(refusal.canSetAside).toBe(false);
+    // With it gone, the start is the upgrade (the refused start was no upgrade, and nothing was put back).
+    await rm(join(h.dir, STAMP_FILE), { recursive: true });
+    const t = await h.start();
+    expect(t.daemon.upgraded.map((entry) => entry.document)).toEqual(['state', 'suggestions']);
+    expect(t.daemon.putBack).toBe(false);
+  });
+
   it('what 0.4.0 left is upgraded in the start that reads it: kept copies, today\'s shapes on disk, Daemon.upgraded; the next start upgrades nothing', async () => {
     const h = await home();
     const first = await h.start();

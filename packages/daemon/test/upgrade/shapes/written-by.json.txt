@@ -1,0 +1,10 @@
+: #1 object strict
+smurg: string [string_format format=regex pattern=^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$/]
+shapes: number format=safeint [greater_than value=1 inclusive=true] [less_than value=1000000 inclusive=true]
+at: number format=safeint [greater_than value=0 inclusive=true]
+pending: optional
+pending: array [min_length minimum=1] [max_length maximum=64]
+pending[]: #2 object strict
+pending[].document: string [string_format format=regex pattern=^[a-z0-9-]{1,40}$/]
+pending[].from: string [string_format format=regex pattern=^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$/]
+pending[].copy: string [min_length minimum=1] [max_length maximum=120]

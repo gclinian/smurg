@@ -43,8 +43,9 @@ const NUMBERS = new Set([
   'idle',
   'more',
   'uid',
+  'place',
 ]);
-const LISTS = new Set(['ids', 'others', 'markers', 'names', 'cacheRoots', 'removed', 'rest', 'left', 'labels', 'lines', 'paths', 'problems']);
+const LISTS = new Set(['ids', 'others', 'markers', 'names', 'cacheRoots', 'removed', 'rest', 'left', 'labels', 'lines', 'paths', 'problems', 'fields']);
 const BOOLEANS = new Set(['stopping', 'builtIn', 'several', 'bashAttribution']);
 /** Parameters a message may be rendered without. */
 const OPTIONAL: Readonly<Record<string, readonly string[]>> = {
@@ -74,6 +75,8 @@ const UNIONS: Readonly<Record<string, readonly string[]>> = {
   // Why a running smurg host could not be read (a host of another version), and the two versioned state files.
   why: ['no-answer', 'not-understood', 'closed', 'message'],
   file: ['credentials', 'workspaces'],
+  // The documents a host can set aside alone (a refused workspace state), and the one the catalog has no own sentence for.
+  document: ['inbox', 'suggestions', 'conflicts', 'worktrees', 'sessions', 'host-rules', 'claude-trust', 'cards', 'other'],
 };
 const SUBJECTS: Readonly<Record<string, readonly string[]>> = {
   'relay.badUrl': ['flag', 'web-origin', 'env', 'credentials', 'built-in', 'invite'],

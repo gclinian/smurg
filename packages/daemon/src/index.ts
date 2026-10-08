@@ -75,6 +75,7 @@ export {
   type StateFileErrorInit,
   type StateFileInsecureCause,
   type StateFileKind,
+  type StateFilePhase,
   type StateFileUnreadableReason,
 } from './core/state-file-error.ts';
 export { wsHostSocketFactory, type HostSocket, type HostSocketFactory, type HostSocketHandlers } from './net/host-socket.ts';

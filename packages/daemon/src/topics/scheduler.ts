@@ -486,7 +486,9 @@ export class Scheduler {
    * smurg starts: worktrees.json, the agent sessions' records and topics.json are written one after the other.
    *   - A merge request of an item that the worktree module has and the item has not heard of: a merged one makes
    *     the item merged (what depends on it may start); the item's own request takes the state the request has now;
-   *     a draft that is gone gives way to the worktree's newest open request, or to none.
+   *     a draft that is gone gives way to the worktree's newest open request, or to none; so does a request that
+   *     still WAITED for the host and is gone (worktrees.json was set aside: nobody can decide it any more, and the
+   *     item must not go on saying that it waits). A request that was decided is history: the item keeps saying so.
    *   - An item session the runtime has and no item names (the death came between its start and the item's record):
    *     it is ended. The item is still armed and starts a session of its own when it may.
    * An item that is merged and reviewed and still has its session or worktree is finished by `finishPending`.
@@ -517,8 +519,8 @@ export class Scheduler {
             continue;
           }
           // (a full page is not every request: what is not in it may still exist)
-          if ((pointer.status !== 'draft' && pointer.status !== 'conflict') || requests.length >= LIST_MAX_ITEMS) continue;
-          // The request the item points to went with a newer snapshot (or with its worktree).
+          if ((pointer.status !== 'draft' && pointer.status !== 'conflict' && pointer.status !== 'pending') || requests.length >= LIST_MAX_ITEMS) continue;
+          // The request the item points to went with a newer snapshot (or with its worktree, or with worktrees.json).
           const open = mine.find((request) => request.status === 'draft' || request.status === 'pending');
           if (open !== undefined) this.onMerge(open);
           else {

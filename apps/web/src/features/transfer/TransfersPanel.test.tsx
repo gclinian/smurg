@@ -1,11 +1,12 @@
 // The transfers panel and the startUpload / download commands, with the real TransferManager running behind an
 // in-process stand-in for the Worker (same message protocol) and a fake daemon.
 import { MAIN_ROOT, type DiskReport } from '@smurg/protocol';
-import { act, fireEvent, screen, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, cleanup, fireEvent, screen, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { page, setChunkProbe } from '../../lib/chunks.ts';
 import { createTestWorkspace, WorkspaceTestProviders } from '../../testing/services.tsx';
 import { render } from '@testing-library/react';
-import { transferClientFor } from './client/transfer-client.ts';
+import { transferClientFor, type WorkerLike } from './client/transfer-client.ts';
 import { createMemoryJournal } from './engine/journal.ts';
 import { syntheticBytes } from './engine/synthetic-source.ts';
 import { TransfersPanel } from './index.tsx';
@@ -52,6 +53,34 @@ function setup(options: InProcessWorkerOptions & { role?: 'editor' | 'viewer' } 
 }
 
 const items = (): HTMLElement[] => screen.queryAllByTestId('transfer-item');
+
+/** A Worker whose script never ran: it takes messages and answers none, and the browser fires `error` at it. */
+class DeadWorker implements WorkerLike {
+  readonly received: unknown[] = [];
+  private readonly errorListeners = new Set<(event: Event) => void>();
+  addEventListener(type: 'message' | 'error', listener: ((event: MessageEvent) => void) | ((event: Event) => void)): void {
+    if (type === 'error') this.errorListeners.add(listener as (event: Event) => void);
+  }
+  postMessage(message: unknown): void {
+    this.received.push(message);
+  }
+  terminate(): void {}
+  fail(event: Event = new Event('error')): void {
+    for (const listener of [...this.errorListeners]) listener(event);
+  }
+}
+
+function setupDead() {
+  const context = createTestWorkspace({ role: 'editor' });
+  const worker = new DeadWorker();
+  transferClientFor(context.session, { createWorker: () => worker });
+  render(
+    <WorkspaceTestProviders context={context}>
+      <TransfersPanel />
+    </WorkspaceTestProviders>,
+  );
+  return { ...context, worker, panel: screen.getByRole('region', { name: 'Uploads and downloads' }) };
+}
 
 /**
  * Exact byte equality of large buffers. `toEqual` compares a Uint8Array element by element through vitest's generic
@@ -225,6 +254,74 @@ describe('TransfersPanel', () => {
     );
     await s.settle(() => items()[0]?.dataset['status'] === 'done', 'the finished job in the new panel');
     expect(s.worker.received.filter((m) => m.t === 'init')).toHaveLength(1); // the same Worker, not a new one
+  });
+
+  // The transfer Worker's script is a file of the build. After a deploy it is gone like a chunk, and the browser says
+  // so with an `error` event that names nothing. The panel said "The transfer component could not start: worker
+  // error", with nothing about an update or a reload, and a dropped file went nowhere (0.5.1, V4-4).
+  it('the Worker\'s file is gone after a deploy: the panel says "smurg was updated" with Reload in its place, and an upload that is tried says the same', async () => {
+    setChunkProbe(() => Promise.resolve('gone'));
+    const reload = vi.spyOn(page, 'reload').mockImplementation(() => {});
+    const s = setupDead();
+    act(() => s.worker.fail());
+    const notice = await within(s.panel).findByRole('alert');
+    expect(notice.getAttribute('data-chunk-failure')).toBe('gone');
+    expect(notice.textContent).toBe('smurg was updatedReload to get the new page; if the host has not updated yet, the page will say so.Reload the page');
+    expect(s.panel.textContent).not.toContain('worker error');
+    expect(s.panel.textContent).not.toContain('could not start');
+    // The panel has nothing else to show: no invitation to drop files that would go nowhere.
+    expect(within(s.panel).queryByText('No transfers right now')).toBeNull();
+
+    // A file dropped on the tree all the same: the same words where the person is looking, with the same way out.
+    await act(() => s.session.commands.dispatch('startUpload', { root: MAIN_ROOT, targetDir: 'in', source: { kind: 'files', files: [fileOf('a.txt', new Uint8Array(1))] } }));
+    const toast = document.querySelector('.ui-toast') as HTMLElement;
+    expect(within(toast).getByText('smurg was updated')).toBeTruthy();
+    expect(within(toast).getByText('Reload to get the new page; if the host has not updated yet, the page will say so.')).toBeTruthy();
+    expect(toast.textContent).not.toContain('worker error');
+    // Nothing was handed to the dead Worker, and no transfer sits in the list waiting for ever.
+    expect(s.worker.received.some((m) => (m as { t?: string }).t === 'upload')).toBe(false);
+    expect(s.stores.transfers.getState().jobs.size).toBe(0);
+    // A download says it too.
+    await act(() => s.session.commands.dispatch('download', { file: { root: MAIN_ROOT, path: 'in/r.bin' } }));
+    expect(document.querySelectorAll('.ui-toast')).toHaveLength(2);
+    expect(s.worker.received.some((m) => (m as { t?: string }).t === 'download')).toBe(false);
+
+    fireEvent.click(within(toast).getByRole('button', { name: 'Reload the page' }));
+    expect(reload).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(notice).getByRole('button', { name: 'Reload the page' }));
+    expect(reload).toHaveBeenCalledTimes(2);
+    reload.mockRestore();
+  });
+
+  it('the Worker\'s file did not come for another reason: offline is said to be that, and a file that is there is not called an update', async () => {
+    const words = {
+      offline: 'This part of the page could not be loadedThe browser is offline or cannot reach the smurg server. When the connection is back, reload the page.Reload the page',
+      failed: 'This part of the page could not be loadedReload the page to load it again.Reload the page',
+    } as const;
+    for (const reason of ['offline', 'failed'] as const) {
+      setChunkProbe(() => Promise.resolve(reason));
+      const s = setupDead();
+      act(() => s.worker.fail());
+      const notice = await within(s.panel).findByRole('alert');
+      expect(notice.getAttribute('data-chunk-failure')).toBe(reason);
+      expect(notice.textContent).toBe(words[reason]);
+      expect(s.panel.textContent).not.toContain('updated');
+      cleanup();
+    }
+  });
+
+  it("the Worker's own code that ran and threw is not a missing file: the panel keeps its words for that", async () => {
+    let probed = 0;
+    setChunkProbe(() => {
+      probed += 1;
+      return Promise.resolve('gone');
+    });
+    const s = setupDead();
+    act(() => s.worker.fail(new ErrorEvent('error', { message: 'Uncaught TypeError: x is not a function' })));
+    await act(flush);
+    expect(within(s.panel).getByText('The transfer component could not start: worker error')).toBeTruthy();
+    expect(s.panel.querySelector('[data-chunk-failure]')).toBeNull();
+    expect(probed).toBe(0);
   });
 
   it('explains when this browser window cannot run transfers (no IndexedDB for the device key)', async () => {

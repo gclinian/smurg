@@ -1,6 +1,6 @@
 // The conversation column as a whole (DESIGN §5.5, UX §4): watching, the rows of the list, streaming text, tool
 // lines, the status bar, the strip and its menus, anchors and history.
-import { act, fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { MAIN_ROOT, SmurgError, type ConversationEvent } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
@@ -791,5 +791,30 @@ describe('conversation column: a long conversation and anchors', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New activity' }));
     expect(log.scrollTop).toBe(1_000);
     expect(screen.queryByRole('button', { name: 'New activity' })).toBeNull();
+  });
+});
+
+// The log of a conversation holds where a card was; the card's content is kept apart on the host, bounded, and a host
+// may have set that file aside (cards.json, suggestions.json: docs/HOSTING.md §9.3). The place of such a card said
+// "Loading this card…" for ever.
+describe('a card whose content the host no longer keeps', () => {
+  it('says "Loading this card…" while it is asked for, then that the host no longer keeps it: a question, a permission request, a suggestion', async () => {
+    const view = await openConversation({
+      events: [line(1), buildEvent('card', { seq: 2, card: 'question', id: 'q_old' }), buildEvent('card', { seq: 3, card: 'permission', id: 'pr_old' }), buildEvent('card', { seq: 4, card: 'suggestion', id: 'sg_old' })],
+    });
+    expect(screen.getAllByText('Loading this card…')).toHaveLength(3);
+    // After a moment the page asks for the three by name; the host answers without an error and without them.
+    await waitFor(() => expect(view.conn.lastRequest('session.cards.get')?.payload.cards).toHaveLength(3), { timeout: 5_000 });
+    act(() => {
+      view.conn.respond('session.cards.get', { questions: [], permissions: [], suggestions: [], moreCards: [] });
+    });
+    await settle();
+    expect(screen.queryByText('Loading this card…')).toBeNull();
+    expect(screen.getAllByText("The host's computer no longer keeps this card.")).toHaveLength(3);
+    // Each keeps the title of what it was, and offers nothing to press.
+    for (const text of screen.getAllByText("The host's computer no longer keeps this card.")) {
+      const card = text.closest('.conv-card') as HTMLElement;
+      expect(within(card).queryAllByRole('button')).toEqual([]);
+    }
   });
 });

@@ -21,7 +21,7 @@ import { appendFileSync } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, readFile, readdir, readlink, realpath, rename, rm, symlink, truncate, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_FEATURE_MODULES, StateFileError, silentLogger, systemClock, type Daemon, type FeatureModule } from '@smurg/daemon';
+import { DEFAULT_FEATURE_MODULES, LOG_UNSAFE_CHARACTER, StateFileError, silentLogger, systemClock, type Daemon, type FeatureModule } from '@smurg/daemon';
 import { MemoryRelay, TestIdentityIssuer, createTempDir, createTempRunDir, removeTempDir, removeTempRunDir, waitFor } from '@smurg/daemon/testing';
 import { PROTOCOL_VERSION, daemonKeyFingerprint, equalBytes, formatFingerprintForDisplay, type AdmitContext } from '@smurg/protocol';
 import { readPinnedDaemonKey } from '@smurg/protocol/node';
@@ -54,7 +54,22 @@ const HOST = { userId: 'dev:host', displayName: 'host', provider: 'dev' as const
 /** The terminal's clock (the date in the last resort's example). */
 const NOW = new Date(2026, 9, 8, 14, 5, 7).getTime();
 const NOW_NAME = '20261008-140507';
-const GUIDE: Readonly<Record<Lang, string>> = { en: 'https://smurg.ai/docs/hosting/#9-updating-and-removing', 'zh-TW': 'https://smurg.ai/zh-TW/docs/hosting/#9-更新與移除' };
+/** Where each one-line notice sends the host: the part of the guide it is about (HOSTING 9.2 and 9.4), not the top of section 9. */
+const GUIDE_KEPT: Readonly<Record<Lang, string>> = {
+  en: 'https://smurg.ai/docs/hosting/#92-after-an-update-what-your-workspace-keeps',
+  'zh-TW': 'https://smurg.ai/zh-TW/docs/hosting/#92-更新之後工作區保留了什麼',
+};
+const GUIDE_BACK: Readonly<Record<Lang, string>> = {
+  en: 'https://smurg.ai/docs/hosting/#94-if-you-moved-the-state-folder-away-because-smurg-050-told-you-to',
+  'zh-TW': 'https://smurg.ai/zh-TW/docs/hosting/#94-如果你照-smurg-050-的指示把狀態資料夾移走了',
+};
+/** The line about a folder set aside beside the workspace's own (`more`: how many more there are). */
+const asideLine = (lang: Lang, path: string, more = 0): string =>
+  lang === 'en'
+    ? `An earlier state folder of this workspace lies beside the one in use: ${path}${more > 0 ? ` (and ${more} more)` : ''}. smurg does not use it. ` +
+      `If you moved it away because smurg 0.5.0 told you to after an update, it still holds the members, invite links and daemon key you had before, and the guide says how to go back to it: ${GUIDE_BACK.en}`
+    : `這個工作區之前的狀態資料夾還放在旁邊：${path}${more > 0 ? `（另外還有 ${more} 個）` : ''}。smurg 不會使用它。` +
+      `如果你是在更新後照 smurg 0.5.0 的指示把它移開的，你原本的成員、邀請連結和 daemon 金鑰都還在裡面，說明文件有換回去的方法：${GUIDE_BACK['zh-TW']}`;
 
 interface Shared {
   readonly copy: FixtureCopy;
@@ -299,8 +314,8 @@ describe('smurg host on the folder smurg 0.4.0 left (the owner\'s own update)', 
       expect(first.code).toBe(0);
       const line =
         lang === 'en'
-          ? `This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over. What changed: ${GUIDE.en}`
-          : `這個工作區上次是用 smurg 0.4.0 分享的：成員、邀請連結和設定都已沿用。有哪些改變：${GUIDE['zh-TW']}`;
+          ? `This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over. What changed: ${GUIDE_KEPT.en}`
+          : `這個工作區上次是用 smurg 0.4.0 分享的：成員、邀請連結和設定都已沿用。有哪些改變：${GUIDE_KEPT['zh-TW']}`;
       // The whole terminal: the one line, then exactly the start summary of every other start.
       expect(first.out).toBe(`${line}\n${cleanStart(lang, first.out)}`);
       // The fixture holds no shared folder: its two worktree folders are not there, and the daemon says so twice. Nothing else.
@@ -850,13 +865,13 @@ describe('a damaged state.json beside the copy an upgrade kept', () => {
           ? failure('en', `A file of this workspace's state is damaged: it is not valid JSON (it may be empty or cut off): ${join(ws, 'state.json')}`, [
               UNCHANGED.en,
               'smurg kept a copy of this file as it was before an upgrade, for reading what the workspace held. Putting it back undoes everything decided since then: ' +
-                `people removed since are members again, revoked devices and revoked or used-up invite links work again, and role changes are gone. The newest copy: state.json.before-upgrade-from-0.4.0, kept ${keptAt}.`,
+                `people removed since are members again, revoked devices and revoked or used-up invite links work again, and role changes are gone; whoever joined since is no longer a member, and invite links made since no longer work. The newest copy: state.json.before-upgrade-from-0.4.0, kept ${keptAt}.`,
               lastResort('en', mv(copy)),
             ])
           : failure('zh-TW', `這個工作區有一個狀態檔已損毀：它不是有效的 JSON（可能是空的，或只寫了一半）：${join(ws, 'state.json')}`, [
               UNCHANGED['zh-TW'],
               'smurg 在升級前保留了這個檔案當時的副本，用來查看工作區當時的內容。把它放回去，會取消那之後決定的每一件事：' +
-                `之後被移出的人又會是成員，已撤銷的裝置、已撤銷或已用完的邀請連結又可以使用，角色的變更也會消失。最新的副本：state.json.before-upgrade-from-0.4.0，保留於 ${keptAt}。`,
+                `之後被移出的人又會是成員，已撤銷的裝置、已撤銷或已用完的邀請連結又可以使用，角色的變更也會消失；之後才加入的人不再是成員，之後建立的邀請連結也不能用。最新的副本：state.json.before-upgrade-from-0.4.0，保留於 ${keptAt}。`,
               lastResort('zh-TW', mv(copy)),
             ]),
       );
@@ -874,8 +889,8 @@ describe('a damaged state.json beside the copy an upgrade kept', () => {
       const warning =
         lang === 'en'
           ? 'Warning: an OLDER state.json was put back into this workspace and upgraded again. Everything decided since it was written is undone: ' +
-            `people removed since are members again, revoked devices and revoked or used-up invite links work again, and role changes are gone. Guide: ${GUIDE.en}`
-          : `⚠ 較舊的 state.json 被放回這個工作區，並且重新升級了。它寫入之後決定的每一件事都被取消：之後被移出的人又是成員，已撤銷的裝置、已撤銷或已用完的邀請連結又可以使用，角色的變更也消失了。說明：${GUIDE['zh-TW']}`;
+            `people removed since are members again, revoked devices and revoked or used-up invite links work again, and role changes are gone; whoever joined since is no longer a member, and invite links made since no longer work. Guide: ${GUIDE_KEPT.en}`
+          : `⚠ 較舊的 state.json 被放回這個工作區，並且重新升級了。它寫入之後決定的每一件事都被取消：之後被移出的人又是成員，已撤銷的裝置、已撤銷或已用完的邀請連結又可以使用，角色的變更也消失了；之後才加入的人不再是成員，之後建立的邀請連結也不能用了。說明：${GUIDE_KEPT['zh-TW']}`;
       expect(putBack.out).toBe(`${warning}\n${cleanStart(lang, putBack.out)}`);
       // What it undoes (documented, not prevented): Gina is a member again.
       expect(gina).toBe('active');
@@ -928,7 +943,7 @@ describe('a damaged state.json beside the copy an upgrade kept', () => {
 
     // A new workspace (what the last resort costs: the host alone, a new key). It is told ONCE that a folder was set aside.
     const fresh = await smurgHost(shared, 'en', 'a new workspace beside the folder set aside', { during: (daemon) => expect(daemon.ctx.members.list().map((member) => member.userId)).toEqual([HOST.userId]) });
-    const aside = `An earlier state folder of this workspace lies beside the one in use: ${ws}.old-${NOW_NAME}. smurg does not use it. If you moved it away because smurg 0.5.0 told you to after an update, the guide says how to go back to it: ${GUIDE.en}`;
+    const aside = asideLine('en', `${ws}.old-${NOW_NAME}`);
     expect(fresh.out).toBe(`${aside}\n${cleanStart('en', fresh.out)}`);
     const later = await smurgHost(shared, 'en', 'the same new workspace, a second start');
     expect(later.out).toBe(cleanStart('en', later.out));
@@ -944,6 +959,77 @@ describe('a damaged state.json beside the copy an upgrade kept', () => {
     expect(await readdir(join(parent, `${copy.workspaceId}.old-${NOW_NAME}`))).toContain('identity.key');
     expect(await readdir(join(parent, `${copy.workspaceId}.old-${NOW_NAME}-2`))).toContain('identity.key');
   }, 180_000);
+});
+
+describe('a damaged file that is not the workspace itself: that ONE file is set aside and the workspace stays (sceptic V5-1)', () => {
+  it('inbox.json cut off: the terminal says what it holds and the mv of that file, never the last resort; after the mv smurg host starts with the members, the devices, the invite links and the key it had', async () => {
+    for (const lang of LANGS) {
+      const shared = await onFixture('0.5.0');
+      const { copy } = shared;
+      const ws = copy.workspaceDir;
+      const inbox = join(ws, 'inbox.json');
+      type Core = { members: { userId: string; status: string }[]; devices: unknown[]; invites: { id: string }[] };
+      const had = JSON.parse(await readFile(join(ws, 'state.json'), 'utf8')) as Core;
+      const key = await readFile(join(ws, 'identity.key'));
+      await truncate(inbox, Math.floor((await lstat(inbox)).size / 2));
+      const cut = await readFile(inbox);
+      const before = await pictureOf(copy);
+
+      const refused = await smurgHost(shared, lang, 'unreadable, a file that can be set aside alone (inbox.json)');
+      expect(refused.started).toBe(false);
+      expect(refused.code).toBe(1);
+      const command = `mv ${inbox} ${inbox}.set-aside-${NOW_NAME}`;
+      expect(stderrOf(refused).said).toBe(
+        lang === 'en'
+          ? failure('en', `A file of this workspace's state is damaged: it is not valid JSON (it may be empty or cut off): ${inbox}`, [
+              UNCHANGED.en,
+              MAYBE_NEWER.en,
+              'This one file can be set aside without losing the workspace: its members, invite links, settings and daemon key stay. ' +
+                'It holds what each member has read or dismissed in their inbox and the mentions kept for them. Setting it aside loses only that: everything in every inbox is unread again.',
+              `To do that, move the file aside and run smurg host again (smurg makes a new, empty one in its place):\n  ${command}`,
+            ])
+          : failure('zh-TW', `這個工作區有一個狀態檔已損毀：它不是有效的 JSON（可能是空的，或只寫了一半）：${inbox}`, [
+              UNCHANGED['zh-TW'],
+              MAYBE_NEWER['zh-TW'],
+              '這一個檔案可以單獨移到旁邊，工作區不會因此不見：成員、邀請連結、設定和 daemon 金鑰都會留著。' +
+                '它記著每位成員在收件夾裡看過、移除了什麼，還有為他們保留的提及。把它移到旁邊只會失去這些：每個人收件夾裡的項目都會變回還沒看過。',
+              `要這麼做，請把這個檔案移到旁邊，再執行一次 smurg host（smurg 會在原位建立一個新的空檔案）：\n  ${command}`,
+            ]),
+      );
+      // The last resort (a new workspace: members, links and key gone) is not offered for a file of read marks.
+      expect(refused.err).not.toMatch(/last resort|new workspace|最後的辦法|新的工作區/);
+      expect(refused.err).not.toContain(`${ws}.old-`);
+      expect(await pictureOf(copy)).toEqual(before);
+
+      // The host does exactly what the text says.
+      execFileSync('/bin/sh', ['-c', command]);
+      let members: string[] = [];
+      const again = await smurgHost(shared, lang, 'after that one file was set aside', { during: (daemon) => void (members = daemon.ctx.members.list().map((member) => member.userId)) });
+      expect(again.started).toBe(true);
+      expect(again.code).toBe(0);
+      expect(again.out).toBe(cleanStart(lang, again.out, PAUSED_050));
+      // The workspace is the one it was: the same people, devices and key; every invite link it had is still there.
+      const has = JSON.parse(await readFile(join(ws, 'state.json'), 'utf8')) as Core;
+      expect(members.length).toBeGreaterThan(5);
+      expect([...members].sort()).toEqual(had.members.filter((member) => member.status === 'active').map((member) => member.userId).sort());
+      expect(has.members).toEqual(had.members);
+      expect(has.devices).toEqual(had.devices);
+      expect(has.invites.map((invite) => invite.id)).toEqual(expect.arrayContaining(had.invites.map((invite) => invite.id)));
+      expect((await readFile(join(ws, 'identity.key'))).equals(key)).toBe(true);
+      // A new, empty inbox.json stands in the file's place, and the damaged one lies beside it as it was.
+      expect(JSON.parse(await readFile(inbox, 'utf8'))).toBeTypeOf('object');
+      expect((await readFile(`${inbox}.set-aside-${NOW_NAME}`)).equals(cut)).toBe(true);
+    }
+  }, 180_000);
+
+  it('a document the daemon does not vouch for (topics.json) keeps the last resort, and nothing says to move it alone', async () => {
+    const shared = await onFixture('0.5.0');
+    const topics = join(shared.copy.workspaceDir, 'topics.json');
+    await truncate(topics, 10);
+    const { said } = stderrOf(await smurgHost(shared, 'en', 'unreadable, a file that cannot be set aside (topics.json)'));
+    expect(said).toBe(failure('en', `A file of this workspace's state is damaged: it is not valid JSON (it may be empty or cut off): ${topics}`, [UNCHANGED.en, MAYBE_NEWER.en, lastResort('en', mv(shared.copy))]));
+    expect(said).not.toContain('.set-aside-');
+  }, 120_000);
 });
 
 // ---- the folder 0.5.0's advice left
@@ -962,16 +1048,34 @@ describe('a folder named <workspace id>.old* beside the one that is opened (0.5.
       const oldPicture = await picture(`${ws}.old`);
 
       const first = await smurgHost(shared, lang, 'a <workspace id>.old folder beside the one that is opened');
-      const line =
-        lang === 'en'
-          ? `An earlier state folder of this workspace lies beside the one in use: ${ws}.old (and 1 more). smurg does not use it. If you moved it away because smurg 0.5.0 told you to after an update, the guide says how to go back to it: ${GUIDE.en}`
-          : `這個工作區之前的狀態資料夾還放在旁邊：${ws}.old（另外還有 1 個）。smurg 不會使用它。如果你是在更新後照 smurg 0.5.0 的指示把它移開的，說明文件有換回去的方法：${GUIDE['zh-TW']}`;
+      const line = asideLine(lang, `${ws}.old`, 1);
       expect(first.out).toBe(`${line}\n${cleanStart(lang, first.out, PAUSED_050)}`);
       expect(await picture(`${ws}.old`)).toEqual(oldPicture);
       expect(await readFile(hostLogPath(statePaths(shared.env), shared.copy.workspaceId), 'utf8')).toContain('An earlier state folder of this workspace lies beside the one in use');
 
       const second = await smurgHost(shared, lang, 'the same, a second start');
       expect(second.out).toBe(cleanStart(lang, second.out, PAUSED_050));
+    }
+  }, 120_000);
+});
+
+describe('a name from the disk is never printed as it is (sceptic V1-4)', () => {
+  it('a folder set aside whose name holds escape sequences and a bidirectional control: the line shows them as \\u{…}, and nothing of them reaches the terminal', async () => {
+    for (const lang of LANGS) {
+      const shared = await onFixture('0.5.0');
+      const ws = shared.copy.workspaceDir;
+      // Clear the screen, set the window's title, ring the bell, turn the rest of the line round.
+      const name = `${ws}.old\u001b[2J\u001b]0;pwned\u0007\u202e`;
+      await mkdir(name, { mode: 0o700 });
+      const t = await smurgHost(shared, lang, 'a folder set aside whose name holds control characters');
+      expect(t.started).toBe(true);
+      expect(t.out).toBe(`${asideLine(lang, `${ws}.old\\u{1b}[2J\\u{1b}]0;pwned\\u{7}\\u{202e}`)}\n${cleanStart(lang, t.out, PAUSED_050)}`);
+      // The whole terminal, line by line: no character that acts on a terminal instead of being read.
+      for (const line of `${t.out}\n${t.err}`.split('\n')) expect(LOG_UNSAFE_CHARACTER.test(line), JSON.stringify(line)).toBe(false);
+      // The host's log has the line too (the log quotes what it writes), and holds no such character either.
+      const log = await readFile(hostLogPath(statePaths(shared.env), shared.copy.workspaceId), 'utf8');
+      expect(log).toContain(']0;pwned');
+      for (const line of log.split('\n')) expect(LOG_UNSAFE_CHARACTER.test(line), JSON.stringify(line)).toBe(false);
     }
   }, 120_000);
 });
@@ -990,9 +1094,7 @@ describe('the way back to the folder 0.5.0 told the host to move away', () => {
     const fresh = await smurgHost(shared, 'en', "0.5.0's advice followed: a new workspace beside the old folder", {
       during: (daemon) => expect(daemon.ctx.members.list().map((member) => member.userId)).toEqual([HOST.userId]),
     });
-    expect(fresh.out).toBe(
-      `An earlier state folder of this workspace lies beside the one in use: ${ws}.old. smurg does not use it. If you moved it away because smurg 0.5.0 told you to after an update, the guide says how to go back to it: ${GUIDE.en}\n${cleanStart('en', fresh.out)}`,
-    );
+    expect(fresh.out).toBe(`${asideLine('en', `${ws}.old`)}\n${cleanStart('en', fresh.out)}`);
     expect(keyOf(fresh.out)).not.toBe(oldKey);
 
     // The way back: stop sharing (done), set the new folder aside under a name that is not `.old*`, move the old one back.
@@ -1006,7 +1108,7 @@ describe('the way back to the folder 0.5.0 told the host to move away', () => {
       },
     });
     // ONE line: the upgrade (this folder was last shared with 0.4.0). Nothing about a folder set aside: there is none.
-    expect(back.out).toBe(`This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over. What changed: ${GUIDE.en}\n${cleanStart('en', back.out)}`);
+    expect(back.out).toBe(`This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over. What changed: ${GUIDE_KEPT.en}\n${cleanStart('en', back.out)}`);
     expect(keyOf(back.out)).toBe(oldKey);
     expect(members).toEqual(expect.arrayContaining(['dev:host', 'dev:amy', 'dev:bob', 'dev:carol', 'dev:ivan']));
     expect(members).toHaveLength(8);
@@ -1053,8 +1155,8 @@ describe('a page or smurg of another protocol version that the daemon turned awa
           : '⚠ 有組員的網頁或 smurg 比這個 smurg 新，連線被拒絕了。請停止分享，執行 smurg update，再重新分享。';
       const older =
         lang === 'en'
-          ? 'A page or smurg older than this smurg was turned away. The teammate reloads the page or updates smurg; if you run your own relay, deploy it again.'
-          : '有一個比這個 smurg 舊的網頁或 smurg 被拒絕連線。請組員重新整理網頁或更新 smurg；如果你用的是自己架的 relay，請重新部署它。';
+          ? "A teammate's page or smurg is older than this smurg and was turned away. That teammate reloads the page or updates smurg; if you run your own relay, deploy it again."
+          : '有組員的網頁或 smurg 比這個 smurg 舊，連線被拒絕了。請那位組員重新整理網頁或更新 smurg；如果你用的是自己架的 relay，請重新部署它。';
       const t = await smurgHost(shared, lang, 'peers of another protocol version are turned away', {
         during: async (daemon, io) => {
           // Erin was removed under 0.5.0 and still has the daemon's key; a stranger never joined. Whatever they say: nothing.

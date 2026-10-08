@@ -46,7 +46,7 @@ export const suggestionsStepFromV040: DocumentStep = defineStep({
 });
 
 /** Declared by the suggest module. */
-export const suggestionsDocument = declareDocument({ name: SUGGESTIONS_DOCUMENT, schema: suggestionsDocumentSchema, init: initialSuggestionsDocument, steps: [suggestionsStepFromV040] });
+export const suggestionsDocument = declareDocument({ name: SUGGESTIONS_DOCUMENT, schema: suggestionsDocumentSchema, init: initialSuggestionsDocument, steps: [suggestionsStepFromV040], canSetAside: true });
 
 export function toSuggestion(stored: StoredSuggestion): Suggestion {
   const { sessionOwnerUserId: _owner, editedAt: _editedAt, ...suggestion } = stored;

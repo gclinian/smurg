@@ -211,6 +211,11 @@ function errnoCodeOf(err: unknown): string {
   return err instanceof Error ? err.name : 'unknown';
 }
 
+/** A refusal of a state file that came after phase 1 returned: the start was writing (StateFileError.phase). */
+function whileWriting(err: unknown): unknown {
+  return err instanceof StateFileError && err.phase !== 2 ? err.with({ phase: 2 }) : err;
+}
+
 function sanitizeName(name: string, fallback: string): string {
   // eslint-disable-next-line no-control-regex
   const cleaned = name.replace(/[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/g, '').trim().slice(0, 256);
@@ -242,7 +247,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     const known = err instanceof StateFileError;
     log.error(STATE_REFUSED_LOG, {
       error: err instanceof Error ? err.name : 'unknown',
-      ...(known ? { kind: err.kind, file: err.path } : {}),
+      ...(known ? { kind: err.kind, phase: err.phase, file: err.path } : {}),
       ...(known && err.cause !== undefined ? { cause: err.cause } : {}),
       ...(known && err.errno !== undefined ? { errno: err.errno } : {}),
       ...(known && err.reason !== undefined ? { why: err.reason } : {}),
@@ -322,10 +327,13 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       throw err;
     });
   } catch (err) {
+    // Whatever refuses from here on refuses a start that was WRITING: the stamp, a kept copy or an upgraded document
+    // may be on disk. The refusal says so (`phase: 2`), and nobody words it as "nothing was changed".
+    const refusal = whileWriting(err);
     // The host is sent to the log for the reason (review F3): say which file and why.
-    logRefusal(err);
+    logRefusal(refusal);
     await shareLock.release();
-    throw err;
+    throw refusal;
   }
   try {
     const bus = new TypedEventBus(log.child({ module: 'bus' }));
@@ -675,7 +683,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
             ...(err instanceof StateFileError ? { kind: err.kind, file: err.path, reason: err.message } : {}),
           });
           await daemon.stop('start-failed');
-          throw err;
+          throw whileWriting(err);
         }
       },
 
@@ -715,6 +723,6 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
     log.error(COMPOSITION_FAILED_LOG, { error: err instanceof Error ? err.name : 'unknown', reason: err instanceof StateFileError ? err.message : errnoCodeOf(err) });
     await audit.close().catch(() => {});
     await shareLock.release();
-    throw err;
+    throw whileWriting(err);
   }
 }

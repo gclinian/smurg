@@ -10,11 +10,18 @@
 //      invite (msg3), so the next visit reconnects in device mode;
 //   6. once admitted, forget the invite and open the workspace on the same connection.
 // A daemon key that differs from an earlier pin is never accepted silently: the person must confirm the new link.
+//
+// When the invite is forgotten: joined, turned down by the person, or refused in a way that ends the link. It is KEPT
+// (in this tab's storage) through a refusal the screen answers with "Reload the page" (the host's smurg and this page
+// do not fit, the login could not be verified, a key a newer page wrote: lib/connection/status.ts reloadIsAWayOut):
+// such a refusal used up nothing, so the reload asks "Join?" again and the same link lets the person in. By then the
+// host's key is pinned (step 5), and the pin is the invite's own, so the SDK tries this browser's device key first
+// and falls back to the invite when the host does not know the device.
 import { useEffect, useId, useRef, useState } from 'react';
 import { daemonKeyFingerprint, equalBytes } from '@smurg/protocol';
 import { isTerminalState, type ConnectionState, type InviteTrust, type RelayUser } from '@smurg/protocol/client';
 import { loadChunk } from '../../lib/chunks.ts';
-import { describeConnection } from '../../lib/connection/status.ts';
+import { describeConnection, reloadIsAWayOut } from '../../lib/connection/status.ts';
 import { describeError } from '../../lib/errors.ts';
 import { clearPendingInvite, readPendingInvite } from '../../lib/invite/pending-invite.ts';
 import { useStore } from '../../lib/store.ts';
@@ -245,7 +252,7 @@ function KeyChangeConfirm({ onConfirm, onCancel }: { onConfirm(): void; onCancel
 
 /** Step 4–5: one connection in invite mode, shared with the workspace page afterwards. */
 function JoinConnect({ workspaceId, invite, preferInvite, manager }: { workspaceId: string; invite: InviteTrust; preferInvite: boolean; manager: WorkspaceManager }) {
-  const { router, sessionStorage, recent } = useAppServices();
+  const { router, sessionStorage, recent, keyStorage } = useAppServices();
   const [handle, setHandle] = useState<WorkspaceHandle | null>(null);
   const done = useRef(false);
 
@@ -274,11 +281,15 @@ function JoinConnect({ workspaceId, invite, preferInvite, manager }: { workspace
       router.navigate(routePath({ name: 'workspace', workspaceId }), { replace: true });
       return;
     }
-    if (isTerminalState(state) && !(state.kind === 'closed' && (state.reason === 'login-required' || state.reason === 'local'))) {
-      // Refused for good (key mismatch, invalid invite, kicked, …): the link cannot be used again.
-      clearPendingInvite(sessionStorage, workspaceId);
-    }
-  }, [state, connection, sessionStorage, workspaceId, recent, router]);
+    if (!isTerminalState(state)) return;
+    // Logging in again, or leaving the page, is not a refusal.
+    if (state.kind === 'closed' && (state.reason === 'login-required' || state.reason === 'local')) return;
+    // Nothing was used up and the screen says "Reload the page": the reload needs the invite to ask "Join?" again.
+    // (The key storage notes a newer page's record before the connection ends on it: read here, it is already there.)
+    if (reloadIsAWayOut(state, { newerKeyRecord: keyStorage.getState().newerRecord })) return;
+    // Refused for good (key mismatch, invalid invite, kicked, …): the link cannot be used again.
+    clearPendingInvite(sessionStorage, workspaceId);
+  }, [state, connection, sessionStorage, workspaceId, recent, router, keyStorage]);
 
   return <JoinStatus state={state} workspaceId={workspaceId} />;
 }

@@ -7,7 +7,7 @@
 // switch. It is the LAST element of the card, so the screen's own action stays the first tab stop.
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { ConnectionState } from '@smurg/protocol/client';
-import { describeConnection, type ConnectionFacts, type ConnectionView } from '../../lib/connection/status.ts';
+import { describeConnection, reloadIsAWayOut, type ConnectionFacts, type ConnectionView } from '../../lib/connection/status.ts';
 import type { PageBuild } from '../../lib/page-build.ts';
 import { useStore } from '../../lib/store.ts';
 import { tConn } from '../../strings/connection.ts';
@@ -136,7 +136,8 @@ export function ConnectionEndedScreen({ view: given, state, onReconnect }: { vie
   const view = facts === null ? given : describeConnection(state, facts);
   /** A reload is THE way out: this tab runs a page from before an update, or a newer page wrote this browser's key. */
   const reloadCures = facts !== null && (facts.pageBuild === 'stale' || facts.newerKeyRecord === true);
-  const reloadable = reloadCures || (state.kind === 'rejected' && (state.reason === 'version' || state.reason === 'identity-invalid' || state.reason === 'unknown'));
+  /** The button is there wherever a reload may help; the join page keeps the invite for the same states (status.ts). */
+  const reloadable = reloadIsAWayOut(state, facts ?? {});
   return (
     <FullPage tone={view.tone === 'danger' ? 'danger' : 'warning'} role="alertdialog" labelledBy={titleId} describedBy={bodyId} testId="connection-ended-screen">
       <div className={cx('app-fullpage__icon', view.tone === 'danger' && 'app-fullpage__icon--danger')}>

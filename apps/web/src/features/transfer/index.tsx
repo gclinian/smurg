@@ -5,7 +5,7 @@ import { useMemo, useRef, type ChangeEvent } from 'react';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { selectTransferList } from '../../lib/stores/transfers.ts';
 import { useCommand, useCommandHandler, useWorkspaceSession } from '../../lib/workspace/context.tsx';
-import { Banner, Button, EmptyState, IconUpload, useToast } from '../../ui/index.ts';
+import { Banner, Button, ChunkNotice, EmptyState, IconUpload, chunkToast, useToast, type ToastInput } from '../../ui/index.ts';
 import { transferClientFor, type TransferClient, type TransferClientState } from './client/transfer-client.ts';
 import type { JobSnapshot } from './engine/types.ts';
 import { t } from './strings.ts';
@@ -30,6 +30,16 @@ function workerProblem(state: TransferClientState): string | null {
   }
 }
 
+/**
+ * What an upload or a download that cannot start says, or null when it can. A Worker whose file did not come (gone
+ * after a deploy, offline) says what a chunk says, with "Reload the page"; anything else keeps its own words.
+ */
+function cannotStart(state: TransferClientState): ToastInput | null {
+  if (state.workerFile !== null) return chunkToast(state.workerFile);
+  const problem = workerProblem(state);
+  return problem === null ? null : { tone: 'danger', title: problem };
+}
+
 function isAbort(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError';
 }
@@ -43,9 +53,9 @@ function useTransferCommands(client: TransferClient): void {
   };
 
   useCommandHandler('startUpload', async ({ root, targetDir, source }) => {
-    const problem = workerProblem(client.store.getState());
+    const problem = cannotStart(client.store.getState());
     if (problem) {
-      toast.show({ tone: 'danger', title: problem });
+      toast.show(problem);
       return;
     }
     const started = await client.upload(root, targetDir, source);
@@ -60,9 +70,9 @@ function useTransferCommands(client: TransferClient): void {
     // FIRST, synchronously inside the click that dispatched the command: the save picker needs the user activation
     // (transfer.md §1.7). Chromium only; elsewhere the Worker stages in OPFS or memory.
     const pick = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
-    const problem = workerProblem(client.store.getState());
+    const problem = cannotStart(client.store.getState());
     if (problem) {
-      toast.show({ tone: 'danger', title: problem });
+      toast.show(problem);
       return;
     }
     let picker: FileSystemFileHandle | undefined;
@@ -147,6 +157,16 @@ export function TransfersPanel(_props: TransfersPanelProps) {
   const conflictJob = rows.find((job) => job.conflict !== null) ?? null;
   const problem = workerProblem(state);
   const anyFinished = rows.some((job) => job.status === 'done' || job.status === 'failed' || job.status === 'cancelled');
+
+  // The Worker's file did not come: nothing here can work until the page is reloaded, and the panel says that in its
+  // place, as a column whose chunk did not come does (never "drag files here").
+  if (state.workerFile !== null) {
+    return (
+      <section className="transfer-panel" aria-label={t('panel.label')}>
+        <ChunkNotice error={state.workerFile} />
+      </section>
+    );
+  }
 
   return (
     <section className="transfer-panel" aria-label={t('panel.label')}>
