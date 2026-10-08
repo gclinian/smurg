@@ -69,6 +69,56 @@ export const docsIndex = (lang: Lang): string => `${LANG_PREFIX[lang]}/docs/`;
 export const licensePage = (lang: Lang): string => `${LANG_PREFIX[lang]}/license/`;
 const changelogPage = (lang: Lang): string => `${LANG_PREFIX[lang]}/docs/changelog/`;
 
+export interface SocialCard {
+  /** Where the PNG is served (a file of public/). */
+  readonly path: string;
+  /** The home page's h1, one entry per line of the picture (test/site.test.ts holds the words equal). */
+  readonly lines: readonly string[];
+  /** The small labels at the foot of the picture. */
+  readonly chips: readonly string[];
+  /** `og:image:alt`: what the picture says. */
+  readonly alt: string;
+}
+
+/** The size of a preview picture: what LinkedIn, Slack, iMessage and LINE show whole (1.91 : 1). */
+export const SOCIAL_CARD_SIZE = { width: 1200, height: 630 } as const;
+
+/**
+ * The picture a link to a page of the site shows in LinkedIn, Slack, iMessage, LINE, WhatsApp, … (Open Graph
+ * `og:image`, `twitter:image`): one PNG per language, drawn by scripts/social-card.ts from these words. Every page
+ * of a language names its language's picture; the 404 pages name none.
+ */
+export const SOCIAL_CARD: Readonly<Record<Lang, SocialCard>> = {
+  en: {
+    path: '/og.png',
+    lines: ['A real-time workspace for your', 'team and Claude Code, hosted', 'on your own computer.'],
+    chips: ['Open source · MIT', 'macOS and Linux', 'End-to-end encrypted'],
+    alt: 'smurg: a real-time workspace for your team and Claude Code, hosted on your own computer.',
+  },
+  'zh-TW': {
+    path: '/zh-TW/og.png',
+    lines: ['架在你自己電腦上的即時工作區，', '讓組員和 Claude Code 一起工作。'],
+    chips: ['開放原始碼 · MIT', 'macOS 與 Linux', '端對端加密'],
+    alt: 'smurg：架在你自己電腦上的即時工作區，讓組員和 Claude Code 一起工作。',
+  },
+};
+
+/** The `<meta>` lines that name a language's preview picture (the two home pages carry the same lines by hand). */
+export function socialCardMeta(lang: Lang): string {
+  const card = SOCIAL_CARD[lang];
+  const url = `${ORIGIN}${card.path}`;
+  return [
+    `<meta property="og:image" content="${url}">`,
+    '<meta property="og:image:type" content="image/png">',
+    `<meta property="og:image:width" content="${SOCIAL_CARD_SIZE.width}">`,
+    `<meta property="og:image:height" content="${SOCIAL_CARD_SIZE.height}">`,
+    `<meta property="og:image:alt" content="${escapeHtml(card.alt)}">`,
+    '<meta name="twitter:card" content="summary_large_image">',
+    `<meta name="twitter:image" content="${url}">`,
+    `<meta name="twitter:image:alt" content="${escapeHtml(card.alt)}">`,
+  ].join('\n');
+}
+
 export interface DocSource {
   /** The Markdown file, relative to the repository. */
   readonly source: string;
@@ -179,7 +229,7 @@ export class SiteError extends Error {
 
 // ---- templates ----
 
-const MARK =
+export const MARK =
   '<svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect class="mark-bg" width="32" height="32" rx="8"/><path class="mark-ln" d="M11 16 22 9.5M11 16l11 6.5"/><rect class="mark-fg" x="6.5" y="11.5" width="9" height="9" rx="2.25"/><circle class="mark-fg" cx="22.5" cy="9.5" r="3.25"/><circle class="mark-fg" cx="22.5" cy="22.5" r="3.25"/></svg>';
 
 /**
@@ -318,7 +368,7 @@ ${alternateLinks(paths)}
 <meta property="og:url" content="${ORIGIN}${path}">
 <meta property="og:locale" content="${t.locale}">
 <meta property="og:locale:alternate" content="${CHROME[other].locale}">
-<meta name="twitter:card" content="summary">
+${socialCardMeta(lang)}
 </head>
 <body>
 <a class="skip" href="#main">${t.skip}</a>

@@ -18,6 +18,7 @@ hand-written HTML and CSS in `public/`; the docs pages are generated from the re
 | `/docs/changelog/`, `/zh-TW/docs/changelog/` | `CHANGELOG.md`, `docs/zh-TW/CHANGELOG.md`, rendered |
 | `/license/`, `/zh-TW/license/` | `LICENSE` (MIT), as text in a page; the Chinese page introduces the English text |
 | `/third-party-notices.txt` | the executable's complete third-party notices (see "The build") |
+| `/og.png`, `/zh-TW/og.png` | the preview pictures (Open Graph `og:image`) of each language's pages (see "The preview pictures") |
 | `/sitemap.xml` | generated: every page above in both languages, each with its alternates |
 | `/install.sh` | 302 to `https://downloads.smurg.ai/latest/install.sh` (the Worker) |
 | `/github`, `/source` | 302 to `https://github.com/gclinian/smurg` (the Worker): short addresses for the installer's and the CLI's output; the pages link GitHub directly |
@@ -32,7 +33,28 @@ hand-written HTML and CSS in `public/`; the docs pages are generated from the re
 The `public/_headers` file (copied into `dist/`) sets the security headers for every file: a strict CSP (only this
 site's own files, no inline code, Trusted Types), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, a
 deny-by-default `Permissions-Policy`, HSTS. A page loads `/style.css`, `/copy.js` (the copy button of the landing pages;
-the page works without it) and `/favicon.svg`, nothing else: no third-party requests, no analytics, no web fonts.
+the page works without it) and `/favicon.svg`, nothing else: no third-party requests, no analytics, no web fonts. The
+preview pictures are the one exception to `Cross-Origin-Resource-Policy: same-origin`: other sites and apps show them,
+so `_headers` takes that header away for them (`! Cross-Origin-Resource-Policy`) and sends `cross-origin`.
+
+## The preview pictures
+
+What LinkedIn, Slack, iMessage, LINE, WhatsApp and the like show for a link to the site: one PNG per language,
+1200 × 630, `public/og.png` and `public/zh-TW/og.png`. Every page of a language names its language's picture
+(`og:image`, `twitter:card` `summary_large_image`; `socialCardMeta` in `scripts/site.ts` writes the lines, and the two
+home pages carry the same lines by hand); the 404 pages name none. The words are `SOCIAL_CARD` in `scripts/site.ts`:
+the home page's h1, which `test/site.test.ts` holds them to. After changing an h1, draw the pictures again and commit
+them:
+
+```sh
+source scripts/env.sh
+pnpm --filter @smurg/site run social-card   # headless Chrome (SMURG_TEST_CHROME or Google Chrome), no network
+```
+
+`scripts/social-card.ts` writes the picture as an HTML page in the colours and fonts of `style.css` and has headless
+Chrome save it; the committed pictures were drawn on macOS. Each stays under 300 KB (WhatsApp shows no picture above
+that). LinkedIn keeps a link's preview for days: after a change, ask its Post Inspector
+(https://www.linkedin.com/post-inspector/) for the address again.
 
 ## Languages
 
@@ -121,6 +143,9 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
   checks). Change the English page first, then the Traditional Chinese one, with the terms of `docs/GLOSSARY.md`
   (Host / Agent access / Editor / Viewer, and their zh-TW names in the same table). There is no sandbox
   (ARCHITECTURE §11 D-15): say so plainly where it matters, never describe one.
+- Keep the landing pages light: one or two short sentences per step, feature, point or answer, and the details in the
+  guides, which the pages link. A sentence that a test holds (what was tested and with what, whose Claude account,
+  what the Agent access role allows) stays, in its words.
 - Only state what `README.md`, `CHANGELOG.md` and `docs/` back. When in doubt, cut the sentence. The pages show no
   version number: what changed in a version is the changelog's job.
 - The docs pages: edit `docs/HOSTING.md`, `docs/JOINING.md` or `CHANGELOG.md` and their counterparts in
@@ -142,8 +167,9 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
   the quote lint (`tests/lint/docs-quotes.test.ts`) holds it to that. It is hidden below 720 px and shows one, two or
   three columns as the window widens. Keep its labels equal to the app's strings when the app changes them.
 - A new file in `public/` is served without running the Worker; `test/site.test.ts` lists the expected files (update
-  it on purpose). Only SVG images; `public/` stays under 160 KB, and every page with what it loads under 164 KB
-  (150 KB until 0.5.1: the host guide, the longest page, grew by its part on updating).
+  it on purpose). Only SVG images, but for the two preview pictures (PNG, above); `public/` without them stays under
+  160 KB, and every page with what it loads under 164 KB (150 KB until 0.5.1: the host guide, the longest page, grew
+  by its part on updating).
 - A new redirect goes into `src/routes.ts`, and its path into `run_worker_first` in `wrangler.jsonc` (the test fails
   otherwise), and into the table above.
 
@@ -155,6 +181,7 @@ pnpm --filter @smurg/site test         # renderer, build, redirects, wrangler.js
 pnpm --filter @smurg/site typecheck
 pnpm --filter @smurg/site run build    # dist/ only (the docs pages, the license pages, the notices, the sitemap); nothing is deployed
 pnpm --filter @smurg/site run dry-run  # the build, then wrangler deploy --dry-run into .wrangler/dry-run; nothing is deployed
+pnpm --filter @smurg/site run social-card  # draws public/og.png and public/zh-TW/og.png again (see "The preview pictures")
 pnpm --filter @smurg/site dev          # http://127.0.0.1:8790 (SMURG_SITE_DEV_PORT to change); local only
 ```
 
@@ -213,6 +240,7 @@ curl -sI https://smurg.ai/docs/hosting/             # 200 (English)
 curl -sI https://smurg.ai/zh-TW/docs/hosting/       # 200 (Traditional Chinese)
 curl -sI https://smurg.ai/license/                  # 200
 curl -sI https://smurg.ai/third-party-notices.txt   # 200, text/plain; charset=utf-8 (at a release: cmp with the release's file)
+curl -sI https://smurg.ai/og.png                    # 200, image/png, cross-origin-resource-policy: cross-origin
 curl -sI https://smurg.ai/install.sh                # 302 to https://downloads.smurg.ai/latest/install.sh
 curl -sI https://smurg.ai/github                    # 302 to https://github.com/gclinian/smurg
 curl -sI https://www.smurg.ai/zh-TW/                # 301 to https://smurg.ai/zh-TW/ (the zone Redirect Rule)

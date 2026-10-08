@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { TestHarness } from 'wrangler';
 import { registerOwnChildren } from '../../../packages/daemon/src/testing/run-registry.ts';
 import { INSTALL_SCRIPT, REPOSITORY } from '../src/routes.ts';
+import { LANGS, SOCIAL_CARD } from '../scripts/site.ts';
 import { SITE_ROOT, readPublic, testSite } from './html.ts';
 
 let harness: TestHarness | undefined;
@@ -89,6 +90,19 @@ describe('smurg.ai in workerd', () => {
       expect(response.headers.get('content-type'), path).toMatch(type);
       if (cache !== null) expect(response.headers.get('cache-control'), path).toBe(cache);
       expectSecurityHeaders(response, path);
+      expect(Buffer.from(await response.arrayBuffer()).equals(file(path.slice(1))), path).toBe(true);
+    }
+  });
+
+  it('serves the preview pictures as PNG, cached for a day, and lets any origin load them (link previews)', async () => {
+    for (const path of LANGS.map((lang) => SOCIAL_CARD[lang].path)) {
+      const response = await get(`https://smurg.ai${path}`);
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get('content-type'), path).toBe('image/png');
+      expect(response.headers.get('cache-control'), path).toBe('public, max-age=86400');
+      // `! Cross-Origin-Resource-Policy` in _headers takes the same-origin value of every other path away first.
+      expect(response.headers.get('cross-origin-resource-policy'), path).toBe('cross-origin');
+      for (const [name, value] of HEADERS) if (name !== 'Cross-Origin-Resource-Policy') expect(response.headers.get(name), `${path}: ${name}`).toBe(value);
       expect(Buffer.from(await response.arrayBuffer()).equals(file(path.slice(1))), path).toBe(true);
     }
   });

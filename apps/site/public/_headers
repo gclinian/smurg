@@ -20,3 +20,14 @@
   Cache-Control: public, max-age=86400
 /third-party-notices.txt
   Cache-Control: public, max-age=3600
+
+# The preview pictures of the pages (og:image): other sites and apps show them in their link previews, so they may be
+# loaded from any origin.
+/og.png
+  ! Cross-Origin-Resource-Policy
+  Cross-Origin-Resource-Policy: cross-origin
+  Cache-Control: public, max-age=86400
+/zh-TW/og.png
+  ! Cross-Origin-Resource-Policy
+  Cross-Origin-Resource-Policy: cross-origin
+  Cache-Control: public, max-age=86400

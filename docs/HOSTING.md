@@ -114,6 +114,8 @@ need to deploy anything**; you only need a Google account (hosts and teammates b
   mass logins, the relay also keeps hashes of IP addresses and accounts with counters, deleted after 10 minutes.
 - Whoever runs the relay (smurg's maintainer) and Cloudflare can therefore know what "it can see" lists. If that is
   not acceptable, run your own relay (§2.2): then it is you and your Cloudflare account that can see it.
+- The relay also serves the web app. As with any end-to-end encryption in a browser, a relay that served a tampered
+  app could read what that browser decrypts, and its keys. The `smurg` command loads no code from the relay.
 
 **Limits of the free plan**: the shared relay runs on Cloudflare's free plan, and **everyone who uses the shared
 relay shares** one fixed daily quota:

@@ -21,7 +21,14 @@
 <meta property="og:url" content="https://smurg.ai/">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="zh_TW">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="https://smurg.ai/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="smurg: a real-time workspace for your team and Claude Code, hosted on your own computer.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://smurg.ai/og.png">
+<meta name="twitter:image:alt" content="smurg: a real-time workspace for your team and Claude Code, hosted on your own computer.">
 <meta name="twitter:title" content="smurg: a real-time workspace for your team and Claude Code">
 <meta name="twitter:description" content="Share a project folder from your own computer. Your team discusses a feature with a Claude Code agent, votes on its questions, and reviews what its agents build.">
 <script src="/copy.js" defer></script>
@@ -54,7 +61,7 @@
 <section class="hero wrap" aria-labelledby="hero-title">
   <p class="eyebrow"><span class="chip">Open source · MIT</span> <span>macOS and Linux</span></p>
   <h1 id="hero-title">A real-time workspace for your team and Claude&nbsp;Code, hosted on your own computer.</h1>
-  <p class="lede">Share a project folder with <code>smurg host</code>. Your team discusses a topic with an agent that asks multiple-choice questions; the agent writes a spec and a plan; one agent per work item does the work; people read each result report. It all runs on your machine, and the relay in between only forwards end-to-end encrypted data.</p>
+  <p class="lede">Share a project folder with <code>smurg host</code>. In the browser, your team plans a feature with a Claude Code agent, agents build it, and people review each result. The relay in between only forwards end-to-end encrypted data.</p>
 
   <div class="install">
     <p class="install-label" id="install-label">Install on the computer that shares the folder</p>
@@ -63,7 +70,7 @@
       <button type="button" class="copy" data-copy="install-cmd" data-done="Copied" data-fail="Press ⌘C or Ctrl+C" hidden>Copy</button>
     </div>
     <p class="visually-hidden" role="status" id="copy-status"></p>
-    <p class="install-note">For macOS (Apple silicon, Intel) and Linux (x64, arm64, glibc). The script downloads one executable from <code>downloads.smurg.ai</code> and installs it to <code>~/.local/bin/smurg</code> only if its SHA-256 matches the release’s <code>SHA256SUMS</code>. No Node.js needed.</p>
+    <p class="install-note">The script downloads one executable from <code>downloads.smurg.ai</code> and installs it to <code>~/.local/bin</code> only if its SHA-256 matches the release’s <code>SHA256SUMS</code>. No Node.js needed.</p>
     <p class="ui-note">Got an invite link? Open it in Chrome; there is nothing to install.</p>
   </div>
 
@@ -154,7 +161,7 @@
         </div>
       </div>
     </div>
-    <figcaption>An illustration drawn after the app, not a screenshot: the host’s inbox and the sessions of a topic on the left; on the right the discussion with a question everyone voted on, the plan, and a result report. The labels are the app’s own; the topic, the question and the report are made up.</figcaption>
+    <figcaption>An illustration drawn after the app, not a screenshot. The topic, the question and the report are made up.</figcaption>
   </figure>
 </section>
 
@@ -163,7 +170,7 @@
     <div class="section-head-wide">
       <p class="kicker">01</p>
       <h2 id="how-title">How it works</h2>
-      <p class="section-intro">One person hosts. Everyone else joins with a link. The folder, the agents and their conversations stay on the host’s computer.</p>
+      <p class="section-intro">One person hosts; the others join with a link. The folder and the agents stay on the host’s computer.</p>
     </div>
 
     <ol class="steps">
@@ -184,7 +191,7 @@
         </div>
         <p class="kicker step-num">Step 1</p>
         <h3>The host shares a folder</h3>
-        <p>Log in with Google, then share a folder. smurg runs in the foreground and prints two links: your own, which opens the workspace as the host (keep it to yourself), and an invite link for teammates (Editor role by default, valid for 7 days). <kbd>Ctrl-C</kbd> stops sharing.</p>
+        <p>Log in with Google and share a folder. smurg prints two links: your own (keep it to yourself) and an invite link for teammates.</p>
         <pre class="snippet"><code>smurg login
 smurg host ~/projects/my-app</code></pre>
       </li>
@@ -209,7 +216,7 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <p class="kicker step-num">Step 2</p>
         <h3>Teammates join</h3>
-        <p>Send the invite link in a private message: the part after <code>#</code> is the key. Teammates open it in Chrome, log in with Google and join, with nothing to install. Each of them gets an inbox with what waits for them: a vote, a question to decide, a report to review.</p>
+        <p>Send the invite link in a private message: the part after <code>#</code> is the key. Teammates open it in Chrome and join, with nothing to install.</p>
         <pre class="snippet"><code>https://app.smurg.ai/join/&lt;id&gt;#…</code></pre>
       </li>
 
@@ -236,7 +243,7 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <p class="kicker step-num">Step 3</p>
         <h3>Discuss, plan, build, review</h3>
-        <p>Start a topic for a feature or a task. Everyone talks with one agent: it asks multiple-choice questions, the team votes, and the person responsible submits the answer. The agent writes a spec and a plan of work items; one agent per item does the work in its own git worktree and asks before it runs a command. Each finished item has a result report that someone reads and marks as reviewed; then the host merges.</p>
+        <p>Start a topic. The team answers the agent’s questions, the agent writes a spec and a plan, one agent per work item builds it, and people review each result.</p>
       </li>
     </ol>
   </div>
@@ -251,31 +258,31 @@ smurg host ~/projects/my-app</code></pre>
     <ul class="features">
       <li>
         <h3>Decide together</h3>
-        <p>An agent brings its decisions to the team as multiple-choice questions. Everyone but Viewers votes and comments, seeing each other’s choices live; one person, the one responsible for the session, submits the answer. The agent gets the answer and the vote, never the comments, unless the person who submits copies one into the note for the agent.</p>
+        <p>An agent asks the team multiple-choice questions. People vote and see each other’s votes live; the person responsible submits the answer.</p>
       </li>
       <li>
         <h3>A spec and a plan, as files</h3>
-        <p>Each topic has a <code>SPEC.md</code> and a <code>PLAN.md</code> in the project, versioned with git. The agent writes them; people edit them together in the browser or ask the agent to revise. The plan is a list of work items, and the agent suggests who looks after which one.</p>
+        <p>Each topic keeps a <code>SPEC.md</code> and a <code>PLAN.md</code> in the project. The agent writes them; people edit them together.</p>
       </li>
       <li>
         <h3>One agent per work item</h3>
-        <p>Start opens one Claude Code session per work item, each in its own git worktree. An agent edits there without asking and asks before it runs a command; a teammate with agent access allows it once, or always for that kind of command. Work that stops reaches someone’s inbox instead of stopping unseen.</p>
+        <p>Each work item gets its own Claude Code session in its own git worktree. There it edits and runs simple file commands without asking, and asks before other commands.</p>
       </li>
       <li>
         <h3>Result reports you can review</h3>
-        <p>A finished item comes with a report: what was done, why, how it was verified, what to watch out for, and the diff. Ask a follow-up, then mark it as reviewed. The reviewed change waits for the host, who reads the full diff and merges; a conflict goes back to the item’s agent.</p>
+        <p>A finished item comes with a report: what was done, how it was verified, what to watch out for, and the diff. The host merges what was reviewed.</p>
       </li>
       <li>
         <h3>An inbox, and columns side by side</h3>
-        <p>Your inbox holds what waits for you: questions to decide, open votes, permission requests, suggestions, reports, mentions. An item leaves when the thing is settled. Up to four columns stand side by side: conversations, a spec, a plan, a report.</p>
+        <p>Your inbox holds what waits for you. Up to four columns stand side by side: conversations, specs, plans and reports.</p>
       </li>
       <li>
         <h3>Edit together in code mode</h3>
-        <p>Behind a switch: a file tree and a shared editor where several people type at once, uploads and downloads, plain terminals, and an activity feed. Once you type in a file, agents can’t change it until you pause; where an outside change overlaps your typing, your text is kept and the other version goes to a conflicts panel.</p>
+        <p>Behind a switch: a shared editor, the file tree and terminals. While you type in a file, agents can’t change it.</p>
       </li>
       <li>
         <h3>Roles and a host console</h3>
-        <p>Invite people as Viewer, Editor or with Agent access. Viewers watch; Editors edit, vote and send suggestions that reach an agent only when accepted; teammates with agent access message agents and allow commands, as the host. The host console lists members, roles, invite links, sessions, settings and the audit log. If the host’s computer sleeps, everyone sees it within seconds.</p>
+        <p>Invite people as Viewer, Editor or with Agent access, and manage them in the host console. An Editor’s suggestion reaches an agent only once someone with Agent access accepts it.</p>
       </li>
     </ul>
   </div>
@@ -286,7 +293,7 @@ smurg host ~/projects/my-app</code></pre>
     <div class="section-head-wide">
       <p class="kicker">03</p>
       <h2 id="security-title">Security, in plain words</h2>
-      <p class="section-intro">Your code passes through smurg’s relay only in encrypted form. This is what that means, and where it stops.</p>
+      <p class="section-intro">Files, agents and conversations stay on the host’s computer. The relay only forwards encrypted data. Here is what that covers, and what it doesn’t.</p>
     </div>
 
     <figure class="diagram">
@@ -375,45 +382,37 @@ smurg host ~/projects/my-app</code></pre>
         <path class="ac" d="M263 441v-4a5 5 0 0 1 10 0v4"/>
         <rect class="acf" x="260" y="441" width="16" height="12" rx="2"/>
       </svg>
-      <figcaption>Each browser or terminal has its own encrypted channel to the host’s computer. The relay passes it along without being able to read it.</figcaption>
+      <figcaption>Each browser or terminal has its own encrypted channel to the host’s computer. The relay can’t read it.</figcaption>
     </figure>
 
     <div class="points">
       <div>
         <h3>End-to-end encrypted</h3>
-        <p>Every browser and terminal opens its own encrypted channel to the host’s computer, using the Noise protocol. The invite link carries the fingerprint of the host’s key and a secret after the <code>#</code>, the part of a link that browsers never send to a server. A relay that tries to pose as the host is refused.</p>
-      </div>
-      <div>
-        <h3>The host keeps everything</h3>
-        <p>Files, agents, their conversations and the audit log live on the host’s computer; the relay stores none of them. While that computer sleeps or smurg is stopped, nobody can use the workspace; it reconnects when the host is back. After smurg itself was restarted nothing runs by itself: a plan that was being carried out waits until the host or a teammate with agent access continues it.</p>
+        <p>Each channel uses the Noise protocol. The invite link carries the host’s key fingerprint and a secret after the <code>#</code>, the part browsers never send to a server, so a relay can’t pose as the host.</p>
       </div>
       <div>
         <h3>Agents run as the host</h3>
-        <p>Every agent and terminal runs on the host’s computer as the host: the host’s account, files and Claude Code login, with no sandbox. Besides the host, only teammates with the Agent access role message agents, allow what they ask to run, or open a terminal; Editors send suggestions and Viewers watch. That role lets someone run any command on your computer, read your home folder and use your Claude account, so give it only to people you fully trust.</p>
+        <p>Agents and terminals run on the host’s computer as the host, with no sandbox. The Agent access role lets a teammate run any command on your computer, read your home folder and use your Claude account, so give it only to people you fully trust.</p>
       </div>
       <div>
         <h3>What an agent may do by itself</h3>
-        <p>smurg checks every tool call of an agent itself, before Claude Code’s own permissions. A topic’s discussion agent reads the project and writes only the spec and the plan: no shell, no network. A work item’s agent edits inside its own worktree and asks before commands. If smurg is not running, an agent’s next tool call is refused.</p>
-      </div>
-      <div>
-        <h3>Nothing reaches an agent unseen</h3>
-        <p>An Editor’s message is a suggestion: an agent gets it only when someone with agent access accepts it, as exactly the text that was shown. Work items start only from the spec and the plan that such a person confirmed; if either file changed since, the item does not start until such a person starts it again.</p>
+        <p>smurg checks every tool call itself. A topic’s discussion agent writes only the spec and the plan; a work item’s agent edits inside its own worktree and asks before commands.</p>
       </div>
       <div>
         <h3>What the relay sees</h3>
-        <p>Which Google account each connection belongs to (its ID, name and picture; at login Google also gives the relay the account’s email, used as the display name only when the account has no name), its IP address, the workspace code, and the size and time of each message, so it can tell who worked with whom, and when. Not file contents, file names, conversations, terminal output, commands, the invite secret or any key. It keeps only each workspace’s code and its owner’s account. On the shared relay, smurg’s maintainer, who runs it, and Cloudflare can see the same.</p>
+        <p>Each connection’s Google account and IP address, the workspace code, and the size and time of each message: enough to tell who worked with whom, and when. Never file contents, file names, conversations, commands or keys. On the shared relay, its maintainer and Cloudflare see the same.</p>
       </div>
     </div>
 
     <div class="limits">
       <h3>What smurg can’t protect you from</h3>
       <ul>
-        <li>Everyone in a workspace can read every file in the shared folder, <code>.env</code> files included; only <code>.git</code>, <code>.envrc</code>, smurg’s own <code>.smurg</code> folder and the host’s personal Claude Code settings are hidden. Don’t share a folder that holds passwords, keys or personal data.</li>
-        <li>Everyone can read every conversation with an agent, including people who join later, and whatever an agent reads it may repeat. smurg masks text that looks like a well-known kind of key, but that is best effort.</li>
-        <li>Agents read what teammates write: the code, the spec, the plan. A file could hide instructions meant for them (prompt injection). Read a command before you allow it, and think twice before you always allow a kind of command.</li>
-        <li>A teammate with agent access can do on your computer whatever you can: run any command, read your home folder, spend your Claude usage. smurg can’t limit that. The rules your own Claude Code settings already allow apply to agents here too; smurg tells you once which.</li>
-        <li>Every agent uses the host’s Claude account, also when it works for a teammate. Anthropic’s terms don’t allow making a personal subscription available to other people; a host who shares with a group should log Claude Code in with an account meant for teams.</li>
-        <li>The web app is served by the relay. As with any end-to-end encryption in a browser, a tampered app could leak keys; the CLI doesn’t have this problem.</li>
+        <li>Everyone in a workspace can read the files in the shared folder, <code>.env</code> files included. Don’t share a folder that holds passwords, keys or personal data.</li>
+        <li>Everyone can read every conversation with an agent, also people who join later, and an agent may repeat whatever it reads.</li>
+        <li>Agents read what teammates write, the spec and the plan included, and a file can hide instructions for them (prompt injection). Read a command before you allow it, and think twice before you always allow a kind of command.</li>
+        <li>Commands your own Claude Code settings already allow run here without asking too.</li>
+        <li>Every agent uses the host’s Claude account. Anthropic’s terms don’t allow making a personal subscription available to other people: for a group, log Claude Code in with an account meant for teams.</li>
+        <li>The relay serves the web app: as with any end-to-end encryption in a browser, a tampered app could leak keys. The CLI doesn’t have this problem.</li>
       </ul>
       <p class="more"><a href="/docs/hosting/">Read the host guide before you share</a></p>
     </div>
@@ -430,15 +429,15 @@ smurg host ~/projects/my-app</code></pre>
       <dl class="facts">
         <div>
           <dt>Host computer</dt>
-          <dd>macOS 11 or later on Apple silicon or Intel. Linux with glibc 2.28 or later (Ubuntu 20.04 and later) on x64 or arm64. Windows hosts and musl-based Linux such as Alpine are not supported.</dd>
+          <dd>macOS 11 or later (Apple silicon or Intel), or Linux with glibc 2.28 or later (x64 or arm64). Not Windows.</dd>
         </div>
         <div>
           <dt>Claude Code</dt>
-          <dd>To run agents, the host’s computer needs Claude Code (the <code>claude</code> command) 2.1.288 or later, logged in: every agent uses the host’s login. Carrying out work items also needs git, and the shared folder must be a git repository.</dd>
+          <dd>2.1.288 or later, logged in on the host’s computer. Work items also need git, in a folder that is a git repository.</dd>
         </div>
         <div>
           <dt>Teammates</dt>
-          <dd>Any operating system with a browser. Chrome on a computer is the tested one; Safari and Firefox have not been tested yet. Optionally the smurg CLI on macOS or Linux.</dd>
+          <dd>Any computer with Chrome; Safari and Firefox are untested. The smurg CLI is optional.</dd>
         </div>
         <div>
           <dt>Login</dt>
@@ -446,14 +445,14 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <div>
           <dt>Languages</dt>
-          <dd>English and Traditional Chinese, in the web app, the <code>smurg</code> command and the guides. Everyone sees their own language, also inside one workspace.</dd>
+          <dd>English and Traditional Chinese. Everyone sees their own.</dd>
         </div>
         <div>
           <dt>Relay</dt>
-          <dd>The shared relay runs on Cloudflare’s free plan and is for fair use: everyone shares one daily quota, and when it runs out nobody can connect until 00:00 UTC (08:00 in Taiwan). The relay is open source too: you can <a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">run your own relay</a> on your own Cloudflare account.</dd>
+          <dd>The shared relay runs on Cloudflare’s free plan, with one daily quota for everyone: when it runs out, nobody can connect until 00:00 UTC. You can also <a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">run your own relay</a>.</dd>
         </div>
       </dl>
-      <p class="status">smurg is a prototype. It is developed and tested on macOS on Apple silicon; the Intel Mac and Linux builds are built and smoke-tested on GitHub Actions, and nobody has hosted on Linux for real yet. The flow from discussion to reviewed result was tested with a scripted stand-in for the model, not with a real Claude account, so how a real model behaves in it may still need tuning. What changed in each version is in the <a href="/docs/changelog/">changelog</a>.</p>
+      <p class="status">smurg is a prototype, developed on an Apple silicon Mac; the Intel Mac and Linux builds are only smoke-tested, and nobody has hosted on Linux for real yet. The flow was tested with a scripted stand-in for the model, not with a real Claude account. What changed is in the <a href="/docs/changelog/">changelog</a>.</p>
     </div>
   </div>
 </section>
@@ -465,7 +464,6 @@ smurg host ~/projects/my-app</code></pre>
       <h2 id="docs-title">Documentation</h2>
     </div>
     <div>
-      <p class="lead-text">The host guide covers installing, sharing a folder, what to check before you share, what agents may do on your computer and what to do when something goes wrong; the guide for teammates covers joining, roles, the inbox, talking to agents and a topic from discussion to reviewed result.</p>
       <ul class="links-list">
         <li><a href="/docs/hosting/">Host guide</a></li>
         <li><a href="/docs/joining/">Guide for teammates</a></li>
@@ -484,7 +482,7 @@ smurg host ~/projects/my-app</code></pre>
       <h2 id="open-source-title">Open source (MIT)</h2>
     </div>
     <div>
-      <p class="lead-text">smurg is open source under the MIT License: the <code>smurg</code> command, the web app, the relay and this site. Read the code, build it yourself, run your own relay, or send a fix.</p>
+      <p class="lead-text">smurg is open source under the MIT License: the <code>smurg</code> command, the web app, the relay and this site.</p>
       <ul class="links-list">
         <li><a href="https://github.com/gclinian/smurg">Source code on GitHub</a></li>
         <li><a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">Run your own relay</a></li>
@@ -504,44 +502,31 @@ smurg host ~/projects/my-app</code></pre>
     <div class="faq">
       <div>
         <h3>Do I need Node.js?</h3>
-        <p>No. The installer downloads a single executable built for your computer; installing it needs no sudo. Teammates who join in a browser install nothing.</p>
-        <p>The macOS executable has only an ad-hoc signature, not an Apple Developer ID. Install it with the line above: after checking the SHA-256, the installer removes the quarantine flag. A copy downloaded with a browser is blocked by Gatekeeper.</p>
+        <p>No. The installer downloads a single executable and needs no sudo. The macOS executable has no Apple Developer ID: install it with the line above, which removes its quarantine flag after the SHA-256 check.</p>
       </div>
       <div>
         <h3>How do I update or remove it?</h3>
-        <p><code>smurg update</code> replaces the executable with the newest version, after the same SHA-256 check (stop sharing first). <code>smurg uninstall</code> lists what it will remove, then removes the executable, its cache and <code>~/.smurg</code>; the <code>.smurg/</code> folders inside your projects are left to you.</p>
-      </div>
-      <div>
-        <h3>What does the relay see?</h3>
-        <p>The Google account of each connection (ID, name and picture; at login also the email), its IP address, the workspace code, and the size and time of each message, so it can tell who worked with whom, and when. Files, file names, terminal output, commands and keys are end-to-end encrypted between the host’s computer and each teammate. If what the shared relay sees is too much for a project, run your own relay: then only you and your Cloudflare account see it.</p>
+        <p><code>smurg update</code> installs the newest version (stop sharing first). <code>smurg uninstall</code> removes the executable, its cache and <code>~/.smurg</code>.</p>
       </div>
       <div>
         <h3>Do teammates need their own Claude account?</h3>
-        <p>No. Every agent runs on the host’s computer with the host’s Claude Code login, so its usage counts against the host’s account. Viewers watch, Editors vote and send suggestions, and teammates with agent access message agents and allow commands, all as the host. The host needs Claude Code installed and logged in. Anthropic’s terms don’t allow making a personal subscription available to other people, so a host who shares with a group should use an account meant for teams; the host guide says more.</p>
-      </div>
-      <div>
-        <h3>What can an agent do without asking?</h3>
-        <p>A topic’s discussion agent reads the project and writes only the topic’s spec and plan. A work item’s agent edits files in its own worktree and runs read-only commands and simple file commands there (listing, copying or moving files); for anything else it asks, unless that kind of command was always allowed, and only the host or a teammate with agent access can allow it. smurg checks this itself before every tool call. One exception is yours to know as a host: commands that your own Claude Code settings already allow run without asking here too.</p>
+        <p>No. Every agent runs with the host’s Claude Code login, so its usage counts against the host’s account.</p>
       </div>
       <div>
         <h3>Has this been tested with real Claude?</h3>
-        <p>Not by its developers. The whole flow was tested with a scripted stand-in for the model, and real Claude Code only against a fake API, on a Mac; no real Claude account was used. So whether a real model asks its questions as cards and writes the plan and the report in the format smurg checks is not verified yet. smurg checks those formats itself, asks the agent to fix them, and puts work that stopped into an inbox.</p>
+        <p>Not by its developers: the flow was tested with a scripted stand-in for the model, and real Claude Code only against a fake API. How a real model fits the flow is not verified yet.</p>
       </div>
       <div>
         <h3>Can I see the source code?</h3>
-        <p>Yes. smurg is open source under the <a href="/license/">MIT License</a>, and the source code is on <a href="https://github.com/gclinian/smurg">GitHub</a>. The components smurg is built from keep their own licenses, listed in the <a href="/third-party-notices.txt">third-party notices</a> of the executables and in those of the <a href="https://app.smurg.ai/third-party-notices.txt">web app</a>.</p>
+        <p>Yes. smurg is open source under the <a href="/license/">MIT License</a>, and the source is on <a href="https://github.com/gclinian/smurg">GitHub</a>. The components it is built from keep their own licenses: see the <a href="/third-party-notices.txt">third-party notices</a> of the executables and of the <a href="https://app.smurg.ai/third-party-notices.txt">web app</a>.</p>
       </div>
       <div>
         <h3>Can I run my own relay?</h3>
-        <p>Yes. The relay is a Cloudflare Worker: deploy it with your own Cloudflare account (the free plan is enough) and your own Google OAuth client, following the <a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">relay’s README</a>, then log in with <code>smurg login --relay</code> and your relay’s address. Your invite links then point at your relay, and it has its own daily quota.</p>
-      </div>
-      <div>
-        <h3>Which browsers work?</h3>
-        <p>Chrome on a computer is the one tested. Safari and Firefox have not been tested yet.</p>
+        <p>Yes. Deploy it to your own Cloudflare account (the free plan is enough), following the <a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">relay’s README</a>, then log in with <code>smurg login --relay</code> and its address.</p>
       </div>
       <div>
         <h3>What happens when the host’s computer sleeps?</h3>
-        <p>Everyone sees “Host offline” within seconds. Edits wait in the browser and are sent when the host is back; agents can’t be reached in the meantime, and the ones waiting for a person keep waiting. smurg keeps an idle computer awake while sharing, but closing a laptop’s lid still puts it to sleep. After smurg itself was restarted, every conversation is still there, and nothing runs by itself: a plan that was being carried out waits until the host or a teammate with agent access continues it.</p>
+        <p>Everyone sees “Host offline” within seconds; edits wait in the browser until it is back. smurg keeps an idle computer awake while sharing, but closing a laptop’s lid still puts it to sleep.</p>
       </div>
     </div>
   </div>

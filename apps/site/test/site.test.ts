@@ -8,11 +8,13 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { REDIRECTS, REPOSITORY, route } from '../src/routes.ts';
 import { Slugger } from '../scripts/markdown.ts';
-import { CHROME, DOC_PAGES, HTML_LANG, LANGS, NOTICES_FILE, WEB_APP_NOTICES, docsIndex, homePage, licensePage, otherLang, pagePairs, type Lang } from '../scripts/site.ts';
+import { CHROME, DOC_PAGES, HTML_LANG, LANGS, NOTICES_FILE, ORIGIN, SOCIAL_CARD, SOCIAL_CARD_SIZE, WEB_APP_NOTICES, docsIndex, homePage, licensePage, otherLang, pagePairs, socialCardMeta, type Lang } from '../scripts/site.ts';
 import { FIXTURE_NOTICES, PUBLIC, REPO_ROOT, parsePage, publicFiles, rawText, readPublic, sitePages, siteText, testSite, type El, type Page } from './html.ts';
 
 const HOME_PAGES = { en: 'index.html', 'zh-TW': 'zh-TW/index.html' } as const;
 const NOT_FOUND_PAGES = ['404.html', 'zh-TW/404.html'];
+/** The preview pictures (og:image): files of public/ that no page loads, read by link previews. */
+const SOCIAL_CARDS = LANGS.map((lang) => SOCIAL_CARD[lang].path.slice(1));
 const fileOf = (path: string): string => `${path.slice(1)}index.html`;
 /** The generated pages: the docs index, the three documents and the license page, in each language. */
 const GENERATED_PAGES = pagePairs()
@@ -63,15 +65,18 @@ describe('the built site', () => {
     const files = [...testSite().files.keys()];
     expect(GENERATED_PAGES).toHaveLength(10);
     expect(files.filter((path) => !publicFiles().includes(path)).sort()).toEqual([...GENERATED_PAGES, NOTICES_FILE.slice(1), 'sitemap.xml'].sort());
-    expect(publicFiles().sort()).toEqual(['404.html', '_headers', 'copy.js', 'favicon.svg', 'index.html', 'robots.txt', 'style.css', 'zh-TW/404.html', 'zh-TW/index.html'].sort());
+    expect(publicFiles().sort()).toEqual(['404.html', '_headers', 'copy.js', 'favicon.svg', 'index.html', 'og.png', 'robots.txt', 'style.css', 'zh-TW/404.html', 'zh-TW/index.html', 'zh-TW/og.png'].sort());
     // No 404 page of its own under /docs/: the nearest 404.html is the English one there, the Chinese one under /zh-TW/.
     expect(files).not.toContain('docs/404.html');
     // Generated files are never written into public/ (they live in the gitignored dist/).
     for (const path of GENERATED_PAGES) expect(publicFiles(), path).not.toContain(path);
   });
 
-  it('public/ stays under 160 KB in total, and every page with everything it loads under 164 KB', () => {
-    const total = publicFiles().reduce((sum, path) => sum + statSync(join(PUBLIC, path)).size, 0);
+  it('public/ stays under 160 KB in total (the preview pictures aside), and every page with everything it loads under 164 KB', () => {
+    // The preview pictures are not loaded by any page: they have their own bound (the next test).
+    const total = publicFiles()
+      .filter((path) => !SOCIAL_CARDS.includes(path))
+      .reduce((sum, path) => sum + statSync(join(PUBLIC, path)).size, 0);
     expect(total).toBeLessThan(160 * 1024);
     const size = (path: string): number => testSite().files.get(path)?.length ?? Number.NaN;
     for (const path of sitePages()) {
@@ -90,6 +95,27 @@ describe('the built site', () => {
     expect(size(NOTICES_FILE.slice(1))).toBeLessThan(2 * 1024 * 1024);
   });
 
+  it('the preview pictures are PNGs of 1200 × 630 under 300 KB each (WhatsApp shows no picture above that)', () => {
+    expect(SOCIAL_CARD_SIZE).toEqual({ width: 1200, height: 630 });
+    for (const path of SOCIAL_CARDS) {
+      const png = testSite().files.get(path);
+      expect(png, path).toBeDefined();
+      expect(png?.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), `${path} is a PNG`).toBe(true);
+      expect([png?.readUInt32BE(16), png?.readUInt32BE(20)], path).toEqual([SOCIAL_CARD_SIZE.width, SOCIAL_CARD_SIZE.height]);
+      expect(png?.length, path).toBeLessThan(300 * 1024);
+    }
+  });
+
+  it('each language’s preview picture says its home page’s h1 (scripts/social-card.ts draws it from SOCIAL_CARD)', () => {
+    const squeeze = (text: string): string => text.replace(/\s+/g, '');
+    for (const lang of LANGS) {
+      const h1 = first(page(HOME_PAGES[lang]), 'h1')?.text() ?? '';
+      expect(squeeze(SOCIAL_CARD[lang].lines.join(' ')), lang).toBe(squeeze(h1));
+      // The picture's alt text is "smurg" and the h1, as a sentence of the language.
+      expect(squeeze(SOCIAL_CARD[lang].alt), lang).toBe(squeeze(lang === 'en' ? `smurg: ${h1.charAt(0).toLowerCase()}${h1.slice(1)}` : `smurg：${h1}`));
+    }
+  });
+
   it('_headers sends a strict CSP and the other security headers for every path', () => {
     const headers = readPublic('_headers');
     const block = /^\/\*\n((?:[ \t]+.+\n)+)/m.exec(headers)?.[1] ?? '';
@@ -105,7 +131,7 @@ describe('the built site', () => {
   });
 
   it('the hand-written files mention no host but app.smurg.ai, downloads.smurg.ai, smurg.ai and github.com, and only over https', () => {
-    for (const path of publicFiles()) {
+    for (const path of publicFiles().filter((file) => !SOCIAL_CARDS.includes(file))) {
       // XML namespace names are identifiers, not addresses anything is loaded from.
       const text = readPublic(path).replace(/\sxmlns(?::\w+)?="[^"]*"/g, '');
       for (const [url] of text.matchAll(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>)\]]+/gi)) {
@@ -209,8 +235,9 @@ describe('the built site', () => {
       }
     }
     const unreachable = [...testSite().files.keys()].filter((path) => !seen.has(path) && !path.startsWith('_') && !NOT_FOUND_PAGES.includes(path));
-    // Files that are not pages are loaded by the pages (style.css, copy.js, favicon.svg) or read by crawlers.
-    expect(unreachable.sort()).toEqual(['robots.txt', 'sitemap.xml']);
+    // Files that are not pages are loaded by the pages (style.css, copy.js, favicon.svg) or read by crawlers and link
+    // previews (a page names its preview picture in a <meta>, which is no link).
+    expect(unreachable.sort()).toEqual([...SOCIAL_CARDS, 'robots.txt', 'sitemap.xml'].sort());
   });
 
   it('copy.js does no networking and writes no HTML (Trusted Types would refuse it anyway)', () => {
@@ -378,6 +405,23 @@ for (const path of sitePages()) {
       expect(html).not.toMatch(/http-equiv|location\.(?:href|replace|assign)/i);
     });
 
+    it('names its language’s preview picture, a file of the site (but for the 404 pages)', () => {
+      const meta = (key: string) => p.byTag('meta').filter((m) => m.attr('property') === key || m.attr('name') === key).map((m) => m.attr('content'));
+      if (NOT_FOUND_PAGES.includes(path)) {
+        expect(meta('og:image')).toEqual([]);
+        return;
+      }
+      const lang = langOf(p);
+      // The generated pages and the hand-written ones carry the same lines, in the same order.
+      expect(html).toContain(`${socialCardMeta(lang)}\n`);
+      const card = SOCIAL_CARD[lang];
+      expect(meta('og:image')).toEqual([`${ORIGIN}${card.path}`]);
+      expect(meta('twitter:image')).toEqual([`${ORIGIN}${card.path}`]);
+      expect(meta('twitter:card')).toEqual(['summary_large_image']);
+      expect(meta('og:image:alt')).toEqual([card.alt]);
+      expect(servedPage(card.path), card.path).toBe(card.path.slice(1));
+    });
+
     it('links only pages of its own language (but for the language link and the notices)', () => {
       const lang = langOf(p);
       for (const a of p.byTag('a')) {
@@ -407,7 +451,7 @@ describe('the two home pages', () => {
     expect(meta('og:url')).toBe(url);
     expect(meta('og:title')?.length).toBeGreaterThan(10);
     expect(meta('description')?.length).toBeGreaterThan(50);
-    expect(meta('twitter:card')).toBe('summary');
+    expect(meta('twitter:card')).toBe('summary_large_image');
     // The install line, exactly, once; the copy button stays hidden until copy.js finds a clipboard.
     const commands = p.elements.filter((el) => el.attr('id') === 'install-cmd');
     expect(commands.map((el) => [el.tag, el.text()])).toEqual([['code', INSTALL]]);

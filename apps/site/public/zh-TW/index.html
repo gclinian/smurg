@@ -21,7 +21,14 @@
 <meta property="og:url" content="https://smurg.ai/zh-TW/">
 <meta property="og:locale" content="zh_TW">
 <meta property="og:locale:alternate" content="en_US">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="https://smurg.ai/zh-TW/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="smurg：架在你自己電腦上的即時工作區，讓組員和 Claude Code 一起工作。">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://smurg.ai/zh-TW/og.png">
+<meta name="twitter:image:alt" content="smurg：架在你自己電腦上的即時工作區，讓組員和 Claude Code 一起工作。">
 <meta name="twitter:title" content="smurg：讓組員和 Claude Code 一起即時工作的工作區">
 <meta name="twitter:description" content="從自己的電腦分享專案資料夾。團隊和 Claude Code agent 討論一個功能、對它出的選擇題投票，再檢視 agent 做出來的成果。">
 <script src="/copy.js" defer></script>
@@ -54,7 +61,7 @@
 <section class="hero wrap" aria-labelledby="hero-title">
   <p class="eyebrow"><span class="chip">開放原始碼 · MIT</span> <span>macOS 與 Linux</span></p>
   <h1 id="hero-title">架在你自己電腦上的<wbr>即時工作區，<wbr>讓組員和 Claude&nbsp;Code <wbr>一起工作。</h1>
-  <p class="lede">用 <code>smurg host</code> 分享一個專案資料夾。團隊和一個 agent 討論一個主題，agent 會出選擇題讓大家決定，再寫出 spec 和計畫；每個工作項目由一個 agent 完成，最後由人閱讀每一份結果報告。這一切都在你的電腦上執行，中間的 relay 只轉送端對端加密後的資料。</p>
+  <p class="lede">用 <code>smurg host</code> 分享一個專案資料夾。團隊在瀏覽器裡和 Claude Code agent 規劃一個功能，由 agent 實作，再由人檢視每一份結果。中間的 relay 只轉送端對端加密後的資料。</p>
 
   <div class="install">
     <p class="install-label" id="install-label">在要分享資料夾的電腦上安裝</p>
@@ -63,7 +70,7 @@
       <button type="button" class="copy" data-copy="install-cmd" data-done="已複製" data-fail="請按 ⌘C 或 Ctrl+C" hidden>複製</button>
     </div>
     <p class="visually-hidden" role="status" id="copy-status"></p>
-    <p class="install-note">支援 macOS（Apple silicon、Intel）與 Linux（x64、arm64，glibc）。安裝程式從 <code>downloads.smurg.ai</code> 下載單一執行檔，只在 sha256 與這個版本的 <code>SHA256SUMS</code> 相符時，才安裝到 <code>~/.local/bin/smurg</code>。不需要 Node.js。</p>
+    <p class="install-note">安裝程式從 <code>downloads.smurg.ai</code> 下載單一執行檔，sha256 與這個版本的 <code>SHA256SUMS</code> 相符才安裝到 <code>~/.local/bin</code>。不需要 Node.js。</p>
     <p class="ui-note">收到邀請連結了嗎？用 Chrome 打開就好，不需要安裝任何東西。</p>
   </div>
 
@@ -154,7 +161,7 @@
         </div>
       </div>
     </div>
-    <figcaption>依照網頁版畫的示意圖，不是截圖：左邊是主人的收件夾和一個主題的 session；右邊是大家都投過票的選擇題所在的討論、計畫，以及一份結果報告。畫面上的標示就是網頁版自己的文字；主題、選擇題和報告的內容是虛構的。</figcaption>
+    <figcaption>依網頁版繪製的示意圖，不是截圖；主題、選擇題和報告的內容是虛構的。</figcaption>
   </figure>
 </section>
 
@@ -163,7 +170,7 @@
     <div class="section-head-wide">
       <p class="kicker">01</p>
       <h2 id="how-title">怎麼運作</h2>
-      <p class="section-intro">一個人當主人，其他人用連結加入。資料夾、agent 和它們的對話，都留在主人的電腦上。</p>
+      <p class="section-intro">一個人當主人，其他人用連結加入。資料夾和 agent 都留在主人的電腦上。</p>
     </div>
 
     <ol class="steps">
@@ -184,7 +191,7 @@
         </div>
         <p class="kicker step-num">步驟 1</p>
         <h3>主人分享資料夾</h3>
-        <p>先用 Google 帳號登入，再分享資料夾。smurg 在前景執行，會印出兩個連結：你自己的連結（以主人身分打開工作區，不要給別人），以及給組員的邀請連結（預設角色「可編輯」，7 天內有效）。按 <kbd>Ctrl-C</kbd> 停止分享。</p>
+        <p>用 Google 帳號登入，再分享資料夾。smurg 會印出兩個連結：你自己的（不要給別人），以及給組員的邀請連結。</p>
         <pre class="snippet"><code>smurg login
 smurg host ~/projects/my-app</code></pre>
       </li>
@@ -209,7 +216,7 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <p class="kicker step-num">步驟 2</p>
         <h3>組員加入</h3>
-        <p>用私訊傳送邀請連結：<code>#</code> 之後的部分就是密鑰。組員用 Chrome 打開連結、用 Google 登入、按「加入」，不需要安裝任何東西。每個人都有自己的收件夾，放著等他處理的事：一張還沒投的票、一題要他決定的選擇題、一份待看的報告。</p>
+        <p>用私訊傳送邀請連結：<code>#</code> 之後的部分就是密鑰。組員用 Chrome 打開就能加入，不需要安裝任何東西。</p>
         <pre class="snippet"><code>https://app.smurg.ai/join/&lt;id&gt;#…</code></pre>
       </li>
 
@@ -236,7 +243,7 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <p class="kicker step-num">步驟 3</p>
         <h3>討論、計畫、實作、檢視</h3>
-        <p>為一個功能或一件工作開一個主題。大家和同一個 agent 對話：它出選擇題，團隊投票，再由負責的人送出答案。agent 寫出 spec 和一份由工作項目組成的計畫；每個項目由一個 agent 在自己的 git worktree 裡完成，執行指令之前會先問。每個完成的項目都有結果報告，由人讀過並標記為已看過，最後由主人合併。</p>
+        <p>開一個主題。團隊回答 agent 的選擇題，agent 寫出 spec 和計畫，每個工作項目由一個 agent 實作，再由人檢視每一份結果。</p>
       </li>
     </ol>
   </div>
@@ -251,31 +258,31 @@ smurg host ~/projects/my-app</code></pre>
     <ul class="features">
       <li>
         <h3>一起決定</h3>
-        <p>agent 把需要決定的事用選擇題交給團隊。除了「旁觀」，每個人都可以投票和留言，即時看到彼此的選擇；最後由一個人，也就是這個 session 的負責人，送出答案。agent 收到的是答案和投票結果，不會收到留言，除非送出答案的人把某一則留言加進給 agent 的備註。</p>
+        <p>agent 用選擇題請團隊決定。大家即時看到彼此的投票，最後由負責的人送出答案。</p>
       </li>
       <li>
         <h3>spec 和計畫都是檔案</h3>
-        <p>每個主題在專案裡有一份 <code>SPEC.md</code> 和一份 <code>PLAN.md</code>，用 git 記錄版本。它們由 agent 寫出來；大家可以在瀏覽器裡一起編輯，或請 agent 修改。計畫是一份工作項目的清單，agent 會建議每個項目由誰照顧。</p>
+        <p>每個主題在專案裡有一份 <code>SPEC.md</code> 和一份 <code>PLAN.md</code>。agent 寫出來，大家一起編輯。</p>
       </li>
       <li>
         <h3>每個工作項目一個 agent</h3>
-        <p>按下開始後，每個工作項目開一個 Claude Code session，各自在自己的 git worktree 裡。agent 在裡面改檔案不用先問，執行指令之前會先問；「可使用 agent」的組員可以只允許一次，或一律允許那一類指令。停下來的工作會進到某個人的收件夾，不會沒有人知道。</p>
+        <p>每個工作項目有自己的 Claude Code session，在自己的 git worktree 裡。agent 在裡面改檔案、執行簡單的檔案指令都不用先問，其他指令會先問。</p>
       </li>
       <li>
         <h3>可以檢視的結果報告</h3>
-        <p>完成的項目附有一份報告：做了什麼、為什麼這樣做、怎麼驗證的、要注意什麼，以及 diff。可以追問，然後標記為已看過。看過的變更會等主人處理：主人讀過完整的 diff 再合併；有衝突時交回給這個項目的 agent。</p>
+        <p>完成的項目附有一份報告：做了什麼、怎麼驗證的、要注意什麼，以及 diff。看過的變更由主人合併。</p>
       </li>
       <li>
         <h3>收件夾，以及並排的欄</h3>
-        <p>收件夾放的是等你處理的事：要你決定的選擇題、還沒投的票、權限請求、建議、報告、提及。事情處理完，項目就會離開。最多可以並排四欄：對話、spec、計畫、報告。</p>
+        <p>收件夾放著等你處理的事。最多可以並排四欄：對話、spec、計畫和報告。</p>
       </li>
       <li>
         <h3>在手寫 code 模式一起編輯</h3>
-        <p>切換開關的另一邊：檔案樹和好幾個人可以同時打字的共用編輯器、上傳與下載、一般的終端機，以及活動動態。你在檔案裡開始打字後，agent 就不能修改它，直到你停下來；外部的修改和你正在打的內容重疊時，保留你打的內容，另一個版本放進衝突面板。</p>
+        <p>切換開關的另一邊：共用的編輯器、檔案樹和終端機。你在檔案裡打字時，agent 不能修改它。</p>
       </li>
       <li>
         <h3>角色與主人控制台</h3>
-        <p>邀請時可以選「旁觀」「可編輯」或「可使用 agent」。「旁觀」只能看；「可編輯」可以編輯、投票，並提出要有人採用才會送給 agent 的建議；「可使用 agent」的組員可以傳訊息給 agent、允許指令，都是以主人的身分。主人控制台列出成員、角色、邀請連結、session、設定和操作紀錄。主人的電腦睡眠時，所有人幾秒內就會看到。</p>
+        <p>邀請時可以選「旁觀」「可編輯」或「可使用 agent」，並在主人控制台管理成員。「可編輯」的組員提的建議，要有「可使用 agent」的人採用，才會送給 agent。</p>
       </li>
     </ul>
   </div>
@@ -286,7 +293,7 @@ smurg host ~/projects/my-app</code></pre>
     <div class="section-head-wide">
       <p class="kicker">03</p>
       <h2 id="security-title">安全模型，白話說明</h2>
-      <p class="section-intro">你的程式碼只會以加密後的形式經過 smurg 的 relay。以下說明這代表什麼，以及它做不到的地方。</p>
+      <p class="section-intro">檔案、agent 和對話都留在主人的電腦上。relay 只轉送加密後的資料。以下說明這涵蓋什麼、不涵蓋什麼。</p>
     </div>
 
     <figure class="diagram">
@@ -375,45 +382,37 @@ smurg host ~/projects/my-app</code></pre>
         <path class="ac" d="M263 441v-4a5 5 0 0 1 10 0v4"/>
         <rect class="acf" x="260" y="441" width="16" height="12" rx="2"/>
       </svg>
-      <figcaption>每個瀏覽器或終端機和主人的電腦之間，都有一條自己的加密通道。relay 只負責轉送，讀不到內容。</figcaption>
+      <figcaption>每個瀏覽器或終端機和主人的電腦之間，都有一條自己的加密通道，relay 讀不到內容。</figcaption>
     </figure>
 
     <div class="points">
       <div>
         <h3>端對端加密</h3>
-        <p>每個瀏覽器和終端機都和主人的電腦各自建立一條加密通道（Noise 協定）。邀請連結 <code>#</code> 之後的部分帶著主人電腦金鑰的指紋和一組密鑰，瀏覽器不會把這一段送到任何伺服器。relay 想冒充主人時，連線會被拒絕。</p>
-      </div>
-      <div>
-        <h3>所有東西都留在主人的電腦上</h3>
-        <p>檔案、agent、它們的對話和操作紀錄都在主人的電腦上，relay 不保存其中任何一樣。主人的電腦睡眠或 smurg 停止時，沒有人能使用工作區；主人回來後會自動重新連線。smurg 本身重新啟動之後，什麼都不會自己執行：執行到一半的計畫會等主人或「可使用 agent」的組員讓它繼續。</p>
+        <p>每條通道都使用 Noise 協定。邀請連結 <code>#</code> 之後的部分帶著主人電腦金鑰的指紋和一組密鑰，瀏覽器不會把這一段送到伺服器，所以 relay 冒充不了主人。</p>
       </div>
       <div>
         <h3>agent 以主人的身分執行</h3>
-        <p>每個 agent 和終端機都在主人的電腦上、以主人的身分執行：用主人的帳號、檔案和 Claude Code 登入，沒有沙盒。除了主人，只有「可使用 agent」的組員能傳訊息給 agent、允許它請求執行的事，或開終端機；「可編輯」的組員提出建議，「旁觀」的組員只能看。拿到這個角色的人可以在你的電腦上執行任何指令、讀你的家目錄、用你的 Claude 帳號，所以只給你完全信任的人。</p>
+        <p>agent 和終端機都在主人的電腦上、以主人的身分執行，沒有沙盒。拿到「可使用 agent」角色的組員可以在你的電腦上執行任何指令、讀你的家目錄、用你的 Claude 帳號，所以只給你完全信任的人。</p>
       </div>
       <div>
         <h3>agent 自己能做什麼</h3>
-        <p>agent 每一次使用工具，smurg 都會自己先檢查，在 Claude Code 自己的權限機制之前。主題的討論 agent 只能讀專案、寫 spec 和計畫：沒有 shell，也沒有網路。工作項目的 agent 只在自己的 worktree 裡改檔案，執行指令前會先問。smurg 沒有在執行時，agent 下一次使用工具會被拒絕。</p>
-      </div>
-      <div>
-        <h3>沒有東西會在沒人看過的情況下送給 agent</h3>
-        <p>「可編輯」的組員傳的訊息是建議：要有「可使用 agent」的人採用，agent 才會收到，而且收到的就是畫面上顯示的那段文字。工作項目只會從這樣的人確認過的 spec 和計畫開始；之後只要其中一個檔案變了，項目就不會開始，要等這樣的人再按一次開始。</p>
+        <p>agent 每次使用工具，smurg 都會自己先檢查。主題的討論 agent 只能寫 spec 和計畫；工作項目的 agent 在自己的 worktree 裡改檔案，執行指令前會先問。</p>
       </div>
       <div>
         <h3>relay 看得到什麼</h3>
-        <p>每條連線是哪個 Google 帳號（帳號 ID、名稱、大頭貼；登入時 Google 也會給 relay 帳號的 email，只有帳號沒有名稱時拿來當顯示名稱）、從哪個 IP 位址連線、連到哪個工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。看不到檔案內容、檔名、對話、終端機畫面、指令、邀請連結的密鑰或任何金鑰。它只保存每個工作區的代碼和主人是哪個帳號。使用公用 relay 時，架設它的 smurg 維護者和 Cloudflare 也看得到同樣的內容。</p>
+        <p>每條連線的 Google 帳號和 IP 位址、工作區代碼，以及每筆資料的大小和時間，足以看出誰和誰在什麼時候一起工作。看不到檔案內容、檔名、對話、指令或金鑰。使用公用 relay 時，它的維護者和 Cloudflare 也看得到同樣的內容。</p>
       </div>
     </div>
 
     <div class="limits">
       <h3>smurg 防不了的事</h3>
       <ul>
-        <li>工作區裡的每個人都看得到分享資料夾裡的每個檔案，包括 <code>.env</code>；只有 <code>.git</code>、<code>.envrc</code>、smurg 自己的 <code>.smurg</code> 資料夾和主人個人的 Claude Code 設定看不到。不要分享放了密碼、金鑰或個人資料的資料夾。</li>
-        <li>每個人都讀得到和 agent 的每一段對話，之後才加入的人也一樣；agent 讀到的任何東西，它都可能說出來。smurg 會遮蔽看起來像常見金鑰的文字，但這只是盡力而為。</li>
-        <li>agent 會讀到組員寫的內容：程式碼、spec、計畫。檔案裡可能藏著要 agent 執行的指示（prompt injection）。允許指令之前先讀過；設定一律允許某一類指令之前，請多想一下。</li>
-        <li>「可使用 agent」的組員在你的電腦上能做你能做的任何事：執行任何指令、讀你的家目錄、用掉你的 Claude 額度。smurg 無法限制這些事。你自己的 Claude Code 設定已經允許的規則，對這裡的 agent 也有效；smurg 會告訴你一次是哪些。</li>
-        <li>每個 agent 都用主人的 Claude 帳號，替組員工作時也一樣。Anthropic 的條款不允許把個人訂閱提供給其他人使用；要和一群人分享的主人，應該讓 Claude Code 改用給團隊使用的帳號登入。</li>
-        <li>網頁版由 relay 提供。和所有在瀏覽器裡做的端對端加密一樣，被竄改的網頁可能洩漏金鑰；CLI 沒有這個問題。</li>
+        <li>工作區裡的每個人都看得到分享資料夾裡的檔案，包括 <code>.env</code>。不要分享放了密碼、金鑰或個人資料的資料夾。</li>
+        <li>每個人都讀得到和 agent 的每一段對話，之後才加入的人也一樣；agent 讀到的任何東西，它都可能說出來。</li>
+        <li>agent 會讀到組員寫的內容，包括 spec 和計畫，檔案裡也可能藏著要 agent 執行的指示（prompt injection）。允許之前先讀過指令；設定一律允許某一類指令之前，請多想一下。</li>
+        <li>你自己的 Claude Code 設定已經允許的指令，在這裡也不會先問。</li>
+        <li>每個 agent 都用主人的 Claude 帳號。Anthropic 的條款不允許把個人訂閱提供給其他人使用：要和一群人分享，請讓 Claude Code 改用給團隊使用的帳號登入。</li>
+        <li>網頁版由 relay 提供：和所有在瀏覽器裡做的端對端加密一樣，被竄改的網頁版可能洩漏金鑰。CLI 沒有這個問題。</li>
       </ul>
       <p class="more"><a href="/zh-TW/docs/hosting/">分享之前，請先讀主人指南</a></p>
     </div>
@@ -430,15 +429,15 @@ smurg host ~/projects/my-app</code></pre>
       <dl class="facts">
         <div>
           <dt>主人的電腦</dt>
-          <dd>macOS 11 以上（Apple silicon 或 Intel）；Linux 需要 glibc 2.28 以上（Ubuntu 20.04 以上），x64 或 arm64。不支援 Windows 主人，也不支援 musl 的 Linux（例如 Alpine）。</dd>
+          <dd>macOS 11 以上（Apple silicon 或 Intel），或 glibc 2.28 以上的 Linux（x64 或 arm64）。不支援 Windows。</dd>
         </div>
         <div>
           <dt>Claude Code</dt>
-          <dd>要執行 agent，主人的電腦需要已經登入的 Claude Code（<code>claude</code> 指令）2.1.288 以上：每個 agent 都用主人的登入。要執行工作項目還需要 git，分享的資料夾也必須是 git 儲存庫。</dd>
+          <dd>2.1.288 以上，並在主人的電腦上登入。工作項目還需要 git，分享的資料夾也必須是 git 儲存庫。</dd>
         </div>
         <div>
           <dt>組員</dt>
-          <dd>任何有瀏覽器的作業系統都可以。目前測試過的是電腦上的 Chrome，Safari 和 Firefox 還沒測試過。也可以在 macOS 或 Linux 上用 smurg CLI。</dd>
+          <dd>任何有 Chrome 的電腦；Safari 和 Firefox 還沒測試過。smurg CLI 可裝可不裝。</dd>
         </div>
         <div>
           <dt>登入</dt>
@@ -446,14 +445,14 @@ smurg host ~/projects/my-app</code></pre>
         </div>
         <div>
           <dt>語言</dt>
-          <dd>英文與繁體中文：網頁版、<code>smurg</code> 指令和使用說明都有。每個人看到的是自己的語言，在同一個工作區裡也一樣。</dd>
+          <dd>英文與繁體中文，每個人看到自己的語言。</dd>
         </div>
         <div>
           <dt>relay</dt>
-          <dd>公用 relay 使用 Cloudflare 的免費方案，請合理使用：所有人共用每天的用量上限，用完時到台灣時間早上 8 點（UTC 0 點）之前，所有人都無法連線。relay 也是開放原始碼：你可以用自己的 Cloudflare 帳號<a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">自己架設 relay</a>。</dd>
+          <dd>公用 relay 使用 Cloudflare 的免費方案，所有人共用每天的用量上限：用完之後，所有人都要等到台灣時間早上 8 點才能再連線。你也可以<a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">自己架設 relay</a>。</dd>
         </div>
       </dl>
-      <p class="status">smurg 目前是原型。開發和測試都在 Apple silicon 的 macOS 上進行；Intel Mac 與 Linux 的執行檔由 GitHub Actions 建置並跑冒煙測試，還沒有人真的在 Linux 上當過主人。從討論到看過結果的流程，是用照劇本回應的模型替身測試的，沒有用真正的 Claude 帳號，所以真正的模型在這個流程裡的表現可能還需要調整。每個版本的變更列在<a href="/zh-TW/docs/changelog/">變更紀錄</a>裡。</p>
+      <p class="status">smurg 目前是原型，在 Apple silicon 的 Mac 上開發；Intel Mac 與 Linux 的執行檔只跑過冒煙測試，也還沒有人真的在 Linux 上當過主人。整個流程是用照劇本回應的模型替身測試的，沒有用真正的 Claude 帳號。每個版本的變更列在<a href="/zh-TW/docs/changelog/">變更紀錄</a>裡。</p>
     </div>
   </div>
 </section>
@@ -465,7 +464,6 @@ smurg host ~/projects/my-app</code></pre>
       <h2 id="docs-title">文件</h2>
     </div>
     <div>
-      <p class="lead-text">主人指南說明怎麼安裝、分享資料夾、分享前要確認什麼、agent 在你的電腦上能做什麼，以及出問題時怎麼處理；組員指南說明怎麼加入、各種角色、收件夾、和 agent 對話，以及一個主題從討論到看過結果的過程。</p>
       <ul class="links-list">
         <li><a href="/zh-TW/docs/hosting/">主人指南</a></li>
         <li><a href="/zh-TW/docs/joining/">組員指南</a></li>
@@ -484,7 +482,7 @@ smurg host ~/projects/my-app</code></pre>
       <h2 id="open-source-title">開放原始碼（MIT）</h2>
     </div>
     <div>
-      <p class="lead-text">smurg 是開放原始碼軟體，以 MIT 授權條款釋出：<code>smurg</code> 指令、網頁版、relay 和這個網站都是。你可以讀程式碼、自己建置、架設自己的 relay，或送出修正。</p>
+      <p class="lead-text">smurg 是開放原始碼軟體，以 MIT 授權條款釋出：<code>smurg</code> 指令、網頁版、relay 和這個網站都是。</p>
       <ul class="links-list">
         <li><a href="https://github.com/gclinian/smurg">GitHub 上的原始碼</a></li>
         <li><a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">自己架設 relay（英文）</a></li>
@@ -504,44 +502,31 @@ smurg host ~/projects/my-app</code></pre>
     <div class="faq">
       <div>
         <h3>需要安裝 Node.js 嗎？</h3>
-        <p>不需要。安裝程式會下載為你的電腦建置的單一執行檔，安裝它不需要 sudo。用瀏覽器加入的組員不需要安裝任何東西。</p>
-        <p>macOS 的執行檔只有 ad-hoc 簽章，沒有 Apple 的開發者簽章（Developer ID）。請用上面那行指令安裝：安裝程式驗證 sha256 之後，會移除 quarantine 標記。用瀏覽器下載的執行檔會被 Gatekeeper 擋下。</p>
+        <p>不需要。安裝程式會下載單一執行檔，也不需要 sudo。macOS 的執行檔沒有 Apple 的開發者簽章（Developer ID）：請用上面那行指令安裝，它驗證 sha256 之後會移除 quarantine 標記。</p>
       </div>
       <div>
         <h3>怎麼更新或移除？</h3>
-        <p><code>smurg update</code> 會把執行檔換成最新版本，一樣先驗證 sha256（請先停止分享）。<code>smurg uninstall</code> 先列出要移除的東西，再移除執行檔、快取和 <code>~/.smurg</code>；專案資料夾裡的 <code>.smurg/</code> 不會動，留給你自己決定。</p>
-      </div>
-      <div>
-        <h3>relay 看得到什麼？</h3>
-        <p>每條連線的 Google 帳號（帳號 ID、名稱、大頭貼；登入時還有 email）和 IP 位址、工作區代碼，以及每筆資料的大小和時間，所以看得出誰和誰在什麼時候一起工作。檔案、檔名、終端機畫面、指令和金鑰，都在主人的電腦和每位組員之間端對端加密。如果一個專案連這些都不能讓公用 relay 知道，就自己架設 relay：這時看得到這些的只有你和你的 Cloudflare 帳號。</p>
+        <p><code>smurg update</code> 會安裝最新版本（請先停止分享）。<code>smurg uninstall</code> 會移除執行檔、快取和 <code>~/.smurg</code>。</p>
       </div>
       <div>
         <h3>組員需要自己的 Claude 帳號嗎？</h3>
-        <p>不需要。每個 agent 都在主人的電腦上、用主人的 Claude Code 登入執行，用量算在主人的帳號上。「旁觀」的組員只能看，「可編輯」的組員可以投票和提出建議，「可使用 agent」的組員可以傳訊息給 agent、允許指令，全都是以主人的身分。主人的電腦要裝好 Claude Code 並登入。Anthropic 的條款不允許把個人訂閱提供給其他人使用，所以要和一群人分享的主人應該用給團隊使用的帳號；主人指南有更多說明。</p>
-      </div>
-      <div>
-        <h3>agent 不用先問就能做什麼？</h3>
-        <p>主題的討論 agent 只能讀專案，並且只能寫這個主題的 spec 和計畫。工作項目的 agent 在自己的 worktree 裡改檔案、執行唯讀的指令和簡單的檔案指令（列出、複製或搬移檔案）；其他的事它都會先問（已經設為一律允許的那一類指令除外），只有主人或「可使用 agent」的組員可以允許。這些是 smurg 自己在 agent 每一次使用工具之前檢查的。主人要知道一個例外：你自己的 Claude Code 設定已經允許的指令，在這裡也不會先問。</p>
+        <p>不需要。每個 agent 都用主人的 Claude Code 登入執行，用量算在主人的帳號上。</p>
       </div>
       <div>
         <h3>這套流程用真正的 Claude 測試過嗎？</h3>
-        <p>開發者沒有。整個流程是用照劇本回應的模型替身測試的，真正的 Claude Code 也只在 Mac 上對著假的 API 執行過；沒有使用任何真正的 Claude 帳號。所以真正的模型會不會用卡片提出選擇題、會不會用 smurg 檢查的格式寫計畫和報告，都還沒有驗證。smurg 會自己檢查這些格式、請 agent 修正，並把停下來的工作放進收件夾。</p>
+        <p>開發者沒有：流程是用照劇本回應的模型替身測試的，真正的 Claude Code 也只對著假的 API 執行過。真正的模型在這個流程裡的表現還沒有驗證。</p>
       </div>
       <div>
         <h3>看得到原始碼嗎？</h3>
-        <p>看得到。smurg 是開放原始碼軟體，以 <a href="/zh-TW/license/">MIT 授權條款</a>釋出，原始碼在 <a href="https://github.com/gclinian/smurg">GitHub</a>。smurg 用到的其他專案的元件，依它們各自的授權條款提供，列在執行檔的<a href="/third-party-notices.txt">第三方授權聲明</a>和<a href="https://app.smurg.ai/third-party-notices.txt">網頁版的第三方授權聲明</a>。</p>
+        <p>看得到。smurg 是開放原始碼軟體，以 <a href="/zh-TW/license/">MIT 授權條款</a>釋出，原始碼在 <a href="https://github.com/gclinian/smurg">GitHub</a>。它用到的元件依各自的授權條款提供：請看執行檔的<a href="/third-party-notices.txt">第三方授權聲明</a>和<a href="https://app.smurg.ai/third-party-notices.txt">網頁版的第三方授權聲明</a>。</p>
       </div>
       <div>
         <h3>可以自己架設 relay 嗎？</h3>
-        <p>可以。relay 是一個 Cloudflare Worker：照著 <a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">relay 的說明文件</a>（英文），用自己的 Cloudflare 帳號（免費方案即可）和自己的 Google OAuth client 部署，再用 <code>smurg login --relay</code> 加上你的 relay 的網址登入。之後你印出的邀請連結會指向你的 relay，它也有自己的每日用量。</p>
-      </div>
-      <div>
-        <h3>支援哪些瀏覽器？</h3>
-        <p>測試過的是電腦上的 Chrome。Safari 和 Firefox 還沒測試過。</p>
+        <p>可以。照著 <a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">relay 的說明文件</a>（英文），部署到你自己的 Cloudflare 帳號（免費方案即可），再用 <code>smurg login --relay</code> 加上它的網址登入。</p>
       </div>
       <div>
         <h3>主人的電腦睡眠時會怎樣？</h3>
-        <p>所有人幾秒內就會看到「主人已離線」。編輯的內容會留在瀏覽器裡，主人回來後再送出；這段期間碰不到 agent，在等人處理的 agent 會繼續等。分享期間 smurg 會防止電腦閒置時睡眠，但闔上筆電螢幕仍然會睡眠。smurg 本身重新啟動之後，每一段對話都還在，而且什麼都不會自己執行：執行到一半的計畫會等主人或「可使用 agent」的組員讓它繼續。</p>
+        <p>所有人幾秒內就會看到「主人已離線」，編輯的內容會留在瀏覽器裡，等主人回來再送出。分享期間 smurg 會防止電腦閒置時睡眠，但闔上筆電螢幕仍然會睡眠。</p>
       </div>
     </div>
   </div>
