@@ -74,11 +74,11 @@ SMURG_RELEASE_GATE=1 pnpm check   # the same, for a release: nothing may be pend
   executables of 0.4.0, 0.5.0 and 0.5.1 in `SMURG_PREVIOUS_BINARIES` and this tree's build in `SMURG_SEA_BINARY`, so
   the upgrade from all three ran with the real files; 2026-10-09, the release's code):
   - macOS 26.5.1 on an Apple M3 (arm64), Node 22.22.1, `SMURG_TEST_CLAUDE_BIN` naming Claude Code 2.1.288:
-    `Test Files  441 passed (441)` and `Tests  9227 passed | 8 skipped (9235)`, vitest's own duration 748 s, exit 0;
+    `Test Files  441 passed (441)` and `Tests  9256 passed | 8 skipped (9264)`, vitest's own duration 720 s, exit 0;
     no file skipped (the tests of the packaged executable ran: the build is 112.7 MiB).
   - The Ubuntu 24.04 arm64 VM, Node 22.22.1, with `SMURG_TEST_CHROME`, the published Linux executables and a build
     made in the VM (122.2 MiB), from a checkout that has the tags (`GIT_DIR`): `Test Files  433 passed | 8 skipped
-    (441)` and `Tests  9184 passed | 51 skipped (9235)`, 745 s, exit 0. The eight skipped files are the same as for
+    (441)` and `Tests  9213 passed | 51 skipped (9264)`, 732 s, exit 0. The eight skipped files are the same as for
     v0.5.1.
 - **Expected result, v0.5.1** (English and zh-TW, protocol 4; `SMURG_RELEASE_GATE=1 pnpm check` with the published
   executables of 0.4.0 and 0.5.0 in `SMURG_PREVIOUS_BINARIES` and this tree's build in `SMURG_SEA_BINARY`, so the
