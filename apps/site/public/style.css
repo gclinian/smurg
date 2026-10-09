@@ -1661,61 +1661,6 @@ html:lang(zh-Hant) .cards p {
   }
 }
 
-/* ---- before you share: three facts and the guide ---- */
-.share {
-  border-top: 1px solid var(--border);
-  background: var(--panel);
-  padding-block: clamp(1.75rem, 3.5vw, 2.5rem);
-}
-
-.share-row {
-  display: grid;
-  gap: 0.85rem 2.5rem;
-}
-
-@media (min-width: 860px) {
-  .share-row {
-    grid-template-columns: 9rem minmax(0, 1fr);
-  }
-}
-
-.share h2 {
-  font-size: 1.0625rem;
-  line-height: 1.5;
-}
-
-.share ul {
-  display: grid;
-  gap: 0.3rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.share li {
-  position: relative;
-  padding-left: 1.1rem;
-  font-size: 0.9375rem;
-  line-height: 1.55;
-  color: var(--muted);
-  text-wrap: pretty;
-}
-
-.share li::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0.66em;
-  width: 6px;
-  height: 2px;
-  background: var(--line);
-}
-
-.more {
-  margin-top: 0.85rem;
-  font-size: 0.9375rem;
-}
-
 /* ---- footer ---- */
 .site-footer {
   border-top: 1px solid var(--border);
@@ -1729,7 +1674,7 @@ html:lang(zh-Hant) .cards p {
   gap: 1.25rem;
 }
 
-@media (min-width: 760px) {
+@media (min-width: 1040px) {
   .footer-row {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;

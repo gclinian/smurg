@@ -602,8 +602,8 @@ describe('the two home pages', () => {
     const zh = page(HOME_PAGES['zh-TW']);
     expect(en.ids()).toEqual(zh.ids());
     const sections = (p: Page) => p.byTag('section').map((s) => s.attr('id') ?? s.attr('aria-labelledby'));
-    // The hero (the sentence, the install line, the picture and its four cards) and "Before you share": nothing else.
-    expect(sections(en)).toEqual(['hero-title', 'share-title']);
+    // The hero (the sentence, the install line, the picture and its four cards): nothing else.
+    expect(sections(en)).toEqual(['hero-title']);
     expect(sections(zh)).toEqual(sections(en));
     // The same links in the same order, each to its own language's page.
     const hrefs = (p: Page) => p.byTag('a').map((a) => (a.attr('href') ?? '').replace(/^\/zh-TW\//, '/'));
@@ -616,26 +616,19 @@ describe('the two home pages', () => {
     expect(shape(en).length).toBeGreaterThan(250);
   });
 
-  it.each(Object.entries(HOME_PAGES))('%s: one sentence, one line under it, four cards and three facts: no more words than that', (lang, path) => {
+  it.each(Object.entries(HOME_PAGES))('%s: one sentence, one line under it and four cards: no more words than that', (lang, path) => {
     const p = page(path);
     const main = first(p, 'main');
     const headings = inside(p, main).filter((el) => /^h[1-6]$/.test(el.tag));
-    // The h1, the four cards (h2) and "Before you share" (h2): no other heading, no third level.
-    expect(headings.map((h) => h.tag)).toEqual(['h1', 'h2', 'h2', 'h2', 'h2', 'h2']);
+    // The h1 and the four cards (h2): no other heading, no third level.
+    expect(headings.map((h) => h.tag)).toEqual(['h1', 'h2', 'h2', 'h2', 'h2']);
     expect(withClass(p, 'lede')).toHaveLength(1);
     const cards = inside(p, withClass(p, 'cards')[0]).filter((el) => el.tag === 'li');
     expect(cards).toHaveLength(4);
     for (const card of cards) expect(card.children().map((c) => c.tag)).toEqual(['h2', 'p']);
-    const facts = inside(p, p.byTag('section').find((s) => s.attr('aria-labelledby') === 'share-title')).filter((el) => el.tag === 'li').map((li) => li.text());
     if (lang === 'en') {
       expect(words(first(p, 'h1')?.text() ?? '')).toBeLessThanOrEqual(9);
       expect(words(withClass(p, 'lede')[0]?.text() ?? '')).toBeLessThanOrEqual(14);
-      // A fact is one line where the page is wide (about 130 characters fit): one sentence, at most 24 words.
-      for (const fact of facts) {
-        expect(words(fact), fact).toBeLessThanOrEqual(24);
-        expect(fact.length, fact).toBeLessThanOrEqual(134);
-        expect(fact.match(/\./g), fact).toHaveLength(1);
-      }
       for (const card of cards) {
         const [title, sentence] = card.children().map((c) => c.text()) as [string, string];
         expect(words(title), title).toBeLessThanOrEqual(6);
@@ -647,10 +640,6 @@ describe('the two home pages', () => {
       // Chinese has no spaces to count: by characters, about what the English bounds come to.
       expect([...(first(p, 'h1')?.text() ?? '')].length).toBeLessThanOrEqual(30);
       expect([...(withClass(p, 'lede')[0]?.text() ?? '')].length).toBeLessThanOrEqual(32);
-      for (const fact of facts) {
-        expect([...fact].length, fact).toBeLessThanOrEqual(60);
-        expect(fact.match(/。/g), fact).toHaveLength(1);
-      }
       for (const card of cards) {
         const [title, sentence] = card.children().map((c) => c.text()) as [string, string];
         expect([...title].length, title).toBeLessThanOrEqual(16);
@@ -658,12 +647,31 @@ describe('the two home pages', () => {
         expect(sentence.match(/。/g), sentence).toHaveLength(1);
       }
     }
-    // "Before you share": exactly three one-line facts and one link, to the host guide of the page's language.
-    const share = p.byTag('section').find((s) => s.attr('aria-labelledby') === 'share-title');
-    expect(facts).toHaveLength(3);
-    expect(inside(p, share).filter((el) => el.tag === 'a').map((a) => a.attr('href'))).toEqual([(DOC_PAGES[0] as (typeof DOC_PAGES)[number])[lang as Lang].path]);
-    // The whole page stays a short read (the picture's labels included; the old page had about 1,400 English words).
-    if (lang === 'en') expect(words(main?.text() ?? '')).toBeLessThan(520);
+    // The whole page stays a short read (the picture's labels included; the old page had about 1,400 English words,
+    // and about 400 while it still ended with three facts for hosts).
+    if (lang === 'en') expect(words(main?.text() ?? '')).toBeLessThan(450);
+  });
+
+  it.each(Object.entries(HOME_PAGES))('%s: ends with the four cards: no section for hosts under them, and the guides one link away', (lang, path) => {
+    // Until 2026-10-09 the page ended with a section "Before you share": three facts for hosts and a link to the
+    // host guide. The owner's decision: the page is one sentence and a picture, and what a host must know before
+    // sharing is the guides' to say, whole (the test of the guides, below, holds their sentences).
+    const p = page(path);
+    const l = lang as Lang;
+    const main = first(p, 'main');
+    // <main> is the hero alone, and the hero ends with the story (the strip, the window, the four cards).
+    expect(main?.children().map((el) => `${el.tag}.${classes(el).join('.')}`)).toEqual(['section.hero.wrap']);
+    expect(main?.children()[0]?.children().map((el) => `${el.tag}.${classes(el).join('.')}`)).toEqual(['h1.', 'p.lede', 'div.install', 'div.story']);
+    expect(withClass(p, 'story')[0]?.children().map((el) => `${el.tag}.${classes(el).join('.')}`)).toEqual(['p.visually-hidden.story-state', 'figure.demo', 'ul.cards']);
+    // No list in <main> but the cards, and no link at all: nothing was put in the section's place.
+    expect(inside(p, main).filter((el) => ['ul', 'ol', 'dl'].includes(el.tag)).map((el) => classes(el).join('.'))).toEqual(['cards']);
+    expect(inside(p, main).filter((el) => el.tag === 'a')).toEqual([]);
+    for (const gone of ['share', 'share-row', 'more']) expect(withClass(p, gone), gone).toEqual([]);
+    expect(p.ids()).not.toContain('share-title');
+    // The stylesheet kept nothing of it either.
+    expect(readPublic('style.css')).not.toMatch(/\.share\b|\.more\b/);
+    // The way to the guides: Docs, in the header and in the footer.
+    for (const tag of ['header', 'footer']) expect(p.elements.filter((el) => el.tag === 'a' && el.parents.some((parent) => parent.tag === tag)).map((a) => a.attr('href')), tag).toContain(docsIndex(l));
   });
 
   it('show no version number, and no statement about the app’s language being Chinese only', () => {
@@ -681,7 +689,7 @@ describe('the two home pages', () => {
     }
   });
 
-  it('show every word they hold: nothing in <main> is hidden but the Copy button and its status line, and no rule takes "Before you share" off the page', () => {
+  it('show every word they hold: nothing in <main> is hidden but the Copy button and its status line, and no rule takes the hero’s words or the cards off the page', () => {
     // The tests above read the pages' text, so a sentence that is in the markup but not on the screen would pass
     // them. In <main> only the Copy button carries `hidden` (copy.js shows it), and only three things are kept for
     // screen readers alone: the status line, the popover's sentence and the second word of the Pause button.
@@ -698,14 +706,14 @@ describe('the two home pages', () => {
         'span#.when-paused',
         'svg#.win',
       ]);
-      // Nothing inside the facts or the cards but text, the two file names and the one link (and <wbr>, where a
-      // Chinese line may break).
-      for (const name of ['share', 'cards']) expect([...new Set(inside(p, withClass(p, name)[0]).map((el) => el.tag))].filter((tag) => tag !== 'wbr').sort(), `${path} .${name}`).toEqual(name === 'share' ? ['a', 'div', 'h2', 'li', 'p', 'ul'] : ['code', 'h2', 'li', 'p']);
+      // Nothing inside the cards but text and the two file names (and <wbr>, where a Chinese line may break).
+      expect(withClass(p, 'cards'), path).toHaveLength(1);
+      expect([...new Set(inside(p, withClass(p, 'cards')[0]).map((el) => el.tag))].filter((tag) => tag !== 'wbr').sort(), `${path} .cards`).toEqual(['code', 'h2', 'li', 'p']);
     }
-    // And the stylesheet has no rule that hides, empties or shrinks away the hero's words, the cards or the facts:
-    // every rule whose selector names one of them is read.
+    // And the stylesheet has no rule that hides, empties or shrinks away the hero's words or the cards: every rule
+    // whose selector names one of them is read.
     const css = readPublic('style.css').replace(/\/\*[\s\S]*?\*\//g, '');
-    const kept = /\.(?:share|more|cards|lede|hero|install-note)\b|\.install p\b/;
+    const kept = /\.(?:cards|lede|hero|install-note)\b|\.install p\b/;
     let read = 0;
     for (const [, selectors, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       // (a ::before or ::after holds no words: a dash, a number, the rule of the card that is playing)
@@ -725,52 +733,32 @@ describe('the two home pages', () => {
     expect(text).not.toMatch(/can’t run (?:your|their) own|only relay for now|無法自己架設|沒有其他 relay/);
   });
 
-  it.each(Object.entries(HOME_PAGES))('%s: says what was verified, whose Claude account does the work, and that an agent asks before commands', (lang, path) => {
+  it.each(Object.entries(HOME_PAGES))('%s: the third card says that every work item has its own git worktree and that its agent asks before commands', (lang, path) => {
+    // What the page still says about what an agent may do, in the card of the scene that shows it (the permission
+    // request). Whose Claude account does the work and what the flow was tested with left the page with its three
+    // facts: the guides say both (the test of the guides, below).
     const p = page(path);
-    const text = bodyText(path);
-    const facts = inside(p, p.byTag('section').find((s) => s.attr('aria-labelledby') === 'share-title')).filter((el) => el.tag === 'li').map((li) => li.text());
-    if (lang === 'en') {
-      // The flow was verified against a scripted stand-in, not a real model (OWNER-DECISIONS: no real-account testing).
-      expect(facts[2]).toContain('smurg is a prototype');
-      expect(facts[2]).toContain('tested with a scripted stand-in for the model, not with a real Claude account');
-      // Whose account, and the terms (OWNER-DECISIONS Q6).
-      expect(facts[1]).toContain('Every agent uses the host’s Claude account');
-      expect(facts[1]).toContain('Anthropic’s terms don’t allow making a personal subscription available to other people');
-      expect(text).toContain('asks before commands');
-      expect(text).toContain('git worktree');
-    } else {
-      expect(facts[2]).toContain('原型');
-      expect(facts[2]).toContain('用照劇本回應的模型替身測試的，沒有用真正的 Claude 帳號');
-      expect(facts[1]).toContain('每個 agent 都用主人的 Claude 帳號');
-      expect(facts[1]).toContain('Anthropic 的條款不允許把個人訂閱提供給其他人使用');
-      expect(text).toContain('執行指令前會先問');
-      expect(text).toContain('git worktree');
-    }
+    const card = inside(p, withClass(p, 'cards')[0]).filter((el) => el.tag === 'li')[2]?.text() ?? '';
+    expect(card).toContain('git worktree');
+    expect(card).toContain(lang === 'en' ? 'its agent asks before commands' : 'agent 執行指令前會先問');
   });
 
-  it.each(Object.entries(HOME_PAGES))('%s: claims no sandbox for teammates, and says what the Agent access role means: agents run as the host, so whom to give it to', (lang, path) => {
+  it.each(Object.entries(HOME_PAGES))('%s: claims no sandbox anywhere: the word is not on the page, in its title, labels or descriptions, and nothing describes one', (lang, path) => {
     const p = page(path);
     const text = bodyText(path);
     const titles = p.byTag('title').map((t) => t.text()).join('\n');
     const labels = p.elements.map((el) => el.attr('aria-label') ?? '').join('\n');
-    for (const all of [text, titles, labels]) {
+    const descriptions = p.byTag('meta').map((m) => m.attr('content') ?? '').join('\n');
+    expect(labels.length).toBeGreaterThan(lang === 'en' ? 400 : 150);
+    expect(descriptions.length).toBeGreaterThan(100);
+    for (const all of [text, titles, labels, descriptions]) {
       expect(all).not.toMatch(/Seatbelt|bubblewrap|AppArmor|socat|ripgrep|allow-listed|白名單|guest sandbox|客人沙盒|in a sandbox|sandboxed|在沙盒裡執行|--allow-main-workspace-guests|\brunners?\b|可執行 agent|API key|can use agents/i);
-    }
-    const fact = inside(p, p.byTag('section').find((s) => s.attr('aria-labelledby') === 'share-title')).find((el) => el.tag === 'li')?.text() ?? '';
-    if (lang === 'en') {
-      // The role's name of docs/GLOSSARY.md, in the first fact, with the three things a host must know.
-      expect(fact).toMatch(/run on the host’s computer as the host/);
-      expect(fact).toContain('with no sandbox');
-      expect(fact).toContain('Agent access');
-      expect(fact).toContain('fully trust');
-      // The only mention of a sandbox is that there is none.
-      expect(text.match(/sandbox/gi)).toEqual(['sandbox']);
-    } else {
-      expect(fact).toContain('以主人的身分');
-      expect(fact).toContain('沒有沙盒');
-      expect(fact).toContain('「可使用 agent」');
-      expect(fact).toContain('完全信任');
-      expect(text.match(/沙盒/g)).toEqual(['沙盒']);
+      // There is no sandbox (ARCHITECTURE §11 D-15), and the page no longer says so itself: the one sentence that
+      // did ("with no sandbox") left with the three facts, and the guides say it (the test of the guides, below).
+      // So the word does not occur at all: any mention here would be a claim, or half of the guides' warning.
+      expect(all).not.toMatch(/sandbox|沙盒|沙箱/i);
+      // Nor another word for the same promise.
+      expect(all).not.toMatch(/\bisolat|\bconfine|\bjail|container|隔離|容器/i);
     }
   });
 
@@ -1008,6 +996,49 @@ describe('the generated pages', () => {
     expect(text('zh-TW', 1)).toContain('以主人的身分');
     // The relay's README is linked on GitHub from both host guides.
     for (const html of [hosting, zh]) expect(html).toContain(`<a href="${RELAY_README}">`);
+
+    // Until 2026-10-09 the home pages ended with three facts for hosts ("Before you share"), and tests held their
+    // key phrases there. The pages are one sentence and a picture now (the owner's decision), so each of those facts
+    // is held here, where the guides say it, as the guides' own whole sentences: read as a reader reads the built
+    // page (its text, not its markup; English with single spaces, Chinese without any).
+    const said = (lang: Lang, index: number): string => (first(page(fileOf((DOC_PAGES[index] as (typeof DOC_PAGES)[number])[lang].path)), 'main')?.text() ?? '').replace(/\s+/g, lang === 'en' ? ' ' : '');
+    const SENTENCES: Readonly<Record<Lang, readonly (readonly [number, string, readonly string[]])[]>> = {
+      en: [
+        // 1. Agents run on the host's computer as the host, with no sandbox (host guide §4 and §5.1; the teammates' guide's introduction and §2).
+        [0, 'no sandbox', ['No agent session is sandboxed.', 'These sessions run on your computer as you, exactly like the ones you start in your own terminal:', 'No sandbox: your operating-system account, your home folder']],
+        [1, 'as the host, no sandbox', ["In smurg every agent runs on the host's computer, as the host, with the host's Claude account", "the agents you start and the terminals you open run on the host's computer as the host, with no sandbox"]],
+        // … so Agent access only for people the host fully trusts: the role lets someone run any command on the host's computer.
+        [0, 'whom to give Agent access', ['Give Agent access only to people you fully trust (§5.1): this role lets someone make an agent run any command on your computer, read your home folder and use your Claude account.', 'Give this role only to people you fully trust, for example someone you would hand your logged-in computer to.']],
+        [1, 'whom a host gives it', ['That is why a host gives this role only to people they fully trust.']],
+        // 2. Whose Claude account does the work, what Anthropic's terms say of a personal subscription, and the plans meant for a group (host guide §4).
+        [0, 'whose Claude account', ['Whose Claude account works for the group: every agent uses the account claude is logged in to on this computer, also when it works for a teammate; the usage and the cost are yours.', 'A personal Claude subscription (Pro or Max) is for your own use.', "Anthropic's terms do not allow making a personal account available to other people; for a group, log Claude Code in with an API key, a Team or Enterprise plan, or a cloud provider."]],
+        // 3. What the flow was tested with: a scripted stand-in for the model, and no real Claude account (host guide §10.8; teammates' guide §6).
+        [0, 'what was verified', ["was verified by smurg's developers against a scripted stand-in for the model.", 'No real Claude account was used for testing.']],
+        [1, 'what was tested', ['the flow of this version was tested with a scripted stand-in for the model, not with a real Claude account']],
+      ],
+      'zh-TW': [
+        [0, 'no sandbox', ['所有 agent session 都不在沙盒裡。', '這些 session 以你的身分在你的電腦上執行，和你自己在終端機裡開的沒有差別：', '沒有沙盒：用你的作業系統帳號、你的家目錄']],
+        [1, 'as the host, no sandbox', ['每個 agent 都在主人的電腦上、以主人的身分、用主人的 Claude 帳號執行', '你開始的 agent 和你開的終端機，在主人的電腦上以主人的身分執行，沒有沙盒']],
+        [0, 'whom to give Agent access', ['只把「可使用 agent」給你完全信任的人（§5.1）：這個角色可以讓 agent 在你的電腦上執行任何指令、讀你的家目錄、用你的 Claude 帳號。', '只把這個角色給你完全信任的人，例如你願意把自己已經登入的電腦交給他使用的人。']],
+        [1, 'whom a host gives it', ['所以主人只會把這個角色給完全信任的人。']],
+        [0, 'whose Claude account', ['整個團隊用的是誰的 Claude 帳號：每個 agent 都用這台電腦上 claude 目前登入的帳號，替組員工作時也一樣；用量和費用都算在你身上。', '個人的 Claude 訂閱（Pro 或 Max）只供你自己使用。', 'Anthropic 的條款不允許把個人帳號提供給其他人使用；多人使用時，請讓 Claude Code 改用 API 金鑰、Team 或 Enterprise 方案，或雲端供應商登入。']],
+        [0, 'what was verified', ['是 smurg 的開發者用一個照劇本回應的模型替身驗證的。', '測試時也沒有使用任何真正的 Claude 帳號。']],
+        [1, 'what was tested', ['這個版本的流程是用照劇本回應的模型替身測試的，沒有用真正的 Claude 帳號']],
+      ],
+    };
+    for (const lang of LANGS) {
+      // The same facts in the same order in both languages, from the same guide each.
+      expect(SENTENCES[lang].map(([index, what, sentences]) => [index, what, sentences.length])).toEqual(SENTENCES.en.map(([index, what, sentences]) => [index, what, sentences.length]));
+      for (const [index, what, sentences] of SENTENCES[lang]) {
+        const guide = said(lang, index);
+        for (const sentence of sentences) expect(guide, `${lang}, ${(DOC_PAGES[index] as (typeof DOC_PAGES)[number])[lang].source}, ${what}`).toContain(sentence.replace(/\s+/g, lang === 'en' ? ' ' : ''));
+      }
+    }
+    // The word "prototype" itself is in no guide: the repository's README says it, in its status line, with what
+    // the flow was verified against (both languages).
+    const readme = (file: string, lang: Lang): string => readFileSync(join(REPO_ROOT, file), 'utf8').replace(/\n> /g, '\n').replace(/\s+/g, lang === 'en' ? ' ' : '');
+    expect(readme('README.md', 'en')).toContain('**Status: prototype.** Developed and tested on macOS (Apple silicon). The topics flow was verified against a scripted stand-in for the model, not with a real Claude account');
+    expect(readme('README.zh-TW.md', 'zh-TW')).toContain('**狀態：原型**。在 macOS（Apple Silicon）上開發和測試。主題的流程是用照劇本回應的模型替身驗證的，沒有用真正的 Claude 帳號'.replace(/\s+/g, ''));
   });
 
   it('the notices are the file the build was given, byte for byte (here the tests\' fixture)', () => {

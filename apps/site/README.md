@@ -143,15 +143,18 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
 - Landing pages: both languages have the same sections, ids, links and markup (every element and its classes) in the
   same order; only the words differ (`test/site.test.ts` checks). Change the English page first, then the Traditional
   Chinese one, with the terms of `docs/GLOSSARY.md` (Host / Agent access / Editor / Viewer, and their zh-TW names in
-  the same table). There is no sandbox (ARCHITECTURE §11 D-15): say so plainly where it matters, never describe one.
+  the same table). There is no sandbox (ARCHITECTURE §11 D-15): the guides say so plainly; a landing page never
+  describes one, and does not use the word at all (a test holds that).
 - A landing page is one sentence and one moving picture, and nothing below repeats the picture: the h1 (at most 9
   words; the preview pictures say it too), one line under it, the install command with the note for people who got
-  an invite link, the picture, four cards (a bold line of at most 6 words and ONE sentence of at most 18), and
-  "Before you share" (three one-line facts and the link to the host guide: each fact is one sentence that fits one
-  line of a wide page, about 130 characters). The tests count. Everything else (how to
-  share and join, the security points and limits, platforms, questions) is the guides' job. A sentence that a test
-  holds (what was tested and with what, whose Claude account, that agents run as the host with no sandbox and whom to
-  give Agent access) stays, in its words.
+  an invite link, the picture, four cards (a bold line of at most 6 words and ONE sentence of at most 18), then the
+  footer. The tests count. Everything else is the guides' job, and Docs in the header and the footer is the way
+  there: how to share and join, the security points and limits, platforms, questions, and what a host must know
+  before sharing (that agents run as the host with no sandbox and whom to give Agent access, whose Claude account
+  does the work, what was tested and with what: `docs/HOSTING.md` §4, §5.1 and §10.8, `docs/JOINING.md` in its
+  introduction, §2 and §6). The landing pages say none of that, not even by half; `test/site.test.ts` holds the
+  guides' sentences on the built guide pages instead ("the guides explain the Agent access role and its risk …"): a
+  guide's sentence that a test holds stays, in its words.
 - Only state what `README.md`, `CHANGELOG.md` and `docs/` back. When in doubt, cut the sentence. The pages show no
   version number: what changed in a version is the changelog's job.
 - The docs pages: edit `docs/HOSTING.md`, `docs/JOINING.md` or `CHANGELOG.md` and their counterparts in

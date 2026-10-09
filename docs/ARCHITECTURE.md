@@ -4136,8 +4136,9 @@ where 0.5.0 changed what a row says, the row says so ("0.5.0:").
   or is set to editor / viewer their terminals and free agent sessions end and the sessions of their topics pass to
   the host (§11 D-17). What 0.5.0 adds on top is about AGENTS, not about this member: the tool gate ties a discussion
   agent's hands whoever talks to it (§11 D-21). The user docs say it in
-  plain words (`docs/HOSTING.md` §4 / §5.1, `docs/JOINING.md` §2 / §5.1, the product page): only for people the host
-  fully trusts. Until D-15 (from the start to 2026-10-01) guests' own agents ran in a sandbox (srt: Seatbelt /
+  plain words (`docs/HOSTING.md` §4 / §5.1, `docs/JOINING.md` §2 / §5.1): only for people the host
+  fully trusts. The product page does not say it: it is one sentence and a picture, and links the guides. Until
+  D-15 (from the start to 2026-10-01) guests' own agents ran in a sandbox (srt: Seatbelt /
   bubblewrap) with their own Claude login; that design, its residuals and its tests are gone (`docs/research/sandbox.md`,
   historical).
 - **Linux** was developed on macOS arm64. Since 2026-10-01 the whole gate runs on Linux and is green: in an Ubuntu
