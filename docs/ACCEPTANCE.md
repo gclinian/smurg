@@ -143,7 +143,8 @@ SMURG_RELEASE_GATE=1 pnpm check   # the same, for a release: nothing may be pend
   suggestion is a message to an agent session, never a paste into a PTY (R6 below).
 - **Skipped by default**: `packages/cli/test/sea.test.ts` and `packages/cli/test/sea-update.test.ts` (`smurg update` /
   `smurg uninstall` with a copy of the real executable in a scratch HOME; both need a built single executable,
-  `SMURG_SEA_BINARY=<path>`, and `scripts/build-sea.sh` runs both) and the second of the two tests of
+  `SMURG_SEA_BINARY=<path>`, and `scripts/build-sea.sh` runs both), `packages/cli/test/sea-git-while-sharing.test.ts`
+  (a folder that becomes a git repository while the real executable shares it; it needs `SMURG_SEA_BINARY` too) and the second of the two tests of
   `packages/cli/test/dev-stack.test.ts` (`SMURG_TEST_DEV_STACK=1`: it starts the whole dev stack on fixed ports with
   `--stand-in-claude`, sees an agent session run the stand-in, and stops it with Ctrl-C; the file's first test always
   runs: with a `claude` on `PATH` and nobody at a terminal the script starts nothing and asks for `--stand-in-claude`

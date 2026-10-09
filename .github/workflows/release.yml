@@ -269,7 +269,14 @@ jobs:
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "smurg $VERSION" \
             --notes-file "$RUNNER_TEMP/release-notes.md" "${prerelease[@]}" \
             release/SHA256SUMS release/THIRD-PARTY-NOTICES.txt
-          id="$(releases ".[] | select(.tag_name == \"$TAG\" and .draft) | .id")"
+          # The list of releases can be a moment behind the create (0.5.2: the draft was there, the list did not
+          # hold it yet, and the job failed with a draft left behind): look a few times before saying it is missing.
+          id=""
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            id="$(releases ".[] | select(.tag_name == \"$TAG\" and .draft) | .id")"
+            if [ -n "$id" ]; then break; fi
+            sleep 3
+          done
           [ "$(printf '%s\n' "$id" | grep -c .)" = 1 ] || { echo "::error::expected one draft release for $TAG, found: $id"; exit 1; }
           assets="$(gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq '[.assets[] | select(.state == "uploaded") | .name] | sort | join(" ")')"
           expected='SHA256SUMS THIRD-PARTY-NOTICES.txt'
