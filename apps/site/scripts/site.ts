@@ -262,7 +262,7 @@ export const CHROME = {
     indexLede: 'Install smurg, share a folder, join a workspace someone shared, and see what changed in each version.',
     licenseHeading: 'License and source code',
     licenseSection: (lang: Lang): string =>
-      `smurg is open source under the <a href="${licensePage(lang)}">MIT License</a>; the source code is on <a href="${REPOSITORY}">GitHub</a>. The components in the executables that come from other projects keep their own licenses, listed in the <a href="${NOTICES_FILE}">third-party notices</a>; those of the web app are in the <a href="${WEB_APP_NOTICES}">web app’s third-party notices</a>.`,
+      `smurg is open source under the <a href="${licensePage(lang)}">MIT License</a>; the source code is on <a href="${REPOSITORY}">GitHub</a>. The components in the executables that come from other projects keep their own licenses, listed in the <a href="${NOTICES_FILE}">third-party notices</a>; those of the web app are in the <a href="${WEB_APP_NOTICES}">web app’s third-party notices</a>. To send a fix, read <a href="${REPOSITORY_FILES}CONTRIBUTING.md">CONTRIBUTING</a>; to report a vulnerability, <a href="${REPOSITORY_FILES}SECURITY.md">SECURITY</a>.`,
     licenseTitle: 'License · smurg',
     licenseDescription: 'smurg is open source under the MIT License: the full license text.',
     licensePageHeading: 'License',
@@ -294,7 +294,7 @@ export const CHROME = {
     indexLede: '安裝 smurg、分享資料夾、加入別人分享的工作區，以及每個版本的變更。',
     licenseHeading: '授權與原始碼',
     licenseSection: (lang: Lang): string =>
-      `smurg 是開放原始碼軟體，以 <a href="${licensePage(lang)}">MIT 授權條款</a>釋出；原始碼在 <a href="${REPOSITORY}">GitHub</a>。執行檔裡來自其他專案的元件，依它們各自的授權條款提供，列在<a href="${NOTICES_FILE}">第三方授權聲明</a>；網頁版用到的元件列在<a href="${WEB_APP_NOTICES}">網頁版的第三方授權聲明</a>。`,
+      `smurg 是開放原始碼軟體，以 <a href="${licensePage(lang)}">MIT 授權條款</a>釋出；原始碼在 <a href="${REPOSITORY}">GitHub</a>。執行檔裡來自其他專案的元件，依它們各自的授權條款提供，列在<a href="${NOTICES_FILE}">第三方授權聲明</a>；網頁版用到的元件列在<a href="${WEB_APP_NOTICES}">網頁版的第三方授權聲明</a>。想送出修正，請讀 <a href="${REPOSITORY_FILES}CONTRIBUTING.md">CONTRIBUTING</a>（英文）；要回報安全性問題，請讀 <a href="${REPOSITORY_FILES}SECURITY.md">SECURITY</a>（英文）。`,
     licenseTitle: '授權條款 · smurg',
     licenseDescription: 'smurg 是開放原始碼軟體，以 MIT 授權條款釋出：授權條款全文。',
     licensePageHeading: '授權條款',

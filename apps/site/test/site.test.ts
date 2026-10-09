@@ -171,7 +171,7 @@ describe('the built site', () => {
     }
     // The host guides link the relay's README (the home pages' own list of repository files left with their
     // open-source section: the header and the footer link the repository itself).
-    expect([...linked.keys()].sort()).toEqual(['apps/relay/README.md']);
+    expect([...linked.keys()].sort()).toEqual(['CONTRIBUTING.md', 'SECURITY.md', 'apps/relay/README.md']);
     for (const [path, fragments] of linked) {
       expect(statSync(join(REPO_ROOT, path), { throwIfNoEntry: false }) !== undefined, path).toBe(true);
       // A #fragment is a heading of that file, by GitHub's own rule for heading ids.
@@ -938,7 +938,7 @@ describe('the generated pages', () => {
     expect(CHROME.en.name).toBe('English');
   });
 
-  it.each(LANGS)('%s: the docs index links every docs page of its language, the license, the repository and both notices', (lang) => {
+  it.each(LANGS)('%s: the docs index links every docs page of its language, the license, the repository, both notices, and how to contribute and to report a vulnerability', (lang) => {
     const p = page(fileOf(docsIndex(lang)));
     expect(first(p, 'html')?.attr('lang')).toBe(HTML_LANG[lang]);
     expect(first(p, 'h1')?.text()).toBe(CHROME[lang].indexHeading);
@@ -946,7 +946,7 @@ describe('the generated pages', () => {
     expect(p.elements.find((el) => el.attr('class') === 'doc-note')).toBeUndefined();
     const main = first(p, 'main');
     const links = p.elements.filter((el) => el.tag === 'a' && el.parents.includes(main as El)).map((a) => a.attr('href'));
-    expect(links).toEqual([...DOC_PAGES.map((doc) => doc[lang].path), licensePage(lang), REPOSITORY, NOTICES_FILE, WEB_APP_NOTICES]);
+    expect(links).toEqual([...DOC_PAGES.map((doc) => doc[lang].path), licensePage(lang), REPOSITORY, NOTICES_FILE, WEB_APP_NOTICES, `${REPOSITORY}/blob/main/CONTRIBUTING.md`, `${REPOSITORY}/blob/main/SECURITY.md`]);
     expect(main?.text()).toContain(lang === 'en' ? 'open source under the MIT License' : '以 MIT 授權條款釋出');
   });
 
