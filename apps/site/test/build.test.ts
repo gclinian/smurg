@@ -22,7 +22,9 @@ describe('production bundle', () => {
       const { stdout, stderr } = await run(process.execPath, [WRANGLER, 'deploy', '--dry-run', '--outdir', outdir, '--config', 'wrangler.jsonc'], {
         cwd: SITE_ROOT,
         timeout: 120_000,
-        env: { ...process.env, WRANGLER_SEND_METRICS: 'false', WRANGLER_SEND_ERROR_REPORTS: 'false' },
+        // No banner: with it wrangler asks the npm registry for a newer version (its cache is in TMPDIR, which is new
+        // for every run), and the process stays until that request ends: seconds, or longer than this test's time.
+        env: { ...process.env, WRANGLER_SEND_METRICS: 'false', WRANGLER_SEND_ERROR_REPORTS: 'false', WRANGLER_HIDE_BANNER: 'true' },
       });
       expect(stdout).toContain('[custom build] Running: node "${SMURG_ROOT:?run source scripts/env.sh first}/apps/site/scripts/build.ts"');
       expect(stdout).toMatch(new RegExp(`smurg\\.ai: ${testSite().files.size} files in apps/site/dist \\(\\d+ written, \\d+ removed\\)`));

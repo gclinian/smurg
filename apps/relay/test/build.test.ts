@@ -23,7 +23,9 @@ describe('production bundle', () => {
       const { stdout } = await run(process.execPath, [WRANGLER, 'deploy', '--dry-run', '--outdir', outdir, '--env=', '--config', 'wrangler.jsonc'], {
         cwd: RELAY_DIR,
         timeout: 120_000,
-        env: { ...process.env, WRANGLER_SEND_METRICS: 'false', WRANGLER_SEND_ERROR_REPORTS: 'false' },
+        // No banner: with it wrangler asks the npm registry for a newer version (its cache is in TMPDIR, which is new
+        // for every run), and the process stays until that request ends: seconds, or longer than this test's time.
+        env: { ...process.env, WRANGLER_SEND_METRICS: 'false', WRANGLER_SEND_ERROR_REPORTS: 'false', WRANGLER_HIDE_BANNER: 'true' },
       });
       expect(stdout).toContain('--dry-run: exiting now.');
       expect(stdout).toContain('env.DEV_LOGIN ("0")');
