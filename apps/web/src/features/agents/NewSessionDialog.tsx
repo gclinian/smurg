@@ -8,13 +8,25 @@ import type { SessionInfo } from '@smurg/protocol';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { sessionTitle } from '../../lib/stores/sessions.ts';
 import { selectRole, selectUserId, selectWorkspaceInfo } from '../../lib/stores/workspace.ts';
-import { selectWorktreeList } from '../../lib/stores/worktrees.ts';
+import { selectHasWorktreeRecords, selectWorktreeList } from '../../lib/stores/worktrees.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
 import { MESSAGE_TEXT_MAX_CHARS } from '@smurg/protocol';
 import { Banner, Button, Dialog, Input, TextArea, useToast } from '../../ui/index.ts';
 import { IconInfo } from '../../ui/icons.tsx';
-import { DEFAULT_TERMINAL_SIZE, buildCreatePayload, effectiveWhere, newSessionOptions, worktreeUnavailableNote, type NewSessionForm, type SessionKind, type WhereChoice } from './new-session.ts';
+import {
+  DEFAULT_TERMINAL_SIZE,
+  buildCreatePayload,
+  effectiveWhere,
+  isWorktreeRefusal,
+  newSessionOptions,
+  opensInWorktree,
+  refusalNamesRepository,
+  worktreeUnavailableNote,
+  type NewSessionForm,
+  type SessionKind,
+  type WhereChoice,
+} from './new-session.ts';
 import { describeSessionError, type SessionErrorView } from './session-info.ts';
 import { t } from './strings.ts';
 
@@ -36,15 +48,17 @@ export function NewSessionDialog({ kind, open, onClose, onCreated }: NewSessionD
   const userId = useStore(stores.workspace, selectUserId);
   const workspace = useStore(stores.workspace, selectWorkspaceInfo);
   const worktreeList = useStore(stores.worktrees, selectWorktreeList, shallowEqual);
+  const records = useStore(stores.worktrees, selectHasWorktreeRecords);
   const sessionMap = useStore(stores.sessions, (state) => state.sessions);
   const options = useMemo(
-    () => newSessionOptions({ role, userId, workspace, worktrees: worktreeList, sessions: sessionMap }),
-    [role, userId, workspace, worktreeList, sessionMap],
+    () => newSessionOptions({ role, userId, workspace, worktrees: worktreeList, sessions: sessionMap, records }),
+    [role, userId, workspace, worktreeList, sessionMap, records],
   );
 
   const [form, setForm] = useState(INITIAL_FORM);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<SessionErrorView | null>(null);
+  /** `aboutWorktrees`: the host refused for a worktree reason (its sentence stands alone: the page's own note is hidden). */
+  const [error, setError] = useState<(SessionErrorView & { readonly aboutWorktrees: boolean }) | null>(null);
 
   // Closing forgets everything typed.
   useEffect(() => {
@@ -67,11 +81,17 @@ export function NewSessionDialog({ kind, open, onClose, onCreated }: NewSessionD
     setError(null);
     try {
       const session = await stores.sessions.create(buildCreatePayload(options, { ...form, kind, where }, DEFAULT_TERMINAL_SIZE));
+      // The host's answer is the latest word on the folder (no event tells a workspace without a topic): a session
+      // in a worktree, or a refusal that names what a repository lacks (no commit yet, for one), means it is a
+      // repository. The note that says "run git init" goes, and the member's kept worktrees are offered. A refusal
+      // for a reason that says nothing about the folder (git itself, a look that failed) changes nothing.
+      if (opensInWorktree(session)) stores.workspace.noteGitRepo(true);
       setForm(INITIAL_FORM);
       toast.show({ tone: 'success', title: t('new.created', { title: sessionTitle(session) }) });
       onCreated(session);
     } catch (failure) {
-      setError(describeSessionError(failure));
+      if (refusalNamesRepository(failure)) stores.workspace.noteGitRepo(true);
+      setError({ ...describeSessionError(failure), aboutWorktrees: isWorktreeRefusal(failure) });
     } finally {
       setSubmitting(false);
     }
@@ -130,7 +150,10 @@ export function NewSessionDialog({ kind, open, onClose, onCreated }: NewSessionD
             {keptChoices.map(({ worktree, value }) => (
               <div key={worktree.id}>{whereOption(value, t('new.where.worktreeKept', { branch: worktree.branch }), null)}</div>
             ))}
-            {options.worktree.unavailableReason !== null ? <p className="agents-fieldset__note">{worktreeUnavailableNote(options.worktree.unavailableReason)}</p> : null}
+            {/* Not beside a worktree refusal of the host: one sentence on screen, the host's. */}
+            {options.worktree.unavailableReason !== null && error?.aboutWorktrees !== true ? (
+              <p className="agents-fieldset__note">{worktreeUnavailableNote(options.worktree.unavailableReason)}</p>
+            ) : null}
           </fieldset>
 
           <Input label={t('new.name')} hint={t('new.nameHint')} maxLength={256} value={form.title} onChange={(event) => update({ title: event.currentTarget.value })} />

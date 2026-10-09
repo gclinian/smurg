@@ -133,10 +133,10 @@ export const worktrees = {
   }),
 
   // ---- why worktrees cannot be used (detail.reason says which) ------------------------------------------------
-  // One message per reason, what is wrong, then what the host can do and whether sharing has to start again (0.5.2): the
-  // Start dialog's git blocker, worktree refusals, the plan column and the new-session dialog all show these. The
-  // folder and its .git are looked at again while sharing (a first commit or `git init` counts at once); git itself
-  // and the .smurg/worktrees folder only when sharing starts. zh-TW ends with a full stop: other words may follow.
+  // One message per reason, what is wrong, then what the host can do (0.5.2): the Start dialog's git blocker, worktree
+  // refusals, the plan column and the new-session dialog all show these. The folder and its .git are looked at again
+  // while sharing (a first commit or `git init` counts at once); git itself and the .smurg/worktrees folder only when
+  // sharing starts, so only their sentences say to share again. zh-TW ends with a full stop: other words may follow.
   'worktree.unavailable.starting': message({}, {
     en: () => 'Worktrees are not ready yet.',
     'zh-TW': () => 'worktree 功能尚未就緒。',
@@ -144,6 +144,12 @@ export const worktrees = {
   'worktree.unavailable.notAGitRepo': message({}, {
     en: () => 'The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.',
     'zh-TW': () => '分享的資料夾不是 git 儲存庫，無法使用 worktree。主人可以在資料夾裡執行 `git init` 並提交一次，不必重新分享。',
+  }),
+  // The folder is no repository, and worktrees or merge requests still open (draft, pending, conflict) are on record:
+  // its `.git` went while they exist. Never "run git init" here: a new repository cannot merge those requests.
+  'worktree.unavailable.gitDirGone': message({}, {
+    en: () => "The shared folder's .git is gone, so worktrees cannot be used. The host can put it back: the worktrees and merge requests here belong to that repository.",
+    'zh-TW': () => '分享資料夾的 .git 不見了，無法使用 worktree。主人可以把它放回去：這裡的 worktree 和合併請求都屬於那個儲存庫。',
   }),
   'worktree.unavailable.noCommit': message({}, {
     en: () => "The shared folder's git repository has no commit yet, so no worktree can be created. The host can commit once, without sharing again.",

@@ -707,6 +707,7 @@ they open in the browser, not in a terminal.
 | A work item says "The plan changed: Start again" (your inbox: "did not start"): "The spec or the plan changed since Start. This item did not start." | A work item starts only from the spec and the plan that someone confirmed when they pressed Start (§10.2). Open the plan, look at what changed and press "Start again" on the item. Items waiting to start say the same when the folder stopped being a git repository for a while (§10.2). |
 | Start is refused: "The shared folder is not a git repository, so worktrees cannot be used." | Run `git init` in the shared folder and commit once (next row, §10.2); no need to stop sharing. But if `.git` was there a moment ago, put it back; if a folder above is a repository, share that one. |
 | Start is refused: "The shared folder's git repository has no commit yet, so no worktree can be created." | Commit the project's files as in §10.2: a worktree holds only what is committed. If git asks who you are, run `git config --global user.name 'Your Name'` and `git config --global user.email you@example.com`, then commit again. No need to stop sharing. |
+| Start is refused: "The shared folder's .git is gone, so worktrees cannot be used." | The folder's `.git` was moved or deleted while there are worktrees or merge requests that still wait; Merge, the diff and a session that asks for a worktree are refused with the same sentence. Put that `.git` back: everything works again, without sharing again (§10.2). Do not run `git init` instead: a new repository cannot merge those requests. If that `.git` is lost for good, `git init` and a commit make Start work again, without those requests. |
 | Start is refused: "git was not found on the host's computer, so worktrees cannot be used." | smurg uses the first `git` on the `PATH` of the terminal that ran `smurg host`. Install git 2.42 or later (macOS: `xcode-select --install`, or Homebrew), check in a new terminal that `git version` answers, stop sharing and run `smurg host` from that terminal. |
 | Start is refused: "The host's git is version 2.39.5, and worktrees need 2.42.0 or later." | That is the first `git` on the `PATH` of the terminal that ran `smurg host`. Update git (macOS: the Command Line Tools in Software Update, or `brew install git`), check in a new terminal that `which git` and `git version` show the new one, stop sharing and run `smurg host` from that terminal. |
 | Start is refused: "git does not run on the host's computer, so worktrees cannot be used." | On macOS, `/usr/bin/git` needs Apple's Command Line Tools; without them it brings up macOS's offer to install them, also when `smurg host` starts. Run `xcode-select --install` (on Linux, reinstall git). When `git version` answers in a terminal, stop sharing and run `smurg host` from that terminal. |
@@ -1052,12 +1053,13 @@ git add -A                      # write a .gitignore for node_modules and the li
 git commit -m "First commit"
 ```
 
-- smurg looks again whenever Start is pressed, and every few seconds: the next Start sees it, without sharing
-  again, and open pages see it within seconds (in a workspace without a topic, after a reload; the plan column does
-  not know about the first commit, Start does). A change of git itself (installed, updated, repaired) needs sharing
-  again: smurg looks for git, on the `PATH` of the terminal that ran `smurg host`, only when sharing starts or the
-  folder becomes a repository (§8).
-- **smurg's own `.smurg` folder ignores itself.** Each start of sharing writes `.smurg/.gitignore` (`*`) unless there
+- smurg looks again whenever Start is pressed, and every few seconds: the next Start sees the repository, without
+  sharing again, and open pages see it within seconds (in a workspace without a topic, a page sees it after a
+  reload, or when it asks for a session in a worktree; the plan column knows only whether the folder is a
+  repository: a missing first commit or a problem with git, Start says). A change of git itself (installed,
+  updated, repaired) needs sharing again: smurg looks for git, on the `PATH` of the terminal that ran `smurg host`,
+  only when sharing starts or the folder becomes a repository (§8).
+- **git leaves smurg's own `.smurg` folder out.** Each start of sharing writes `.smurg/.gitignore` (`*`) unless there
   is one, so git leaves the folder out whatever the order of `git init`, `git add -A` and `git commit`. If the
   repository already tracks it (committed while sharing with smurg 0.5.1 or earlier), `smurg host` says so once;
   take it out:
@@ -1067,8 +1069,9 @@ git rm -r --cached .smurg       # the files stay on disk
 git commit -m "Stop tracking smurg's own folder"
 ```
 
-- If `.git` goes away while you share, Start is refused with the reason, and items waiting to start need "Start
-  again" (§8). Nothing is deleted: worktrees, their work and merge requests work again once that `.git` is back.
+- If `.git` goes away while you share, Start is refused with the reason, and items waiting to start may need
+  "Start again" (§8). Nothing is deleted: worktrees, their work and merge requests work again once that `.git` is
+  back. Put it back rather than run `git init`: a new repository cannot merge those requests.
 - **Start shows what it will do before it does it**: which items start now and which wait for others, who is
   responsible for each, who edited the spec and the plan by hand since the last Start, and the commit below. Read
   it: it is the moment the team's text becomes instructions for agents that run as you. A member who renamed or

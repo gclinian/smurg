@@ -1979,7 +1979,8 @@ already published. Each is for the next protocol version, or stays:
 
 Inside the shared folder the daemon only creates `.smurg/` (`worktrees/` with transient `<id>.removing-<hex>` during a
 removal, `trash/` for deletes in progress (emptied at start), `uploads/` when the state dir is on a different volume,
-and `daemon-lock.json`), and adds `.smurg/` to `.git/info/exclude`. It writes nothing into `.claude/` (§11, D-1).
+`daemon-lock.json`, and since 0.5.2 a `.gitignore` holding `*`, so the folder ignores itself), and adds `.smurg/` to
+`.git/info/exclude`. It writes nothing into `.claude/` (§11, D-1).
 A topic's files (`specs/<slug>/SPEC.md`, `PLAN.md`, `reports/<item id>.md`) are files of the PROJECT, written by
 agents and people and versioned with the project's git (§5.10, §7.8); the daemon creates the folder and, at a Start,
 commits the two files (§7.8 "Start").

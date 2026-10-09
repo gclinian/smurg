@@ -7,11 +7,16 @@
 //    there is a branch to name;
 //  - `.smurg/` (the share lock marker, a delete cut short in trash/, an upload staged in the share) is never part of
 //    what the host commits, in whatever order `git init`, `git add -A` and `git commit` come;
-//  - a share whose .git is a gitfile (a linked worktree) is told why, not "run git init", and has no commit line;
+//  - a share whose .git is a gitfile (a linked worktree) is told why, not "run git init", and has no commit line; so
+//    is one whose .git is a link to a git directory, and neither is called "not a repository" anywhere (the welcome,
+//    the status, a topic's `versioned`: what the plan column and the new-session dialog read);
+//  - `.git` that goes once an item has its worktree: Start says the .git is gone and to put it back, not "git init";
+//  - a folder that is no repository on a computer whose git is too old or does not run: Start names git, and so does
+//    a session that asks for a worktree (one reason, not two);
 //  - a repository that already tracks `.smurg/` (a `git add -A` while sharing with 0.5.1): Start, the item's worktree,
 //    its snapshot, the merge and an update from the main workspace still work; the host is told once.
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -25,7 +30,7 @@ import { locksModule } from '../../src/locks/module.ts';
 import { createTempDir, createTempRunDir, createTestDaemon, isolatedGitEnv, removeTempDir, removeTempRunDir, waitFor, type TestClient, type TestDaemon } from '../../src/testing/index.ts';
 import { createTopicsModule } from '../../src/topics/module.ts';
 import { createWorktreeModule } from '../../src/worktree/module.ts';
-import type { WorktreeManagerImpl } from '../../src/worktree/worktree-manager.ts';
+import type { WorktreeManagerImpl, WorktreeModuleOptions } from '../../src/worktree/worktree-manager.ts';
 import { MiB, bytesSource, patternSource, upload } from '../files/helpers.ts';
 import { SPEC_TEXT, planText } from '../topics/support.ts';
 import { settleError } from './support.ts';
@@ -58,7 +63,7 @@ function listener(seen: DaemonEvents['worktree.smurg-tracked'][]): FeatureModule
   return { name: 'test-listener', register: (_router, ctx) => ctx.bus.on('worktree.smurg-tracked', (event) => seen.push(event)) };
 }
 
-async function startDaemon(root: string, stateDir: string, extra: readonly FeatureModule[] = []): Promise<TestDaemon> {
+async function startDaemon(root: string, stateDir: string, extra: readonly FeatureModule[] = [], module: WorktreeModuleOptions = {}): Promise<TestDaemon> {
   const t = await createTestDaemon({
     root,
     stateDir,
@@ -66,7 +71,7 @@ async function startDaemon(root: string, stateDir: string, extra: readonly Featu
       ...extra,
       locksModule,
       createFilesModule({ watch: false }),
-      createWorktreeModule({ limits: { treeCheckDelayMs: 100 } }),
+      createWorktreeModule({ limits: { treeCheckDelayMs: 100 }, ...module }),
       fakesModule({ except: ['topics', 'plans', 'reports', 'worktrees'], handlers: true }),
       createTopicsModule({ fileDebounceMs: 20 }),
     ],
@@ -189,6 +194,19 @@ describe('a shared folder that becomes a git repository while it is shared (0.5.
     expect(await listTree(join(worktree?.realPath as string, '.smurg'))).toBeNull();
     expect((await lines(git, root, 'status', '--porcelain=v1', '--untracked-files=all', '--ignored=no')).filter((line) => line.includes('.smurg'))).toEqual([]);
     expect((await lines(git, root, 'log', '--name-only', '--format=')).filter((path) => path.startsWith('.smurg'))).toEqual([]);
+
+    // 5. `.git` goes while the item has its worktree: Start says it is gone and to put it back. Never "run git init":
+    //    a new repository could not merge the item's work. The folder is no repository for the pages meanwhile.
+    await rename(join(root, '.git'), join(root, '.git-away'));
+    const gone = await look(t, host, topicId);
+    expect(gone).toMatchObject({ commit: null, versioned: false, isGitRepo: false });
+    expect(gone.blockers[0]).toBe('worktree.unavailable.gitDirGone');
+    expect(gone.fallbacks[0]).toBe("The shared folder's .git is gone, so worktrees cannot be used. The host can put it back: the worktrees and merge requests here belong to that repository.");
+    expect(gone.fallbacks.join(' ')).not.toContain('git init');
+    await rename(join(root, '.git-away'), join(root, '.git'));
+    const back = await look(t, host, topicId);
+    expect(back).toMatchObject({ versioned: true, isGitRepo: true });
+    expect(back.blockers.filter((id) => id.startsWith('worktree.unavailable.'))).toEqual([]);
   });
 
   it('git init, git add -A and git commit at once, before smurg looks: nothing of .smurg/ is committed (it ignores itself)', async () => {
@@ -286,6 +304,89 @@ describe('a shared folder that becomes a git repository while it is shared (0.5.
     await git(mainRepo, 'worktree', 'remove', '--force', linked);
   });
 
+  it('a share whose .git is a link to a git directory: Start says the .git is no ordinary folder, and nowhere is the folder called "not a repository"', async () => {
+    const root = await tempDir('gws-linkgit');
+    const elsewhere = await tempDir('gws-linkgit-real');
+    const git = gitIn(await tempDir('gws-githome-g'));
+    await writeFile(join(root, 'README.md'), '# sums\n');
+    await git(root, 'init', '-q', '-b', 'main');
+    await git(root, 'add', '-A');
+    await git(root, 'commit', '-q', '-m', 'first');
+    await rename(join(root, '.git'), join(elsewhere, 'project.git'));
+    await symlink(join(elsewhere, 'project.git'), join(root, '.git'));
+    // git itself works through the link: `git init` there would change nothing.
+    expect((await git(root, 'status', '--porcelain=v1')).code).toBe(0);
+    const t = await startDaemon(root, await stateDirFor());
+    const host = await t.connectHost();
+    const topicId = await topicWithPlan(t, host);
+    const seen = await look(t, host, topicId);
+    expect(seen).toMatchObject({ blockers: ['worktree.unavailable.gitDirNotDirectory'], commit: null, versioned: true, isGitRepo: true });
+    // What the plan column (`versioned`) and the new-session dialog (the welcome) read, and `smurg status`.
+    expect(host.welcome?.workspace.isGitRepo).toBe(true);
+    expect((await host.reconnect()).welcome?.workspace.isGitRepo).toBe(true);
+    expect(t.daemon.status().isGitRepo).toBe(true);
+    expect(await (t.ctx.services.worktrees as WorktreeManagerImpl).mainState()).toMatchObject({ isRepo: true, unavailable: { id: 'worktree.unavailable.gitDirNotDirectory' } });
+    // Nothing was written through the link.
+    expect(await readFile(join(elsewhere, 'project.git', 'info', 'exclude'), 'utf8').catch(() => '')).not.toContain('.smurg');
+  });
+
+  it('a plain .git replaced by a link while sharing: the topics keep saying the folder is a repository, Start says why it cannot run', async () => {
+    const root = await tempDir('gws-tolink');
+    const git = gitIn(await tempDir('gws-githome-h'));
+    await writeFile(join(root, 'README.md'), '# sums\n');
+    await git(root, 'init', '-q', '-b', 'main');
+    await git(root, 'add', '-A');
+    await git(root, 'commit', '-q', '-m', 'first');
+    const t = await startDaemon(root, await stateDirFor());
+    const host = await t.connectHost();
+    const topicId = await topicWithPlan(t, host);
+    expect(await look(t, host, topicId)).toMatchObject({ blockers: [], versioned: true, isGitRepo: true });
+    const versioned: boolean[] = [];
+    host.conn.on('topic.updated', (payload) => {
+      if (payload.topic.id === topicId) versioned.push(payload.topic.versioned);
+    });
+    await rename(join(root, '.git'), join(root, '.git-real'));
+    await symlink(join(root, '.git-real'), join(root, '.git'));
+    const manager = t.ctx.services.worktrees as WorktreeManagerImpl;
+    await manager.refreshGitState({ timer: true });
+    expect(manager.unavailableReason()?.detail).toMatchObject({ reason: 'git-dir-not-directory' });
+    expect(await look(t, host, topicId)).toMatchObject({ blockers: ['worktree.unavailable.gitDirNotDirectory'], commit: null, versioned: true, isGitRepo: true });
+    expect(versioned).not.toContain(false);
+  });
+
+  it('git too old, or not running, in a folder that is no repository: Start names git, and so does a session that asks for a worktree', async () => {
+    const bin = await tempDir('gws-oldgit');
+    const fake = async (name: string, script: string): Promise<string> => {
+      const path = join(bin, name);
+      await writeFile(path, `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+      return path;
+    };
+    const cases = [
+      { git: await fake('git-old', 'if [ "$1" = version ]; then echo "git version 2.39.5"; exit 0; fi; exit 1'), id: 'worktree.unavailable.gitTooOld', reason: 'git-too-old' },
+      { git: await fake('git-broken', 'exit 1'), id: 'worktree.unavailable.gitCannotRun', reason: 'git-unusable' },
+    ];
+    for (const one of cases) {
+      const root = await tempDir('gws-oldgit-share');
+      await writeFile(join(root, 'README.md'), '# sums\n');
+      const t = await startDaemon(root, await stateDirFor(), [], { gitPath: one.git });
+      const host = await t.connectHost();
+      const mei = await t.connect({ userId: 'dev:mei', displayName: 'Mei', role: 'agent' });
+      const topicId = await topicWithPlan(t, host);
+      const manager = t.ctx.services.worktrees as WorktreeManagerImpl;
+      const owner = t.ctx.members.principalOf(mei.userId);
+      if (owner === null) throw new Error('mei is not a member');
+      const start = await look(t, host, topicId);
+      expect(start).toMatchObject({ blockers: [one.id], commit: null, versioned: false, isGitRepo: false });
+      // The same reason, with the same words (what the new-session dialog shows of a refusal).
+      const refused = await settleError(manager.acquireForSession({ owner, sessionId: `ses_${one.reason}` }));
+      expect(refused).toMatchObject({ code: 'conflict', reason: one.reason, text: { id: one.id } });
+      expect(refused?.message).toBe(start.fallbacks[0]);
+      expect(await settleError(manager.acquireForItem({ topic: { id: topicId, slug: 'sum' }, itemId: ITEM.id, owner }))).toMatchObject({ reason: one.reason, text: { id: one.id } });
+      await t.cleanup();
+      daemons.splice(daemons.indexOf(t), 1);
+    }
+  });
+
   it('a repository that already tracks .smurg/ (git add -A while sharing with 0.5.1): Start, the item worktree, its merge and an update from the main workspace work; the host is told once', async () => {
     const root = await tempDir('gws-tracked');
     const git = gitIn(await tempDir('gws-githome-e'));
@@ -341,7 +442,7 @@ describe('a shared folder that becomes a git repository while it is shared (0.5.
     // Once a run: worktree mode that goes and comes back (`.git` moved away and back) does not tell it again.
     await rename(join(root, '.git'), join(root, '.git-away'));
     await manager.refreshGitState();
-    expect(manager.unavailableReason()?.detail).toMatchObject({ reason: 'not-a-git-repo' });
+    expect(manager.unavailableReason()?.detail).toMatchObject({ reason: 'git-dir-gone' });
     await rename(join(root, '.git-away'), join(root, '.git'));
     await manager.refreshGitState();
     expect(manager.unavailableReason()).toBeNull();

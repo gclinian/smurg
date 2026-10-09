@@ -2,7 +2,8 @@
 // channel.settingsUpdated (ARCHITECTURE §5.1). The folder's git state (`WorkspaceInfo.isGitRepo`) follows the folder
 // while it is shared (0.5.2): no event carries the workspace again, but every topic carries it as `versioned`, and the
 // host announces every topic again (topic.updated) when the folder becomes a git repository or stops being one. A
-// workspace without a topic learns it at the next Welcome (a reconnect or a reload).
+// workspace without a topic learns it at the next Welcome (a reconnect or a reload), and before that from what the
+// host answers when this member asks for a worktree (`noteGitRepo`: the new-session dialog).
 import type { Member, PublicSettings, Role, Welcome, WorkspaceInfo } from '@smurg/protocol';
 import { createStore, type ReadableStore } from '../store.ts';
 import type { WorkspaceConnection } from '../connection/types.ts';
@@ -44,6 +45,12 @@ export interface WorkspaceStore extends ReadableStore<WorkspaceState> {
    * connection closes for good. The host's own leave is a no-op on the daemon; the connection still closes.
    */
   leave(): Promise<void>;
+  /**
+   * What an answer of the host just said about the shared folder (0.5.2): it is a git repository, or it is none. No
+   * request and no event carries `WorkspaceInfo` again, so a page whose workspace has no topic would keep what its
+   * Welcome said. The next Welcome or topic.updated says it again, and wins.
+   */
+  noteGitRepo(isGitRepo: boolean): void;
 }
 
 export const INITIAL_WORKSPACE_STATE: WorkspaceState = Object.freeze({
@@ -80,12 +87,15 @@ export function createWorkspaceArea(conn: WorkspaceConnection): WorkspaceArea {
   const roleChangeOf = (previous: Member | null, next: Member, at: number): RoleChange | null =>
     previous !== null && previous.role !== next.role ? { from: previous.role, to: next.role, at } : null;
   const clockSkewOf = (serverTime: number, now: number): number => (Math.abs(serverTime - now) < CLOCK_SKEW_IGNORED_MS ? 0 : serverTime - now);
+  const setGitRepo = (isGitRepo: boolean): void =>
+    state.setState((previous) => (previous.workspace === null || previous.workspace.isGitRepo === isGitRepo ? previous : { ...previous, workspace: { ...previous.workspace, isGitRepo } }));
 
   return {
     store: {
       getState: state.getState,
       subscribe: state.subscribe,
       leave: () => conn.leave(),
+      noteGitRepo: setGitRepo,
     },
     applyWelcome(welcome, resumed, now) {
       const previous = state.getState();
@@ -115,11 +125,7 @@ export function createWorkspaceArea(conn: WorkspaceConnection): WorkspaceArea {
       });
       // A topic says whether the shared folder is a git repository now (the same fact as the Welcome's, kept by the
       // host as the folder changes); the channel is ordered, so the latest of the two is what the folder is.
-      const offTopic = conn.on('topic.updated', ({ topic }) => {
-        state.setState((previous) =>
-          previous.workspace === null || previous.workspace.isGitRepo === topic.versioned ? previous : { ...previous, workspace: { ...previous.workspace, isGitRepo: topic.versioned } },
-        );
-      });
+      const offTopic = conn.on('topic.updated', ({ topic }) => setGitRepo(topic.versioned));
       return () => {
         offMember();
         offSettings();

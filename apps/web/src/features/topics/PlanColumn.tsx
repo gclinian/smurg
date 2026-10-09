@@ -14,6 +14,7 @@ import { formatList, joinSentences } from '../../lib/format.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { selectSession, selectTopicSessions } from '../../lib/stores/sessions.ts';
 import { selectPlan } from '../../lib/stores/topics.ts';
+import { selectHasWorktreeRecords } from '../../lib/stores/worktrees.ts';
 import { useNow } from '../../lib/use-now.ts';
 import { useCan, useCommand, useStores } from '../../lib/workspace/context.tsx';
 import { Avatar, Banner, Button, EmptyState, Segmented, Spinner, type MenuItem } from '../../ui/index.ts';
@@ -383,6 +384,8 @@ function PlanFoot({ topic, plan, summary, sessionOf }: { topic: Topic; plan: Pla
   const canStart = useCan('session.create');
   const isHost = useCan('worktree.merge.decide');
   const members = useMembers();
+  // A worktree or an open merge request exists: a folder that is no repository then had a `.git` that went.
+  const records = useStore(stores.worktrees, selectHasWorktreeRecords);
   if (topic.archived) return null;
 
   const nextToMerge = summary.reviewedNotMerged.find((item) => item.merge?.ready === true && item.merge.status !== 'conflict') ?? summary.reviewedNotMerged[0];
@@ -400,7 +403,7 @@ function PlanFoot({ topic, plan, summary, sessionOf }: { topic: Topic; plan: Pla
   // The button counts what starts NOW; when everything left waits for another item, what a Start would arm.
   const startable = summary.canStart > 0 ? summary.canStart : summary.startable.length;
   const text: string[] = [];
-  if (!topic.versioned) text.push(notVersionedLine());
+  if (!topic.versioned) text.push(notVersionedLine(records));
   else if (startable > 0) text.push(canStart ? t('foot.start') : t('foot.start.others', { names: agentAccessNames(members) }));
   text.push(...byItself);
 

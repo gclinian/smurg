@@ -13,6 +13,7 @@ import { HOST_USER, makeMember, makeWelcome, presenceOf } from '../../../testing
  */
 export const GIT_REASONS = {
   notAGitRepo: msg('worktree.unavailable.notAGitRepo'),
+  gitDirGone: msg('worktree.unavailable.gitDirGone'),
   noCommit: msg('worktree.unavailable.noCommit'),
   gitNotFound: msg('worktree.unavailable.gitNotFound', { minVersion: '2.42.0' }),
   gitTooOld: msg('worktree.unavailable.gitTooOld', { version: '2.39.5', minVersion: '2.42.0' }),

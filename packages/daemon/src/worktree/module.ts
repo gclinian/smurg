@@ -4,7 +4,8 @@
 // commit, blobs at HEAD, the diff of the spec and the plan) (SPEC R9, D6, D12). Slot: `worktrees` (WorktreeManager).
 //
 // start() never fails for a workspace without git (or without a usable git): worktree mode then answers every
-// request with a clear `conflict` (detail.reason: not-a-git-repo, git-not-found, git-too-old, …), and the daemon runs.
+// request with a clear `conflict` (detail.reason: not-a-git-repo, git-dir-gone, git-not-found, git-too-old, …), and
+// the daemon runs.
 // It runs before `sessions` (DEFAULT_FEATURE_MODULES), so worktrees are reconciled before any session can ask for one,
 // and stops after it: sessions release their worktrees while this module is still up.
 import type { DaemonContext, FeatureModule } from '../core/context.ts';

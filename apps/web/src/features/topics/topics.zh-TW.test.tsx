@@ -8,6 +8,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { formatAnd } from '../../lib/format.ts';
 import { renderInColumn } from '../../testing/columns.tsx';
+import { makeWorktree } from '../../testing/fixtures.ts';
 import { useTestLocale } from '../../testing/locale.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
 import { itemBadge } from './model.ts';
@@ -115,6 +116,7 @@ describe('the topic screens in zh-TW', () => {
   it('git’s reasons for refusing a Start: one sentence each, saying what the host can do, and no commit line', () => {
     const said: Readonly<Record<GitReason, string>> = {
       notAGitRepo: '分享的資料夾不是 git 儲存庫，無法使用 worktree。主人可以在資料夾裡執行 `git init` 並提交一次，不必重新分享。',
+      gitDirGone: '分享資料夾的 .git 不見了，無法使用 worktree。主人可以把它放回去：這裡的 worktree 和合併請求都屬於那個儲存庫。',
       noCommit: '分享資料夾的 git 儲存庫還沒有任何提交，無法建立 worktree。主人可以提交一次，不必重新分享。',
       gitNotFound: '主人的電腦上找不到 git，無法使用 worktree。主人可以安裝 git 2.42.0 以上，停止分享，再從新的終端機重新分享。',
       gitTooOld: '主人電腦上的 git 是 2.39.5 版，worktree 需要 2.42.0 以上。主人可以更新 git，停止分享，再從新的終端機重新分享。',
@@ -160,6 +162,13 @@ describe('the topic screens in zh-TW', () => {
     await settle();
     expect(screen.getByText(/^工作項目還不能開始：/).textContent).toBe(
       '工作項目還不能開始：分享的資料夾不是 git 儲存庫，無法使用 worktree。主人可以在資料夾裡執行 `git init` 並提交一次，不必重新分享。項目 3 會在 1 和 2 都合併後自動開始。',
+    );
+    // A worktree exists: the folder's `.git` went. "Put it back", never "run git init".
+    act(() => {
+      conn.emit('worktree.updated', { worktree: makeWorktree({ id: 'wt_1' }) });
+    });
+    expect(screen.getByText(/^工作項目還不能開始：/).textContent).toBe(
+      '工作項目還不能開始：分享資料夾的 .git 不見了，無法使用 worktree。主人可以把它放回去：這裡的 worktree 和合併請求都屬於那個儲存庫。項目 3 會在 1 和 2 都合併後自動開始。',
     );
   });
 

@@ -23,6 +23,7 @@ import { createManualScheduler } from '../../testing/services.tsx';
 import { createWorkspaceStores } from './index.ts';
 import { FILE_REFRESH_DELAY_MS, selectDir, selectEntry } from './files.ts';
 import { isDocEditable, selectActiveDoc } from './docs.ts';
+import { isOpenMergeRequest, selectHasWorktreeRecords } from './worktrees.ts';
 
 /** Requests every non-admin store sends on a fresh channel. */
 const BASE_LOADS: readonly InteractiveRequestType[] = [
@@ -199,6 +200,33 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     expect(stores.workspace.getState().workspace?.isGitRepo).toBe(true);
   });
 
+  it("the folder's git state as an answer of the host said it (noteGitRepo): kept until the next Welcome or topic says what the folder is", async () => {
+    const { conn, stores, admit } = setup();
+    // Before the Welcome there is no workspace to say it of.
+    stores.workspace.noteGitRepo(true);
+    expect(stores.workspace.getState().workspace).toBeNull();
+    admit();
+    answerEmpty(conn);
+    await flush();
+    const welcomed = stores.workspace.getState();
+    expect(welcomed.workspace?.isGitRepo).toBe(true);
+    // The same fact changes nothing (no render for the readers of the workspace).
+    stores.workspace.noteGitRepo(true);
+    expect(stores.workspace.getState()).toBe(welcomed);
+    stores.workspace.noteGitRepo(false);
+    expect(stores.workspace.getState().workspace).toEqual({ ...welcomed.workspace, isGitRepo: false });
+    expect(stores.workspace.getState()).toMatchObject({ member: welcomed.member, settings: welcomed.settings, generation: 1 });
+    stores.workspace.noteGitRepo(true);
+    expect(stores.workspace.getState().workspace?.isGitRepo).toBe(true);
+    // The host's later word wins: a topic announced again, then a Welcome.
+    conn.emit('topic.updated', { topic: buildTopic({ versioned: false }) });
+    expect(stores.workspace.getState().workspace?.isGitRepo).toBe(false);
+    stores.workspace.noteGitRepo(false);
+    conn.hostOffline('silence');
+    admit({ resumed: true });
+    expect(stores.workspace.getState().workspace?.isGitRepo).toBe(true);
+  });
+
   it('merge request drafts are replaced, not updated: a new draft drops the worktree\'s earlier draft and conflict; a removed worktree takes its drafts', async () => {
     const { conn, stores, admit } = setup();
     admit();
@@ -218,6 +246,39 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     expect(ids()).toEqual(['mr_asked', 'mr_draft2', 'mr_other']);
     conn.emit('worktree.removed', { worktreeId: 'wt_1' });
     expect(ids()).toEqual(['mr_asked', 'mr_other']);
+  });
+
+  // 0.5.2 (the closing fixes): what makes a page say "the .git is gone, put it back" instead of "run git init".
+  // Only what a new repository would strand: a worktree, or a merge request nobody decided yet. The host's daemon
+  // words its refusals by the same rule.
+  it('worktree records that a new repository would strand: a worktree, or a merge request still open (draft, pending, conflict); decided requests are history', async () => {
+    const { conn, stores, admit } = setup();
+    admit();
+    answerEmpty(conn);
+    await flush();
+    const records = (): boolean => selectHasWorktreeRecords(stores.worktrees.getState());
+    expect(records()).toBe(false);
+    expect((['draft', 'pending', 'conflict', 'merged', 'rejected'] as const).filter((status) => isOpenMergeRequest({ status }))).toEqual(['draft', 'pending', 'conflict']);
+
+    // Requests that were decided, their worktree long removed: nothing would be stranded.
+    conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_merged', worktreeId: 'wt_gone', status: 'merged' }) });
+    conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_rejected', worktreeId: 'wt_gone', status: 'rejected' }) });
+    expect(stores.worktrees.getState().mergeRequests.size).toBe(2);
+    expect(records()).toBe(false);
+    // One that waits for the host, then decided; one that ended in a conflict, then merged.
+    conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_asked', worktreeId: 'wt_gone', status: 'pending' }) });
+    expect(records()).toBe(true);
+    conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_asked', worktreeId: 'wt_gone', status: 'conflict' }) });
+    expect(records()).toBe(true);
+    conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_asked', worktreeId: 'wt_gone', status: 'merged' }) });
+    expect(records()).toBe(false);
+    // A worktree, with or without a draft of its work; removed, it takes the draft along.
+    conn.emit('worktree.updated', { worktree: makeWorktree({ id: 'wt_1' }) });
+    expect(records()).toBe(true);
+    conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_draft', worktreeId: 'wt_1', status: 'draft', requestedBy: undefined }) });
+    conn.emit('worktree.removed', { worktreeId: 'wt_1' });
+    expect([...stores.worktrees.getState().mergeRequests.keys()].sort()).toEqual(['mr_asked', 'mr_merged', 'mr_rejected']);
+    expect(records()).toBe(false);
   });
 
   it('a resumed admission tells the stores that hold what is never replayed (onResumed)', async () => {

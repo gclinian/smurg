@@ -362,16 +362,19 @@ export function startsByItselfLines(plan: Pick<PlanInfo, 'items'>): string[] {
 }
 
 const NOT_A_GIT_REPO = msg('worktree.unavailable.notAGitRepo');
+const GIT_DIR_GONE = msg('worktree.unavailable.gitDirGone');
 
 /**
  * The plan's foot while the shared folder is not a git repository (`Topic.versioned` false; it follows the folder
  * while it is shared): why no item can start, in the words of the Start dialog's blocker and of a worktree refusal
- * (one message per reason, saying what the host can do). A repository that cannot hold worktrees for another reason
- * (no commit yet, git missing or too old, a `.git` that is no ordinary folder) is told by the Start dialog: only the
- * host's preflight knows it.
+ * (one message per reason, saying what the host can do). `gone`: a worktree or an open merge request exists
+ * (selectHasWorktreeRecords), so the folder's `.git` went: "put it back", never "run git init", as the Start dialog
+ * says then. A repository that cannot hold worktrees for another reason (no commit yet, git missing or too old, a
+ * `.git` that is no ordinary folder) is told by the Start dialog: only the host's preflight knows it.
  */
-export function notVersionedLine(): string {
-  return t('foot.noGit', { reason: renderWireText(NOT_A_GIT_REPO, renderEnglish(NOT_A_GIT_REPO)) });
+export function notVersionedLine(gone = false): string {
+  const reason = gone ? GIT_DIR_GONE : NOT_A_GIT_REPO;
+  return t('foot.noGit', { reason: renderWireText(reason, renderEnglish(reason)) });
 }
 
 /** "Ian 2 · Mei 2 · Ken 2": the split, by load. */

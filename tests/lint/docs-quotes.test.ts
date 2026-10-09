@@ -347,6 +347,12 @@ const QUOTES: readonly Quote[] = [
     part: { en: "The shared folder's git repository has no commit yet, so no worktree can be created.", 'zh-TW': '分享資料夾的 git 儲存庫還沒有任何提交，無法建立 worktree。' },
   },
   {
+    what: 'wire worktree.unavailable.gitDirGone',
+    guides: ['HOSTING'],
+    render: (locale) => wire(locale, 'worktree.unavailable.gitDirGone'),
+    part: { en: "The shared folder's .git is gone, so worktrees cannot be used.", 'zh-TW': '分享資料夾的 .git 不見了，無法使用 worktree。' },
+  },
+  {
     what: 'wire worktree.unavailable.gitNotFound',
     guides: ['HOSTING'],
     render: (locale) => wire(locale, 'worktree.unavailable.gitNotFound', { minVersion: GIT_MIN_VERSION }),

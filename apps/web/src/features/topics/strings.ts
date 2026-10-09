@@ -218,7 +218,8 @@ export const t = defineStrings(
     // ---- the plan's foot
     'foot.start': 'Start opens one agent session per item, each in its own worktree.',
     'foot.start.others': '{names} can start the plan.',
-    // {reason}: the wire catalog's sentence (worktree.unavailable.notAGitRepo), the Start dialog's words for it.
+    // {reason}: the wire catalog's sentence (worktree.unavailable.notAGitRepo, or gitDirGone when a worktree or an
+    // open merge request exists), the Start dialog's words for it.
     'foot.noGit': 'Work items cannot start yet: {reason}',
     'foot.startsByItself.one': 'Item {number} starts by itself when {items} is merged.',
     'foot.startsByItself.many': 'Item {number} starts by itself when {items} are merged.',

@@ -2,7 +2,7 @@
 // (`plan.preflight`) before `plan.start` runs. Start pins what the dialog showed (the plan's revision and the two
 // files' hashes): when a file changed meanwhile the daemon refuses, and the dialog loads the list again.
 import { isSmurgError, knownErrorReasonOf, type StartPreflight } from '@smurg/protocol';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { describeError } from '../../lib/errors.ts';
 import { gapAfter } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
@@ -47,8 +47,12 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
   const openColumn = useCommand('openColumn');
   const topic = useTopic(topicId);
   const plan = useStore(stores.topics, (state) => selectPlan(state, topicId));
-  const [attempt, setAttempt] = useState(0);
+  // One object per question to the host. `quietly`: the list on screen stays while it is asked for again (the host
+  // came back to the page).
+  const [attempt, setAttempt] = useState({ quietly: false });
   const [load, setLoad] = useState<Load>({ status: 'loading' });
+  /** The latest `plan.preflight` is not answered yet. */
+  const asking = useRef(false);
   const [changed, setChanged] = useState(false);
   const [showChanges, setShowChanges] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -58,13 +62,19 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
   useEffect(() => stores.topics.ensurePlan(topicId), [stores, topicId]);
   useEffect(() => {
     let current = true;
-    setLoad({ status: 'loading' });
+    asking.current = true;
+    if (!attempt.quietly) setLoad({ status: 'loading' });
     stores.topics.preflight(topicId, idsKey === '' ? undefined : idsKey.split(',')).then(
       (preflight) => {
-        if (current) setLoad({ status: 'ready', preflight });
+        if (!current) return;
+        asking.current = false;
+        setLoad({ status: 'ready', preflight });
       },
       (error: unknown) => {
-        if (current) setLoad({ status: 'error', message: describeError(error) });
+        if (!current) return;
+        asking.current = false;
+        // A list asked for again quietly keeps what it shows when the question fails: the next return asks again.
+        if (!attempt.quietly) setLoad({ status: 'error', message: describeError(error) });
       },
     );
     return () => {
@@ -72,8 +82,39 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
     };
   }, [stores, topicId, idsKey, attempt]);
 
-  const reload = useCallback(() => setAttempt((n) => n + 1), []);
+  const reload = useCallback(() => setAttempt({ quietly: false }), []);
+  // The shared folder became a git repository, or stopped being one, while the dialog is open (the host ran
+  // `git init` in a terminal and came back): the topic says so (`versioned`), and what the dialog shows was asked
+  // before. The list is asked for again; nothing else in a topic.updated does that.
+  const versioned = topic?.versioned;
+  const versionedSeen = useRef(versioned);
+  useEffect(() => {
+    if (versioned === undefined) return;
+    const before = versionedSeen.current;
+    versionedSeen.current = versioned;
+    if (before !== undefined && before !== versioned) reload();
+  }, [versioned, reload]);
   const preflight = load.status === 'ready' ? load.preflight : null;
+  // The dialog shows a blocker, and the host went away to do something about it (a first commit in a terminal: no
+  // event announces that one) and came back: the page is visible again, or the window has the focus again. The list
+  // is asked for again, once for the two events of one return and never while an answer is still on its way or the
+  // page is hidden. The list stays on screen meanwhile, so the click that brought the window back still lands on the
+  // control it was aimed at, and nothing typed in the dialog is lost. Nothing is asked when no blocker is shown.
+  const blocked = preflight !== null && preflight.blockers.length > 0;
+  useEffect(() => {
+    if (!blocked) return;
+    const back = (): void => {
+      if (document.visibilityState !== 'visible' || asking.current) return;
+      asking.current = true;
+      setAttempt({ quietly: true });
+    };
+    document.addEventListener('visibilitychange', back);
+    window.addEventListener('focus', back);
+    return () => {
+      document.removeEventListener('visibilitychange', back);
+      window.removeEventListener('focus', back);
+    };
+  }, [blocked]);
   const startable = preflight !== null && preflight.blockers.length === 0 && startCount(preflight) > 0;
   const headCount = preflight === null ? 0 : startHeadCount(preflight);
 

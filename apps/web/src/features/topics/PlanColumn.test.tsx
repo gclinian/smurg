@@ -6,7 +6,7 @@ import { buildPlan, buildReportSummary, buildTopic, buildWorkItem } from '@smurg
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderInColumn } from '../../testing/columns.tsx';
-import { T0, makeAgentSession } from '../../testing/fixtures.ts';
+import { T0, makeAgentSession, makeMergeRequest, makeWorktree } from '../../testing/fixtures.ts';
 import { clearAskDrafts } from './AskBox.tsx';
 import { topicDialogs } from './dialogs.ts';
 import PlanColumn from './PlanColumn.tsx';
@@ -193,6 +193,53 @@ describe('the plan column: before the start', () => {
     });
     expect(screen.queryByText(/^Work items cannot start yet:/)).toBeNull();
     expect(screen.getByText(/^Start opens one agent session per item, each in its own worktree\./)).toBeTruthy();
+  });
+
+  // 0.5.2 (the last fixes): a folder that is no repository while a worktree or an open merge request exists had a
+  // `.git` that went. The foot says what the Start dialog says then: put it back. Never "run git init" (a new
+  // repository could not merge that request). The closing fixes: a request that was decided (merged, rejected) is
+  // history and does not count; with only those, `git init` is what the foot offers.
+  it('a folder whose .git went while a worktree or an open merge request exists: the foot says to put it back, never to run git init', async () => {
+    const GONE = "Work items cannot start yet: The shared folder's .git is gone, so worktrees cannot be used. The host can put it back: the worktrees and merge requests here belong to that repository. Item 3 starts by itself when 1 and 2 are merged.";
+    const { conn } = await setup({ topic: { ...TOPIC, versioned: false } });
+    const foot = (): string | null => screen.getByText(/^Work items cannot start yet:/).textContent;
+    expect(foot()).toContain('run `git init`');
+    // Requests that were decided strand nothing: still "run git init".
+    act(() => {
+      conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_merged', worktreeId: 'wt_0', status: 'merged' }) });
+      conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_rejected', worktreeId: 'wt_0', status: 'rejected' }) });
+    });
+    expect(foot()).toContain('run `git init`');
+    // An open merge request alone is enough (its worktree may be removed already).
+    act(() => {
+      conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_1', worktreeId: 'wt_1', status: 'pending' }) });
+    });
+    expect(foot()).toBe(GONE);
+    expect(foot()).not.toContain('git init');
+    // The host rejects it: nothing open is left, and `git init` is the cure again.
+    act(() => {
+      conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_1', worktreeId: 'wt_1', status: 'rejected' }) });
+    });
+    expect(foot()).toContain('run `git init`');
+    act(() => {
+      conn.emit('worktree.updated', { worktree: makeWorktree({ id: 'wt_1' }) });
+    });
+    expect(foot()).toBe(GONE);
+    // `.git` is back: the topic is announced again and the foot offers Start.
+    act(() => {
+      conn.emit('topic.updated', { topic: TOPIC });
+    });
+    expect(screen.queryByText(/^Work items cannot start yet:/)).toBeNull();
+  });
+
+  it('a folder that is not a git repository with only a worktree on record: the same "put it back"', async () => {
+    const topic = { ...TOPIC, versioned: false };
+    const world = { role: 'agent' as const, topics: [topic], plans: { [topic.id]: BEFORE }, worktrees: [makeWorktree({ id: 'wt_1' })] };
+    const conn = topicConnection(world);
+    renderInColumn(<PlanColumn topicId={topic.id} />, { target: { kind: 'plan', topicId: topic.id }, conn, admit: false });
+    admitAs(conn, world);
+    await settle();
+    expect(screen.getByText(/^Work items cannot start yet:/).textContent).toMatch(/^Work items cannot start yet: The shared folder's \.git is gone, so worktrees cannot be used\. The host can put it back:/);
   });
 });
 

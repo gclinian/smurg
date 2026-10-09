@@ -58,6 +58,7 @@ export const HOMES_PARENTS: readonly string[] = Object.freeze(['/Users', '/home'
 export interface PreparedShare {
   readonly realPath: string;
   readonly name: string;
+  /** isRepositoryFolder of `<share>/.git` as it is when sharing starts. */
   readonly isGitRepo: boolean;
 }
 
@@ -97,9 +98,9 @@ export async function prepareShare(
   if (existing === null) await mkdir(smurgDir, { mode: 0o700 });
   else if (existing === 'not-directory' || !existing.isDirectory()) throw new ShareError('smurg-not-a-directory');
 
-  const git = await gitKind(join(share, '.git'));
-  if (git === 'dir') await excludeSmurgDir(join(share, '.git'));
-  return { realPath: share, name: basename(share) || share, isGitRepo: git !== 'none' };
+  const observed = await observeGit(share);
+  if (observed.kind === 'dir') await excludeSmurgDir(join(share, '.git'));
+  return { realPath: share, name: basename(share) || share, isGitRepo: isRepositoryFolder(observed) };
 }
 
 /** The name and the content of the `.gitignore` smurg writes into `<share>/.smurg`. */
@@ -172,6 +173,17 @@ export async function observeGit(shareRealPath: string): Promise<GitObservation>
 
 export function sameGitObservation(a: GitObservation, b: GitObservation): boolean {
   return a.kind === b.kind && a.exists === b.exists && a.plain === b.plain && a.dev === b.dev && a.ino === b.ino;
+}
+
+/**
+ * What people are told the shared folder is (`WorkspaceInfo.isGitRepo`, a topic's `versioned`): false only for what
+ * `git init` cures, that is nothing at `.git`, or a real directory there that git does not take for a repository.
+ * A git directory, a gitfile, a link, or any other entry at `.git` counts as a repository: the plan column and the
+ * new-session dialog then say nothing about `git init` (it would change nothing there), and Start says what is wrong
+ * with that `.git`. The worktree module's reasons are derived from this same answer (folderUnavailable).
+ */
+export function isRepositoryFolder(observed: GitObservation): boolean {
+  return observed.kind !== 'none' || (observed.exists && !observed.plain);
 }
 
 /**

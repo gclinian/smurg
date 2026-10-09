@@ -40,19 +40,39 @@ describe('prepareShare', () => {
     expect(await prepareShare(project, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: false });
   });
 
-  // An empty `.git` (a directory, or an empty file) is no repository (git's own rule), and nothing is
+  // An empty `.git` directory is no repository (git's own rule: no HEAD), `git init` makes it one, and nothing is
   // written into it.
-  it('does not take an empty .git for a repository and writes nothing into it', async () => {
+  it('does not take an empty .git directory for a repository and writes nothing into it', async () => {
     const dirForm = await createTempProject(base, 'dir-form', { files: { 'x.txt': 'x' } });
     await mkdir(join(dirForm, '.git'));
     expect(await prepareShare(dirForm, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: false });
     expect(await readdir(join(dirForm, '.git'))).toEqual([]);
+  });
 
+  // 0.5.2 (the last fixes): `isGitRepo` is false ONLY where the reason Start gives is "not a git repository" (what
+  // `git init` cures). A `.git` that is a file (empty, or no gitfile) or a link is "not an ordinary folder" for
+  // Start, so the folder counts as a repository here, as a gitfile share does: no page says "run git init" where it
+  // would change nothing. Nothing is written into or through such a `.git`.
+  it('reports a .git that is any other entry (an empty file, a file that is no gitfile, a link) as a repository, and writes nothing there', async () => {
     const fileForm = await createTempProject(base, 'file-form', { files: { 'x.txt': 'x' } });
     await writeFile(join(fileForm, '.git'), '', { mode: 0o444 });
-    expect(await prepareShare(fileForm, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: false });
+    expect(await prepareShare(fileForm, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: true });
+    expect(await readFile(join(fileForm, '.git'), 'utf8')).toBe('');
     const notGitfile = await createTempProject(base, 'not-gitfile', { files: { '.git': 'hello\n' } });
-    expect(await prepareShare(notGitfile, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: false });
+    expect(await prepareShare(notGitfile, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: true });
+    expect(await readFile(join(notGitfile, '.git'), 'utf8')).toBe('hello\n');
+
+    // A link to a real git directory (git works through it), and a dangling one.
+    const real = await createTempProject(base, 'real', { files: { 'a.txt': 'a' }, git: true });
+    const linked = await createTempProject(base, 'linked-git', { files: { 'x.txt': 'x' } });
+    await symlink(join(real, '.git'), join(linked, '.git'));
+    const excludeBefore = await readFile(join(real, '.git', 'info', 'exclude'), 'utf8').catch(() => null);
+    expect(await prepareShare(linked, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: true });
+    expect(await readFile(join(real, '.git', 'info', 'exclude'), 'utf8').catch(() => null)).toBe(excludeBefore);
+    expect((await lstat(join(linked, '.git'))).isSymbolicLink()).toBe(true);
+    const dangling = await createTempProject(base, 'dangling-git', { files: { 'x.txt': 'x' } });
+    await symlink(join(base, 'nowhere'), join(dangling, '.git'));
+    expect(await prepareShare(dangling, join(base, 'state'), { homeDir: join(base, 'home') })).toMatchObject({ isGitRepo: true });
   });
 
   it('accepts a gitfile (linked worktree or submodule) as a repository without writing an exclude file', async () => {

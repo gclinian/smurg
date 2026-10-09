@@ -4,7 +4,7 @@ import { SmurgError, type StartPreflight, type Topic } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { FAKE_HASH, buildPlan, buildTopic, buildWorkItem } from '@smurg/protocol/testing';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { T0 } from '../../testing/fixtures.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
 import { StartDialog } from './StartDialog.tsx';
@@ -53,8 +53,8 @@ function preflight(overrides: Partial<StartPreflight> = {}): StartPreflight {
   };
 }
 
-async function setup(options: { itemIds?: string[]; role?: 'host' | 'agent' } = {}) {
-  const world = { role: options.role ?? ('agent' as const), topics: [TOPIC], plans: { tp_1: PLAN } };
+async function setup(options: { itemIds?: string[]; role?: 'host' | 'agent'; topic?: Topic } = {}) {
+  const world = { role: options.role ?? ('agent' as const), topics: [options.topic ?? TOPIC], plans: { tp_1: PLAN } };
   const conn = topicConnection(world);
   const onClose = vi.fn();
   // A dialog opens on a person's click, in a connected workspace: admit first, then render.
@@ -75,6 +75,25 @@ async function setup(options: { itemIds?: string[]; role?: 'host' | 'agent' } = 
   };
   return { ...view, ...context, conn, onClose, openColumn, answer };
 }
+
+/** What the browser says of the page (hidden: another tab or another window is in front), announced as it does. */
+function pageIs(state: 'visible' | 'hidden'): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+  act(() => {
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+}
+
+/** The window has the focus again (the host clicked it, or switched back to the browser). */
+function windowFocused(): void {
+  act(() => {
+    window.dispatchEvent(new Event('focus'));
+  });
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(document, 'visibilityState');
+});
 
 describe('the Start dialog', () => {
   it('lists what a Start does before anything starts, and Start echoes the pins the list showed', async () => {
@@ -147,9 +166,160 @@ describe('the Start dialog', () => {
     expect(within(dialog).queryByText(/SPEC\.md and PLAN\.md/)).toBeNull();
   });
 
+  // 0.5.2 (the last fixes): a host who leaves the dialog open, runs `git init` in a terminal and comes back. The
+  // topic says the folder became a repository (`versioned`), so the dialog asks the host's list again by itself.
+  it('left open while the folder becomes a git repository, or stops being one: the list is asked for again, with no new control', async () => {
+    const NO_REPOSITORY: Topic = { ...TOPIC, versioned: false };
+    const { conn, answer } = await setup({ topic: NO_REPOSITORY });
+    const notRepo = preflight({ blockers: [{ text: GIT_REASONS.notAGitRepo, fallback: 'x' }], commit: null });
+    await answer(notRepo);
+    const dialog = screen.getByRole('dialog');
+    const first = (): string | undefined => within(dialog).getAllByRole('listitem')[0]?.textContent?.trim();
+    const startButton = (): HTMLButtonElement => within(dialog).getByRole('button', { name: 'Start' }) as HTMLButtonElement;
+    const buttons = within(dialog)
+      .getAllByRole('button')
+      .map((button) => button.textContent);
+    expect(first()).toMatch(/^Cannot start: The shared folder is not a git repository/);
+    expect(startButton().disabled).toBe(true);
+    expect(conn.requestsOf('plan.preflight')).toHaveLength(1);
+
+    // A topic announced again that says nothing new about the folder asks nothing.
+    act(() => {
+      conn.emit('topic.updated', { topic: { ...NO_REPOSITORY, name: 'Checkout, renamed' } });
+    });
+    expect(conn.requestsOf('plan.preflight')).toHaveLength(1);
+
+    // `git init` in the host's terminal: the topic is announced with `versioned`, and the dialog asks again. No
+    // event announces the first commit: the host's answer names it.
+    act(() => {
+      conn.emit('topic.updated', { topic: TOPIC });
+    });
+    expect(conn.requestsOf('plan.preflight')).toHaveLength(2);
+    expect(conn.lastRequest('plan.preflight')?.payload).toEqual({ topicId: 'tp_1' });
+    await answer(preflight({ blockers: [{ text: GIT_REASONS.noCommit, fallback: 'x' }], commit: null }));
+    expect(first()).toMatch(/^Cannot start: The shared folder's git repository has no commit yet/);
+    expect(startButton().disabled).toBe(true);
+
+    // `.git` moved away, and back with its commit: asked again each time, and Start can be pressed.
+    act(() => {
+      conn.emit('topic.updated', { topic: NO_REPOSITORY });
+    });
+    expect(conn.requestsOf('plan.preflight')).toHaveLength(3);
+    await answer(notRepo);
+    expect(first()).toMatch(/^Cannot start: The shared folder is not a git repository/);
+    act(() => {
+      conn.emit('topic.updated', { topic: TOPIC });
+    });
+    expect(conn.requestsOf('plan.preflight')).toHaveLength(4);
+    await answer(preflight());
+    expect(within(dialog).queryByText(/^Cannot start:/)).toBeNull();
+    expect(dialog.querySelector('[data-line="commit"]')).not.toBeNull();
+    expect(startButton().disabled).toBe(false);
+    // The same buttons as before: no new control.
+    expect(
+      within(dialog)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(buttons);
+  });
+
+  // 0.5.2 (the closing fixes): the host reads "no commit yet", goes to a terminal, commits and comes back. No event
+  // announces a first commit (the folder was a repository before and after), so the open dialog kept its blocker.
+  // It asks again when the page is visible again or the window has the focus again.
+  it('left open on a blocker while the host goes to a terminal and comes back: the list is asked for again, once, and stays on screen meanwhile; never while hidden, never without a blocker', async () => {
+    const { conn, answer } = await setup();
+    const asked = (): number => conn.requestsOf('plan.preflight').length;
+    const noCommit = preflight({ blockers: [{ text: GIT_REASONS.noCommit, fallback: 'x' }], commit: null });
+    // Nothing is shown yet (the first answer is on its way): coming back asks nothing more.
+    windowFocused();
+    pageIs('visible');
+    expect(asked()).toBe(1);
+    await answer(noCommit);
+    const dialog = screen.getByRole('dialog');
+    const first = (): string | undefined => within(dialog).getAllByRole('listitem')[0]?.textContent?.trim();
+    const startButton = (): HTMLButtonElement => within(dialog).getByRole('button', { name: 'Start' }) as HTMLButtonElement;
+    const buttons = within(dialog)
+      .getAllByRole('button')
+      .map((button) => button.textContent);
+    const NO_COMMIT = /^Cannot start: The shared folder's git repository has no commit yet/;
+    expect(first()).toMatch(NO_COMMIT);
+
+    // The host leaves for the terminal. While the page is hidden nothing is asked, whatever event arrives.
+    pageIs('hidden');
+    windowFocused();
+    expect(asked()).toBe(1);
+
+    // Back: the page is visible again and the window has the focus again, the two events of one return. One
+    // question, and the list stays on screen while the host answers (no "Checking…" in its place).
+    pageIs('visible');
+    windowFocused();
+    expect(asked()).toBe(2);
+    expect(conn.lastRequest('plan.preflight')?.payload).toEqual({ topicId: 'tp_1' });
+    expect(first()).toMatch(NO_COMMIT);
+    expect(within(dialog).queryByText('Checking what a Start would do…')).toBeNull();
+    // More of them while that answer is on its way ask nothing.
+    windowFocused();
+    pageIs('visible');
+    windowFocused();
+    expect(asked()).toBe(2);
+    // Nothing was committed yet: the same list.
+    await answer(noCommit);
+    expect(first()).toMatch(NO_COMMIT);
+    expect(startButton().disabled).toBe(true);
+
+    // A question that fails on the way back leaves the list as it is; the next return asks again.
+    windowFocused();
+    expect(asked()).toBe(3);
+    await act(async () => {
+      conn.fail('plan.preflight', new SmurgError('internal', 'not now'));
+    });
+    expect(first()).toMatch(NO_COMMIT);
+    expect(within(dialog).queryByText(/^Could not check the plan/)).toBeNull();
+
+    // The host committed and comes back (only the window's focus this time): the blocker is gone, Start can be pressed.
+    windowFocused();
+    expect(asked()).toBe(4);
+    await answer(preflight());
+    expect(within(dialog).queryByText(/^Cannot start:/)).toBeNull();
+    expect(dialog.querySelector('[data-line="commit"]')).not.toBeNull();
+    expect(startButton().disabled).toBe(false);
+
+    // No blocker is shown: leaving and coming back asks nothing.
+    pageIs('hidden');
+    pageIs('visible');
+    windowFocused();
+    expect(asked()).toBe(4);
+    // The same buttons as before: no new control.
+    expect(
+      within(dialog)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(buttons);
+  });
+
+  it('coming back to a list that could not be loaded, or to a closed dialog, asks nothing', async () => {
+    const { conn, answer, unmount } = await setup();
+    const asked = (): number => conn.requestsOf('plan.preflight').length;
+    await act(async () => {
+      conn.fail('plan.preflight', new SmurgError('conflict', msg('topic.archived')));
+    });
+    windowFocused();
+    pageIs('visible');
+    expect(asked()).toBe(1);
+    // Retry is the control for that; then a blocker, and the dialog is closed.
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(asked()).toBe(2);
+    await answer(preflight({ blockers: [{ text: GIT_REASONS.noCommit, fallback: 'x' }], commit: null }));
+    unmount();
+    windowFocused();
+    pageIs('visible');
+    expect(asked()).toBe(2);
+  });
+
   it('git says why it stops the start, one message per reason with what the host can do, and no commit line', async () => {
     const said: Readonly<Record<GitReason, string>> = {
       notAGitRepo: 'The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.',
+      gitDirGone: "The shared folder's .git is gone, so worktrees cannot be used. The host can put it back: the worktrees and merge requests here belong to that repository.",
       noCommit: "The shared folder's git repository has no commit yet, so no worktree can be created. The host can commit once, without sharing again.",
       gitNotFound: "git was not found on the host's computer, so worktrees cannot be used. The host can install git 2.42.0 or later, stop sharing, and share again from a new terminal.",
       gitTooOld: "The host's git is version 2.39.5, and worktrees need 2.42.0 or later. The host can update git, stop sharing, and share again from a new terminal.",

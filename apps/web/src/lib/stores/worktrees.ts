@@ -46,6 +46,24 @@ export const selectWorktreeList = (state: WorktreesState): WorktreeInfo[] => [..
 export const selectMergeRequestList = (state: WorktreesState): MergeRequest[] =>
   [...state.mergeRequests.values()].sort((a, b) => b.createdAt - a.createdAt);
 export const selectPendingMergeRequests = (state: WorktreesState): MergeRequest[] => selectMergeRequestList(state).filter((r) => r.status === 'pending');
+/**
+ * A merge request nobody decided yet: a `draft` (a snapshot nobody asked to merge), a `pending` one, and one that
+ * ended in a `conflict` (the host can merge it again). `merged` and `rejected` are decided.
+ */
+export const isOpenMergeRequest = (request: Pick<MergeRequest, 'status'>): boolean =>
+  request.status === 'draft' || request.status === 'pending' || request.status === 'conflict';
+/**
+ * A worktree exists, or a merge request that is still open: what a new repository would strand. A shared folder that
+ * is no git repository then had a `.git` that went (0.5.2): no page says "run git init" (a new repository cannot
+ * merge those requests), and the plan's foot says "put it back". Requests that were decided (merged, rejected) are
+ * history and do not count: a folder with only those is simply not a repository. The host's daemon words its
+ * refusals by the same rule (worktree.unavailable.gitDirGone).
+ */
+export const selectHasWorktreeRecords = (state: WorktreesState): boolean => {
+  if (state.worktrees.size > 0) return true;
+  for (const request of state.mergeRequests.values()) if (isOpenMergeRequest(request)) return true;
+  return false;
+};
 
 export function createWorktreesArea(): { store: WorktreesStore; lifecycle: AreaLifecycle } {
   const state = createStore<WorktreesState>(INITIAL_WORKTREES_STATE);

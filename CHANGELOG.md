@@ -19,12 +19,13 @@ section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.m
   names the command that takes it out (`git rm -r --cached .smurg`, then a commit) ([host guide](docs/HOSTING.md)
   §10.2).
 - **When git is why Start cannot run, the dialog says which reason and what to do.** The reasons: not a
-  repository yet, no commit yet, git not found, too old or not running, a `.git` that is not an ordinary folder (a
-  git worktree or a submodule), smurg's folder for worktrees replaced, or a look at the repository that failed for a
-  moment. Each says whether sharing has to start again: only for git itself and for the folder for worktrees. A
-  session that asks for a worktree of its own is refused with the same sentences. Before, every reason read as a
-  folder that was not a repository yet, with the advice to run `git init`, and the dialog could offer a commit on a
-  branch that could not be used ([host guide](docs/HOSTING.md) §8).
+  repository yet, no commit yet, a `.git` that went while there are worktrees or merge requests that still wait
+  (put it back, do not run `git init`), git not found, too old or not running, a `.git` that is not an ordinary
+  folder (a git worktree or a submodule), smurg's folder for worktrees replaced, or a look at the repository that
+  failed for a moment. Each says what the host can do; sharing has to start again only for git itself and for the
+  folder for worktrees. A session that asks for a worktree of its own is refused with the same sentences. Before,
+  every reason read as a folder that was not a repository yet, with the advice to run `git init`, and the dialog
+  could offer a commit on a branch that could not be used ([host guide](docs/HOSTING.md) §8).
 - **The protocol did not change**: 0.5.1 and this version connect to each other and open each other's workspaces; a
   page of 0.5.1 shows a reason it does not know in English. A host who still runs 0.5.1 has to stop sharing and
   share again after `git init`, even where a newer page says otherwise. If you run your own relay, deploy it again

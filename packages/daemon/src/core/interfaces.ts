@@ -2077,7 +2077,11 @@ export type SnapshotResult =
 
 /** WorktreeManager.mainState(). */
 export interface MainState {
-  /** `<share>/.git` is a repository (WorkspaceInfo.isGitRepo, as it is now). */
+  /**
+   * `<share>/.git` is a repository (WorkspaceInfo.isGitRepo, as it is now): false only while `unavailable` is, or
+   * would be once git itself works, "not a git repository" or "the .git is gone". A gitfile, a link or any other
+   * entry at `.git` counts as one.
+   */
   readonly isRepo: boolean;
   readonly hasCommit: boolean;
   /** A usable git was found (looked for at the start, when a repository appeared, or once when first asked). */
@@ -2158,9 +2162,14 @@ export interface WorktreeManager {
   /**
    * Looks at `<share>/.git` again (0.5.2): file calls only while nothing changed. A repository that appeared gets the
    * exclude line and the detection of git (worktree mode may become available); a `.git` that went or changed into
-   * something else makes worktree mode unavailable (nothing is deleted). Callers at the same time share one run;
-   * never throws (a failed look keeps what was known). `timer`: the topics module's sweep, which never repeats a
-   * detection that threw (that would run git every few seconds).
+   * something else makes worktree mode unavailable (nothing is deleted). Callers at the same time share one run
+   * (but a request that finds the sweep's run under way after a look that failed: it waits, then looks itself);
+   * never throws. A look that failed (the detection threw) leaves worktree mode on when it was on; when it was off,
+   * the reason becomes "could not look, try again in a moment" (not a reason found for the `.git` that was there
+   * before), and whether the folder is a repository follows what was seen. The next request looks again: Start, a
+   * worktree asked for, a merge request made, shown or decided, a snapshot, an update from the main workspace.
+   * `timer`: the topics module's sweep, which never repeats a detection that threw (that would run git every few
+   * seconds).
    */
   refreshGitState(options?: { readonly timer?: boolean }): Promise<void>;
   /** After a merge conflict: snapshot, merge the main HEAD without committing, record the second parent and the conflicted files. */
@@ -2268,7 +2277,9 @@ export interface WorkspaceDescriptor {
   readonly info: WorkspaceInfo;
   /**
    * The worktree module saw `<share>/.git` become a repository or stop being one (0.5.2): `info.isGitRepo` follows and
-   * the bus says `workspace.git` when it changed. Nothing else changes `info`.
+   * the bus says `workspace.git` when it changed. Nothing else changes `info`. False only for a folder `git init`
+   * would make a repository (workspace/share.ts isRepositoryFolder): a `.git` that is a gitfile, a link or any other
+   * entry reports true, and Start says what is wrong with it.
    */
   noteGitRepo(isGitRepo: boolean): void;
   /** realpath of the shared folder. */
