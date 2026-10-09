@@ -32,8 +32,9 @@ hand-written HTML and CSS in `public/`; the docs pages are generated from the re
 
 The `public/_headers` file (copied into `dist/`) sets the security headers for every file: a strict CSP (only this
 site's own files, no inline code, Trusted Types), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, a
-deny-by-default `Permissions-Policy`, HSTS. A page loads `/style.css`, `/copy.js` (the copy button of the landing pages;
-the page works without it) and `/favicon.svg`, nothing else: no third-party requests, no analytics, no web fonts. The
+deny-by-default `Permissions-Policy`, HSTS. A page loads `/style.css` and `/favicon.svg`; the landing pages also load
+`/copy.js` (the copy button) and `/demo.js` (the strip of the moving picture; Pause works without it), and make sense
+without either. Nothing else: no third-party requests, no analytics, no web fonts. The
 preview pictures are the one exception to `Cross-Origin-Resource-Policy: same-origin`: other sites and apps show them,
 so `_headers` takes that header away for them (`! Cross-Origin-Resource-Policy`) and sends `cross-origin`.
 
@@ -139,13 +140,18 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
 
 ## Editing
 
-- Landing pages: both languages have the same sections, ids and links in the same order (`test/site.test.ts`
-  checks). Change the English page first, then the Traditional Chinese one, with the terms of `docs/GLOSSARY.md`
-  (Host / Agent access / Editor / Viewer, and their zh-TW names in the same table). There is no sandbox
-  (ARCHITECTURE §11 D-15): say so plainly where it matters, never describe one.
-- Keep the landing pages light: one or two short sentences per step, feature, point or answer, and the details in the
-  guides, which the pages link. A sentence that a test holds (what was tested and with what, whose Claude account,
-  what the Agent access role allows) stays, in its words.
+- Landing pages: both languages have the same sections, ids, links and markup (every element and its classes) in the
+  same order; only the words differ (`test/site.test.ts` checks). Change the English page first, then the Traditional
+  Chinese one, with the terms of `docs/GLOSSARY.md` (Host / Agent access / Editor / Viewer, and their zh-TW names in
+  the same table). There is no sandbox (ARCHITECTURE §11 D-15): say so plainly where it matters, never describe one.
+- A landing page is one sentence and one moving picture, and nothing below repeats the picture: the h1 (at most 9
+  words; the preview pictures say it too), one line under it, the install command with the note for people who got
+  an invite link, the picture, four cards (a bold line of at most 6 words and ONE sentence of at most 18), and
+  "Before you share" (three one-line facts and the link to the host guide: each fact is one sentence that fits one
+  line of a wide page, about 130 characters). The tests count. Everything else (how to
+  share and join, the security points and limits, platforms, questions) is the guides' job. A sentence that a test
+  holds (what was tested and with what, whose Claude account, that agents run as the host with no sandbox and whom to
+  give Agent access) stays, in its words.
 - Only state what `README.md`, `CHANGELOG.md` and `docs/` back. When in doubt, cut the sentence. The pages show no
   version number: what changed in a version is the changelog's job.
 - The docs pages: edit `docs/HOSTING.md`, `docs/JOINING.md` or `CHANGELOG.md` and their counterparts in
@@ -156,22 +162,94 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
 - Text the guides and the landing pages quote from the app or the CLI (button labels, messages, the sample output of
   `smurg host`) must be the real strings of that language: the web catalogs (`apps/web/src/**/strings*.ts`), the CLI
   catalog (`packages/cli/src/i18n/`) and the shared catalog (`packages/protocol/src/i18n/`).
-- No inline `<script>`, `<style>`, `style="…"` or `on…=` handlers: the CSP blocks them. Colours and type live in
-  `public/style.css` (the page's tokens follow `apps/web/src/ui/tokens.css`; the workspace picture in the hero has
-  its own, the app's). Rules for Chinese typography use `html:lang(zh-Hant)`.
-- The workspace picture under the install line (`.mock`) is drawn after the web app's sessions view
-  (`apps/web/src/app/workspace/SessionsView.tsx`: the inbox and the session list on the left, a discussion with a
-  question card, the plan and a result report as columns), with the app's own labels in the page's language. Text that
-  a person or an agent would have written (a topic's name, a question, a message, a report's sentences) is in an
-  element with the class `m-said`, and a command in a `pre.m-term`; everything else in it is a label of a catalog, and
-  the quote lint (`tests/lint/docs-quotes.test.ts`) holds it to that. It is hidden below 720 px and shows one, two or
-  three columns as the window widens. Keep its labels equal to the app's strings when the app changes them.
+- No inline `<script>`, `<style>`, `style="…"` or `on…=` handlers: the CSP blocks them, and Trusted Types refuses a
+  script that writes HTML (`copy.js` and `demo.js` set text, classes and attributes only). Colours and type live in
+  `public/style.css` (the page's tokens follow `apps/web/src/ui/tokens.css`; the picture has a few of its own, the
+  app's surfaces, states and member colours). Rules for Chinese typography use `html:lang(zh-Hant)`.
 - A new file in `public/` is served without running the Worker; `test/site.test.ts` lists the expected files (update
   it on purpose). Only SVG images, but for the two preview pictures (PNG, above); `public/` without them stays under
   160 KB, and every page with what it loads under 176 KB (150 KB until 0.5.1, 164 KB until 0.5.2: the host guide,
-  the longest page, grew by its parts on updating and on git).
+  the longest page, grew by its parts on updating and on git). Every docs page loads the one stylesheet (about 37 KB
+  since the picture moves), so a rule added for the home page counts against the host guide's bound too.
+- The install line and its Copy button. On a narrow screen the command breaks in one place, after `-fsSL` (the rest
+  is one `<span>` that does not wrap). The button says "Copied" on itself. When the clipboard refuses, `copy.js`
+  selects the command and writes the hint (`data-fail`) into the status line beside it, which then takes the place of
+  the note for people with an invite link for 2.5 s (the class `copy-hint`; the two share a cell of the row): the
+  button keeps its word, so nothing on the page changes its size.
+- The first screen. The question card with its Submit button is the first thing that moves, so it has to be above
+  the fold of a real browser window, which is about 110 px shorter than the screen: the hero's spacing is tight on
+  purpose; in a short laptop window (at least 1000 px wide, less than 700 px high) the h1 goes on ONE line and the
+  stage starts closer to the window's bars; on a phone the h1 takes two lines, not three (its size follows the
+  width), and the window is drawn without its browser bar. After a change to the hero, measure where the card and
+  its button end at 1366 x 657, 1280 x 609, 1024 x 590 and 390 x 664 (today: the whole card at the first two, the
+  whole button at the third; on the phone both options, and the button is cut).
 - A new redirect goes into `src/routes.ts`, and its path into `run_worker_first` in `wrangler.jsonc` (the test fails
   otherwise), and into the table above.
+
+### The picture on the landing pages
+
+Under the install line stands one browser window drawn in HTML (`.win`), in which a topic plays as four scenes:
+**Decide** (a question card, three votes, the answer is submitted), **Plan** (the spec and the plan as two files,
+three work items, Start), **Build** (one agent per work item side by side, one asks for permission to run a command)
+and **Review** (the result report is marked as reviewed, the host merges). Over it a strip names the four parts and
+holds the Pause button (`.tabs`); under it four cards say each part in one sentence. It is an illustration, not a
+screenshot: `.win` is `role="img"`, its `aria-label` tells the whole story in words, and the caption under it says so.
+
+- **The words in it.** Everything inside `.m-app` that imitates the app is the app's real string of the page's
+  language (the web catalogs, `apps/web/src/**/strings*.ts`). What a person or an agent would have written (the
+  topic's name, the question and its options, an item's title, a report's sentence, a file or branch name) is in an
+  element with the class `m-said`, a number in an `i.m-count`, a command in a `pre.m-term`. The quote lint
+  (`tests/lint/docs-quotes.test.ts`) holds it both ways: every other text in `.m-app` must be catalog text, and the
+  labels listed in its `PICTURE_QUOTES` must be on both pages as the catalogs render them. When the app renames a
+  label, rename it here; when a scene gets a new label, add it to that list. One label is the catalog's without its
+  end: the app writes "Allowed once by Ben" with the time of the answer after it; the picture has no clock and
+  leaves the time out (the list holds the part that is shown). What the agents are seen doing needs no request by
+  the host guide (they read, edit and create files in their own worktree); the one command in the picture is asked
+  for first. Keep it so: a command that runs unasked would be a claim the guides do not back.
+- **The timeline** is the stylesheet's ("the motion" in `style.css`) and the classes in the markup; the script
+  knows only how long a scene is. A scene lasts `--scene` (5 s) and the four are the loop, `--loop` (20 s). A scene's place in the loop
+  is the class `in1`, `in2` or `in3` (none for the first) on the scene, on its part of the strip and on its card. A
+  part's moment is a class `tNN`, tenths of a second into its scene (`t07` = 0.7 s; each value in use has a one-line
+  rule in the stylesheet), next to what it does then: `a-in` (appears), `a-out` (goes), `a-pop` (a vote's avatar),
+  `a-rise` (a row), `a-draw` (a line of the spec), `a-press` (a button is pressed) and `a-cur` (the pointer: it sets
+  out 0.5 s before the press, and what the press leaves behind comes 0.3 s after it). What takes another's place
+  shares a cell with it (`.m-swap`); what comes and later goes is an `a-in` around an `a-out`. A pointer
+  (`.m-cur`) stands at the right end of the nearest `.m-act` around it. In Decide and Plan that is the action cell
+  at the end of the row, whose right edge is the button's. Where a second button follows (the permission card) or
+  the cell is aligned to the left (the report), a `.m-act` wraps the button and its pointer alone, so the pointer
+  meets its button in both languages, whatever their widths. Keep every moment before 4.6 s: the scene fades at
+  4.8 s, and what a scene ends on should stand for about a second before that. The three chips in the window's top bar (the work items, from the plan to
+  the merge) live through several scenes, so their keyframes (`chips`, `chip-run`, `chip-ask`, `chip-done`,
+  `chip-ok`, `chip-merged`) are written in percent of the whole loop: move them when the moments they follow move.
+- **Changing a scene.** The markup IS the finished scene: without any animation each part stands as it does at the
+  end of its scene (what is gone by then carries `a-out`), which is what reduced motion shows. Edit the English page,
+  give each new part its moment, add the `tNN` rule if the value is new, then make the same change in the Chinese
+  page (the test compares the two pages' elements and classes one for one). Only opacity and transform may move (a
+  test reads the keyframes), every part keeps its place in the layout from the first moment, so nothing jumps. If
+  `--scene` changes, `SCENE` in `demo.js` changes with it (a test holds the two equal). Then look at it: at 1440,
+  1366 x 657 and 1280 x 609 (a browser window on a small laptop: the question card with its button must be in the
+  first screen), between 860 and 1040 (the three agents' columns are at their narrowest), 768 and 360 px wide,
+  light and dark, in both languages.
+- **Reduced motion, and Pause.** All of the motion sits inside `@media (prefers-reduced-motion: no-preference)` and,
+  in it, `@supports selector(:popover-open)`. Outside of it nothing moves: the window shows all four scenes at once,
+  each finished, under its number and name (two by two from 900 px, under each other on a phone), and there is no
+  strip. The loop never ends by itself, so it can be paused by a real button, and that is markup and stylesheet
+  alone, with or without `demo.js`: the button opens the popover `#story-paused`, and the stylesheet stops every
+  animation while it is open (that is why the motion needs popovers; a browser without them gets the still
+  picture). `demo.js` never touches the button or the popover (a test holds that); it reads whether the popover is
+  open, makes the parts of the strip work (a press jumps to that scene; while paused it shows the scene finished and
+  stays paused), marks the part that is on (`aria-current="step"`), holds the loop while the window is off the
+  screen (the class `is-away`) and puts every animation back on one clock after a resize. Without the script the
+  loop plays and Pause works; the four parts of the strip are then disabled buttons: they look as they do with the
+  script but do not answer the pointer, and a screen reader is told four unavailable buttons (accepted: making them
+  look different would change their colour for every visitor in the moment before the script runs). Also without
+  the script, the parts that a narrow window hides start their clocks again when the window grows past 860 px, and
+  stay out of step with the loop until the page is loaded again.
+- **Small screens.** Below 860 px, and in every scene of the still picture, the picture simplifies instead of
+  shrinking: the parts marked `m-x` leave (the spec beside the plan, the tool lines and worktree names of the agents,
+  the report's list of changes) and the three agents stand under each other. Below 480 px the window has no browser
+  bar. Nothing in the window is cut by an ellipsis: where a card's title and its state do not fit one line (the
+  agents' columns from 860 to about 1040 px, a phone), the state goes under the title.
 
 ## Checks
 
@@ -249,6 +327,6 @@ curl -sI http://smurg.ai/                           # 301 to https://smurg.ai/ (
 curl -fsSIL https://smurg.ai/install.sh             # the last status line is 200 once a release is published to R2
 ```
 
-The page's "Web app" link points at https://app.smurg.ai, and its invite-link example
-(`https://app.smurg.ai/join/<id>#…`) assumes that the released CLI's default relay is https://app.smurg.ai
+The pages' "Web app" link points at https://app.smurg.ai, and the address in the landing pages' picture
+(`app.smurg.ai`) assumes that the released CLI's default relay is https://app.smurg.ai
 (`packages/cli/src/relay/default-relay.ts`) and that `README.md` and `docs/` say the same.

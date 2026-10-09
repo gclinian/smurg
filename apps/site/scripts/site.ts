@@ -91,15 +91,15 @@ export const SOCIAL_CARD_SIZE = { width: 1200, height: 630 } as const;
 export const SOCIAL_CARD: Readonly<Record<Lang, SocialCard>> = {
   en: {
     path: '/og.png',
-    lines: ['A real-time workspace for your', 'team and Claude Code, hosted', 'on your own computer.'],
+    lines: ['A real-time workspace for', 'your team and Claude Code.'],
     chips: ['Open source · MIT', 'macOS and Linux', 'End-to-end encrypted'],
-    alt: 'smurg: a real-time workspace for your team and Claude Code, hosted on your own computer.',
+    alt: 'smurg: a real-time workspace for your team and Claude Code.',
   },
   'zh-TW': {
     path: '/zh-TW/og.png',
-    lines: ['架在你自己電腦上的即時工作區，', '讓組員和 Claude Code 一起工作。'],
+    lines: ['給團隊和 Claude Code', '用的即時協作工作區。'],
     chips: ['開放原始碼 · MIT', 'macOS 與 Linux', '端對端加密'],
-    alt: 'smurg：架在你自己電腦上的即時工作區，讓組員和 Claude Code 一起工作。',
+    alt: 'smurg：給團隊和 Claude Code 用的即時協作工作區。',
   },
 };
 

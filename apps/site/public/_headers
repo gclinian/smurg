@@ -16,6 +16,8 @@
   Cache-Control: public, max-age=3600
 /copy.js
   Cache-Control: public, max-age=3600
+/demo.js
+  Cache-Control: public, max-age=3600
 /favicon.svg
   Cache-Control: public, max-age=86400
 /third-party-notices.txt

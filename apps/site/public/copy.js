@@ -10,13 +10,22 @@
     if (!source) continue;
     const label = button.textContent;
     let timer = 0;
-    const say = (text) => {
-      button.textContent = text;
-      if (status) status.textContent = text;
+    // What happened goes on the button ("Copied") and into the status line for screen readers. A hint (the clipboard
+    // said no) is too long for the button: it shows in the status line instead, which the stylesheet puts in the
+    // place of the note beside the command for that moment, so nothing on the page changes its size.
+    const say = (text, hint = false) => {
+      if (!hint || !status) button.textContent = text;
+      if (status) {
+        status.textContent = text;
+        status.className = hint ? 'copy-hint' : 'visually-hidden';
+      }
       clearTimeout(timer);
       timer = setTimeout(() => {
         button.textContent = label;
-        if (status) status.textContent = '';
+        if (status) {
+          status.textContent = '';
+          status.className = 'visually-hidden';
+        }
       }, 2500);
     };
     button.hidden = false;
@@ -30,7 +39,7 @@
           const selection = window.getSelection();
           selection?.removeAllRanges();
           selection?.addRange(range);
-          say(button.getAttribute('data-fail') ?? '');
+          say(button.getAttribute('data-fail') ?? '', true);
         },
       );
     });

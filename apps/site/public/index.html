@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>smurg: a real-time workspace for your team and Claude Code</title>
-<meta name="description" content="Share a project folder from your own computer. Your team discusses a feature with a Claude Code agent, votes on its questions, and reviews what its agents build, in a browser. End-to-end encrypted, open source (MIT), for macOS and Linux.">
+<meta name="description" content="Share a project folder from your own computer. Your team discusses a feature with a Claude Code agent, votes on its questions, and reviews what the agents build, in a browser. End-to-end encrypted, open source (MIT), for macOS and Linux.">
 <link rel="canonical" href="https://smurg.ai/">
 <link rel="alternate" hreflang="en" href="https://smurg.ai/">
 <link rel="alternate" hreflang="zh-Hant-TW" href="https://smurg.ai/zh-TW/">
@@ -17,7 +17,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="smurg">
 <meta property="og:title" content="smurg: a real-time workspace for your team and Claude Code">
-<meta property="og:description" content="Share a project folder from your own computer. Your team discusses a feature with a Claude Code agent, votes on its questions, and reviews what its agents build. End-to-end encrypted.">
+<meta property="og:description" content="Share a project folder from your own computer. Your team discusses a feature with a Claude Code agent, votes on its questions, and reviews what the agents build. End-to-end encrypted.">
 <meta property="og:url" content="https://smurg.ai/">
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="zh_TW">
@@ -25,13 +25,14 @@
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="smurg: a real-time workspace for your team and Claude Code, hosted on your own computer.">
+<meta property="og:image:alt" content="smurg: a real-time workspace for your team and Claude Code.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://smurg.ai/og.png">
-<meta name="twitter:image:alt" content="smurg: a real-time workspace for your team and Claude Code, hosted on your own computer.">
+<meta name="twitter:image:alt" content="smurg: a real-time workspace for your team and Claude Code.">
 <meta name="twitter:title" content="smurg: a real-time workspace for your team and Claude Code">
-<meta name="twitter:description" content="Share a project folder from your own computer. Your team discusses a feature with a Claude Code agent, votes on its questions, and reviews what its agents build.">
+<meta name="twitter:description" content="Share a project folder from your own computer. Your team discusses a feature with a Claude Code agent, votes on its questions, and reviews what the agents build.">
 <script src="/copy.js" defer></script>
+<script src="/demo.js" defer></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -44,10 +45,6 @@
     </a>
     <nav class="site-nav" aria-label="Main">
       <ul>
-        <li class="jump"><a href="#how">How it works</a></li>
-        <li class="jump"><a href="#features">Features</a></li>
-        <li class="jump"><a href="#security">Security</a></li>
-        <li class="jump"><a href="#faq">FAQ</a></li>
         <li><a href="/docs/">Docs</a></li>
         <li><a href="https://github.com/gclinian/smurg">GitHub</a></li>
         <li class="lang"><a href="/zh-TW/" hreflang="zh-Hant-TW" lang="zh-Hant-TW">繁體中文</a></li>
@@ -59,475 +56,178 @@
 <main id="main">
 
 <section class="hero wrap" aria-labelledby="hero-title">
-  <p class="eyebrow"><span class="chip">Open source · MIT</span> <span>macOS and Linux</span></p>
-  <h1 id="hero-title">A real-time workspace for your team and Claude&nbsp;Code, hosted on your own computer.</h1>
-  <p class="lede">Share a project folder with <code>smurg host</code>. In the browser, your team plans a feature with a Claude Code agent, agents build it, and people review each result. The relay in between only forwards end-to-end encrypted data.</p>
+  <h1 id="hero-title">A real-time workspace for your team and Claude&nbsp;Code.</h1>
+  <p class="lede">Hosted on your own computer. Teammates join in a browser, end-to-end&nbsp;encrypted.</p>
 
   <div class="install">
-    <p class="install-label" id="install-label">Install on the computer that shares the folder</p>
-    <div class="command" role="group" aria-labelledby="install-label">
-      <code id="install-cmd">curl -fsSL https://smurg.ai/install.sh | sh</code>
+    <div class="command" role="group" aria-label="Install on macOS or Linux">
+      <code id="install-cmd">curl -fsSL <span>https://smurg.ai/install.sh | sh</span></code>
       <button type="button" class="copy" data-copy="install-cmd" data-done="Copied" data-fail="Press ⌘C or Ctrl+C" hidden>Copy</button>
     </div>
     <p class="visually-hidden" role="status" id="copy-status"></p>
-    <p class="install-note">The script downloads one executable from <code>downloads.smurg.ai</code> and installs it to <code>~/.local/bin</code> only if its SHA-256 matches the release’s <code>SHA256SUMS</code>. No Node.js needed.</p>
-    <p class="ui-note">Got an invite link? Open it in Chrome; there is nothing to install.</p>
+    <p class="install-note">Got an invite link? Open it in Chrome; there is nothing to install.</p>
   </div>
 
-  <figure class="mock-figure">
-    <div class="mock" role="img" aria-label="Illustration of a smurg workspace in the browser, as the host Ian sees it. On the left, his inbox (a question to decide and things to look at) and the sessions of the topic Checkout. On the right, three columns side by side: the topic’s discussion, where the agent’s question has three votes and waits for Ian’s answer; the plan with its three work items; and the result report of the first item, ready to be marked as reviewed.">
-      <svg class="visually-hidden" aria-hidden="true" focusable="false">
-        <symbol id="i-agent" viewBox="0 0 16 16"><rect x="2.75" y="5.25" width="10.5" height="8" rx="2"/><path d="M8 2.25v3M6 9.25v.01M10 9.25v.01M6.25 11.5h3.5"/></symbol>
-      </svg>
-      <div class="m-app">
-        <div class="m-chrome"><span class="m-dots"><i></i><i></i><i></i></span><span class="m-url">app.smurg.ai/w/Q7mX2cK9vT4pL8nR3wZ5aB</span></div>
-        <div class="m-top">
-          <span class="m-word">smurg</span><span class="m-divider"></span><span class="m-ws">my-app</span><span class="m-host">Host: Ian</span><span class="m-pill">Connected</span>
-          <span class="m-spacer"></span>
-          <span class="m-avs"><i class="av av-ian">IA</i><i class="av av-amy">AM</i><i class="av av-ben">BE</i></span><span class="m-badge m-role">Host</span>
-          <span class="m-btn">Host console</span><span class="m-seg"><span class="on">Sessions</span><span>Code mode</span></span><span class="m-btn">Leave</span>
-        </div>
-        <div class="m-body">
-          <div class="m-left">
-            <div class="m-ph">Inbox<i class="m-count m-count-wait">1</i><i class="m-count">2</i></div>
-            <div class="m-grp">Agents are waiting</div>
-            <div class="m-row on"><i class="m-k">?</i><div class="m-rt"><span class="m-said">Where should the cart be kept?</span><span class="m-sub"><span class="m-said">Checkout</span> › <span>Discussion</span></span></div></div>
-            <div class="m-grp">For you to look at</div>
-            <div class="m-row"><i class="m-k m-k-look">✓</i><div class="m-rt"><span>Result report: <span class="m-said">1 · Cart API</span></span><span class="m-sub"><span class="m-said">Checkout</span></span></div></div>
-            <div class="m-row"><i class="m-k m-k-look">›</i><div class="m-rt"><span>Ben: <span class="m-said">keep the cart for 30 days</span></span><span class="m-sub"><span class="m-said">Checkout</span> › <span>Discussion</span></span></div></div>
-            <div class="m-ph">Sessions<span class="m-btn">+ New</span></div>
-            <div class="m-filter"><span class="m-seg"><span class="on">All</span><span>Mine</span><span>Waiting</span></span></div>
-            <div class="m-topic"><span class="m-said">Checkout</span><span class="m-badge">Executing</span></div>
-            <div class="m-row on"><i class="m-g m-g-ask"></i><span>Discussion</span></div>
-            <div class="m-row"><i class="m-g m-g-doc"></i><span>Spec</span></div>
-            <div class="m-row"><i class="m-g m-g-doc"></i><span>Plan</span><span class="m-sub"><i class="m-count m-n">0</i> of <i class="m-count m-n">3</i> reviewed</span></div>
-            <div class="m-row"><i class="m-g m-g-done"></i><span class="m-said">1 · Cart API</span><i class="av av-ian">IA</i></div>
-            <div class="m-row"><i class="m-g m-g-perm"></i><span class="m-said">2 · Payment form</span><i class="av av-amy">AM</i></div>
-            <div class="m-row"><i class="m-g m-g-todo"></i><span class="m-said">3 · Checkout page</span><i class="av av-amy">AM</i></div>
-            <div class="m-topic"><span>No topic</span></div>
-            <div class="m-row"><i class="m-g m-g-term"></i><span>Terminal (Ian)</span></div>
-          </div>
-          <div class="m-col">
-            <div class="m-ch on"><i class="m-g m-g-ask"></i><span class="m-ct">Discussion</span><span class="m-sub m-said">Checkout</span></div>
-            <div class="m-strip"><span class="m-chip">Responsible: nobody</span><span class="m-chip">Main workspace</span><span class="m-chip">Reads code, writes only the spec and the plan</span></div>
-            <div class="m-conv">
-              <div class="m-msg"><i class="av av-ben">BE</i><div><div class="m-who"><b>Ben</b><span>Editor</span><span>suggestion, accepted by Ian</span></div><p class="m-said m-wrap">People fill a cart on the phone and pay on a laptop. Can it follow them?</p></div></div>
-              <div class="m-msg"><i class="av av-agent"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i><div><div class="m-who"><b>Claude</b></div><p class="m-said m-wrap">It can, if the cart is kept with the account. That is the first thing to decide.</p></div></div>
-              <div class="m-tool"><span>Read</span><code class="m-said">src/cart/store.ts</code></div>
-              <div class="m-card">
-                <div class="m-cardh"><i class="m-k">?</i><span>Question from Claude</span><span class="m-sub">All <i class="m-count m-n">3</i> voted</span></div>
-                <p class="m-said m-wrap m-q">Where should the cart be kept?</p>
-                <div class="m-opt on"><span class="m-said">On the server, with the account</span><span class="m-lead">Leading</span><span class="m-avs"><i class="av av-ian">IA</i><i class="av av-amy">AM</i></span></div>
-                <div class="m-opt"><span class="m-said">In the browser</span><span class="m-avs"><i class="av av-ben">BE</i></span></div>
-                <div class="m-note">Comments are for the team. Claude does not read them.</div>
-                <div class="m-foot"><span class="m-wrap">You decide: nobody is assigned to this session, and you opened it.</span><span class="m-btn m-btn-primary">Submit answer</span></div>
+  <div class="story">
+    <p class="visually-hidden story-state" id="story-paused" popover="manual">The picture is paused.</p>
+    <figure class="demo">
+      <div class="tabs" role="group" aria-label="Parts of the picture">
+        <button type="button" class="tab" disabled><span class="tab-n">1</span><span>Decide</span></button>
+        <button type="button" class="tab in1" disabled><span class="tab-n">2</span><span>Plan</span></button>
+        <button type="button" class="tab in2" disabled><span class="tab-n">3</span><span>Build</span></button>
+        <button type="button" class="tab in3" disabled><span class="tab-n">4</span><span>Review</span></button>
+        <button type="button" class="pause" popovertarget="story-paused">
+          <svg class="when-playing" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 3h3v10H4zM9 3h3v10H9z"/></svg>
+          <svg class="when-paused" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 2.8v10.4L13 8z"/></svg>
+          <span class="when-playing">Pause<span class="visually-hidden"> the picture</span></span>
+          <span class="when-paused">Play<span class="visually-hidden"> the picture</span></span>
+        </button>
+      </div>
+
+      <div class="win-wrap">
+        <div class="win" role="img" aria-label="Illustration of a smurg workspace in a browser, in four scenes. Decide: Claude asks where the cart should be kept; Ian, Amy and Ben vote, and Ian submits the leading answer. Plan: Claude writes a spec and a plan with three work items, and Ian starts them. Build: three agents work side by side, one per work item, each in its own worktree; one asks for permission to run a command, and Ben allows it once. Review: Amy reads the result report of the first item and marks it as reviewed, and Ian, the host, merges the change into the main workspace.">
+          <svg class="visually-hidden" aria-hidden="true" focusable="false">
+            <symbol id="i-agent" viewBox="0 0 16 16"><rect x="2.75" y="5.25" width="10.5" height="8" rx="2"/><path d="M8 2.25v3M6 9.25v.01M10 9.25v.01M6.25 11.5h3.5"/></symbol>
+            <symbol id="i-cursor" viewBox="0 0 16 16"><path d="M3 1.5v11.4l3.1-2.7 1.9 4.4 2.1-.9-1.9-4.4 4.1-.3z"/></symbol>
+            <symbol id="i-merge" viewBox="0 0 16 16"><circle cx="4.5" cy="3.75" r="1.75"/><circle cx="4.5" cy="12.25" r="1.75"/><circle cx="11.5" cy="8" r="1.75"/><path d="M4.5 5.5v5M4.5 5.5c0 2.5 2.4 2.5 5.25 2.5"/></symbol>
+          </svg>
+          <div class="m-app" aria-hidden="true">
+            <div class="m-chrome"><span class="m-lights"><i></i><i></i><i></i></span><span class="m-url">app.smurg.ai</span></div>
+            <div class="m-top">
+              <span class="m-word">smurg</span><span class="m-ws">my-app</span><span class="m-topic m-said">Checkout</span><span class="m-pill">Connected</span>
+              <span class="m-chips"><span class="m-chip"><b>1</b><i></i><i class="c-run"></i><i class="c-done"></i><i class="c-ok"></i></span><span class="m-chip"><b>2</b><i></i><i class="c-run"></i><i class="c-ask"></i></span><span class="m-chip"><b>3</b><i></i><i class="c-run"></i></span></span>
+              <span class="m-avs"><i class="av av-ian">IA</i><i class="av av-amy">AM</i><i class="av av-ben">BE</i></span>
+            </div>
+            <div class="m-stage">
+
+              <div class="scene" data-part="Decide">
+                <div class="m-card m-q">
+                  <div class="m-h"><i class="av av-agent"><svg class="ic" aria-hidden="true"><use href="#i-agent"/></svg></i><b>Question from Claude</b>
+                    <span class="m-swap m-sub"><span class="a-in t07"><span class="a-out t15"><i class="m-count">1</i> of <i class="m-count">3</i> voted</span></span><span class="a-in t15"><span class="a-out t23"><i class="m-count">2</i> of <i class="m-count">3</i> voted</span></span><span class="a-in t23">All <i class="m-count">3</i> voted</span></span>
+                  </div>
+                  <p class="m-qt m-said">Where should the cart be kept?</p>
+                  <div class="m-opt"><span class="m-on a-in t07"></span><span class="m-said">On the server</span><span class="m-lead a-in t07">Leading</span><span class="m-avs"><i class="av av-ian a-pop t07">IA</i><i class="av av-amy a-pop t15">AM</i></span></div>
+                  <div class="m-opt"><span class="m-said">In the browser</span><span class="m-avs"><i class="av av-ben a-pop t23">BE</i></span></div>
+                  <div class="m-foot"><span class="m-sub">Ian decides</span>
+                    <span class="m-act m-swap"><span class="a-out t37"><span class="m-btn m-pri a-press t34">Submit answer</span></span><span class="m-done a-in t37">Answered: <span class="m-said">On the server</span></span><svg class="m-cur a-cur t29" aria-hidden="true"><use href="#i-cursor"/></svg></span>
+                  </div>
+                </div>
               </div>
+
+              <div class="scene in1 m-two" data-part="Plan">
+                <div class="m-card m-x">
+                  <div class="m-h"><i class="m-g"></i><b>Spec</b><code class="m-said">SPEC.md</code></div>
+                  <span class="m-bar m-bh a-draw t02"></span>
+                  <span class="m-bar w90 a-draw t03"></span>
+                  <span class="m-bar w70 a-draw t04"></span>
+                  <p class="m-line m-said a-rise t06">The cart is kept on the server, with the account.</p>
+                  <span class="m-bar w90 a-draw t08"></span>
+                  <span class="m-bar w60 a-draw t09"></span>
+                </div>
+                <div class="m-card m-plan">
+                  <div class="m-h"><i class="m-g"></i><b>Plan</b><code class="m-said">PLAN.md</code>
+                    <span class="m-swap m-sub"><span class="a-out t22">Claude is writing the plan…</span><span class="a-in t22"><i class="m-count">3</i> work items</span></span>
+                  </div>
+                  <div class="m-item a-rise t12"><b>1</b><span class="m-said">Cart API</span><i class="av av-amy">AM</i><span class="m-swap"><span class="a-in t25"><span class="m-bdg a-out t37">Ready to start</span></span><span class="m-bdg m-run a-in t37">Running</span></span></div>
+                  <div class="m-item a-rise t17"><b>2</b><span class="m-said">Payments</span><i class="av av-ben">BE</i><span class="m-swap"><span class="a-in t25"><span class="m-bdg a-out t37">Ready to start</span></span><span class="m-bdg m-run a-in t37">Running</span></span></div>
+                  <div class="m-item a-rise t22"><b>3</b><span class="m-said">Checkout page</span><i class="av av-ian">IA</i><span class="m-swap"><span class="a-in t25"><span class="m-bdg a-out t37">Ready to start</span></span><span class="m-bdg m-run a-in t37">Running</span></span></div>
+                  <div class="m-foot"><span class="m-sub m-x">Start opens one agent session per item, each in its own worktree.</span>
+                    <span class="m-act m-swap"><span class="a-in t25"><span class="a-out t37"><span class="m-btn m-pri a-press t34">Start <i class="m-count">3</i> items</span></span></span><span class="m-done a-in t37">Started <i class="m-count">3</i> items.</span><svg class="m-cur a-cur t29" aria-hidden="true"><use href="#i-cursor"/></svg></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="scene in2 m-three" data-part="Build">
+                <div class="m-card">
+                  <div class="m-h"><b class="m-said">1 · Cart API</b><i class="av av-amy">AM</i><span class="m-swap"><span class="m-bdg m-run a-out t39">Running</span><span class="m-bdg m-okb a-in t39">Report to review</span></span></div>
+                  <span class="m-where m-x">Worktree: <span class="m-said">checkout-1</span></span>
+                  <div class="m-tool m-x a-rise t03"><span>Edited</span><code class="m-said">src/cart/api.ts</code></div>
+                  <div class="m-tool m-x a-rise t16"><span>Created</span><code class="m-said">tests/cart.test.ts</code></div>
+                  <div class="m-status m-x a-out t39"><i class="m-dots"><i></i><i></i><i></i></i>Claude is working</div>
+                </div>
+                <div class="m-card">
+                  <div class="m-h"><b class="m-said">2 · Payments</b><i class="av av-ben">BE</i><span class="m-swap"><span class="m-bdg m-run a-out t03">Running</span><span class="a-in t03"><span class="m-bdg m-ask a-out t27">Waiting for permission</span></span><span class="m-bdg m-run a-in t27">Running</span></span></div>
+                  <span class="m-where m-x">Worktree: <span class="m-said">checkout-2</span></span>
+                  <div class="m-tool m-x a-rise t02"><span>Read</span><code class="m-said">src/pay/form.tsx</code></div>
+                  <div class="m-perm a-rise t03">
+                    <p>Claude asks for permission to run a command</p>
+                    <pre class="m-term">pnpm add stripe</pre>
+                    <div class="m-act m-swap"><span class="m-btns a-out t27"><span class="m-act"><span class="m-btn m-pri a-press t24">Allow once</span><svg class="m-cur a-cur t19" aria-hidden="true"><use href="#i-cursor"/></svg></span><span class="m-btn">Deny</span></span><span class="m-done a-in t27">Allowed once by <span class="m-said">Ben</span></span></div>
+                  </div>
+                  <div class="m-status m-x m-swap"><span class="a-out t03"><i class="m-dots"><i></i><i></i><i></i></i>Claude is working</span><span class="a-in t03"><span class="a-out t27">Claude is waiting for permission</span></span><span class="a-in t27"><i class="m-dots"><i></i><i></i><i></i></i>Claude is working</span></div>
+                </div>
+                <div class="m-card">
+                  <div class="m-h"><b class="m-said">3 · Checkout page</b><i class="av av-ian">IA</i><span class="m-bdg m-run">Running</span></div>
+                  <span class="m-where m-x">Worktree: <span class="m-said">checkout-3</span></span>
+                  <div class="m-tool m-x a-rise t07"><span>Read</span><code class="m-said">src/checkout/page.tsx</code></div>
+                  <div class="m-tool m-x a-rise t22"><span>Edited</span><code class="m-said">src/checkout/page.tsx</code></div>
+                  <div class="m-status m-x"><i class="m-dots"><i></i><i></i><i></i></i>Claude is working</div>
+                </div>
+              </div>
+
+              <div class="scene in3" data-part="Review">
+                <div class="m-card m-rep">
+                  <div class="m-h"><i class="m-g m-g-done"></i><b>Result report: <span class="m-said">1 · Cart API</span></b>
+                    <span class="m-swap"><span class="m-bdg m-okb a-out t19">Report to review</span><span class="a-in t19"><span class="m-bdg m-okb a-out t29">Reviewed</span></span><span class="m-bdg m-okb a-in t29">Reviewed · merged</span></span>
+                  </div>
+                  <div class="m-cols">
+                    <div>
+                      <div class="m-sec">What was done</div>
+                      <p class="m-said a-rise t03">The cart is stored on the server, one per account.</p>
+                      <div class="m-sec">How it was verified</div>
+                      <div class="m-check a-rise t05"><span class="m-tick"></span><pre class="m-term">pnpm test</pre></div>
+                    </div>
+                    <div class="m-x">
+                      <div class="m-sec">Changes</div>
+                      <div class="m-file a-rise t07"><code class="m-said">src/cart/api.ts</code><i class="m-count m-diff">+38 −6</i></div>
+                      <div class="m-file a-rise t09"><code class="m-said">tests/cart.test.ts</code><i class="m-count m-diff">+52 −0</i></div>
+                    </div>
+                  </div>
+                  <div class="m-foot">
+                    <span class="m-act m-swap"><span class="m-act a-out t19"><span class="m-btn m-pri a-press t16">I've reviewed this</span><svg class="m-cur a-cur t11" aria-hidden="true"><use href="#i-cursor"/></svg></span><span class="m-done a-in t19">Marked as reviewed.</span></span>
+                    <span class="m-merged a-rise t29"><i class="av av-ian">IA</i><svg class="ic" aria-hidden="true"><use href="#i-merge"/></svg>Merged into the main workspace.</span>
+                  </div>
+                </div>
+              </div>
+
             </div>
-            <div class="m-status">Claude is waiting for an answer</div>
-            <div class="m-input">Message Claude · <span>Discussion</span></div>
-          </div>
-          <div class="m-col m-col-plan">
-            <div class="m-ch"><i class="m-g m-g-doc"></i><span class="m-ct">Plan</span><span class="m-sub m-said">Checkout</span></div>
-            <div class="m-plan">
-              <div class="m-sum"><span><i class="m-count m-n">0</i> of <i class="m-count m-n">3</i> reviewed</span><span><i class="m-count m-n">1</i> report to review</span><span><i class="m-count m-n">1</i> waits for a person</span><span><i class="m-count m-n">1</i> not started</span></div>
-              <div class="m-sec">Who is responsible</div>
-              <div class="m-seg"><span class="on">Assigned</span><span>No one assigned: everyone watches</span></div>
-              <div class="m-sec">Allowed in this topic</div>
-              <div class="m-rules"><pre class="m-term">pnpm test *</pre></div>
-              <div class="m-item"><b class="m-no">1</b><span class="m-said">Cart API</span><i class="av av-ian">IA</i><span class="m-badge m-badge-ok">Report to review</span></div>
-              <div class="m-item"><b class="m-no">2</b><span class="m-said">Payment form</span><i class="av av-amy">AM</i><span class="m-badge m-badge-warn">Waiting for permission</span></div>
-              <div class="m-item"><b class="m-no">3</b><span class="m-said">Checkout page</span><i class="av av-amy">AM</i><span class="m-badge">Waits for <i class="m-count m-n">1 and 2</i></span></div>
-            </div>
-          </div>
-          <div class="m-col m-col-rep">
-            <div class="m-ch"><i class="m-g m-g-done"></i><span>Result report: <span class="m-said">1 · Cart API</span></span><span class="m-badge m-badge-ok">Complete</span></div>
-            <div class="m-rep">
-              <div class="m-sec">What was done</div>
-              <p class="m-said m-wrap">The cart is stored on the server, one per account, with add, remove and clear.</p>
-              <div class="m-sec">Why it was done this way</div>
-              <p class="m-said m-wrap">The team decided to keep the cart with the account.</p>
-              <div class="m-sec">How it was verified</div>
-              <div class="m-check"><span class="m-ok"><span class="visually-hidden">Passed:</span></span><pre class="m-term">pnpm test</pre></div>
-              <div class="m-check"><span class="m-warn"><span class="visually-hidden">Not verified:</span></span><span class="m-said">two devices at once</span></div>
-              <div class="m-sec">What to watch out for</div>
-              <p class="m-said m-wrap m-watch">The cart of a visitor who is not logged in is not kept.</p>
-              <div class="m-sec">Changes</div>
-              <div class="m-file"><code class="m-said">src/cart/api.ts</code><i class="m-count m-diff">+38 −6</i></div>
-              <div class="m-file"><code class="m-said">tests/cart.test.ts</code><i class="m-count m-diff">+52 −0</i></div>
-            </div>
-            <div class="m-input">Ask about this result, or tell Claude what to change</div>
-            <div class="m-foot"><span class="m-btn m-btn-primary">I've reviewed this</span></div>
           </div>
         </div>
       </div>
-    </div>
-    <figcaption>An illustration drawn after the app, not a screenshot. The topic, the question and the report are made up.</figcaption>
-  </figure>
-</section>
+      <figcaption>An illustration of the app, not a screenshot. The topic and the people are made up.</figcaption>
+    </figure>
 
-<section class="section" id="how" aria-labelledby="how-title">
-  <div class="wrap">
-    <div class="section-head-wide">
-      <p class="kicker">01</p>
-      <h2 id="how-title">How it works</h2>
-      <p class="section-intro">One person hosts; the others join with a link. The folder and the agents stay on the host’s computer.</p>
-    </div>
-
-    <ol class="steps">
-      <li class="step">
-        <div class="step-figure">
-          <svg class="dg" viewBox="0 0 280 150" aria-hidden="true" focusable="false">
-            <rect class="bx" x="20" y="12" width="150" height="96" rx="6"/>
-            <path class="bx" d="M12 114h166l10 12H2z"/>
-            <text x="34" y="40">$ <tspan class="ta">smurg host</tspan></text>
-            <path class="ln" d="M34 58h9l3 4h17v20H34z"/>
-            <text x="72" y="78">my-app/</text>
-            <path class="ln-soft" d="M170 47h24M170 87h24"/>
-            <rect class="bx" x="194" y="34" width="82" height="26" rx="13"/>
-            <text x="235" y="51" text-anchor="middle">your link</text>
-            <rect class="ac" x="194" y="74" width="82" height="26" rx="13"/>
-            <text class="ta" x="235" y="91" text-anchor="middle">invite</text>
-          </svg>
-        </div>
-        <p class="kicker step-num">Step 1</p>
-        <h3>The host shares a folder</h3>
-        <p>Log in with Google and share a folder. smurg prints two links: your own (keep it to yourself) and an invite link for teammates.</p>
-        <pre class="snippet"><code>smurg login
-smurg host ~/projects/my-app</code></pre>
-      </li>
-
-      <li class="step">
-        <div class="step-figure">
-          <svg class="dg" viewBox="0 0 280 150" aria-hidden="true" focusable="false">
-            <rect class="ac" x="6" y="62" width="104" height="26" rx="13"/>
-            <text class="ta" x="58" y="79" text-anchor="middle">join/…#k=…</text>
-            <path class="ln" d="M110 75c22 0 22-37 46-37M110 75c22 0 22 37 46 37"/>
-            <rect class="bx" x="156" y="10" width="116" height="58" rx="6"/>
-            <path class="ln" d="M156 24h116"/>
-            <circle class="dot" cx="165" cy="17" r="2"/><circle class="dot" cx="173" cy="17" r="2"/><circle class="dot" cx="181" cy="17" r="2"/>
-            <circle class="ln" cx="176" cy="45" r="8"/>
-            <rect class="acf" x="200" y="37" width="58" height="18" rx="4"/>
-            <path class="tick" d="M222 46l4 4 8-8"/>
-            <rect class="bx" x="156" y="84" width="116" height="56" rx="6"/>
-            <path class="ln" d="M156 98h116"/>
-            <circle class="dot" cx="165" cy="91" r="2"/><circle class="dot" cx="173" cy="91" r="2"/><circle class="dot" cx="181" cy="91" r="2"/>
-            <text x="166" y="124">$ smurg attach</text>
-          </svg>
-        </div>
-        <p class="kicker step-num">Step 2</p>
-        <h3>Teammates join</h3>
-        <p>Send the invite link in a private message: the part after <code>#</code> is the key. Teammates open it in Chrome and join, with nothing to install.</p>
-        <pre class="snippet"><code>https://app.smurg.ai/join/&lt;id&gt;#…</code></pre>
-      </li>
-
-      <li class="step">
-        <div class="step-figure">
-          <svg class="dg" viewBox="0 0 280 150" aria-hidden="true" focusable="false">
-            <rect class="bx" x="6" y="6" width="268" height="138" rx="8"/>
-            <path class="ln" d="M6 24h268M96 24v120M186 24v120"/>
-            <circle class="dot" cx="16" cy="15" r="2"/><circle class="dot" cx="24" cy="15" r="2"/><circle class="dot" cx="32" cy="15" r="2"/>
-            <text x="16" y="42">Discuss</text>
-            <rect class="ac-dash" x="14" y="52" width="74" height="62" rx="5"/>
-            <text class="ta tx" x="21" y="68">question</text>
-            <path class="bar thin" d="M21 82h34M21 98h46"/>
-            <rect class="acf" x="62" y="76" width="20" height="12" rx="2"/>
-            <path class="tick" d="M68 82l3 3 6-6"/>
-            <text x="106" y="42">Plan</text>
-            <path class="bar" d="M106 62h66M106 80h66M106 98h44"/>
-            <text class="tx" x="106" y="124">work items</text>
-            <text x="196" y="42">Review</text>
-            <path class="bar thin" d="M196 58h66M196 70h52M196 82h60"/>
-            <rect class="acf" x="196" y="100" width="66" height="18" rx="4"/>
-            <path class="tick" d="M224 109l4 4 8-8"/>
-          </svg>
-        </div>
-        <p class="kicker step-num">Step 3</p>
-        <h3>Discuss, plan, build, review</h3>
-        <p>Start a topic. The team answers the agent’s questions, the agent writes a spec and a plan, one agent per work item builds it, and people review each result.</p>
-      </li>
-    </ol>
-  </div>
-</section>
-
-<section class="section" id="features" aria-labelledby="features-title">
-  <div class="wrap section-grid">
-    <div>
-      <p class="kicker">02</p>
-      <h2 id="features-title">What you can do</h2>
-    </div>
-    <ul class="features">
+    <ul class="cards">
       <li>
-        <h3>Decide together</h3>
-        <p>An agent asks the team multiple-choice questions. People vote and see each other’s votes live; the person responsible submits the answer.</p>
+        <h2>Decide together</h2>
+        <p>Claude asks a multiple-choice question; the team votes, and one person submits the answer.</p>
       </li>
-      <li>
-        <h3>A spec and a plan, as files</h3>
-        <p>Each topic keeps a <code>SPEC.md</code> and a <code>PLAN.md</code> in the project. The agent writes them; people edit them together.</p>
+      <li class="in1">
+        <h2>A spec and plan, as files</h2>
+        <p>Claude writes <code>SPEC.md</code> and <code>PLAN.md</code> into your project; people edit them together.</p>
       </li>
-      <li>
-        <h3>One agent per work item</h3>
-        <p>Each work item gets its own Claude Code session in its own git worktree. There it edits and runs simple file commands without asking, and asks before other commands.</p>
+      <li class="in2">
+        <h2>One agent per work item</h2>
+        <p>Every work item gets its own Claude Code session and git worktree; its agent asks before commands.</p>
       </li>
-      <li>
-        <h3>Result reports you can review</h3>
-        <p>A finished item comes with a report: what was done, how it was verified, what to watch out for, and the diff. The host merges what was reviewed.</p>
-      </li>
-      <li>
-        <h3>An inbox, and columns side by side</h3>
-        <p>Your inbox holds what waits for you. Up to four columns stand side by side: conversations, specs, plans and reports.</p>
-      </li>
-      <li>
-        <h3>Edit together in code mode</h3>
-        <p>Behind a switch: a shared editor, the file tree and terminals. While you type in a file, agents can’t change it.</p>
-      </li>
-      <li>
-        <h3>Roles and a host console</h3>
-        <p>Invite people as Viewer, Editor or with Agent access, and manage them in the host console. An Editor’s suggestion reaches an agent only once someone with Agent access accepts it.</p>
+      <li class="in3">
+        <h2>Review, then merge</h2>
+        <p>Each finished item comes with a result report; a person reads it, and the host merges.</p>
       </li>
     </ul>
   </div>
 </section>
 
-<section class="section" id="security" aria-labelledby="security-title">
-  <div class="wrap">
-    <div class="section-head-wide">
-      <p class="kicker">03</p>
-      <h2 id="security-title">Security, in plain words</h2>
-      <p class="section-intro">Files, agents and conversations stay on the host’s computer. The relay only forwards encrypted data. Here is what that covers, and what it doesn’t.</p>
-    </div>
-
-    <figure class="diagram">
-      <svg class="dg wide" viewBox="0 0 880 340" role="img" aria-labelledby="sec-wide-title">
-        <title id="sec-wide-title">The host’s computer holds the shared folder, the agents and their conversations, keys and the audit log. Agents and terminals that teammates with agent access start there run as the host with no sandbox. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name and picture; at login also the email), its IP address, the workspace code, and the size and time of each message.</title>
-        <rect class="bx" x="8" y="8" width="330" height="324" rx="14"/>
-        <text class="tt" x="30" y="46">Your computer (host)</text>
-        <text class="tm" x="30" y="68">Files and sessions stay here</text>
-        <path class="ln" d="M30 93h8l3 4h11v14H30z"/>
-        <text class="ts" x="64" y="107">Shared folder</text>
-        <rect class="ln" x="30" y="124" width="22" height="17" rx="3"/>
-        <path class="ln" d="M35 130l3 3-3 3"/>
-        <text class="ts" x="64" y="138">Agents and their conversations</text>
-        <circle class="ln" cx="36" cy="164" r="5"/>
-        <path class="ln" d="M41 164h11v4M48 164v3"/>
-        <text class="ts" x="64" y="169">Keys and audit log</text>
-        <rect class="ac-dash" x="24" y="192" width="298" height="124" rx="10"/>
-        <text class="ts ta" x="42" y="220">Teammates you fully trust</text>
-        <text class="ts" x="42" y="246">Start agents that run as you</text>
-        <text class="tm" x="42" y="272">Your account, files and Claude</text>
-        <text class="tm" x="42" y="292">login; no sandbox</text>
-
-        <rect class="bx" x="392" y="100" width="136" height="140" rx="12"/>
-        <text class="tt" x="460" y="132" text-anchor="middle">Relay</text>
-        <text class="tm" x="460" y="152" text-anchor="middle">Cloudflare Worker</text>
-        <text class="tm" x="460" y="226" text-anchor="middle">ciphertext only</text>
-        <text class="ta" x="460" y="84" text-anchor="middle">end-to-end encrypted</text>
-        <text class="tm" x="460" y="268" text-anchor="middle">Sees: Google account, IP,</text>
-        <text class="tm" x="460" y="286" text-anchor="middle">workspace code, size, time</text>
-
-        <text class="tt" x="582" y="46">Teammates</text>
-        <rect class="bx" x="582" y="80" width="290" height="88" rx="10"/>
-        <text class="ts" x="604" y="116">Browser</text>
-        <text class="tm" x="604" y="140">Conversations, votes, the editor</text>
-        <rect class="bx" x="582" y="212" width="290" height="88" rx="10"/>
-        <text class="ts" x="604" y="248">smurg CLI</text>
-        <text class="tm" x="604" y="272">A terminal session in your own terminal</text>
-
-        <path class="ac" d="M338 190H548c18 0 16-66 34-66M548 190c18 0 16 66 34 66"/>
-        <circle class="acf" cx="338" cy="190" r="4"/>
-        <circle class="bgf" cx="460" cy="190" r="14"/>
-        <path class="ac" d="M455 186v-4a5 5 0 0 1 10 0v4"/>
-        <rect class="acf" x="452" y="186" width="16" height="12" rx="2"/>
-      </svg>
-
-      <svg class="dg tall" viewBox="0 0 360 780" role="img" aria-labelledby="sec-tall-title">
-        <title id="sec-tall-title">The host’s computer holds the shared folder, the agents and their conversations, keys and the audit log. Agents and terminals that teammates with agent access start there run as the host with no sandbox. Each teammate’s browser or smurg CLI has its own end-to-end encrypted channel to it. The relay, a Cloudflare Worker, forwards that channel as ciphertext. It sees the Google account of each connection (ID, name and picture; at login also the email), its IP address, the workspace code, and the size and time of each message.</title>
-        <rect class="bx" x="8" y="8" width="344" height="304" rx="14"/>
-        <text class="tt" x="28" y="44">Your computer (host)</text>
-        <text class="tm" x="28" y="68">Files and sessions stay here</text>
-        <path class="ln" d="M28 91h8l3 4h11v14H28z"/>
-        <text class="ts" x="62" y="106">Shared folder</text>
-        <rect class="ln" x="28" y="122" width="22" height="17" rx="3"/>
-        <path class="ln" d="M33 128l3 3-3 3"/>
-        <text class="ts" x="62" y="137">Agents and conversations</text>
-        <circle class="ln" cx="34" cy="163" r="5"/>
-        <path class="ln" d="M39 163h11v4M46 163v3"/>
-        <text class="ts" x="62" y="168">Keys and audit log</text>
-        <rect class="ac-dash" x="22" y="190" width="316" height="108" rx="10"/>
-        <text class="ts ta" x="38" y="216">Teammates you fully trust</text>
-        <text class="ts" x="38" y="240">Start agents that run as you</text>
-        <text class="tm" x="38" y="264">Your account, files and Claude</text>
-        <text class="tm" x="38" y="284">login; no sandbox</text>
-
-        <text class="ta" x="256" y="352" text-anchor="end">end-to-end encrypted</text>
-        <rect class="bx" x="40" y="380" width="280" height="130" rx="12"/>
-        <text class="tt" x="60" y="414">Relay</text>
-        <text class="tm" x="60" y="438">Cloudflare Worker</text>
-        <text class="tm" x="60" y="486">ciphertext only</text>
-        <text class="tm" x="40" y="544">Sees: Google account, IP,</text>
-        <text class="tm" x="40" y="564">workspace code, size, time</text>
-
-        <text class="tt" x="8" y="604">Teammates</text>
-        <rect class="bx" x="8" y="650" width="166" height="112" rx="10"/>
-        <text class="ts" x="24" y="684">Browser</text>
-        <text class="tm" x="24" y="710">Conversations,</text>
-        <text class="tm" x="24" y="730">votes, the editor</text>
-        <rect class="bx" x="186" y="650" width="166" height="112" rx="10"/>
-        <text class="ts" x="202" y="684">smurg CLI</text>
-        <text class="tm" x="202" y="710">A terminal session</text>
-        <text class="tm" x="202" y="730">in your terminal</text>
-
-        <path class="ac" d="M268 312V620H91v30M268 620v30"/>
-        <circle class="acf" cx="268" cy="312" r="4"/>
-        <circle class="bgf" cx="268" cy="445" r="14"/>
-        <path class="ac" d="M263 441v-4a5 5 0 0 1 10 0v4"/>
-        <rect class="acf" x="260" y="441" width="16" height="12" rx="2"/>
-      </svg>
-      <figcaption>Each browser or terminal has its own encrypted channel to the host’s computer. The relay can’t read it.</figcaption>
-    </figure>
-
-    <div class="points">
-      <div>
-        <h3>End-to-end encrypted</h3>
-        <p>Each channel uses the Noise protocol. The invite link carries the host’s key fingerprint and a secret after the <code>#</code>, the part browsers never send to a server, so a relay can’t pose as the host.</p>
-      </div>
-      <div>
-        <h3>Agents run as the host</h3>
-        <p>Agents and terminals run on the host’s computer as the host, with no sandbox. The Agent access role lets a teammate run any command on your computer, read your home folder and use your Claude account, so give it only to people you fully trust.</p>
-      </div>
-      <div>
-        <h3>What an agent may do by itself</h3>
-        <p>smurg checks every tool call itself. A topic’s discussion agent writes only the spec and the plan; a work item’s agent edits inside its own worktree and asks before commands.</p>
-      </div>
-      <div>
-        <h3>What the relay sees</h3>
-        <p>Each connection’s Google account and IP address, the workspace code, and the size and time of each message: enough to tell who worked with whom, and when. Never file contents, file names, conversations, commands or keys. On the shared relay, its maintainer and Cloudflare see the same.</p>
-      </div>
-    </div>
-
-    <div class="limits">
-      <h3>What smurg can’t protect you from</h3>
+<section class="share" aria-labelledby="share-title">
+  <div class="wrap share-row">
+    <h2 id="share-title">Before you share</h2>
+    <div>
       <ul>
-        <li>Everyone in a workspace can read the files in the shared folder, <code>.env</code> files included. Don’t share a folder that holds passwords, keys or personal data.</li>
-        <li>Everyone can read every conversation with an agent, also people who join later, and an agent may repeat whatever it reads.</li>
-        <li>Agents read what teammates write, the spec and the plan included, and a file can hide instructions for them (prompt injection). Read a command before you allow it, and think twice before you always allow a kind of command.</li>
-        <li>Commands your own Claude Code settings already allow run here without asking too.</li>
-        <li>Every agent uses the host’s Claude account. Anthropic’s terms don’t allow making a personal subscription available to other people: for a group, log Claude Code in with an account meant for teams.</li>
-        <li>The relay serves the web app: as with any end-to-end encryption in a browser, a tampered app could leak keys. The CLI doesn’t have this problem.</li>
+        <li>Agents run on the host’s computer as the host, with no sandbox: give Agent access only to people you fully trust.</li>
+        <li>Every agent uses the host’s Claude account; Anthropic’s terms don’t allow making a personal subscription available to other people.</li>
+        <li>smurg is a prototype, tested with a scripted stand-in for the model, not with a real Claude account.</li>
       </ul>
-      <p class="more"><a href="/docs/hosting/">Read the host guide before you share</a></p>
-    </div>
-  </div>
-</section>
-
-<section class="section" id="platforms" aria-labelledby="platforms-title">
-  <div class="wrap section-grid">
-    <div>
-      <p class="kicker">04</p>
-      <h2 id="platforms-title">Platforms and requirements</h2>
-    </div>
-    <div>
-      <dl class="facts">
-        <div>
-          <dt>Host computer</dt>
-          <dd>macOS 11 or later (Apple silicon or Intel), or Linux with glibc 2.28 or later (x64 or arm64). Not Windows.</dd>
-        </div>
-        <div>
-          <dt>Claude Code</dt>
-          <dd>2.1.288 or later, logged in on the host’s computer. Work items also need git, in a folder that is a git repository.</dd>
-        </div>
-        <div>
-          <dt>Teammates</dt>
-          <dd>Any computer with Chrome; Safari and Firefox are untested. The smurg CLI is optional.</dd>
-        </div>
-        <div>
-          <dt>Login</dt>
-          <dd>A Google account, for the host and for teammates.</dd>
-        </div>
-        <div>
-          <dt>Languages</dt>
-          <dd>English and Traditional Chinese. Everyone sees their own.</dd>
-        </div>
-        <div>
-          <dt>Relay</dt>
-          <dd>The shared relay runs on Cloudflare’s free plan, with one daily quota for everyone: when it runs out, nobody can connect until 00:00 UTC. You can also <a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">run your own relay</a>.</dd>
-        </div>
-      </dl>
-      <p class="status">smurg is a prototype, developed on an Apple silicon Mac; the Intel Mac and Linux builds are only smoke-tested, and nobody has hosted on Linux for real yet. The flow was tested with a scripted stand-in for the model, not with a real Claude account. What changed is in the <a href="/docs/changelog/">changelog</a>.</p>
-    </div>
-  </div>
-</section>
-
-<section class="section" id="docs" aria-labelledby="docs-title">
-  <div class="wrap section-grid">
-    <div>
-      <p class="kicker">05</p>
-      <h2 id="docs-title">Documentation</h2>
-    </div>
-    <div>
-      <ul class="links-list">
-        <li><a href="/docs/hosting/">Host guide</a></li>
-        <li><a href="/docs/joining/">Guide for teammates</a></li>
-        <li><a href="/docs/changelog/">Changelog</a></li>
-        <li><a href="/license/">License</a></li>
-        <li><a href="/third-party-notices.txt">Third-party notices</a></li>
-      </ul>
-    </div>
-  </div>
-</section>
-
-<section class="section" id="open-source" aria-labelledby="open-source-title">
-  <div class="wrap section-grid">
-    <div>
-      <p class="kicker">06</p>
-      <h2 id="open-source-title">Open source (MIT)</h2>
-    </div>
-    <div>
-      <p class="lead-text">smurg is open source under the MIT License: the <code>smurg</code> command, the web app, the relay and this site.</p>
-      <ul class="links-list">
-        <li><a href="https://github.com/gclinian/smurg">Source code on GitHub</a></li>
-        <li><a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">Run your own relay</a></li>
-        <li><a href="https://github.com/gclinian/smurg/blob/main/CONTRIBUTING.md">Contributing</a></li>
-        <li><a href="https://github.com/gclinian/smurg/blob/main/SECURITY.md">Reporting a vulnerability</a></li>
-      </ul>
-    </div>
-  </div>
-</section>
-
-<section class="section" id="faq" aria-labelledby="faq-title">
-  <div class="wrap section-grid">
-    <div>
-      <p class="kicker">07</p>
-      <h2 id="faq-title">Questions</h2>
-    </div>
-    <div class="faq">
-      <div>
-        <h3>Do I need Node.js?</h3>
-        <p>No. The installer downloads a single executable and needs no sudo. The macOS executable has no Apple Developer ID: install it with the line above, which removes its quarantine flag after the SHA-256 check.</p>
-      </div>
-      <div>
-        <h3>How do I update or remove it?</h3>
-        <p><code>smurg update</code> installs the newest version (stop sharing first). <code>smurg uninstall</code> removes the executable, its cache and <code>~/.smurg</code>.</p>
-      </div>
-      <div>
-        <h3>Do teammates need their own Claude account?</h3>
-        <p>No. Every agent runs with the host’s Claude Code login, so its usage counts against the host’s account.</p>
-      </div>
-      <div>
-        <h3>Has this been tested with real Claude?</h3>
-        <p>Not by its developers: the flow was tested with a scripted stand-in for the model, and real Claude Code only against a fake API. How a real model fits the flow is not verified yet.</p>
-      </div>
-      <div>
-        <h3>Can I see the source code?</h3>
-        <p>Yes. smurg is open source under the <a href="/license/">MIT License</a>, and the source is on <a href="https://github.com/gclinian/smurg">GitHub</a>. The components it is built from keep their own licenses: see the <a href="/third-party-notices.txt">third-party notices</a> of the executables and of the <a href="https://app.smurg.ai/third-party-notices.txt">web app</a>.</p>
-      </div>
-      <div>
-        <h3>Can I run my own relay?</h3>
-        <p>Yes. Deploy it to your own Cloudflare account (the free plan is enough), following the <a href="https://github.com/gclinian/smurg/blob/main/apps/relay/README.md#self-hosting-on-workersdev">relay’s README</a>, then log in with <code>smurg login --relay</code> and its address.</p>
-      </div>
-      <div>
-        <h3>What happens when the host’s computer sleeps?</h3>
-        <p>Everyone sees “Host offline” within seconds; edits wait in the browser until it is back. smurg keeps an idle computer awake while sharing, but closing a laptop’s lid still puts it to sleep.</p>
-      </div>
+      <p class="more"><a href="/docs/hosting/">Read the host guide</a></p>
     </div>
   </div>
 </section>

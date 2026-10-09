@@ -76,10 +76,11 @@ describe('smurg.ai in workerd', () => {
     }
   });
 
-  it('serves the stylesheet, the script, the icon and the notices with their types, cache times and the same headers', async () => {
+  it('serves the stylesheet, the two scripts, the icon and the notices with their types, cache times and the same headers', async () => {
     for (const [path, type, cache] of [
       ['/style.css', /^text\/css/, 'public, max-age=3600'],
       ['/copy.js', /javascript/, 'public, max-age=3600'],
+      ['/demo.js', /javascript/, 'public, max-age=3600'],
       ['/favicon.svg', /^image\/svg\+xml/, 'public, max-age=86400'],
       ['/third-party-notices.txt', /^text\/plain; charset=utf-8$/, 'public, max-age=3600'],
       ['/robots.txt', /^text\/plain/, null],

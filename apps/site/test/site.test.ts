@@ -65,7 +65,7 @@ describe('the built site', () => {
     const files = [...testSite().files.keys()];
     expect(GENERATED_PAGES).toHaveLength(10);
     expect(files.filter((path) => !publicFiles().includes(path)).sort()).toEqual([...GENERATED_PAGES, NOTICES_FILE.slice(1), 'sitemap.xml'].sort());
-    expect(publicFiles().sort()).toEqual(['404.html', '_headers', 'copy.js', 'favicon.svg', 'index.html', 'og.png', 'robots.txt', 'style.css', 'zh-TW/404.html', 'zh-TW/index.html', 'zh-TW/og.png'].sort());
+    expect(publicFiles().sort()).toEqual(['404.html', '_headers', 'copy.js', 'demo.js', 'favicon.svg', 'index.html', 'og.png', 'robots.txt', 'style.css', 'zh-TW/404.html', 'zh-TW/index.html', 'zh-TW/og.png'].sort());
     // No 404 page of its own under /docs/: the nearest 404.html is the English one there, the Chinese one under /zh-TW/.
     expect(files).not.toContain('docs/404.html');
     // Generated files are never written into public/ (they live in the gitignored dist/).
@@ -88,8 +88,8 @@ describe('the built site', () => {
       // what an update carries over, what every refusal of a workspace's state means and how to go back to a folder
       // that was moved away; 0.5.2: about 133 KB, since §8 has one row per reason git stops Start and §10.2 says
       // what happens when the folder becomes a repository while it is shared). The page's bound follows the guide;
-      // with the stylesheet (35 KB), the script and the icon it stays under the bound below (150 KB until 0.5.1,
-      // 164 KB until 0.5.2).
+      // with the stylesheet (37 KB since the home page's picture moves), the script and the icon it stays under the
+      // bound below (150 KB until 0.5.1, 164 KB until 0.5.2).
       expect(size(path), `${path} itself`).toBeLessThan(140 * 1024);
       expect(bytes, `${path} with ${loaded.join(', ')}`).toBeLessThan(176 * 1024);
     }
@@ -155,7 +155,7 @@ describe('the built site', () => {
         links++;
       }
     }
-    // Header and footer of every page that has them, the open-source sections, the FAQ, the docs.
+    // Header and footer of every page that has them, the docs index, the guides.
     expect(links).toBeGreaterThan(30);
   });
 
@@ -169,7 +169,9 @@ describe('the built site', () => {
         linked.set(file, (linked.get(file) ?? new Set()).add(match[2] ?? ''));
       }
     }
-    expect([...linked.keys()].sort()).toEqual(['CONTRIBUTING.md', 'SECURITY.md', 'apps/relay/README.md']);
+    // The host guides link the relay's README (the home pages' own list of repository files left with their
+    // open-source section: the header and the footer link the repository itself).
+    expect([...linked.keys()].sort()).toEqual(['apps/relay/README.md']);
     for (const [path, fragments] of linked) {
       expect(statSync(join(REPO_ROOT, path), { throwIfNoEntry: false }) !== undefined, path).toBe(true);
       // A #fragment is a heading of that file, by GitHub's own rule for heading ids.
@@ -242,14 +244,108 @@ describe('the built site', () => {
     expect(unreachable.sort()).toEqual([...SOCIAL_CARDS, 'robots.txt', 'sitemap.xml'].sort());
   });
 
-  it('copy.js does no networking and writes no HTML (Trusted Types would refuse it anyway)', () => {
-    const script = readPublic('copy.js').replace(/\/\/.*$/gm, '');
+  it.each(['copy.js', 'demo.js'])('%s does no networking and writes no HTML (Trusted Types would refuse it anyway)', (file) => {
+    const script = readPublic(file).replace(/\/\/.*$/gm, '');
     expect(script).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function|fetch\(|XMLHttpRequest|sendBeacon|WebSocket|import\(/);
+    // No inline style either (the CSP's style-src has no 'unsafe-inline'): classes and attributes only.
+    expect(script).not.toMatch(/\.style\b|cssText|setProperty|createElement/);
+    // And no motion of a script's own: what moves is the stylesheet's (the next test but one reads all of it).
+    expect(script).not.toMatch(/\.animate\(|KeyframeEffect|new Animation\b|playbackRate/);
+  });
+
+  it('demo.js leaves Pause to the stylesheet: it never names the button, and of the popover it only reads whether it is open', () => {
+    // The loop never ends, so it must be pausable (WCAG 2.2.2). The whole mechanism is markup and stylesheet (the
+    // button opens a popover, the motion stands while it is open: the tests below hold both), with or without the
+    // script. So the script cannot take it away: it has no word for the button, opens and closes no popover, removes
+    // no attribute but the strip's own aria-current, and sets no class but the one for "off the screen".
+    const script = readPublic('demo.js').replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(script).not.toMatch(/\.pause\b|popovertarget|[a-z]Popover\b|is-paused|\bdisabled = true|\.remove\(\)|\.hidden\b/);
+    expect([...script.matchAll(/removeAttribute\('([^']+)'\)/g)].map((match) => match[1])).toEqual(['aria-current']);
+    expect([...script.matchAll(/classList\.\w+\('([^']+)'/g)].map((match) => match[1])).toEqual(['is-away']);
+    // What it reads: the popover's state, to show a chosen part finished while the picture is paused.
+    expect(script).toMatch(/getElementById\('story-paused'\)/);
+    expect(script).toMatch(/matches\(':popover-open'\)/);
   });
 
   it('style.css loads nothing (no @import, no url(), no web fonts)', () => {
     const css = readPublic('style.css');
     expect(css).not.toMatch(/@import|url\(|@font-face/);
+  });
+
+  it('style.css moves nothing unless motion is welcome, the picture only where its Pause button works without the script, and only by opacity and transform', () => {
+    const css = readPublic('style.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    /** The blocks of every at-rule whose start `prelude` matches (up to its `{`; braces balanced), and the text without them. */
+    const cut = (text: string, prelude: RegExp): { blocks: string[]; rest: string } => {
+      const blocks: string[] = [];
+      let rest = '';
+      let from = 0;
+      for (const match of text.matchAll(prelude)) {
+        // (a match inside a block that was already cut out belongs to that block)
+        if (match.index < from) continue;
+        let depth = 1;
+        let end = match.index + match[0].length;
+        for (; depth > 0 && end < text.length; end++) depth += text[end] === '{' ? 1 : text[end] === '}' ? -1 : 0;
+        expect(depth, String(prelude)).toBe(0);
+        blocks.push(text.slice(match.index + match[0].length, end - 1));
+        rest += text.slice(from, match.index);
+        from = end;
+      }
+      return { blocks, rest: rest + text.slice(from) };
+    };
+    // Every animation, keyframe and transition sits inside "prefers-reduced-motion: no-preference": with reduced
+    // motion nothing moves, and the picture stands as its four finished scenes.
+    const welcome = cut(css, /@media \(prefers-reduced-motion: no-preference\) \{/g);
+    expect(welcome.rest).not.toMatch(/animation|transition|@keyframes/);
+    // Two blocks: the picture's loop, and the colour changes of links and buttons.
+    expect(welcome.blocks).toHaveLength(2);
+    const [loop, colours] = welcome.blocks as [string, string];
+    expect(colours).not.toMatch(/animation|@keyframes/);
+    expect(colours).toMatch(/transition:\s+color 120ms ease,\s+background-color 120ms ease;/);
+    // The loop plays for 20 seconds without an end, so it must be pausable (WCAG 2.2.2) by a real button even when
+    // the script did not load: the button opens a popover and the stylesheet stops every animation while it is open.
+    // Hence the loop exists only where popovers do; anywhere else the still picture shows.
+    const guarded = cut(loop, /@supports selector\(:popover-open\) \{/g);
+    expect(guarded.blocks).toHaveLength(1);
+    expect(guarded.rest.trim()).toBe('');
+    const motion = guarded.blocks[0] as string;
+    // Paused (the popover is open) or off the screen (demo.js), everything stands: every element of the story and
+    // both of its pseudo-elements (the strip's line, the cards' rule). One rule, six selectors, nothing else in it.
+    const state = motion.indexOf('animation-play-state: paused;');
+    const open = motion.lastIndexOf('{', state);
+    const standing = motion.slice(motion.lastIndexOf('}', open) + 1, open);
+    expect(motion.slice(open + 1, motion.indexOf('}', state)).trim()).toBe('animation-play-state: paused;');
+    expect(standing.split(',').map((selector) => selector.trim())).toEqual([
+      '.story.is-away *',
+      '.story.is-away *::before',
+      '.story.is-away *::after',
+      '.story-state:popover-open ~ * *',
+      '.story-state:popover-open ~ * *::before',
+      '.story-state:popover-open ~ * *::after',
+    ]);
+    // Nothing sets the play state anywhere else, and the button shows its other word while the popover is open.
+    expect(css.match(/animation-play-state/g)).toHaveLength(1);
+    expect(motion).toMatch(/\.story-state:popover-open ~ \.demo \.when-playing \{\s*display: none;\s*\}/);
+    expect(motion).toMatch(/\.story-state:popover-open ~ \.demo \.when-paused \{\s*display: block;\s*\}/);
+    // Keyframes change opacity and transform only: nothing that lays the page out again, nothing that flashes.
+    const frames = cut(motion, /@keyframes [\w-]+ \{/g);
+    expect(frames.blocks.length).toBeGreaterThan(12);
+    expect([...new Set(frames.blocks.flatMap((block) => [...block.matchAll(/([a-z-]+):/g)].map((match) => match[1])))].sort()).toEqual(['opacity', 'transform']);
+    // Everything runs on the loop's own clock (--loop), but the three dots of an agent at work: a pulse every 1.4 s,
+    // far from a flash.
+    const shorthands = [...motion.matchAll(/animation: ([^;]+);/g)].map((match) => match[1] as string);
+    expect(shorthands.length).toBeGreaterThan(2);
+    for (const shorthand of shorthands) expect(shorthand.startsWith('var(--loop) ') || shorthand === 'dot 1.4s ease-in-out infinite', shorthand).toBe(true);
+    // No way round the shorthands: of the longhands only a name, the one linear timing (the strip's line) and the
+    // two delays of the dots (a third and two thirds of their pulse apart: 0.2 s, 0.4 s) are written; no duration,
+    // no count, no direction. And no transition inside the picture's block: its parts move by the keyframes alone.
+    const rules = frames.rest;
+    const longhands = [...rules.matchAll(/(animation-[a-z-]+): ([^;]+);/g)].map((match) => `${match[1]}: ${match[2]}`).filter((line) => !/^animation-(?:name: [\w-]+|play-state: paused)$/.test(line));
+    expect(longhands.sort()).toEqual(['animation-delay: 0.2s', 'animation-delay: 0.4s', 'animation-timing-function: linear']);
+    expect(motion).not.toMatch(/transition/);
+    // Every name that is given has its keyframes, and every keyframes a name.
+    const named = new Set([...rules.matchAll(/animation-name: ([\w-]+);/g)].map((match) => match[1]));
+    const defined = new Set([...motion.matchAll(/@keyframes ([\w-]+) \{/g)].map((match) => match[1]));
+    expect([...named, 'dot'].sort()).toEqual([...defined].sort());
   });
 
   it('keeps the 404 pages out of search results, and the sitemap and robots.txt consistent', () => {
@@ -438,6 +534,15 @@ for (const path of sitePages()) {
 }
 
 describe('the two home pages', () => {
+  const classes = (el: El): string[] => (el.attr('class') ?? '').split(/\s+/).filter(Boolean);
+  const withClass = (p: Page, name: string): El[] => p.elements.filter((el) => classes(el).includes(name));
+  const inside = (p: Page, parent: El | undefined): El[] => p.elements.filter((el) => el.parents.includes(parent as El));
+  const bodyText = (path: string): string => first(page(path), 'body')?.text() ?? '';
+  const words = (text: string): number => text.split(/\s+/).filter(Boolean).length;
+  /** What each page calls the four parts of the picture, in the strip's order. */
+  const PARTS = { en: ['Decide', 'Plan', 'Build', 'Review'], 'zh-TW': ['決定', '計畫', '實作', '檢視'] } as const;
+  const INVITE_NOTE = { en: 'Got an invite link? Open it in Chrome; there is nothing to install.', 'zh-TW': '收到邀請連結了嗎？用 Chrome 打開就好，不需要安裝任何東西。' } as const;
+
   it.each(Object.entries(HOME_PAGES))('%s: canonical, alternates, Open Graph, the install line and the copy button', (lang, path) => {
     const p = page(path);
     const url = lang === 'en' ? 'https://smurg.ai/' : 'https://smurg.ai/zh-TW/';
@@ -454,156 +559,343 @@ describe('the two home pages', () => {
     expect(meta('og:title')?.length).toBeGreaterThan(10);
     expect(meta('description')?.length).toBeGreaterThan(50);
     expect(meta('twitter:card')).toBe('summary_large_image');
-    // The install line, exactly, once; the copy button stays hidden until copy.js finds a clipboard.
+    // The install line, exactly, once, in a named group; the copy button stays hidden until copy.js finds a clipboard.
     const commands = p.elements.filter((el) => el.attr('id') === 'install-cmd');
     expect(commands.map((el) => [el.tag, el.text()])).toEqual([['code', INSTALL]]);
+    expect(commands[0]?.parents.at(-1)?.attr('role')).toBe('group');
+    expect(commands[0]?.parents.at(-1)?.attr('aria-label')).toMatch(/macOS.*Linux/);
+    // On a narrow screen the command breaks in one place only, after "-fsSL": the rest is one piece.
+    expect(commands[0]?.children().map((el) => [el.tag, el.text()])).toEqual([['span', 'https://smurg.ai/install.sh | sh']]);
     const copy = p.byTag('button').find((b) => b.attr('data-copy') === 'install-cmd');
     expect(copy?.attr('hidden')).toBe('');
-    expect(p.byTag('script').map((s) => s.attr('src'))).toEqual(['/copy.js']);
-    // The install note says where the executable comes from and that it is checked.
-    const note = p.elements.find((el) => el.attr('class') === 'install-note')?.text() ?? '';
-    expect(note).toContain('downloads.smurg.ai');
-    expect(note).toMatch(/SHA-?256/i);
-    expect(note).toContain('SHA256SUMS');
+    // What the button did is said in a status line (empty and out of sight until then). When the clipboard says no,
+    // copy.js shows its hint there, and the stylesheet puts it in the place of the note that follows it: the button
+    // keeps its word, so nothing on the page changes its size.
+    const status = p.elements.find((el) => el.attr('id') === 'copy-status');
+    expect([status?.tag, status?.attr('role'), status?.attr('class'), status?.text()]).toEqual(['p', 'status', 'visually-hidden', '']);
+    const row = status?.parents.at(-1)?.children() ?? [];
+    expect(row.map((el) => `${el.tag}.${classes(el).join('.')}`)).toEqual(['div.command', 'p.visually-hidden', 'p.install-note']);
+    expect(copy?.attr('data-fail')?.length).toBeGreaterThan(10);
+    const copyScript = readPublic('copy.js');
+    expect(copyScript).toContain("say(button.getAttribute('data-fail') ?? '', true);");
+    expect(copyScript).toContain('if (!hint || !status) button.textContent = text;');
+    expect(copyScript).toContain("status.className = hint ? 'copy-hint' : 'visually-hidden';");
+    expect(readPublic('style.css')).toMatch(/\.copy-hint \+ p \{\s*visibility: hidden;\s*\}/);
+    // The page's two scripts, both deferred: the copy button and the picture's (the page makes sense without either).
+    expect(p.byTag('script').map((s) => [s.attr('src'), s.attr('defer')])).toEqual([
+      ['/copy.js', ''],
+      ['/demo.js', ''],
+    ]);
+    // Under the install line: what a teammate with an invite link does, one sentence, nothing else.
+    expect(withClass(p, 'install-note').map((el) => el.text())).toEqual([INVITE_NOTE[lang as Lang]]);
   });
 
-  it.each(Object.entries(HOME_PAGES))('%s: the footer links the docs, the changelog, the license, the notices, GitHub, the app and the other language', (lang, path) => {
+  it.each(Object.entries(HOME_PAGES))('%s: the header links the docs, GitHub and the other language; the footer the docs, the changelog, the license, the notices, GitHub, the app and the other language', (lang, path) => {
     const l = lang as Lang;
-    const footer = page(path).elements.filter((el) => el.tag === 'a' && el.parents.some((parent) => parent.tag === 'footer'));
-    expect(footer.map((a) => a.attr('href'))).toEqual([docsIndex(l), `${docsIndex(l)}changelog/`, licensePage(l), NOTICES_FILE, REPOSITORY, 'https://app.smurg.ai/', homePage(otherLang(l))]);
+    const links = (tag: string) => page(path).elements.filter((el) => el.tag === 'a' && el.parents.some((parent) => parent.tag === tag)).map((a) => a.attr('href'));
+    expect(links('header')).toEqual([homePage(l), docsIndex(l), REPOSITORY, homePage(otherLang(l))]);
+    expect(links('footer')).toEqual([docsIndex(l), `${docsIndex(l)}changelog/`, licensePage(l), NOTICES_FILE, REPOSITORY, 'https://app.smurg.ai/', homePage(otherLang(l))]);
   });
 
-  it.each(Object.entries(HOME_PAGES))('%s: links its own language’s docs pages from its docs section', (lang, path) => {
-    const l = lang as Lang;
-    const section = page(path).elements.find((el) => el.tag === 'section' && el.attr('id') === 'docs');
-    const links = page(path).elements.filter((el) => el.tag === 'a' && el.parents.includes(section as El)).map((a) => a.attr('href'));
-    expect(links).toEqual([...DOC_PAGES.map((doc) => doc[l].path), licensePage(l), NOTICES_FILE]);
-  });
-
-  it('have the same sections and ids in the same order', () => {
+  it('have the same sections, ids, links and markup in the same order: only the words differ', () => {
     const en = page(HOME_PAGES.en);
     const zh = page(HOME_PAGES['zh-TW']);
     expect(en.ids()).toEqual(zh.ids());
     const sections = (p: Page) => p.byTag('section').map((s) => s.attr('id') ?? s.attr('aria-labelledby'));
-    expect(sections(en)).toEqual(['hero-title', 'how', 'features', 'security', 'platforms', 'docs', 'open-source', 'faq']);
+    // The hero (the sentence, the install line, the picture and its four cards) and "Before you share": nothing else.
+    expect(sections(en)).toEqual(['hero-title', 'share-title']);
     expect(sections(zh)).toEqual(sections(en));
     // The same links in the same order, each to its own language's page.
     const hrefs = (p: Page) => p.byTag('a').map((a) => (a.attr('href') ?? '').replace(/^\/zh-TW\//, '/'));
     expect(hrefs(zh)).toEqual(hrefs(en));
+    // The same elements with the same classes inside <main>, one for one: the picture's timeline is its classes
+    // (.in1 to .in3, .tNN, .a-…), so the two pages play the same loop. Only <wbr> (where a Chinese line may break)
+    // is the Chinese page's own.
+    const shape = (p: Page) => inside(p, first(p, 'main')).filter((el) => el.tag !== 'wbr').map((el) => `${el.tag}.${classes(el).join('.')}`);
+    expect(shape(zh)).toEqual(shape(en));
+    expect(shape(en).length).toBeGreaterThan(250);
   });
 
-  it('show no version number and no statement about the app’s language being Chinese only', () => {
-    for (const path of Object.values(HOME_PAGES)) {
-      const text = page(path).elements.find((el) => el.tag === 'body')?.text() ?? '';
-      // (2.1.288 is the Claude Code version the host needs, not smurg's.)
-      expect(text, path).toContain('2.1.288');
-      expect(text.replaceAll('2.1.288', ''), path).not.toMatch(/\bv?\d+\.\d+\.\d+\b/);
-      expect(text, path).not.toMatch(/Traditional Chinese for now|English is coming/);
+  it.each(Object.entries(HOME_PAGES))('%s: one sentence, one line under it, four cards and three facts: no more words than that', (lang, path) => {
+    const p = page(path);
+    const main = first(p, 'main');
+    const headings = inside(p, main).filter((el) => /^h[1-6]$/.test(el.tag));
+    // The h1, the four cards (h2) and "Before you share" (h2): no other heading, no third level.
+    expect(headings.map((h) => h.tag)).toEqual(['h1', 'h2', 'h2', 'h2', 'h2', 'h2']);
+    expect(withClass(p, 'lede')).toHaveLength(1);
+    const cards = inside(p, withClass(p, 'cards')[0]).filter((el) => el.tag === 'li');
+    expect(cards).toHaveLength(4);
+    for (const card of cards) expect(card.children().map((c) => c.tag)).toEqual(['h2', 'p']);
+    const facts = inside(p, p.byTag('section').find((s) => s.attr('aria-labelledby') === 'share-title')).filter((el) => el.tag === 'li').map((li) => li.text());
+    if (lang === 'en') {
+      expect(words(first(p, 'h1')?.text() ?? '')).toBeLessThanOrEqual(9);
+      expect(words(withClass(p, 'lede')[0]?.text() ?? '')).toBeLessThanOrEqual(14);
+      // A fact is one line where the page is wide (about 130 characters fit): one sentence, at most 24 words.
+      for (const fact of facts) {
+        expect(words(fact), fact).toBeLessThanOrEqual(24);
+        expect(fact.length, fact).toBeLessThanOrEqual(134);
+        expect(fact.match(/\./g), fact).toHaveLength(1);
+      }
+      for (const card of cards) {
+        const [title, sentence] = card.children().map((c) => c.text()) as [string, string];
+        expect(words(title), title).toBeLessThanOrEqual(6);
+        expect(words(sentence), sentence).toBeLessThanOrEqual(18);
+        // one sentence: one full stop, at its end
+        expect(sentence.replace(/\b(?:SPEC|PLAN)\.md\b/g, '').match(/\./g), sentence).toHaveLength(1);
+      }
+    } else {
+      // Chinese has no spaces to count: by characters, about what the English bounds come to.
+      expect([...(first(p, 'h1')?.text() ?? '')].length).toBeLessThanOrEqual(30);
+      expect([...(withClass(p, 'lede')[0]?.text() ?? '')].length).toBeLessThanOrEqual(32);
+      for (const fact of facts) {
+        expect([...fact].length, fact).toBeLessThanOrEqual(60);
+        expect(fact.match(/。/g), fact).toHaveLength(1);
+      }
+      for (const card of cards) {
+        const [title, sentence] = card.children().map((c) => c.text()) as [string, string];
+        expect([...title].length, title).toBeLessThanOrEqual(16);
+        expect([...sentence].length, sentence).toBeLessThanOrEqual(70);
+        expect(sentence.match(/。/g), sentence).toHaveLength(1);
+      }
     }
-    const texts = page(HOME_PAGES.en).elements.map((el) => el.text());
-    expect(texts).toContain('Got an invite link? Open it in Chrome; there is nothing to install.');
-    // Both pages say which languages smurg speaks.
-    expect(page(HOME_PAGES.en).elements.find((el) => el.tag === 'body')?.text()).toContain('English and Traditional Chinese');
-    expect(page(HOME_PAGES['zh-TW']).elements.find((el) => el.tag === 'body')?.text()).toContain('英文與繁體中文');
+    // "Before you share": exactly three one-line facts and one link, to the host guide of the page's language.
+    const share = p.byTag('section').find((s) => s.attr('aria-labelledby') === 'share-title');
+    expect(facts).toHaveLength(3);
+    expect(inside(p, share).filter((el) => el.tag === 'a').map((a) => a.attr('href'))).toEqual([(DOC_PAGES[0] as (typeof DOC_PAGES)[number])[lang as Lang].path]);
+    // The whole page stays a short read (the picture's labels included; the old page had about 1,400 English words).
+    if (lang === 'en') expect(words(main?.text() ?? '')).toBeLessThan(520);
   });
 
-  it.each(Object.entries(HOME_PAGES))('%s: has an “Open source (MIT)” section that links the repository, the relay’s README, CONTRIBUTING and SECURITY', (lang, path) => {
+  it('show no version number, and no statement about the app’s language being Chinese only', () => {
+    for (const path of Object.values(HOME_PAGES)) {
+      const p = page(path);
+      // The page's words, and what stands for words where nobody sees them: the picture's story and every other
+      // label, the title and the descriptions.
+      const unseen = p.elements.flatMap((el) => [el.attr('aria-label'), el.tag === 'meta' ? el.attr('content') : undefined, el.tag === 'title' ? el.text() : undefined]).filter((value): value is string => value !== undefined);
+      expect(unseen.length, path).toBeGreaterThan(15);
+      for (const text of [bodyText(path), ...unseen]) {
+        // No version at all, smurg's or Claude Code's: what a version needs and what changed in it is the guides' job.
+        expect(text, path).not.toMatch(/\bv?\d+\.\d+\.\d+\b/);
+        expect(text, path).not.toMatch(/Traditional Chinese for now|English is coming/);
+      }
+    }
+  });
+
+  it('show every word they hold: nothing in <main> is hidden but the Copy button and its status line, and no rule takes "Before you share" off the page', () => {
+    // The tests above read the pages' text, so a sentence that is in the markup but not on the screen would pass
+    // them. In <main> only the Copy button carries `hidden` (copy.js shows it), and only three things are kept for
+    // screen readers alone: the status line, the popover's sentence and the second word of the Pause button.
+    for (const path of Object.values(HOME_PAGES)) {
+      const p = page(path);
+      const main = inside(p, first(p, 'main'));
+      expect(main.filter((el) => el.attr('hidden') !== undefined).map((el) => `${el.tag}.${classes(el).join('.')}`), path).toEqual(['button.copy']);
+      // aria-hidden: the drawings (svg), and the inside of the picture, whose story its label tells.
+      expect(main.filter((el) => el.attr('aria-hidden') !== undefined && el.tag !== 'svg').map((el) => `${el.tag}.${classes(el).join('.')}`), path).toEqual(['div.m-app']);
+      expect(main.filter((el) => classes(el).includes('visually-hidden')).map((el) => `${el.tag}#${el.attr('id') ?? ''}.${el.parents.at(-1)?.attr('class') ?? ''}`), path).toEqual([
+        'p#copy-status.install',
+        'p#story-paused.story',
+        'span#.when-playing',
+        'span#.when-paused',
+        'svg#.win',
+      ]);
+      // Nothing inside the facts or the cards but text, the two file names and the one link (and <wbr>, where a
+      // Chinese line may break).
+      for (const name of ['share', 'cards']) expect([...new Set(inside(p, withClass(p, name)[0]).map((el) => el.tag))].filter((tag) => tag !== 'wbr').sort(), `${path} .${name}`).toEqual(name === 'share' ? ['a', 'div', 'h2', 'li', 'p', 'ul'] : ['code', 'h2', 'li', 'p']);
+    }
+    // And the stylesheet has no rule that hides, empties or shrinks away the hero's words, the cards or the facts:
+    // every rule whose selector names one of them is read.
+    const css = readPublic('style.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    const kept = /\.(?:share|more|cards|lede|hero|install-note)\b|\.install p\b/;
+    let read = 0;
+    for (const [, selectors, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      // (a ::before or ::after holds no words: a dash, a number, the rule of the card that is playing)
+      const selector = (selectors as string).split(',').filter((part) => kept.test(part) && !part.includes('::')).join(',').trim();
+      if (selector === '') continue;
+      read++;
+      expect(body, selector).not.toMatch(/display:\s*none|visibility|opacity|clip|(?:^|[\s;])(?:max-)?(?:height|width):\s*0(?![.\d])|font-size:\s*0(?![.\d])|text-indent|position:\s*(?:absolute|fixed)|transform|overflow|color:\s*transparent|content-visibility/);
+    }
+    expect(read).toBeGreaterThan(15);
+  });
+
+  it.each(Object.entries(HOME_PAGES))('%s: says that smurg is open source (MIT) in its footer and links the repository, and nothing that denies a relay of one’s own', (lang, path) => {
     const p = page(path);
-    const section = p.elements.find((el) => el.tag === 'section' && el.attr('id') === 'open-source');
-    expect(p.elements.find((el) => el.attr('id') === 'open-source-title')?.text()).toBe(lang === 'en' ? 'Open source (MIT)' : '開放原始碼（MIT）');
-    const links = p.elements.filter((el) => el.tag === 'a' && el.parents.includes(section as El)).map((a) => a.attr('href'));
-    expect(links).toEqual([REPOSITORY, RELAY_README, `${REPOSITORY}/blob/main/CONTRIBUTING.md`, `${REPOSITORY}/blob/main/SECURITY.md`]);
-    expect(section?.text()).toMatch(lang === 'en' ? /open source under the MIT License/ : /開放原始碼軟體，以 MIT 授權條款釋出/);
-    // The header links GitHub too.
+    const text = bodyText(path);
+    expect(first(p, 'footer')?.text()).toContain(CHROME[lang as Lang].footer);
     expect(p.elements.filter((el) => el.tag === 'a' && el.parents.some((parent) => parent.tag === 'header')).map((a) => a.attr('href'))).toContain(REPOSITORY);
-  });
-
-  it.each(Object.entries(HOME_PAGES))('%s: says that the source is public and that you can run your own relay, with a link to the relay’s README', (lang, path) => {
-    const p = page(path);
-    const text = p.elements.find((el) => el.tag === 'body')?.text() ?? '';
-    expect(text).toMatch(lang === 'en' ? /run your own relay/ : /自己架設 relay/);
     expect(text).not.toMatch(/can’t run (?:your|their) own|only relay for now|無法自己架設|沒有其他 relay/);
-    const faq = p.elements.find((el) => el.tag === 'section' && el.attr('id') === 'faq');
-    const questions = p.byTag('h3').filter((h) => h.parents.includes(faq as El)).map((h) => h.text());
-    const answer = (question: string): El | undefined => p.byTag('h3').find((h) => h.text() === question)?.parents.at(-1);
-    const [source, relay] = lang === 'en' ? ['Can I see the source code?', 'Can I run my own relay?'] : ['看得到原始碼嗎？', '可以自己架設 relay 嗎？'];
-    expect(questions).toEqual(expect.arrayContaining([source, relay]));
-    expect(answer(source as string)?.text()).toMatch(lang === 'en' ? /^Can I see the source code\? Yes\. smurg is open source under the MIT License/ : /^看得到原始碼嗎？ 看得到。/);
-    expect(answer(relay as string)?.text()).toMatch(lang === 'en' ? /^Can I run my own relay\? Yes\./ : /^可以自己架設 relay 嗎？ 可以。/);
-    const hrefs = (el: El | undefined) => p.elements.filter((a) => a.tag === 'a' && a.parents.includes(el as El)).map((a) => a.attr('href'));
-    expect(hrefs(answer(source as string))).toEqual([licensePage(lang as Lang), REPOSITORY, NOTICES_FILE, WEB_APP_NOTICES]);
-    expect(hrefs(answer(relay as string))).toEqual([RELAY_README]);
   });
 
-  it.each(Object.entries(HOME_PAGES))('%s: says what was verified, whose Claude account does the work, and what agents may do by themselves', (lang, path) => {
-    const text = page(path).elements.find((el) => el.tag === 'body')?.text() ?? '';
+  it.each(Object.entries(HOME_PAGES))('%s: says what was verified, whose Claude account does the work, and that an agent asks before commands', (lang, path) => {
+    const p = page(path);
+    const text = bodyText(path);
+    const facts = inside(p, p.byTag('section').find((s) => s.attr('aria-labelledby') === 'share-title')).filter((el) => el.tag === 'li').map((li) => li.text());
     if (lang === 'en') {
       // The flow was verified against a scripted stand-in, not a real model (OWNER-DECISIONS: no real-account testing).
-      expect(text).toContain('tested with a scripted stand-in for the model, not with a real Claude account');
-      expect(text).toContain('Has this been tested with real Claude?');
-      // Whose account, and the terms (OWNER-DECISIONS Q6); the host's own rules apply (Q7).
-      expect(text).toContain('Anthropic’s terms don’t allow making a personal subscription available to other people');
-      expect(text).toContain('your own Claude Code settings already allow');
+      expect(facts[2]).toContain('smurg is a prototype');
+      expect(facts[2]).toContain('tested with a scripted stand-in for the model, not with a real Claude account');
+      // Whose account, and the terms (OWNER-DECISIONS Q6).
+      expect(facts[1]).toContain('Every agent uses the host’s Claude account');
+      expect(facts[1]).toContain('Anthropic’s terms don’t allow making a personal subscription available to other people');
       expect(text).toContain('asks before commands');
-      expect(text).toMatch(/git repository/);
+      expect(text).toContain('git worktree');
     } else {
-      expect(text).toContain('用照劇本回應的模型替身測試的，沒有用真正的 Claude 帳號');
-      expect(text).toContain('這套流程用真正的 Claude 測試過嗎？');
-      expect(text).toContain('Anthropic 的條款不允許把個人訂閱提供給其他人使用');
-      expect(text).toContain('你自己的 Claude Code 設定已經允許的');
+      expect(facts[2]).toContain('原型');
+      expect(facts[2]).toContain('用照劇本回應的模型替身測試的，沒有用真正的 Claude 帳號');
+      expect(facts[1]).toContain('每個 agent 都用主人的 Claude 帳號');
+      expect(facts[1]).toContain('Anthropic 的條款不允許把個人訂閱提供給其他人使用');
       expect(text).toContain('執行指令前會先問');
-      expect(text).toContain('git 儲存庫');
+      expect(text).toContain('git worktree');
     }
   });
 
-  it.each(Object.values(HOME_PAGES))('%s: claims no sandbox for teammates, and says what the Agent access role means and that it runs as the host', (path) => {
-    const text = page(path).elements.find((el) => el.tag === 'body')?.text() ?? '';
-    const titles = page(path).byTag('title').map((t) => t.text()).join('\n');
-    for (const all of [text, titles]) {
-      expect(all).not.toMatch(/Seatbelt|bubblewrap|AppArmor|socat|ripgrep|allow-listed|白名單|guest sandbox|客人沙盒|in a sandbox|在沙盒裡執行|--allow-main-workspace-guests|\brunners?\b|可執行 agent|API key|can use agents/i);
-    }
-    if (path === HOME_PAGES.en) {
-      // The role names of docs/GLOSSARY.md.
-      expect(text).toContain('Agent access role');
-      expect(text).toContain('as Viewer, Editor or with Agent access');
-      expect(text).toMatch(/runs? (?:on the host’s computer )?as the host/);
-      expect(text).toContain('run any command on your computer, read your home folder and use your Claude account');
-      expect(text).toContain('fully trust');
-    } else {
-      expect(text).toContain('「可使用 agent」');
-      expect(text).toContain('以主人的身分');
-      expect(text).toContain('執行任何指令、讀你的家目錄、用你的 Claude 帳號');
-      expect(text).toContain('完全信任');
-    }
-  });
-
-  it.each(Object.entries(HOME_PAGES))('%s: the workspace picture is labelled in the page’s own language, with a valid workspace id and the agent names the app shows', (lang, path) => {
+  it.each(Object.entries(HOME_PAGES))('%s: claims no sandbox for teammates, and says what the Agent access role means: agents run as the host, so whom to give it to', (lang, path) => {
     const p = page(path);
-    const mock = p.elements.find((el) => el.attr('class') === 'mock');
-    expect(mock?.attr('role')).toBe('img');
-    const app = mock?.children().find((c) => c.attr('class') === 'm-app');
-    // The labels are in the page's language: no `lang` of its own any more.
-    expect(app?.attr('lang')).toBeUndefined();
-    const cjk = /[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]/;
-    const labels = p.elements.filter((el) => el.parents.includes(app as El) && el.children().length === 0).map((el) => el.text());
-    if (lang === 'en') for (const label of labels) expect(label, label).not.toMatch(cjk);
-    else expect(labels.filter((label) => cjk.test(label)).length).toBeGreaterThan(15);
-    // The picture is the sessions view: the mode switch, the inbox and the session list on the left, then the columns.
-    const texts = p.elements.filter((el) => el.parents.includes(app as El) && el.children().length === 0).map((el) => el.text());
-    for (const label of lang === 'en' ? ['Sessions', 'Code mode', 'Agents are waiting', 'For you to look at', 'Question from Claude', 'Submit answer', 'Who is responsible', "I've reviewed this"] : ['手寫 code 模式', 'agent 在等你', '等你看的', 'Claude 的選擇題', '送出答案', '誰負責', '我已看過']) {
-      expect(texts, label).toContain(label);
+    const text = bodyText(path);
+    const titles = p.byTag('title').map((t) => t.text()).join('\n');
+    const labels = p.elements.map((el) => el.attr('aria-label') ?? '').join('\n');
+    for (const all of [text, titles, labels]) {
+      expect(all).not.toMatch(/Seatbelt|bubblewrap|AppArmor|socat|ripgrep|allow-listed|白名單|guest sandbox|客人沙盒|in a sandbox|sandboxed|在沙盒裡執行|--allow-main-workspace-guests|\brunners?\b|可執行 agent|API key|can use agents/i);
     }
+    const fact = inside(p, p.byTag('section').find((s) => s.attr('aria-labelledby') === 'share-title')).find((el) => el.tag === 'li')?.text() ?? '';
+    if (lang === 'en') {
+      // The role's name of docs/GLOSSARY.md, in the first fact, with the three things a host must know.
+      expect(fact).toMatch(/run on the host’s computer as the host/);
+      expect(fact).toContain('with no sandbox');
+      expect(fact).toContain('Agent access');
+      expect(fact).toContain('fully trust');
+      // The only mention of a sandbox is that there is none.
+      expect(text.match(/sandbox/gi)).toEqual(['sandbox']);
+    } else {
+      expect(fact).toContain('以主人的身分');
+      expect(fact).toContain('沒有沙盒');
+      expect(fact).toContain('「可使用 agent」');
+      expect(fact).toContain('完全信任');
+      expect(text.match(/沙盒/g)).toEqual(['沙盒']);
+    }
+  });
+
+  it.each(Object.entries(HOME_PAGES))('%s: the picture is an illustration with its story in words, labelled in the page’s own language with the app’s words', (lang, path) => {
+    const p = page(path);
+    const l = lang as Lang;
+    const [picture, ...others] = p.elements.filter((el) => el.attr('role') === 'img' && el.tag !== 'svg');
+    expect(others).toEqual([]);
+    expect(classes(picture as El)).toEqual(['win']);
+    // The story in words, for who cannot see the picture: every part by its name, in order, and who does what.
+    const story = picture?.attr('aria-label') ?? '';
+    expect(story.length).toBeGreaterThan(l === 'en' ? 400 : 150);
+    expect(story).toMatch(l === 'en' ? /^Illustration of / : /示意圖/);
+    const told = PARTS[l].map((part) => story.indexOf(`${part}${l === 'en' ? ':' : '：'}`));
+    expect(told.every((at, index) => at > (told[index - 1] ?? 0)), `${told}`).toBe(true);
+    for (const name of ['Claude', 'Ian', 'Amy', 'Ben']) expect(story, name).toContain(name);
+    // And in a few words under it, for who can.
+    const caption = first(p, 'figcaption')?.text() ?? '';
+    expect(caption).toMatch(l === 'en' ? /^An illustration of the app, not a screenshot\./ : /示意圖，不是截圖/);
+    // … and that what it shows is invented: no real team's topic, no real people.
+    expect(caption).toMatch(l === 'en' ? /The topic and the people are made up\.$/ : /主題和人物是虛構的。$/);
+    expect(words(caption)).toBeLessThan(20);
+
+    const app = picture?.children().find((c) => classes(c).includes('m-app'));
+    // The picture is its label: what is drawn inside is kept from screen readers (about 150 labels of four scenes,
+    // most of them not on the screen at any one moment), whether or not a browser prunes the children of an image.
+    expect(app?.attr('aria-hidden')).toBe('true');
+    // The labels are in the page's language: no `lang` of its own.
+    expect(app?.attr('lang')).toBeUndefined();
+    const cjk = /[　-〿一-鿿＀-￯]/;
+    const leaves = inside(p, app).filter((el) => el.children().length === 0);
+    const labels = leaves.map((el) => el.text());
+    if (l === 'en') for (const label of labels) expect(label, label).not.toMatch(cjk);
+    else expect(labels.filter((label) => cjk.test(label)).length).toBeGreaterThan(40);
+    // The app's own words (the catalogs; tests/lint/docs-quotes.test.ts holds every label to them): the question
+    // card, the plan, a permission request, the result report and the merge.
+    const expected =
+      l === 'en'
+        ? ['Connected', 'Question from Claude', 'Leading', 'Ian decides', 'Submit answer', 'Ready to start', 'Running', 'Waiting for permission', 'Claude asks for permission to run a command', 'Allow once', 'Deny', 'Report to review', 'What was done', 'How it was verified', 'Changes', "I've reviewed this", 'Marked as reviewed.', 'Reviewed', 'Reviewed · merged']
+        : ['已連線', 'Claude 的選擇題', '領先', '由 Ian 決定', '送出答案', '可以開始', '執行中', '等待許可', 'Claude 請求許可執行指令', '允許一次', '拒絕', '報告待看', '做了什麼', '怎麼驗證的', '變更', '我已看過', '已標成看過。', '已看過', '已看過 · 已合併'];
+    for (const label of expected) expect(labels, label).toContain(label);
+    expect(app?.text()).toContain(l === 'en' ? 'Merged into the main workspace.' : '已合併到主工作區。');
     // In a conversation the agent is `Claude` in both languages (docs/GLOSSARY.md), never with full-width parentheses.
-    expect(texts).toContain('Claude');
     expect(app?.text()).not.toMatch(/Claude（/);
     // What a person or an agent wrote (not a label of the app) is marked, so the quote lint can tell the two apart;
-    // a command is a `pre.m-term`.
-    const said = p.elements.filter((el) => el.parents.includes(app as El) && (el.attr('class') ?? '').split(' ').includes('m-said'));
-    expect(said.length).toBeGreaterThan(15);
+    // a number is an `i.m-count`, a command a `pre.m-term`, and the address is the app's.
+    const said = inside(p, app).filter((el) => classes(el).includes('m-said'));
+    expect(said.length).toBeGreaterThan(20);
     for (const el of said) expect(el.children(), el.text()).toEqual([]);
-    const address = p.elements.find((el) => el.attr('class') === 'm-url')?.text() ?? '';
-    // packages/protocol WORKSPACE_ID_PATTERN: 16 to 64 of [A-Za-z0-9_-].
-    expect(address).toMatch(/^app\.smurg\.ai\/w\/[A-Za-z0-9_-]{16,64}$/);
+    for (const pre of inside(p, app).filter((el) => el.tag === 'pre')) expect(classes(pre)).toEqual(['m-term']);
+    for (const leaf of leaves.filter((el) => /^[+−\d\s]+$/.test(el.text()) && el.text() !== '' && el.tag !== 'b')) expect(classes(leaf), leaf.text()).toContain('m-count');
+    expect(withClass(p, 'm-url').map((el) => el.text())).toEqual(['app.smurg.ai']);
+    // Nothing in the picture can be operated or followed: it is a picture.
+    expect(inside(p, picture).filter((el) => ['a', 'button', 'summary', 'details', 'select', 'textarea'].includes(el.tag) || el.attr('tabindex') !== undefined)).toEqual([]);
+  });
+
+  it.each(Object.entries(HOME_PAGES))('%s: four scenes, a strip of four parts that names them, and a real Pause button that works without the script', (lang, path) => {
+    const p = page(path);
+    const l = lang as Lang;
+    const scenes = withClass(p, 'scene');
+    // Each scene carries the name of its part (what the still picture writes over it), the strip the same four names.
+    expect(scenes.map((scene) => scene.attr('data-part'))).toEqual([...PARTS[l]]);
+    const strip = withClass(p, 'tabs')[0];
+    expect(strip?.attr('role')).toBe('group');
+    expect(strip?.attr('aria-label')?.length).toBeGreaterThan(3);
+    // The strip stands outside the picture (a picture has nothing to press), in the same figure.
+    expect(strip?.parents.some((el) => el.attr('role') === 'img')).toBe(false);
+    expect(strip?.parents.at(-1)?.tag).toBe('figure');
+    const tabs = withClass(p, 'tab');
+    expect(tabs.map((tab) => tab.children().at(-1)?.text())).toEqual([...PARTS[l]]);
+    for (const tab of tabs) {
+      expect(tab.tag).toBe('button');
+      // Labels until demo.js makes them work; it also says which one is on (aria-current), so none is marked here.
+      expect(tab.attr('disabled')).toBe('');
+      expect(tab.attr('aria-current')).toBeUndefined();
+    }
+    // The place in the loop of a scene, of its part of the strip and of its card: the same class on all three.
+    const place = (el: El): string[] => classes(el).filter((name) => /^in\d$/.test(name));
+    const cards = inside(p, withClass(p, 'cards')[0]).filter((el) => el.tag === 'li');
+    for (const group of [scenes, tabs, cards]) expect(group.map(place)).toEqual([[], ['in1'], ['in2'], ['in3']]);
+    // Pause: a button with its word on it, which opens a popover the stylesheet reads (so it works with no script).
+    const [pause, ...more] = withClass(p, 'pause');
+    expect(more).toEqual([]);
+    expect(pause?.tag).toBe('button');
+    expect(pause?.parents).toContain(strip);
+    const state = p.elements.find((el) => el.attr('id') === pause?.attr('popovertarget'));
+    expect(state?.attr('popover')).toBe('manual');
+    expect(state?.text().length).toBeGreaterThan(3);
+    // Both of its words are in the page (the stylesheet shows one): "Pause" while it plays, "Play" while it stands.
+    expect(pause?.children().filter((c) => c.tag === 'span').map((c) => [classes(c).join(' '), c.text()])).toEqual(
+      l === 'en'
+        ? [
+            ['when-playing', 'Pause the picture'],
+            ['when-paused', 'Play the picture'],
+          ]
+        : [
+            ['when-playing', '暫停示意圖'],
+            ['when-paused', '播放示意圖'],
+          ],
+    );
+  });
+
+  it('the picture’s moments have rules, and the script counts the loop as the stylesheet does', () => {
+    const css = readPublic('style.css');
+    const script = readPublic('demo.js');
+    for (const path of Object.values(HOME_PAGES)) {
+      const used = new Set(page(path).elements.flatMap(classes).filter((name) => /^(?:t\d\d|in\d|a-[a-z]+)$/.test(name)));
+      expect(used.size).toBeGreaterThan(20);
+      for (const name of used) {
+        if (/^t\d\d$/.test(name)) expect(css, name).toContain(`.${name} { --at: ${Number(name.slice(1)) / 10}s; }`);
+        else expect(css, name).toMatch(new RegExp(`\\.${name}[ ,{]`));
+      }
+      // No moment at or after the scene's end, where the scene fades.
+      for (const name of used) if (/^t\d\d$/.test(name)) expect(Number(name.slice(1)) / 10, name).toBeLessThan(4.6);
+    }
+    const seconds = (name: string): number => Number(new RegExp(`--${name}: (\\d+)s;`).exec(css)?.[1]);
+    expect(seconds('scene')).toBe(5);
+    // Four scenes, each --scene long, are the loop; demo.js moves the same clock, in milliseconds.
+    expect(seconds('loop')).toBe(4 * seconds('scene'));
+    expect(script).toContain(`const SCENE = ${seconds('scene') * 1000};`);
+    expect(script).toContain('const LOOP = 4 * SCENE;');
+    const finished = Number(/const FINISHED = (\d+);/.exec(script)?.[1]);
+    // "Finished": after the last moment of any scene, before the scene fades (24% of the loop into it).
+    expect(finished).toBeGreaterThan(4300);
+    expect(finished).toBeLessThanOrEqual(0.24 * seconds('loop') * 1000);
   });
 });
 

@@ -403,49 +403,66 @@ const QUOTES: readonly Quote[] = [
   { what: 'wire activity.agentBashChange', guides: ['HOSTING'], render: (locale) => wire(locale, 'activity.agentBashChange', { agent: 'Claude (Amy)', path: 'src/app.ts', change: 'change' }) },
 ];
 
-/** The sentences of the activity feed in the product page's picture of the app. */
-const PICTURE_QUOTES: readonly { what: string; render(locale: Locale, web: WebCatalogue): string }[] = [
-  { what: 'web workbench.topbar.console', render: (locale, web) => web.text(locale, 'workbench.topbar.console') },
-  { what: 'web workbench.mode.sessions', render: (locale, web) => web.text(locale, 'workbench.mode.sessions') },
-  { what: 'web workbench.mode.code', render: (locale, web) => web.text(locale, 'workbench.mode.code') },
-  { what: 'web workbench.topbar.host', render: (locale, web) => web.text(locale, 'workbench.topbar.host', { name: 'Ian' }) },
+/**
+ * The labels of the product page's picture of the app (the four scenes of its window: a question card, the plan, the
+ * agents at work with a permission request, a result report and its merge), as the catalogs render them.
+ */
+const PICTURE_QUOTES: readonly {
+  what: string;
+  render(locale: Locale, web: WebCatalogue): string;
+  /** The part of the rendering the picture shows, where it leaves the end out (the time of an answer). */
+  part?: Readonly<Record<Locale, string>>;
+}[] = [
   { what: 'web conn.pill.online', render: (locale, web) => web.text(locale, 'conn.pill.online') },
-  { what: 'web sidebar.inbox.title', render: (locale, web) => web.text(locale, 'sidebar.inbox.title') },
-  { what: 'web sidebar.inbox.group.waiting', render: (locale, web) => web.text(locale, 'sidebar.inbox.group.waiting') },
-  { what: 'web sidebar.inbox.group.look', render: (locale, web) => web.text(locale, 'sidebar.inbox.group.look') },
-  { what: 'web sidebar.group.free', render: (locale, web) => web.text(locale, 'sidebar.group.free') },
-  { what: 'web sidebar.sessions.filter.waiting', render: (locale, web) => web.text(locale, 'sidebar.sessions.filter.waiting') },
-  { what: 'wire session.title.discussion', render: (locale) => wire(locale, 'session.title.discussion') },
-  { what: 'wire session.title.terminal', render: (locale) => wire(locale, 'session.title.terminal', { owner: 'Ian' }) },
-  { what: 'wire role.editor', render: (locale) => wire(locale, 'role.editor') },
-  { what: 'web stores.phase.executing', render: (locale, web) => web.text(locale, 'stores.phase.executing') },
-  { what: 'web conversation.responsible.nobody', render: (locale, web) => web.text(locale, 'conversation.responsible.nobody') },
-  { what: 'web conversation.mode.fixed', render: (locale, web) => web.text(locale, 'conversation.mode.fixed') },
-  { what: 'web conversation.message.suggestion', render: (locale, web) => web.text(locale, 'conversation.message.suggestion', { name: 'Ian' }) },
+  // ---- 1: the question card, its votes and its answer
   { what: 'web conversation.q.title', render: (locale, web) => web.text(locale, 'conversation.q.title') },
+  { what: 'web conversation.q.voted (1 of 3)', render: (locale, web) => web.text(locale, 'conversation.q.voted', { voted: 1, eligible: 3 }) },
+  { what: 'web conversation.q.voted (2 of 3)', render: (locale, web) => web.text(locale, 'conversation.q.voted', { voted: 2, eligible: 3 }) },
+  { what: 'web conversation.q.allVoted', render: (locale, web) => web.text(locale, 'conversation.q.allVoted', { count: 3 }) },
   { what: 'web conversation.q.leading', render: (locale, web) => web.text(locale, 'conversation.q.leading') },
-  { what: 'web conversation.q.comment.note', render: (locale, web) => web.text(locale, 'conversation.q.comment.note') },
-  { what: 'web conversation.q.decide.opener', render: (locale, web) => web.text(locale, 'conversation.q.decide.opener') },
+  { what: 'web sidebar.fact.decides', render: (locale, web) => web.text(locale, 'sidebar.fact.decides', { name: 'Ian' }) },
   { what: 'web conversation.q.submit', render: (locale, web) => web.text(locale, 'conversation.q.submit', { count: 1 }) },
-  { what: 'web topics.assign.heading', render: (locale, web) => web.text(locale, 'topics.assign.heading') },
-  { what: 'web topics.assign.mode.assigned', render: (locale, web) => web.text(locale, 'topics.assign.mode.assigned') },
-  { what: 'web topics.assign.mode.everyone', render: (locale, web) => web.text(locale, 'topics.assign.mode.everyone') },
-  { what: 'web topics.rules.label', render: (locale, web) => web.text(locale, 'topics.rules.label') },
-  { what: 'web topics.badge.report', render: (locale, web) => web.text(locale, 'topics.badge.report') },
+  { what: 'web conversation.q.settled.answered', render: (locale, web) => web.text(locale, 'conversation.q.settled.answered', { answer: locale === 'en' ? 'On the server' : '存在伺服器' }) },
+  // ---- 2: the spec and the plan (two files, named as the columns that show them), and Start
+  { what: 'web stores.column.spec', render: (locale, web) => web.text(locale, 'stores.column.spec') },
+  { what: 'web stores.column.plan', render: (locale, web) => web.text(locale, 'stores.column.plan') },
+  { what: 'web topics.plan.generating', render: (locale, web) => web.text(locale, 'topics.plan.generating') },
+  { what: 'web topics.summary.items', render: (locale, web) => web.text(locale, 'topics.summary.items', { count: 3 }) },
+  { what: 'web topics.badge.ready', render: (locale, web) => web.text(locale, 'topics.badge.ready') },
+  { what: 'web topics.badge.running', render: (locale, web) => web.text(locale, 'topics.badge.running') },
+  { what: 'web topics.foot.start', render: (locale, web) => web.text(locale, 'topics.foot.start') },
+  { what: 'web topics.foot.startAll', render: (locale, web) => web.text(locale, 'topics.foot.startAll', { count: 3 }) },
+  { what: 'web topics.start.done', render: (locale, web) => web.text(locale, 'topics.start.done', { count: 3 }) },
+  // ---- 3: one agent per work item, and a permission request
+  { what: 'wire session.title.item', render: (locale) => wire(locale, 'session.title.item', { number: 2, title: locale === 'en' ? 'Payments' : '付款' }) },
+  { what: 'web agents.where.worktree', render: (locale, web) => web.text(locale, 'agents.where.worktree', { branch: 'checkout-2' }) },
+  { what: 'web conversation.tool.edit', render: (locale, web) => web.text(locale, 'conversation.tool.edit') },
+  { what: 'web conversation.tool.read', render: (locale, web) => web.text(locale, 'conversation.tool.read') },
+  // (a file the agent creates in its worktree needs no request; a command would: the picture runs none unasked)
+  { what: 'web conversation.tool.create', render: (locale, web) => web.text(locale, 'conversation.tool.create') },
+  { what: 'web conversation.status.working', render: (locale, web) => web.text(locale, 'conversation.status.working') },
+  { what: 'web conversation.status.permission', render: (locale, web) => web.text(locale, 'conversation.status.permission') },
   { what: 'web topics.badge.permission', render: (locale, web) => web.text(locale, 'topics.badge.permission') },
-  { what: 'wire role.host', render: (locale) => wire(locale, 'role.host') },
-  { what: 'web topics.summary.reviewed', render: (locale, web) => web.text(locale, 'topics.summary.reviewed', { reviewed: 0, total: 3 }) },
-  { what: 'web topics.summary.toReview', render: (locale, web) => web.text(locale, 'topics.summary.toReview', { count: 1 }) },
-  { what: 'web topics.summary.waitPerson', render: (locale, web) => web.text(locale, 'topics.summary.waitPerson', { count: 1 }) },
-  { what: 'web topics.summary.notStarted', render: (locale, web) => web.text(locale, 'topics.summary.notStarted', { count: 1 }) },
+  { what: 'web conversation.perm.title.command', render: (locale, web) => web.text(locale, 'conversation.perm.title.command') },
+  { what: 'web conversation.perm.allow', render: (locale, web) => web.text(locale, 'conversation.perm.allow') },
+  { what: 'web conversation.perm.deny', render: (locale, web) => web.text(locale, 'conversation.perm.deny') },
+  {
+    // The app goes on with the time of the answer: the picture has no clock, and leaves it out.
+    what: 'web conversation.perm.settled.allowed',
+    render: (locale, web) => web.text(locale, 'conversation.perm.settled.allowed', { name: 'Ben', time: '14:02' }),
+    part: { en: 'Allowed once by Ben', 'zh-TW': 'Ben 允許了一次' },
+  },
+  { what: 'web topics.badge.report', render: (locale, web) => web.text(locale, 'topics.badge.report') },
+  // ---- 4: the result report, the review and the merge
+  { what: 'web stores.column.reportOf', render: (locale, web) => web.text(locale, 'stores.column.reportOf', { item: wire(locale, 'session.title.item', { number: 1, title: locale === 'en' ? 'Cart API' : '購物車 API' }) }) },
   { what: 'web topics.report.section.done', render: (locale, web) => web.text(locale, 'topics.report.section.done') },
-  { what: 'web topics.report.section.why', render: (locale, web) => web.text(locale, 'topics.report.section.why') },
   { what: 'web topics.report.section.verified', render: (locale, web) => web.text(locale, 'topics.report.section.verified') },
-  { what: 'web topics.report.section.watchOut', render: (locale, web) => web.text(locale, 'topics.report.section.watchOut') },
   { what: 'web topics.report.section.changes', render: (locale, web) => web.text(locale, 'topics.report.section.changes') },
-  { what: 'web topics.followUp.label', render: (locale, web) => web.text(locale, 'topics.followUp.label') },
   { what: 'web topics.review.action', render: (locale, web) => web.text(locale, 'topics.review.action') },
-  { what: 'wire report.outcome.complete', render: (locale) => wire(locale, 'report.outcome.complete') },
+  { what: 'web topics.review.done', render: (locale, web) => web.text(locale, 'topics.review.done') },
+  { what: 'web topics.badge.reviewed', render: (locale, web) => web.text(locale, 'topics.badge.reviewed') },
+  { what: 'web topics.badge.merged', render: (locale, web) => web.text(locale, 'topics.badge.merged') },
+  { what: 'web topics.review.merged', render: (locale, web) => web.text(locale, 'topics.review.merged') },
 ];
 
 /**
@@ -472,15 +489,22 @@ describe('the guides quote the catalogs: listed messages (forward)', () => {
   it.each(PICTURE_QUOTES.flatMap((quote) => (['en', 'zh-TW'] as const).map((locale) => [quote.what, LANDING[locale], locale, quote] as const)))(
     '%s is in the picture of the app on %s as the %s catalog renders it',
     async (_what, path, locale, quote) => {
-      const rendering = flat(quote.render(locale, await webCatalogue()));
-      const page = flat(
+      // (where the page's markup puts a tag between a full-width mark and a Latin word, as in 「worktree：checkout-2」,
+      // the text read from it has a space there that the catalog's rendering has not: such a space does not count,
+      // on either side; the reverse rule below reads every label as it is written)
+      const tight = (text: string): string => flat(text).replace(/(?<=[　-〿＀-￯]) | (?=[　-〿＀-￯])/g, '');
+      const rendering = tight(quote.render(locale, await webCatalogue()));
+      expect(rendering).not.toBe('');
+      const page = tight(
         read(path)
           .replace(/<[^>]+>/g, ' ')
           .replace(/&amp;/g, '&')
           .replace(/&quot;/g, '"')
           .replace(/&#39;/g, "'"),
       );
-      expect(page.includes(rendering), `${path} does not show: ${rendering}`).toBe(true);
+      const shown = quote.part === undefined ? rendering : tight(quote.part[locale]);
+      expect(rendering, 'the shown part is no longer what the catalog renders').toContain(shown);
+      expect(page.includes(shown), `${path} does not show: ${shown}`).toBe(true);
     },
   );
 
@@ -559,13 +583,14 @@ function quotedTexts(path: string, locale: Locale): string[] {
 }
 
 /**
- * The labels of the product page's picture of the app (`.m-app`), without what a person or an agent wrote there (the
- * elements marked `m-said`: a topic's name, a question, a message, a report's sentences, file names) and without
- * commands (`pre.m-term`).
+ * The labels of the product page's picture of the app (`.m-app`: the window with its four scenes), without what a
+ * person or an agent wrote there (the elements marked `m-said`: a topic's name, a question, its options, an item's
+ * title, a report's sentences, file and branch names), without commands (`pre.m-term`), and without avatars and
+ * numbers (`i.av`, `i.m-count`).
  */
 function pictureLabels(path: string): string[] {
   const html = read(path);
-  const picture = /<div class="m-app">([\s\S]*?)<figcaption>/.exec(html)?.[1] ?? '';
+  const picture = /<div class="m-app"[^>]*>([\s\S]*?)<figcaption>/.exec(html)?.[1] ?? '';
   const labels = picture
     .replace(/<pre class="m-term">[\s\S]*?<\/pre>/g, '|')
     .replace(/<(\w+) class="(?:[^"]* )?m-said(?: [^"]*)?">[^<]*<\/\1>/g, '|')
