@@ -9,7 +9,7 @@
 // created by the host as a relay client (the web app's way: the control socket cannot open sessions, review F1) and
 // shown by `smurg attach` in a real PTY (keystrokes in, output back, Ctrl-] out, terminal restored), and `smurg stop`.
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { lstat, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -131,7 +131,7 @@ describe.skipIf(BINARY === null)('the single executable (SMURG_SEA_BINARY)', () 
     expect(login.stdout).toContain('dev:host');
     // The folder's workspace id, as an earlier `smurg host` would have remembered it: the in-memory relay the host
     // sockets are tunnelled to serves one workspace.
-    const workspaceId = `ws_sea_${Math.random().toString(36).slice(2, 14)}`;
+    const workspaceId = `ws_sea_${randomBytes(8).toString('hex')}`;
     await rememberSharedFolder(statePaths(s.env), { folder: await realpath(s.dirs.project), relay: relay.origin, workspaceId, createdAt: 1 });
     const memory = new MemoryRelay(workspaceId);
     const issuer = new TestIdentityIssuer(relay.origin, generateKeyPairSync('ed25519'), systemClock);

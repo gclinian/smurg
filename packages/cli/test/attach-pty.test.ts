@@ -5,6 +5,7 @@
 // fixture's recorded pid); keystrokes and SIGWINCH reach the session; terminal queries get exactly one answer (the
 // daemon mirror's); and R4.1: what the CLI renders equals what a second viewer renders.
 import { execFile } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { waitFor } from '@smurg/daemon/testing';
@@ -30,7 +31,7 @@ interface Stack {
 async function stack(): Promise<Stack> {
   const dirs = await makeDirs();
   cleanups.push(() => dirs.cleanup());
-  const workspaceId = `ws_pty_${Math.random().toString(36).slice(2, 14)}`;
+  const workspaceId = `ws_pty_${randomBytes(8).toString('hex')}`;
   // The host's terminal is opened by the daemon fixture (as from the web): the control socket cannot open sessions.
   const daemon = await startDaemonProc(dirs, workspaceId, { hostTerminal: 'pty test' });
   cleanups.push(() => daemon.stop());

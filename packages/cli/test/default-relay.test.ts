@@ -4,7 +4,7 @@
 // before they talk to it (`smurg host`: its login names the relay; the start shows only the links), show it in --help,
 // and `smurg status` names it for a running share. Here the built-in value is swapped for a fake relay on 127.0.0.1: no
 // test reaches the real hosted relay.
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_FEATURE_MODULES, systemClock, type Daemon } from '@smurg/daemon';
@@ -114,7 +114,7 @@ describe('relay choice', () => {
     const s = await setup();
     builtIn.url = s.relay.origin;
     // The in-memory relay serves one workspace id: pre-seed the folder's id as an earlier `smurg host` would have.
-    const workspaceId = `ws_host_${Math.random().toString(36).slice(2, 14)}`;
+    const workspaceId = `ws_host_${randomBytes(8).toString('hex')}`;
     await rememberSharedFolder(statePaths(s.env), { folder: await realpath(s.dirs.project), relay: s.relay.origin, workspaceId, createdAt: 1 });
     const memory = new MemoryRelay(workspaceId);
     const issuer = new TestIdentityIssuer(s.relay.origin, generateKeyPairSync('ed25519'), systemClock);

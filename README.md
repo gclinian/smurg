@@ -262,8 +262,9 @@ repository's fake Anthropic API with a dummy key and an isolated configuration f
 **The gate**: `source scripts/env.sh && pnpm check`; do not change `TMPDIR`, and run only one at a time. The number
 of test files and tests a green run shows, how long it takes and the environments it was verified in are in
 [`docs/ACCEPTANCE.md`](docs/ACCEPTANCE.md), "How to run the gate" (the numbers change as features are added and are
-recorded only there). Skipped by default: `packages/cli/test/sea.test.ts` and `packages/cli/test/sea-update.test.ts`
-(they need the single executable to be built first, `SMURG_SEA_BINARY`), `packages/cli/test/sea-upgrade.test.ts`
+recorded only there). Skipped by default: `packages/cli/test/sea.test.ts`, `packages/cli/test/sea-update.test.ts` and
+`packages/cli/test/sea-git-while-sharing.test.ts` (they need the single executable to be built first,
+`SMURG_SEA_BINARY`), `packages/cli/test/sea-upgrade.test.ts`
 (it also needs the executables of the published versions, `SMURG_PREVIOUS_BINARIES`; it says on stderr that it was
 skipped, and a release's gate, `SMURG_RELEASE_GATE=1`, fails without it: `docs/RELEASING.md` §4.5) and the test of
 `packages/cli/test/dev-stack.test.ts` that starts the whole stack (`SMURG_TEST_DEV_STACK=1`; the file's other test

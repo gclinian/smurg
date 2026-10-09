@@ -1,4 +1,5 @@
-// TEST ONLY: which real executables the opt-in tests run (sea.test.ts, sea-update.test.ts, sea-upgrade.test.ts), read
+// TEST ONLY: which real executables the opt-in tests run (sea.test.ts, sea-update.test.ts, sea-upgrade.test.ts,
+// sea-git-while-sharing.test.ts), read
 // from the environment the way the documents print the commands.
 //
 // The commands of docs/RELEASING.md are typed at the repository's root, and `pnpm --filter @smurg/cli exec vitest`

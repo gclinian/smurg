@@ -549,8 +549,8 @@ this suite against it, then change the two constants in the same commit as whate
      SMURG_RELEASE_GATE=1 pnpm check
    ```
 
-   With `SMURG_SEA_BINARY` set, the gate also runs the two other suites of the executable (`test/sea.test.ts` and
-   `test/sea-update.test.ts` of `packages/cli`), which are skipped without it. CI sets none of these variables:
+   With `SMURG_SEA_BINARY` set, the gate also runs the three other suites of the executable (`test/sea.test.ts`,
+   `test/sea-update.test.ts` and `test/sea-git-while-sharing.test.ts` of `packages/cli`), which are skipped without it. CI sets none of these variables:
    there the upgrade test is skipped and says so. The counts go into `docs/ACCEPTANCE.md` ("How to run the gate",
    "Linux verification").
 2. The executable for this machine: `scripts/build-sea.sh --version X.Y.Z` (it runs the smoke tests). Then, by hand,

@@ -5,7 +5,7 @@
 // the CLI device key and pin files; an editor is read-only on the host's session and sees what a second viewer sees
 // (R4.1), a member with agent access types into it (§11 D-15); a guest later reconnects with the pinned key only.
 // `smurg stop` and Ctrl-C end the host.
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { basename, dirname, join } from 'node:path';
@@ -84,7 +84,7 @@ async function startHost(
   cleanups.push(() => relay.close());
   const env = { HOME: dirs.home, SMURG_HOME: dirs.stateDir, ...more.env };
   // The in-memory relay serves one workspace id: pre-seed the folder's id as an earlier `smurg host` would have.
-  const workspaceId = `ws_host_${Math.random().toString(36).slice(2, 14)}`;
+  const workspaceId = `ws_host_${randomBytes(8).toString('hex')}`;
   await rememberSharedFolder(statePaths(env), { folder: await realpath(dirs.project), relay: relay.origin, workspaceId, createdAt: 1 });
   if (more.loggedIn) {
     // A login from an earlier `smurg login`: `smurg host` uses it and prints nothing about it.
