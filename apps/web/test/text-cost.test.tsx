@@ -13,7 +13,7 @@ import { msg } from '@smurg/protocol/i18n';
 import { machineSlowness } from '@smurg/protocol/testing';
 import { act, render, waitFor } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { sideBySide, splitLines } from '../src/features/activity/diff-view.ts';
 import { findPathCandidates, mayAskAbout, normalizeSessionPath } from '../src/features/agents/path-links.ts';
 import { parseDiff } from '../src/features/conversation/diff.ts';
@@ -279,6 +279,56 @@ const kindOf = (tokens: readonly { type: string }[] | undefined): string => {
   return only === null ? 'formatted' : only.reason === 'later' ? 'waits' : `as written (${only.reason})`;
 };
 
+// ---- what a text is shown as, whatever the machine is doing
+//
+// Whether a page formats a text is a matter of time: the lexer ends a parse that is over its budget, and a mount in a
+// second whose share is spent waits (lex.ts). Both are measured on the wall, and both count the moments the machine
+// spent on something else. On a runner that was busy, one mount of a 1 MiB text took more than the page's share (it
+// takes a tenth of it on a machine that is not), and the one link that was mounted right after it was shown as
+// written, "for the moment" (macOS, 2026-10-09: nothing was wrong with the link). So where a test says WHAT a text
+// is shown as, the lexer's clock is stopped first. What a text COSTS is measured in processor time, by the functions
+// above, with the clock running. (One test keeps the wall's clock on purpose, the one of a text that waits and is
+// formatted when the page has time: it is about the page's own second, and only a machine that stands still for a
+// whole second between two of its statements fails it.)
+
+/** The lexer as lex.ts exports it, before a test puts anything in front of it. */
+const lexPieces = lex.lexMarkdownPieces;
+
+/**
+ * Stops the lexer's clock until `go` is called or the test ends: a parse that is not handed a clock (a mount:
+ * <Markdown> and <MarkdownPieces> take none) is handed one that says `at`, the moment it was stopped, whenever it is
+ * asked (LexOptions.now, the lexer's own way in for tests). No parse is ended by its time and none spends the page's
+ * time: what a mount shows is decided by the text (its size, its depth, its steps, what is remembered of it) and by
+ * nothing this machine is doing. The idle queue has a clock of its own (idle.ts): its slices are as long as ever.
+ * `begins` is called as each such parse begins, for a test that wants to know when a text's turn came.
+ */
+function stopTheClock(begins?: () => void): { readonly at: number; go(): void } {
+  const at = performance.now();
+  const stopped = vi.spyOn(lex, 'lexMarkdownPieces').mockImplementation((pieces, whole, options) => {
+    begins?.();
+    return lexPieces(pieces, whole, options?.now === undefined ? { ...options, now: () => at } : options);
+  });
+  let going = false;
+  const go = (): void => {
+    if (going) return;
+    going = true;
+    stopped.mockRestore();
+  };
+  // Also when an assertion fails on the way: the next test has the real clock.
+  onTestFinished(go);
+  return { at, go };
+}
+
+/** What `mount` gives while the lexer's clock is stopped (see stopTheClock). */
+function unhurried<Result>(mount: () => Result): Result {
+  const clock = stopTheClock();
+  try {
+    return mount();
+  } finally {
+    clock.go();
+  }
+}
+
 describe('what a text costs the page that shows it (review R4-03)', () => {
   it('sixteen times the text costs about sixteen times as much, in every function that looks at text someone else wrote', () => {
     for (const [subject, look] of Object.entries(LOOKS)) expectProportional(subject, hostileTexts(look.fronts), Math.min(LARGE_CHARS, look.longest ?? LARGE_CHARS) / TIMES, look.run);
@@ -313,7 +363,28 @@ describe('what a text costs the page that shows it (review R4-03)', () => {
         renderToStaticMarkup(<Markdown text={spec} />);
       }, 0);
       expect(took, JSON.stringify(pair)).toBeLessThan(here(parseBudgetMs(spec.length) + PAUSE_MAX_MS + 250));
-      expect(renderToStaticMarkup(<Markdown text={links(1)} />)).toContain(' (<a class="md-link" href="https://example.com/0"');
+      // Its parse alone, the one a mount does (`urgent`: it takes from the page's share of a second, lex.ts), takes
+      // less processor time than that share: the mount of such a SPEC leaves the page time for the text that is
+      // mounted next. A lexer that takes 4 ms more for each such link spends the share, and a share of a twentieth
+      // is spent by today's lexer.
+      expect(
+        cost(() => {
+          forgetParses();
+          lexMarkdown(spec, { urgent: true, now: () => 0 });
+        }, 0),
+        `the parse of the SPEC, ${JSON.stringify(pair)}`,
+      ).toBeLessThan(here(URGENT_PARSE_MS));
+      // And what was measured was a parse: the SPEC is not one of the texts that are shown as written unread.
+      expect(kindOf(lexMarkdown(spec, { now: () => 0 }))).toBe('formatted');
+      // What ONE such link is shown as, once it is parsed. Not a matter of time: the mounts above took from the page's
+      // share, and on a machine where the last of them took 200 ms on the wall the share is spent and the next text
+      // waits, shown as written (that is what failed on the runner). So: a page that has all its time, the clock stopped.
+      const one = links(1);
+      forgetParses();
+      expect(unhurried(() => renderToStaticMarkup(<Markdown text={one} />))).toContain(' (<a class="md-link" href="https://example.com/0"');
+      // That a page formats it at all is a cost, and is measured like every cost here: its parse takes far less
+      // processor time than the budget of its text, by this machine's measure.
+      expect(cost(() => void lexMarkdown(one, { now: () => 0 }), 0), JSON.stringify(pair)).toBeLessThan(here(parseBudgetMs(one.length)));
       // Words that ARE read (as long as words are read): a message full of such links, and sixteen messages.
       const short = `x${pair.repeat((LABEL_MAX_CHARS - 2) / 2)}`;
       expect(short.length).toBeLessThanOrEqual(LABEL_MAX_CHARS);
@@ -453,11 +524,17 @@ describe('the lexer\u2019s budget is the budget of a text and of a mount (review
     expect(cut(all.slice(55))).toEqual(['formatted', 'formatted', 'formatted', 'formatted', 'formatted']);
     expect(cut(all.slice(ranOutOn - 2, ranOutOn + 3))).toEqual(['formatted', 'formatted', 'as written (size)', 'formatted', 'formatted']);
     expect(lex.ranOut(all.slice(ranOutOn - 2, ranOutOn + 3).join('\n'))).toBe(false);
-    // The note stands above the piece that is shown as written, wherever it stands in the text.
-    const view = render(
-      <MarkdownPieces text={all.slice(ranOutOn - 1, ranOutOn + 2).join('\n')} pieces={all.slice(ranOutOn - 1, ranOutOn + 2)}>
-        {(body, index) => <section key={index}>{body}</section>}
-      </MarkdownPieces>,
+    // The note stands above the piece that is shown as written, wherever it stands in the text. The clock stands
+    // still for this mount as well: two sections of a thousand entries have a budget of 48 ms on the wall. That they
+    // are parsed inside it is a cost, and is said as one: in processor time, by this machine's measure.
+    const around = all.slice(ranOutOn - 1, ranOutOn + 2);
+    expect(cost(() => void lexMarkdownPieces(around, around.join('\n'), still), 0), 'the parse of the two sections around it').toBeLessThan(here(parseBudgetMs(around.join('\n').length)));
+    const view = unhurried(() =>
+      render(
+        <MarkdownPieces text={around.join('\n')} pieces={around}>
+          {(body, index) => <section key={index}>{body}</section>}
+        </MarkdownPieces>,
+      ),
     );
     expect([...view.container.querySelectorAll('section')].map((node) => [node.querySelectorAll('.md-note').length, node.querySelectorAll('li').length])).toEqual([[0, 1_000], [1, 0], [0, 1_000]]);
   });
@@ -466,6 +543,10 @@ describe('the lexer\u2019s budget is the budget of a text and of a mount (review
     // 70 sections of 400 list entries: 1,600 steps a section, more than twice what a text may have.
     const section = (index: number): string => `## Section ${index}\n\n${`- entry ${index}\n`.repeat(400)}`;
     const all = Array.from({ length: 70 }, (_, index) => section(index));
+    // The lexer's clock stands still: this is about what is remembered, and the STEPS decide where the long text runs
+    // out. (With the clock running, a machine that is busy ends the parse of the five sections that are left by its
+    // time, 45 ms on the wall, and one more of them is shown as written.)
+    stopTheClock();
     const page = (pieces: readonly string[]) => (
       <MarkdownPieces text={pieces.join('\n')} pieces={pieces}>
         {(body, index) => <section key={index}>{body}</section>}
@@ -495,6 +576,9 @@ describe('the lexer\u2019s budget is the budget of a text and of a mount (review
     expect(shown()).toEqual(['formatted', 'formatted', 'formatted', 'formatted', 'formatted']);
     expect(notes()).toBe(0);
     expect(view.container.querySelectorAll('li')).toHaveLength(2_000);
+    // With the clock stopped, the time of the text ends none of these parses. That five such sections are parsed
+    // inside it is a cost: in processor time, by this machine's measure.
+    expect(cost(() => void lexMarkdownPieces(clean, clean.join('\n'), { now: () => 0 }), 0), 'the parse of the five sections').toBeLessThan(here(parseBudgetMs(clean.join('\n').length)));
   }, 60_000);
 
   it('an ordinary text that was parsed while the machine stood still loses one piece, in every text that holds it, and nothing else', () => {
@@ -639,9 +723,56 @@ describe('the lexer\u2019s budget is the budget of a text and of a mount (review
   it('texts that wait are formatted when the page is idle, the newest first, a slice at a time: never all of them in one piece', async () => {
     // Forty messages that each cost the lexer a good part of a slice (a web address and what it takes back).
     const message = (index: number): string => `${index} http://a.a${')'.repeat(6_000)}`;
-    // The page's share is spent (a parse that says it took that long, with the real clock): every text waits.
+    // One of them is parsed inside the time a text of its length has (a quarter of it on the machine the bounds were
+    // measured on): a cost, in processor time. With the lexer's clock stopped below, this line is what says so.
+    expect(cost(() => void lexMarkdown(message(-1), { now: () => 0 }), 0), 'the parse of one message').toBeLessThan(here(parseBudgetMs(message(-1).length)));
+    // The page's tasks are the test's own. The queue asks the browser for ONE task of the lowest priority for each
+    // slice (idle.ts; jsdom has no such tasks, and there the queue takes a timer). What it asks for is kept here and
+    // the test says when the page is idle, so a slice here is a slice of the queue's, whatever the machine is doing:
+    // how many timers come due in one turn of this process is a matter of its speed and of what else it runs.
+    const asked: { run(): void; readonly priority: string }[] = [];
+    vi.stubGlobal('scheduler', {
+      postTask: (run: () => void, options: { readonly priority: string; readonly signal: AbortSignal }): Promise<void> =>
+        new Promise((resolve, reject) => {
+          const task = {
+            run: (): void => {
+              run();
+              resolve();
+            },
+            priority: options.priority,
+          };
+          asked.push(task);
+          // Taken back (the last text that waited left the page): the task does not run.
+          options.signal.addEventListener('abort', () => {
+            if (asked.includes(task)) asked.splice(asked.indexOf(task), 1);
+            reject(options.signal.reason as Error);
+          });
+        }),
+    });
+    onTestFinished(() => void vi.unstubAllGlobals());
+    // The queue goes by the page's clock, and every look at that clock passes through here: `next` is told what the
+    // next one said, once. (Not a spy: a spy keeps every call, and whatever waits on a clock looks at it a million
+    // times.)
+    const now = performance.now.bind(performance);
+    const own = Object.getOwnPropertyDescriptor(performance, 'now');
+    let next: ((at: number) => void) | null = null;
+    performance.now = (): number => {
+      const at = now();
+      const tell = next;
+      next = null;
+      tell?.(at);
+      return at;
+    };
+    onTestFinished(() => void (own === undefined ? Reflect.deleteProperty(performance, 'now') : Object.defineProperty(performance, 'now', own)));
+    /** What the clock said at the first look after each parse of the running slice began. */
+    let done: number[] = [];
+    // The lexer's clock stands still; the queue's own goes on, and a slice is as long as ever. (A message costs the
+    // lexer ONE long step. With the clock running, a machine that is held during that step for longer than a pause
+    // may be puts the message over its budget: it is shown as written for good, and that is not what waiting did.)
+    const clock = stopTheClock(() => (next = (at) => void done.push(at)));
+    // The page's share is spent (a parse that says it took that long, by that clock): every text waits.
     let calls = 0;
-    lexMarkdown('spend the share', { urgent: true, now: () => performance.now() + ((calls += 1) > 2 ? URGENT_PARSE_MS : 0) });
+    lexMarkdown('spend the share', { urgent: true, now: () => clock.at + ((calls += 1) > 2 ? URGENT_PARSE_MS : 0) });
     const started = cpuMs();
     const view = render(
       <>
@@ -652,34 +783,101 @@ describe('the lexer\u2019s budget is the budget of a text and of a mount (review
     );
     const bodies = [...view.container.querySelectorAll('.md-body')];
     const waiting = (): number[] => bodies.flatMap((body, index) => (body.querySelector('.md-plain[data-why="later"]') === null ? [] : [index]));
+    /**
+     * The slices so far: for each, how old the slice was when each of its texts was done, by the page's clock. A
+     * slice's age is counted from its own first look at the clock (the queue's, as the slice begins), and a text is
+     * done at the first look after its parse began: the queue's look after that text, or an earlier one of React's.
+     */
+    const slices: number[][] = [];
+    /** The page is idle for a moment: the ONE task the queue asked for runs, a slice. */
+    const idle = (): void => {
+      expect(asked.map((task) => task.priority)).toEqual(['background']);
+      act(() => {
+        let began = Number.NaN;
+        done = [];
+        next = (at) => (began = at);
+        asked.shift()?.run();
+        slices.push(done.map((at) => at - began));
+      });
+    };
     // The mount parsed nothing: every text is shown as written, whole, without a note.
     expect(cpuMs() - started).toBeLessThan(here(250));
     expect(waiting()).toHaveLength(40);
     expect(view.container.querySelectorAll('.md-note')).toHaveLength(0);
     expect(bodies[7]?.textContent).toBe(message(7));
-    // ONE idle moment (the queue's timer was set before this one): the newest texts are formatted, and only those.
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    /** A turn of the event loop: every microtask runs, and whatever else is due. */
+    const turn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+    // Nothing is formatted before the page is idle, in a microtask or otherwise: only a task the queue asked for
+    // formats, and it is the test that runs it.
+    await turn();
+    expect(waiting()).toHaveLength(40);
+    // ONE idle moment: the newest texts are formatted, and only those. The others still wait: forty such messages are
+    // 0.4 s of processor time on the machine the bounds were measured on, many slices.
+    idle();
+    const first = waiting().length;
+    await turn();
     const left = waiting();
+    expect(left.length, 'formatted outside a task the queue asked for').toBe(first);
     expect(left.length).toBeLessThan(40);
-    expect(left.length).toBeGreaterThan(20);
+    expect(left.length).toBeGreaterThan(0);
     expect(left).toEqual(Array.from({ length: left.length }, (_, index) => index));
     expect(bodies[39]?.querySelector('a')?.getAttribute('href')).toMatch(/^http:\/\/a\.a/);
     // And so on, a slice at a time, until nothing waits; nothing was lost by waiting.
-    let turns = 1;
     while (waiting().length > 0) {
-      const before = waiting().length;
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-      expect(waiting().length).toBeLessThan(before);
-      turns += 1;
+      const waited = waiting().length;
+      idle();
+      const after = waiting().length;
+      expect(after).toBeLessThan(waited);
+      // Between two tasks of the queue's nothing is formatted: a slice does not go on outside its task.
+      await turn();
+      expect(waiting().length, 'formatted outside a task the queue asked for').toBe(after);
     }
-    expect(turns).toBeGreaterThan(4);
+    expect(asked).toHaveLength(0);
+    expect(slices.flat()).toHaveLength(40);
     expect(view.container.querySelectorAll('.md-plain')).toHaveLength(0);
     expect(bodies.map((body) => body.querySelectorAll('a').length)).toEqual(Array.from({ length: 40 }, () => 1));
     expect(bodies.map((body) => body.textContent)).toEqual(Array.from({ length: 40 }, (_, index) => message(index)));
+    // And no slice went on for longer than a slice may: it took up one more text only while it was younger than
+    // 30 ms (SLICE_MS, as a number: a slice ten times as long must not take the bound along). By the queue's own
+    // looks at the clock, so it holds on a machine of any speed and however often and wherever this process is set
+    // aside: the look this line goes by is never later than the one the queue went by. (A slice on a held machine
+    // formats fewer texts, one at least, and nothing here says how long the page waits between two slices. Processor
+    // time would not do: a slice of 300 ms on a machine that gives this process a tenth of a processor costs what a
+    // slice of 30 ms costs on a free one.) "Not under 30", so that a look that is missing does not pass.
+    const tookUp = slices.flatMap((ages) => ages.slice(0, -1));
+    expect(tookUp.filter((age) => !(age < 30)).map((age) => Math.round(age)), 'how old a slice was, in ms, when it took up one more text: where that is not under 30').toEqual([]);
+
+    // The same where a browser has no such tasks (Safari; jsdom): there the queue takes a timer for each slice. The
+    // timers are the test's own as well (the clock is not: a slice is as long as ever), so ONE timer is one slice
+    // here too, and what is formatted between two timers was formatted outside a slice.
+    vi.unstubAllGlobals();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    onTestFinished(() => void vi.useRealTimers());
+    const timed = render(
+      <>
+        {Array.from({ length: 40 }, (_, index) => (
+          <Markdown key={index} text={message(index)} />
+        ))}
+      </>,
+    );
+    const timedBodies = [...timed.container.querySelectorAll('.md-body')];
+    const timedWaiting = (): number[] => timedBodies.flatMap((body, index) => (body.querySelector('.md-plain[data-why="later"]') === null ? [] : [index]));
+    await turn();
+    expect(timedWaiting()).toHaveLength(40);
+    for (let timers = 1; timedWaiting().length > 0; timers += 1) {
+      const waited = timedWaiting().length;
+      expect(vi.getTimerCount()).toBe(1);
+      act(() => void vi.advanceTimersToNextTimer());
+      const after = timedWaiting();
+      expect(after.length).toBeLessThan(waited);
+      // The first of them left texts waiting, and every one formats the newest.
+      if (timers === 1) expect(after.length).toBeGreaterThan(0);
+      expect(after).toEqual(Array.from({ length: after.length }, (_, index) => index));
+      await turn();
+      expect(timedWaiting().length, 'formatted outside a timer the queue asked for').toBe(after.length);
+    }
+    expect(vi.getTimerCount()).toBe(0);
+    expect(timedBodies.map((body) => body.querySelectorAll('a').length)).toEqual(Array.from({ length: 40 }, () => 1));
   }, 60_000);
 
   it('a text that waits is shown as written without a note, and formatted when the page has time', async () => {
