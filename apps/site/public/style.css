@@ -425,6 +425,23 @@ p.copy-hint {
   visibility: hidden;
 }
 
+/* The one link of the hero, to the quick start: the line under the note, close to it (the two read as a pair). */
+.install .install-start {
+  grid-area: 3 / 1;
+  margin-top: -0.25rem;
+}
+
+/* (a taller place to tap: the line and its focus ring stay as they are) */
+.install-start a {
+  position: relative;
+}
+
+.install-start a::after {
+  content: '';
+  position: absolute;
+  inset: -0.5rem -0.25rem;
+}
+
 /* Phones: the command breaks after "-fsSL" and the button stays beside it. */
 @media (max-width: 539px) {
   .command code {
@@ -438,14 +455,26 @@ p.copy-hint {
   }
 }
 
-/* Wide: the command and the note in one row. */
+/* Wide: the command and the note in one row, the link under the note: two lines beside the command, no taller
+ * than it, so nothing below moves. */
 @media (min-width: 1000px) {
+  .install {
+    row-gap: 0;
+  }
+
   .install p {
     grid-area: 1 / 2;
-    justify-self: start;
+    place-self: end start;
+  }
+
+  .install .install-start {
+    grid-area: 2 / 2;
+    align-self: start;
+    margin-top: 0;
   }
 
   .command {
+    grid-row: 1 / span 2;
     width: auto;
   }
 }
@@ -1898,10 +1927,17 @@ html:lang(zh-Hant) .doc h1 {
   font-size: inherit;
 }
 
+/* A notice (the quick start's box of what a host must know): a panel with a bar, in the text's own colour. */
 .doc blockquote {
-  padding-left: 0.85rem;
-  border-left: 2px solid var(--border-strong);
-  color: var(--muted);
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.doc blockquote > :first-child {
+  margin-top: 0;
 }
 
 .doc hr {

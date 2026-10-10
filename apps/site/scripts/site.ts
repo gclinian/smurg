@@ -3,6 +3,7 @@
 //
 //   English                    Traditional Chinese             source
 //   /docs/                     /zh-TW/docs/                    the docs index (CHROME below)
+//   /docs/quick-start/         /zh-TW/docs/quick-start/        docs/QUICKSTART.md   docs/zh-TW/QUICKSTART.md
 //   /docs/hosting/             /zh-TW/docs/hosting/            docs/HOSTING.md      docs/zh-TW/HOSTING.md
 //   /docs/joining/             /zh-TW/docs/joining/            docs/JOINING.md      docs/zh-TW/JOINING.md
 //   /docs/changelog/           /zh-TW/docs/changelog/          CHANGELOG.md         docs/zh-TW/CHANGELOG.md
@@ -132,7 +133,22 @@ export interface DocSource {
 /** A document of the docs, in both languages. */
 export type DocPage = Readonly<Record<Lang, DocSource>>;
 
+/** In the order of the docs index and the docs navigation: the quick start first, then the two guides it links. */
 export const DOC_PAGES: readonly DocPage[] = [
+  {
+    en: {
+      source: 'docs/QUICKSTART.md',
+      path: '/docs/quick-start/',
+      label: 'Quick start',
+      summary: 'The shortest way from nothing to a first topic: install smurg, share a folder, invite a teammate, and go from an agent’s first question to a result you reviewed and merged.',
+    },
+    'zh-TW': {
+      source: 'docs/zh-TW/QUICKSTART.md',
+      path: '/zh-TW/docs/quick-start/',
+      label: '快速上手',
+      summary: '從什麼都沒有到第一個主題，最短的走法：安裝 smurg、分享資料夾、邀請組員，從 agent 的第一個選擇題走到你看過、合併的成果。',
+    },
+  },
   {
     en: {
       source: 'docs/HOSTING.md',
@@ -257,7 +273,7 @@ export const CHROME = {
     toc: 'On this page',
     tableLabel: (section: string | undefined): string => (section === undefined ? 'Table' : `Table: ${section}`),
     indexTitle: 'smurg docs: install, share a folder, join a workspace',
-    indexDescription: 'How to use smurg: the host guide, the guide for teammates, the changelog and the license.',
+    indexDescription: 'How to use smurg: the quick start, the host guide, the guide for teammates, the changelog and the license.',
     indexHeading: 'smurg docs',
     indexLede: 'Install smurg, share a folder, join a workspace someone shared, and see what changed in each version.',
     licenseHeading: 'License and source code',
@@ -289,7 +305,7 @@ export const CHROME = {
     toc: '本頁目錄',
     tableLabel: (section: string | undefined): string => (section === undefined ? '表格' : `表格：${section}`),
     indexTitle: 'smurg 文件：安裝、分享資料夾、加入工作區',
-    indexDescription: 'smurg 的使用說明：主人指南、組員指南、變更紀錄、授權條款。',
+    indexDescription: 'smurg 的使用說明：快速上手、主人指南、組員指南、變更紀錄、授權條款。',
     indexHeading: 'smurg 文件',
     indexLede: '安裝 smurg、分享資料夾、加入別人分享的工作區，以及每個版本的變更。',
     licenseHeading: '授權與原始碼',

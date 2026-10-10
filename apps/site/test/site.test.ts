@@ -16,7 +16,7 @@ const NOT_FOUND_PAGES = ['404.html', 'zh-TW/404.html'];
 /** The preview pictures (og:image): files of public/ that no page loads, read by link previews. */
 const SOCIAL_CARDS = LANGS.map((lang) => SOCIAL_CARD[lang].path.slice(1));
 const fileOf = (path: string): string => `${path.slice(1)}index.html`;
-/** The generated pages: the docs index, the three documents and the license page, in each language. */
+/** The generated pages: the docs index, the four documents and the license page, in each language. */
 const GENERATED_PAGES = pagePairs()
   .slice(1)
   .flatMap((paths) => LANGS.map((lang) => fileOf(paths[lang])));
@@ -27,6 +27,18 @@ const RELAY_README = `${REPOSITORY}/blob/main/apps/relay/README.md#self-hosting-
 const ALLOWED_HOSTS = ['app.smurg.ai', 'downloads.smurg.ai', 'smurg.ai', 'github.com'];
 /** What the site must no longer say about smurg: it is MIT-licensed open source, and anyone can run a relay. */
 const RETIRED_CLAIMS = /proprietary|All rights reserved|source (?:code )?(?:is|isn’t|is not) (?:private|public yet)|not public|isn’t public|free during the prototype|v0\.1\.0 prototype|currently in Traditional Chinese|專有軟體|原始碼不公開|原始碼沒有公開|原型期間免費|無法自己架設/i;
+/**
+ * A document of the docs by its English source, whatever its place in DOC_PAGES: the quick start is the first of
+ * them (a test holds that), and the tests of the two guides read each guide by its name, not by a position.
+ */
+function docOf(source: string): (typeof DOC_PAGES)[number] {
+  const doc = DOC_PAGES.find((candidate) => candidate.en.source === source);
+  if (doc === undefined) throw new Error(`${source} is not a page of the docs`);
+  return doc;
+}
+const QUICK_START = docOf('docs/QUICKSTART.md');
+const HOST_GUIDE = docOf('docs/HOSTING.md');
+const TEAM_GUIDE = docOf('docs/JOINING.md');
 /** The language of a page, from its `<html lang>`. */
 const langOf = (p: Page): Lang => (first(p, 'html')?.attr('lang') === HTML_LANG.en ? 'en' : 'zh-TW');
 
@@ -63,7 +75,7 @@ function outLinks(path: string): string[] {
 describe('the built site', () => {
   it('is public/ plus exactly the generated pages (both languages), the notices and the sitemap', () => {
     const files = [...testSite().files.keys()];
-    expect(GENERATED_PAGES).toHaveLength(10);
+    expect(GENERATED_PAGES).toHaveLength(12);
     expect(files.filter((path) => !publicFiles().includes(path)).sort()).toEqual([...GENERATED_PAGES, NOTICES_FILE.slice(1), 'sitemap.xml'].sort());
     expect(publicFiles().sort()).toEqual(['404.html', '_headers', 'copy.js', 'demo.js', 'favicon.svg', 'index.html', 'og.png', 'robots.txt', 'style.css', 'zh-TW/404.html', 'zh-TW/index.html', 'zh-TW/og.png'].sort());
     // No 404 page of its own under /docs/: the nearest 404.html is the English one there, the Chinese one under /zh-TW/.
@@ -356,7 +368,7 @@ describe('the built site', () => {
     // Every page that exists in both languages, English first, each with the same three alternates.
     const expected = pagePairs().flatMap((paths) => LANGS.map((lang) => `https://smurg.ai${paths[lang]}`));
     expect([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1])).toEqual(expected);
-    expect(expected).toHaveLength(12);
+    expect(expected).toHaveLength(14);
     const entries = sitemap.split('<url>').slice(1);
     pagePairs().forEach((paths, i) => {
       for (const entry of [entries[2 * i], entries[2 * i + 1]]) {
@@ -574,7 +586,7 @@ describe('the two home pages', () => {
     const status = p.elements.find((el) => el.attr('id') === 'copy-status');
     expect([status?.tag, status?.attr('role'), status?.attr('class'), status?.text()]).toEqual(['p', 'status', 'visually-hidden', '']);
     const row = status?.parents.at(-1)?.children() ?? [];
-    expect(row.map((el) => `${el.tag}.${classes(el).join('.')}`)).toEqual(['div.command', 'p.visually-hidden', 'p.install-note']);
+    expect(row.map((el) => `${el.tag}.${classes(el).join('.')}`)).toEqual(['div.command', 'p.visually-hidden', 'p.install-note', 'p.install-start']);
     expect(copy?.attr('data-fail')?.length).toBeGreaterThan(10);
     const copyScript = readPublic('copy.js');
     expect(copyScript).toContain("say(button.getAttribute('data-fail') ?? '', true);");
@@ -586,8 +598,15 @@ describe('the two home pages', () => {
       ['/copy.js', ''],
       ['/demo.js', ''],
     ]);
-    // Under the install line: what a teammate with an invite link does, one sentence, nothing else.
+    // Under the install line: what a teammate with an invite link does, one sentence, and under it ONE link, to the
+    // quick start of the page's language, by the name the docs give it (two words; no sentence comes with it).
     expect(withClass(p, 'install-note').map((el) => el.text())).toEqual([INVITE_NOTE[lang as Lang]]);
+    const start = withClass(p, 'install-start');
+    expect(start.map((el) => el.text())).toEqual([QUICK_START[lang as Lang].label]);
+    expect(start[0]?.children().map((el) => [el.tag, el.attr('href'), el.attr('class'), el.text()])).toEqual([['a', QUICK_START[lang as Lang].path, undefined, QUICK_START[lang as Lang].label]]);
+    expect(['Quick start', '快速上手']).toContain(QUICK_START[lang as Lang].label);
+    // The hint of the Copy button takes the place of the note alone: the link is not the paragraph after the status line.
+    expect(row.findIndex((el) => classes(el).includes('install-start'))).toBe(row.findIndex((el) => el.attr('id') === 'copy-status') + 2);
   });
 
   it.each(Object.entries(HOME_PAGES))('%s: the header links the docs, GitHub and the other language; the footer the docs, the changelog, the license, the notices, GitHub, the app and the other language', (lang, path) => {
@@ -652,7 +671,7 @@ describe('the two home pages', () => {
     if (lang === 'en') expect(words(main?.text() ?? '')).toBeLessThan(450);
   });
 
-  it.each(Object.entries(HOME_PAGES))('%s: ends with the four cards: no section for hosts under them, and the guides one link away', (lang, path) => {
+  it.each(Object.entries(HOME_PAGES))('%s: ends with the four cards: no section for hosts under them, one link in the page (the quick start), and the guides one link away', (lang, path) => {
     // Until 2026-10-09 the page ended with a section "Before you share": three facts for hosts and a link to the
     // host guide. The owner's decision: the page is one sentence and a picture, and what a host must know before
     // sharing is the guides' to say, whole (the test of the guides, below, holds their sentences).
@@ -663,9 +682,11 @@ describe('the two home pages', () => {
     expect(main?.children().map((el) => `${el.tag}.${classes(el).join('.')}`)).toEqual(['section.hero.wrap']);
     expect(main?.children()[0]?.children().map((el) => `${el.tag}.${classes(el).join('.')}`)).toEqual(['h1.', 'p.lede', 'div.install', 'div.story']);
     expect(withClass(p, 'story')[0]?.children().map((el) => `${el.tag}.${classes(el).join('.')}`)).toEqual(['p.visually-hidden.story-state', 'figure.demo', 'ul.cards']);
-    // No list in <main> but the cards, and no link at all: nothing was put in the section's place.
+    // No list in <main> but the cards: nothing was put in the section's place. And one link in all of <main>, since
+    // 2026-10-10 (the owner asked for a quick start): to the quick start, under the install line, nowhere else.
     expect(inside(p, main).filter((el) => ['ul', 'ol', 'dl'].includes(el.tag)).map((el) => classes(el).join('.'))).toEqual(['cards']);
-    expect(inside(p, main).filter((el) => el.tag === 'a')).toEqual([]);
+    const links = inside(p, main).filter((el) => el.tag === 'a');
+    expect(links.map((a) => [a.attr('href'), a.parents.at(-1)?.attr('class'), a.parents.at(-2)?.attr('class')])).toEqual([[QUICK_START[l].path, 'install-start', 'install']]);
     for (const gone of ['share', 'share-row', 'more']) expect(withClass(p, gone), gone).toEqual([]);
     expect(p.ids()).not.toContain('share-title');
     // The stylesheet kept nothing of it either.
@@ -689,7 +710,7 @@ describe('the two home pages', () => {
     }
   });
 
-  it('show every word they hold: nothing in <main> is hidden but the Copy button and its status line, and no rule takes the hero’s words or the cards off the page', () => {
+  it('show every word they hold: nothing in <main> is hidden but the Copy button and its status line, and no rule takes the hero’s words, its link or the cards off the page', () => {
     // The tests above read the pages' text, so a sentence that is in the markup but not on the screen would pass
     // them. In <main> only the Copy button carries `hidden` (copy.js shows it), and only three things are kept for
     // screen readers alone: the status line, the popover's sentence and the second word of the Pause button.
@@ -713,7 +734,7 @@ describe('the two home pages', () => {
     // And the stylesheet has no rule that hides, empties or shrinks away the hero's words or the cards: every rule
     // whose selector names one of them is read.
     const css = readPublic('style.css').replace(/\/\*[\s\S]*?\*\//g, '');
-    const kept = /\.(?:cards|lede|hero|install-note)\b|\.install p\b/;
+    const kept = /\.(?:cards|lede|hero|install-note|install-start)\b|\.install p\b/;
     let read = 0;
     for (const [, selectors, body] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
       // (a ::before or ::after holds no words: a dash, a number, the rule of the card that is playing)
@@ -920,7 +941,8 @@ describe('the generated pages', () => {
     for (const doc of DOC_PAGES) {
       const english = readFileSync(join(REPO_ROOT, doc.en.source), 'utf8');
       expect([...new Set(english.match(cjk) ?? [])], doc.en.source).toEqual([CHROME['zh-TW'].name]);
-      expect((readFileSync(join(REPO_ROOT, doc['zh-TW'].source), 'utf8').match(cjk) ?? []).length, doc['zh-TW'].source).toBeGreaterThan(200);
+      // (runs of Chinese between Latin words, marks and line ends; the quick start is short on purpose)
+      expect((readFileSync(join(REPO_ROOT, doc['zh-TW'].source), 'utf8').match(cjk) ?? []).length, doc['zh-TW'].source).toBeGreaterThan(doc === QUICK_START ? 100 : 200);
     }
     expect(CHROME['zh-TW'].name).toBe('繁體中文');
     expect(CHROME.en.name).toBe('English');
@@ -936,6 +958,71 @@ describe('the generated pages', () => {
     const links = p.elements.filter((el) => el.tag === 'a' && el.parents.includes(main as El)).map((a) => a.attr('href'));
     expect(links).toEqual([...DOC_PAGES.map((doc) => doc[lang].path), licensePage(lang), REPOSITORY, NOTICES_FILE, WEB_APP_NOTICES, `${REPOSITORY}/blob/main/CONTRIBUTING.md`, `${REPOSITORY}/blob/main/SECURITY.md`]);
     expect(main?.text()).toContain(lang === 'en' ? 'open source under the MIT License' : '以 MIT 授權條款釋出');
+  });
+
+  it('the quick start is the first of the docs and stays quick: numbered steps that count on through its sections, one box of what a host must know with a link to the host guide, and every other link into the two guides', () => {
+    expect(DOC_PAGES[0]).toBe(QUICK_START);
+    expect(LANGS.map((lang) => [QUICK_START[lang].path, QUICK_START[lang].label])).toEqual([
+      ['/docs/quick-start/', 'Quick start'],
+      ['/zh-TW/docs/quick-start/', '快速上手'],
+    ]);
+    const shape: Record<string, unknown> = {};
+    for (const lang of LANGS) {
+      const p = page(fileOf(QUICK_START[lang].path));
+      const main = first(p, 'main');
+      const inMain = p.elements.filter((el) => el.parents.includes(main as El));
+      const text = (el: El | undefined): string => (el?.text() ?? '').replace(/\s+/g, lang === 'en' ? ' ' : '');
+      // The steps: ordered lists whose numbers go on where the list before stopped, 8 to 12 steps in all, and each
+      // starts with what to do, in bold.
+      const lists = inMain.filter((el) => el.tag === 'ol');
+      const counts = lists.map((ol) => ol.children().filter((li) => li.tag === 'li').length);
+      expect(lists.map((ol) => Number(ol.attr('start') ?? '1')), lang).toEqual(counts.map((_, i) => 1 + counts.slice(0, i).reduce((sum, n) => sum + n, 0)));
+      const steps = lists.flatMap((ol) => ol.children().filter((li) => li.tag === 'li'));
+      expect(steps.length, lang).toBeGreaterThanOrEqual(8);
+      expect(steps.length, lang).toBeLessThanOrEqual(12);
+      for (const step of steps) expect(inMain.find((el) => el.parents.includes(step))?.tag, text(step).slice(0, 40)).toMatch(/^(?:strong|p)$/);
+      for (const step of steps) expect(inMain.filter((el) => el.tag === 'strong' && el.parents.includes(step)).length, text(step).slice(0, 40)).toBe(1);
+      // The two commands a host types, each once, in its own block; the install line is the home page's.
+      const blocks = inMain.filter((el) => el.tag === 'pre').map((pre) => rawText(pre).trim());
+      expect(blocks.slice(0, 2), lang).toEqual([INSTALL, 'smurg host ~/projects/my-app']);
+      expect(blocks, lang).toHaveLength(3);
+      // ONE box, before the step that sends the teammates' link, and named for it: agents run as the host with no
+      // sandbox, on the host's Claude account; which kind of Claude account a group needs (the host guide's §4 and
+      // the dialog that starts a topic say the same); whom to give Agent access; and the way to the host guide's §4
+      // (the same facts the guides say in whole sentences, see the next test: here they are a pointer, not the
+      // explanation). That every member sees the folder's files is said in the step that sends the link.
+      const boxes = inMain.filter((el) => el.tag === 'blockquote');
+      expect(boxes, lang).toHaveLength(1);
+      const box = text(boxes[0]);
+      expect(box.startsWith(lang === 'en' ? 'Before you send the link.' : '把連結傳給組員之前：'), lang).toBe(true);
+      const facts = lang === 'en'
+        ? ['they run on your computer as you, with no sandbox, on your Claude account, even when they work for a teammate', 'A personal Pro or Max subscription is for your own use: a group needs an API key or a Team or Enterprise plan', 'Give Agent access only to people you fully trust']
+        : ['以你的身分在你的電腦上執行，沒有沙盒，用的是你的Claude帳號，替組員工作時也一樣', '個人的Claude訂閱（Pro或Max）只供你自己使用：多人使用請改用API金鑰，或Team、Enterprise方案', '只把「可使用agent」給你完全信任的人'];
+      for (const fact of facts) expect(box, fact).toContain(fact);
+      expect(text(steps[3]), lang).toContain(lang === 'en' ? 'they see and edit the files in the folder' : '看得到也可以編輯資料夾裡的檔案');
+      const boxLinks = inMain.filter((el) => el.tag === 'a' && el.parents.includes(boxes[0] as El)).map((a) => a.attr('href'));
+      expect(boxLinks, lang).toEqual([`${HOST_GUIDE[lang].path}#${lang === 'en' ? '4-before-you-share' : '4-分享前必讀'}`]);
+      const order = inMain.filter((el) => el.tag === 'ol' || el.tag === 'blockquote').map((el) => el.tag);
+      expect(order.indexOf('blockquote'), lang).toBe(1);
+      // The word is only ever "no sandbox": the quick start describes none.
+      expect(text(main).match(/sandbox|沙盒|沙箱/gi), lang).toHaveLength(1);
+      // Every link of the text goes into the two guides of its language, at a heading, but for the first one: this
+      // guide in the other language.
+      const links = inMain.filter((el) => el.tag === 'a').map((a) => a.attr('href') ?? '');
+      expect(links[0], lang).toBe(QUICK_START[otherLang(lang)].path);
+      for (const href of links.slice(1)) expect(href.startsWith(`${HOST_GUIDE[lang].path}#`) || href.startsWith(`${TEAM_GUIDE[lang].path}#`), `${lang}: ${href}`).toBe(true);
+      expect(links.some((href) => href.startsWith(`${TEAM_GUIDE[lang].path}#`)), lang).toBe(true);
+      // What was verified is said where the reader is sent on (the guides' §10.8 has the whole of it).
+      expect(text(main), lang).toContain(lang === 'en' ? 'verified against a scripted stand-in for the model, not with a real Claude account' : '是用照劇本回應的模型替身驗證的，沒有用真正的Claude帳號');
+      // No version number, of smurg or of anything it needs: the host guide's §1 has them.
+      expect(text(main), lang).not.toMatch(/\bv?\d+\.\d+\.\d+\b/);
+      // Quick: about two screens of a laptop. In words (English) and in characters (Chinese has no spaces to count).
+      if (lang === 'en') expect(text(main).split(' ').length, 'words').toBeLessThan(750);
+      else expect([...text(main)].length, 'characters').toBeLessThan(1900);
+      shape[lang] = [inMain.filter((el) => /^h[1-6]$|^ol$|^ul$|^blockquote$|^pre$/.test(el.tag)).map((el) => el.tag), counts, links.length];
+    }
+    // The same guide in both languages: the same headings, lists, blocks and box in the same order, as many steps and links.
+    expect(shape['zh-TW']).toEqual(shape.en);
   });
 
   it.each(LANGS)('%s: the license page shows LICENSE (MIT) exactly, as English text', (lang) => {
@@ -954,22 +1041,22 @@ describe('the generated pages', () => {
   });
 
   it('the guides explain the Agent access role and its risk in both languages, and offer no guest sandbox, guest Claude login or removed option', () => {
-    const text = (lang: Lang, index: number): string => siteText(fileOf((DOC_PAGES[index] as (typeof DOC_PAGES)[number])[lang].path));
+    const text = (lang: Lang, doc: (typeof DOC_PAGES)[number]): string => siteText(fileOf(doc[lang].path));
     for (const lang of LANGS) {
-      for (const html of [text(lang, 0), text(lang, 1)]) {
+      for (const html of [text(lang, QUICK_START), text(lang, HOST_GUIDE), text(lang, TEAM_GUIDE)]) {
         expect(html).not.toMatch(/客人沙盒|guest sandbox|bubblewrap|AppArmor|Seatbelt|--allow-main-workspace-guests|--no-main-workspace-guests|--no-guest-subscription-login|可執行 agent|can run agents|can use agents|runner|用 Claude 訂閱登入|匯入個人設定/i);
         // Nothing that was true only while the source was private or of versions that are gone.
         expect(html).not.toMatch(RETIRED_CLAIMS);
         expect(html).not.toMatch(/0\.[123]\.0/);
       }
     }
-    const hosting = text('en', 0);
+    const hosting = text('en', HOST_GUIDE);
     expect(hosting).toContain('id="4-before-you-share"');
     expect(hosting).toContain('id="5-agent-access-and-agents-shell-commands"');
     for (const phrase of ['run any command on your computer', 'read your home folder', 'use your Claude account', 'Give this role only to people you fully', 'the usage and the cost are yours', '--role agent', 'you can run your own relay']) {
       expect(hosting, phrase).toContain(phrase);
     }
-    expect(text('en', 1)).toContain('as the host');
+    expect(text('en', TEAM_GUIDE)).toContain('as the host');
     // The sections the `smurg` command's help links by their heading (packages/cli/src/i18n: usage.host, usage.status,
     // usage.uninstall, usage.attach), and the ones 0.5.0 added.
     for (const id of ['7-status-and-stopping', '9-updating-and-removing', '10-topics-from-the-hosts-side']) expect(hosting, id).toContain(`id="${id}"`);
@@ -977,23 +1064,23 @@ describe('the generated pages', () => {
     // in packages/cli/src/i18n; packages/cli/test/guide-anchors.test.ts holds the catalogs to the Markdown headings,
     // this holds the built page to the same ids). Rewording one of these headings breaks a printed address.
     for (const id of ['92-after-an-update-what-your-workspace-keeps', '94-if-you-moved-the-state-folder-away-because-smurg-050-told-you-to']) expect(hosting, id).toContain(`id="${id}"`);
-    for (const id of ['10-joining-from-a-terminal-cli-optional', '6-topics-from-discussion-to-reviewed-result']) expect(text('en', 1), id).toContain(`id="${id}"`);
+    for (const id of ['10-joining-from-a-terminal-cli-optional', '6-topics-from-discussion-to-reviewed-result']) expect(text('en', TEAM_GUIDE), id).toContain(`id="${id}"`);
     // What 0.5.0 must say to a host: the Claude Code floor, git for work items, whose account, the host's own rules,
     // and that the flow was verified against a scripted stand-in.
     for (const phrase of ['2.1.288 or later', 'git 2.42 or later', 'Your own allow rules apply', 'a Team or Enterprise plan', 'scripted stand-in for the model', 'No real Claude account was used']) {
       expect(hosting, phrase).toContain(phrase);
     }
-    const zh = text('zh-TW', 0);
+    const zh = text('zh-TW', HOST_GUIDE);
     expect(zh).toContain('id="5-可使用-agent角色與-agent-的-shell-指令"');
     for (const phrase of ['在你的電腦上執行任何指令', '讀取你的家目錄', '使用你的 Claude 帳號', '只把這個角色給你完全信任的人', '用量和費用都算在你身上', '--role agent', '你可以自己架設 relay']) {
       expect(zh, phrase).toContain(phrase);
     }
     for (const id of ['7-狀態與停止', '9-更新與移除', '92-更新之後工作區保留了什麼', '94-如果你照-smurg-050-的指示把狀態資料夾移走了']) expect(zh, id).toContain(`id="${id}"`);
-    expect(text('zh-TW', 1)).toContain('id="10-用終端機cli加入選用"');
+    expect(text('zh-TW', TEAM_GUIDE)).toContain('id="10-用終端機cli加入選用"');
     for (const phrase of ['2.1.288 以上', '你自己的允許規則也有效', 'Team 或 Enterprise 方案', '照劇本回應的', '沒有使用任何真正的 Claude 帳號']) {
       expect(zh, phrase).toContain(phrase);
     }
-    expect(text('zh-TW', 1)).toContain('以主人的身分');
+    expect(text('zh-TW', TEAM_GUIDE)).toContain('以主人的身分');
     // The relay's README is linked on GitHub from both host guides.
     for (const html of [hosting, zh]) expect(html).toContain(`<a href="${RELAY_README}">`);
 
@@ -1001,8 +1088,10 @@ describe('the generated pages', () => {
     // key phrases there. The pages are one sentence and a picture now (the owner's decision), so each of those facts
     // is held here, where the guides say it, as the guides' own whole sentences: read as a reader reads the built
     // page (its text, not its markup; English with single spaces, Chinese without any).
-    const said = (lang: Lang, index: number): string => (first(page(fileOf((DOC_PAGES[index] as (typeof DOC_PAGES)[number])[lang].path)), 'main')?.text() ?? '').replace(/\s+/g, lang === 'en' ? ' ' : '');
-    const SENTENCES: Readonly<Record<Lang, readonly (readonly [number, string, readonly string[]])[]>> = {
+    const said = (lang: Lang, doc: (typeof DOC_PAGES)[number]): string => (first(page(fileOf(doc[lang].path)), 'main')?.text() ?? '').replace(/\s+/g, lang === 'en' ? ' ' : '');
+    // (which guide says it: 0 the host guide, 1 the guide for teammates)
+    const GUIDE = [HOST_GUIDE, TEAM_GUIDE] as const;
+    const SENTENCES: Readonly<Record<Lang, readonly (readonly [0 | 1, string, readonly string[]])[]>> = {
       en: [
         // 1. Agents run on the host's computer as the host, with no sandbox (host guide §4 and §5.1; the teammates' guide's introduction and §2).
         [0, 'no sandbox', ['No agent session is sandboxed.', 'These sessions run on your computer as you, exactly like the ones you start in your own terminal:', 'No sandbox: your operating-system account, your home folder']],
@@ -1030,8 +1119,8 @@ describe('the generated pages', () => {
       // The same facts in the same order in both languages, from the same guide each.
       expect(SENTENCES[lang].map(([index, what, sentences]) => [index, what, sentences.length])).toEqual(SENTENCES.en.map(([index, what, sentences]) => [index, what, sentences.length]));
       for (const [index, what, sentences] of SENTENCES[lang]) {
-        const guide = said(lang, index);
-        for (const sentence of sentences) expect(guide, `${lang}, ${(DOC_PAGES[index] as (typeof DOC_PAGES)[number])[lang].source}, ${what}`).toContain(sentence.replace(/\s+/g, lang === 'en' ? ' ' : ''));
+        const guide = said(lang, GUIDE[index]);
+        for (const sentence of sentences) expect(guide, `${lang}, ${GUIDE[index][lang].source}, ${what}`).toContain(sentence.replace(/\s+/g, lang === 'en' ? ' ' : ''));
       }
     }
     // The word "prototype" itself is in no guide: the repository's README says it, in its status line, with what

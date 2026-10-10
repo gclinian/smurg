@@ -3,6 +3,8 @@
 這份文件寫給**主人**：在自己的電腦上執行 `smurg host`，把一個專案資料夾分享給組員的人。組員請看
 [組員指南](JOINING.md)。這份指南的英文版：[English](../HOSTING.md)。
 
+第一次用 smurg？先看[快速上手](QUICKSTART.md)。
+
 你的團隊在工作區裡做的事：你開一個**主題**（一個功能或一件工作），大家一起和 agent 討論，agent 會出選擇題讓大家決定，
 再寫出 spec；接著 agent 把 spec 變成一份由工作項目組成的計畫，每個工作項目由一個 agent 在自己的 git worktree 裡完成，
 最後由人閱讀每一份結果報告並標記為已看過。agent 就是 Claude Code，在你的電腦上用你的 Claude 帳號執行。整個流程的每一步

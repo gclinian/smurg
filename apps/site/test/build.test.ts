@@ -45,7 +45,7 @@ describe('production bundle', () => {
       // What wrangler uploads is dist/: the site the tests check, generated pages included.
       const files = publicFiles(DIST).sort();
       expect(files).toEqual([...testSite().files.keys()].sort());
-      for (const path of ['docs/index.html', 'docs/hosting/index.html', 'zh-TW/docs/index.html', 'zh-TW/docs/joining/index.html', 'docs/changelog/index.html', 'license/index.html', 'zh-TW/license/index.html', 'sitemap.xml', 'third-party-notices.txt']) {
+      for (const path of ['docs/index.html', 'docs/quick-start/index.html', 'zh-TW/docs/quick-start/index.html', 'docs/hosting/index.html', 'zh-TW/docs/index.html', 'zh-TW/docs/joining/index.html', 'docs/changelog/index.html', 'license/index.html', 'zh-TW/license/index.html', 'sitemap.xml', 'third-party-notices.txt']) {
         expect(readFileSync(join(DIST, path)).equals(testSite().files.get(path) as Buffer), path).toBe(true);
       }
     } finally {

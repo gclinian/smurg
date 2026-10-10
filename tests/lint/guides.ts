@@ -1,10 +1,11 @@
-// Shared by the lints that read the two guides (docs-quotes.test.ts, guide-update.test.ts): where the guides are,
-// a text as one line, one numbered section of a guide, and the rows of its tables.
+// Shared by the lints that read the guides (docs-quotes.test.ts, guide-update.test.ts): where the two guides and the
+// quick start are, a text as one line, one numbered section of a guide, and the rows of its tables.
 import type { Locale } from './catalogs.ts';
 import { read } from './tree.ts';
 
-export type Guide = 'HOSTING' | 'JOINING';
+export type Guide = 'QUICKSTART' | 'HOSTING' | 'JOINING';
 export const GUIDES: Readonly<Record<Guide, Readonly<Record<Locale, string>>>> = {
+  QUICKSTART: { en: 'docs/QUICKSTART.md', 'zh-TW': 'docs/zh-TW/QUICKSTART.md' },
   HOSTING: { en: 'docs/HOSTING.md', 'zh-TW': 'docs/zh-TW/HOSTING.md' },
   JOINING: { en: 'docs/JOINING.md', 'zh-TW': 'docs/zh-TW/JOINING.md' },
 };

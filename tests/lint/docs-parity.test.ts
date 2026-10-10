@@ -10,6 +10,7 @@ import { CJK, read, repoFiles } from './tree.ts';
 const PAIRS: readonly (readonly [string, string])[] = [
   ['README.md', 'README.zh-TW.md'],
   ['CHANGELOG.md', 'docs/zh-TW/CHANGELOG.md'],
+  ['docs/QUICKSTART.md', 'docs/zh-TW/QUICKSTART.md'],
   ['docs/HOSTING.md', 'docs/zh-TW/HOSTING.md'],
   ['docs/JOINING.md', 'docs/zh-TW/JOINING.md'],
   ['apps/site/public/index.html', 'apps/site/public/zh-TW/index.html'],
@@ -91,6 +92,21 @@ describe('every user document has its zh-TW counterpart', () => {
     expect(numbers.length).toBeGreaterThan(8);
     const top = numbers.filter((heading) => heading.startsWith('2 ')).map((heading) => Number(heading.slice(2)));
     expect(top).toEqual(top.map((_, index) => index + 1));
+  });
+
+  it('docs/QUICKSTART.md and docs/zh-TW/QUICKSTART.md count the same steps, from 1 without a gap, under the same headings: a "step 7" holds in both', () => {
+    // The quick start numbers its steps, not its sections, and counts on through its sections.
+    const steps = (path: string): number[] => prose(path).flatMap((line) => (/^(\d+)\. /.exec(line) ?? []).slice(1).map(Number));
+    const headings = (path: string): number[] => prose(path).flatMap((line) => (/^(#{1,6}) /.exec(line) ?? []).slice(1).map((marks) => marks.length));
+    const english = steps('docs/QUICKSTART.md');
+    expect(steps('docs/zh-TW/QUICKSTART.md')).toEqual(english);
+    expect(english).toEqual(english.map((_, index) => index + 1));
+    // A quick start: enough steps to get to a merged result, few enough to stay one.
+    expect(english.length).toBeGreaterThanOrEqual(8);
+    expect(english.length).toBeLessThanOrEqual(12);
+    expect(headings('docs/zh-TW/QUICKSTART.md')).toEqual(headings('docs/QUICKSTART.md'));
+    expect(headings('docs/QUICKSTART.md')[0]).toBe(1);
+    expect(numberedHeadings('docs/QUICKSTART.md')).toEqual([]);
   });
 });
 

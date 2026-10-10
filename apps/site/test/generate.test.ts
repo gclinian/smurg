@@ -24,6 +24,8 @@ function tempDir(prefix: string): string {
 }
 
 const DOCS = {
+  'docs/QUICKSTART.md': '# Quick start\n\nThen read how to [share](HOSTING.md#2-share) and the [roles](JOINING.md#2-roles).\n\n## Share\n\nText.\n',
+  'docs/zh-TW/QUICKSTART.md': '# 快速上手\n\n接著讀怎麼[分享](HOSTING.md#2-分享)和[角色](JOINING.md#2-角色)。\n\n## 分享\n\n文字。\n',
   'docs/HOSTING.md': '# Host guide\n\nTeammates read [`JOINING.md`](JOINING.md#2-roles); the license is [LICENSE](../LICENSE); in [Chinese](zh-TW/HOSTING.md).\n\n## 1. Install\n\nFor developers: [ARCHITECTURE](ARCHITECTURE.md#rules) and the [relay](../apps/relay).\n\n## 2. Share\n\nBack to [install](#1-install).\n',
   'docs/JOINING.md': '# Guide for teammates\n\nHosts read [HOSTING.md](./HOSTING.md).\n\n## 1. Join\n\nText.\n\n## 2. Roles\n\nText.\n',
   'CHANGELOG.md': '# Changelog\n\nThe format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).\n\n## [0.1.0] - 2026-10-01\n\nSee [`docs/HOSTING.md`](docs/HOSTING.md#2-share) and the [spec](SPEC.md).\n',
@@ -78,7 +80,14 @@ describe('generateSite', () => {
     expect(zhHosting).toContain('<a href="/zh-TW/license/">LICENSE</a>');
     expect(zhHosting).toContain('<a href="#1-安裝">安裝</a>');
     expect(text('zh-TW/docs/changelog/index.html')).toContain('<a href="/docs/changelog/">English</a>');
+    // The quick start is a page of the docs like the guides: its links to them stay in its language.
+    const quick = text('docs/quick-start/index.html');
+    expect(quick).toContain('<html lang="en">');
+    expect(quick).toContain('<a href="/docs/hosting/#2-share">share</a>');
+    expect(text('zh-TW/docs/quick-start/index.html')).toContain('<a href="/zh-TW/docs/joining/#2-角色">角色</a>');
     expect(site.rewritten).toEqual([
+      'docs/QUICKSTART.md:3 [share](HOSTING.md#2-share) -> /docs/hosting/#2-share',
+      'docs/QUICKSTART.md:3 [roles](JOINING.md#2-roles) -> /docs/joining/#2-roles',
       'docs/HOSTING.md:3 [JOINING.md](JOINING.md#2-roles) -> /docs/joining/#2-roles',
       'docs/HOSTING.md:3 [LICENSE](../LICENSE) -> /license/',
       'docs/HOSTING.md:3 [Chinese](zh-TW/HOSTING.md) -> /zh-TW/docs/hosting/',
@@ -87,6 +96,8 @@ describe('generateSite', () => {
       'docs/JOINING.md:3 [HOSTING.md](./HOSTING.md) -> /docs/hosting/',
       'CHANGELOG.md:7 [docs/HOSTING.md](docs/HOSTING.md#2-share) -> /docs/hosting/#2-share',
       'CHANGELOG.md:7 [spec](SPEC.md) -> https://github.com/gclinian/smurg/blob/main/SPEC.md',
+      'docs/zh-TW/QUICKSTART.md:3 [分享](HOSTING.md#2-分享) -> /zh-TW/docs/hosting/#2-分享',
+      'docs/zh-TW/QUICKSTART.md:3 [角色](JOINING.md#2-角色) -> /zh-TW/docs/joining/#2-角色',
       'docs/zh-TW/HOSTING.md:3 [JOINING.md](JOINING.md#2-角色) -> /zh-TW/docs/joining/#2-角色',
       'docs/zh-TW/HOSTING.md:3 [LICENSE](../../LICENSE) -> /zh-TW/license/',
       'docs/zh-TW/HOSTING.md:7 [ARCHITECTURE](../ARCHITECTURE.md) -> https://github.com/gclinian/smurg/blob/main/docs/ARCHITECTURE.md',
@@ -95,7 +106,7 @@ describe('generateSite', () => {
       'docs/zh-TW/CHANGELOG.md:7 [English](../../CHANGELOG.md) -> /docs/changelog/',
     ]);
     expect(site.plain).toEqual([]);
-    const pages = ['docs/index.html', 'docs/hosting/index.html', 'docs/joining/index.html', 'docs/changelog/index.html', 'license/index.html'];
+    const pages = ['docs/index.html', 'docs/quick-start/index.html', 'docs/hosting/index.html', 'docs/joining/index.html', 'docs/changelog/index.html', 'license/index.html'];
     for (const path of [...pages, ...pages.map((page) => `zh-TW/${page}`)]) {
       expect(parsePage(text(path)).errors, path).toEqual([]);
       // Each page names its counterpart: the alternates and the language link.
@@ -107,6 +118,9 @@ describe('generateSite', () => {
     // No 404 page is generated under /docs/ any more.
     expect(site.files.has('docs/404.html')).toBe(false);
     expect(text('sitemap.xml')).toContain('<loc>https://smurg.ai/zh-TW/docs/joining/</loc>');
+    // The sitemap lists the docs in the order of the docs index: the quick start before the guides.
+    expect(text('sitemap.xml').indexOf('<loc>https://smurg.ai/docs/quick-start/</loc>')).toBeGreaterThan(text('sitemap.xml').indexOf('<loc>https://smurg.ai/zh-TW/docs/</loc>'));
+    expect(text('sitemap.xml').indexOf('<loc>https://smurg.ai/zh-TW/docs/quick-start/</loc>')).toBeLessThan(text('sitemap.xml').indexOf('<loc>https://smurg.ai/docs/hosting/</loc>'));
   });
 
   it('turns every link that is not https into text, and keeps https links to any host, GitHub included', () => {

@@ -3,6 +3,8 @@
 This guide is for the **host**: the person who runs `smurg host` on their own computer to share a project folder with
 teammates. Teammates should read the [guide for teammates](JOINING.md). This guide in [繁體中文](zh-TW/HOSTING.md).
 
+New here? Start with the [quick start](QUICKSTART.md).
+
 What your team does in a workspace: you start a **topic** (a feature or a task), everyone discusses it with an agent
 that asks multiple-choice questions and writes a spec, the agent turns the spec into a plan of work items, one agent
 per work item does the work in its own git worktree, and people read each result report and mark it reviewed. The

@@ -4,6 +4,8 @@ This guide is for **teammates**: someone shared a project folder with smurg and 
 need to have used smurg or Claude Code before. The host (the person who shares the folder) should read the
 [host guide](HOSTING.md). This guide in [繁體中文](zh-TW/JOINING.md).
 
+New here? Start with the [quick start](QUICKSTART.md).
+
 Four things to know first:
 
 - **Every file is on the host's computer.** What you see and change in the browser is the file on the host's

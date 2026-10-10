@@ -66,7 +66,7 @@ describe('wrangler.jsonc', () => {
 
   it('is documented in README.md: the paths, the build, the quota rule and the www Redirect Rule', () => {
     const readme = readFileSync(join(SITE_ROOT, 'README.md'), 'utf8');
-    for (const path of ['/install.sh', '/github', '/source', '/docs/', '/docs/hosting/', '/docs/joining/', '/docs/changelog/', '/license/', '/zh-TW/docs/', '/zh-TW/docs/hosting/', '/zh-TW/docs/joining/', '/zh-TW/docs/changelog/', '/zh-TW/license/', '/third-party-notices.txt', '/sitemap.xml']) {
+    for (const path of ['/install.sh', '/github', '/source', '/docs/', '/docs/quick-start/', '/docs/hosting/', '/docs/joining/', '/docs/changelog/', '/license/', '/zh-TW/docs/', '/zh-TW/docs/quick-start/', '/zh-TW/docs/hosting/', '/zh-TW/docs/joining/', '/zh-TW/docs/changelog/', '/zh-TW/license/', '/third-party-notices.txt', '/sitemap.xml']) {
       expect(readme, path).toContain(`\`${path}\``);
     }
     for (const word of ['run_worker_first', 'Redirect Rule', 'scripts/build.ts', 'SMURG_SITE_THIRD_PARTY_NOTICES', 'SMURG_SITE_ALLOW_PLACEHOLDER', 'hreflang', 'https://github.com/gclinian/smurg']) {

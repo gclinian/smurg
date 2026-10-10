@@ -1,4 +1,4 @@
-// The guides and the product page quote what smurg prints and shows (DESIGN B.5). A quote that drifts from the
+// The guides, the quick start and the product page quote what smurg prints and shows (DESIGN B.5). A quote that drifts from the
 // catalogs sends a reader looking for a button that is not there, so both directions are checked, per language:
 //
 //   forward: a list of messages (catalog id + sample parameters) that the guides must quote as the catalogs render
@@ -66,13 +66,13 @@ const QUOTES: readonly Quote[] = [
   // ---- smurg login (HOSTING §2)
   cliQuote('login.open', { page: 'https://app.smurg.ai/device', code: 'WDJB-MJHT', minutes: 10 }, ['HOSTING']),
   cliQuote('login.done', { origin: 'https://app.smurg.ai', name: 'Ian', userId: 'google:1' }, ['HOSTING'], { en: 'Logged in to', 'zh-TW': '已登入' }),
-  { what: 'relay next', guides: ['HOSTING'], render: (locale) => RELAY_STRINGS[locale].next },
-  { what: 'relay allow', guides: ['HOSTING', 'JOINING'], render: (locale) => RELAY_STRINGS[locale].allow },
+  { what: 'relay next', guides: ['HOSTING', 'QUICKSTART'], render: (locale) => RELAY_STRINGS[locale].next },
+  { what: 'relay allow', guides: ['HOSTING', 'JOINING', 'QUICKSTART'], render: (locale) => RELAY_STRINGS[locale].allow },
   { what: 'relay deny', guides: ['HOSTING'], render: (locale) => RELAY_STRINGS[locale].deny },
   // ---- smurg host (HOSTING §3, §6, §9)
   {
     what: 'CLI host.summary with host.invite.heading',
-    guides: ['HOSTING'],
+    guides: ['HOSTING', 'QUICKSTART'],
     render: (locale) =>
       cli(locale, 'host.summary', {
         name: 'my-app',
@@ -227,12 +227,12 @@ const QUOTES: readonly Quote[] = [
   cliQuote('attach.keyChange', { known: 'aa', offered: 'bb' }, ['JOINING'], { en: "The host computer's key has changed", 'zh-TW': '主人的電腦金鑰和之前不同' }),
   cliQuote('attach.readOnly', { owner: 'Amy' }, ['JOINING'], { en: 'Read-only:', 'zh-TW': '唯讀模式' }),
   // ---- roles (the wire catalog: one wording for the web app and the CLI)
-  { what: 'wire role.agent', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'role.agent') },
-  { what: 'wire role.editor', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'role.editor') },
+  { what: 'wire role.agent', guides: ['HOSTING', 'JOINING', 'QUICKSTART'], render: (locale) => wire(locale, 'role.agent') },
+  { what: 'wire role.editor', guides: ['HOSTING', 'JOINING', 'QUICKSTART'], render: (locale) => wire(locale, 'role.editor') },
   { what: 'wire role.viewer', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'role.viewer') },
   // ---- the web app (JOINING)
-  webQuote('app.login.google', ['JOINING']),
-  webQuote('join.confirm.join', ['JOINING']),
+  webQuote('app.login.google', ['JOINING', 'QUICKSTART']),
+  webQuote('join.confirm.join', ['JOINING', 'QUICKSTART']),
   webQuote('join.keyChange.confirm', ['JOINING']),
   webQuote('conn.keyMismatch.title', ['HOSTING', 'JOINING']),
   webQuote('conn.pill.hostOffline', ['HOSTING', 'JOINING']),
@@ -252,25 +252,25 @@ const QUOTES: readonly Quote[] = [
   webQuote('sidebar.inbox.group.look', ['JOINING']),
   webQuote('sidebar.inbox.empty.viewer', ['JOINING']),
   webQuote('columns.refused', ['JOINING']),
-  webQuote('conversation.q.title', ['JOINING']),
+  webQuote('conversation.q.title', ['JOINING', 'QUICKSTART']),
   webQuote('conversation.q.comment.note', ['JOINING']),
   webQuote('conversation.q.tie', ['JOINING']),
   webQuote('conversation.q.remind', ['JOINING']),
-  webQuote('conversation.perm.title.command', ['JOINING']),
-  webQuote('conversation.perm.allow', ['HOSTING', 'JOINING']),
+  webQuote('conversation.perm.title.command', ['JOINING', 'QUICKSTART']),
+  webQuote('conversation.perm.allow', ['HOSTING', 'JOINING', 'QUICKSTART']),
   webQuote('conversation.perm.always', ['HOSTING', 'JOINING']),
   webQuote('conversation.perm.scope.session', ['HOSTING', 'JOINING']),
   webQuote('conversation.perm.scope.topic', ['HOSTING', 'JOINING']),
   webQuote('conversation.perm.hostOnly', ['HOSTING', 'JOINING']),
   webQuote('conversation.mode.fixed', ['HOSTING', 'JOINING']),
   webQuote('conversation.status.fresh', ['HOSTING', 'JOINING']),
-  webQuote('conversation.status.spec', ['JOINING']),
-  webQuote('topics.new.submit', ['JOINING']),
+  webQuote('conversation.status.spec', ['JOINING', 'QUICKSTART']),
+  webQuote('topics.new.submit', ['JOINING', 'QUICKSTART']),
   webQuote('topics.revise.open', ['JOINING']),
-  webQuote('topics.plan.generate', ['JOINING']),
+  webQuote('topics.plan.generate', ['JOINING', 'QUICKSTART']),
   webQuote('topics.assign.mode.everyone', ['JOINING']),
   webQuote('topics.followUp.label', ['JOINING']),
-  webQuote('topics.review.action', ['JOINING']),
+  webQuote('topics.review.action', ['JOINING', 'QUICKSTART']),
   webQuote('topics.item.resolve', ['JOINING']),
   webQuote('topics.review.request', ['JOINING']),
   webQuote('topics.report.closed', ['JOINING']),
@@ -307,7 +307,7 @@ const QUOTES: readonly Quote[] = [
   { what: 'wire session.folderNotNameable', guides: ['HOSTING'], render: (locale) => wire(locale, 'session.folderNotNameable') },
   webQuote('topics.badge.stalled.error', ['HOSTING']),
   webQuote('topics.badge.reviewedWaitsMerge', ['HOSTING']),
-  webQuote('topics.review.merge', ['HOSTING']),
+  webQuote('topics.review.merge', ['HOSTING', 'QUICKSTART']),
   webQuote('conversation.message.delivery.queued', ['JOINING']),
   // What a teammate is told about a text that is shown as written, removed characters and an upload that is too large.
   webQuote('markdown.plain.note', ['JOINING']),
@@ -399,6 +399,32 @@ const QUOTES: readonly Quote[] = [
   cliQuote('host.agentsPaused', { count: 3 }, ['HOSTING']),
   cliQuote('status.claude.notChecked', undefined, ['HOSTING']),
   cliQuote('attach.agents.heading', undefined, ['JOINING']),
+  // ---- the quick start (docs/QUICKSTART.md): every button and label its twelve steps name, in the order of the steps.
+  // The ones the guides quote too carry 'QUICKSTART' in their own lines above (the sample of smurg host, "Next" and
+  // "Allow", the two roles, the login and join buttons, the question card, the spec, the plan, the permission card,
+  // the review and "Merge…"); these are the quick start's own.
+  webQuote('conn.pill.online', ['QUICKSTART']),
+  webQuote('workbench.empty.first.title', ['QUICKSTART']),
+  webQuote('sidebar.sessions.new.topic', ['QUICKSTART']),
+  // (the card's "Your vote" is only the name of its group of options for a screen reader: the quick start does not
+  // send a reader looking for it; a card with several questions has the other word on its button)
+  webQuote('conversation.q.submit', ['QUICKSTART']),
+  webQuote('conversation.q.submitAll', ['QUICKSTART']),
+  webQuote('conversation.next.spec.open', ['QUICKSTART']),
+  // (the button under a plan counts the items that can start; the quick start's sample plan has three, as the product page's picture)
+  webQuote('topics.foot.startAll', ['QUICKSTART'], { count: 3 }),
+  webQuote('topics.start.go', ['QUICKSTART']),
+  webQuote('conversation.perm.deny', ['QUICKSTART']),
+  {
+    // The row of the host's inbox goes on with what is to merge (an item's title).
+    what: 'web sidebar.title.merge.ready',
+    guides: ['HOSTING', 'QUICKSTART'],
+    render: (locale, web) => web.text(locale, 'sidebar.title.merge.ready', { what: 'Cart API' }),
+    part: { en: 'Reviewed, ready to merge', 'zh-TW': '已看過，可以合併' },
+  },
+  webQuote('worktree.review.approve', ['HOSTING', 'QUICKSTART']),
+  webQuote('worktree.review.confirm', ['QUICKSTART']),
+  webQuote('topics.badge.merged', ['QUICKSTART']),
   // ---- the activity feed's sentences (the wire catalog)
   { what: 'wire activity.agentBashChange', guides: ['HOSTING'], render: (locale) => wire(locale, 'activity.agentBashChange', { agent: 'Claude (Amy)', path: 'src/app.ts', change: 'change' }) },
 ];
@@ -516,7 +542,7 @@ describe('the guides quote the catalogs: listed messages (forward)', () => {
   });
 
   it('the English guides never quote zh-TW text, and no guide spells the agent name with full-width brackets', () => {
-    for (const name of ['HOSTING', 'JOINING'] as const) {
+    for (const name of ['QUICKSTART', 'HOSTING', 'JOINING'] as const) {
       expect(CJK.test(read(GUIDES[name].en).replaceAll('繁體中文', ''))).toBe(false);
       for (const locale of ['en', 'zh-TW'] as const) expect(read(GUIDES[name][locale])).not.toMatch(/Claude（(?:Amy|Ian|Ben)）/);
     }
@@ -627,9 +653,11 @@ const NOT_UI_TEXT: Readonly<Record<string, readonly string[]>> = {
 
 describe('what the guides and the product page quote is in the catalogs (reverse)', () => {
   const cases: (readonly [string, Locale, number, () => string[]])[] = [
+    [GUIDES.QUICKSTART.en, 'en', 6, () => quotedTexts(GUIDES.QUICKSTART.en, 'en')],
     [GUIDES.HOSTING.en, 'en', 6, () => quotedTexts(GUIDES.HOSTING.en, 'en')],
     [GUIDES.JOINING.en, 'en', 6, () => quotedTexts(GUIDES.JOINING.en, 'en')],
     [LANDING.en, 'en', 4, () => pictureLabels(LANDING.en)],
+    [GUIDES.QUICKSTART['zh-TW'], 'zh-TW', 3, () => quotedTexts(GUIDES.QUICKSTART['zh-TW'], 'zh-TW')],
     [GUIDES.HOSTING['zh-TW'], 'zh-TW', 3, () => quotedTexts(GUIDES.HOSTING['zh-TW'], 'zh-TW')],
     [GUIDES.JOINING['zh-TW'], 'zh-TW', 3, () => quotedTexts(GUIDES.JOINING['zh-TW'], 'zh-TW')],
     [LANDING['zh-TW'], 'zh-TW', 2, () => pictureLabels(LANDING['zh-TW'])],

@@ -13,6 +13,7 @@ hand-written HTML and CSS in `public/`; the docs pages are generated from the re
 |---|---|
 | `/`, `/zh-TW/` | the landing pages (`public/index.html`, `public/zh-TW/index.html`); `/zh-TW` and `/index.html` redirect there |
 | `/docs/`, `/zh-TW/docs/` | the docs index of each language, generated |
+| `/docs/quick-start/`, `/zh-TW/docs/quick-start/` | `docs/QUICKSTART.md`, `docs/zh-TW/QUICKSTART.md`, rendered: the quick start, the first of the docs |
 | `/docs/hosting/`, `/zh-TW/docs/hosting/` | `docs/HOSTING.md`, `docs/zh-TW/HOSTING.md`, rendered |
 | `/docs/joining/`, `/zh-TW/docs/joining/` | `docs/JOINING.md`, `docs/zh-TW/JOINING.md`, rendered |
 | `/docs/changelog/`, `/zh-TW/docs/changelog/` | `CHANGELOG.md`, `docs/zh-TW/CHANGELOG.md`, rendered |
@@ -80,9 +81,11 @@ forbids inline script), and every page has a visible language link.
 `scripts/build.ts` (with `scripts/site.ts` and `scripts/markdown.ts`) makes `dist/` = `public/` plus, for each
 language:
 
-- `docs/hosting/`, `docs/joining/`, `docs/changelog/`: the Markdown files rendered with marked (GFM), in the landing
-  pages' look (`style.css`, the same header and footer), each with the docs navigation and, on wide screens, its own
-  table of contents. Headings get GitHub's ids, so the docs' own `#…` links keep working.
+- `docs/quick-start/`, `docs/hosting/`, `docs/joining/`, `docs/changelog/`: the Markdown files rendered with marked
+  (GFM), in the landing pages' look (`style.css`, the same header and footer), each with the docs navigation and, on
+  wide screens, its own table of contents. Headings get GitHub's ids, so the docs' own `#…` links keep working. Their
+  order is `DOC_PAGES` in `scripts/site.ts` (the quick start first): the docs index, the docs navigation and the
+  sitemap follow it.
 - `docs/index.html` and `license/index.html` (LICENSE verbatim);
 
 and once: `third-party-notices.txt` and `sitemap.xml`.
@@ -147,8 +150,9 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
   describes one, and does not use the word at all (a test holds that).
 - A landing page is one sentence and one moving picture, and nothing below repeats the picture: the h1 (at most 9
   words; the preview pictures say it too), one line under it, the install command with the note for people who got
-  an invite link, the picture, four cards (a bold line of at most 6 words and ONE sentence of at most 18), then the
-  footer. The tests count. Everything else is the guides' job, and Docs in the header and the footer is the way
+  an invite link and, under the note, the page's ONE link (the quick start, by its two words, with no sentence), the
+  picture, four cards (a bold line of at most 6 words and ONE sentence of at most 18), then the footer. The tests
+  count. Everything else is the guides' job, and the quick start and Docs in the header and the footer are the way
   there: how to share and join, the security points and limits, platforms, questions, and what a host must know
   before sharing (that agents run as the host with no sandbox and whom to give Agent access, whose Claude account
   does the work, what was tested and with what: `docs/HOSTING.md` §4, §5.1 and §10.8, `docs/JOINING.md` in its
@@ -157,8 +161,14 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
   guide's sentence that a test holds stays, in its words.
 - Only state what `README.md`, `CHANGELOG.md` and `docs/` back. When in doubt, cut the sentence. The pages show no
   version number: what changed in a version is the changelog's job.
-- The docs pages: edit `docs/HOSTING.md`, `docs/JOINING.md` or `CHANGELOG.md` and their counterparts in
-  `docs/zh-TW/` together: `test/docs-parity.test.ts` compares their headings and section numbers, code blocks,
+- The quick start (`docs/QUICKSTART.md`) stays quick: numbered steps that count on through its sections, each one
+  thing to do with the exact command or button and what is seen when it worked, about two screens of a laptop
+  (`test/site.test.ts` bounds its steps and its words). What a host must know before sending the link is ONE box in
+  it (a quotation in the Markdown, shown as a notice: `.doc blockquote`), with a link to the host guide's §4; whatever
+  needs a paragraph is a link to a guide, not a paragraph here. Its quotes are checked like the guides'
+  (`tests/lint/docs-quotes.test.ts`).
+- The docs pages: edit `docs/QUICKSTART.md`, `docs/HOSTING.md`, `docs/JOINING.md` or `CHANGELOG.md` and their
+  counterparts in `docs/zh-TW/` together: `test/docs-parity.test.ts` compares their headings and section numbers, code blocks,
   commands, tables and link targets. The page chrome (header, docs navigation, footer, the docs index, the license
   page) is `CHROME` in `scripts/site.ts`. The landing pages' footers are written by hand and must stay equal to the
   generated pages' (a test compares them).
@@ -178,14 +188,18 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
   is one `<span>` that does not wrap). The button says "Copied" on itself. When the clipboard refuses, `copy.js`
   selects the command and writes the hint (`data-fail`) into the status line beside it, which then takes the place of
   the note for people with an invite link for 2.5 s (the class `copy-hint`; the two share a cell of the row): the
-  button keeps its word, so nothing on the page changes its size.
+  button keeps its word, so nothing on the page changes its size. The link to the quick start (`.install-start`) is
+  the line under the note: from 1000 px the note and the link are two lines beside the command, together no taller
+  than it, so the link costs the first screen nothing there; below 1000 px it is one more line (25 px) under the
+  note. Its place to tap is taller than its line (33 px, a pseudo-element: the line and the focus ring stay).
 - The first screen. The question card with its Submit button is the first thing that moves, so it has to be above
   the fold of a real browser window, which is about 110 px shorter than the screen: the hero's spacing is tight on
   purpose; in a short laptop window (at least 1000 px wide, less than 700 px high) the h1 goes on ONE line and the
   stage starts closer to the window's bars; on a phone the h1 takes two lines, not three (its size follows the
   width), and the window is drawn without its browser bar. After a change to the hero, measure where the card and
   its button end at 1366 x 657, 1280 x 609, 1024 x 590 and 390 x 664 (today: the whole card at the first two, the
-  whole button at the third; on the phone both options, and the button is cut).
+  whole button at the third; on the phone both options, in Chinese with 3 px to spare, and the button starts just
+  under the fold: the line of the quick start's link took 25 px there).
 - A new redirect goes into `src/routes.ts`, and its path into `run_worker_first` in `wrangler.jsonc` (the test fails
   otherwise), and into the table above.
 
