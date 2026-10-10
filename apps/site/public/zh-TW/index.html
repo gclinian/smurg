@@ -3,20 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>smurg：給團隊和 Claude Code 用的即時協作工作區</title>
-<meta name="description" content="從自己的電腦分享專案資料夾。團隊在瀏覽器裡和 Claude Code agent 討論一個功能、對它出的選擇題投票，再檢視 agent 做出來的成果。端對端加密，開放原始碼（MIT），支援 macOS 與 Linux。">
+<title>smurg：多人一起用 Claude Code 的即時協作工作區</title>
+<meta name="description" content="從自己的電腦分享專案資料夾，團隊在瀏覽器裡和 Claude Code agent 多人協作：投票決定、訂計畫、檢視成果。端對端加密，開放原始碼。">
 <link rel="canonical" href="https://smurg.ai/zh-TW/">
 <link rel="alternate" hreflang="en" href="https://smurg.ai/">
 <link rel="alternate" hreflang="zh-Hant-TW" href="https://smurg.ai/zh-TW/">
 <link rel="alternate" hreflang="x-default" href="https://smurg.ai/">
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/style.css">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="smurg">
-<meta property="og:title" content="smurg：給團隊和 Claude Code 用的即時協作工作區">
+<meta property="og:title" content="smurg：多人一起用 Claude Code 的即時協作工作區">
 <meta property="og:description" content="從自己的電腦分享專案資料夾。團隊和 Claude Code agent 討論一個功能、對它出的選擇題投票，再檢視 agent 做出來的成果。端對端加密。">
 <meta property="og:url" content="https://smurg.ai/zh-TW/">
 <meta property="og:locale" content="zh_TW">
@@ -29,8 +31,9 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://smurg.ai/zh-TW/og.png">
 <meta name="twitter:image:alt" content="smurg：給團隊和 Claude Code 用的即時協作工作區。">
-<meta name="twitter:title" content="smurg：給團隊和 Claude Code 用的即時協作工作區">
+<meta name="twitter:title" content="smurg：多人一起用 Claude Code 的即時協作工作區">
 <meta name="twitter:description" content="從自己的電腦分享專案資料夾。團隊和 Claude Code agent 討論一個功能、對它出的選擇題投票，再檢視 agent 做出來的成果。">
+<script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"WebSite","@id":"https://smurg.ai/#website","url":"https://smurg.ai/","name":"smurg","alternateName":"smurg.ai","sameAs":"https://github.com/gclinian/smurg","inLanguage":["en","zh-Hant-TW"]},{"@type":"WebPage","@id":"https://smurg.ai/zh-TW/#page","url":"https://smurg.ai/zh-TW/","name":"smurg：多人一起用 Claude Code 的即時協作工作區","description":"從自己的電腦分享專案資料夾，團隊在瀏覽器裡和 Claude Code agent 多人協作：投票決定、訂計畫、檢視成果。端對端加密，開放原始碼。","inLanguage":"zh-Hant-TW","isPartOf":{"@id":"https://smurg.ai/#website"}}]}</script>
 <script src="/copy.js" defer></script>
 <script src="/demo.js" defer></script>
 </head>
@@ -86,7 +89,7 @@
       </div>
 
       <div class="win-wrap">
-        <div class="win" role="img" aria-label="smurg 工作區在瀏覽器裡的示意圖，分成四個場景。決定：Claude 問購物車要存在哪裡；Ian、Amy 和 Ben 投票，Ian 送出領先的答案。計畫：Claude 寫出 spec 和一份有三個工作項目的計畫，Ian 按下開始。實作：三個 agent 並排工作，每個工作項目一個，各自在自己的 worktree；其中一個請求許可執行指令，Ben 允許了一次。檢視：Amy 讀完第一個項目的結果報告，標成已看過，再由主人 Ian 把變更合併到主工作區。">
+        <div class="win" role="img" data-nosnippet aria-label="smurg 工作區在瀏覽器裡的示意圖，分成四個場景。決定：Claude 問購物車要存在哪裡；Ian、Amy 和 Ben 投票，Ian 送出領先的答案。計畫：Claude 寫出 spec 和一份有三個工作項目的計畫，Ian 按下開始。實作：三個 agent 並排工作，每個工作項目一個，各自在自己的 worktree；其中一個請求許可執行指令，Ben 允許了一次。檢視：Amy 讀完第一個項目的結果報告，標成已看過，再由主人 Ian 把變更合併到主工作區。">
           <svg class="visually-hidden" aria-hidden="true" focusable="false">
             <symbol id="i-agent" viewBox="0 0 16 16"><rect x="2.75" y="5.25" width="10.5" height="8" rx="2"/><path d="M8 2.25v3M6 9.25v.01M10 9.25v.01M6.25 11.5h3.5"/></symbol>
             <symbol id="i-cursor" viewBox="0 0 16 16"><path d="M3 1.5v11.4l3.1-2.7 1.9 4.4 2.1-.9-1.9-4.4 4.1-.3z"/></symbol>

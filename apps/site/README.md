@@ -20,7 +20,11 @@ hand-written HTML and CSS in `public/`; the docs pages are generated from the re
 | `/license/`, `/zh-TW/license/` | `LICENSE` (MIT), as text in a page; the Chinese page introduces the English text |
 | `/third-party-notices.txt` | the executable's complete third-party notices (see "The build") |
 | `/og.png`, `/zh-TW/og.png` | the preview pictures (Open Graph `og:image`) of each language's pages (see "The preview pictures") |
-| `/sitemap.xml` | generated: every page above in both languages, each with its alternates |
+| `/favicon.svg`, `/favicon.ico`, `/apple-touch-icon.png` | the icons (see "Being found") |
+| `/robots.txt` | every crawler may read every page; names the sitemap |
+| `/sitemap.xml` | generated: every page above in both languages, each with its alternates and, where git knows it, the day its source last changed |
+| `/llms.txt` | generated: what smurg is and where its documents are, as plain text for AI assistants (see "Being found") |
+| `/zh-tw`, `/zh-tw/<path>` | 301 to `/zh-TW/<path>`, query kept (`public/_redirects`: the static assets answer, not the Worker) |
 | `/install.sh` | 302 to `https://downloads.smurg.ai/latest/install.sh` (the Worker) |
 | `/github`, `/source` | 302 to `https://github.com/gclinian/smurg` (the Worker): short addresses for the installer's and the CLI's output; the pages link GitHub directly |
 | `www.smurg.ai/<path>` | 301 to `https://smurg.ai/<path>`, query kept: the zone's Redirect Rule, before any Worker (not a route of this Worker) |
@@ -33,11 +37,12 @@ hand-written HTML and CSS in `public/`; the docs pages are generated from the re
 
 The `public/_headers` file (copied into `dist/`) sets the security headers for every file: a strict CSP (only this
 site's own files, no inline code, Trusted Types), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, a
-deny-by-default `Permissions-Policy`, HSTS. A page loads `/style.css` and `/favicon.svg`; the landing pages also load
+deny-by-default `Permissions-Policy`, HSTS. A page loads `/style.css` and one of its icons; the landing pages also load
 `/copy.js` (the copy button) and `/demo.js` (the strip of the moving picture; Pause works without it), and make sense
 without either. Nothing else: no third-party requests, no analytics, no web fonts. The
-preview pictures are the one exception to `Cross-Origin-Resource-Policy: same-origin`: other sites and apps show them,
-so `_headers` takes that header away for them (`! Cross-Origin-Resource-Policy`) and sends `cross-origin`.
+preview pictures and the icons are the one exception to `Cross-Origin-Resource-Policy: same-origin`: other sites and
+apps show them, so `_headers` takes that header away for them (`! Cross-Origin-Resource-Policy`) and sends
+`cross-origin`.
 
 ## The preview pictures
 
@@ -57,6 +62,133 @@ pnpm --filter @smurg/site run social-card   # headless Chrome (SMURG_TEST_CHROME
 Chrome save it; the committed pictures were drawn on macOS. Each stays under 300 KB (WhatsApp shows no picture above
 that). LinkedIn keeps a link's preview for days: after a change, ask its Post Inspector
 (https://www.linkedin.com/post-inspector/) for the address again.
+
+## Being found
+
+What a search engine, a link preview or an AI assistant is told about the site: where each thing is written, the
+rule it follows, and how to check it. None of it adds a visible word to a page. `test/site.test.ts` ("being
+found") holds all of it.
+
+**Titles and descriptions**, the two parts of a search result. The home pages' are written by hand in
+`public/index.html` and `public/zh-TW/index.html` (`<title>`, `<meta name="description">`, and the `og:` and
+`twitter:` lines of a link preview, whose descriptions are longer). Every other page's are in `scripts/site.ts`:
+`title` and `description` of each document in `DOC_PAGES`, and `indexTitle`, `indexDescription`, `licenseTitle`,
+`licenseDescription` in `CHROME`. A document's `<title>` is not its heading: the h1 stays the Markdown's, and the
+title starts with the same name ("Host guide: …") and goes on with the words people search for.
+
+- Every title and every description is the page's own (no two alike), in the page's language, and says only what
+  the page says.
+- A title is at most 60 characters wide (a Chinese character counts as two) and has the name in it.
+- A description is one or two written sentences that a result shows whole, never the start of the page cut off. A
+  result has room for about 920 px of its 14 px text; a longer description is cut, and a much shorter one is
+  replaced by words the search engine picks from the page. The test bounds it in characters, which is a rule of
+  thumb because letters differ in width: 120 to 146 characters in English, 100 to 133 of width in Chinese (50 to
+  66 characters). The fourteen were measured and are 781 to 915 px wide. Measure a new one that is near the upper
+  bound, in any browser's console:
+  `c = document.createElement('canvas').getContext('2d'); c.font = '14px Arial'; c.measureText('…').width`.
+- The words come from what people type: "multiplayer" and "Claude Code" in the home page's title, "work with
+  Claude Code as a team", and in Chinese the words for several people working together (the titles in
+  `DOC_PAGES`). Words that mean something else stay out: "Claude Code for teams" and "agent teams" (Anthropic's
+  own plan and feature), "self-hosted" (a server one deploys; the host here is a personal computer), and the
+  Chinese word that means sharing one account (the test lists them). The home pages' rules hold for these lines
+  too: no version number, and not the word "sandbox".
+- The English home page's title is its h1 with one word changed for the search ("multiplayer" in the place of
+  "real-time"): Claude Code stays what smurg is used with, not what smurg is called. Some of a title's words are
+  in no visible text of its page (no sentence is added to a home page for them), and a search engine may then
+  show the page's h1 as the title of a result. That is fine: the h1 is the sentence the page is about.
+- The preview pictures keep the home page's h1 (above).
+
+**Structured data**: one JSON-LD data block (`<script type="application/ld+json">`, schema.org) in the `<head>` of
+twelve pages. It is data that no browser runs, so the CSP lets it through and `_headers` needs nothing for it.
+
+| Page | What the block says |
+|---|---|
+| the two home pages | `WebSite` (the name "smurg", which a result may show over the address; its second name "smurg.ai"; the repository as the same thing elsewhere), `WebPage` |
+| the docs index | `CollectionPage`, and a `BreadcrumbList` (smurg › Docs) |
+| the quick start and the two guides | `TechArticle` with the document's heading, and a `BreadcrumbList` (smurg › Docs › Host guide) |
+| the changelog | `WebPage`, and a `BreadcrumbList` |
+| the license pages, the 404 pages | none |
+
+- Only what the page itself says: its canonical address, its title or heading, its description, its language,
+  the site it is a page of and, where git knows it, the day its source last changed. No rating, no review, no
+  version number, no author, no count of users: the pages show none. Never add a rating to earn stars in a search
+  result: a made-up one is what a search engine takes a site's results away for.
+- No `SoftwareApplication` node. The search result that type is for ("Software app") asks for a rating or a
+  review; without one the node earns nothing, and Search Console reports it as not valid for as long as it is
+  there. If smurg ever has real, public reviews, the node goes on the home pages then (name, operating systems, a
+  price of 0, the license page), with the rating as its source gives it.
+- A search engine reads each page's block by itself, so every id a block refers to is defined in that block: a
+  docs page says the site's type, address and name where it refers to it.
+- `scripts/site.ts` writes the blocks of the generated pages (`pageStructuredData`). The home pages carry theirs by
+  hand, as `homeStructuredData` returns it for the page's own title and description: after changing either, run
+  the tests and paste the line the failing test prints.
+- Check: paste a page's address into https://search.google.com/test/rich-results (after a deploy) or its HTML into
+  https://validator.schema.org/. A search result draws two things from these blocks: the site's name over the
+  address, and on a computer the breadcrumbs of a docs page (a phone's result shows the domain only). A
+  `TechArticle` shows nothing of its own.
+
+**Icons**. Every page names three (`ICON_LINKS` in `scripts/site.ts`; the four hand-written pages carry the same
+lines): `/favicon.ico` (16, 32 and 48 px: what a browser, a crawler or a link preview asks for when it has read no
+page, the icon of browsers that show no SVG one, and a size a search result can use), `/favicon.svg` (the drawing,
+which browsers that can prefer) and `/apple-touch-icon.png` (180 px on a full square, for a phone's home screen).
+The two that are not the SVG are drawn from it and committed; after changing `public/favicon.svg`:
+
+```sh
+source scripts/env.sh
+pnpm --filter @smurg/site run icons   # headless Chrome, as for the preview pictures; no network
+```
+
+There is no web app manifest: nobody installs this site, and one would need its own line in the CSP.
+
+**`robots.txt` and `sitemap.xml`**. `public/robots.txt` lets every crawler read every page and names the sitemap.
+A page that must not be listed says so itself: the 404 pages by `<meta name="robots" content="noindex">`, and the
+two texts that are not pages, `/third-party-notices.txt` (a long legal text that every page links) and `/llms.txt`
+(below), by `X-Robots-Tag: noindex` in `_headers`. The sitemap lists the fourteen pages with their alternates and a
+`<lastmod>`: the date of the last commit that touched the page's one source file (`pageSources` and `fileDates` in
+`scripts/site.ts`: a home page's HTML, a document's Markdown, `LICENSE`). A page has no date, rather than a wrong
+one, when git cannot say: in a shallow clone, in a copy of the tree without `.git`, for a file with changes that
+are not committed, and for the docs index, which has no single source. A deploy is built from the release's commit
+in a complete clone, where twelve pages have one. The same date is the `dateModified` of the page's structured
+data.
+
+- The build prints how many pages it dated and, for each page without a date, why (`page dates from git (the
+  sitemap's <lastmod>): 12 of 14 pages`, then `pages without a date:`). Read it in the dry run before a deploy: a
+  number under 12 means a shallow clone or a source that is not committed.
+- A title or a description changed in `scripts/site.ts` does not move a page's date, because the date is the
+  source file's. After such a change, ask Search Console to look at the page again (URL inspection).
+
+**The picture is not quoted.** Most of a home page's words are the labels of its picture, and they are made up (a
+cart, a checkout page). `data-nosnippet` on the picture tells a search engine not to quote them as what smurg is;
+the sentence, the line under it and the cards are what it may quote.
+
+**`/llms.txt`** (the convention of llmstxt.org): what smurg is in three lines, then every document with its address
+and its line of the docs index, in English, and the Traditional Chinese pages by their own names. For the AI
+assistants people ask instead of searching; nothing links to it, they ask for it by its name. It answers
+`X-Robots-Tag: noindex`, like the notices: an assistant that asks for the file still gets it, and a search engine
+that finds a link to it somewhere does not list raw text that repeats the docs index. The build writes it from
+`LLMS_SUMMARY`, `LLMS_FACTS` and `DOC_PAGES` in `scripts/site.ts`, and a test holds each of its three lines to
+what the guides say.
+
+**`/zh-tw`**. Addresses are case-sensitive and the Chinese pages are under `/zh-TW/`; `public/_redirects` sends the
+lower-case spelling there (301, path and query kept). The static assets answer it, like a page, without the Worker.
+
+**The web app is not for search results.** https://app.smurg.ai answers `X-Robots-Tag: noindex` on everything and
+has a `robots.txt` of its own that lets crawlers in, so that they can read that header (`apps/web/public/`, and
+`apps/relay/README.md`, "Search engines"). The pages link it, so a crawler will find it.
+
+**Outside the code**, once, by whoever holds the accounts (none of it is in the repository):
+
+1. Google Search Console (https://search.google.com/search-console): add a *Domain* property for `smurg.ai`. It is
+   verified by one DNS TXT record in the Cloudflare zone, covers `smurg.ai`, `www`, `app` and `downloads`, and needs
+   no file or tag in the site. Then submit `https://smurg.ai/sitemap.xml`, and ask for indexing of the two home
+   pages and the quick start (URL inspection). Its Performance report is the one true source of what people typed.
+2. Bing Webmaster Tools (https://www.bing.com/webmasters): import the site from Search Console, and check that the
+   sitemap is listed. DuckDuckGo, Yahoo and Ecosia search Bing's index.
+3. Cloudflare, the zone, Caching, Configuration: Crawler Hints on, after the relay that answers `noindex` is
+   deployed (the switch is for the whole zone, `app.smurg.ai` included). In Security, Bots, leave "Block AI bots"
+   and Cloudflare's managed robots.txt off if assistants should read the site.
+4. The repository's About on GitHub: the website, a description that says "Claude Code", and topics. It is the
+   first link to the site that a search engine finds.
 
 ## Languages
 
@@ -88,7 +220,7 @@ language:
   sitemap follow it.
 - `docs/index.html` and `license/index.html` (LICENSE verbatim);
 
-and once: `third-party-notices.txt` and `sitemap.xml`.
+and once: `third-party-notices.txt`, `sitemap.xml` and `llms.txt`.
 
 What it does to the Markdown, and refuses:
 
@@ -99,7 +231,8 @@ What it does to the Markdown, and refuses:
   `packages/cli/THIRD-PARTY-NOTICES.txt` → `/third-party-notices.txt`). A link to any other file of the repository
   (ARCHITECTURE, the relay's README, SPEC, source paths) goes to that file on GitHub
   (`https://github.com/gclinian/smurg/blob/main/<path>`; `tree/main` for a directory). A link that is not https
-  becomes its plain text. The build prints each rewritten and each removed link.
+  becomes its plain text. The build prints each rewritten and each removed link, and how many pages have a date
+  from git ("Being found").
 - It fails, listing every problem, when: a link of any page, landing pages included, points at a page or a `#heading`
   that does not exist; a guide links a repository file that does not exist; a doc has no single `#` heading first or
   skips a heading level; a file of `public/` would be overwritten; no notices file is named
@@ -131,8 +264,9 @@ file.
 Workers Free counts 100,000 Worker requests a day for the whole Cloudflare account, and the shared relay is on the
 same account (`docs/RELEASING.md`). Requests for static files that do not run the Worker are free. So
 `wrangler.jsonc` lists only the redirects (`/install.sh`, `/github`, `/source`) in `assets.run_worker_first`
-(`src/routes.ts` `WORKER_PATHS`; `test/config.test.ts` keeps the two equal): a page view, a docs page, the notices
-and a 404 run no Worker at all (the static assets serve `404.html` themselves). The pages link GitHub directly, so
+(`src/routes.ts` `WORKER_PATHS`; `test/config.test.ts` keeps the two equal): a page view, a docs page, the notices,
+an icon, `robots.txt`, the sitemap, `llms.txt`, a redirect of `public/_redirects` and a 404 run no Worker at all (the
+static assets serve `404.html` themselves). The pages link GitHub directly, so
 following a link to the repository costs no Worker request either.
 
 The www → apex redirect therefore cannot be this Worker's job (it would not run for a page view), and it is not: it
@@ -176,14 +310,20 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
   `smurg host`) must be the real strings of that language: the web catalogs (`apps/web/src/**/strings*.ts`), the CLI
   catalog (`packages/cli/src/i18n/`) and the shared catalog (`packages/protocol/src/i18n/`).
 - No inline `<script>`, `<style>`, `style="…"` or `on…=` handlers: the CSP blocks them, and Trusted Types refuses a
-  script that writes HTML (`copy.js` and `demo.js` set text, classes and attributes only). Colours and type live in
+  script that writes HTML (`copy.js` and `demo.js` set text, classes and attributes only). The one inline element
+  a page has is its structured data, `<script type="application/ld+json">` in `<head>`: a data block that no
+  browser runs, so the CSP has nothing to refuse and `_headers` needs no hash for it ("Being found"; a test holds
+  it to that type, valid JSON and nothing else on the element). Colours and type live in
   `public/style.css` (the page's tokens follow `apps/web/src/ui/tokens.css`; the picture has a few of its own, the
   app's surfaces, states and member colours). Rules for Chinese typography use `html:lang(zh-Hant)`.
 - A new file in `public/` is served without running the Worker; `test/site.test.ts` lists the expected files (update
-  it on purpose). Only SVG images, but for the two preview pictures (PNG, above); `public/` without them stays under
-  160 KB, and every page with what it loads under 176 KB (150 KB until 0.5.1, 164 KB until 0.5.2: the host guide,
-  the longest page, grew by its parts on updating and on git). Every docs page loads the one stylesheet (about 37 KB
-  since the picture moves), so a rule added for the home page counts against the host guide's bound too.
+  it on purpose). The pages hold no picture but SVG; the files that are pictures are the two preview pictures (PNG,
+  above) and the two icons drawn from the SVG (`favicon.ico`, `apple-touch-icon.png`: "Being found"). `public/`
+  without the preview pictures stays under 160 KB, and every page with what it loads under 176 KB, the two drawn
+  icons aside (150 KB until 0.5.1, 164 KB until 0.5.2: the host guide, the longest page, grew by its parts on
+  updating and on git; the two icons have bounds of their own, 3 KB and 4 KB). Every docs page loads the one
+  stylesheet (about 37 KB since the picture moves), so a rule added for the home page counts against the host
+  guide's bound too, and so does every line added to a page's `<head>`.
 - The install line and its Copy button. On a narrow screen the command breaks in one place, after `-fsSL` (the rest
   is one `<span>` that does not wrap). The button says "Copied" on itself. When the clipboard refuses, `copy.js`
   selects the command and writes the hint (`data-fail`) into the status line beside it, which then takes the place of
@@ -201,7 +341,8 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
   whole button at the third; on the phone both options, in Chinese with 3 px to spare, and the button starts just
   under the fold: the line of the quick start's link took 25 px there).
 - A new redirect goes into `src/routes.ts`, and its path into `run_worker_first` in `wrangler.jsonc` (the test fails
-  otherwise), and into the table above.
+  otherwise), and into the table above. A redirect that needs no code and must cost no Worker request (another
+  spelling of a path) is a line of `public/_redirects`, which the static assets answer themselves.
 
 ### The picture on the landing pages
 
@@ -277,6 +418,7 @@ pnpm --filter @smurg/site typecheck
 pnpm --filter @smurg/site run build    # dist/ only (the docs pages, the license pages, the notices, the sitemap); nothing is deployed
 pnpm --filter @smurg/site run dry-run  # the build, then wrangler deploy --dry-run into .wrangler/dry-run; nothing is deployed
 pnpm --filter @smurg/site run social-card  # draws public/og.png and public/zh-TW/og.png again (see "The preview pictures")
+pnpm --filter @smurg/site run icons        # draws public/favicon.ico and public/apple-touch-icon.png again (see "Being found")
 pnpm --filter @smurg/site dev          # http://127.0.0.1:8790 (SMURG_SITE_DEV_PORT to change); local only
 ```
 
@@ -334,8 +476,14 @@ curl -sI https://smurg.ai/zh-TW                     # 307 to /zh-TW/
 curl -sI https://smurg.ai/docs/hosting/             # 200 (English)
 curl -sI https://smurg.ai/zh-TW/docs/hosting/       # 200 (Traditional Chinese)
 curl -sI https://smurg.ai/license/                  # 200
-curl -sI https://smurg.ai/third-party-notices.txt   # 200, text/plain; charset=utf-8 (at a release: cmp with the release's file)
+curl -sI https://smurg.ai/third-party-notices.txt   # 200, text/plain; charset=utf-8, x-robots-tag: noindex (at a release: cmp with the release's file)
 curl -sI https://smurg.ai/og.png                    # 200, image/png, cross-origin-resource-policy: cross-origin
+curl -sI https://smurg.ai/favicon.ico               # 200, an icon type, cross-origin-resource-policy: cross-origin
+curl -sI https://smurg.ai/apple-touch-icon.png      # 200, image/png
+curl -s https://smurg.ai/llms.txt | head -3         # "# smurg", an empty line, the summary
+curl -sI https://smurg.ai/llms.txt | grep -i x-robots-tag    # x-robots-tag: noindex
+curl -s https://smurg.ai/sitemap.xml | grep -c '<lastmod>'   # 12: every page but the two docs indexes
+curl -sI https://smurg.ai/zh-tw/docs/               # 301 to /zh-TW/docs/ (public/_redirects)
 curl -sI https://smurg.ai/install.sh                # 302 to https://downloads.smurg.ai/latest/install.sh
 curl -sI https://smurg.ai/github                    # 302 to https://github.com/gclinian/smurg
 curl -sI https://www.smurg.ai/zh-TW/                # 301 to https://smurg.ai/zh-TW/ (the zone Redirect Rule)

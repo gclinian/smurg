@@ -1006,3 +1006,10 @@ agent 不照規矩來的時候，損害有限的原因：smurg 會自己檢查�
 - agent session 結束、或你停止分享時，smurg 會結束 agent 的指令留著在跑的程式。在 macOS 上有一種程式可能漏掉：Apple 自己的
   程式（`/bin/sleep`、`/usr/bin/python3`）的背景工作，而且啟動它的 shell 馬上就結束了。這種工作，只有在 smurg 每兩秒一次
   的掃描剛好在 shell 還在時看到它，才找得到。`node`、`pnpm` 或 Homebrew 的 `python` 都找得到。
+- 主人只能用 macOS 或 Linux，不支援 Windows；組員只需要瀏覽器，用什麼作業系統都可以。在 Linux 上，全部測試都通過（Ubuntu
+  24.04：arm64 虛擬機，以及 GitHub Actions 的 x64），但還沒有人真的在 Linux 上當過主人：除了真正的 Claude Code（見上面），
+  安裝程式也還沒在全新的 Linux 電腦上跑過。
+- 只有 Apple Silicon 的執行檔在開發用的電腦上測試過；Intel Mac 與 Linux 的執行檔由 GitHub Actions 在各自的平台上建置，
+  並在那裡跑冒煙測試。
+- 還沒有做的：針對 spec 某一段的留言、費用或 token 數字，以及 agent 對話的終端機介面（`smurg attach` 只能接上終端機
+  session：組員指南 §10）。

@@ -1231,3 +1231,10 @@ Limits of this version that are known:
   can miss one kind of program: a background job of one of Apple's own programs (`/bin/sleep`, `/usr/bin/python3`)
   whose shell ended at once. smurg finds such a job only if its scan, every two seconds, saw it while the shell
   still ran. A `node`, a `pnpm` or a `python` from Homebrew is found.
+- Hosts need macOS or Linux; Windows is not supported. Teammates only need a browser, on any operating system. On
+  Linux every test passes (Ubuntu 24.04: an arm64 virtual machine, and x64 on GitHub Actions), but nobody has
+  really hosted there yet: besides real Claude Code (above), the installer has not run on a fresh Linux computer.
+- Only the Apple silicon executable is tested on the development machine. The Intel Mac and Linux executables are
+  built by GitHub Actions on their own platforms and smoke-tested there.
+- Not built: comments on a section of a spec, cost or token figures, and a terminal client for agent conversations
+  (`smurg attach` attaches terminal sessions only: the guide for teammates, §10).

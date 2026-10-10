@@ -11,10 +11,12 @@ const LANGUAGE_NAME = '繁體中文';
 
 /** Whole files in zh-TW (or holding the original zh-TW wording by design). */
 const ZH_TW_FILES: readonly RegExp[] = [
-  /\.zh-TW\.ts$/, // the web app's zh-TW tables
+  /\.zh-TW\.ts$/, // the web app's zh-TW tables, and the zh-TW words of the README's picture
   /^packages\/cli\/src\/i18n\/zh-TW\.ts$/,
   /^docs\/zh-TW\//,
   /^README\.zh-TW\.md$/,
+  /^\.github\/assets\/readme-picture-[a-z]+\.zh-TW\.svg$/, // its picture: the drawing that holds the zh-TW words
+  /^scripts\/readme-picture\/widths\.zh-TW\.json$/, // the measured widths of those words (the other widths file holds none)
   /^apps\/site\/public\/zh-TW\//,
   /^SPEC\.md$/, // the original requirements (one English line on top says so)
   /^docs\/GLOSSARY\.md$/, // the two columns of the binding terms

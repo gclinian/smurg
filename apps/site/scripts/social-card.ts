@@ -23,7 +23,8 @@ const CHROME_PATHS = [
   '/opt/google/chrome/chrome',
 ];
 
-function chrome(): string {
+/** The browser that draws: SMURG_TEST_CHROME, or Google Chrome where it is installed (scripts/icons.ts draws with it too). */
+export function chrome(): string {
   const named = process.env['SMURG_TEST_CHROME'];
   if (named !== undefined && named !== '') {
     if (!isAbsolute(named) || !existsSync(named)) throw new Error(`SMURG_TEST_CHROME=${named} is not an absolute path to a browser`);

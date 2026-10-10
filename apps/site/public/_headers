@@ -1,6 +1,8 @@
 # Headers for every static response of smurg.ai (Workers static assets; this file itself is never served).
 # No third-party anything: scripts, styles, images and fonts come from this origin only, there are no inline scripts
 # or styles (so no hashes are needed), and the page makes no requests of its own (connect-src falls back to 'none').
+# The one inline element is a page's structured data: a data block (type application/ld+json) that no browser runs,
+# so the policy has nothing to refuse and needs no hash for it.
 /*
   Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'
   X-Frame-Options: DENY
@@ -18,18 +20,34 @@
   Cache-Control: public, max-age=3600
 /demo.js
   Cache-Control: public, max-age=3600
-/favicon.svg
-  Cache-Control: public, max-age=86400
+# Two texts that are not search results: the notices (a long legal text for the people who need it, linked from every
+# page) and llms.txt (what smurg is, for the assistants that ask for it by its name; the pages say the same to people).
 /third-party-notices.txt
   Cache-Control: public, max-age=3600
+  X-Robots-Tag: noindex
+/llms.txt
+  Cache-Control: public, max-age=3600
+  X-Robots-Tag: noindex
 
-# The preview pictures of the pages (og:image): other sites and apps show them in their link previews, so they may be
-# loaded from any origin.
+# The preview pictures of the pages (og:image) and the icons: other sites and apps show them (in link previews, in
+# lists of links, beside a search result), so they may be loaded from any origin.
 /og.png
   ! Cross-Origin-Resource-Policy
   Cross-Origin-Resource-Policy: cross-origin
   Cache-Control: public, max-age=86400
 /zh-TW/og.png
+  ! Cross-Origin-Resource-Policy
+  Cross-Origin-Resource-Policy: cross-origin
+  Cache-Control: public, max-age=86400
+/favicon.ico
+  ! Cross-Origin-Resource-Policy
+  Cross-Origin-Resource-Policy: cross-origin
+  Cache-Control: public, max-age=86400
+/favicon.svg
+  ! Cross-Origin-Resource-Policy
+  Cross-Origin-Resource-Policy: cross-origin
+  Cache-Control: public, max-age=86400
+/apple-touch-icon.png
   ! Cross-Origin-Resource-Policy
   Cross-Origin-Resource-Policy: cross-origin
   Cache-Control: public, max-age=86400

@@ -1,0 +1,6 @@
+# The smurg web app. Nothing on this host is a page for a search result: every answer says
+# "X-Robots-Tag: noindex" (_headers next to this file, and the relay's own answers).
+# Crawlers are let in on purpose: one has to fetch a page to read that header, and an address that is
+# kept from crawlers can still be listed when something links to it.
+User-agent: *
+Allow: /

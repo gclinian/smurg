@@ -1,0 +1,5 @@
+# Redirects the static assets answer themselves, without the Worker (the Worker's own are src/routes.ts).
+# The Traditional Chinese pages are under /zh-TW/, and addresses are case-sensitive: somebody who types the prefix
+# in lower case, as many sites write it, gets the page instead of a 404.
+/zh-tw /zh-TW/ 301
+/zh-tw/* /zh-TW/:splat 301

@@ -1,12 +1,14 @@
 // The site build (scripts/site.ts, scripts/build.ts) on small fixture repositories: what it generates, what it refuses,
 // and how it writes dist/.
-import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFile, execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { afterAll, describe, expect, it } from 'vitest';
-import { NOTICES_PLACEHOLDER, SiteError, generateSite, writeSite, type SiteOptions } from '../scripts/site.ts';
+import { isolatedGitEnv } from '../../../packages/daemon/src/testing/temp.ts';
+import { NOTICES_PLACEHOLDER, NO_DATE, SiteError, fileDates, generateSite, writeSite, type SiteOptions } from '../scripts/site.ts';
 import { FIXTURE_NOTICES, PUBLIC, REPO_ROOT, SITE_ROOT, parsePage, publicFiles } from './html.ts';
 
 const run = promisify(execFile);
@@ -47,6 +49,19 @@ function fixtureRepo(overrides: Partial<Record<keyof typeof DOCS, string>> = {})
     writeFileSync(join(root, path), text);
   }
   return root;
+}
+
+/** git in a fixture repository: no configuration of the machine's, a fixed identity, and `date` as the commit's moment. */
+function git(cwd: string, date: string, ...args: string[]): string {
+  const home = tempDir('site-git-home-');
+  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...isolatedGitEnv(home), GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date } });
+}
+
+/** Makes `root` a git repository with everything in it committed at `date`. */
+function commitAll(root: string, date: string): void {
+  if (!existsSync(join(root, '.git'))) git(root, date, 'init', '-q', '-b', 'main');
+  git(root, date, 'add', '-A');
+  git(root, date, 'commit', '-q', '-m', 'a commit of the fixture');
 }
 
 function problemsOf(options: SiteOptions): readonly string[] {
@@ -229,6 +244,113 @@ describe('generateSite', () => {
     expect([...a.files.keys()]).toEqual([...b.files.keys()]);
     for (const [path, data] of a.files) expect(data.equals(b.files.get(path) as Buffer), path).toBe(true);
     expect([...a.files.keys()]).toEqual([...a.files.keys()].sort());
+  });
+});
+
+describe('fileDates: when a file last changed, as git knows it, or nothing and why', () => {
+  const FIRST = '2026-03-04T05:06:07+08:00';
+  const SECOND = '2026-05-06T07:08:09-03:00';
+
+  /** A repository with two files committed at FIRST, of which docs/b.md changed again at SECOND. */
+  function repository(): string {
+    const root = realpathSync(tempDir('site-dates-'));
+    mkdirSync(join(root, 'docs'));
+    writeFileSync(join(root, 'a.md'), 'a\n');
+    writeFileSync(join(root, 'docs', 'b.md'), 'b\n');
+    commitAll(root, FIRST);
+    writeFileSync(join(root, 'docs', 'b.md'), 'b, again\n');
+    commitAll(root, SECOND);
+    return root;
+  }
+
+  it('gives a committed file the moment of the last commit that touched it, with its time zone', () => {
+    const root = repository();
+    expect([...fileDates(root, ['a.md', 'docs/b.md']).dates]).toEqual([
+      ['a.md', FIRST],
+      ['docs/b.md', SECOND],
+    ]);
+    // Reading is all it does: the index and the work tree are as they were.
+    expect(git(root, FIRST, 'status', '--porcelain')).toBe('');
+  });
+
+  it('gives no date to a file that is changed, staged, new or not there: the last commit is not when that text was written', () => {
+    const root = repository();
+    writeFileSync(join(root, 'a.md'), 'a, changed and not committed\n');
+    expect([...fileDates(root, ['a.md', 'docs/b.md']).dates]).toEqual([['docs/b.md', SECOND]]);
+    git(root, SECOND, 'add', 'a.md');
+    writeFileSync(join(root, 'c.md'), 'new\n');
+    expect([...fileDates(root, ['a.md', 'docs/b.md', 'c.md', 'd.md']).dates]).toEqual([['docs/b.md', SECOND]]);
+    // … and says why each has none: staged or new is not committed; a file that is not there is in no commit.
+    expect([...fileDates(root, ['a.md', 'docs/b.md', 'c.md', 'd.md']).missing]).toEqual([
+      ['a.md', NO_DATE.uncommitted],
+      ['c.md', NO_DATE.uncommitted],
+      ['d.md', NO_DATE.unknown],
+    ]);
+  });
+
+  it('gives no date at all in a shallow clone, below the top of a checkout, or where there is no git checkout', () => {
+    const root = repository();
+    // A shallow clone has one commit, which git would name for every file: the date of a.md would be SECOND.
+    const shallow = join(realpathSync(tempDir('site-shallow-')), 'clone');
+    git(dirname(shallow), FIRST, 'clone', '-q', '--depth', '1', pathToFileURL(root).href, shallow);
+    expect(git(shallow, FIRST, 'log', '-1', '--format=%cI', '--', 'a.md').trim()).toBe(SECOND);
+    expect([...fileDates(shallow, ['a.md', 'docs/b.md']).dates]).toEqual([]);
+    expect([...fileDates(shallow, ['a.md', 'docs/b.md']).missing]).toEqual([
+      ['a.md', NO_DATE.shallow],
+      ['docs/b.md', NO_DATE.shallow],
+    ]);
+    // A complete clone has the dates.
+    const complete = join(realpathSync(tempDir('site-complete-')), 'clone');
+    git(dirname(complete), FIRST, 'clone', '-q', pathToFileURL(root).href, complete);
+    expect([...fileDates(complete, ['a.md']).dates]).toEqual([['a.md', FIRST]]);
+    expect([...fileDates(complete, ['a.md']).missing]).toEqual([]);
+    // The paths are relative to the top of the checkout: a folder inside one is not asked.
+    expect([...fileDates(join(root, 'docs'), ['b.md']).dates]).toEqual([]);
+    expect([...fileDates(tempDir('site-no-git-'), ['a.md']).dates]).toEqual([]);
+    expect([...fileDates(join(root, 'no-such-folder'), ['a.md']).dates]).toEqual([]);
+    for (const folder of [join(root, 'docs'), tempDir('site-no-git-'), join(root, 'no-such-folder')]) expect([...fileDates(folder, ['b.md']).missing], folder).toEqual([['b.md', NO_DATE.noCheckout]]);
+  });
+
+  it('the build writes the date into the sitemap and into the page’s structured data, for the pages whose source has one, and says which pages have none and why', () => {
+    const repo = realpathSync(fixtureRepo());
+    commitAll(repo, FIRST);
+    const dated = (site: { files: ReadonlyMap<string, Buffer> }): string[] =>
+      (site.files.get('sitemap.xml')?.toString('utf8') ?? '')
+        .split('<url>')
+        .slice(1)
+        .filter((entry) => entry.includes(`<lastmod>${FIRST}</lastmod>`))
+        .map((entry) => /<loc>https:\/\/smurg\.ai([^<]+)<\/loc>/.exec(entry)?.[1] ?? '');
+    const documents = ['/docs/quick-start/', '/zh-TW/docs/quick-start/', '/docs/hosting/', '/zh-TW/docs/hosting/', '/docs/joining/', '/zh-TW/docs/joining/', '/docs/changelog/', '/zh-TW/docs/changelog/', '/license/', '/zh-TW/license/'];
+    const site = generateSite({ repoRoot: repo, notices: FIXTURE_NOTICES });
+    // Every document and the license pages; never the docs index, which has no source file of its own. (The home
+    // pages are this checkout's own files: whether they have a date is this checkout's matter, not the fixture's.)
+    expect(dated(site)).toEqual(documents);
+    // What the build tells the person building: the dated pages, of the fourteen, and a line per reason for the
+    // rest. The docs index is always among them.
+    const home = ['/', '/zh-TW/'];
+    expect(site.dates.dated.filter((path) => !home.includes(path))).toEqual(documents);
+    expect(site.dates.of).toBe(14);
+    expect(site.dates.missing).toContain('/docs/, /zh-TW/docs/: no single source file (the docs index never has a date)');
+    expect(site.dates.missing.filter((line) => !line.startsWith('/, /zh-TW/: '))).toHaveLength(1);
+    const sitemap = site.files.get('sitemap.xml')?.toString('utf8') ?? '';
+    for (const index of ['/docs/', '/zh-TW/docs/']) expect(sitemap.split('<url>').find((entry) => entry.includes(`<loc>https://smurg.ai${index}</loc>`)), index).not.toContain('<lastmod>');
+    const text = (path: string): string => site.files.get(path)?.toString('utf8') ?? '';
+    expect(text('docs/hosting/index.html')).toContain(`"inLanguage":"en","dateModified":"${FIRST}","isPartOf"`);
+    expect(text('zh-TW/docs/changelog/index.html')).toContain(`"dateModified":"${FIRST}"`);
+    expect(text('docs/index.html')).not.toContain('dateModified');
+    // A document that was edited and not committed has no date any more; the others keep theirs.
+    writeFileSync(join(repo, 'docs', 'HOSTING.md'), `${readFileSync(join(repo, 'docs', 'HOSTING.md'), 'utf8')}\nOne more line.\n`);
+    const edited = generateSite({ repoRoot: repo, notices: FIXTURE_NOTICES });
+    expect(dated(edited)).toEqual(documents.filter((path) => path !== '/docs/hosting/'));
+    // (one line per reason: when this checkout's home pages are not committed either, they stand before it)
+    expect(edited.dates.missing.filter((line) => line.endsWith(`/docs/hosting/: its source ${NO_DATE.uncommitted}`))).toHaveLength(1);
+    expect(edited.files.get('docs/hosting/index.html')?.toString('utf8')).not.toContain('dateModified');
+    // Without git (the other tests' fixtures) no page has a date, and the build is the same otherwise.
+    const plain = generateSite({ repoRoot: fixtureRepo(), notices: FIXTURE_NOTICES });
+    expect(dated(plain)).toEqual([]);
+    expect(plain.dates.dated.filter((path) => !home.includes(path))).toEqual([]);
+    expect(plain.dates.missing).toContain(`${documents.join(', ')}: its source ${NO_DATE.noCheckout}`);
+    expect(plain.files.get('docs/joining/index.html')?.toString('utf8')).toBe(site.files.get('docs/joining/index.html')?.toString('utf8').replace(`"dateModified":"${FIRST}",`, ''));
   });
 });
 

@@ -16,7 +16,8 @@ pnpm check                        # the gate: type check of every package, then 
 
 `pnpm check` must be green before a pull request. One package only: `pnpm --filter @smurg/daemon test`
 (more ways to run: `docs/ACCEPTANCE.md`). After a dependency change run `node scripts/third-party-notices.ts` and
-commit both notices files.
+commit both notices files. The longer version of this section, with the layout of the repository, the local stack,
+packaging and releasing, is [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
 
 You do not need Claude Code or a Claude account to develop or to run the gate. Agent sessions in the tests are
 driven by a stand-in for the `claude` command that follows a scripted scenario
@@ -24,10 +25,10 @@ driven by a stand-in for the `claude` command that follows a scripted scenario
 not installed in a verified version, and when it is, they run it only against the repository's fake Anthropic API,
 with a dummy key and an isolated configuration folder.
 
-To try the app by hand, start the local stack with `scripts/dev-stack.sh --stand-in-claude` (README, "Local
-development"): its agent sessions then run the same scripted stand-in. Without that switch a `claude` on your `PATH`
-would run the stack's agent sessions with your own login; the script says so before it starts anything, and refuses
-when it is not run from a terminal.
+To try the app by hand, start the local stack with `scripts/dev-stack.sh --stand-in-claude` (`docs/DEVELOPMENT.md`,
+"Local development"): its agent sessions then run the same scripted stand-in. Without that switch a `claude` on your
+`PATH` would run the stack's agent sessions with your own login; the script says so before it starts anything, and
+refuses when it is not run from a terminal.
 
 ## Rules
 
@@ -143,7 +144,9 @@ release adds the one of its version (`docs/RELEASING.md` §4.5).
 - In the guides, quotation marks are for text smurg shows, exactly as its catalogs render it ("..." in English,
   the corner brackets in zh-TW), on one line; anything else is written without them. A sample that contains a number
   or a name goes in `code`. When you change a label, change the guides and the product page's picture of the app
-  (`apps/site/public/`) in the same pull request.
+  (`apps/site/public/`) in the same pull request. The picture at the top of the two READMEs is drawn from that
+  page's picture: whenever its scenes, its words or its colours change, run `node scripts/readme-picture.ts` and
+  commit the four files it writes (`docs/DEVELOPMENT.md`, "The README's picture"; the gate fails until you do).
 - Everything smurg tells an agent (role prompts, the header above a person's message, hook and tool texts), the
   headings of a result report file and the field names of a plan file are fixed English and are not in a catalog.
 - The gate enforces these rules (`tests/lint/`): no Chinese text outside the zh-TW catalogs and documents, the

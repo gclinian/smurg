@@ -66,6 +66,32 @@ project's shared relay is https://app.smurg.ai; to run one yourself, see
 Every other path is the web SPA (`assets` in `wrangler.jsonc`; the paths the Worker handles first are
 `RELAY_WORKER_FIRST_PATTERNS`).
 
+### Search engines
+
+Nothing a relay serves is a page for a search result: the app's shell, a login page and an API. The product page and
+the docs are another site (https://smurg.ai, `apps/site`), whose pages link the app, so a crawler does find this host.
+Every answer therefore says `X-Robots-Tag: noindex`:
+
+- the web app's static files (the shell at `/` and at every route of the app, which also answers any unknown path
+  with status 200, the `/assets/` files, the notices) through the `/*` rule of `apps/web/public/_headers`;
+- the Worker's own answers (`/device`, `/healthz`, the API and its errors, the login redirects, the public keys)
+  through `src/lib/http.ts`.
+
+`/robots.txt` is a static file of the web app (`apps/web/public/robots.txt`; no Worker request) that lets every
+crawler in. That is on purpose: a crawler has to fetch a page to read the header, and an address that is kept from
+crawlers can still be listed when something links to it. Without the file the app's shell would answer `/robots.txt`
+as HTML, which a crawler reads as "no rules". `test/search-engines.test.ts` holds the two files and, on a local relay
+that serves a build made of them, the answers. A relay you host yourself answers the same.
+
+Both go live with a deploy of the relay (the web build is part of it). To check a deployed relay:
+
+```sh
+curl -sI https://app.smurg.ai/ | grep -i x-robots-tag              # x-robots-tag: noindex
+curl -sI https://app.smurg.ai/join/anything | grep -i x-robots-tag  # the same: the shell answers every path
+curl -sI https://app.smurg.ai/device | grep -i x-robots-tag         # the same, from the Worker
+curl -s https://app.smurg.ai/robots.txt                             # the text file: "User-agent: *", "Allow: /"
+```
+
 ### The relay's own pages and their language
 
 The relay renders a few HTML pages itself: `/device` (login, the code form, the confirmation screen, the outcome
