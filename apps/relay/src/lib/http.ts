@@ -1,10 +1,13 @@
 // Response helpers. Every relay response is uncacheable and nosniff; HTML pages also get a CSP that allows no
 // script at all and no framing (the only pages the relay renders are /device and error pages).
+// None of it is for a search result (the product page is another site): every response says `noindex`, as the web
+// app's static files do through apps/web/public/_headers. A crawler may still fetch them, which is how it reads that.
 
 const BASE_HEADERS: Record<string, string> = {
   'cache-control': 'no-store',
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'no-referrer',
+  'x-robots-tag': 'noindex',
 };
 
 /** The relay's HTML pages depend on the language cookie and on Accept-Language (lib/locale.ts). */

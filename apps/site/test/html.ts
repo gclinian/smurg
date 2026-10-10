@@ -4,6 +4,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inflateSync } from 'node:zlib';
 import { parse, type DefaultTreeAdapterTypes } from 'parse5';
 import { generateSite, optionsFromEnv, type Site } from '../scripts/site.ts';
 
@@ -113,5 +114,62 @@ export function parsePage(html: string): Page {
     elements,
     byTag: (tag) => elements.filter((el) => el.tag === tag),
     ids: () => elements.map((el) => el.attr('id')).filter((id): id is string => id !== undefined),
+  };
+}
+
+export interface Picture {
+  readonly width: number;
+  readonly height: number;
+  /** Red, green, blue and opacity (0 to 255) of the pixel in column `x` of row `y`. */
+  pixel(x: number, y: number): [number, number, number, number];
+}
+
+/**
+ * A PNG as its pixels: the kind headless Chrome writes (8 bits a channel, RGB or RGBA, not interlaced), which is what
+ * the site's icons are. Enough of the format to read a corner and the middle of a picture; anything else throws.
+ */
+export function decodePng(png: Buffer): Picture {
+  if (!png.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) throw new Error('not a PNG');
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  const [depth, colour, , , interlace] = png.subarray(24, 29);
+  if (depth !== 8 || (colour !== 2 && colour !== 6) || interlace !== 0) throw new Error(`a PNG this helper does not read (depth ${depth}, colour type ${colour}, interlace ${interlace})`);
+  const channels = colour === 6 ? 4 : 3;
+  const data: Buffer[] = [];
+  for (let at = 8; at < png.length; ) {
+    const length = png.readUInt32BE(at);
+    if (png.subarray(at + 4, at + 8).toString('latin1') === 'IDAT') data.push(png.subarray(at + 8, at + 8 + length));
+    at += 12 + length;
+  }
+  const raw = inflateSync(Buffer.concat(data));
+  const stride = width * channels;
+  const rows = Buffer.alloc(height * stride);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)] as number;
+    for (let i = 0; i < stride; i++) {
+      const value = raw[y * (stride + 1) + 1 + i] as number;
+      const left = i >= channels ? (rows[y * stride + i - channels] as number) : 0;
+      const up = y > 0 ? (rows[(y - 1) * stride + i] as number) : 0;
+      const upLeft = y > 0 && i >= channels ? (rows[(y - 1) * stride + i - channels] as number) : 0;
+      // The five ways a PNG row is written: as it is, or as the difference from a neighbour (the standard's "filters").
+      let predicted = 0;
+      if (filter === 1) predicted = left;
+      else if (filter === 2) predicted = up;
+      else if (filter === 3) predicted = (left + up) >> 1;
+      else if (filter === 4) {
+        const estimate = left + up - upLeft;
+        const [byLeft, byUp, byUpLeft] = [Math.abs(estimate - left), Math.abs(estimate - up), Math.abs(estimate - upLeft)];
+        predicted = byLeft <= byUp && byLeft <= byUpLeft ? left : byUp <= byUpLeft ? up : upLeft;
+      } else if (filter !== 0) throw new Error(`PNG row ${y} has filter ${filter}`);
+      rows[y * stride + i] = (value + predicted) & 0xff;
+    }
+  }
+  return {
+    width,
+    height,
+    pixel: (x, y) => {
+      const at = y * stride + x * channels;
+      return [rows[at] as number, rows[at + 1] as number, rows[at + 2] as number, channels === 4 ? (rows[at + 3] as number) : 255];
+    },
   };
 }

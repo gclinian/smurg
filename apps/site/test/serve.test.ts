@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { TestHarness } from 'wrangler';
 import { registerOwnChildren } from '../../../packages/daemon/src/testing/run-registry.ts';
 import { INSTALL_SCRIPT, REPOSITORY } from '../src/routes.ts';
-import { LANGS, SOCIAL_CARD } from '../scripts/site.ts';
+import { LANGS, LLMS_FILE, NOTICES_FILE, SOCIAL_CARD } from '../scripts/site.ts';
 import { SITE_ROOT, readPublic, testSite } from './html.ts';
 
 let harness: TestHarness | undefined;
@@ -74,34 +74,44 @@ describe('smurg.ai in workerd', () => {
       expect(response.status, path).toBe(200);
       expect(response.headers.get('content-type'), path).toMatch(/^text\/html/);
       expectSecurityHeaders(response, path);
+      // A page may be listed by a search engine: nothing in its answer says otherwise.
+      expect(response.headers.get('x-robots-tag'), path).toBeNull();
       expect(Buffer.from(await response.arrayBuffer()).equals(file(page)), path).toBe(true);
     }
   });
 
-  it('serves the stylesheet, the two scripts, the icon and the notices with their types, cache times and the same headers', async () => {
+  it('serves the stylesheet, the two scripts, the notices and what crawlers and assistants read with their types, cache times and the same headers', async () => {
     for (const [path, type, cache] of [
       ['/style.css', /^text\/css/, 'public, max-age=3600'],
       ['/copy.js', /javascript/, 'public, max-age=3600'],
       ['/demo.js', /javascript/, 'public, max-age=3600'],
-      ['/favicon.svg', /^image\/svg\+xml/, 'public, max-age=86400'],
-      ['/third-party-notices.txt', /^text\/plain; charset=utf-8$/, 'public, max-age=3600'],
+      [NOTICES_FILE, /^text\/plain; charset=utf-8$/, 'public, max-age=3600'],
       ['/robots.txt', /^text\/plain/, null],
       ['/sitemap.xml', /xml/, null],
+      // (it lists the Chinese pages by their names: the charset is part of the answer)
+      [LLMS_FILE, /^text\/plain; charset=utf-8$/, 'public, max-age=3600'],
     ] as const) {
       const response = await get(`https://smurg.ai${path}`);
       expect(response.status, path).toBe(200);
       expect(response.headers.get('content-type'), path).toMatch(type);
       if (cache !== null) expect(response.headers.get('cache-control'), path).toBe(cache);
       expectSecurityHeaders(response, path);
+      // The notices and llms.txt are the two files that ask not to be listed in search results.
+      expect(response.headers.get('x-robots-tag'), path).toBe(path === NOTICES_FILE || path === LLMS_FILE ? 'noindex' : null);
       expect(Buffer.from(await response.arrayBuffer()).equals(file(path.slice(1))), path).toBe(true);
     }
   });
 
-  it('serves the preview pictures as PNG, cached for a day, and lets any origin load them (link previews)', async () => {
-    for (const path of LANGS.map((lang) => SOCIAL_CARD[lang].path)) {
+  it('serves the preview pictures and the icons with their types, cached for a day, and lets any origin load them (link previews, lists of links, search results)', async () => {
+    for (const [path, type] of [
+      ...LANGS.map((lang) => [SOCIAL_CARD[lang].path, /^image\/png$/] as const),
+      ['/favicon.ico', /^image\/(?:x-icon|vnd\.microsoft\.icon)$/],
+      ['/favicon.svg', /^image\/svg\+xml/],
+      ['/apple-touch-icon.png', /^image\/png$/],
+    ] as const) {
       const response = await get(`https://smurg.ai${path}`);
       expect(response.status, path).toBe(200);
-      expect(response.headers.get('content-type'), path).toBe('image/png');
+      expect(response.headers.get('content-type'), path).toMatch(type);
       expect(response.headers.get('cache-control'), path).toBe('public, max-age=86400');
       // `! Cross-Origin-Resource-Policy` in _headers takes the same-origin value of every other path away first.
       expect(response.headers.get('cross-origin-resource-policy'), path).toBe('cross-origin');
@@ -132,6 +142,24 @@ describe('smurg.ai in workerd', () => {
     }
   });
 
+  it('sends the lower-case /zh-tw to /zh-TW for good, path and query kept (_redirects: the static assets answer, not the Worker)', async () => {
+    for (const [path, to] of [
+      ['/zh-tw', '/zh-TW/'],
+      ['/zh-tw/', '/zh-TW/'],
+      ['/zh-tw/docs/hosting/', '/zh-TW/docs/hosting/'],
+      ['/zh-tw/docs/quick-start/?from=a-link', '/zh-TW/docs/quick-start/?from=a-link'],
+      ['/zh-tw/no-such-page', '/zh-TW/no-such-page'],
+    ] as const) {
+      const response = await get(`https://smurg.ai${path}`);
+      expect(response.status, path).toBe(301);
+      const location = new URL(response.headers.get('location') ?? '', 'https://smurg.ai');
+      expect(`${location.origin}${location.pathname}${location.search}`, path).toBe(`https://smurg.ai${to}`);
+    }
+    // Only that spelling: any other is an unknown path, and the right one is the page.
+    expect((await get('https://smurg.ai/ZH-TW/')).status).toBe(404);
+    expect((await get('https://smurg.ai/zh-TW/')).status).toBe(200);
+  });
+
   it('runs the Worker for /install.sh: 302 to the newest release’s installer on downloads.smurg.ai', async () => {
     const response = await get('https://smurg.ai/install.sh');
     expect(response.status).toBe(302);
@@ -155,6 +183,7 @@ describe('smurg.ai in workerd', () => {
       ['/github/', '404.html'],
       ['/github/x', '404.html'],
       ['/_headers', '404.html'],
+      ['/_redirects', '404.html'],
       ['/docs/HOSTING.md', '404.html'],
       ['/docs/.env', '404.html'],
       ['/docs/research/relay.md', '404.html'],

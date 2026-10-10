@@ -1,6 +1,6 @@
 // Static checks of the whole site as it is deployed: public/ (the hand-written pages) plus the pages the build
 // generates from the repository (scripts/site.ts: /docs/… and /license/ in both languages, /third-party-notices.txt,
-// /sitemap.xml). What a reviewer would
+// /sitemap.xml and /llms.txt). What a reviewer would
 // otherwise re-check by hand after every edit of a page or of the docs. The HTML is parsed with parse5 (the WHATWG
 // algorithm), so a stray tag or a broken attribute fails here.
 import { readFileSync, statSync } from 'node:fs';
@@ -8,13 +8,46 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { REDIRECTS, REPOSITORY, route } from '../src/routes.ts';
 import { Slugger } from '../scripts/markdown.ts';
-import { CHROME, DOC_PAGES, HTML_LANG, LANGS, NOTICES_FILE, ORIGIN, SOCIAL_CARD, SOCIAL_CARD_SIZE, WEB_APP_NOTICES, docsIndex, homePage, licensePage, otherLang, pagePairs, socialCardMeta, type Lang } from '../scripts/site.ts';
-import { FIXTURE_NOTICES, PUBLIC, REPO_ROOT, parsePage, publicFiles, rawText, readPublic, sitePages, siteText, testSite, type El, type Page } from './html.ts';
+import { squareIcon } from '../scripts/icons.ts';
+import {
+  CHROME,
+  DOC_PAGES,
+  FAVICON_SIZES,
+  HTML_LANG,
+  ICON_LINKS,
+  LANGS,
+  LLMS_FACTS,
+  LLMS_FILE,
+  LLMS_SUMMARY,
+  NOTICES_FILE,
+  ORIGIN,
+  SOCIAL_CARD,
+  SOCIAL_CARD_SIZE,
+  TOUCH_ICON_SIZE,
+  WEB_APP_NOTICES,
+  docsIndex,
+  fileDates,
+  homePage,
+  homeStructuredData,
+  licensePage,
+  otherLang,
+  pagePairs,
+  pageSources,
+  socialCardMeta,
+  type Lang,
+} from '../scripts/site.ts';
+import { FIXTURE_NOTICES, PUBLIC, REPO_ROOT, decodePng, parsePage, publicFiles, rawText, readPublic, sitePages, siteText, testSite, type El, type Page } from './html.ts';
 
 const HOME_PAGES = { en: 'index.html', 'zh-TW': 'zh-TW/index.html' } as const;
 const NOT_FOUND_PAGES = ['404.html', 'zh-TW/404.html'];
 /** The preview pictures (og:image): files of public/ that no page loads, read by link previews. */
 const SOCIAL_CARDS = LANGS.map((lang) => SOCIAL_CARD[lang].path.slice(1));
+/** The icons that are not the SVG itself (scripts/icons.ts draws them from it): pictures, like the preview pictures. */
+const DRAWN_ICONS = ['favicon.ico', 'apple-touch-icon.png'];
+/** A page's structured data: `<script type="application/ld+json">`, a data block that no browser runs. */
+const DATA_BLOCK = 'application/ld+json';
+/** The vocabulary the structured data is written in, named by its address as the format asks; nothing is loaded from it. */
+const DATA_CONTEXT = 'https://schema.org';
 const fileOf = (path: string): string => `${path.slice(1)}index.html`;
 /** The generated pages: the docs index, the four documents and the license page, in each language. */
 const GENERATED_PAGES = pagePairs()
@@ -49,6 +82,22 @@ const page = (path: string): Page => {
   return p;
 };
 const first = (p: Page, tag: string): El | undefined => p.byTag(tag)[0];
+/** A page's `<meta>` content by its name or property. */
+const metaOf = (p: Page, key: string): string | undefined => p.byTag('meta').find((m) => m.attr('property') === key || m.attr('name') === key)?.attr('content');
+/** The structured data of a page, parsed: one entry per data block. */
+const dataBlocks = (p: Page): unknown[] => p.byTag('script').filter((s) => s.attr('type') === DATA_BLOCK).map((s) => JSON.parse(rawText(s)) as unknown);
+/** Every string a value holds, however deep (the words and addresses of a page's structured data). */
+function stringsIn(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(stringsIn);
+  if (typeof value === 'object' && value !== null) return Object.values(value).flatMap(stringsIn);
+  return [];
+}
+/**
+ * The room a text takes in a search result, in Latin characters: a full-width character (Chinese and its
+ * punctuation) is as wide as two.
+ */
+const widthOf = (text: string): number => [...text].reduce((sum, char) => sum + (/[\u2e80-\u9fff\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(char) ? 2 : 1), 0);
 
 /** The page a same-site path is served from (auto-trailing-slash), or undefined. Independent of the build's own. */
 function servedPage(path: string): string | undefined {
@@ -73,37 +122,49 @@ function outLinks(path: string): string[] {
 }
 
 describe('the built site', () => {
-  it('is public/ plus exactly the generated pages (both languages), the notices and the sitemap', () => {
+  it('is public/ plus exactly the generated pages (both languages), the notices, the sitemap and llms.txt', () => {
     const files = [...testSite().files.keys()];
     expect(GENERATED_PAGES).toHaveLength(12);
-    expect(files.filter((path) => !publicFiles().includes(path)).sort()).toEqual([...GENERATED_PAGES, NOTICES_FILE.slice(1), 'sitemap.xml'].sort());
-    expect(publicFiles().sort()).toEqual(['404.html', '_headers', 'copy.js', 'demo.js', 'favicon.svg', 'index.html', 'og.png', 'robots.txt', 'style.css', 'zh-TW/404.html', 'zh-TW/index.html', 'zh-TW/og.png'].sort());
+    expect(files.filter((path) => !publicFiles().includes(path)).sort()).toEqual([...GENERATED_PAGES, NOTICES_FILE.slice(1), 'sitemap.xml', LLMS_FILE.slice(1)].sort());
+    expect(publicFiles().sort()).toEqual(
+      ['404.html', '_headers', '_redirects', 'apple-touch-icon.png', 'copy.js', 'demo.js', 'favicon.ico', 'favicon.svg', 'index.html', 'og.png', 'robots.txt', 'style.css', 'zh-TW/404.html', 'zh-TW/index.html', 'zh-TW/og.png'].sort(),
+    );
     // No 404 page of its own under /docs/: the nearest 404.html is the English one there, the Chinese one under /zh-TW/.
     expect(files).not.toContain('docs/404.html');
     // Generated files are never written into public/ (they live in the gitignored dist/).
     for (const path of GENERATED_PAGES) expect(publicFiles(), path).not.toContain(path);
   });
 
-  it('public/ stays under 160 KB in total (the preview pictures aside), and every page with everything it loads under 176 KB', () => {
+  it('public/ stays under 160 KB in total (the preview pictures aside), and every page with everything it loads under 176 KB and the two drawn icons', () => {
     // The preview pictures are not loaded by any page: they have their own bound (the next test).
     const total = publicFiles()
       .filter((path) => !SOCIAL_CARDS.includes(path))
       .reduce((sum, path) => sum + statSync(join(PUBLIC, path)).size, 0);
     expect(total).toBeLessThan(160 * 1024);
     const size = (path: string): number => testSite().files.get(path)?.length ?? Number.NaN;
+    // The two icons that are not the SVG: small, and bounded by themselves, so the pages' bound below is what it was.
+    expect(size('favicon.ico')).toBeLessThan(3 * 1024);
+    expect(size('apple-touch-icon.png')).toBeLessThan(4 * 1024);
     for (const path of sitePages()) {
+      // Everything the page names to be loaded: the stylesheet, its scripts (a data block has no file) and every
+      // icon. A browser takes one of the three icons, and the touch icon only when the page goes on a home screen;
+      // all three are counted, as if one visitor took them all.
       const loaded = page(path)
-        .elements.filter((el) => (el.tag === 'link' && ['stylesheet', 'icon'].includes(el.attr('rel') ?? '')) || el.tag === 'script')
+        .elements.filter((el) => (el.tag === 'link' && ['stylesheet', 'icon', 'apple-touch-icon'].includes(el.attr('rel') ?? '')) || (el.tag === 'script' && el.attr('src') !== undefined))
         .map((el) => (el.attr('href') ?? el.attr('src') ?? '').slice(1));
+      expect(loaded.filter((file) => DRAWN_ICONS.includes(file)).sort(), path).toEqual([...DRAWN_ICONS].sort());
       const bytes = size(path) + loaded.reduce((sum, file) => sum + size(file), 0);
       // The host guide is the longest page (0.5.0: about 98 KB in English; 0.5.1: about 119 KB, since its §9 says
       // what an update carries over, what every refusal of a workspace's state means and how to go back to a folder
       // that was moved away; 0.5.2: about 133 KB, since §8 has one row per reason git stops Start and §10.2 says
       // what happens when the folder becomes a repository while it is shared). The page's bound follows the guide;
-      // with the stylesheet (37 KB since the home page's picture moves), the script and the icon it stays under the
-      // bound below (150 KB until 0.5.1, 164 KB until 0.5.2).
+      // with the stylesheet (37 KB since the home page's picture moves), the script and the SVG icon it stays under
+      // the bound below (150 KB until 0.5.1, 164 KB until 0.5.2). The bound rose once more by exactly what the two
+      // drawn icons weigh, when the pages began to name them: the page, its title, description and structured data
+      // included, has the 176 KB it had.
       expect(size(path), `${path} itself`).toBeLessThan(140 * 1024);
-      expect(bytes, `${path} with ${loaded.join(', ')}`).toBeLessThan(176 * 1024);
+      const icons = DRAWN_ICONS.reduce((sum, file) => sum + size(file), 0);
+      expect(bytes - icons, `${path} with ${loaded.join(', ')}, the drawn icons aside`).toBeLessThan(176 * 1024);
     }
     // The notices are text, not a page: generous, but bounded.
     expect(size(NOTICES_FILE.slice(1))).toBeLessThan(2 * 1024 * 1024);
@@ -145,9 +206,11 @@ describe('the built site', () => {
   });
 
   it('the hand-written files mention no host but app.smurg.ai, downloads.smurg.ai, smurg.ai and github.com, and only over https', () => {
-    for (const path of publicFiles().filter((file) => !SOCIAL_CARDS.includes(file))) {
-      // XML namespace names are identifiers, not addresses anything is loaded from.
-      const text = readPublic(path).replace(/\sxmlns(?::\w+)?="[^"]*"/g, '');
+    for (const path of publicFiles().filter((file) => !SOCIAL_CARDS.includes(file) && !DRAWN_ICONS.includes(file))) {
+      // XML namespace names are identifiers, not addresses anything is loaded from; so is the name of the vocabulary
+      // of a page's structured data, in exactly this place and spelling. Every other address in a data block is held
+      // to the four hosts like the rest of the file.
+      const text = readPublic(path).replace(/\sxmlns(?::\w+)?="[^"]*"/g, '').replaceAll(`"@context":"${DATA_CONTEXT}"`, '');
       for (const [url] of text.matchAll(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>)\]]+/gi)) {
         expect(url, `${path}: ${url}`).toMatch(/^https:\/\//);
         expect(ALLOWED_HOSTS, `${path}: ${url}`).toContain(new URL(url).hostname);
@@ -251,9 +314,10 @@ describe('the built site', () => {
       }
     }
     const unreachable = [...testSite().files.keys()].filter((path) => !seen.has(path) && !path.startsWith('_') && !NOT_FOUND_PAGES.includes(path));
-    // Files that are not pages are loaded by the pages (style.css, copy.js, favicon.svg) or read by crawlers and link
-    // previews (a page names its preview picture in a <meta>, which is no link).
-    expect(unreachable.sort()).toEqual([...SOCIAL_CARDS, 'robots.txt', 'sitemap.xml'].sort());
+    // Files that are not pages are loaded by the pages (style.css, copy.js, the icons) or read by crawlers, link
+    // previews and assistants at an address they know (a page names its preview picture in a <meta>, which is no
+    // link; llms.txt is asked for by its name).
+    expect(unreachable.sort()).toEqual([...SOCIAL_CARDS, 'robots.txt', 'sitemap.xml', LLMS_FILE.slice(1)].sort());
   });
 
   it.each(['copy.js', 'demo.js'])('%s does no networking and writes no HTML (Trusted Types would refuse it anyway)', (file) => {
@@ -380,6 +444,32 @@ describe('the built site', () => {
       }
     });
     expect(siteText('robots.txt')).toContain('Sitemap: https://smurg.ai/sitemap.xml');
+    // robots.txt lets every crawler read every page (a page that must not be found says so itself: noindex).
+    expect(siteText('robots.txt').split('\n').filter((line) => line !== '' && !line.startsWith('#'))).toEqual(['User-agent: *', 'Allow: /', 'Sitemap: https://smurg.ai/sitemap.xml']);
+  });
+
+  it('the sitemap says when a page’s source last changed, by git, and nothing where git cannot say', () => {
+    // The date of the last commit that touched the page's one source file (pageSources), when this is a complete
+    // checkout and the file is committed as it is; no <lastmod> at all otherwise (a wrong date is worse than none:
+    // test/generate.test.ts holds fileDates to that on repositories of its own). The docs index has no single
+    // source, so it never has a date.
+    const sources = pageSources();
+    const { dates } = fileDates(REPO_ROOT, [...new Set(sources.values())]);
+    const entries = siteText('sitemap.xml').split('<url>').slice(1);
+    expect(entries).toHaveLength(14);
+    expect([...sources.keys()].sort()).toEqual(pagePairs().flatMap((paths) => LANGS.map((lang) => paths[lang])).filter((path) => !LANGS.some((lang) => docsIndex(lang) === path)).sort());
+    for (const entry of entries) {
+      const path = (/<loc>https:\/\/smurg\.ai([^<]+)<\/loc>/.exec(entry)?.[1] ?? '') as string;
+      const source = sources.get(path);
+      const date = /<lastmod>([^<]*)<\/lastmod>/.exec(entry)?.[1];
+      expect(date, path).toBe(source === undefined ? undefined : dates.get(source));
+      // A date is a full ISO 8601 moment with its time zone, right after the address. (It is the committing
+      // machine's clock that wrote it: it is not compared with the clock of the machine that runs this test.)
+      if (date === undefined) continue;
+      expect(date, path).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:Z|[+-]\d\d:\d\d)$/);
+      expect(entry, path).toContain(`<loc>https://smurg.ai${path}</loc>\n    <lastmod>${date}</lastmod>\n`);
+    }
+    for (const lang of LANGS) expect(sources.has(docsIndex(lang)), lang).toBe(false);
   });
 });
 
@@ -394,7 +484,7 @@ for (const path of sitePages()) {
       expect(html).toMatch(/^<!doctype html>\n/);
     });
 
-    it('has a language, one title, the charset, a viewport, the shared stylesheet and the icon', () => {
+    it('has a language, one title, the charset, a viewport, the shared stylesheet and the three icons', () => {
       const root = first(p, 'html');
       expect(['en', 'zh-Hant-TW']).toContain(root?.attr('lang'));
       // Under /zh-TW/ the page is Traditional Chinese, everywhere else English.
@@ -407,7 +497,14 @@ for (const path of sitePages()) {
       expect(metas.some((m) => m.attr('name') === 'viewport' && m.attr('content') === 'width=device-width, initial-scale=1')).toBe(true);
       const links = p.byTag('link');
       expect(links.some((l) => l.attr('rel') === 'stylesheet' && l.attr('href') === '/style.css')).toBe(true);
-      expect(links.some((l) => l.attr('rel') === 'icon' && l.attr('href') === '/favicon.svg' && l.attr('type') === 'image/svg+xml')).toBe(true);
+      // The icons, as every page names them (ICON_LINKS; the hand-written pages carry the same three lines): the
+      // .ico with its sizes written out, so that a browser that can show the SVG takes the SVG, and the touch icon.
+      expect(html).toContain(`${ICON_LINKS}\n`);
+      expect(links.filter((l) => /icon/.test(l.attr('rel') ?? '')).map((l) => [l.attr('rel'), l.attr('href'), l.attr('sizes'), l.attr('type')])).toEqual([
+        ['icon', '/favicon.ico', '16x16 32x32 48x48', undefined],
+        ['icon', '/favicon.svg', undefined, 'image/svg+xml'],
+        ['apple-touch-icon', '/apple-touch-icon.png', undefined, undefined],
+      ]);
     });
 
     it('has the landmarks: a skip link first, one banner header, one main#main, one h1', () => {
@@ -431,9 +528,18 @@ for (const path of sitePages()) {
           expect(name, `<${el.tag} ${name}>`).not.toMatch(/^on/);
           expect(name, `<${el.tag} ${name}>`).not.toBe('style');
         }
-        if (el.tag === 'script') {
+        if (el.tag === 'script' && el.attr('type') === DATA_BLOCK) {
+          // The one script element without a file: the page's structured data. With this type and nothing else on
+          // it, it is data that no browser runs (so the CSP has nothing to refuse), and its text is JSON in which
+          // no "<" stands as itself: nothing inside can end the element early.
+          expect(el.node.attrs.map((a) => a.name)).toEqual(['type']);
+          expect(() => JSON.parse(rawText(el)) as unknown, 'the data block is JSON').not.toThrow();
+          expect(rawText(el)).not.toContain('<');
+          expect(el.parents.at(-1)?.tag).toBe('head');
+        } else if (el.tag === 'script') {
           expect(el.attr('src'), 'no inline script').toMatch(/^\/[^/]/);
           expect(el.text()).toBe('');
+          expect(el.attr('type')).toBeUndefined();
         }
         if (el.tag === 'link' && !['canonical', 'alternate'].includes(el.attr('rel') ?? '')) expect(el.attr('href'), el.attr('rel')).toMatch(/^\/[^/]/);
         expect(['style', 'img', 'iframe', 'object', 'embed', 'video', 'audio', 'source', 'base', 'form', 'input'], `<${el.tag}>`).not.toContain(el.tag);
@@ -594,9 +700,11 @@ describe('the two home pages', () => {
     expect(copyScript).toContain("status.className = hint ? 'copy-hint' : 'visually-hidden';");
     expect(readPublic('style.css')).toMatch(/\.copy-hint \+ p \{\s*visibility: hidden;\s*\}/);
     // The page's two scripts, both deferred: the copy button and the picture's (the page makes sense without either).
-    expect(p.byTag('script').map((s) => [s.attr('src'), s.attr('defer')])).toEqual([
-      ['/copy.js', ''],
-      ['/demo.js', ''],
+    // Before them, the one script element that is no script: the page's structured data (a data block).
+    expect(p.byTag('script').map((s) => [s.attr('type'), s.attr('src'), s.attr('defer')])).toEqual([
+      [DATA_BLOCK, undefined, undefined],
+      [undefined, '/copy.js', ''],
+      [undefined, '/demo.js', ''],
     ]);
     // Under the install line: what a teammate with an invite link does, one sentence, and under it ONE link, to the
     // quick start of the page's language, by the name the docs give it (two words; no sentence comes with it).
@@ -699,9 +807,12 @@ describe('the two home pages', () => {
     for (const path of Object.values(HOME_PAGES)) {
       const p = page(path);
       // The page's words, and what stands for words where nobody sees them: the picture's story and every other
-      // label, the title and the descriptions.
-      const unseen = p.elements.flatMap((el) => [el.attr('aria-label'), el.tag === 'meta' ? el.attr('content') : undefined, el.tag === 'title' ? el.text() : undefined]).filter((value): value is string => value !== undefined);
-      expect(unseen.length, path).toBeGreaterThan(15);
+      // label, the title, the descriptions and every string of the structured data.
+      const unseen = [
+        ...p.elements.flatMap((el) => [el.attr('aria-label'), el.tag === 'meta' ? el.attr('content') : undefined, el.tag === 'title' ? el.text() : undefined]).filter((value): value is string => value !== undefined),
+        ...stringsIn(dataBlocks(p)),
+      ];
+      expect(unseen.length, path).toBeGreaterThan(40);
       for (const text of [bodyText(path), ...unseen]) {
         // No version at all, smurg's or Claude Code's: what a version needs and what changed in it is the guides' job.
         expect(text, path).not.toMatch(/\bv?\d+\.\d+\.\d+\b/);
@@ -770,9 +881,12 @@ describe('the two home pages', () => {
     const titles = p.byTag('title').map((t) => t.text()).join('\n');
     const labels = p.elements.map((el) => el.attr('aria-label') ?? '').join('\n');
     const descriptions = p.byTag('meta').map((m) => m.attr('content') ?? '').join('\n');
+    // (what the structured data says to a search engine counts like what the page says to a reader)
+    const data = stringsIn(dataBlocks(p)).join('\n');
     expect(labels.length).toBeGreaterThan(lang === 'en' ? 400 : 150);
     expect(descriptions.length).toBeGreaterThan(100);
-    for (const all of [text, titles, labels, descriptions]) {
+    expect(data.length).toBeGreaterThan(300);
+    for (const all of [text, titles, labels, descriptions, data]) {
       expect(all).not.toMatch(/Seatbelt|bubblewrap|AppArmor|socat|ripgrep|allow-listed|白名單|guest sandbox|客人沙盒|in a sandbox|sandboxed|在沙盒裡執行|--allow-main-workspace-guests|\brunners?\b|可執行 agent|API key|can use agents/i);
       // There is no sandbox (ARCHITECTURE §11 D-15), and the page no longer says so itself: the one sentence that
       // did ("with no sandbox") left with the three facts, and the guides say it (the test of the guides, below).
@@ -789,6 +903,11 @@ describe('the two home pages', () => {
     const [picture, ...others] = p.elements.filter((el) => el.attr('role') === 'img' && el.tag !== 'svg');
     expect(others).toEqual([]);
     expect(classes(picture as El)).toEqual(['win']);
+    // The picture's labels are most of the page's words, and they are made up (a cart, a checkout page): a search
+    // result must not quote them as what smurg is. `data-nosnippet` on the picture says so to a search engine, and
+    // on nothing else: the sentence, the line under it and the cards are what a result may quote.
+    expect(p.elements.filter((el) => el.attr('data-nosnippet') !== undefined)).toEqual([picture]);
+    expect(picture?.attr('data-nosnippet')).toBe('');
     // The story in words, for who cannot see the picture: every part by its name, in order, and who does what.
     const story = picture?.attr('aria-label') ?? '';
     expect(story.length).toBeGreaterThan(l === 'en' ? 400 : 150);
@@ -1145,5 +1264,324 @@ describe('the generated pages', () => {
       expect(footer, path).toBe(footers.get(lang));
     }
     expect([...footers.keys()].sort()).toEqual(['en', 'zh-Hant-TW']);
+  });
+});
+
+describe('being found: what a search engine, a link preview or an assistant is told', () => {
+  /** The pages a search engine may show: every page but the two 404 pages. */
+  const INDEXABLE = sitePages().filter((path) => !NOT_FOUND_PAGES.includes(path));
+  const titleOf = (p: Page): string => p.byTag('title')[0]?.text() ?? '';
+  const canonicalOf = (p: Page): string => p.byTag('link').find((l) => l.attr('rel') === 'canonical')?.attr('href') ?? '';
+  const isHome = (path: string): boolean => (Object.values(HOME_PAGES) as string[]).includes(path);
+  const docAt = (path: string): (typeof DOC_PAGES)[number] | undefined => DOC_PAGES.find((doc) => LANGS.some((lang) => fileOf(doc[lang].path) === path));
+
+  it('every page has a title and a description of its own, written to be shown whole and in the page’s language', () => {
+    expect(INDEXABLE).toHaveLength(14);
+    const titles = INDEXABLE.map((path) => titleOf(page(path)));
+    const descriptions = INDEXABLE.map((path) => metaOf(page(path), 'description') ?? '');
+    expect(new Set(titles).size).toBe(14);
+    expect(new Set(descriptions).size).toBe(14);
+    for (const path of INDEXABLE) {
+      const p = page(path);
+      const lang = langOf(p);
+      const title = titleOf(p);
+      const description = metaOf(p, 'description') ?? '';
+      // What a result shows as its first line: about 60 Latin characters, and the name is in it. A home page and
+      // the docs index start with the name; every other page ends with it, after what the page is.
+      expect(widthOf(title), title).toBeLessThanOrEqual(60);
+      expect(title.startsWith('smurg') || title.endsWith(' · smurg'), title).toBe(true);
+      // What a result shows under it: a snippet has room for about 920 px of 14 px text. In characters that is a
+      // rule of thumb, because letters differ in width: about 146 Latin characters, or 66 Chinese ones (a
+      // full-width character counts as two). Every description here was measured in Chrome and is under 920 px
+      // (README.md, "Being found", says how). A much shorter one is replaced by words the search engine picks from
+      // the page. So a description is a sentence or two of 120 to 146 characters, in Chinese 100 to 133 of width:
+      // written, with its full stop, never the start of the page cut off.
+      if (lang === 'en') {
+        expect(description.length, description).toBeGreaterThanOrEqual(120);
+        expect(description.length, description).toBeLessThanOrEqual(146);
+      } else {
+        expect(widthOf(description), description).toBeGreaterThanOrEqual(100);
+        expect(widthOf(description), description).toBeLessThanOrEqual(133);
+      }
+      expect(description, path).toMatch(lang === 'en' ? /[.?]$/ : /。$/);
+      expect(description, path).not.toMatch(/…|\.\.\./);
+      expect(description, path).toBe(description.trim().replace(/\s+/g, ' '));
+      // In the page's language, and not the sentence of a guide that names its translation.
+      const cjk = /[　-〿一-鿿＀-￯]/;
+      for (const text of [title, description]) {
+        if (lang === 'en') expect(text, path).not.toMatch(cjk);
+        expect(text, path).not.toMatch(/English|Chinese|繁體中文|英文版|中文版/);
+      }
+      if (lang === 'zh-TW') expect(description, path).toMatch(cjk);
+      // Words that would bring the wrong searcher: Anthropic's own plan and feature ("Claude Code for teams",
+      // "agent teams"), a server one deploys ("self-hosted": the host is a personal computer), sharing one account.
+      for (const text of [title, description]) expect(text, path).not.toMatch(/Claude Code for teams|agent teams?|self-hosted|agent 團隊|共用|自架/i);
+      // A link preview says the same title; its description is the same but on the home pages, whose previews
+      // have their own, longer one. To a preview a document is an article; a home page, an index and the license
+      // are pages of the site.
+      expect(metaOf(p, 'og:title'), path).toBe(title);
+      if (!isHome(path)) expect(metaOf(p, 'og:description'), path).toBe(description);
+      expect(metaOf(p, 'og:type'), path).toBe(docAt(path) === undefined ? 'website' : 'article');
+    }
+    // The home pages' preview and Twitter texts are written by hand: the title is the page's, the descriptions say
+    // what the page's does at more length, and each ends as a sentence.
+    for (const [lang, path] of Object.entries(HOME_PAGES)) {
+      const p = page(path);
+      expect(metaOf(p, 'twitter:title'), path).toBe(titleOf(p));
+      for (const key of ['og:description', 'twitter:description']) expect(metaOf(p, key), `${path} ${key}`).toMatch(lang === 'en' ? /^Share a project folder from your own computer\..*\.$/ : /^從自己的電腦分享專案資料夾。.*。$/);
+    }
+  });
+
+  it('a document’s title starts as its name in the docs does, and a title that says Claude Code stands on a page that does', () => {
+    for (const lang of LANGS) {
+      for (const doc of DOC_PAGES) {
+        const p = page(fileOf(doc[lang].path));
+        // "Quick start: …", "Host guide: …": the name the docs index, the navigation and the page's own heading use.
+        expect(titleOf(p), doc[lang].path).toBe(`${doc[lang].title} · smurg`);
+        expect(doc[lang].title.startsWith(`${doc[lang].label}${lang === 'en' ? ': ' : '：'}`), doc[lang].title).toBe(true);
+        expect(first(p, 'h1')?.text().startsWith(doc[lang].label), doc[lang].path).toBe(true);
+        expect(metaOf(p, 'description'), doc[lang].path).toBe(doc[lang].description);
+      }
+      for (const path of INDEXABLE.filter((file) => langOf(page(file)) === lang)) {
+        const p = page(path);
+        if (titleOf(p).includes('Claude Code')) expect(first(p, 'main')?.text(), path).toContain('Claude Code');
+      }
+      // The words people search for are in the titles of the pages a searcher should land on: the two home pages
+      // and the three guides.
+      for (const path of [HOME_PAGES[lang], ...[QUICK_START, HOST_GUIDE, TEAM_GUIDE].map((doc) => fileOf(doc[lang].path))]) expect(titleOf(page(path)), path).toContain('Claude Code');
+    }
+    // What a description promises is what its guide says (the guides' own sentences are held by the tests above).
+    const said = (lang: Lang, doc: (typeof DOC_PAGES)[number]): string => (first(page(fileOf(doc[lang].path)), 'main')?.text() ?? '').replace(/\s+/g, lang === 'en' ? ' ' : '');
+    expect(HOST_GUIDE.en.description).toContain('as you, with no sandbox');
+    expect(said('en', HOST_GUIDE)).toContain('These sessions run on your computer as you');
+    expect(HOST_GUIDE['zh-TW'].description).toContain('沒有沙盒');
+    expect(TEAM_GUIDE.en.description).toContain('nothing to install, no Claude account');
+    expect(said('en', TEAM_GUIDE)).toContain('you do not need a Claude account or an API key');
+    expect(said('en', QUICK_START)).toContain('nothing to install, no Claude account');
+    expect(TEAM_GUIDE['zh-TW'].description).toContain('不必安裝，也不需要 Claude 帳號');
+    expect(said('zh-TW', TEAM_GUIDE)).toContain('不需要Claude帳號');
+  });
+
+  it('the structured data of a page is that page’s: its address, its title or heading, its description and its language, and nothing the page does not say', () => {
+    interface Node {
+      readonly [key: string]: unknown;
+    }
+    const sitemap = siteText('sitemap.xml');
+    let blocks = 0;
+    for (const path of sitePages()) {
+      const p = page(path);
+      const data = dataBlocks(p) as { '@context'?: unknown; '@graph'?: Node[] }[];
+      const doc = docAt(path);
+      const index = LANGS.some((lang) => fileOf(docsIndex(lang)) === path);
+      // The home pages, the docs index and the documents have one block; the license pages and the 404 pages none
+      // (a license text and an error have nothing more to say to a search engine).
+      if (!isHome(path) && doc === undefined && !index) {
+        expect(data, path).toEqual([]);
+        continue;
+      }
+      blocks++;
+      expect(data, path).toHaveLength(1);
+      expect(data[0]?.['@context'], path).toBe(DATA_CONTEXT);
+      expect(Object.keys(data[0] ?? {}), path).toEqual(['@context', '@graph']);
+      const graph = data[0]?.['@graph'] ?? [];
+      const lang = langOf(p);
+      const url = canonicalOf(p);
+      const title = titleOf(p);
+      const description = metaOf(p, 'description');
+      expect(url, path).toBe(`${ORIGIN}/${path.replace(/index\.html$/, '')}`);
+
+      // The page itself, by its canonical address.
+      const self = graph.find((node) => node['@id'] === `${url}#page`);
+      expect(self?.['url'], path).toBe(url);
+      expect(self?.['description'], path).toBe(description);
+      expect(self?.['inLanguage'], path).toBe(HTML_LANG[lang]);
+      // The site it is a page of. A search engine reads each page's block by itself: a home page defines the site
+      // (below) and refers to it by its id; a docs page says the site's type, address and name where it refers to
+      // it. So every id a block refers to and does not describe is one the same block defines.
+      const site = { '@type': 'WebSite', '@id': `${ORIGIN}/#website`, url: `${ORIGIN}/`, name: 'smurg' };
+      expect(self?.['isPartOf'], path).toEqual(isHome(path) ? { '@id': site['@id'] } : site);
+      const references = (value: unknown): unknown[] => {
+        if (Array.isArray(value)) return value.flatMap(references);
+        if (typeof value !== 'object' || value === null) return [];
+        return Object.keys(value).join() === '@id' ? [(value as Node)['@id']] : Object.values(value).flatMap(references);
+      };
+      for (const id of references(graph)) expect(graph.map((node) => node['@id']), `${path}: ${String(id)}`).toContain(id);
+      // A guide is an article whose headline is its heading; every other page has the name its title gives it.
+      const type = isHome(path) ? 'WebPage' : index ? 'CollectionPage' : doc?.[lang].schema;
+      expect(self?.['@type'], path).toBe(type);
+      if (type === 'TechArticle') expect([self?.['headline'], self?.['name']], path).toEqual([first(p, 'h1')?.text(), undefined]);
+      else expect([self?.['name'], self?.['headline']], path).toEqual([title, undefined]);
+      expect(DOC_PAGES.map((each) => each.en.schema)).toEqual(['TechArticle', 'TechArticle', 'TechArticle', 'WebPage']);
+      for (const each of DOC_PAGES) expect(each['zh-TW'].schema).toBe(each.en.schema);
+      // When it last changed: the same moment the sitemap gives, or none in both (a home page's block is written
+      // by hand and carries no date).
+      const entry = sitemap.split('<url>').find((each) => each.includes(`<loc>${url}</loc>`)) ?? '';
+      expect(self?.['dateModified'], path).toBe(isHome(path) ? undefined : /<lastmod>([^<]*)<\/lastmod>/.exec(entry)?.[1]);
+      // No fact that is not on the page: no author, no publisher, no day of publication, no rating.
+      expect(Object.keys(self ?? {}).filter((key) => !['@type', '@id', 'url', 'name', 'headline', 'description', 'inLanguage', 'dateModified', 'isPartOf'].includes(key)), path).toEqual([]);
+      // And no software node anywhere: the search result that type is for asks for a rating or a review, smurg has
+      // none and none is made up, and Search Console reports a node without one as not valid. So the blocks hold
+      // no price, no offer, no rating and no review.
+      expect(JSON.stringify(data), path).not.toMatch(/SoftwareApplication|"offers"|"price"|aggregateRating|"review"/);
+
+      if (isHome(path)) {
+        // The site and the page. The site's name is what a search result may show over the address, the same on
+        // both home pages. Its second name is its address, as the preview pictures write it, and the repository is
+        // the same thing elsewhere: a search engine that takes "smurg" for a misspelling of another word learns
+        // from the three that it is a name.
+        expect(graph.map((node) => node['@type']), path).toEqual(['WebSite', 'WebPage']);
+        expect(graph[0], path).toEqual({ ...site, alternateName: 'smurg.ai', sameAs: REPOSITORY, inLanguage: ['en', 'zh-Hant-TW'] });
+        // Written by hand in the page, as the build would write it for the page's title and description: when
+        // this fails after a title or a description changed, the expected line is the one to paste.
+        const line = p.byTag('script').find((s) => s.attr('type') === DATA_BLOCK);
+        expect(`<script type="${DATA_BLOCK}">${rawText(line as El)}</script>`, path).toBe(homeStructuredData(lang, title, description ?? ''));
+      } else {
+        // Where the page is in the site: the home page, the docs (but for the docs index itself), the page. Each
+        // step is a page of the same language by its canonical address and by the name its link has; the last
+        // step is the page, by its name in the docs navigation, and has no address.
+        expect(graph.map((node) => node['@type']), path).toEqual([type, 'BreadcrumbList']);
+        const steps = (graph[1]?.['itemListElement'] ?? []) as Node[];
+        const expected: Node[] = [{ '@type': 'ListItem', position: 1, name: 'smurg', item: `${ORIGIN}${homePage(lang)}` }];
+        if (!index) expected.push({ '@type': 'ListItem', position: 2, name: CHROME[lang].docs, item: `${ORIGIN}${docsIndex(lang)}` });
+        expected.push({ '@type': 'ListItem', position: expected.length + 1, name: index ? CHROME[lang].docs : doc?.[lang].label });
+        expect(steps, path).toEqual(expected);
+        expect(p.elements.find((el) => el.attr('class') === 'doc-nav' && el.tag === 'nav'), path).toBeDefined();
+        expect(p.byTag('a').filter((a) => a.attr('aria-current') === 'page' && a.parents.some((el) => el.attr('class') === 'doc-nav')).map((a) => a.text()), path).toEqual([index ? CHROME[lang].docsOverview : doc?.[lang].label]);
+      }
+
+      // Every address in the block is the vocabulary's name, a page or a file of this site, or the repository; and
+      // no string is a version number (the generated pages show none in their titles and descriptions either).
+      for (const text of stringsIn(data)) {
+        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) {
+          const address = new URL(text);
+          if (text === DATA_CONTEXT || text === REPOSITORY) continue;
+          expect(address.origin, `${path}: ${text}`).toBe(ORIGIN);
+          expect(servedPage(address.pathname), `${path}: ${text}`).toBeDefined();
+        }
+        expect(text, path).not.toMatch(/\bv?\d+\.\d+\.\d+\b/);
+        expect(text, path).not.toMatch(/rating|review count|stars?\b/i);
+      }
+    }
+    // 2 home pages, 2 docs indexes, 8 documents.
+    expect(blocks).toBe(12);
+  });
+
+  it('the drawn icons are the mark of favicon.svg: an .ico of 16, 32 and 48 px with its rounded corners, and a touch icon of 180 px on a full square', () => {
+    const svg = readPublic('favicon.svg');
+    // The colour of the mark's background, as the SVG writes it.
+    const hex = /<rect width="32" height="32" rx="8" fill="#([0-9a-f]{6})"\/>/.exec(svg)?.[1] ?? '';
+    const colour = [0, 2, 4].map((at) => Number.parseInt(hex.slice(at, at + 2), 16));
+    expect(colour.every((channel) => Number.isInteger(channel))).toBe(true);
+    const site = testSite().files;
+
+    // favicon.ico: an icon file with one PNG per size, each the mark with transparent corners.
+    const ico = site.get('favicon.ico') as Buffer;
+    expect([ico.readUInt16LE(0), ico.readUInt16LE(2), ico.readUInt16LE(4)]).toEqual([0, 1, FAVICON_SIZES.length]);
+    expect([...FAVICON_SIZES]).toEqual([16, 32, 48]);
+    let end = 6 + 16 * FAVICON_SIZES.length;
+    FAVICON_SIZES.forEach((size, index) => {
+      const entry = ico.subarray(6 + 16 * index, 22 + 16 * index);
+      expect([entry.readUInt8(0), entry.readUInt8(1), entry.readUInt16LE(4), entry.readUInt16LE(6)], `${size}`).toEqual([size, size, 1, 32]);
+      // The pictures follow each other with nothing between or after them.
+      expect(entry.readUInt32LE(12), `${size}`).toBe(end);
+      end += entry.readUInt32LE(8);
+      const picture = decodePng(ico.subarray(entry.readUInt32LE(12), end));
+      expect([picture.width, picture.height], `${size}`).toEqual([size, size]);
+      for (const [x, y] of [[0, 0], [size - 1, 0], [0, size - 1], [size - 1, size - 1]] as const) expect(picture.pixel(x, y)[3], `${size}: corner ${x},${y}`).toBe(0);
+      // The top edge's middle is the background; the middle of the mark's square (11, 16 of 32) is white.
+      expect(picture.pixel(size / 2, 1), `${size}`).toEqual([...colour, 255]);
+      expect(picture.pixel(Math.round((11 / 32) * size), size / 2), `${size}`).toEqual([255, 255, 255, 255]);
+    });
+    expect(end).toBe(ico.length);
+
+    // The touch icon: the same mark on a square without rounded corners, opaque everywhere (a phone rounds the
+    // corners itself and shows black where a picture is transparent).
+    expect(squareIcon(svg)).toBe(svg.replace(' rx="8" fill=', ' fill='));
+    expect(squareIcon(svg)).not.toBe(svg);
+    const touch = decodePng(site.get('apple-touch-icon.png') as Buffer);
+    expect([touch.width, touch.height, TOUCH_ICON_SIZE]).toEqual([180, 180, 180]);
+    for (const [x, y] of [[0, 0], [179, 0], [0, 179], [179, 179], [90, 1]] as const) expect(touch.pixel(x, y), `${x},${y}`).toEqual([...colour, 255]);
+    expect(touch.pixel(Math.round((11 / 32) * 180), 90)).toEqual([255, 255, 255, 255]);
+    for (let y = 0; y < 180; y += 7) for (let x = 0; x < 180; x += 7) expect(touch.pixel(x, y)[3]).toBe(255);
+  });
+
+  it('_headers lets other sites show the pictures and the icons, keeps the notices and llms.txt out of search results, and _redirects sends /zh-tw to /zh-TW', () => {
+    const headers = readPublic('_headers');
+    /** The header lines under a path's own rule. */
+    const rule = (path: string): string[] => (new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n((?:[ \\t]+.+\\n)+)`, 'm').exec(headers)?.[1] ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
+    for (const path of [...SOCIAL_CARDS, ...DRAWN_ICONS, 'favicon.svg']) {
+      expect(rule(`/${path}`), path).toEqual(['! Cross-Origin-Resource-Policy', 'Cross-Origin-Resource-Policy: cross-origin', 'Cache-Control: public, max-age=86400']);
+    }
+    // Only pictures: no page, script or stylesheet is given to other origins.
+    expect([...headers.matchAll(/^(\/\S+)\n(?:[ \t]+.+\n)*?[ \t]+Cross-Origin-Resource-Policy: cross-origin/gm)].map((match) => match[1]).sort()).toEqual([...SOCIAL_CARDS, ...DRAWN_ICONS, 'favicon.svg'].map((path) => `/${path}`).sort());
+    // The two texts that ask not to be listed: the notices, and llms.txt, which assistants ask for by its name (a
+    // page that must not be found says so in its own <meta>: the 404s). No page is under such a rule.
+    for (const path of [NOTICES_FILE, LLMS_FILE]) expect(rule(path), path).toEqual(['Cache-Control: public, max-age=3600', 'X-Robots-Tag: noindex']);
+    expect([...headers.matchAll(/^(\/\S+)\n(?:[ \t]+.+\n)*?[ \t]+X-Robots-Tag: /gm)].map((match) => match[1]).sort()).toEqual([LLMS_FILE, NOTICES_FILE].sort());
+    expect(headers.match(/X-Robots-Tag/g)).toHaveLength(2);
+    // _redirects: the lower-case spelling of the Chinese pages' prefix, with and without more of a path, for good.
+    const redirects = readPublic('_redirects').split('\n').filter((line) => line !== '' && !line.startsWith('#'));
+    expect(redirects).toEqual(['/zh-tw /zh-TW/ 301', '/zh-tw/* /zh-TW/:splat 301']);
+    // Neither is a path of the site or one of the Worker's.
+    expect(servedPage('/zh-tw/')).toBeUndefined();
+    expect(REDIRECTS.has('/zh-tw')).toBe(false);
+  });
+
+  it('/llms.txt says what smurg is in the guides’ words, then lists every document with its address and its line of the docs index, and the Chinese pages', () => {
+    const text = siteText(LLMS_FILE.slice(1));
+    const lines = text.split('\n');
+    // The convention of llmstxt.org: a title, a quoted summary, then sections of links.
+    expect(lines.slice(0, 4)).toEqual(['# smurg', '', `> ${LLMS_SUMMARY}`, '']);
+    expect(lines.filter((line) => line.startsWith('#'))).toEqual(['# smurg', '## Docs', '## Docs in Traditional Chinese (繁體中文)', '## Optional']);
+    // What it is, in three lines: the summary and two lines of what an assistant must not get wrong.
+    expect(LLMS_FACTS).toHaveLength(2);
+    expect(lines.slice(4, 8)).toEqual([LLMS_FACTS[0], '', LLMS_FACTS[1], '']);
+    const section = (heading: string): string[] => {
+      const from = lines.indexOf(heading);
+      const rest = lines.slice(from + 1);
+      const to = rest.findIndex((line) => line.startsWith('#'));
+      return rest.slice(0, to === -1 ? rest.length : to).filter((line) => line !== '');
+    };
+    // Every document, in the order of the docs index, with its line there.
+    expect(section('## Docs')).toEqual(DOC_PAGES.map((doc) => `- [${doc.en.label}](${ORIGIN}${doc.en.path}): ${doc.en.summary}`));
+    const cards = page(fileOf(docsIndex('en'))).elements.filter((el) => el.tag === 'li' && el.parents.at(-1)?.attr('class') === 'doc-cards');
+    expect(cards.map((card) => card.children().map((child) => child.text()))).toEqual(DOC_PAGES.map((doc) => [doc.en.label, doc.en.summary]));
+    // The Chinese pages, each by its own name, with the English name of what it is.
+    expect(section('## Docs in Traditional Chinese (繁體中文)')).toEqual(DOC_PAGES.map((doc) => `- [${doc['zh-TW'].label}](${ORIGIN}${doc['zh-TW'].path}): ${doc.en.label}`));
+    expect(section('## Optional')).toEqual([`- [Source code](${REPOSITORY}): the repository on GitHub`, `- [License](${ORIGIN}/license/): the MIT License, in full`]);
+    // Every address is a page of the site or the repository.
+    const addresses = [...text.matchAll(/\]\(([^)]+)\)/g)].map((match) => match[1] as string);
+    expect(addresses).toHaveLength(2 * DOC_PAGES.length + 2);
+    for (const address of addresses) expect(address === REPOSITORY || (address.startsWith(`${ORIGIN}/`) && servedPage(address.slice(ORIGIN.length)) !== undefined), address).toBe(true);
+    // English, but for the Chinese pages' names; no version number; and nothing the site may not say.
+    const cjk = /[　-〿一-鿿＀-￯]/;
+    for (const line of lines) if (cjk.test(line)) expect(line.replace(/^- \[[^\]]+\]/, '').replace('(繁體中文)', ''), line).not.toMatch(cjk);
+    expect(text).not.toMatch(/\bv?\d+\.\d+\.\d+\b/);
+    expect(text).not.toMatch(RETIRED_CLAIMS);
+    expect(text.endsWith('\n') && !text.endsWith('\n\n')).toBe(true);
+
+    // The three lines say what the guides say. Read as a reader reads the built pages, each phrase where it is said:
+    const said = (doc: (typeof DOC_PAGES)[number]): string => (first(page(fileOf(doc.en.path)), 'main')?.text() ?? '').replace(/\s+/g, ' ');
+    const told = [LLMS_SUMMARY, ...LLMS_FACTS].join(' ').replace(/’/g, "'");
+    // … who shares and who joins, and what they do together (the quick start's first lines and step 4);
+    expect(told).toContain('a host shares a project folder from their own computer, and teammates join in a browser');
+    expect(said(QUICK_START)).toContain('you share a project folder from your own computer, a teammate joins in a browser');
+    expect(told).toContain("vote on its questions and review what the agents build");
+    expect(said(QUICK_START)).toContain("vote on the agent's questions and review results");
+    // … what each side needs (the quick start's two points);
+    expect(told).toContain('The host needs macOS or Linux with Claude Code; teammates install nothing and join in Chrome.');
+    expect(said(QUICK_START)).toContain('need macOS or Linux, Claude Code installed and logged in');
+    expect(said(QUICK_START)).toContain('Teammates install nothing.');
+    // … what the relay cannot see (the teammates' guide's introduction);
+    expect(told).toContain("end-to-end encrypted: the relay in between cannot see files, conversations or commands");
+    expect(said(TEAM_GUIDE)).toContain('end-to-end encrypted: the server in between (the relay) cannot see file contents, conversations, terminal output or commands');
+    // … how agents run (the quick start's box), and what the flow was verified with (the README's status line,
+    //     which the test of the guides, above, holds too).
+    expect(told).toContain("they run as the host, with no sandbox, on the host's Claude account");
+    expect(said(QUICK_START)).toContain('they run on your computer as you, with no sandbox, on your Claude account');
+    expect(told).toContain('smurg is a prototype; its topics flow was verified against a scripted stand-in for the model, not with a real Claude account.');
+    expect(readFileSync(join(REPO_ROOT, 'README.md'), 'utf8').replace(/\n> /g, '\n').replace(/\s+/g, ' ')).toContain('**Status: prototype.**');
+    expect(said(QUICK_START)).toContain('verified against a scripted stand-in for the model, not with a real Claude account');
+    expect(told).toContain('Open source (MIT).');
   });
 });

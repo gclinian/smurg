@@ -177,22 +177,26 @@ describe('the two READMEs', () => {
   const english = readFileSync(join(REPO_ROOT, 'README.md'), 'utf8');
   const chinese = readFileSync(join(REPO_ROOT, 'README.zh-TW.md'), 'utf8');
 
-  it('link each other on the first line', () => {
-    expect(english.split('\n')[0]).toBe('English | [繁體中文](README.zh-TW.md)');
-    expect(chinese.split('\n')[0]).toBe('[English](README.md) | 繁體中文');
+  // (What the two READMEs are as a front page, part by part, is held by tests/lint/readme.test.ts; here stays what
+  // the site depends on: the same commands and addresses as the published guides.)
+  it('link each other: the other language, in its own name, ends the row of links under the name', () => {
+    expect(english).toContain('  <a href="README.zh-TW.md">繁體中文</a>\n</p>');
+    expect(chinese).toContain('  <a href="README.md">English</a>\n</p>');
   });
 
-  it('the Chinese one is the user part: its commands are the English ones, and it sends developers to the English README', () => {
-    const en = skeleton('README.md').commands;
-    const zh = skeleton('README.zh-TW.md').commands;
-    expect(zh).toEqual(en.slice(0, zh.length));
-    expect(zh).toEqual(['curl -fsSL https://smurg.ai/install.sh | sh', 'smurg login\nsmurg host ~/projects/my-app']);
-    expect(chinese).toContain('[README.md](README.md)');
-    // Each links its own language's guides first.
+  it('the two show the same commands, each links its own language\'s guides, and both send developers to docs/DEVELOPMENT.md', () => {
+    // (each command stands under its numbered step of the quick start, indented with it, as in the guide)
+    const en = skeleton('README.md').commands.map((command) => command.trim());
+    const zh = skeleton('README.zh-TW.md').commands.map((command) => command.trim());
+    expect(zh).toEqual(en);
+    expect(zh).toEqual(['curl -fsSL https://smurg.ai/install.sh | sh', 'smurg host ~/projects/my-app']);
+    // Each links its own language's guides.
     expect(chinese).toContain('](docs/zh-TW/HOSTING.md)');
     expect(chinese).toContain('](docs/zh-TW/JOINING.md)');
-    expect(english).toContain('[`docs/HOSTING.md`](docs/HOSTING.md)');
-    expect(english).toContain('[`docs/JOINING.md`](docs/JOINING.md)');
+    expect(english).toContain('](docs/HOSTING.md)');
+    expect(english).toContain('](docs/JOINING.md)');
+    expect(english).not.toContain('docs/zh-TW/');
+    for (const text of [english, chinese]) expect(text).toContain('[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)');
   });
 
   it('both name the built-in relay and the install line, say MIT, and nothing of the time the source was private', () => {
@@ -207,7 +211,8 @@ describe('the two READMEs', () => {
   });
 
   it('the English command table has one line per command and points at --help instead of repeating it', () => {
-    const table = english.slice(english.indexOf('## The `smurg` command'), english.indexOf('## Packaging and releasing'));
+    // (the table is folded under the documents: a visitor opens it, a host looks a command up)
+    const table = /<details>\n<summary>The <code>smurg<\/code> command<\/summary>\n([\s\S]*?)\n<\/details>/.exec(english)?.[1] ?? '';
     expect(table).toContain('`smurg <command> --help`');
     const rows = table.split('\n').filter((line) => line.startsWith('| `smurg '));
     expect(rows.map((row) => /^\| `smurg (\w+)/.exec(row)?.[1])).toEqual(['host', 'attach', 'status', 'login', 'update', 'uninstall', 'licenses']);

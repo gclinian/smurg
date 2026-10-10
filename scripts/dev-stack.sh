@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The whole smurg system on this machine in one command: relay (dev login), web dev server and `smurg host` on a
-# sample folder; Ctrl-C stops all of them. Details and options: scripts/dev-stack.ts (README, "Local development").
+# sample folder; Ctrl-C stops all of them. Details and options: scripts/dev-stack.ts
+# (docs/DEVELOPMENT.md, "Local development").
 #   scripts/dev-stack.sh [--dir DIR] [--relay-port 8787] [--web-port 5173] [--host-user host] [--role editor]
 #                        [--stand-in-claude | --real-claude]
 # --stand-in-claude: agent sessions run the scripted stand-in for Claude Code (no account, nothing is billed). Without

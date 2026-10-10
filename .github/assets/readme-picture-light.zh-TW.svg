@@ -1,0 +1,1009 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 830 480" width="830" height="480" role="img" lang="zh-Hant-TW" aria-label="smurg 工作區在瀏覽器裡的示意圖，分成四個場景。決定：Claude 問購物車要存在哪裡；Ian、Amy 和 Ben 投票，Ian 送出領先的答案。計畫：Claude 寫出 spec 和一份有三個工作項目的計畫，Ian 按下開始。實作：三個 agent 並排工作，每個工作項目一個，各自在自己的 worktree；其中一個請求許可執行指令，Ben 允許了一次。檢視：Amy 讀完第一個項目的結果報告，標成已看過，再由主人 Ian 把變更合併到主工作區。">
+<style>
+svg{font:400 14px -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'Liberation Sans','PingFang TC','Noto Sans TC','Microsoft JhengHei',sans-serif}
+text{fill:#1b1f27}
+.mo{font-family:ui-monospace,'SF Mono',Menlo,Consolas,'Liberation Mono','PingFang TC','Microsoft JhengHei',monospace}
+.w5{font-weight:500}
+.w6{font-weight:600}
+.w7{font-weight:700}
+.mu{fill:#485262}
+.su{fill:#5d6878}
+.ac{fill:#1d4ed8}
+.ok{fill:#166534}
+.wh{fill:#fff}
+.bk{fill:#000}
+.win{fill:#ffffff;stroke:#b6bfcc}
+.stg{fill:#f1f3f7}
+.rs{fill:#e9edf3}
+.sf{fill:#ffffff}
+.lt{fill:#b6bfcc}
+.ln{stroke:#d9dee6;fill:none}
+.sep{stroke:#5d6878;fill:none;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round}
+.pn{fill:#f5f6f8;stroke:#d9dee6}
+.tb{fill:#ffffff;stroke:#b6bfcc}
+.fl{fill:#1d4ed8}
+.cd{fill:#ffffff;stroke:#d9dee6}
+.bx{fill:none;stroke:#d9dee6}
+.hl{fill:#1d4ed8;fill-opacity:0.08;stroke:#1d4ed8;stroke-width:1.5}
+.bp{fill:#1d4ed8}
+.bs{fill:#ffffff;stroke:#b6bfcc}
+.bh{fill:#d9dee6}
+.b-n{fill:#e9edf3}
+.b-run{fill:#1d4ed8;fill-opacity:0.08}
+.b-ok{fill:#15803d;fill-opacity:0.1}
+.b-ask{fill:none;stroke:#b45309}
+.okf{fill:#166534}
+.wf{fill:#b45309}
+.pm{fill:none;stroke:#b45309}
+.sl{fill:#1d4ed8;fill-opacity:0.08}
+.sb{fill:#1d4ed8}
+.tk{fill:none;stroke:#166534;stroke-linecap:round;stroke-linejoin:round}
+.dm{fill:none;stroke:#5d6878;stroke-width:1.5}
+.ia{fill:none;stroke:#fff}
+.im{fill:none;stroke:#166534}
+.ia,.im{stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.cu{fill:#1b1f27;stroke:#ffffff;stroke-width:1.2;stroke-linejoin:round}
+.ch{fill:none;stroke:#d9dee6}
+.chm{fill:#15803d;fill-opacity:0.1;stroke:#166534}
+.c0{fill:#ffffff;stroke:#7d8799}
+.c1{fill:#1d4ed8}
+.c2{fill:#b45309}
+.c3{fill:#166534}
+.c4{fill:#ffffff}
+.d{fill:#1d4ed8;opacity:.55}
+.N{display:none}
+@media (max-width:540px){
+.W{display:none}
+.N{display:inline}
+}
+.o{transform-box:fill-box;transform-origin:50% 50%}
+.l{transform-box:fill-box;transform-origin:0 50%}
+.k0{opacity:1}
+.k2{opacity:0}
+.k3{opacity:0}
+.k4{opacity:0}
+.k5{opacity:0}
+.k6{opacity:0}
+.k7{opacity:0}
+.k8{opacity:1}
+.k9{opacity:0}
+.ka{opacity:1}
+.kb{opacity:1}
+.kc{opacity:1}
+.kd{opacity:0}
+.ke{opacity:0}
+.kf{opacity:0}
+.kg{opacity:1}
+.kh{opacity:1}
+.ki{opacity:1}
+.kj{opacity:1}
+.kk{opacity:1}
+.kl{opacity:0}
+.kn{opacity:1}
+.ko{opacity:0}
+.kp{opacity:1}
+.kt{opacity:1}
+.ky{opacity:0}
+.kz{opacity:1}
+.k10{opacity:1}
+.k11{opacity:0}
+.k12{opacity:1}
+.k13{opacity:1}
+.k14{opacity:1}
+.k16{opacity:0}
+.k17{opacity:0}
+.k18{opacity:0}
+.k19{opacity:1}
+.k1a{opacity:1}
+.k1b{opacity:1}
+.k1c{opacity:0}
+.k1d{opacity:0}
+.k1e{opacity:1}
+.k1f{opacity:1}
+.k1g{opacity:0}
+.k1i{opacity:0}
+.k1j{opacity:1}
+.k1k{opacity:1}
+.k1l{opacity:0}
+.k1m{opacity:0}
+.k1n{opacity:0}
+.k1o{opacity:1}
+.k1p{opacity:1}
+.k1q{opacity:1}
+.k1r{opacity:1}
+.k1s{opacity:1}
+.k1u{opacity:1}
+.k1v{opacity:0}
+.k1w{opacity:1}
+.k1x{opacity:0}
+.k1y{opacity:0}
+.k1z{opacity:0}
+.k20{opacity:0}
+.k21{opacity:1}
+.k22{opacity:1}
+.k23{opacity:0}
+.k24{opacity:1}
+.a{animation:24s linear infinite}
+.k0{animation-name:k0}
+.k1{animation-name:k1}
+.k2{animation-name:k2}
+.k3{animation-name:k3}
+.k4{animation-name:k4}
+.k5{animation-name:k5}
+.k6{animation-name:k6}
+.k7{animation-name:k7}
+.k8{animation-name:k8}
+.k9{animation-name:k9}
+.ka{animation-name:ka}
+.kb{animation-name:kb}
+.kc{animation-name:kc}
+.kd{animation-name:kd}
+.ke{animation-name:ke}
+.kf{animation-name:kf}
+.kg{animation-name:kg}
+.kh{animation-name:kh}
+.ki{animation-name:ki}
+.kj{animation-name:kj}
+.kk{animation-name:kk}
+.kl{animation-name:kl}
+.km{animation-name:km}
+.kn{animation-name:kn}
+.ko{animation-name:ko}
+.kp{animation-name:kp}
+.kq{animation-name:kq}
+.kr{animation-name:kr}
+.ks{animation-name:ks}
+.kt{animation-name:kt}
+.ku{animation-name:ku}
+.kv{animation-name:kv}
+.kw{animation-name:kw}
+.kx{animation-name:kx}
+.ky{animation-name:ky}
+.kz{animation-name:kz}
+.k10{animation-name:k10}
+.k11{animation-name:k11}
+.k12{animation-name:k12}
+.k13{animation-name:k13}
+.k14{animation-name:k14}
+.k15{animation-name:k15}
+.k16{animation-name:k16}
+.k17{animation-name:k17}
+.k18{animation-name:k18}
+.k19{animation-name:k19}
+.k1a{animation-name:k1a}
+.k1b{animation-name:k1b}
+.k1c{animation-name:k1c}
+.k1d{animation-name:k1d}
+.k1e{animation-name:k1e}
+.k1f{animation-name:k1f}
+.k1g{animation-name:k1g}
+.k1h{animation-name:k1h}
+.k1i{animation-name:k1i}
+.k1j{animation-name:k1j}
+.k1k{animation-name:k1k}
+.k1l{animation-name:k1l}
+.k1m{animation-name:k1m}
+.k1n{animation-name:k1n}
+.k1o{animation-name:k1o}
+.k1p{animation-name:k1p}
+.k1q{animation-name:k1q}
+.k1r{animation-name:k1r}
+.k1s{animation-name:k1s}
+.k1t{animation-name:k1t}
+.k1u{animation-name:k1u}
+.k1v{animation-name:k1v}
+.k1w{animation-name:k1w}
+.k1x{animation-name:k1x}
+.k1y{animation-name:k1y}
+.k1z{animation-name:k1z}
+.k20{animation-name:k20}
+.k21{animation-name:k21}
+.k22{animation-name:k22}
+.k23{animation-name:k23}
+.k24{animation-name:k24}
+.d{animation:d 1.25s ease-in-out infinite}
+.d1{animation-delay:.2s}
+.d2{animation-delay:.4s}
+@keyframes d{0%,60%,100%{opacity:.3}30%{opacity:1}}
+@keyframes k0{0%,23.33%,100%{opacity:1}25%,98.33%{opacity:0}}
+@keyframes k1{0%{opacity:1;transform:scaleX(0)}23.33%{opacity:1;transform:none}25%,100%{opacity:0;transform:none}}
+@keyframes k2{0%,23.33%,50%,100%{opacity:0}25%,48.33%{opacity:1}}
+@keyframes k3{0%,24.79%{opacity:0;transform:scaleX(0)}25%{opacity:1;transform:scaleX(0)}48.33%{opacity:1;transform:none}50%,100%{opacity:0;transform:none}}
+@keyframes k4{0%,48.33%,75%,100%{opacity:0}50%,73.33%{opacity:1}}
+@keyframes k5{0%,49.79%{opacity:0;transform:scaleX(0)}50%{opacity:1;transform:scaleX(0)}73.33%{opacity:1;transform:none}75%,100%{opacity:0;transform:none}}
+@keyframes k6{0%,73.33%,100%{opacity:0}75%,98.33%{opacity:1}}
+@keyframes k7{0%,74.79%{opacity:0;transform:scaleX(0)}75%{opacity:1;transform:scaleX(0)}98.33%{opacity:1;transform:none}100%{opacity:0;transform:none}}
+@keyframes k8{0%,40.42%{opacity:0}41.25%,100%{opacity:1}}
+@keyframes k9{0%,51.25%,61.88%,100%{opacity:0}52.08%,61.25%{opacity:1}}
+@keyframes ka{0%,65%{opacity:0}65.83%,100%{opacity:1}}
+@keyframes kb{0%,82.92%{opacity:0}83.75%,100%{opacity:1}}
+@keyframes kc{0%,87.08%{opacity:0}87.92%,100%{opacity:1}}
+@keyframes kd{0%,34.17%,100%{opacity:0}35%,98.33%{opacity:1}}
+@keyframes ke{0%,3.54%,6.87%,100%{opacity:0}4.38%,6.25%{opacity:1}}
+@keyframes kf{0%,6.87%,10.21%,100%{opacity:0}7.71%,9.58%{opacity:1}}
+@keyframes kg{0%,10.21%,50%,100%{opacity:0}11.04%,45.83%{opacity:1}}
+@keyframes kh{0%,2.92%,50%,100%{opacity:0}3.75%,45.83%{opacity:1}}
+@keyframes ki{0%,50%,100%{opacity:0;transform:scale(.4)}2.92%{opacity:0;transform:scale(.4);animation-timing-function:ease-out}3.96%{opacity:1;transform:scale(1.18)}4.79%,45.83%{opacity:1;transform:none}}
+@keyframes kj{0%,50%,100%{opacity:0;transform:scale(.4)}6.25%{opacity:0;transform:scale(.4);animation-timing-function:ease-out}7.29%{opacity:1;transform:scale(1.18)}8.13%,45.83%{opacity:1;transform:none}}
+@keyframes kk{0%,50%,100%{opacity:0;transform:scale(.4)}9.58%{opacity:0;transform:scale(.4);animation-timing-function:ease-out}10.63%{opacity:1;transform:scale(1.18)}11.46%,45.83%{opacity:1;transform:none}}
+@keyframes kl{0%,15.42%,50%,100%{opacity:1}16.04%,45.83%{opacity:0}}
+@keyframes km{0%,14.17%,15.83%,100%{transform:none}15%{transform:scale(.93)}}
+@keyframes kn{0%,16.04%,50%,100%{opacity:0}16.88%,45.83%{opacity:1}}
+@keyframes ko{0%,50%,100%{opacity:0;transform:translate(34px,30px)}12.08%{opacity:0;transform:translate(34px,30px);animation-timing-function:ease-out}12.92%{opacity:1}14.17%,15.42%{opacity:1;transform:none}14.79%{opacity:1;transform:scale(.84)}16.67%,45.83%{opacity:0;transform:none}}
+@keyframes kp{0%,23.33%,100%{opacity:1;transform:none}25%{opacity:0;transform:none}98.33%{opacity:0;transform:translateY(6px);animation-timing-function:ease-out}}
+@keyframes kq{0%{transform:scaleX(0)}25.83%{transform:scaleX(0);animation-timing-function:ease-out}27.5%,100%{transform:none}}
+@keyframes kr{0%{transform:scaleX(0)}26.25%{transform:scaleX(0);animation-timing-function:ease-out}27.92%,100%{transform:none}}
+@keyframes ks{0%{transform:scaleX(0)}26.67%{transform:scaleX(0);animation-timing-function:ease-out}28.33%,100%{transform:none}}
+@keyframes kt{0%{opacity:0;transform:translateY(8px)}27.5%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}28.96%,100%{opacity:1;transform:none}}
+@keyframes ku{0%{transform:scaleX(0)}28.33%{transform:scaleX(0);animation-timing-function:ease-out}30%,100%{transform:none}}
+@keyframes kv{0%{transform:scaleX(0)}28.75%{transform:scaleX(0);animation-timing-function:ease-out}30.42%,100%{transform:none}}
+@keyframes kw{0%{transform:scaleX(0)}29.17%{transform:scaleX(0);animation-timing-function:ease-out}30.83%,100%{transform:none}}
+@keyframes kx{0%{transform:scaleX(0)}29.58%{transform:scaleX(0);animation-timing-function:ease-out}31.25%,100%{transform:none}}
+@keyframes ky{0%,34.17%{opacity:1}34.79%,100%{opacity:0}}
+@keyframes kz{0%,34.79%{opacity:0}35.62%,100%{opacity:1}}
+@keyframes k10{0%{opacity:0;transform:translateY(8px)}30%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}31.46%,100%{opacity:1;transform:none}}
+@keyframes k11{0%,35.42%,41.04%,100%{opacity:0}36.25%,40.42%{opacity:1}}
+@keyframes k12{0%,41.04%{opacity:0}41.87%,100%{opacity:1}}
+@keyframes k13{0%{opacity:0;transform:translateY(8px)}32.08%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}33.54%,100%{opacity:1;transform:none}}
+@keyframes k14{0%{opacity:0;transform:translateY(8px)}34.17%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}35.62%,100%{opacity:1;transform:none}}
+@keyframes k15{0%,39.17%,40.83%,100%{transform:none}40%{transform:scale(.93)}}
+@keyframes k16{0%{opacity:0;transform:translate(24px,30px)}37.08%{opacity:0;transform:translate(24px,30px);animation-timing-function:ease-out}37.92%{opacity:1}39.17%,40.42%{opacity:1;transform:none}39.79%{opacity:1;transform:scale(.84)}41.67%,100%{opacity:0;transform:none}}
+@keyframes k17{0%,50%,100%{opacity:0;transform:none}23.33%{opacity:0;transform:translateY(6px);animation-timing-function:ease-out}25%,48.33%{opacity:1;transform:none}}
+@keyframes k18{0%,65%{opacity:1}65.63%,100%{opacity:0}}
+@keyframes k19{0%,65.63%{opacity:0}66.46%,100%{opacity:1}}
+@keyframes k1a{0%{opacity:0;transform:translateY(8px)}51.25%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}52.71%,100%{opacity:1;transform:none}}
+@keyframes k1b{0%{opacity:0;transform:translateY(8px)}56.67%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}58.12%,100%{opacity:1;transform:none}}
+@keyframes k1c{0%,51.25%{opacity:1}51.88%,100%{opacity:0}}
+@keyframes k1d{0%,51.88%,61.88%,100%{opacity:0}52.71%,61.25%{opacity:1}}
+@keyframes k1e{0%,61.88%{opacity:0}62.71%,100%{opacity:1}}
+@keyframes k1f{0%{opacity:0;transform:translateY(8px)}50.83%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}52.29%,100%{opacity:1;transform:none}}
+@keyframes k1g{0%,61.25%{opacity:1}61.88%,100%{opacity:0}}
+@keyframes k1h{0%,60%,61.67%,100%{transform:none}60.83%{transform:scale(.93)}}
+@keyframes k1i{0%{opacity:0;transform:translate(34px,30px)}57.92%{opacity:0;transform:translate(34px,30px);animation-timing-function:ease-out}58.75%{opacity:1}60%,61.25%{opacity:1;transform:none}60.63%{opacity:1;transform:scale(.84)}62.5%,100%{opacity:0;transform:none}}
+@keyframes k1j{0%{opacity:0;transform:translateY(8px)}52.92%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}54.37%,100%{opacity:1;transform:none}}
+@keyframes k1k{0%{opacity:0;transform:translateY(8px)}59.17%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}60.62%,100%{opacity:1;transform:none}}
+@keyframes k1l{0%,75%,100%{opacity:0;transform:none}48.33%{opacity:0;transform:translateY(6px);animation-timing-function:ease-out}50%,73.33%{opacity:1;transform:none}}
+@keyframes k1m{0%,82.92%{opacity:1}83.54%,100%{opacity:0}}
+@keyframes k1n{0%,83.54%,87.71%,100%{opacity:0}84.37%,87.08%{opacity:1}}
+@keyframes k1o{0%,87.71%{opacity:0}88.54%,100%{opacity:1}}
+@keyframes k1p{0%{opacity:0;transform:translateY(8px)}76.25%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}77.71%,100%{opacity:1;transform:none}}
+@keyframes k1q{0%{opacity:0;transform:translateY(8px)}77.08%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}78.54%,100%{opacity:1;transform:none}}
+@keyframes k1r{0%{opacity:0;transform:translateY(8px)}77.92%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}79.38%,100%{opacity:1;transform:none}}
+@keyframes k1s{0%{opacity:0;transform:translateY(8px)}78.75%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}80.21%,100%{opacity:1;transform:none}}
+@keyframes k1t{0%,81.67%,83.33%,100%{transform:none}82.5%{transform:scale(.93)}}
+@keyframes k1u{0%,83.54%{opacity:0}84.37%,100%{opacity:1}}
+@keyframes k1v{0%{opacity:0;transform:translate(34px,30px)}79.58%{opacity:0;transform:translate(34px,30px);animation-timing-function:ease-out}80.42%{opacity:1}81.67%,82.92%{opacity:1;transform:none}82.29%{opacity:1;transform:scale(.84)}84.17%,100%{opacity:0;transform:none}}
+@keyframes k1w{0%{opacity:0;transform:translateY(8px)}87.08%{opacity:0;transform:translateY(8px);animation-timing-function:ease-out}88.54%,100%{opacity:1;transform:none}}
+@keyframes k1x{0%,100%{opacity:0;transform:none}73.33%{opacity:0;transform:translateY(6px);animation-timing-function:ease-out}75%,98.33%{opacity:1;transform:none}}
+@keyframes k1y{0%,50%,100%{opacity:0;transform:translate(-34px,4px)}12.08%{opacity:0;transform:translate(-34px,4px);animation-timing-function:ease-out}12.92%{opacity:1}14.17%,15.42%{opacity:1;transform:none}14.79%{opacity:1;transform:scale(.84)}16.67%,45.83%{opacity:0;transform:none}}
+@keyframes k1z{0%{opacity:0;transform:translate(-34px,4px)}37.08%{opacity:0;transform:translate(-34px,4px);animation-timing-function:ease-out}37.92%{opacity:1}39.17%,40.42%{opacity:1;transform:none}39.79%{opacity:1;transform:scale(.84)}41.67%,100%{opacity:0;transform:none}}
+@keyframes k20{0%,51.25%,57.29%,100%{opacity:0}52.08%,56.67%{opacity:1}}
+@keyframes k21{0%,57.29%{opacity:0}58.12%,100%{opacity:1}}
+@keyframes k22{0%,51.88%{opacity:0}52.71%,100%{opacity:1}}
+@keyframes k23{0%,52.92%,59.79%,100%{opacity:0}53.75%,59.17%{opacity:1}}
+@keyframes k24{0%,59.79%{opacity:0}60.62%,100%{opacity:1}}
+@media (prefers-reduced-motion:reduce){
+.a,.d{animation:none}
+.r0,.r1,.r2,.r3{animation:24s linear infinite}
+.r0{animation-name:r0}
+@keyframes r0{0%,23.33%,100%{opacity:1}25%,98.33%{opacity:0}}
+.r1{animation-name:r1}
+@keyframes r1{0%,23.33%,50%,100%{opacity:0}25%,48.33%{opacity:1}}
+.r2{animation-name:r2}
+@keyframes r2{0%,48.33%,75%,100%{opacity:0}50%,73.33%{opacity:1}}
+.r3{animation-name:r3}
+@keyframes r3{0%,73.33%,100%{opacity:0}75%,98.33%{opacity:1}}
+}
+</style>
+<defs>
+<symbol id="i-agent" viewBox="0 0 16 16"><rect x="2.75" y="5.25" width="10.5" height="8" rx="2"/><path d="M8 2.25v3M6 9.25v.01M10 9.25v.01M6.25 11.5h3.5"/></symbol>
+<symbol id="i-cursor" viewBox="0 0 16 16"><path d="M3 1.5v11.4l3.1-2.7 1.9 4.4 2.1-.9-1.9-4.4 4.1-.3z"/></symbol>
+<symbol id="i-merge" viewBox="0 0 16 16"><circle cx="4.5" cy="3.75" r="1.75"/><circle cx="4.5" cy="12.25" r="1.75"/><circle cx="11.5" cy="8" r="1.75"/><path d="M4.5 5.5v5M4.5 5.5c0 2.5 2.4 2.5 5.25 2.5"/></symbol>
+</defs>
+<g class="W">
+<rect x="257.5" y="0.5" width="315" height="39" rx="12" class="pn"/>
+<rect x="260.5" y="3.5" width="75" height="33" rx="9" class="tb a k0 r0"/>
+<text x="275.89" y="24.5" font-size="12" class="mo su" textLength="7.2" lengthAdjust="spacingAndGlyphs">1</text>
+<text x="290.12" y="25" font-size="15" class="w5" textLength="30" lengthAdjust="spacingAndGlyphs">決定</text>
+<rect x="271" y="31.5" width="54" height="2" rx="1" class="fl l a k1 r0"/>
+<rect x="338.5" y="3.5" width="75" height="33" rx="9" class="tb a k2 r1"/>
+<text x="353.89" y="24.5" font-size="12" class="mo su" textLength="7.2" lengthAdjust="spacingAndGlyphs">2</text>
+<text x="368.12" y="25" font-size="15" class="w5" textLength="30" lengthAdjust="spacingAndGlyphs">計畫</text>
+<rect x="349" y="31.5" width="54" height="2" rx="1" class="fl l a k3 r1"/>
+<rect x="416.5" y="3.5" width="75" height="33" rx="9" class="tb a k4 r2"/>
+<text x="431.89" y="24.5" font-size="12" class="mo su" textLength="7.2" lengthAdjust="spacingAndGlyphs">3</text>
+<text x="446.12" y="25" font-size="15" class="w5" textLength="30" lengthAdjust="spacingAndGlyphs">實作</text>
+<rect x="427" y="31.5" width="54" height="2" rx="1" class="fl l a k5 r2"/>
+<rect x="494.5" y="3.5" width="75" height="33" rx="9" class="tb a k6 r3"/>
+<text x="509.89" y="24.5" font-size="12" class="mo su" textLength="7.2" lengthAdjust="spacingAndGlyphs">4</text>
+<text x="524.12" y="25" font-size="15" class="w5" textLength="30" lengthAdjust="spacingAndGlyphs">檢視</text>
+<rect x="505" y="31.5" width="54" height="2" rx="1" class="fl l a k7 r3"/>
+<rect x="0.5" y="48.5" width="829" height="431" rx="12" class="win"/>
+<path d="M1 78V60.5a11.5 11.5 0 0 1 11.5-11.5H817.5a11.5 11.5 0 0 1 11.5 11.5V78z" class="rs"/>
+<path d="M1 116H829V467.5a11.5 11.5 0 0 1-11.5 11.5H12.5a11.5 11.5 0 0 1-11.5-11.5z" class="stg"/>
+<path d="M1 78.5H829" class="ln"/>
+<path d="M1 115.5H829" class="ln"/>
+<circle cx="17" cy="63.5" r="4.5" class="lt"/>
+<circle cx="32" cy="63.5" r="4.5" class="lt"/>
+<circle cx="47" cy="63.5" r="4.5" class="lt"/>
+<rect x="349" y="54.5" width="132" height="18" rx="9" class="sf"/>
+<text x="378.35" y="67.5" font-size="12" class="mu" textLength="73.3" lengthAdjust="spacingAndGlyphs">app.smurg.ai</text>
+<text x="14" y="102" class="w7" textLength="44" lengthAdjust="spacingAndGlyphs">smurg</text>
+<path d="M68.47 87v20" class="ln"/>
+<text x="78.97" y="102" class="w6" textLength="52.1" lengthAdjust="spacingAndGlyphs">my-app</text>
+<path d="M140.08 93.5l3.5 3.5-3.5 3.5" class="sep"/>
+<text x="152.58" y="102" class="mu" textLength="56" lengthAdjust="spacingAndGlyphs">結帳流程</text>
+<rect x="218.58" y="87" width="63" height="20" rx="10" class="b-ok"/>
+<circle cx="229.58" cy="97" r="3" class="okf"/>
+<text x="237.58" y="101.2" font-size="12" class="w6 ok" textLength="36" lengthAdjust="spacingAndGlyphs">已連線</text>
+<g>
+<circle cx="805" cy="97" r="11" fill="#2e8b3e"/>
+<text x="798.6" y="100.42" font-size="9.5" class="w7 bk" textLength="12.8" lengthAdjust="spacingAndGlyphs">BE</text>
+</g>
+<g>
+<circle cx="780" cy="97" r="11" fill="#e6194b"/>
+<text x="772.06" y="100.42" font-size="9.5" class="w7 bk" textLength="15.9" lengthAdjust="spacingAndGlyphs">AM</text>
+</g>
+<g>
+<circle cx="755" cy="97" r="11" fill="#4363d8"/>
+<text x="749.86" y="100.42" font-size="9.5" class="w7 wh" textLength="10.3" lengthAdjust="spacingAndGlyphs">IA</text>
+</g>
+<g class="a kd r3">
+<rect x="694" y="86" width="38" height="22" rx="11" class="ch"/>
+<text x="703" y="101.2" font-size="12" class="mu" textLength="7.5" lengthAdjust="spacingAndGlyphs">3</text>
+<circle cx="721" cy="97" r="3.75" class="c0" stroke-width="1.5"/>
+<circle cx="721" cy="97" r="4.5" class="c1 a k8"/>
+<rect x="651" y="86" width="38" height="22" rx="11" class="ch"/>
+<text x="660" y="101.2" font-size="12" class="mu" textLength="7.3" lengthAdjust="spacingAndGlyphs">2</text>
+<circle cx="678" cy="97" r="3.75" class="c0" stroke-width="1.5"/>
+<circle cx="678" cy="97" r="4.5" class="c1 a k8"/>
+<rect x="673.5" y="92.5" width="9" height="9" rx="2" class="c2 a k9"/>
+<rect x="608" y="86" width="38" height="22" rx="11" class="ch"/>
+<text x="617" y="101.2" font-size="12" class="mu" textLength="5.6" lengthAdjust="spacingAndGlyphs">1</text>
+<circle cx="635" cy="97" r="3.75" class="c0" stroke-width="1.5"/>
+<circle cx="635" cy="97" r="4.5" class="c1 a k8"/>
+<circle cx="635" cy="97" r="4.5" class="c3 a ka"/>
+<g class="a kb">
+<circle cx="635" cy="97" r="6" class="c4"/>
+<path d="M630.75 97.25l3 3 5.5-6.5" class="tk" stroke-width="1.8"/>
+</g>
+<rect x="608" y="86" width="38" height="22" rx="11" class="chm a kc"/>
+</g>
+<g class="sc a kp r0">
+<g transform="translate(-66.4 -47.68) scale(1.16)">
+<rect x="115.5" y="170.5" width="599" height="255" rx="9" class="cd"/>
+<rect x="131" y="186" width="24" height="24" rx="6.48" fill="#9333ea"/>
+<use href="#i-agent" x="135.8" y="190.8" width="14.4" height="14.4" class="ia"/>
+<text x="164" y="203.5" font-size="15" class="w6" textLength="113.9" lengthAdjust="spacingAndGlyphs">Claude 的選擇題</text>
+<text x="596.22" y="203" font-size="13" class="su a ke" textLength="102.8" lengthAdjust="spacingAndGlyphs">3 人中 1 人已投票</text>
+<text x="594.41" y="203" font-size="13" class="su a kf" textLength="104.6" lengthAdjust="spacingAndGlyphs">3 人中 2 人已投票</text>
+<text x="622.34" y="203" font-size="13" class="su a kg" textLength="76.7" lengthAdjust="spacingAndGlyphs">3 人都投票了</text>
+<text x="131" y="241" font-size="20" class="w6" textLength="180" lengthAdjust="spacingAndGlyphs">購物車要存在哪裡？</text>
+<rect x="131.5" y="258.5" width="567" height="43" rx="8" class="bx"/>
+<rect x="131.25" y="258.25" width="567.5" height="43.5" rx="8" class="hl a kh"/>
+<text x="145" y="285.5" font-size="15" textLength="75" lengthAdjust="spacingAndGlyphs">存在伺服器</text>
+<text x="232" y="285" font-size="12.5" class="w6 ac a kh" textLength="25" lengthAdjust="spacingAndGlyphs">領先</text>
+<g class="o a ki">
+<circle cx="645.5" cy="280" r="13.5" fill="#4363d8"/>
+<text x="639.42" y="284.14" font-size="11.5" class="w7 wh" textLength="12.2" lengthAdjust="spacingAndGlyphs">IA</text>
+</g>
+<g class="o a kj">
+<circle cx="675.5" cy="280" r="13.5" fill="#e6194b"/>
+<text x="666.04" y="284.14" font-size="11.5" class="w7 bk" textLength="18.9" lengthAdjust="spacingAndGlyphs">AM</text>
+</g>
+<rect x="131.5" y="310.5" width="567" height="43" rx="8" class="bx"/>
+<text x="145" y="337.5" font-size="15" textLength="75" lengthAdjust="spacingAndGlyphs">存在瀏覽器</text>
+<g class="o a kk">
+<circle cx="675.5" cy="332" r="13.5" fill="#2e8b3e"/>
+<text x="667.9" y="336.14" font-size="11.5" class="w7 bk" textLength="15.2" lengthAdjust="spacingAndGlyphs">BE</text>
+</g>
+<path d="M131 368.5H699" class="ln"/>
+<text x="131" y="399.5" font-size="13" class="su" textLength="64.2" lengthAdjust="spacingAndGlyphs">由 Ian 決定</text>
+<g class="a kl">
+<g class="o a km">
+<rect x="619" y="380" width="80" height="30" rx="6" class="bp"/>
+<text x="633" y="399.55" font-size="13" class="w5 wh" textLength="52" lengthAdjust="spacingAndGlyphs">送出答案</text>
+</g>
+</g>
+<g class="a kn">
+<path d="M567.05 396.04l3 3 5.5-6.5" class="tk" stroke-width="1.8"/>
+<text x="582" y="399.55" font-size="13" class="w6 ok" textLength="117" lengthAdjust="spacingAndGlyphs">已回答：存在伺服器</text>
+</g>
+<g transform="translate(685 396)">
+<use href="#i-cursor" width="20" height="20" class="cu a ko"/>
+</g>
+</g>
+</g>
+<g class="sc a k17 r1">
+<rect x="20.5" y="175.5" width="305" height="245" rx="9" class="cd"/>
+<rect x="34.75" y="195.75" width="8.5" height="8.5" rx="2" class="dm"/>
+<text x="52" y="205" class="w6" textLength="32.4" lengthAdjust="spacingAndGlyphs">spec</text>
+<text x="92.39" y="204.5" font-size="12.5" class="mo" textLength="52.7" lengthAdjust="spacingAndGlyphs">SPEC.md</text>
+<rect x="34" y="223" width="122.32" height="11" rx="4" class="bh l a kq"/>
+<rect x="34" y="245" width="250.2" height="8" rx="4" class="rs l a kr"/>
+<rect x="34" y="261" width="194.6" height="8" rx="4" class="rs l a ks"/>
+<g class="a kt">
+<rect x="34" y="279" width="278" height="52" rx="4" class="sl"/>
+<rect x="34" y="279" width="2" height="52" class="sb"/>
+<text x="46" y="300" textLength="140" lengthAdjust="spacingAndGlyphs">購物車存在伺服器上，</text>
+<text x="46" y="320" textLength="70" lengthAdjust="spacingAndGlyphs">跟著帳號。</text>
+</g>
+<rect x="34" y="343" width="250.2" height="8" rx="4" class="rs l a ku"/>
+<rect x="34" y="359" width="166.8" height="8" rx="4" class="rs l a kv"/>
+<rect x="34" y="375" width="211.28" height="8" rx="4" class="rs l a kw"/>
+<rect x="34" y="391" width="105.64" height="8" rx="4" class="rs l a kx"/>
+<rect x="340.5" y="175.5" width="469" height="245" rx="9" class="cd"/>
+<rect x="354.75" y="195.75" width="8.5" height="8.5" rx="2" class="dm"/>
+<text x="372" y="205" class="w6" textLength="28" lengthAdjust="spacingAndGlyphs">計畫</text>
+<text x="408" y="204.5" font-size="12.5" class="mo" textLength="52.7" lengthAdjust="spacingAndGlyphs">PLAN.md</text>
+<text x="679.09" y="204.5" font-size="12.5" class="su a ky" textLength="116.9" lengthAdjust="spacingAndGlyphs">Claude 正在寫計畫…</text>
+<text x="722.22" y="204.5" font-size="12.5" class="su a kz" textLength="73.8" lengthAdjust="spacingAndGlyphs">3 個工作項目</text>
+<g class="a k10">
+<rect x="354.5" y="221.5" width="441" height="37" rx="7" class="bx"/>
+<text x="366" y="245" class="w6 su" textLength="6.8" lengthAdjust="spacingAndGlyphs">1</text>
+<text x="384" y="245" class="w5" textLength="68" lengthAdjust="spacingAndGlyphs">購物車 API</text>
+<g>
+<circle cx="472" cy="240" r="11" fill="#e6194b"/>
+<text x="464.06" y="243.42" font-size="9.5" class="w7 bk" textLength="15.9" lengthAdjust="spacingAndGlyphs">AM</text>
+</g>
+<g class="a k11">
+<rect x="720" y="229.98" width="66" height="20.04" rx="10.02" class="b-n"/>
+<text x="729" y="244.2" font-size="12" class="mu" textLength="48" lengthAdjust="spacingAndGlyphs">可以開始</text>
+</g>
+<g class="a k12">
+<rect x="732" y="229.98" width="54" height="20.04" rx="10.02" class="b-run"/>
+<text x="741" y="244.2" font-size="12" class="ac" textLength="36" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+</g>
+<g class="a k13">
+<rect x="354.5" y="265.5" width="441" height="37" rx="7" class="bx"/>
+<text x="366" y="289" class="w6 su" textLength="8.7" lengthAdjust="spacingAndGlyphs">2</text>
+<text x="384" y="289" class="w5" textLength="28" lengthAdjust="spacingAndGlyphs">付款</text>
+<g>
+<circle cx="432" cy="284" r="11" fill="#2e8b3e"/>
+<text x="425.6" y="287.42" font-size="9.5" class="w7 bk" textLength="12.8" lengthAdjust="spacingAndGlyphs">BE</text>
+</g>
+<g class="a k11">
+<rect x="720" y="273.98" width="66" height="20.04" rx="10.02" class="b-n"/>
+<text x="729" y="288.2" font-size="12" class="mu" textLength="48" lengthAdjust="spacingAndGlyphs">可以開始</text>
+</g>
+<g class="a k12">
+<rect x="732" y="273.98" width="54" height="20.04" rx="10.02" class="b-run"/>
+<text x="741" y="288.2" font-size="12" class="ac" textLength="36" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+</g>
+<g class="a k14">
+<rect x="354.5" y="309.5" width="441" height="37" rx="7" class="bx"/>
+<text x="366" y="333" class="w6 su" textLength="9" lengthAdjust="spacingAndGlyphs">3</text>
+<text x="384" y="333" class="w5" textLength="42" lengthAdjust="spacingAndGlyphs">結帳頁</text>
+<g>
+<circle cx="446" cy="328" r="11" fill="#4363d8"/>
+<text x="440.86" y="331.42" font-size="9.5" class="w7 wh" textLength="10.3" lengthAdjust="spacingAndGlyphs">IA</text>
+</g>
+<g class="a k11">
+<rect x="720" y="317.98" width="66" height="20.04" rx="10.02" class="b-n"/>
+<text x="729" y="332.2" font-size="12" class="mu" textLength="48" lengthAdjust="spacingAndGlyphs">可以開始</text>
+</g>
+<g class="a k12">
+<rect x="732" y="317.98" width="54" height="20.04" rx="10.02" class="b-run"/>
+<text x="741" y="332.2" font-size="12" class="ac" textLength="36" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+</g>
+<path d="M354 359.5H796" class="ln"/>
+<text x="354" y="382" font-size="12.5" class="su" textLength="259.4" lengthAdjust="spacingAndGlyphs">「開始」會為每個項目開一個 agent session，</text>
+<text x="354" y="399" font-size="12.5" class="su" textLength="142.5" lengthAdjust="spacingAndGlyphs">各自在自己的 worktree。</text>
+<g class="a k11">
+<g class="o a k15">
+<rect x="688" y="374" width="108" height="30" rx="6" class="bp"/>
+<text x="701.89" y="393.55" font-size="13" class="w5 wh" textLength="80.2" lengthAdjust="spacingAndGlyphs">開始 3 個項目</text>
+</g>
+</g>
+<g class="a k12">
+<path d="M674.85 390.04l3 3 5.5-6.5" class="tk" stroke-width="1.8"/>
+<text x="689.8" y="393.55" font-size="13" class="w6 ok" textLength="106.2" lengthAdjust="spacingAndGlyphs">已開始 3 個項目。</text>
+</g>
+<g transform="translate(782 390)">
+<use href="#i-cursor" width="20" height="20" class="cu a k16"/>
+</g>
+</g>
+<g class="sc a k1l r2">
+<rect x="20.5" y="148.5" width="253" height="299" rx="9" class="cd"/>
+<text x="32" y="175" class="w6" textLength="87" lengthAdjust="spacingAndGlyphs">1 · 購物車 API</text>
+<g>
+<circle cx="138.97" cy="170" r="11" fill="#e6194b"/>
+<text x="131.03" y="173.42" font-size="9.5" class="w7 bk" textLength="15.9" lengthAdjust="spacingAndGlyphs">AM</text>
+</g>
+<g class="a k18">
+<rect x="208" y="159.98" width="54" height="20.04" rx="10.02" class="b-run"/>
+<text x="217" y="174.2" font-size="12" class="ac" textLength="36" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+<g class="a k19">
+<rect x="196" y="159.98" width="66" height="20.04" rx="10.02" class="b-ok"/>
+<text x="205" y="174.2" font-size="12" class="ok" textLength="48" lengthAdjust="spacingAndGlyphs">報告待看</text>
+</g>
+<rect x="32.5" y="188.5" width="141.72" height="21" rx="11" class="bx"/>
+<text x="40.5" y="203.2" font-size="12" class="mu" textLength="124.7" lengthAdjust="spacingAndGlyphs">worktree：checkout-1</text>
+<g class="a k1a">
+<text x="32" y="234" font-size="13" class="mu" textLength="26" lengthAdjust="spacingAndGlyphs">編輯</text>
+<text x="65" y="234" font-size="12.5" class="mo" textLength="112.9" lengthAdjust="spacingAndGlyphs">src/cart/api.ts</text>
+</g>
+<g class="a k1b">
+<text x="32" y="258" font-size="13" class="mu" textLength="26" lengthAdjust="spacingAndGlyphs">建立</text>
+<text x="65" y="258" font-size="12.5" class="mo" textLength="135.5" lengthAdjust="spacingAndGlyphs">tests/cart.test.ts</text>
+</g>
+<path d="M32 410.5H262" class="ln"/>
+<g class="a k18">
+<circle cx="34" cy="429.5" r="2" class="d d0"/>
+<circle cx="41" cy="429.5" r="2" class="d d1"/>
+<circle cx="48" cy="429.5" r="2" class="d d2"/>
+<text x="58" y="434" font-size="12.5" class="su" textLength="81.9" lengthAdjust="spacingAndGlyphs">Claude 工作中</text>
+</g>
+<rect x="288.5" y="148.5" width="253" height="299" rx="9" class="cd"/>
+<text x="300" y="175" class="w6" textLength="48.3" lengthAdjust="spacingAndGlyphs">2 · 付款</text>
+<g>
+<circle cx="368.3" cy="170" r="11" fill="#2e8b3e"/>
+<text x="361.9" y="173.42" font-size="9.5" class="w7 bk" textLength="12.8" lengthAdjust="spacingAndGlyphs">BE</text>
+</g>
+<g class="a k1c">
+<rect x="476" y="159.98" width="54" height="20.04" rx="10.02" class="b-run"/>
+<text x="485" y="174.2" font-size="12" class="ac" textLength="36" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+<g class="a k1d">
+<rect x="464" y="159.98" width="66" height="20.04" rx="10.02" class="b-ask"/>
+<text x="473" y="174.2" font-size="12" textLength="48" lengthAdjust="spacingAndGlyphs">等待許可</text>
+</g>
+<g class="a k1e">
+<rect x="476" y="159.98" width="54" height="20.04" rx="10.02" class="b-run"/>
+<text x="485" y="174.2" font-size="12" class="ac" textLength="36" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+<g>
+<rect x="300.5" y="188.5" width="143.39" height="21" rx="11" class="bx"/>
+<text x="308.5" y="203.2" font-size="12" class="mu" textLength="126.4" lengthAdjust="spacingAndGlyphs">worktree：checkout-2</text>
+<g class="a k1f">
+<text x="300" y="234" font-size="13" class="mu" textLength="26" lengthAdjust="spacingAndGlyphs">讀取</text>
+<text x="333" y="234" font-size="12.5" class="mo" textLength="120.4" lengthAdjust="spacingAndGlyphs">src/pay/form.tsx</text>
+</g>
+<g class="a k1a">
+<rect x="300.5" y="248.5" width="229" height="113" rx="7" class="pm"/>
+<rect x="311" y="260.5" width="8" height="8" rx="2" class="wf"/>
+<text x="326" y="269.5" font-size="13.5" class="w6" textLength="103.2" lengthAdjust="spacingAndGlyphs">Claude 請求許可</text>
+<text x="311" y="287.5" font-size="13.5" class="w6" textLength="54" lengthAdjust="spacingAndGlyphs">執行指令</text>
+<rect x="311" y="296" width="126.64" height="20" rx="4" class="rs"/>
+<text x="317.88" y="310.13" font-size="12.5" class="mo" textLength="112.9" lengthAdjust="spacingAndGlyphs">pnpm add stripe</text>
+<g class="a k1g">
+<g class="o a k1h">
+<rect x="311" y="324" width="78" height="26" rx="6" class="bp"/>
+<text x="324" y="341.55" font-size="13" class="w5 wh" textLength="52" lengthAdjust="spacingAndGlyphs">允許一次</text>
+</g>
+<g>
+<rect x="395" y="324" width="52" height="26" rx="6" class="bs"/>
+<text x="408" y="341.55" font-size="13" class="w5" textLength="26" lengthAdjust="spacingAndGlyphs">拒絕</text>
+</g>
+</g>
+<g class="a k1e">
+<path d="M311 338.04l3 3 5.5-6.5" class="tk" stroke-width="1.8"/>
+<text x="325.95" y="341.55" font-size="13" class="w6 ok" textLength="92.7" lengthAdjust="spacingAndGlyphs">Ben 允許了一次</text>
+</g>
+<g transform="translate(375 339)">
+<use href="#i-cursor" width="20" height="20" class="cu a k1i"/>
+</g>
+</g>
+</g>
+<path d="M300 410.5H530" class="ln"/>
+<g class="a k1c">
+<circle cx="302" cy="429.5" r="2" class="d d0"/>
+<circle cx="309" cy="429.5" r="2" class="d d1"/>
+<circle cx="316" cy="429.5" r="2" class="d d2"/>
+<text x="326" y="434" font-size="12.5" class="su" textLength="81.9" lengthAdjust="spacingAndGlyphs">Claude 工作中</text>
+</g>
+<g class="a k1d">
+<text x="300" y="434" font-size="12.5" class="su" textLength="119.4" lengthAdjust="spacingAndGlyphs">Claude 正在等待許可</text>
+</g>
+<g class="a k1e">
+<circle cx="302" cy="429.5" r="2" class="d d0"/>
+<circle cx="309" cy="429.5" r="2" class="d d1"/>
+<circle cx="316" cy="429.5" r="2" class="d d2"/>
+<text x="326" y="434" font-size="12.5" class="su" textLength="81.9" lengthAdjust="spacingAndGlyphs">Claude 工作中</text>
+</g>
+<rect x="556.5" y="148.5" width="253" height="299" rx="9" class="cd"/>
+<text x="568" y="175" class="w6" textLength="62.6" lengthAdjust="spacingAndGlyphs">3 · 結帳頁</text>
+<g>
+<circle cx="650.64" cy="170" r="11" fill="#4363d8"/>
+<text x="645.5" y="173.42" font-size="9.5" class="w7 wh" textLength="10.3" lengthAdjust="spacingAndGlyphs">IA</text>
+</g>
+<g>
+<rect x="744" y="159.98" width="54" height="20.04" rx="10.02" class="b-run"/>
+<text x="753" y="174.2" font-size="12" class="ac" textLength="36" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+<rect x="568.5" y="188.5" width="143.67" height="21" rx="11" class="bx"/>
+<text x="576.5" y="203.2" font-size="12" class="mu" textLength="126.7" lengthAdjust="spacingAndGlyphs">worktree：checkout-3</text>
+<g class="a k1j">
+<text x="568" y="234" font-size="13" class="mu" textLength="26" lengthAdjust="spacingAndGlyphs">讀取</text>
+<text x="601" y="234" font-size="12.5" class="mo" textLength="158.1" lengthAdjust="spacingAndGlyphs">src/checkout/page.tsx</text>
+</g>
+<g class="a k1k">
+<text x="568" y="258" font-size="13" class="mu" textLength="26" lengthAdjust="spacingAndGlyphs">編輯</text>
+<text x="601" y="258" font-size="12.5" class="mo" textLength="158.1" lengthAdjust="spacingAndGlyphs">src/checkout/page.tsx</text>
+</g>
+<path d="M568 410.5H798" class="ln"/>
+<circle cx="570" cy="429.5" r="2" class="d d0"/>
+<circle cx="577" cy="429.5" r="2" class="d d1"/>
+<circle cx="584" cy="429.5" r="2" class="d d2"/>
+<text x="594" y="434" font-size="12.5" class="su" textLength="81.9" lengthAdjust="spacingAndGlyphs">Claude 工作中</text>
+</g>
+<g class="sc a k1x r3">
+<g transform="translate(-66.4 -47.68) scale(1.16)">
+<rect x="85.5" y="189.5" width="659" height="217" rx="9" class="cd"/>
+<circle cx="106" cy="217" r="5" class="okf"/>
+<text x="120" y="222.5" font-size="15" class="w6" textLength="167.6" lengthAdjust="spacingAndGlyphs">結果報告：1 · 購物車 API</text>
+<g class="a k1m">
+<rect x="663" y="206.98" width="66" height="20.04" rx="10.02" class="b-ok"/>
+<text x="672" y="221.2" font-size="12" class="ok" textLength="48" lengthAdjust="spacingAndGlyphs">報告待看</text>
+</g>
+<g class="a k1n">
+<rect x="675" y="206.98" width="54" height="20.04" rx="10.02" class="b-ok"/>
+<text x="684" y="221.2" font-size="12" class="ok" textLength="36" lengthAdjust="spacingAndGlyphs">已看過</text>
+</g>
+<g class="a k1o">
+<rect x="628.69" y="206.98" width="100.31" height="20.04" rx="10.02" class="b-ok"/>
+<text x="637.69" y="221.2" font-size="12" class="ok" textLength="82.3" lengthAdjust="spacingAndGlyphs">已看過 · 已合併</text>
+</g>
+<text x="101" y="253" font-size="12" class="w6 su" textLength="48" lengthAdjust="spacingAndGlyphs">做了什麼</text>
+<text x="101" y="275" class="a k1p" textLength="238" lengthAdjust="spacingAndGlyphs">購物車存在伺服器上，每個帳號一個。</text>
+<text x="101" y="302" font-size="12" class="w6 su" textLength="60" lengthAdjust="spacingAndGlyphs">怎麼驗證的</text>
+<g class="a k1q">
+<path d="M102 320.5l3 3 5.5-6.5" class="tk" stroke-width="1.8"/>
+<rect x="118" y="309.5" width="81.48" height="20" rx="4" class="rs"/>
+<text x="124.88" y="323.63" font-size="12.5" class="mo" textLength="67.7" lengthAdjust="spacingAndGlyphs">pnpm test</text>
+</g>
+<text x="481" y="253" font-size="12" class="w6 su" textLength="24" lengthAdjust="spacingAndGlyphs">變更</text>
+<g class="a k1r">
+<text x="481" y="275" font-size="12.5" class="mo" textLength="112.9" lengthAdjust="spacingAndGlyphs">src/cart/api.ts</text>
+<text x="685.64" y="275" font-size="12" class="mo ok" textLength="43.4" lengthAdjust="spacingAndGlyphs">+38 −6</text>
+</g>
+<g class="a k1s">
+<text x="481" y="299" font-size="12.5" class="mo" textLength="135.5" lengthAdjust="spacingAndGlyphs">tests/cart.test.ts</text>
+<text x="685.64" y="299" font-size="12" class="mo ok" textLength="43.4" lengthAdjust="spacingAndGlyphs">+52 −0</text>
+</g>
+<path d="M101 347.5H729" class="ln"/>
+<g class="a k1m">
+<g class="o a k1t">
+<rect x="101" y="360" width="80" height="30" rx="6" class="bp"/>
+<text x="115" y="379.55" font-size="13" class="w5 wh" textLength="52" lengthAdjust="spacingAndGlyphs">我已看過</text>
+</g>
+</g>
+<g class="a k1u">
+<path d="M101 376.04l3 3 5.5-6.5" class="tk" stroke-width="1.8"/>
+<text x="115.95" y="379.55" font-size="13" class="w6 ok" textLength="78" lengthAdjust="spacingAndGlyphs">已標成看過。</text>
+</g>
+<g transform="translate(167 376)">
+<use href="#i-cursor" width="20" height="20" class="cu a k1v"/>
+</g>
+<g class="a k1w">
+<g>
+<circle cx="226.95" cy="375" r="11" fill="#4363d8"/>
+<text x="221.81" y="378.42" font-size="9.5" class="w7 wh" textLength="10.3" lengthAdjust="spacingAndGlyphs">IA</text>
+</g>
+<use href="#i-merge" x="244.95" y="367.5" width="15" height="15" class="im"/>
+<text x="265.95" y="379.5" font-size="13" class="w6 ok" textLength="117" lengthAdjust="spacingAndGlyphs">已合併到主工作區。</text>
+</g>
+</g>
+</g>
+</g>
+<g class="N">
+<g transform="scale(2)">
+<rect x="0.5" y="0.5" width="414" height="27" rx="9" class="pn"/>
+<rect x="3.5" y="3.5" width="100.5" height="21" rx="6.5" class="tb a k0 r0"/>
+<text x="41.25" y="18.4" font-size="12.5" class="w5" textLength="25" lengthAdjust="spacingAndGlyphs">決定</text>
+<rect x="19" y="22.5" width="69.5" height="1.5" rx="0.75" class="fl l a k1 r0"/>
+<rect x="106" y="3.5" width="100.5" height="21" rx="6.5" class="tb a k2 r1"/>
+<text x="143.75" y="18.4" font-size="12.5" class="w5" textLength="25" lengthAdjust="spacingAndGlyphs">計畫</text>
+<rect x="121.5" y="22.5" width="69.5" height="1.5" rx="0.75" class="fl l a k3 r1"/>
+<rect x="208.5" y="3.5" width="100.5" height="21" rx="6.5" class="tb a k4 r2"/>
+<text x="246.25" y="18.4" font-size="12.5" class="w5" textLength="25" lengthAdjust="spacingAndGlyphs">實作</text>
+<rect x="224" y="22.5" width="69.5" height="1.5" rx="0.75" class="fl l a k5 r2"/>
+<rect x="311" y="3.5" width="100.5" height="21" rx="6.5" class="tb a k6 r3"/>
+<text x="348.75" y="18.4" font-size="12.5" class="w5" textLength="25" lengthAdjust="spacingAndGlyphs">檢視</text>
+<rect x="326.5" y="22.5" width="69.5" height="1.5" rx="0.75" class="fl l a k7 r3"/>
+<rect x="0.5" y="33.5" width="414" height="206" rx="8" class="win"/>
+<path d="M1 57H414V231.5a7.5 7.5 0 0 1-7.5 7.5H8.5a7.5 7.5 0 0 1-7.5-7.5z" class="stg"/>
+<path d="M1 56.5H414" class="ln"/>
+<text x="10" y="49.4" font-size="12.5" class="w6" textLength="50" lengthAdjust="spacingAndGlyphs">結帳流程</text>
+<g>
+<circle cx="398" cy="45" r="8" fill="#2e8b3e"/>
+<text x="393.17" y="47.52" font-size="7" class="w7 bk" textLength="9.7" lengthAdjust="spacingAndGlyphs">BE</text>
+</g>
+<g>
+<circle cx="379.5" cy="45" r="8" fill="#e6194b"/>
+<text x="373.53" y="47.52" font-size="7" class="w7 bk" textLength="11.9" lengthAdjust="spacingAndGlyphs">AM</text>
+</g>
+<g>
+<circle cx="361" cy="45" r="8" fill="#4363d8"/>
+<text x="357.09" y="47.52" font-size="7" class="w7 wh" textLength="7.8" lengthAdjust="spacingAndGlyphs">IA</text>
+</g>
+<g class="a kd r3">
+<rect x="317.64" y="37.08" width="27.36" height="15.84" rx="7.92" class="ch"/>
+<text x="324.12" y="48.02" font-size="8.64" class="mu" textLength="5.6" lengthAdjust="spacingAndGlyphs">3</text>
+<circle cx="337.08" cy="45" r="2.7" class="c0" stroke-width="1.08"/>
+<circle cx="337.08" cy="45" r="3.24" class="c1 a k8"/>
+<rect x="286.68" y="37.08" width="27.36" height="15.84" rx="7.92" class="ch"/>
+<text x="293.16" y="48.02" font-size="8.64" class="mu" textLength="5.4" lengthAdjust="spacingAndGlyphs">2</text>
+<circle cx="306.12" cy="45" r="2.7" class="c0" stroke-width="1.08"/>
+<circle cx="306.12" cy="45" r="3.24" class="c1 a k8"/>
+<rect x="302.88" y="41.76" width="6.48" height="6.48" rx="1.44" class="c2 a k9"/>
+<rect x="255.72" y="37.08" width="27.36" height="15.84" rx="7.92" class="ch"/>
+<text x="262.2" y="48.02" font-size="8.64" class="mu" textLength="4.2" lengthAdjust="spacingAndGlyphs">1</text>
+<circle cx="275.16" cy="45" r="2.7" class="c0" stroke-width="1.08"/>
+<circle cx="275.16" cy="45" r="3.24" class="c1 a k8"/>
+<circle cx="275.16" cy="45" r="3.24" class="c3 a ka"/>
+<g class="a kb">
+<circle cx="275.16" cy="45" r="4.32" class="c4"/>
+<path d="M272.1 45.18l2.16 2.16 3.96-4.68" class="tk" stroke-width="1.3"/>
+</g>
+<rect x="255.72" y="37.08" width="27.36" height="15.84" rx="7.92" class="chm a kc"/>
+</g>
+<g class="sc a kp r0">
+<rect x="8.5" y="64.5" width="398" height="168" rx="7" class="cd"/>
+<rect x="18" y="72" width="18" height="18" rx="4.86" fill="#9333ea"/>
+<use href="#i-agent" x="21.6" y="75.6" width="10.8" height="10.8" class="ia"/>
+<text x="42" y="85.4" font-size="12.5" class="w6" textLength="96" lengthAdjust="spacingAndGlyphs">Claude 的選擇題</text>
+<text x="309.39" y="85" font-size="11" class="su a ke" textLength="87.6" lengthAdjust="spacingAndGlyphs">3 人中 1 人已投票</text>
+<text x="307.86" y="85" font-size="11" class="su a kf" textLength="89.1" lengthAdjust="spacingAndGlyphs">3 人中 2 人已投票</text>
+<text x="331.87" y="85" font-size="11" class="su a kg" textLength="65.1" lengthAdjust="spacingAndGlyphs">3 人都投票了</text>
+<text x="18" y="109.5" font-size="15.5" class="w6" textLength="139.5" lengthAdjust="spacingAndGlyphs">購物車要存在哪裡？</text>
+<rect x="18.5" y="118.5" width="378" height="29" rx="6" class="bx"/>
+<rect x="18.25" y="118.25" width="378.5" height="29.5" rx="6" class="hl a kh"/>
+<text x="28" y="137.5" font-size="13" textLength="65" lengthAdjust="spacingAndGlyphs">存在伺服器</text>
+<text x="102" y="137.2" font-size="11" class="w6 ac a kh" textLength="22" lengthAdjust="spacingAndGlyphs">領先</text>
+<g class="o a ki">
+<circle cx="357.5" cy="133" r="10" fill="#4363d8"/>
+<text x="352.85" y="136.06" font-size="8.5" class="w7 wh" textLength="9.3" lengthAdjust="spacingAndGlyphs">IA</text>
+</g>
+<g class="o a kj">
+<circle cx="380" cy="133" r="10" fill="#e6194b"/>
+<text x="372.85" y="136.06" font-size="8.5" class="w7 bk" textLength="14.3" lengthAdjust="spacingAndGlyphs">AM</text>
+</g>
+<rect x="18.5" y="152.5" width="378" height="29" rx="6" class="bx"/>
+<text x="28" y="171.5" font-size="13" textLength="65" lengthAdjust="spacingAndGlyphs">存在瀏覽器</text>
+<g class="o a kk">
+<circle cx="380" cy="167" r="10" fill="#2e8b3e"/>
+<text x="374.22" y="170.06" font-size="8.5" class="w7 bk" textLength="11.6" lengthAdjust="spacingAndGlyphs">BE</text>
+</g>
+<path d="M18 191.5H397" class="ln"/>
+<text x="18" y="215.8" font-size="11" class="su" textLength="55" lengthAdjust="spacingAndGlyphs">由 Ian 決定</text>
+<g class="a kl">
+<g class="o a km">
+<rect x="325" y="200" width="72" height="24" rx="6" class="bp"/>
+<text x="337" y="216.2" font-size="12" class="w5 wh" textLength="48" lengthAdjust="spacingAndGlyphs">送出答案</text>
+</g>
+</g>
+<g class="a kn">
+<path d="M275.2 212.96l2.77 2.77 5.08-6" class="tk" stroke-width="1.66"/>
+<text x="289" y="216.2" font-size="12" class="w6 ok" textLength="108" lengthAdjust="spacingAndGlyphs">已回答：存在伺服器</text>
+</g>
+<g transform="translate(384 212.5)">
+<use href="#i-cursor" width="17.6" height="17.6" class="cu a k1y"/>
+</g>
+</g>
+<g class="sc a k17 r1">
+<rect x="8.5" y="64.5" width="398" height="168" rx="7" class="cd"/>
+<rect x="18.75" y="76.75" width="7.5" height="7.5" rx="2" class="dm"/>
+<text x="33" y="85.4" font-size="12.5" class="w6" textLength="29.3" lengthAdjust="spacingAndGlyphs">spec</text>
+<text x="68.31" y="85.1" font-size="11" class="mo" textLength="46.4" lengthAdjust="spacingAndGlyphs">SPEC.md</text>
+<rect x="129.42" y="76.75" width="7.5" height="7.5" rx="2" class="dm"/>
+<text x="143.67" y="85.4" font-size="12.5" class="w6" textLength="25" lengthAdjust="spacingAndGlyphs">計畫</text>
+<text x="174.67" y="85.1" font-size="11" class="mo" textLength="46.4" lengthAdjust="spacingAndGlyphs">PLAN.md</text>
+<text x="293.34" y="85.1" font-size="11" class="su a ky" textLength="103.7" lengthAdjust="spacingAndGlyphs">Claude 正在寫計畫…</text>
+<text x="331.87" y="85.1" font-size="11" class="su a kz" textLength="65.1" lengthAdjust="spacingAndGlyphs">3 個工作項目</text>
+<g class="a k10">
+<rect x="18.5" y="95.5" width="378" height="27" rx="6" class="bx"/>
+<text x="27" y="113.5" font-size="12.5" class="w6 su" textLength="6.2" lengthAdjust="spacingAndGlyphs">1</text>
+<text x="42" y="113.5" font-size="12.5" class="w5" textLength="61.1" lengthAdjust="spacingAndGlyphs">購物車 API</text>
+<g>
+<circle cx="118.61" cy="109" r="8.5" fill="#e6194b"/>
+<text x="112.25" y="111.7" font-size="7.5" class="w7 bk" textLength="12.7" lengthAdjust="spacingAndGlyphs">AM</text>
+</g>
+<g class="a k11">
+<rect x="332.25" y="100.23" width="57.75" height="17.54" rx="8.77" class="b-n"/>
+<text x="340.13" y="112.68" font-size="10.5" class="mu" textLength="42" lengthAdjust="spacingAndGlyphs">可以開始</text>
+</g>
+<g class="a k12">
+<rect x="342.75" y="100.23" width="47.25" height="17.54" rx="8.77" class="b-run"/>
+<text x="350.63" y="112.68" font-size="10.5" class="ac" textLength="31.5" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+</g>
+<g class="a k13">
+<rect x="18.5" y="127.5" width="378" height="27" rx="6" class="bx"/>
+<text x="27" y="145.5" font-size="12.5" class="w6 su" textLength="7.8" lengthAdjust="spacingAndGlyphs">2</text>
+<text x="42" y="145.5" font-size="12.5" class="w5" textLength="25" lengthAdjust="spacingAndGlyphs">付款</text>
+<g>
+<circle cx="82.5" cy="141" r="8.5" fill="#2e8b3e"/>
+<text x="77.35" y="143.7" font-size="7.5" class="w7 bk" textLength="10.3" lengthAdjust="spacingAndGlyphs">BE</text>
+</g>
+<g class="a k11">
+<rect x="332.25" y="132.23" width="57.75" height="17.54" rx="8.77" class="b-n"/>
+<text x="340.13" y="144.68" font-size="10.5" class="mu" textLength="42" lengthAdjust="spacingAndGlyphs">可以開始</text>
+</g>
+<g class="a k12">
+<rect x="342.75" y="132.23" width="47.25" height="17.54" rx="8.77" class="b-run"/>
+<text x="350.63" y="144.68" font-size="10.5" class="ac" textLength="31.5" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+</g>
+<g class="a k14">
+<rect x="18.5" y="159.5" width="378" height="27" rx="6" class="bx"/>
+<text x="27" y="177.5" font-size="12.5" class="w6 su" textLength="8.2" lengthAdjust="spacingAndGlyphs">3</text>
+<text x="42" y="177.5" font-size="12.5" class="w5" textLength="37.5" lengthAdjust="spacingAndGlyphs">結帳頁</text>
+<g>
+<circle cx="95" cy="173" r="8.5" fill="#4363d8"/>
+<text x="90.84" y="175.7" font-size="7.5" class="w7 wh" textLength="8.3" lengthAdjust="spacingAndGlyphs">IA</text>
+</g>
+<g class="a k11">
+<rect x="332.25" y="164.23" width="57.75" height="17.54" rx="8.77" class="b-n"/>
+<text x="340.13" y="176.68" font-size="10.5" class="mu" textLength="42" lengthAdjust="spacingAndGlyphs">可以開始</text>
+</g>
+<g class="a k12">
+<rect x="342.75" y="164.23" width="47.25" height="17.54" rx="8.77" class="b-run"/>
+<text x="350.63" y="176.68" font-size="10.5" class="ac" textLength="31.5" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+</g>
+<path d="M18 191.5H397" class="ln"/>
+<g class="a k11">
+<g class="o a k15">
+<rect x="299" y="200" width="98" height="24" rx="6" class="bp"/>
+<text x="310.87" y="216.2" font-size="12" class="w5 wh" textLength="74.3" lengthAdjust="spacingAndGlyphs">開始 3 個項目</text>
+</g>
+</g>
+<g class="a k12">
+<path d="M284.97 212.96l2.77 2.77 5.08-6" class="tk" stroke-width="1.66"/>
+<text x="298.77" y="216.2" font-size="12" class="w6 ok" textLength="98.2" lengthAdjust="spacingAndGlyphs">已開始 3 個項目。</text>
+</g>
+<g transform="translate(384 212.5)">
+<use href="#i-cursor" width="17.6" height="17.6" class="cu a k1z"/>
+</g>
+</g>
+<g class="sc a k1l r2">
+<rect x="8.5" y="64.5" width="398" height="39" rx="7" class="cd"/>
+<text x="18" y="81" font-size="12.5" class="w6" textLength="78.4" lengthAdjust="spacingAndGlyphs">1 · 購物車 API</text>
+<g>
+<circle cx="111.94" cy="76.5" r="8.5" fill="#e6194b"/>
+<text x="105.58" y="79.2" font-size="7.5" class="w7 bk" textLength="12.7" lengthAdjust="spacingAndGlyphs">AM</text>
+</g>
+<g class="a k18">
+<rect x="349.75" y="67.73" width="47.25" height="17.54" rx="8.77" class="b-run"/>
+<text x="357.63" y="80.18" font-size="10.5" class="ac" textLength="31.5" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+<g class="a k19">
+<rect x="339.25" y="67.73" width="57.75" height="17.54" rx="8.77" class="b-ok"/>
+<text x="347.13" y="80.18" font-size="10.5" class="ok" textLength="42" lengthAdjust="spacingAndGlyphs">報告待看</text>
+</g>
+<g class="a k20">
+<text x="18" y="96" font-size="11.5" class="mu" textLength="23" lengthAdjust="spacingAndGlyphs">編輯</text>
+<text x="47" y="96" font-size="11" class="mo" textLength="99.3" lengthAdjust="spacingAndGlyphs">src/cart/api.ts</text>
+</g>
+<g class="a k21">
+<text x="18" y="96" font-size="11.5" class="mu" textLength="23" lengthAdjust="spacingAndGlyphs">建立</text>
+<text x="47" y="96" font-size="11" class="mo" textLength="119.2" lengthAdjust="spacingAndGlyphs">tests/cart.test.ts</text>
+</g>
+<g class="a k18">
+<circle cx="382.8" cy="92.5" r="1.8" class="d d0"/>
+<circle cx="389.1" cy="92.5" r="1.8" class="d d1"/>
+<circle cx="395.4" cy="92.5" r="1.8" class="d d2"/>
+</g>
+<rect x="8.5" y="109.5" width="398" height="78" rx="7" class="cd"/>
+<text x="18" y="126" font-size="12.5" class="w6" textLength="43.5" lengthAdjust="spacingAndGlyphs">2 · 付款</text>
+<g>
+<circle cx="77" cy="121.5" r="8.5" fill="#2e8b3e"/>
+<text x="71.85" y="124.2" font-size="7.5" class="w7 bk" textLength="10.3" lengthAdjust="spacingAndGlyphs">BE</text>
+</g>
+<rect x="8.5" y="109.5" width="398" height="78" rx="7" class="pm a k9"/>
+<g class="a k1c">
+<rect x="349.75" y="112.73" width="47.25" height="17.54" rx="8.77" class="b-run"/>
+<text x="357.63" y="125.18" font-size="10.5" class="ac" textLength="31.5" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+<g class="a k1d">
+<rect x="339.25" y="112.73" width="57.75" height="17.54" rx="8.77" class="b-ask"/>
+<text x="347.13" y="125.18" font-size="10.5" textLength="42" lengthAdjust="spacingAndGlyphs">等待許可</text>
+</g>
+<g class="a k1e">
+<rect x="349.75" y="112.73" width="47.25" height="17.54" rx="8.77" class="b-run"/>
+<text x="357.63" y="125.18" font-size="10.5" class="ac" textLength="31.5" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+<g class="a k1c">
+<text x="18" y="141" font-size="11.5" class="mu" textLength="23" lengthAdjust="spacingAndGlyphs">讀取</text>
+<text x="47" y="141" font-size="11" class="mo" textLength="106" lengthAdjust="spacingAndGlyphs">src/pay/form.tsx</text>
+</g>
+<g class="a k22">
+<rect x="18" y="137.5" width="7" height="7" rx="2" class="wf"/>
+<text x="30" y="145" font-size="11.5" class="w6" textLength="134.8" lengthAdjust="spacingAndGlyphs">Claude 請求許可執行指令</text>
+<rect x="18" y="157.7" width="111.44" height="17.6" rx="4" class="rs"/>
+<text x="24.05" y="170.13" font-size="11" class="mo" textLength="99.3" lengthAdjust="spacingAndGlyphs">pnpm add stripe</text>
+<g class="a k1g">
+<g class="o a k1h">
+<rect x="283" y="156" width="66" height="21" rx="6" class="bp"/>
+<text x="293" y="170.53" font-size="11.5" class="w5 wh" textLength="46" lengthAdjust="spacingAndGlyphs">允許一次</text>
+</g>
+<g>
+<rect x="354" y="156" width="43" height="21" rx="6" class="bs"/>
+<text x="364" y="170.53" font-size="11.5" class="w5" textLength="23" lengthAdjust="spacingAndGlyphs">拒絕</text>
+</g>
+</g>
+<g class="a k1e">
+<path d="M301.4 167.42l2.65 2.65 4.87-5.75" class="tk" stroke-width="1.59"/>
+<text x="314.62" y="170.53" font-size="11.5" class="w6 ok" textLength="82.4" lengthAdjust="spacingAndGlyphs">Ben 允許了一次</text>
+</g>
+<g transform="translate(337 167.5)">
+<use href="#i-cursor" width="17.6" height="17.6" class="cu a k1i"/>
+</g>
+</g>
+<rect x="8.5" y="193.5" width="398" height="39" rx="7" class="cd"/>
+<text x="18" y="210" font-size="12.5" class="w6" textLength="56.3" lengthAdjust="spacingAndGlyphs">3 · 結帳頁</text>
+<g>
+<circle cx="89.81" cy="205.5" r="8.5" fill="#4363d8"/>
+<text x="85.65" y="208.2" font-size="7.5" class="w7 wh" textLength="8.3" lengthAdjust="spacingAndGlyphs">IA</text>
+</g>
+<g>
+<rect x="349.75" y="196.73" width="47.25" height="17.54" rx="8.77" class="b-run"/>
+<text x="357.63" y="209.18" font-size="10.5" class="ac" textLength="31.5" lengthAdjust="spacingAndGlyphs">執行中</text>
+</g>
+<g class="a k23">
+<text x="18" y="225" font-size="11.5" class="mu" textLength="23" lengthAdjust="spacingAndGlyphs">讀取</text>
+<text x="47" y="225" font-size="11" class="mo" textLength="139.1" lengthAdjust="spacingAndGlyphs">src/checkout/page.tsx</text>
+</g>
+<g class="a k24">
+<text x="18" y="225" font-size="11.5" class="mu" textLength="23" lengthAdjust="spacingAndGlyphs">編輯</text>
+<text x="47" y="225" font-size="11" class="mo" textLength="139.1" lengthAdjust="spacingAndGlyphs">src/checkout/page.tsx</text>
+</g>
+<circle cx="382.8" cy="221.5" r="1.8" class="d d0"/>
+<circle cx="389.1" cy="221.5" r="1.8" class="d d1"/>
+<circle cx="395.4" cy="221.5" r="1.8" class="d d2"/>
+</g>
+<g class="sc a k1x r3">
+<rect x="8.5" y="64.5" width="398" height="168" rx="7" class="cd"/>
+<circle cx="22.5" cy="80.5" r="4.5" class="okf"/>
+<text x="33" y="85.4" font-size="12.5" class="w6" textLength="140.9" lengthAdjust="spacingAndGlyphs">結果報告：1 · 購物車 API</text>
+<g class="a k1m">
+<rect x="339.25" y="71.73" width="57.75" height="17.54" rx="8.77" class="b-ok"/>
+<text x="347.13" y="84.18" font-size="10.5" class="ok" textLength="42" lengthAdjust="spacingAndGlyphs">報告待看</text>
+</g>
+<g class="a k1n">
+<rect x="349.75" y="71.73" width="47.25" height="17.54" rx="8.77" class="b-ok"/>
+<text x="357.63" y="84.18" font-size="10.5" class="ok" textLength="31.5" lengthAdjust="spacingAndGlyphs">已看過</text>
+</g>
+<g class="a k1o">
+<rect x="308.94" y="71.73" width="88.06" height="17.54" rx="8.77" class="b-ok"/>
+<text x="316.82" y="84.18" font-size="10.5" class="ok" textLength="72.3" lengthAdjust="spacingAndGlyphs">已看過 · 已合併</text>
+</g>
+<text x="18" y="105" font-size="10.5" class="w6 su" textLength="42" lengthAdjust="spacingAndGlyphs">做了什麼</text>
+<text x="18" y="121.5" font-size="12.5" class="a k1p" textLength="212.5" lengthAdjust="spacingAndGlyphs">購物車存在伺服器上，每個帳號一個。</text>
+<text x="18" y="140" font-size="10.5" class="w6 su" textLength="52.5" lengthAdjust="spacingAndGlyphs">怎麼驗證的</text>
+<g class="a k1q">
+<path d="M19 156l2.7 2.7 4.95-5.85" class="tk" stroke-width="1.62"/>
+<rect x="33" y="146.2" width="71.71" height="17.6" rx="4" class="rs"/>
+<text x="39.05" y="158.63" font-size="11" class="mo" textLength="59.6" lengthAdjust="spacingAndGlyphs">pnpm test</text>
+</g>
+<path d="M18 169.5H397" class="ln"/>
+<g class="a k1m">
+<g class="o a k1t">
+<rect x="18" y="176" width="72" height="24" rx="6" class="bp"/>
+<text x="30" y="192.2" font-size="12" class="w5 wh" textLength="48" lengthAdjust="spacingAndGlyphs">我已看過</text>
+</g>
+</g>
+<g class="a k1u">
+<path d="M18 188.96l2.77 2.77 5.08-6" class="tk" stroke-width="1.66"/>
+<text x="31.8" y="192.2" font-size="12" class="w6 ok" textLength="72" lengthAdjust="spacingAndGlyphs">已標成看過。</text>
+</g>
+<g transform="translate(77 188.5)">
+<use href="#i-cursor" width="17.6" height="17.6" class="cu a k1v"/>
+</g>
+<g class="a k1w">
+<g>
+<circle cx="26.5" cy="215" r="8.5" fill="#4363d8"/>
+<text x="22.34" y="217.7" font-size="7.5" class="w7 wh" textLength="8.3" lengthAdjust="spacingAndGlyphs">IA</text>
+</g>
+<use href="#i-merge" x="40" y="208.5" width="13" height="13" class="im"/>
+<text x="58" y="219.2" font-size="12" class="w6 ok" textLength="108" lengthAdjust="spacingAndGlyphs">已合併到主工作區。</text>
+</g>
+</g>
+</g>
+</g>
+</svg>

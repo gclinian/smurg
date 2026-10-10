@@ -48,6 +48,12 @@ describe('third-party notices of the web app', () => {
     for (const name of ['react', 'react-dom', 'monaco-editor', '@xterm/xterm', 'yjs', 'zod', 'vite', 'rolldown']) expect(NOTICES).toMatch(new RegExp(`\\n {2}${name.replace(/[/.]/g, '\\$&')}@\\S+ {2}`));
     // Monaco's own third-party notices travel with it.
     expect(NOTICES).toContain('----- ThirdPartyNotices.txt -----');
+    // The two other files of public/ that the relay serves as they are travel the same way: what keeps the web app
+    // out of search results (robots.txt, and the noindex line of _headers; apps/relay/test/search-engines.test.ts
+    // holds what they say and serves them).
+    expect(readFileSync(join(out, 'robots.txt'), 'utf8')).toBe(readFileSync(join(WEB, 'public', 'robots.txt'), 'utf8'));
+    expect(readFileSync(join(out, '_headers'), 'utf8')).toBe(readFileSync(join(WEB, 'public', '_headers'), 'utf8'));
+    expect(readFileSync(join(out, '_headers'), 'utf8')).toMatch(/^[ \t]+X-Robots-Tag: noindex$/m);
   }, 120_000);
 
   it('the build refuses a bundled package or a helper module the notices do not list', () => {

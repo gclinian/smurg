@@ -87,14 +87,17 @@ smurg/
 ├── tests/
 │   ├── e2e/            cross-package acceptance tests (relay + daemon + headless clients)
 │   └── lint/           repository-wide checks of the language rules (§10)
-├── docs/               ARCHITECTURE.md, GLOSSARY.md, HOSTING.md / JOINING.md (+ zh-TW/), RELEASING.md, research/, ACCEPTANCE.md,
-│                       design/v0.5.0/ (the owner's brief and the design of 0.5.0 as written)
+├── docs/               ARCHITECTURE.md, GLOSSARY.md, QUICKSTART.md / HOSTING.md / JOINING.md (+ zh-TW/), DEVELOPMENT.md,
+│                       RELEASING.md, research/, ACCEPTANCE.md, design/v0.5.0/ (the owner's brief and the design of
+│                       0.5.0 as written)
 └── scripts/            dev + packaging scripts
 ```
 
 Also at the root: `README.md` / `README.zh-TW.md`, `CHANGELOG.md`, `LICENSE` (MIT), `NOTICE`, `SECURITY.md`,
 `CONTRIBUTING.md`; `packages/protocol/test-vectors/README.md` names the origin and licenses of the vendored Noise test
-vectors (`cacophony.txt`: Unlicense; `snow.txt`: Apache-2.0 OR MIT).
+vectors (`cacophony.txt`: Unlicense; `snow.txt`: Apache-2.0 OR MIT). `.github/assets/` holds what the two READMEs
+show: the mark, and the moving picture that `scripts/readme-picture.ts` draws from the product page's own picture
+(`docs/DEVELOPMENT.md`, "The README's picture").
 
 - pnpm workspaces, TypeScript (strict, ESM, `"type": "module"`), vitest for all tests.
 - **Node:** `engines.node ^22.18.0 || ^24.0.0`; develop and test on **Node 22 LTS** (`.nvmrc`). Node 23 and 25 are
@@ -4053,7 +4056,11 @@ product page must quote as rendered, and the reverse: every quoted text of a gui
 exception), `pinned-locale.test.ts` (a test that starts the CLI or the installer, opens a browser context or fetches
 a relay page names its language; only `*.zh-TW.test.tsx` pins zh-TW in the web unit tests, and the app shell and
 every folder of `apps/web/src/features` has such a suite),
-`acceptance-refs.test.ts` (every `file` › "title" reference of `docs/ACCEPTANCE.md` is a test that exists) and
+`acceptance-refs.test.ts` (every `file` › "title" reference of `docs/ACCEPTANCE.md` is a test that exists),
+`guide-update.test.ts` (what the documents say about an update is what was built),
+`readme.test.ts` (the two READMEs: the head, the honest lines, the two languages in step, every relative link),
+`readme-picture.test.ts` (the README's pictures are what `scripts/readme-picture.ts` writes, with the product page's
+words; they play without a media query and never show an empty stage) and
 `pending.test.ts` (the list of what was still open while the packages of 0.5.0 were built in parallel,
 `pending-v050.ts`, and its callers stay in step; with `SMURG_RELEASE_GATE=1` that list, and the daemon's two lists of
 stubbed modules and unproduced catalog ids, must be empty).

@@ -16,7 +16,9 @@
 //   SMURG_SITE_SOURCE_ROOT=<dir>            read docs/, CHANGELOG.md and LICENSE from <dir> instead (tests only)
 //
 // It prints every docs link it rewrote (to a page of the site, or to the file on GitHub) or turned into plain text,
-// and exits 1, listing the problems, when the site cannot be built as it should be (scripts/site.ts generateSite).
+// and how many pages have a date from git (the sitemap's <lastmod>) with the reason for each page that has none: a
+// build from a shallow clone or from files that are not committed publishes fewer dates, and says so here. It exits
+// 1, listing the problems, when the site cannot be built as it should be (scripts/site.ts generateSite).
 import { realpathSync } from 'node:fs';
 import { relative } from 'node:path';
 import { DIST_DIR, REPO_ROOT, SiteError, generateSite, optionsFromEnv, writeSite } from './site.ts';
@@ -48,6 +50,8 @@ function main(): number {
   section('docs links rewritten (to the site, or to the file on GitHub)', site.rewritten);
   section('docs links turned into plain text', site.plain);
   section('raw HTML in the docs, shown as text', site.rawHtml);
+  console.log(`page dates from git (the sitemap's <lastmod>): ${site.dates.dated.length} of ${site.dates.of} pages`);
+  section('pages without a date', site.dates.missing);
   console.log(`smurg.ai: ${site.files.size} files in ${relative(REPO_ROOT, DIST_DIR)} (${written} written, ${removed} removed)`);
   return 0;
 }

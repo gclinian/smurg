@@ -1,4 +1,4 @@
-// The whole smurg system on this machine in one command (README, "Local development"):
+// The whole smurg system on this machine in one command (docs/DEVELOPMENT.md, "Local development"):
 //
 //   scripts/dev-stack.sh [--dir DIR] [--relay-port 8787] [--web-port 5173] [--host-user host] [--role editor]
 //                        [--stand-in-claude | --real-claude]

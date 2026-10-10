@@ -1,3 +1,6 @@
+# The web app is not for search results (the product page and the docs are another site): every file says noindex.
+# robots.txt, next to this file, lets crawlers in, so that they can read it. The relay's own answers say the same
+# (apps/relay/src/lib/http.ts), and apps/relay/test/search-engines.test.ts holds all three.
 /*
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src 'self'; img-src 'self' data: https:; font-src 'self' data:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'
   X-Frame-Options: DENY
@@ -5,3 +8,4 @@
   Referrer-Policy: no-referrer
   Cross-Origin-Opener-Policy: same-origin
   Strict-Transport-Security: max-age=31536000
+  X-Robots-Tag: noindex

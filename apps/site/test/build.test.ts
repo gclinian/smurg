@@ -28,6 +28,13 @@ describe('production bundle', () => {
       });
       expect(stdout).toContain('[custom build] Running: node "${SMURG_ROOT:?run source scripts/env.sh first}/apps/site/scripts/build.ts"');
       expect(stdout).toMatch(new RegExp(`smurg\\.ai: ${testSite().files.size} files in apps/site/dist \\(\\d+ written, \\d+ removed\\)`));
+      // What a maintainer reads before deploying: how many pages have a date from git, and why the others have
+      // none (the docs index never has one; a page whose source is not committed, or a shallow clone, is named).
+      const { dates } = testSite();
+      expect(stdout).toContain(`page dates from git (the sitemap's <lastmod>): ${dates.dated.length} of 14 pages\n`);
+      expect(dates.missing.length).toBeGreaterThan(0);
+      expect(stdout).toContain('pages without a date:\n');
+      for (const line of dates.missing) expect(stdout).toContain(`  ${line}\n`);
       // wrangler reads the assets from dist/ (it counts every index.html twice: as itself and as its directory).
       const served = [...testSite().files.keys()].filter((path) => path !== '_headers');
       const count = served.length + served.filter((path) => path === 'index.html' || path.endsWith('/index.html')).length;
