@@ -5,7 +5,8 @@
 //   2. a 60 s stream at 5 deltas per second keeps every frame under 16 ms of scripting;
 //   3. 400 messages of the dearest text that stays inside its own budget (lex.ts) are shown at once, as written, and
 //      formatted while the page is idle: no task longer than 200 ms after a frame showed them, and the page answers
-//      a click meanwhile (review R4-03, fourth round: they were one task of 22 s).
+//      a click meanwhile (review R4-03, fourth round: they were one task of 22 s). What "no task" means on a machine
+//      that is slow and busy, where a single task is held now and then with nothing wrong: formatting-tasks.ts.
 //
 // "Scripting" is Chrome's own figure (the DevTools protocol's Performance.getMetrics `ScriptDuration`: the time the
 // page spent running JavaScript), read before and after. For the stream it is read about every 200 ms, the pace the
@@ -19,6 +20,7 @@ import { join } from 'node:path';
 import type { CDPSession, Locator, Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { installFakeClaude, type FakeClaude, type FakeClaudeScenario, type FakeClaudeStep } from '../../../../packages/daemon/src/testing/index.ts';
+import { judgeFormatting, type DocumentChange, type LongTask, type Stretch, type Verdict } from './formatting-tasks.ts';
 import { STEP_MS, explainFailures, joinAs, joinAsHost, startSmoke, systemChrome, waitUntil, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
@@ -255,17 +257,39 @@ describe.skipIf(chrome === null)('the budget of a long conversation (built app, 
     const session = (): { lastSeq: number; status: string } | undefined => agents.list().find((one) => !before.has(one.id));
     await waitUntil(async () => (session()?.lastSeq ?? 0) >= HARD && session()?.status === 'idle', 180_000, `the turn wrote ${HARD} texts`);
 
-    // A member who was not there opens it. Chrome reports every task longer than 50 ms from here on.
+    // A member who was not there opens it.
     const reader = await env.newPage({ width: 1440, height: 900 });
     await joinAs(reader, env, 'lin', 'agent');
     const row = reader.getByRole('treeitem', { name: new RegExp(HARD_FIRST) }).first();
     await row.waitFor({ timeout: STEP_MS });
+    // The budgets below are times, and the file's one measurement of this machine is minutes old by now (a shared
+    // runner's speed changes within a run): it is taken again on this page, here and after every page of texts, and
+    // the budgets go by the slowest the machine has been.
+    let slowest = Math.max(slow, await pageSlowness(reader));
+    // From here on the page keeps what Chrome reports of every task longer than 50 ms (when it began, how long it
+    // took), and what its document holds at every change of it, with the clock: the texts that are mounted and the
+    // ones that wait. A slice of formatting is one task and ends with one change (a text's turn is a synchronous
+    // render: Markdown.tsx), so how far "waiting" falls from one change to the next is how many texts that task
+    // formatted: a count, which no machine's speed changes. It is only as good as "one change a task", so the rule
+    // also adds up the changes whose clock lies inside one reported task (formatting-tasks.ts).
     await reader.evaluate(() => {
       const tasks: [number, number][] = [];
-      (window as unknown as { smurgLongTasks: [number, number][] }).smurgLongTasks = tasks;
-      new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) tasks.push([entry.startTime, entry.duration]);
-      }).observe({ entryTypes: ['longtask'] });
+      const changes: [number, number, number][] = [];
+      const keep = (entries: PerformanceEntryList): void => {
+        for (const entry of entries) tasks.push([entry.startTime, entry.duration]);
+      };
+      const reports = new PerformanceObserver((list) => keep(list.getEntries()));
+      reports.observe({ entryTypes: ['longtask'] });
+      // Chrome hands a report over a moment after its task ended: whoever reads them takes what it still holds
+      // first, so that the last task of a page is among them (a change in no reported task counts as a short task).
+      const reported = (): [number, number][] => {
+        keep(reports.takeRecords());
+        return tasks;
+      };
+      Object.assign(window, { smurgLongTasks: tasks, smurgReported: reported, smurgChanges: changes });
+      new MutationObserver(() => {
+        changes.push([performance.now(), document.querySelectorAll('.conv-agent__text .md-body').length, document.querySelectorAll('.md-plain[data-why="later"]').length]);
+      }).observe(document.body, { childList: true, subtree: true });
     });
     await reader.waitForTimeout(500);
     const hardLog = reader.getByRole('region', { name: new RegExp(HARD_FIRST) }).getByRole('log');
@@ -284,23 +308,37 @@ describe.skipIf(chrome === null)('the budget of a long conversation (built app, 
       });
     /** A frame showed what is mounted now: the page's clock at that moment. */
     const frameShown = (): Promise<number> => reader.evaluate(() => new Promise<number>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now())))));
-    /** Waits until nothing waits, and says the longest task between `from` and then. */
-    const formatted = async (from: number, label: string): Promise<{ most: number; longest: number; atMost: number }> => {
+    /** When each page of texts so far was being formatted, by the page's clock: from its frame until none waited. */
+    const pages: Stretch[] = [];
+    /**
+     * Waits until nothing waits, and judges the tasks between `from` and then together with those of the pages before.
+     *
+     * A slice is one text, and one text is about 70 ms on the machine the budget was set on. A shared
+     * continuous-integration runner is up to three and a half times slower and uneven: its usual slice was 60 to
+     * 290 ms and single tasks took up to 1,155 ms with nothing wrong (the machine was busy with something else), on
+     * every other page and so, once, among the nine tasks of the last one. So (formatting-tasks.ts, where each bound
+     * has its reason): no task formats more than a slice's worth of texts; the usual task stays under the budget at
+     * this machine's speed; at most one task in ten of all the pages so far is held longer than that (or than a few
+     * usual slices), and of this page's own at most two, or one in five (held, for this count, by this page's usual
+     * slice as well), of which one may be held for long; and NO task is anywhere near what this test is here for:
+     * formatting that came back in one piece took 22 s.
+     */
+    const formatted = async (from: number, label: string): Promise<Verdict> => {
       await expect.poll(async () => (await seen()).waiting, { timeout: 240_000, interval: 250 }).toBe(0);
       const until = (await seen()).now;
-      const tasks = (await reader.evaluate(() => (window as unknown as { smurgLongTasks: [number, number][] }).smurgLongTasks)).filter(([start]) => start >= from && start <= until);
-      const durations = tasks.map(([, duration]) => duration).sort((a, b) => a - b);
-      const longest = durations.at(-1) ?? 0;
-      const usual = durations[Math.floor(durations.length / 2)] ?? 0;
-      const most = durations[Math.floor(durations.length * 0.9)] ?? 0;
-      console.info(`[conversation perf] hard texts, ${label}: all formatted ${((until - from) / 1_000).toFixed(1)} s after their frame; ${tasks.length} tasks over 50 ms, the usual one ${usual.toFixed(0)} ms, nine in ten under ${most.toFixed(0)} ms, the longest ${longest.toFixed(0)} ms`);
-      // A slice is one text, and one text is about 70 ms on the machine the budget was set on. A shared
-      // continuous-integration runner is up to three times slower and uneven: its usual slice was 110 to 270 ms and
-      // single tasks took 208 to 597 ms with nothing wrong (the machine was busy with something else). So: nine
-      // tasks in ten stay under the budget at this machine's speed (or a few of its usual slices), and NO task is
-      // anywhere near what this test is here for: formatting that came back in one piece took 22 s.
-      const atMost = Math.max(LONG_TASK_BUDGET_MS * slow, 4 * usual);
-      return { most, longest, atMost };
+      pages.push([from, until]);
+      const kept = await reader.evaluate(() => {
+        const { smurgReported, smurgChanges } = window as unknown as { smurgReported: () => LongTask[]; smurgChanges: DocumentChange[] };
+        return { reported: smurgReported(), changes: smurgChanges };
+      });
+      slowest = Math.max(slowest, await pageSlowness(reader));
+      const verdict = judgeFormatting({ reported: kept.reported, changes: kept.changes, pages, budget: LONG_TASK_BUDGET_MS * slowest });
+      console.info(
+        `[conversation perf] hard texts, ${label}: all formatted ${((until - from) / 1_000).toFixed(1)} s after their frame; ${verdict.newestTasks} tasks, the longest ${verdict.longest.toFixed(0)} ms, ` +
+          `${verdict.newestOver} at ${verdict.newestAtMost.toFixed(0)} ms or over (${verdict.newestMayBeOver} may be); of the ${verdict.tasks} so far the usual one ${verdict.usual.toFixed(0)} ms, ` +
+          `${verdict.over} at ${verdict.atMost.toFixed(0)} ms or over (${verdict.mayBeOver} may be); the most texts one task formatted: ${verdict.atOnce}; this machine at its slowest so far: ${slowest.toFixed(2)} times as slow`,
+      );
+      return verdict;
     };
 
     await row.click();
@@ -337,13 +375,11 @@ describe.skipIf(chrome === null)('the budget of a long conversation (built app, 
     expect(click.pressed).toBeGreaterThan(0);
     // Within a slice or two: the budget at this machine's speed, or a few of its usual slices.
     const slices = (await reader.evaluate(() => (window as unknown as { smurgLongTasks: [number, number][] }).smurgLongTasks)).filter(([start]) => start >= from).map(([, duration]) => duration).sort((a, b) => a - b);
-    expect(click.answered - click.pressed).toBeLessThan(Math.max(CLICK_BUDGET_MS * slow, 4 * (slices[Math.floor(slices.length / 2)] ?? 0)));
+    expect(click.answered - click.pressed).toBeLessThan(Math.max(CLICK_BUDGET_MS * slowest, 4 * (slices[Math.floor(slices.length / 2)] ?? 0)));
     expect(during.lastWaits).toBe(false);
     await reader.keyboard.press('Escape');
 
-    const newest = await formatted(from, `the newest ${first.texts}`);
-    expect(newest.most).toBeLessThan(newest.atMost);
-    expect(newest.longest).toBeLessThan(10 * newest.atMost);
+    expect((await formatted(from, `the newest ${first.texts}`)).broken).toEqual([]);
 
     // The earlier pages, until all of them are mounted: each is shown as written and formatted the same way.
     for (let mounted = first.texts; mounted < HARD; ) {
@@ -353,9 +389,7 @@ describe.skipIf(chrome === null)('the budget of a long conversation (built app, 
       await expect.poll(async () => (await seen()).texts, { timeout: STEP_MS }).toBeGreaterThan(mounted);
       from = await frameShown();
       mounted = (await seen()).texts;
-      const page = await formatted(from, `${mounted} texts mounted`);
-      expect(page.most).toBeLessThan(page.atMost);
-      expect(page.longest).toBeLessThan(10 * page.atMost);
+      expect((await formatted(from, `${mounted} texts mounted`)).broken).toEqual([]);
     }
     const last = await seen();
     console.info(`[conversation perf] hard texts: ${last.texts} texts, ${last.formatted} formatted, ${last.notes} shown as written with a note`);
@@ -365,7 +399,7 @@ describe.skipIf(chrome === null)('the budget of a long conversation (built app, 
     // there nearly all are formatted; a budget is time, and on a machine a few times slower more of them run out
     // (a runner 2.7 times as slow formatted 310 and noted 90).
     expect(last.formatted + last.notes).toBe(HARD);
-    if (slow < 1.5) expect(last.formatted).toBeGreaterThan(HARD * 0.9);
+    if (slowest < 1.5) expect(last.formatted).toBeGreaterThan(HARD * 0.9);
     else expect(last.formatted).toBeGreaterThan(HARD * 0.25);
     expect(env.problemsOf(reader).pageErrors).toEqual([]);
     await reader.context().close();
