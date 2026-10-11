@@ -4,7 +4,7 @@
   smurg
 </h1>
 
-<p align="center"><b>給團隊和 Claude&nbsp;Code 用的即時協作工作區。</b></p>
+<p align="center"><b>給團隊和 AI&nbsp;agent 用的即時協作工作區。</b></p>
 
 <p align="center">
   <a href="https://smurg.ai/zh-TW/">網站</a> ·

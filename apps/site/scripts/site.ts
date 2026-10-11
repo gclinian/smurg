@@ -100,15 +100,15 @@ export const SOCIAL_CARD_SIZE = { width: 1200, height: 630 } as const;
 export const SOCIAL_CARD: Readonly<Record<Lang, SocialCard>> = {
   en: {
     path: '/og.png',
-    lines: ['A real-time workspace for', 'your team and Claude Code.'],
+    lines: ['A real-time workspace for', 'your team and coding agents.'],
     chips: ['Open source · MIT', 'macOS and Linux', 'End-to-end encrypted'],
-    alt: 'smurg: a real-time workspace for your team and Claude Code.',
+    alt: 'smurg: a real-time workspace for your team and coding agents.',
   },
   'zh-TW': {
     path: '/zh-TW/og.png',
-    lines: ['給團隊和 Claude Code', '用的即時協作工作區。'],
+    lines: ['給團隊和 AI agent', '用的即時協作工作區。'],
     chips: ['開放原始碼 · MIT', 'macOS 與 Linux', '端對端加密'],
-    alt: 'smurg：給團隊和 Claude Code 用的即時協作工作區。',
+    alt: 'smurg：給團隊和 AI agent 用的即時協作工作區。',
   },
 };
 
@@ -164,8 +164,8 @@ export const DOC_PAGES: readonly DocPage[] = [
       path: '/docs/quick-start/',
       label: 'Quick start',
       summary: 'The shortest way from nothing to a first topic: install smurg, share a folder, invite a teammate, and go from an agent’s first question to a result you reviewed and merged.',
-      title: 'Quick start: work with Claude Code as a team',
-      description: 'Install smurg, share a project folder from your computer, invite a teammate, and go from Claude’s first question to a reviewed, merged result.',
+      title: 'Quick start: work with coding agents as a team',
+      description: 'Install smurg, share a project folder from your computer, invite a teammate, and go from the agent’s first question to a reviewed, merged result.',
       schema: 'TechArticle',
     },
     'zh-TW': {
@@ -173,8 +173,8 @@ export const DOC_PAGES: readonly DocPage[] = [
       path: '/zh-TW/docs/quick-start/',
       label: '快速上手',
       summary: '從什麼都沒有到第一個主題，最短的走法：安裝 smurg、分享資料夾、邀請組員，從 agent 的第一個選擇題走到你看過、合併的成果。',
-      title: '快速上手：團隊一起用 Claude Code 的第一個主題',
-      description: '安裝 smurg、從自己的電腦分享專案資料夾、邀請組員用瀏覽器加入，再從 Claude 的第一個選擇題走到你看過、合併的成果。',
+      title: '快速上手：團隊一起用 AI agent 的第一個主題',
+      description: '安裝 smurg、從自己的電腦分享專案資料夾、邀請組員用瀏覽器加入，再從 agent 的第一個選擇題走到你看過、合併的成果。',
       schema: 'TechArticle',
     },
   },
@@ -184,8 +184,8 @@ export const DOC_PAGES: readonly DocPage[] = [
       path: '/docs/hosting/',
       label: 'Host guide',
       summary: 'Share a folder from your own computer with smurg host: installing, logging in, what to read before you share, the Agent access role, what agents may do and how your own Claude Code settings count, troubleshooting, and what a topic asks of the host.',
-      title: 'Host guide: share a folder and Claude Code agents',
-      description: 'For the host: install, invite teammates, and know before you share what Claude Code agents may do on your computer, as you, with no sandbox.',
+      title: 'Host guide: share a folder and coding agents',
+      description: 'For the host: install, invite teammates, and know before you share what the agents (Claude Code) may do on your computer, as you, with no sandbox.',
       schema: 'TechArticle',
     },
     'zh-TW': {
@@ -193,7 +193,7 @@ export const DOC_PAGES: readonly DocPage[] = [
       path: '/zh-TW/docs/hosting/',
       label: '主人指南',
       summary: '在自己的電腦上用 smurg host 分享資料夾：安裝、登入、分享前必讀、「可使用 agent」角色、agent 能做什麼與你自己的 Claude Code 設定、疑難排解，以及主題裡主人要做的事。',
-      title: '主人指南：分享資料夾，讓團隊一起用 Claude Code',
+      title: '主人指南：分享資料夾，讓團隊一起用 AI agent',
       description: '給分享資料夾的主人：安裝、邀請組員、分享前必讀。agent 就是 Claude Code，沒有沙盒：以你的身分、用你的 Claude 帳號在你的電腦上執行。',
       schema: 'TechArticle',
     },
@@ -204,7 +204,7 @@ export const DOC_PAGES: readonly DocPage[] = [
       path: '/docs/joining/',
       label: 'Guide for teammates',
       summary: 'Join a workspace someone shared with an invite link: roles, the inbox and the columns, talking to agents, votes and suggestions, a topic from discussion to reviewed result, editing together, worktrees and leaving.',
-      title: 'Guide for teammates: join a Claude Code workspace',
+      title: 'Guide for teammates: join a shared agent workspace',
       description: 'Got an invite link? Join in Chrome, nothing to install, no Claude account: vote on the agent’s questions, edit the spec, review what agents build.',
       schema: 'TechArticle',
     },
@@ -213,7 +213,7 @@ export const DOC_PAGES: readonly DocPage[] = [
       path: '/zh-TW/docs/joining/',
       label: '組員指南',
       summary: '用邀請連結加入別人分享的工作區：角色、收件夾與欄、和 agent 對話、投票與建議、主題從討論到看過結果、一起編輯、worktree 與離開。',
-      title: '組員指南：用瀏覽器加入團隊的 Claude Code 工作區',
+      title: '組員指南：用瀏覽器加入團隊的 agent 工作區',
       description: '收到邀請連結了嗎？用 Chrome 打開就能加入，不必安裝，也不需要 Claude 帳號：對 agent 的選擇題投票、編輯 spec、檢視 agent 做出來的成果。',
       schema: 'TechArticle',
     },
@@ -225,7 +225,7 @@ export const DOC_PAGES: readonly DocPage[] = [
       label: 'Changelog',
       summary: 'What changed in each version, and the known limits.',
       title: 'Changelog: what changed in each version',
-      description: 'Release notes for smurg, the real-time workspace for a team and Claude Code: what changed in each version, and its known limits.',
+      description: 'Release notes for smurg, the real-time workspace for a team and its coding agents: what changed in each version, and its known limits.',
       schema: 'WebPage',
     },
     'zh-TW': {
@@ -234,7 +234,7 @@ export const DOC_PAGES: readonly DocPage[] = [
       label: '變更紀錄',
       summary: '每個版本的變更與已知限制。',
       title: '變更紀錄：每個版本改了什麼',
-      description: 'smurg 是給團隊和 Claude Code 用的即時協作工作區。這份變更紀錄也是每個版本的發佈說明：每個版本改了什麼，以及已知的限制。',
+      description: 'smurg 是給團隊和 AI agent 用的即時協作工作區。這份變更紀錄也是每個版本的發佈說明：每個版本改了什麼，以及已知的限制。',
       schema: 'WebPage',
     },
   },
@@ -331,7 +331,7 @@ export const CHROME = {
     toc: 'On this page',
     tableLabel: (section: string | undefined): string => (section === undefined ? 'Table' : `Table: ${section}`),
     indexTitle: 'smurg docs: install, share a folder, join a workspace',
-    indexDescription: 'Docs for smurg, the open-source workspace for a team and Claude Code: quick start, host guide, guide for teammates and changelog.',
+    indexDescription: 'Docs for smurg, the open-source workspace for a team and its coding agents: quick start, host guide, guide for teammates and changelog.',
     indexHeading: 'smurg docs',
     indexLede: 'Install smurg, share a folder, join a workspace someone shared, and see what changed in each version.',
     licenseHeading: 'License and source code',
@@ -364,7 +364,7 @@ export const CHROME = {
     tableLabel: (section: string | undefined): string => (section === undefined ? '表格' : `表格：${section}`),
     indexTitle: 'smurg 文件：安裝、分享資料夾、加入工作區',
     // 「開源」 here, once: the word people type when they search; every page a reader sees says 「開放原始碼」.
-    indexDescription: 'smurg 的使用說明：快速上手、主人指南、組員指南與變更紀錄。smurg 是給團隊和 Claude Code 用的即時協作工作區，端對端加密，開源。',
+    indexDescription: 'smurg 的使用說明：快速上手、主人指南、組員指南與變更紀錄。smurg 是給團隊和 AI agent 用的即時協作工作區，端對端加密，開源。',
     indexHeading: 'smurg 文件',
     indexLede: '安裝 smurg、分享資料夾、加入別人分享的工作區，以及每個版本的變更。',
     licenseHeading: '授權與原始碼',
@@ -754,7 +754,7 @@ function sitemap(modified: ReadonlyMap<string, string>): string {
  * the two guides' introductions, and the README's status line.
  */
 export const LLMS_SUMMARY =
-  'smurg is a real-time workspace for a team and Claude Code: a host shares a project folder from their own computer, and teammates join in a browser to discuss a feature with a Claude Code agent, vote on its questions and review what the agents build.';
+  'smurg is a real-time workspace for a team and its coding agents: a host shares a project folder from their own computer, and teammates join in a browser to discuss a feature with an agent, vote on its questions and review what the agents build.';
 export const LLMS_FACTS = [
   'Open source (MIT). The host needs macOS or Linux with Claude Code; teammates install nothing and join in Chrome. The connection between a browser and the host’s computer is end-to-end encrypted: the relay in between cannot see files, conversations or commands.',
   'The agents are Claude Code sessions on the host’s computer: they run as the host, with no sandbox, on the host’s Claude account. smurg is a prototype; its topics flow was verified against a scripted stand-in for the model, not with a real Claude account.',

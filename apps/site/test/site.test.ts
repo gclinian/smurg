@@ -1332,7 +1332,7 @@ describe('being found: what a search engine, a link preview or an assistant is t
     }
   });
 
-  it('a document’s title starts as its name in the docs does, and a title that says Claude Code stands on a page that does', () => {
+  it('a document’s title starts as its name in the docs does, and no title calls smurg by the name of one agent', () => {
     for (const lang of LANGS) {
       for (const doc of DOC_PAGES) {
         const p = page(fileOf(doc[lang].path));
@@ -1342,13 +1342,11 @@ describe('being found: what a search engine, a link preview or an assistant is t
         expect(first(p, 'h1')?.text().startsWith(doc[lang].label), doc[lang].path).toBe(true);
         expect(metaOf(p, 'description'), doc[lang].path).toBe(doc[lang].description);
       }
-      for (const path of INDEXABLE.filter((file) => langOf(page(file)) === lang)) {
-        const p = page(path);
-        if (titleOf(p).includes('Claude Code')) expect(first(p, 'main')?.text(), path).toContain('Claude Code');
-      }
-      // The words people search for are in the titles of the pages a searcher should land on: the two home pages
-      // and the three guides.
-      for (const path of [HOME_PAGES[lang], ...[QUICK_START, HOST_GUIDE, TEAM_GUIDE].map((doc) => fileOf(doc[lang].path))]) expect(titleOf(page(path)), path).toContain('Claude Code');
+      // smurg works with agents, and Claude Code is the one it runs today (the owner means to support others): a
+      // title says "agent" and never the name of one. A description may name it where that is the fact a reader needs.
+      for (const path of INDEXABLE.filter((file) => langOf(page(file)) === lang)) expect(titleOf(page(path)), path).not.toMatch(/Claude/);
+      // The word is in the titles of the pages a searcher should land on: the two home pages and the three guides.
+      for (const path of [HOME_PAGES[lang], ...[QUICK_START, HOST_GUIDE, TEAM_GUIDE].map((doc) => fileOf(doc[lang].path))]) expect(titleOf(page(path)), path).toMatch(/agent/);
     }
     // What a description promises is what its guide says (the guides' own sentences are held by the tests above).
     const said = (lang: Lang, doc: (typeof DOC_PAGES)[number]): string => (first(page(fileOf(doc[lang].path)), 'main')?.text() ?? '').replace(/\s+/g, lang === 'en' ? ' ' : '');

@@ -143,6 +143,11 @@ deploys anyway. `env.dev` sets `"routes": []`.
 - **SSL/TLS → Edge Certificates → Always Use HTTPS: on.** The static pages of both Workers also send
   `Strict-Transport-Security: max-age=31536000` (`apps/site/public/_headers`, `apps/web/public/_headers`); `--check`
   requires `http://app.smurg.ai/healthz` to redirect to https.
+- **Search engines.** The web app's host is not for search results: its files and the relay's own answers say
+  `X-Robots-Tag: noindex` (`apps/web/public/_headers`, `apps/relay/src/lib/http.ts`), its `robots.txt` lets crawlers
+  in so that they can read that, and `--check` requires the header. The product page says what it is to a search
+  engine by itself (`apps/site/README.md`, "Being found"). Turn on Cloudflare's Crawler Hints for the zone only when
+  the relay answers `noindex`.
 - **Rules → Redirect Rules: `www.smurg.ai` → `https://smurg.ai/<path>`**, 301, query kept (§4.1).
 - **Keep Bot Fight Mode off, Security Level below "I'm Under Attack", and add no WAF rule that challenges
   `app.smurg.ai` or `downloads.smurg.ai`.** The CLI, the daemon and `curl … | sh` are not browsers and cannot solve a

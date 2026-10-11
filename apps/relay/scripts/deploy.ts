@@ -672,6 +672,8 @@ function spaProblem(r: { status: number; headers: Headers; text: string }, https
   if (!csp.includes("frame-ancestors 'none'") || !csp.includes("default-src 'self'")) return `the Content-Security-Policy of _headers is missing (${csp || 'none'})`;
   if ((r.headers.get('x-frame-options') ?? '').toUpperCase() !== 'DENY') return 'X-Frame-Options: DENY is missing';
   if (r.headers.get('x-content-type-options') !== 'nosniff') return 'X-Content-Type-Options: nosniff is missing';
+  // Nothing on the web app's host is a page for a search result: the product page and the docs are another site.
+  if (!/\bnoindex\b/i.test(r.headers.get('x-robots-tag') ?? '')) return 'the X-Robots-Tag: noindex of _headers is missing: search engines would list the web app';
   if (https) {
     // Two Strict-Transport-Security headers (_headers' and, say, the zone's HSTS setting) reach fetch() joined with
     // ', '; a browser processes only the first one (RFC 6797 §8.1), so only the first one is judged.

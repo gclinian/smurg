@@ -4,7 +4,7 @@
   smurg
 </h1>
 
-<p align="center"><b>A real-time workspace for your team and Claude&nbsp;Code.</b></p>
+<p align="center"><b>A real-time workspace for your team and coding&nbsp;agents.</b></p>
 
 <p align="center">
   <a href="https://smurg.ai/">Website</a> ·

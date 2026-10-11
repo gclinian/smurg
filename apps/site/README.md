@@ -86,14 +86,16 @@ title starts with the same name ("Host guide: …") and goes on with the words p
   66 characters). The fourteen were measured and are 781 to 915 px wide. Measure a new one that is near the upper
   bound, in any browser's console:
   `c = document.createElement('canvas').getContext('2d'); c.font = '14px Arial'; c.measureText('…').width`.
-- The words come from what people type: "multiplayer" and "Claude Code" in the home page's title, "work with
-  Claude Code as a team", and in Chinese the words for several people working together (the titles in
-  `DOC_PAGES`). Words that mean something else stay out: "Claude Code for teams" and "agent teams" (Anthropic's
+- The words come from what people type: "multiplayer" and "coding agents" in the home page's title, "work with
+  coding agents as a team", and in Chinese the words for several people working together (the titles in
+  `DOC_PAGES`). No title names one agent: smurg works with agents, Claude Code is the one it runs today, and the
+  owner means to support others; a description names it where that is the fact a reader needs (the test holds
+  both). Words that mean something else stay out: "Claude Code for teams" and "agent teams" (Anthropic's
   own plan and feature), "self-hosted" (a server one deploys; the host here is a personal computer), and the
   Chinese word that means sharing one account (the test lists them). The home pages' rules hold for these lines
   too: no version number, and not the word "sandbox".
 - The English home page's title is its h1 with one word changed for the search ("multiplayer" in the place of
-  "real-time"): Claude Code stays what smurg is used with, not what smurg is called. Some of a title's words are
+  "a real-time"). Some of a title's words are
   in no visible text of its page (no sentence is added to a home page for them), and a search engine may then
   show the page's h1 as the title of a result. That is fine: the h1 is the sentence the page is about.
 - The preview pictures keep the home page's h1 (above).
