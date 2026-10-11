@@ -195,6 +195,22 @@ export function machineSlowness(): number {
   return slowness;
 }
 
+/**
+ * The same, measured at this moment and not kept (the cheaper of two runs); never less than `machineSlowness()`. For
+ * a cost that was over its absolute bound once: a shared runner is slow for a second or two now and then (its
+ * processor is lent to another machine, and that time is counted as this process's own), so a cost measured in such
+ * a moment is judged by the machine's speed in that moment, not by its speed when the process began.
+ */
+export function machineSlownessNow(): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (let round = 0; round < 2; round += 1) {
+    const started = cpuMs();
+    referenceWork();
+    best = Math.min(best, cpuMs() - started);
+  }
+  return Math.max(machineSlowness(), best / REFERENCE_WORK_MS);
+}
+
 /** Below this, sixteen times the text may cost anything: the numbers are noise. */
 export const NOISE_MS = 40;
 export const TIMES = 16;

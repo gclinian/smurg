@@ -10,7 +10,7 @@
 // size, and fails when twice the text costs much more than twice the time. It also keeps the list of the source files
 // that hold a regular expression: a new one has to be looked at here before the list is changed.
 import { msg } from '@smurg/protocol/i18n';
-import { machineSlowness } from '@smurg/protocol/testing';
+import { machineSlowness, machineSlownessNow } from '@smurg/protocol/testing';
 import { act, render, waitFor } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
@@ -153,6 +153,19 @@ function cost(run: () => void, cheapEnough: number, rounds = 3): number {
   return best;
 }
 
+/**
+ * A cost that was over its absolute bound once, measured again: the cheapest of five runs, by this machine's speed AT
+ * THAT MOMENT (taken before and after them: the slower of the two), said in the measure `here` uses. On a shared
+ * runner a single text among a thousand took 533 ms where 524 were allowed, three runs in a row, in a test that took
+ * as long as ever: the machine was slow for a second or two, long after its speed had been measured. A text that
+ * really costs more than its bound costs it again, on a machine that is as fast as it was.
+ */
+function costAgain(run: () => void): number {
+  const before = machineSlownessNow();
+  const took = cost(run, 0, 5);
+  return (took * machineSlowness()) / Math.max(before, machineSlownessNow());
+}
+
 /** Below this, sixteen times the text may cost anything: the numbers are noise. */
 const NOISE_MS = 40;
 const TIMES = 16;
@@ -176,7 +189,11 @@ function expectProportional(subject: string, texts: readonly HostileText[], char
       many = cost(() => run(large), Math.max(NOISE_MS, one * TIMES), 5);
     }
     if (many > Math.max(NOISE_MS, one * AT_MOST_TIMES)) slow.push(`${text.name}: ${one.toFixed(2)} ms for ${small.length} characters, ${many.toFixed(0)} ms for ${large.length}`);
-    else if (atMost !== undefined && many > atMost(large.length)) slow.push(`${text.name}: ${many.toFixed(0)} ms for ${large.length} characters, more than ${atMost(large.length).toFixed(0)} ms`);
+    else if (atMost !== undefined && many > atMost(large.length)) {
+      // An absolute bound is said twice as well, the second time by the machine's speed at that moment.
+      many = costAgain(() => run(large));
+      if (many > atMost(large.length)) slow.push(`${text.name}: ${many.toFixed(0)} ms for ${large.length} characters, more than ${atMost(large.length).toFixed(0)} ms`);
+    }
   }
   expect(slow, subject).toEqual([]);
 }
@@ -358,11 +375,14 @@ describe('what a text costs the page that shows it (review R4-03)', () => {
       const links = (count: number): string => Array.from({ length: count }, (_, index) => `[${long}](https://example.com/${index})`).join('\n\n');
       // A 1 MiB SPEC.md of 62 such links (it stood still 5.4 s at every mount): the lexer's budget and the render.
       const spec = links(62);
-      const took = cost(() => {
+      const mount = (): void => {
         forgetParses();
         renderToStaticMarkup(<Markdown text={spec} />);
-      }, 0);
-      expect(took, JSON.stringify(pair)).toBeLessThan(here(parseBudgetMs(spec.length) + PAUSE_MAX_MS + 250));
+      };
+      const atMost = here(parseBudgetMs(spec.length) + PAUSE_MAX_MS + 250);
+      let took = cost(mount, 0);
+      if (took >= atMost) took = costAgain(mount);
+      expect(took, JSON.stringify(pair)).toBeLessThan(atMost);
       // Its parse alone, the one a mount does (`urgent`: it takes from the page's share of a second, lex.ts), takes
       // less processor time than that share: the mount of such a SPEC leaves the page time for the text that is
       // mounted next. A lexer that takes 4 ms more for each such link spends the share, and a share of a twentieth
