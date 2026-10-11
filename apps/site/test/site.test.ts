@@ -49,7 +49,7 @@ const DATA_BLOCK = 'application/ld+json';
 /** The vocabulary the structured data is written in, named by its address as the format asks; nothing is loaded from it. */
 const DATA_CONTEXT = 'https://schema.org';
 const fileOf = (path: string): string => `${path.slice(1)}index.html`;
-/** The generated pages: the docs index, the four documents and the license page, in each language. */
+/** The generated pages: the docs index, the six documents and the license page, in each language. */
 const GENERATED_PAGES = pagePairs()
   .slice(1)
   .flatMap((paths) => LANGS.map((lang) => fileOf(paths[lang])));
@@ -72,6 +72,10 @@ function docOf(source: string): (typeof DOC_PAGES)[number] {
 const QUICK_START = docOf('docs/QUICKSTART.md');
 const HOST_GUIDE = docOf('docs/HOSTING.md');
 const TEAM_GUIDE = docOf('docs/JOINING.md');
+/** The two short pages: each answers one question in at most about 450 words, and links the guides for the rest. */
+const HOW_IT_WORKS = docOf('docs/HOW-IT-WORKS.md');
+const SECURITY_MODEL = docOf('docs/SECURITY-MODEL.md');
+const CHANGELOG = docOf('CHANGELOG.md');
 /** The language of a page, from its `<html lang>`. */
 const langOf = (p: Page): Lang => (first(p, 'html')?.attr('lang') === HTML_LANG.en ? 'en' : 'zh-TW');
 
@@ -124,7 +128,7 @@ function outLinks(path: string): string[] {
 describe('the built site', () => {
   it('is public/ plus exactly the generated pages (both languages), the notices, the sitemap and llms.txt', () => {
     const files = [...testSite().files.keys()];
-    expect(GENERATED_PAGES).toHaveLength(12);
+    expect(GENERATED_PAGES).toHaveLength(16);
     expect(files.filter((path) => !publicFiles().includes(path)).sort()).toEqual([...GENERATED_PAGES, NOTICES_FILE.slice(1), 'sitemap.xml', LLMS_FILE.slice(1)].sort());
     expect(publicFiles().sort()).toEqual(
       ['404.html', '_headers', '_redirects', 'apple-touch-icon.png', 'copy.js', 'demo.js', 'favicon.ico', 'favicon.svg', 'index.html', 'og.png', 'robots.txt', 'style.css', 'zh-TW/404.html', 'zh-TW/index.html', 'zh-TW/og.png'].sort(),
@@ -244,9 +248,11 @@ describe('the built site', () => {
         linked.set(file, (linked.get(file) ?? new Set()).add(match[2] ?? ''));
       }
     }
-    // The host guides link the relay's README (the home pages' own list of repository files left with their
-    // open-source section: the header and the footer link the repository itself).
-    expect([...linked.keys()].sort()).toEqual(['CONTRIBUTING.md', 'SECURITY.md', 'apps/relay/README.md']);
+    // The host guides link the relay's README, and the security model the architecture document (its trust model
+    // and its known limits) and how to report a vulnerability (the home pages' own list of repository files left
+    // with their open-source section: the header and the footer link the repository itself).
+    expect([...linked.keys()].sort()).toEqual(['CONTRIBUTING.md', 'SECURITY.md', 'apps/relay/README.md', 'docs/ARCHITECTURE.md']);
+    expect([...(linked.get('docs/ARCHITECTURE.md') ?? [])].sort()).toEqual(['12-known-limits-of-the-prototype', '2-trust-model-in-one-page']);
     for (const [path, fragments] of linked) {
       expect(statSync(join(REPO_ROOT, path), { throwIfNoEntry: false }) !== undefined, path).toBe(true);
       // A #fragment is a heading of that file, by GitHub's own rule for heading ids.
@@ -432,7 +438,7 @@ describe('the built site', () => {
     // Every page that exists in both languages, English first, each with the same three alternates.
     const expected = pagePairs().flatMap((paths) => LANGS.map((lang) => `https://smurg.ai${paths[lang]}`));
     expect([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1])).toEqual(expected);
-    expect(expected).toHaveLength(14);
+    expect(expected).toHaveLength(18);
     const entries = sitemap.split('<url>').slice(1);
     pagePairs().forEach((paths, i) => {
       for (const entry of [entries[2 * i], entries[2 * i + 1]]) {
@@ -456,7 +462,7 @@ describe('the built site', () => {
     const sources = pageSources();
     const { dates } = fileDates(REPO_ROOT, [...new Set(sources.values())]);
     const entries = siteText('sitemap.xml').split('<url>').slice(1);
-    expect(entries).toHaveLength(14);
+    expect(entries).toHaveLength(18);
     expect([...sources.keys()].sort()).toEqual(pagePairs().flatMap((paths) => LANGS.map((lang) => paths[lang])).filter((path) => !LANGS.some((lang) => docsIndex(lang) === path)).sort());
     for (const entry of entries) {
       const path = (/<loc>https:\/\/smurg\.ai([^<]+)<\/loc>/.exec(entry)?.[1] ?? '') as string;
@@ -1060,8 +1066,10 @@ describe('the generated pages', () => {
     for (const doc of DOC_PAGES) {
       const english = readFileSync(join(REPO_ROOT, doc.en.source), 'utf8');
       expect([...new Set(english.match(cjk) ?? [])], doc.en.source).toEqual([CHROME['zh-TW'].name]);
-      // (runs of Chinese between Latin words, marks and line ends; the quick start is short on purpose)
-      expect((readFileSync(join(REPO_ROOT, doc['zh-TW'].source), 'utf8').match(cjk) ?? []).length, doc['zh-TW'].source).toBeGreaterThan(doc === QUICK_START ? 100 : 200);
+      // (runs of Chinese between Latin words, marks and line ends; the quick start is short on purpose, and the
+      // two short pages are shorter still)
+      const runs = doc === QUICK_START ? 100 : doc === HOW_IT_WORKS || doc === SECURITY_MODEL ? 75 : 200;
+      expect((readFileSync(join(REPO_ROOT, doc['zh-TW'].source), 'utf8').match(cjk) ?? []).length, doc['zh-TW'].source).toBeGreaterThan(runs);
     }
     expect(CHROME['zh-TW'].name).toBe('繁體中文');
     expect(CHROME.en.name).toBe('English');
@@ -1142,6 +1150,209 @@ describe('the generated pages', () => {
     }
     // The same guide in both languages: the same headings, lists, blocks and box in the same order, as many steps and links.
     expect(shape['zh-TW']).toEqual(shape.en);
+  });
+
+  it('the two short pages answer one question each and stay short: their place in the docs, their sections, the answer before the first section, their honest lines, no heading that names an agent, and the same page in both languages', () => {
+    // The docs read as a path: the quick start, how it works, the two guides, the security model, the changelog.
+    expect(DOC_PAGES.map((doc) => doc.en.source)).toEqual([QUICK_START, HOW_IT_WORKS, HOST_GUIDE, TEAM_GUIDE, SECURITY_MODEL, CHANGELOG].map((doc) => doc.en.source));
+    expect(LANGS.flatMap((lang) => [HOW_IT_WORKS, SECURITY_MODEL].map((doc) => [doc[lang].path, doc[lang].label]))).toEqual([
+      ['/docs/how-it-works/', 'How it works'],
+      ['/docs/security-model/', 'Security model'],
+      ['/zh-TW/docs/how-it-works/', '運作方式'],
+      ['/zh-TW/docs/security-model/', '安全模型'],
+    ]);
+    const HOST_ANCHORS = {
+      verified: { en: '108-what-was-verified-and-what-was-not', 'zh-TW': '108-驗證過什麼還沒驗證什麼' },
+      beforeYouShare: { en: '4-before-you-share', 'zh-TW': '4-分享前必讀' },
+      agentAccess: { en: '51-the-agent-access-role-read-this-first', 'zh-TW': '51-可使用-agent角色請先讀' },
+      askFirst: { en: '52-what-agents-do-by-themselves-and-what-they-ask-first', 'zh-TW': '52-agent-自己能做什麼什麼要先問' },
+      ownRules: { en: '53-your-own-claude-code-allow-rules-mcp-servers-project-settings-claudemd', 'zh-TW': '53-你自己的-claude-code允許規則mcp-伺服器專案設定claudemd' },
+    } as const;
+    interface ShortPage {
+      readonly doc: (typeof DOC_PAGES)[number];
+      /** Its sections, in order: the page's outline. */
+      readonly sections: Readonly<Record<Lang, readonly string[]>>;
+      /** What a reader has read before the first section: the answer to the page's question. */
+      readonly answer: Readonly<Record<Lang, readonly string[]>>;
+      /** What a reader has read before the second section, the first section included (How it works: its three parts). */
+      readonly firstScreen: Readonly<Record<Lang, readonly string[]>>;
+      /** The honest lines, anywhere on the page, as whole phrases (English with single spaces, Chinese without any). */
+      readonly honest: Readonly<Record<Lang, readonly string[]>>;
+      /** How often the page says that nobody outside the project has audited smurg. */
+      readonly noOutsideAudit: number;
+      /** The sections of the host guide the honest lines link. */
+      readonly hostAnchors: readonly (keyof typeof HOST_ANCHORS)[];
+      /** The repository files it links on GitHub, in order. */
+      readonly repositoryFiles: readonly string[];
+      /** The documents its last links go to, in order ("Where to go next"), or none. */
+      readonly next: readonly (typeof DOC_PAGES)[number][];
+    }
+    const SHORT_PAGES: readonly ShortPage[] = [
+      {
+        doc: HOW_IT_WORKS,
+        sections: {
+          en: ['Three parts', 'Several people, one agent', 'From discussion to merged work', 'What it is today', 'Where to go next'],
+          'zh-TW': ['三個部分', '好幾個人，同一個 agent', '從討論到合併', '目前的狀態', '接下來'],
+        },
+        // Who shares and who joins, and how several people work with one agent: who reads, who messages it, whose
+        // message is a suggestion, and that the team votes on its questions.
+        answer: {
+          en: ['you (the host) share a project folder from your own computer; teammates join in a browser', "Everyone reads every conversation; you and members with agent access message agents, Editors suggest, and the team votes on agents' questions."],
+          'zh-TW': ['你（主人）從自己的電腦分享專案資料夾，組員用瀏覽器加入', '也讀得到每一段對話。你和「可使用agent」的成員傳訊息給agent，「可編輯」的成員傳的是建議，agent提出的選擇題由團隊投票。'],
+        },
+        firstScreen: {
+          en: ['the agents run as you', 'cannot read it: everything is end-to-end encrypted. It knows which account connects, from which IP address, and when', 'A browser is all a teammate needs'],
+          'zh-TW': ['agent也是以你的身分執行', '但讀不到內容：資料是端對端加密的。不過它知道是哪個帳號在連線、從哪個IP位址連、什麼時候連', '瀏覽器是組員唯一需要的程式'],
+        },
+        honest: {
+          en: [
+            'The agents are Claude Code.',
+            'They run on your computer (macOS or Linux) as you, with no sandbox, on your Claude account, even when they work for a teammate.',
+            'A worktree is a place to work, not protection.',
+            'Give Agent access only to people you fully trust',
+            'A prototype.',
+            'verified against a scripted stand-in for the model, not with a real Claude account: how a real model behaves in it is not verified yet',
+            'Reviewing does not merge: only you (the host) can merge, after reading the diff',
+          ],
+          'zh-TW': [
+            'agent就是ClaudeCode：',
+            '它以你的身分在你的電腦（macOS或Linux）上執行，沒有沙盒，用的是你的Claude帳號，替組員工作時也一樣。',
+            'worktree只是工作的位置，不是保護。',
+            '只把「可使用agent」給你完全信任的人',
+            '還是原型：',
+            '是用照劇本回應的模型替身驗證的，沒有用真正的Claude帳號，所以真正的模型在這個流程裡的表現還沒有驗證過',
+            '看過不等於合併。只有你（主人）能合併，而且要先讀過diff',
+          ],
+        },
+        noOutsideAudit: 0,
+        hostAnchors: ['verified', 'beforeYouShare'],
+        repositoryFiles: [],
+        next: [QUICK_START, HOST_GUIDE, TEAM_GUIDE, SECURITY_MODEL],
+      },
+      {
+        doc: SECURITY_MODEL,
+        sections: {
+          en: ['Where things live', 'What is encrypted', 'What the relay knows', 'What encryption does not protect', 'What was checked'],
+          'zh-TW': ['東西放在哪裡', '加密了什麼', 'relay 知道什麼', '加密保護不了什麼', '驗證過什麼'],
+        },
+        // The whole answer stands before the first section, what encryption does not protect as plainly as what it does.
+        answer: {
+          en: [
+            'forwards encrypted data it cannot read, but knows who connects, from where and when',
+            'Encryption does not protect you from the people you invite: every member can read the folder and every conversation, and a teammate with agent access acts as you on your computer, with no sandbox.',
+            'smurg is a prototype, with no outside audit.',
+          ],
+          'zh-TW': [
+            '只轉送加密後的資料，內容它讀不到，但它知道誰在連線、從哪裡連、什麼時候連',
+            '加密擋不住你自己邀請進來的人：每個成員都讀得到檔案和每一段對話，有「可使用agent」角色的組員更是以你的身分在你的電腦上做事，沒有沙盒。',
+            'smurg還是原型，沒有經過外部稽核。',
+          ],
+        },
+        firstScreen: { en: [], 'zh-TW': [] },
+        honest: {
+          en: [
+            'The relay never sees the secret.',
+            'The web app comes from the relay. A relay that served a tampered app could read what the browser decrypts, and its keys.',
+            'Every member can see and download the files (.env too), reads every conversation and watches every terminal: Viewers too, and members who join later.',
+            'No agent is sandboxed. The agents are Claude Code today, on your Claude account.',
+            "A personal subscription is for your own use, not a group's.",
+            // (asking first has an exception, and the page says it: what the host's own allow rules allow runs unasked)
+            'smurg asks before almost every command (§5.2), except where your own allow rules apply (§5.3)',
+            "what is allowed runs as you, and a teammate's file can hide instructions for the agent",
+            'A teammate with this role can run any command on your computer, read your home folder and use your Claude account; smurg cannot limit this. Give the role only to people you fully trust',
+            'with a scripted stand-in for the model, not a real Claude account',
+            "The encryption (the Noise protocol) is smurg's own implementation, with no outside audit.",
+            'Report a vulnerability privately, never in a public issue',
+          ],
+          'zh-TW': [
+            '這個密鑰relay看不到。',
+            '網頁版是relay提供的：relay如果送出被竄改過的網頁版，就讀得到瀏覽器解密的內容和瀏覽器的金鑰。',
+            '每個成員都看得到檔案，也能下載（.env也一樣），讀得到每一段對話，也看得到每個終端機的畫面：「旁觀」的成員和之後才加入的成員也一樣。',
+            'agent都不在沙盒裡：現在的agent是ClaudeCode，用的是你的Claude帳號。',
+            '個人訂閱只供你自己使用，不供多人使用。',
+            '幾乎每個指令執行之前smurg都會先問（§5.2），你自己的允許規則已經允許的除外（§5.3）',
+            '被允許的事是以你的身分執行的，而且組員的檔案裡可能藏著要agent照做的指示',
+            '有這個角色的組員可以在你的電腦上執行任何指令、讀你的家目錄、用你的Claude帳號，這些smurg都沒有辦法限制。這個角色只給你完全信任的人',
+            '是用照劇本回應的模型替身驗證的，沒有用真正的Claude帳號',
+            '加密（Noise通訊協定）是smurg自己實作的，沒有經過外部稽核。',
+            '發現漏洞請私下回報，不要開公開的issue',
+          ],
+        },
+        noOutsideAudit: 2,
+        hostAnchors: ['verified', 'beforeYouShare', 'agentAccess', 'askFirst', 'ownRules'],
+        repositoryFiles: ['docs/ARCHITECTURE.md#2-trust-model-in-one-page', 'docs/ARCHITECTURE.md#12-known-limits-of-the-prototype', 'SECURITY.md'],
+        next: [],
+      },
+    ];
+    for (const { doc, sections, answer, firstScreen, honest, noOutsideAudit, hostAnchors, repositoryFiles, next } of SHORT_PAGES) {
+      const shape: Record<string, unknown> = {};
+      for (const lang of LANGS) {
+        const where = doc[lang].path;
+        const p = page(fileOf(where));
+        const main = first(p, 'main') as El;
+        const inMain = p.elements.filter((el) => el.parents.includes(main));
+        const text = (el: El | undefined): string => (el?.text() ?? '').replace(/\s+/g, lang === 'en' ? ' ' : '');
+        const all = text(main);
+        // Its outline: the title and the sections, nothing deeper (a page this short has no subsections).
+        const headings = inMain.filter((el) => /^h[1-6]$/.test(el.tag));
+        expect(headings.map((h) => h.tag), where).toEqual(['h1', ...sections[lang].map(() => 'h2')]);
+        expect(headings.slice(1).map((h) => h.text()), where).toEqual(sections[lang]);
+        // No heading names an agent, and neither does the page's name in the navigation: Claude Code is the agent
+        // smurg runs today, said once, in a sentence, where a reader needs the fact.
+        for (const words of [...headings.map((h) => h.text()), doc[lang].label, doc[lang].title]) expect(words, where).not.toMatch(/Claude|Anthropic/i);
+        expect(all.match(/Claude ?Code/g), where).toHaveLength(1);
+        // The answer first: a reader who stops before the first section has the answer to the page's question (on
+        // the security model with what encryption does not protect), and one who stops before the second has read
+        // the first section too.
+        const blocks = main.children();
+        const sectionStarts = blocks.flatMap((el, index) => (el.tag === 'h2' ? [index] : []));
+        const before = (end: number | undefined): string => blocks.slice(0, end).map((el) => text(el)).join(lang === 'en' ? ' ' : '');
+        expect(answer[lang].length, where).toBeGreaterThanOrEqual(2);
+        for (const phrase of answer[lang]) expect(before(sectionStarts[0]), `${where}: ${phrase}`).toContain(phrase);
+        for (const phrase of firstScreen[lang]) expect(before(sectionStarts[1]), `${where}: ${phrase}`).toContain(phrase);
+        // The honest lines, as whole phrases: a prototype; verified with a scripted stand-in, not a real Claude
+        // account; agents run as the host with no sandbox, on the host's account; and on the page about safety,
+        // that nobody outside the project has audited it.
+        for (const phrase of honest[lang]) expect(all, `${where}: ${phrase}`).toContain(phrase);
+        expect(all, where).toMatch(lang === 'en' ? /prototype/i : /原型/);
+        expect(all.match(lang === 'en' ? /no outside audit/g : /沒有經過外部稽核/g) ?? [], where).toHaveLength(noOutsideAudit);
+        // The word "sandbox" only ever says that there is none.
+        const sandbox = all.match(lang === 'en' ? /sandbox/gi : /沙盒|沙箱/g) ?? [];
+        expect(sandbox.length, where).toBeGreaterThanOrEqual(1);
+        expect(all.match(lang === 'en' ? /no sandbox|No agent is sandboxed/g : /沒有沙盒|都不在沙盒裡/g), where).toHaveLength(sandbox.length);
+        // Nothing the guides do not back: no audit, certificate or test by others is claimed, no word promises
+        // safety, no other product is named, and no version number stands on the page.
+        expect(all, where).not.toMatch(lang === 'en' ? /\baudited\b|certifi|penetration|\bsecure\b|guarantee|military|bank-grade/i : /通過.{0,6}稽核|認證|滲透測試|最安全|絕對安全|保證/);
+        expect(all, where).not.toMatch(/Cursor|Copilot|Codex|Devin|Windsurf|OpenHands|Aider|Gemini/i);
+        expect(all, where).not.toMatch(/\bv?\d+\.\d+\.\d+\b/);
+        expect(all, where).not.toMatch(RETIRED_CLAIMS);
+        // Its links: the page in the other language first; then sections of the two guides (and of this page), the
+        // repository's files on GitHub, and at the end the documents a reader goes on to.
+        const links = inMain.filter((el) => el.tag === 'a').map((a) => a.attr('href') ?? '');
+        expect(links[0], where).toBe(doc[otherLang(lang)].path);
+        const onwards = next.map((to) => to[lang].path);
+        expect(links.slice(links.length - onwards.length), where).toEqual(onwards);
+        const github = links.filter((href) => href.startsWith('https://'));
+        expect(github, where).toEqual(repositoryFiles.map((file) => `${REPOSITORY}/blob/main/${file}`));
+        for (const href of links.slice(1, links.length - onwards.length)) {
+          if (github.includes(href)) continue;
+          expect(href.startsWith('#') || href.startsWith(`${HOST_GUIDE[lang].path}#`) || href.startsWith(`${TEAM_GUIDE[lang].path}#`), `${where}: ${href}`).toBe(true);
+        }
+        for (const anchor of hostAnchors) expect(links, `${where}: ${anchor}`).toContain(`${HOST_GUIDE[lang].path}#${HOST_ANCHORS[anchor][lang]}`);
+        // Short: the pages were written to at most about 450 words in English and 1,100 characters in Chinese; the
+        // bound is that number with what "about" allows. (On a laptop that is about two screens of text: five headed
+        // sections take room of their own.) Counted as the quick start is: every word of the page's text, headings
+        // and link texts included, and in Chinese every character, a Latin letter too (so a file name or a command
+        // weighs more there than a word does in English).
+        if (lang === 'en') expect(all.split(' ').length, `${where}: words`).toBeLessThanOrEqual(460);
+        else expect([...all].length, `${where}: characters`).toBeLessThanOrEqual(1150);
+        const lists = inMain.filter((el) => el.tag === 'ol' || el.tag === 'ul');
+        shape[lang] = [inMain.filter((el) => /^h[1-6]$|^ol$|^ul$|^blockquote$|^pre$|^table$/.test(el.tag)).map((el) => el.tag), lists.map((list) => list.children().filter((li) => li.tag === 'li').length), links.length, inMain.filter((el) => el.tag === 'strong').length];
+      }
+      // The same page in both languages: the same headings and lists in the same order, as many items, links and
+      // words in bold (test/docs-parity.test.ts compares where the links go).
+      expect(shape['zh-TW'], doc.en.source).toEqual(shape.en);
+    }
   });
 
   it.each(LANGS)('%s: the license page shows LICENSE (MIT) exactly, as English text', (lang) => {
@@ -1242,8 +1453,9 @@ describe('the generated pages', () => {
         for (const sentence of sentences) expect(guide, `${lang}, ${GUIDE[index][lang].source}, ${what}`).toContain(sentence.replace(/\s+/g, lang === 'en' ? ' ' : ''));
       }
     }
-    // The word "prototype" itself is in no guide: the repository's README says it, in its status line, with what
-    // the flow was verified against (both languages).
+    // The word "prototype" itself is in none of the three guides: the two short pages say it (the test of those
+    // pages, below), and the repository's README, in its status line, with what the flow was verified against
+    // (both languages).
     const readme = (file: string, lang: Lang): string => readFileSync(join(REPO_ROOT, file), 'utf8').replace(/\n> /g, '\n').replace(/\s+/g, lang === 'en' ? ' ' : '');
     expect(readme('README.md', 'en')).toContain('**Status: prototype.** Developed and tested on macOS (Apple silicon). The topics flow was verified against a scripted stand-in for the model, not with a real Claude account');
     expect(readme('README.zh-TW.md', 'zh-TW')).toContain('**狀態：原型**。在 macOS（Apple Silicon）上開發和測試。主題的流程是用照劇本回應的模型替身驗證的，沒有用真正的 Claude 帳號'.replace(/\s+/g, ''));
@@ -1276,11 +1488,11 @@ describe('being found: what a search engine, a link preview or an assistant is t
   const docAt = (path: string): (typeof DOC_PAGES)[number] | undefined => DOC_PAGES.find((doc) => LANGS.some((lang) => fileOf(doc[lang].path) === path));
 
   it('every page has a title and a description of its own, written to be shown whole and in the page’s language', () => {
-    expect(INDEXABLE).toHaveLength(14);
+    expect(INDEXABLE).toHaveLength(18);
     const titles = INDEXABLE.map((path) => titleOf(page(path)));
     const descriptions = INDEXABLE.map((path) => metaOf(page(path), 'description') ?? '');
-    expect(new Set(titles).size).toBe(14);
-    expect(new Set(descriptions).size).toBe(14);
+    expect(new Set(titles).size).toBe(18);
+    expect(new Set(descriptions).size).toBe(18);
     for (const path of INDEXABLE) {
       const p = page(path);
       const lang = langOf(p);
@@ -1292,10 +1504,11 @@ describe('being found: what a search engine, a link preview or an assistant is t
       expect(title.startsWith('smurg') || title.endsWith(' · smurg'), title).toBe(true);
       // What a result shows under it: a snippet has room for about 920 px of 14 px text. In characters that is a
       // rule of thumb, because letters differ in width: about 146 Latin characters, or 66 Chinese ones (a
-      // full-width character counts as two). Every description here was measured in Chrome and is under 920 px
-      // (README.md, "Being found", says how). A much shorter one is replaced by words the search engine picks from
-      // the page. So a description is a sentence or two of 120 to 146 characters, in Chinese 100 to 133 of width:
-      // written, with its full stop, never the start of the page cut off.
+      // full-width character counts as two). Every description here was measured in Chrome (README.md, "Being
+      // found", says how, what they measure, and which one is a pixel over 920 px since its words last
+      // changed). A much shorter one is replaced by words the search engine picks from the page. So a description
+      // is a sentence or two of 120 to 146 characters, in Chinese 100 to 133 of width: written, with its full stop,
+      // never the start of the page cut off.
       if (lang === 'en') {
         expect(description.length, description).toBeGreaterThanOrEqual(120);
         expect(description.length, description).toBeLessThanOrEqual(146);
@@ -1345,8 +1558,10 @@ describe('being found: what a search engine, a link preview or an assistant is t
       // smurg works with agents, and Claude Code is the one it runs today (the owner means to support others): a
       // title says "agent" and never the name of one. A description may name it where that is the fact a reader needs.
       for (const path of INDEXABLE.filter((file) => langOf(page(file)) === lang)) expect(titleOf(page(path)), path).not.toMatch(/Claude/);
-      // The word is in the titles of the pages a searcher should land on: the two home pages and the three guides.
-      for (const path of [HOME_PAGES[lang], ...[QUICK_START, HOST_GUIDE, TEAM_GUIDE].map((doc) => fileOf(doc[lang].path))]) expect(titleOf(page(path)), path).toMatch(/agent/);
+      // The word is in the titles of the pages a searcher should land on: the two home pages, the three guides and
+      // the page that says how it works. (The security model's title is about encryption and its limits: what its
+      // searcher asks.)
+      for (const path of [HOME_PAGES[lang], ...[QUICK_START, HOW_IT_WORKS, HOST_GUIDE, TEAM_GUIDE].map((doc) => fileOf(doc[lang].path))]) expect(titleOf(page(path)), path).toMatch(/agent/);
     }
     // What a description promises is what its guide says (the guides' own sentences are held by the tests above).
     const said = (lang: Lang, doc: (typeof DOC_PAGES)[number]): string => (first(page(fileOf(doc[lang].path)), 'main')?.text() ?? '').replace(/\s+/g, lang === 'en' ? ' ' : '');
@@ -1358,6 +1573,17 @@ describe('being found: what a search engine, a link preview or an assistant is t
     expect(said('en', QUICK_START)).toContain('nothing to install, no Claude account');
     expect(TEAM_GUIDE['zh-TW'].description).toContain('不必安裝，也不需要 Claude 帳號');
     expect(said('zh-TW', TEAM_GUIDE)).toContain('不需要Claude帳號');
+    // How it works: who can message the agent, the votes, review and merge.
+    expect(HOW_IT_WORKS.en.description).toContain('who can message it, how the team votes on its questions, and how work is reviewed and merged');
+    for (const phrase of ['You and members with agent access message any agent', 'Everyone but Viewers votes', 'A person reads it and marks it reviewed', 'only you (the host) can merge']) expect(said('en', HOW_IT_WORKS), phrase).toContain(phrase);
+    expect(HOW_IT_WORKS['zh-TW'].description).toContain('誰可以直接傳訊息給它、團隊怎麼對它的選擇題投票，做出來的成果又是怎麼看過、合併的');
+    for (const phrase of ['可以傳訊息給任何agent', '每個人都可以投票', '標成已看過', '只有你（主人）能合併']) expect(said('zh-TW', HOW_IT_WORKS), phrase).toContain(phrase);
+    // The security model: a relay that cannot read, and that encryption does not limit the people one invites. Its
+    // title promises the limits of the encryption, which the page has a section for.
+    expect(SECURITY_MODEL.en.description).toContain('a relay that cannot read your files or conversations. Encryption does not limit what teammates can see and do.');
+    for (const phrase of ['forwards encrypted data it cannot read', 'What encryption does not protect', 'every member can read the folder and every conversation', 'acts as you on your computer']) expect(said('en', SECURITY_MODEL), phrase).toContain(phrase);
+    expect(SECURITY_MODEL['zh-TW'].description).toContain('讀不到你的檔案和對話。這一頁也說明加密保護不了什麼：組員看得到什麼、能做什麼。');
+    for (const phrase of ['只轉送加密後的資料，內容它讀不到', '加密保護不了什麼', '每個成員都讀得到檔案和每一段對話', '以你的身分在你的電腦上做事']) expect(said('zh-TW', SECURITY_MODEL), phrase).toContain(phrase);
   });
 
   it('the structured data of a page is that page’s: its address, its title or heading, its description and its language, and nothing the page does not say', () => {
@@ -1409,7 +1635,8 @@ describe('being found: what a search engine, a link preview or an assistant is t
       expect(self?.['@type'], path).toBe(type);
       if (type === 'TechArticle') expect([self?.['headline'], self?.['name']], path).toEqual([first(p, 'h1')?.text(), undefined]);
       else expect([self?.['name'], self?.['headline']], path).toEqual([title, undefined]);
-      expect(DOC_PAGES.map((each) => each.en.schema)).toEqual(['TechArticle', 'TechArticle', 'TechArticle', 'WebPage']);
+      // (the quick start, how it works, the two guides and the security model are articles; the changelog is a page)
+      expect(DOC_PAGES.map((each) => each.en.schema)).toEqual(['TechArticle', 'TechArticle', 'TechArticle', 'TechArticle', 'TechArticle', 'WebPage']);
       for (const each of DOC_PAGES) expect(each['zh-TW'].schema).toBe(each.en.schema);
       // When it last changed: the same moment the sitemap gives, or none in both (a home page's block is written
       // by hand and carries no date).
@@ -1460,8 +1687,8 @@ describe('being found: what a search engine, a link preview or an assistant is t
         expect(text, path).not.toMatch(/rating|review count|stars?\b/i);
       }
     }
-    // 2 home pages, 2 docs indexes, 8 documents.
-    expect(blocks).toBe(12);
+    // 2 home pages, 2 docs indexes, 12 documents.
+    expect(blocks).toBe(16);
   });
 
   it('the drawn icons are the mark of favicon.svg: an .ico of 16, 32 and 48 px with its rounded corners, and a touch icon of 180 px on a full square', () => {

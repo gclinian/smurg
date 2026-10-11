@@ -66,7 +66,7 @@ describe('wrangler.jsonc', () => {
 
   it('is documented in README.md: the paths, the build, the quota rule, the www Redirect Rule and what search engines are told', () => {
     const readme = readFileSync(join(SITE_ROOT, 'README.md'), 'utf8');
-    for (const path of ['/install.sh', '/github', '/source', '/docs/', '/docs/quick-start/', '/docs/hosting/', '/docs/joining/', '/docs/changelog/', '/license/', '/zh-TW/docs/', '/zh-TW/docs/quick-start/', '/zh-TW/docs/hosting/', '/zh-TW/docs/joining/', '/zh-TW/docs/changelog/', '/zh-TW/license/', '/third-party-notices.txt', '/sitemap.xml', '/robots.txt', '/llms.txt', '/favicon.ico', '/favicon.svg', '/apple-touch-icon.png', '/zh-tw']) {
+    for (const path of ['/install.sh', '/github', '/source', '/docs/', '/docs/quick-start/', '/docs/how-it-works/', '/docs/hosting/', '/docs/joining/', '/docs/security-model/', '/docs/changelog/', '/license/', '/zh-TW/docs/', '/zh-TW/docs/quick-start/', '/zh-TW/docs/how-it-works/', '/zh-TW/docs/hosting/', '/zh-TW/docs/joining/', '/zh-TW/docs/security-model/', '/zh-TW/docs/changelog/', '/zh-TW/license/', '/third-party-notices.txt', '/sitemap.xml', '/robots.txt', '/llms.txt', '/favicon.ico', '/favicon.svg', '/apple-touch-icon.png', '/zh-tw']) {
       expect(readme, path).toContain(`\`${path}\``);
     }
     // … and, under "Being found", what a search result is made of and where each part is written.

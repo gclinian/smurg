@@ -28,6 +28,11 @@ function tempDir(prefix: string): string {
 const DOCS = {
   'docs/QUICKSTART.md': '# Quick start\n\nThen read how to [share](HOSTING.md#2-share) and the [roles](JOINING.md#2-roles).\n\n## Share\n\nText.\n',
   'docs/zh-TW/QUICKSTART.md': '# 快速上手\n\n接著讀怎麼[分享](HOSTING.md#2-分享)和[角色](JOINING.md#2-角色)。\n\n## 分享\n\n文字。\n',
+  // The two short pages link each other's sections, the guides and a file of the repository's root.
+  'docs/HOW-IT-WORKS.md': '# How it works\n\nIs it safe? Read the [security model](SECURITY-MODEL.md#limits) and the [host guide](HOSTING.md#2-share).\n\n## Parts\n\nText.\n',
+  'docs/zh-TW/HOW-IT-WORKS.md': '# 運作方式\n\n安全嗎？請看[安全模型](SECURITY-MODEL.md#限制)和[主人指南](HOSTING.md#2-分享)。\n\n## 三個部分\n\n文字。\n',
+  'docs/SECURITY-MODEL.md': '# Security model\n\nHow to [report](../SECURITY.md) a problem.\n\n## Limits\n\nSee the [roles](JOINING.md#2-roles).\n',
+  'docs/zh-TW/SECURITY-MODEL.md': '# 安全模型\n\n怎麼[回報](../../SECURITY.md)問題。\n\n## 限制\n\n見[角色](JOINING.md#2-角色)。\n',
   'docs/HOSTING.md': '# Host guide\n\nTeammates read [`JOINING.md`](JOINING.md#2-roles); the license is [LICENSE](../LICENSE); in [Chinese](zh-TW/HOSTING.md).\n\n## 1. Install\n\nFor developers: [ARCHITECTURE](ARCHITECTURE.md#rules) and the [relay](../apps/relay).\n\n## 2. Share\n\nBack to [install](#1-install).\n',
   'docs/JOINING.md': '# Guide for teammates\n\nHosts read [HOSTING.md](./HOSTING.md).\n\n## 1. Join\n\nText.\n\n## 2. Roles\n\nText.\n',
   'CHANGELOG.md': '# Changelog\n\nThe format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).\n\n## [0.1.0] - 2026-10-01\n\nSee [`docs/HOSTING.md`](docs/HOSTING.md#2-share) and the [spec](SPEC.md).\n',
@@ -38,6 +43,7 @@ const DOCS = {
   // Files of the repository that are not pages of the site: a link to one goes to GitHub.
   'docs/ARCHITECTURE.md': '# Architecture\n',
   'SPEC.md': '# SPEC\n',
+  'SECURITY.md': '# Security\n',
   'apps/relay/README.md': '# relay\n',
 } as const;
 
@@ -100,28 +106,43 @@ describe('generateSite', () => {
     expect(quick).toContain('<html lang="en">');
     expect(quick).toContain('<a href="/docs/hosting/#2-share">share</a>');
     expect(text('zh-TW/docs/quick-start/index.html')).toContain('<a href="/zh-TW/docs/joining/#2-角色">角色</a>');
+    // So are the two short pages: a link from one to a section of the other stays on the site and in its language,
+    // and a file of the repository's root (how to report a vulnerability) is that file on GitHub in both.
+    expect(text('docs/how-it-works/index.html')).toContain('<a href="/docs/security-model/#limits">security model</a>');
+    expect(text('zh-TW/docs/how-it-works/index.html')).toContain('<a href="/zh-TW/docs/security-model/#限制">安全模型</a>');
+    expect(text('docs/security-model/index.html')).toContain('<a href="https://github.com/gclinian/smurg/blob/main/SECURITY.md">report</a>');
+    expect(text('zh-TW/docs/security-model/index.html')).toContain('<a href="https://github.com/gclinian/smurg/blob/main/SECURITY.md">回報</a>');
+    expect(text('zh-TW/docs/security-model/index.html')).toContain('<a href="/zh-TW/docs/joining/#2-角色">角色</a>');
     expect(site.rewritten).toEqual([
       'docs/QUICKSTART.md:3 [share](HOSTING.md#2-share) -> /docs/hosting/#2-share',
       'docs/QUICKSTART.md:3 [roles](JOINING.md#2-roles) -> /docs/joining/#2-roles',
+      'docs/HOW-IT-WORKS.md:3 [security model](SECURITY-MODEL.md#limits) -> /docs/security-model/#limits',
+      'docs/HOW-IT-WORKS.md:3 [host guide](HOSTING.md#2-share) -> /docs/hosting/#2-share',
       'docs/HOSTING.md:3 [JOINING.md](JOINING.md#2-roles) -> /docs/joining/#2-roles',
       'docs/HOSTING.md:3 [LICENSE](../LICENSE) -> /license/',
       'docs/HOSTING.md:3 [Chinese](zh-TW/HOSTING.md) -> /zh-TW/docs/hosting/',
       'docs/HOSTING.md:7 [ARCHITECTURE](ARCHITECTURE.md#rules) -> https://github.com/gclinian/smurg/blob/main/docs/ARCHITECTURE.md#rules',
       'docs/HOSTING.md:7 [relay](../apps/relay) -> https://github.com/gclinian/smurg/tree/main/apps/relay',
       'docs/JOINING.md:3 [HOSTING.md](./HOSTING.md) -> /docs/hosting/',
+      'docs/SECURITY-MODEL.md:3 [report](../SECURITY.md) -> https://github.com/gclinian/smurg/blob/main/SECURITY.md',
+      'docs/SECURITY-MODEL.md:7 [roles](JOINING.md#2-roles) -> /docs/joining/#2-roles',
       'CHANGELOG.md:7 [docs/HOSTING.md](docs/HOSTING.md#2-share) -> /docs/hosting/#2-share',
       'CHANGELOG.md:7 [spec](SPEC.md) -> https://github.com/gclinian/smurg/blob/main/SPEC.md',
       'docs/zh-TW/QUICKSTART.md:3 [分享](HOSTING.md#2-分享) -> /zh-TW/docs/hosting/#2-分享',
       'docs/zh-TW/QUICKSTART.md:3 [角色](JOINING.md#2-角色) -> /zh-TW/docs/joining/#2-角色',
+      'docs/zh-TW/HOW-IT-WORKS.md:3 [安全模型](SECURITY-MODEL.md#限制) -> /zh-TW/docs/security-model/#限制',
+      'docs/zh-TW/HOW-IT-WORKS.md:3 [主人指南](HOSTING.md#2-分享) -> /zh-TW/docs/hosting/#2-分享',
       'docs/zh-TW/HOSTING.md:3 [JOINING.md](JOINING.md#2-角色) -> /zh-TW/docs/joining/#2-角色',
       'docs/zh-TW/HOSTING.md:3 [LICENSE](../../LICENSE) -> /zh-TW/license/',
       'docs/zh-TW/HOSTING.md:7 [ARCHITECTURE](../ARCHITECTURE.md) -> https://github.com/gclinian/smurg/blob/main/docs/ARCHITECTURE.md',
       'docs/zh-TW/JOINING.md:3 [HOSTING.md](./HOSTING.md) -> /zh-TW/docs/hosting/',
+      'docs/zh-TW/SECURITY-MODEL.md:3 [回報](../../SECURITY.md) -> https://github.com/gclinian/smurg/blob/main/SECURITY.md',
+      'docs/zh-TW/SECURITY-MODEL.md:7 [角色](JOINING.md#2-角色) -> /zh-TW/docs/joining/#2-角色',
       'docs/zh-TW/CHANGELOG.md:7 [HOSTING.md](HOSTING.md#2-分享) -> /zh-TW/docs/hosting/#2-分享',
       'docs/zh-TW/CHANGELOG.md:7 [English](../../CHANGELOG.md) -> /docs/changelog/',
     ]);
     expect(site.plain).toEqual([]);
-    const pages = ['docs/index.html', 'docs/quick-start/index.html', 'docs/hosting/index.html', 'docs/joining/index.html', 'docs/changelog/index.html', 'license/index.html'];
+    const pages = ['docs/index.html', 'docs/quick-start/index.html', 'docs/how-it-works/index.html', 'docs/hosting/index.html', 'docs/joining/index.html', 'docs/security-model/index.html', 'docs/changelog/index.html', 'license/index.html'];
     for (const path of [...pages, ...pages.map((page) => `zh-TW/${page}`)]) {
       expect(parsePage(text(path)).errors, path).toEqual([]);
       // Each page names its counterpart: the alternates and the language link.
@@ -133,9 +154,11 @@ describe('generateSite', () => {
     // No 404 page is generated under /docs/ any more.
     expect(site.files.has('docs/404.html')).toBe(false);
     expect(text('sitemap.xml')).toContain('<loc>https://smurg.ai/zh-TW/docs/joining/</loc>');
-    // The sitemap lists the docs in the order of the docs index: the quick start before the guides.
-    expect(text('sitemap.xml').indexOf('<loc>https://smurg.ai/docs/quick-start/</loc>')).toBeGreaterThan(text('sitemap.xml').indexOf('<loc>https://smurg.ai/zh-TW/docs/</loc>'));
-    expect(text('sitemap.xml').indexOf('<loc>https://smurg.ai/zh-TW/docs/quick-start/</loc>')).toBeLessThan(text('sitemap.xml').indexOf('<loc>https://smurg.ai/docs/hosting/</loc>'));
+    // The sitemap lists the docs in the order of the docs index: the quick start, how it works, the two guides, the
+    // security model, the changelog (each in English, then in Chinese), between the docs index and the license.
+    expect([...text('sitemap.xml').matchAll(/<loc>https:\/\/smurg\.ai(\/(?:zh-TW\/)?(?:docs|license)\/[^<]*)<\/loc>/g)].map((match) => match[1])).toEqual(
+      ['docs/', 'docs/quick-start/', 'docs/how-it-works/', 'docs/hosting/', 'docs/joining/', 'docs/security-model/', 'docs/changelog/', 'license/'].flatMap((page) => [`/${page}`, `/zh-TW/${page}`]),
+    );
   });
 
   it('turns every link that is not https into text, and keeps https links to any host, GitHub included', () => {
@@ -320,16 +343,16 @@ describe('fileDates: when a file last changed, as git knows it, or nothing and w
         .slice(1)
         .filter((entry) => entry.includes(`<lastmod>${FIRST}</lastmod>`))
         .map((entry) => /<loc>https:\/\/smurg\.ai([^<]+)<\/loc>/.exec(entry)?.[1] ?? '');
-    const documents = ['/docs/quick-start/', '/zh-TW/docs/quick-start/', '/docs/hosting/', '/zh-TW/docs/hosting/', '/docs/joining/', '/zh-TW/docs/joining/', '/docs/changelog/', '/zh-TW/docs/changelog/', '/license/', '/zh-TW/license/'];
+    const documents = ['quick-start', 'how-it-works', 'hosting', 'joining', 'security-model', 'changelog'].flatMap((name) => [`/docs/${name}/`, `/zh-TW/docs/${name}/`]).concat(['/license/', '/zh-TW/license/']);
     const site = generateSite({ repoRoot: repo, notices: FIXTURE_NOTICES });
     // Every document and the license pages; never the docs index, which has no source file of its own. (The home
     // pages are this checkout's own files: whether they have a date is this checkout's matter, not the fixture's.)
     expect(dated(site)).toEqual(documents);
-    // What the build tells the person building: the dated pages, of the fourteen, and a line per reason for the
+    // What the build tells the person building: the dated pages, of the eighteen, and a line per reason for the
     // rest. The docs index is always among them.
     const home = ['/', '/zh-TW/'];
     expect(site.dates.dated.filter((path) => !home.includes(path))).toEqual(documents);
-    expect(site.dates.of).toBe(14);
+    expect(site.dates.of).toBe(18);
     expect(site.dates.missing).toContain('/docs/, /zh-TW/docs/: no single source file (the docs index never has a date)');
     expect(site.dates.missing.filter((line) => !line.startsWith('/, /zh-TW/: '))).toHaveLength(1);
     const sitemap = site.files.get('sitemap.xml')?.toString('utf8') ?? '';

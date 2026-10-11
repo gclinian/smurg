@@ -75,8 +75,10 @@
 ## 文件
 
 - [快速上手](docs/zh-TW/QUICKSTART.md)：一步一步，從安裝到你看過、合併第一個主題的成果
+- [運作方式](docs/zh-TW/HOW-IT-WORKS.md)：用一頁說明好幾個人怎麼在同一個工作區和 AI agent 一起工作
 - [主人指南](docs/zh-TW/HOSTING.md)：安裝、分享、分享前必讀、agent 能做什麼、疑難排解、更新
 - [組員指南](docs/zh-TW/JOINING.md)：角色、收件夾、和 agent 對話、主題從討論到看過結果
+- [安全模型](docs/zh-TW/SECURITY-MODEL.md)：relay 看得到什麼、組員能做什麼、加密保護不了什麼
 - [變更紀錄](docs/zh-TW/CHANGELOG.md)：每個版本的變更
 - [架構](docs/ARCHITECTURE.md)（英文）：smurg 內部是怎麼設計的，以及已知的限制（§12）
 - [安全性](SECURITY.md)（英文）：怎麼回報漏洞，以及哪些行為是刻意這樣設計的

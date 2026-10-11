@@ -221,8 +221,10 @@ themselves: the head, the honest lines, the two languages in step, and every rel
 | Document | What is in it |
 |---|---|
 | [`docs/QUICKSTART.md`](QUICKSTART.md) ([繁體中文](zh-TW/QUICKSTART.md)) | The quick start: from installing to a first topic that is reviewed and merged |
+| [`docs/HOW-IT-WORKS.md`](HOW-IT-WORKS.md) ([繁體中文](zh-TW/HOW-IT-WORKS.md)) | How it works, on one page: the three parts, what several people can do with one agent, a topic from discussion to merged work, what smurg is today |
 | [`docs/HOSTING.md`](HOSTING.md) ([繁體中文](zh-TW/HOSTING.md)) | Host guide: installing, logging in, the shared relay and your own, sharing, what to know before you share, the Agent access role and its risk, what agents may do and your own Claude Code settings, stopping, troubleshooting, updating and uninstalling, topics from the host's side |
 | [`docs/JOINING.md`](JOINING.md) ([繁體中文](zh-TW/JOINING.md)) | Guide for teammates, also for people new to smurg and Claude Code: roles, the inbox, talking to agents, topics from discussion to reviewed result |
+| [`docs/SECURITY-MODEL.md`](SECURITY-MODEL.md) ([繁體中文](zh-TW/SECURITY-MODEL.md)) | The security model, on one page: where things live, what is encrypted, what the relay knows, what encryption does not protect, what was checked (how to report a vulnerability is `SECURITY.md`) |
 | [`CHANGELOG.md`](../CHANGELOG.md) ([繁體中文](zh-TW/CHANGELOG.md)) | What changed in each version |
 | [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) | The contracts between the packages (read the rules in §0 before you write code), where smurg deliberately differs from SPEC (§11), known limits (§12) |
 | [`docs/GLOSSARY.md`](GLOSSARY.md) | The terms smurg uses, in English and Traditional Chinese, and the style of its texts |

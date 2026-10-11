@@ -11,8 +11,10 @@ const PAIRS: readonly (readonly [string, string])[] = [
   ['README.md', 'README.zh-TW.md'],
   ['CHANGELOG.md', 'docs/zh-TW/CHANGELOG.md'],
   ['docs/QUICKSTART.md', 'docs/zh-TW/QUICKSTART.md'],
+  ['docs/HOW-IT-WORKS.md', 'docs/zh-TW/HOW-IT-WORKS.md'],
   ['docs/HOSTING.md', 'docs/zh-TW/HOSTING.md'],
   ['docs/JOINING.md', 'docs/zh-TW/JOINING.md'],
+  ['docs/SECURITY-MODEL.md', 'docs/zh-TW/SECURITY-MODEL.md'],
   ['apps/site/public/index.html', 'apps/site/public/zh-TW/index.html'],
   ['apps/site/public/404.html', 'apps/site/public/zh-TW/404.html'],
 ];
@@ -107,6 +109,23 @@ describe('every user document has its zh-TW counterpart', () => {
     expect(headings('docs/zh-TW/QUICKSTART.md')).toEqual(headings('docs/QUICKSTART.md'));
     expect(headings('docs/QUICKSTART.md')[0]).toBe(1);
     expect(numberedHeadings('docs/QUICKSTART.md')).toEqual([]);
+  });
+
+  it.each([
+    ['docs/HOW-IT-WORKS.md', 'docs/zh-TW/HOW-IT-WORKS.md'],
+    ['docs/SECURITY-MODEL.md', 'docs/zh-TW/SECURITY-MODEL.md'],
+  ])('%s and %s have the same outline: a title and five sections without numbers, lists of as many items, and no code block', (english, chinese) => {
+    // A short page: its sections are named, not numbered (nothing refers to a "§2" of it), and the
+    // steps of its one numbered list, where it has one, count the same in both languages.
+    const headings = (path: string): number[] => prose(path).flatMap((line) => (/^(#{1,6}) /.exec(line) ?? []).slice(1).map((marks) => marks.length));
+    const items = (path: string): string[] => prose(path).flatMap((line) => (/^(- |\d+\. )/.exec(line) ?? []).slice(1).map((mark) => mark.trim()));
+    expect(headings(english)).toEqual([1, 2, 2, 2, 2, 2]);
+    expect(headings(chinese)).toEqual(headings(english));
+    expect(numberedHeadings(english)).toEqual([]);
+    expect(numberedHeadings(chinese)).toEqual([]);
+    expect(items(chinese)).toEqual(items(english));
+    expect(items(english).length).toBeGreaterThanOrEqual(7);
+    for (const path of [english, chinese]) expect(read(path), path).not.toMatch(/^\s*```/m);
   });
 });
 

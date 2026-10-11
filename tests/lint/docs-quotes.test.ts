@@ -1,5 +1,6 @@
-// The guides, the quick start and the product page quote what smurg prints and shows (DESIGN B.5). A quote that drifts from the
-// catalogs sends a reader looking for a button that is not there, so both directions are checked, per language:
+// The guides, the quick start, the two short pages (how it works, the security model) and the product page quote what
+// smurg prints and shows (DESIGN B.5). A quote that drifts from the catalogs sends a reader looking for a button that
+// is not there, so both directions are checked, per language:
 //
 //   forward: a list of messages (catalog id + sample parameters) that the guides must quote as the catalogs render
 //            them: the samples of `smurg login` and `smurg host`, the troubleshooting tables, role names, main buttons;
@@ -227,9 +228,10 @@ const QUOTES: readonly Quote[] = [
   cliQuote('attach.keyChange', { known: 'aa', offered: 'bb' }, ['JOINING'], { en: "The host computer's key has changed", 'zh-TW': '主人的電腦金鑰和之前不同' }),
   cliQuote('attach.readOnly', { owner: 'Amy' }, ['JOINING'], { en: 'Read-only:', 'zh-TW': '唯讀模式' }),
   // ---- roles (the wire catalog: one wording for the web app and the CLI)
-  { what: 'wire role.agent', guides: ['HOSTING', 'JOINING', 'QUICKSTART'], render: (locale) => wire(locale, 'role.agent') },
-  { what: 'wire role.editor', guides: ['HOSTING', 'JOINING', 'QUICKSTART'], render: (locale) => wire(locale, 'role.editor') },
-  { what: 'wire role.viewer', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'role.viewer') },
+  // (the two short pages say what each role can do and see: they name all three as the app does)
+  { what: 'wire role.agent', guides: ['HOSTING', 'JOINING', 'QUICKSTART', 'HOW_IT_WORKS', 'SECURITY_MODEL'], render: (locale) => wire(locale, 'role.agent') },
+  { what: 'wire role.editor', guides: ['HOSTING', 'JOINING', 'QUICKSTART', 'HOW_IT_WORKS', 'SECURITY_MODEL'], render: (locale) => wire(locale, 'role.editor') },
+  { what: 'wire role.viewer', guides: ['HOSTING', 'JOINING', 'HOW_IT_WORKS', 'SECURITY_MODEL'], render: (locale) => wire(locale, 'role.viewer') },
   // ---- the web app (JOINING)
   webQuote('app.login.google', ['JOINING', 'QUICKSTART']),
   webQuote('join.confirm.join', ['JOINING', 'QUICKSTART']),
@@ -542,7 +544,7 @@ describe('the guides quote the catalogs: listed messages (forward)', () => {
   });
 
   it('the English guides never quote zh-TW text, and no guide spells the agent name with full-width brackets', () => {
-    for (const name of ['QUICKSTART', 'HOSTING', 'JOINING'] as const) {
+    for (const name of ['QUICKSTART', 'HOSTING', 'JOINING', 'HOW_IT_WORKS', 'SECURITY_MODEL'] as const) {
       expect(CJK.test(read(GUIDES[name].en).replaceAll('繁體中文', ''))).toBe(false);
       for (const locale of ['en', 'zh-TW'] as const) expect(read(GUIDES[name][locale])).not.toMatch(/Claude（(?:Amy|Ian|Ben)）/);
     }
@@ -652,24 +654,36 @@ const NOT_UI_TEXT: Readonly<Record<string, readonly string[]>> = {
 };
 
 describe('what the guides and the product page quote is in the catalogs (reverse)', () => {
-  const cases: (readonly [string, Locale, number, () => string[]])[] = [
-    [GUIDES.QUICKSTART.en, 'en', 6, () => quotedTexts(GUIDES.QUICKSTART.en, 'en')],
-    [GUIDES.HOSTING.en, 'en', 6, () => quotedTexts(GUIDES.HOSTING.en, 'en')],
-    [GUIDES.JOINING.en, 'en', 6, () => quotedTexts(GUIDES.JOINING.en, 'en')],
-    [LANDING.en, 'en', 4, () => pictureLabels(LANDING.en)],
-    [GUIDES.QUICKSTART['zh-TW'], 'zh-TW', 3, () => quotedTexts(GUIDES.QUICKSTART['zh-TW'], 'zh-TW')],
-    [GUIDES.HOSTING['zh-TW'], 'zh-TW', 3, () => quotedTexts(GUIDES.HOSTING['zh-TW'], 'zh-TW')],
-    [GUIDES.JOINING['zh-TW'], 'zh-TW', 3, () => quotedTexts(GUIDES.JOINING['zh-TW'], 'zh-TW')],
-    [LANDING['zh-TW'], 'zh-TW', 2, () => pictureLabels(LANDING['zh-TW'])],
+  /**
+   * A document, its language, the shortest piece of a quote that is compared, its quotes, and how many of them must
+   * be found in the catalogs at least (a guide or the picture that quoted fewer would have lost its quotes, or this
+   * lint its way of reading them). The two short pages quote little on purpose: in zh-TW the role names, which that
+   * language writes as quotes (two of the three are long enough to compare); in English nothing, because English
+   * writes a role name without quotation marks (the forward list above holds the names there). Whatever either
+   * page comes to quote must be catalog text all the same.
+   */
+  const cases: (readonly [string, Locale, number, () => string[], number])[] = [
+    [GUIDES.QUICKSTART.en, 'en', 6, () => quotedTexts(GUIDES.QUICKSTART.en, 'en'), 15],
+    [GUIDES.HOSTING.en, 'en', 6, () => quotedTexts(GUIDES.HOSTING.en, 'en'), 15],
+    [GUIDES.JOINING.en, 'en', 6, () => quotedTexts(GUIDES.JOINING.en, 'en'), 15],
+    [GUIDES.HOW_IT_WORKS.en, 'en', 6, () => quotedTexts(GUIDES.HOW_IT_WORKS.en, 'en'), 0],
+    [GUIDES.SECURITY_MODEL.en, 'en', 6, () => quotedTexts(GUIDES.SECURITY_MODEL.en, 'en'), 0],
+    [LANDING.en, 'en', 4, () => pictureLabels(LANDING.en), 15],
+    [GUIDES.QUICKSTART['zh-TW'], 'zh-TW', 3, () => quotedTexts(GUIDES.QUICKSTART['zh-TW'], 'zh-TW'), 15],
+    [GUIDES.HOSTING['zh-TW'], 'zh-TW', 3, () => quotedTexts(GUIDES.HOSTING['zh-TW'], 'zh-TW'), 15],
+    [GUIDES.JOINING['zh-TW'], 'zh-TW', 3, () => quotedTexts(GUIDES.JOINING['zh-TW'], 'zh-TW'), 15],
+    [GUIDES.HOW_IT_WORKS['zh-TW'], 'zh-TW', 3, () => quotedTexts(GUIDES.HOW_IT_WORKS['zh-TW'], 'zh-TW'), 2],
+    [GUIDES.SECURITY_MODEL['zh-TW'], 'zh-TW', 3, () => quotedTexts(GUIDES.SECURITY_MODEL['zh-TW'], 'zh-TW'), 2],
+    [LANDING['zh-TW'], 'zh-TW', 2, () => pictureLabels(LANDING['zh-TW']), 15],
   ];
 
-  it.each(cases)('%s (%s): every quoted text is catalog text', async (path, locale, minLength, quotes) => {
+  it.each(cases)('%s (%s): every quoted text is catalog text', async (path, locale, minLength, quotes, atLeast) => {
     const text = `${corpus(locale)}\n${await forwardRenderings(locale)}`;
     const all = quotes();
     const allowed = new Set(NOT_UI_TEXT[path] ?? []);
     const missing = all.filter((quote) => !allowed.has(quote) && inCatalogs(quote, text, minLength) === false);
     expect(missing).toEqual([]);
-    expect(all.filter((quote) => inCatalogs(quote, text, minLength) === true).length).toBeGreaterThanOrEqual(15);
+    expect(all.filter((quote) => inCatalogs(quote, text, minLength) === true).length).toBeGreaterThanOrEqual(atLeast);
     // The exceptions are still in the document, and still not catalog text.
     for (const quote of allowed) {
       expect(all, `${path}: remove the exception "${quote}" (no longer quoted)`).toContain(quote);

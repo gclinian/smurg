@@ -87,9 +87,9 @@ smurg/
 ├── tests/
 │   ├── e2e/            cross-package acceptance tests (relay + daemon + headless clients)
 │   └── lint/           repository-wide checks of the language rules (§10)
-├── docs/               ARCHITECTURE.md, GLOSSARY.md, QUICKSTART.md / HOSTING.md / JOINING.md (+ zh-TW/), DEVELOPMENT.md,
-│                       RELEASING.md, research/, ACCEPTANCE.md, design/v0.5.0/ (the owner's brief and the design of
-│                       0.5.0 as written)
+├── docs/               ARCHITECTURE.md, GLOSSARY.md, QUICKSTART.md / HOW-IT-WORKS.md / HOSTING.md / JOINING.md /
+│                       SECURITY-MODEL.md (+ zh-TW/), DEVELOPMENT.md, RELEASING.md, research/, ACCEPTANCE.md,
+│                       design/v0.5.0/ (the owner's brief and the design of 0.5.0 as written)
 └── scripts/            dev + packaging scripts
 ```
 

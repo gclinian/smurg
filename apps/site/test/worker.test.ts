@@ -56,7 +56,7 @@ describe('smurg.ai worker', () => {
 
   it('hands /docs and every other request to the static assets, unchanged', async () => {
     const env = assets();
-    const paths = ['/', '/zh-TW/', '/style.css', '/install', '/install.sh/', '/github/', '/github/gclinian', '/source/', '/docs', '/docs/', '/docs/quick-start/', '/zh-TW/docs/quick-start/', '/docs/hosting/', '/zh-TW/docs/hosting/', '/docs/HOSTING.md', '/license/', '/third-party-notices.txt', '/no-such-page'];
+    const paths = ['/', '/zh-TW/', '/style.css', '/install', '/install.sh/', '/github/', '/github/gclinian', '/source/', '/docs', '/docs/', '/docs/quick-start/', '/zh-TW/docs/quick-start/', '/docs/how-it-works/', '/zh-TW/docs/how-it-works/', '/docs/hosting/', '/zh-TW/docs/hosting/', '/docs/security-model/', '/zh-TW/docs/security-model/', '/docs/HOSTING.md', '/license/', '/third-party-notices.txt', '/no-such-page'];
     for (const path of paths) {
       const response = await get(`https://smurg.ai${path}`, env);
       expect(response.status, path).toBe(200);

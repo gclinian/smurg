@@ -18,8 +18,10 @@ const SOURCES = [
   'README.zh-TW.md',
   'CHANGELOG.md',
   'docs/QUICKSTART.md',
+  'docs/HOW-IT-WORKS.md',
   'docs/HOSTING.md',
   'docs/JOINING.md',
+  'docs/SECURITY-MODEL.md',
   'docs/zh-TW',
   'scripts/install.sh',
   'apps/web/index.html',
@@ -72,7 +74,7 @@ describe('links into the site from the rest of the repository', () => {
 
   it('a Chinese document never sends its reader to an English guide page, nor an English one to a Chinese page', () => {
     const wrong: string[] = [];
-    for (const file of ['README.md', 'README.zh-TW.md', 'CHANGELOG.md', 'docs/QUICKSTART.md', 'docs/HOSTING.md', 'docs/JOINING.md', ...files('docs/zh-TW')]) {
+    for (const file of ['README.md', 'README.zh-TW.md', 'CHANGELOG.md', 'docs/QUICKSTART.md', 'docs/HOW-IT-WORKS.md', 'docs/HOSTING.md', 'docs/JOINING.md', 'docs/SECURITY-MODEL.md', ...files('docs/zh-TW')]) {
       const chinese = file === 'README.zh-TW.md' || file.startsWith('docs/zh-TW/');
       const text = readFileSync(join(REPO_ROOT, file), 'utf8');
       // The released sections of the changelogs are history: they keep the addresses of their time.

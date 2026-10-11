@@ -31,7 +31,7 @@ describe('production bundle', () => {
       // What a maintainer reads before deploying: how many pages have a date from git, and why the others have
       // none (the docs index never has one; a page whose source is not committed, or a shallow clone, is named).
       const { dates } = testSite();
-      expect(stdout).toContain(`page dates from git (the sitemap's <lastmod>): ${dates.dated.length} of 14 pages\n`);
+      expect(stdout).toContain(`page dates from git (the sitemap's <lastmod>): ${dates.dated.length} of 18 pages\n`);
       expect(dates.missing.length).toBeGreaterThan(0);
       expect(stdout).toContain('pages without a date:\n');
       for (const line of dates.missing) expect(stdout).toContain(`  ${line}\n`);
@@ -52,7 +52,7 @@ describe('production bundle', () => {
       // What wrangler uploads is dist/: the site the tests check, generated pages included.
       const files = publicFiles(DIST).sort();
       expect(files).toEqual([...testSite().files.keys()].sort());
-      for (const path of ['docs/index.html', 'docs/quick-start/index.html', 'zh-TW/docs/quick-start/index.html', 'docs/hosting/index.html', 'zh-TW/docs/index.html', 'zh-TW/docs/joining/index.html', 'docs/changelog/index.html', 'license/index.html', 'zh-TW/license/index.html', 'sitemap.xml', 'third-party-notices.txt']) {
+      for (const path of ['docs/index.html', 'docs/quick-start/index.html', 'zh-TW/docs/quick-start/index.html', 'docs/how-it-works/index.html', 'zh-TW/docs/how-it-works/index.html', 'docs/security-model/index.html', 'zh-TW/docs/security-model/index.html', 'docs/hosting/index.html', 'zh-TW/docs/index.html', 'zh-TW/docs/joining/index.html', 'docs/changelog/index.html', 'license/index.html', 'zh-TW/license/index.html', 'sitemap.xml', 'third-party-notices.txt']) {
         expect(readFileSync(join(DIST, path)).equals(testSite().files.get(path) as Buffer), path).toBe(true);
       }
     } finally {

@@ -1,13 +1,17 @@
-// Shared by the lints that read the guides (docs-quotes.test.ts, guide-update.test.ts): where the two guides and the
-// quick start are, a text as one line, one numbered section of a guide, and the rows of its tables.
+// Shared by the lints that read the guides (docs-quotes.test.ts, guide-update.test.ts): where the two guides, the
+// quick start and the two short pages (how it works, the security model) are, a text as one line, one numbered
+// section of a guide, and the rows of its tables.
 import type { Locale } from './catalogs.ts';
 import { read } from './tree.ts';
 
-export type Guide = 'QUICKSTART' | 'HOSTING' | 'JOINING';
+export type Guide = 'QUICKSTART' | 'HOSTING' | 'JOINING' | 'HOW_IT_WORKS' | 'SECURITY_MODEL';
 export const GUIDES: Readonly<Record<Guide, Readonly<Record<Locale, string>>>> = {
   QUICKSTART: { en: 'docs/QUICKSTART.md', 'zh-TW': 'docs/zh-TW/QUICKSTART.md' },
   HOSTING: { en: 'docs/HOSTING.md', 'zh-TW': 'docs/zh-TW/HOSTING.md' },
   JOINING: { en: 'docs/JOINING.md', 'zh-TW': 'docs/zh-TW/JOINING.md' },
+  // The two short pages name the roles and little else of the app: what they quote is checked like a guide's quotes.
+  HOW_IT_WORKS: { en: 'docs/HOW-IT-WORKS.md', 'zh-TW': 'docs/zh-TW/HOW-IT-WORKS.md' },
+  SECURITY_MODEL: { en: 'docs/SECURITY-MODEL.md', 'zh-TW': 'docs/zh-TW/SECURITY-MODEL.md' },
 };
 
 /** One line of text: Markdown emphasis and code marks dropped, whitespace collapsed (zh-TW: none between Han characters). */

@@ -14,8 +14,10 @@ hand-written HTML and CSS in `public/`; the docs pages are generated from the re
 | `/`, `/zh-TW/` | the landing pages (`public/index.html`, `public/zh-TW/index.html`); `/zh-TW` and `/index.html` redirect there |
 | `/docs/`, `/zh-TW/docs/` | the docs index of each language, generated |
 | `/docs/quick-start/`, `/zh-TW/docs/quick-start/` | `docs/QUICKSTART.md`, `docs/zh-TW/QUICKSTART.md`, rendered: the quick start, the first of the docs |
+| `/docs/how-it-works/`, `/zh-TW/docs/how-it-works/` | `docs/HOW-IT-WORKS.md`, `docs/zh-TW/HOW-IT-WORKS.md`, rendered: how several people work with coding agents in one workspace, on one short page |
 | `/docs/hosting/`, `/zh-TW/docs/hosting/` | `docs/HOSTING.md`, `docs/zh-TW/HOSTING.md`, rendered |
 | `/docs/joining/`, `/zh-TW/docs/joining/` | `docs/JOINING.md`, `docs/zh-TW/JOINING.md`, rendered |
+| `/docs/security-model/`, `/zh-TW/docs/security-model/` | `docs/SECURITY-MODEL.md`, `docs/zh-TW/SECURITY-MODEL.md`, rendered: what the relay sees, what teammates can do and what encryption does not protect, on one short page |
 | `/docs/changelog/`, `/zh-TW/docs/changelog/` | `CHANGELOG.md`, `docs/zh-TW/CHANGELOG.md`, rendered |
 | `/license/`, `/zh-TW/license/` | `LICENSE` (MIT), as text in a page; the Chinese page introduces the English text |
 | `/third-party-notices.txt` | the executable's complete third-party notices (see "The build") |
@@ -83,17 +85,19 @@ title starts with the same name ("Host guide: …") and goes on with the words p
   result has room for about 920 px of its 14 px text; a longer description is cut, and a much shorter one is
   replaced by words the search engine picks from the page. The test bounds it in characters, which is a rule of
   thumb because letters differ in width: 120 to 146 characters in English, 100 to 133 of width in Chinese (50 to
-  66 characters). The fourteen were measured and are 781 to 915 px wide. Measure a new one that is near the upper
-  bound, in any browser's console:
+  66 characters). Measure a new one, and one whose words changed, in any browser's console:
   `c = document.createElement('canvas').getContext('2d'); c.font = '14px Arial'; c.measureText('…').width`.
+  The eighteen measure 772 to 921 px in Chrome on macOS; one is over 920, by a pixel (the English home page's,
+  since its words last changed), and the four of the two short pages are 794 to 909 px.
 - The words come from what people type: "multiplayer" and "coding agents" in the home page's title, "work with
-  coding agents as a team", and in Chinese the words for several people working together (the titles in
-  `DOC_PAGES`). No title names one agent: smurg works with agents, Claude Code is the one it runs today, and the
-  owner means to support others; a description names it where that is the fact a reader needs (the test holds
-  both). Words that mean something else stay out: "Claude Code for teams" and "agent teams" (Anthropic's
-  own plan and feature), "self-hosted" (a server one deploys; the host here is a personal computer), and the
-  Chinese word that means sharing one account (the test lists them). The home pages' rules hold for these lines
-  too: no version number, and not the word "sandbox".
+  coding agents as a team", "a team, coding agents, one workspace" for the page that says how it works, and in
+  Chinese the words for several people working together (the titles in `DOC_PAGES`). The security model's title
+  says what its searcher asks about, end-to-end encryption and its limits. No title names one agent: smurg works
+  with agents, Claude Code is the one it runs today, and the owner means to support others; a description names
+  it where that is the fact a reader needs (the test holds both). Words that mean something else stay out:
+  "Claude Code for teams" and "agent teams" (Anthropic's own plan and feature), "self-hosted" (a server one
+  deploys; the host here is a personal computer), and the Chinese word that means sharing one account (the test
+  lists them). The home pages' rules hold for these lines too: no version number, and not the word "sandbox".
 - The English home page's title is its h1 with one word changed for the search ("multiplayer" in the place of
   "a real-time"). Some of a title's words are
   in no visible text of its page (no sentence is added to a home page for them), and a search engine may then
@@ -101,13 +105,13 @@ title starts with the same name ("Host guide: …") and goes on with the words p
 - The preview pictures keep the home page's h1 (above).
 
 **Structured data**: one JSON-LD data block (`<script type="application/ld+json">`, schema.org) in the `<head>` of
-twelve pages. It is data that no browser runs, so the CSP lets it through and `_headers` needs nothing for it.
+sixteen pages. It is data that no browser runs, so the CSP lets it through and `_headers` needs nothing for it.
 
 | Page | What the block says |
 |---|---|
 | the two home pages | `WebSite` (the name "smurg", which a result may show over the address; its second name "smurg.ai"; the repository as the same thing elsewhere), `WebPage` |
 | the docs index | `CollectionPage`, and a `BreadcrumbList` (smurg › Docs) |
-| the quick start and the two guides | `TechArticle` with the document's heading, and a `BreadcrumbList` (smurg › Docs › Host guide) |
+| the quick start, how it works, the two guides and the security model | `TechArticle` with the document's heading, and a `BreadcrumbList` (smurg › Docs › Host guide) |
 | the changelog | `WebPage`, and a `BreadcrumbList` |
 | the license pages, the 404 pages | none |
 
@@ -145,17 +149,17 @@ There is no web app manifest: nobody installs this site, and one would need its 
 **`robots.txt` and `sitemap.xml`**. `public/robots.txt` lets every crawler read every page and names the sitemap.
 A page that must not be listed says so itself: the 404 pages by `<meta name="robots" content="noindex">`, and the
 two texts that are not pages, `/third-party-notices.txt` (a long legal text that every page links) and `/llms.txt`
-(below), by `X-Robots-Tag: noindex` in `_headers`. The sitemap lists the fourteen pages with their alternates and a
+(below), by `X-Robots-Tag: noindex` in `_headers`. The sitemap lists the eighteen pages with their alternates and a
 `<lastmod>`: the date of the last commit that touched the page's one source file (`pageSources` and `fileDates` in
 `scripts/site.ts`: a home page's HTML, a document's Markdown, `LICENSE`). A page has no date, rather than a wrong
 one, when git cannot say: in a shallow clone, in a copy of the tree without `.git`, for a file with changes that
 are not committed, and for the docs index, which has no single source. A deploy is built from the release's commit
-in a complete clone, where twelve pages have one. The same date is the `dateModified` of the page's structured
+in a complete clone, where sixteen pages have one. The same date is the `dateModified` of the page's structured
 data.
 
 - The build prints how many pages it dated and, for each page without a date, why (`page dates from git (the
-  sitemap's <lastmod>): 12 of 14 pages`, then `pages without a date:`). Read it in the dry run before a deploy: a
-  number under 12 means a shallow clone or a source that is not committed.
+  sitemap's <lastmod>): 16 of 18 pages`, then `pages without a date:`). Read it in the dry run before a deploy: a
+  number under 16 means a shallow clone or a source that is not committed.
 - A title or a description changed in `scripts/site.ts` does not move a page's date, because the date is the
   source file's. After such a change, ask Search Console to look at the page again (URL inspection).
 
@@ -183,7 +187,8 @@ has a `robots.txt` of its own that lets crawlers in, so that they can read that 
 1. Google Search Console (https://search.google.com/search-console): add a *Domain* property for `smurg.ai`. It is
    verified by one DNS TXT record in the Cloudflare zone, covers `smurg.ai`, `www`, `app` and `downloads`, and needs
    no file or tag in the site. Then submit `https://smurg.ai/sitemap.xml`, and ask for indexing of the two home
-   pages and the quick start (URL inspection). Its Performance report is the one true source of what people typed.
+   pages, the quick start and the two short pages, how it works and the security model (URL inspection; again for
+   a page that is new). Its Performance report is the one true source of what people typed.
 2. Bing Webmaster Tools (https://www.bing.com/webmasters): import the site from Search Console, and check that the
    sitemap is listed. DuckDuckGo, Yahoo and Ecosia search Bing's index.
 3. Cloudflare, the zone, Caching, Configuration: Crawler Hints on, after the relay that answers `noindex` is
@@ -215,11 +220,15 @@ forbids inline script), and every page has a visible language link.
 `scripts/build.ts` (with `scripts/site.ts` and `scripts/markdown.ts`) makes `dist/` = `public/` plus, for each
 language:
 
-- `docs/quick-start/`, `docs/hosting/`, `docs/joining/`, `docs/changelog/`: the Markdown files rendered with marked
+- `docs/quick-start/`, `docs/how-it-works/`, `docs/hosting/`, `docs/joining/`, `docs/security-model/`,
+  `docs/changelog/`: the Markdown files rendered with marked
   (GFM), in the landing pages' look (`style.css`, the same header and footer), each with the docs navigation and, on
   wide screens, its own table of contents. Headings get GitHub's ids, so the docs' own `#…` links keep working. Their
-  order is `DOC_PAGES` in `scripts/site.ts` (the quick start first): the docs index, the docs navigation and the
-  sitemap follow it.
+  order is `DOC_PAGES` in `scripts/site.ts`, and it reads as a path: the quick start (try it), how it works (one page
+  that explains it), the two guides, the security model (what a careful reader asks before sharing a folder), the
+  changelog. The docs index, the docs navigation, the sitemap and `/llms.txt` follow it. A new document is one entry
+  there (its file in both languages, its path, its name, its line of the docs index, its title and description),
+  and the tests that list the documents by name then say where else it belongs.
 - `docs/index.html` and `license/index.html` (LICENSE verbatim);
 
 and once: `third-party-notices.txt`, `sitemap.xml` and `llms.txt`.
@@ -303,11 +312,28 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
   it (a quotation in the Markdown, shown as a notice: `.doc blockquote`), with a link to the host guide's §4; whatever
   needs a paragraph is a link to a guide, not a paragraph here. Its quotes are checked like the guides'
   (`tests/lint/docs-quotes.test.ts`).
-- The docs pages: edit `docs/QUICKSTART.md`, `docs/HOSTING.md`, `docs/JOINING.md` or `CHANGELOG.md` and their
-  counterparts in `docs/zh-TW/` together: `test/docs-parity.test.ts` compares their headings and section numbers, code blocks,
-  commands, tables and link targets. The page chrome (header, docs navigation, footer, the docs index, the license
-  page) is `CHROME` in `scripts/site.ts`. The landing pages' footers are written by hand and must stay equal to the
-  generated pages' (a test compares them).
+- The two short pages (`docs/HOW-IT-WORKS.md`: how several people work with coding agents in one workspace;
+  `docs/SECURITY-MODEL.md`: what the relay sees, what teammates can do, what encryption does not protect) stay short:
+  a title and five named sections, written to at most about 450 words in English and 1,100 characters in Chinese.
+  `test/site.test.ts` names their sections and bounds their length at 460 words and 1,150 characters, counted as the
+  quick start's (every word of the page; in Chinese every character, a Latin letter too). On a laptop that is about
+  two screens of text, not one and a half: each of the five headed sections takes room of its own. Each answers one
+  question, and its answer stands before the first section, so a reader who stops there has it (on the security model
+  with what encryption does not protect; the test holds the phrases). They gather what the guides and
+  `docs/ARCHITECTURE.md` already say and state nothing else: where a guide explains something, a short page links its
+  section instead of repeating it. The test holds their honest lines as whole phrases (a prototype; verified with a
+  scripted stand-in for the model, not with a real Claude account; agents run as the host with no sandbox, on the
+  host's Claude account; and, on the security model, that a personal subscription is for the host's own use, that what
+  the host's own allow rules allow runs without a request, and that nobody outside the project has audited smurg: take
+  that last line out only when it stops being true). No heading names an agent, and each page names Claude Code once,
+  where it says what the agents are today. `SECURITY.md` at the repository's root stays what it is, how to report a
+  vulnerability: the security model links it and does not copy it.
+- The docs pages: edit `docs/QUICKSTART.md`, `docs/HOW-IT-WORKS.md`, `docs/HOSTING.md`, `docs/JOINING.md`,
+  `docs/SECURITY-MODEL.md` or `CHANGELOG.md` and their counterparts in `docs/zh-TW/` together:
+  `test/docs-parity.test.ts` compares their headings and section numbers, code blocks, commands, tables and link
+  targets. The page chrome (header, docs navigation, footer, the docs index, the license page) is `CHROME` in
+  `scripts/site.ts`. The landing pages' footers are written by hand and must stay equal to the generated pages' (a
+  test compares them).
 - Text the guides and the landing pages quote from the app or the CLI (button labels, messages, the sample output of
   `smurg host`) must be the real strings of that language: the web catalogs (`apps/web/src/**/strings*.ts`), the CLI
   catalog (`packages/cli/src/i18n/`) and the shared catalog (`packages/protocol/src/i18n/`).
@@ -477,6 +503,8 @@ curl -sI https://smurg.ai/                          # 200, the headers of public
 curl -sI https://smurg.ai/zh-TW                     # 307 to /zh-TW/
 curl -sI https://smurg.ai/docs/hosting/             # 200 (English)
 curl -sI https://smurg.ai/zh-TW/docs/hosting/       # 200 (Traditional Chinese)
+curl -sI https://smurg.ai/docs/how-it-works/        # 200
+curl -sI https://smurg.ai/zh-TW/docs/security-model/   # 200
 curl -sI https://smurg.ai/license/                  # 200
 curl -sI https://smurg.ai/third-party-notices.txt   # 200, text/plain; charset=utf-8, x-robots-tag: noindex (at a release: cmp with the release's file)
 curl -sI https://smurg.ai/og.png                    # 200, image/png, cross-origin-resource-policy: cross-origin
@@ -484,7 +512,7 @@ curl -sI https://smurg.ai/favicon.ico               # 200, an icon type, cross-o
 curl -sI https://smurg.ai/apple-touch-icon.png      # 200, image/png
 curl -s https://smurg.ai/llms.txt | head -3         # "# smurg", an empty line, the summary
 curl -sI https://smurg.ai/llms.txt | grep -i x-robots-tag    # x-robots-tag: noindex
-curl -s https://smurg.ai/sitemap.xml | grep -c '<lastmod>'   # 12: every page but the two docs indexes
+curl -s https://smurg.ai/sitemap.xml | grep -c '<lastmod>'   # 16: every page but the two docs indexes
 curl -sI https://smurg.ai/zh-tw/docs/               # 301 to /zh-TW/docs/ (public/_redirects)
 curl -sI https://smurg.ai/install.sh                # 302 to https://downloads.smurg.ai/latest/install.sh
 curl -sI https://smurg.ai/github                    # 302 to https://github.com/gclinian/smurg

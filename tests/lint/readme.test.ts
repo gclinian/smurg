@@ -312,8 +312,8 @@ describe('the two READMEs are one README in two languages', () => {
     for (const lang of LANGS) {
       const other = lang === 'en' ? 'zh-TW' : 'en';
       const own = targets(text(lang));
-      // The user guides, the quick start and the changelog are read in the README's own language.
-      for (const guide of ['QUICKSTART.md', 'HOSTING.md', 'JOINING.md']) expect(own, `${README[lang]} -> ${guide}`).toContain(`${GUIDES_DIR[lang]}${guide}`);
+      // The user guides, the quick start, the two short pages and the changelog are read in the README's own language.
+      for (const guide of ['QUICKSTART.md', 'HOW-IT-WORKS.md', 'HOSTING.md', 'JOINING.md', 'SECURITY-MODEL.md']) expect(own, `${README[lang]} -> ${guide}`).toContain(`${GUIDES_DIR[lang]}${guide}`);
       expect(own).toContain(lang === 'en' ? 'CHANGELOG.md' : 'docs/zh-TW/CHANGELOG.md');
       expect(own.filter((target) => target.startsWith(GUIDES_DIR['zh-TW'])).length > 0).toBe(lang === 'zh-TW');
       expect(own.filter((target) => target.startsWith('https://smurg.ai/')).every((target) => target.startsWith(SITE['zh-TW']) === (lang === 'zh-TW'))).toBe(true);
@@ -390,7 +390,7 @@ describe('what a developer needs is docs/DEVELOPMENT.md', () => {
     expect([...brokenLinks(DEVELOPMENT), ...brokenLinks('CONTRIBUTING.md')]).toEqual([]);
     // Every document of the repository is in its table, the guides in both languages.
     const table = targets(read(DEVELOPMENT).slice(read(DEVELOPMENT).indexOf('\n## Documents\n')));
-    for (const document of ['QUICKSTART.md', 'HOSTING.md', 'JOINING.md', 'zh-TW/QUICKSTART.md', 'zh-TW/HOSTING.md', 'zh-TW/JOINING.md', '../CHANGELOG.md', 'zh-TW/CHANGELOG.md', 'ARCHITECTURE.md', 'GLOSSARY.md', 'ACCEPTANCE.md', 'RELEASING.md', '../SPEC.md', '../apps/relay/README.md', '../apps/site/README.md', '../CONTRIBUTING.md', '../SECURITY.md']) {
+    for (const document of ['QUICKSTART.md', 'HOW-IT-WORKS.md', 'HOSTING.md', 'JOINING.md', 'SECURITY-MODEL.md', 'zh-TW/QUICKSTART.md', 'zh-TW/HOW-IT-WORKS.md', 'zh-TW/HOSTING.md', 'zh-TW/JOINING.md', 'zh-TW/SECURITY-MODEL.md', '../CHANGELOG.md', 'zh-TW/CHANGELOG.md', 'ARCHITECTURE.md', 'GLOSSARY.md', 'ACCEPTANCE.md', 'RELEASING.md', '../SPEC.md', '../apps/relay/README.md', '../apps/site/README.md', '../CONTRIBUTING.md', '../SECURITY.md']) {
       expect(table, document).toContain(document);
     }
   });

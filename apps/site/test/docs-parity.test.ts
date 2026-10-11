@@ -1,6 +1,7 @@
 // The two languages of every published document say the same things in the same order: docs/QUICKSTART.md and
-// docs/zh-TW/QUICKSTART.md, docs/HOSTING.md and docs/zh-TW/HOSTING.md, docs/JOINING.md and docs/zh-TW/JOINING.md,
-// CHANGELOG.md and docs/zh-TW/CHANGELOG.md. A
+// docs/zh-TW/QUICKSTART.md, docs/HOW-IT-WORKS.md and docs/zh-TW/HOW-IT-WORKS.md, docs/HOSTING.md and
+// docs/zh-TW/HOSTING.md, docs/JOINING.md and docs/zh-TW/JOINING.md, docs/SECURITY-MODEL.md and
+// docs/zh-TW/SECURITY-MODEL.md, CHANGELOG.md and docs/zh-TW/CHANGELOG.md. A
 // translation cannot be compared sentence by sentence, but its skeleton can: the headings and their section numbers
 // (every "§5.1" in the CLI, the web app and the other guide holds in both languages), the code blocks, the commands a
 // reader copies, the tables and where the links go.
@@ -101,11 +102,13 @@ function skeleton(source: string): Skeleton {
 describe('the guides and the changelog in both languages', () => {
   const pairs = DOC_PAGES.map((doc) => [doc.en.source, doc['zh-TW'].source] as const);
 
-  it('are the eight files the site publishes', () => {
+  it('are the twelve files the site publishes', () => {
     expect(pairs).toEqual([
       ['docs/QUICKSTART.md', 'docs/zh-TW/QUICKSTART.md'],
+      ['docs/HOW-IT-WORKS.md', 'docs/zh-TW/HOW-IT-WORKS.md'],
       ['docs/HOSTING.md', 'docs/zh-TW/HOSTING.md'],
       ['docs/JOINING.md', 'docs/zh-TW/JOINING.md'],
+      ['docs/SECURITY-MODEL.md', 'docs/zh-TW/SECURITY-MODEL.md'],
       ['CHANGELOG.md', 'docs/zh-TW/CHANGELOG.md'],
     ]);
   });
@@ -115,7 +118,8 @@ describe('the guides and the changelog in both languages', () => {
     const zh = skeleton(chinese);
     expect(zh.headings).toEqual(en.headings);
     expect(en.headings[0]).toBe('1');
-    // (the quick start has its title and four sections: it is short on purpose)
+    // (the quick start has its title and four sections: it is short on purpose; the two short pages have their
+    // title and five sections each, which test/site.test.ts holds by name)
     expect(en.headings.length).toBeGreaterThan(english === 'docs/QUICKSTART.md' ? 3 : 4);
     // The numbered sections count up from 1 without a gap (the changelog's sections are versions, not numbers).
     const numbers = en.headings.filter((h) => h.startsWith('2 ') && /^2 \d+$/.test(h)).map((h) => Number(h.slice(2)));
@@ -151,7 +155,7 @@ describe('the guides and the changelog in both languages', () => {
     expect(released.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('each guide names its translation in its first paragraph, and the guides of a language link each other', () => {
+  it('each document names its translation in its first paragraph, and the documents of a language link each other', () => {
     const read = (path: string): string => readFileSync(join(REPO_ROOT, path), 'utf8');
     expect(read('docs/QUICKSTART.md')).toContain('[繁體中文](zh-TW/QUICKSTART.md)');
     expect(read('docs/zh-TW/QUICKSTART.md')).toContain('[English](../QUICKSTART.md)');
@@ -161,6 +165,10 @@ describe('the guides and the changelog in both languages', () => {
     expect(read('docs/zh-TW/HOSTING.md')).toContain('[English](../HOSTING.md)');
     expect(read('docs/zh-TW/JOINING.md')).toContain('[English](../JOINING.md)');
     expect(read('docs/zh-TW/CHANGELOG.md')).toContain('[English](../../CHANGELOG.md)');
+    expect(read('docs/HOW-IT-WORKS.md')).toContain('[繁體中文](zh-TW/HOW-IT-WORKS.md)');
+    expect(read('docs/zh-TW/HOW-IT-WORKS.md')).toContain('[English](../HOW-IT-WORKS.md)');
+    expect(read('docs/SECURITY-MODEL.md')).toContain('[繁體中文](zh-TW/SECURITY-MODEL.md)');
+    expect(read('docs/zh-TW/SECURITY-MODEL.md')).toContain('[English](../SECURITY-MODEL.md)');
     expect(read('docs/HOSTING.md')).toContain('](JOINING.md)');
     expect(read('docs/zh-TW/HOSTING.md')).toContain('](JOINING.md)');
     // The quick start links both guides of its language, and each guide sends a new reader to it, near its top.
@@ -170,6 +178,17 @@ describe('the guides and the changelog in both languages', () => {
       expect(top.match(/\]\(QUICKSTART\.md\)/g), guide).toHaveLength(1);
       expect(read(guide).match(/QUICKSTART\.md/g), guide).toHaveLength(1);
     }
+    // The page that says how it works ends with where to go next: the quick start, the two guides and the security
+    // model, each once and as a whole document, in its own language.
+    for (const how of ['docs/HOW-IT-WORKS.md', 'docs/zh-TW/HOW-IT-WORKS.md']) {
+      const next = read(how).trimEnd().split('\n').slice(-4);
+      expect(next.map((line) => /^- \[[^\]]+\]\(([^)]+)\)/.exec(line)?.[1]), how).toEqual(['QUICKSTART.md', 'HOSTING.md', 'JOINING.md', 'SECURITY-MODEL.md']);
+    }
+    // The security model sends its reader into the guides of its language, section by section, and to the two
+    // files of the repository that exist in English only.
+    expect(read('docs/SECURITY-MODEL.md')).toContain('](../SECURITY.md)');
+    expect(read('docs/zh-TW/SECURITY-MODEL.md')).toContain('](../../SECURITY.md)');
+    for (const model of ['docs/SECURITY-MODEL.md', 'docs/zh-TW/SECURITY-MODEL.md']) for (const guide of ['HOSTING.md', 'JOINING.md']) expect(read(model), `${model} -> ${guide}`).toContain(`](${guide}#`);
   });
 });
 

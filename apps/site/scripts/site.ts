@@ -4,8 +4,10 @@
 //   English                    Traditional Chinese             source
 //   /docs/                     /zh-TW/docs/                    the docs index (CHROME below)
 //   /docs/quick-start/         /zh-TW/docs/quick-start/        docs/QUICKSTART.md   docs/zh-TW/QUICKSTART.md
+//   /docs/how-it-works/        /zh-TW/docs/how-it-works/       docs/HOW-IT-WORKS.md and docs/zh-TW/HOW-IT-WORKS.md
 //   /docs/hosting/             /zh-TW/docs/hosting/            docs/HOSTING.md      docs/zh-TW/HOSTING.md
 //   /docs/joining/             /zh-TW/docs/joining/            docs/JOINING.md      docs/zh-TW/JOINING.md
+//   /docs/security-model/      /zh-TW/docs/security-model/     docs/SECURITY-MODEL.md and docs/zh-TW/SECURITY-MODEL.md
 //   /docs/changelog/           /zh-TW/docs/changelog/          CHANGELOG.md         docs/zh-TW/CHANGELOG.md
 //   /license/                  /zh-TW/license/                 LICENSE (the zh-TW page introduces the English text)
 //   /third-party-notices.txt                                   the executable's complete notices (see readNotices)
@@ -156,7 +158,11 @@ export interface DocSource {
 /** A document of the docs, in both languages. */
 export type DocPage = Readonly<Record<Lang, DocSource>>;
 
-/** In the order of the docs index and the docs navigation: the quick start first, then the two guides it links. */
+/**
+ * In the order of the docs index and the docs navigation, which read as a path: the quick start (try it), how it
+ * works (one page that explains it), the two guides (everything, for the host and for a teammate), the security
+ * model (what a careful reader asks before sharing a folder), the changelog.
+ */
 export const DOC_PAGES: readonly DocPage[] = [
   {
     en: {
@@ -180,12 +186,32 @@ export const DOC_PAGES: readonly DocPage[] = [
   },
   {
     en: {
+      source: 'docs/HOW-IT-WORKS.md',
+      path: '/docs/how-it-works/',
+      label: 'How it works',
+      summary: 'smurg on one page: its three parts (your computer, the relay, a browser), what several people can do with one agent, a topic from discussion to merged work, and what smurg is today, a prototype.',
+      title: 'How it works: a team, coding agents, one workspace',
+      description: 'How several people work with one coding agent: who can message it, how the team votes on its questions, and how work is reviewed and merged.',
+      schema: 'TechArticle',
+    },
+    'zh-TW': {
+      source: 'docs/zh-TW/HOW-IT-WORKS.md',
+      path: '/zh-TW/docs/how-it-works/',
+      label: '運作方式',
+      summary: '用一頁說明 smurg：三個部分（你的電腦、relay、瀏覽器）、好幾個人能和同一個 agent 做什麼、主題怎麼從討論走到合併，以及它目前還是原型。',
+      title: '運作方式：團隊和 AI agent 怎麼在同一個工作區協作',
+      description: '好幾個人怎麼和同一個 AI agent 一起工作：誰可以直接傳訊息給它、團隊怎麼對它的選擇題投票，做出來的成果又是怎麼看過、合併的。',
+      schema: 'TechArticle',
+    },
+  },
+  {
+    en: {
       source: 'docs/HOSTING.md',
       path: '/docs/hosting/',
       label: 'Host guide',
       summary: 'Share a folder from your own computer with smurg host: installing, logging in, what to read before you share, the Agent access role, what agents may do and how your own Claude Code settings count, troubleshooting, and what a topic asks of the host.',
       title: 'Host guide: share a folder and coding agents',
-      description: 'For the host: install, invite teammates, and know before you share what the agents (Claude Code) may do on your computer, as you, with no sandbox.',
+      description: 'For the host: install, invite teammates, and know before you share what agents (Claude Code) may do on your computer, as you, with no sandbox.',
       schema: 'TechArticle',
     },
     'zh-TW': {
@@ -215,6 +241,26 @@ export const DOC_PAGES: readonly DocPage[] = [
       summary: '用邀請連結加入別人分享的工作區：角色、收件夾與欄、和 agent 對話、投票與建議、主題從討論到看過結果、一起編輯、worktree 與離開。',
       title: '組員指南：用瀏覽器加入團隊的 agent 工作區',
       description: '收到邀請連結了嗎？用 Chrome 打開就能加入，不必安裝，也不需要 Claude 帳號：對 agent 的選擇題投票、編輯 spec、檢視 agent 做出來的成果。',
+      schema: 'TechArticle',
+    },
+  },
+  {
+    en: {
+      source: 'docs/SECURITY-MODEL.md',
+      path: '/docs/security-model/',
+      label: 'Security model',
+      summary: 'What the relay can and cannot see, what the secret in an invite link does, what encryption does not protect you from (the people you invite, Agent access, no sandbox), and what was and was not checked.',
+      title: 'Security model: end-to-end encryption and its limits',
+      description: 'End-to-end encrypted through a relay that cannot read your files or conversations. Encryption does not limit what teammates can see and do.',
+      schema: 'TechArticle',
+    },
+    'zh-TW': {
+      source: 'docs/zh-TW/SECURITY-MODEL.md',
+      path: '/zh-TW/docs/security-model/',
+      label: '安全模型',
+      summary: 'relay 看得到什麼、看不到什麼，邀請連結裡的密鑰是做什麼的，加密擋不住什麼（你邀請的人、「可使用 agent」、沒有沙盒），以及驗證過和還沒驗證的事。',
+      title: '安全模型：端對端加密保護什麼、保護不了什麼',
+      description: '中間的 relay 只轉送端對端加密的資料，讀不到你的檔案和對話。這一頁也說明加密保護不了什麼：組員看得到什麼、能做什麼。',
       schema: 'TechArticle',
     },
   },
@@ -331,9 +377,10 @@ export const CHROME = {
     toc: 'On this page',
     tableLabel: (section: string | undefined): string => (section === undefined ? 'Table' : `Table: ${section}`),
     indexTitle: 'smurg docs: install, share a folder, join a workspace',
-    indexDescription: 'Docs for smurg, the open-source workspace for a team and its coding agents: quick start, host guide, guide for teammates and changelog.',
+    // (the six documents, in the order of DOC_PAGES; "two guides" are the host guide and the guide for teammates)
+    indexDescription: 'Docs for smurg, the open-source workspace for a team and its coding agents: quick start, how it works, two guides, security model and changelog.',
     indexHeading: 'smurg docs',
-    indexLede: 'Install smurg, share a folder, join a workspace someone shared, and see what changed in each version.',
+    indexLede: 'Install smurg, see how it works, share a folder, join a workspace someone shared, read what is protected and what is not, and see what changed in each version.',
     licenseHeading: 'License and source code',
     licenseSection: (lang: Lang): string =>
       `smurg is open source under the <a href="${licensePage(lang)}">MIT License</a>; the source code is on <a href="${REPOSITORY}">GitHub</a>. The components in the executables that come from other projects keep their own licenses, listed in the <a href="${NOTICES_FILE}">third-party notices</a>; those of the web app are in the <a href="${WEB_APP_NOTICES}">web app’s third-party notices</a>. To send a fix, read <a href="${REPOSITORY_FILES}CONTRIBUTING.md">CONTRIBUTING</a>; to report a vulnerability, <a href="${REPOSITORY_FILES}SECURITY.md">SECURITY</a>.`,
@@ -364,9 +411,9 @@ export const CHROME = {
     tableLabel: (section: string | undefined): string => (section === undefined ? '表格' : `表格：${section}`),
     indexTitle: 'smurg 文件：安裝、分享資料夾、加入工作區',
     // 「開源」 here, once: the word people type when they search; every page a reader sees says 「開放原始碼」.
-    indexDescription: 'smurg 的使用說明：快速上手、主人指南、組員指南與變更紀錄。smurg 是給團隊和 AI agent 用的即時協作工作區，端對端加密，開源。',
+    indexDescription: 'smurg 的使用說明：快速上手、運作方式、兩份指南、安全模型與變更紀錄。smurg 是給團隊和 AI agent 用的即時協作工作區，端對端加密，開源。',
     indexHeading: 'smurg 文件',
-    indexLede: '安裝 smurg、分享資料夾、加入別人分享的工作區，以及每個版本的變更。',
+    indexLede: '安裝 smurg、了解運作方式、分享資料夾、加入別人分享的工作區、看清楚加密保護什麼又保護不了什麼，以及每個版本的變更。',
     licenseHeading: '授權與原始碼',
     licenseSection: (lang: Lang): string =>
       `smurg 是開放原始碼軟體，以 <a href="${licensePage(lang)}">MIT 授權條款</a>釋出；原始碼在 <a href="${REPOSITORY}">GitHub</a>。執行檔裡來自其他專案的元件，依它們各自的授權條款提供，列在<a href="${NOTICES_FILE}">第三方授權聲明</a>；網頁版用到的元件列在<a href="${WEB_APP_NOTICES}">網頁版的第三方授權聲明</a>。想送出修正，請讀 <a href="${REPOSITORY_FILES}CONTRIBUTING.md">CONTRIBUTING</a>（英文）；要回報安全性問題，請讀 <a href="${REPOSITORY_FILES}SECURITY.md">SECURITY</a>（英文）。`,
