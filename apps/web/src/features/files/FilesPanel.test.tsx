@@ -121,7 +121,10 @@ describe('FilesPanel: a lazily loaded tree per root, kept live by file.changed',
         [
           makeEntry('agent.ts'),
           makeEntry('human.ts'),
-          makeEntry('recent.ts', 'file', { mtime: now - 2 * 60_000, lastModifiedBy: agent }),
+          // Two minutes and a few seconds: the panel reads the app's one clock, which says the time of its latest tick
+          // while that tick is under a second old (lib/clock.ts), so a file changed EXACTLY two minutes ago is "1
+          // minute ago" whenever a tick fell just before this test began (seen on a busy machine).
+          makeEntry('recent.ts', 'file', { mtime: now - 2 * 60_000 - 5_000, lastModifiedBy: agent }),
           makeEntry('shared', 'dir', { readOnly: true }),
         ],
       ],
